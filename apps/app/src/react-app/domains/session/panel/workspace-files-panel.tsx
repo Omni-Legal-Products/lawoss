@@ -25,11 +25,17 @@ import { projectFileDisplayName } from "../../workspace/project-note-title";
 import { writeWorkspaceFileDrag } from "@/app/lib/workspace-file-drag";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
+import { ProjectFolderRecoveryAction } from "../../workspace/project-folder-recovery-action";
 import { projectErrorMessage } from "../../workspace/project-errors";
 import { ProjectFilesDropzone } from "../../workspace/project-files-dropzone";
 import { isSortDirection, isSortKey, readWorkspaceFileSort, sortWorkspaceEntries, writeWorkspaceFileSort, type WorkspaceFileSort } from "./workspace-file-sort";
 
+import { DocumentProcessingPanel } from "./document-processing-panel";
+import { documentClientIdentity, readDocumentSelection, persistDocumentSelection, type DocumentGenerationCallback } from "./document-processing";
+
 type WorkspaceFilesPanelProps = {
+  projectId?: string;
+  onGenerateDocuments?: DocumentGenerationCallback;
   client: LegalworkServerClient | null;
   workspaceId: string | null;
   workspaceRoot: string;
@@ -59,14 +65,29 @@ export function WorkspaceFilesPanel({
   workspaceId,
   workspaceRoot,
   projectName,
+  projectId,
+  onGenerateDocuments,
   headerTarget,
   isRemoteWorkspace,
   active,
   onOpenFile,
   onClose,
 }: WorkspaceFilesPanelProps) {
-  const [path, setPath] = React.useState(() => (workspaceId ? lastPathByWorkspace.get(workspaceId) ?? "" : ""));
+  const selectionKey = JSON.stringify([client?.baseUrl, workspaceId, workspaceRoot]);
+  const [folderState, setFolderState] = React.useState(() => ({ key: selectionKey, path: lastPathByWorkspace.get(selectionKey) ?? "" }));
+  const path = folderState.key === selectionKey ? folderState.path : lastPathByWorkspace.get(selectionKey) ?? "";
+  const setPath = (nextPath: string) => setFolderState({ key: selectionKey, path: nextPath });
   const [showHidden, setShowHidden] = React.useState(false);
+  const [selectionState, setSelectionState] = React.useState<{ key: string; paths: string[] }>(() => ({
+    key: selectionKey,
+    paths: readDocumentSelection(selectionKey),
+  }));
+  const selectedPaths = selectionState.key === selectionKey ? selectionState.paths : [];
+  const selectPaths = (paths: string[]) => {
+    setSelectionState({ key: selectionKey, paths });
+    persistDocumentSelection(selectionKey, paths);
+  };
+
   const locale = useLocale();
   const [sortState, setSortState] = React.useState(() => ({ workspaceId, value: readWorkspaceFileSort(workspaceId) }));
   const sortKeyLabels = {
@@ -94,14 +115,14 @@ export function WorkspaceFilesPanel({
 
   React.useEffect(() => {
     if (workspaceId) {
-      lastPathByWorkspace.set(workspaceId, path);
+      lastPathByWorkspace.set(selectionKey, path);
     }
-  }, [path, workspaceId]);
+  }, [path, workspaceId, selectionKey]);
   const breadcrumbsRef = React.useRef<HTMLElement>(null);
   const listRef = React.useRef<HTMLDivElement>(null);
 
   const { data, error, isError, isLoading, isFetching, refetch } = useQuery<LegalworkWorkspaceDirectoryList>({
-    queryKey: ["workspace-files", workspaceId, path] as const,
+    queryKey: ["workspace-files", workspaceId, client?.baseUrl, client ? documentClientIdentity(client) : null, workspaceRoot, path] as const,
     queryFn: async () => {
       if (!client || !workspaceId) {
         throw new Error(t("workspace_files.not_connected"));
@@ -140,14 +161,14 @@ export function WorkspaceFilesPanel({
     breadcrumbsRef.current?.scrollTo({ left: breadcrumbsRef.current.scrollWidth });
   }, [path]);
 
-  const navigateTo = React.useCallback((nextPath: string) => {
+  const navigateTo = (nextPath: string) => {
     setPath(nextPath);
     listRef.current?.scrollTo({ top: 0 });
-  }, []);
+  };
 
   return (
     <TooltipProvider delay={1000}>
-      <ProjectFilesDropzone projectId={workspaceId ?? ""} workspaceId={workspaceId ?? ""} isRemoteWorkspace={isRemoteWorkspace || !client || !workspaceId} destinationPath={path}>
+      <ProjectFilesDropzone projectId={projectId ?? workspaceId ?? ""} workspaceId={workspaceId ?? ""} isRemoteWorkspace={isRemoteWorkspace || !client || !workspaceId} destinationPath={path}>
       <div className="flex h-full min-h-0 flex-col bg-background/90">
         <PanelHeader headerTarget={headerTarget} title={t("workspace_files.files")}>
           <DropdownMenu>
@@ -222,6 +243,10 @@ export function WorkspaceFilesPanel({
           </Tooltip> : null}
         </PanelHeader>
 
+        {client && workspaceId ? <DocumentProcessingPanel key={selectionKey} client={client} workspaceId={workspaceId} projectId={projectId ?? workspaceId} workspaceRoot={workspaceRoot}
+          folder={path} selectedPaths={selectedPaths} onSelectPaths={selectPaths} active={active} isRemote={isRemoteWorkspace} onGenerate={onGenerateDocuments}
+          fileVersion={JSON.stringify(data?.entries.map(entry => [entry.path, entry.updatedAt, entry.size]))} /> : null}
+
         <nav
           ref={breadcrumbsRef}
           aria-label={t("workspace_files.current_folder")}
@@ -269,6 +294,7 @@ export function WorkspaceFilesPanel({
               title={t("workspace_files.open_failed_title")}
               description={projectErrorMessage(error)}
             >
+              {client && workspaceId ? <ProjectFolderRecoveryAction client={client} workspaceId={workspaceId} error={error} /> : null}
               <Button variant="outline" size="sm" onClick={() => void refetch()}>
                 {t("workspace_files.try_again")}
               </Button>
@@ -290,7 +316,9 @@ export function WorkspaceFilesPanel({
               {visibleEntries.map((entry) => {
                 const displayName = entry.kind === "file" ? projectFileDisplayName(entry.path, entry.name) : entry.name;
                 return (
-                <WorkspaceEntryMenu key={entry.path} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace}
+                <div key={entry.path} className="flex items-center">
+                {entry.kind === "file" ? <input type="checkbox" className="mx-1 shrink-0" aria-label={t("documents.select_source", { path: displayName })} checked={selectedPaths.includes(entry.path)} onChange={event => selectPaths(event.target.checked ? [...selectedPaths, entry.path] : selectedPaths.filter(path => path !== entry.path))} /> : null}
+                <WorkspaceEntryMenu className="min-w-0 flex-1" client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace}
                   folderPath={path} entry={entry} onOpen={() => entry.kind === "dir" ? navigateTo(entry.path) : onOpenFile(entry)}
                   onRefresh={() => void refetch()}>
                 <button
@@ -320,6 +348,7 @@ export function WorkspaceFilesPanel({
                   ) : null}
                 </button>
                 </WorkspaceEntryMenu>
+                </div>
                 );
               })}
               {data?.truncated ? (

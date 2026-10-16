@@ -1,4 +1,6 @@
+import { workspaceOwnsSession } from "../lawoss/workspace-history.js";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { historicalWorkspaceSessions } from "../lawoss/workspace-history-sessions.js";
 import { ApiError } from "../errors.js";
 import { buildSession, buildSessionList, buildSessionMessages, buildSessionSnapshot } from "../session-read-model.js";
 import {
@@ -81,17 +83,13 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   ) {
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
-      return buildSessionList(
-        unwrapOpencodeResult(
-          await opencode.session.list({
-            roots: input.roots,
-            start: input.start,
-            search: input.search,
-            limit: input.limit,
-          }),
-          "/session",
-        ),
-      );
+      const lists = await Promise.all([
+        opencode.session.list(input).then(result => buildSessionList(unwrapOpencodeResult(result, "/session"))),
+        historicalWorkspaceSessions(config, workspace, input),
+      ]);
+      const byId = new Map(lists.flat().filter(session => workspaceOwnsSession(workspace, session)).map(session => [session.id, session]));
+      const merged = [...byId.values()].sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0));
+      return input.limit ? merged.slice(0, input.limit) : merged;
     } catch (error) {
       remapSessionReadError(error);
     }
@@ -100,12 +98,9 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   async function readWorkspaceSession(workspace: WorkspaceInfo, sessionId: string) {
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
-      return buildSession(
-        unwrapOpencodeResult(
-          await opencode.session.get({ sessionID: sessionId }),
-          `/session/${encodeURIComponent(sessionId)}`,
-        ),
-      );
+      const session = buildSession(unwrapOpencodeResult(await opencode.session.get({ sessionID: sessionId }), `/session/${encodeURIComponent(sessionId)}`));
+      if ((workspace.previousPaths?.length || workspace.appFilesStorageKey) && !workspaceOwnsSession(workspace, session)) throw new ApiError(404, "session_not_found", "Session does not belong to this project");
+      return session;
     } catch (error) {
       remapSessionReadError(error);
     }
@@ -118,6 +113,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   ) {
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
+      if (workspace.previousPaths?.length || workspace.appFilesStorageKey) await readWorkspaceSession(workspace, sessionId);
       return buildSessionMessages(
         unwrapOpencodeResult(
           await opencode.session.messages({ sessionID: sessionId, limit: input.limit }),
@@ -136,6 +132,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   ) {
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
+      if (workspace.previousPaths?.length || workspace.appFilesStorageKey) await readWorkspaceSession(workspace, sessionId);
       const [session, messages, todos, statuses] = await Promise.all([
         opencode.session
           .get({ sessionID: sessionId })
@@ -350,6 +347,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       throw new ApiError(400, "invalid_payload", "sessionId is required");
     }
 
+    if (workspace.previousPaths?.length || workspace.appFilesStorageKey) await readWorkspaceSession(workspace, sessionId);
     const opencode = createWorkspaceOpencodeClient(config, workspace);
     unwrapOpencodeResult(
       await opencode.session.delete({ sessionID: sessionId }),

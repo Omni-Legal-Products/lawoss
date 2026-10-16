@@ -1136,6 +1136,8 @@ const runtimeManager = createRuntimeManager({
   getApprovalWindow: () => mainWindow,
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
+  listLocalWorkspaces: async () => (await workspaceStore.readWorkspaceState()).workspaces.filter(workspace => workspace.workspaceType !== "remote"),
+  reconnectHostWorkspace: (workspace, previous) => workspaceStore.reconnectHostWorkspace(workspace, previous),
   listLocalWorkspaceAppFiles: async () => {
     const state = await workspaceStore.readWorkspaceState();
     return state.workspaces
@@ -1368,7 +1370,9 @@ async function projectAppFilesRoot(projectDir) {
   const requestedPath = String(projectDir ?? "").trim();
   if (!requestedPath || !(await projectUsesExternalAppFiles(requestedPath))) return requestedPath;
   const serverConfigPath = resolveLegalworkServerConfigPath(process.env);
-  return externalWorkspaceAppFilesRoot(serverConfigPath, requestedPath);
+  const state = await workspaceStore.readWorkspaceState();
+  const workspace = state.workspaces.find(entry => path.resolve(entry.path) === path.resolve(requestedPath));
+  return externalWorkspaceAppFilesRoot(serverConfigPath, workspace?.previousPaths?.[0] ?? requestedPath, workspace?.appFilesStorageKey);
 }
 
 // Ordered config file candidates for a scope; the first existing one is used.

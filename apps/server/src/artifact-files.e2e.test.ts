@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -55,6 +55,54 @@ function auth(token: string) {
 }
 
 describe("artifact file routes", () => {
+  test("selected-folder HTTP discovery excludes canonical sibling links but keeps selected internal aliases", async () => {
+    const root = await createWorkspaceRoot();
+    await mkdir(join(root, "selected", "real"), { recursive: true });
+    await mkdir(join(root, "sibling"));
+    await writeFile(join(root, "selected", "real", "own.txt"), "selected source");
+    await writeFile(join(root, "sibling", "private.txt"), "sibling source");
+    await symlink(join(root, "sibling"), join(root, "selected", "sibling-link"), "dir");
+    await symlink(join(root, "selected", "real"), join(root, "selected", "inside-link"), "dir");
+    const alias = join(root, "selected-alias");
+    await symlink(join(root, "selected"), alias, "dir");
+    const { base, token } = await startLegalworkServer(root);
+    // Bun executes the real app consumer here; each package is strictly typechecked separately.
+    const clientModule = "../../app/src/app/lib/legalwork-server.ts";
+    const discoveryModule = "../../app/src/react-app/domains/session/panel/document-processing.ts";
+    const { createLegalworkServerClient } = await import(clientModule);
+    const { discoverDocumentSources } = await import(discoveryModule);
+    const client = createLegalworkServerClient({ baseUrl: base, token });
+    const discovered: string[] = await discoverDocumentSources(client, "ws_1", "selected");
+    expect(discovered.sort()).toEqual(["selected/inside-link/own.txt", "selected/real/own.txt"]);
+    const positive: string[] = await discoverDocumentSources(client, "ws_1", "selected-alias");
+    expect(positive.every(path => !path.includes("sibling"))).toBe(true);
+    const escape = await fetch(`${base}/workspace/ws_1/files/list?path=selected%2Fsibling-link&within=selected`, { headers: auth(token) });
+    expect(escape.status).toBe(400);
+    // Ordinary browsing still permits the same workspace-internal alias.
+    expect((await client.listWorkspaceDirectory("ws_1", "selected/sibling-link")).entries[0]?.name).toBe("private.txt");
+  });
+
+  test("directory discovery rejects external aliases and preserves internal/root aliases", async () => {
+    const root = await createWorkspaceRoot(), outside = await createWorkspaceRoot();
+    await symlink(outside, join(root, "external"), "dir");
+    await symlink(join(root, "reports"), join(root, "internal"), "dir");
+    const alias = join(outside, "root-alias");
+    await symlink(root, alias, "dir");
+    const { base, token } = await startLegalworkServer(alias);
+    const list = (path: string) => fetch(`${base}/workspace/ws_1/files/list?path=${encodeURIComponent(path)}`, { headers: auth(token) });
+    const escaped = await list("external");
+    expect(escaped.status).toBe(400);
+    expect(await escaped.json()).toMatchObject({ code: "path_escape" });
+    expect((await list("internal")).status).toBe(200);
+    const listed = await list("");
+    expect(listed.status).toBe(200);
+    const entries = (await listed.json() as { entries: Array<{ path: string }> }).entries;
+    expect(entries.map(entry => entry.path)).toContain("internal");
+    expect(entries.map(entry => entry.path)).not.toContain("external");
+    expect((await list("missing")).status).toBe(404);
+    expect((await list("reports/artifact-eval.md")).status).toBe(400);
+  });
+
   test("previews and downloads preserve Unicode filenames in safe response headers", async () => {
     const root = await createWorkspaceRoot();
     const { base, token } = await startLegalworkServer(root);
@@ -62,7 +110,8 @@ describe("artifact file routes", () => {
       "SH-Lu\u0308beck_HRB_26773_HL+Liste_der_Gesellschafter-20260925162201.pdf",
       "Vertrag-München.pdf",
       "契約書-📄.pdf",
-      "Client's \"draft\" (100%)*.pdf",
+      "Client's draft (100%).pdf",
+      ...(process.platform === "win32" ? [] : ["Client's \"draft\" (100%)*.pdf"]),
       "contract.pdf",
     ];
     const bytes = Buffer.from("%PDF-1.7\n% filename regression fixture\n");
@@ -232,6 +281,31 @@ describe("artifact file routes", () => {
     expect(Number(xlsxDownload.headers.get("x-legalwork-updated-at"))).toBeGreaterThan(0);
     expect(xlsxDownload.headers.get("access-control-expose-headers")).toContain("X-LegalWork-Updated-At");
     expect(Array.from(new Uint8Array(await xlsxDownload.arrayBuffer()))).toEqual([80, 75, 9, 9]);
+  });
+
+  test("text saves compare base bytes even when filesystem timestamps are identical", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startLegalworkServer(root);
+    const notePath = join(root, "reports", "artifact-eval.md");
+    const timestamp = new Date("2026-01-01T00:00:00.000Z");
+    const original = "Title\n\nOriginal paragraph.\n";
+    await writeFile(notePath, original);
+    await utimes(notePath, timestamp, timestamp);
+    const loaded = (await stat(notePath)).mtimeMs;
+    const save = (content: string, force = false) => fetch(`${base}/workspace/ws_1/files/content`, {
+      method: "POST", headers: auth(token),
+      body: JSON.stringify({ path: "reports/artifact-eval.md", content, baseUpdatedAt: loaded, baseContent: original, force }),
+    });
+    await writeFile(notePath, "Title from Ben\n\nOriginal paragraph.\n");
+    await utimes(notePath, timestamp, timestamp);
+    expect((await stat(notePath)).mtimeMs).toBe(loaded);
+    const clash = await save("Title from Anna\n\nOriginal paragraph.\n");
+    expect(clash.status).toBe(409);
+    expect(await readFile(notePath, "utf8")).toBe("Title from Ben\n\nOriginal paragraph.\n");
+    const merge = await save("Title\n\nParagraph from Anna.\n");
+    expect(await merge.json()).toMatchObject({ merged: true, content: "Title from Ben\n\nParagraph from Anna.\n" });
+    expect((await save("Explicit replacement\n", true)).status).toBe(200);
+    expect(await readFile(notePath, "utf8")).toBe("Explicit replacement\n");
   });
 
   test("lists workspace directories with dirs-first ordering and path safety", async () => {

@@ -114,8 +114,31 @@ export async function inspectPdfText(bytes: Uint8Array, signal: AbortSignal): Pr
       const [operators, annotations] = await Promise.all([page.getOperatorList(), page.getAnnotations()]);
       const visual = operators.fnArray.some(op => [OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintImageMaskXObject, OPS.constructPath, OPS.shadingFill].includes(op));
       const additions = annotations.some(annotation => annotation.subtype !== "Link");
-      pages.push({ text, needsOcr: !text.trim() || visual || additions }); page.cleanup();
+      pages.push({ text, needsOcr: !text.trim() || /[\uFFFD\u0000-\u0008\u000B\u000E-\u001F]/u.test(text) || visual || additions }); page.cleanup();
     }
     return pages;
+  } finally { signal.removeEventListener("abort", abort); await loading.destroy(); }
+}
+
+/** Embedded content is data only. Callers generate scratch filenames; names are provenance. */
+export async function inspectPdfAttachments(bytes: Uint8Array, signal: AbortSignal, limits: { count: number; bytes: number }): Promise<Array<{ name: string; bytes: Uint8Array }>> {
+  const { getDocument } = await loadRenderer();
+  const loading = getDocument({ data: new Uint8Array(bytes), verbosity: 0, stopAtErrors: true, useWorkerFetch: false, BinaryDataFactory });
+  const abort = () => { void loading.destroy(); }; signal.addEventListener("abort", abort, { once: true });
+  try {
+    signal.throwIfAborted(); const pdf = await loading.promise;
+    const attachments = await pdf.getAttachments(); signal.throwIfAborted();
+    const entries = [...(attachments?.entries() ?? [])];
+    if (entries.length > limits.count) throw new Error("Portfolio attachment count exceeds 32.");
+    let size = 0; const result: Array<{ name: string; bytes: Uint8Array }> = [];
+    for (const [id, attachment] of entries) {
+      signal.throwIfAborted();
+      const content = attachment.content ?? await pdf.getAttachmentContent(id);
+      if (!content) throw new Error("Portfolio attachment content is unavailable.");
+      size += content.length;
+      if (size > limits.bytes) throw new Error("Portfolio attachment bytes exceed 64 MiB.");
+      result.push({ name: attachment.rawFilename || attachment.filename, bytes: content });
+    }
+    return result;
   } finally { signal.removeEventListener("abort", abort); await loading.destroy(); }
 }

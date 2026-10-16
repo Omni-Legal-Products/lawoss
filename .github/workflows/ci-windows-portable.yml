@@ -6,6 +6,31 @@ on:
     paths:
       - lawoss/okf/**
       - lawoss/okf-pamat/**
+      - lawoss/testing/isir/**
+      - apps/server/src/isir-case-attachments.e2e.test.ts
+      - apps/desktop/electron/isir-case-files.test.mjs
+      - scripts/test-isir-attachments.mjs
+      - scripts/test-isir-native.mjs
+      - apps/desktop/scripts/isir-native-entry.mjs
+      - apps/app/src/react-app/domains/session/panel/**
+      - apps/app/src/react-app/domains/workspace/**
+      - apps/app/src/react-app/shell/session-route.tsx
+      - apps/app/src/react-app/domains/session/fusion/**
+      - apps/app/src/app/lib/opencode.ts
+      - apps/app/src/app/lib/legalwork-server.ts
+      - apps/app/tests/document-processing*
+      - apps/app/tests/native-document-generation.test.ts
+      - apps/app/tests/project-folder-recovery.test.ts
+      - apps/app/tests/workspace-attachment.test.ts
+      - apps/app/tests/home-submission.test.ts
+      - apps/app/tests/session-sync-retention.test.ts
+      - apps/app/src/react-app/domains/session/sync/session-sync.ts
+      - apps/app/tests/fusion-routing.test.ts
+      - apps/server/src/workspace-reconnect.e2e.test.ts
+      - apps/server/src/artifact-files.e2e.test.ts
+      - apps/server/src/routes/lawoss-documents.ts
+      - apps/server/src/opencode-plugins/legalwork-project-tools.ts
+      - package.json
       - lawoss/okf-handoff/**
       - lawoss/tests/**
       - apps/app/src/lawoss/**
@@ -54,6 +79,31 @@ on:
     paths:
       - lawoss/okf/**
       - lawoss/okf-pamat/**
+      - lawoss/testing/isir/**
+      - apps/server/src/isir-case-attachments.e2e.test.ts
+      - apps/desktop/electron/isir-case-files.test.mjs
+      - scripts/test-isir-attachments.mjs
+      - scripts/test-isir-native.mjs
+      - apps/desktop/scripts/isir-native-entry.mjs
+      - apps/app/src/react-app/domains/session/panel/**
+      - apps/app/src/react-app/domains/workspace/**
+      - apps/app/src/react-app/shell/session-route.tsx
+      - apps/app/src/react-app/domains/session/fusion/**
+      - apps/app/src/app/lib/opencode.ts
+      - apps/app/src/app/lib/legalwork-server.ts
+      - apps/app/tests/document-processing*
+      - apps/app/tests/native-document-generation.test.ts
+      - apps/app/tests/project-folder-recovery.test.ts
+      - apps/app/tests/workspace-attachment.test.ts
+      - apps/app/tests/home-submission.test.ts
+      - apps/app/tests/session-sync-retention.test.ts
+      - apps/app/src/react-app/domains/session/sync/session-sync.ts
+      - apps/app/tests/fusion-routing.test.ts
+      - apps/server/src/workspace-reconnect.e2e.test.ts
+      - apps/server/src/artifact-files.e2e.test.ts
+      - apps/server/src/routes/lawoss-documents.ts
+      - apps/server/src/opencode-plugins/legalwork-project-tools.ts
+      - package.json
       - lawoss/okf-handoff/**
       - lawoss/tests/**
       - apps/app/src/lawoss/**
@@ -143,14 +193,17 @@ jobs:
       # Filtre bez lomky, aby sedeli aj na cestách so spätnou lomkou.
       - name: LAWOSS app logic (OKF views, onboarding, Lite)
         working-directory: apps/app
-        run: bun test lawoss- okf-
+        run: bun test lawoss- okf- document-processing native-document-generation project-folder-recovery workspace-attachment home-submission fusion-routing session-sync-permissions session-sync-tool-parts message-queue-runner session-sync-retention
       # Server s onboardingom, registráciou existujúceho priečinka, roztriedením,
       # pamäťou a kanonickými cestami beží na Windows prvýkrát; dist sa tu nestavia,
       # takže filter zachytí len zdrojové testy (bez lomky kvôli cestám s `\`).
       # lawoss-path-containment: workspace v koreni disku (subst) a zdieľania (net share).
       - name: LAWOSS server (onboarding, register existing, triage, memory, paths, containment, reload watcher, process tree)
         working-directory: apps/server
-        run: bun test lawoss reload-watcher
+        run: bun test lawoss reload-watcher workspace-reconnect artifact-files isir-case-attachments
+
+      - name: ISIR attachments in ten case folders (synthetic offline corpus)
+        run: pnpm test:isir
 
       - name: Security boundaries and Windows archive destinations
         working-directory: apps/server

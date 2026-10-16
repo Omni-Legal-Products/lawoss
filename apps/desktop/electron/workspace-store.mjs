@@ -482,6 +482,8 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       directory: input.directory ?? null,
       displayName: input.displayName ?? null,
       appFiles: input.appFiles === "outside" ? "outside" : "inside",
+      ...(input.appFilesStorageKey ? { appFilesStorageKey: input.appFilesStorageKey } : {}),
+      ...(input.previousPaths?.length ? { previousPaths: input.previousPaths, previousSessionIds: input.previousSessionIds ?? [] } : {}),
       legalworkHostUrl: input.legalworkHostUrl ?? null,
       legalworkToken: input.legalworkToken ?? null,
       legalworkClientToken: input.legalworkClientToken ?? null,
@@ -633,10 +635,15 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     return nextState;
   }
 
-  async function mutateWorkspaceState(mutator) {
-    const current = await readWorkspaceState();
-    const next = await mutator({ ...current, workspaces: [...current.workspaces] });
-    return writeWorkspaceState(next);
+  let workspaceMutationQueue = Promise.resolve();
+  function mutateWorkspaceState(mutator) {
+    const run = workspaceMutationQueue.catch(() => undefined).then(async () => {
+      const current = await readWorkspaceState();
+      const next = await mutator({ ...current, workspaces: [...current.workspaces] });
+      return writeWorkspaceState(next);
+    });
+    workspaceMutationQueue = run;
+    return run;
   }
 
   async function listLocalWorkspacePaths() {
@@ -670,6 +677,28 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       state.watchedId = typeof workspaceId === "string" && workspaceId.trim() ? workspaceId : null;
       return state;
     });
+  }
+
+  // Host-only transaction participant: the server validates and serializes recovery.
+  async function reconnectHostWorkspace(workspace, previous) {
+    let original;
+    await mutateWorkspaceState(state => {
+      original = state.workspaces.find(entry => entry.id === previous.id);
+      if (original && original.path !== previous.path) throw new Error("Desktop workspace has changed");
+      if (state.workspaces.some(entry => entry.id !== previous.id && entry.workspaceType !== "remote" && normalizeWorkspacePathKey(entry.path) === normalizeWorkspacePathKey(workspace.path))) throw new Error("Folder belongs to another desktop project");
+      state.workspaces = original
+        ? state.workspaces.map(entry => entry.id === workspace.id ? { ...entry, path: workspace.path, ...(workspace.directory ? { directory: workspace.directory } : {}), previousPaths: workspace.previousPaths ?? [], previousSessionIds: workspace.previousSessionIds ?? [] } : entry)
+        : [...state.workspaces, normalizeWorkspaceEntry(workspace)];
+      return state;
+    });
+    return async () => {
+      await mutateWorkspaceState(state => {
+        state.workspaces = original
+          ? state.workspaces.map(entry => entry.id === previous.id ? original : entry)
+          : state.workspaces.filter(entry => entry.id !== previous.id);
+        return state;
+      });
+    };
   }
 
   async function createWorkspace(input = {}) {
@@ -712,28 +741,36 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       await mkdir(folderPath, { recursive: true });
     }
     const preset = String(input.preset ?? "starter");
-    const workspace = normalizeWorkspaceEntry({
-      id: localWorkspaceId(folderPath),
-      name: String(input.name ?? (path.basename(folderPath) || "Workspace")),
-      displayName: String(input.name ?? (path.basename(folderPath) || "Workspace")),
-      path: folderPath,
-      preset,
-      workspaceType: "local",
-      appFiles: requestedAppFiles ?? "inside",
-    });
     if (!registerExisting) {
       await mkdir(path.join(folderPath, ".opencode"), { recursive: true });
       await writeWorkspaceLegalworkConfig(folderPath, defaultWorkspaceLegalworkConfig(folderPath, preset));
     }
 
     return mutateWorkspaceState((state) => {
-      const existing = state.workspaces.find(
-        (entry) => entry.id === workspace.id || normalizeWorkspacePathKey(entry.path) === workspacePathKey(workspace),
-      );
+      const registered = state.workspaces.find(entry => entry.workspaceType !== "remote" && normalizeWorkspacePathKey(entry.path) === normalizeWorkspacePathKey(folderPath));
+      const pathId = localWorkspaceId(folderPath);
+      const pathIdTaken = state.workspaces.some(entry => entry.id === pathId);
+      const id = registered?.id ?? (pathIdTaken ? stableWorkspaceId(`${folderPath}::${randomBytes(12).toString("hex")}`) : pathId);
+      const storagePathTaken = state.workspaces.some(entry => entry.workspaceType !== "remote" && normalizeWorkspacePathKey(entry.path) !== normalizeWorkspacePathKey(folderPath) && normalizeWorkspacePathKey(entry.previousPaths?.[0] ?? entry.path) === normalizeWorkspacePathKey(folderPath));
+      const appFilesStorageKey = registered?.appFilesStorageKey ?? (!registered && (pathIdTaken || storagePathTaken) ? `${folderPath}::${id}` : null);
+      const workspace = normalizeWorkspaceEntry({
+        id,
+        name: String(input.name ?? (path.basename(folderPath) || "Workspace")),
+        displayName: String(input.name ?? (path.basename(folderPath) || "Workspace")),
+        path: folderPath,
+        preset,
+        workspaceType: "local",
+        ...(appFilesStorageKey ? { appFilesStorageKey } : {}),
+        appFiles: requestedAppFiles ?? "inside",
+      });
+      const existing = registered;
       const persistedAppFiles = existing?.appFiles === "outside" ? "outside" : "inside";
       const nextWorkspace = {
         ...workspace,
+        id: existing?.id ?? workspace.id,
+        ...(existing?.appFilesStorageKey ? { appFilesStorageKey: existing.appFilesStorageKey } : {}),
         appFiles: requestedAppFiles ?? persistedAppFiles,
+        ...(existing?.previousPaths?.length ? { previousPaths: existing.previousPaths, previousSessionIds: existing.previousSessionIds ?? [] } : {}),
         ...(registerExisting && existing ? {
           name: existing.name,
           displayName: existing.displayName,
@@ -978,6 +1015,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
 
   return {
     addAuthorizedRoot,
+    reconnectHostWorkspace,
     createRemoteWorkspace,
     createWorkspace,
     debugDesktopBootstrapConfig,

@@ -26,6 +26,12 @@ export interface WorkspaceConfig {
   directory?: string;
   displayName?: string;
   appFiles?: "inside" | "outside";
+  /** Host-recorded historical roots for session lookup only. */
+  previousPaths?: string[];
+  /** Immutable session IDs captured when the host reconnects a missing folder. */
+  previousSessionIds?: string[];
+  /** Host-owned storage identity for a path reused by a distinct project. */
+  appFilesStorageKey?: string;
   legalworkHostUrl?: string;
   legalworkToken?: string;
   legalworkWorkspaceId?: string;
@@ -48,6 +54,12 @@ export interface WorkspaceInfo {
   directory?: string;
   displayName?: string;
   appFiles?: "inside" | "outside";
+  /** Host-recorded historical roots for session lookup only. */
+  previousPaths?: string[];
+  /** Immutable session IDs captured when the host reconnects a missing folder. */
+  previousSessionIds?: string[];
+  /** Host-owned storage identity for a path reused by a distinct project. */
+  appFilesStorageKey?: string;
   legalworkHostUrl?: string;
   legalworkToken?: string;
   legalworkWorkspaceId?: string;
@@ -136,7 +148,8 @@ export interface ServerConfig {
    * to re-activate after the dialog closes, since showing the dialog steals
    * focus from it.
    */
-  pickDirectory?: ((options: { title?: string; defaultPath?: string; returnFocusTo?: string }) => Promise<string | null>) | null;
+  reconnectHostWorkspace?: (workspace: WorkspaceInfo, previous: WorkspaceInfo) => Promise<() => Promise<void>>;
+  pickDirectory?: ((options: { title?: string; defaultPath?: string; returnFocusTo?: string; existingOnly?: boolean }) => Promise<string | null>) | null;
   /** Desktop-owned recorder controls used by browser-hosted Office add-ins. */
   recorder?: RecorderBridge | null;
   /** In-process host confirmation. Never set from client input or persisted config. */

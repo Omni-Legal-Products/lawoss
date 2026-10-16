@@ -1,7 +1,11 @@
+import { resolveWithinRoot } from "../paths.js";
+import { remapHistoricalFilePath } from "../lawoss/workspace-history.js";
 import { writeConditionalText } from "../lawoss/conditional-text-write.js";
+import { childPathWithin } from "../lawoss/path-within.js";
 import { resolveWorkspaceFilePath, resolveReadableWorkspaceFilePath, recheckWorkspaceFilePath } from "../lawoss/filesystem-boundary.js";
 import { readWorkspaceText } from "../lawoss/workspace-text.js";
 import { createReadStream } from "node:fs";
+import { realpath } from "../lawoss/canonical-path.js";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
@@ -224,7 +228,7 @@ async function workspaceArtifactNames(workspaceRoot: string): Promise<Map<string
   return names;
 }
 
-export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, input: unknown, scope: TokenScope = "owner"): Promise<Array<Record<string, unknown>>> {
+export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, input: unknown, scope: TokenScope = "owner", previousPaths: string[] = []): Promise<Array<Record<string, unknown>>> {
   const targets = Array.isArray(input) ? input.slice(0, 80) : [];
   const results = new Map<string, Record<string, unknown>>();
   const workspaceResolved = resolve(workspaceRoot);
@@ -261,7 +265,7 @@ export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, inp
     let relativePath: string;
     try {
       if (isAbsolute(rawValue)) {
-        const absolutePath = resolve(rawValue);
+        const absolutePath = remapHistoricalFilePath({ id: "", name: "", preset: "", workspaceType: "local", path: workspaceRoot, previousPaths }, rawValue);
         const pathFromWorkspace = relative(workspaceResolved, absolutePath);
         if (!pathFromWorkspace || pathFromWorkspace === ".." || pathFromWorkspace.startsWith(`..${sep}`) || isAbsolute(pathFromWorkspace)) {
           continue;
@@ -289,6 +293,9 @@ export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, inp
     let updatedAt: number | undefined;
     let kindValue: "file" | "dir" | "other" | undefined;
     if (await exists(absPath)) {
+      const canonical = await realpath(absPath);
+      const canonicalRoot = await realpath(workspaceRoot);
+      if (!childPathWithin(canonicalRoot, relative(canonicalRoot, canonical))) continue;
       const info = await stat(absPath);
       kindValue = info.isFile() ? "file" : info.isDirectory() ? "dir" : "other";
       existsFile = info.isFile();
@@ -710,7 +717,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
   addRoute(routes, "POST", "/workspace/:id/artifacts/resolve", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
-    const items = await resolveWorkspaceArtifactTargets(workspace.path, body.targets, ctx.actor?.scope);
+    const items = await resolveWorkspaceArtifactTargets(workspace.path, body.targets, ctx.actor?.scope, workspace.previousPaths);
     return jsonResponse({ items });
   });
 
@@ -1149,18 +1156,27 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     if (!(await exists(absPath))) {
       throw new ApiError(404, "dir_not_found", "Directory not found");
     }
-    const info = await stat(absPath);
+    // Validate canonical containment before inspecting or enumerating a selected folder.
+    const scopedPath = await resolveWithinRoot(workspace.path, relativePath || ".");
+    const requestedBoundary = ctx.url.searchParams.get("within");
+    const within = requestedBoundary === null ? undefined : requestedBoundary.trim()
+      ? normalizeWorkspaceRelativePath(requestedBoundary.trim(), { allowSubdirs: true }) : "";
+    const boundary = within === undefined ? undefined : await realpath(await resolveWithinRoot(workspace.path, within || "."));
+    if (boundary) await resolveWithinRoot(boundary, scopedPath);
+    const info = await stat(scopedPath);
     if (!info.isDirectory()) {
       throw new ApiError(400, "invalid_path", "Path must point to a directory");
     }
 
-    const dirents = await readdir(absPath, { withFileTypes: true });
+    const dirents = await readdir(scopedPath, { withFileTypes: true });
     type DirectoryEntry = { name: string; path: string; kind: "file" | "dir"; size?: number; updatedAt?: number };
     const entries = (
       await Promise.all(
         dirents.map(async (dirent): Promise<DirectoryEntry | null> => {
           const entryPath = relativePath ? `${relativePath}/${dirent.name}` : dirent.name;
           try {
+            const entryAbsolute = await resolveWithinRoot(workspace.path, entryPath);
+            if (boundary) await resolveWithinRoot(boundary, entryAbsolute);
             const entryInfo = await stat(await readable(ctx, workspace.path, entryPath));
             if (entryInfo.isDirectory()) {
               return { name: dirent.name, path: entryPath, kind: "dir" };
@@ -1184,7 +1200,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     const truncated = entries.length > FILE_LIST_MAX_ENTRIES;
     return jsonResponse({
-      path: relativePath,
+      path: relativePath, ...(within === undefined ? {} : { enforcedWithin: within }),
       entries: truncated ? entries.slice(0, FILE_LIST_MAX_ENTRIES) : entries,
       truncated,
     });
@@ -1330,9 +1346,13 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const beforeUpdatedAt = before ? before.mtimeMs : null;
     let written = content;
     let merged = false;
-    if (!force && beforeUpdatedAt !== null && baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt) {
-      const current = baseContent !== null && mergeableText(relativePath) ? await readFile(absPath, "utf8") : null;
-      const combined = current === null || baseContent === null ? null : mergeText(baseContent, content, current);
+    // Synced files and coarse filesystem clocks can retain the loaded mtime.
+    // When the editor supplies its base text, compare the actual bytes too.
+    const current = !force && before && baseContent !== null ? await readFile(absPath, "utf8") : null;
+    const changed = (baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt)
+      || (current !== null && current !== baseContent);
+    if (!force && beforeUpdatedAt !== null && changed) {
+      const combined = current === null || baseContent === null || !mergeableText(relativePath) ? null : mergeText(baseContent, content, current);
       if (combined === null) {
         throw new ApiError(409, "conflict", "File changed since it was loaded", {
           baseUpdatedAt,

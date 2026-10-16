@@ -112,3 +112,40 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Notify pull requests, issues, releases, and failed CI runs. Do not add routine push notifications without a team decision.
 - The coordination repository uses a different topic, `SK Mike GH` with topic ID `2`.
 - Setup and recovery instructions live in `docs/telegram-notifications.md`.
+
+## Workspace persistence and recovery
+
+- Treat stable workspace identity, current filesystem root, and app-owned storage key as separate persisted values. Reusing an old filesystem path must not reuse another workspace's identity or outside storage.
+- Historical paths and captured session IDs are lookup metadata, never additional filesystem permission. Revalidate mappings against the current canonical root before reading a recovered project's memory or artifacts.
+- Use supported engine APIs for changing session execution directories; request headers alone do not prove that tools run in the new directory. Verify with an actual tool invocation and preserve original session/message IDs. Do not edit the engine's internal database.
+
+## Document evidence and resource bounds
+
+- Preserve original source hashes, per-source page numbers and embedded-document provenance. Extraction completeness and pagination completion are different contracts; consumers must follow read cursors and verify current source hashes before presenting fresh evidence.
+- Reserve tree-wide attachment budgets before recursive descent. Capacity admission must count actual new records after deduplication/retry planning; a full registry must still permit reuse of an existing preparation.
+- Persist original-source admission independently from extraction update time. Restoring earlier bytes must select that original and its descendants after reload; legacy records retain a deterministic fallback and every selected read still verifies current bytes.
+- Reuse DocumentPreparation/OCR; missing models or incomplete OCR remain partial. Optional real-model tests use an explicitly selected, pinned/hash-verified isolated cache and must not configure or download into a user profile automatically.
+
+- Treat supplied base text as a concurrency precondition independently from mtime. Filesystem timestamps can be equal for different contents; preserve conflicts, clean merges and explicit force semantics with actual fixed-time HTTP regressions.
+
+## Generated output identity and verification
+
+- Bind exports to actual prepared sources and persisted project identity. Routing IDs are not legal case numbers. Absent optional reference metadata preserves explicit unknown legal fields; a present invalid reference manifest must not silently downgrade to generic mode.
+- Validate visible source attribution and coverage as well as machine metadata. An invalid identity companion cannot confer verification on a dependent output, regardless of validation order. Recheck output, source and dependency hashes when displaying persisted verification.
+- Parsing legacy coverage prose does not prove extraction coverage. Require verifiable current structured coverage for verified status, including truthful partial/failed results; apply the same rule when listing historical verification receipts.
+- Keep file ownership separate from successful inspection. Validating an ordinary file does not authorize overwriting it; generated-output repairs require the registered current hash and caller's expected hash. Format/provenance verification never means legal approval.
+- Resolve known copies and canonical aliases within the selected case before deduplicating references. Verify current selected/reference bytes and reject ambiguous official identities; an explicitly listed path with a mismatched hash must not borrow another reference.
+
+## Native document generation
+
+- Extraction completeness requires coverage of every selected original. Failed refreshes must retract current verification even when query caches retain previously successful data.
+- Recursive selection enforces the canonical selected-folder boundary as well as the workspace boundary. Require the server's exact boundary acknowledgment; older servers must not silently widen selection.
+- An asynchronous prompt acknowledgment is not task completion. Retain the scoped session through native running/error/terminal states and reload; retries reuse the accepted chat. Associate source selection with ultimate-original IDs and hashes, and correlate each submitted attempt with its engine-visible user-message ID. Completed tool steps and comparisons between client/server clocks are not terminal evidence.
+- Probe the captured original SDK transport for engine-directory readiness. A wrapped workspace session list can return cached metadata without proving that the engine is available.
+- Release unused transports for known idle sessions. Keep background synchronization for active or waiting runs and remaining reference owners; stale idle evidence must not cancel a newer accepted prompt.
+- Use explicit static translation-key maps for native status labels. The CI audit rejects runtime key construction outside the existing LAWOSS domain dictionaries; type safety alone does not prove the audit will pass.
+- Starting an existing registered workspace must not recreate a missing source root. Check directory existence before runtime reuse or provisioning in either app-files mode; explicit home/new-project initialization remains a separate operation.
+- Native regression must verify the engine actually selected from built resources before and after relaunch. Follow platform-target priority, validate current manifest hashes and executable/health versions, and limit fixture-link cleanup to the link the test owns.
+- Historical engine metadata must account for native application archive timestamps of zero. Use supported archived-inclusive listing before strict directory/captured-ID filtering, while preserving each record archive state and filesystem scope.
+
+- CI diagnostic artifacts must be an explicit bounded allowlist restricted to synthetic fixtures. Record phase/status/timing and typed counts, never raw URLs, headers, bodies, paths, error messages, profiles or source content. Preserve the primary failure across cleanup and wait for actual owned-child exit; do not signal an already-exited leader's process group.

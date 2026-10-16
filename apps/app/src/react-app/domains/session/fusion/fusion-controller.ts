@@ -39,6 +39,8 @@ export type RunFusionSendInput = {
   client: Client;
   directory?: string;
   mainSessionId: string;
+  /** Optional native user-message identity owned by the invoking workflow. */
+  messageID?: string;
   parts: FusionPromptParts;
   userText: string;
   /** Candidate models selected for this chat (the fusion subagents). */
@@ -374,6 +376,7 @@ export async function runFusionSend(input: RunFusionSendInput): Promise<void> {
     .join("\n\n");
   const result = await client.session.promptAsync({
     sessionID: mainSessionId,
+    ...(input.messageID ? { messageID: input.messageID } : {}),
     directory,
     parts,
     model: mainModel,

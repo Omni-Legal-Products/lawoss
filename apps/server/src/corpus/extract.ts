@@ -55,10 +55,12 @@ export async function extractCorpusText(workspace: string, path: string, prepara
   let preparationPath: string | undefined;
   let needsOcr = [".png", ".jpg", ".jpeg", ".webp"].includes(extension);
   let extraction: "native" | "ocr" = "native";
+  const requiredOcrPages = new Set<number>();
   if (extension === ".pdf") {
     const inspected = await inspectPdfText(bytes, signal);
     pages = inspected.map((page, index) => ({ page: index + 1, text: page.text, source: "native", status: page.needsOcr ? "needs-review" : "complete" }));
-    needsOcr = inspected.some(page => page.needsOcr);
+    inspected.forEach((page, index) => { if (page.needsOcr) requiredOcrPages.add(index + 1); });
+    needsOcr = requiredOcrPages.size > 0;
   } else if (extension === ".docx") {
     pages = docxEvidence(bytes);
   } else if ([".xlsx", ".pptx", ".odt", ".ods", ".odp"].includes(extension)) text = officeText(bytes, extension);
@@ -70,7 +72,15 @@ export async function extractCorpusText(workspace: string, path: string, prepara
   if (needsOcr) {
     try {
       const evidence = await prepareReviewEvidence({ workspace, path, preparation, signal, force: options.retry ?? false, onProgress: async () => {} });
-      pages = evidence.pages; preparationPath = evidence.preparationPath; complete = evidence.complete; extraction = "ocr";
+      pages = evidence.pages; preparationPath = evidence.preparationPath; complete = evidence.complete;
+      extraction = pages.some(page => page.source === "ocr" && page.text.trim()) ? "ocr" : "native";
+      // Text-only preparation can keep long native passages, but it cannot cover
+      // images, additions or damaged Unicode detected in the original PDF.
+      const missingOcr = new Set([...requiredOcrPages].filter(number => !pages.some(page => page.page === number && page.source === "ocr" && page.text.trim() && page.status === "complete")));
+      if (missingOcr.size) {
+        complete = false;
+        pages = pages.map(page => page.page !== null && missingOcr.has(page.page) ? { ...page, status: "needs-review" } : page);
+      }
     } catch (error) {
       signal.throwIfAborted();
       // Keep searchable native passages, but never present partial coverage as a

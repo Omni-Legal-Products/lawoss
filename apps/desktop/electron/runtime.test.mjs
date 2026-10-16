@@ -4,9 +4,10 @@ import { createHash } from "node:crypto";
 
 import path from "node:path";
 import os from "node:os";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile, stat, symlink } from "node:fs/promises";
 
 import {
+  createRuntimeManager,
   alignWindowsOpencodeConfigEnv,
   desktopProjectsDirectory,
   externalWorkspaceAppFilesRoot,
@@ -334,4 +335,38 @@ describe("desktop project storage", () => {
   it("keeps development-created projects separate from released app projects", () => {
     assert.equal(desktopProjectsDirectory("/Users/chris/Documents", true, "darwin"), "/Users/chris/Documents/LegalWork Dev/Projects");
   });
+});
+
+
+describe("selected existing project startup", () => {
+  for (const appFiles of ["inside", "outside"]) {
+    for (const kind of ["missing", "file"]) {
+      it(`refuses ${kind} selected root before provisioning or runtime reset (${appFiles})`, async () => {
+        const root=await mkdtemp(path.join(os.tmpdir(),"lawoss-runtime-missing-"));
+        try {
+          const selected=path.join(root,"selected-project");
+          if(kind==="file")await writeFile(selected,"Synthetic source bytes");
+          const manager=createRuntimeManager({app:{isPackaged:true,getPath:key=>key==="exe"?path.join(root,"app","Electron"):root},desktopRoot:path.join(root,"desktop"),listLocalWorkspacePaths:async()=>[],listLocalWorkspaceAppFiles:async()=>({}),listLocalWorkspaces:async()=>[],reconnectHostWorkspace:async()=>null,recorder:undefined,onSidecarExit:()=>{},getApprovalWindow:()=>null});
+          const before=await manager.engineInfo();
+          await assert.rejects(manager.engineStart(selected,{appFiles}),/Project folder is unavailable/);
+          assert.deepEqual(await manager.engineInfo(),before,"Unavailable project must not disturb a runtime or its lifecycle");
+          if(kind==="missing")assert.equal(await stat(selected).then(()=>true,()=>false),false,"No replacement empty directory may be created");
+          else assert.equal(await readFile(selected,"utf8"),"Synthetic source bytes");
+        } finally {await rm(root,{recursive:true,force:true});}
+      });
+    }
+  }
+});
+
+for (const appFiles of ["inside","outside"]) it(`existing canonical aliases still reach ordinary runtime startup (${appFiles})`, async()=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),"lawoss-runtime-existing-"));
+ try {
+  const target=path.join(root,"actual"),alias=path.join(root,"alias");await mkdir(target);await symlink(target,alias,process.platform==="win32"?"junction":"dir");
+  const manager=createRuntimeManager({app:{isPackaged:true,getPath:key=>key==="exe"?path.join(root,"app","Electron"):root},desktopRoot:path.join(root,"desktop"),listLocalWorkspacePaths:async()=>[],listLocalWorkspaceAppFiles:async()=>({}),listLocalWorkspaces:async()=>[],reconnectHostWorkspace:async()=>null,recorder:undefined,onSidecarExit:()=>{},getApprovalWindow:()=>null});
+  // This Node fixture has no packaged Node binary. The real existing-root
+  // precondition must pass, without pretending the Electron engine launched.
+  await assert.rejects(manager.engineStart(alias,{appFiles}),error=>!String(error).includes("Project folder is unavailable"));
+  assert.equal((await stat(target)).isDirectory(),true);
+  assert.equal(await stat(path.join(target,".opencode")).then(()=>true,()=>false),appFiles==="inside");
+ }finally{await rm(root,{recursive:true,force:true});}
 });

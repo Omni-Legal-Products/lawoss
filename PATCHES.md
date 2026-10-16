@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## ISIR attachment acceptance (2026-10-13)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `package.json`, `apps/desktop/package.json`, `.github/workflows/ci-windows-portable.yml` | Príkaz `test:isir`, zaradenie testu desktopového kopírovania a Windows behu s desiatimi syntetickými spismi. Živé dáta ISIR sa sťahujú iba na výslovné miestne spustenie mimo Git; originály, oddelenie spisov a chýbajúce cesty overujú regresie. |
+
 This file records every LAWOSS modification to a file inherited from `eigenweltlabs/legalwork`.
 
 New LAWOSS-owned files do not need an entry. Every pull request that changes an upstream file must add or update its row here.
@@ -555,3 +561,46 @@ Kontroly súborového stromu nie sú OS sandbox proti súbežnej výmene adresá
 | `apps/server/src/server.ts`, `security-auth-boundaries.e2e.test.ts`, `approvals.e2e.test.ts` | Detail skillu a zoznam pluginov vyžadujú collaborator aj na mounted aliasoch. Projektové command/skill upsert a delete, prílohy aj povýšenie workflow viažu schválenie na kanonický cieľ a po rozhodnutí ho overia; príloha zahŕňa aj upravovaný SKILL.md. Regresie menia odkaz medzi dvoma cieľmi počas host approval a zachovávajú bežný lifecycle. Test host approval používa kanonický dočasný koreň, aby zobrazovaný skutočný cieľ sedel aj na macOS `/var` aliase. |
 
 Pri resource delete sa kontroluje aj uzol odkazu (`preserveLeaf`), nielen rovnaký cieľ. Povýšenie workflow viaže aj skutočný adresár skills a zdrojový uzol `rename`. Dve dodatočné HTTP regresie dokazujú odmietnutie pri nezmenenom kanonickom SKILL.md/resource cieli. Bundly sú zostavené s Bun 1.4.2 aj v podriadených package skriptoch (pripnutý PATH).
+
+### Obnovenie presunutého pracovného priečinka (2026-10-13)
+
+| Súbory upstreamu | Úprava a dôvod | Vetva |
+|---|---|---|
+| `apps/server/src/routes/workspaces.ts`, `apps/server/src/workspaces.ts`, `apps/server/src/types.ts`, `packages/types/src/workspace.ts` | Hostové opätovné pripojenie existujúceho ID, serializovaná zmena registrov a persistencia historickej identity; nový klient na uvoľnenej ceste dostane samostatné ID a kľúč aplikačného úložiska. | `fix/isir-native-reliability` |
+| `apps/server/src/server.ts`, `apps/server/src/routes/sessions.ts`, `apps/server/src/reviews/sessions.ts`, `apps/server/src/routes/files.ts` | Scoped čítanie pôvodnej histórie podľa zachytených session ID a rebasing odkazov na aktuálny koreň; existujúce engine session sa presunú podporovaným lokálnym API bez presunu súborov. Historická cesta nie je súborové oprávnenie. Globálne recovery metadáta zahŕňajú aj engine záznamy s `time.archived=0` cez podporované `archived=true`; pôvodný stav archivácie a presné vlastníctvo zostávajú zachované. | `fix/isir-native-reliability` |
+| `apps/server/src/embedded.ts`, `apps/server/src/embedded-app-files.e2e.test.ts` | Prvý bootstrap prijíma plné hostové workspace záznamy so stabilným ID; existujúci serverový register zostáva autoritou. Dôveryhodný desktop callback koordinuje persistenciu a rollback. Regresia overuje nový aj uložený register. | `fix/isir-native-reliability` |
+| `apps/desktop/electron/main.mjs`, `apps/desktop/electron/runtime.mjs`, `apps/desktop/electron/workspace-store.mjs`, `apps/desktop/electron/workspace-store.test.mjs` | Rovnaké ID a samostatné aplikačné úložisko pri recovery a reštarte; serializované mutácie a rollback jednotlivého záznamu bez prepisu súbežnej zmeny iného projektu. | `fix/isir-native-reliability` |
+| `apps/desktop/electron/runtime.mjs`, `apps/desktop/electron/runtime.test.mjs` | `engineStart` overí existujúci adresár pred reuse, provisioningom a resetom runtime v oboch app-files režimoch. Chýbajúci registrovaný koreň nesmie znova vytvoriť `.opencode` a skryť obnovu; explicitné vytvorenie domovského/nového projektu zostáva volajúcemu. | `fix/isir-native-reliability` |
+| `apps/app/src/app/lib/legalwork-server.ts`, `apps/app/src/react-app/domains/workspace/project-home.tsx`, `apps/app/src/react-app/domains/workspace/project-errors.ts`, `apps/app/src/react-app/domains/session/panel/workspace-files-panel.tsx`, `apps/app/src/react-app/shell/session-route.tsx`, `apps/app/src/i18n/locales/en.ts` | Natívna ponuka opätovného pripojenia chýbajúceho priečinka cez existujúci picker alebo kontrolovaný textový fallback; klient volá hostové recovery a obnoví query/route state pre rovnaké ID. Zrušenie výberu nič nemení; CZ/SK preklady sú vo vlastných locale súboroch. | `fix/isir-native-reliability` |
+
+### Čítanie dokumentov a PDF portfólií (2026-10-13)
+
+| Súbory upstreamu | Úprava a dôvod | Vetva |
+|---|---|---|
+| `apps/server/src/document-preparation/render.ts`, `apps/server/src/corpus/extract.ts` | Ohraničená enumerácia PDF.js6 príloh (Map a lazy content), signalizácia poškodeného Unicode a skutočná OCR evidence pre stránky vyžadujúce OCR. Text-only príprava s vypnutým OCR nesmie povýšiť nepokryté obrazy na úplné čítanie; natívny text zostáva dostupný ako partial. | `fix/isir-native-reliability` |
+| `apps/server/src/server.ts` | Úzke konštrukčné, route a shutdown hooks pre LAWOSS document service; scope/auth používa existujúci server. Shutdown najprv ukončí dokumentové joby, potom zdieľanú prípravu/OCR. | `fix/isir-native-reliability` |
+| `apps/server/src/opencode-plugins/legalwork-project-tools.ts` | Scoped prepare/list/read tools a guidance pre stránkovanie, atribúciu príloh, neúplné pokrytie a nedôveryhodný obsah; využíva existujúcu produkčnú registráciu/build pluginu. | `fix/isir-native-reliability` |
+
+### Štruktúrované výstupy a overenie dokumentov (2026-10-14)
+
+| Súbory upstreamu | Úprava a dôvod | Vetva |
+|---|---|---|
+| `apps/server/src/opencode-plugins/legalwork-project-tools.ts` | Scoped export/validate tools nad LAWOSS document service, explicitný jazyk výstupu a pokyny pre kontrolu skutočne uložených súborov s ohraničenou opravou. Identita, vlastníctvo, zdroje a stav overenia zostávajú v serverovej doméne; odpoveď modelu sama nepriznáva úspech. | `fix/isir-native-reliability` |
+
+### Natívna príprava a generovanie dokumentov (2026-10-14)
+
+| Súbory upstreamu | Úprava a dôvod | Vetva |
+|---|---|---|
+| `apps/app/src/app/lib/legalwork-server.ts`, `apps/app/src/app/lib/opencode.ts` | Typované document/export/validation API vrátane voliteľného original-source `admittedAt` pre trvalý aktuálny výber po obnove skorších bajtov; úzky WeakMap hook na pôvodný SDK transport pre skutočný engine-directory preflight. Verejný SDK Client ani existujúca autentizácia sa nemenia. | `fix/isir-native-reliability` |
+| `apps/app/src/react-app/domains/session/panel/workspace-files-panel.tsx`, `apps/app/src/react-app/domains/session/chat/session-page.tsx`, `apps/app/src/react-app/shell/session-route.tsx`, `apps/app/src/i18n/locales/en.ts`, `apps/app/src/i18n/locales/de.ts` | Malé hooks pre natívny processing panel a okamžité scoped odoslanie cez existujúci chat/model/agent/permissions. Väzba prijatého chatu prežije async chybu a reload; nový beh je výslovná terminálna akcia. CZ/SK zostávajú vo vlastných locale súboroch. | `fix/isir-native-reliability` |
+| `apps/server/src/routes/files.ts`, `apps/server/src/artifact-files.e2e.test.ts` | Canonical containment pred enumeráciou a voliteľný selected-folder `within` s presným `enforcedWithin` potvrdením. General browser zachová vnútorné/root aliasy; príprava neprijme sibling alias mimo výberu. Skutočné filesystem/HTTP regresie. | `fix/isir-native-reliability` |
+| `apps/app/src/react-app/domains/session/fusion/fusion-controller.ts`, `apps/app/tests/fusion-routing.test.ts` | Voliteľný `messageID` sa forwarduje iba do existujúceho main-session promptAsync pre koreláciu generovania po reload/retry. Candidate požiadavky ani bežní volajúci bez field sa nemenia; focused regresia overuje hranicu. | `fix/isir-native-reliability` |
+| `apps/app/src/react-app/domains/session/sync/session-sync.ts` | Uvoľnenie nepotrebného transportu pri untrack už známej idle session. Zachovať background busy/retry/accepted/waiting/compaction a ostatných vlastníkov refs; native desaťspisový test nesmie vyčerpať browser HTTP/1 spojenia dokončenými chatmi. | `fix/isir-native-reliability` |
+
+### Opravy potvrdené platformným CI a bezpečná diagnostika (2026-10-14)
+
+| Upstream súbory | Downstream doplnenie | Vetva |
+| --- | --- | --- |
+| `apps/server/src/routes/files.ts`, `apps/server/src/artifact-files.e2e.test.ts` | Dodané baseContent sa porovnáva aj pri zhodnom mtime: konfliktná úprava vráti409, nezávislá sa zlúči a explicitný force zostáva dostupný. Skutočný HTTP test fixuje rovnaké časové pečiatky; Windows-valid názvy zachovávajú Unicode/percent/apostrof a POSIX test neplatných Windows znakov. | `fix/isir-native-reliability` / [#156](https://github.com/Omni-Legal-Products/lawoss/pull/156) |
+| `apps/server/src/lawoss-documents.e2e.test.ts`, `apps/server/src/workspace-reconnect.e2e.test.ts` | Reštartovacie child imports používajú úplné file URL a kontrolujú stderr/exit. Pri neúspešnom odstránení syntetických fixture adresárov test-only LAWOSS helper zaznamená iba allowlisted typ/rolu/depth a znovu vyhodí pôvodnú chybu; zamknuté DB ani zlyhania sa nepreskakujú. Zdieľaný produkčný DB lifecycle zostáva otvorený. | `fix/isir-native-reliability` / [#156](https://github.com/Omni-Legal-Products/lawoss/pull/156) |
+| `.github/workflows/ci-desktop-packaging.yml` | Nahráva iba explicitný redigovaný diagnostický JSON zo syntetického natívneho CI behu. Diagnostika identifikuje fázu/status/timing/typed counts bez profilov, originálov, URL, tokenov, hlavičiek/tiel či textov chýb; samotná diagnostika neopravuje dosiaľ neobjasnené natívne OS zlyhania. | `fix/isir-native-reliability` / [#156](https://github.com/Omni-Legal-Products/lawoss/pull/156) |
