@@ -1425,3 +1425,99 @@ test('task44 Bun admits the128MiB boundary and refuses the next byte with no com
   const g = buildFixture({ bunSize: 134217729 }); const bad = await diagnostic.runBuildPreparation(g.options);
   assert.equal(bad.observation.tools.bun.sizeExact, false); assert.equal(bad.observation.tools.bun.refusal, 'SIZE'); assert.equal(g.commands.length, 0);
 });
+
+// R1 starts with publications emitted by the actual collector/build composition.
+async function pendingBuildFixture(role, events) {
+  const f = buildFixture();
+  const normal = f.options.command;
+  let child, fire;
+  f.options.command = (exe, args, options) => {
+    const selected = role === 'install' ? args[1] === 'install' : exe === buildContext.LAWOSS_NODE_EXE && args[0] === '--version';
+    if (!selected) return normal(exe, args, options);
+    return diagnostic.command(exe, args, { ...options,
+      schedule: callback => { fire = callback; return {}; }, cancel: () => {},
+      launch: () => {
+        child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+        queueMicrotask(() => {
+          for (const event of events) {
+            if (event === 'error') child.emit('error', Error('private'));
+            if (event === 'overflow') child.stdout.emit('data', Buffer.alloc(options.cap + 1));
+            if (event === 'stderr') child.stderr.emit('data', Buffer.from('private'));
+          }
+          fire();
+        });
+        return child;
+      }
+    });
+  };
+  const result = await diagnostic.runBuildPreparation(f.options);
+  assert.equal(result.publicationError, null);
+  assert.equal(f.writes.length, 1);
+  const publication = diagnostic.validatePublication(f.writes[0].text, { build: 'failure', app: 'skipped' });
+  return { f, result, child, publication };
+}
+function refuseBuildMutation(publication, mutate) {
+  const bad = structuredClone(publication); mutate(bad.payload);
+  assert.throws(() => diagnostic.validatePublication(JSON.stringify(bad), { build: 'failure', app: 'skipped' }), { diagnosticCode: 'REFUSED' });
+  assert.throws(() => diagnostic.encodePublication('BUILD_PREREQUISITE', bad.payload), { diagnosticCode: 'REFUSED' });
+}
+test('task44 R1 refuses nonzero exit relabeled NONE on a failed phase', async () => {
+  const f = buildFixture({ commandFault: { role: 'install', kind: 'nonzero' } }); await diagnostic.runBuildPreparation(f.options);
+  const publication = diagnostic.validatePublication(f.writes[0].text, { build: 'failure', app: 'skipped' });
+  assert.equal(publication.payload.commands.install.exitCode, 1);
+  refuseBuildMutation(publication, p => { p.commands.install.reason = 'NONE'; });
+});
+test('task44 R1 refuses no-handle output and uneventful intended pending work', async () => {
+  const f = buildFixture({ commandFault: { role: 'install', kind: 'nonzero' } }); await diagnostic.runBuildPreparation(f.options);
+  const publication = diagnostic.validatePublication(f.writes[0].text, { build: 'failure', app: 'skipped' });
+  refuseBuildMutation(publication, p => {
+    Object.assign(p.commands.install, { spawnReturned: false, exitObserved: false, exitKind: 'UNMEASURED', exitCode: null, closeObserved: false, reason: 'NONE', stdoutBytes: 1, stderrBytes: 0, combinedBytes: 1 });
+    p.phases[14].state = 'PENDING'; p.outcome = 'UNKNOWN';
+  });
+});
+test('task44 R1 refuses output attached to a no-handle spawn throw', async () => {
+  const f = buildFixture({ commandFault: { role: 'install', kind: 'throw' } }); await diagnostic.runBuildPreparation(f.options);
+  const publication = diagnostic.validatePublication(f.writes[0].text, { build: 'failure', app: 'skipped' });
+  assert.equal(publication.payload.commands.install.reason, 'SPAWN_THROW');
+  refuseBuildMutation(publication, p => { p.commands.install.stdoutBytes = 1; p.commands.install.combinedBytes = 1; });
+});
+test('task44 R1 refuses pending child-error snapshot without the collector rejection boundary', async () => {
+  const { publication } = await pendingBuildFixture('install', ['error']);
+  assert.equal(publication.payload.commands.install.reason, 'CHILD_ERROR');
+  refuseBuildMutation(publication, p => { p.commands.install.timerFired = false; });
+});
+for (const role of ['node-version', 'revision']) test(`task44 R1 preserves successful ${role} command followed by text mismatch`, async () => {
+  const f = buildFixture(); const normal = f.options.command;
+  f.options.command = async (exe, args, options) => {
+    const result = await normal(exe, args, options);
+    if (role === 'revision' ? exe === 'git' : exe === buildContext.LAWOSS_NODE_EXE && args[0] === '--version') return { ...result, text: 'wrong-text' };
+    return result;
+  };
+  const result = await diagnostic.runBuildPreparation(f.options);
+  assert.equal(result.primaryError.diagnosticCode, role === 'revision' ? 'SOURCE_MISMATCH' : 'PREREQUISITE_FAILED');
+  assert.equal(result.publicationError, null);
+  const publication = diagnostic.validatePublication(f.writes[0].text, { build: 'failure', app: 'skipped' });
+  const command = publication.payload.commands[role];
+  assert.equal(command.reason, 'NONE'); assert.equal(command.spawnReturned, true); assert.equal(command.exitObserved, true);
+  assert.equal(command.exitKind, 'CODE'); assert.equal(command.exitCode, 0); assert.equal(command.closeObserved, true);
+  assert.equal(publication.payload.phases[BUILD_PHASES.indexOf(role)].state, 'FAILED');
+  assert.equal(publication.payload.outcome, 'PREREQUISITE_FAILED');
+});
+for (const [role, events, reason] of [
+  ['install', ['error'], 'CHILD_ERROR'],
+  ['install', ['overflow'], 'OUTPUT_CAP'],
+  ['node-version', ['stderr'], 'KEEP_STDERR'],
+  ['node-version', ['error', 'overflow', 'stderr'], 'CHILD_ERROR'],
+  ['install', ['overflow', 'error'], 'OUTPUT_CAP'],
+  ['node-version', ['stderr', 'overflow', 'error'], 'KEEP_STDERR']
+]) test(`task44 R1 preserves ${events.join('/')} then timer with first reason ${reason}`, async () => {
+  const { publication, child, f } = await pendingBuildFixture(role, events);
+  const command = publication.payload.commands[role];
+  assert.equal(command.reason, reason); assert.equal(command.timerFired, true); assert.equal(command.spawnReturned, true);
+  assert.equal(command.spawnError, events.includes('error')); assert.equal(command.overflow, events.includes('overflow'));
+  assert.equal(command.keepStderrRefused, events.includes('stderr')); assert.equal(command.closeObserved, false);
+  assert.equal(publication.payload.phases[BUILD_PHASES.indexOf(role)].state, 'PENDING'); assert.equal(publication.payload.outcome, 'UNKNOWN');
+  const frozen = JSON.stringify(publication), output = f.writes[0].text;
+  child.emit('exit', 0); child.emit('close');
+  assert.equal(JSON.stringify(publication), frozen); assert.equal(f.writes.length, 1); assert.equal(f.writes[0].text, output);
+});

@@ -441,8 +441,10 @@ export function validateBuildObservation(r) {
     if (!value.attempted) { if (Object.keys(model.commands[role]).some(key => value[key] !== model.commands[role][key])) throw fail('REFUSED'); }
     else if (!entered(role) || !value.elapsedMeasured) throw fail('REFUSED');
     if ((value.spawnReturned || value.spawnError) && !value.attempted || value.closeObserved && !value.spawnReturned || value.timerFired && (!value.spawnReturned || value.closeObserved) || value.keepStderrRefused && (!role.endsWith('version') && role !== 'revision' || !value.stderrBytes)) throw fail('REFUSED');
+    // A finalized snapshot must correspond to a collector settlement boundary.
+    if (value.combinedBytes > 0 && !value.spawnReturned) throw fail('REFUSED');
     const reasonValid = {
-      NONE: !value.spawnError && !value.timerFired && !value.overflow && !value.keepStderrRefused,
+      NONE: !value.spawnError && !value.timerFired && !value.overflow && !value.keepStderrRefused && (!value.attempted || value.spawnReturned && value.exitObserved && value.exitKind === 'CODE' && value.exitCode === 0 && value.closeObserved),
       SPAWN_THROW: value.spawnError && !value.spawnReturned && !value.exitObserved && !value.closeObserved,
       CHILD_ERROR: value.spawnError && value.spawnReturned,
       NONZERO_EXIT: value.closeObserved && value.exitObserved && value.exitCode !== 0,
@@ -455,6 +457,7 @@ export function validateBuildObservation(r) {
     if (!reasonValid) throw fail('REFUSED');
     if (completed(role) && (!value.spawnReturned || !value.exitObserved || value.exitCode !== 0 || !value.closeObserved || value.reason !== 'NONE')) throw fail('REFUSED');
     if (value.attempted && !completed(role)) {
+      if (commandPending(value) && !value.timerFired) throw fail('REFUSED');
       const state = r.phases[BUILD_PHASES.indexOf(role)].state;
       if (state !== (commandPending(value) ? 'PENDING' : 'FAILED')) throw fail('REFUSED');
     }
