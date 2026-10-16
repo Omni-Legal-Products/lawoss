@@ -140,7 +140,7 @@ jobs:
       - name: Verify scheduling with the shipped engine
         run: |
           pnpm --filter legalwork-server build
-          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/scheduled-tasks/engine.test.ts
+          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts --timeout 180000 apps/server/src/scheduled-tasks/engine.test.ts
 
       - name: Verify built draft routes load in Node
         run: pnpm test:drafts:build
@@ -148,7 +148,7 @@ jobs:
       - name: Verify whole-agent prompt cache contract
         env:
           LEGALWORK_CACHE_CAPTURE: ${{ runner.temp }}/prompt-cache-capture.json
-        run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts apps/server/scripts/prompt-cache-engine.test.ts
+        run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts apps/server/scripts/prompt-cache-engine.test.ts
 
       - name: Upload synthetic prompt cache evidence
         if: always()
@@ -272,4 +272,4 @@ jobs:
           LEGALWORK_SANDBOX_INTEGRATION: '1'
         run: |
           pnpm --filter legalwork-server build
-          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox/engine.integration.test.ts apps/server/src/opencode-plugins/legalwork-skill-resources.integration.test.ts
+          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts --timeout 180000 apps/server/src/agent-sandbox/engine.integration.test.ts apps/server/src/opencode-plugins/legalwork-skill-resources.integration.test.ts

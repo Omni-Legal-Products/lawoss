@@ -38,13 +38,19 @@ const repoRoot = resolve(desktopRoot, "../..");
 
 /** Vstupné skripty, ktoré po importe spustia server alebo UI; overujú sa len staticky. */
 export const ENTRY_POINTS = new Set(["cli.js", "toy-ui.js"]);
+/**
+ * Moduly, ktoré server nenačítava: upstream ich zbalí do reťazca pre izolované prostredie
+ * (`scripts/gen-web-worker-code.ts` → `agent-sandbox/web-worker-code.ts`), ich závislosti
+ * (turndown) preto v zabalenej appke nie sú.
+ */
+export const SANDBOX_ONLY = new Set(["agent-sandbox/web-worker.js"]);
 
 /** Súbory, ktoré electron-builder z `server/dist` do asar archívu nedá alebo ktoré sa nemajú spúšťať. */
 export function isImportable(relativePath) {
   const path = relativePath.split(sep).join("/");
   if (!path.endsWith(".js") || path.endsWith(".test.js")) return false;
   if (path.startsWith("opencode-plugins/")) return false;
-  return !ENTRY_POINTS.has(path);
+  return !ENTRY_POINTS.has(path) && !SANDBOX_ONLY.has(path);
 }
 
 /** Statické `import`/`export ... from` a `import "x"` na začiatku riadku; reťazce v kóde nevadia. */

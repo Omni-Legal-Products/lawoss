@@ -30,7 +30,7 @@ require('node:fs').appendFileSync(process.env.UPLOAD_LOG, JSON.stringify(process
   for (const arch of ["arm64", "x64"]) {
     const platform = join(dist, `win-${arch}`);
     await mkdir(platform, { recursive: true });
-    const name = `legalwork-win-${arch}-1.0.0.exe`;
+    const name = `lawoss-win-${arch}-1.0.0.exe`;
     const file = join(platform, name);
     assetFiles.push(file);
     await writeFile(file, `final Windows ${arch} bytes`);
@@ -51,12 +51,12 @@ require('node:fs').appendFileSync(process.env.UPLOAD_LOG, JSON.stringify(process
   assert.equal(uploads.length, 4);
   assert.deepEqual(uploads[3], ["release", "upload", "v1.0.0", checksumFile, "--repo", "fixture/legalwork", "--clobber"]);
   const output = join(dir, "legalwork-electron-manifests");
-  assert.match(await readFile(join(output, "latest-arm64.yml"), "utf8"), /legalwork-win-arm64/);
+  assert.match(await readFile(join(output, "latest-arm64.yml"), "utf8"), /lawoss-win-arm64/);
   assert.doesNotMatch(await readFile(join(output, "latest.yml"), "utf8"), /arm64/);
 
   const windowsManifest = join(dist, "win-x64", "latest.yml");
   const originalWindowsManifest = await readFile(windowsManifest, "utf8");
-  await writeFile(windowsManifest, originalWindowsManifest + "  - url: legalwork-win-arm64-1.0.0.exe\n    sha512: fixture\n");
+  await writeFile(windowsManifest, originalWindowsManifest + "  - url: lawoss-win-arm64-1.0.0.exe\n    sha512: fixture\n");
   const mixed = run();
   assert.notEqual(mixed.status, 0);
   assert.match(mixed.stderr, /latest.yml must contain only Windows x64 installers/);
@@ -79,8 +79,9 @@ require('node:fs').appendFileSync(process.env.UPLOAD_LOG, JSON.stringify(process
   await writeFile(join(dist, "x64", "SHA256SUMS"), await createChecksums([assetFiles[1]]));
   const moved = run({ RELEASE_REPOSITORY: "fixture/lawoss-releases" });
   assert.equal(moved.status, 0, moved.stderr);
-  const movedUploads = (await readFile(log, "utf8")).trim().split("\n").map(JSON.parse).slice(2);
-  assert.equal(movedUploads.length, 2);
+  // Od v0.2.9 sa na jeden beh nahrávajú štyri súbory (aj manifest Windows ARM64).
+  const movedUploads = (await readFile(log, "utf8")).trim().split("\n").map(JSON.parse).slice(4);
+  assert.equal(movedUploads.length, 4);
   for (const upload of movedUploads) {
     assert.equal(upload[upload.indexOf("--repo") + 1], "fixture/lawoss-releases");
   }
