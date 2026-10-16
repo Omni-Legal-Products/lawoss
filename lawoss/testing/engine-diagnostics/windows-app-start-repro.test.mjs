@@ -1122,3 +1122,306 @@ test('fix1 I5 direct quarantine binary overflow retains an otherwise removable r
   assert.equal(removed, 0);
   assert.equal(r.rootsRemoved, false);
 });
+
+// Task44 controls exercise the real admission/command/build composition without native tools.
+import * as diagnostic from './windows-app-start-repro.mjs';
+import * as fixtureFs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+const BUILD_PHASES = ['admit', 'node-binding', 'source-pins', 'pnpm-location', 'pnpm-manifest', 'pnpm-file', 'node-file', 'bun-file', 'node-version', 'pnpm-version', 'bun-version', 'fresh-root', 'revision', 'source-before', 'install', 'electron-admission', 'electron-install', 'dist-reset', 'server-build', 'source-after', 'dist-identity', 'electron-identity', 'manifest-write'];
+const fixtureRoot = path.join(path.parse(process.cwd()).root, 'task44-fixture');
+const fixtureTools = path.join(fixtureRoot, 'tools');
+const fixturePnpm = path.join(fixtureTools, 'pnpm', 'node_modules', 'pnpm');
+const fixtureElectron = path.join(fixtureRoot, 'packages', 'electron');
+const fixtureCache = path.join(fixtureRoot, 'owned', 'lawoss-app-start-build', 'electron-cache');
+const buildContext = { ...context.env, LAWOSS_NODE_EXE: path.join(fixtureTools, 'node.exe'), LAWOSS_PNPM_DEST: path.join(fixtureTools, 'pnpm'), LAWOSS_BUN_EXE: path.join(fixtureTools, 'bun.exe'), RUNNER_TEMP: path.join(fixtureRoot, 'owned'), PATH: path.join(fixtureRoot, 'system'), NODE_OPTIONS: 'must-be-removed', electron_override: 'must-be-removed', npm_config_arch: 'must-be-removed', SENTINEL: 'private' };
+function buildFixture({ at, error = Error('SECRET_SENTINEL'), nodeSize = 93580104, bunSize = 86097473, commandFault, stale = false, writeError } = {}) {
+  const calls = [], writes = [], commands = [], children = [], commandOptions = [];
+  let sourceCalls = 0;
+  const hit = name => { calls.push(name); if (at === name) throw error; };
+  const io = {
+    async realpath(p) { if (p === fixturePnpm) hit('pnpm-location'); return p; },
+    async lstat(p) {
+      if (p.endsWith('windows-app-start-receipt.json')) { if (stale) return { isFile: () => true }; throw Object.assign(Error('private'), { code: 'ENOENT' }); }
+      const name = path.basename(p) === 'pnpm.mjs' ? 'pnpm-file' : p === buildContext.LAWOSS_NODE_EXE ? 'node-file' : p === buildContext.LAWOSS_BUN_EXE ? 'bun-file' : null;
+      if (name) hit(name);
+      return { isSymbolicLink: () => false, isFile: () => true, size: p === buildContext.LAWOSS_NODE_EXE ? nodeSize : p === buildContext.LAWOSS_BUN_EXE ? bunSize : 100 };
+    },
+    async readFile(p) {
+      if (p === path.join(fixturePnpm, 'package.json')) { hit('pnpm-manifest'); return JSON.stringify({ name: 'pnpm', version: '11.4.0', bin: { pnpm: 'bin/pnpm.mjs' } }); }
+      if (p === path.join(fixtureElectron, 'package.json')) return JSON.stringify({ version: '43.7.5', bin: { 'install-electron': 'install.js' } });
+      return Buffer.from('bounded-fixture');
+    },
+    async mkdir() { hit('fresh-root'); },
+    async rm() { hit('dist-reset'); },
+    async writeFile(p, text, options) {
+      if (p.endsWith('manifest.json')) hit('manifest-write');
+      else if (writeError) throw writeError;
+      writes.push({ p, text, options });
+    }
+  };
+  const launch = (exe, args, options) => {
+    const role = args[0] === '--version' ? (exe === buildContext.LAWOSS_BUN_EXE ? 'bun-version' : 'node-version') : args[1] === '--version' ? 'pnpm-version' : exe === 'git' ? 'revision' : args[1] === 'install' ? 'install' : args[0].endsWith('install.js') ? 'electron-install' : 'server-build';
+    commands.push({ role, exe, args, options });
+    hit(role);
+    if (commandFault?.role === role && commandFault.kind === 'throw') throw error;
+    const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); children.push(child);
+    queueMicrotask(() => {
+      const fault = commandFault?.role === role ? commandFault.kind : null;
+      if (fault === 'error') child.emit('error', error);
+      const version = { 'node-version': 'v24.21.0', 'pnpm-version': '11.4.0', 'bun-version': '1.4.2', revision: context.env.GITHUB_SHA }[role];
+      if (version) child.stdout.emit('data', Buffer.from(version + '\n'));
+      child.emit('exit', fault === 'nonzero' ? 1 : 0); child.emit('close');
+    });
+    return child;
+  };
+  return { calls, writes, commands, children, commandOptions, options: {
+    io, env: { ...buildContext }, node: buildContext.LAWOSS_NODE_EXE,
+    admission: () => { hit('admit'); admit(context); },
+    verifySources: async () => hit('source-pins'),
+    sourceIdentity: async () => { hit(++sourceCalls === 1 ? 'source-before' : 'source-after'); return 'b'.repeat(64); },
+    distIdentity: async () => { hit('dist-identity'); return [{ name: 'server.js', size: 100, sha256: 'c'.repeat(64) }]; },
+    electronIdentity: async () => { hit('electron-identity'); return { cacheRoot: fixtureCache }; },
+    resolveElectron: async () => { hit('electron-admission'); return fixtureElectron; },
+    command: (exe, args, options) => { commandOptions.push(options); return diagnostic.command(exe, args, { ...options, launch }); }
+  } };
+}
+test('task44 ordinary file observation comes from actual stat before size refusal', async () => {
+  const root = await fixtureFs.realpath(await fixtureFs.mkdtemp(path.join(os.tmpdir(), 'lawoss-task44-')));
+  try {
+    const filename = path.join(root, 'tool'); await fixtureFs.writeFile(filename, '12345');
+    const events = [];
+    await assert.rejects(diagnostic.ordinaryFile(filename, root, 4, e => events.push(e)));
+    assert.ok(events.some(e => e.stage === 'SIZE' && e.sizeBytes === 5));
+    assert.equal(events.at(-1).reason, 'SIZE');
+    assert.equal(JSON.stringify(events).includes(root), false);
+  } finally { await fixtureFs.rm(root, { recursive: true, force: true }); }
+});
+test('task44 official-metadata sized Node and Bun reach hashing/version through initial and recheck tools', async () => {
+  const f = buildFixture();
+  const result = await diagnostic.runBuildPreparation(f.options);
+  assert.equal(result.primaryError, null);
+  assert.equal(result.publicationError, null);
+  assert.equal(f.writes.length, 1);
+  const manifest = JSON.parse(f.writes[0].text);
+  assert.equal(manifest.tools.nodeIdentity.size, 93580104);
+  assert.equal(manifest.tools.bunIdentity.size, 86097473);
+  assert.equal(f.commands.length, 7);
+  await diagnostic.verifyBuild(manifest, { ...f.options, sourceIdentity: async () => 'b'.repeat(64) });
+  assert.equal(f.commands.length, 10);
+  assert.equal(f.writes.some(x => x.p.endsWith('windows-app-start-receipt.json')), false);
+});
+test('task44 Node cap boundary and oversize preinstall failure preserve observed clamping', async () => {
+  for (const [size, succeeds] of [[134217728, true], [134217729, false]]) {
+    const f = buildFixture({ nodeSize: size }); const result = await diagnostic.runBuildPreparation(f.options);
+    assert.equal(result.primaryError === null, succeeds);
+    if (!succeeds) {
+      const p = diagnostic.validatePublication(f.writes[0].text).payload;
+      assert.equal(p.tools.node.sizeBytes, 134217729); assert.equal(p.tools.node.sizeExact, false);
+      assert.equal(p.tools.node.refusal, 'SIZE'); assert.equal(p.tools.node.hashVerified, false);
+      assert.equal(f.commands.length, 0); assert.equal(p.rootState, 'NOT_CREATED');
+    }
+  }
+});
+for (const name of BUILD_PHASES) test(`task44 actual phase ${name} failure preserves prefix and private error`, async () => {
+  const error = Error('SECRET_SENTINEL');
+  const f = buildFixture({ at: name, error });
+  if (name === 'node-binding') f.options.env.LAWOSS_NODE_EXE = path.join(fixtureRoot, 'different', 'node.exe');
+  const result = await diagnostic.runBuildPreparation(f.options);
+  assert.ok(result.primaryError);
+  if (name !== 'node-binding' && !['node-version', 'pnpm-version', 'bun-version', 'revision', 'install', 'electron-install', 'server-build'].includes(name)) assert.equal(result.primaryError, error);
+  const p = result.observation;
+  assert.equal(p.phases[BUILD_PHASES.indexOf(name)].state, 'FAILED');
+  assert.ok(p.phases.slice(0, BUILD_PHASES.indexOf(name)).every(x => x.state === 'COMPLETED'));
+  assert.ok(p.phases.slice(BUILD_PHASES.indexOf(name) + 1).every(x => x.state === 'NOT_ENTERED'));
+  assert.equal(JSON.stringify(p).includes('SECRET_SENTINEL'), false);
+  assert.equal(p.appStage, 'NOT_RUN'); assert.equal(p.resourceClosure, 'UNKNOWN');
+  assert.ok(f.calls.every(call => BUILD_PHASES.indexOf(call) <= BUILD_PHASES.indexOf(name)));
+  assert.equal(f.writes.some(write => write.p.endsWith('manifest.json')), false);
+  if (name === 'admit') assert.equal(f.writes.length, 0);
+  else { assert.equal(f.writes.length, 1); diagnostic.validatePublication(f.writes[0].text); }
+});
+test('task44 command options preserve original seven roles and filtered install environment', async () => {
+  const f = buildFixture(); await diagnostic.runBuildPreparation(f.options);
+  assert.deepEqual(f.commands.map(x => [x.role, x.exe, x.args]), [
+    ['node-version', buildContext.LAWOSS_NODE_EXE, ['--version']], ['pnpm-version', buildContext.LAWOSS_NODE_EXE, [path.join(fixturePnpm, 'bin', 'pnpm.mjs'), '--version']], ['bun-version', buildContext.LAWOSS_BUN_EXE, ['--version']], ['revision', 'git', ['rev-parse', 'HEAD']], ['install', buildContext.LAWOSS_NODE_EXE, [path.join(fixturePnpm, 'bin', 'pnpm.mjs'), 'install', '--frozen-lockfile']], ['electron-install', buildContext.LAWOSS_NODE_EXE, [path.join(fixtureElectron, 'install.js')]], ['server-build', buildContext.LAWOSS_NODE_EXE, [path.join(fixturePnpm, 'bin', 'pnpm.mjs'), '--filter', 'legalwork-server', 'build']]
+  ]);
+  assert.deepEqual(f.commandOptions.map(o => [o.cap, o.ms, Boolean(o.keep)]), [[1024,15000,true],[1024,15000,true],[1024,15000,true],[1024,15000,true],[1048576,600000,false],[65536,300000,false],[1048576,600000,false]]);
+  const expectedEnv = { ...buildContext }; delete expectedEnv.NODE_OPTIONS; delete expectedEnv.electron_override; delete expectedEnv.npm_config_arch;
+  expectedEnv.PATH = [fixtureTools, fixtureTools, buildContext.PATH].join(path.delimiter); expectedEnv.electron_config_cache = fixtureCache;
+  for (const c of f.commands) {
+    assert.equal(c.options.cwd, diagnostic.REPO); assert.equal(c.options.windowsHide, true); assert.deepEqual(c.options.stdio, ['ignore', 'pipe', 'pipe']);
+    if (['install', 'electron-install', 'server-build'].includes(c.role)) {
+      assert.equal(JSON.stringify(c.options.env) === JSON.stringify(expectedEnv), true);
+      assert.equal('NODE_OPTIONS' in c.options.env, false); assert.equal('electron_override' in c.options.env, false); assert.equal('npm_config_arch' in c.options.env, false);
+      assert.equal(c.options.env.electron_config_cache, fixtureCache);
+      assert.equal(c.options.env.PATH, [fixtureTools, fixtureTools, buildContext.PATH].join(path.delimiter));
+    }
+  }
+});
+for (const kind of ['nonzero', 'throw', 'error']) test(`task44 install ${kind} has finite command terminality and stops later work`, async () => {
+  const f = buildFixture({ commandFault: { role: 'install', kind } }); const result = await diagnostic.runBuildPreparation(f.options);
+  const p = diagnostic.validatePublication(f.writes[0].text).payload;
+  assert.equal(p.outcome, 'PREREQUISITE_FAILED'); assert.equal(p.commands.install.reason, { nonzero: 'NONZERO_EXIT', throw: 'SPAWN_THROW', error: 'CHILD_ERROR' }[kind]);
+  assert.equal(p.commands.install.spawnReturned, kind !== 'throw'); assert.equal(p.commands.install.closeObserved, kind !== 'throw');
+  assert.equal(p.rootCreated, true); assert.equal(p.rootRetained, true);
+  assert.equal(p.tools.node.refusal, 'NONE'); assert.equal(p.phases[16].state, 'NOT_ENTERED');
+  assert.equal(result.primaryError.diagnosticCode, 'PREREQUISITE_FAILED');
+});
+test('task44 publication is exclusive, frozen, and independent from primary failure', async () => {
+  const primary = Error('private-primary'), publication = Error('private-publication');
+  const f = buildFixture({ at: 'source-before', error: primary, writeError: publication });
+  const result = await diagnostic.runBuildPreparation(f.options);
+  assert.equal(result.primaryError, primary); assert.equal(result.publicationError, publication); assert.equal(f.writes.length, 0);
+  const g = buildFixture({ at: 'source-before', error: primary }); const failed = await diagnostic.runBuildPreparation(g.options);
+  assert.equal(failed.primaryError, primary); assert.equal(g.writes.length, 1); assert.deepEqual(g.writes[0].options, { flag: 'wx', mode: 0o600 });
+  assert.ok(Object.isFrozen(failed.observation)); assert.ok(Object.isFrozen(failed.observation.phases[0]));
+  const stale = buildFixture({ stale: true }); const refused = await diagnostic.runBuildPreparation(stale.options);
+  assert.ok(refused.primaryError); assert.equal(stale.writes.length, 0); assert.equal(stale.commands.length, 0);
+});
+test('task44 mode envelope dispatch preserves app payload and binds workflow branch', async () => {
+  const app = completeReceipt();
+  const text = diagnostic.encodePublication('APP_START', app);
+  assert.deepEqual(diagnostic.validatePublication(text, { build: 'success', app: 'failure' }).payload, validateReceipt(encodeReceipt(app)));
+  assert.throws(() => diagnostic.validatePublication(encodeReceipt(app)));
+  assert.throws(() => diagnostic.validatePublication(text, { build: 'failure', app: 'skipped' }));
+  const f = buildFixture({ at: 'source-pins', error: diagnostic.fail('PREREQUISITE_FAILED') }); await diagnostic.runBuildPreparation(f.options);
+  diagnostic.validatePublication(f.writes[0].text, { build: 'failure', app: 'skipped' });
+  assert.throws(() => diagnostic.validatePublication(f.writes[0].text, { build: 'success', app: 'success' }));
+  assert.throws(() => diagnostic.validatePublication(' '.repeat(32769)));
+  for (const mutate of [x => x.mode = 'OTHER', x => x.extra = 'SECRET_SENTINEL', x => x.payload.finalized = false, x => x.payload.engine = {}, x => x.payload.phases[2].state = 'COMPLETED', x => x.payload.phases[0].elapsedMs = Infinity, x => x.payload.tools.node.sizeExact = true, x => x.payload.commands.install.combinedBytes = 1048578, x => x.payload.source.sourceBeforeDigest = 'SECRET_SENTINEL', x => x.payload.outcome = 'REPRODUCED']) {
+    const value = JSON.parse(f.writes[0].text); mutate(value); assert.throws(() => diagnostic.validatePublication(JSON.stringify(value)));
+  }
+});
+
+test('task44 default64MiB/tree32MiB and pnpm admission stay strict without large allocation', async () => {
+  for (const [max, size] of [[undefined, 67108865], [33554432, 33554433], [67108864, 93580104]]) {
+    let reads = 0;
+    const io = { realpath: async p => p, lstat: async () => ({ isFile: () => true, isSymbolicLink: () => false, size }), readFile: async () => { reads++; return Buffer.from('small'); } };
+    await assert.rejects(diagnostic.ordinaryFile(path.join(fixtureRoot, 'ordinary', 'file'), path.join(fixtureRoot, 'ordinary'), max, undefined, io), { diagnosticCode: 'PREREQUISITE_FAILED' });
+    assert.equal(reads, 0);
+  }
+  const f = buildFixture();
+  const stat = f.options.io.lstat;
+  f.options.io.lstat = async p => p.endsWith('pnpm.mjs') ? { isFile: () => true, isSymbolicLink: () => false, size: 67108865 } : stat(p);
+  const result = await diagnostic.runBuildPreparation(f.options);
+  assert.equal(result.observation.tools.pnpm.refusal, 'SIZE'); assert.equal(f.commands.length, 0);
+});
+test('task44 file guard observations preserve original errors and unmeasured missing/lexical identity', async () => {
+  const missing = Object.assign(Error('SECRET_SENTINEL'), { code: 'ENOENT' });
+  const events = [];
+  await assert.rejects(diagnostic.ordinaryFile(path.join(fixtureRoot, 'ordinary', 'file'), path.join(fixtureRoot, 'ordinary'), 10, value => { events.push(value); throw Error('observer-must-be-ignored'); }, { realpath: async () => { throw missing; } }), error => error === missing);
+  assert.deepEqual(events.at(-1), { stage: 'REFUSAL', reason: 'MISSING' });
+  for (const [kind, want] of [['lexical', 'LEXICAL'], ['outside', 'OUTSIDE'], ['symlink', 'SYMLINK'], ['directory', 'NONREGULAR']]) {
+    const log = [];
+    const io = { realpath: async p => kind === 'lexical' && path.basename(p) === 'file' ? path.join(fixtureRoot, 'ordinary', 'target') : kind === 'outside' && p === path.join(fixtureRoot, 'ordinary') ? path.join(fixtureRoot, 'other') : p, lstat: async () => ({ isSymbolicLink: () => kind === 'symlink', isFile: () => kind !== 'directory', size: 1 }), readFile: async () => { throw Error('must-not-read'); } };
+    await assert.rejects(diagnostic.ordinaryFile(path.join(fixtureRoot, 'ordinary', 'file'), path.join(fixtureRoot, 'ordinary'), 10, e => log.push(e), io));
+    assert.equal(log.at(-1).reason, want);
+  }
+});
+test('task44 version and recheck hash mismatches are refused before build use', async () => {
+  const version = buildFixture();
+  const execute = version.options.command;
+  version.options.command = async (...args) => { const r = await execute(...args); if (args[1][0] === '--version') r.text = 'wrong'; return r; };
+  const failed = await diagnostic.runBuildPreparation(version.options);
+  assert.equal(failed.observation.phases[8].state, 'FAILED'); assert.equal(version.commands.length, 1);
+  const f = buildFixture(); await diagnostic.runBuildPreparation(f.options);
+  const manifest = JSON.parse(f.writes[0].text);
+  f.options.io.readFile = async p => p === path.join(fixturePnpm, 'package.json') ? JSON.stringify({ name: 'pnpm', version: '11.4.0', bin: { pnpm: 'bin/pnpm.mjs' } }) : Buffer.from('identity-changed');
+  await assert.rejects(diagnostic.verifyBuild(manifest, { ...f.options, sourceIdentity: async () => 'b'.repeat(64) }), { diagnosticCode: 'BUILD_MISMATCH' });
+});
+for (const scenario of ['exit-without-close', 'timeout-before-exit', 'overflow', 'keep-stderr', 'child-error-then-timer']) test(`task44 composed ${scenario} freezes failure, preserves first error and never advances late`, async () => {
+  const f = buildFixture();
+  const normal = f.options.command;
+  let child, fire, observedCap, observedMs;
+  f.options.command = (exe, args, options) => {
+    if (args[1] !== 'install') return normal(exe, args, options);
+    observedCap = options.cap; observedMs = options.ms;
+    const launch = () => {
+      child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+      queueMicrotask(() => {
+        if (scenario === 'exit-without-close') child.emit('exit', 0);
+        if (scenario === 'overflow') { child.stdout.emit('data', Buffer.alloc(1048575)); child.stderr.emit('data', Buffer.alloc(2)); }
+        if (scenario === 'keep-stderr') child.stderr.emit('data', Buffer.from('SECRET_SENTINEL'));
+        if (scenario === 'child-error-then-timer') child.emit('error', Error('SECRET_SENTINEL'));
+        if (scenario === 'overflow' || scenario === 'keep-stderr') { child.emit('exit', 0); child.emit('close'); } else fire();
+      });
+      return child;
+    };
+    // keep:true is a controlled probe of the same command collector branch.
+    return diagnostic.command(exe, args, { ...options, keep: scenario === 'keep-stderr', launch, schedule: callback => { fire = callback; return {}; }, cancel: () => {} });
+  };
+  const result = await diagnostic.runBuildPreparation(f.options);
+  assert.equal(observedCap, 1048576); assert.equal(observedMs, 600000);
+  const p = result.observation;
+  assert.equal(p.phases[14].state, ['overflow', 'keep-stderr'].includes(scenario) ? 'FAILED' : 'PENDING');
+  assert.equal(p.phases[15].state, 'NOT_ENTERED'); assert.equal(p.rootRetained, true); assert.equal(p.resourceClosure, 'UNKNOWN');
+  assert.equal(p.commands.install.reason, { 'exit-without-close': 'TIMER', 'timeout-before-exit': 'TIMER', overflow: 'OUTPUT_CAP', 'keep-stderr': 'KEEP_STDERR', 'child-error-then-timer': 'CHILD_ERROR' }[scenario]);
+  assert.equal(p.commands.install.closeObserved, ['overflow', 'keep-stderr'].includes(scenario));
+  if (scenario !== 'keep-stderr') { assert.equal(f.writes.length, 1); diagnostic.validatePublication(f.writes[0].text); }
+  else {
+    // Install never requests keep:true in the real build, so this injected branch is refused at publication.
+    assert.ok(result.publicationError); assert.equal(f.writes.length, 0);
+  }
+  const frozen = JSON.stringify(p), published = f.writes.map(x => x.text);
+  child.stdout.emit('data', Buffer.from('SECRET_SENTINEL')); child.emit('exit', 0); child.emit('close');
+  assert.equal(JSON.stringify(p), frozen); assert.deepEqual(f.writes.map(x => x.text), published);
+  assert.equal(published.join('').includes('SECRET_SENTINEL'), false);
+});
+test('task44 direct keep-stderr observer preserves primary while independent overflow/timer flags accumulate', async () => {
+  let child, fire;
+  const log = [];
+  const pending = diagnostic.command('fake', [], { cap: 8, keep: true, observe: e => log.push(e), schedule: callback => { fire = callback; }, cancel: () => {}, launch: () => {
+    child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); return child;
+  } });
+  child.stderr.emit('data', Buffer.from('x')); child.stdout.emit('data', Buffer.alloc(9)); fire();
+  await assert.rejects(pending, { diagnosticCode: 'OUTPUT_LIMIT' });
+  assert.equal(log.at(-1).reason, 'KEEP_STDERR'); assert.equal(log.at(-1).overflow, true); assert.equal(log.at(-1).timerFired, true); assert.equal(log.at(-1).combinedBytes, 9);
+  const frozen = JSON.stringify(log); child.emit('exit', 0); child.emit('close'); assert.equal(JSON.stringify(log), frozen);
+});
+test('task44 encoding failure cannot replace a private error or publish an invalid source digest', async () => {
+  const primary = Error('private'); const f = buildFixture({ at: 'dist-identity', error: primary });
+  f.options.sourceIdentity = async () => 'SECRET_SENTINEL';
+  const result = await diagnostic.runBuildPreparation(f.options);
+  assert.equal(result.primaryError, primary); assert.ok(result.publicationError); assert.equal(f.writes.length, 0);
+  const mkdir = buildFixture({ at: 'fresh-root', error: primary }); const root = await diagnostic.runBuildPreparation(mkdir.options);
+  assert.equal(root.observation.rootState, 'UNKNOWN'); assert.equal(root.observation.rootRetained, null); assert.equal(root.observation.rootCreated, false);
+  diagnostic.validatePublication(mkdir.writes[0].text);
+});
+
+test('task44 observation never changes app track on synchronous spawn refusal', async () => {
+  const track = {}, log = [];
+  await assert.rejects(diagnostic.command('fake', [], { track, observe: e => log.push(e), launch: () => { throw Error('private'); } }), { diagnosticCode: 'PREREQUISITE_FAILED' });
+  assert.deepEqual(track, {}); assert.equal(log.at(-1).reason, 'SPAWN_THROW'); assert.equal(log.at(-1).spawnReturned, false);
+});
+test('task44 unobserved app command retains its original timeout rejection after child error', async () => {
+  let child, fire;
+  const pending = diagnostic.command('fake', [], { schedule: fn => { fire = fn; }, cancel: () => {}, launch: () => {
+    child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); return child;
+  } });
+  child.emit('error', Error('private')); fire();
+  await assert.rejects(pending, { diagnosticCode: 'HOST_PENDING' });
+  child.emit('exit', 0); child.emit('close');
+});
+test('task44 closed build schema refuses sentinels in every leaf and contradictory observations', async () => {
+  const f = buildFixture({ commandFault: { role: 'install', kind: 'nonzero' } }); await diagnostic.runBuildPreparation(f.options);
+  const publication = JSON.parse(f.writes[0].text);
+  function leaves(value, prefix = []) { return value && typeof value === 'object' ? Object.entries(value).flatMap(([key, child]) => leaves(child, [...prefix, key])) : [prefix]; }
+  for (const keys of leaves(publication)) {
+    const bad = structuredClone(publication); let target = bad;
+    for (const key of keys.slice(0, -1)) target = target[key]; target[keys.at(-1)] = 'SECRET_SENTINEL';
+    assert.throws(() => diagnostic.validatePublication(JSON.stringify(bad)));
+  }
+  for (const mutate of [r => r.source.revision = [r.source.revision], r => r.source.sourceBeforeDigest = [r.source.sourceBeforeDigest], r => r.rootCreationEntered = false, r => r.tools.node.refusal = 'SIZE', r => r.tools.node.maxBytes++, r => r.tools.node.sizeBytes = Infinity, r => r.commands.install.exitObserved = false, r => r.commands.install.exitCode = 0, r => r.commands.install.spawnReturned = false, r => r.phases[14].state = 'PENDING', r => r.phases[14].elapsedMs = 600001, r => r.commands.install.capBytes++, r => r.commands.install.stdoutBytes = -1]) {
+    const bad = structuredClone(publication); mutate(bad.payload); assert.throws(() => diagnostic.validatePublication(JSON.stringify(bad)));
+  }
+  const exact = f.writes[0].text.trimEnd().padEnd(32768, ' ');
+  diagnostic.validatePublication(exact);
+  assert.throws(() => diagnostic.validatePublication(exact + ' '));
+});
+test('task44 Bun admits the128MiB boundary and refuses the next byte with no command', async () => {
+  const f = buildFixture({ bunSize: 134217728 }); const good = await diagnostic.runBuildPreparation(f.options);
+  assert.equal(good.primaryError, null);
+  const g = buildFixture({ bunSize: 134217729 }); const bad = await diagnostic.runBuildPreparation(g.options);
+  assert.equal(bad.observation.tools.bun.sizeExact, false); assert.equal(bad.observation.tools.bun.refusal, 'SIZE'); assert.equal(g.commands.length, 0);
+});

@@ -260,23 +260,40 @@ export async function runGates({
   const bin = await acquire();
   return run(bin);
 }
-export async function ordinaryFile(filename, root, max = 64 * 1024 * 1024) {
-  const canonicalRoot = await fs.realpath(root),
-    canonical = await fs.realpath(filename);
-  if (canonical !== path.resolve(filename) || !canonical.startsWith(canonicalRoot + path.sep)) throw fail('PREREQUISITE_FAILED');
-  const relative = path.relative(canonicalRoot, canonical);
-  let current = canonicalRoot;
-  for (const segment of relative.split(path.sep)) {
-    current = path.join(current, segment);
-    if ((await fs.lstat(current)).isSymbolicLink()) throw fail('PREREQUISITE_FAILED');
+// Observation is advisory and content-free; it cannot alter admission errors.
+const notify = (observe, event) => { try { observe?.(event); } catch {} };
+export const TOOL_EXE_MAX = 128 * 1024 * 1024;
+export async function ordinaryFile(filename, root, max = 64 * 1024 * 1024, observe, io = fs) {
+  notify(observe, { stage: 'ATTEMPT' });
+  const refusal = reason => { notify(observe, { stage: 'REFUSAL', reason }); throw fail('PREREQUISITE_FAILED'); };
+  let issued = false;
+  const guard = reason => { issued = true; refusal(reason); };
+  try {
+    const canonicalRoot = await io.realpath(root), canonical = await io.realpath(filename);
+    if (canonical !== path.resolve(filename)) guard('LEXICAL');
+    if (!canonical.startsWith(canonicalRoot + path.sep)) guard('OUTSIDE');
+    notify(observe, { stage: 'CANONICAL' });
+    const relative = path.relative(canonicalRoot, canonical);
+    let current = canonicalRoot;
+    for (const segment of relative.split(path.sep)) {
+      current = path.join(current, segment);
+      if ((await io.lstat(current)).isSymbolicLink()) guard('SYMLINK');
+    }
+    notify(observe, { stage: 'NO_SYMLINK' });
+    const stat = await io.lstat(filename);
+    notify(observe, { stage: 'SIZE', sizeBytes: stat.size });
+    if (!stat.isFile()) guard('NONREGULAR');
+    if (stat.size <= 0 || stat.size > max) guard('SIZE');
+    const identity = { size: stat.size, sha256: sha256(await io.readFile(filename)) };
+    notify(observe, { stage: 'HASH' });
+    notify(observe, { stage: 'COMPLETE' });
+    return identity;
+  } catch (error) {
+    if (!issued) notify(observe, { stage: 'REFUSAL', reason: ['ENOENT', 'ENOTDIR'].includes(error?.code) ? 'MISSING' : 'UNKNOWN' });
+    throw error;
   }
-  const stat = await fs.lstat(filename);
-  if (!stat.isFile() || stat.size <= 0 || stat.size > max) throw fail('PREREQUISITE_FAILED');
-  return {
-    size: stat.size,
-    sha256: sha256(await fs.readFile(filename))
-  };
 }
+
 async function tree(root, base = root) {
   const rows = [];
   for (const entry of (await fs.readdir(root, {
@@ -312,6 +329,159 @@ export async function distIdentity() {
   for (const name of ['embedded.js', 'server.js', 'managed-opencode.js', 'config.js', 'workspaces.js', 'runtime-db.js', 'runtime-db-lifecycle.js', 'legalwork-runtime-config.js', 'runtime-opencode-config-store.js', 'workspace-init.js', 'core-skills.js', ...PLUGINS.map(n => `opencode-plugins/${n}.js`)]) if (!rows.some(row => row.name === name)) throw fail('PREREQUISITE_FAILED');
   return rows;
 }
+// Task44 build observations deliberately do not use the app counter schema.
+export const BUILD_PHASES = Object.freeze(['admit', 'node-binding', 'source-pins', 'pnpm-location', 'pnpm-manifest', 'pnpm-file', 'node-file', 'bun-file', 'node-version', 'pnpm-version', 'bun-version', 'fresh-root', 'revision', 'source-before', 'install', 'electron-admission', 'electron-install', 'dist-reset', 'server-build', 'source-after', 'dist-identity', 'electron-identity', 'manifest-write']);
+const BUILD_MS = 25 * 60 * 1000;
+const BUILD_COMMANDS = Object.freeze({ 'node-version': [1024, 15000], 'pnpm-version': [1024, 15000], 'bun-version': [1024, 15000], revision: [1024, 15000], install: [1048576, 600000], 'electron-install': [65536, 300000], 'server-build': [1048576, 600000] });
+const BUILD_CODES = ['NONE', 'UNKNOWN', 'REFUSED', 'PREREQUISITE_FAILED', 'SOURCE_MISMATCH', 'OUTPUT_LIMIT', 'HOST_PENDING'];
+const BUILD_REASONS = ['NONE', 'SPAWN_THROW', 'CHILD_ERROR', 'NONZERO_EXIT', 'NO_EXIT', 'TIMER', 'OUTPUT_CAP', 'KEEP_STDERR', 'UNKNOWN'];
+const TOOL_REASONS = ['NONE', 'MISSING', 'NONREGULAR', 'SYMLINK', 'OUTSIDE', 'LEXICAL', 'SIZE', 'UNKNOWN'];
+const phaseCap = name => BUILD_COMMANDS[name]?.[1] ?? BUILD_MS;
+function createCommandObservation(cap, ms) {
+  return { capBytes: cap, deadlineMs: ms, attempted: false, spawnReturned: false, spawnError: false, exitObserved: false, exitKind: 'UNMEASURED', exitCode: null, closeObserved: false, timerFired: false, stdoutBytes: 0, stderrBytes: 0, combinedBytes: 0, overflow: false, keepStderrRefused: false, elapsedMeasured: false, elapsedMs: 0, reason: 'NONE' };
+}
+function createToolObservation(maxBytes) {
+  return { attempted: false, sizeMeasured: false, sizeBytes: null, sizeExact: false, maxBytes, refusal: 'NONE', hashVerified: false, identityCompleted: false };
+}
+function observeTool(tool, event) {
+  if (event.stage === 'ATTEMPT') tool.attempted = true;
+  if (event.stage === 'SIZE') {
+    tool.sizeMeasured = Number.isSafeInteger(event.sizeBytes) && event.sizeBytes >= 0;
+    if (tool.sizeMeasured) {
+      tool.sizeBytes = Math.min(tool.maxBytes + 1, event.sizeBytes);
+      tool.sizeExact = event.sizeBytes <= tool.maxBytes;
+    }
+  }
+  if (event.stage === 'REFUSAL') tool.refusal = event.reason;
+  if (event.stage === 'HASH') tool.hashVerified = true;
+  if (event.stage === 'COMPLETE') tool.identityCompleted = true;
+}
+export function createBuildObservation(revision = null) {
+  return {
+    schema: 1, experiment: 'windows-app-start-build-prerequisite', finalized: false,
+    outcome: 'UNKNOWN', appStage: 'NOT_RUN', nativeFacts: 'UNMEASURED', cause: 'UNKNOWN',
+    fullAppWindows: 'RED unchanged', fullNativeAcceptance: false,
+    elapsedMeasured: false, elapsedMs: 0,
+    source: { revision, revisionVerified: false, sourceBeforeMeasured: false, sourceBeforeDigest: null, sourceAfterVerified: false },
+    phases: BUILD_PHASES.map(name => ({ name, state: 'NOT_ENTERED', elapsedMeasured: false, elapsedMs: 0, failureCode: 'NONE' })),
+    tools: { pnpm: createToolObservation(64 * 1024 * 1024), node: createToolObservation(TOOL_EXE_MAX), bun: createToolObservation(TOOL_EXE_MAX) },
+    commands: Object.fromEntries(Object.entries(BUILD_COMMANDS).map(([role, [cap, ms]]) => [role, createCommandObservation(cap, ms)])),
+    rootState: 'NOT_CREATED', rootCreationEntered: false, rootCreated: false, rootRetained: false, resourceClosure: 'UNKNOWN'
+  };
+}
+const closedKeys = (value, model) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(Object.keys(model).sort())) throw fail('REFUSED');
+};
+const finiteInteger = (value, max) => {
+  if (!Number.isSafeInteger(value) || value < 0 || value > max) throw fail('REFUSED');
+};
+const booleanKeys = (value, keys) => { for (const key of keys) if (typeof value[key] !== 'boolean') throw fail('REFUSED'); };
+function commandPending(value) { return value.attempted && !value.closeObserved && value.reason !== 'SPAWN_THROW'; }
+function buildOutcome(r) {
+  const terminal = r.phases.find(p => ['FAILED', 'PENDING'].includes(p.state));
+  if (!terminal || terminal.state === 'PENDING' || ['NONE', 'UNKNOWN', 'HOST_PENDING'].includes(terminal.failureCode) || r.elapsedMs > BUILD_MS || r.phases.some(p => p.elapsedMs > phaseCap(p.name))) return 'UNKNOWN';
+  return 'PREREQUISITE_FAILED';
+}
+export function validateBuildObservation(r) {
+  const model = createBuildObservation(); closedKeys(r, model);
+  for (const key of ['schema', 'experiment', 'appStage', 'nativeFacts', 'cause', 'fullAppWindows', 'fullNativeAcceptance', 'resourceClosure']) if (r[key] !== model[key]) throw fail('REFUSED');
+  booleanKeys(r, ['finalized', 'elapsedMeasured', 'rootCreationEntered', 'rootCreated']);
+  if (!r.finalized || !r.elapsedMeasured) throw fail('REFUSED');
+  finiteInteger(r.elapsedMs, BUILD_MS);
+  closedKeys(r.source, model.source);
+  booleanKeys(r.source, ['revisionVerified', 'sourceBeforeMeasured', 'sourceAfterVerified']);
+  if (r.source.revision !== null && (typeof r.source.revision !== 'string' || !/^[a-f0-9]{40}$/.test(r.source.revision))) throw fail('REFUSED');
+  if (r.source.sourceBeforeMeasured ? typeof r.source.sourceBeforeDigest !== 'string' || !/^[a-f0-9]{64}$/.test(r.source.sourceBeforeDigest) || r.source.sourceBeforeDigest === '0'.repeat(64) : r.source.sourceBeforeDigest !== null) throw fail('REFUSED');
+  if (!Array.isArray(r.phases) || r.phases.length !== BUILD_PHASES.length) throw fail('REFUSED');
+  let stopped = false, failed = false;
+  for (let i = 0; i < r.phases.length; i++) {
+    const entry = r.phases[i]; closedKeys(entry, model.phases[i]);
+    if (entry.name !== BUILD_PHASES[i] || !BUILD_CODES.includes(entry.failureCode) || typeof entry.elapsedMeasured !== 'boolean') throw fail('REFUSED');
+    finiteInteger(entry.elapsedMs, phaseCap(entry.name));
+    if (entry.state === 'COMPLETED' && !stopped) {
+      if (!entry.elapsedMeasured || entry.failureCode !== 'NONE') throw fail('REFUSED');
+    } else if (['FAILED', 'PENDING'].includes(entry.state) && !stopped) {
+      if (!entry.elapsedMeasured || entry.failureCode === 'NONE') throw fail('REFUSED');
+      stopped = true; failed = true;
+    } else if (entry.state === 'NOT_ENTERED') {
+      if (entry.elapsedMeasured || entry.elapsedMs !== 0 || entry.failureCode !== 'NONE') throw fail('REFUSED');
+      stopped = true;
+    } else throw fail('REFUSED');
+  }
+  if (!failed) throw fail('REFUSED');
+  const completed = name => r.phases[BUILD_PHASES.indexOf(name)].state === 'COMPLETED';
+  const entered = name => r.phases[BUILD_PHASES.indexOf(name)].state !== 'NOT_ENTERED';
+  if (r.source.revisionVerified !== completed('revision') || r.source.sourceBeforeMeasured !== completed('source-before') || r.source.sourceAfterVerified !== completed('source-after') || r.source.revisionVerified && !r.source.revision) throw fail('REFUSED');
+  if (!['NOT_CREATED', 'UNKNOWN', 'CREATED'].includes(r.rootState) || r.rootCreated !== completed('fresh-root') || r.rootCreated && !r.rootCreationEntered || r.rootCreationEntered && !entered('fresh-root') || r.rootRetained !== (r.rootCreated ? true : r.rootCreationEntered ? null : false) || r.rootState !== (r.rootCreated ? 'CREATED' : r.rootCreationEntered ? 'UNKNOWN' : 'NOT_CREATED')) throw fail('REFUSED');
+  closedKeys(r.tools, model.tools);
+  for (const role of ['pnpm', 'node', 'bun']) {
+    const value = r.tools[role]; closedKeys(value, model.tools[role]);
+    booleanKeys(value, ['attempted', 'sizeMeasured', 'sizeExact', 'hashVerified', 'identityCompleted']);
+    if (value.maxBytes !== model.tools[role].maxBytes || !TOOL_REASONS.includes(value.refusal)) throw fail('REFUSED');
+    if (value.sizeMeasured) {
+      finiteInteger(value.sizeBytes, value.maxBytes + 1);
+      if (value.sizeExact !== (value.sizeBytes <= value.maxBytes)) throw fail('REFUSED');
+    } else if (value.sizeBytes !== null || value.sizeExact) throw fail('REFUSED');
+    if (value.refusal === 'SIZE' && (!value.sizeMeasured || value.sizeBytes > 0 && value.sizeBytes <= value.maxBytes) || ['SYMLINK', 'LEXICAL', 'OUTSIDE'].includes(value.refusal) && value.sizeMeasured) throw fail('REFUSED');
+    if (value.attempted && !entered(`${role}-file`) || !value.attempted && Object.keys(model.tools[role]).some(key => value[key] !== model.tools[role][key])) throw fail('REFUSED');
+    if (completed(`${role}-file`) !== value.identityCompleted || value.hashVerified !== value.identityCompleted || value.identityCompleted && (!value.attempted || !value.sizeMeasured || !value.sizeExact || value.sizeBytes <= 0 || value.refusal !== 'NONE')) throw fail('REFUSED');
+  }
+  closedKeys(r.commands, model.commands);
+  for (const [role, [cap, ms]] of Object.entries(BUILD_COMMANDS)) {
+    const value = r.commands[role]; closedKeys(value, model.commands[role]);
+    booleanKeys(value, ['attempted', 'spawnReturned', 'spawnError', 'exitObserved', 'closeObserved', 'timerFired', 'overflow', 'keepStderrRefused', 'elapsedMeasured']);
+    if (value.capBytes !== cap || value.deadlineMs !== ms || !BUILD_REASONS.includes(value.reason)) throw fail('REFUSED');
+    for (const key of ['stdoutBytes', 'stderrBytes', 'combinedBytes']) finiteInteger(value[key], cap + 1);
+    finiteInteger(value.elapsedMs, ms);
+    if (value.combinedBytes !== Math.min(cap + 1, value.stdoutBytes + value.stderrBytes) || value.overflow !== (value.combinedBytes > cap)) throw fail('REFUSED');
+    if (value.exitObserved) {
+      if (!value.spawnReturned || !['CODE', 'UNKNOWN'].includes(value.exitKind)) throw fail('REFUSED');
+      if (value.exitKind === 'CODE') finiteInteger(value.exitCode, 255); else if (value.exitCode !== null) throw fail('REFUSED');
+    } else if (value.exitKind !== 'UNMEASURED' || value.exitCode !== null) throw fail('REFUSED');
+    if (!value.attempted) { if (Object.keys(model.commands[role]).some(key => value[key] !== model.commands[role][key])) throw fail('REFUSED'); }
+    else if (!entered(role) || !value.elapsedMeasured) throw fail('REFUSED');
+    if ((value.spawnReturned || value.spawnError) && !value.attempted || value.closeObserved && !value.spawnReturned || value.timerFired && (!value.spawnReturned || value.closeObserved) || value.keepStderrRefused && (!role.endsWith('version') && role !== 'revision' || !value.stderrBytes)) throw fail('REFUSED');
+    const reasonValid = {
+      NONE: !value.spawnError && !value.timerFired && !value.overflow && !value.keepStderrRefused,
+      SPAWN_THROW: value.spawnError && !value.spawnReturned && !value.exitObserved && !value.closeObserved,
+      CHILD_ERROR: value.spawnError && value.spawnReturned,
+      NONZERO_EXIT: value.closeObserved && value.exitObserved && value.exitCode !== 0,
+      NO_EXIT: value.closeObserved && !value.exitObserved,
+      TIMER: value.timerFired,
+      OUTPUT_CAP: value.overflow,
+      KEEP_STDERR: value.keepStderrRefused,
+      UNKNOWN: true
+    }[value.reason];
+    if (!reasonValid) throw fail('REFUSED');
+    if (completed(role) && (!value.spawnReturned || !value.exitObserved || value.exitCode !== 0 || !value.closeObserved || value.reason !== 'NONE')) throw fail('REFUSED');
+    if (value.attempted && !completed(role)) {
+      const state = r.phases[BUILD_PHASES.indexOf(role)].state;
+      if (state !== (commandPending(value) ? 'PENDING' : 'FAILED')) throw fail('REFUSED');
+    }
+  }
+  if (r.outcome !== buildOutcome(r)) throw fail('REFUSED');
+  return r;
+}
+function freezeCopy(value) {
+  const copy = structuredClone(value);
+  const freeze = item => { if (item && typeof item === 'object') { for (const child of Object.values(item)) freeze(child); Object.freeze(item); } };
+  freeze(copy); return copy;
+}
+export function encodePublication(mode, payload) {
+  const copy = freezeCopy({ schema: 1, experiment: 'windows-app-start-diagnostic', mode, payload });
+  const text = JSON.stringify(copy) + '\n';
+  validatePublication(text);
+  return text;
+}
+export function validatePublication(text, steps) {
+  if (typeof text !== 'string' || Buffer.byteLength(text) > LIMITS.receipt) throw fail('REFUSED');
+  let r; try { r = JSON.parse(text); } catch { throw fail('REFUSED'); }
+  closedKeys(r, { schema: 1, experiment: '', mode: '', payload: {} });
+  if (r.schema !== 1 || r.experiment !== 'windows-app-start-diagnostic' || !['APP_START', 'BUILD_PREREQUISITE'].includes(r.mode)) throw fail('REFUSED');
+  if (r.mode === 'APP_START') validateReceipt(encodeReceipt(r.payload)); else validateBuildObservation(r.payload);
+  if (steps && (r.mode === 'BUILD_PREREQUISITE' ? steps.build !== 'failure' || steps.app !== 'skipped' : steps.build !== 'success' || !['success', 'failure'].includes(steps.app))) throw fail('REFUSED');
+  return r;
+}
 export async function command(exe, args, {
   env = process.env,
   cwd = REPO,
@@ -319,104 +489,114 @@ export async function command(exe, args, {
   cap = 65536,
   keep = false,
   track,
+  observe,
+  schedule = setTimeout,
+  cancel = clearTimeout,
   launch = childProcess.spawn
 } = {}) {
   // Output is bounded before retention; never echo build/probe/native output.
   return new Promise((resolve, reject) => {
-    const frame = boundedFrame(cap);
-    let child,
-      timer,
-      exited = false,
-      closed = false,
-      code,
-      problem,
-      settled = false;
+    const frame = boundedFrame(cap), started = performance.now();
+    const observed = createCommandObservation(cap, ms);
+    let child, timer, exited = false, closed = false, code, problem, settled = false;
     const snapshot = () => {
       if (track && !settled) Object.assign(track, {
-        spawn: child ? 1 : 0,
-        exit: exited ? 1 : 0,
-        close: closed ? 1 : 0,
+        spawn: child ? 1 : 0, exit: exited ? 1 : 0, close: closed ? 1 : 0,
         outputBytes: Math.min(65537, frame.size)
       });
     };
-    const refuse = code => {
-      snapshot();
-      settled = true;
-      reject(fail(code));
+    const publish = () => {
+      if (settled) return;
+      observed.elapsedMeasured = true;
+      observed.elapsedMs = Math.round(performance.now() - started);
+      notify(observe, structuredClone(observed));
     };
+    const problemAt = (value, reason) => {
+      // Build observation retains its first failure. Unobserved app calls keep
+      // their existing promise behavior and the separate track protocol.
+      if (!problem) observed.reason = reason;
+      if (!problem || !observe) problem = value;
+    };
+    const refuse = value => {
+      if (settled) return;
+      snapshot(); publish(); settled = true; reject(fail(value));
+    };
+    observed.attempted = true;
     try {
-      child = launch(exe, args, {
-        env,
-        cwd,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true
-      });
+      child = launch(exe, args, { env, cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+      observed.spawnReturned = true;
     } catch {
-      reject(fail('PREREQUISITE_FAILED'));
-      return;
+      observed.spawnError = true; problemAt('PREREQUISITE_FAILED', 'SPAWN_THROW');
+      publish(); settled = true; reject(fail('PREREQUISITE_FAILED')); return;
     }
-    snapshot();
-    timer = setTimeout(() => {
-      problem = 'HOST_PENDING';
+    snapshot(); publish();
+    timer = schedule(() => {
+      if (settled) return;
+      observed.timerFired = true;
+      problemAt('HOST_PENDING', 'TIMER');
+      // No termination or join is implied. Freeze the observation at rejection.
       refuse(problem);
     }, ms);
     child.on('error', () => {
-      problem = 'PREREQUISITE_FAILED';
+      if (settled) return;
+      observed.spawnError = true; problemAt('PREREQUISITE_FAILED', 'CHILD_ERROR'); publish();
     });
-    child.stdout.on('data', bytes => {
-      if (!frame.push(bytes)) problem = 'OUTPUT_LIMIT';
-    });
-    child.stderr.on('data', bytes => {
-      if (keep && bytes.length) problem = 'OUTPUT_LIMIT';
-      if (!frame.push(bytes)) problem = 'OUTPUT_LIMIT';
-    });
+    const output = (bytes, stream) => {
+      // Keep enforcing the original bounded quarantine even after publication.
+      if (!settled) {
+        observed[stream] = Math.min(cap + 1, observed[stream] + bytes.length);
+        observed.combinedBytes = Math.min(cap + 1, observed.combinedBytes + bytes.length);
+        if (stream === 'stderrBytes' && keep && bytes.length) {
+          observed.keepStderrRefused = true; problemAt('OUTPUT_LIMIT', 'KEEP_STDERR');
+        }
+      }
+      if (!frame.push(bytes) && !settled) { observed.overflow = true; problemAt('OUTPUT_LIMIT', 'OUTPUT_CAP'); }
+      publish();
+    };
+    child.stdout.on('data', bytes => output(bytes, 'stdoutBytes'));
+    child.stderr.on('data', bytes => output(bytes, 'stderrBytes'));
     child.once('exit', value => {
-      exited = true;
-      code = value;
+      exited = true; code = value;
+      if (!settled) {
+        observed.exitObserved = true;
+        observed.exitKind = Number.isInteger(value) && value >= 0 && value <= 255 ? 'CODE' : 'UNKNOWN';
+        observed.exitCode = observed.exitKind === 'CODE' ? value : null;
+        publish();
+      }
     });
     child.once('close', () => {
-      closed = true;
-      clearTimeout(timer);
-      snapshot();
-      if (problem || !exited || code !== 0) refuse(problem ?? 'PREREQUISITE_FAILED');else {
-        settled = true;
-        resolve({
-          text: keep ? frame.finish() : '',
-          bytes: frame.size,
-          spawn: 1,
-          exit: 1,
-          close: 1
-        });
-      }
+      closed = true; cancel(timer);
+      if (settled) return;
+      observed.closeObserved = true; snapshot();
+      if (!exited) problemAt('PREREQUISITE_FAILED', 'NO_EXIT');
+      else if (code !== 0) problemAt('PREREQUISITE_FAILED', 'NONZERO_EXIT');
+      if (problem) refuse(problem);
+      else { publish(); settled = true; resolve({ text: keep ? frame.finish() : '', bytes: frame.size, spawn: 1, exit: 1, close: 1 }); }
     });
   });
 }
-const privateBuildRoot = () => path.join(process.env.RUNNER_TEMP ?? '', 'lawoss-app-start-build');
-async function tools() {
-  const dest = process.env.LAWOSS_PNPM_DEST,
-    bun = process.env.LAWOSS_BUN_EXE;
-  if (!dest || !bun || ![dest, bun, process.execPath].every(path.isAbsolute)) throw fail('PREREQUISITE_FAILED');
-  const packageRoot = await fs.realpath(path.join(dest, 'node_modules/pnpm')),
-    cli = path.join(packageRoot, 'bin/pnpm.mjs');
-  const manifest = JSON.parse(await fs.readFile(path.join(packageRoot, 'package.json'), 'utf8'));
-  if (manifest.name !== 'pnpm' || manifest.version !== '11.4.0' || manifest.bin?.pnpm !== 'bin/pnpm.mjs') throw fail('PREREQUISITE_FAILED');
-  const pnpmIdentity = await ordinaryFile(cli, packageRoot),
-    nodeIdentity = await ordinaryFile(process.execPath, path.dirname(process.execPath)),
-    bunIdentity = await ordinaryFile(bun, path.dirname(bun));
-  for (const [exe, args, expected] of [[process.execPath, ['--version'], 'v24.21.0'], [process.execPath, [cli, '--version'], '11.4.0'], [bun, ['--version'], '1.4.2']]) if ((await command(exe, args, {
-    keep: true,
-    cap: 1024,
-    ms: 15000
-  })).text.trim() !== expected) throw fail('PREREQUISITE_FAILED');
-  return {
-    cli,
-    bun,
-    node: process.execPath,
-    pnpmIdentity,
-    nodeIdentity,
-    bunIdentity
-  };
+const privateBuildRoot = (env = process.env) => path.join(env.RUNNER_TEMP ?? '', 'lawoss-app-start-build');
+export async function tools({ env = process.env, node = process.execPath, io = fs, command: execute = command, phase = (_name, op) => op(), observation } = {}) {
+  const dest = env.LAWOSS_PNPM_DEST, bun = env.LAWOSS_BUN_EXE;
+  const packageRoot = await phase('pnpm-location', async () => {
+    if (!dest || !bun || ![dest, bun, node].every(path.isAbsolute)) throw fail('PREREQUISITE_FAILED');
+    return io.realpath(path.join(dest, 'node_modules/pnpm'));
+  });
+  const cli = path.join(packageRoot, 'bin/pnpm.mjs');
+  await phase('pnpm-manifest', async () => {
+    const manifest = JSON.parse(await io.readFile(path.join(packageRoot, 'package.json'), 'utf8'));
+    if (manifest.name !== 'pnpm' || manifest.version !== '11.4.0' || manifest.bin?.pnpm !== 'bin/pnpm.mjs') throw fail('PREREQUISITE_FAILED');
+  });
+  const file = (role, filename, root, max) => phase(`${role}-file`, () => ordinaryFile(filename, root, max, observation ? event => observeTool(observation.tools[role], event) : undefined, io));
+  const pnpmIdentity = await file('pnpm', cli, packageRoot, undefined),
+    nodeIdentity = await file('node', node, path.dirname(node), TOOL_EXE_MAX),
+    bunIdentity = await file('bun', bun, path.dirname(bun), TOOL_EXE_MAX);
+  for (const [role, exe, args, expected] of [['node-version', node, ['--version'], 'v24.21.0'], ['pnpm-version', node, [cli, '--version'], '11.4.0'], ['bun-version', bun, ['--version'], '1.4.2']]) await phase(role, async () => {
+    if ((await execute(exe, args, { keep: true, cap: 1024, ms: 15000, env, observe: observation ? value => { observation.commands[role] = value; } : undefined })).text.trim() !== expected) throw fail('PREREQUISITE_FAILED');
+  });
+  return { cli, bun, node, pnpmIdentity, nodeIdentity, bunIdentity };
 }
+
 export async function electronIdentity(cacheRoot = path.join(privateBuildRoot(), 'electron-cache')) {
   const require = createRequire(path.join(REPO, 'apps/desktop/package.json'));
   const packageFile = await fs.realpath(require.resolve('electron/package.json'));
@@ -445,79 +625,118 @@ export async function electronIdentity(cacheRoot = path.join(privateBuildRoot(),
     cacheRoot
   };
 }
-async function buildCi() {
-  admit();
-  if (process.env.LAWOSS_NODE_EXE !== process.execPath) throw fail('PREREQUISITE_FAILED');
-  await verifySources();
-  const tool = await tools(),
-    root = privateBuildRoot();
-  if (!path.isAbsolute(root) || !process.env.RUNNER_TEMP) throw fail('REFUSED');
-  await fs.mkdir(root); // refuse reuse; no stale build provenance
-  const revision = (await command('git', ['rev-parse', 'HEAD'], {
-    keep: true,
-    cap: 1024,
-    ms: 15000
-  })).text.trim();
-  if (revision !== process.env.GITHUB_SHA) throw fail('SOURCE_MISMATCH');
-  const before = await sourceIdentity();
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^electron_|^npm_config_electron_|^npm_config_(arch|platform|target_arch)$|^ELECTRON_|^NODE_OPTIONS$/i.test(key)));
-  env.PATH = [path.dirname(tool.node), path.dirname(tool.bun), process.env.PATH ?? process.env.Path ?? ''].join(path.delimiter);
-  env.electron_config_cache = path.join(root, 'electron-cache');
-  await command(tool.node, [tool.cli, 'install', '--frozen-lockfile'], {
-    env,
-    ms: 600000,
-    cap: 1024 * 1024
-  });
-  const require = createRequire(path.join(REPO, 'apps/desktop/package.json'));
-  const electronPackage = path.dirname(await fs.realpath(require.resolve('electron/package.json')));
-  const electronManifest = JSON.parse(await fs.readFile(path.join(electronPackage, 'package.json'), 'utf8'));
-  if (electronManifest.version !== '43.7.5' || electronManifest.bin?.['install-electron'] !== 'install.js') throw fail('PREREQUISITE_FAILED');
-  await ordinaryFile(path.join(electronPackage, 'install.js'), electronPackage);
-  await command(tool.node, [path.join(electronPackage, 'install.js')], {
-    env,
-    ms: 300000,
-    cap: 65536
-  });
-  await fs.rm(path.join(REPO, 'apps/server/dist'), {
-    recursive: true,
-    force: true
-  });
-  await command(tool.node, [tool.cli, '--filter', 'legalwork-server', 'build'], {
-    env,
-    ms: 600000,
-    cap: 1024 * 1024
-  });
-  if ((await sourceIdentity()) !== before) throw fail('SOURCE_MISMATCH');
-  const manifest = {
-    schema: 1,
-    revision: process.env.GITHUB_SHA,
-    source: before,
-    tools: tool,
-    buildSuccess: true,
-    dist: await distIdentity(),
-    electron: await electronIdentity()
-  };
-  await fs.writeFile(path.join(root, 'manifest.json'), JSON.stringify(manifest), {
-    flag: 'wx',
-    mode: 0o600
-  });
+const publicReceipt = path.join(REPO, 'windows-app-start-receipt.json');
+async function assertAbsent(io, filename) {
+  try { await io.lstat(filename); } catch (error) { if (error?.code === 'ENOENT') return; throw error; }
+  throw fail('REFUSED');
 }
-export async function verifyBuild(manifest) {
-  if (manifest?.schema !== 1 || manifest.electron?.cacheRoot !== path.join(privateBuildRoot(), 'electron-cache') || manifest.revision !== process.env.GITHUB_SHA || manifest.buildSuccess !== true || manifest.source !== (await sourceIdentity()) || JSON.stringify(manifest.dist) !== JSON.stringify(await distIdentity()) || JSON.stringify(manifest.electron) !== JSON.stringify(await electronIdentity(manifest.electron.cacheRoot))) throw fail('BUILD_MISMATCH');
-  const current = await tools();
+async function defaultElectronPackage() {
+  const require = createRequire(path.join(REPO, 'apps/desktop/package.json'));
+  return path.dirname(await fs.realpath(require.resolve('electron/package.json')));
+}
+export async function runBuildPreparation({
+  io = fs, env = process.env, node = process.execPath, admission = admit,
+  verifySources: sources = verifySources, sourceIdentity: source = sourceIdentity,
+  distIdentity: dist = distIdentity, electronIdentity: electron = electronIdentity,
+  resolveElectron = defaultElectronPackage, command: execute = command
+} = {}) {
+  const observation = createBuildObservation(/^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? '') ? env.GITHUB_SHA : null);
+  const started = performance.now();
+  let primaryError = null, publicationError = null, admitted = false, publicationAbsent = false;
+  const phase = async (name, operation) => {
+    const entry = observation.phases[BUILD_PHASES.indexOf(name)], start = performance.now();
+    entry.state = 'ENTERED';
+    try {
+      const value = await operation(); entry.state = 'COMPLETED'; return value;
+    } catch (error) {
+      entry.failureCode = BUILD_CODES.includes(error?.diagnosticCode) && error.diagnosticCode !== 'NONE' ? error.diagnosticCode : 'UNKNOWN';
+      entry.state = observation.commands[name] && commandPending(observation.commands[name]) ? 'PENDING' : 'FAILED';
+      throw error;
+    } finally { entry.elapsedMeasured = true; entry.elapsedMs = Math.round(performance.now() - start); }
+  };
+  const runCommand = (role, exe, args, options) => execute(exe, args, { ...options, observe: value => { observation.commands[role] = value; } });
+  try {
+    await phase('admit', async () => {
+      admission(); admitted = true;
+      // Admission authorizes only this fixed CI publication, never arbitrary CLI writes.
+      await assertAbsent(io, publicReceipt); publicationAbsent = true;
+    });
+    await phase('node-binding', async () => { if (env.LAWOSS_NODE_EXE !== node) throw fail('PREREQUISITE_FAILED'); });
+    await phase('source-pins', () => sources());
+    const tool = await tools({ env, node, io, command: execute, phase, observation }), root = privateBuildRoot(env);
+    await phase('fresh-root', async () => {
+      if (!path.isAbsolute(root) || !env.RUNNER_TEMP) throw fail('REFUSED');
+      observation.rootState = 'UNKNOWN'; observation.rootCreationEntered = true; observation.rootRetained = null;
+      await io.mkdir(root); // refuse reuse; no stale build provenance
+      observation.rootCreated = true; observation.rootRetained = true; observation.rootState = 'CREATED';
+    });
+    await phase('revision', async () => {
+      const revision = (await runCommand('revision', 'git', ['rev-parse', 'HEAD'], { keep: true, cap: 1024, ms: 15000, env })).text.trim();
+      if (revision !== env.GITHUB_SHA) throw fail('SOURCE_MISMATCH');
+      observation.source.revisionVerified = true;
+    });
+    const before = await phase('source-before', async () => {
+      const digest = await source(); observation.source.sourceBeforeMeasured = true; observation.source.sourceBeforeDigest = digest; return digest;
+    });
+    let buildEnv;
+    await phase('install', async () => {
+      buildEnv = Object.fromEntries(Object.entries(env).filter(([key]) => !/^electron_|^npm_config_electron_|^npm_config_(arch|platform|target_arch)$|^ELECTRON_|^NODE_OPTIONS$/i.test(key)));
+      buildEnv.PATH = [path.dirname(tool.node), path.dirname(tool.bun), env.PATH ?? env.Path ?? ''].join(path.delimiter);
+      buildEnv.electron_config_cache = path.join(root, 'electron-cache');
+      await runCommand('install', tool.node, [tool.cli, 'install', '--frozen-lockfile'], { env: buildEnv, ms: 600000, cap: 1024 * 1024 });
+    });
+    const electronPackage = await phase('electron-admission', async () => {
+      const packageRoot = await resolveElectron();
+      const manifest = JSON.parse(await io.readFile(path.join(packageRoot, 'package.json'), 'utf8'));
+      if (manifest.version !== '43.7.5' || manifest.bin?.['install-electron'] !== 'install.js') throw fail('PREREQUISITE_FAILED');
+      await ordinaryFile(path.join(packageRoot, 'install.js'), packageRoot, undefined, undefined, io);
+      return packageRoot;
+    });
+    await phase('electron-install', () => runCommand('electron-install', tool.node, [path.join(electronPackage, 'install.js')], { env: buildEnv, ms: 300000, cap: 65536 }));
+    await phase('dist-reset', () => io.rm(path.join(REPO, 'apps/server/dist'), { recursive: true, force: true }));
+    await phase('server-build', () => runCommand('server-build', tool.node, [tool.cli, '--filter', 'legalwork-server', 'build'], { env: buildEnv, ms: 600000, cap: 1024 * 1024 }));
+    await phase('source-after', async () => {
+      if (await source() !== before) throw fail('SOURCE_MISMATCH'); observation.source.sourceAfterVerified = true;
+    });
+    const manifest = {
+      schema: 1, revision: env.GITHUB_SHA, source: before, tools: tool, buildSuccess: true,
+      dist: await phase('dist-identity', () => dist()),
+      electron: await phase('electron-identity', () => electron())
+    };
+    await phase('manifest-write', () => io.writeFile(path.join(root, 'manifest.json'), JSON.stringify(manifest), { flag: 'wx', mode: 0o600 }));
+  } catch (error) { primaryError = error; }
+  observation.elapsedMeasured = true; observation.elapsedMs = Math.round(performance.now() - started);
+  observation.finalized = true; observation.outcome = buildOutcome(observation);
+  const frozen = freezeCopy(observation);
+  if (primaryError && admitted && publicationAbsent) {
+    try { await io.writeFile(publicReceipt, encodePublication('BUILD_PREREQUISITE', frozen), { flag: 'wx', mode: 0o600 }); }
+    catch (error) { publicationError = error; }
+  }
+  return { observation: frozen, primaryError, publicationError };
+}
+async function buildCi() {
+  const result = await runBuildPreparation();
+  if (result.primaryError || result.publicationError) throw result.primaryError ?? result.publicationError;
+}
+export async function verifyBuild(manifest, {
+  env = process.env, sourceIdentity: source = sourceIdentity, distIdentity: dist = distIdentity,
+  electronIdentity: electron = electronIdentity, ...toolOptions
+} = {}) {
+  if (manifest?.schema !== 1 || manifest.electron?.cacheRoot !== path.join(privateBuildRoot(env), 'electron-cache') || manifest.revision !== env.GITHUB_SHA || manifest.buildSuccess !== true || manifest.source !== (await source()) || JSON.stringify(manifest.dist) !== JSON.stringify(await dist()) || JSON.stringify(manifest.electron) !== JSON.stringify(await electron(manifest.electron.cacheRoot))) throw fail('BUILD_MISMATCH');
+  const current = await tools({ ...toolOptions, env });
   if (JSON.stringify(current) !== JSON.stringify(manifest.tools)) throw fail('BUILD_MISMATCH');
   return sha256(JSON.stringify(manifest));
 }
+
 async function runCi() {
   const r = createReceipt(),
     started = performance.now(),
     receipt = path.join(REPO, 'windows-app-start-receipt.json');
   let root, manifest;
-  await fs.rm(receipt, {
-    force: true
-  });
+  admit();
+  if (process.env.LAWOSS_BUILD_CONCLUSION !== 'success') throw fail('REFUSED');
+  await assertAbsent(fs, receipt);
   try {
-    admit();
     r.source.revision = process.env.GITHUB_SHA;
     manifest = JSON.parse(await fs.readFile(path.join(privateBuildRoot(), 'manifest.json'), 'utf8'));
     r.source.digest = await sourceIdentity();
@@ -626,7 +845,7 @@ async function runCi() {
   r.elapsedMeasured = true;
   r.finalized = true;
   r.outcome = classifyReceipt(r);
-  await fs.writeFile(receipt, encodeReceipt(r), {
+  await fs.writeFile(receipt, encodePublication('APP_START', r), {
     flag: 'wx',
     mode: 0o600
   });
@@ -636,7 +855,7 @@ async function validatePublished() {
   const filename = path.join(REPO, 'windows-app-start-receipt.json');
   const stat = await fs.lstat(filename);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > LIMITS.receipt) throw fail('REFUSED');
-  validateReceipt(await fs.readFile(filename, 'utf8'));
+  validatePublication(await fs.readFile(filename, 'utf8'), { build: process.env.LAWOSS_BUILD_CONCLUSION, app: process.env.LAWOSS_APP_CONCLUSION });
 }
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   const mode = process.argv[2];

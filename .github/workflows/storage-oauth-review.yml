@@ -60,13 +60,16 @@ jobs:
           & $env:LAWOSS_NODE_EXE --test --test-reporter=tap lawoss/testing/engine-diagnostics/windows-app-start-repro.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'DIAGNOSTIC_TESTS' }
       - name: Frozen genuine dependencies, Electron installation and server build
+        id: build-prerequisite
         env:
           LAWOSS_REPRO_PLATFORM: ${{ inputs.platform }}
         run: |
           & $env:LAWOSS_NODE_EXE lawoss/testing/engine-diagnostics/windows-app-start-repro.mjs --build-ci
           if ($LASTEXITCODE -ne 0) { throw 'BUILD_PREREQUISITE' }
       - name: Coupled headless app-start diagnostic
+        id: app-start
         env:
+          LAWOSS_BUILD_CONCLUSION: ${{ steps.build-prerequisite.conclusion }}
           LAWOSS_REPRO_PLATFORM: ${{ inputs.platform }}
         run: |
           & $env:LAWOSS_NODE_EXE lawoss/testing/engine-diagnostics/windows-app-start-repro.mjs --run-ci
@@ -74,11 +77,16 @@ jobs:
       - name: Validate finalized synthetic receipt
         id: receipt
         if: always()
+        env:
+          LAWOSS_BUILD_CONCLUSION: ${{ steps.build-prerequisite.conclusion }}
+          LAWOSS_APP_CONCLUSION: ${{ steps.app-start.conclusion }}
         run: |
           if (Test-Path -LiteralPath windows-app-start-receipt.json) {
             & $env:LAWOSS_NODE_EXE lawoss/testing/engine-diagnostics/windows-app-start-repro.mjs --validate-receipt
             if ($LASTEXITCODE -ne 0) { throw 'RECEIPT_REFUSED' }
             'present=true' >> $env:GITHUB_OUTPUT
+          } else {
+            'present=false' >> $env:GITHUB_OUTPUT
           }
       - name: Save only validated synthetic receipt
         if: always() && steps.receipt.outputs.present == 'true'

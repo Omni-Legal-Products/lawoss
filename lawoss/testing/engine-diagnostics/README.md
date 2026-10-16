@@ -196,3 +196,30 @@ hooks, child/fetch bounds and output quarantine. Late identity failures have a
 separate field and preserve actually observed closure/removal and primary or
 cleanup errors. Quarantine counts strings and binary byteLength; arbitrary
 console arguments are counted without coercion or serialization (cap1000).
+
+Task44 adds a version1 publication envelope at that same sole public path and
+artifact: `{schema:1, experiment:"windows-app-start-diagnostic", mode, payload}`.
+`APP_START` wraps the unchanged app receipt; `BUILD_PREREQUISITE` contains only
+closed finite build observations for the actual23 ordered prerequisite phases,
+captured pnpm/Node/Bun file checks and seven commands. Node/Bun executable
+admission is128MiB in the shared initial/recheck tool path; pnpm remains64MiB.
+This is a ceiling, not an expected size or authenticity proof.
+Build success writes only its private manifest; failure can exclusively publish
+one finalized build receipt after CI admission and an absent-path check. The
+app branch requires build success and refuses existing public evidence. The
+always-run validator binds mode to actual build/app step conclusions before
+the sole uploader: failed build + skipped app for BUILD, successful build +
+executed app for APP. Missing receipt exports `present=false`; it is UNKNOWN,
+not a passed diagnostic. Old bare payloads are refused at this new CLI boundary.
+A separately approved source-first external reader must qualify the new union
+before any later run/body acquisition; the historical Task43 reader stays frozen.
+
+Build observations never claim app execution, native facts, causal reproduction
+or tree-wide closure. Unmeasured identity/size fields remain null; over-limit
+file sizes are clamped at the admitted maximum+1 with `sizeExact:false`. First
+command failures, independent spawn/exit/close/timer/output flags and primary vs
+publication errors remain distinct. A timeout freezes observation without killing
+or joining the pending child; retained roots/resources and cause remain UNKNOWN.
+A stuck child or infrastructure timeout can prevent validation/upload entirely.
+No artifact delivery, Windows installation/build pass or native acceptance is
+established by pure/fake source checks. Full Windows app remains RED unchanged.
