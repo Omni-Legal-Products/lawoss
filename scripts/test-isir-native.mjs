@@ -14,7 +14,7 @@ import { stopForRelaunch } from "../lawoss/testing/isir/native/relaunch-stop.mjs
 import { stopNativeChild } from "../lawoss/testing/isir/native/owned-process.mjs";
 import { createNativeDiagnostics, settleCleanup, errorMetadata, observePromptClick } from "../lawoss/testing/isir/native/diagnostics.mjs";
 import { configureNativeProvider } from "../lawoss/testing/isir/native/bootstrap.mjs";
-import { installChooserBoundary } from "../lawoss/testing/isir/native/chooser-boundary.mjs";
+import { openNativeProjectFiles } from "../lawoss/testing/isir/native/project-files-navigation.mjs";
 import { awaitDirectoryInstance } from "../lawoss/testing/isir/native/startup-readiness.mjs";
 import { parseCsv } from "../apps/server/dist/lawoss/documents/validation.js";
 import { sha256 } from "../lawoss/testing/isir/corpus.mjs";
@@ -186,11 +186,7 @@ try {
   const panelText = () => cdp.evaluate(`document.querySelector('[aria-label="Document processing"]')?.innerText??''`);
   const openFiles = async workspace => {
     selectedIndex=workspaces.indexOf(workspace)+1;
-    await cdp.evaluate(`(${installChooserBoundary.toString()})(${JSON.stringify({id:workspace.id,root:workspace.path,name:workspace.name,caseIndex:selectedIndex})})`);
-    await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(workspace.name)}&&e.closest('[data-slot="collapsible"]'));if(!e)return false;e.click();return true})()`),`select native project ${workspace.id}`);
-    await until(()=>cdp.evaluate(`(()=>{const title=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(workspace.name)}&&e.closest('[data-slot="collapsible"]'));const group=title.closest('[data-slot="collapsible"]');const e=[...group.querySelectorAll('button,a')].find(e=>e.textContent.trim()==='Files'&&e.getBoundingClientRect().width>0);if(!e){group.querySelector('[aria-label="Expand"]')?.click();return false}e.click();return true})()`),'native project files action');
-    await until(()=>cdp.evaluate(`!!document.querySelector('[aria-label="Document processing"]')`),'native processing panel');
-    await until(()=>cdp.evaluate(`(()=>{const nav=document.querySelector('[aria-label="Current folder"]');if(!nav)return false;nav.querySelector('button')?.click();return true})()`),'native root breadcrumb');
+    await openNativeProjectFiles({cdp,until,workspace,caseIndex:selectedIndex});
   };
   const inputFiles = async (selector, paths) => {
     const doc = await cdp.send('DOM.getDocument');
@@ -425,7 +421,17 @@ try {
   const last=workspaces.at(-1);
   const csvPath=path.join(last.path,'native-registry.csv'),savedCsv=await readFile(csvPath);
   await writeFile(csvPath,Buffer.concat([savedCsv,Buffer.from('\ninvalid edit')]));
-  await openFiles(last);await click('Dokumenty');await click('Prepare this folder');
+  await openFiles(last);
+  // Re-enter the actual mounted Files journey without an extra model turn.
+  await cdp.evaluate(`(()=>{const panel=[...document.querySelectorAll('[data-files-workspace-id]')].find(e=>e.getBoundingClientRect().width>0);let clicks=0;const listener=e=>{if(e.target.closest('button,a')?.textContent.trim()==='Files')clicks++};document.addEventListener('click',listener,true);window.__isirFilesReentry={panel,listener,clicks:()=>clicks}})()`);
+  let filesReentryError=null;
+  try {
+    await openFiles(last);
+    assert.equal(await cdp.evaluate(`(()=>{const before=window.__isirFilesReentry;const panels=[...document.querySelectorAll('[data-files-workspace-id]')].filter(e=>e.isConnected&&!e.closest('[hidden]')&&e.getBoundingClientRect().width>0&&e.getBoundingClientRect().height>0);const state=window.__isirChooserBoundary.sample('mounted-files-reentry');return before.clicks()===0&&panels.length===1&&panels[0]===before.panel&&state.selectedOwnerEqual&&state.runtimeOwnerEqual&&state.workspaceRootEqual&&state.folderPathEqual&&state.rootBreadcrumbEqual})()`),true,'Mounted Files reentry preserves the visible project/root without toggling');
+  } catch(error) { filesReentryError=error; }
+  const filesReentryCleanup=await settleCleanup(filesReentryError,[()=>cdp.evaluate(`(()=>{const before=window.__isirFilesReentry;document.removeEventListener('click',before.listener,true);delete window.__isirFilesReentry})()`)]);
+  if(filesReentryCleanup.error)throw filesReentryCleanup.error;
+  await click('Dokumenty');await click('Prepare this folder');
   await until(async()=> (await panelText()).includes('Output edited / removed'),'rendered output hash invalidation');
   await click('Validate saved output');
   const edited=await api(last,'lawoss/documents/outputs');

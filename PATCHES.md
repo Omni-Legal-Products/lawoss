@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## ISIR native Files navigation (2026-10-16)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `scripts/test-isir-native.mjs` | Files navigácia používa malý importovaný helper s viditeľným sidebar pressed stavom a overením selected/runtime/root cez existujúcu chooser boundary. Už otvorený panel neprepína; root breadcrumb aj Dokumenty musia byť skutočne viditeľné v jedinom vlastnenom paneli. Pôvodné štyri operation budgety a produkčné toggle UX ostávajú zachované. Aktuálna native cesta overí opakovaný vstup bez Files kliknutia a bez ďalšieho model turn; source-only VM regresie nie sú mounted/native PASS. Legacy driver SHA sa nemení: guard invertuje iba presné import/caller/mounted seams. |
+
 ## Doctor probe bounds (2026-10-16)
 
 | Súbory | Downstream doplnenie a dôvod |
