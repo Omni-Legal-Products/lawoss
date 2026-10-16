@@ -188,3 +188,11 @@ The automatic failure-only desktop doctor keeps its real original-EXE results,
 with diagnostic 15000ms / 65536B per-stream sync bounds on its exact two argv
 forms. Any doctor invocation retains UNKNOWN/root; these synchronous probes do
 not provide the engine pipe-close evidence required for a closed result.
+Task43 source-review fix1 requires coherent nonzero completed automatic MCP
+observations for either positive outcome. The receipt states both120000ms
+app-start and300000ms outer-host observation caps. A controller-owned fixed
+outer deadline also gates host removal; pending work retains the diagnostic
+hooks, child/fetch bounds and output quarantine. Late identity failures have a
+separate field and preserve actually observed closure/removal and primary or
+cleanup errors. Quarantine counts strings and binary byteLength; arbitrary
+console arguments are counted without coercion or serialization (cap1000).

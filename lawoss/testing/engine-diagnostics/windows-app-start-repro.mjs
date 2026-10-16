@@ -14,7 +14,8 @@ export const LIMITS = Object.freeze({
   stop: 60000,
   pipes: 7000,
   probeMs: 15000,
-  hostMs: 300000
+  hostMs: 300000,
+  appStartMs: 120000
 });
 export const FIXED = Object.freeze({
   ...IDENTITY,
@@ -47,6 +48,7 @@ export function createReceipt() {
     outcome: 'UNKNOWN',
     primary: 'NONE',
     cleanupFailure: 'NONE',
+    identityFailure: 'NONE',
     cause: 'UNKNOWN',
     fullAppWindows: 'RED unchanged',
     fullNativeAcceptance: false,
@@ -136,6 +138,7 @@ export function createReceipt() {
       closed: false
     },
     consoleBytes: 0,
+    consoleObjects: 0,
     cleanup: 'UNKNOWN',
     rootsRemoved: false,
     appStartMeasured: false,
@@ -149,6 +152,8 @@ export function createReceipt() {
     selectedDeadlineMs: 90000,
     normalStopCapMs: 60000,
     pipeCloseCapMs: 7000,
+    appStartCapMs: 120000,
+    outerHostCapMs: 300000,
     externalTransport: 'unknown'
   };
 }
@@ -159,28 +164,36 @@ function shape(actual, expected, key = '') {
   } else if (typeof expected === 'boolean') {
     if (typeof actual !== 'boolean') throw fail('REFUSED');
   } else if (typeof expected === 'number') {
-    if (!Number.isSafeInteger(actual) || actual < 0 || actual > (key.endsWith('Ms') ? 1500000 : key.endsWith('Bytes') ? 65537 : 1000)) throw fail('REFUSED');
+    if (!Number.isSafeInteger(actual) || actual < 0 || actual > (key.endsWith('Ms') ? 1500000 : key.endsWith('Bytes') ? 65537 : key === 'consoleObjects' ? 1001 : 1000)) throw fail('REFUSED');
   } else if (typeof actual !== 'string' || actual.length > 96) throw fail('REFUSED');
 }
 export function classifyReceipt(r) {
-  const outputBounded = r.engine.outputBytes <= 65536 && r.consoleBytes <= 65536 && r.host.outputBytes <= 32768;
+  const outputBounded = r.engine.outputBytes <= 65536 && r.consoleBytes <= 65536 && r.host.outputBytes <= 32768 && r.consoleObjects <= 1000;
   const admitted = r.source.verified && r.source.finalVerified && r.build.verified && r.build.finalVerified && r.preflight.verified && r.registrationCount === 1 && Object.values(r.acquisition).every(Boolean);
-  const coverageObserved = CAPABILITIES.filter(k => !['renderer', 'main', 'automaticMcp'].includes(k)).every(k => r.coverage[k] === 'verified-observed');
+  const coverageObserved = CAPABILITIES.filter(k => !['renderer', 'main'].includes(k)).every(k => r.coverage[k] === 'verified-observed');
   const engineClosed = r.engine.spawn >= 1 && r.engine.spawn === r.engine.exit && r.engine.exit === r.engine.close;
   const hostClosed = r.host.spawn === 1 && r.host.exit === 1 && r.host.close === 1;
   const stopped = r.stop.invoked === 1 && r.stop.fulfilled === 1 && r.stop.rejected === 0 && r.stop.pending === 0;
   const pure = r.provider.closed && r.provider.calls === 0 && r.provider.modelCalls === 0 && r.doctor.calls === 0;
   const closed = r.cleanup === 'CLOSED' && r.rootsRemoved && r.cleanupFailure === 'NONE';
   const measured = r.appStartMeasured && r.selectedMeasured && r.stopMeasured;
-  const gates = outputBounded && admitted && coverageObserved && engineClosed && hostClosed && stopped && pure && closed && measured && r.health.verified && r.health.headers && r.health.body && Object.values(r.input).every(Boolean);
+  const gates = r.identityFailure === 'NONE' && r.mcp.requests > 0 && r.mcp.requests === r.mcp.headers && r.mcp.headers === r.mcp.body && outputBounded && admitted && coverageObserved && engineClosed && hostClosed && stopped && pure && closed && measured && r.health.verified && r.health.headers && r.health.body && Object.values(r.input).every(Boolean);
   if (gates && r.primary === 'NONE' && r.path.requests === 1 && r.path.headers && r.path.body && r.path.verified && !r.path.timeout && r.selectedMs < 90000) return 'NOT_REPRODUCED';
   if (gates && r.primary === 'PATH_TIMEOUT' && r.path.requests === 1 && r.path.timeout && !r.path.verified && r.selectedMs >= 90000) return 'REPRODUCED';
   if (r.primary === 'PREREQUISITE_FAILED' && !r.acquisition.engine && r.engine.spawn === 0) return 'PREREQUISITE_FAILED';
   return 'UNKNOWN';
 }
+export function recordIdentityFailure(r, code) {
+  if (!['SOURCE_MISMATCH', 'BUILD_MISMATCH', 'IDENTITY_FAILED'].includes(code)) throw fail('REFUSED');
+  r.source.finalVerified = false;
+  r.build.finalVerified = false;
+  r.identityFailure = code;
+  if (r.primary === 'NONE') r.primary = code;
+  r.outcome = 'UNKNOWN';
+}
 function validate(r) {
   shape(r, createReceipt());
-  if (r.schema !== 1 || r.experiment !== 'windows-app-start' || JSON.stringify(r.identity) !== JSON.stringify(FIXED) || !r.finalized || !r.elapsedMeasured || r.cause !== 'UNKNOWN' || r.fullAppWindows !== 'RED unchanged' || r.fullNativeAcceptance !== false || r.hostKind !== 'electron-run-as-node' || r.externalTransport !== 'unknown' || r.selectedDeadlineMs !== 90000 || r.normalStopCapMs !== 60000 || r.pipeCloseCapMs !== 7000 || !CODES.includes(r.primary) || !CODES.includes(r.cleanupFailure)) throw fail('REFUSED');
+  if (r.schema !== 1 || r.experiment !== 'windows-app-start' || JSON.stringify(r.identity) !== JSON.stringify(FIXED) || !r.finalized || !r.elapsedMeasured || r.cause !== 'UNKNOWN' || r.fullAppWindows !== 'RED unchanged' || r.fullNativeAcceptance !== false || r.hostKind !== 'electron-run-as-node' || r.externalTransport !== 'unknown' || r.selectedDeadlineMs !== 90000 || r.normalStopCapMs !== 60000 || r.pipeCloseCapMs !== 7000 || r.appStartCapMs !== 120000 || r.outerHostCapMs !== 300000 || !['NONE', 'SOURCE_MISMATCH', 'BUILD_MISMATCH', 'IDENTITY_FAILED'].includes(r.identityFailure) || !CODES.includes(r.primary) || !CODES.includes(r.cleanupFailure)) throw fail('REFUSED');
   if (!/^[a-f0-9]{40}$/.test(r.source.revision) || ![r.source.digest, r.build.digest].every(x => /^[a-f0-9]{64}$/.test(x)) || !/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(r.preflight.node)) throw fail('REFUSED');
   for (const v of Object.values(r.coverage)) if (!['verified-observed', 'source-only', 'unknown', 'not-in-scope'].includes(v)) throw fail('REFUSED');
   if (r.coverage.renderer !== 'not-in-scope' || r.coverage.main !== 'not-in-scope' || !['UNKNOWN', 'CLOSED'].includes(r.cleanup) || r.outcome !== classifyReceipt(r)) throw fail('REFUSED');
@@ -190,6 +203,7 @@ function validate(r) {
   if (r.acquisition.archive && !r.acquisition.control || r.acquisition.engine && (!r.acquisition.archive || !r.preflight.verified)) throw fail('REFUSED');
   for (const group of [r.engine, r.host]) if (group.close > group.spawn || group.exit > group.spawn) throw fail('REFUSED');
   if (r.engine.spawn > 4 || r.host.spawn > 1 || r.path.requests > 1 || r.registrationCount > 1 || r.stop.invoked > 1 || r.stop.fulfilled + r.stop.rejected + r.stop.pending !== r.stop.invoked || r.mcp.body > r.mcp.headers || r.mcp.headers > r.mcp.requests || r.mcp.overlap > r.mcp.requests) throw fail('REFUSED');
+  if (r.coverage.automaticMcp === 'verified-observed' && !(r.mcp.requests > 0 && r.mcp.requests === r.mcp.headers && r.mcp.headers === r.mcp.body)) throw fail('REFUSED');
   if (r.doctor.calls > 2 || Object.values(r.doctor).some(count => count > r.doctor.calls)) throw fail('REFUSED');
   if (r.path.verified && (!r.path.headers || !r.path.body || r.path.requests !== 1 || r.path.timeout) || r.path.body && !r.path.headers || r.health.verified && (!r.health.headers || !r.health.body) || r.path.timeout && r.primary !== 'PATH_TIMEOUT') throw fail('REFUSED');
   if (r.rootsRemoved && r.cleanup !== 'CLOSED' || r.cleanup === 'CLOSED' && (r.doctor.calls !== 0 || !r.provider.closed || r.cleanupFailure !== 'NONE' || !r.acquisition.closed || r.engine.close !== r.engine.spawn || r.engine.exit !== r.engine.spawn || r.stop.pending || r.stop.rejected || r.engine.spawn > 0 && r.stop.fulfilled !== 1)) throw fail('REFUSED');
@@ -568,6 +582,7 @@ async function runCi() {
           flag: 'wx',
           mode: 0o600
         });
+        env.LAWOSS_APP_EXPIRES_AT = String(Date.now() + LIMITS.hostMs);
         const host = await command(manifest.electron.executable, [fileURLToPath(new URL('./windows-app-start-host.mjs', import.meta.url)), '--run'], {
           env,
           ms: LIMITS.hostMs,
@@ -602,9 +617,7 @@ async function runCi() {
     });
   } catch (error) {
     if (['SOURCE_MISMATCH', 'BUILD_MISMATCH'].includes(error?.diagnosticCode)) {
-      r.source.finalVerified = false;
-      r.build.finalVerified = false;
-      r.cleanupFailure = error.diagnosticCode;
+      recordIdentityFailure(r, error.diagnosticCode);
     }
     if (r.primary === 'NONE') r.primary = r.host.spawn ? CODES.includes(error?.diagnosticCode) ? error.diagnosticCode : 'HOST_PENDING' : r.preflight.verified ? 'ACQUISITION_FAILED' : 'PREREQUISITE_FAILED';
     r.outcome = classifyReceipt(r);

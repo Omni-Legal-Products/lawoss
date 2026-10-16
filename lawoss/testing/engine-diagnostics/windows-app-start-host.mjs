@@ -6,8 +6,8 @@ import * as moduleApi from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import http from 'node:http';
 import { isDeepStrictEqual } from 'node:util';
-import { REPO, FIXED, LIMITS, fail, admit, createReceipt, encodeReceipt, ordinaryFile, PLUGINS, sourceIdentity, distIdentity } from './windows-app-start-repro.mjs';
-import { syntheticEnv, observeSpawn, awaitClosed, boundedResponse, verifyEngine, sha256 } from './windows-instance-repro.mjs';
+import { REPO, FIXED, LIMITS, fail, admit, createReceipt, encodeReceipt, ordinaryFile, PLUGINS, sourceIdentity, distIdentity, recordIdentityFailure } from './windows-app-start-repro.mjs';
+import { syntheticEnv, observeSpawn, awaitClosed, boundedResponse, verifyEngine, sha256, emptyState } from './windows-instance-repro.mjs';
 import { awaitDirectoryInstance } from '../isir/native/startup-readiness.mjs';
 import { BRIDGE, exactResolver, createObservation } from './windows-app-start-embedded-observer.mjs';
 export function privateEnvironment(root, url, ambient = {}) {
@@ -66,7 +66,9 @@ export async function withObservation({
   targetURL,
   work,
   register = moduleApi.registerHooks,
-  observation
+  observation,
+  release = () => true,
+  onRestore = () => {}
 }) {
   const prior = globalThis[BRIDGE];
   let hook;
@@ -85,9 +87,14 @@ export async function withObservation({
         observer: new URL('./windows-app-start-embedded-observer.mjs', import.meta.url).href
       })
     });
+    onRestore(restore);
     return await work(observer);
   } finally {
+    if (!hook || release()) restore();
+  }
+  function restore() {
     hook?.deregister();
+    hook = undefined;
     if (prior === undefined) delete globalThis[BRIDGE];else globalThis[BRIDGE] = prior;
   }
 }
@@ -95,10 +102,21 @@ export function quarantine(state) {
   const originalConsole = Object.fromEntries(['log', 'info', 'warn', 'error', 'debug', 'trace', 'dir', 'table', 'assert', 'time', 'timeEnd', 'timeLog', 'group', 'groupCollapsed', 'groupEnd', 'count', 'countReset'].map(k => [k, console[k]]));
   const stdout = process.stdout.write,
     stderr = process.stderr.write;
+  let frozen = false;
+  const counts = {
+    bytes: state.consoleBytes,
+    objects: state.consoleObjects
+  };
   const sink = (...args) => {
     let bytes = 0;
-    for (const value of args) bytes += typeof value === 'string' ? Buffer.byteLength(value) : 1;
-    state.consoleBytes = Math.min(65537, state.consoleBytes + bytes);
+    for (const value of args) {
+      if (typeof value === 'string') bytes += Buffer.byteLength(value);else if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) bytes += value.byteLength;else counts.objects = Math.min(1001, counts.objects + 1);
+    }
+    counts.bytes = Math.min(65537, counts.bytes + bytes);
+    if (!frozen) {
+      state.consoleBytes = counts.bytes;
+      state.consoleObjects = counts.objects;
+    }
   };
   for (const key of Object.keys(originalConsole)) console[key] = sink;
   const write = function (bytes, encoding, callback) {
@@ -111,6 +129,10 @@ export function quarantine(state) {
   process.stderr.write = write;
   return {
     publish: bytes => Reflect.apply(stdout, process.stdout, [bytes]),
+    freeze() {
+      frozen = true;
+    },
+    counts,
     restore() {
       Object.assign(console, originalConsole);
       process.stdout.write = stdout;
@@ -283,6 +305,15 @@ async function inspectInputs({
   r.coverage.globalSeed = 'verified-observed';
   if (!Object.values(r.input).every(Boolean)) throw fail('IDENTITY_FAILED');
 }
+export function hostDecision(expiresAt, now = Date.now) {
+  let expired = false;
+  return {
+    canRemove() {
+      expired ||= now() >= expiresAt;
+      return !expired;
+    }
+  };
+}
 export async function finalizeCase({
   r,
   startSettled,
@@ -291,7 +322,8 @@ export async function finalizeCase({
   provider,
   root,
   remove = fs.rm,
-  close = awaitClosed
+  close = awaitClosed,
+  decision = hostDecision(Date.now() + LIMITS.hostMs)
 }) {
   // A frozen local decision controls removal; no late producer continuation reaches it.
   const stopped = stopResult?.closed === true && startSettled;
@@ -307,7 +339,9 @@ export async function finalizeCase({
   r.provider.calls = provider.count();
   r.provider.modelCalls = r.provider.calls;
   if (r.provider.calls && r.primary === 'NONE') r.primary = 'PROVIDER_CALLED';
-  if (stopped && pipes && r.provider.closed && r.acquisition.closed && r.doctor.calls === 0 && r.source.finalVerified && r.build.finalVerified && r.cleanupFailure === 'NONE' && !['OUTPUT_LIMIT', 'BODY_LIMIT', 'IDENTITY_FAILED', 'SOURCE_MISMATCH', 'BUILD_MISMATCH'].includes(r.primary) && r.consoleBytes <= 65536) {
+  const released = stopped && pipes && r.provider.closed && r.doctor.calls === 0;
+  if (!decision.canRemove() && r.primary === 'NONE') r.primary = 'HOST_PENDING';
+  if (decision.canRemove() && stopped && pipes && r.provider.closed && r.acquisition.closed && r.doctor.calls === 0 && r.source.finalVerified && r.build.finalVerified && r.cleanupFailure === 'NONE' && r.identityFailure === 'NONE' && !['OUTPUT_LIMIT', 'BODY_LIMIT', 'IDENTITY_FAILED', 'SOURCE_MISMATCH', 'BUILD_MISMATCH'].includes(r.primary) && r.consoleBytes <= 65536 && r.consoleObjects <= 1000) {
     try {
       await remove(root, {
         recursive: true
@@ -318,8 +352,17 @@ export async function finalizeCase({
       r.cleanupFailure = 'REMOVE_FAILED';
     }
   }
+  return released;
 }
-async function run(root, manifest, r) {
+export async function runEntry(root, manifest, r, dependencies = {}) {
+  const preflight = dependencies.preflight ?? prerequisites;
+  const verifyIdentity = dependencies.verifyIdentity ?? (async () => manifest.source === (await sourceIdentity()) && isDeepStrictEqual(manifest.dist, await distIdentity()));
+  const decision = dependencies.decision ?? hostDecision(Date.now() + LIMITS.hostMs);
+  const doctor = {
+    ...r.doctor
+  };
+  let released = false,
+    restoreHook;
   const start = performance.now(),
     directory = path.join(root, 'case space#%'),
     bin = path.join(root, 'opencode-x86_64-pc-windows-msvc.exe');
@@ -392,8 +435,8 @@ async function run(root, manifest, r) {
     }, () => recordFailure('BODY_LIMIT'));
   };
   try {
-    await prerequisites(root, manifest);
-    provider = await providerStub();
+    await preflight(root, manifest);
+    provider = await (dependencies.provider ?? providerStub)();
     const env = privateEnvironment(root, provider.url, process.env);
     replaceEnvironment(env); // before ALL production imports/private spreads
     for (const key of ['HOME', 'APPDATA', 'LOCALAPPDATA', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME', 'TMP', 'LEGALWORK_ELECTRON_USERDATA', 'LEGALWORK_DATA_DIR']) await fs.mkdir(env[key], {
@@ -438,18 +481,23 @@ async function run(root, manifest, r) {
     childProcess.spawn = observedSpawn;
     childProcess.spawnSync = boundedDoctor({
       bin,
-      doctor: r.doctor,
+      doctor,
       spawnSync: originalSpawnSync
     });
     moduleApi.syncBuiltinESMExports();
     await withObservation({
       runtimeURL,
       targetURL,
+      register: dependencies.register ?? moduleApi.registerHooks,
+      release: () => false,
+      onRestore: restore => {
+        restoreHook = restore;
+      },
       work: async observed => {
         observation = observed;
         const {
           createWorkspaceStore
-        } = await import(pathToFileURL(path.join(REPO, 'apps/desktop/electron/workspace-store.mjs')).href);
+        } = await (dependencies.loadStore ?? (() => import(pathToFileURL(path.join(REPO, 'apps/desktop/electron/workspace-store.mjs')).href)))();
         const store = createWorkspaceStore({
           app,
           defaultDenBaseUrl: '',
@@ -476,7 +524,7 @@ async function run(root, manifest, r) {
         r.coverage.store = 'verified-observed';
         const {
           createRuntimeManager
-        } = await import(runtimeURL);
+        } = await (dependencies.loadRuntime ?? (() => import(runtimeURL)))();
         manager = createRuntimeManager({
           app,
           desktopRoot: path.join(REPO, 'apps/desktop'),
@@ -508,7 +556,7 @@ async function run(root, manifest, r) {
             startTimer = setTimeout(() => {
               startPending = true;
               reject(fail('START_PENDING'));
-            }, 120000);
+            }, dependencies.startMs ?? LIMITS.appStartMs);
           })]);
         } finally {
           clearTimeout(startTimer);
@@ -574,13 +622,14 @@ async function run(root, manifest, r) {
       recordFailure('PATH_TIMEOUT');
     } else recordFailure(CODE_SET.has(error?.diagnosticCode) ? error.diagnosticCode : selectedDeadline ? 'PATH_FAILED' : 'START_FAILED');
   } finally {
-    if (r.consoleBytes > 65536) recordFailure('OUTPUT_LIMIT');
+    if (r.consoleBytes > 65536 || r.consoleObjects > 1000) recordFailure('OUTPUT_LIMIT');
     const at = performance.now();
     let stopResult;
     try {
       stopResult = await observeNormalStop({
         stop: () => manager?.engineStop(),
-        observation
+        observation,
+        timeoutMs: dependencies.stopMs ?? LIMITS.stop
       });
     } catch {
       stopResult = {
@@ -601,7 +650,7 @@ async function run(root, manifest, r) {
       };
     }
     try {
-      if (manifest.source !== (await sourceIdentity()) || !isDeepStrictEqual(manifest.dist, await distIdentity())) throw fail('IDENTITY_FAILED');
+      if (!(await verifyIdentity())) throw fail('IDENTITY_FAILED');
       if (captured) await inspectInputs({
         root,
         directory,
@@ -613,17 +662,24 @@ async function run(root, manifest, r) {
       r.source.finalVerified = true;
       r.build.finalVerified = true;
     } catch {
-      recordFailure('IDENTITY_FAILED');
+      recordIdentityFailure(r, 'IDENTITY_FAILED');
     }
-    if (provider) await finalizeCase({
+    r.doctor = doctor;
+    if (provider) released = await finalizeCase({
       r,
       startSettled: startSettled && !startPending,
       stopResult,
       children: engineObserver.children,
       provider,
-      root
+      root,
+      decision,
+      remove: dependencies.remove ?? fs.rm,
+      close: dependencies.close ?? awaitClosed
     });else r.cleanupFailure = 'STOP_FAILED';
     finalized = true;
+    r.doctor = {
+      ...doctor
+    };
     r.engine = {
       spawn: legacy.spawnCount,
       exit: legacy.exitCount,
@@ -631,10 +687,13 @@ async function run(root, manifest, r) {
       outputBytes: legacy.outputBytes
     };
     if (r.mcp.requests > 0 && r.mcp.body === r.mcp.requests) r.coverage.automaticMcp = 'verified-observed';
-    childProcess.spawn = originalSpawn;
-    childProcess.spawnSync = originalSpawnSync;
-    moduleApi.syncBuiltinESMExports();
-    globalThis.fetch = originalFetch;
+    if (released) {
+      childProcess.spawn = originalSpawn;
+      childProcess.spawnSync = originalSpawnSync;
+      moduleApi.syncBuiltinESMExports();
+      globalThis.fetch = originalFetch;
+      restoreHook?.();
+    }
     // This host received an already scrubbed environment; keep RUN_AS_NODE absent
     // for any still-pending producer rather than restoring a launch-only flag.
     delete process.env.ELECTRON_RUN_AS_NODE;
@@ -643,7 +702,11 @@ async function run(root, manifest, r) {
     r.finalized = true;
     r.outcome = 'UNKNOWN';
   }
-  return r;
+  return {
+    receipt: r,
+    released,
+    doctor
+  };
 }
 const CODE_SET = new Set(['REFUSED', 'PREREQUISITE_FAILED', 'IDENTITY_FAILED', 'START_PENDING', 'BODY_LIMIT', 'OUTPUT_LIMIT']);
 async function entry(mode) {
@@ -661,6 +724,7 @@ async function entry(mode) {
   if (!root || !path.isAbsolute(root) || !manifestFile || manifestFile !== path.join(path.dirname(root), 'lawoss-app-start-build', 'manifest.json') || (await fs.realpath(root)) !== root) throw fail('REFUSED');
   const r = createReceipt(),
     output = quarantine(r);
+  let released = true;
   try {
     replaceEnvironment(privateEnvironment(root, 'http://127.0.0.1:1/v1', original));
     const manifest = JSON.parse(await fs.readFile(manifestFile, 'utf8'));
@@ -668,17 +732,23 @@ async function entry(mode) {
     if (mode === '--probe') output.publish(JSON.stringify(await probe(root, manifest)) + '\n');else {
       const input = JSON.parse(await fs.readFile(path.join(root, 'input.json'), 'utf8'));
       Object.assign(r, input);
-      await run(root, manifest, r);
-      if (manifest.source !== (await sourceIdentity()) || !isDeepStrictEqual(manifest.dist, await distIdentity())) {
-        r.source.finalVerified = false;
-        r.build.finalVerified = false;
-        r.cleanupFailure = 'BUILD_MISMATCH';
-        if (r.primary === 'NONE') r.primary = 'BUILD_MISMATCH';
+      const expiresAt = Number(original.LAWOSS_APP_EXPIRES_AT);
+      if (!Number.isSafeInteger(expiresAt) || expiresAt <= Date.now() || expiresAt - Date.now() > LIMITS.hostMs) throw fail('REFUSED');
+      released = false;
+      const result = await runEntry(root, manifest, r, {
+        decision: hostDecision(expiresAt)
+      });
+      released = result.released;
+      try {
+        if (manifest.source !== (await sourceIdentity()) || !isDeepStrictEqual(manifest.dist, await distIdentity())) throw fail('BUILD_MISMATCH');
+      } catch {
+        recordIdentityFailure(r, 'BUILD_MISMATCH');
       }
+      output.freeze();
       output.publish(encodeReceipt(r));
     }
   } finally {
-    output.restore();
+    if (released) output.restore();
   }
 }
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url && process.argv.length === 3 && ['--probe', '--run'].includes(process.argv[2])) {

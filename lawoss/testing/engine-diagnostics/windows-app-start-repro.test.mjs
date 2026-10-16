@@ -225,6 +225,12 @@ function completeReceipt() {
     node: '24.8.0'
   };
   for (const k of Object.keys(r.coverage)) if (!['renderer', 'main'].includes(k)) r.coverage[k] = 'verified-observed';
+  r.mcp = {
+    requests: 1,
+    headers: 1,
+    body: 1,
+    overlap: 0
+  };
   r.registrationCount = 1;
   r.acquisition = {
     control: true,
@@ -282,7 +288,7 @@ test('independent reader requires every positive prerequisite and lifecycle fact
   }
 });
 test('positive protocol requires no overflow, contradictory path or invisible additional keys', () => {
-  for (const mutate of [x => x.engine.outputBytes = 65537, x => x.consoleBytes = 65537, x => x.host.outputBytes = 32769, x => x.path.timeout = true, x => x.path.requests = 2, x => x.registrationCount = 2, x => x.mcp.body = 1, x => x.source.digest = '0'.repeat(64), x => x.identity.engineVersion = 'other', x => x.stop.extra = 'sentinel', x => x.passed = true]) {
+  for (const mutate of [x => x.engine.outputBytes = 65537, x => x.consoleBytes = 65537, x => x.host.outputBytes = 32769, x => x.path.timeout = true, x => x.path.requests = 2, x => x.registrationCount = 2, x => x.mcp.body = 2, x => x.source.digest = '0'.repeat(64), x => x.identity.engineVersion = 'other', x => x.stop.extra = 'sentinel', x => x.passed = true]) {
     const r = structuredClone(completeReceipt());
     mutate(r);
     assert.throws(() => validateReceipt(JSON.stringify(r)));
@@ -739,4 +745,380 @@ test('doctor timeout/overflow are independent and forbid closed success even wit
   const r = completeReceipt();
   r.doctor = doctor;
   assert.throws(() => validateReceipt(JSON.stringify(r)));
+});
+test('fix1 I1 actual run entry reaches protected initialization with inert preflight', async () => {
+  const {
+    runEntry
+  } = await import('./windows-app-start-host.mjs');
+  const r = createReceipt();
+  let reached = false;
+  const originalFetch = globalThis.fetch;
+  try {
+    await runEntry('fake-owned', {}, r, {
+      preflight: async () => {
+        reached = true;
+        throw Object.assign(Error('REFUSED'), {
+          diagnosticCode: 'REFUSED'
+        });
+      },
+      verifyIdentity: async () => false
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(reached, true);
+  assert.equal(r.primary, 'REFUSED');
+  assert.equal(r.finalized, true);
+});
+test('fix1 I2 zero or unknown MCP cannot support either positive outcome', () => {
+  for (const reproduced of [false, true]) for (const missing of ['zero', 'unknown', 'partial']) {
+    const r = completeReceipt();
+    r.mcp = {
+      requests: 1,
+      headers: 1,
+      body: 1,
+      overlap: 0
+    };
+    if (reproduced) {
+      r.path.verified = false;
+      r.path.timeout = true;
+      r.primary = 'PATH_TIMEOUT';
+      r.selectedMs = 90000;
+      r.outcome = 'REPRODUCED';
+    }
+    if (missing === 'zero') r.mcp = {
+      requests: 0,
+      headers: 0,
+      body: 0,
+      overlap: 0
+    };
+    if (missing === 'unknown') r.coverage.automaticMcp = 'unknown';
+    if (missing === 'partial') r.mcp.body = 0;
+    assert.throws(() => validateReceipt(JSON.stringify(r)));
+  }
+});
+test('fix1 I4 post-host identity failure preserves actual closed and removed facts in UNKNOWN receipt', () => {
+  const r = completeReceipt();
+  r.source.finalVerified = false;
+  r.build.finalVerified = false;
+  r.identityFailure = 'BUILD_MISMATCH';
+  r.primary = 'BUILD_MISMATCH';
+  r.outcome = 'UNKNOWN';
+  const decoded = validateReceipt(JSON.stringify(r));
+  assert.equal(decoded.cleanup, 'CLOSED');
+  assert.equal(decoded.rootsRemoved, true);
+  assert.equal(decoded.cleanupFailure, 'NONE');
+});
+test('fix1 I5 quarantine counts binary bytes and never serializes console objects', async () => {
+  const {
+    quarantine
+  } = await import('./windows-app-start-host.mjs');
+  const r = completeReceipt(),
+    sink = quarantine(r);
+  let coerced = false;
+  try {
+    process.stdout.write(Buffer.alloc(65537));
+    console.log({
+      toString() {
+        coerced = true;
+        throw Error('private');
+      }
+    });
+  } finally {
+    sink.restore();
+  }
+  assert.equal(coerced, false);
+  assert.equal(r.consoleBytes, 65537);
+  assert.throws(() => validateReceipt(JSON.stringify(r)));
+});
+test('fix1 M1 both admitted outer observation caps are fixed public fields', () => {
+  const r = completeReceipt();
+  assert.equal(r.appStartCapMs, 120000);
+  assert.equal(r.outerHostCapMs, 300000);
+  for (const key of ['appStartCapMs', 'outerHostCapMs']) {
+    const bad = structuredClone(r);
+    bad[key]++;
+    assert.throws(() => validateReceipt(JSON.stringify(bad)));
+  }
+});
+test('fix1 I3 composed outer expiry retains root and pending containment across late doctor work', async () => {
+  const {
+    runEntry,
+    hostDecision
+  } = await import('./windows-app-start-host.mjs');
+  const cp = (await import('node:child_process')).default;
+  const fs = await import('node:fs/promises');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const {
+    BRIDGE
+  } = await import('./windows-app-start-embedded-observer.mjs');
+  const moduleApi = await import('node:module');
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fix1-compose-'))),
+    env = {
+      ...process.env
+    },
+    original = {
+      spawn: cp.spawn,
+      spawnSync: cp.spawnSync,
+      fetch: globalThis.fetch
+    };
+  let finishStart,
+    finishProvider,
+    providerEntered,
+    removed = 0,
+    bounded = false,
+    deregistered = 0;
+  const providerReady = new Promise(resolve => {
+    providerEntered = resolve;
+  });
+  const startPromise = new Promise(resolve => {
+    finishStart = resolve;
+  });
+  const providerPending = new Promise(resolve => {
+    finishProvider = resolve;
+  });
+  const bin = path.join(root, 'opencode-x86_64-pc-windows-msvc.exe');
+  cp.spawnSync = (_bin, _args, options) => {
+    bounded = options.timeout === 15000 && options.maxBuffer === 65536;
+    return {
+      status: 0,
+      stdout: 'synthetic',
+      stderr: ''
+    };
+  };
+  let now = 0;
+  const decision = hostDecision(1, () => now);
+  const r = createReceipt();
+  const store = {
+    writeWorkspaceState: async value => {
+      store.value = value;
+    },
+    readWorkspaceState: async () => store.value,
+    listLocalWorkspacePaths: async () => [path.join(root, 'case space#%')]
+  };
+  try {
+    const pending = runEntry(root, {}, r, {
+      preflight: async () => {},
+      verifyIdentity: async () => false,
+      decision,
+      startMs: 5,
+      stopMs: 5,
+      register: () => ({
+        deregister() {
+          deregistered++;
+        }
+      }),
+      provider: async () => ({
+        url: 'http://127.0.0.1:1/v1',
+        count: () => 0,
+        close: async () => {
+          providerEntered();
+          await providerPending;
+        }
+      }),
+      loadStore: async () => ({
+        createWorkspaceStore: () => store
+      }),
+      loadRuntime: async () => ({
+        createRuntimeManager: () => ({
+          engineStart: () => startPromise.then(() => {
+            cp.spawnSync(bin, ['--version'], {
+              encoding: 'utf8'
+            });
+          }),
+          engineStop: () => new Promise(() => {})
+        })
+      }),
+      close: async () => true,
+      remove: async () => {
+        removed++;
+      }
+    });
+    await providerReady;
+    const {
+      command
+    } = await import('./windows-app-start-repro.mjs');
+    await assert.rejects(command('fake', [], {
+      ms: 5,
+      launch: () => {
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        return child;
+      }
+    }), {
+      diagnosticCode: 'HOST_PENDING'
+    });
+    now = 2;
+    finishStart();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(bounded, true);
+    assert.notEqual(cp.spawnSync, original.spawnSync);
+    assert.equal(deregistered, 0);
+    finishProvider();
+    const result = await pending;
+    assert.equal(removed, 0);
+    assert.equal(r.rootsRemoved, false);
+    assert.equal(result.released, false);
+    assert.equal(r.doctor.calls, 1);
+    assert.equal(result.doctor.calls, 1);
+    cp.spawnSync(bin, ['serve', '--help'], {});
+    assert.equal(result.doctor.calls, 2);
+    assert.equal(r.doctor.calls, 1);
+    assert.equal(deregistered, 0);
+  } finally {
+    finishStart?.();
+    finishProvider?.();
+    cp.spawn = original.spawn;
+    cp.spawnSync = original.spawnSync;
+    moduleApi.syncBuiltinESMExports();
+    globalThis.fetch = original.fetch;
+    delete globalThis[BRIDGE];
+    for (const key of Object.keys(process.env)) delete process.env[key];
+    Object.assign(process.env, env);
+    await fs.rm(root, {
+      recursive: true
+    });
+  }
+});
+test('fix1 I3 outer observer expiry during otherwise closed finalization forbids later removal', async () => {
+  const {
+    finalizeCase,
+    hostDecision
+  } = await import('./windows-app-start-host.mjs');
+  const {
+    command
+  } = await import('./windows-app-start-repro.mjs');
+  const r = completeReceipt();
+  r.rootsRemoved = false;
+  r.cleanup = 'UNKNOWN';
+  let now = 0,
+    settle,
+    entered,
+    removed = 0;
+  const waiting = new Promise(resolve => {
+    entered = resolve;
+  });
+  const pending = new Promise(resolve => {
+    settle = resolve;
+  });
+  const decision = hostDecision(1, () => now);
+  const finalizing = finalizeCase({
+    r,
+    startSettled: true,
+    stopResult: {
+      closed: true
+    },
+    children: [],
+    provider: {
+      count: () => 0,
+      close: async () => {
+        entered();
+        await pending;
+      }
+    },
+    root: 'fake-owned',
+    decision,
+    close: async () => true,
+    remove: async () => {
+      removed++;
+    }
+  });
+  await waiting;
+  await assert.rejects(command('fake', [], {
+    ms: 5,
+    launch: () => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      return child;
+    }
+  }), {
+    diagnosticCode: 'HOST_PENDING'
+  });
+  now = 2;
+  settle();
+  await finalizing;
+  assert.equal(removed, 0);
+  assert.equal(r.rootsRemoved, false);
+  assert.equal(r.primary, 'HOST_PENDING');
+  assert.equal(r.cleanup, 'UNKNOWN');
+});
+test('fix1 I4 both late identity call sites preserve primary and actual cleanup facts', async () => {
+  const {
+    recordIdentityFailure
+  } = await import('./windows-app-start-repro.mjs');
+  for (const code of ['IDENTITY_FAILED', 'BUILD_MISMATCH']) {
+    const r = completeReceipt();
+    r.primary = 'PATH_TIMEOUT';
+    r.path.timeout = true;
+    r.path.verified = false;
+    r.selectedMs = 90000;
+    recordIdentityFailure(r, code);
+    const decoded = validateReceipt(encodeReceipt(r));
+    assert.equal(decoded.outcome, 'UNKNOWN');
+    assert.equal(decoded.primary, 'PATH_TIMEOUT');
+    assert.equal(decoded.identityFailure, code);
+    assert.equal(decoded.cleanup, 'CLOSED');
+    assert.equal(decoded.rootsRemoved, true);
+    assert.equal(decoded.cleanupFailure, 'NONE');
+  }
+  const r = completeReceipt();
+  r.cleanup = 'UNKNOWN';
+  r.rootsRemoved = false;
+  r.cleanupFailure = 'STOP_FAILED';
+  recordIdentityFailure(r, 'BUILD_MISMATCH');
+  assert.equal(validateReceipt(encodeReceipt(r)).cleanupFailure, 'STOP_FAILED');
+});
+test('fix1 I3 retained output remains bounded after publication without revising frozen receipt', async () => {
+  const {
+    quarantine
+  } = await import('./windows-app-start-host.mjs');
+  const r = completeReceipt(),
+    sink = quarantine(r);
+  try {
+    sink.freeze();
+    process.stderr.write(new Uint8Array(65537));
+    assert.equal(r.consoleBytes, 0);
+    assert.equal(sink.counts.bytes, 65537);
+    assert.equal(process.stderr.write === undefined, false);
+  } finally {
+    sink.restore();
+  }
+});
+test('fix1 I5 direct quarantine binary overflow retains an otherwise removable root', async () => {
+  const {
+    quarantine,
+    finalizeCase
+  } = await import('./windows-app-start-host.mjs');
+  const r = completeReceipt();
+  r.cleanup = 'UNKNOWN';
+  r.rootsRemoved = false;
+  let removed = 0;
+  const output = quarantine(r);
+  try {
+    process.stdout.write(new Uint8Array(65537));
+  } finally {
+    output.restore();
+  }
+  await finalizeCase({
+    r,
+    startSettled: true,
+    stopResult: {
+      closed: true
+    },
+    children: [],
+    provider: {
+      count: () => 0,
+      close: async () => {}
+    },
+    root: 'fake-owned',
+    close: async () => true,
+    remove: async () => {
+      removed++;
+    }
+  });
+  assert.equal(removed, 0);
+  assert.equal(r.rootsRemoved, false);
 });
