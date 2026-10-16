@@ -141,6 +141,10 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 - Treat supplied base text as a concurrency precondition independently from mtime. Filesystem timestamps can be equal for different contents; preserve conflicts, clean merges and explicit force semantics with actual fixed-time HTTP regressions.
 
+- Doctor probe tests must exercise the actual manager through restored builtin bindings in an isolated process. Preserve primary startup-error identity and error lifecycle; configured spawnSync timeout does not prove strict native termination or process-tree closure.
+
+- Expected startup-failure fixtures must isolate automatic doctor probes from ambient binaries, deny unowned subprocess attempts before execution, and assert guard counts independently because diagnostics may catch the denial.
+
 ## Generated output identity and verification
 
 - Bind exports to actual prepared sources and persisted project identity. Routing IDs are not legal case numbers. Absent optional reference metadata preserves explicit unknown legal fields; a present invalid reference manifest must not silently downgrade to generic mode.

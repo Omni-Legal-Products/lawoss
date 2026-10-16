@@ -1188,8 +1188,12 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       };
     }
 
-    const versionResult = spawnSync(resolved.path, ["--version"], { encoding: "utf8" });
-    const helpResult = spawnSync(resolved.path, ["serve", "--help"], { encoding: "utf8" });
+    const versionResult = spawnSync(resolved.path, ["--version"], {
+      encoding: "utf8", timeout: 2000, maxBuffer: 1024 * 1024, windowsHide: true,
+    });
+    const helpResult = spawnSync(resolved.path, ["serve", "--help"], {
+      encoding: "utf8", timeout: 2000, maxBuffer: 1024 * 1024, windowsHide: true,
+    });
     const notes = [`Using ${resolved.source}: ${resolved.path}`];
     if (versionResult.status !== 0) {
       notes.push("OpenCode version probe failed.");

@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Doctor probe bounds (2026-10-16)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/desktop/electron/runtime.mjs`, `apps/desktop/electron/runtime.test.mjs`, `apps/desktop/electron/runtime-doctor.fixture.mjs` | Oba existujúce synchrónne doctor dotazy majú rovnaký explicitný timeout 2000 ms, maxBuffer 1 MiB a windowsHide; argv, výber binárky, výsledky a pôvodná chyba štartu ostávajú zachované. Izolovaná obnovená builtin seam overuje skutočný doctor a engineStart catch cez inertný súbor; dva existujúce alias-startup testy navyše používajú explicitnú vlastnenú cestu, blokujú nevlastnené detské procesy pred spustením a nezávisle kontrolujú počty pokusov. Ide o diagnostickú politiku, nie preukázanú príčinu natívneho zlyhania, prísny wall-clock limit ani dôkaz uzavretia procesového stromu. |
+
 ## ISIR attachment acceptance (2026-10-13)
 
 | Súbory | Downstream doplnenie a dôvod |

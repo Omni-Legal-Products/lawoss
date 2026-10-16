@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- Doctor probe tests must exercise the actual manager through restored builtin bindings in an isolated process. Preserve primary startup-error identity and error lifecycle; configured spawnSync timeout does not prove strict native termination or process-tree closure.
 - A failed required check holds the commit, including a run with missing build prerequisites. Restore the CI-matching setup and obtain a covering PASS first; report failures outside ownership before committing.
 - Validate packaged dependency closures from a relocated owned tree with the original stage unavailable and physical module resolutions confined to the relocated tree. Preserve all package files and notices; generated CLI shims are separate from dependency contents.
 - Tool-version checks through Corepack shims can bootstrap downloads under a new HOME. For offline validation, verify the genuine cached package CLI and invoke it with the captured exact Node executable and network bootstrap disabled.
@@ -268,3 +269,14 @@
 2026-10-16T12:12:20.149535+00:00: Task48 narrow exact dev159 integration (base8ec71e8b + dev0e676; common5909) auto-merges three overlaps without conflicts; eleven admitted files retain viewer scope/cache/canonical-path boundaries and Task46 lifetime/abort/private-auth/fix1 controls. New combined-tree server typecheck/build exit0; one full server1675PASS/33SKIP/0FAIL across207files, postbuild NodeDB/proxy14PASS and private-auth5PASS. Existing skip coverage includes Windows ADS/native/opt-in services; local macOS does not establish Windows/packaging/GUI/provider acceptance. All nonmerge source/lock/bundle/workflow/helper blobs preserved; append-only progress is the sole integration log exception. No production correction, doctor change, subagents, CI/push/PR/dev merge or original-engine run. Evidence: external task48-report.md and NEW task48-source. Existing generic integration guidance already applies; no duplicate AGENTS/CLAUDE instructions. Root fresh independent SPEC/QUALITY remains next.
 
 2026-10-16 — Source gate Task46 c4c5 + fixture fix8ec a Task48 98801ce7 nezávisle SPEC PASS/QUALITY Approved. Dokumentované lokálne overenie a otvorené Windows/native/GUI/provider/CI/approval gates: docs/testing/2026-10-16-integration-validation.md. Táto dokumentačná zmena nemení testovaný produkčný zdroj; dev merge zostáva blokovaný bez required-green a skutočného approval.
+
+## 2026-10-16 Task49 doctor-only bounds
+- Set identical explicit 2s/1MiB/windowsHide options on both existing doctor probes only; retained synchronous contract, output notes and actual serve policy.
+- Added process-isolated restored builtin fixture through actual engineDoctor and real engineStart catch: exact argv/options, success/notfound/nochild, nonzero/timeout/overflow, primary error identity and lifecycle error even when doctor throws.
+- RED on baseline proved both actual probes omitted options; GREEN after minimal change. Final desktop suite and Electron typecheck receipts are recorded separately in task49-source before commit.
+- Source finding does not identify the original native failure; cooperative SIGTERM, main-thread blocking and descendant closure remain unproved.
+
+- Retained incident: existing alias-startup tests in first full desktop343/skip4 and runtime39 runs invoked ambient older OpenCode version/help diagnostics (not native serve acceptance); no blanket hermetic/no-engine claim. Root ruling admitted test-only isolation.
+- Safe isolation RED denied ambient attempts before execution and independently failed on unexpected count1 for both aliases. Explicit inert path then preserves automatic doctor/error lifecycle and original alias/file oracles with zero unexpected sync/async attempts.
+- Initial Electron types exit2 and fixture-only correction retained; final covering gates follow isolation. No profile/network/descendant absence receipt inferred.
+- Final isolated covering checks (2026-10-16T12:32 UTC): desktop347 tests /343PASS /4SKIP /0FAIL, Electron typecheck0. Full raw old/new results, safe RED, scope incident and exact source/dist identities retained in task49-source; independent review remains pending.
