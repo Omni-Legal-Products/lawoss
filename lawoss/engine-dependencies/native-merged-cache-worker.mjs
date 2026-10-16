@@ -9,7 +9,7 @@ import { acquireArtifacts, checkArtifacts } from '../build/plugin-payload/prime-
 import { verifyWorkspace } from '../build/plugin-payload/prepare.mjs';
 import { sha256 } from '../build/plugin-payload/validate.mjs';
 export const RUNTIME_LOCK = '78b707c0f4ad96a49e52c14c63d594ddbe125f16dc7a09a7ab83d4f20b35ebc6';
-export const METADATA_LIMITS = Object.freeze({ bodyBytes: 16 * 1024 * 1024, totalBytes: 128 * 1024 * 1024, requestMs: 45000 });
+export const METADATA_LIMITS = Object.freeze({ bodyBytes: 64 * 1024 * 1024, totalBytes: 128 * 1024 * 1024, requestMs: 45000 });
 export const ACCEPT = Object.freeze(['application/json', 'application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*']);
 export const VERSIONS = Object.freeze({ arborist: '9.4.0', config: '10.8.1', cacache: '20.0.4', pacote: '21.5.1', registryFetch: '19.1.1', fetch: '15.0.6', npa: '13.0.2' });
 const codes = new Set(['NODE_VERSION', 'TOOLS_INVALID', 'INPUT_INVALID', 'INPUT_DRIFT', 'ALLOWLIST_INVALID', 'WORKSPACE_INVALID', 'CACHE_NOT_EMPTY', 'NETWORK_DISABLED', 'CANCELLED', 'PRIMER_DEADLINE', 'REQUEST_TIMEOUT', 'HTTP_STATUS', 'HTTP_ENCODING', 'ARCHIVE_LIMIT', 'TOTAL_LIMIT', 'CACHE_INTEGRITY', 'TRANSPORT_FAILED', 'TRANSFER_FAILED', 'METADATA_BODY_LIMIT', 'METADATA_TOTAL_LIMIT', 'METADATA_JSON', 'METADATA_DIST', 'METADATA_FAILED', 'OFFLINE_READBACK', 'ACQUISITION_FAILED']);

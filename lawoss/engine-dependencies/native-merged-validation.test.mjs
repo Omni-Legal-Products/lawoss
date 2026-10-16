@@ -26,6 +26,35 @@ function request(fetch, changes = {}) {
 }
 function response(value, status = 200) { return { status, body: Readable.from([bytes(value)]) }; }
 
+test('default metadata budget accepts realistic 28 MiB valid streamed JSON', async () => {
+  const value = metadata();
+  const prefix = Buffer.from(JSON.stringify(value).slice(0, -1) + ',"padding":"');
+  const chunk = Buffer.alloc(64 * 1024, 'x');
+  const budget = { bytes: 0 };
+  const body = Readable.from((async function* () {
+    yield prefix;
+    for (let i = 0; i < 448; i++) yield chunk;
+    yield Buffer.from('"}');
+  })());
+  await request(async () => ({ status: 200, body }), { budget });
+  assert.equal(budget.bytes, prefix.length + 28 * 1024 * 1024 + 2);
+  assert.equal(body.destroyed, true);
+});
+test('default metadata ceiling refuses crossing chunk and closes stream before tail', async () => {
+  const chunk = Buffer.alloc(1024 * 1024);
+  let tail = false;
+  const body = Readable.from((async function* () {
+    for (let i = 0; i < 65; i++) yield chunk;
+    yield Buffer.alloc(1);
+    tail = true;
+  })());
+  const budget = { bytes: 0 };
+  await assert.rejects(collectMetadata(body, budget), { code: 'METADATA_BODY_LIMIT' });
+  assert.equal(budget.bytes, 65 * 1024 * 1024);
+  assert.equal(body.destroyed, true);
+  assert.equal(tail, false);
+});
+
 test('aggregate decoded budget includes every body and crossing chunk', async () => {
   const budget = { bytes: 0 }; const limits = { bodyBytes: 8, totalBytes: 10 };
   assert.equal((await collectMetadata(Readable.from([Buffer.alloc(6)]), budget, limits)).length, 6);

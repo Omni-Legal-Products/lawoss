@@ -318,7 +318,7 @@ and all 64 genuine offline pacote readbacks must succeed before acceptance.
 One original absolute 300-second acquisition deadline is shared by the parent,
 worker, tarballs, metadata and readbacks. Requests are sequential, retry-free,
 strict TLS, redirect-refusing and bounded to 45 seconds. Tarballs are limited to
-32 MiB each / 256 MiB aggregate; decoded metadata to 16 MiB each / 128 MiB
+32 MiB each / 256 MiB aggregate; decoded metadata to 64 MiB each / 128 MiB
 aggregate, including chunks with no Content-Length. HTTP cache tee writes may
 have seen the crossing chunk: this is not a byte-exact filesystem quota. The
 public cache API cannot join an aborted tee in process. The disposable worker's
@@ -383,3 +383,10 @@ license, application startup or packaging acceptance follows from this helper.
 ```sh
 node --test lawoss/engine-dependencies/native-merged-validation.test.mjs
 ```
+
+The decoded metadata body bound is 64 MiB: measured public plugin/SDK full
+representations were about 27–28 MB, so the previous 16 MiB bound rejected
+valid registry responses. This provides headroom while retaining streaming
+checks before retention, the 128 MiB aggregate budget and existing time bounds.
+Mutable registry growth can still exceed these limits; this is not a guarantee
+of successful genuine SDK acquisition or offline validation.

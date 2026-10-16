@@ -90,7 +90,12 @@ const http = require("node:http");
 const keys = ["OPENCODE_MODELS_URL", "OPENCODE_MODELS_PATH", "OPENCODE_DISABLE_MODELS_FETCH", "OPENCODE_DISABLE_SHARE", "OPENCODE_DISABLE_AUTOUPDATE"];
 fs.writeFileSync(${JSON.stringify(envPath)}, JSON.stringify(Object.fromEntries(keys.map((key) => [key, process.env[key] ?? null]))));
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
-http.createServer((request, response) => response.end("ok")).listen(port, "127.0.0.1", () => {
+http.createServer((request, response) => {
+  if (request.url === "/global/health") {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ healthy: true, version: "engine-network-fixture" }));
+  } else response.end("ok");
+}).listen(port, "127.0.0.1", () => {
   process.stdout.write("opencode server listening on http://127.0.0.1:" + port + "\\n");
 });
 process.on("SIGTERM", () => process.exit(0));
