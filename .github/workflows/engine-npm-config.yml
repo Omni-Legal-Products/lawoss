@@ -103,6 +103,6 @@ jobs:
           $configTestVersionExit = $LASTEXITCODE
           if ($configTestVersionExit -isnot [int] -or $configTestVersionExit -ne 0 -or $configTestVersion.Count -ne 1 -or $configTestVersion[0] -cne 'v22.23.2') { throw 'NODE_VERSION' }
           $global:LASTEXITCODE = $null
-          node --test lawoss/engine-dependencies/npm-config.test.mjs
+          node --test lawoss/engine-dependencies/npm-config.test.mjs lawoss/engine-dependencies/dependency-lease.test.mjs
           $configTestExit = $LASTEXITCODE
           if ($configTestExit -isnot [int] -or $configTestExit -ne 0) { throw 'CONFIG_TEST_FAILED' }

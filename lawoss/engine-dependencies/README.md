@@ -161,3 +161,48 @@ Node24.21.0 and an owned installer HOME/config/cache/store. The subsequent
 Node22 step runs the native suite; its authenticated CI conclusion is the
 execution gate. Native results remain pending until the workflow is published
 and completes. This does not establish application packaging or startup.
+
+## Standalone dependency lease (no production caller)
+
+`dependency-lease.mjs` exports
+`withEngineDependencyLease({ stateDirectory, logicalDirectories, deadline, signal }, operation)`.
+Supply the captured absolute engine `Global.state`, all known exact logical
+`input.dir` spellings for one physical target, and the original absolute wall-clock
+deadline in milliseconds. The callback receives a composed AbortSignal. No target
+or profile discovery, configuration loading, package installation or tree mutation
+is performed by this component.
+
+The wire protocol is adapted from opencode commit
+`16747470f976aca3d362ad730bcd3fe82ecc2c9a`,
+`packages/core/src/util/effect-flock.ts` and `flock.ts` (MIT, retained in
+`LICENSE.opencode`): `state/locks/sha1("npm-install:" + exactDir).lock`, exclusive
+0700 directory, exclusive heartbeat and UUID/pid/hostname/createdAt metadata,
+60-second stale detection with heartbeat → metadata → directory fallback,
+20-second heartbeat, `.breaker` with a stale recheck and token-checked release.
+Known aliases are deduplicated and sorted without path normalization; locks are
+released in reverse order. Acquisition shares one monotonic budget capped at five
+minutes and the caller's initial remaining deadline. Retry starts at 100 ms,
+multiplies by 1.7 and caps at 2 seconds, bounded by the remaining budget.
+
+Cancellation is cooperative. **The callback must settle only after all its owned
+work and helper children have closed.** The lease awaits callback settlement and
+in-flight heartbeat writes before release, including cleanup after the deadline.
+It cannot force-stop callback work or prove descendant termination. Heartbeat
+faults cancel/refuse work; metadata mismatch or invalid/oversized metadata refuses
+release. Initialization failure retains uncertain state for stale recovery rather
+than deleting potentially foreign files. Callback and cleanup failures are retained
+together. Metadata reads allocate at most a fixed 65,537-byte buffer; heartbeat
+updates use an opened file handle to avoid delayed pathname writes into successors.
+
+This remains the engine's advisory filesystem protocol: token check and directory
+removal are not atomic against noncooperating writers. Unknown aliases and different
+state roots do not share exclusion. The tests use a labeled synthetic protocol peer
+with real Node child IPC ready/release/close receipts; they do **not** establish
+compiled-engine/Effect interoperability. Actual engine startup is a separate gate.
+
+```sh
+/path/to/verified/node22 --test lawoss/engine-dependencies/dependency-lease.test.mjs
+```
+
+The explicit Windows/Ubuntu Node22 workflow also selects this suite. Local tests
+are not Windows acceptance; that gate requires the published workflow's result.
