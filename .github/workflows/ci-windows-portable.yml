@@ -51,6 +51,8 @@ on:
       - apps/desktop/electron/lawoss-okf-cli-smoke.mjs
       - apps/desktop/electron/lawoss-okf-cli-smoke.test.mjs
       - apps/desktop/electron/main.mjs
+      - apps/desktop/electron/runtime.mjs
+      - apps/desktop/electron/runtime-embedded-auth.node.test.mjs
       - apps/app/src/react-app/shell/welcome-route.tsx
       - apps/server/src/lawoss/**
       - apps/server/src/lawoss-*
@@ -58,6 +60,14 @@ on:
       - apps/server/src/reload-watcher.test.ts
       - apps/server/src/routes/workspaces.ts
       - apps/server/src/routes/files.ts
+      - apps/server/src/frontmatter*
+      - apps/server/src/security-*
+      - apps/server/src/word-addin*
+      - apps/server/src/benchmarks/**
+      - apps/server/src/routes/benchmarks.ts
+      - apps/opencode-router/**
+      - apps/orchestrator/src/cli.ts
+      - apps/orchestrator/scripts/router-control-security.test.mjs
       - apps/server/src/paths.ts
       - apps/server/src/server.ts
       - apps/server/src/runtime-db*
@@ -137,6 +147,8 @@ on:
       - apps/desktop/electron/lawoss-okf-cli-smoke.mjs
       - apps/desktop/electron/lawoss-okf-cli-smoke.test.mjs
       - apps/desktop/electron/main.mjs
+      - apps/desktop/electron/runtime.mjs
+      - apps/desktop/electron/runtime-embedded-auth.node.test.mjs
       - apps/app/src/react-app/shell/welcome-route.tsx
       - apps/server/src/lawoss/**
       - apps/server/src/lawoss-*
@@ -144,6 +156,14 @@ on:
       - apps/server/src/reload-watcher.test.ts
       - apps/server/src/routes/workspaces.ts
       - apps/server/src/routes/files.ts
+      - apps/server/src/frontmatter*
+      - apps/server/src/security-*
+      - apps/server/src/word-addin*
+      - apps/server/src/benchmarks/**
+      - apps/server/src/routes/benchmarks.ts
+      - apps/opencode-router/**
+      - apps/orchestrator/src/cli.ts
+      - apps/orchestrator/scripts/router-control-security.test.mjs
       - apps/server/src/paths.ts
       - apps/server/src/server.ts
       - apps/server/src/runtime-db*
@@ -299,8 +319,24 @@ jobs:
       - name: Node production engine proxy and idle response cancellation
         run: node --test apps/server/scripts/opencode-proxy-cancellation.node.test.mjs
 
+      - name: Private desktop engine authentication after server build
+        run: node --test apps/desktop/electron/runtime-embedded-auth.node.test.mjs
+
       - name: Verify native ISIR bootstrap, diagnostics and owned resources
         run: node --test lawoss/testing/isir/native/*.test.mjs
 
       - name: ISIR attachments in ten case folders (synthetic offline corpus)
         run: pnpm test:isir
+
+      - name: Security boundaries and Windows archive destinations
+        # Beží aj po páde predchádzajúceho kroku, aby sa bezpečnostné regresie na Windows vždy overili.
+        if: ${{ !cancelled() }}
+        working-directory: apps/server
+        run: bun test src/frontmatter.test.ts src/frontmatter-security.e2e.test.ts src/security-auth-boundaries.e2e.test.ts src/security-file-boundary.e2e.test.ts src/word-addin.e2e.test.ts src/word-addin-shell.test.ts src/benchmarks/document-path.test.ts src/benchmarks/task-zip.test.ts src/benchmarks/harvey-catalog.test.ts src/benchmarks/store.test.ts
+
+      - name: Messaging control and local media isolation
+        # Beží aj po páde predchádzajúceho kroku, aby sa bezpečnostné regresie na Windows vždy overili.
+        if: ${{ !cancelled() }}
+        run: |
+          pnpm --filter opencode-router test:unit
+          node --test apps/orchestrator/scripts/router-control-security.test.mjs

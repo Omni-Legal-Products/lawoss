@@ -1510,7 +1510,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       recorder,
       // Word/Excel/PowerPoint add-in listener — enabled via the Office Add-ins
       // settings tab; null when not installed so the listener stays off.
-      ...(officeAddinManager.serverConfig() ?? {}),
+      ...((await officeAddinManager.serverConfig()) ?? {}),
     });
     inProcessServer = handle;
     legalworkServerState.managedOpencodeExecution = handle.managedOpencodeExecution ?? null;
@@ -1561,8 +1561,11 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
           engineState.hostname = new URL(opencode.baseUrl).hostname;
           engineState.port = Number(new URL(opencode.baseUrl).port) || null;
           engineState.baseUrl = opencode.baseUrl;
-          engineState.opencodeUsername = opencode.username ?? null;
-          engineState.opencodePassword = opencode.password ?? null;
+          // Engine credentials stay on the private in-process handle; public
+          // workspace responses deliberately omit them, including for owners.
+          const privateWorkspace = handle.config.workspaces.find((workspace) => workspace.id === first.id);
+          engineState.opencodeUsername = privateWorkspace?.opencodeUsername ?? handle.config.opencodeUsername ?? null;
+          engineState.opencodePassword = privateWorkspace?.opencodePassword ?? handle.config.opencodePassword ?? null;
           engineState.execution = handle.managedOpencodeExecution ?? null;
           engineState.child = null;
           engineState.childExited = false;

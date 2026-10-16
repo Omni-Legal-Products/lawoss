@@ -1,6 +1,8 @@
 import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
+import { resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
+import { realpath } from "./lawoss/canonical-path.js";
 import { ApiError } from "./errors.js";
 import { ensureDir, exists } from "./utils.js";
 
@@ -95,7 +97,7 @@ export function planPortableFiles(workspaceRoot: string, value: unknown): Planne
 }
 
 async function walkPortableFiles(root: string, currentPath: string, output: PortableFile[]): Promise<void> {
-  const entries = await readdir(currentPath, { withFileTypes: true });
+  const entries = await readdir(await resolveWorkspaceFilePath(root, currentPath), { withFileTypes: true });
 
   for (const entry of entries) {
     const absolutePath = join(currentPath, entry.name);
@@ -109,13 +111,13 @@ async function walkPortableFiles(root: string, currentPath: string, output: Port
     if (!isAllowedPortableFilePath(relativePath)) continue;
     output.push({
       path: relativePath,
-      content: await readFile(absolutePath, "utf8"),
+      content: await readFile(await resolveWorkspaceFilePath(root, absolutePath), "utf8"),
     });
   }
 }
 
 async function walkPortableFilePaths(root: string, currentPath: string, output: string[]): Promise<void> {
-  const entries = await readdir(currentPath, { withFileTypes: true });
+  const entries = await readdir(await resolveWorkspaceFilePath(root, currentPath), { withFileTypes: true });
 
   for (const entry of entries) {
     const absolutePath = join(currentPath, entry.name);
@@ -132,7 +134,7 @@ async function walkPortableFilePaths(root: string, currentPath: string, output: 
 }
 
 export async function listPortableFiles(workspaceRoot: string): Promise<PortableFile[]> {
-  const root = resolve(workspaceRoot);
+  const root = await realpath(workspaceRoot);
   const portableRoot = join(root, ".opencode");
   if (!(await exists(portableRoot))) return [];
 
@@ -143,7 +145,7 @@ export async function listPortableFiles(workspaceRoot: string): Promise<Portable
 }
 
 export async function listPortableFilePaths(workspaceRoot: string): Promise<string[]> {
-  const root = resolve(workspaceRoot);
+  const root = await realpath(workspaceRoot);
   const portableRoot = join(root, ".opencode");
   if (!(await exists(portableRoot))) return [];
 
@@ -157,16 +159,19 @@ export async function writePortableFiles(workspaceRoot: string, value: unknown, 
   const files = planPortableFiles(workspaceRoot, value);
   if (!files.length) return [];
 
+  for (const file of files) await resolveWorkspaceFilePath(workspaceRoot, file.path);
+
   if (options?.replace) {
     const existing = await listPortableFiles(workspaceRoot);
     for (const file of existing) {
-      await rm(join(resolve(workspaceRoot), file.path), { force: true });
+      await rm(await resolveWorkspaceFilePath(workspaceRoot, file.path, { preserveLeaf: true }), { force: true });
     }
   }
 
   for (const file of files) {
-    await ensureDir(dirname(file.absolutePath));
-    await writeFile(file.absolutePath, file.content, "utf8");
+    const target = await resolveWorkspaceFilePath(workspaceRoot, file.path);
+    await ensureDir(dirname(target));
+    await writeFile(await resolveWorkspaceFilePath(workspaceRoot, file.path), file.content, "utf8");
   }
 
   return files;

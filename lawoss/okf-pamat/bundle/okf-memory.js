@@ -1418,7 +1418,7 @@ import { existsSync as existsSync3, lstatSync as lstatSync4, mkdirSync as mkdirS
 import { isAbsolute as isAbsolute3, join as join6, resolve as resolve4 } from "node:path";
 
 // src/store.ts
-import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync as existsSync2, fstatSync, lstatSync, mkdirSync, openSync, readFileSync as readFileSync2, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join as join2, relative, resolve, sep as sep2 } from "node:path";
 
@@ -2360,10 +2360,17 @@ function readStore(dir) {
   const records = [];
   const problems = [];
   try {
-    for (const entry of readdirSync(memoryDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const safeMemoryDir = join2(realpathSync(dir), MEMORY_DIR);
+    if (lstatSync(safeMemoryDir).isSymbolicLink())
+      throw new Error("Symbolický odkaz na adresár pamäte nie je povolený.");
+    for (const entry of readdirSync(safeMemoryDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const name = entry.name;
       if (entry.isDirectory()) {
         problems.push({ file: name, message: "Vnorený adresár pamäte nie je podporovaný; jeho záznamy neboli načítané." });
+        continue;
+      }
+      if (entry.isSymbolicLink()) {
+        problems.push({ file: name, message: "Symbolický odkaz na záznam pamäte nie je povolený." });
         continue;
       }
       if (!name.endsWith(".md"))
@@ -2371,7 +2378,20 @@ function readStore(dir) {
       if (name === INDEX_FILE || name === LOG_FILE || name === LEGACY_INDEX_FILE)
         continue;
       try {
-        const source = readFileSync2(join2(memoryDir, name), "utf8");
+        const file = join2(safeMemoryDir, name);
+        const before = lstatSync(file);
+        if (!before.isFile() || before.isSymbolicLink())
+          throw new Error("Záznam pamäte musí byť bežný súbor.");
+        const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+        let source;
+        try {
+          const opened = fstatSync(fd);
+          if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino)
+            throw new Error("Záznam pamäte sa zmenil počas čítania.");
+          source = readFileSync2(fd, "utf8");
+        } finally {
+          closeSync(fd);
+        }
         records.push(parseRecord(source));
         if (hasUnparsedBody(source)) {
           problems.push({ file: join2(memoryDir, name), message: "Časť obsahu (text pred prvou sekciou, zdvojená Truth/History alebo riadok History mimo tvaru udalosti) sa nedá načítať. Otvor celý zdrojový súbor; tento výpis nie je úplný." });
@@ -2955,7 +2975,7 @@ import { isAbsolute as isAbsolute2, join as join4, resolve as resolve3, sep as s
 
 // src/workspace-memory-fs.ts
 import { createHash } from "node:crypto";
-import { closeSync, constants, fstatSync, lstatSync as lstatSync2, openSync, readSync, realpathSync } from "node:fs";
+import { closeSync as closeSync2, constants as constants2, fstatSync as fstatSync2, lstatSync as lstatSync2, openSync as openSync2, readSync, realpathSync as realpathSync2 } from "node:fs";
 import { basename as basename2, dirname as dirname2, isAbsolute, join as join3, parse, relative as relative2, resolve as resolve2, sep as sep3 } from "node:path";
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -3004,7 +3024,7 @@ function checkedPath(path, kind, allowMissing = false) {
   return true;
 }
 function checkedDirectory(path) {
-  const physical = resolve2(realpathSync.native(path));
+  const physical = resolve2(realpathSync2.native(path));
   checkedPath(physical, "directory");
   return physical;
 }
@@ -3019,7 +3039,7 @@ function physicalPathWithin(root, path, kind, allowMissing = false) {
   let physical;
   for (;; ) {
     try {
-      physical = resolve2(realpathSync.native(ancestor));
+      physical = resolve2(realpathSync2.native(ancestor));
       break;
     } catch (error) {
       if (!allowMissing || !missing(error))
@@ -3041,9 +3061,9 @@ function physicalPathWithin(root, path, kind, allowMissing = false) {
 }
 function readText(path, limit) {
   checkedPath(path, "file");
-  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const fd = openSync2(path, constants2.O_RDONLY | constants2.O_NOFOLLOW | constants2.O_NONBLOCK);
   try {
-    const before = fstatSync(fd, { bigint: true });
+    const before = fstatSync2(fd, { bigint: true });
     if (!before.isFile())
       throw new Error(`Not a regular file: ${path}`);
     if (before.size > BigInt(limit))
@@ -3056,14 +3076,14 @@ function readText(path, limit) {
         break;
       count += n;
     }
-    const after = fstatSync(fd, { bigint: true }), named = lstatSync2(path, { bigint: true });
+    const after = fstatSync2(fd, { bigint: true }), named = lstatSync2(path, { bigint: true });
     if (BigInt(count) !== before.size || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || named.isSymbolicLink() || before.ino !== named.ino || before.dev !== named.dev)
       throw new Error(`Source changed during read: ${path}`);
     const bytes = buffer.subarray(0, count);
     const content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
     return { content, sha256: sha256(bytes), bytes: count, physical: `${before.dev}:${before.ino}`, mode: Number(before.mode & 0o777n) };
   } finally {
-    closeSync(fd);
+    closeSync2(fd);
   }
 }
 function jsonText(path, limit) {
@@ -3309,7 +3329,7 @@ function renderWorkspaceMemory(report) {
 }
 // src/workspace-memory-writer.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
-import { chmodSync, closeSync as closeSync2, constants as constants2, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync3, mkdirSync as mkdirSync2, openSync as openSync2, renameSync as renameSync2, unlinkSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { chmodSync, closeSync as closeSync3, constants as constants3, fstatSync as fstatSync3, fsyncSync, lstatSync as lstatSync3, mkdirSync as mkdirSync2, openSync as openSync3, renameSync as renameSync2, unlinkSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { dirname as dirname3, join as join5 } from "node:path";
 class Conflict extends Error {
 }
@@ -3376,12 +3396,12 @@ function validateSnapshot(report, request) {
 }
 function createPrivate(path, content, mode = 384) {
   checkedPath(dirname3(path), "directory");
-  const fd = openSync2(path, constants2.O_CREAT | constants2.O_EXCL | constants2.O_WRONLY | constants2.O_NOFOLLOW, mode);
+  const fd = openSync3(path, constants3.O_CREAT | constants3.O_EXCL | constants3.O_WRONLY | constants3.O_NOFOLLOW, mode);
   try {
     writeFileSync2(fd, content, "utf8");
     fsyncSync(fd);
   } finally {
-    closeSync2(fd);
+    closeSync3(fd);
   }
 }
 function privateDirectory(path) {
@@ -3444,7 +3464,7 @@ function saveWorkspaceMemory(directory, request, options = {}) {
     privateDirectory(history);
     lockPath = join5(history, "save.lock");
     try {
-      lockFd = openSync2(lockPath, constants2.O_CREAT | constants2.O_EXCL | constants2.O_WRONLY | constants2.O_NOFOLLOW, 384);
+      lockFd = openSync3(lockPath, constants3.O_CREAT | constants3.O_EXCL | constants3.O_WRONLY | constants3.O_NOFOLLOW, 384);
     } catch (error) {
       throw new Conflict(`Cannot acquire exclusive save lock: ${message(error)}`);
     }
@@ -3455,7 +3475,7 @@ function saveWorkspaceMemory(directory, request, options = {}) {
       return result;
     const assertLock = () => {
       checkedPath(lockPath, "file");
-      const held = fstatSync2(lockFd), named = lstatSync3(lockPath);
+      const held = fstatSync3(lockFd), named = lstatSync3(lockPath);
       if (held.ino !== named.ino || held.dev !== named.dev)
         throw new Conflict("Save lock was replaced externally.");
     };
@@ -3562,7 +3582,7 @@ function saveWorkspaceMemory(directory, request, options = {}) {
     }
     if (lockFd !== undefined) {
       try {
-        const held = fstatSync2(lockFd), named = lstatSync3(lockPath);
+        const held = fstatSync3(lockFd), named = lstatSync3(lockPath);
         if (!named.isSymbolicLink() && held.ino === named.ino && held.dev === named.dev)
           unlinkSync(lockPath);
       } catch (error) {
@@ -3570,7 +3590,7 @@ function saveWorkspaceMemory(directory, request, options = {}) {
         if (result.status === "committed" || result.status === "already-applied")
           result.status = "error";
       } finally {
-        closeSync2(lockFd);
+        closeSync3(lockFd);
       }
     }
   }

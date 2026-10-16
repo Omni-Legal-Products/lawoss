@@ -8,6 +8,8 @@ import assert from "node:assert/strict";
 import { startBridge } from "../dist/bridge.js";
 import { BridgeStore } from "../dist/db.js";
 
+const controlToken = "ab".repeat(32);
+
 function createLoggerStub() {
   const base = {
     child() {
@@ -67,6 +69,7 @@ test("health /send delivers to directory bindings", async () => {
       permissionMode: "allow",
       toolOutputLimit: 1200,
       healthPort,
+      controlToken,
       logLevel: "silent",
     },
     createLoggerStub(),
@@ -85,7 +88,7 @@ test("health /send delivers to directory bindings", async () => {
 
   const response = await fetch(`http://127.0.0.1:${healthPort}/send`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${controlToken}` },
     body: JSON.stringify({ channel: "slack", directory: dir, text: "hello" }),
   });
   assert.equal(response.status, 200);
@@ -122,6 +125,7 @@ test("health /send reports no-op when no bindings exist", async () => {
       permissionMode: "allow",
       toolOutputLimit: 1200,
       healthPort,
+      controlToken,
       logLevel: "silent",
     },
     createLoggerStub(),
@@ -140,7 +144,7 @@ test("health /send reports no-op when no bindings exist", async () => {
 
   const response = await fetch(`http://127.0.0.1:${healthPort}/send`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${controlToken}` },
     body: JSON.stringify({ channel: "slack", directory: dir, text: "hello" }),
   });
   assert.equal(response.status, 200);
@@ -189,6 +193,7 @@ test("health /send can deliver directly with peerId", async () => {
       permissionMode: "allow",
       toolOutputLimit: 1200,
       healthPort,
+      controlToken,
       logLevel: "silent",
     },
     createLoggerStub(),
@@ -207,7 +212,7 @@ test("health /send can deliver directly with peerId", async () => {
 
   const response = await fetch(`http://127.0.0.1:${healthPort}/send`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${controlToken}` },
     body: JSON.stringify({ channel: "slack", peerId: "D555", text: "hello-direct" }),
   });
   assert.equal(response.status, 200);
@@ -276,6 +281,7 @@ test("health /send can deliver file parts end-to-end", async () => {
       permissionMode: "allow",
       toolOutputLimit: 1200,
       healthPort,
+      controlToken,
       logLevel: "silent",
     },
     createLoggerStub(),
@@ -294,7 +300,7 @@ test("health /send can deliver file parts end-to-end", async () => {
 
   const response = await fetch(`http://127.0.0.1:${healthPort}/send`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${controlToken}` },
     body: JSON.stringify({
       channel: "slack",
       peerId: "D999",
@@ -308,6 +314,28 @@ test("health /send can deliver file parts end-to-end", async () => {
   assert.equal(Array.isArray(json.targets), true);
   assert.equal(json.targets[0].sentParts, 1);
   assert.equal(deliveries.length, 1);
+
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "router-outside-"));
+  fs.writeFileSync(path.join(outside, "sentinel.txt"), "outside sentinel");
+  fs.symlinkSync(outside, path.join(dir, "escape"), "dir");
+  try {
+    for (const payload of [
+      { parts: [{ type: "file", filePath: path.join(outside, "sentinel.txt") }] },
+      { parts: [{ type: "file", filePath: "escape/sentinel.txt" }] },
+      { directory: path.join(dir, "escape"), parts: [{ type: "file", filePath: "sentinel.txt" }] },
+    ]) {
+      const rejected = await fetch(`http://127.0.0.1:${healthPort}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${controlToken}` },
+        body: JSON.stringify({ channel: "slack", peerId: "D999", ...payload }),
+      });
+      assert.ok([400, 403].includes(rejected.status));
+      assert.equal(deliveries.length, 1, "no rejected attachment reaches an adapter");
+    }
+    assert.equal(fs.readFileSync(path.join(outside, "sentinel.txt"), "utf8"), "outside sentinel");
+  } finally {
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
 
   await bridge.stop();
   store.close();
@@ -335,6 +363,7 @@ test("health /send rejects invalid telegram direct peerId", async () => {
       permissionMode: "allow",
       toolOutputLimit: 1200,
       healthPort,
+      controlToken,
       logLevel: "silent",
     },
     createLoggerStub(),
@@ -353,7 +382,7 @@ test("health /send rejects invalid telegram direct peerId", async () => {
 
   const response = await fetch(`http://127.0.0.1:${healthPort}/send`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${controlToken}` },
     body: JSON.stringify({ channel: "telegram", peerId: "@hotkartoffel", text: "hello-direct" }),
   });
   assert.equal(response.status, 400);
@@ -404,6 +433,7 @@ test("health /send removes invalid telegram bindings and still sends valid ones"
       permissionMode: "allow",
       toolOutputLimit: 1200,
       healthPort,
+      controlToken,
       logLevel: "silent",
     },
     createLoggerStub(),
@@ -422,7 +452,7 @@ test("health /send removes invalid telegram bindings and still sends valid ones"
 
   const response = await fetch(`http://127.0.0.1:${healthPort}/send`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${controlToken}` },
     body: JSON.stringify({ channel: "telegram", directory: dir, text: "hello" }),
   });
   assert.equal(response.status, 200);

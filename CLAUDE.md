@@ -75,6 +75,9 @@ Rules:
 - Prefer functional patterns, short focused functions, DRY, KISS, and YAGNI.
 - Use pnpm. Never use npm or yarn.
 - Match verification runtimes to the active CI workflow and select exact executable paths when several versions are installed. Keep results from other local runtimes as supplemental evidence, not a substitute for the CI-matching gate.
+- Pin Bun in `PATH` before running package build scripts; invoking a Bun binary by absolute path does not pin the shell commands inside `bun run`. Verify committed bundles by a second identical build.
+- Bun SQLite adapters with an explicit close lifecycle should use cached `Database.query()` or explicitly finalize prepared statements; uncached statements can retain WAL/file handles after `close()`. Verify immediate removal on Windows, not just Unix cleanup.
+- Embedded desktop connection credentials come from the private in-process handle matched to the public workspace ID. Public workspace serialization stays credential-free; verify fresh managed/external authentication and reuse/restart with the postbuild Node runtime seam.
 - Use components from `@/components` when possible.
 - Prefer shadcn/ui with Base UI for new components.
 - Assume end users are non-technical lawyers.

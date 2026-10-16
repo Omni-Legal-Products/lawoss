@@ -137,6 +137,9 @@ jobs:
         if: runner.os == 'macOS'
         run: node --test apps/server/scripts/runtime-db-lifecycle.node.test.mjs apps/server/scripts/opencode-proxy-cancellation.node.test.mjs
 
+      - name: Verify private desktop engine authentication after server build
+        run: node --test apps/desktop/electron/runtime-embedded-auth.node.test.mjs
+
       - name: Verify native ISIR bootstrap, diagnostics and owned resources
         run: node --test lawoss/testing/isir/native/*.test.mjs
 
@@ -157,6 +160,11 @@ jobs:
 
       - name: Run server unit tests
         run: pnpm --filter legalwork-server test
+
+      - name: Verify messaging control authentication and workspace containment
+        run: |
+          pnpm --filter opencode-router test:unit
+          node --test apps/orchestrator/scripts/router-control-security.test.mjs
 
       - name: Verify report source evidence checks
         run: |

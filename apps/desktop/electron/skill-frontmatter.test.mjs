@@ -14,3 +14,18 @@ test("preserves valid YAML without sanitizing it", () => {
   assert.equal(parsed.data.description, "Review: client captions");
   assert.equal(parsed.content, "Body\n");
 });
+
+for (const tag of ["js", "JS", "javascript", "JavaScript", " javascript"]) {
+  test(`rejects executable ${tag} metadata without evaluating it`, () => {
+    delete globalThis.lawossFrontmatterProbe;
+    try {
+      assert.throws(() => parseSkillFrontmatter(`\uFEFF---${tag}\r\n(globalThis.lawossFrontmatterProbe = true, {})\r\n---\r\nBody`));
+      assert.equal(globalThis.lawossFrontmatterProbe, undefined);
+    } finally { delete globalThis.lawossFrontmatterProbe; }
+  });
+}
+
+test("JSON metadata and code-looking YAML remain inert data", () => {
+  assert.deepEqual(parseSkillFrontmatter('---json\n{"name":"demo"}\n---\nBody').data, { name: "demo" });
+  assert.equal(parseSkillFrontmatter("---\nname: 'globalThis.lawossFrontmatterProbe = true'\n---\nBody").data.name, "globalThis.lawossFrontmatterProbe = true");
+});

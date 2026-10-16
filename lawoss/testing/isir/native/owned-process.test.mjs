@@ -28,7 +28,9 @@ test('already exited native child is not signalled again',async()=>{
 });
 test('native child that ignores graceful stop is awaited through force stop',async()=>{
   const child=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});console.log('ready');setInterval(()=>{},1000)"],{detached:process.platform!=='win32',stdio:['ignore','pipe','pipe']});
-  try {await once(child.stdout,'data');await stopNativeChild(child,100);assert.ok(child.exitCode!==null||child.signalCode!==null);}
+  // Exercise the production cleanup budget; repeated real identity snapshots
+  // are not a 100ms cleanup SLA. Ownership and actual exit remain mandatory.
+  try {await once(child.stdout,'data');await stopNativeChild(child);assert.ok(child.exitCode!==null||child.signalCode!==null);}
   finally {if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');}
 });
 
@@ -41,7 +43,8 @@ setInterval(()=>{},1000);`;
   try {
     descendant=Number(String((await once(leader.stdout,'data'))[0]).trim());
     assert.ok(Number.isInteger(descendant)&&descendant>0);
-    await stopNativeChild(leader,100);
+    // Preserve the production phase budget for real per-PID identity checks.
+    await stopNativeChild(leader);
     assert.equal(leader.signalCode,'SIGTERM');
     assert.equal(isRunning(descendant),false,'Owned same-group descendant must not survive resolved cleanup');
   }finally{

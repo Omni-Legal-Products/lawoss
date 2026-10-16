@@ -1,4 +1,5 @@
 import { acquireRuntimeDbLifetime } from "./runtime-db-lifecycle.js";
+import { resolveWorkspaceFilePath, recheckWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { LawossDocuments } from "./lawoss/documents/service.js";
 import { registerLawossDocumentRoutes } from "./routes/lawoss-documents.js";
 import { workspaceOwnsSession } from "./lawoss/workspace-history.js";
@@ -432,7 +433,7 @@ function userRuntimeConfigFromOpencodeConfig(opencode: Record<string, unknown>):
 async function removeUserRuntimeConfigFromOpencode(workspaceRoot: string, keys: UserOpencodeRuntimeConfigKey[]): Promise<void> {
   if (!keys.length) return;
   const updates = Object.fromEntries(keys.map((key) => [key, undefined]));
-  await updateJsoncTopLevel(opencodeConfigPath(workspaceRoot), updates);
+  await updateJsoncTopLevel(await resolveWorkspaceFilePath(workspaceRoot, opencodeConfigPath(workspaceRoot)), updates);
 }
 
 function runtimeConfigKeys(config: RuntimeOpencodeConfig): string[] {
@@ -746,26 +747,24 @@ function normalizeOpencodeProxyPath(proxyPath: string): string {
   return normalized || "/";
 }
 
-export function assertOpencodeProxyAllowed(actor: Actor, method: string, proxyPath: string) {
+export function assertOpencodeProxyAllowed(actor: Actor, method: string, proxyPath: string, readOnly = false) {
   const m = method.toUpperCase();
-  const scope = actor.scope ?? "viewer";
-
-  if (scope === "viewer" && m !== "GET" && m !== "HEAD") {
-    throw new ApiError(403, "forbidden", "Viewer tokens are read-only");
+  const reading = m === "GET" || m === "HEAD";
+  if (readOnly && !reading) {
+    throw new ApiError(403, "read_only", "Server is read-only");
   }
+  if ((actor.scope ?? "viewer") !== "viewer") return;
+  if (!reading) throw new ApiError(403, "forbidden", "Viewer tokens are read-only");
 
-  // Prevent viewers from self-approving OpenCode permission requests via the
-  // proxy. OpenCode uses /permission/:requestId/reply (and historically also
-  // a session-scoped variant). Collaborators must be allowed: the SPA's only
-  // credential is the collaborator-scoped client token (LEGALWORK_TOKEN), so
-  // an owner-only gate made every interactive permission dialog un-answerable
-  // (403 "Only owner tokens can reply") and left tool calls stuck in
-  // "running" forever (#1918).
-  if (scope === "viewer" && m !== "GET" && m !== "HEAD") {
-    const normalized = normalizeOpencodeProxyPath(proxyPath);
-    if (/\/permission\/[^/]+\/reply$/.test(normalized)) {
-      throw new ApiError(403, "forbidden", "Viewer tokens cannot reply to permission requests");
-    }
+  // The engine's GET config/provider/file routes can reveal credentials or
+  // read files outside the workspace. Viewer access is an explicit read-model
+  // allowlist, never an assumption that every GET is safe. Reject ambiguous
+  // encoded paths instead of letting the upstream decode them differently.
+  const path = normalizeOpencodeProxyPath(proxyPath);
+  const safePath = !/[\\%?#]/.test(path) && !path.split("/").some((part) => part === "." || part === "..");
+  const viewerRead = /^(?:\/global\/health|\/event|\/permission|\/question|\/session(?:\/[A-Za-z0-9_-]+(?:\/(?:message(?:\/[A-Za-z0-9_-]+)?|children|todo|diff))?)?)$/;
+  if (!safePath || !viewerRead.test(path)) {
+    throw new ApiError(403, "forbidden", "Viewer tokens cannot access this engine endpoint");
   }
 }
 
@@ -906,7 +905,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
         authMode = "client";
         try {
           const actor = await requireClient(request, config, tokens);
-          assertOpencodeProxyAllowed(actor, request.method, mount.restPath);
+          assertOpencodeProxyAllowed(actor, request.method, mount.restPath, config.readOnly);
           const workspace = await resolveWorkspace(config, mount.workspaceId);
           proxyService = "opencode";
           proxyBaseUrl = workspace.baseUrl?.trim() || undefined;
@@ -931,8 +930,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       if (url.pathname === WORD_ADDIN_PATH_PREFIX || url.pathname.startsWith(`${WORD_ADDIN_PATH_PREFIX}/`)) {
         const addinResponse = await handleWordAddinRequest({ request, url, config });
         if (addinResponse) {
-          // Deliberately not CORS-wrapped: /word-addin/bootstrap returns the
-          // client token and must only be readable same-origin.
+          // Office responses remain outside the general API CORS policy.
+          // Bootstrap independently requires an installation capability.
           if (config.logRequests) {
             logRequest({
               logger,
@@ -978,7 +977,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
         proxyBaseUrl = config.workspaces[0]?.baseUrl?.trim() || undefined;
         try {
           const actor = await requireClient(request, config, tokens);
-          assertOpencodeProxyAllowed(actor, request.method, url.pathname);
+          assertOpencodeProxyAllowed(actor, request.method, url.pathname, config.readOnly);
           proxyService = "opencode";
           const response = await proxyOpencodeRequest({ config, request, url, workspace: config.workspaces[0] });
           return finalize(response);
@@ -1060,7 +1059,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     } else {
       try {
         wordAddinServer = await serve({
-          hostname: config.host,
+          hostname: "127.0.0.1",
           port: config.wordAddin.port,
           fetch: serverOptions.fetch,
           idleTimeout: 120,
@@ -1632,20 +1631,19 @@ function buildAuthorizedFoldersResponse(workspace: WorkspaceInfo, config: Author
   };
 }
 
-function serializeWorkspace(workspace: ServerConfig["workspaces"][number]) {
-  const { opencodeUsername, opencodePassword, ...rest } = workspace;
+function serializeWorkspace(workspace: ServerConfig["workspaces"][number], scope: Actor["scope"] = "viewer") {
+  const { opencodeUsername: _username, opencodePassword: _password, legalworkToken, ...rest } = workspace;
   const opencodeDirectory = resolveOpencodeDirectory(workspace);
   const opencode =
-    workspace.baseUrl || opencodeDirectory || opencodeUsername || opencodePassword
+    workspace.baseUrl || opencodeDirectory
       ? {
           baseUrl: workspace.baseUrl,
           directory: opencodeDirectory ?? undefined,
-          username: opencodeUsername,
-          password: opencodePassword,
         }
       : undefined;
   return {
     ...rest,
+    ...(scope === "collaborator" || scope === "owner" ? { legalworkToken } : {}),
     opencode,
   };
 }
@@ -1725,7 +1723,7 @@ function createRoutes(
     createOpenAiRealtimeVoiceCall,
   });
 
-  registerOnboardingRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, onWorkspacesChanged, serializeWorkspace });
+  registerOnboardingRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, onWorkspacesChanged, serializeWorkspace: (workspace) => serializeWorkspace(workspace, "owner") });
   // LAWOSS: LAWOSS Marketplace pre všetkých klientov a aktualizácie (lawoss/marketplace-routes.ts).
   // Po zmene globálnych pluginov sa nečinné inštancie enginu obnovia (nové skilly a MCP), pri bežiacej úlohe len MCP a výzva na obnovu.
   registerLawossMarketplaceRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, resolveWorkspace: (id) => resolveWorkspace(config, id), afterChange: async (ctx) => {
@@ -1754,7 +1752,7 @@ function createRoutes(
     parseOptionalBoolean,
     ensureWritable,
     resolveWorkspace,
-    serializeWorkspace,
+    serializeWorkspace: (workspace) => serializeWorkspace(workspace, "owner"),
     reloadOpencodeEngine,
     onProjectDetailsSaved: (workspaceId, before, after) => noteProjectDetailsSaved(config, workspaceId, before, after),
     onProjectRenamed: (workspaceId, name) => noteProjectRenamed(config, workspaceId, name),
@@ -1863,6 +1861,7 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const legalwork = mergeLegalworkWorkspaceConfigs(
       await readLegalworkConfig(workspaceAppFilesRoot(config, workspace)),
@@ -2194,12 +2193,13 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/runtime-config", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const runtime = await readRuntimeOpencodeConfig(config, workspace.id);
     const legalwork = await readLegalworkConfigForStatus(workspaceAppFilesRoot(config, workspace));
     const legalworkConfig = legalwork.data;
     const legacy = legacyRuntimeConfigFromLegalworkConfig(legalworkConfig);
-    const rawOpencode = await readRawOpencodeConfig(opencodeConfigPath(workspaceAppFilesRoot(config, workspace)));
+    const rawOpencode = await readRawOpencodeConfig(await resolveWorkspaceFilePath(workspaceAppFilesRoot(config, workspace), opencodeConfigPath(workspaceAppFilesRoot(config, workspace))));
     const persistedOpencode = await readOpencodeConfig(workspaceAppFilesRoot(config, workspace));
     const globalOpencodePath = resolveOpencodeConfigFilePath("global", workspaceAppFilesRoot(config, workspace));
     const rawGlobalOpencode = await readRawOpencodeConfig(globalOpencodePath);
@@ -2248,10 +2248,12 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/opencode-config", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const scope = normalizeOpencodeScope(ctx.url.searchParams.get("scope"));
     const configPath = resolveOpencodeConfigFilePath(scope, workspaceAppFilesRoot(config, workspace));
-    const result = await readRawOpencodeConfig(configPath);
+    const readablePath = scope === "project" ? await resolveWorkspaceFilePath(workspaceAppFilesRoot(config, workspace), configPath) : configPath;
+    const result = await readRawOpencodeConfig(readablePath);
     return jsonResponse({ path: configPath, exists: result.exists, content: result.content });
   });
 
@@ -2267,6 +2269,7 @@ function createRoutes(
     }
 
     const configPath = resolveOpencodeConfigFilePath(scope, workspaceAppFilesRoot(config, workspace));
+    const approvedPath = scope === "project" ? await resolveWorkspaceFilePath(workspaceAppFilesRoot(config, workspace), configPath) : configPath;
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: scope === "global" ? "config.global.write" : "config.write",
@@ -2275,11 +2278,16 @@ function createRoutes(
     });
 
     const nextContent = content.endsWith("\n") ? content : `${content}\n`;
-    const current = await readRawOpencodeConfig(configPath);
+    const writablePath = scope === "project" ? await resolveWorkspaceFilePath(workspaceAppFilesRoot(config, workspace), configPath) : configPath;
+    if (writablePath !== approvedPath) throw new ApiError(409, "path_changed", "Configuration path changed while awaiting approval");
+    const current = await readRawOpencodeConfig(writablePath);
     const changed = !current.exists || current.content !== nextContent;
     if (changed) {
-      await ensureDir(dirname(configPath));
-      await writeFile(configPath, nextContent, "utf8");
+      await ensureDir(dirname(writablePath));
+      if (scope === "project" && await resolveWorkspaceFilePath(workspaceAppFilesRoot(config, workspace), configPath) !== writablePath) {
+        throw new ApiError(409, "path_changed", "Configuration path changed before writing");
+      }
+      await writeFile(writablePath, nextContent, "utf8");
     }
 
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
@@ -3867,6 +3875,7 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/plugins", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
     const result = await listPlugins(config, workspace.id, workspaceAppFilesRoot(config, workspace), includeGlobal);
@@ -3956,6 +3965,7 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/skills", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
     const skipped: SkippedSkill[] = [];
@@ -4043,12 +4053,26 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const name = String(ctx.params.name ?? "").trim();
     if (!name) throw new ApiError(400, "invalid_skill_name", "Skill name is required");
+    const root = workspaceAppFilesRoot(config, workspace);
+    const skillDir = await resolveSkillDir(root, name);
+    const requested = join(skillDir, "SKILL.md");
+    const approved = await resolveWorkspaceFilePath(skillDir, requested);
+    const base = join(root, ".opencode", "skills");
+    const approvedBase = await resolveWorkspaceFilePath(root, base);
+    const source = join(base, name);
+    const approvedLeaf = await resolveWorkspaceFilePath(root, source, { preserveLeaf: true });
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.upsert",
       summary: `Mark ${name} as a workflow`,
-      paths: [join(workspaceAppFilesRoot(config, workspace), ".opencode", "skills")],
+      paths: [approvedLeaf, approved],
     });
+    if (await resolveSkillDir(root, name) !== skillDir) throw new ApiError(409, "path_changed", "Skill directory changed while awaiting approval");
+    await recheckWorkspaceFilePath(skillDir, requested, approved);
+    await recheckWorkspaceFilePath(root, base, approvedBase);
+    if (await resolveWorkspaceFilePath(root, source, { preserveLeaf: true }) !== approvedLeaf) {
+      throw new ApiError(409, "path_changed", "Workflow source changed while awaiting approval");
+    }
     const result = await promoteSkillToWorkflow(workspaceAppFilesRoot(config, workspace), name);
     emitReloadEvent(ctx.reloadEvents, workspace, "skills", {
       type: "skill",
@@ -4060,6 +4084,7 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/skills/:name", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
     const name = String(ctx.params.name ?? "").trim();
@@ -4086,12 +4111,16 @@ function createRoutes(
     // "global" writes into the shared library the desktop Skills/Workflows
     // screens list; the default stays project-scoped for existing callers.
     const scope = body.scope === "global" ? "global" : "project";
+    const root = workspaceAppFilesRoot(config, workspace);
+    const requested = join(skillsDirForScope(root, scope), name.trim(), "SKILL.md");
+    const approved = scope === "project" ? await resolveWorkspaceFilePath(root, requested) : requested;
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.upsert",
       summary: `Upsert skill ${name}`,
-      paths: [join(skillsDirForScope(workspaceAppFilesRoot(config, workspace), scope), name, "SKILL.md")],
+      paths: [approved],
     });
+    if (scope === "project") await recheckWorkspaceFilePath(root, requested, approved);
     const result = await upsertSkill(workspaceAppFilesRoot(config, workspace), { name, content, description, scope });
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
@@ -4119,12 +4148,21 @@ function createRoutes(
     if (!name) {
       throw new ApiError(400, "invalid_skill_name", "Skill name is required");
     }
+    const root = workspaceAppFilesRoot(config, workspace);
+    const item = (await listSkills(root, false)).find(skill => skill.name === name && skill.scope === "project");
+    const requested = item ? dirname(item.path) : join(root, ".opencode", "skills", name);
+    const approved = await resolveWorkspaceFilePath(root, requested);
+    const approvedLeaf = await resolveWorkspaceFilePath(root, requested, { preserveLeaf: true });
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.delete",
       summary: `Delete skill ${name}`,
-      paths: [join(workspaceAppFilesRoot(config, workspace), ".opencode", "skills", name)],
+      paths: [approvedLeaf],
     });
+    await recheckWorkspaceFilePath(root, requested, approved);
+    if (await resolveWorkspaceFilePath(root, requested, { preserveLeaf: true }) !== approvedLeaf) {
+      throw new ApiError(409, "path_changed", "Skill path changed while awaiting approval");
+    }
     const result = await deleteSkill(workspaceAppFilesRoot(config, workspace), name);
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
@@ -4149,12 +4187,14 @@ function createRoutes(
   // templates is one self-contained folder that can be shared as a zip.
   // Mutations also regenerate the managed "Attached resources" SKILL.md section.
   addRoute(routes, "GET", "/workspace/:id/skills/:skill/resources", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const items = await listSkillResources(workspaceAppFilesRoot(config, workspace), String(ctx.params.skill ?? ""));
     return jsonResponse({ items });
   });
 
   addRoute(routes, "GET", "/workspace/:id/skills/:skill/resources/:name", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const result = await readSkillResource(
       workspaceAppFilesRoot(config, workspace),
@@ -4177,12 +4217,18 @@ function createRoutes(
     // Validate + resolve up front so the approval prompt shows the real path.
     validateResourceName(name);
     const skillDir = await resolveSkillDir(workspaceAppFilesRoot(config, workspace), skill);
+    const requested = [join(skillDir, "resources", name), join(skillDir, "SKILL.md")];
+    const approved = await Promise.all(requested.map(path => resolveWorkspaceFilePath(skillDir, path)));
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.resource.upsert",
       summary: `Attach ${name} to skill ${skill}`,
-      paths: [join(skillDir, "resources", name)],
+      paths: approved,
     });
+    if (await resolveSkillDir(workspaceAppFilesRoot(config, workspace), skill) !== skillDir) {
+      throw new ApiError(409, "path_changed", "Skill directory changed while awaiting approval");
+    }
+    for (let i = 0; i < requested.length; i++) await recheckWorkspaceFilePath(skillDir, requested[i]!, approved[i]!);
     const result = await upsertSkillResource(workspaceAppFilesRoot(config, workspace), skill, { name, content, contentBase64 });
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
@@ -4211,12 +4257,22 @@ function createRoutes(
     const name = String(ctx.params.name ?? "").trim();
     validateResourceName(name);
     const skillDir = await resolveSkillDir(workspaceAppFilesRoot(config, workspace), skill);
+    const requested = [join(skillDir, "resources", name), join(skillDir, "SKILL.md")];
+    const approved = await Promise.all(requested.map(path => resolveWorkspaceFilePath(skillDir, path)));
+    const approvedLeaf = await resolveWorkspaceFilePath(skillDir, requested[0]!, { preserveLeaf: true });
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.resource.delete",
       summary: `Remove ${name} from skill ${skill}`,
-      paths: [join(skillDir, "resources", name)],
+      paths: [approvedLeaf, approved[1]!],
     });
+    if (await resolveSkillDir(workspaceAppFilesRoot(config, workspace), skill) !== skillDir) {
+      throw new ApiError(409, "path_changed", "Skill directory changed while awaiting approval");
+    }
+    for (let i = 0; i < requested.length; i++) await recheckWorkspaceFilePath(skillDir, requested[i]!, approved[i]!);
+    if (await resolveWorkspaceFilePath(skillDir, requested[0]!, { preserveLeaf: true }) !== approvedLeaf) {
+      throw new ApiError(409, "path_changed", "Resource path changed while awaiting approval");
+    }
     const result = await deleteSkillResource(workspaceAppFilesRoot(config, workspace), skill, name);
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
@@ -4237,6 +4293,7 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/mcp", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const items = await listMcp(config, workspace.id, workspaceAppFilesRoot(config, workspace));
     return jsonResponse({ items, engineSync: engineMcpSyncState(workspace.id) });
@@ -4455,6 +4512,7 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/commands", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const scope = ctx.url.searchParams.get("scope") === "global" ? "global" : "workspace";
     if (scope === "global") {
       await requireHost(ctx.request, config, tokens);
@@ -4471,12 +4529,16 @@ function createRoutes(
     const body = await readJsonBody(ctx.request);
     const name = String(body.name ?? "");
     const template = String(body.template ?? "");
+    const root = workspaceAppFilesRoot(config, workspace);
+    const requested = join(root, ".opencode", "commands", `${sanitizeCommandName(name)}.md`);
+    const approved = await resolveWorkspaceFilePath(root, requested);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "commands.upsert",
       summary: `Upsert command ${name}`,
-      paths: [join(workspaceAppFilesRoot(config, workspace), ".opencode", "commands", `${sanitizeCommandName(name)}.md`)],
+      paths: [approved],
     });
+    await recheckWorkspaceFilePath(root, requested, approved);
     const path = await upsertCommand(workspaceAppFilesRoot(config, workspace), {
       name,
       description: body.description ? String(body.description) : undefined,
@@ -4510,12 +4572,20 @@ function createRoutes(
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const name = ctx.params.name ?? "";
+    const root = workspaceAppFilesRoot(config, workspace);
+    const requested = join(root, ".opencode", "commands", `${sanitizeCommandName(name)}.md`);
+    const approved = await resolveWorkspaceFilePath(root, requested);
+    const approvedLeaf = await resolveWorkspaceFilePath(root, requested, { preserveLeaf: true });
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "commands.delete",
       summary: `Delete command ${name}`,
-      paths: [join(workspaceAppFilesRoot(config, workspace), ".opencode", "commands", `${sanitizeCommandName(name)}.md`)],
+      paths: [approvedLeaf],
     });
+    await recheckWorkspaceFilePath(root, requested, approved);
+    if (await resolveWorkspaceFilePath(root, requested, { preserveLeaf: true }) !== approvedLeaf) {
+      throw new ApiError(409, "path_changed", "Command path changed while awaiting approval");
+    }
     await deleteCommand(workspaceAppFilesRoot(config, workspace), name);
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
@@ -4537,6 +4607,7 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/export", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const sensitiveMode = parseWorkspaceExportSensitiveMode(ctx.url.searchParams.get("sensitive"));
     const exportPayload = await exportWorkspace(workspace, { sensitiveMode });
@@ -4887,12 +4958,14 @@ async function fetchRuntimeControl(path: string, init?: { method?: string; body?
 }
 
 async function readOpencodeConfig(workspaceRoot: string): Promise<Record<string, unknown>> {
-  const { data } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>, { allowInvalid: true });
+  if (!(await exists(workspaceRoot))) return {};
+  const { data } = await readJsoncFile(await resolveWorkspaceFilePath(workspaceRoot, opencodeConfigPath(workspaceRoot)), {} as Record<string, unknown>, { allowInvalid: true });
   return data;
 }
 
 async function readLegalworkConfig(workspaceRoot: string): Promise<Record<string, unknown>> {
-  const path = legalworkConfigPath(workspaceRoot);
+  if (!(await exists(workspaceRoot))) return {};
+  const path = await resolveWorkspaceFilePath(workspaceRoot, legalworkConfigPath(workspaceRoot));
   if (!(await exists(path))) return {};
   try {
     const raw = await readFile(path, "utf8");
@@ -5303,9 +5376,9 @@ async function disconnectMcpFromOpencodeEngine(
 }
 
 async function writeLegalworkConfig(workspaceRoot: string, payload: Record<string, unknown>, merge: boolean): Promise<void> {
-  const path = legalworkConfigPath(workspaceRoot);
+  const path = await resolveWorkspaceFilePath(workspaceRoot, legalworkConfigPath(workspaceRoot));
   const next = merge ? { ...(await readLegalworkConfig(workspaceRoot)), ...payload } : payload;
-  await ensureDir(join(workspaceRoot, ".opencode"));
+  await ensureDir(dirname(path));
   await writeFile(path, JSON.stringify(next, null, 2) + "\n", "utf8");
 }
 
@@ -5416,9 +5489,9 @@ async function importWorkspace(workspace: WorkspaceInfo, payload: Record<string,
     changedPath("opencode", workspaceImportRelativePath(workspace, opencodeConfigPath(workspace.path)))
   ) {
     if (input.modes.opencode === "replace") {
-      await writeJsoncFile(opencodeConfigPath(workspace.path), input.opencode);
+      await writeJsoncFile(await resolveWorkspaceFilePath(workspace.path, opencodeConfigPath(workspace.path)), input.opencode);
     } else {
-      await updateJsoncTopLevel(opencodeConfigPath(workspace.path), input.opencode);
+      await updateJsoncTopLevel(await resolveWorkspaceFilePath(workspace.path, opencodeConfigPath(workspace.path)), input.opencode);
     }
   }
 
@@ -5442,7 +5515,7 @@ async function importWorkspace(workspace: WorkspaceInfo, payload: Record<string,
     if (input.modes.skills === "replace") {
       for (const change of preview.changes) {
         if (change.kind === "skill" && change.action === "delete") {
-          await rm(change.absolutePath, { recursive: true, force: true });
+          await rm(await resolveWorkspaceFilePath(workspace.path, change.absolutePath, { preserveLeaf: true }), { recursive: true, force: true });
         }
       }
     }
@@ -5457,7 +5530,7 @@ async function importWorkspace(workspace: WorkspaceInfo, payload: Record<string,
     if (input.modes.commands === "replace") {
       for (const change of preview.changes) {
         if (change.kind === "command" && change.action === "delete") {
-          await rm(change.absolutePath, { force: true });
+          await rm(await resolveWorkspaceFilePath(workspace.path, change.absolutePath, { preserveLeaf: true }), { force: true });
         }
       }
     }
@@ -5466,14 +5539,14 @@ async function importWorkspace(workspace: WorkspaceInfo, payload: Record<string,
   if (input.sections.files) {
     for (const file of input.files) {
       if (!changedPath("file", file.path)) continue;
-      const path = join(workspace.path, file.path);
+      const path = await resolveWorkspaceFilePath(workspace.path, file.path);
       await ensureDir(dirname(path));
-      await writeFile(path, file.content, "utf8");
+      await writeFile(await resolveWorkspaceFilePath(workspace.path, file.path), file.content, "utf8");
     }
     if (input.modes.files === "replace") {
       for (const change of preview.changes) {
         if (change.kind === "file" && change.action === "delete") {
-          await rm(change.absolutePath, { force: true });
+          await rm(await resolveWorkspaceFilePath(workspace.path, change.absolutePath, { preserveLeaf: true }), { force: true });
         }
       }
     }

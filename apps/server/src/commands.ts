@@ -5,6 +5,7 @@ import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
 import { exists } from "./utils.js";
 import { globalOpencodeConfigDir, projectCommandsDir } from "./workspace-files.js";
 import { validateCommandName, sanitizeCommandName } from "./validators.js";
+import { resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { ApiError } from "./errors.js";
 
 function normalizeCommandFrontmatter(data: Record<string, unknown>): Record<string, unknown> {
@@ -32,14 +33,16 @@ async function listCommandsInDir(
   dir: string,
   scope: "workspace" | "global",
   repairLegacy: boolean,
+  workspaceRoot?: string,
 ): Promise<CommandItem[]> {
+  if (workspaceRoot) dir = await resolveWorkspaceFilePath(workspaceRoot, dir);
   if (!(await exists(dir))) return [];
   const entries = await readdir(dir, { withFileTypes: true });
   const items: CommandItem[] = [];
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     if (!entry.name.endsWith(".md")) continue;
-    const filePath = join(dir, entry.name);
+    const filePath = workspaceRoot ? await resolveWorkspaceFilePath(workspaceRoot, join(dir, entry.name)) : join(dir, entry.name);
     const content = await readFile(filePath, "utf8");
     const { data, body } = repairLegacy
       ? await repairLegacyCommandFile(filePath, content)
@@ -73,7 +76,7 @@ export async function listCommands(
     const dir = join(globalOpencodeConfigDir(), "commands");
     return listCommandsInDir(dir, "global", repairLegacy);
   }
-  return listCommandsInDir(projectCommandsDir(workspaceRoot), "workspace", repairLegacy);
+  return listCommandsInDir(projectCommandsDir(workspaceRoot), "workspace", repairLegacy, workspaceRoot);
 }
 
 export type UpsertCommandPayload = {
@@ -107,21 +110,21 @@ export async function upsertCommand(
   payload: UpsertCommandPayload,
 ): Promise<string> {
   const command = buildCommandContent(payload);
-  const dir = projectCommandsDir(workspaceRoot);
+  const dir = await resolveWorkspaceFilePath(workspaceRoot, projectCommandsDir(workspaceRoot));
   await mkdir(dir, { recursive: true });
-  const path = join(dir, `${command.name}.md`);
+  const path = await resolveWorkspaceFilePath(workspaceRoot, join(dir, `${command.name}.md`));
   await writeFile(path, command.content, "utf8");
-  return path;
+  return join(projectCommandsDir(workspaceRoot), `${command.name}.md`);
 }
 
 export async function repairCommands(workspaceRoot: string): Promise<boolean> {
-  const dir = projectCommandsDir(workspaceRoot);
+  const dir = await resolveWorkspaceFilePath(workspaceRoot, projectCommandsDir(workspaceRoot));
   if (!(await exists(dir))) return false;
   const entries = await readdir(dir, { withFileTypes: true });
   let changed = false;
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-    const filePath = join(dir, entry.name);
+    const filePath = await resolveWorkspaceFilePath(workspaceRoot, join(dir, entry.name));
     const content = await readFile(filePath, "utf8");
     const result = await repairLegacyCommandFile(filePath, content);
     changed ||= result.changed;
@@ -132,6 +135,6 @@ export async function repairCommands(workspaceRoot: string): Promise<boolean> {
 export async function deleteCommand(workspaceRoot: string, name: string): Promise<void> {
   const sanitized = sanitizeCommandName(name);
   validateCommandName(sanitized);
-  const path = join(projectCommandsDir(workspaceRoot), `${sanitized}.md`);
+  const path = await resolveWorkspaceFilePath(workspaceRoot, join(projectCommandsDir(workspaceRoot), `${sanitized}.md`), { preserveLeaf: true });
   await rm(path, { force: true });
 }

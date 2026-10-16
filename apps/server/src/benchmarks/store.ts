@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { ServerConfig } from "../types.js";
 import { ensureDir } from "../utils.js";
+import type { SQLQueryBindings } from "bun:sqlite";
 import type { AnalyticsRow } from "./analytics.js";
 import { BASELINE_ARM, parseArmConfig, type BenchmarkArm } from "./ablation.js";
 import { parseStoredTaskJson, type BenchmarkTaskSource, type BenchmarkWorkType } from "./task-schema.js";
@@ -154,9 +155,9 @@ export type BenchmarkRunPatch = Partial<
 >;
 
 type Statement = {
-  run: (...params: unknown[]) => void;
-  get: (...params: unknown[]) => unknown;
-  all: (...params: unknown[]) => unknown[];
+  run: (...params: SQLQueryBindings[]) => void;
+  get: (...params: SQLQueryBindings[]) => unknown;
+  all: (...params: SQLQueryBindings[]) => unknown[];
 };
 
 type SqliteHandle = {
@@ -353,7 +354,16 @@ async function openSqlite(path: string): Promise<SqliteHandle> {
     const db = new Database(path, { create: true });
     db.exec("PRAGMA journal_mode = WAL");
     return {
-      prepare: (sql) => db.prepare(sql) as unknown as Statement,
+      // Bun finalizes cached queries on close; uncached prepare() statements
+      // otherwise keep SQLite's WAL handles alive until garbage collection.
+      prepare: (sql) => {
+        const query = db.query<unknown, SQLQueryBindings[]>(sql);
+        return {
+          run: (...params) => { query.run(...params); },
+          get: (...params) => query.get(...params),
+          all: (...params) => query.all(...params),
+        };
+      },
       exec: (sql) => db.exec(sql),
       close: () => db.close(),
     };

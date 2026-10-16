@@ -534,6 +534,36 @@ Linux packaging na heade `7bde0842` úspešne overil aplikáciu a renderer, no p
 |---|---|
 | `apps/server/src/mcp.oauth-flow.e2e.test.ts`, `apps/server/src/mcp.oauth-rebuild.e2e.test.ts` | Engine aj mock OAuth server sa spúšťajú cez `spawnOwnedChild` a v async `afterAll` (limit 15 s) sa ukončujú cez `stopOwnedChild` z LAWOSS súboru `src/lawoss/test-support/owned-child-process.ts`; engine dostane aj `HOME` v dočasnom priečinku. Pôvodný `kill()` neeskaloval a nečakal: engine občas po SIGTERM nedokončil vypínanie a pri páde procesu testov (SIGTERM, SIGHUP, SIGKILL, timeout nástroja) sa afterAll nespustil. 9. 10. 2026 tak ostalo desať enginov s rodičom launchd a reálnym HOME. Produkčný kód sa nemení. |
 
+## Bezpečnostné hranice servera a lokálnych integrácií (2026-10-09)
+
+Lokálna oprava nad `2fa3ace51596746a2bd3c5bb25cb8f4ee5aeb903`. Nasledujúce downstream zmeny treba pri synchronizácii s upstream zachovať vrátane regresných testov.
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `apps/server/src/frontmatter.ts`, `frontmatter.test.ts`, `frontmatter-security.e2e.test.ts`; `apps/desktop/electron/skill-frontmatter.mjs`, `skill-frontmatter.test.mjs` | Explicitne zakázaný vykonateľný JavaScript engine frontmatteru aj pri opravnom parsovaní. YAML, JSON a existujúca oprava neplatnej dvojbodky zostávajú funkčné. Serverový import preview testuje odmietnutie aj cez HTTP. |
+| `apps/server/src/word-addin.ts`, `word-addin-shell.ts`, `word-addin.e2e.test.ts`, `word-addin-shell.test.ts`, `config.ts`, `types.ts`; `apps/desktop/electron/office-addin-manager.mjs`, `office-addin-manager.test.mjs`, `office-addin-platform.mjs`, `runtime.mjs`; `apps/app/src/word-addin/index.tsx` | Bootstrap Office vyžaduje samostatnú inštalačnú capability; manifest je dostupný len hostovi, lokálna konfigurácia a manifest majú súkromné práva. TLS listener je lokálny. Existujúce manifesty migrujú pred štartom listenera; capability sa prenesie fragmentom URL a nový shell obíde starú cache. |
+| `apps/server/src/server.ts`, `routes/core.ts`, `security-auth-boundaries.e2e.test.ts`, `session-read-model.e2e.test.ts` | Workspace odpovede nevydávajú engine credentials. Viewer nemá prístup ku konfigurácii, exportu, MCP ani nepovoleným engine endpointom. Oba proxy mounty uplatňujú readOnly aj pre vyššie roly; test povoleného odoslania príkazu explicitne používa zapisovateľný server. `apps/desktop/electron/runtime.mjs` pri sonde servera prihlasovacie údaje enginu neprepíše na `null`, ponechá tie, ktoré desktop pozná (externý engine po reštarte servera). |
+| `apps/server/src/lawoss/filesystem-boundary.ts`, `conditional-text-write.ts`, `routes/files.ts`, `portable-files.ts`, `workspace-import-preview.ts`, `workspace-import-preview.test.ts`, `skills.ts`, `commands.ts`, `skill-resources.ts`, `mcp.ts`, `server.ts`, `security-file-boundary.e2e.test.ts` | Skutočné ciele súborov a najbližších existujúcich predkov musia patriť povolenému koreňu. Chránená konfigurácia je pre viewer neprístupná aj cez aliasy. Operácie a importy sú po schválení viazané na pôvodný skutočný cieľ. Projektové resources/config nemôžu uniknúť symlinkom; explicitné globálne a externé aplikačné korene ostávajú podporované. |
+| `apps/server/src/benchmarks/document-path.ts`, `document-path.test.ts`, `task-zip.ts`, `task-zip.test.ts`, `harvey-catalog.ts`, `harvey-catalog.test.ts`, `routes/benchmarks.ts` | Spoločná prenositeľná validácia názvov dokumentov, vrátane Windows ciest a zariadení. Všetky ciele sa overia pred odstránením pôvodných dokumentov alebo sťahovaním; bezpečné vnorené cesty ostávajú podporované. |
+| `apps/opencode-router/src/health.ts`, `config.ts`, `bridge.ts`, `media-store.ts`, `path-scope.ts`; `apps/opencode-router/.env.example`, `README.md`; `apps/opencode-router/test/control-security.test.js`, `media-scope-security.test.js`, `health-send.test.js`, `path-scope.test.js`, `slack.test.js`, `telegram.test.js` | Riadiace HTTP rozhranie vyžaduje samostatný náhodný bearer token, kontroluje Host a odmieta browser Origin/PNA. Verejné health odpovede obsahujú iba liveness. Prílohy môžu čítať iba súbory v povolenom workspace; inbound médiá neprepisujú existujúce súbory. Samostatné spustenie routera vyžaduje `OPENCODE_ROUTER_CONTROL_TOKEN`. |
+| `apps/orchestrator/src/cli.ts`, `scripts/router-control-security.test.mjs`, `package.json` | Orchestrátor vytvára a odovzdáva router capability svojim procesom vrátane kontajnerov; generované nástroje ju čítajú z prostredia a posielajú v hlavičke. Token sa nepíše do zdrojov, stavových súborov ani argumentov procesu. Štart overuje pripojenie k enginu cez autentizovaný health proxy namiesto porovnávania zverejnených hesiel. |
+| `lawoss/okf-pamat/src/store.ts`, `tests/store-integrity.test.ts`, `bundle/okf-memory.js` | Pamäťový store odmieta symlinky a nebežné súbory, používa no-follow a kontrolu identity otvoreného súboru. Distribučný bundle je znovu vygenerovaný zo zdrojov. |
+| `.github/workflows/ci-tests.yml`, `ci-windows-portable.yml`; `apps/desktop/package.json` | Existujúce CI dopĺňa router/orchestrátor a bezpečnostné regresie; Windows má explicitné testy archívov a ciest. Desktop test suite obsahuje migráciu Office manifestov. |
+
+Kontroly súborového stromu nie sú OS sandbox proti súbežnej výmene adresárov iným miestnym procesom. Viewer ochrana vychádza zo známych konfiguračných ciest a ich aliasov; nejde o všeobecný DLP filter všetkých dokumentov. Testy používajú syntetické dočasné dáta a mockované vzdialené služby. Natívny Windows, reálny Office, podpis, balenie a nasadenie vyžadujú vlastné runtime overenie.
+
+Projektový priečinok skills, ktorý odkazuje mimo workspace (napríklad `.claude/skills` na globálnu knižnicu), sa pri výpise skillov preskočí so záznamom v `skipped` a vyhľadanie skillu pokračuje v globálnych adresároch. `GET /skills` preto nezlyhá; regresia je v `apps/server/src/skills-outside-link.test.ts`.
+
+### Windows SQLite teardown regression (2026-10-13)
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/server/src/benchmarks/store.ts`, `store.test.ts` | Bun používa cacheované `Database.query()` namiesto nefinalizovaných `prepare()` statements. `close()` tak okamžite uvoľní databázu aj WAL/SHM; regresia skúša odstránenie a opätovné otvorenie úložiska. Node adaptér sa nemení. |
+| `apps/server/src/security-file-boundary.e2e.test.ts`, `word-addin.e2e.test.ts`; `.github/workflows/ci-windows-portable.yml` | Bezpečnostná fixtúra používa konvenčný názov `runtime.sqlite`; Office test používa existujúci úzky `removeTestDir`, ktorý na Windows toleruje iba procesne cacheovanú runtime databázu. Iné zamknuté súbory ostávajú chybou. Windows CI spúšťa aj regresiu benchmark store. |
+| `apps/server/src/server.ts`, `security-auth-boundaries.e2e.test.ts`, `approvals.e2e.test.ts` | Detail skillu a zoznam pluginov vyžadujú collaborator aj na mounted aliasoch. Projektové command/skill upsert a delete, prílohy aj povýšenie workflow viažu schválenie na kanonický cieľ a po rozhodnutí ho overia; príloha zahŕňa aj upravovaný SKILL.md. Regresie menia odkaz medzi dvoma cieľmi počas host approval a zachovávajú bežný lifecycle. Test host approval používa kanonický dočasný koreň, aby zobrazovaný skutočný cieľ sedel aj na macOS `/var` aliase. |
+
+Pri resource delete sa kontroluje aj uzol odkazu (`preserveLeaf`), nielen rovnaký cieľ. Povýšenie workflow viaže aj skutočný adresár skills a zdrojový uzol `rename`. Dve dodatočné HTTP regresie dokazujú odmietnutie pri nezmenenom kanonickom SKILL.md/resource cieli. Bundly sú zostavené s Bun 1.4.2 aj v podriadených package skriptoch (pripnutý PATH).
+
 ### Obnovenie presunutého pracovného priečinka (2026-10-13)
 
 | Súbory upstreamu | Úprava a dôvod | Vetva |
@@ -654,3 +684,13 @@ Pri tejto integrácii sa len Node selector v existujúcich desktop build joboch 
 | Upstream súbory | Downstream doplnenie a dôvod | PR |
 | --- | --- | --- |
 | `.gitignore` | Iba tri anchored cesty pre owned root `.work`, nový `apps/desktop/resources/engine-dependencies` a `.engine-dependencies-build`; helper source/test/runtime manifest ostávajú viditeľné. Bez zmeny runtime alebo CI výberu. | [#158](https://github.com/Omni-Legal-Products/lawoss/pull/158) |
+
+## Task46: security/reliability integration compatibility
+
+| Súbory | Úzka oprava | Overenie a hranice |
+| --- | --- | --- |
+| `apps/desktop/electron/runtime.mjs`, `apps/desktop/electron/runtime-embedded-auth.node.test.mjs`, `.github/workflows/ci-tests.yml`, `.github/workflows/ci-windows-portable.yml` | Po odstránení engine credentials z verejného `/workspaces` desktop načíta údaje z privátneho embedded handle podľa ID workspace. Každý nový handle nahradí aj staré credentials; verejný serializer ostáva sanitizovaný. | Postbuild Node regresia používa skutočný manager/server a inertný autentizovaný loopback engine: čerstvý managed aj externý štart, zdravý reuse, reštart servera, odmietnutie starých credentials a owner/collaborator verejné projekcie. Pôvodný engine, Electron a Windows acceptance sú samostatné brány. |
+
+Test-only korekcia `lawoss/engine-dependencies/package-runtime.test.mjs` používa explicitnú nesprávnu aj presnú verziu cez skutočný `closedChild` protokol. Pôvodný test nesprávne predpokladal nezhodnú verziu hostiteľa aj pri povinnom Node 24.21.0. Produkčná kontrola verzie a pnpm admission zostáva nezmenená; oba testy overujú neprítomnosť installer/output mutácií.
+
+Dve ďalšie korekcie held testov (`lawoss/testing/isir/native/owned-process.test.mjs`, `engine-runtime-smoke.test.mjs`) nemenia produkčné helpery. Meranie existujúcich per-PID snapshotov ukázalo, že zrýchlený 100ms fixture rozpočet vyprší pred zostávajúcim leader signalom (TERM1/KILL1, nie nulová signalizácia). Dva reálne behaviorálne testy používajú nezmenený produkčný default3000ms; syntetický positive-close test zachováva100ms s izolovanými obnovenými hodinami. Assertions, handshake, runner10000ms a skutočné timeout/overflow negative testy zostali zachované.

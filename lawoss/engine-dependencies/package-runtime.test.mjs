@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import { inspectTree, validatePnpm, prepareScratch, packageRuntime, validateFrozenManifest, removeGeneratedBins } from './package-runtime.mjs';
 
 test('portable tree refuses symlinks rather than dereferencing dependencies', async () => {
@@ -34,9 +36,43 @@ test('genuine CLI admission rejects a wrapper or mismatched package', async () =
     await assert.rejects(validatePnpm(path.join(root, 'bin/pnpm.mjs')), /INVALID_PNPM/);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
-test('packager rejects non-exact host Node before any output mutation', async () => {
-  await assert.rejects(packageRuntime({ node: process.execPath, pnpmCli: '/missing', out: '/missing', scratch: '/missing', offline: true }), /INVALID_NODE/);
-});
+for (const [version, expected] of [['v0.0.0', /INVALID_NODE/], ['v24.21.0', /INVALID_PNPM/]]) {
+  test(`packager version admission ${version} refuses before installer/output mutation`, async t => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'runtime-version-test-'));
+    const node = path.join(root, 'inert-node');
+    const out = path.join(root, 'out'), scratch = path.join(root, 'scratch');
+    const realSpawn = childProcess.spawn;
+    const calls = [];
+    let spawnMock;
+    try {
+      for (const folder of [out, scratch]) {
+        await fs.mkdir(folder);
+        await fs.writeFile(path.join(folder, 'keep.txt'), 'Original fixture bytes');
+      }
+      // Replace only the executable at the actual closedChild boundary. A real
+      // inert Node child supplies an explicit version and its normal pipe/close
+      // protocol; the test does not assume the verification host is nonmatching.
+      spawnMock = t.mock.method(childProcess, 'spawn', (command, args, options) => {
+        calls.push({ command, args });
+        assert.equal(command, node);
+        assert.deepEqual(args, ['--version']);
+        return realSpawn(process.execPath, ['-e', `console.log(${JSON.stringify(version)})`], options);
+      });
+      syncBuiltinESMExports();
+      await assert.rejects(packageRuntime({ node, pnpmCli: path.join(root, 'missing-pnpm'), out, scratch, store: path.join(scratch, 'store'), offline: true }), expected);
+      assert.deepEqual(calls, [{ command: node, args: ['--version'] }], 'No installer child may start');
+      assert.deepEqual((await fs.readdir(root)).sort(), ['out', 'scratch']);
+      for (const folder of [out, scratch]) {
+        assert.deepEqual(await fs.readdir(folder), ['keep.txt']);
+        assert.equal(await fs.readFile(path.join(folder, 'keep.txt'), 'utf8'), 'Original fixture bytes');
+      }
+    } finally {
+      spawnMock?.mock.restore();
+      syncBuiltinESMExports();
+      await fs.rm(root, { recursive: true });
+    }
+  });
+}
 
 test('frozen lock mismatch is refused before installer admission', async () => {
   const pkg = await fs.readFile(new URL('./runtime-tools/package.json', import.meta.url), 'utf8');

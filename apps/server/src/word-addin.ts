@@ -1,17 +1,17 @@
 /**
  * Word add-in host: serves the built task pane bundle, a same-origin
- * bootstrap endpoint, and the add-in manifest.
+ * capability-protected bootstrap endpoint, and a host-only add-in manifest.
  *
- * All responses under /word-addin are intentionally served WITHOUT CORS
- * headers. The bootstrap endpoint hands out the client bearer token so the
- * task pane (same origin -- it is served by this server) can authenticate;
- * cross-origin pages must not be able to read it.
+ * Responses under /word-addin omit CORS headers as defense in depth. Token
+ * disclosure requires the random installation capability; CORS alone is not
+ * authentication for native clients or other network peers.
  */
 import { readFile, stat } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { tokensMatch } from "./utils.js";
 import type { ServerConfig, WordAddinConfig } from "./types.js";
 import { launchAnalyticsId } from "./launch-analytics-id.js";
 import type { ServeTlsOptions } from "./serve-node.js";
@@ -227,8 +227,10 @@ export function buildWordAddinManifest(input: {
   baseUrl: string;
   version?: string;
   host?: WordAddinHost;
+  capability?: string;
 }): string {
   const base = xmlEscape(input.baseUrl.replace(/\/+$/, ""));
+  const taskpaneUrl = `${base}/word-addin/taskpane.html?pairing=2${input.capability ? `#capability=${xmlEscape(encodeURIComponent(input.capability))}` : ""}`;
   const version = /^\d+\.\d+\.\d+\.\d+$/.test(input.version ?? "") ? input.version : "1.0.0.0";
   const manifestId = WORD_ADDIN_MANIFEST_IDS[input.host ?? "all"];
   const hostDeclarations = HOST_DECLARATIONS.filter(
@@ -264,7 +266,7 @@ export function buildWordAddinManifest(input: {
 ${hostDeclarations}
   </Hosts>
   <DefaultSettings>
-    <SourceLocation DefaultValue="${base}/word-addin/taskpane.html"/>
+    <SourceLocation DefaultValue="${taskpaneUrl}"/>
   </DefaultSettings>
   <Permissions>ReadWriteDocument</Permissions>
   <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
@@ -278,7 +280,7 @@ ${versionOverrideHosts}
         <bt:Image id="LegalWork.Icon80" DefaultValue="${base}/word-addin/favicon-80x80.png"/>
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="LegalWork.Taskpane.Url" DefaultValue="${base}/word-addin/taskpane.html"/>
+        <bt:Url id="LegalWork.Taskpane.Url" DefaultValue="${taskpaneUrl}"/>
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="LegalWork.GroupLabel" DefaultValue="LegalWork"/>
@@ -398,7 +400,7 @@ export async function handleWordAddinRequest(input: {
   // restarts the clock. Only a user who hasn't opened the pane with
   // LegalWork running for 30+ days falls back to Office's error page.
   if (rest === "" || rest === "taskpane.html") {
-    const etag = '"lw-redirector-v1"';
+    const etag = '"lw-redirector-v2"';
     if (request.headers.get("if-none-match") === etag) {
       return new Response(null, { status: 304, headers: { ETag: etag } });
     }
@@ -437,11 +439,15 @@ export async function handleWordAddinRequest(input: {
   }
 
   if (rest === "bootstrap") {
-    // Same-origin only by construction: no CORS headers are attached to
-    // /word-addin responses, so cross-origin scripts cannot read the tokens.
-    // The pane is the server's own UI (same trust as the desktop renderer),
-    // so it also receives the host token — host-scoped routes like workspace
-    // creation and the native folder picker need it.
+    const capability = request.headers.get("x-legalwork-office-capability") ?? "";
+    const origin = request.headers.get("origin");
+    // The Node adapter builds request.url from the bound address (127.0.0.1),
+    // while Office uses localhost. Accept both fixed loopback TLS origins,
+    // never a caller-controlled Host value or an arbitrary reflected origin.
+    const allowedOrigins = [url.origin, `https://localhost:${wordAddin.port}`, `https://127.0.0.1:${wordAddin.port}`];
+    if (!wordAddin.capability || !tokensMatch(capability, wordAddin.capability) || (origin && !allowedOrigins.includes(origin))) {
+      return jsonResponse({ code: "office_pairing_required", message: "Reopen the add-in from its installed manifest. Reinstall it in Office Add-ins settings if needed." }, 401);
+    }
     const identity = getAnalyticsIdentity();
     return jsonResponse({
       app: "legalwork-server",
@@ -473,7 +479,10 @@ export async function handleWordAddinRequest(input: {
   }
 
   if (rest === "manifest.xml") {
-    const manifest = buildWordAddinManifest({ baseUrl: `https://localhost:${wordAddin.port}` });
+    if (!tokensMatch(request.headers.get("x-legalwork-host-token") ?? "", config.hostToken)) {
+      return jsonResponse({ code: "unauthorized", message: "A host token is required to download the paired manifest." }, 401);
+    }
+    const manifest = buildWordAddinManifest({ baseUrl: `https://localhost:${wordAddin.port}`, capability: wordAddin.capability });
     return new Response(manifest, {
       status: 200,
       headers: {
