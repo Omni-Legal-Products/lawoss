@@ -26,7 +26,7 @@ export type TriageMoveView = {
   source: "rules" | "model" | "user" | "fallback"; confidence: "high" | "medium" | "low";
   rule?: string; matched?: string; reason?: string; truncated?: boolean; renamed?: boolean;
 };
-export type TriageMatterView = { key: string; title: string; folder: string; date: string; dateSource: "model" | "today"; kind: string; caseNumber?: string; counterparty?: string; court?: string; source: "rules" | "model"; documents: number };
+export type TriageMatterView = { key: string; title: string; folder: string; date: string; dateSource: "model" | "today"; kind: string; caseNumber?: string; counterparty?: string; court?: string; source: "rules" | "model" | "folder"; documents: number };
 export type TriageProposal = { state: "none" } | { state: "ready"; file: string; documents: number; matters: number } | { state: "stale"; file: string } | { state: "invalid"; file: string; message: string };
 export type TriagePreview = {
   id: string; fingerprint: string; runId: string; root: string; language: "sk" | "cs" | "en";
