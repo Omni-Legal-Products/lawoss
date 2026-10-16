@@ -8,6 +8,9 @@ import { isPathWithin } from "./path-within.js";
 type PathOptions = { allowRoot?: boolean; preserveLeaf?: boolean };
 const invalidPath = () => new ApiError(400, "invalid_path", "Path must remain inside the workspace");
 
+/** A configured directory that resolves outside the workspace is skipped, not fatal. */
+export const isOutsideWorkspacePath = (error: unknown): error is ApiError => error instanceof ApiError && error.code === "invalid_path";
+
 /** Resolve existing links, including ancestors of a file that does not exist yet.
  * The registered root may itself be a Dropbox/volume alias. Callers use the
  * returned canonical path, then recheck after human approval before writing.

@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
+import { isOutsideWorkspacePath, resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { ApiError } from "./errors.js";
 import { exists } from "./utils.js";
 import { validateSkillName } from "./validators.js";
@@ -48,13 +48,20 @@ export function isTextResource(name: string): boolean {
 
 async function findSkillDirInBase(baseDir: string, skillName: string, workspaceRoot?: string): Promise<string | null> {
   const safePath = (path: string) => workspaceRoot ? resolveWorkspaceFilePath(workspaceRoot, path) : Promise.resolve(path);
+  // A project skills folder linked outside the workspace is not a candidate; callers
+  // continue with global roots. Links inside the folder are still rejected below.
+  const base = await safePath(baseDir).catch((error: unknown) => {
+    if (isOutsideWorkspacePath(error)) return null;
+    throw error;
+  });
+  if (base === null) return null;
   // Flat layout: <base>/<name>/SKILL.md
   const flat = join(baseDir, skillName);
   if (await exists(await safePath(join(flat, "SKILL.md")))) return flat;
   // Nested layout: <base>/<domain>/<name>/SKILL.md — same convention the
   // skills listing supports (see listSkillsInDir in skills.ts).
-  if (!(await exists(await safePath(baseDir)))) return null;
-  const entries = await readdir(await safePath(baseDir), { withFileTypes: true });
+  if (!(await exists(base))) return null;
+  const entries = await readdir(base, { withFileTypes: true });
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const nested = join(baseDir, entry.name, skillName);

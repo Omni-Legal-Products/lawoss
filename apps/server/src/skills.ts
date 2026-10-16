@@ -6,7 +6,7 @@ import type { SkillItem } from "./types.js";
 import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
 import { exists } from "./utils.js";
 import { validateDescription, validateSkillName } from "./validators.js";
-import { resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
+import { isOutsideWorkspacePath, resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { ApiError } from "./errors.js";
 import { globalSkillsDir, projectSkillsDir } from "./workspace-files.js";
 import { BUNDLED_WORKFLOW_NAMES } from "./bundled-workflows.js";
@@ -113,7 +113,16 @@ async function parseSkillEntry(
 }
 
 async function listSkillsInDir(dir: string, scope: "project" | "global", skipped?: SkippedSkill[], workspaceRoot?: string): Promise<SkillItem[]> {
-  const readableDir = workspaceRoot ? await resolveWorkspaceFilePath(workspaceRoot, dir) : dir;
+  let readableDir = dir;
+  if (workspaceRoot) {
+    try {
+      readableDir = await resolveWorkspaceFilePath(workspaceRoot, dir);
+    } catch (error) {
+      if (!isOutsideWorkspacePath(error)) throw error;
+      skipped?.push({ path: dir, reason: error.message });
+      return [];
+    }
+  }
   if (!(await exists(readableDir))) return [];
   const entries = await readdir(readableDir, { withFileTypes: true });
   const items: SkillItem[] = [];
