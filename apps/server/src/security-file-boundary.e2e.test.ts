@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
-import { resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
+import { isSensitiveWorkspacePath, resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { listPortableFiles, writePortableFiles } from "./portable-files.js";
 import { buildWorkspaceImportPreview } from "./workspace-import-preview.js";
 import { upsertCommand } from "./commands.js";
@@ -314,4 +314,69 @@ test("import fingerprint binds the canonical target even when two destinations h
   expect(applied.status).toBe(409);
   expect(await applied.json()).toMatchObject({ code: "workspace_import_preview_stale" });
   for (const name of ["tools-a", "tools-b"]) expect(await readFile(join(f.root, name, "test.ts"), "utf8")).toBe("original");
+});
+
+test("viewer listings hide protected configuration, also inside an enforced boundary; collaborators still see it", async () => {
+  const f = await fixture();
+  await mkdir(join(f.root, ".opencode"), { recursive: true });
+  await writeFile(join(f.root, ".opencode", "opencode.json"), "synthetic metadata credential");
+  await writeFile(join(f.root, ".env"), "SYNTHETIC=credential");
+  await writeFile(join(f.root, "opencode.json"), "synthetic config credential");
+  await mkdir(join(f.root, "notes", ".opencode"), { recursive: true });
+  await writeFile(join(f.root, "notes", ".env.local"), "SYNTHETIC=credential");
+  const issue = async (scope: string) => {
+    const issued = await f.request("/tokens", { scope, label: "listing test" }, hostHeaders);
+    const token: { token: string } = await issued.json();
+    return { ...headers, Authorization: `Bearer ${token.token}` };
+  };
+  const viewer = await issue("viewer"), owner = await issue("owner");
+  const names = async (query: Record<string, string>, customHeaders: Record<string, string>) => {
+    const response = await f.request(`/workspace/test/files/list?${new URLSearchParams(query)}`, undefined, customHeaders);
+    expect(response.status).toBe(200);
+    const body: { entries: { name: string }[] } = await response.json();
+    return body.entries.map(entry => entry.name);
+  };
+  const rootQueries: Array<Record<string, string>> = [{ path: "" }, { path: "", within: "" }];
+  for (const query of rootQueries) {
+    const visible = await names(query, viewer);
+    expect(visible).toContain("notes");
+    for (const name of [".env", ".opencode", "opencode.json"]) expect(visible).not.toContain(name);
+    for (const trusted of [headers, owner]) expect(await names(query, trusted)).toEqual(expect.arrayContaining(["notes", ".env", ".opencode", "opencode.json"]));
+  }
+  const folderQueries: Array<Record<string, string>> = [{ path: "notes" }, { path: "notes", within: "notes" }];
+  for (const query of folderQueries) {
+    const visible = await names(query, viewer);
+    expect(visible).toContain("ordinary.md");
+    for (const name of [".env.local", ".opencode"]) expect(visible).not.toContain(name);
+    for (const trusted of [headers, owner]) expect(await names(query, trusted)).toEqual(expect.arrayContaining(["ordinary.md", ".env.local", ".opencode"]));
+  }
+  const protectedQueries: Array<Record<string, string>> = [{ path: ".opencode" }, { path: ".opencode", within: ".opencode" }, { path: "notes/.opencode", within: "notes" }];
+  for (const query of protectedQueries) {
+    expect((await f.request(`/workspace/test/files/list?${new URLSearchParams(query)}`, undefined, viewer)).status).toBe(403);
+    for (const trusted of [headers, owner]) expect((await f.request(`/workspace/test/files/list?${new URLSearchParams(query)}`, undefined, trusted)).status).toBe(200);
+  }
+});
+
+test("Windows stream suffixes and trailing dots or spaces cannot rename protected configuration", () => {
+  for (const path of ["opencode.json::$DATA", "opencode.json:x", "OPENCODE.JSON.", "opencode.json ", "auth.json:$DATA", ".env:x", ".opencode:x/opencode.json", "notes/credentials.json. ", ".opencode./legalwork.json"]) {
+    expect(isSensitiveWorkspacePath(path)).toBe(true);
+  }
+  for (const path of ["meeting 10:30.md", "notes/opencode-notes.json", "report.json:x", ".opencode/legalwork/outbox/answer.md", ".opencode/legalwork/inbox:x/answer.md"]) {
+    expect(isSensitiveWorkspacePath(path)).toBe(false);
+  }
+});
+
+test.skipIf(process.platform !== "win32")("viewer cannot open protected configuration through a Windows alternate data stream", async () => {
+  const f = await fixture();
+  await writeFile(join(f.root, "opencode.json"), JSON.stringify({ provider: { secret: "synthetic-ads-sentinel" } }));
+  const issued = await f.request("/tokens", { scope: "viewer", label: "ads test" }, hostHeaders);
+  const token: { token: string } = await issued.json();
+  const viewer = { ...headers, Authorization: `Bearer ${token.token}` };
+  for (const path of ["opencode.json::$DATA", "opencode.json.", "opencode.json "]) {
+    for (const method of ["raw", "content", "stat"]) {
+      const response = await f.request(`/workspace/test/files/${method}?${new URLSearchParams({ path })}`, undefined, viewer);
+      expect(response.status).not.toBe(200);
+      expect(await response.text()).not.toContain("synthetic-ads-sentinel");
+    }
+  }
 });

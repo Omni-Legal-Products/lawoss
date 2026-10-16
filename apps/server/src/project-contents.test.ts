@@ -21,6 +21,7 @@ async function setup(): Promise<ProjectContentSources> {
     tasks,
     orgId: null,
     sessions: async () => [],
+    scope: "owner",
   };
 }
 const actor = { userId: null, name: null, email: null };

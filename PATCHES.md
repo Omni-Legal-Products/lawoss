@@ -554,6 +554,18 @@ Kontroly súborového stromu nie sú OS sandbox proti súbežnej výmene adresá
 
 Projektový priečinok skills, ktorý odkazuje mimo workspace (napríklad `.claude/skills` na globálnu knižnicu), sa pri výpise skillov preskočí so záznamom v `skipped` a vyhľadanie skillu pokračuje v globálnych adresároch. `GET /skills` preto nezlyhá; regresia je v `apps/server/src/skills-outside-link.test.ts`.
 
+### Hranice pre rolu viewer po bezpečnostnom audite (2026-10-16)
+
+Nadväzuje na bezpečnostné hranice vyššie (PR #142). Viewer nesmie chránenú konfiguráciu čítať ani nachádzať cez obsah projektu, vyhľadávanie a pripravené dokumenty; trasy s absolútnymi cestami a plánom importu vyžadujú collaboratora. Kontroly využívajú spoločnú `viewerProtectedPaths()` v `lawoss/filesystem-boundary.ts`, ktorú používa aj `resolveReadableWorkspaceFilePath()`. Regresie sú v `security-auth-boundaries.e2e.test.ts` a `security-file-boundary.e2e.test.ts`, vrátane kladnej kontroly pre collaboratora a ownera. `frontmatter-security.e2e.test.ts` posiela import preview ako collaborator a overuje 403 pre viewera.
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/server/src/server.ts` | `requireClientScope(ctx, "collaborator")` pre GET `audit`, `authorized-folders`, `lawoss/memory`, `lawoss/memory/grants`, `lawoss/memory/context`, `hub/:itemId`, `cloud-plugins` a pre POST `import/preview` (predtým viewer). Nový `actorReadScope(ctx)` (hostiteľ je owner, chýbajúca rola viewer) odovzdáva rolu obsahu projektu a vyhľadávaniu súborov. Odpovede obsahovali absolútne cesty, profil pamäte, inventár pluginov a payload hubu; preview s `action` a `fingerprint` potvrdzoval hádaný obsah konfigurácie. |
+| `apps/server/src/project-contents.ts`, `project-contents.test.ts` | `ProjectContentSources.scope`; pre viewera výpis `files`/`notes` vynechá chránené položky pred stránkovaním a `project/content` vráti 403 cez `resolveReadableWorkspaceFilePath`. Test dopĺňa `scope: "owner"`. Pôvodne sa odmietali len `..` a bodkové segmenty, viewer prečítal `opencode.json`, `auth.json` či `credentials.json` aj cez symlink. |
+| `apps/server/src/content-search.ts`, `content-search.test.ts` | Povinný parameter `scope` pred `retry`; viewer nedostane chránený súbor ani podľa názvu, ani úryvkom. Kontrola je pred cache prípravy, ktorú zdieľajú všetky roly. Testy odovzdávajú `"owner"`. |
+
+`routes/lawoss-documents.ts` (súbor LAWOSS) pre viewera vynechá z výpisu pripravené dokumenty chránenej konfigurácie a ich čítanie odmietne 403. `isSensitiveWorkspacePath()` porovnáva segment bez prípony prúdu (`::$DATA`, `:x`) a bez koncových bodiek a medzier, ktoré Windows ignoruje; dvojbodka inde v názve ostáva povolená (macOS). Obchádzku cez alternatívny prúd sa na macOS nepodarilo reprodukovať, úprava je preventívna a HTTP test beží iba na Windows.
+
 ### Windows SQLite teardown regression (2026-10-13)
 
 | Súbory upstreamu | Úprava a dôvod |
