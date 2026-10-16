@@ -96,13 +96,17 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22.23.2
-      - name: Assert actual Node 22 and run native configuration tests
+      - name: Assert actual Node 22 and run native merged graph validation
         run: |
           $global:LASTEXITCODE = $null
           $configTestVersion = @(node --version)
           $configTestVersionExit = $LASTEXITCODE
           if ($configTestVersionExit -isnot [int] -or $configTestVersionExit -ne 0 -or $configTestVersion.Count -ne 1 -or $configTestVersion[0] -cne 'v22.23.2') { throw 'NODE_VERSION' }
           $global:LASTEXITCODE = $null
-          node --test lawoss/engine-dependencies/npm-config.test.mjs lawoss/engine-dependencies/dependency-lease.test.mjs
+          node --test lawoss/engine-dependencies/native-merged-validation.test.mjs
+          $configGuardExit = $LASTEXITCODE
+          if ($configGuardExit -isnot [int] -or $configGuardExit -ne 0) { throw 'NATIVE_GUARD_TEST_FAILED' }
+          $global:LASTEXITCODE = $null
+          node lawoss/engine-dependencies/native-merged-validation.mjs
           $configTestExit = $LASTEXITCODE
           if ($configTestExit -isnot [int] -or $configTestExit -ne 0) { throw 'CONFIG_TEST_FAILED' }

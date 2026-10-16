@@ -296,3 +296,58 @@ explicitly controlled tests. No Windows/Linux or production packaging acceptance
 is implied by local source tests. Compiled builtin context, owned-child transport,
 CLI distribution, native merged graph imports and original application gates remain
 unresolved before any production hook.
+
+## Disposable native merged-graph CI acceptance
+
+`node lawoss/engine-dependencies/native-merged-validation.mjs` is a CI-only
+Node22.23.2 supervisor. The existing Windows/Ubuntu workflow retains its frozen
+Node24/pnpm runtime-tools installation, runs the separate offline guard suite,
+then invokes this supervisor once. No production caller or installer hook exists.
+
+The supervisor initializes one private canonical `.work/native-merged-*` root,
+with an empty HOME/npmrc/cache, and invokes one isolated exact-Node22 acquisition
+worker through the existing bounded `runChild`. It admits the immutable SDK and
+build-tool inputs before and after acquisition, verifies the runtime-tools lock,
+and binds all genuine transitive APIs below the local runtime-tools installation.
+The worker fetches exactly 32 accepted integrity-checked tarballs, then 64 real
+registry representations (full JSON plus pacote's exact corgi Accept). Metadata
+is never fabricated, filtered, rewritten or used to refresh the accepted lock.
+Both representations must match the accepted version's dist URL and integrity,
+and all 64 genuine offline pacote readbacks must succeed before acceptance.
+
+One original absolute 300-second acquisition deadline is shared by the parent,
+worker, tarballs, metadata and readbacks. Requests are sequential, retry-free,
+strict TLS, redirect-refusing and bounded to 45 seconds. Tarballs are limited to
+32 MiB each / 256 MiB aggregate; decoded metadata to 16 MiB each / 128 MiB
+aggregate, including chunks with no Content-Length. HTTP cache tee writes may
+have seen the crossing chunk: this is not a byte-exact filesystem quota. The
+public cache API cannot join an aborted tee in process. The disposable worker's
+actual close is the containment boundary; cleanup waits for it, including the
+existing runner's two-second termination grace. No universal descendant claim
+is made. Windows termination is not cooperative SIGTERM cleanup.
+
+Only after a closed, successful worker and an exact small acquisition receipt
+does an owned fixed preload set `LAWOSS_TEST_ACCEPTED_SDK_CACHE`. The unchanged
+Config/lease/target suites then run under Node22 and the existing socket guard.
+Source registration counts are derived without executing the suites (currently
+8 + 25 + 14 = 47); actual TAP must have exactly that many passes, zero failures,
+skips, cancellations or TODOs. Four genuine-cache target cases must therefore
+run. Test fixtures remain separately owned beneath their existing `.work` roots;
+the supervisor deletes only its own cache root after child close. It does not
+remove another test's fixtures, upload caches, or forward raw child diagnostics.
+Primary and cleanup errors remain available privately in memory; public failures
+use finite codes. Success emits two closed JSON receipts: `phase: acquisition`
+with immutable hashes, versions and bounded byte/count totals; `phase: tests`
+with per-file counts and `childClosed: true`.
+
+Public registry metadata is mutable. If it chooses new transitives absent from
+the accepted tarballs, genuine offline reify must fail; no lock union, synthetic
+packument, retry, skip or SDK-only transplant is permitted. Source guard tests
+use controlled streams/children and real offline tooling admission/cache misses;
+they do not prove a real cold cache or native merged graph. Actual Windows and
+Ubuntu green CI remains required after fresh source review. No SDK distribution,
+license, application startup or packaging acceptance follows from this helper.
+
+```sh
+node --test lawoss/engine-dependencies/native-merged-validation.test.mjs
+```
