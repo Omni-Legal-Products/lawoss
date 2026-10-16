@@ -303,11 +303,11 @@ jobs:
           ./src/workspace-reconnect.e2e.test.ts
           ./src/test-support/project-sync-first-failure-timing.test.ts
 
-      - name: Diagnose project sync in a fresh Bun process
+      - name: Diagnose member revocation alone in a fresh Bun process
         if: ${{ failure() && steps.windows_server_source.outcome == 'failure' }}
         working-directory: apps/server
         timeout-minutes: 2
-        run: bun test ./src/project-sync.test.ts
+        run: bun test --test-name-pattern "a member taken off the project loses the copy" ./src/project-sync.test.ts
 
       # Node 24 používa node:sqlite bez postinstall/native addon rebuildu. Proces
       # ostáva živý počas kontroly handle aj skutočného odstránenia databázy.
