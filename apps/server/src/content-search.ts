@@ -6,11 +6,12 @@ import { matchesSearch, searchExcerpt, type ContentSearchResponse, type ContentS
 import { openSqliteReadonly, MANAGED_ENGINE_DB_FILENAME } from "./managed-opencode-db.js";
 import { resolveOpencodeDbPath } from "./opencode-db.js";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
-import type { ServerConfig, WorkspaceInfo } from "./types.js";
+import type { ServerConfig, TokenScope, WorkspaceInfo } from "./types.js";
 import { CORPUS_EXTENSIONS, extractCorpusText, type CorpusText } from "./corpus/extract.js";
 import { documentMatches } from "./corpus/passages.js";
 import type { DocumentPreparation } from "./document-preparation/service.js";
 import { within } from "./reviews/storage.js";
+import { viewerProtectedPaths } from "./lawoss/filesystem-boundary.js";
 
 const RESULT_LIMIT = 60;
 
@@ -89,8 +90,10 @@ function documentEntry(preparation: DocumentPreparation, root: string, path: str
   return entry;
 }
 
-export async function searchFileContents(workspace: WorkspaceInfo, query: string, signal: AbortSignal, preparation: DocumentPreparation, retry = false): Promise<ContentSearchResponse> {
+export async function searchFileContents(workspace: WorkspaceInfo, query: string, signal: AbortSignal, preparation: DocumentPreparation, scope: TokenScope, retry = false): Promise<ContentSearchResponse> {
   const root = await realpath(workspace.path);
+  // 🟡 LAWOSS: viewer nesmie nájsť chránenú konfiguráciu ani jej aliasy, ani podľa názvu, ani úryvkom.
+  const isProtected = scope === "viewer" ? await viewerProtectedPaths(root) : () => false;
   const items: ContentSearchResult[] = [], issues: Array<{ path: string; reason: string }> = [];
   let visited = 0, skipped = 0, incomplete = 0, preparing = 0, limited = false;
   const deadline = Date.now() + 2500;
@@ -113,6 +116,8 @@ export async function searchFileContents(workspace: WorkspaceInfo, query: string
       try {
         const canonicalPath = await realpath(path);
         if (!within(root, canonicalPath)) continue;
+        // Before the preparation cache, which all roles share.
+        if (isProtected(canonicalPath, relativePath)) continue;
         const info = await stat(canonicalPath);
         const nameMatch = matchesSearch(relativePath, query);
         let source: CorpusText | undefined;

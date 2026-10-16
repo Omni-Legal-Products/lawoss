@@ -18,6 +18,7 @@ async function setup(): Promise<ProjectContentSources> {
     tasks: await TaskStore.open(join(root, "tasks.sqlite"), join(root, "attachments")),
     orgId: null,
     sessions: async () => [],
+    scope: "owner",
   };
 }
 const actor = { userId: null, name: null, email: null };
