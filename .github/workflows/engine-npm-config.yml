@@ -94,6 +94,17 @@ jobs:
             $configInstallExit = $LASTEXITCODE
           } catch { throw 'TOOLS_INSTALL_FAILED' }
           if ($configInstallExit -isnot [int] -or $configInstallExit -ne 0) { throw 'TOOLS_INSTALL_FAILED' }
+          $portableScratch = Join-Path $configOwned 'portable-build'
+          $portableStore = Join-Path $portableScratch 'store'
+          $portableOutput = Join-Path $configOwned 'portable-runtime'
+          # Copy the already acquired store into a separate owned build root.
+          $global:LASTEXITCODE = $null
+          & $configNode --input-type=module -e "import {prepareScratch} from './lawoss/engine-dependencies/package-runtime.mjs'; await prepareScratch(process.argv[1]);" $portableScratch
+          if ($LASTEXITCODE -isnot [int] -or $LASTEXITCODE -ne 0) { throw 'PORTABLE_INIT_FAILED' }
+          Copy-Item -LiteralPath $configStore -Destination $portableStore -Recurse -ErrorAction Stop
+          $global:LASTEXITCODE = $null
+          & $configNode (Join-Path $configRoot 'package-runtime.mjs') $portableOutput $portableScratch $portableStore $configPnpmCli offline
+          if ($LASTEXITCODE -isnot [int] -or $LASTEXITCODE -ne 0) { throw 'PORTABLE_STAGE_FAILED' }
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22.23.2
@@ -103,6 +114,12 @@ jobs:
           $configTestVersion = @(node --version)
           $configTestVersionExit = $LASTEXITCODE
           if ($configTestVersionExit -isnot [int] -or $configTestVersionExit -ne 0 -or $configTestVersion.Count -ne 1 -or $configTestVersion[0] -cne 'v22.23.2') { throw 'NODE_VERSION' }
+          $global:LASTEXITCODE = $null
+          node --test lawoss/engine-dependencies/package-runtime.test.mjs
+          if ($LASTEXITCODE -isnot [int] -or $LASTEXITCODE -ne 0) { throw 'PORTABLE_TEST_FAILED' }
+          $global:LASTEXITCODE = $null
+          node lawoss/engine-dependencies/relocation-smoke.mjs lawoss/engine-dependencies/.work/ci-tools/portable-runtime lawoss/engine-dependencies/.work/ci-tools
+          if ($LASTEXITCODE -isnot [int] -or $LASTEXITCODE -ne 0) { throw 'PORTABLE_RELOCATION_FAILED' }
           $global:LASTEXITCODE = $null
           node --test lawoss/engine-dependencies/native-merged-validation.test.mjs
           $configGuardExit = $LASTEXITCODE

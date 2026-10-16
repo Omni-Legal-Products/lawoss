@@ -28,6 +28,8 @@ extraResources:
     to: LICENSE
   - from: ../../NOTICE
     to: NOTICE
+  - from: resources/engine-dependencies
+    to: engine-dependencies
   - from: resources/node
     to: node
     filter:

@@ -390,3 +390,47 @@ valid registry responses. This provides headroom while retaining streaming
 checks before retention, the 128 MiB aggregate budget and existing time bounds.
 Mutable registry growth can still exceed these limits; this is not a guarantee
 of successful genuine SDK acquisition or offline validation.
+
+## Portable build distribution
+
+`package-runtime.mjs` stages the five runtime helper modules, this README,
+`LICENSE.opencode`, frozen runtime-tools manifests and the complete genuine
+pnpm-installed production tool closure. Package contents and licenses are kept;
+this copying is not a complete third-party notice audit. The source engine pin,
+source SHA-256 hashes and pre-manifest tree digest are in `build-manifest.json`.
+The accepted runtime-tools lock hash is pinned in the build helper. Updating it
+requires deliberate review of that constant. No SDK payload is distributed.
+
+Run under exact host Node 24.21.0, passing absolute paths:
+
+```sh
+node package-runtime.mjs OUTPUT SCRATCH SCRATCH/store GENUINE_PNPM_CLI offline
+```
+
+`online` explicitly permits frozen tool acquisition in production builds.
+Offline validation never invokes Corepack or a PATH shim. The genuine pnpm
+11.4.0 package/bin identity and CLI version are checked; installation uses
+hoisted layout, copies, no bin links, no scripts and private HOME/npmrc/cache.
+The scratch root must be new or carry this builder's ownership marker; use
+`prepareScratch` before copying an existing tool store into it. Existing output
+must carry the same marker. Caller-supplied parents must be trusted build-owned
+locations. This is not protection against a hostile concurrent filesystem or
+installer. Generated pnpm layout metadata containing build paths is removed;
+package contents are retained. pnpm 11 hoisted still emits root .bin links despite
+the disabled bin-links setting, so that unused generated directory is removed.
+Recursive lstat rejects all remaining links and special files.
+
+Desktop build preparation runs after existing Node preparation and ships the
+whole tree as `resources/engine-dependencies` outside asar. It uses the host
+Node, never the foreign target Node in a cross-architecture build. Set
+`LAWOSS_BUILD_PNPM_CLI` if `npm_execpath` is not the genuine pinned pnpm CLI.
+These helpers are still unwired: compiled npmPath, production callers and
+transport remain separate work.
+
+`relocation-smoke.mjs STAGED OWNED_PARENT` runs under actual Node 22.23.2.
+It copies to a fresh path containing spaces/#/%, temporarily hides the original
+marked stage, constructs/loads Config and Arborist with a minimal environment,
+imports all runtime modules and verifies every loaded CommonJS physical path
+stays inside the relocated tree. It does not prepare user dependencies or fetch
+SDK packages. It restores the original stage after positive child close.
+Native Windows/Ubuntu CI and actual desktop packaging remain separate gates.
