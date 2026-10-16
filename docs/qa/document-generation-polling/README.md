@@ -8,7 +8,7 @@ Tlačidlo teraz môže začať samostatnú čerstvú kontrolu počas background 
 
 - Pred opravou nový unit test zlyhal na zakázanom tlačidle. Rovnaký browser scenár s pôvodnou podmienkou skončil `Generation is disabled by background verification`.
 - Po oprave: 28 testov v troch súvisiacich súboroch, 0 zlyhaní; app typecheck prešiel.
-- Celá app sada: 1 599 pass, 2 platformové skipy, 0 fail (233 súborov).
+- Celá app sada po prenesení na `dev` (`0d264f30`, sync v0.2.9): 2 389 pass, 2 platformové skipy, 0 fail (360 súborov).
 - Browser regresia: pri zadržanom background requeste kliknutie vykonalo čerstvé čítanie a jedno syntetické odoslanie. Pri zmene zdroja (`409 document_stale`) zobrazilo chybu bez odoslania.
 
 ![Aktívne generovanie počas overovania zdrojov; len syntetické dáta](after.png)

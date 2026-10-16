@@ -60,3 +60,5 @@
 - QA: 28 targeted tests pass; full app suite 1599 pass / 2 platform skips / 0 fail; app typecheck pass. Browser held-poll generation accepted once; changed-source preflight rejected before send. Read-only independent review found no actionable issue. Synthetic screenshot inspected; no client data or recording committed.
 - Scope: browser fixture substitutes API and send callback; live model completion, OCR quality and native packaged release are not established by this check. Existing native-generation regressions remain passing.
 - Learning: isFetching describes transport activity, not the result of evidence validation. Keep dispatch preflight separate from availability and from verified output labels.
+
+2026-10-17T01:56:05+02:00: Rebased unpublished fix onto current origin/dev 0d264f30 (upstream v0.2.9 sync), preserving its changes. Fresh frozen dependency install; app suite 2389 pass / 2 platform skips / 0 fail across 360 files, typecheck pass, same two browser regressions pass with one synthetic send. QA README and inspected synthetic screenshot refreshed. No product file beyond the original focused panel patch changed.
