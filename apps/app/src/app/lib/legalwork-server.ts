@@ -1,5 +1,6 @@
 import type { OnboardingApi, OnboardingSuggestion } from "../../lawoss/domains/onboarding/api";
 import type { TriageApiPath } from "../../lawoss/domains/roztriedenie/api";
+import type { OfficeMemoryRead } from "../../lawoss/okf/office-memory";
 import type { LawossOcrView } from "../../lawoss/domains/settings/ocr-opt-in";
 import { lawossMarketplaceMethods } from "../../lawoss/domains/marketplace/marketplace-api";
 import type { WorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
@@ -1795,6 +1796,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     updateProjectDetails: (workspaceId: string, payload: { revision: number; fields: ProjectField[] }) =>
       requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken, method: "PATCH", body: payload }),
     onboardingStatus: (): ReturnType<OnboardingApi["onboardingStatus"]> => requestJson(baseUrl, "/lawoss/onboarding/status", { token, hostToken }),
+    lawossOfficeMemory: (): Promise<OfficeMemoryRead> => requestJson(baseUrl, "/lawoss/onboarding/office-memory", { token, hostToken }),
     updateOnboardingProfile: (profile: Parameters<OnboardingApi["updateOnboardingProfile"]>[0]): ReturnType<OnboardingApi["updateOnboardingProfile"]> => requestJson(baseUrl, "/lawoss/onboarding/profile", { token, hostToken, method: "POST", body: profile }),
     classifyOnboarding: (input: Parameters<OnboardingApi["classifyOnboarding"]>[0]): ReturnType<OnboardingApi["classifyOnboarding"]> => requestJson(baseUrl, "/lawoss/onboarding/classify", { token, hostToken, method: "POST", body: input, timeoutMs: 120_000 }),
     suggestOnboarding: (input: { root: string }): Promise<OnboardingSuggestion> => requestJson(baseUrl, "/lawoss/onboarding/suggest", { token, hostToken, method: "POST", body: input, timeoutMs: 120_000 }),

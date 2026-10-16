@@ -12,7 +12,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { officeWorkspace, today, useOkfConnection, useOkfOverview } from "../okf/read-model";
+import { officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope } from "../okf/read-model";
 import { buildToday } from "./today-model";
 import { matterUrgency, useMinuteTick } from "./live";
 import { LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, liteMatterLink } from "./links";
@@ -30,7 +30,8 @@ type RecentMatter = { path: string; title: string; deadlines?: readonly { date: 
 export function LiteNav(props: { activePane?: boolean }) {
   useMinuteTick(); // body naliehavosti sa o polnoci prepočítajú aj bez nového čítania
   const { connection } = useOkfConnection();
-  const query = useOkfOverview(connection, officeWorkspace(connection));
+  // Prax „každý klient zvlášť“: posledné veci zo všetkých klientov, ako Dnes (N1).
+  const query = useOkfOverview(connection, useOkfScope(connection, officeWorkspace(connection)).scope);
   const day = today();
   const recent = useMemo(() => (query.data ? buildToday(query.data, day).recent : []), [query.data, day]);
   const { pathname } = useLocation();

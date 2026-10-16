@@ -10,7 +10,7 @@ import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
 import { deadlineAnchor, hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick } from "../live";
 import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
-import { officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
+import { localMatter, officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
 import { daysUntil, deadlineKey, deadlineText, dueText, inHorizon, urgencyOf } from "../../okf/view-rules";
 import { composeQuickAction, MORE_ACTIONS, QUICK_ACTIONS } from "../quick-actions";
 import { POSTPROCESS_RESOURCE_NAME, postprocessSource, VYSTUP_SKILL_NAME, vystupSkillBody } from "../../okf/skill-bundle";
@@ -39,7 +39,7 @@ export function LiteMatterPage() {
   // Bez nadpisu stránky: hlavním nadpisem je název věci (LiteMatterView), ne „Klienti a věci“.
   const [params] = useSearchParams();
   // Kľúč podľa veci: pri prechode na inú vec sa vynulujú aj stavy akcií, potvrdenia a chyby.
-  return <OkfPage {...litePageProps(locale)}>{(data, meta) => <LiteMatterBody key={params.get("vec") ?? ""} data={data} meta={meta} />}</OkfPage>;
+  return <OkfPage {...litePageProps(locale)}>{(data, meta, scope) => <LiteMatterBody key={params.get("vec") ?? ""} data={data} meta={meta} scope={scope} />}</OkfPage>;
 }
 
 /** Jen přesná shoda `?vec=`; na rozdíl od `selectMatter` nikdy nespadne na první věc (akce by běžely nad jinou). */
@@ -48,7 +48,7 @@ export function matterFromParams(matters: readonly MatterOverview[], params: URL
   return path === null ? null : matters.find((m) => m.path === path) ?? null;
 }
 
-function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta }) {
+function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfPageMeta; scope: OkfScope | null }) {
   const locale = useLocale();
   const [params] = useSearchParams();
   const navigate = useNavigate();
@@ -62,14 +62,17 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
   const [saved, setSaved] = useState<string | null>(null);
   const queries = useQueryClient();
   const matter = matterFromParams(data.matters, params);
+  // Vec v priečinku svojho klienta: v praxi „každý klient zvlášť“ nikdy nad inou vecou ani nad celou praxou (N1).
+  const local = matter && scope ? localMatter(scope, matter, data.matters) : null;
+  const target = !matter ? null : local ?? (scope?.practiceRoot ? null : { workspace: officeWorkspace(connection), selected: matter, discovered: data.matters });
   useMinuteTick(); // o polnoci sa posunie „dnes" aj odpočet
   useHotTitle(hotDeadlineCount(data, today()));
   const conversations = useQuery({
-    queryKey: ["lite-matter-conversations", matter?.path ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
-    enabled: Boolean(connection?.client && matter),
+    queryKey: ["lite-matter-conversations", target?.workspace?.id ?? "", target?.selected.path ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
+    enabled: Boolean(connection?.client && target),
     queryFn: () => {
-      if (!connection || !matter) throw new Error("no connection");
-      return listMatterConversations(connection, matter.path);
+      if (!connection || !target) throw new Error("no connection");
+      return listMatterConversations(connection, target.selected.path, 5, target.workspace);
     },
   });
   // Bez modelu sa rýchla akcia ani nespustí; detail to povie vopred a ukáže cestu k pripojeniu.
@@ -80,15 +83,15 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
   const input = data.inputs.find((entry) => entry.path === matter.path);
 
   async function onAction(id: ActionId) {
-    if (running.current || !matter || modelGap) return;
+    if (running.current || !matter || !target || modelGap) return;
     running.current = true; setBusy(id); setError(null);
     try {
       if (!connection) throw new Error(t("lawoss.integrations.error.registration_denied", locale));
-      const prompt = composeQuickAction(id, { title: matter.title, matterRef: matter.matterRef, path: matter.path }, locale);
+      const prompt = composeQuickAction(id, { title: matter.title, matterRef: matter.matterRef, path: target.selected.path }, locale);
       // Jen připraví koncept v nové konverzaci nad věcí; nic se neodesílá.
       // Shared client and office access remains controlled by native Permissions.
-      const target = await openMatterSession(connection, officeWorkspace(connection), matter, data.matters, prompt, id === "document" ? installVystupSkill : undefined);
-      if (alive.current) navigate(target);
+      const route = await openMatterSession(connection, target.workspace, target.selected, target.discovered, prompt, id === "document" ? installVystupSkill : undefined);
+      if (alive.current) navigate(route);
     } catch (failure) {
       // Surová hláška může obsahovat interní pojmy; advokát vidí obecný text, diagnostika jde do konzole.
       console.warn("LAWOSS-lite: quick action failed", failure);
@@ -109,12 +112,12 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
   }
 
   async function onFiles(files: File[]) {
-    const office = officeWorkspace(connection);
-    if (running.current || !matter || files.length === 0) return;
+    const office = target?.workspace;
+    if (running.current || !target || files.length === 0) return;
     running.current = true; setBusy("add_document"); setError(null); setSaved(null);
     try {
       if (!connection?.client || !office) throw new Error(t("lawoss.integrations.error.registration_denied", locale));
-      const result = await saveDocumentsToMatter(connection.client, office.id, matter, files);
+      const result = await saveDocumentsToMatter(connection.client, office.id, target.selected, files);
       setSaved(result.map((r) => `${r.name} (${r.id})`).join(", "));
       // Dnes a „K zařazení“ mají nový vstup ukázat hned.
       void queries.invalidateQueries({ queryKey: ["okf-overview"] });
