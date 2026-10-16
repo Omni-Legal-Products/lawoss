@@ -22,6 +22,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 
 import { unwrap } from "@/app/lib/opencode";
+import { systemReminderPart } from "@/app/lib/system-reminder";
 import type { Client, ModelRef } from "@/app/types";
 import {
   buildFusionDelegationSystemPrompt,
@@ -49,8 +50,6 @@ export type RunFusionSendInput = {
   mainModel?: ModelRef;
   agent?: string;
   variant?: string;
-  /** Extra system context (e.g. environment context) prepended to every main-session prompt. */
-  baseSystem?: string;
 };
 
 function describeError(error: unknown): string {
@@ -146,7 +145,7 @@ Status: ${status}${sessionID ? `\nSession: ${sessionID}` : ""}
 ${output}`;
 }
 
-async function buildFusionTraceSystemPrompt(input: {
+export async function buildFusionTraceSystemPrompt(input: {
   client: Client;
   directory?: string;
   sessionId: string;
@@ -360,7 +359,7 @@ async function monitorFusionTaskProgress(input: {
 }
 
 export async function runFusionSend(input: RunFusionSendInput): Promise<void> {
-  const { client, directory, mainSessionId, parts, userText, candidateModels, mainModel, agent, variant, baseSystem } = input;
+  const { client, directory, mainSessionId, parts, userText, candidateModels, mainModel, agent, variant } = input;
 
   const { baselineMessageIds } = await readMainSessionBaseline(client, mainSessionId, directory);
 
@@ -369,7 +368,9 @@ export async function runFusionSend(input: RunFusionSendInput): Promise<void> {
   const setPhase = useFusionStore.getState().setPhase;
   const traceSystem = await buildFusionTraceSystemPrompt({ client, directory, sessionId: mainSessionId });
 
-  const fusionSystem = [baseSystem, traceSystem, buildFusionDelegationSystemPrompt({
+  // This turn's trace and delegation rules ride on the user's message, not
+  // the system prompt, so earlier turns stay in the provider's prompt cache.
+  const fusionContext = [traceSystem, buildFusionDelegationSystemPrompt({
     candidateModels,
   })]
     .filter((section): section is string => Boolean(section?.trim()))
@@ -378,11 +379,10 @@ export async function runFusionSend(input: RunFusionSendInput): Promise<void> {
     sessionID: mainSessionId,
     ...(input.messageID ? { messageID: input.messageID } : {}),
     directory,
-    parts,
+    parts: [...parts, systemReminderPart(fusionContext)],
     model: mainModel,
     agent,
     ...(variant ? { variant } : {}),
-    system: fusionSystem,
   });
   if (result.error) {
     setPhase(mainSessionId, "error");

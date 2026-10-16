@@ -1,3 +1,4 @@
+import { isReviewWorkerSession } from "@legalwork/types/reviews";
 // Shared pure helpers for the workspace-scoped routes (session-route,
 // settings-route). These were duplicated in both route files and had drifted:
 // settings-route was missing the remote-workspace clobber fix in
@@ -30,6 +31,38 @@ export type RouteSession = Session & {
   runStatus?: unknown;
   slug?: string | null;
 };
+
+/** Runtime data can improve a listed session, but cannot resurrect a deleted one. */
+export function preferLoadedSession(fetched: RouteSession[], loaded: RouteSession | null): RouteSession[] {
+  if (!loaded) return fetched;
+  return fetched.map(session => session.id === loaded.id && loaded.time.updated >= session.time.updated ? loaded : session);
+}
+
+export function upsertRuntimeSession(sessions: RouteSession[], update: { sessionId: string; info: Record<string, unknown> }): RouteSession[] {
+  if (isReviewWorkerSession(update.info)) return sessions;
+  const index = sessions.findIndex((session) => session.id === update.sessionId);
+  if (index >= 0) {
+    const next = { ...sessions[index]!, ...update.info, id: update.sessionId };
+    if (JSON.stringify(next) === JSON.stringify(sessions[index])) return sessions;
+    return sessions.map((session, position) => position === index ? next : session);
+  }
+  const info = update.info;
+  const time = info.time;
+  // New sessions arrive from the engine as complete records. Partial updates
+  // may update a known session, but cannot invent a sidebar entry.
+  if (typeof info.title !== "string" || typeof info.slug !== "string" ||
+      typeof info.projectID !== "string" || typeof info.directory !== "string" ||
+      typeof info.version !== "string" || !time || typeof time !== "object" ||
+      !("created" in time) || typeof time.created !== "number" ||
+      !("updated" in time) || typeof time.updated !== "number") return sessions;
+  const session: RouteSession = {
+    ...info, id: update.sessionId, title: info.title, slug: info.slug,
+    projectID: info.projectID, directory: info.directory, version: info.version,
+    time: { ...time, created: time.created, updated: time.updated },
+    parentID: typeof info.parentID === "string" ? info.parentID : undefined,
+  };
+  return [...sessions, session];
+}
 
 export function mapDesktopWorkspace(workspace: WorkspaceInfo): RouteWorkspace {
   return {
@@ -161,6 +194,10 @@ export function mergeRouteWorkspaces(
   );
 
   const missingDesktop = desktopWorkspaces.filter((workspace) => {
+    // A successful server list is authoritative for local projects. The
+    // desktop remembers selection/history, including firm projects removed
+    // on sign-out. Reintroducing those entries makes every scoped API 404.
+    if (workspace.workspaceType !== "remote") return false;
     if (mergedIds.has(workspace.id)) return false;
     const normalizedPath = normalizeDirectoryPath(workspace.path ?? "");
     if (normalizedPath && mergedPaths.has(normalizedPath)) return false;
@@ -168,6 +205,24 @@ export function mergeRouteWorkspaces(
   });
 
   return [...mergedServer, ...missingDesktop];
+}
+
+/** Resolve saved IDs only against projects the current connection can serve. */
+export function resolveRouteWorkspaceId(
+  workspaces: RouteWorkspace[],
+  preferredIds: Array<string | null | undefined>,
+  desktopWorkspaces: RouteWorkspace[] = [],
+): string {
+  for (const value of preferredIds) {
+    const id = value?.trim();
+    if (!id) continue;
+    if (workspaces.some((workspace) => workspace.id === id)) return id;
+    const path = normalizeDirectoryPath(desktopWorkspaces.find((workspace) => workspace.id === id)?.path ?? "");
+    if (!path) continue;
+    const match = workspaces.find((workspace) => normalizeDirectoryPath(workspace.path ?? "") === path);
+    if (match) return match.id;
+  }
+  return workspaces[0]?.id ?? "";
 }
 
 export function orderRouteWorkspaces(workspaces: RouteWorkspace[], orderIds: string[]): RouteWorkspace[] {

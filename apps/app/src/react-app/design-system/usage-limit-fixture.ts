@@ -1,9 +1,11 @@
 import type { UsageControlView } from "@legalwork/types/usage-control";
 import type { EigenweltEntitlementsView } from "@/app/lib/legalwork-server";
 import type { EigenweltPlanId } from "@/app/lib/eigenwelt-plans";
+import type { UsageLimitDetails } from "@legalwork/types/provider-usage-limit";
+export const organizationRequestLimit: UsageLimitDetails = {reason:"organization_limit",requiredMicros:200000,availableMicros:90000};
 
 /** Sample read models for the dev-only session preview. No account is connected. */
-export function usageLimitFixture(plan: EigenweltPlanId | null, isAdmin: boolean, providerId: string) {
+export function usageLimitFixture(plan: EigenweltPlanId | null, isAdmin: boolean, providerId: string, requestTooLarge = false) {
   const allowance = plan === "pro" ? 1616 : plan === "plus" ? 693 : 0;
   const usage: UsageControlView = {
     version: 1, enabled: plan !== null, isAdmin,
@@ -23,6 +25,12 @@ export function usageLimitFixture(plan: EigenweltPlanId | null, isAdmin: boolean
     seats: { sync: plan === "sync" ? 1 : 0, plus: plan === "plus" ? 1 : 0, pro: plan === "pro" ? 1 : 0 },
     billingInterval: "month",
   };
+  if (requestTooLarge) {
+    usage.me = {...usage.me,extraUsedCents:991,extraRemainingCents:9,availableMicros:90000,requestLimitReason:"organization_limit",blockedReason:null};
+    usage.walletCents = isAdmin ? 1009 : null;
+    usage.orgExtraLimitCents = isAdmin ? 1000 : null;
+    usage.orgExtraUsedCents = isAdmin ? 991 : null;
+  }
   usage.members = [usage.me];
   const entitlements: EigenweltEntitlementsView = {
     connected: plan !== null, platformURL: "https://legalwork-preview.invalid",

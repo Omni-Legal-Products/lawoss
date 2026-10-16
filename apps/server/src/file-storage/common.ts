@@ -9,11 +9,12 @@ import type {
   StorageSearch,
   StorageSearchPage,
   StorageCapabilities,
+  StorageTransferUpdate,
 } from "@legalwork/types/file-storage";
 import { STORAGE_MAX_FILE_BYTES, STORAGE_PAGE_SIZE } from "./schema.js";
 import { ApiError } from "../errors.js";
 
-export type FileInfo = { size: number; version: string; contentType?: string };
+export type FileInfo = { size: number; version: string; contentType?: string; writable?: boolean; exported?: boolean };
 export type FileData = FileInfo & { data: Buffer };
 export type DownloadedFile = FileInfo & { sha256: string };
 export type WriteCondition = { version?: string; createOnly?: boolean };
@@ -22,9 +23,14 @@ export interface StorageAdapter {
   /** Native identity where supported; resolution must recheck permissions and the configured root. */
   folderReference?(path: string): Promise<FolderReference>;
   resolveFolder?(reference: FolderReference): Promise<string>;
+  /** Native providers can enforce a physical subtree boundary, including shortcut targets. */
+  restrictToFolder?(reference: FolderReference): Promise<StorageAdapter | null>;
   list(path: string, cursor?: string): Promise<StoragePage>;
+  findEntry?(path: string, kind?: StorageEntry["kind"]): Promise<StorageEntry | null>;
   /** Flat metadata listing for object stores; avoids walking virtual folders. */
   listFiles?(path: string, cursor?: string, signal?: AbortSignal): Promise<StoragePage>;
+  /** An account-wide flat scan; scoped folder views must keep using their own tree. */
+  listFilesAtRoot?(cursor?: string, signal?: AbortSignal): Promise<StoragePage>;
   searchCapabilities?(): Promise<StorageCapabilities["search"]>;
   search?(input: StorageSearch): Promise<StorageSearchPage>;
   stat(path: string): Promise<FileInfo | null>;
@@ -33,16 +39,17 @@ export interface StorageAdapter {
   write(path: string, data: Buffer, contentType: string, condition: WriteCondition): Promise<void>;
   upload(path: string, source: string, contentType: string, condition: WriteCondition): Promise<void>;
   mkdir(path: string): Promise<void>;
-  rename?(path: string, destination: string, kind: StorageEntry["kind"]): Promise<void>;
+  rename?(path: string, destination: string, kind: StorageEntry["kind"], onProgress?: (progress: StorageTransferUpdate) => void): Promise<void>;
   /** With a version, removes only that version; a newer one is a `storage_conflict`. */
   deleteFile?(path: string, condition?: WriteCondition): Promise<void>;
-  deleteFolder?(path: string): Promise<void>;
+  deleteFolder?(path: string, recursive?: boolean): Promise<void>;
   close?(): Promise<void>;
 }
 
 /** Resolve an exact entry through paginated listings, including virtual folders. */
 export async function findEntry(adapter: StorageAdapter, path: string, kind?: StorageEntry["kind"]): Promise<StorageEntry | null> {
   storagePath(path, false);
+  if (adapter.findEntry) return adapter.findEntry(path, kind);
   const parent = path.split("/").slice(0, -1).join("/");
   let cursor: string | undefined;
   const seen = new Set<string>();

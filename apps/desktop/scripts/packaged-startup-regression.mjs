@@ -6,9 +6,12 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/pr
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
+import { assertPackagedServerImports } from "./check-packaged-server-imports.mjs";
 
 const target = process.argv[2];
 if (!target) throw new Error("Usage: node packaged-startup-regression.mjs <packaged executable>");
+const resources = path.resolve(path.dirname(target), process.platform === "darwin" ? "../Resources" : "resources");
+assertPackagedServerImports(path.join(resources, "app.asar"));
 const root = await mkdtemp(path.join(tmpdir(), "legalwork-packaged-startup-"));
 const userData = path.join(root, "userdata");
 const runtime = path.join(root, "runtime");

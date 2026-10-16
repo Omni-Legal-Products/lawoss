@@ -46,6 +46,11 @@ export type WorkspaceInfo = WorkspaceWire;
 // Browser tab state mirrored across the desktop IPC bridge. Owned here (the
 // framework-agnostic layer); the session panel store re-exports it.
 export type BrowserPanelTab = {
+  // Agent-owned tabs stay in their chat's background stack until the user opens them.
+  background?: boolean;
+  taskSessionId?: string;
+  workspaceId?: string;
+  dismissed?: boolean;
   id: string;
   type: "browser";
   label: string;

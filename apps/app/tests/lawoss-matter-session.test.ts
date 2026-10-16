@@ -76,12 +76,12 @@ test("matter sessions retain the client workspace, scope engine calls to each ma
   const secondRoute = await openMatterSession(connection, workspace, records[1]!, records);
   expect(started).toEqual([f.root, f.root]);
   expect(nativeCalls).not.toContain("workspaceCreate");
-  expect(secondRoute).toBe("/workspace/office/session/synthetic-session");
+  expect(secondRoute).toBe("/workspace/office/session/synthetic-session-2");
   expect(selected).toEqual([
     { command: "workspaceSetSelected", id: "office" }, { command: "workspaceSetRuntimeActive", id: "office" },
     { command: "workspaceSetSelected", id: "office" }, { command: "workspaceSetRuntimeActive", id: "office" },
   ]);
-  expect(readActiveWorkspaceId()).toBe("office"); expect(readLastSessionFor("office")).toBe("synthetic-session");
+  expect(readActiveWorkspaceId()).toBe("office"); expect(readLastSessionFor("office")).toBe("synthetic-session-2");
   expect(f.engineCalls.filter(call => call.path === "/session" && call.method === "POST")).toEqual([
     { method: "POST", path: "/session", directory: f.matter },
     { method: "POST", path: "/session", directory: secondMatter },

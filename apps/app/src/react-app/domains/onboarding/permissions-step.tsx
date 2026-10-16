@@ -2,8 +2,8 @@
 /**
  * Onboarding: tool permissions. Renders the SAME panel as Settings -> Tool
  * Permissions, so whatever is chosen here is exactly what settings shows
- * later — one component, one source of truth. In its "quick" variant: the
- * three safety switches, no per-tool or pattern rules, because those push
+ * later. In its "quick" variant: sandbox defaults and safety switches,
+ * no per-tool or pattern rules, because those push
  * the step's one action below the fold and belong in Settings anyway.
  */
 import { useEffect } from "react";
@@ -35,6 +35,7 @@ export function PermissionsStep(props: PermissionsStepProps) {
 
   return (
     <OnboardingCover
+      compact
       footerLeft={
         props.onBack ? (
           <CoverBackButton label={t("onboarding.back")} onClick={props.onBack} />
@@ -48,7 +49,7 @@ export function PermissionsStep(props: PermissionsStepProps) {
     >
       <div className="flex w-full max-w-md flex-col gap-7">
         <div>
-          <StepDots step={4} total={5} />
+          <StepDots step={5} total={5} />
           <h1 className="text-[32px] font-medium leading-[1.15] tracking-[-0.04em] text-foreground">
             {t("onboarding_permissions.title")}
           </h1>

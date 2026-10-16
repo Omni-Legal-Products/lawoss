@@ -167,6 +167,40 @@ async function writeWebResponse(webRes: Response, nodeRes: ServerResponse): Prom
  * Interface mirrors Bun.serve() so the caller doesn't need to change.
  */
 export function serve(options: ServeOptions): Promise<ServeResult> {
+  // Bun's node:http shim loses disconnect events after a request body is read.
+  // Its native Request retains the abort signal while approvals are pending.
+  // Electron and ordinary Node continue to use the adapter below.
+  if (typeof Bun !== "undefined") {
+    const start = (port: number) => Bun.serve({
+      hostname: options.hostname, port, idleTimeout: options.idleTimeout,
+      // A permitted 100 MiB wiki asset exceeds Bun's 128 MiB default after
+      // base64 encoding. Individual routes enforce their smaller body limits.
+      maxRequestBodySize: 256 * 1024 * 1024,
+      ...(options.tls ? { tls: options.tls } : {}),
+      fetch: async (request: Request, server) => {
+        // A human approval may outlive the connection's idle timeout. Node's
+        // keepAliveTimeout likewise does not expire an active request handler.
+        server.timeout(request, 0);
+        try { return await options.fetch(request); }
+        catch (error) {
+          if (!isExpectedConnectionAbort(error)) console.error("[serve-node] Unhandled error:", error);
+          return Response.json({ error: "internal_error" }, { status: 500 });
+        }
+      },
+    });
+    try {
+      let server;
+      try { server = start(options.port); }
+      catch (error) {
+        if (!(error instanceof Error) || !("code" in error) || error.code !== "EADDRINUSE") throw error;
+        server = start(0);
+      }
+      const port = server.port;
+      if (port === undefined) throw new Error("The HTTP server did not bind a port");
+      let stopping: Promise<void> | undefined;
+      return Promise.resolve({ port, stop: () => stopping ??= server.stop(true) });
+    } catch (error) { return Promise.reject(error); }
+  }
   const { hostname, port, fetch: fetchHandler } = options;
   const scheme: "http" | "https" = options.tls ? "https" : "http";
 

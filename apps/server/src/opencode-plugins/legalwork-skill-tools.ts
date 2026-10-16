@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { buildSkillMarkdown, resolveSkillName } from "../skill-tool-content.js";
 
-import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, serverToken, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 /**
  * Agent tools for the ordinary discoverable skill library. Workflows is the
@@ -72,12 +72,18 @@ const createArgs = z.object({
 });
 
 const listArgs = z.object({});
+const packageEntry = z.object({ name: z.string(), directory: z.string(), files: z.array(z.object({ path: z.string(), size: z.number() })) });
+const resourceArgs = z.object({
+  name: z.string().min(1).describe("Exact name from a workflow or skill loaded in this chat with legalwork_skill_load."),
+  path: z.string().min(1).describe("Exact relative path from that package's files, e.g. resources/felder.md or resources/template.docx."),
+  offset: z.number().int().nonnegative().optional().describe("Continue a long resource using the returned nextOffset."),
+});
 
 type SkillListItem = { name?: unknown; description?: unknown; kind?: unknown; scope?: unknown };
 
 async function requestJson(
   path: string,
-  options: { method?: string; body?: unknown } = {},
+  options: { method?: string; body?: unknown; context?: OpenCodeContext } = {},
 ): Promise<{ ok: true; payload: unknown } | { ok: false; error: string }> {
   const url = serverUrl();
   const token = serverToken();
@@ -87,7 +93,7 @@ async function requestJson(
   const response = await fetch(`${url}${path}`, {
     method: options.method ?? "GET",
     headers: {
-      Authorization: `Bearer ${token}`,
+      ...await workspaceToolHeaders(options.context),
       ...(options.body ? { "Content-Type": "application/json" } : {}),
     },
     ...(options.body ? { body: JSON.stringify(options.body) } : {}),
@@ -116,6 +122,7 @@ async function attachResources(
   skillName: string,
   paths: string[],
   baseDir: string,
+  context: OpenCodeContext,
 ): Promise<{ attached: string[]; warnings: string[] }> {
   const attached: string[] = [];
   const warnings: string[] = [];
@@ -134,7 +141,7 @@ async function attachResources(
       const name = basename(path);
       const result = await requestJson(
         `/workspace/${encodeURIComponent(workspaceId)}/skills/${encodeURIComponent(skillName)}/resources`,
-        { method: "POST", body: { name, contentBase64: bytes.toString("base64") } },
+        { method: "POST", body: { name, contentBase64: bytes.toString("base64") }, context },
       );
       if (result.ok) attached.push(name);
       else warnings.push(`${path}: ${result.error}`);
@@ -145,18 +152,51 @@ async function attachResources(
   return { attached, warnings };
 }
 
-export const LegalWorkSkillTools = async () => ({
+export const LegalWorkSkillTools = async () => {
+  // Package grants are scoped to the workspace and chat, never the library.
+  // They contain locations, not copies of instructions or resource bytes.
+  const loaded = new Map<string, Map<string, z.infer<typeof packageEntry>>>();
+  function sessionKey(workspace: string, context: OpenCodeContext) {
+    if (!context.sessionID || !context.ask) throw new Error("Skill resources require a chat identity and permission checks.");
+    return `${workspace}:${context.sessionID}`;
+  }
+  return {
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
-    output.system.push(SKILL_TOOLS_INSTRUCTION + "\nBefore calculating legal deadlines, use legalwork_skill_load to read the jurisdiction skill AND its expert corrections. When a lawyer corrects you, distinguish an extracted fact, a matter-specific exception, a reusable rule, and a code defect. Propose the exact correction and project/global scope. On an explicit request to remember/save it, call legalwork_skill_create with kind=workflow, lesson={base, appliesWhen, correction, examples}, and a new descriptive name. The correction appears in Workflows and loads automatically with its base. Preserve the base. Include both the corrected case and a nearby case whose correct behavior must not change. Never claim these examples are executed tests. Reload the composed skill before retrying, including in a new session.");
+    output.system.push(SKILL_TOOLS_INSTRUCTION + "\nUse legalwork_skill_load for installed skills and workflows, then legalwork_skill_read with its exact package file references for attached Markdown and Word resources. Helpers run through legalwork_shell with the returned skills and mount paths, under normal execution permissions.\nBefore calculating legal deadlines, use legalwork_skill_load to read the jurisdiction skill AND its expert corrections. When a lawyer corrects you, distinguish an extracted fact, a matter-specific exception, a reusable rule, and a code defect. Propose the exact correction and project/global scope. On an explicit request to remember/save it, call legalwork_skill_create with kind=workflow, lesson={base, appliesWhen, correction, examples}, and a new descriptive name. The correction appears in Workflows and loads automatically with its base. Preserve the base. Include both the corrected case and a nearby case whose correct behavior must not change. Never claim these examples are executed tests. Reload the composed skill before retrying, including in a new session.");
   },
   tool: {
     legalwork_skill_load: {
-      description: "Read an installed skill or workflow together with its scoped expert corrections. Both are automatically discoverable. Resolves dependencies and refuses changed base versions. Always load a deadline skill through this tool before calculating.",
+      description: "Load an installed skill or workflow, its expert corrections and its full package of attached resources. Returns exact file references for legalwork_skill_read and shell mounts. Use this for all workflows and skills, including deadlines. Resolves dependencies and refuses changed base versions.",
       args: { name: z.string().min(1) },
       async execute(raw: unknown, context: OpenCodeContext) {
         const { name } = z.object({ name: z.string().min(1) }).parse(raw);
-        const workspace = await resolveWorkspaceId(context);
-        return JSON.stringify(await requestJson(`/workspace/${encodeURIComponent(workspace)}/skills/${encodeURIComponent(name)}/composed`));
+        const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
+        const key = sessionKey(workspace, context);
+        const result = await requestJson(`/workspace/${encodeURIComponent(workspace)}/skills/${encodeURIComponent(name)}/composed`, { context });
+        if (!result.ok) return JSON.stringify(result);
+        const { chain } = z.object({ chain: z.array(packageEntry) }).parse(result.payload);
+        for (const entry of chain) {
+          await context.ask!({ permission: "skill", patterns: [entry.name], always: [entry.name], metadata: {} });
+          await context.ask!({ permission: "read", patterns: [join(entry.directory, "SKILL.md")], always: [], metadata: {} });
+        }
+        const grants = loaded.get(key) ?? new Map();
+        for (const entry of chain) grants.set(entry.name, entry);
+        loaded.set(key, grants);
+        return JSON.stringify(result);
+      },
+    },
+    legalwork_skill_read: {
+      description: "Read an attached resource from a skill or workflow already loaded in this chat. Reads Markdown, other UTF-8 files and Word document text directly from the installed package, including updates. Does not execute helpers, grant library-wide access or copy files into the project. Existing skill and read permissions apply. For long files follow nextOffset; Word drawings and tracked changes may require visual review.",
+      args: resourceArgs.shape,
+      async execute(raw: unknown, context: OpenCodeContext) {
+        const input = resourceArgs.parse(raw);
+        const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
+        const entry = loaded.get(sessionKey(workspace, context))?.get(input.name);
+        if (!entry || !entry.files.some(file => file.path === input.path)) throw new Error("Load this skill with legalwork_skill_load and use an exact path from its files.");
+        await context.ask!({ permission: "skill", patterns: [entry.name], always: [entry.name], metadata: {} });
+        await context.ask!({ permission: "read", patterns: [join(entry.directory, input.path)], always: [], metadata: {} });
+        const query = new URLSearchParams({ directory: entry.directory, path: input.path, offset: String(input.offset ?? 0) });
+        return JSON.stringify(await requestJson(`/workspace/${encodeURIComponent(workspace)}/skills/${encodeURIComponent(input.name)}/package-file?${query}`, { context }));
       },
     },
     legalwork_skill_create: {
@@ -174,7 +214,7 @@ export const LegalWorkSkillTools = async () => ({
         try {
           const workspaceId = await resolveWorkspaceId(context);
           const existing = await requestJson(
-            `/workspace/${encodeURIComponent(workspaceId)}/skills?includeGlobal=true`,
+            `/workspace/${encodeURIComponent(workspaceId)}/skills?includeGlobal=true`, { context },
           );
           const items = existing.ok ? (existing.payload as { items?: SkillListItem[] } | null)?.items ?? [] : [];
           const original = items.find(item => item.name === args.name);
@@ -190,7 +230,7 @@ export const LegalWorkSkillTools = async () => ({
             }
           }
           const created = await requestJson(`/workspace/${encodeURIComponent(workspaceId)}/skills`, {
-            method: "POST",
+            method: "POST", context,
             body: {
               name: fullName,
               description: args.description.trim(),
@@ -209,7 +249,7 @@ export const LegalWorkSkillTools = async () => ({
             return JSON.stringify({ ok: false, name: fullName, error: `Could not save the ${kind}: ${created.error}` });
           }
           const { attached, warnings } = args.resourcePaths?.length
-            ? await attachResources(workspaceId, fullName, args.resourcePaths, context.directory?.trim() || process.cwd())
+            ? await attachResources(workspaceId, fullName, args.resourcePaths, context.directory?.trim() || process.cwd(), context)
             : { attached: [], warnings: [] };
           const where = kind === "workflow" ? "Workflows" : "Settings > Integrations > Skills";
           return JSON.stringify(
@@ -243,7 +283,7 @@ export const LegalWorkSkillTools = async () => ({
       async execute(_rawArgs: unknown, context: OpenCodeContext) {
         try {
           const workspaceId = await resolveWorkspaceId(context);
-          const result = await requestJson(`/workspace/${encodeURIComponent(workspaceId)}/skills?includeGlobal=true`);
+          const result = await requestJson(`/workspace/${encodeURIComponent(workspaceId)}/skills?includeGlobal=true`, { context });
           if (!result.ok) return JSON.stringify({ ok: false, error: result.error });
           const items = (result.payload as { items?: SkillListItem[] } | null)?.items ?? [];
           const entries = items.flatMap((item) =>
@@ -273,4 +313,5 @@ export const LegalWorkSkillTools = async () => ({
       },
     },
   },
-});
+  };
+};

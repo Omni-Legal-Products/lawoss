@@ -73,7 +73,7 @@ test.each(["workflow-assistant-due-diligence", "workflow-assistant-saas-acquisit
   await dd["tool.execute.before"]({ tool: "skill", sessionID: scoped.sessionID }, { args: { name: "author-review-prompts" } });
   await dd.tool.legalwork_review_report_prepare.execute({ reviewIds: [id], evidenceIndexes: ["source-index.json"] }, scoped);
   await dd["tool.execute.before"]({ tool: "skill", sessionID: scoped.sessionID }, { args: { name: "docx-edit" } });
-  for (const [tool,args] of [["bash", { command: "cat << 'EOF' > scratch/build_report.py\nimport json\nEOF" }],
+  for (const [tool,args] of [["legalwork_shell", { command: "cat << 'EOF' > scratch/build_report.py\nimport json\nEOF" }],
     ["write", { filePath: "/project/scratch/build_report.py", content: "import json" }],
     ["bash", { command: "python3 -c 'import json; " + "print(1);".repeat(100) + "'" }]] satisfies Array<[string, Record<string, unknown>]>) {
     await expect(dd["tool.execute.before"]({ tool, sessionID: scoped.sessionID }, { args })).rejects.toThrow("Write legal prose");
@@ -334,13 +334,21 @@ test("bounded folder hints let the model select a named subfolder without a disc
   const scoped = await LegalWorkReviewTools(context);
   const output: { system: string[] } = { system: [] };
   await scoped["experimental.chat.system.transform"]({}, output);
-  const hints = output.system.find(value => value.startsWith("Available top-level project folders"));
-  expect(hints).toContain('"Contracts/Archive"');
-  expect(hints).not.toContain("a.pdf"); expect(hints).not.toContain("Private name");
   expect(output.system.join(" ")).toContain("ONE job");
   expect(output.system.join(" ")).toContain("not the project root");
+  // The listing changes as folders appear, so it arrives as a reminder, not in the system prompt.
+  expect(output.system.join(" ")).not.toContain("Available top-level project folders");
+  const message: { message: { id: string }; parts: object[] } = { message: { id: "msg_test" }, parts: [] };
+  await scoped["chat.message"]({ sessionID: "ses_review" }, message);
+  const hints = message.parts.map(part => String(Reflect.get(part, "text"))).join(" ");
+  expect(hints).toContain("Available top-level project folders");
+  expect(hints).toContain('"Contracts/Archive"');
+  expect(hints).not.toContain("a.pdf"); expect(hints).not.toContain("Private name");
   expect(calls.filter(call => call.path.endsWith("/project/contents"))).toHaveLength(1);
-  await scoped["experimental.chat.system.transform"]({}, { system: [] });
+  // Cached for 15 seconds, and unchanged state adds nothing to later results.
+  const result = { output: "done" };
+  await scoped["tool.execute.after"]({ sessionID: "ses_review" }, result);
+  expect(result.output).toBe("done");
   expect(calls.filter(call => call.path.endsWith("/project/contents"))).toHaveLength(1);
 });
 

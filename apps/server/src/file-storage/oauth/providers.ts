@@ -14,8 +14,10 @@ export type OAuthProvider = StorageOAuthProvider & {
   scopes: (readOnly: boolean) => string[];
   authorizeParams?: Record<string, string>;
   port?: number;
+  redirectHost?: "localhost" | "127.0.0.1";
   adapter: (config: OAuthConfig, token: AccessToken) => Promise<StorageAdapter> | StorageAdapter;
 };
+export type OAuthApplication = Pick<OAuthProvider, "clientId" | "clientSecret" | "authorizeUrl" | "tokenUrl" | "scopes" | "authorizeParams" | "port" | "redirectHost">;
 // Each provider branch adds its own registration to this shared entry point.
 export const oauthProviders: OAuthProvider[] = [boxProvider, dropboxProvider];
 export function oauthProvider(id: string) {

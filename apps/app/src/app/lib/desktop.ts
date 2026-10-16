@@ -36,6 +36,7 @@ import type {
 import type { BrowserPanelTab } from "./desktop-types";
 
 export type BrowserStatePayload = {
+  focusedTabId?: string;
   activeTabId?: string | null;
   tabs?: BrowserPanelTab[];
 };
@@ -71,8 +72,12 @@ declare global {
           mismatch: boolean;
           platform: "darwin" | "linux" | "windows";
           version: string;
-          downloadUrl: string;
+          downloadUrl: string | null;
           releaseUrl: string;
+        }>;
+        getArchitectureDownload?: () => Promise<{
+          status: "available" | "unavailable" | "error";
+          downloadUrl: string | null;
         }>;
         getMicrophoneStatus?: () => Promise<{
           platform: string;
@@ -115,28 +120,34 @@ declare global {
         installAndRestart?: () => Promise<{ ok: boolean; reason?: string }>;
       };
       browser?: {
-        show?: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
-        hide?: () => Promise<void>;
-        openUrl?: (url: string, provider?: "auto" | "builtin" | "external") => Promise<{
+        show?: (bounds: { x: number; y: number; width: number; height: number }, tabId?: string) => Promise<void>;
+        hide?: (tabId?: string) => Promise<void>;
+        openUrl?: (url: string, provider?: "auto" | "builtin" | "external", context?: { directory?: string; workspaceId?: string; sessionId?: string }) => Promise<{
           provider: "builtin";
           browser_url: string;
           target_id: string;
           tab_id: string;
           url: string;
+          download_directory: string | null;
+          downloads: unknown[];
+          snapshot: unknown;
         }>;
-        navigate?: (url: string) => Promise<void>;
-        back?: () => Promise<void>;
-        forward?: () => Promise<void>;
-        reload?: () => Promise<void>;
-        setBounds?: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
+        navigate?: (url: string, tabId?: string) => Promise<void>;
+        back?: (tabId?: string) => Promise<void>;
+        forward?: (tabId?: string) => Promise<void>;
+        reload?: (tabId?: string) => Promise<void>;
+        setBounds?: (bounds: { x: number; y: number; width: number; height: number }, tabId?: string) => Promise<void>;
         getState?: () => Promise<BrowserStatePayload | null>;
         createTab?: (url?: string) => Promise<{ tabId: string }>;
         closeTab?: (tabId: string) => Promise<string | null>;
+        dismissTab?: (tabId: string) => Promise<void>;
+        releaseSession?: (sessionId: string) => Promise<void>;
+        previewTab?: (tabId: string) => Promise<string | null>;
         closeAllTabs?: () => Promise<string[]>;
         selectTab?: (tabId: string) => Promise<string>;
         reorderTabs?: (tabIds: string[]) => Promise<BrowserPanelTab[]>;
         listTabs?: () => Promise<BrowserPanelTab[]>;
-        setProxy?: (proxy?: string | null) => Promise<BrowserProxyState>;
+        setProxy?: (proxy?: string | null, context?: { workspaceId?: string; sessionId?: string }) => Promise<BrowserProxyState>;
         getProxy?: () => Promise<BrowserProxyState>;
         showTabContextMenu?: (tabId: string, point?: { x: number; y: number }) => Promise<void>;
         destroy?: () => Promise<void>;
@@ -365,6 +376,14 @@ export async function openDesktopPath(target: string): Promise<void> {
   if (typeof result === "string" && result.trim()) {
     throw new Error(result);
   }
+}
+
+export async function composeAppleMailDraft(draft: import("@legalwork/types/desktop-ipc").NativeMailDraftInput): Promise<void> {
+  await invokeElectronHelper("composeAppleMailDraft", draft);
+}
+
+export async function composeOutlookDraft(draft: import("@legalwork/types/desktop-ipc").NativeMailDraftInput): Promise<void> {
+  await invokeElectronHelper("composeOutlookDraft", draft);
 }
 
 export async function revealDesktopItemInDir(target: string): Promise<void> {

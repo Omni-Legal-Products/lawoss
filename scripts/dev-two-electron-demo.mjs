@@ -157,16 +157,6 @@ function prepareSharedElectronResources() {
     ],
     { cwd: desktopRoot },
   );
-  runSync(
-    process.execPath,
-    [
-      path.join(desktopScriptsRoot, "prepare-computer-use-helper.mjs"),
-      "--force",
-      "--outdir",
-      path.join(desktopRoot, "resources", "helpers"),
-    ],
-    { cwd: desktopRoot },
-  );
 }
 
 function startElectron(label, env) {

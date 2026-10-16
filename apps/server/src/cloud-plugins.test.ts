@@ -46,6 +46,14 @@ async function expectMissing(path: string): Promise<void> {
 }
 
 describe("cloud plugin installs", () => {
+  test("native cloud plugin credential templates stay available for setup instead of activating or rejecting the package", () => withWorkspace(async ({ root, config }) => {
+    const plugin = await installCloudPlugin({ serverConfig: config, workspaceId: WORKSPACE_ID, workspaceRoot: root, marketplaceId: null, resolved: {
+      plugin: { id: "setup", name: "Setup", description: null, updatedAt: null },
+      memberships: [{ configObjectId: "connector", configObject: { id: "connector", objectType: "mcp", title: "Connector", description: null, currentRelativePath: null, status: "active", updatedAt: null, latestVersion: { id: "1", rawSourceText: null, normalizedPayloadJson: { mcpServers: { service: { url: "https://service.invalid/mcp", headers: { Authorization: "Bearer ${TOKEN}" } } } } } } }],
+    } });
+    expect(plugin.files.some(file => file.objectType === "mcp")).toBe(true);
+    expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).mcp?.service).toMatchObject({ enabled: false, headers: { Authorization: "Bearer ${TOKEN}" } });
+  }));
   test("stores installed plugin state in the server DB and projects runtime resources", async () => {
     await withWorkspace(async ({ root, config }) => {
       const imported = await installCloudPlugin({
@@ -57,6 +65,7 @@ describe("cloud plugin installs", () => {
         resolved: {
           plugin: {
             id: "plugin_1",
+            sourceKind: "plugin",
             name: "Creative Brief Plugin",
             description: "Brief writing workflow",
             updatedAt: "2026-06-02T00:00:00.000Z",
@@ -105,6 +114,7 @@ describe("cloud plugin installs", () => {
 
       const installed = await readInstalledCloudPlugins(config, WORKSPACE_ID);
       expect(installed.plugins.plugin_1?.name).toBe("Creative Brief Plugin");
+      expect(installed.plugins.plugin_1?.sourceKind).toBe("plugin");
       expect(installed.marketplaces.marketplace_1?.pluginIds).toEqual(["plugin_1"]);
 
       const skillPath = join(root, ".opencode", "skills", "creative-brief-plugin", "brief-builder", "SKILL.md");

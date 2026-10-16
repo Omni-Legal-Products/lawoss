@@ -6,16 +6,14 @@ import type { SkillCard } from "@/app/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SectionHeading } from "@/react-app/design-system/surface";
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
-import { EVALS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore } from "../../session/panel/panel-tab-store";
-import { PANEL_OPEN_TAB_EVENT } from "../../session/panel/panel-tab-request";
-import { confirmDiscardDocuments } from "../../session/artifacts/docx-document-state";
+import { useActivePanelTab, usePanelTabStore } from "../../session/panel/panel-tab-store";
+import { discardDocumentsThen } from "../../session/artifacts/docx-document-state";
 import { useUiStateStore } from "@/react-app/shell/ui-state-store";
 import { dismissTemplateWorkflowRun, retryTemplateWorkflowImport, useTemplateWorkflowRun } from "../state/template-workflow-generation";
 import { bindWorkflowServices, discardWorkflow, openWorkflow, showWorkflow, useWorkflowEditorStore, workflowDirty, type WorkflowDraft } from "../state/workflow-editor-store";
@@ -23,14 +21,18 @@ import { isWorkflowCard, workflowDisplayName, type WorkflowType } from "../state
 import { ImportSkillsButton, TemplateGenerationRow, type SkillsViewProps } from "./skills-view";
 import { LegalQuantsImportButton } from "./legalquants-import";
 import { isLegalQuantsHidden } from "@/lawoss/feature-flags";
-import { WorkflowEditorPanel } from "./workflow-editor-panel";
 import { HubTabs } from "../segmented-tabs";
 import { NewWorkflowDialog } from "./new-workflow-dialog";
 import { WORKFLOWS_PER_PAGE, WorkflowPagination } from "./workflow-pagination";
-import { useWorkflowResourceStore } from "../state/workflow-resource-store";
-import { WorkflowResourceEditorPanel } from "./workflow-resource-editor-panel";
+import { FirmItemNote } from "../../connections/org-policy-ui";
+import { FirmSkillDialog } from "./firm-skill-dialog";
+import { onSyncPoke } from "@/react-app/kernel/sync-events";
+
+import { workflowsPanelKey } from "../../session/panel/panel-scope";
+import { WorkflowsWorkspace } from "./workflows-workspace";
 
 export type WorkflowsViewProps = SkillsViewProps & {
+  active?: boolean;
   workspaceId: string;
   reviewClient?: LegalworkServerClient | null;
   reviewWorkspaceId?: string | null;
@@ -39,8 +41,6 @@ export type WorkflowsViewProps = SkillsViewProps & {
   /** Share one of the user's own prompt sets, or pick some, with the firm. */
   onShareReviewSet?: (id: string) => void;
   onOpenReviewSetShare?: () => void;
-  /** Settings routes have no app viewer, so host the same editor beside the list. */
-  inlineEditor?: boolean;
   extensions: SkillsViewProps["extensions"] & { workspaceContextKey: () => string };
 };
 
@@ -56,11 +56,9 @@ export function WorkflowsView(props: WorkflowsViewProps) {
   const [importOpen, setImportOpen] = useState(false);
   const [legalQuantsOpen, setLegalQuantsOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<SkillCard | null>(null);
-  const [inlineId, setInlineId] = useState<string | null>(null);
   const drafts = useWorkflowEditorStore((state) => state.drafts);
-  const inlineResource = useWorkflowResourceStore((state) => inlineId ? state.drafts[inlineId] : undefined);
-  const activeTab = useActivePanelTab(EVALS_PANEL_SESSION_ID);
-  const panelOpen = useUiStateStore((state) => state.sidePanelState[EVALS_PANEL_SESSION_ID] === "panel");
+  const activeTab = useActivePanelTab(workflowsPanelKey(workspaceId));
+  const panelOpen = useUiStateStore((state) => state.sidePanelState[workflowsPanelKey(workspaceId)] === "panel");
   const templateRun = useTemplateWorkflowRun();
   const allSkills = extensions.skills();
   const resources = extensions.skillResources();
@@ -87,29 +85,16 @@ export function WorkflowsView(props: WorkflowsViewProps) {
   const visibleEntries = entries.slice(currentPage * WORKFLOWS_PER_PAGE, (currentPage + 1) * WORKFLOWS_PER_PAGE);
 
   useEffect(() => { setPage(0); }, [workspaceId]);
+  // One of the firm's workflows, open to read.
+  const [firmWorkflow, setFirmWorkflow] = useState<SkillCard | null>(null);
+  // The firm's workflows change with its hub.
+  useEffect(() => onSyncPoke((poke) => { if (poke.hub) void extensions.refreshSkills({ force: true }); }), [extensions]);
   useEffect(() => { setPage((value) => Math.min(value, lastPage)); }, [lastPage]);
   useEffect(() => { if (listRef.current) listRef.current.scrollTop = 0; }, [currentPage, scope, query]);
 
   useEffect(() => bindWorkflowServices(workspaceId, {
     extensions, contextKey, currentContextKey: extensions.workspaceContextKey, canEdit, busy: props.busy, resources, resourceStatus,
   }), [workspaceId, extensions, contextKey, canEdit, props.busy, resources, resourceStatus]);
-
-  useEffect(() => {
-    if (!props.inlineEditor) return;
-    const open = (event: Event) => {
-      if (!(event instanceof CustomEvent)) return;
-      const detail: unknown = event.detail;
-      if (!detail || typeof detail !== "object") return;
-      const type: unknown = Reflect.get(detail, "type");
-      if (type !== "workflow" && type !== "workflow-resource") return;
-      const id: unknown = Reflect.get(detail, "id");
-      if (typeof id !== "string") return;
-      const draft = type === "workflow" ? useWorkflowEditorStore.getState().drafts[id] : useWorkflowResourceStore.getState().drafts[id];
-      if (draft?.workspaceId === workspaceId) setInlineId((current) => current === id || confirmDiscardDocuments(undefined, undefined, true) ? id : current);
-    };
-    window.addEventListener(PANEL_OPEN_TAB_EVENT, open);
-    return () => window.removeEventListener(PANEL_OPEN_TAB_EVENT, open);
-  }, [props.inlineEditor, workspaceId]);
 
   useEffect(() => {
     let active = true;
@@ -133,7 +118,6 @@ export function WorkflowsView(props: WorkflowsViewProps) {
   const start = (type: WorkflowType) => setNewType(type);
   const closeDraft = (id: string) => {
     discardWorkflow(id);
-    if (inlineId === id) setInlineId(null);
     const panels = usePanelTabStore.getState();
     for (const [sessionId, session] of Object.entries(panels.sessions)) {
       if (session.tabs.some((tab) => tab.id === id)) panels.closeTab(sessionId, id);
@@ -143,7 +127,17 @@ export function WorkflowsView(props: WorkflowsViewProps) {
     const name = draft?.title || (skill ? workflowDisplayName(skill.name) : t("skills.new_workflow"));
     const description = draft?.description ?? skill?.description ?? "";
     const Icon = Workflow;
-    const selected = props.inlineEditor ? inlineId === draft?.id : panelOpen && activeTab?.type === "workflow" && activeTab.id === draft?.id;
+    // The firm's workflow follows its hub: members read it, but cannot change or remove it here.
+    if (skill?.firm) {
+      return <button key={skill.name} type="button" onClick={() => setFirmWorkflow(skill)} className="flex w-full gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-ring">
+        <Workflow className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium">{name}</span>
+          {description ? <span className="mt-1 line-clamp-2 block text-xs leading-5 text-muted-foreground">{description}</span> : null}
+          <span className="mt-1.5 block"><FirmItemNote added={skill.firm === "optional"} /></span>
+        </span>
+      </button>;
+    }
+    const selected = panelOpen && activeTab?.type === "workflow" && activeTab.id === draft?.id;
     const open = () => skill ? void openWorkflow(workspaceId, skill) : draft && showWorkflow(draft);
     const menuItems = (context: boolean) => {
       const Item = context ? ContextMenuItem : DropdownMenuItem;
@@ -157,7 +151,7 @@ export function WorkflowsView(props: WorkflowsViewProps) {
           <Item variant="destructive" disabled={props.busy || !canEdit || draft?.saving} onClick={() => setRemoveTarget(skill)}><Trash2 />{t("skills.uninstall")}</Item>
         </> : draft ? <>
           <Separator />
-          <Item variant="destructive" disabled={draft.saving} onClick={() => { if (confirmDiscardDocuments(draft.id)) closeDraft(draft.id); }}><Trash2 />{t("workflows.discard_draft")}</Item>
+          <Item variant="destructive" disabled={draft.saving} onClick={() => discardDocumentsThen(() => closeDraft(draft.id), draft.id)}><Trash2 />{t("workflows.discard_draft")}</Item>
         </> : null}
       </>;
     };
@@ -181,7 +175,7 @@ export function WorkflowsView(props: WorkflowsViewProps) {
   const library = <section aria-label={t("skills.workflows_title")} className="@container/workflows flex min-h-0 w-full flex-1 flex-col bg-background">
     <header className="mb-4 flex shrink-0 flex-wrap items-center gap-2">
       {scope === "local" ? <label className="relative min-w-0 flex-1 basis-52 @min-[600px]/workflows:max-w-sm"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input value={query} onChange={(event) => { setQuery(event.currentTarget.value); setPage(0); }} aria-label={t("workflows.search")} placeholder={t("workflows.search")} className="pl-9" /></label> : null}
-      <span className="flex-1" />
+      <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
       {scope === "team" && props.onOpenTeamShare ? <Button variant="ghost" size="icon-sm" aria-label={t("workflows.share")} onClick={props.onOpenTeamShare}><Share2 /></Button> : null}
       {scope === "local" && <><Button variant="ghost" size="icon-sm" aria-label={t("common.refresh")} disabled={props.busy || refreshing} onClick={() => { setRefreshing(true); void Promise.resolve(extensions.refreshSkills({ force: true })).finally(() => setRefreshing(false)); }}><RefreshCw className={refreshing ? "animate-spin" : ""} /></Button>
       <div className="flex shrink-0 items-center gap-0.5">
@@ -196,6 +190,7 @@ export function WorkflowsView(props: WorkflowsViewProps) {
           </DropdownMenuContent>
         </DropdownMenu>
       </div></>}
+      </div>
     </header>
     {props.accessHint ? <p className="mb-4 text-xs text-muted-foreground">{props.accessHint}</p> : null}
     {scope === "local" ? <>
@@ -214,26 +209,22 @@ export function WorkflowsView(props: WorkflowsViewProps) {
       showWorkflow(draft);
     }} /> : null}
     <ImportSkillsButton open={importOpen} onOpenChange={setImportOpen} asWorkflow busy={props.busy} canUseDesktopTools={props.canUseDesktopTools} existingNames={installedNames} extensions={extensions} />
+    {firmWorkflow ? <FirmSkillDialog name={firmWorkflow.name} added={firmWorkflow.firm === "optional"} read={extensions.readFirmSkill} onClose={() => setFirmWorkflow(null)} /> : null}
     <LegalQuantsImportButton open={legalQuantsOpen} onOpenChange={setLegalQuantsOpen} busy={props.busy} existingNames={installedNames} extensions={extensions} className="hidden" />
     <ConfirmModal open={Boolean(removeTarget)} title={t("skills.uninstall_title")} message={t("skills.uninstall_warning").replace("{name}", removeTarget?.name ?? "")} confirmLabel={t("skills.uninstall")} cancelLabel={t("common.cancel")} confirmButtonVariant="destructive" onCancel={() => setRemoveTarget(null)} onConfirm={() => {
       const target = removeTarget; setRemoveTarget(null); if (!target) return;
       const draft = localDrafts.find((entry) => entry.name === target.name);
-      if (draft && !confirmDiscardDocuments(draft.id)) return;
-      void Promise.resolve(extensions.uninstallSkill(target.name)).then(() => {
+      const uninstall = () => { void Promise.resolve(extensions.uninstallSkill(target.name)).then(() => {
         if (!draft || extensions.skills().some((skill) => skill.name === target.name)) return;
         closeDraft(draft.id);
-      });
+      }); };
+      if (draft) discardDocumentsThen(uninstall, draft.id);
+      else uninstall();
     }} />
   </section>;
 
-  const workflows = !props.inlineEditor || scope === "team" ? library : <ResizablePanelGroup orientation="horizontal" className="min-h-[600px] w-full flex-1 overflow-hidden rounded-xl border border-border">
-    <ResizablePanel minSize="240px" defaultSize={inlineId ? "40%" : "100%"}>{library}</ResizablePanel>
-    {inlineId ? <><ResizableHandle withHandle /><ResizablePanel minSize="320px" defaultSize="60%">{inlineResource
-      ? <WorkflowResourceEditorPanel key={inlineId} id={inlineId} onClose={() => { if (confirmDiscardDocuments(inlineId)) setInlineId(inlineResource.workflowId); }} />
-      : <WorkflowEditorPanel key={inlineId} id={inlineId} onClose={() => { if (confirmDiscardDocuments(inlineId)) setInlineId(null); }} />}</ResizablePanel></> : null}
-  </ResizablePanelGroup>;
-  return <div className="@container/page flex h-full min-h-0 w-full flex-1 flex-col bg-background">
-    <div className={cn("flex min-h-0 flex-1 flex-col", !props.inlineEditor && "lw-page-content lw-page-top pb-8")}>
+  return <WorkflowsWorkspace active={props.active} workspaceId={workspaceId} client={props.reviewClient}><div className="@container/page flex h-full min-h-0 w-full flex-1 flex-col bg-background">
+    <div className="lw-page-content lw-page-top flex min-h-0 flex-1 flex-col pb-8">
     <div className="mb-6 flex shrink-0 flex-col items-start gap-5">
       <SectionHeading size="page" title={t("skills.workflows_title")} className="w-full" action={<HubTabs label={t("workflows.library_scope")} value={scope} onChange={value => { setScope(value); setPage(0); }} items={[
         { id: "local", label: t("firm_hub.scope_local"), icon: HardDrive },
@@ -244,10 +235,10 @@ export function WorkflowsView(props: WorkflowsViewProps) {
         { id: "prompts", label: t("review.prompts_title"), icon: BookOpen },
       ]} />
     </div>
-    {section === "workflows" ? workflows : scope === "team" ? <section aria-label={t("review.prompts_title")} className="flex min-h-0 w-full flex-1 flex-col">
+    {section === "workflows" ? library : scope === "team" ? <section aria-label={t("review.prompts_title")} className="flex min-h-0 w-full flex-1 flex-col">
       {props.onOpenReviewSetShare ? <header className="mb-4 flex shrink-0 justify-end"><Button variant="ghost" size="icon-sm" aria-label={t("workflows.share")} onClick={props.onOpenReviewSetShare}><Share2 /></Button></header> : null}
       <div className="min-h-0 flex-1 overflow-y-auto">{props.firmReviewSetsView}</div>
     </section> : props.reviewClient && props.reviewWorkspaceId ? <ReviewPromptLibrary key={props.reviewWorkspaceId} client={props.reviewClient} workspaceId={props.reviewWorkspaceId} onShareSet={props.canShareWithFirm && props.onShareReviewSet ? entry => props.onShareReviewSet?.(entry.id) : undefined} /> : <p className="text-sm text-muted-foreground">{t("projects.connecting")}</p>}
     </div>
-  </div>;
+  </div></WorkflowsWorkspace>;
 }

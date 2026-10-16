@@ -20,6 +20,9 @@ import {
 import type { Run, Text, UsageTextKey, UsageTransport } from "./transport";
 import { usageBlockMessageKey } from "./usage-block";
 import { CHECKING_TOP_UP, checkConfirmedTopUp, type TopUpRecovery } from "./usage-recovery";
+import type { UsageLimitDetails } from "@legalwork/types/provider-usage-limit";
+import { requestUsageBlockReason } from "./usage-recovery";
+import { usageRequestMessageKey } from "./usage-block";
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -160,6 +163,7 @@ export function CardTopUp(props: Props & {
   returnLabel?: UsageTextKey;
   readyHint?: UsageTextKey;
   onRecoveryChange?: (recovery: TopUpRecovery) => void;
+  limit?: UsageLimitDetails | null;
 }) {
   const [open, setOpen] = useState(false);
   const [paidOperationId, setPaidOperationId] = useState<string | null>(null);
@@ -181,6 +185,7 @@ export function CardTopUp(props: Props & {
         operationId,
         async () => detailsSchema.parse(await transport.write({ action: "paymentDetails" })),
         transport.read,
+        props.limit,
       );
       if (!active) return;
       setChecked({ operationId, recovery: next });
@@ -190,14 +195,14 @@ export function CardTopUp(props: Props & {
     }
     void check();
     return () => { active = false; clearTimeout(timer); };
-  }, [paidOperationId, attempt, transport]);
+  }, [paidOperationId, attempt, transport, props.limit]);
   useEffect(() => {
     if (paidOperationId) onRecoveryChange?.(recovery);
   }, [paidOperationId, recovery, onRecoveryChange]);
   const waiting = recovery.status === "checking";
   const recoveryBody = recovery.status === "ready" ? props.t(props.readyHint ?? "limits.topup_ready_hint")
     : recovery.status === "blocked" && recovery.view
-      ? props.t(usageBlockMessageKey(recovery.view.me.blockedReason, recovery.view.isAdmin))
+      ? props.t(props.limit ? usageRequestMessageKey(requestUsageBlockReason(recovery.view, props.limit), recovery.view.isAdmin) : usageBlockMessageKey(recovery.view.me.blockedReason, recovery.view.isAdmin))
       : props.t(recovery.refreshFailed ? "limits.topup_refresh_error" : "limits.topup_paid_hint");
   return (
     <Dialog
@@ -449,7 +454,8 @@ function TopUpForm({ t, run, busy, transport, onPaid }: Props & { onPaid: (opera
             <Button
               key={preset}
               type="button"
-              variant={value === String(preset) ? "secondary" : "outline"}
+              variant="choice"
+              aria-pressed={value === String(preset)}
               className="flex-1"
               onClick={() => {
                 setValue(String(preset));

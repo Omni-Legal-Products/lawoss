@@ -109,3 +109,20 @@ test("laptop defaults reserve extra memory on smaller machines", () => {
   expect(laptopReviewLimits(16 * 1024 ** 3)).toEqual({ cells: 16, documents: 4 });
   expect(laptopReviewLimits(36 * 1024 ** 3)).toEqual({ cells: 16, documents: 4 });
 });
+
+
+test("temporary LLM connection resets retry within the shared request budget", async () => {
+  const requests = new ReviewRequests({ cells: 1, documents: 1 }, { retryDelayMs: 1, jitterMs: 0 });
+  let calls = 0;
+  expect(await requests.run("llm", "review", "provider", signal(), async () => {
+    if (++calls === 1) throw reviewModelError({ message: "Connection reset by server" });
+    return "verified answer";
+  })).toBe("verified answer");
+  expect(calls).toBe(2);
+  calls = 0;
+  await expect(requests.run("llm", "review", "provider", signal(), async () => {
+    calls++; throw reviewModelError({ message: "Connection reset by server" });
+  })).rejects.toThrow("Connection reset by server");
+  expect(calls).toBe(3);
+  expect(reviewModelError({ message: "Connection reset by server", statusCode: 401 })).not.toBeInstanceOf(ReviewRetryError);
+});

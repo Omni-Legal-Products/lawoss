@@ -33,7 +33,7 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 const names = (entries: ReadonlyArray<{ serverName?: string }>) => entries.map((entry) => entry.serverName);
-const UPSTREAM = ["notion", "dropbox", "courtlistener", "computer-use", "google-workspace", "legalwork-ui", "legalwork-voice"];
+const UPSTREAM = ["notion", "dropbox", "courtlistener", "open-computer-use", "google-workspace", "legalwork-ui", "legalwork-voice"];
 
 // Bun zdieľa jeden proces a cache modulov: každý test vráti katalógy do predvoleného stavu.
 function reset() {
@@ -58,7 +58,7 @@ describe("LAWOSS zdroje integrácií: rýchle pripojenie MCP", () => {
     const visible = names(MCP_QUICK_CONNECT);
     for (const name of UPSTREAM) expect(visible).not.toContain(name);
     expect(visible.every((name) => LAWOSS_QUICK_CONNECT_ALLOWLIST.has(name ?? ""))).toBe(true);
-    expect(LEGALWORK_EXTENSION_CATALOG.find((entry) => entry.id === "computer-use")).toBeUndefined();
+    expect(LEGALWORK_EXTENSION_CATALOG.find((entry) => entry.id === "open-computer-use")).toBeUndefined();
   });
 
   test("so zapnutým zdrojom sa upstream konektory ukážu, LegalMemory nikdy", () => {
@@ -68,7 +68,7 @@ describe("LAWOSS zdroje integrácií: rýchle pripojenie MCP", () => {
     for (const name of UPSTREAM) expect(visible).toContain(name);
     expect(visible).not.toContain("legalmemory");
     expect(visible.length).toBe(MCP_QUICK_CONNECT_ALL.length - HIDDEN_QUICK_CONNECT_SERVERS.size);
-    expect(LEGALWORK_EXTENSION_CATALOG.map((entry) => entry.id)).toEqual(expect.arrayContaining(["computer-use", "google-workspace"]));
+    expect(LEGALWORK_EXTENSION_CATALOG.map((entry) => entry.id)).toEqual(expect.arrayContaining(["open-computer-use", "google-workspace"]));
   });
 
   test("LegalMemory ostane skrytý bez ohľadu na prepínač", () => {

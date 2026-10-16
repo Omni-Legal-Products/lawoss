@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -61,6 +61,54 @@ async function readConfigFile(config: ServerConfig): Promise<Record<string, unkn
   return JSON.parse(raw) as Record<string, unknown>;
 }
 
+test("protected engine configuration retains installed skill discovery", async () => {
+  const { root, config } = await setup();
+  config.agentSandboxEnabled = true;
+  const folder = join(root, ".opencode", "skills", "protected-helper");
+  const visible = join(root, "Skills", "wiki-setup");
+  await mkdir(visible, { recursive: true });
+  await writeFile(join(visible, "SKILL.md"), "---\nname: wiki-setup\ndescription: Set up this wiki\n---\nRead this wiki's guidance.\n");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "SKILL.md"), "---\nname: protected-helper\ndescription: An installed helper\n---\nUse the protected shell.\n");
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  expect(await readConfigFile(config)).toMatchObject({ skills: { paths: expect.arrayContaining([folder, visible]) }, lsp: false, formatter: false });
+});
+
+test.each([false, true])("the built-in review worker is registered with sandboxing=%s", async (sandboxed) => {
+  const { config } = await setup();
+  config.agentSandboxEnabled = sandboxed;
+  await writeRuntimeOpencodeConfig(config, "ws_1", () => ({
+    agent: { "document-extractor": { disable: true, model: "other/model", prompt: "Stored override", permission: { "*": "allow" } } },
+  }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const parsed = await readConfigFile(config);
+  expect(parsed).toMatchObject({ agent: { "document-extractor": {
+    description: "Internal grounded text inference worker for saved project reviews.",
+    mode: "subagent", hidden: true, temperature: 0.1,
+    prompt: expect.stringContaining("Use only the evidence and column definition provided in this request."),
+    tools: { "*": false }, permission: { "*": "deny" },
+  } } });
+  expect(parsed).not.toHaveProperty("agent.document-extractor.disable");
+  expect(parsed).not.toHaveProperty("agent.document-extractor.model");
+  expect(parsed).not.toHaveProperty("agent.document-extractor.prompt", "Stored override");
+});
+
+test("saved-output access is enabled before user rules and bundled with the runtime", async () => {
+  const { config } = await setup();
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "deny", read: "deny" } }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const denied = await readConfigFile(config);
+  expect(denied).toMatchObject({ permission: { legalwork_tool_output_read: "allow", "*": "deny", read: "deny" } });
+  const rules = Object.keys(Object(denied.permission));
+  expect(rules.indexOf("legalwork_tool_output_read")).toBeLessThan(rules.indexOf("*"));
+  expect(JSON.stringify(denied.plugin)).toContain("legalwork-tool-output");
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "allow", legalwork_tool_output_read: "deny" } }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const explicit = await readConfigFile(config);
+  expect(explicit).toMatchObject({ permission: { legalwork_tool_output_read: "deny" } });
+  expect(Object.keys(Object(explicit.permission)).indexOf("legalwork_tool_output_read")).toBeGreaterThan(Object.keys(Object(explicit.permission)).indexOf("*"));
+});
+
 describe("legalwork runtime config file", () => {
   test("writes runtime-DB MCPs and legalwork defaults into the file", async () => {
     const { config } = await setup();
@@ -88,6 +136,9 @@ describe("legalwork runtime config file", () => {
     // written into the per-workspace runtime config at connect time.
     expect((parsed.provider as Record<string, unknown> | undefined)?.eigenwelt).toBeUndefined();
     const agents = parsed.agent as Record<string, Record<string, unknown>>;
+    expect(agents["legalwork-scheduled-project"]).toMatchObject({ hidden: true, mode: "primary", permission: { "*": "deny", legalwork_project_read: "allow" } });
+    expect(agents["legalwork-scheduled-all"]).toMatchObject({ hidden: true, mode: "primary", permission: { legalwork_ui_execute_action: "deny", legalwork_ui_list_actions: "deny", legalwork_ui_snapshot: "deny" } });
+    expect(JSON.stringify(parsed.plugin)).toContain("legalwork-scheduled-task-tools");
     expect(agents.legalwork.prompt).toContain("start-tabular-review");
     expect(agents.legalwork.prompt).toContain("at most one short sentence");
     expect(agents.reviewer?.model).toBe("opencode/big-pickle");
@@ -105,6 +156,7 @@ describe("legalwork runtime config file", () => {
     // OpenCode's dynamic import() throw ERR_UNSUPPORTED_ESM_URL_SCHEME and
     // fails the whole config load — no providers, no tasks.
     expect(localPlugins.some((spec) => /legalwork-storage-tools\.(?:js|ts)\?v=/.test(spec))).toBe(true);
+    expect(localPlugins.some((spec) => /legalwork-wiki-tools\.(?:js|ts)\?v=/.test(spec))).toBe(true);
     expect(localPlugins.length).toBeGreaterThan(0);
     for (const spec of localPlugins) {
       expect(spec.startsWith("file://")).toBe(true);

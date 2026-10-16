@@ -1,0 +1,122 @@
+{
+  "core": {
+    "read": [
+      "getNotizen",
+      "getAufgaben",
+      "getDocumentDownloadStatus",
+      "searchDocuments",
+      "getWiedervorlagen",
+      "getDocument",
+      "getKontakt",
+      "getAufgabe",
+      "getFrist",
+      "getFristen",
+      "getAkten",
+      "downloadDocument",
+      "getAllDocuments",
+      "searchKontakte",
+      "getAkte"
+    ],
+    "write": []
+  },
+  "records": {
+    "read": [
+      "getNotiz",
+      "getDocumentsOverview",
+      "getKontakte",
+      "getOrdnerstruktur",
+      "getWiedervorlage",
+      "getOrdner",
+      "getKollisionspruefung",
+      "getUebergeordneteAkteVorschlaege"
+    ],
+    "write": [
+      "createNotiz",
+      "createWiedervorlage",
+      "updateNotiz",
+      "createAufgabe",
+      "updateAufgabeStatus",
+      "createKontakt",
+      "updateKontakt",
+      "updateAufgabe",
+      "createDocument",
+      "updateWiedervorlageStatus",
+      "updateFrist",
+      "createFrist",
+      "createOrdner",
+      "createAkte",
+      "uploadDocument",
+      "updateDocumentMetadata",
+      "updateWiedervorlage",
+      "updateAkte",
+      "updateFristStatus"
+    ]
+  },
+  "finance": {
+    "read": [
+      "getAufwaendeByAktennummer",
+      "getRechnungen",
+      "getAufwandByAktennummer",
+      "getRvgPositionen",
+      "getEigeneAuslage",
+      "getKostenstelle",
+      "getAufwaendeuebersicht",
+      "getRvgPosition",
+      "getFremdeAuslagen",
+      "getFremdeAuslage",
+      "getBeteiligteHonorar",
+      "getEigeneAuslagen",
+      "getKostenstellen",
+      "getRechnung"
+    ],
+    "write": [
+      "createZeitaufwand",
+      "updateZeitaufwand",
+      "createRvgPosition",
+      "updateEigeneAuslage",
+      "deleteEigeneAuslage",
+      "updateKostenstelle",
+      "deleteKostenstelle",
+      "updateRvgPosition",
+      "deleteRvgPosition",
+      "createFremdeAuslage",
+      "updateFremdeAuslage",
+      "deleteFremdeAuslage",
+      "updateBeteiligteHonorar",
+      "createEigeneAuslage",
+      "createKostenstelle"
+    ]
+  },
+  "administration": {
+    "read": [
+      "getZusatzinformationskategorie",
+      "getDashboard",
+      "getBenutzer",
+      "getAuswahlliste",
+      "getGruppe",
+      "getZusatzinformationskategorien",
+      "getUserInfo",
+      "getDezernate",
+      "getGruppen",
+      "getDezernat",
+      "getBenutzerSelf",
+      "getVorlagen",
+      "getVorlage"
+    ],
+    "write": []
+  },
+  "uploads": {
+    "read": [
+      "getTusUploadProtocolOptions",
+      "getTusUploadStatus",
+      "getTusUploadStatus_1",
+      "getTusUploadAssemblyStatus"
+    ],
+    "write": [
+      "initaliazeTusUpload",
+      "deleteTusUpload",
+      "processTusUpload",
+      "linkTusUpload"
+    ]
+  }
+}

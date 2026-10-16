@@ -5,6 +5,7 @@ import { useState } from "react";
 import { BrowserRouter } from "react-router-dom";
 import { createRoot } from "react-dom/client";
 import { MotionConfig } from "motion/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Settings2 } from "lucide-react";
 
 import type { SettingsTab } from "@/app/types";
@@ -26,13 +27,33 @@ import { SettingsShell } from "@/react-app/domains/settings/shell/settings-shell
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
 import type { HideAppMode } from "@/react-app/kernel/local-provider";
 import { ReloadCoordinatorProvider } from "@/react-app/shell/reload-coordinator";
+import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { ShellConfigProvider } from "@/react-app/shell/shell-config";
+import { NewWindowPreference } from "@/react-app/domains/settings/pages/shell-view";
+import { useOrgPolicyStore } from "@/react-app/domains/connections/org-policy";
+import { OrgPolicyConfirmDialog } from "@/react-app/domains/connections/org-policy-ui";
 import "./app/index.css";
 
 if (!import.meta.env.DEV) throw new Error("The settings fixture is available only in development.");
 initLocale();
 
 const params = new URLSearchParams(window.location.search);
+
+// `?policy=active|lapsed`: a firm's policy, signed in or signed out.
+const policyState = params.get("policy");
+if (policyState === "active" || policyState === "lapsed") {
+  const locked = policyState === "active";
+  useOrgPolicyStore.setState({ view: {
+    state: policyState, orgId: "org_preview", orgName: "Kanzlei Becker", role: "admin", revision: 4,
+    platformURL: "https://platform.eigenweltlabs.com", restored: null,
+    entries: {
+      "privacy.shareAnonymousUsage": { mode: "enforced", value: false, locked, released: false },
+      "ai.chat.allowCustom": { mode: "enforced", value: false, locked, released: false },
+      "ai.ocr.allowCustom": { mode: "enforced", value: false, locked, released: false },
+      language: { mode: "default", value: "de", locked: false, released: false },
+    },
+  } });
+}
 const workspaces = [
   { id: "visual-workspace", name: "Northstar Legal", color: "#6c6c76" },
   { id: "visual-personal", name: "Personal", color: "#6c6c76" },
@@ -98,6 +119,7 @@ function SettingsPreview() {
   const [compact, setCompact] = useState(params.has("compact"));
   const [selectedWorkspace, setSelectedWorkspace] = useState(workspaces[0]);
   const [analyticsEnabled, setAnalyticsEnabled] = useState(false);
+  const [modelCatalogUpdatesEnabled, setModelCatalogUpdatesEnabled] = useState(true);
   const [hideAppMode, setHideAppMode] = useState<HideAppMode>("recording");
   const [providers, setProviders] = useState<AiSettingsViewProps["connectedProviders"]>(
     params.has("empty-providers") ? [] : [
@@ -158,6 +180,8 @@ function SettingsPreview() {
               ocrView={<OcrSettingsSection client={ocrPreview} />}
               systemOneView={<SystemOneSettingsSection client={systemOnePreview} onManageSubscription={() => toast("Preview subscription")} />}
             />
+          ) : activeTab === "shell" ? (
+            <><AppearanceView busy={false} /><NewWindowPreference /></>
           ) : activeTab === "appearance" ? (
             // The same language picker Settings -> Customization renders.
             <AppearanceView busy={false} />
@@ -170,6 +194,10 @@ function SettingsPreview() {
               autoCompactContextBusy={false}
               onToggleAutoCompactContext={() => {}}
               analyticsEnabled={analyticsEnabled}
+              modelCatalogUpdatesEnabled={modelCatalogUpdatesEnabled}
+              modelCatalogUpdatesBusy={false}
+              modelCatalogUpdatesError={null}
+              onToggleModelCatalogUpdates={() => setModelCatalogUpdatesEnabled((value) => !value)}
               onToggleAnalytics={() => setAnalyticsEnabled((value) => !value)}
               hideAppMode={hideAppMode}
               onChangeHideAppMode={setHideAppMode}
@@ -187,15 +215,19 @@ function SettingsPreview() {
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Preview root element not found");
+const queryClient = new QueryClient();
 createRoot(root).render(
-  <MotionConfig reducedMotion="user">
-    <TooltipProvider>
-      <ShellConfigProvider>
-        <ReloadCoordinatorProvider>
-          <BrowserRouter><SettingsPreview /></BrowserRouter>
-          <Toaster />
-        </ReloadCoordinatorProvider>
-      </ShellConfigProvider>
-    </TooltipProvider>
-  </MotionConfig>,
+  <QueryClientProvider client={queryClient}>
+    <MotionConfig reducedMotion="user">
+      <TooltipProvider>
+        <ShellConfigProvider>
+          <ReloadCoordinatorProvider>
+            <BrowserRouter><SettingsPreview /></BrowserRouter>
+            <OrgPolicyConfirmDialog />
+            <Toaster />
+          </ReloadCoordinatorProvider>
+        </ShellConfigProvider>
+      </TooltipProvider>
+    </MotionConfig>
+  </QueryClientProvider>,
 );

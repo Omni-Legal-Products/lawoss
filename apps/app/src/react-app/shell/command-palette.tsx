@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { ProjectDetails } from "@legalwork/types/workspace";
 import { matchesProjectFilters, useProjectFilterStore } from "../domains/workspace/project-filters";
 import { useProjectSyncStore } from "../domains/workspace/project-sync-store";
-import { defaultAkteFields, useProjectDefaultsStore, withInitialProjectFields } from "../domains/workspace/project-defaults-store";
+import { defaultProjectFields, useProjectDefaultsStore, withInitialProjectFields } from "../domains/workspace/project-defaults-store";
 import "./command-palette.css";
 
 export type SessionOption = {
@@ -49,7 +49,7 @@ export function CommandPalette(props: {
   const [preparing, setPreparing] = useState(0);
   const filterState = useProjectFilterStore();
   const syncStates = useProjectSyncStore(state => state.states);
-  const savedDefaults = useProjectDefaultsStore(state => state.fields);
+  const savedDefaults = useProjectDefaultsStore(defaultProjectFields);
   const details = useQueries({ queries: props.workspaces.map(workspace => ({
     queryKey: ["search-project", workspace.id], queryFn: () => props.project(workspace.id),
     enabled: props.open && scope === "__filtered__" && filterState.filters.length > 0 && (!filterState.teamOnly || syncStates[workspace.id] !== undefined), staleTime: 0, retry: 1,
@@ -60,7 +60,7 @@ export function CommandPalette(props: {
     if (filterState.teamOnly && syncStates[workspace.id] === undefined) return false;
     if (!filterState.filters.length) return true;
     const detail = details[index].data;
-    return detail && matchesProjectFilters(withInitialProjectFields(detail, savedDefaults ?? defaultAkteFields()).fields, filterState.filters, filterState.mode);
+    return detail && matchesProjectFilters(withInitialProjectFields(detail, savedDefaults).fields, filterState.filters, filterState.mode);
   }).map(workspace => workspace.id).join("\n");
   const scopedWorkspaces = useMemo(() => { const ids = new Set(eligibleIds.split("\n")); return props.workspaces.filter(workspace => ids.has(workspace.id)); }, [eligibleIds, props.workspaces]);
   const inputRef = useRef<HTMLInputElement>(null);

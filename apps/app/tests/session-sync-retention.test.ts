@@ -12,7 +12,9 @@ async function waitFor(read:()=>boolean){for(let i=0;i<100;i++){if(read())return
 async function fixture(){
  let opened=0,closed=0;
  const server=createServer((request,response)=>{
-  expect(request.url?.split("?")[0]).toBe("/event");expect(request.headers.authorization).toBe("Bearer synthetic-sync-token");
+  const path=request.url?.split("?")[0]??"";expect(request.headers.authorization).toBe("Bearer synthetic-sync-token");
+  // Od LegalWork v0.2.9 sync po server.connected obnoví čakajúce žiadosti; fixture vracia prázdne zoznamy, SSE ostáva jediný počítaný stream.
+  if(path!=="/event"){expect(["/permission","/question","/api/permission/request","/api/question/request"]).toContain(path);response.writeHead(200,{"content-type":"application/json"});response.end(path.startsWith("/api/")?'{"data":[]}':"[]");return;}
   response.writeHead(200,{"content-type":"text/event-stream"});response.write('data: {"type":"server.connected","properties":{}}\n\n');opened++;
   const heartbeat=setInterval(()=>response.write(': heartbeat\n\n'),50);
   response.once("close",()=>{clearInterval(heartbeat);closed++;});

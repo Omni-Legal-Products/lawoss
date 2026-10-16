@@ -102,10 +102,14 @@ export const ALLOWED = {
     reason: "Kontaktný e-mail v texte chyby vzdialeného workspace (značka, nie spojenie).",
   },
   "apps/app/src/settings-preview.tsx": {
-    matches: ["api.eigenweltlabs.com"],
+    matches: ["api.eigenweltlabs.com", "platform.eigenweltlabs.com"],
     reason: "Vývojový náhľad nastavení so statickými dátami, nie je v appke.",
   },
   "packages/legalwork-ui-mcp/package.json": { matches: ["eigenweltlabs.com"], reason: "Autor balíka upstreamu (metadáta)." },
+  "apps/server/src/provider-model-catalog.ts": {
+    matches: ["platform.eigenweltlabs.com"],
+    reason: "Predvolená adresa upstream sieťovej obnovy katalógu (#223); server ju nevolá (STRUCTURE server.ts: bez fetchProviderModelCatalog), obnova modelov číta pribalený katalóg.",
+  },
   "apps/server/src/eigenwelt-auth.ts": {
     matches: ["platform.eigenweltlabs.com"],
     reason: "Prihlásenie do Eigenweltu; bez LAWOSS_EIGENWELT_ACCOUNT=1 sa pripojenie nečíta a manifest nesťahuje.",
@@ -163,8 +167,18 @@ export const STRUCTURE = [
   },
   {
     file: "apps/server/src/embedded.ts",
-    mustNot: [/OPENCODE_MODELS_URL\s*:/],
-    why: "Desktop nesmie enginu posielať adresu katalógu.",
+    mustNot: [/OPENCODE_MODELS_URL\s*:/, /startModelCatalogRelay/],
+    why: "Desktop nesmie enginu posielať adresu katalógu ani spúšťať relay katalógu (upstream #230 sťahuje pri každom štarte).",
+  },
+  {
+    file: "apps/server/src/server.ts",
+    mustNot: [/\/model-catalog\/api\.json/, /fetchProviderModelCatalog\(/],
+    why: "Server nesprístupňuje relay katalógu (upstream #223) a obnova modelov číta pribalený katalóg.",
+  },
+  {
+    file: "apps/orchestrator/src/cli.ts",
+    mustNot: [/OPENCODE_MODELS_URL:\s*options\.modelCatalogUrl\s*\?\?/, /modelCatalogUrl:\s*`/],
+    why: "Orchestrator nesmie mať predvolený katalóg z Eigenweltu ani relay servera.",
   },
   {
     file: "apps/server/src/cli.ts",

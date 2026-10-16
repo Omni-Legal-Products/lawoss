@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import * as React from "react";
+import { codeLanguage } from "@/react-app/domains/session/artifacts/code-language";
 
 import {
   isApplyPatchToolPart,
@@ -54,7 +55,7 @@ export function isHtmlPreviewSupported(extension: string) {
 }
 
 export function isTextPreviewSupported(extension: string) {
-  return ["txt", "log", "json", "jsonc", "yaml", "yml", "toml", "xml", "ts", "tsx", "js", "jsx", "css", "scss"].includes(extension);
+  return ["txt", "log"].includes(extension) || codeLanguage(`file.${extension}`) !== null;
 }
 
 export function isPreviewSupported(extension: string) {
@@ -104,7 +105,7 @@ export function getArtifactType(filename: string): ArtifactType {
     return "html";
   }
 
-  if (["txt", "log", "json", "jsonc", "json5", "yaml", "yml", "toml", "xml", "ini", "env", "ts", "tsx", "js", "jsx", "mjs", "cjs", "vue", "svelte", "css", "scss", "sass", "less", "py", "rb", "go", "rs", "java", "kt", "swift", "php", "c", "cpp", "h", "cs", "sql", "sh", "bash", "zsh"].includes(extension)) {
+  if (codeLanguage(filename) || ["txt", "log", "json", "jsonc", "json5", "yaml", "yml", "toml", "xml", "ini", "env", "ts", "tsx", "js", "jsx", "mjs", "cjs", "vue", "svelte", "css", "scss", "sass", "less", "py", "rb", "go", "rs", "java", "kt", "swift", "php", "c", "cpp", "h", "cs", "sql", "sh", "bash", "zsh"].includes(extension)) {
     return "text";
   }
 

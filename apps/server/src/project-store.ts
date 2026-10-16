@@ -12,72 +12,20 @@ import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import type { ProjectDetails, ProjectRemote } from "@legalwork/types/workspace";
-import { projectRemoteSchema } from "./project-schema.js";
+import { projectRemoteSchema, projectFieldsSchema } from "./project-schema.js";
 import { ApiError } from "./errors.js";
 import { MAX_CUSTOM_INSTRUCTIONS_LENGTH } from "./runtime-opencode-config-store.js";
 
-const fieldSchema = z
-  .object({
-    id: z
-      .string()
-      .min(1)
-      .max(100)
-      .regex(/^[a-zA-Z0-9_-]+$/),
-    label: z.string().trim().min(1).max(100),
-    labelSource: z.enum(["suggested", "custom"]).optional(),
-    type: z.enum(["text", "number", "date", "select"]),
-    value: z.union([z.string().max(4000), z.number().finite(), z.null()]),
-    options: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
-  })
-  .superRefine((field, ctx) => {
-    if (field.value === null || field.value === "") return;
-    if (field.type === "number" && typeof field.value !== "number") {
-      ctx.addIssue({
-        code: "custom",
-        message: "Number fields need a numeric value.",
-      });
-    } else if (field.type !== "number" && typeof field.value !== "string") {
-      ctx.addIssue({
-        code: "custom",
-        message: "This field needs a text value.",
-      });
-    } else if (
-      field.type === "select" &&
-      !field.options?.includes(String(field.value))
-    ) {
-      ctx.addIssue({
-        code: "custom",
-        message: "Choose one of the field's options.",
-      });
-    } else if (field.type === "date") {
-      const value = String(field.value);
-      const date = new Date(`${value}T00:00:00Z`);
-      if (
-        !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
-        !Number.isFinite(date.getTime()) ||
-        date.toISOString().slice(0, 10) !== value
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Enter a valid calendar date.",
-        });
-      }
-    }
-  });
-const fieldsSchema = z
-  .array(fieldSchema)
-  .max(50)
-  .refine(
-    (fields) => new Set(fields.map((field) => field.id)).size === fields.length,
-    "Field IDs must be unique.",
-  );
-export function parseProjectFieldDefaults(input: unknown) {
-  const parsed = fieldsSchema.safeParse(input);
+export function parseProjectFields(input: unknown) {
+  const parsed = projectFieldsSchema.safeParse(input);
   if (!parsed.success) throw new ApiError(400, "invalid_project_metadata", parsed.error.issues[0]?.message ?? "Invalid project fields.");
-  return parsed.data.map((field) => ({ ...field, value: null }));
+  return parsed.data;
+}
+export function parseProjectFieldDefaults(input: unknown) {
+  return parseProjectFields(input).map((field) => ({ ...field, value: null }));
 }
 
-export async function initializeProjectFields(root: string, fields: ReturnType<typeof parseProjectFieldDefaults>) {
+export async function initializeProjectFields(root: string, fields: ReturnType<typeof parseProjectFields>) {
   const current = await readProjectDetails(root);
   // Reattaching a folder must preserve its existing schema and values, even if empty.
   if (current.revision > 0) return current;
@@ -87,14 +35,14 @@ export async function initializeProjectFields(root: string, fields: ReturnType<t
 const detailsSchema = z.object({
   version: z.literal(1),
   revision: z.number().int().nonnegative(),
-  fields: fieldsSchema,
+  fields: projectFieldsSchema,
   personalizationPrompt: z.string().max(MAX_CUSTOM_INSTRUCTIONS_LENGTH).optional(),
   syncProjectId: z.string().uuid().optional(),
   remote: projectRemoteSchema.optional(),
 });
 const patchSchema = z.object({
   revision: z.number().int().nonnegative(),
-  fields: fieldsSchema,
+  fields: projectFieldsSchema,
 });
 const writes = new Map<string, Promise<unknown>>();
 
@@ -208,7 +156,7 @@ export async function updateProjectFieldValues(root: string, input: unknown): Pr
       if (!current.fields.some((field) => field.id === id))
         throw new ApiError(400, "unknown_project_field", `Unknown metadata field: ${id}. Read the project's fields first.`);
     }
-    const fields = fieldsSchema.safeParse(current.fields.map((field) =>
+    const fields = projectFieldsSchema.safeParse(current.fields.map((field) =>
       Object.hasOwn(parsed.data.values, field.id) ? { ...field, value: parsed.data.values[field.id] } : field,
     ));
     if (!fields.success) throw new ApiError(400, "invalid_project_metadata", fields.error.issues[0]?.message ?? "Invalid field value.");

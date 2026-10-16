@@ -34,7 +34,9 @@ export async function resolveFolder(adapter: StorageAdapter, folder: FolderRefer
 
 /** A linked location is a read-only virtual root. Provider paths never escape into project logic. */
 export async function scopedFolderAdapter(adapter: StorageAdapter, reference: FolderReference): Promise<StorageAdapter> {
-  const root = await resolveFolder(adapter, reference);
+  let root = await resolveFolder(adapter, reference);
+  const restricted = await adapter.restrictToFolder?.(reference);
+  if (restricted) { adapter = restricted; root = ""; }
   const full = (path: string) => [root, storagePath(path)].filter(Boolean).join("/");
   const page = <T extends StoragePage>(value: T, scope: string): T => ({ ...value, entries: value.entries.flatMap((entry) => {
     if (scope && !entry.path.startsWith(`${scope}/`)) return [];
@@ -48,6 +50,10 @@ export async function scopedFolderAdapter(adapter: StorageAdapter, reference: Fo
     ...(adapter.listFiles ? { listFiles: async (path: string, cursor?: string, signal?: AbortSignal) => page(await adapter.listFiles!(full(path), cursor, signal), full(path)) } : {}),
     ...(adapter.searchCapabilities ? { searchCapabilities: () => adapter.searchCapabilities!() } : {}),
     ...(adapter.search ? { search: async (input) => ({ ...page(await adapter.search!({ ...input, path: full(input.path) }), full(input.path)), path: input.path }) } : {}),
+    ...(adapter.findEntry ? { findEntry: async (path: string, kind?: import("@legalwork/types/file-storage").StorageEntry["kind"]) => {
+      const entry = await adapter.findEntry!(full(path), kind);
+      return entry ? { ...entry, path } : null;
+    } } : {}),
     stat: (path) => adapter.stat(full(path)),
     read: (path) => adapter.read(full(path)),
     download: (path, destination) => adapter.download(full(path), destination),

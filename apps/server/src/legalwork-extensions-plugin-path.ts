@@ -26,10 +26,12 @@ export function legalworkPluginPath(name: string, here = dirname(fileURLToPath(i
 }
 
 export const legalworkExtensionsPreviewPluginPath = () => legalworkPluginPath("legalwork-extensions-preview");
+export const legalworkSandboxPluginPath = () => legalworkPluginPath("legalwork-sandbox");
 export const legalworkCapabilitiesKnowledgePluginPath = () => legalworkPluginPath("legalwork-capabilities-knowledge");
 export const legalworkLegalMemoryKnowledgePluginPath = () => legalworkPluginPath("legalwork-legalmemory-knowledge");
 export const legalworkAnthropicAdaptiveThinkingPluginPath = () => legalworkPluginPath("legalwork-anthropic-adaptive-thinking");
 export const legalworkAnthropicToolSchemaPluginPath = () => legalworkPluginPath("legalwork-anthropic-tool-schema");
+export const legalworkOpenAIToolCallIdsPluginPath = () => legalworkPluginPath("legalwork-openai-tool-call-ids");
 export const legalworkWordToolsPluginPath = () => legalworkPluginPath("legalwork-word-tools");
 export const legalworkExcelToolsPluginPath = () => legalworkPluginPath("legalwork-excel-tools");
 export const legalworkPowerPointToolsPluginPath = () => legalworkPluginPath("legalwork-powerpoint-tools");
@@ -38,8 +40,14 @@ export const legalworkSkillToolsPluginPath = () => legalworkPluginPath("legalwor
 
 export const legalworkStorageToolsPluginPath = () => legalworkPluginPath("legalwork-storage-tools");
 export const legalworkTaskToolsPluginPath = () => legalworkPluginPath("legalwork-task-tools");
-
+export const legalworkToolOutputPluginPath = () => legalworkPluginPath("legalwork-tool-output");
 export const legalworkProjectToolsPluginPath = () => legalworkPluginPath("legalwork-project-tools");
 export const legalworkReviewToolsPluginPath = () => legalworkPluginPath("legalwork-review-tools");
+export const legalworkOrgPolicyGuardPluginPath = () => legalworkPluginPath("legalwork-org-policy-guard");
+
+export const legalworkDraftToolsPluginPath = () => legalworkPluginPath("legalwork-draft-tools");
 
 export const legalworkCalendarToolsPluginPath = () => legalworkPluginPath("legalwork-calendar-tools");
+
+export const legalworkScheduledTaskToolsPluginPath = () => legalworkPluginPath("legalwork-scheduled-task-tools");
+export const legalworkWikiToolsPluginPath = () => legalworkPluginPath("legalwork-wiki-tools");

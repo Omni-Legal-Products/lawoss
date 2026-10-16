@@ -1,4 +1,5 @@
 import { SystemOneConfigurationSchema, type SystemOneConfiguration } from "./systemone-schema.js";
+import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 /**
  * Server-side "Sign in with Eigenwelt" + platform model manifest.
  *
@@ -34,6 +35,7 @@ import {
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import { resolveModelLimit } from "./model-limits.js";
+import type { OpenCodeModelConfig } from "./opencode-model-config.js";
 import type { ServerConfig } from "./types.js";
 import { EIGENWELT_ACCOUNT_DISABLED_MESSAGE, eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
 
@@ -78,7 +80,7 @@ export function validateEigenweltPlatformUrl(value: string): string {
   return configured;
 }
 
-export type EigenweltManifestModel = {
+export type EigenweltManifestModel = OpenCodeModelConfig & {
   id: string;
   name?: string;
   description?: string;
@@ -161,6 +163,7 @@ export type EigenweltAccountIdentity = {
   userEmail: string | null;
   orgId: string;
   orgName: string;
+  orgRole?: string | null;
 };
 
 /**
@@ -346,6 +349,8 @@ export function parseEigenweltAccountIdentity(value: unknown): EigenweltAccountI
     userEmail: typeof value.userEmail === "string" && value.userEmail.trim() ? value.userEmail.trim() : null,
     orgId,
     orgName,
+    ...(typeof value.orgRole === "string" && value.orgRole.trim()
+      ? { orgRole: value.orgRole.trim() } : {}),
   };
 }
 
@@ -399,6 +404,7 @@ export async function startEigenweltSignIn(opts?: {
   /** The plan picked on the app's plan screen. A firm without a subscription
    *  lands on that plan's checkout instead of the plan comparison. */
   plan?: EigenweltSignInPlan;
+  checkout?: EigenweltCheckoutSelection;
 }): Promise<{ sessionId: string; authorizeUrl: string }> {
   const platform = eigenweltPlatformUrl();
   const { verifier, challenge } = generatePkce();
@@ -577,6 +583,11 @@ export async function startEigenweltSignIn(opts?: {
   if (opts?.intent === "sign-in") authorizeUrl.searchParams.set("intent", "sign-in");
   // Platforms that predate the hint ignore it and show the plan comparison.
   if (opts?.plan && isEigenweltSignInPlan(opts.plan)) authorizeUrl.searchParams.set("plan", opts.plan);
+  if (opts?.plan && isEigenweltSignInPlan(opts.plan) && opts.checkout) {
+    authorizeUrl.searchParams.set("confirmed", "1");
+    authorizeUrl.searchParams.set("interval", opts.checkout.interval);
+    authorizeUrl.searchParams.set("seats", String(opts.checkout.seats));
+  }
 
   return { sessionId, authorizeUrl: authorizeUrl.toString() };
 }
@@ -686,6 +697,9 @@ export function buildEigenweltModelsMap(models: EigenweltManifestModel[]): Recor
           name: model.name ?? model.id,
           tool_call: model.toolCall ?? true,
           reasoning: model.reasoning ?? false,
+          ...(model.options ? { options: model.options } : {}),
+          ...(model.variants ? { variants: model.variants } : {}),
+          ...(model.interleaved !== undefined ? { interleaved: model.interleaved } : {}),
           limit: resolveModelLimit({ context: model.contextLength, output: model.maxOutputTokens }).limit,
           ...(input
             ? {

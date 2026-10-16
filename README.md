@@ -8,6 +8,10 @@
 
 **Open-source AI pracovné prostredie pre českých a slovenských advokátov**
 
+[Code signing policy](CODE_SIGNING_POLICY.md): Windows production signing is
+being set up with free code signing provided by [SignPath.io](https://signpath.io),
+certificate by [SignPath Foundation](https://signpath.org).
+
 *Poriadok v spise. Overené právo. AI pod kontrolou.*
 
 [![Status](https://img.shields.io/badge/f%C3%A1za-fork%20%26%20MVP-blue)](https://github.com/originalmagneto/lawOSS-like-SK-CZ/blob/main/planning/roadmap.md)
@@ -146,6 +150,8 @@ pnpm dev
 ```
 
 Pred otvorením PR spustite minimálne:
+
+Desktop builds also require the bundled protected-execution resources. See [the sandbox build instructions](docs/security/agent-sandbox.md#build-and-verify) to build them locally or use the platform artifacts from the **Protected execution runtime** workflow. Released installers include these resources; users do not install Docker or Python.
 
 ```bash
 pnpm typecheck

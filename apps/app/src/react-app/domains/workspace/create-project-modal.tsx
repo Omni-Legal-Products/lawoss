@@ -1,4 +1,8 @@
+import { currentTemplateLocale } from "@/lawoss/i18n/template-locale";
 import { RemoteFolderPicker, useRemoteFolderSources, type SelectedRemoteFolder } from "./remote-folder-picker";
+import { projectFieldLabel, useProjectDefaultsStore } from "./project-defaults-store";
+import { useProjectTemplateCatalog } from "./project-template-catalog";
+import { ProjectTemplateSelect } from "./project-template-select";
 import type { RemoteFolderSelection } from "@legalwork/types/workspace";
 import { projectErrorMessage } from "./project-errors";
 import { useEffect, useState, type ReactNode } from "react";
@@ -19,10 +23,12 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
-import { t } from "@/i18n";
+import { currentLocale, t } from "@/i18n";
 
 export type CreateProjectInput = {
   name: string;
+  templateId: string | null;
+  templateLanguage: "en" | "de";
   remoteFolders?: RemoteFolderSelection[];
   initializeFromFolders?: boolean;
   folderMode: "default" | "selected";
@@ -39,6 +45,12 @@ export function CreateProjectModal(props: {
   onConfirm: (input: CreateProjectInput) => Promise<void>;
   additionalContent?: ReactNode;
 }) {
+  const catalog = useProjectTemplateCatalog(props.client, props.open);
+  const defaultTemplateId = useProjectDefaultsStore((state) => state.defaultTemplateId);
+  const [selection, setTemplateId] = useState<string | null | undefined>();
+  const templateId = selection === undefined ? defaultTemplateId : selection;
+  const templates = useProjectDefaultsStore((state) => state.templates);
+  const selectedTemplate = templates.find((template) => template.id === templateId);
   const sources = useRemoteFolderSources(props.client, props.open);
   const [remoteFolders, setRemoteFolders] = useState<SelectedRemoteFolder[]>([]);
   const [initializeFromFolders, setInitializeFromFolders] = useState(false);
@@ -51,6 +63,7 @@ export function CreateProjectModal(props: {
   useEffect(() => {
     if (props.open) {
       setName("");
+      setTemplateId(undefined);
       setRemoteFolders([]); setInitializeFromFolders(false); setRemotePicker(false);
       setShowFolderInput(false);
       setFolder("");
@@ -98,8 +111,11 @@ export function CreateProjectModal(props: {
           className="space-y-5"
           onSubmit={(event) => {
             event.preventDefault();
+            if (!catalog.ready || props.submitting) return;
             void props.onConfirm({
               name: (name.trim() || (folder.trim() ? folderNameFromPath(folder.trim()) : remoteFolders[0]?.name) || "Project").slice(0, 120),
+              templateId,
+              templateLanguage: currentTemplateLocale(),
               initializeFromFolders: setup,
               remoteFolders: remoteFolders.map(({ sourceWorkspaceId, connectionId, path }) => ({ sourceWorkspaceId, connectionId, path })),
               folderMode: folder.trim() ? "selected" : "default",
@@ -111,6 +127,11 @@ export function CreateProjectModal(props: {
             <InputGroupAddon className="h-full border-r border-border px-4 text-foreground"><Folder className="size-5" /></InputGroupAddon>
             <InputGroupInput autoFocus required={!setup} maxLength={120} aria-label={t("projects.name")} placeholder={t(setup ? "projects.setup.name_placeholder" : "projects.name")} value={name} disabled={props.submitting} className="h-full px-4 text-base" onChange={(event) => setName(event.target.value)} />
           </InputGroup>
+          <div className="space-y-2">
+            <div className="text-sm font-medium">{t("projects.templates.template")}</div>
+            <ProjectTemplateSelect value={templateId} onChange={setTemplateId} disabled={props.submitting || !catalog.ready} />
+            <p className="text-xs text-muted-foreground">{selectedTemplate?.fields.length ? selectedTemplate.fields.map((field) => projectFieldLabel(field)).join(", ") : t("projects.templates.none_hint")}</p>
+          </div>
           <fieldset disabled={props.submitting || picking} className="space-y-3">
             <legend className="mb-3 text-sm font-medium">{t("projects.source_folders")}</legend>
             <div className="flex min-h-36 flex-col justify-center gap-4 rounded-xl border border-border p-5">
@@ -140,6 +161,7 @@ export function CreateProjectModal(props: {
             <div className="space-y-1.5"><label htmlFor="project-folder-setup" className="cursor-pointer text-sm font-medium">{t("projects.setup.label")}</label><p id="project-folder-setup-hint" className="text-xs leading-relaxed text-muted-foreground">{t(hasFolders ? "projects.setup.hint" : "projects.setup.choose_first")}</p></div>
             <Switch id="project-folder-setup" className="mt-0.5" checked={setup} onCheckedChange={setInitializeFromFolders} disabled={!hasFolders || props.submitting || picking} aria-describedby="project-folder-setup-hint" />
           </div>
+          {catalog.isError ? <p role="alert" className="text-sm text-destructive">{t("projects.templates.load_failed")} <Button type="button" variant="link" onClick={() => void catalog.refetch()}>{t("projects.templates.reload")}</Button></p> : null}
           {props.error || pickError ? (
             <p role="alert" className="text-sm text-destructive">
               {props.error || pickError || t("projects.failed")}
@@ -157,7 +179,7 @@ export function CreateProjectModal(props: {
             <Button
               type="submit"
               disabled={
-                props.submitting || picking ||
+                props.submitting || picking || !catalog.ready ||
                 (!setup && !name.trim()) ||
                 !props.client
               }

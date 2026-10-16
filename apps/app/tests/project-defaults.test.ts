@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import type { ProjectDetails, ProjectField } from "@legalwork/types/workspace";
-import { defaultAkteFields, emptyProjectFields, localizedProjectFields, projectFieldLabel, useProjectDefaultsStore, withInitialProjectFields } from "../src/react-app/domains/workspace/project-defaults-store";
+import { applyProjectTemplate, defaultProjectTemplates, migrateProjectDefaults, projectTemplateName, defaultAkteFields, emptyProjectFields, localizedProjectFields, localizedTemplateFields, projectFieldLabel, withInitialProjectFields } from "../src/react-app/domains/workspace/project-defaults-store";
 
 test("untouched projects inherit optional defaults while saved schemas, values and removals are preserved", () => {
   const defaults: ProjectField[] = [{ id: "client", label: "Client", type: "text", value: "Never copy a value" }];
   const untouched: ProjectDetails = { version: 1, revision: 0, fields: [] };
   expect(withInitialProjectFields(untouched, defaults)).toEqual({
-    ...untouched, fields: [{ ...defaults[0], value: null }],
+    ...untouched, fields: [{ ...defaults[0], labelSource: "suggested", value: null }],
   });
   expect(untouched.fields).toEqual([]);
   expect(withInitialProjectFields(untouched, []).fields).toEqual([]);
@@ -35,16 +35,53 @@ test("Akte defaults start empty and every new project's values and options are i
 });
 
 
-test("saving a project field to defaults preserves the template and excludes project values", () => {
-  const store = useProjectDefaultsStore.getState();
-  store.setFields([{ id: "client", label: "Mandant", type: "text", value: null }]);
-  store.addField({ id: "custom", label: "Priority", type: "select", options: ["High", "Low"], value: "High" });
-  store.addField({ id: "custom", label: "Duplicate", type: "text", value: null });
-  expect(useProjectDefaultsStore.getState().fields).toEqual([
-    { id: "client", label: "Mandant", type: "text", value: null },
-    { id: "custom", label: "Priority", type: "select", options: ["High", "Low"], value: null },
-  ]);
-  store.reset();
+
+test("legacy custom and explicitly empty defaults migrate only into Legal Matter", () => {
+  const field: ProjectField = { id: "custom", label: "Priority", type: "select", options: ["High", "Low"], value: "High" };
+  const migrated = migrateProjectDefaults({ fields: [field] });
+  expect(migrated.defaultTemplateId).toBe("legal_matter");
+  expect(migrated.templates).toHaveLength(4);
+  expect(migrated.templates[0].fields).toEqual([{ ...field, value: null }]);
+  expect(migrated.templates[1].fields.some((field) => field.id === "objective")).toBe(true);
+  expect(migrateProjectDefaults({ fields: [] }).templates[0].fields).toEqual([]);
+  expect(migrateProjectDefaults({ fields: null }).templates[0].fields).toHaveLength(10);
+});
+
+test("migration preserves custom templates, their names, options and an explicitly absent default", () => {
+  const fields: ProjectField[] = [{ id: "price", label: "Price", type: "number", value: null }];
+  const templates = [...defaultProjectTemplates(), { id: "custom", name: "Our deals", fields }];
+  const migrated = migrateProjectDefaults({ templates, defaultTemplateId: null });
+  expect(migrated.templates).toEqual(templates);
+  expect(migrated.defaultTemplateId).toBeNull();
+  expect(migrated.hasLegacyDefaults).toBe(true);
+});
+
+test("template selection keeps values and custom fields while replacing empty suggested fields", () => {
+  const fields = defaultAkteFields();
+  fields[1].value = "Acme";
+  fields.push({ id: "custom", label: "Our code", labelSource: "custom", type: "text", value: null });
+  const template = defaultProjectTemplates()[1];
+  const applied = applyProjectTemplate(fields, template);
+  expect(applied.find((field) => field.id === "client")?.value).toBe("Acme");
+  expect(applied.some((field) => field.id === "custom")).toBe(true);
+  expect(applied.some((field) => field.id === "court")).toBe(false);
+  expect(applied.some((field) => field.id === "objective")).toBe(true);
+  const repeated = applyProjectTemplate(applied, template);
+  expect(repeated).toEqual(applied);
+  expect(fields.some((field) => field.id === "objective")).toBe(false);
+});
+
+test("built-in template names translate, user names remain literal, and schemas have independent values", () => {
+  const templates = defaultProjectTemplates();
+  expect(projectTemplateName(templates[0], "en")).toBe("Legal Matter");
+  expect(projectTemplateName(templates[0], "de")).toBe("Akte");
+  expect(projectTemplateName({ ...templates[0], name: "My matters", nameSource: "custom" }, "de")).toBe("My matters");
+  for (const template of templates) {
+    expect(template.fields.every((field) => field.value === null)).toBe(true);
+    expect(new Set(template.fields.map((field) => field.id)).size).toBe(template.fields.length);
+  }
+  templates[1].fields.find((field) => field.id === "status")?.options?.push("Extra");
+  expect(templates[2].fields.find((field) => field.id === "status")?.options).not.toContain("Extra");
 });
 
 test("suggested labels map between English and German without changing values or options", () => {
@@ -65,4 +102,17 @@ test("legacy saved presets map only when their id and original label match", () 
   expect(projectFieldLabel({ ...legacy, label: "My client" }, "de")).toBe("My client");
   expect(projectFieldLabel({ ...legacy, labelSource: "custom" }, "en")).toBe("Mandant");
   expect(localizedProjectFields([{ ...legacy, labelSource: "custom" }], "en")[0].label).toBe("Mandant");
+});
+
+
+test("preset choices localize when copying templates but customized options and saved values remain literal", () => {
+  const template = defaultProjectTemplates().find((template) => template.id === "internal")!;
+  const localized = localizedTemplateFields(template.fields, "de");
+  expect(localized.find((field) => field.id === "priority")?.options).toEqual(["Niedrig", "Normal", "Hoch"]);
+  const status = template.fields.find((field) => field.id === "status")!;
+  const custom = { ...status, options: ["Our status", "Next status"] };
+  expect(localizedTemplateFields([custom], "de")[0].options).toEqual(custom.options);
+  const saved = { ...status, value: status.options![0] };
+  expect(localizedProjectFields([saved], "de")[0].options).toEqual(saved.options);
+  expect(localizedProjectFields([saved], "de")[0].value).toBe(saved.value);
 });
