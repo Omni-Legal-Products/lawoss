@@ -766,3 +766,16 @@ Detaily a source API jsou v SDD task-24-brief.md. Produkční distribuce/notices
 - [ ] Root ověří skutečné CI joby/step výsledky. Úspěšný SDK komponentní proof se nepřevádí na důkaz spouštění aplikace; původních pět zjištění a chráněný dev merge/GUI/provider zůstávají povinné.
 
 **Task29 lokálně:** sourced6a14b04, YAML/diff PASS, nezávislá SPEC/QUALITY Approved/no findings; root workflow/lock/suite/DCO/review audit PASS. První skutečné nativní CI teprve po normální publikaci; žádné runtimehook/app/provider tvrzení.
+
+
+### Task 30: Sdílený zámek přípravy závislostí enginu
+
+**Scope:** Samostatný `dependency-lease.mjs`, skutečné Node22 procesové/FS testy a výslovně modelový protokolový peer; žádný produkční caller ani změna uživatelského stromu. Source16747470 effect-flock/flock/hash, původní MIT notice zachována.
+
+- [x] Přesný `npm-install:${dir}`/SHA1 klíč, zachované logické aliasy a captured state/locks; pevný stale60s/heartbeat20s, breaker a kontrola tokenu, stabilní pořízení a opačné uvolnění.
+- [x] Původní deadline/cancel, čekání na dokončení operace a rozpracovaných heartbeat zápisů před uvolněním; omezené metadata, zachování kompromitovaného nástupce i primární/cleanup chyby.
+- [x] Skutečný peer exclusion RED, finální25/25 na přibaleném Node22/darwin-arm64 včetně20s heartbeat/drain; současné I/O+close chyby RED3fail/3controls→GREEN. Syntax/diff/YAML PASS.
+- [x] Fresh SPEC/QUALITY revize a scoped re-review: původní Important masking chyby opravena, Minor název testu opraven; root six-file/source/unchanged-input/TAP/MIT/DCO auditPASS.
+- [ ] Normální publikace a skutečné Windows/Ubuntu CI nové sady. Předchozí Node22 konfigurační sada8/8 a samostatný SDK proof nepředstavují tento native výsledek.
+
+**Limit:** callback musí skončit až po zavření vlastních procesů/práce; úklid může doběhnout po deadline, nesmí se zaměnit s dalším povoleným výkonem. Neznámé aliasy/odlišný state root a nespolupracující zápisy nejsou univerzálně vyloučené. Modelový wire peer není skutečný compiled-engine/Effect interoperability proof. Genuine preserving Arborist merge, compiled builtin kontext, produkční hook a původní app/GUI/dev gates zůstávají další kroky.
