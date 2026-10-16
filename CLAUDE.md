@@ -202,3 +202,5 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Preserve completed phase receipts when later work fails, and bind finite failure diagnostics to the actual phase and positively closed child. Mixed stderr or absent receipts must remain unknown rather than becoming guessed causes or success.
 
 - Tool-version checks through Corepack shims can bootstrap downloads under a new HOME. For offline validation, verify the genuine cached package CLI and invoke it with the captured exact Node executable and network bootstrap disabled.
+
+- Validate packaged dependency closures from a relocated owned tree with the original stage unavailable and physical module resolutions confined to the relocated tree. Preserve all package files and notices; generated CLI shims are separate from dependency contents.

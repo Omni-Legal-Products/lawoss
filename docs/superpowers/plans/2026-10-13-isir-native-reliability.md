@@ -851,3 +851,16 @@ Aktuální c213 CI je terminální: oba native joby skončily při metadata acqu
 **Procesní odchylky:** Corepack version probe pod isolated HOME oznámil pnpm bootstrap, přestože source fáze měla být offline; původní request bytes/count UNKNOWN, bez SDK kandidáta. Následné kroky používají validovaný genuine CLI přímo pod capturedNode a COREPACK_ENABLE_NETWORK=0. První whole-server běh měl neplatnou lokální app dependency instalaci; covering běh následoval explicitní opravu readonly linků a reálný import preflight. Commit6c0 vznikl během covering běhu, finální exact source teprve následně prošel: neoznačovat jako tests-before-commit. Žádný rewrite ani nový běh pro přikrášlení historie.
 
 Produkční SDK helper/captured compiled context/packaging/transport pro current-and-later instances/CLI stále vyžadují integraci. Protected dev potřebuje skutečný approval a required-green CI; původní app/portable/public10GUI/provider cíle zůstávají otevřené.
+
+### Task 37: Přemístitelná distribuce helperu v desktop aplikaci
+
+- [x] Z genuine frozen runtime-tools locku vyrobit pnpm hoisted/copy strom bez symlinků/junctions; žádné vlastní zplošťování dependency graphu nebo další runtime.
+- [x] Přibalit přesné helper sources a plné runtime tool balíky/licence mimo asar přes existující desktop build/resource seam. Desktop Node22.23.2 a archive piny beze změny; žádná instalace do uživatelských konfigurací.
+- [x] Offline genuine staging z kopie existujícího20MBtoolstore, přes genuinepnpm11 pod explicitNode24 bez bootstrapu; přemístit do jiné cesty se spaces/#/% a actualshippedNode22 ověřit lokální closure bez ancestor fallback.
+- [x] Native Windows+Ubuntu CI stage/relocation smoke přidat úzce kolem stávajících instalací; zachovat30 guardů,47 testů, bounded acquisition a OS/budgets/pins.
+- [x] Fresh SPEC/QUALITYfixround1 Approved + root12source/evidence/2162artifact/11TAP/6selector/immutable/DCO audit, PATCHES/guidance/logs.
+- [ ] Publikace po ALLterminal/rootaudit beab; retarget existujícího draftPR158 proti dev a actualnative/Electron packaging CI.
+
+**Task37 source:**0aabd546+c16fbab2; původní8fixturePASS po sourcefix11/11PASS; genuineoffline package2162files/8582d90b a actualNode22relocation505localmodules PASS předcommit. Source-onlyRED je pouze setup; skutečné odmítnutí generated.bin a HIDDEN_EXISTS leak jsou zachovány jako behavioralevidence. Minor compoundcleanup masking explicitně do wholebranchreview; npmagentISCnoticesgap předrelease.
+
+Task31→37 zachovává relativní runtime-tools loader a immutable lock; desktop→37 pouze build/resources; CI→37 izolované offline zpracování po frozen install. CLI dostupnost, compiled engine context a produkční owner-bound current-and-later request transport zůstávají další samostatné integrační kroky. Distribuce sama neprokazuje aplikaci ani původních10 veřejných spisů.
