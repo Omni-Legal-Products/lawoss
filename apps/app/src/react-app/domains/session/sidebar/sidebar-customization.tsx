@@ -70,8 +70,8 @@ export function SidebarCustomization({ onDone }: { onDone: () => void }) {
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         <LazyMotion features={domMax}>
           {options(hideCommercialSidebarItems(config.navOrder), navOrder => update({ navOrder: [...navOrder, ...config.navOrder.filter((key) => !navOrder.includes(key))] }), t("sidebar.main_actions"))}
-          {options(config.chatSectionOrder, chatSectionOrder => update({ chatSectionOrder }), t("sidebar.chat_sections"))}
-          {options(config.projectNavOrder, projectNavOrder => update({ projectNavOrder }), t("sidebar.project_items"))}
+          {options(hideCommercialSidebarItems(config.chatSectionOrder), chatSectionOrder => update({ chatSectionOrder: [...chatSectionOrder, ...config.chatSectionOrder.filter((key) => !chatSectionOrder.includes(key))] }), t("sidebar.chat_sections"))}
+          {options(hideCommercialSidebarItems(config.projectNavOrder), projectNavOrder => update({ projectNavOrder: [...projectNavOrder, ...config.projectNavOrder.filter((key) => !projectNavOrder.includes(key))] }), t("sidebar.project_items"))}
         </LazyMotion>
         </div>
       </div>

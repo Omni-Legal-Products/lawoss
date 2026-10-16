@@ -700,6 +700,21 @@ Baseline `dev` `34df1a4f` (po syncu v0.2.4, #161), upstream `v0.2.9`. Merge má 
 | `apps/app/tests/lawoss-extension-platform.test.ts` | Platformový test na upstream Open Computer Use (macOS a Windows) namiesto zrušeného macOS Computer Use; stráž composera platí, len ak sync vráti katalóg rozšírení do composera. |
 | `apps/app/src/i18n/locales/en.ts`, `apps/app/src/i18n/locales/de.ts` | Spready slovníkov LAWOSS vedľa upstream `projectTemplateStrings`; zrušené upstream kľúče odstránené. |
 
+### Neprevzaté upstream plochy (spec 0017, časť 8.1)
+
+Sync nemení správanie: upstream wiki, OpenUI pohľady, kalendár, plánované úlohy, Shared Projects a plochy cez Eigenwelt sú skryté alebo zablokované, kód ostáva. Návrat jedným riadkom (`LAWOSS_LOAD_WIKI_TOOLS`, `ALPHA_HIDE_UNADOPTED_UPSTREAM`). Rozhodnutie o ďalšom osude je v návrhu spec 0017 (koordinačné repo, PR #97). S4 (zápis `.legalwork/project.json`, pohľadov a návrhov wiki v režime outside) rieši samostatný PR.
+
+| Súbory upstreamu | Adaptácia LAWOSS v synce |
+|---|---|
+| `apps/server/src/legalwork-runtime-config.ts` | Plugin `legalwork-wiki-tools` sa načíta len pri `LAWOSS_LOAD_WIKI_TOOLS` (dnes `false`); `appendLawossToolDenials(permission)` pridá `deny` pre neprevzaté zapisujúce nástroje (kalendár, výpočet lehôt, plánované úlohy, metadáta projektu, `wiki_*`, `view_*`) za pravidlá používateľa a firmy, pred `legalwork_project_set_instructions`; zdedia ich aj plánované behy. Zoznam a prepínač v `lawoss/hidden-upstream-tools.ts`. |
+| `apps/server/src/legalwork-runtime-config.test.ts` | Upstream tvrdenie, že sa načíta plugin wiki, otočené na `false`; pokrytie v `lawoss/hidden-upstream-tools.test.ts`. |
+| `apps/app/src/react-app/shell/app-root.tsx` | Trasy `/wikis*`, `/calendar`, `/scheduled`, `/workspace/:id/calendar`, `/workspace/:id/dashboards` idú cez `upstreamRoute()` z `lawoss/shell/routes.tsx`; pri `ALPHA_HIDE_UNADOPTED_UPSTREAM` presmerujú na úvod režimu. |
+| `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx`, `sidebar-customization.tsx`, `apps/app/src/react-app/domains/workspace/projects-page.tsx` | Sekcie a položky filtruje `hideCommercialSidebarItems`: wiki, kalendár, plánované úlohy, Shared Projects (`shared-projects`) a kalendár projektu sa nevykreslia ani neponúknu v prispôsobení; skryté kľúče sa v uloženom poradí zachovajú. |
+| `apps/app/src/react-app/domains/session/panel/side-panel.tsx`, `apps/app/src/react-app/domains/session/chat/session-page.tsx` | „+“ bez kalendára projektu a Dashboards (`isProjectViewHidden`), bez stránky a grafu wiki (`isWikiHidden`); domov projektu nevedie do kalendára projektu. |
+| `apps/app/src/react-app/domains/workspace/project-home.tsx` | Widget „Najbližšie lehoty“ (SQLite kalendár) sa pri skrytom kalendári nevykreslí; lehoty ostávajú v registri LAWOSS (OKF). |
+| `apps/app/src/react-app/domains/wiki/wiki-dialogs.tsx` | Pri skrytej ploche `wiki-team` sa nevykreslí pripojenie zdieľanej wiki, zdieľaná viditeľnosť ani zdieľanie v nastaveniach wiki. |
+| `apps/app/src/react-app/domains/calendar/calendar-view.tsx` | Tlačidlo „Odber kalendára“ je za plochou `calendar-subscription` (nahrádza podmienku `eigenwelt-account` zo syncu v0.2.4). |
+
 ### Desktop, CI a vydania
 
 | Súbory upstreamu | Adaptácia LAWOSS v synce |
@@ -713,4 +728,7 @@ Baseline `dev` `34df1a4f` (po syncu v0.2.4, #161), upstream `v0.2.9`. Merge má 
 | `apps/desktop/scripts/check-packaged-server-imports.mjs` | Obe strany súbor vytvorili: ostáva súbor LAWOSS, príprava priečinka vynecháva `opencode-plugins` ako `app.asar` (chytí chybu typu #279/#287), doplnené upstream exporty `findMissingServerImports` a `assertPackagedServerImports`. |
 | `apps/desktop/electron/workspace-store.mjs`, `apps/desktop/electron/workspace-store.test.mjs` | Upstream `withWorkspaceState` nahrádza frontu LAWOSS z #156; dva testy LAWOSS prispôsobené novej sémantike (výber neregistrovaného ID nič nemení). |
 | `scripts/release/apply-signpath-windows-artifact.mjs`, `scripts/release/apply-signpath-windows-artifact.test.mjs`, `scripts/release/verify-windows-signature.ps1` | Výber a overenie `lawoss-win-(x64|arm64)-*.exe`. |
+| `.github/workflows/ci-desktop-packaging.yml` | Spúšťače `pull_request` a `push` do `dev` vrátené popri upstream `workflow_call`: „Package and launch“ sú povinné kontroly rulesetu dev a ISIR native a kontrola `app.asar` musia bežať na každom PR. |
+| `apps/desktop/electron/packaged-ocr.test.mjs`, `apps/desktop/scripts/packaged-startup-regression.test.mjs` | Testy LAWOSS prispôsobené v0.2.9: afterPack už nič nepodpisuje (upstream zrušil pomocnú appku Computer Use); syntetické appky dostanú prázdny platný `app.asar`, lebo upstream skript štartu najprv kontroluje importy servera (#287). |
+| `README.md`, `AGENTS.md`, `CLAUDE.md` | Upstream odkaz na `CODE_SIGNING_POLICY.md` (SignPath pre LegalWork) vynechaný; upstream pravidlo o cache promptu je samostatná sekcia „Prompt caching“. |
 | `scripts/i18n-audit.mjs`, `package.json`, `apps/desktop/package.json` | `resolveSpreadImports()` s upstream `projectTemplateStrings`; skripty a zoznam testov ako zjednotenie. |

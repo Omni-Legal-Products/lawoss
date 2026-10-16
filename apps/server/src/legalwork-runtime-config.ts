@@ -83,6 +83,7 @@ import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { repairRuntimeProviders } from "./runtime-provider-repair.js";
 import { externalOpencodeConfigDir } from "./lawoss/workspace-app-files.js";
 import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
+import { appendLawossToolDenials, LAWOSS_LOAD_WIKI_TOOLS } from "./lawoss/hidden-upstream-tools.js";
 import { sandboxEngineAgents, sandboxEnginePermissions } from "./agent-sandbox/engine-policy.js";
 import { REVIEW_AGENT, reviewAgentConfig } from "./reviews/agent.js";
 
@@ -284,6 +285,8 @@ export async function buildLegalworkRuntimeConfigObject(
   // Append the specific rule after wildcard rules; approvals cannot be saved
   // for this tool, so every proposed instructions change is reviewed.
   delete permission.legalwork_project_set_instructions;
+  // LAWOSS: neprevzaté zapisujúce nástroje upstreamu (spec 0017 S2) za pravidlami používateľa a firmy, aj pre plánované behy.
+  appendLawossToolDenials(permission);
   // The firm's instructions too, for every agent the member works with (scheduled runs included).
   const agentPrompt = withFirmInstructions(
     personalization ? buildPersonalizedAgentPrompt(LEGALWORK_AGENT_PROMPT, personalization) : LEGALWORK_AGENT_PROMPT,
@@ -352,7 +355,8 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkToolOutputPluginPath(), config),
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
       bundledPluginSpec(legalworkPluginPath("lawoss-okf-handoff"), config),
-      bundledPluginSpec(legalworkWikiToolsPluginPath(), config),
+      // LAWOSS: wiki sa v alfe nenačíta (spec 0017 S1, lawoss/hidden-upstream-tools.ts).
+      ...(LAWOSS_LOAD_WIKI_TOOLS ? [bundledPluginSpec(legalworkWikiToolsPluginPath(), config)] : []),
       bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
       // The member's own plugins, unless the firm allows none.
       ...(config && (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : runtimePluginList(runtimeConfig)),

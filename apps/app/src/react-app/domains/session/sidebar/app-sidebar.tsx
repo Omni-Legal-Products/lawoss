@@ -62,7 +62,7 @@ import {
 } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import { useUiMode } from "@/lawoss/lite/ui-mode";
-import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
+import { hideCommercialSidebarItems, isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 
 import {
   Sidebar,
@@ -877,7 +877,7 @@ function AppSidebarContent(props: AppSidebarProps) {
         {!lite && newChatSection && <SidebarMenu className="px-2.5 pb-3 pt-1">{newChatSection}</SidebarMenu>}
         </div>
         <LazyMotion features={domMax}><m.div layoutScroll data-slot="sidebar-content" data-sidebar="content" className="no-scrollbar min-h-0 flex-1 overflow-y-auto pt-1 mac:titlebar-no-drag">
-          {!lite && shellConfig.chatSectionOrder.filter(key => key !== "navNewChat").filter(key => shellConfig[key]).map(key => {
+          {!lite && hideCommercialSidebarItems(shellConfig.chatSectionOrder).filter(key => key !== "navNewChat").filter(key => shellConfig[key]).map(key => {
             if (key === "sectionPinnedProjects") return pinnedProjects.length ? <section key={key} className="px-2 pb-3">
               <button className="flex h-9 w-full items-center gap-1.5 px-2 text-xs text-muted-foreground" onClick={() => toggleSection(key)} aria-expanded={!closedSections.has(key)}>
                 {t("sidebar.pinned_projects")}<ChevronRight className={cn("size-3 transition-transform", !closedSections.has(key) && "rotate-90")} /><UnreadDot unread={closedSections.has(key) && pinnedProjects.some(group => group.sessions.some(session => !isSessionArchived(session) && unreadSession(inbox, session.id)))} />
@@ -1046,7 +1046,7 @@ function WorkspaceSidebarGroup({
   const [sessionsOpen, setSessionsOpen] = React.useState(false);
   const { config } = useShellConfig();
   const showSessions = !config.collapseProjectSessions || sessionsOpen;
-  const projectNavItems = config.projectNavOrder.filter(key => key === "projectSessions" || config[key]);
+  const projectNavItems = hideCommercialSidebarItems(config.projectNavOrder).filter(key => key === "projectSessions" || config[key]);
 
 
   const statusLabel = (() => {

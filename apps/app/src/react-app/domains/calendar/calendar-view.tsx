@@ -81,7 +81,7 @@ export function CalendarView(props: CalendarViewProps) {
     <div className="lw-page-content lw-page-top space-y-5 pb-8">
       <SectionHeading size="page" title={t("calendar.title")} description={!props.workspaceId ? t("calendar.all_projects_short") : undefined} action={<>
         {/* LAWOSS: odber kalendára je odkaz cez platformu Eigenwelt (calendar/subscriptions.ts), ktorá je vypnutá. */}
-        {isCommercialSurfaceHidden("eigenwelt-account") ? null : <Button variant="outline" disabled={!props.client} onClick={() => setSubscriptionOpen(true)}><Link2 />{t("calendar.subscribe")}</Button>}
+        {isCommercialSurfaceHidden("calendar-subscription") ? null : <Button variant="outline" disabled={!props.client} onClick={() => setSubscriptionOpen(true)}><Link2 />{t("calendar.subscribe")}</Button>}
         {canCreate && <Button disabled={!props.client} onClick={() => create()}><Plus />{t("calendar.add")}</Button>}
         <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("common.refresh")} disabled={query.isFetching} onClick={refresh} />}><RefreshCw className={cn(query.isFetching && "animate-spin")} /></TooltipTrigger><TooltipContent>{t("common.refresh")}</TooltipContent></Tooltip>
         {props.workspaceId && <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("calendar.more_actions")} />}><MoreHorizontal /></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem disabled={records.isPending || records.isError} onClick={() => setTrashOpen(true)}><Trash2 />{t("calendar.trash")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu>}

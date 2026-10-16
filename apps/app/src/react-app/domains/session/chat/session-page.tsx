@@ -24,6 +24,7 @@ import { ProjectHome } from "../../workspace/project-home";
 import { ProjectPersonalisationProvider } from "../../workspace/project-personalisation-modal";
 /** @jsxImportSource react */
 import { LanguageSwitcher } from "@/lawoss/shell/language-switcher";
+import { isProjectViewHidden, isWikiHidden } from "@/lawoss/feature-flags";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1078,7 +1079,7 @@ export function SessionPage(props: SessionPageProps) {
         ? props.onCreateProjectSession(shareRecording)
         : void props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
       tasksView={renderProjectTasks(true, inWorkspace)}
-      onViewAllDeadlines={inWorkspace ? undefined : () => navigate(workspaceCalendarRoute(props.selectedWorkspaceId))}
+      onViewAllDeadlines={inWorkspace || isProjectViewHidden("calendar") ? undefined : () => navigate(workspaceCalendarRoute(props.selectedWorkspaceId))}
       onRename={props.onRenameProject}
     /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
   ) : null;
@@ -1546,8 +1547,8 @@ export function SessionPage(props: SessionPageProps) {
         <ControlActionScope active={!hasMainView}>
           <SidePanel
             renderWikiTab={renderWikiTab}
-            onOpenWiki={props.wiki?.client ? setWikiPickerPane : undefined}
-            onOpenWikiGraph={wikiWorkspace && props.wiki?.client ? pane => {
+            onOpenWiki={props.wiki?.client && !isWikiHidden() ? setWikiPickerPane : undefined}
+            onOpenWikiGraph={wikiWorkspace && props.wiki?.client && !isWikiHidden() ? pane => {
               const client = props.wiki?.client;
               if (client) openTab(workspaceScope, wikiPanelTab(client.baseUrl, wikiWorkspace.id, { kind: "graph" }, t("wiki.graph")), pane);
             } : undefined}

@@ -200,7 +200,7 @@ export const STRUCTURE = [
     file: "apps/app/src/lawoss/feature-flags.ts",
     must: [
       /export const isAnalyticsChoiceHidden = \(\): boolean => true;/,
-      ...["ai-plans", "firm-hub", "trial-notice", "premium-upsell", "eigenwelt-account", "eigenwelt-sign-in", "eigenwelt-trial"].map(
+      ...["ai-plans", "firm-hub", "trial-notice", "premium-upsell", "eigenwelt-account", "eigenwelt-sign-in", "eigenwelt-trial", "wiki-team", "shared-projects", "calendar-subscription"].map(
         (surface) => new RegExp(`HIDDEN_COMMERCIAL_SURFACES[\\s\\S]*"${surface}",[\\s\\S]*\\]\\);\\s*\\n\\s*export const isCommercialSurfaceHidden`),
       ),
       /HIDDEN_SETTINGS_TABS[\s\S]*"account",/,

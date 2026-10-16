@@ -28,6 +28,7 @@ import { ProjectNoteTile } from "./project-note-tile";
 import { useProjectFavoritesStore } from "./project-favorites-store";
 import { defaultProjectFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
 import { t } from "@/i18n";
+import { isProjectViewHidden } from "@/lawoss/feature-flags";
 import { projectErrorMessage } from "./project-errors";
 import { ProjectShareButton, ProjectSyncNotice } from "./project-sync";
 import { deleteProjectNote } from "./delete-project-note";
@@ -200,7 +201,7 @@ export function ProjectHome(props: {
 
         <div className="grid grid-cols-1 items-stretch gap-4 @min-[640px]/project-page:grid-cols-2">
           <div className="min-w-0">{props.tasksView}</div>
-          <UpcomingDeadlines onViewAll={props.onViewAllDeadlines} client={client} workspaceId={workspaceId} projectId={props.projectId} projectName={props.name} />
+          {isProjectViewHidden("calendar") ? null : <UpcomingDeadlines onViewAll={props.onViewAllDeadlines} client={client} workspaceId={workspaceId} projectId={props.projectId} projectName={props.name} />}
         </div>
 
         <ContextMenu>

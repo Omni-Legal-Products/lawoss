@@ -86,6 +86,7 @@ import { ControlActionScope, useControlOpenFiles, useControlAction, type Legalwo
 import type { OpenTarget } from "../artifacts/open-target";
 import { useSidePanelTabs } from "./use-side-panel-tabs";
 import { t } from "@/i18n";
+import { isProjectViewHidden } from "@/lawoss/feature-flags";
 import { TaskPanel } from "@/react-app/domains/tasks/task-panel";
 import { WorkflowEditorPanel } from "@/react-app/domains/settings/pages/workflow-editor-panel";
 import { WorkflowResourceEditorPanel } from "@/react-app/domains/settings/pages/workflow-resource-editor-panel";
@@ -1033,7 +1034,7 @@ function SidePanelContent({
             <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => setFilePickerPane(pane.id)}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
             {onOpenWiki && <DropdownMenuItem onClick={() => onOpenWiki(pane.id)}><BookOpen />{t("wiki.open_page")}</DropdownMenuItem>}
             {onOpenWikiGraph && <DropdownMenuItem onClick={() => onOpenWikiGraph(pane.id)}><Network />{t("wiki.graph")}</DropdownMenuItem>}
-            {renderProjectView && (["calendar", "reviews", "tasks", "dashboards"] satisfies ProjectView[]).map(view => <DropdownMenuItem key={view} onClick={() => {
+            {renderProjectView && (["calendar", "reviews", "tasks", "dashboards"] satisfies ProjectView[]).filter(view => !isProjectViewHidden(view)).map(view => <DropdownMenuItem key={view} onClick={() => {
               const tab = projectViewTab(view, projectViewLabel(view));
               const store = usePanelTabStore.getState();
               const existing = store.sessions[sessionId]?.tabs.find(item => samePanelTab(sessionId, item, tab));

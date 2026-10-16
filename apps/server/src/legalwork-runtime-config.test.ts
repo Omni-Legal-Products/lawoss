@@ -156,7 +156,8 @@ describe("legalwork runtime config file", () => {
     // OpenCode's dynamic import() throw ERR_UNSUPPORTED_ESM_URL_SCHEME and
     // fails the whole config load — no providers, no tasks.
     expect(localPlugins.some((spec) => /legalwork-storage-tools\.(?:js|ts)\?v=/.test(spec))).toBe(true);
-    expect(localPlugins.some((spec) => /legalwork-wiki-tools\.(?:js|ts)\?v=/.test(spec))).toBe(true);
+    // LAWOSS: wiki sa v alfe nenačíta (spec 0017 S1, lawoss/hidden-upstream-tools.test.ts).
+    expect(localPlugins.some((spec) => /legalwork-wiki-tools\.(?:js|ts)\?v=/.test(spec))).toBe(false);
     expect(localPlugins.length).toBeGreaterThan(0);
     for (const spec of localPlugins) {
       expect(spec.startsWith("file://")).toBe(true);

@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { t } from "@/i18n";
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { wikiNewPagePath } from "./wiki-model";
 import { joinedTeamWikiIds, wikiSharingError, wikiSharingInput, wikiSharingValid } from "./wiki-sharing";
 
@@ -90,11 +91,11 @@ export function CreateWikiDialog(props: { client: LegalworkServerClient; serverU
       <form onSubmit={submit} className="flex min-h-0 flex-col overflow-hidden">
         <DialogHeader className="wiki-dialog-header shrink-0 px-6 pb-4 pt-6 pr-12"><DialogTitle>{t("wiki.new_wiki")}</DialogTitle><DialogDescription>{t("wiki.new_wiki_hint")}</DialogDescription></DialogHeader>
         <Tabs value={tab} onValueChange={(value) => { if (value === "create" || value === "join") { setTab(value); setError(null); } }} className="min-h-0 gap-0">
-          <TabsList className="wiki-dialog-tabs shrink-0 mx-6 mb-1 w-auto"><TabsTrigger value="create" disabled={busy}>{t("wiki.create")}</TabsTrigger><TabsTrigger value="join" disabled={busy}>{t("wiki.join_shared")}</TabsTrigger></TabsList>
+          <TabsList className="wiki-dialog-tabs shrink-0 mx-6 mb-1 w-auto"><TabsTrigger value="create" disabled={busy}>{t("wiki.create")}</TabsTrigger>{/* LAWOSS: tímová wiki ide cez Eigenwelt (spec 0017 S5). */}{isCommercialSurfaceHidden("wiki-team") ? null : <TabsTrigger value="join" disabled={busy}>{t("wiki.join_shared")}</TabsTrigger>}</TabsList>
           <div className="wiki-dialog-body max-h-[60vh] overflow-y-auto px-6 py-5">
             <TabsContent value="create" keepMounted className="space-y-5">
               <label className="grid gap-2 text-sm font-medium">{t("wiki.name")}<Input autoFocus required={tab === "create"} disabled={busy} value={name} maxLength={100} onChange={(event) => setName(event.target.value)} placeholder={t("wiki.name_placeholder")} /></label>
-              <fieldset className="space-y-2"><legend className="mb-2 text-sm font-medium">{t("wiki.visibility")}</legend>
+              {isCommercialSurfaceHidden("wiki-team") ? null : <fieldset className="space-y-2"><legend className="mb-2 text-sm font-medium">{t("wiki.visibility")}</legend>
                 <div className="grid grid-cols-2 gap-3">
                   {[false, true].map((value) => <label key={String(value)} className="relative cursor-pointer">
                     <input type="radio" name="wiki-visibility" className="peer sr-only" checked={shared === value} disabled={busy} onChange={() => { setShared(value); setError(null); }} />
@@ -104,7 +105,7 @@ export function CreateWikiDialog(props: { client: LegalworkServerClient; serverU
                     </span>
                   </label>)}
                 </div>
-              </fieldset>
+              </fieldset>}
               {shared ? <div className="space-y-4"><TeamNotice loading={team.isLoading} error={team.error} team={team.data} retry={() => void team.refetch()} />{team.data ? <AudienceFields team={team.data} value={sharing} onChange={setSharing} disabled={busy} /> : null}</div> : null}
               <label className="grid gap-2 text-sm font-medium">{t("wiki.starter")}<select className={wikiSelectClass} value={template} disabled={busy} onChange={(event) => setTemplate(event.target.value === "blank" ? "blank" : "firm")}><option value="firm">{t("wiki.firm_starter")}</option><option value="blank">{t("wiki.blank_starter")}</option></select></label>
             </TabsContent>
@@ -147,7 +148,7 @@ function WikiSharingPanel(props: { client: LegalworkServerClient; serverUrl: str
 }
 
 export function WikiSettingsDialog(props: { client: LegalworkServerClient; serverUrl: string; wiki: WikiVault; projectWorkspaces: WikiWorkspaceOption[]; initialTab?: "general" | "sharing" | "agents"; onClose: () => void; onUpdate: (input: WikiUpdateInput) => Promise<void>; onShare: (input: WikiSharingInput, update: boolean) => Promise<void>; onStopSharing: () => Promise<void>; onForget: () => Promise<void> }) {
-  const [tab, setTab] = useState(props.initialTab ?? "general");
+  const [tab, setTab] = useState(props.initialTab === "sharing" && isCommercialSurfaceHidden("wiki-team") ? "general" : props.initialTab ?? "general");
   const [name, setName] = useState(props.wiki.name);
   const [allowInProjects, setAllowInProjects] = useState(props.wiki.allowInProjects);
   const [projectWorkspaceIds, setProjectWorkspaceIds] = useState<string[] | null>(props.wiki.projectWorkspaceIds ?? null);
@@ -162,7 +163,7 @@ export function WikiSettingsDialog(props: { client: LegalworkServerClient; serve
       <form className="flex min-h-0 flex-col overflow-hidden" onSubmit={(event) => { event.preventDefault(); if (tab !== "sharing" && !working && name.trim()) void run(() => props.onUpdate({ name: name.trim(), allowInProjects, projectWorkspaceIds })); }}>
         <DialogHeader className="wiki-dialog-header shrink-0 px-6 pb-4 pt-6 pr-12"><DialogTitle>{t("wiki.settings")}</DialogTitle><DialogDescription>{t("wiki.settings_hint")}</DialogDescription></DialogHeader>
         <Tabs value={tab} onValueChange={(value) => { if (value === "general" || value === "sharing" || value === "agents") setTab(value); }} className="min-h-0 gap-0">
-          <TabsList className="wiki-dialog-tabs shrink-0 mx-6 mb-1 w-auto"><TabsTrigger value="general" disabled={working}>{t("wiki.settings_general")}</TabsTrigger><TabsTrigger value="sharing" disabled={working}>{t("wiki.sharing")}</TabsTrigger><TabsTrigger value="agents" disabled={working}>{t("wiki.settings_agents")}</TabsTrigger></TabsList>
+          <TabsList className="wiki-dialog-tabs shrink-0 mx-6 mb-1 w-auto"><TabsTrigger value="general" disabled={working}>{t("wiki.settings_general")}</TabsTrigger>{isCommercialSurfaceHidden("wiki-team") ? null : <TabsTrigger value="sharing" disabled={working}>{t("wiki.sharing")}</TabsTrigger>}<TabsTrigger value="agents" disabled={working}>{t("wiki.settings_agents")}</TabsTrigger></TabsList>
           <div className="wiki-dialog-body max-h-[60vh] overflow-y-auto px-6 py-5">
             <TabsContent value="general" keepMounted className="space-y-5">
               <label className="grid gap-2 text-sm font-medium">{t("wiki.name")}<Input required disabled={working} value={name} maxLength={100} onChange={(event) => setName(event.target.value)} /></label>
@@ -180,7 +181,7 @@ export function WikiSettingsDialog(props: { client: LegalworkServerClient; serve
                 </div>
               </details>
             </TabsContent>
-            <TabsContent value="sharing" keepMounted><WikiSharingPanel client={props.client} serverUrl={props.serverUrl} wiki={props.wiki} busy={busy} onShare={props.onShare} onStop={props.onStopSharing} onError={setError} onBusyChange={setSharingBusy} /></TabsContent>
+            {/* LAWOSS: zdieľanie wiki ide cez Eigenwelt (spec 0017 S5); bez panela sa ani nenačíta tím. */}{isCommercialSurfaceHidden("wiki-team") ? null : <TabsContent value="sharing" keepMounted><WikiSharingPanel client={props.client} serverUrl={props.serverUrl} wiki={props.wiki} busy={busy} onShare={props.onShare} onStop={props.onStopSharing} onError={setError} onBusyChange={setSharingBusy} /></TabsContent>}
             <TabsContent value="agents" keepMounted className="space-y-5">
               <div className="flex items-start justify-between gap-4"><Label htmlFor="wiki-project-access" className="block text-sm leading-normal"><span className="font-medium">{t("wiki.project_access")}</span><span className="mt-2 block font-normal text-xs leading-relaxed text-muted-foreground">{t("wiki.project_access_hint")}</span></Label><Switch id="wiki-project-access" className="mt-0.5" checked={allowInProjects} disabled={working} onCheckedChange={setAllowInProjects} /></div>
               {allowInProjects ? <div className="overflow-hidden rounded-xl border"><label className="flex cursor-pointer items-center gap-3 bg-muted/20 px-4 py-3 text-sm"><input type="checkbox" className="size-4 accent-primary" disabled={working} checked={projectWorkspaceIds === null} onChange={(event) => setProjectWorkspaceIds(event.target.checked ? null : [])} />{t("wiki.all_projects")}</label>{projectWorkspaceIds !== null ? <div className="max-h-48 overflow-y-auto border-t p-1">{props.projectWorkspaces.length ? props.projectWorkspaces.map((workspace) => <label key={workspace.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm hover:bg-muted/30"><input type="checkbox" className="size-4 accent-primary" disabled={working} checked={projectWorkspaceIds.includes(workspace.id)} onChange={(event) => setProjectWorkspaceIds((current) => event.target.checked ? [...current ?? [], workspace.id] : (current ?? []).filter((id) => id !== workspace.id))} /><span className="truncate">{workspace.displayNameResolved}</span></label>) : <p className="px-3 py-4 text-xs text-muted-foreground">{t("wiki.no_projects")}</p>}</div> : null}</div> : null}

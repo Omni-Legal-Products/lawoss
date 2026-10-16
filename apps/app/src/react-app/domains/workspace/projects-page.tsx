@@ -8,6 +8,7 @@ import { formatRelativeTime, isMacPlatform } from "@/app/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { t } from "@/i18n";
+import { hideCommercialSidebarItems } from "@/lawoss/feature-flags";
 import { cn } from "@/lib/utils";
 import { ProjectFolderIcon } from "./project-sync";
 import { useProjectSyncStore } from "./project-sync-store";
@@ -137,7 +138,7 @@ function ProjectRow({ group, updated, ...props }: Props & { group: WorkspaceSess
   const sessions = allProjectSessions([group]);
   const pages = Math.max(1, Math.ceil(sessions.length / PAGE_SIZE));
   const current = Math.min(page, pages - 1);
-  const projectPages = config.projectNavOrder.filter((key): key is ProjectPage => key !== "projectSessions" && config[key]);
+  const projectPages = hideCommercialSidebarItems(config.projectNavOrder).filter((key): key is ProjectPage => key !== "projectSessions" && config[key]);
   return <section className="border-b border-border/70 py-1.5">
     <div className={cn(rowGrid, "relative min-h-12 rounded-lg px-2")}>
       <button type="button" className="absolute inset-0 cursor-pointer rounded-lg transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={name} aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(value => !value)} />

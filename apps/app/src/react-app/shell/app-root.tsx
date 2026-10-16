@@ -23,7 +23,7 @@ import { ShellConfigProvider } from "./shell-config";
 import { StealthMode } from "./stealth-mode";
 import { TaskNotificationsListener } from "./task-notifications-listener";
 import { WelcomeRoute } from "./welcome-route";
-import { LAWOSS_ROUTES } from "../../lawoss/shell/routes";
+import { LAWOSS_ROUTES, upstreamRoute } from "../../lawoss/shell/routes";
 import { LawossLanding } from "../../lawoss/lite/landing";
 
 
@@ -83,9 +83,9 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
-              <Route path="/wikis" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
-              <Route path="/wikis/:workspaceId" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
-              <Route path="/wikis/:workspaceId/session/:sessionId" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/wikis" element={upstreamRoute("/wikis", <DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>)} />
+              <Route path="/wikis/:workspaceId" element={upstreamRoute("/wikis/:workspaceId", <DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>)} />
+              <Route path="/wikis/:workspaceId/session/:sessionId" element={upstreamRoute("/wikis/:workspaceId/session/:sessionId", <DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>)} />
               <Route
                 path="/evals"
                 element={
@@ -119,14 +119,14 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
-              <Route path="/scheduled" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
-              <Route path="/calendar" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
-              <Route path="/workspace/:workspaceId/calendar" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/scheduled" element={upstreamRoute("/scheduled", <DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>)} />
+              <Route path="/calendar" element={upstreamRoute("/calendar", <DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>)} />
+              <Route path="/workspace/:workspaceId/calendar" element={upstreamRoute("/workspace/:workspaceId/calendar", <DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>)} />
               <Route path="/projects" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/workflows" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/recorder" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/workspace/:workspaceId/project" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
-              <Route path="/workspace/:workspaceId/dashboards" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/dashboards" element={upstreamRoute("/workspace/:workspaceId/dashboards", <DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>)} />
               <Route path="/workspace/:workspaceId/reviews" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/workspace/:workspaceId/tasks" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/workspace/:workspaceId/files" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
