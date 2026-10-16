@@ -207,3 +207,6 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Tool-version checks through Corepack shims can bootstrap downloads under a new HOME. For offline validation, verify the genuine cached package CLI and invoke it with the captured exact Node executable and network bootstrap disabled.
 
 - Validate packaged dependency closures from a relocated owned tree with the original stage unavailable and physical module resolutions confined to the relocated tree. Preserve all package files and notices; generated CLI shims are separate from dependency contents.
+
+- Diagnostic seam tests must exercise the actual entry composition as well as helpers. A parse check cannot detect an unbound runtime identifier; isolated fake helpers do not establish native application startup.
+- Keep containment installed while owned producers may resume. Share outer-expiry decisions with the host before later removal; represent late identity failure independently from observed resource closure and removal, preserving an encodable finite unknown result.
