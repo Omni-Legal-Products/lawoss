@@ -121,10 +121,20 @@ function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promis
   return { server, requests };
 }
 
-async function startLegalworkServer(input: { workspaceRoot: string; opencodeBaseUrl: string }) {
+async function startLegalworkServer(input: { workspaceRoot: string; opencodeBaseUrl: string; readOnly?: boolean }) {
+  const isolated = { LEGALWORK_TOKEN_STORE: join(input.workspaceRoot, "tokens.json"), LEGALWORK_RUNTIME_DB: join(input.workspaceRoot, "runtime.sqlite"), LEGALWORK_DATA_DIR: join(input.workspaceRoot, "data") };
+  const previous = Object.fromEntries(Object.keys(isolated).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, isolated);
+  stops.push(() => {
+    for (const key of Object.keys(isolated)) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  });
   const config: ServerConfig = {
     host: "127.0.0.1",
     port: 0,
+    configPath: join(input.workspaceRoot, "server.json"),
     token: "owt_test_token",
     hostToken: "owt_host_token",
     approval: { mode: "auto", timeoutMs: 1000 },
@@ -140,7 +150,7 @@ async function startLegalworkServer(input: { workspaceRoot: string; opencodeBase
       },
     ],
     authorizedRoots: [input.workspaceRoot],
-    readOnly: true,
+    readOnly: input.readOnly ?? true,
     startedAt: Date.now(),
     tokenSource: "cli",
     hostTokenSource: "cli",
@@ -317,6 +327,7 @@ describe("workspace session read APIs", () => {
     const mock = startMockOpencode({ holdCommand: command.promise });
     const legalwork = await startLegalworkServer({
       workspaceRoot,
+      readOnly: false,
       opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
     });
 

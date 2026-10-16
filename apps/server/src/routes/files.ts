@@ -2,6 +2,7 @@ import { resolveWithinRoot } from "../paths.js";
 import { remapHistoricalFilePath } from "../lawoss/workspace-history.js";
 import { writeConditionalText } from "../lawoss/conditional-text-write.js";
 import { childPathWithin } from "../lawoss/path-within.js";
+import { resolveWorkspaceFilePath, resolveReadableWorkspaceFilePath, recheckWorkspaceFilePath } from "../lawoss/filesystem-boundary.js";
 import { readWorkspaceText } from "../lawoss/workspace-text.js";
 import { createReadStream } from "node:fs";
 import { realpath } from "../lawoss/canonical-path.js";
@@ -128,19 +129,7 @@ export function isSupportedWorkspaceTextFilePath(relativePath: string): boolean 
   );
 }
 
-function resolveSafeChildPath(root: string, child: string): string {
-  const rootResolved = resolve(root);
-  const candidate = resolve(rootResolved, child);
-  if (candidate === rootResolved) {
-    throw new ApiError(400, "invalid_path", "Path must point to a file");
-  }
-  // 🟡 LAWOSS: pri koreni disku alebo zdieľania (`D:\`, `\\nas\share\`) končí rootResolved lomkou
-  // a prefix `rootResolved + sep` odmietal každý súbor.
-  if (!childPathWithin(rootResolved, child)) {
-    throw new ApiError(400, "invalid_path", "Path traversal is not allowed");
-  }
-  return candidate;
-}
+const resolveSafeChildPath = resolveWorkspaceFilePath;
 
 function encodeArtifactId(path: string): string {
   return Buffer.from(path, "utf8").toString("base64url");
@@ -239,7 +228,7 @@ async function workspaceArtifactNames(workspaceRoot: string): Promise<Map<string
   return names;
 }
 
-export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, input: unknown, previousPaths: string[] = []): Promise<Array<Record<string, unknown>>> {
+export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, input: unknown, scope: TokenScope = "owner", previousPaths: string[] = []): Promise<Array<Record<string, unknown>>> {
   const targets = Array.isArray(input) ? input.slice(0, 80) : [];
   const results = new Map<string, Record<string, unknown>>();
   const workspaceResolved = resolve(workspaceRoot);
@@ -288,13 +277,14 @@ export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, inp
     } catch {
       continue;
     }
-    let absPath = resolveSafeChildPath(workspaceRoot, relativePath);
+    let absPath: string;
+    try { absPath = await resolveReadableWorkspaceFilePath(workspaceRoot, relativePath, scope); } catch { continue; }
     if (!isAbsolute(rawValue) && !relativePath.includes("/") && !(await exists(absPath))) {
       artifactNames ??= await workspaceArtifactNames(workspaceResolved);
       const matchedPath = artifactNames.get(relativePath.toLowerCase());
       if (matchedPath) {
         relativePath = matchedPath;
-        absPath = resolveSafeChildPath(workspaceRoot, relativePath);
+        try { absPath = await resolveReadableWorkspaceFilePath(workspaceRoot, relativePath, scope); } catch { continue; }
       }
     }
     const key = `file:${relativePath.toLowerCase()}`;
@@ -558,6 +548,8 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     scopeRank,
   } = options;
   const fileSessions = new FileSessionStore();
+  const readable = (ctx: RequestContext, root: string, path: string, allowRoot = false) =>
+    resolveReadableWorkspaceFilePath(root, path, ctx.actor?.scope ?? (ctx.actor?.type === "host" ? "owner" : "viewer"), { allowRoot });
 
   const serializeFileSession = (session: {
     id: string;
@@ -601,7 +593,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     if (!resolveInboxEnabled()) {
       return jsonResponse({ items: [] });
     }
-    const inboxRoot = resolveInboxDir(workspace.path);
+    const inboxRoot = await resolveSafeChildPath(workspace.path, resolveInboxDir(workspace.path));
     const items = await listInbox(inboxRoot);
     return jsonResponse({ items });
   });
@@ -611,9 +603,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     if (!resolveInboxEnabled()) {
       throw new ApiError(404, "inbox_disabled", "Workspace inbox is disabled");
     }
-    const inboxRoot = resolveInboxDir(workspace.path);
+    const inboxRoot = await resolveSafeChildPath(workspace.path, resolveInboxDir(workspace.path));
     const relativePath = decodeInboxId(ctx.params.inboxId);
-    const absPath = resolveSafeChildPath(inboxRoot, relativePath);
+    const absPath = await readable(ctx, workspace.path, join(inboxRoot, relativePath));
     if (!(await exists(absPath))) {
       throw new ApiError(404, "inbox_item_not_found", "Inbox item not found");
     }
@@ -653,8 +645,8 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const requestedPath = queryPath || formPath || file.name;
 
     const relativePath = normalizeWorkspaceRelativePath(requestedPath, { allowSubdirs: true });
-    const inboxRoot = resolveInboxDir(workspace.path);
-    const dest = resolveSafeChildPath(inboxRoot, relativePath);
+    const inboxRoot = await resolveSafeChildPath(workspace.path, resolveInboxDir(workspace.path));
+    const dest = await resolveSafeChildPath(workspace.path, join(inboxRoot, relativePath));
     const maxBytes = resolveInboxMaxBytes();
     if (file.size > maxBytes) {
       throw new ApiError(413, "file_too_large", "File exceeds upload limit", { maxBytes, size: file.size });
@@ -667,10 +659,12 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       paths: [dest],
     });
 
+    await recheckWorkspaceFilePath(workspace.path, resolveInboxDir(workspace.path), inboxRoot);
+    await recheckWorkspaceFilePath(workspace.path, join(resolveInboxDir(workspace.path), relativePath), dest);
     await ensureDir(dirname(dest));
     const bytes = Buffer.from(await file.arrayBuffer());
     const tmp = `${dest}.tmp-${shortId()}`;
-    await writeFile(tmp, bytes);
+    await writeFile(tmp, bytes, { flag: "wx" });
     await rename(tmp, dest);
 
     await recordAudit(workspace.path, {
@@ -691,7 +685,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     if (!resolveOutboxEnabled()) {
       return jsonResponse({ items: [] });
     }
-    const outboxRoot = resolveOutboxDir(workspace.path);
+    const outboxRoot = await resolveSafeChildPath(workspace.path, resolveOutboxDir(workspace.path));
     const items = await listArtifacts(outboxRoot);
     return jsonResponse({ items });
   });
@@ -701,9 +695,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     if (!resolveOutboxEnabled()) {
       throw new ApiError(404, "outbox_disabled", "Workspace outbox is disabled");
     }
-    const outboxRoot = resolveOutboxDir(workspace.path);
+    const outboxRoot = await resolveSafeChildPath(workspace.path, resolveOutboxDir(workspace.path));
     const relativePath = decodeArtifactId(ctx.params.artifactId);
-    const absPath = resolveSafeChildPath(outboxRoot, relativePath);
+    const absPath = await readable(ctx, workspace.path, join(outboxRoot, relativePath));
     if (!(await exists(absPath))) {
       throw new ApiError(404, "artifact_not_found", "Artifact not found");
     }
@@ -723,7 +717,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
   addRoute(routes, "POST", "/workspace/:id/artifacts/resolve", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
-    const items = await resolveWorkspaceArtifactTargets(workspace.path, body.targets, workspace.previousPaths);
+    const items = await resolveWorkspaceArtifactTargets(workspace.path, body.targets, ctx.actor?.scope, workspace.previousPaths);
     return jsonResponse({ items });
   });
 
@@ -774,7 +768,11 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const limit = parseCatalogLimit(ctx.url.searchParams.get("limit"));
 
     const entries = await listWorkspaceCatalogEntries(workspace.path);
-    const filtered = entries.filter((entry) => {
+    const visible = [];
+    for (const entry of entries) {
+      try { await readable(ctx, workspace.path, entry.path); visible.push(entry); } catch { /* inaccessible entry */ }
+    }
+    const filtered = visible.filter((entry) => {
       if (!includeDirs && entry.kind === "dir") return false;
       if (!matchesCatalogFilter(entry.path, prefix)) return false;
       if (after && entry.path <= after) return false;
@@ -813,7 +811,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     for (const relativePath of paths) {
       try {
-        const absPath = resolveSafeChildPath(workspace.path, relativePath);
+        const absPath = await readable(ctx, workspace.path, relativePath);
         if (!(await exists(absPath))) {
           items.push({ ok: false, path: relativePath, code: "file_not_found", message: "File not found" });
           continue;
@@ -878,7 +876,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     for (const write of writes) {
       try {
-        const absPath = resolveSafeChildPath(workspace.path, write.path);
+        const absPath = await resolveSafeChildPath(workspace.path, write.path);
         const bytes = Buffer.from(write.contentBase64, "base64");
         if (bytes.byteLength > FILE_SESSION_MAX_FILE_BYTES) {
           items.push({
@@ -936,6 +934,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     for (const entry of plan) {
       try {
+        await recheckWorkspaceFilePath(workspace.path, entry.path, entry.absPath);
         const before = (await exists(entry.absPath)) ? await stat(entry.absPath) : null;
         const currentRevision = before ? fileRevision(before) : null;
         if (!entry.force && entry.ifMatchRevision && currentRevision !== entry.ifMatchRevision) {
@@ -952,7 +951,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
         await ensureDir(dirname(entry.absPath));
         const tmp = `${entry.absPath}.tmp-${shortId()}`;
-        await writeFile(tmp, entry.bytes);
+        await writeFile(tmp, entry.bytes, { flag: "wx" });
         await rename(tmp, entry.absPath);
         const after = await stat(entry.absPath);
         const revision = fileRevision(after);
@@ -1007,18 +1006,33 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     }
 
     const items: Array<Record<string, unknown>> = [];
-    const approvalPaths: string[] = [];
+    const approvedTargets = new Map<string, { canonical: string; leaf: string }>();
+    const operationPaths: string[] = [];
     for (const op of operations) {
-      if (typeof op?.path === "string" && op.path.trim()) {
-        approvalPaths.push(resolveSafeChildPath(workspace.path, normalizeWorkspaceRelativePath(op.path, { allowSubdirs: true })));
-      }
-      if (typeof op?.from === "string" && op.from.trim()) {
-        approvalPaths.push(resolveSafeChildPath(workspace.path, normalizeWorkspaceRelativePath(op.from, { allowSubdirs: true })));
-      }
-      if (typeof op?.to === "string" && op.to.trim()) {
-        approvalPaths.push(resolveSafeChildPath(workspace.path, normalizeWorkspaceRelativePath(op.to, { allowSubdirs: true })));
+      const type = String(op.type ?? "").trim();
+      for (const value of [op.path, op.from, op.to]) {
+        if (typeof value !== "string" || !value.trim()) continue;
+        const path = normalizeWorkspaceRelativePath(value, { allowSubdirs: true });
+        const target = {
+          canonical: await resolveSafeChildPath(workspace.path, path),
+          leaf: await resolveSafeChildPath(workspace.path, path, { preserveLeaf: true }),
+        };
+        approvedTargets.set(path, target);
+        operationPaths.push(type === "delete" || type === "rename" ? target.leaf : target.canonical);
       }
     }
+    const approvalPaths = [...new Set(operationPaths)];
+    const approvedTarget = async (path: string, preserveLeaf = false) => {
+      const approved = approvedTargets.get(path);
+      if (!approved) throw new ApiError(400, "invalid_operation", "Operation path was not included in the approval");
+      await recheckWorkspaceFilePath(workspace.path, path, approved.canonical);
+      if (!preserveLeaf) return approved.canonical;
+      const leaf = await resolveSafeChildPath(workspace.path, path, { preserveLeaf: true });
+      // A link and its target have the same realpath, but rm/rename operate on
+      // different nodes. Approval must bind that node as well as containment.
+      if (leaf !== approved.leaf) throw new ApiError(409, "path_changed", "File path changed while the operation was awaiting approval");
+      return leaf;
+    };
 
     if (approvalPaths.length) {
       await requireApproval(ctx, {
@@ -1034,7 +1048,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       try {
         if (type === "mkdir") {
           const path = normalizeWorkspaceRelativePath(String(op.path ?? ""), { allowSubdirs: true });
-          const absPath = resolveSafeChildPath(workspace.path, path);
+          const absPath = await approvedTarget(path);
           if (op.exclusive === true) await mkdir(absPath);
           else await ensureDir(absPath);
           recordWorkspaceFileEvent(workspace.id, { type: "mkdir", path });
@@ -1044,7 +1058,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
         if (type === "delete") {
           const path = normalizeWorkspaceRelativePath(String(op.path ?? ""), { allowSubdirs: true });
-          const absPath = resolveSafeChildPath(workspace.path, path);
+          const absPath = await approvedTarget(path, true);
           if (!(await exists(absPath))) {
             items.push({ ok: false, type, path, code: "file_not_found", message: "Path not found" });
             continue;
@@ -1058,8 +1072,8 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         if (type === "rename") {
           const from = normalizeWorkspaceRelativePath(String(op.from ?? ""), { allowSubdirs: true });
           const to = normalizeWorkspaceRelativePath(String(op.to ?? ""), { allowSubdirs: true });
-          const fromAbs = resolveSafeChildPath(workspace.path, from);
-          const toAbs = resolveSafeChildPath(workspace.path, to);
+          const fromAbs = await approvedTarget(from, true);
+          const toAbs = await approvedTarget(to, true);
           if (!(await exists(fromAbs))) {
             items.push({ ok: false, type, from, to, code: "file_not_found", message: "Source path not found" });
             continue;
@@ -1095,7 +1109,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       throw new ApiError(400, "invalid_path", "Only supported text artifact files can be read inline");
     }
 
-    const absPath = resolveSafeChildPath(workspace.path, relativePath);
+    const absPath = await readable(ctx, workspace.path, relativePath);
     if (!(await exists(absPath))) {
       throw new ApiError(404, "file_not_found", "File not found");
     }
@@ -1118,7 +1132,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const requested = (ctx.url.searchParams.get("path") ?? "").trim();
     const relativePath = normalizeWorkspaceRelativePath(requested, { allowSubdirs: true });
-    const absPath = resolveSafeChildPath(workspace.path, relativePath);
+    const absPath = await readable(ctx, workspace.path, relativePath);
     if (!(await exists(absPath))) {
       return jsonResponse({ ok: true, path: relativePath, exists: false });
     }
@@ -1138,12 +1152,12 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const requested = (ctx.url.searchParams.get("path") ?? "").trim();
     // An empty path lists the workspace root; normalizeWorkspaceRelativePath rejects it.
     const relativePath = requested ? normalizeWorkspaceRelativePath(requested, { allowSubdirs: true }) : "";
-    const absPath = relativePath ? resolveSafeChildPath(workspace.path, relativePath) : resolve(workspace.path);
+    // Validate canonical containment before inspecting or enumerating a selected folder.
+    const scopedPath = await resolveWithinRoot(workspace.path, relativePath || ".");
+    const absPath = await readable(ctx, workspace.path, relativePath || ".", true);
     if (!(await exists(absPath))) {
       throw new ApiError(404, "dir_not_found", "Directory not found");
     }
-    // Validate canonical containment before inspecting or enumerating a selected folder.
-    const scopedPath = await resolveWithinRoot(workspace.path, relativePath || ".");
     const requestedBoundary = ctx.url.searchParams.get("within");
     const within = requestedBoundary === null ? undefined : requestedBoundary.trim()
       ? normalizeWorkspaceRelativePath(requestedBoundary.trim(), { allowSubdirs: true }) : "";
@@ -1163,7 +1177,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
           try {
             const entryAbsolute = await resolveWithinRoot(workspace.path, entryPath);
             if (boundary) await resolveWithinRoot(boundary, entryAbsolute);
-            const entryInfo = await stat(entryAbsolute);
+            const entryInfo = await stat(await readable(ctx, workspace.path, entryPath));
             if (entryInfo.isDirectory()) {
               return { name: dirent.name, path: entryPath, kind: "dir" };
             }
@@ -1196,7 +1210,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const requested = (ctx.url.searchParams.get("path") ?? "").trim();
     const relativePath = normalizeWorkspaceRelativePath(requested, { allowSubdirs: true });
-    const absPath = resolveSafeChildPath(workspace.path, relativePath);
+    const absPath = await readable(ctx, workspace.path, relativePath);
     if (!(await exists(absPath))) {
       throw new ApiError(404, "file_not_found", "File not found");
     }
@@ -1253,7 +1267,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const baseUpdatedAt =
       typeof baseUpdatedAtRaw === "number" && Number.isFinite(baseUpdatedAtRaw) ? baseUpdatedAtRaw : null;
     const force = body.force === true;
-    const absPath = resolveSafeChildPath(workspace.path, relativePath);
+    const absPath = await resolveSafeChildPath(workspace.path, relativePath);
     const before = (await exists(absPath)) ? await stat(absPath) : null;
     if (before && !before.isFile()) {
       throw new ApiError(400, "invalid_path", "Path must point to a file");
@@ -1270,9 +1284,10 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       paths: [absPath],
     });
 
+    await recheckWorkspaceFilePath(workspace.path, relativePath, absPath);
     await ensureDir(dirname(absPath));
     const tmp = `${absPath}.tmp-${shortId()}`;
-    await writeFile(tmp, bytes);
+    await writeFile(tmp, bytes, { flag: "wx" });
     await rename(tmp, absPath);
     const after = await stat(absPath);
     const revision = fileRevision(after);
@@ -1322,7 +1337,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     // synced in, say) is merged with it, as project sync merges notes.
     const baseContent = typeof body.baseContent === "string" ? body.baseContent : null;
 
-    const absPath = resolveSafeChildPath(workspace.path, relativePath);
+    const absPath = await resolveSafeChildPath(workspace.path, relativePath);
 
     const before = (await exists(absPath)) ? await stat(absPath) : null;
     if (before && !before.isFile()) {
@@ -1357,7 +1372,8 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       paths: [absPath],
     });
 
-    await writeConditionalText(workspace.path, absPath, written, body.expectedContent);
+    await recheckWorkspaceFilePath(workspace.path, relativePath, absPath);
+    await writeConditionalText(workspace.path, join(workspace.path, relativePath), written, body.expectedContent);
     const after = await stat(absPath);
     const revision = fileRevision(after);
 

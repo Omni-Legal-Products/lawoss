@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startEmbeddedServer } from "./embedded.js";
 import type { ApprovalRequest } from "./types.js";
 
 test("embedded manual mode gates client writes and keeps approval decisions host-only", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "legalwork-host-approval-"));
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "legalwork-host-approval-")));
   const originalDataDir = process.env.LEGALWORK_DATA_DIR;
   const originalApprovalMode = process.env.LEGALWORK_APPROVAL_MODE;
   process.env.LEGALWORK_DATA_DIR = join(directory, "data");

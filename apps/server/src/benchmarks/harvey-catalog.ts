@@ -9,11 +9,12 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { ServerConfig } from "../types.js";
 import { ApiError } from "../errors.js";
 import { exists } from "../utils.js";
 import type { BenchmarkStore } from "./store.js";
+import { resolveDocumentPath } from "./document-path.js";
 import {
   parseHarveyTaskJson,
   parseStoredTaskJson,
@@ -356,12 +357,6 @@ export function benchmarksDataDir(config: Pick<ServerConfig, "configPath">): str
   return join(configDir, "benchmarks");
 }
 
-function assertSafeRelativePath(path: string): void {
-  if (!path || isAbsolute(path) || path.split("/").some((segment) => segment === ".." || segment === "")) {
-    throw new ApiError(400, "invalid_path", `Unsafe document path: ${path}`);
-  }
-}
-
 /**
  * Download the task's input documents into the pinned per-sha cache and return
  * the local documents directory (null when the task has none).
@@ -372,10 +367,10 @@ export async function ensureHarveyDocuments(
   entry: HarveyIndexEntry,
 ): Promise<string | null> {
   if (!entry.documents.length) return null;
-  const documentsDir = join(benchmarksDataDir(config), "cache", "harvey", ref, entry.key, "documents");
-  await mapWithConcurrency(entry.documents, 4, async (relativePath) => {
-    assertSafeRelativePath(relativePath);
-    const target = join(documentsDir, relativePath);
+  const revisionDir = resolveDocumentPath(join(benchmarksDataDir(config), "cache", "harvey"), ref);
+  const documentsDir = join(resolveDocumentPath(revisionDir, entry.key), "documents");
+  const documents = entry.documents.map((relativePath) => ({ relativePath, target: resolveDocumentPath(documentsDir, relativePath) }));
+  await mapWithConcurrency(documents, 4, async ({ relativePath, target }) => {
     if (await exists(target)) return;
     const buffer = await ghBuffer(rawUrl(ref, `${entry.key}/documents/${relativePath}`));
     await mkdir(dirname(target), { recursive: true });

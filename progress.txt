@@ -11,6 +11,9 @@
 
 - Supplied base text is an independent concurrency precondition: equal mtime can hide changed contents. CI diagnostics are synthetic-only bounded projections; preserve primary failures and verify actual owned child exit.
 
+- Bun SQLite statements need an explicit close lifecycle; cached query statements are finalized by Database.close().
+- Approval paths must be canonicalized before waiting and compared afterward. Attachment changes also bind the managed SKILL.md.
+
 ## Progress
 
 2026-10-13: Created isolated implementation worktree from fetched dev 4b5870a9, acceptance and five-task implementation plan. User explicitly authorized direct dev push after green checks. Existing profiles and test data preserved. No production code changes yet.
@@ -20,6 +23,10 @@
 2026-10-13: Recovery fix round1 committed4b09ed69, fresh scoped review clean. Fixed registration allocation inside mutation queue, mandatory refresh after committed recovery/activation failure, and consistent session ownership filtering. RED reproduced all3 defects; GREEN desktop11, recovery app/server20, session consumers12, all typechecks0. Task1 code gate complete; native picker/packaged acceptance remains Task5.
 
 2026-10-13: Task2 document preparation committede5cca90c, reviewed boundary fixes52ea365d, fresh scoped review clean. Actual PDF portfolio children, SHA/pagination, source changes, cancellation/restart/path/auth/storage, OCR-off coverage and real pinned layout covered. Full initial server1495/32skip/0fail; final covering40/0/254assertions and strict typecheck/build green. Isolated model/cache and native dependency rebuild changed no package/lock/user config. Expected negative-test diagnostics traced to unchanged fixtures. Updated PATCHES and identical AGENTS/CLAUDE. Native UI/live provider/Windows/final deployment still pending.
+
+2026-10-13T22:29:31.243864+02:00: PR142: reproduced SQLite/WAL handle retention, viewer skill/plugin disclosure and approval-time path swaps. Added focused regressions and normal lifecycle control; aligned Windows fixtures and rebuilt conflicted bundles with Bun 1.4.2 after merging dev. Verified server 1509 pass/31 skip, desktop 330 pass/4 skip, server typecheck and diff check. Files: server.ts, auth/file security and approval tests, benchmark store/tests, Office test, Windows CI, PATCHES, AGENTS/CLAUDE. Native Windows CI remains a separate gate.
+
+2026-10-13: Follow-up PR142: same-target resource deletion and workflow rename also bind operation leaf nodes. Red/green HTTP regressions and normal lifecycle control PASS; server1511 pass/31skip/0fail, memory676 pass/2skip/0fail, typecheck PASS. Native Windows CI on ac62b438 PASS. Fixed build-tool PATH drift; both Bun1.4.2 bundles reproduce identical hashes.
 
 2026-10-14: Task3 export/actual-file validation committedfed0f089 with full server1510/32skip/0fail and strict typecheck/build/Node green. Fresh review reproduced two verification defects (visible provenance mismatch and rejected companion conferring CSV verification); fixfaeb54ad has RED10pass2fail -> covering36pass1existingOCRskip0fail, strict typecheck/build0. Scoped rereview pending; Task3 not marked complete yet. Shared PATCHES and identical AGENTS/CLAUDE document source identity, ownership and dependency patterns. Actual ten-case/31PDF preservation baseline recorded outsideGit with no source modification; native harness gaps mapped, final UI/deployment remains open.
 

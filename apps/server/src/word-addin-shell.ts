@@ -19,10 +19,10 @@
  * location.reload() dependably replace the entry a future navigation
  * renders):
  *
- *   - taskpane.html (the manifest URL) serves a tiny FROZEN redirector,
- *     cached for a year. It never changes — it only navigates to the
- *     shell version recorded in localStorage (falling back to the
- *     version embedded at serve time).
+ *   - taskpane.html?pairing=2 (the manifest URL) serves a tiny redirector,
+ *     cached for 30 days. It preserves the installation capability fragment
+ *     and only selects a pairing-capable shell. The versioned query avoids
+ *     legacy redirectors that discarded the capability.
  *   - shell-v<N>.html serves the actual shell, cached immutable. When a
  *     running shell learns from the bootstrap response that a newer
  *     version exists, it records it and NAVIGATES to the new URL while
@@ -40,7 +40,7 @@
  * Without a bump, existing installs keep rendering the old shell for up
  * to a year. Increment the number.
  */
-export const WORD_ADDIN_SHELL_VERSION = "5";
+export const WORD_ADDIN_SHELL_VERSION = "6";
 
 export function buildWordAddinShellHtml(): string {
   return `<!doctype html>
@@ -117,14 +117,21 @@ export function buildWordAddinShellHtml(): string {
     document.getElementById("retry-btn").textContent = "Erneut versuchen";
   }
 
+  var capability = "";
+  try {
+    capability = new URLSearchParams(location.hash.slice(1)).get("capability") || sessionStorage.getItem("legalwork.officeCapability") || "";
+    if (capability) sessionStorage.setItem("legalwork.officeCapability", capability);
+    if (location.hash.indexOf("capability=") !== -1) history.replaceState(null, "", location.pathname + location.search);
+  } catch (e) { /* retain the manifest capability when storage is unavailable */ }
+  function pairedUrl(path) { return path + (capability ? "#capability=" + encodeURIComponent(capability) : ""); }
   var SHELL_VERSION = "${WORD_ADDIN_SHELL_VERSION}";
   var handedOff = false;
 
   function checkServer() {
     var controller = typeof AbortController === "function" ? new AbortController() : null;
     var timer = controller ? setTimeout(function () { controller.abort(); }, 3000) : null;
-    return fetch("bootstrap", { cache: "no-store", signal: controller ? controller.signal : undefined })
-      .then(function (response) { return response.ok ? response.json() : null; })
+    return fetch("bootstrap", { headers: { "X-LegalWork-Office-Capability": capability }, cache: "no-store", signal: controller ? controller.signal : undefined })
+      .then(function (response) { return response.ok ? response.json() : response.status === 401 ? { pairingRequired: true } : null; })
       .then(function (data) { return data && typeof data === "object" ? data : null; })
       .catch(function () { return null; })
       .finally(function () { if (timer) clearTimeout(timer); });
@@ -136,6 +143,12 @@ export function buildWordAddinShellHtml(): string {
 
   function handOff(bootstrap) {
     if (handedOff) return;
+    if (bootstrap && bootstrap.pairingRequired) {
+      showOffline();
+      document.getElementById("offline-title").textContent = "Reopen the Office add-in";
+      document.getElementById("offline-body").textContent = "Close and reopen this pane. If it still cannot connect, reinstall it in LegalWork Office Add-ins settings.";
+      return;
+    }
     handedOff = true;
     var current = bootstrap && bootstrap.shellVersion;
     if (typeof current === "string" && current && current !== SHELL_VERSION) {
@@ -143,11 +156,11 @@ export function buildWordAddinShellHtml(): string {
       // URL while the server is reachable, seeding the navigation cache
       // for future offline opens. The new shell hands off to the app.
       rememberVersion(current);
-      location.replace("shell-v" + encodeURIComponent(current) + ".html");
+      location.replace(pairedUrl("shell-v" + encodeURIComponent(current) + ".html"));
       return;
     }
     rememberVersion(SHELL_VERSION);
-    location.replace("app.html");
+    location.replace(pairedUrl("app.html"));
   }
 
   function showOffline() {
@@ -193,11 +206,9 @@ export function buildWordAddinShellHtml(): string {
 }
 
 /**
- * The FROZEN redirector served at taskpane.html (the manifest URL). It
- * must never change in any meaningful way: it is cached for a year with
- * no update path of its own. All it does is navigate to the recorded
- * shell version's immutable URL (falling back to the version embedded
- * when it was cached).
+ * The manifest's redirector preserves pairing through navigation. The query
+ * version in buildWordAddinManifest must change if the redirector's behavior
+ * changes again, because Office may keep this page in its navigation cache.
  */
 export function buildWordAddinRedirectorHtml(): string {
   return `<!doctype html>
@@ -210,12 +221,9 @@ export function buildWordAddinRedirectorHtml(): string {
 <script>
 (function () {
   "use strict";
-  var version = "${WORD_ADDIN_SHELL_VERSION}";
-  try {
-    var stored = localStorage.getItem("legalwork.shellVersion");
-    if (stored) version = stored;
-  } catch (e) { /* ignore */ }
-  location.replace("shell-v" + encodeURIComponent(version) + ".html");
+  // pairing=2 on the installed manifest avoids pre-pairing redirector cache
+  // entries. Never select a legacy cached shell that drops the capability.
+  location.replace("shell-v${WORD_ADDIN_SHELL_VERSION}.html" + location.hash);
 })();
 </script>
 </body>

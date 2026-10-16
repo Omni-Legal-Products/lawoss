@@ -22,6 +22,20 @@ import { WordAddinRoot } from "./word-addin-root";
 import "@/app/index.css";
 import "./word-pane.css";
 
+// Consume the manifest capability before HashRouter interprets the fragment.
+const officeCapability = (() => {
+  let capability = new URLSearchParams(window.location.hash.slice(1)).get("capability") || "";
+  try {
+    capability ||= window.sessionStorage.getItem("legalwork.officeCapability") || "";
+    if (capability) window.sessionStorage.setItem("legalwork.officeCapability", capability);
+  } catch { /* The current manifest still pairs when storage is unavailable. */ }
+  if (window.location.hash.includes("capability=")) {
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+  return capability;
+})();
+const officeBootstrapHeaders = { "X-LegalWork-Office-Capability": officeCapability };
+
 /**
  * The task pane is a slim surface: the agent session UI only. Everything
  * else (settings, providers, workspace management) stays in the LegalWork
@@ -66,7 +80,7 @@ function startAnalyticsIdentityPoll() {
   if (analyticsIdentityPollStarted) return;
   analyticsIdentityPollStarted = true;
   setInterval(() => {
-    void fetch("/word-addin/bootstrap", { cache: "no-store" })
+    void fetch("/word-addin/bootstrap", { cache: "no-store", headers: officeBootstrapHeaders })
       .then((response) => (response.ok ? (response.json() as Promise<Record<string, unknown>>) : null))
       .then((data) => {
         if (data) applyAnalyticsIdentity(data);
@@ -77,11 +91,11 @@ function startAnalyticsIdentityPoll() {
 
 /**
  * Pair with the server that serves this page. The bootstrap endpoint is
- * same-origin only and hands out the current client token, so the pane
+ * paired by an installation capability and hands out the current client token, so the pane
  * survives server restarts with rotated tokens.
  */
 async function connectToServer(): Promise<void> {
-  const response = await fetch("/word-addin/bootstrap", { cache: "no-store" });
+  const response = await fetch("/word-addin/bootstrap", { cache: "no-store", headers: officeBootstrapHeaders });
   if (!response.ok) {
     throw new Error(`Bootstrap failed with status ${response.status}`);
   }

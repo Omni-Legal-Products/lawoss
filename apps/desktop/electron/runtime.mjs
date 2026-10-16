@@ -1510,7 +1510,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       recorder,
       // Word/Excel/PowerPoint add-in listener — enabled via the Office Add-ins
       // settings tab; null when not installed so the listener stays off.
-      ...(officeAddinManager.serverConfig() ?? {}),
+      ...((await officeAddinManager.serverConfig()) ?? {}),
     });
     inProcessServer = handle;
     legalworkServerState.managedOpencodeExecution = handle.managedOpencodeExecution ?? null;
@@ -1561,8 +1561,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
           engineState.hostname = new URL(opencode.baseUrl).hostname;
           engineState.port = Number(new URL(opencode.baseUrl).port) || null;
           engineState.baseUrl = opencode.baseUrl;
-          engineState.opencodeUsername = opencode.username ?? null;
-          engineState.opencodePassword = opencode.password ?? null;
+          // LAWOSS: server od #142 prihlasovacie údaje enginu nevracia; ponechať tie, ktoré desktop pozná.
+          engineState.opencodeUsername = opencode.username ?? engineState.opencodeUsername ?? null;
+          engineState.opencodePassword = opencode.password ?? engineState.opencodePassword ?? null;
           engineState.execution = handle.managedOpencodeExecution ?? null;
           engineState.child = null;
           engineState.childExited = false;

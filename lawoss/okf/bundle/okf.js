@@ -3,11 +3,11 @@
 // @bun
 
 // src/cli.ts
-import { realpathSync as realpathSync5 } from "fs";
+import { realpathSync as realpathSync6 } from "fs";
 import { fileURLToPath } from "url";
 
 // src/onboarding/cli.ts
-import { constants as constants7 } from "node:fs";
+import { constants as constants8 } from "node:fs";
 import { lstat as lstat9, open as open6 } from "node:fs/promises";
 
 // src/canonical-path.ts
@@ -3172,7 +3172,7 @@ import { createHash as createHash4 } from "node:crypto";
 import { basename as basename5, join as join8, relative as relative4, resolve as resolve6, sep as sep5 } from "node:path";
 
 // ../okf-pamat/src/store.ts
-import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants as constants4, existsSync as existsSync2, fstatSync, lstatSync, mkdirSync, openSync, readFileSync as readFileSync2, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename as basename3, dirname as dirname3, join as join6, relative as relative2, resolve as resolve4, sep as sep3 } from "node:path";
 
 // ../okf-pamat/src/validate.ts
@@ -3242,7 +3242,7 @@ function findOfficeDir(startDir, maxUp = 8) {
 }
 
 // ../okf-pamat/src/workspace-memory-fs.ts
-import { closeSync, constants as constants4, fstatSync, lstatSync as lstatSync2, openSync, readSync, realpathSync } from "node:fs";
+import { closeSync as closeSync2, constants as constants5, fstatSync as fstatSync2, lstatSync as lstatSync2, openSync as openSync2, readSync, realpathSync as realpathSync2 } from "node:fs";
 import { basename as basename4, dirname as dirname4, isAbsolute as isAbsolute4, join as join7, parse, relative as relative3, resolve as resolve5, sep as sep4 } from "node:path";
 function isObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -3279,7 +3279,7 @@ function checkedPath(path, kind, allowMissing = false) {
   return true;
 }
 function checkedDirectory(path) {
-  const physical = resolve5(realpathSync.native(path));
+  const physical = resolve5(realpathSync2.native(path));
   checkedPath(physical, "directory");
   return physical;
 }
@@ -3496,17 +3496,17 @@ async function planExistingClient(root, mode, cloneParent, map) {
 
 // src/onboarding/trial-clone.ts
 import { createHash as createHash5, randomUUID } from "node:crypto";
-import { constants as constants6 } from "node:fs";
+import { constants as constants7 } from "node:fs";
 import { copyFile, lstat as lstat7, mkdir as mkdir2, open as open5, readFile as readFile4, rename, rmdir as rmdir2 } from "node:fs/promises";
 import { dirname as dirname5, isAbsolute as isAbsolute5, join as join9, relative as relative5, resolve as resolve7, sep as sep6 } from "node:path";
 
 // src/onboarding/file-durability.ts
-import { constants as constants5 } from "node:fs";
+import { constants as constants6 } from "node:fs";
 import { chmod, lstat as lstat6, open as open4, unlink } from "node:fs/promises";
 var errorCode2 = (error) => error && typeof error === "object" && ("code" in error) ? String(error.code) : "";
 async function syncFile(path, platform = process.platform) {
   if (platform !== "win32") {
-    const handle = await open4(path, constants5.O_RDONLY | constants5.O_NOFOLLOW);
+    const handle = await open4(path, constants6.O_RDONLY | constants6.O_NOFOLLOW);
     try {
       await handle.sync();
     } finally {
@@ -3519,7 +3519,7 @@ async function syncFile(path, platform = process.platform) {
   if (readOnly)
     await chmod(path, mode | 128);
   try {
-    const handle = await open4(path, constants5.O_RDWR | constants5.O_NOFOLLOW);
+    const handle = await open4(path, constants6.O_RDWR | constants6.O_NOFOLLOW);
     try {
       await handle.sync();
     } finally {
@@ -3558,7 +3558,7 @@ async function identity(path, kind) {
   return `${stat.dev}:${stat.ino}${kind === "file" ? `:${stat.ctimeNs}` : ""}`;
 }
 async function fileDigest(path) {
-  const file = await open5(path, constants6.O_RDONLY | constants6.O_NOFOLLOW);
+  const file = await open5(path, constants7.O_RDONLY | constants7.O_NOFOLLOW);
   try {
     const h = createHash5("sha256"), buffer = Buffer.alloc(65536);
     while (true) {
@@ -3574,7 +3574,7 @@ async function fileDigest(path) {
 }
 async function durableWrite(path, content, replace = false) {
   const temporary = replace ? `${path}.${randomUUID()}.tmp` : path;
-  const handle = await open5(temporary, constants6.O_WRONLY | constants6.O_CREAT | constants6.O_EXCL | constants6.O_NOFOLLOW, 384);
+  const handle = await open5(temporary, constants7.O_WRONLY | constants7.O_CREAT | constants7.O_EXCL | constants7.O_NOFOLLOW, 384);
   try {
     await handle.writeFile(content);
     await handle.sync();
@@ -3689,7 +3689,7 @@ async function applyTrialClone(preview, journalDirectory, resume = false) {
           const sourcePath = join9(preview.source, entry.path);
           if (await realpath(sourcePath) !== sourcePath || !(await lstat7(sourcePath)).isFile())
             throw new Error("Trial source entry changed.");
-          await copyFile(sourcePath, target, constants6.COPYFILE_EXCL);
+          await copyFile(sourcePath, target, constants7.COPYFILE_EXCL);
           if (await fileDigest(target) !== entry.digest)
             throw new Error("Trial copy digest mismatch.");
           await syncFile(target);
@@ -4054,7 +4054,7 @@ async function aggregateEnvelope(value) {
   return { version: 1, request, preview };
 }
 async function readPlan(path) {
-  const handle = await open6(path, constants7.O_RDONLY | constants7.O_NOFOLLOW);
+  const handle = await open6(path, constants8.O_RDONLY | constants8.O_NOFOLLOW);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > maxPlanBytes)
@@ -4081,7 +4081,7 @@ async function savePlanOutside(root, path, content) {
     throw new Error("Save the preview outside the client directory.");
   if (await realpath(parent) !== parent || !(await lstat9(parent)).isDirectory())
     throw new Error("Plan output needs an existing canonical parent directory.");
-  const handle = await open6(target, constants7.O_WRONLY | constants7.O_CREAT | constants7.O_EXCL | constants7.O_NOFOLLOW, 384);
+  const handle = await open6(target, constants8.O_WRONLY | constants8.O_CREAT | constants8.O_EXCL | constants8.O_NOFOLLOW, 384);
   try {
     await handle.writeFile(content);
     await handle.sync();
@@ -4175,17 +4175,17 @@ async function runOnboarding(argv, out = console.log) {
 }
 
 // src/triage/cli.ts
-import { existsSync as existsSync3, realpathSync as realpathSync2 } from "node:fs";
+import { existsSync as existsSync3, realpathSync as realpathSync3 } from "node:fs";
 import { dirname as dirname9, join as join14, resolve as resolve12 } from "node:path";
 
 // src/triage/files.ts
-import { constants as constants9 } from "node:fs";
+import { constants as constants10 } from "node:fs";
 import { lstat as lstat11, mkdir as mkdir5, open as open8, readdir as readdir4 } from "node:fs/promises";
 import { join as join12 } from "node:path";
 
 // src/triage/scan.ts
 import { createHash as createHash6 } from "node:crypto";
-import { constants as constants8 } from "node:fs";
+import { constants as constants9 } from "node:fs";
 import { lstat as lstat10, mkdir as mkdir4, open as open7, readFile as readFile6, rename as rename2, rm as rm2, writeFile as writeFile2 } from "node:fs/promises";
 import { basename as basename6, isAbsolute as isAbsolute8, join as join11, relative as relative8, resolve as resolve10, sep as sep9 } from "node:path";
 
@@ -4211,7 +4211,7 @@ var overlaps = (a, b) => {
 };
 var missing3 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
 async function readBounded(path, max) {
-  const handle = await open7(path, constants8.O_RDONLY | constants8.O_NOFOLLOW);
+  const handle = await open7(path, constants9.O_RDONLY | constants9.O_NOFOLLOW);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > max)
@@ -4321,7 +4321,7 @@ var errorCode3 = (error) => error instanceof Error && ("code" in error) ? String
 async function defaultWriteProbe(path) {
   if (process.platform !== "win32")
     return;
-  const handle = await open7(path, constants8.O_RDWR | constants8.O_NOFOLLOW | constants8.O_NONBLOCK);
+  const handle = await open7(path, constants9.O_RDWR | constants9.O_NOFOLLOW | constants9.O_NONBLOCK);
   await handle.close();
 }
 async function lockedForWrite(path, hooks = {}) {
@@ -4429,7 +4429,7 @@ async function scanTriage(rootInput, options = {}) {
 var MAX_JSON_BYTES = 4 * 1024 * 1024;
 var errorCode4 = (error) => error instanceof Error && ("code" in error) ? String(error.code) : "";
 async function readJsonFile(path, max = MAX_JSON_BYTES) {
-  const handle = await open8(path, constants9.O_RDONLY | constants9.O_NOFOLLOW);
+  const handle = await open8(path, constants10.O_RDONLY | constants10.O_NOFOLLOW);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > max)
@@ -4474,7 +4474,7 @@ async function triageSubdirectory(root, name, create) {
   return current;
 }
 async function writeNewJson(path, value) {
-  const handle = await open8(path, constants9.O_WRONLY | constants9.O_CREAT | constants9.O_EXCL | constants9.O_NOFOLLOW, 384);
+  const handle = await open8(path, constants10.O_WRONLY | constants10.O_CREAT | constants10.O_EXCL | constants10.O_NOFOLLOW, 384);
   try {
     await handle.writeFile(JSON.stringify(value, null, 2) + `
 `);
@@ -4800,7 +4800,7 @@ function buildTriagePlan(inventory, options) {
 
 // src/triage/apply.ts
 import { createHash as createHash8 } from "node:crypto";
-import { constants as constants10 } from "node:fs";
+import { constants as constants11 } from "node:fs";
 import { appendFile, copyFile as copyFile2, link, lstat as lstat12, mkdir as mkdir6, open as open9, readdir as readdir5, readFile as readFile7, rmdir as rmdir3 } from "node:fs/promises";
 import { dirname as dirname8, isAbsolute as isAbsolute9, join as join13, resolve as resolve11 } from "node:path";
 class TriageConflictError extends Error {
@@ -4875,7 +4875,7 @@ var EVENT_TYPES = new Set(["intent", "created", "move_intent", "moved", "complet
 async function durableDirectory2(path) {
   if (process.platform === "win32")
     return;
-  const handle = await open9(path, constants10.O_RDONLY);
+  const handle = await open9(path, constants11.O_RDONLY);
   try {
     await handle.sync();
   } finally {
@@ -4883,7 +4883,7 @@ async function durableDirectory2(path) {
   }
 }
 async function appendEvent2(path, event) {
-  const handle = await open9(path, constants10.O_WRONLY | constants10.O_APPEND | constants10.O_CREAT | constants10.O_NOFOLLOW, 384);
+  const handle = await open9(path, constants11.O_WRONLY | constants11.O_APPEND | constants11.O_CREAT | constants11.O_NOFOLLOW, 384);
   try {
     await handle.writeFile(`${JSON.stringify(event)}
 `);
@@ -4948,7 +4948,7 @@ async function safeParent(root, relativePath) {
 async function fileDigest2(path) {
   let handle;
   try {
-    handle = await open9(path, constants10.O_RDONLY | constants10.O_NOFOLLOW);
+    handle = await open9(path, constants11.O_RDONLY | constants11.O_NOFOLLOW);
   } catch (error) {
     if (missing4(error))
       return null;
@@ -4980,7 +4980,7 @@ async function moveExclusive(source, target, digest) {
       throw new TriageConflictError(`Cieľ už existuje: ${target}`);
     if (!["EXDEV", "EPERM", "ENOTSUP", "EOPNOTSUPP", "EMLINK", "ENOSYS", "EACCES"].includes(code))
       throw error;
-    await copyFile2(source, target, constants10.COPYFILE_EXCL);
+    await copyFile2(source, target, constants11.COPYFILE_EXCL);
     await syncFile(target);
   }
   if (await fileDigest2(target) !== digest)
@@ -4996,7 +4996,7 @@ async function createOperation(root, operation) {
   if (operation.kind === "directory")
     await mkdir6(full);
   else {
-    const handle = await open9(full, constants10.O_WRONLY | constants10.O_CREAT | constants10.O_EXCL | constants10.O_NOFOLLOW, 420);
+    const handle = await open9(full, constants11.O_WRONLY | constants11.O_CREAT | constants11.O_EXCL | constants11.O_NOFOLLOW, 420);
     try {
       await handle.writeFile(operation.content ?? "");
       await handle.sync();
@@ -5074,7 +5074,7 @@ async function applyTriagePlan(input, options = {}) {
           locked.push(move.from);
       if (locked.length)
         throw new TriageConflictError(`Dokument je otvorený v inom programe (napríklad vo Worde): ${locked.slice(0, 10).join(", ")}${locked.length > 10 ? " …" : ""}. Nič sa nepresunulo. Zatvorte ho a pripravte nový náhľad.`);
-      const handle = await open9(planPath, constants10.O_WRONLY | constants10.O_CREAT | constants10.O_EXCL | constants10.O_NOFOLLOW, 384);
+      const handle = await open9(planPath, constants11.O_WRONLY | constants11.O_CREAT | constants11.O_EXCL | constants11.O_NOFOLLOW, 384);
       try {
         await handle.writeFile(JSON.stringify(plan, null, 2) + `
 `);
@@ -5356,7 +5356,7 @@ var value = (flags, name) => {
 };
 function resolveCloneRoot(argument, cwd = process.cwd()) {
   const start = resolve12(cwd, argument ?? ".");
-  const canonical = existsSync3(start) ? realpathSync2(start) : start;
+  const canonical = existsSync3(start) ? realpathSync3(start) : start;
   if (argument !== undefined)
     return canonical;
   for (let dir = canonical, depth = 0;depth < 16; depth++) {
@@ -5440,7 +5440,7 @@ async function runTriage(argv, out = console.log) {
 var ENTITY_TYPES2 = ["klient", "spis", "projekt"];
 
 // src/fs.ts
-import { existsSync as existsSync4, lstatSync as lstatSync3, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, realpathSync as realpathSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync4, lstatSync as lstatSync3, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, realpathSync as realpathSync4, statSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { basename as basename8, dirname as dirname10, join as join15, relative as relative9, resolve as resolve13, sep as sep10 } from "node:path";
 function readText(path) {
   return readFileSync3(path, "utf8");
@@ -5595,7 +5595,7 @@ function realPathInside(realRoot, path) {
   let real;
   for (;; ) {
     try {
-      real = realpathSync3.native(ancestor);
+      real = realpathSync4.native(ancestor);
       break;
     } catch (error) {
       if (!missing(error))
@@ -5617,7 +5617,7 @@ function realPathInside(realRoot, path) {
   return target;
 }
 function render(root, selectedLanguage) {
-  const realRoot = realpathSync3.native(root);
+  const realRoot = realpathSync4.native(root);
   if (!statSync(realRoot).isDirectory())
     throw new Error(`Nie je priečinok: ${root}`);
   const inside = (name) => realPathInside(realRoot, name);
@@ -5669,7 +5669,7 @@ ${body}
 }
 
 // src/naming-fs.ts
-import { closeSync as closeSync2, constants as constants11, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync2, opendirSync, readSync as readSync2, realpathSync as realpathSync4, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
+import { closeSync as closeSync3, constants as constants12, fstatSync as fstatSync3, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync3, opendirSync, readSync as readSync2, realpathSync as realpathSync5, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
 import { basename as basename9, dirname as dirname11, extname, isAbsolute as isAbsolute10, join as join16, relative as relative10, resolve as resolve14, sep as sep11 } from "node:path";
 
 // ../okf-pamat/src/workspace-memory-types.ts
@@ -6008,7 +6008,7 @@ function assertSourcesWritable(root, sources, hooks, platform) {
     const full = join16(root, path);
     try {
       hooks.checkpoint?.("lock-probe", path);
-      closeSync2(openSync2(full, constants11.O_RDWR | constants11.O_NOFOLLOW | constants11.O_NONBLOCK));
+      closeSync3(openSync3(full, constants12.O_RDWR | constants12.O_NOFOLLOW | constants12.O_NONBLOCK));
     } catch (error) {
       const code = errorCode6(error);
       if (code === undefined || !LOCK_CODES2.has(code))
@@ -6028,14 +6028,14 @@ function rootDirectory(directory) {
 }
 function assertRoot(root) {
   checkedPath(root.path, "directory");
-  if (realpathSync4(root.path) !== root.path || physical(lstatSync4(root.path, { bigint: true })) !== root.identity)
+  if (realpathSync5(root.path) !== root.path || physical(lstatSync4(root.path, { bigint: true })) !== root.identity)
     conflict("Matter root changed");
 }
 function readNamingBinary(path, limit) {
   checkedPath(path, "file");
-  const fd = openSync2(path, constants11.O_RDONLY | constants11.O_NOFOLLOW | constants11.O_NONBLOCK);
+  const fd = openSync3(path, constants12.O_RDONLY | constants12.O_NOFOLLOW | constants12.O_NONBLOCK);
   try {
-    const before = fstatSync2(fd, { bigint: true });
+    const before = fstatSync3(fd, { bigint: true });
     if (!before.isFile() || before.nlink !== 1n)
       conflict(`Regular single-link file required: ${path}`);
     if (before.size > limit)
@@ -6048,13 +6048,13 @@ function readNamingBinary(path, limit) {
         break;
       count += n;
     }
-    const after = fstatSync2(fd, { bigint: true }), named = lstatSync4(path, { bigint: true });
+    const after = fstatSync3(fd, { bigint: true }), named = lstatSync4(path, { bigint: true });
     if (BigInt(count) !== before.size || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || physical(before) !== physical(after) || physical(before) !== physical(named) || named.isSymbolicLink() || named.nlink !== 1n)
       conflict(`File changed during read: ${path}`);
     const bytes = data.subarray(0, count);
     return { data: bytes, bytes: count, sha256: hash2(bytes), physical: physical(before), mode: Number(before.mode & 0o777n) };
   } finally {
-    closeSync2(fd);
+    closeSync3(fd);
   }
 }
 function readNamingJson(path, limit = JSON_LIMIT) {
@@ -6201,16 +6201,16 @@ function parseNamingPlan(value) {
 }
 function exclusive(path, data, mode = 384) {
   checkedPath(dirname11(path), "directory");
-  const fd = openSync2(path, constants11.O_WRONLY | constants11.O_CREAT | constants11.O_EXCL | constants11.O_NOFOLLOW, mode);
+  const fd = openSync3(path, constants12.O_WRONLY | constants12.O_CREAT | constants12.O_EXCL | constants12.O_NOFOLLOW, mode);
   try {
     const buffer = typeof data === "string" ? Buffer.from(data) : data;
     let count = 0;
     while (count < buffer.length)
       count += writeSync(fd, buffer, count, buffer.length - count);
     fsyncSync(fd);
-    return physical(fstatSync2(fd, { bigint: true }));
+    return physical(fstatSync3(fd, { bigint: true }));
   } finally {
-    closeSync2(fd);
+    closeSync3(fd);
   }
 }
 function controlDirectory(path) {
@@ -6664,7 +6664,7 @@ function run(argv, out = console.log) {
 }
 var isMain = (() => {
   try {
-    return realpathSync5(process.argv[1] ?? "") === realpathSync5(fileURLToPath(import.meta.url));
+    return realpathSync6(process.argv[1] ?? "") === realpathSync6(fileURLToPath(import.meta.url));
   } catch {
     return false;
   }
