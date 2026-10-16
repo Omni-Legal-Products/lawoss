@@ -212,7 +212,7 @@ test('abort after awaited acquisition releases owned key without calling operati
   assert.deepEqual(await fs.readdir(path.join(state, 'locks')), []);
 });
 
-test('heartbeat fault cancels operation and is retained even when callback ignores cancellation', async t => {
+test('initial heartbeat fault refuses callback entry and is retained', async t => {
   const state = await fixture(t);
   const original = fs.open;
   t.mock.method(fs, 'open', async (...args) => {
@@ -322,3 +322,44 @@ test('metadata growth after stat remains bounded and refuses release', async t =
   assert.equal(maximumReadEnd, 65537);
   assert.equal(await present(lockPath(state, 'target')), true);
 });
+
+for (const phase of ['stat', 'read', 'utimes']) {
+  for (const simultaneous of [true, false]) {
+    test(`initial ${phase} handle retains ${simultaneous ? 'I/O and close failures' : 'close-only failure'}`, async t => {
+      const state = await fixture(t);
+      const originalOpen = fs.open;
+      const primary = new Error(`INITIAL_${phase.toUpperCase()}`);
+      const closeFailure = new Error('HANDLE_CLOSE_FAILURE');
+      let injected = false;
+      let reallyClosed = false;
+      let entered = false;
+      t.mock.method(fs, 'open', async (...args) => {
+        const handle = await originalOpen(...args);
+        const target = phase === 'utimes' ? 'heartbeat' : 'meta.json';
+        if (!injected && args[0].endsWith(target)) {
+          injected = true;
+          if (simultaneous) handle[phase] = async () => { throw primary; };
+          const close = handle.close.bind(handle);
+          handle.close = async () => {
+            await close();
+            reallyClosed = true;
+            throw closeFailure;
+          };
+        }
+        return handle;
+      });
+      await assert.rejects(withEngineDependencyLease(options(state), async () => { entered = true; }), error => {
+        const errors = allErrors(error);
+        if (simultaneous) assert.ok(errors.includes(primary), 'original I/O error identity retained');
+        assert.ok(errors.includes(closeFailure), 'close error identity retained');
+        // The outer lease error contract remains unchanged for close-only failure.
+        if (!simultaneous) assert.equal(error.errors[0], closeFailure);
+        return true;
+      });
+      assert.equal(injected, true);
+      assert.equal(reallyClosed, true);
+      assert.equal(entered, false);
+      assert.deepEqual(await fs.readdir(path.join(state, 'locks')), []);
+    });
+  }
+}

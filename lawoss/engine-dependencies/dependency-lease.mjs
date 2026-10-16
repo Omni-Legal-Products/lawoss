@@ -28,9 +28,23 @@ async function mkdir(dir) {
     throw error;
   }
 }
+async function withClosedHandle(file, operation) {
+  let failed = false;
+  let primary;
+  let result;
+  try { result = await operation(); }
+  catch (error) { failed = true; primary = error; }
+  try { await file.close(); }
+  catch (error) {
+    if (failed) throw new AggregateError([primary, error], 'LEASE_HANDLE_CLOSE_FAILED');
+    throw error;
+  }
+  if (failed) throw primary;
+  return result;
+}
 async function metadata(dir) {
   const file = await fs.open(path.join(dir, 'meta.json'), 'r');
-  try {
+  return withClosedHandle(file, async () => {
     const info = await file.stat();
     if (!info.isFile() || info.size > 65536) throw fault('LEASE_METADATA_INVALID');
     // Fixed bound even if an external writer grows the file after stat.
@@ -47,7 +61,7 @@ async function metadata(dir) {
     catch { throw fault('LEASE_METADATA_INVALID'); }
     if (!value || typeof value.token !== 'string' || !value.token || !Number.isInteger(value.pid) || value.pid < 1 || typeof value.hostname !== 'string' || typeof value.createdAt !== 'string' || !Number.isFinite(Date.parse(value.createdAt))) throw fault('LEASE_METADATA_INVALID');
     return value;
-  } finally { await file.close(); }
+  });
 }
 async function check(dir, token) {
   if ((await metadata(dir)).token !== token) throw fault('LEASE_TOKEN_MISMATCH');
@@ -94,11 +108,11 @@ function heartbeat(handle, controller) {
       await check(handle.dir, handle.token);
       // Bind the update to the opened inode, never a later successor pathname.
       const file = await fs.open(path.join(handle.dir, 'heartbeat'), 'r+');
-      try {
+      await withClosedHandle(file, async () => {
         await check(handle.dir, handle.token);
         const now = new Date();
         await file.utimes(now, now);
-      } finally { await file.close(); }
+      });
     })().catch(error => {
       failure = error;
       controller.abort(error);
