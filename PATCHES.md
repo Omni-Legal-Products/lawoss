@@ -1,5 +1,9 @@
 # LAWOSS downstream patches
 
+## Dočasná vetva diagnostiky Windows inštancie (2026-10-16)
+
+Iba vetva `chore/windows-instance-repro-20261016`, bez PR a bez merge do produktu: `.github/workflows/storage-oauth-review.yml` zachováva názov a vstupnú schému, ale nahrádza build jediným ručne povoleným Windows2022 testom pôvodného enginu cez nezmenenú produkčnú factory a native `/path` helper. Presný Node24.21.0, pôvodné readiness limity, bez inštalácie balíčkov/Electronu/SDK/modelových požiadaviek; jediný artefakt je konečný validovaný syntetický receipt. Zdrojové commity `2a9e1eca` a `1021b988` prešli nezávislým SPEC/QUALITY review po oprave súbežných cleanup chýb a konečného provider countera; 34/34 čistých/fake testov PASS. Skutočné Windows správanie zostáva neoverené do samostatného behu. Táto diagnostická náhrada workflowu sa nesmie mergeovať ako produktová zmena.
+
 ## ISIR attachment acceptance (2026-10-13)
 
 | Súbory | Downstream doplnenie a dôvod |
