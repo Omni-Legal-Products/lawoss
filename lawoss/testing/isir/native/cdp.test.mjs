@@ -36,3 +36,28 @@ test('until false and throwing reads retain last-value expiry semantics',async t
     assert.equal(reads,1);
   }
 });
+
+test('CDP classifies only exact Runtime.evaluate navigation and preserves original error messages',async()=>{
+  const { connectRenderer, isNativeShutdownNavigation }=await import('./cdp.mjs');
+  const original=globalThis.WebSocket;let response;
+  class Socket extends EventTarget {
+    constructor(){super();queueMicrotask(()=>this.dispatchEvent(new Event('open')));}
+    send(raw){const request=JSON.parse(raw);queueMicrotask(()=>this.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({id:request.id,...(response?{error:response}:{result:{}})})})));}
+    close(){}
+  }
+  let cdp;
+  try {globalThis.WebSocket=Socket;cdp=await connectRenderer('http://127.0.0.1:9876',async()=>({json:async()=>[{type:'page',url:'http://127.0.0.1:5173',webSocketDebuggerUrl:'ws://127.0.0.1:9876/fixture'}]}));}
+  finally {globalThis.WebSocket=original;}
+  try {
+    for(const [method,error,expected] of [
+      ['Runtime.evaluate',{code:-32000,message:'Inspected target navigated or closed'},true],
+      ['Network.enable',{code:-32000,message:'Inspected target navigated or closed'},false],
+      ['Runtime.evaluate',{code:-32001,message:'Inspected target navigated or closed'},false],
+      ['Runtime.evaluate',{code:-32000,message:'Inspected target navigated or closed unexpectedly'},false],
+      ['Runtime.evaluate',{code:-32000,message:'generic network failure'},false],
+    ]){
+      response=error;
+      await assert.rejects(cdp.send(method),actual=>{assert.equal(actual.message,JSON.stringify(error));assert.equal(isNativeShutdownNavigation(actual),expected);assert.equal(actual.code,expected?'ISIR_NATIVE_CDP_SHUTDOWN_NAVIGATION':undefined);return true;});
+    }
+  } finally {cdp.close();}
+});

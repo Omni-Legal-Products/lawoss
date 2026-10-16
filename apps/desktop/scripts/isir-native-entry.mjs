@@ -3,6 +3,7 @@
 import { app, dialog, ipcMain } from "electron";
 import { readFile, appendFile } from "node:fs/promises";
 import path from "node:path";
+import { publishNativeQuitAcceptance } from "../../../lawoss/testing/isir/native/quit-acceptance.mjs";
 
 const root = process.env.LAWOSS_ISIR_NATIVE_ROOT;
 if (!root || !path.isAbsolute(root) || process.env.LEGALWORK_DEV_MODE !== "1" || app.isPackaged) {
@@ -34,6 +35,8 @@ ipcMain.handle = (channel, handler) => register(channel, channel !== "legalwork:
     // Additional test-only restriction; production origin validation alone
     // does not distinguish a same-origin subframe from its main frame.
     if (!event?.senderFrame || event.senderFrame !== event.sender?.mainFrame) throw new Error("ISIR native quit requires the main frame");
+    // Fixed main-owned launch context only; never accept an RPC-provided path.
+    publishNativeQuitAcceptance({root,nonce:process.env.LAWOSS_ISIR_NATIVE_QUIT_NONCE,pid:process.pid});
     app.quit(); // Actual production before-quit/dispose lifecycle, never app.exit.
     return { accepted: true }; // Request acknowledgement only, not closure.
   }

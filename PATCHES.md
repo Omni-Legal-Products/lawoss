@@ -762,3 +762,10 @@ Integrované gate receipts sú samostatné od upstream historických výsledkov.
 | Súbory | Úzka oprava a overenie |
 | --- | --- |
 | `apps/server/src/server.ts`, `apps/server/src/lawoss-global-providers.e2e.test.ts` | Celý pôvodný refresh/disconnection metadata blok sa vykoná až po úplnom provider-conflict/confirmation guard, stále pred prijatou zmenou alebo vymazaním provider configu. Dve nezávislé skutočné HTTP RED regresie odhalili pri409 vymazanie disconnected flagu pri replacement a disable/reset pendingReload pri null. Po presune kontrolujú úplný nezmenený runtime/workspace config aj audit pri odmietnutí, potvrdenú replacement/deletion, zachovanie nesúvisiacej metadata a účinný stale-engine refresh guard bez discovery/reload po odpojení. API, approval/permission a semantika prijatého metadata bloku zostávajú; nejde o rozšírenie transakcie. |
+
+
+### Task57: source-only oprava final review I1/I2 (2026-10-16)
+
+| Súbory | Úzka oprava a hranice |
+| --- | --- |
+| `scripts/test-isir-native.mjs`, `apps/desktop/scripts/isir-native-entry.mjs` | Iba explicitný pre-reconnect vstup čaká na skutočnú viditeľnú povolenú recovery akciu namiesto neexistujúceho Dokumenty riadka. Selected/runtime/root/breadcrumb guards aj štyri pôvodné operation budgety ostávajú; po úspešnom relink sa opäť vyžaduje listing. Pôvodný guarded appBuildInfo + main-frame guard predchádza malej atómovej main-owned acceptance receipt pod pôvodným dočasným root, s čerstvým launch nonce a child PID. Len presný typed Runtime.evaluate −32000 navigation error s platnou receipt je očakávaný; generic/guard/read/write chyby a strict-stop refusal stále bránia presunu. Pôvodné jediné3s okno a Windows close-CDP→stop bez quit/read/timer/listener ostávajú. Nové helpery sú inertné, mimo produkčného main/preload/runtime; zdrojové VM/filesystem testy nepreukazujú mounted native ani Windows closure. Legacy driver aj d671 baseline SHA sa overujú presnou occurrence-one inverziou; CI prefix sa nemení. |

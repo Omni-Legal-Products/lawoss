@@ -64,7 +64,50 @@ const relaunchChanges=[
     ""
   ]
 ];
-let original=added.reduce((text,line)=>text.replace(line,''),source);
+// Task57's exact occurrence-one inverse proves the current d671 driver as
+// well as the independently frozen legacy oracle below; never repin either.
+const finalReviewChanges=[
+  [
+    "import { randomBytes } from \"node:crypto\";\n",
+    ""
+  ],
+  [
+    "import { readNativeQuitAcceptance } from \"../lawoss/testing/isir/native/quit-acceptance.mjs\";\n",
+    ""
+  ],
+  [
+    "  const quitNonce = label.startsWith(\"electron\") ? randomBytes(32).toString(\"hex\") : null;\n",
+    ""
+  ],
+  [
+    "  const child = spawn(command, args, { cwd, env:quitNonce ? {...env,LAWOSS_ISIR_NATIVE_QUIT_NONCE:quitNonce} : env, detached:",
+    "  const child = spawn(command, args, { cwd, env, detached:"
+  ],
+  [
+    "  if (quitNonce) child.isirNativeQuitAcceptance={root,nonce:quitNonce,pid:child.pid};\n",
+    ""
+  ],
+  [
+    "  const openFiles = async (workspace,readiness='listing') => {\n    selectedIndex=workspaces.indexOf(workspace)+1;\n    await openNativeProjectFiles({cdp,until,workspace,caseIndex:selectedIndex,readiness});\n  };\n",
+    "  const openFiles = async workspace => {\n    selectedIndex=workspaces.indexOf(workspace)+1;\n    await openNativeProjectFiles({cdp,until,workspace,caseIndex:selectedIndex});\n  };\n"
+  ],
+  [
+    "    readQuitAcceptance:()=>readNativeQuitAcceptance(appChild.isirNativeQuitAcceptance),\n",
+    ""
+  ],
+  [
+    "  await openFiles(first,'reconnect');\n  const recoveryStart",
+    "  await openFiles(first);\n  const recoveryStart"
+  ],
+  [
+    "  first.path=moved;\n  await openFiles(first);\n",
+    "  first.path=moved;\n"
+  ]
+];
+let currentBase=source;
+for(const [current,previous] of finalReviewChanges){assert.equal(currentBase.split(current).length,2);currentBase=currentBase.replace(current,previous);}
+assert.equal(hash(currentBase),"2ef13f2a9722637d47b3a92fdd9d961ec44fff1d8d6ef1cb6eda44285bff41b7");
+let original=added.reduce((text,line)=>text.replace(line,''),currentBase);
 // Exact reversible navigation extraction and mounted reentry seams. The
 // original frozen driver digest below remains independent and unchanged.
 const navigationChanges=[
@@ -83,7 +126,7 @@ const navigationChanges=[
 ];
 for(const [current,previous] of navigationChanges){assert.equal(original.split(current).length,2);original=original.replace(current,previous);}
 for(const [current,previous] of relaunchChanges){assert.equal(original.split(current).length,2);original=original.replace(current,previous);}
-assert.equal(hash(original),'ab95f619598df7daccb8b741d9ae454715bc9440e1c0b7a06a29647642279ee1');assert.ok(source.indexOf(added[1])<source.indexOf('const electron ='));assert.ok(source.indexOf(added[1])<source.indexOf('probeNativeEngineVersion(externalEngine)'));assert.ok(source.indexOf('probeNativeEngineVersion(engine)')<source.indexOf(added[2]));assert.ok(source.indexOf('Object.assign(env, {')<source.indexOf(added[2]));assert.ok(source.indexOf(added[2])<source.indexOf('const launch ='));assert.ok(source.includes('spawn(command, args, { cwd, env, detached:'));assert.ok(source.includes('startupDeadline=Date.now()+90000'));assert.ok(source.lastIndexOf('verifyNativeEngineRuntime')<source.indexOf('diagnostics.phase("complete")'));});
+assert.equal(hash(original),'ab95f619598df7daccb8b741d9ae454715bc9440e1c0b7a06a29647642279ee1');assert.ok(source.indexOf(added[1])<source.indexOf('const electron ='));assert.ok(source.indexOf(added[1])<source.indexOf('probeNativeEngineVersion(externalEngine)'));assert.ok(source.indexOf('probeNativeEngineVersion(engine)')<source.indexOf(added[2]));assert.ok(source.indexOf('Object.assign(env, {')<source.indexOf(added[2]));assert.ok(source.indexOf(added[2])<source.indexOf('const launch ='));assert.ok(original.includes('spawn(command, args, { cwd, env, detached:'));assert.ok(source.includes('env:quitNonce ? {...env,LAWOSS_ISIR_NATIVE_QUIT_NONCE:quitNonce} : env'));assert.ok(source.includes('child.isirNativeQuitAcceptance={root,nonce:quitNonce,pid:child.pid}'));assert.ok(source.includes('readQuitAcceptance:()=>readNativeQuitAcceptance(appChild.isirNativeQuitAcceptance)'));assert.ok(source.includes('startupDeadline=Date.now()+90000'));assert.ok(source.lastIndexOf('verifyNativeEngineRuntime')<source.indexOf('diagnostics.phase("complete")'));});
 test('workflow appends only the separate first-attempt guarded job and preserves the entire three-job prefix',async()=>{const bytes=await fs.readFile(path.join(repo,'.github/workflows/ci-desktop-packaging.yml'));const prefixLength=13314;assert.equal(hash(bytes.subarray(0,prefixLength)),'d3726555afe6bb3197e06ca1f6683b79b4692253bdbfe5455d0ea4608e45ac52');const added=bytes.subarray(prefixLength).toString('utf8');assert.ok(added.includes('  windows-engine-empty-auth-probe:'));assert.ok(added.includes('needs: [package-smoke]'));assert.ok(added.includes('node-version: 24.21.0'));assert.ok(added.indexOf('node --test ')<added.indexOf('actions/download-artifact@'));assert.equal((added.match(/build:electron/g)??[]).length,1);assert.ok(!/electron-builder|engine-baseline-probe|engine-compile-monitor/.test(added));assert.ok(added.includes('if: always() && steps.empty-auth-finalize.outcome'));assert.ok(added.includes('name: isir-engine-empty-auth-probe-windows-2022'));assert.ok(added.includes('retention-days: 7'));});
 test('complete phase proves final version even if bounded request retention has evicted initial HTTP rows',()=>{const r=observedReceipt(),m=progressed();m.phase='complete';m.requests=[];r.exit='ok';r.lifecycle.code=0;r.engine.afterVersionVerified=true;assert.equal(api.classifyAltered(r,m),'altered-complete');r.stage='complete';r.outcome='altered-complete';r.alteredBoundary=api.compactBoundary(m);assert.doesNotThrow(()=>api.projectReceipt(r));});
 test('receipt rejects forged origin, incomplete stages and contradictory collector exit codes',()=>{const r=observedReceipt();for(const mutate of [v=>v.originalBoundary.phase='complete',v=>v.originalBoundary.health200=false,v=>v.originalBoundary.startupStage='verified',v=>v.exit='ok',v=>{v.exit='child-unclosed';},v=>{v.stage='awaiting-lawoss-build';},v=>{v.engine.afterVersionVerified=true;},v=>{v.producer.status='not-run';v.producer.ackSha256=null;},v=>{v.exit='not-run';}]){const v=structuredClone(r);mutate(v);assert.throws(()=>api.projectReceipt(v));}});

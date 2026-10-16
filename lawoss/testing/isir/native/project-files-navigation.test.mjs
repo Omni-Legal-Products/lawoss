@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, access, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { openNativeProjectFiles } from './project-files-navigation.mjs';
 
 const workspace = {id:'case-10',name:'Native case 10',path:'/synthetic/case-10'};
@@ -52,7 +54,7 @@ function fixture({open=true,expanded=true,foreign=false,folder=''}={}) {
   const waitError=Object.assign(new Error('fixture native wait expired'),{code:'ISIR_NATIVE_WAIT_EXPIRED'});
   const until=async(read,description,...budgets)=>{assert.deepEqual(budgets,[],'retain the default native operation budget');waits.push(description);for(let i=0;i<3;i++){const result=await read();if(result)return result;}throw waitError;};
   return {state,body,group,title,files,retained,panel,processing,nav,root,documents,input,context,expressions,waits,waitError,cdp,until,sync,
-    run:()=>openNativeProjectFiles({cdp,until,workspace,caseIndex:10})};
+    run:(readiness)=>openNativeProjectFiles({cdp,until,workspace,caseIndex:10,readiness})};
 }
 
 // Removing the pressed-state branch must close the already-open retained pane.
@@ -116,4 +118,66 @@ test('driver uses the imported helper and retains its selected-index side effect
   const wrapper=source.match(/  const openFiles = (async[\s\S]*?\n  };)/)[1].slice(0,-1);
   const f=fixture({open:false});const call=runInNewContext(`(()=>{let selectedIndex=1;const workspaces=[{},${JSON.stringify(workspace)}];const openFiles=${wrapper};return async()=>{await openFiles(workspaces[1]);return selectedIndex;};})()`,{cdp:f.cdp,until:f.until,openNativeProjectFiles});
   assert.equal(await call(),2);assert.equal(f.state.toggles,1);assert.equal(f.state.open,true);
+});
+
+function missingRootFixture() {
+  const f=fixture();
+  // Production error branch: processing/breadcrumb stay; directory rows do not.
+  f.panel.children=f.panel.children.filter(node=>!node.contains(f.documents));
+  const reconnect=new f.files.constructor('button',{},'Reconnect project folder');
+  f.panel.append(reconnect);
+  return {...f,reconnect};
+}
+test('explicit missing-root recovery accepts the actual visible action without any directory row',async()=>{
+  const f=missingRootFixture();await f.run('reconnect');
+  assert.equal(f.panel.querySelector('[data-project-folder="Dokumenty"]'),null);
+  assert.equal(f.state.toggles,0);assert.equal(f.waits.length,4);
+});
+for(const [name,mutate] of [
+  ['missing',f=>{f.panel.children=f.panel.children.filter(node=>node!==f.reconnect);}],
+  ['hidden',f=>{f.reconnect.attrs.hidden='';}],
+  ['disabled',f=>{f.reconnect.disabled=true;}],
+  ['aria-disabled',f=>{f.reconnect.attrs['aria-disabled']='true';}],
+  ['wrong owner',f=>{f.panel.attrs['data-files-workspace-id']='foreign';}],
+  ['wrong selected owner',f=>{f.state.selected='foreign';}],
+  ['wrong registered root',f=>{f.panel.attrs['data-files-workspace-root']='/foreign';}],
+  ['hidden pane',f=>{f.retained.attrs.hidden='';}],
+  ['duplicate',f=>{f.panel.append(new f.files.constructor('button',{},'Reconnect project folder'));}],
+  ['foreign pane action',f=>{f.panel.children=f.panel.children.filter(node=>node!==f.reconnect);f.body.append(f.reconnect);}],
+])test(`explicit recovery refuses ${name} reconnect action`,async()=>{
+  const f=missingRootFixture();mutate(f);await assert.rejects(f.run('reconnect'),error=>error===f.waitError);
+});
+test('ordinary Files still refuses the missing-root error branch',async()=>{
+  const f=missingRootFixture();await assert.rejects(f.run(),error=>error===f.waitError);
+});
+for(const [name,mutate] of [
+  ['missing',f=>{f.documents.parentElement.children=[];}],
+  ['duplicate',f=>{f.panel.append(new f.files.constructor('button',{'data-project-folder':'Dokumenty'},'Dokumenty'));}],
+  ['foreign',f=>{f.documents.parentElement.children=[];f.body.append(f.documents);}],
+])test(`ordinary Files refuses ${name} Dokumenty row`,async()=>{
+  const f=fixture();mutate(f);await assert.rejects(f.run(),error=>error===f.waitError);
+});
+test('actual driver recovery call reaches reconnect with old root absent, then requires ordinary listing after relink',async t=>{
+  const owned=await mkdtemp(path.join(tmpdir(),'native-reconnect-'));t.after(()=>rm(owned,{recursive:true,force:true}));
+  const oldRoot=path.join(owned,'absent'),moved=path.join(owned,'replacement');
+  const source=await readFile(new URL('../../../../scripts/test-isir-native.mjs',import.meta.url),'utf8');
+  const wrapper=source.match(/  const openFiles = (async[\s\S]*?\n  };)/)[1].slice(0,-1);
+  const segment=source.slice(source.indexOf("  await until(()=>cdp.evaluate('!!window.__legalworkControl'),'relaunched native renderer',90000);"),source.indexOf("  await until(async()=>{const saved=",source.indexOf("'relaunched native renderer'")));
+  const f=missingRootFixture();let clicks=0;
+  // VM uses real navigation expressions. The registered root must still be old
+  // when the existing driver click is reached; no filesystem recovery is faked.
+  const first={...workspace,path:oldRoot};f.panel.attrs['data-files-workspace-root']=oldRoot;
+  const call=runInNewContext(`(async()=>{let selectedIndex=1;const workspaces=[first];const openFiles=${wrapper};${segment}})()`,{
+    first,cdp:{...f.cdp,events:[],evaluate:expression=>expression==='!!window.__legalworkControl'?true:f.cdp.evaluate(expression)},
+    until:async(read,description,...budgets)=>description==='relaunched native renderer'?read():f.until(read,description,...budgets),openNativeProjectFiles,
+    click:async text=>{assert.equal(text,'Reconnect project folder');assert.equal(first.path,oldRoot);assert.equal(await access(oldRoot).then(()=>true,()=>false),false);clicks++;},
+  });
+  await call;assert.equal(clicks,1);assert.equal(first.path,oldRoot);
+  await assert.rejects(openNativeProjectFiles({cdp:f.cdp,until:f.until,workspace:first,caseIndex:1}),error=>error===f.waitError);
+  // Model only the production relink's new DOM root/listing, then execute the
+  // real driver's post-transaction assignment and ordinary navigation seam.
+  f.panel.attrs['data-files-workspace-root']=moved;f.panel.append(f.documents);
+  const relink=source.match(/  first.path=moved;\n  await openFiles\(first\);/)[0];
+  await runInNewContext(`(async()=>{let selectedIndex=1;const workspaces=[first];const openFiles=${wrapper};${relink}})()`,{first,moved,cdp:f.cdp,until:f.until,openNativeProjectFiles});
+  assert.equal(first.path,moved);assert.equal(f.state.toggles,0);assert.equal(await access(oldRoot).then(()=>true,()=>false),false);
 });

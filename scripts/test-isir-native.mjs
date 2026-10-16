@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, writeFile, rm, access, symlink, realpath, rename, readdir } from "node:fs/promises";
@@ -11,6 +12,7 @@ import { startProvider } from "../lawoss/testing/isir/native/provider.mjs";
 import { partialPdf } from "../lawoss/testing/isir/native/partial-pdf.mjs";
 import { connectRenderer, until } from "../lawoss/testing/isir/native/cdp.mjs";
 import { stopForRelaunch } from "../lawoss/testing/isir/native/relaunch-stop.mjs";
+import { readNativeQuitAcceptance } from "../lawoss/testing/isir/native/quit-acceptance.mjs";
 import { stopNativeChild } from "../lawoss/testing/isir/native/owned-process.mjs";
 import { createNativeDiagnostics, settleCleanup, errorMetadata, observePromptClick } from "../lawoss/testing/isir/native/diagnostics.mjs";
 import { configureNativeProvider } from "../lawoss/testing/isir/native/bootstrap.mjs";
@@ -96,7 +98,9 @@ for (const [index, entry] of corpus.cases.entries()) {
 await writeFile(path.join(profile, "legalwork-workspaces.json"), JSON.stringify({ selectedId: workspaces[0].id, watchedId: workspaces[0].id, activeId: workspaces[0].id, workspaces }));
 await writeFile(path.join(root, "chooser.json"), JSON.stringify({ paths: [path.join(root, "originals", corpus.cases[0].id, corpus.cases[0].documents[0].name)] }));
 const launch = (command, args, cwd, label) => {
-  const child = spawn(command, args, { cwd, env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+  const quitNonce = label.startsWith("electron") ? randomBytes(32).toString("hex") : null;
+  const child = spawn(command, args, { cwd, env:quitNonce ? {...env,LAWOSS_ISIR_NATIVE_QUIT_NONCE:quitNonce} : env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+  if (quitNonce) child.isirNativeQuitAcceptance={root,nonce:quitNonce,pid:child.pid};
   let output = ""; child.stdout.on("data", c => output += c); child.stderr.on("data", c => output += c);
   child.on("error", e => output += String(e));
   children.push({ child, label, output: () => output });
@@ -184,9 +188,9 @@ try {
     return {response,body:await response.json()};
   };
   const panelText = () => cdp.evaluate(`document.querySelector('[aria-label="Document processing"]')?.innerText??''`);
-  const openFiles = async workspace => {
+  const openFiles = async (workspace,readiness='listing') => {
     selectedIndex=workspaces.indexOf(workspace)+1;
-    await openNativeProjectFiles({cdp,until,workspace,caseIndex:selectedIndex});
+    await openNativeProjectFiles({cdp,until,workspace,caseIndex:selectedIndex,readiness});
   };
   const inputFiles = async (selector, paths) => {
     const doc = await cdp.send('DOM.getDocument');
@@ -497,6 +501,7 @@ try {
   diagnostics.phase("relaunch");
   await stopForRelaunch({
     requestQuit:()=>cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('isirNativeQuit')"),
+    readQuitAcceptance:()=>readNativeQuitAcceptance(appChild.isirNativeQuitAcceptance),
     closeCdp:()=>{cdp.close();cdp=null;},child:appChild,stop,cleanupFailures:relaunchCleanupErrors,
   });
   await rename(oldPath,moved);
@@ -506,12 +511,13 @@ try {
   await cdp.send('Page.enable');
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1800,height:1400,deviceScaleFactor:1,mobile:false});
   await until(()=>cdp.evaluate('!!window.__legalworkControl'),'relaunched native renderer',90000);
-  await openFiles(first);
+  await openFiles(first,'reconnect');
   const recoveryStart=cdp.events.length;
   await click('Reconnect project folder');
   await until(async()=>{const saved=JSON.parse(await readFile(path.join(profile,'legalwork-workspaces.json'),'utf8'));const found=saved.workspaces.find(w=>w.id===first.id);return found?.path===moved},'production native chooser canonical reconnect transaction',90000);
   await until(()=>['/workspace/'+first.id+'/reconnect','/workspaces/'+first.id+'/activate'].every(path=>cdp.events.slice(recoveryStart).some(e=>e.method==='Network.responseReceived'&&new URL(e.params.response.url).pathname.endsWith(path)&&e.params.response.status===200)),'actual native reconnect and activation200');
   first.path=moved;
+  await openFiles(first);
   serverInfo=await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('legalworkServerInfo')");
   serverAuth={authorization:'Bearer '+(serverInfo.ownerToken||serverInfo.clientToken),'content-type':'application/json'};
   const chooserReceipts=(await readFile(path.join(root,'chooser-receipts.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);

@@ -39,12 +39,18 @@ function navigateProjectFiles(expected, phase) {
     root.click();
     return false;
   }
-  const folder = panel.querySelector('[data-project-folder="Dokumenty"]');
-  return state.folderPathEqual && state.rootBreadcrumbEqual && root.getAttribute('aria-current') === 'location' && enabled(folder);
+  if (!state.folderPathEqual || !state.rootBreadcrumbEqual || root.getAttribute('aria-current') !== 'location') return false;
+  // Only the explicit pre-reconnect call can acknowledge the production error
+  // branch. It has no directory rows; ordinary navigation remains strict.
+  const controlsAtRoot = expected.readiness === 'reconnect'
+    ? [...panel.querySelectorAll('button')].filter(node => node.textContent.trim() === 'Reconnect project folder')
+    : [...panel.querySelectorAll('[data-project-folder="Dokumenty"]')];
+  return controlsAtRoot.length === 1 && enabled(controlsAtRoot[0]);
 }
 
-export async function openNativeProjectFiles({cdp,until,workspace,caseIndex}) {
-  const expected = {id:workspace.id,root:workspace.path,name:workspace.name,caseIndex};
+export async function openNativeProjectFiles({cdp,until,workspace,caseIndex,readiness='listing'}) {
+  if (!['listing','reconnect'].includes(readiness)) throw new TypeError('Unknown native Files readiness');
+  const expected = {id:workspace.id,root:workspace.path,name:workspace.name,caseIndex,readiness};
   await cdp.evaluate(`(${installChooserBoundary.toString()})(${JSON.stringify(expected)})`);
   const read = phase => cdp.evaluate(`(${navigateProjectFiles.toString()})(${JSON.stringify(expected)},${JSON.stringify(phase)})`);
   await until(()=>read('expand'),`select native project ${workspace.id}`);

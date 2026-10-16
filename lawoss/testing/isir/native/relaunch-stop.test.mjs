@@ -165,3 +165,60 @@ test('Windows close rejection still attempts stop and retains both ordered failu
   assert.deepEqual(f.durations,[]);assert.equal(f.child.listenerCount('exit'),0);
   assert.equal(f.descendantAlive(),true);
 });
+
+const navigationError = () => Object.assign(new Error('exact synthetic CDP navigation'),{code:'ISIR_NATIVE_CDP_SHUTDOWN_NAVIGATION',cdpMethod:'Runtime.evaluate',cdpCode:-32000});
+function acceptedModel({requestError=navigationError(),acceptance=true,stopError}={}) {
+  const child=Object.assign(new EventEmitter(),{exitCode:0,signalCode:null}),events=[],clock=windowClock(),cleanupFailures=[];
+  return {platform:'darwin',child,...clock,events,cleanupFailures,
+    requestQuit:async()=>{events.push('request');if(requestError)throw requestError;return {accepted:true};},
+    readQuitAcceptance:()=>{events.push('read-acceptance');return acceptance;},
+    closeCdp:()=>events.push('close'),stop:async()=>{events.push('strict-stop');if(stopError)throw stopError;},
+  };
+}
+test('accepted exact navigation still requires independent strict stop before movement',async()=>{
+  const f=acceptedModel();await stopForRelaunch(f);f.events.push('rename');
+  assert.deepEqual(f.events,['request','read-acceptance','close','strict-stop','rename']);assert.deepEqual(f.durations,[3000]);assert.equal(f.child.listenerCount('exit'),0);
+});
+for(const [name,acceptance] of [['missing',false],['malformed',{}],['untyped',1],['unaccepted',null]])test(`${name} acceptance preserves exact navigation failure and blocks movement`,async()=>{
+  const primary=navigationError(),f=acceptedModel({requestError:primary,acceptance});
+  await assert.rejects((async()=>{await stopForRelaunch(f);f.events.push('rename');})(),error=>error===primary);
+  assert.deepEqual(f.events,['request','read-acceptance','close','strict-stop']);
+});
+for(const primary of [new Error('generic request failed'),new Error('Inspected target navigated or closed'),Object.assign(navigationError(),{cdpMethod:'Network.enable'}),Object.assign(navigationError(),{cdpCode:-1})])test(`generic or incorrectly classified rejection never borrows any receipt: ${primary.message} ${primary.cdpMethod??''} ${primary.cdpCode??''}`,async()=>{
+  const f=acceptedModel({requestError:primary});await assert.rejects(stopForRelaunch(f),error=>error===primary);
+  assert.deepEqual(f.events,['request','close','strict-stop']);
+});
+test('acceptance read failure retains navigation primary and ordered read/close/strict failures',async()=>{
+  const primary=navigationError(),read=new Error('receipt read failed'),close=new Error('close failed'),strict=new Error('strict refused');
+  const f=acceptedModel({requestError:primary,stopError:strict});f.readQuitAcceptance=()=>{throw read;};f.closeCdp=()=>{throw close;};
+  await assert.rejects(stopForRelaunch(f),error=>error===primary);assert.deepEqual(f.cleanupFailures,[read,close,strict]);
+});
+test('accepted navigation and exited leader cannot hide strict survivor refusal',async()=>{
+  const strict=new Error(refusal),f=acceptedModel({stopError:strict});
+  await assert.rejects((async()=>{await stopForRelaunch(f);f.events.push('rename');})(),error=>error===strict);
+  assert.deepEqual(f.cleanupFailures,[strict]);assert.ok(!f.events.includes('rename'));
+});
+test('resolved IPC acknowledgement still requires the configured main-owned receipt',async()=>{
+  const f=acceptedModel({requestError:null,acceptance:false});
+  await assert.rejects(stopForRelaunch(f),{code:'ISIR_NATIVE_QUIT_UNACCEPTED'});assert.deepEqual(f.events,['request','read-acceptance','close','strict-stop']);
+});
+test('receipt-enabled pending request shares one original window and blocks movement when still unacknowledged',async()=>{
+  const f=acceptedModel();let read=0;f.child.exitCode=null;f.requestQuit=()=>new Promise(()=>{});f.readQuitAcceptance=()=>{read++;return true;};
+  const pending=stopForRelaunch(f),refused=assert.rejects(pending,{code:'ISIR_NATIVE_QUIT_UNACKNOWLEDGED'});
+  await Promise.resolve();f.expire();await refused;assert.equal(read,0);assert.deepEqual(f.durations,[3000]);assert.equal(f.child.listenerCount('exit'),0);
+});
+for(const alreadyExited of [false,true])test(`Windows never touches receipt, ordinary quit, timer or exit listener, exited=${alreadyExited}`,async()=>{
+  const f=windowsModel();if(alreadyExited)f.child.exitCode=0;
+  f.readQuitAcceptance=()=>{throw new Error('Windows must not read a quit receipt');};
+  f.child.once=()=>{throw new Error('Windows must not add an exit listener');};
+  await stopForRelaunch(f);assert.deepEqual(f.events,['cdp-close',alreadyExited?'stop-early-return':'strict-stop-live']);assert.deepEqual(f.durations,[]);
+});
+
+test('late navigation after the original window cannot read a receipt or mutate already retained cleanup failures',async()=>{
+  const f=acceptedModel();let rejectRequest,reads=0;
+  f.child.exitCode=null;f.requestQuit=()=>new Promise((_resolve,reject)=>{rejectRequest=reject;});f.readQuitAcceptance=()=>{reads++;return true;};
+  const pending=stopForRelaunch(f),refused=assert.rejects(pending,{code:'ISIR_NATIVE_QUIT_UNACKNOWLEDGED'});
+  await Promise.resolve();f.expire();await refused;
+  rejectRequest(navigationError());for(let i=0;i<5;i++)await Promise.resolve();
+  assert.equal(reads,0);assert.deepEqual(f.cleanupFailures,[]);assert.deepEqual(f.durations,[3000]);
+});
