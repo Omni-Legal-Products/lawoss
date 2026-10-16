@@ -143,6 +143,7 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 ## Native document generation
 
+- Background source polling must not starve a user-triggered generation. Keep availability separate from verified display state, and always re-read selected sources before dispatch; failed refreshes and changed sources still fail closed.
 - Extraction completeness requires coverage of every selected original. Failed refreshes must retract current verification even when query caches retain previously successful data.
 - Recursive selection enforces the canonical selected-folder boundary as well as the workspace boundary. Require the server's exact boundary acknowledgment; older servers must not silently widen selection.
 - An asynchronous prompt acknowledgment is not task completion. Retain the scoped session through native running/error/terminal states and reload; retries reuse the accepted chat. Associate source selection with ultimate-original IDs and hashes, and correlate each submitted attempt with its engine-visible user-message ID. Completed tool steps and comparisons between client/server clocks are not terminal evidence.

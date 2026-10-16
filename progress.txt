@@ -1,5 +1,6 @@
 ## Codebase Patterns
 
+- Background source refresh and user-triggered generation have separate availability rules; generation always re-reads selected sources before dispatch, while output verification stays conservative during refresh.
 - Workspace identity and file paths are separate contracts: moving a folder must not create a new case or silently recreate the old path.
 - Reuse DocumentPreparation/OCR and scoped agent plugins; incomplete coverage is a durable result, not a successful empty document.
 - Real ISIR datasets and provider credentials stay outside Git; CI fixtures are synthetic.
@@ -49,3 +50,13 @@
 2026-10-14: First PR156 remote source Linux/macOS and i18n passed, portableWindows and allthree native package jobs failed. Signed251b523a fixes actual equal-mtime stale-save HTTP200instead409; 2fd12637 adds portable fixtures and bounded synthetic-only diagnostics, real owned-child exit and primary-error preservation. Covering49server/1existingOCRskip0fail and23nativehelpers0fail, strict0. Independent review/root full gates underway. Shared DB EBUSY and native remote causes remain unresolved, no dev integration/user-profile deployment/live-provider claim; PATCHES/AGENTS/CLAUDE/plan updated.
 
 2026-10-14: CI-platform scopedreview found actual owneddescendant surviving leaderexit; RED reproduced and signed3625b04c uses captured PID/UID/PGID/start identity, individual revalidated signals, actual descendant exit and fail-closed unverified/sharedgroup. Covering26helperspassed; fresh2fd..3625 re-review ADDRESSED/no newCritical/Important/Minor. Root complete source server1536pass21skip0fail/app1527pass2skip0fail/desktop333pass4skip0fail, serverbuild and freshElectronbuild0. Node ABI137 gate restored locally after ElectronABI148 rebuild and passes1test; this is isolateddependency maintenance, no lock/version changes. New actualnative64466 running. No new remote result/dev integration/profile deployment claim.
+
+
+## 2026-10-17T01:53:54+02:00 — generovanie počas overovania zdrojov
+
+- User identified recording symptom 3: source verification / generation appears stuck. Reproduced old Generate disabled state during held background poll in unit and browser regressions.
+- Changed DocumentProcessingPanel availability only: prior successful selected-source evidence allows a fresh independent generation preflight during polling. Missing, pending, stale, error and failed-refresh cases still block; output verification remains conservative.
+- Files: apps/app/src/react-app/domains/session/panel/document-processing-panel.tsx; apps/app/tests/document-processing-panel.test.tsx; apps/app/tests/fixtures/document-generation-polling.html and .tsx; apps/app/scripts/document-generation-polling.playwright.js; docs/qa/document-generation-polling/README.md and after.png; AGENTS.md; CLAUDE.md; progress.txt.
+- QA: 28 targeted tests pass; full app suite 1599 pass / 2 platform skips / 0 fail; app typecheck pass. Browser held-poll generation accepted once; changed-source preflight rejected before send. Read-only independent review found no actionable issue. Synthetic screenshot inspected; no client data or recording committed.
+- Scope: browser fixture substitutes API and send callback; live model completion, OCR quality and native packaged release are not established by this check. Existing native-generation regressions remain passing.
+- Learning: isFetching describes transport activity, not the result of evidence validation. Keep dispatch preflight separate from availability and from verified output labels.
