@@ -817,3 +817,22 @@ Detaily a source API jsou v SDD task-24-brief.md. Produkční distribuce/notices
 - [ ] Root PATCHES/guidance/plan/progress a feature publikace až po předchozím2e6 ALLterminal audit. Původní wholeapp/portable/GUI/dev gates zůstávají otevřené.
 
 **Task33 source:**1726a52c, root unchanged environment/cwd/terminator comparison resolves reviewer context caveat; only health wait and maxzero remaining budget changed. API healthy není instance/plugin ready. Historický RED child nebyl explicitně uzavřen; pozdější absence není důkaz close. Předchozí2e6ALLterminal auditPASS pro evidenci, skutečný nativeRED/CHILD_FAILED zůstává a vyžaduje phase diagnostiku Task34.
+
+### Task 34: Zachovat skutečnou fázi nativního selhání
+
+**Důkaz:**2e6 actual native run38831595649 selhal na obou platformách po21/21 guardech; obecný CHILD_FAILED nerozlišil acquisition a následné47 testy. Původní RED a UNKNOWN zůstávají autoritativní. Obecné Linux/macOS i SDK CI úspěšné; celý head terminální a root audit evidencePASS.
+
+- [x] Malá konečná phase/childclose/exit projekce bez raw stderr/TAP/paths/config; žádný předpoklad vnitřní příčiny.
+- [x] Bounded private owned receipt od acquisition workeru se načte výhradně po prokázaném child close; chybějící/nevalidní receipt zůstává unknown.
+- [x] Skutečný platný acquisition success zůstane viditelný při pozdějším test/cleanup selhání; failed test může promítnout pouze čísla a source-known file/line identitu.
+- [x] Behavioral RED/GREEN amended whole source suite na Node22, původních47 neměnit/zbytečně neopakovat, vstupy/budgets/retries/TLS beze změny; DCO a fresh SPEC/QUALITY.
+- [ ] Root evidence/reader-contract/guidance/plan/progress, normální publikace health+nové diagnostiky a první skutečné nové nativní CI. Žádný rerun stejného kódu pro získání zelené.
+
+**Task34 source:**a070cdc8+a7de50cd, fresh SPEC/QUALITY0findings/rootauditPASS, finální28/28 actualNodeexit0/retainedb41a95cb. Earlier27TAP a vnějšícat exit zůstávají výslovně oddělené. Původní2e6nativeRED/CHILD_FAILED a actual32/64/64/47UNKNOWN se tím nemění.
+
+### Task 35: Nezávislé dokončení nativních platforem
+
+- [x] Pouze strategy.fail-fast:false pro existing Windows+Ubuntu native matrix; stejné10min limity, action/runtime piny, instalace i příkazy. YAML parse/type/matrix/diff PASS.
+- [x] Fresh nezávislá SPEC/QUALITY0findings a root exact-one-field/YAML2OS10min/DCO2 audit PASS před společným feature pushem. PůvodníWindows2e6cancelled není nový native výsledek.
+
+**Task35 provenance:** První lokální31df obsahoval omylem literal S/task-35-report.md, protože brief nedefinoval absolutníS cestu. Harmless synthetic report byl přenesen do exact externího scratch a normálním cleanup commitem22cf odstraněn, bez rewrite historie; finální netdiff je jediný YAML field. Žádná klientská data/credentials/runtime akce.
