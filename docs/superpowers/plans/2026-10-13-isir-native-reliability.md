@@ -806,3 +806,14 @@ Detaily a source API jsou v SDD task-24-brief.md. Produkční distribuce/notices
 **Hranice:** Do source review žádné síťové spuštění této komponenty. Cache tee může vidět mezní chunk před refusal; nejde o byte-exact disk quota. Nový nativní mergedgraph PASS stále neprokazuje produkční hook, packaging ani původní app/GUI/dev kritéria.
 
 **Task32 source:**7a44b3ec, fresh SPEC/QUALITY Approved/noCriticalImportant; root immutable/source/DCO auditPASS. Dva Minor jsou evidované pro wholebranchreview: částečně inicializovaný root bez prokázané identity se nemaže; uncoded operation error může nést nepřesné CLEANUP_FAILED. Source21/21 jsou původní worker execution evidence v toolhistory, nikoli uložený raw TAP/hash; native47 skutečně dosud nespouštěné.
+
+### Task 33: Pravdivá kontrola API připravenosti spravovaného enginu
+
+**Zjištění:** Zdrojové ověření pinned native route ukázalo, že app `/health` přijímá libovolnou HTTP odpověď, zatímco engine má skutečný instance-free `/global/health`. `/health` je UI catch-all/proxy; nejde o doložení příčiny původního startup timeoutu.
+
+- [x] Behavioral RED pro UI HTML falešně přijaté jako ready, poté skutečný `/global/health` status200 a kompletní bounded JSON healthy:true/version.
+- [x] Zachované auth, původní absolutní deadline a process-owner lifetime; idle/oversized/invalid/late body a exited child nesmějí vrátit ready. Žádné prodloužení timeoutu ani SDK/runtime hook.
+- [x] Wholemanaged14pass0fail42assert/exactBun1.4.2/Node24, typecheckexit0, retained final69972601, DCO a fresh SPEC/QUALITY0findings/rootauditPASS.
+- [ ] Root PATCHES/guidance/plan/progress a feature publikace až po předchozím2e6 ALLterminal audit. Původní wholeapp/portable/GUI/dev gates zůstávají otevřené.
+
+**Task33 source:**1726a52c, root unchanged environment/cwd/terminator comparison resolves reviewer context caveat; only health wait and maxzero remaining budget changed. API healthy není instance/plugin ready. Historický RED child nebyl explicitně uzavřen; pozdější absence není důkaz close. Předchozí2e6ALLterminal auditPASS pro evidenci, skutečný nativeRED/CHILD_FAILED zůstává a vyžaduje phase diagnostiku Task34.
