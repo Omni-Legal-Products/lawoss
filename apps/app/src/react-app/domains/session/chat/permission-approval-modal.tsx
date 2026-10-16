@@ -59,6 +59,7 @@ const metadataDetailKeys: Array<{ key: string; labelKey: string; multiline?: boo
 ];
 
 function readablePermissionLabel(permission: string): string {
+  if (permission === "legalwork_project_set_instructions") return t("project_settings.writing");
   if (permission === "bash") return currentUiMode() === "lite" ? t("lawoss.lite.permission_command") : "Bash"; // LAWOSS-lite: bez technických pojmů
   if (permission === "edit") return t("session.permission_kind_edit");
   if (permission === "read") return t("session.permission_kind_read");
@@ -71,6 +72,10 @@ function readablePermissionLabel(permission: string): string {
 }
 
 function permissionCopy(permission: string): Pick<PermissionPresentation, "title" | "message"> {
+  if (permission === "legalwork_project_set_instructions") return {
+    title: t("session.project_instructions_approval_title"),
+    message: t("session.project_instructions_approval_message"),
+  };
   if (permission === "bash") {
     return {
       title: t("session.permission_title_bash"),
@@ -158,6 +163,20 @@ function stringifyMetadata(metadata: Record<string, unknown>, safeStringify?: (v
   }
 }
 
+function ProjectInstructionsReview({ metadata }: { metadata: Record<string, unknown> }) {
+  return <div className="space-y-3">
+    {[
+      { label: t("session.project_instructions_current"), value: metadata.previousInstructions },
+      { label: t("session.project_instructions_proposed"), value: metadata.proposedInstructions },
+    ].map(({ label, value }) => <div key={label}>
+      <div className="text-xs font-medium text-dls-secondary">{label}</div>
+      <div className="mt-1 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-dls-border bg-dls-hover/45 px-3 py-2 text-sm leading-5 text-dls-text">
+        {typeof value === "string" ? value || t("project_settings.global_defaults") : t("session.permission_metadata_unavailable")}
+      </div>
+    </div>)}
+  </div>;
+}
+
 function isFocusableElement(element: HTMLElement) {
   if (element.hasAttribute("disabled")) return false;
   if (element.getAttribute("aria-hidden") === "true") return false;
@@ -197,6 +216,7 @@ function describePermissionRequest(permission: PendingPermission): PermissionPre
 }
 
 export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
+  const projectInstructions = props.permission.permission === "legalwork_project_set_instructions";
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
   const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission]);
@@ -327,7 +347,8 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
             </div>
           ) : null}
 
-          {hasMetadata ? (
+          {projectInstructions ? <ProjectInstructionsReview metadata={metadata} /> : null}
+          {hasMetadata && !projectInstructions ? (
             <details className="group rounded-[18px] border border-dls-border bg-dls-surface px-4 py-3">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[13px] font-medium text-dls-text">
                 <span>{t("session.details_label")}</span>
@@ -341,10 +362,10 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
         </div>
 
         <AlertDialogFooter className="flex-col gap-4">
-          <p className="mb-4 text-[12px] leading-5 text-dls-secondary">
+          {!projectInstructions ? <p className="mb-4 text-[12px] leading-5 text-dls-secondary">
             {t("session.permission_decision_hint")}
-          </p>
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[1fr_auto_auto]">
+          </p> : null}
+          <div className={`grid grid-cols-1 gap-2.5 ${projectInstructions ? "sm:grid-cols-[1fr_auto]" : "sm:grid-cols-[1fr_auto_auto]"}`}>
             <AlertDialogAction
               variant="destructive"
               className="justify-center sm:justify-self-start"
@@ -362,7 +383,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
               {t("session.allow_once")}
             </AlertDialogAction>
             {/* LAWOSS-lite: pravidlo „pro session“ by povolilo i pozdější zápis s --apply bez karty. */}
-            {lite && keepsMemoryWriteGate(String(metadata.command ?? "")) ? null : (
+            {(lite && keepsMemoryWriteGate(String(metadata.command ?? ""))) || projectInstructions ? null : (
               <AlertDialogAction
                 variant="outline"
                 onClick={() => props.respondPermission?.(props.permission.id, "always")}
@@ -380,6 +401,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
 }
 
 export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
+  const projectInstructions = props.permission.permission === "legalwork_project_set_instructions";
   const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission]);
   const metadata =
     props.permission.metadata && typeof props.permission.metadata === "object"
@@ -428,7 +450,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               {t("session.allow_once")}
             </Button>
             {/* LAWOSS-lite: pravidlo „pro session“ by povolilo i pozdější zápis s --apply bez karty. */}
-            {lite && keepsMemoryWriteGate(String(metadata.command ?? "")) ? null : (
+            {(lite && keepsMemoryWriteGate(String(metadata.command ?? ""))) || projectInstructions ? null : (
               <Button
                 type="button"
                 variant="outline"
@@ -469,7 +491,8 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
             </div>
           </div>
 
-          {hasMetadata ? (
+          {projectInstructions ? <div className="mt-3"><ProjectInstructionsReview metadata={metadata} /></div> : null}
+          {hasMetadata && !projectInstructions ? (
             <details className="group mt-3 rounded-xl border border-dls-border bg-dls-surface px-3 py-2">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[12px] font-medium text-dls-text">
                 <span>{t("session.details_label")}</span>

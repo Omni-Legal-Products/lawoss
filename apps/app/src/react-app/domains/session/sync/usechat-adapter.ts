@@ -18,6 +18,7 @@ import {
 } from "./parse-tool-parts";
 import { t } from "@/i18n";
 import { subscriptionModelErrorKey } from "@/lawoss/providers/subscription-models";
+import { isAnthropicUsageLimitError, providerUsageLimitErrorText } from "@/app/lib/provider-usage-limit";
 
 function recordValue(value: unknown, key: string) {
   if (!value || typeof value !== "object") return undefined;
@@ -71,9 +72,10 @@ function describeErrorText(text: string) {
   return withAttachmentRecoveryHint(text);
 }
 
-export function describeOpencodeSessionError(error: unknown, fallback = "Session failed") {
+export function describeOpencodeSessionError(error: unknown, fallback = "Session failed", providerId?: string) {
   const lawossKey = subscriptionModelErrorKey(error); // LAWOSS: model the ChatGPT subscription rejects
   if (lawossKey) return t(lawossKey);
+  if (isAnthropicUsageLimitError(error)) return providerUsageLimitErrorText(providerId ?? "anthropic");
   if (error instanceof Error) return describeErrorText(error.message || fallback);
   if (typeof error === "string") return describeErrorText(error.trim() || fallback);
   if (!error || typeof error !== "object") return fallback;
@@ -283,7 +285,8 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
     const error = message.info.role === "assistant" && "error" in message.info ? message.info.error : undefined;
     if (!error) return [uiMessage];
 
-    const errorMessage = createSessionErrorUIMessage(message.info.id, describeOpencodeSessionError(error), { created });
+    const providerId = message.info.role === "assistant" ? message.info.providerID : undefined;
+    const errorMessage = createSessionErrorUIMessage(message.info.id, describeOpencodeSessionError(error, "Session failed", providerId), { created });
     return uiMessage.parts.length > 0 ? [uiMessage, errorMessage] : [errorMessage];
   });
 }
