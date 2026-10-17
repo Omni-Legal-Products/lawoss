@@ -43,7 +43,7 @@ test('startup readiness and workspace reload are bounded separately from ordinar
   await request.ready();
   await request.reload();
   assert.equal(calls[0].timeout,30_000,'Ordinary engine requests retain their existing deadline');
-  assert.equal(calls[1].timeout,90_000,'Cold instance startup has its own bounded readiness deadline');
+  assert.equal(calls[1].timeout,300_000,'Cold instance provisioning matches the pinned engine lock acquisition budget');
   assert.equal(calls[2].timeout,90_000,'Diagnostics must not shorten the production reload contract');
   for (const call of calls.slice(1)) {
     assert.ok(call.options.signal instanceof AbortSignal,'Default fetch also receives an explicit bounded signal');
@@ -74,7 +74,7 @@ test('native configuration waits for authenticated instance readiness headers an
   })();
   await started;
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(calls, [{url:'http://127.0.0.1:4321/workspace/ws_native_1/opencode/mcp',method:'GET',auth:'Bearer synthetic-owner',timeout:90_000}]);
+  assert.deepEqual(calls, [{url:'http://127.0.0.1:4321/workspace/ws_native_1/opencode/mcp',method:'GET',auth:'Bearer synthetic-owner',timeout:300_000}]);
   finishBody();
   await setup;
   assert.deepEqual(calls.slice(1).map(call => call.method), ['PUT', 'POST']);
