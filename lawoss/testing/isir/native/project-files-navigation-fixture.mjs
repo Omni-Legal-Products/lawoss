@@ -58,4 +58,3 @@ export function fixture({open=true,expanded=true,foreign=false,folder='',renderC
   return {state,body,group,title,expand,files,retained,panel,processing,nav,root,documents,input,context,expressions,waits,waitError,cdp,until,sync,
     run:(readiness)=>openNativeProjectFiles({cdp,until,workspace,caseIndex:10,readiness})};
 }
-
