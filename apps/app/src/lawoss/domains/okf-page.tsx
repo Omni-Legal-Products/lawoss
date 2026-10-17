@@ -7,7 +7,7 @@ import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import type { MatterTextKey } from "../i18n/matters";
 import { LawossLayout } from "../shell/layout";
-import { activeWorkspace, useOkfConnection, useOkfOverview, type OkfReadResult } from "../okf/read-model";
+import { activeWorkspace, useOkfConnection, useOkfOverview, useOkfScope, type OkfReadResult, type OkfScope } from "../okf/read-model";
 import type { CockpitParty } from "../../../../../lawoss/okf/cockpit";
 import { ENABLE_OKF_ROUTE, useOkfChoice } from "./onboarding/entry-actions";
 import { NEW_MATTER_PATH } from "../lite/links";
@@ -23,7 +23,7 @@ export function useMatterText() {
 
 /** Caller-supplied state copy (lite); defaults to `lawoss.matters.*`. */
 export type StateText = (key: MatterTextKey, params?: Record<string, string | number>) => string;
-/** Which workspace the page reads; lite passes `officeWorkspace`, pro keeps the active one. */
+/** Which workspace anchors the page; lite passes `officeWorkspace`, pro keeps the active one. Inside a practice both read every client (N1). */
 type PickWorkspace = typeof activeWorkspace;
 /** `rawProblems: false` (lite) hides per-file read errors - they carry internal names like "Workspace not found". */
 /** Kedy sa pamäť naposledy overila a kedy sa jej obsah naozaj zmenil (indikátor živosti). */
@@ -31,7 +31,7 @@ export type OkfPageMeta = { checkedAt: number; changedAt: number; failed?: boole
 /** Kedy má stránka čo ukázať; predvolene keď sú veci (Klienti ukážu aj klientov bez vecí). */
 type HasContent = (data: OkfReadResult) => boolean;
 const hasMatters: HasContent = (data) => data.matters.length > 0;
-type PageProps = { title?: string; children: (data: OkfReadResult, meta: OkfPageMeta) => ReactNode; stateText?: StateText; pickWorkspace?: PickWorkspace; rawProblems?: boolean; hasContent?: HasContent };
+type PageProps = { title?: string; children: (data: OkfReadResult, meta: OkfPageMeta, scope: OkfScope | null) => ReactNode; stateText?: StateText; pickWorkspace?: PickWorkspace; rawProblems?: boolean; hasContent?: HasContent };
 
 /** Retry also reloads the desktop connection, which may be absent during startup. */
 export function OkfPage({ title, children, stateText, pickWorkspace, rawProblems, hasContent }: PageProps) {
@@ -53,7 +53,8 @@ export function OkfPage({ title, children, stateText, pickWorkspace, rawProblems
 function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace, rawProblems, hasContent, retry }: Pick<PageProps, "children" | "stateText" | "pickWorkspace" | "rawProblems" | "hasContent"> & { retry: ReactNode }) {
   const { connection, error } = useOkfConnection();
   const workspace = pickWorkspace(connection);
-  const query = useOkfOverview(connection, workspace);
+  const { scope, pending } = useOkfScope(connection, workspace);
+  const query = useOkfOverview(connection, scope);
   // Prvé spustenie: Lite začína na „Dnes", ktoré si chráni trasu, takže upstream presmerovanie na
   // onboarding by sa nespustilo. Rovnaké pravidlo ako upstream: žiaden workspace a onboarding nedokončený.
   const local = useOptionalLocal();
@@ -71,9 +72,10 @@ function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace, ra
     workspace={workspace ? workspace.displayNameResolved || workspace.name || workspace.path : null}
     // Zlyhané obnovenie na pozadí nezahodí stránku: ostanú posledné údaje a indikátor povie, z kedy sú.
     error={error || (query.data ? null : query.error)}
-    data={query.data}
+    data={scope ? query.data : undefined}
+    scope={scope}
     // Tiché obnovenie na pozadí nič neohlasuje; stav „obnovujem" len pri prvom alebo vyžiadanom čítaní.
-    loading={query.isFetching && !query.isRefetching}
+    loading={pending || (query.isFetching && !query.isRefetching)}
     stateText={stateText}
     rawProblems={rawProblems}
     hasContent={hasContent}
@@ -87,8 +89,10 @@ export function OkfPageState(props: {
   workspace: string | null;
   error: unknown;
   data: OkfReadResult | undefined;
+  /** Rozsah, z ktorého sú `data`; deti ním prekladajú cestu veci na priečinok klienta. */
+  scope?: OkfScope | null;
   loading: boolean;
-  children: (data: OkfReadResult, meta: OkfPageMeta) => ReactNode;
+  children: (data: OkfReadResult, meta: OkfPageMeta, scope: OkfScope | null) => ReactNode;
   stateText?: StateText;
   rawProblems?: boolean;
   /** Shown with every state except loaded matters, so a working page is not followed by a stray retry. */
@@ -119,7 +123,7 @@ function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText
   if ((props.hasContent ?? hasMatters)(props.data)) return <>
     {props.loading ? <p role="status">{text("refreshing")}</p> : null}
     {partial ? <div className="lw-status warn" role="alert">{text("partialRead")}</div> : null}
-    {props.children(props.data, props.meta ?? { checkedAt: 0, changedAt: 0 })}
+    {props.children(props.data, props.meta ?? { checkedAt: 0, changedAt: 0 }, props.scope ?? null)}
   </>;
   if (props.data.problems.length || props.data.truncated) return <div className="lw-status err" role="alert">
     {text("incompleteRead")}

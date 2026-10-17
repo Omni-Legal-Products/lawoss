@@ -21,8 +21,9 @@ export function matterWorkspace(workspaces: readonly RouteWorkspace[], office: R
 /** Výchozí název upstreamu („New session - …“) není název - UI ukáže „Konverzace bez názvu“. */
 const untitled = (title: string | undefined): boolean => !title?.trim() || /^new session\b/i.test(title.trim());
 
-export async function listMatterConversations(connection: OkfConnection, matterPath: string, limit = 5): Promise<MatterConversation[]> {
-  const workspace = matterWorkspace(connection.workspaces, officeWorkspace(connection), matterPath);
+/** `base`: priečinok, voči ktorému je `matterPath`; v praxi priečinok klienta veci (N1), inak kancelária. */
+export async function listMatterConversations(connection: OkfConnection, matterPath: string, limit = 5, base: RouteWorkspace | null = officeWorkspace(connection)): Promise<MatterConversation[]> {
+  const workspace = matterWorkspace(connection.workspaces, base, matterPath);
   if (!workspace || !connection.client) return [];
   const { items } = await connection.client.listSessions(workspace.id, { roots: true, limit });
   return items

@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { CalendarDays, FolderOpen, MessageSquare } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
@@ -12,11 +12,13 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { officeWorkspace, today, useOkfConnection, useOkfOverview } from "../okf/read-model";
+import { locateInScope, officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope } from "../okf/read-model";
 import { buildToday } from "./today-model";
 import { matterUrgency, useMinuteTick } from "./live";
 import { LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, liteMatterLink } from "./links";
-import { openOfficeChat, restoreOfficeScope } from "./office-scope";
+import { openClientChat, openOfficeChat, restoreOfficeScope } from "./office-scope";
+import { practiceClientChoices } from "./client-choice";
+import { ClientPickerDialog } from "./client-picker";
 
 const RECENT_LIMIT = 5;
 /** „Zeptat se“ = nová konverzace v kanceláři (`openOfficeChat`); `/session` jen jako záloha při chybě. */
@@ -30,23 +32,40 @@ type RecentMatter = { path: string; title: string; deadlines?: readonly { date: 
 export function LiteNav(props: { activePane?: boolean }) {
   useMinuteTick(); // body naliehavosti sa o polnoci prepočítajú aj bez nového čítania
   const { connection } = useOkfConnection();
-  const query = useOkfOverview(connection, officeWorkspace(connection));
+  // Prax „každý klient zvlášť“: posledné veci zo všetkých klientov, ako Dnes (N1).
+  const { scope } = useOkfScope(connection, officeWorkspace(connection));
+  const query = useOkfOverview(connection, scope);
   const day = today();
   const recent = useMemo(() => (query.data ? buildToday(query.data, day).recent : []), [query.data, day]);
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const navigate = useNavigate();
+  const locale = useLocale();
+  const choices = useMemo(() => practiceClientChoices(scope, query.data?.clients), [scope, query.data?.clients]);
+  const [picking, setPicking] = useState(false);
   // Návrat z konverzace na stránku kanceláře vrátí rozsah na kancelář (nová věc, nastavení, Zeptat se).
   useEffect(() => {
     if (!OFFICE_PAGES.has(pathname)) return;
     restoreOfficeScope().catch((failure: unknown) => console.warn("LAWOSS-lite: office scope", failure));
   }, [pathname]);
-  const onAsk = () => {
-    openOfficeChat().then(navigate).catch((failure: unknown) => {
+  const open = (chat: Promise<string>) => {
+    chat.then(navigate).catch((failure: unknown) => {
       console.warn("LAWOSS-lite: ask", failure);
       navigate(ASK_PATH);
     });
   };
-  return <LiteNavView recent={recent} activePane={props.activePane} onAsk={onAsk} />;
+  // Prax (MČ 16. 10. 2026): z detailu veci rovno do jej klienta, inak krátky výber klienta.
+  const onAsk = () => {
+    if (choices.length < 2 || !scope) { open(openOfficeChat()); return; }
+    const matter = pathname === LITE_MATTER_PATH ? new URLSearchParams(search).get("vec") : null;
+    const owner = matter === null ? null : locateInScope(scope, matter)?.workspace.id;
+    if (owner) open(openClientChat(owner));
+    else setPicking(true);
+  };
+  return <>
+    <LiteNavView recent={recent} activePane={props.activePane} onAsk={onAsk} />
+    <ClientPickerDialog open={picking} purpose="ask" choices={choices} activeId={connection?.activeWorkspaceId} locale={locale}
+      onClose={() => setPicking(false)} onPick={(choice) => { setPicking(false); open(openClientChat(choice.id)); }} />
+  </>;
 }
 
 export function LiteNavView(props: { recent: readonly RecentMatter[]; activePane?: boolean; onAsk?: () => void }) {

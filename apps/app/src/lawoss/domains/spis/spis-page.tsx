@@ -20,6 +20,10 @@ import {
   today,
   useOkfConnection,
   useOkfOverview,
+  useOkfScope,
+  localMatter,
+  locateInScope,
+  type OkfScope,
   type OkfReadClient,
 } from "../../okf/read-model";
 import {
@@ -48,16 +52,21 @@ export function SpisPage() {
   const [sessionError, setSessionError] = useState("");
   const vec = params.get("vec");
   const { connection, error } = useOkfConnection();
-  const workspace = activeWorkspace(connection);
-  const query = useOkfOverview(connection, workspace);
+  const active = activeWorkspace(connection);
+  // Prax „každý klient zvlášť“: odkaz z Prehľadu či Lehôt môže viesť k veci iného klienta (N1).
+  const { scope } = useOkfScope(connection, active);
+  const query = useOkfOverview(connection, scope);
   const data = query.data;
   const now = today();
   const cockpit = data ? buildCockpit(data, vec, now) : null;
-  const raw = useRawFiles(connection?.client ?? null, workspace?.id ?? "", cockpit?.unreadable.map((p) => p.path) ?? []);
+  // Konverzácia beží v priečinku klienta veci, nikdy nad celou praxou.
+  const local = scope && cockpit && data ? localMatter(scope, cockpit.matter, data.matters) : null;
+  const workspace = local?.workspace ?? (scope?.practiceRoot ? null : active);
+  const raw = useRawFiles(connection?.client ?? null, scope, cockpit?.unreadable.map((p) => p.path) ?? []);
   async function openTask() {
     if (opening.current || !connection || !workspace || !cockpit || !data || query.error) return;
     opening.current = true; setOpeningSession(true); setSessionError("");
-    try { navigate(await openMatterSession(connection, workspace, cockpit.matter, data.matters)); }
+    try { navigate(await openMatterSession(connection, workspace, local?.selected ?? cockpit.matter, local?.discovered ?? data.matters)); }
     catch (failure) { setSessionError(failure instanceof Error ? failure.message : String(failure)); }
     finally { opening.current = false; setOpeningSession(false); }
   }
@@ -75,12 +84,12 @@ export function SpisPage() {
       {query.isPending && query.fetchStatus === "fetching" ? (
         <>
           <h1 className="lw-h1">{text("matter")}</h1>
-          <p className="lw-lead">{text("memoryLoading", { workspace: workspace?.displayNameResolved || workspace?.name || "" })}</p>
+          <p className="lw-lead">{text("memoryLoading", { workspace: active?.displayNameResolved || active?.name || "" })}</p>
         </>
       ) : cockpit ? (
         <>
           <div className="mb-5 space-y-2">
-            <p className="break-all text-sm">{text("selectedMatter", { title: cockpit.matter.title, reference: cockpit.matter.matterRef ?? text("noReference") })}<br />{workspace?.path} · {cockpit.matter.path || text("workspaceRoot")}</p>
+            <p className="break-all text-sm">{text("selectedMatter", { title: cockpit.matter.title, reference: cockpit.matter.matterRef ?? text("noReference") })}<br />{workspace?.path} · {(local?.selected ?? cockpit.matter).path || text("workspaceRoot")}</p>
             <Button disabled={openingSession || !connection?.client || !workspace || workspace.workspaceType === "remote" || Boolean(query.error)} onClick={() => void openTask()}>{openingSession ? text("openingConversation") : text("openTask")}</Button>
             {sessionError ? <p role="alert">{sessionError}</p> : null}
           </div>
@@ -94,17 +103,20 @@ export function SpisPage() {
 }
 
 /** Surový obsah nečitateľných záznamov — bez neho by z obrazovky ticho zmizli. */
-function useRawFiles(client: OkfReadClient | null, workspaceId: string, paths: readonly string[]) {
+function useRawFiles(client: OkfReadClient | null, scope: OkfScope | null, paths: readonly string[]) {
   const key = paths.join("|");
   return useQuery({
-    queryKey: ["okf-raw", workspaceId, key],
-    enabled: Boolean(client && workspaceId && paths.length > 0),
+    queryKey: ["okf-raw", scope?.members.map((m) => m.workspace.id).join("|") ?? "", key],
+    enabled: Boolean(client && scope && paths.length > 0),
     queryFn: async (): Promise<Record<string, string>> => {
-      if (!client) return {};
+      if (!client || !scope) return {};
       const out: Record<string, string> = {};
       for (const path of paths) {
         try {
-          out[path] = (await client.readWorkspaceFile(workspaceId, path)).content;
+          // Cesta z prehľadu praxe → súbor v priečinku jej klienta (súbor kancelárie praxe tu nie je).
+          const at = locateInScope(scope, path);
+          if (!at) throw new Error("Súbor nie je v žiadnom pripojenom priečinku.");
+          out[path] = (await client.readWorkspaceFile(at.workspace.id, at.path)).content;
         } catch (e) {
           out[path] = e instanceof Error ? e.message : String(e);
         }

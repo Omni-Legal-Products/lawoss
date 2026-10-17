@@ -7,6 +7,14 @@ Pokyn MČ zo 4. 10. 2026: pohľady poskladané z OKF súborov musia byť **dynam
 - Všetky pohľady Lite (Dnes, Klienti a veci, detail veci, posledné veci v bočnom paneli, počet v názve okna) čítajú ten istý dotaz `okf-overview` (`apps/app/src/lawoss/okf/read-model.ts`). Na obrazovke nie je nič napevno ani demo; okrem dátumu a pozdravu všetko pochádza zo súborov.
 - Obnova: pri návrate do okna a ticho na pozadí každých 15 s, pri pomalom čítaní až 2 min. Prekreslí sa len pri inom obsahu. Zlyhané obnovenie nechá posledné údaje a indikátor povie, z kedy sú.
 
+## Prax: všetci klienti v jednom prehľade (16. 10. 2026)
+
+Pri praxi „každý klient zvlášť“ je každý klient samostatný pracovný priečinok a koreň praxe sa neregistruje (spec k#92, P5 a R7). Pohľady aj tak ukazujú celú prax (nález N1 z testu 16. 10., rozhodnutie MČ 16. 10. 2026, variant B):
+
+- Rozsah určuje `okfScope` v `read-model.ts`: ak aktívny priečinok leží v koreni praxe z profilu onboardingu (`officeRoot`), čítajú sa všetky registrované priečinky pod ním; inak len aktívny priečinok. Platí v bežnom aj pokročilom režime.
+- `readScopeMemory` číta každý priečinok ako doteraz, cestám pridá predponu voči koreňu praxe a `buildOverview` spustí raz nad všetkým. Pamäť kancelárie praxe (`Office/memory`) číta hostiteľ (`GET /lawoss/onboarding/office-memory`, len hostiteľský token).
+- Číta len appka. Agent ostáva v priečinku jedného klienta: akcie (rýchla akcia, konverzácia, pridanie dokumentu, otvorenie spisu) prekladajú cestu z prehľadu cez `localMatter` a `locateInScope` na priečinok klienta veci.
+
 ## Spoločné pravidlá: `apps/app/src/lawoss/okf/view-rules.ts`
 
 | Pravidlo | Funkcia | Význam |
@@ -21,7 +29,7 @@ Pokyn MČ zo 4. 10. 2026: pohľady poskladané z OKF súborov musia byť **dynam
 
 ## Nový pohľad
 
-1. Údaje len z `OkfPage` (render prop `data`, `meta`), nič nečítať bokom.
+1. Údaje len z `OkfPage` (render prop `data`, `meta`, `scope`), nič nečítať bokom. Cestu veci pred zápisom alebo konverzáciou preložiť cez `localMatter`.
 2. Farby, okno, texty lehôt a termíny len cez `view-rules`; nič nepočítať po svojom.
 3. Sekciu ukázať len vtedy, keď má obsah; vlastné typy agenta zoskupiť, nie zahodiť.
 4. Pridať test do `apps/app/tests/lawoss-okf-views-dynamic.test.tsx`, ktorý z toho istého OKF záznamu porovná nový pohľad s Dnes.

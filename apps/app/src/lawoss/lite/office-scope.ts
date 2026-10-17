@@ -37,6 +37,16 @@ export async function openOfficeChat(): Promise<string> {
   return openSessionWithPrompt(connection, office, "");
 }
 
+/** „Opýtať sa“ v praxi: nová konverzácia v priečinku vybraného klienta, nikdy nad celou praxou (MČ 16. 10. 2026). */
+export async function openClientChat(workspaceId: string): Promise<string> {
+  const connection = await loadOkfConnection();
+  const workspace = connection.workspaces.find((w) => w.id === workspaceId);
+  if (!connection.client || !workspace) throw new Error("client workspace unavailable");
+  // Ako restoreOfficeScope: už otvoreného klienta netreba znova aktivovať.
+  const active = connection.activeWorkspaceId === workspace.id ? connection : await activateLocalWorkspace({ ...connection, client: connection.client }, workspace, connection.workspaces);
+  return openSessionWithPrompt(active, workspace, "");
+}
+
 /** Nastavení v lite: složka věci → kancelář (Personalizace je profil kanceláře). `null` = nic neměnit. */
 export function liteSettingsWorkspace(selectedId: string, workspaces: readonly RouteWorkspace[]): string | null {
   if (currentUiMode() !== "lite") return null;
