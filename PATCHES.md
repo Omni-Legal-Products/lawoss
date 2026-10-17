@@ -4,7 +4,7 @@
 
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
-| `scripts/test-isir-native.mjs` | Files navigácia používa malý importovaný helper s viditeľným sidebar pressed stavom a overením selected/runtime/root cez existujúcu chooser boundary. Už otvorený panel neprepína; root breadcrumb aj Dokumenty musia byť skutočne viditeľné v jedinom vlastnenom paneli. Pôvodné štyri operation budgety a produkčné toggle UX ostávajú zachované. Aktuálna native cesta overí opakovaný vstup bez Files kliknutia a bez ďalšieho model turn; source-only VM regresie nie sú mounted/native PASS. Legacy driver SHA sa nemení: guard invertuje iba presné import/caller/mounted seams. |
+| `scripts/test-isir-native.mjs` | Files navigácia používa malý importovaný helper s viditeľným sidebar active stavom a overením selected/runtime/root cez existujúcu chooser boundary. Už otvorený panel neprepína; root breadcrumb aj Dokumenty musia byť skutočne viditeľné v jedinom vlastnenom paneli. Pôvodné štyri operation budgety a produkčné toggle UX ostávajú zachované. Aktuálna native cesta overí opakovaný vstup bez Files kliknutia a bez ďalšieho model turn; Regresia renderuje skutočné SidebarMenuButton/SidebarMenuSubButton/Button atribúty a vykonáva helper; syntetické VM handlers/layout nie sú mounted/native PASS. Legacy driver SHA sa nemení: guard invertuje iba presné import/caller/mounted seams. |
 
 ## Doctor probe bounds (2026-10-16)
 
@@ -964,3 +964,9 @@ Zachované obe histórie a celý nezmenený samostatný SDK/dependency helper; r
 | `apps/app/src/app/lib/legalwork-server.ts`, `apps/app/src/react-app/domains/session/sync/session-sync.ts` | Aktuálny host capability/usage-limit payload a interaction lineage z dev; PR158 scoped idle-evidence guard zachovaný. |
 | `.github/workflows/ci-tests.yml`, `.github/workflows/ci-windows-portable.yml`, `.github/workflows/ci-desktop-packaging.yml` | Private desktop-auth Node gate až po build servera; zachovaná aktuálna pending-task diagnostika, všetky štyri packaging platformy a zatvorené historické experimenty. |
 | `AGENTS.md`, `CLAUDE.md` | Identické integračné pravidlo pre duplicitných fixture ownerov, health kontrakt a samostatné testovacie runtime. |
+
+### PR158 review I1: aktuálny sidebar kontrakt (2026-10-17)
+
+| Súbory | Oprava a overenie |
+|---|---|
+| `apps/app/tests/native-files-navigation.test.tsx`, `lawoss/testing/isir/native/project-files-navigation{,-fixture,.test}.mjs` | Existujúca SSR seam renderuje produkčné sidebar primitives; helper používa samostatný scoped Expand/Collapse chevron a známy SidebarMenuSubButton s boolean-presence data-active. RED 0/2, GREEN 2/2; samostatný helper 49/49 vrátane owner/root/reconnect odmietnutí, nested chevrons a idempotencie. Produkčné UI/handlers ani timeouty sa nemenia. |

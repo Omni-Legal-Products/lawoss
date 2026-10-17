@@ -10,6 +10,7 @@ Z 22 konfliktov vznikol aktuálny serverový lifetime, scoped autentizácia a UI
 - Existujúci test macOS fixture na pôvodnom zdroji zachytil chýbajúci mock keychain pred production importom. Integrovaný entry zachováva zároveň skutočný origin/main-frame guard pri quit.
 - Pôvodný modul nemal aktuálne `awaitNativeStartup`; ide o RED adopcie API. Integrovaný behaviorálny test s držanými HTTP telami overuje cold MCP pred začiatkom samostatného selected90s rozpočtu. Cold300/selected90 pochádzajú z dev, nie zo špekulatívneho predĺženia starého Windows limitu.
 - Nové fake-engine fixtures dev nevracali health version a skutočne zlyhali na zachovanom 15s produkčnom limite. Dopĺňa sa len syntetická odpoveď `/global/health`; bezpečnostné asercie a negatívne health prípady ostávajú.
+- Nezávislá review I1 odhalila starý Files DOM kontrakt: title už neovláda expansion a Files nemá aria-pressed. Helper teraz používa scoped Expand/Collapse chevron a boolean-presence data-active skutočného SidebarMenuSubButton. SSR produkčných primitives zachytil RED 0/2 a po oprave GREEN 2/2; existujúce renderer-expression prípady zachovávajú owner/root/reconnect ochrany (49/49). Syntetické click/layout fixtures nie sú dôkaz mounted/native journey.
 - Merge vytvoril duplicitný calendar import/owner. Deduplikácia ponecháva jeden generačný lifetime aj zachovanie primárnej a cleanup chyby.
 
 ## Overenie a hranice

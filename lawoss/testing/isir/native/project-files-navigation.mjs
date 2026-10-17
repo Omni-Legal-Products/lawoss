@@ -9,23 +9,35 @@ function navigateProjectFiles(expected, phase) {
     node.textContent.trim() === expected.name && node.closest('[data-slot="collapsible"]') && enabled(node));
   if (titles.length !== 1) return false;
   const title = titles[0];
+  const group = title.closest('[data-slot="collapsible"]');
   if (phase === 'expand') {
-    if (title.getAttribute('aria-expanded') === 'true') return true;
-    if (title.getAttribute('aria-expanded') !== 'false') return false;
-    title.click();
+    // The title opens the workspace. Its separate chevron owns expansion;
+    // session-section chevrons and nested workspaces are not this control.
+    const expanders = [...group.querySelectorAll('button[aria-expanded]')].filter(node =>
+      node.closest('[data-slot="collapsible"]') === group &&
+      ['Expand', 'Collapse'].includes(node.getAttribute('aria-label')) && enabled(node));
+    if (expanders.length !== 1) return false;
+    const expander = expanders[0], expanded = expander.getAttribute('aria-expanded');
+    if (expanded === 'true') return true;
+    if (expanded !== 'false') return false;
+    expander.click();
     return true;
   }
-  const group = title.closest('[data-slot="collapsible"]');
-  const controls = [...group.querySelectorAll('button,a')].filter(node => node.textContent.trim() === 'Files' && enabled(node));
+  const controls = [...group.querySelectorAll('button,a')].filter(node =>
+    node.closest('[data-slot="collapsible"]') === group && node.textContent.trim() === 'Files' && enabled(node));
   if (controls.length !== 1) return false;
-  const files = controls[0], pressed = files.getAttribute('aria-pressed');
+  const files = controls[0];
+  if (files.getAttribute('data-slot') !== 'sidebar-menu-sub-button') return false;
+  // Base UI emits data-active="" for true and omits it for false. Only the
+  // known sidebar component has that contract; arbitrary values fail closed.
+  const active = files.getAttribute('data-active');
+  if (active !== null && active !== '') return false;
   if (phase === 'open') {
-    if (pressed === 'true') return true;
-    if (pressed !== 'false') return false;
+    if (active === '') return true;
     files.click();
     return true;
   }
-  if (pressed !== 'true') return false;
+  if (active !== '') return false;
   const state = window.__isirChooserBoundary.sample('files-navigation');
   if (state.panelCount !== 1 || !state.selectedOwnerEqual || !state.runtimeOwnerEqual || !state.workspaceRootEqual) return false;
   const panels = [...document.querySelectorAll('[data-files-workspace-id]')].filter(visible);

@@ -6,58 +6,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openNativeProjectFiles } from './project-files-navigation.mjs';
 
-const workspace = {id:'case-10',name:'Native case 10',path:'/synthetic/case-10'};
-// Renderer-shaped DOM only: real helper expressions and the actual chooser
-// observer execute in the VM. Files toggles; visited panels stay in the DOM.
-// This does not mount React or claim native layout/handler coverage.
-function fixture({open=true,expanded=true,foreign=false,folder=''}={}) {
-  const state={selected:foreign?'case-9':workspace.id,open,expanded,toggles:0,titles:0,roots:0};
-  class Element {
-    constructor(tag,attrs={},text='') {this.tagName=tag;this.attrs={...attrs};this.text=text;this.children=[];this.isConnected=true;this.disabled=false;this.zeroWidth=false;this.zeroHeight=false;}
-    append(...children){for(const child of children){child.parentElement=this;this.children.push(child);}return this;}
-    get dataset(){return Object.fromEntries(Object.entries(this.attrs).filter(([key])=>key.startsWith('data-')).map(([key,value])=>[key.slice(5).replace(/-([a-z])/g,(_,c)=>c.toUpperCase()),value]));}
-    get textContent(){return this.text+this.children.map(child=>child.textContent).join('');}
-    get innerText(){return this.textContent;}
-    getAttribute(key){return this.attrs[key]??null;}
-    matches(selector){return selector.split(',').some(part=>{const tag=part.trim().match(/^[a-z]+/);return (!tag||tag[0]===this.tagName)&&[...part.matchAll(/\[([^=\]]+)(?:="([^"]*)")?\]/g)].every(([,key,value])=>key in this.attrs&&(value===undefined||this.attrs[key]===value));});}
-    querySelectorAll(selector){return this.children.flatMap(child=>[...(child.matches(selector)?[child]:[]),...child.querySelectorAll(selector)]);}
-    querySelector(selector){return this.querySelectorAll(selector)[0]??null;}
-    closest(selector){return this.matches(selector)?this:this.parentElement?.closest(selector)??null;}
-    contains(node){return node===this||this.children.some(child=>child.contains(node));}
-    getBoundingClientRect(){const hidden=this.closest('[hidden]');return {width:hidden||this.zeroWidth?0:200,height:hidden||this.zeroHeight?0:24};}
-    click(){if(!this.disabled)this.onClick?.();}
-  }
-  const el=(...args)=>new Element(...args),body=el('body');
-  const group=el('div',{'data-slot':'collapsible'}),title=el('button',{'aria-expanded':String(expanded)},workspace.name),files=el('button',{'aria-pressed':String(open&&!foreign)},'Files');
-  const expand=el('button',{'aria-label':'Expand'});
-  const retained=el('div'),panel=el('div',{'data-files-workspace-id':workspace.id,'data-files-workspace-root':workspace.path,'data-files-folder-path':folder,'data-files-client-identity':'7'});
-  const processing=el('div',{'aria-label':'Document processing'}),nav=el('nav',{'aria-label':'Current folder'}),root=el('button',{},workspace.name);
-  const row=el('div'),trigger=el('div',{'data-slot':'context-menu-trigger'}),documents=el('button',{'data-project-folder':'Dokumenty'},'Dokumenty'),input=el('input',{type:'file'});
-  body.append(group.append(title,expand,files),retained.append(panel.append(processing,nav.append(root),row.append(trigger.append(documents),input))));
-  function sync(){
-    title.attrs['aria-expanded']=String(state.expanded);files.zeroWidth=!state.expanded;
-    files.attrs['aria-pressed']=String(state.open&&state.selected===workspace.id);
-    if(state.open)delete retained.attrs.hidden;else retained.attrs.hidden='';
-    root.disabled=panel.dataset.filesFolderPath==='';
-    if(root.disabled)root.attrs['aria-current']='location';else delete root.attrs['aria-current'];
-    documents.zeroWidth=panel.dataset.filesFolderPath!=='';
-  }
-  title.onClick=()=>{state.titles++;state.expanded=!state.expanded;sync();};
-  expand.onClick=()=>{state.expanded=true;sync();};
-  files.onClick=()=>{state.toggles++;state.open=state.selected!==workspace.id||!state.open;state.selected=workspace.id;sync();};
-  root.onClick=()=>{state.roots++;panel.attrs['data-files-folder-path']='';sync();};sync();
-  const document={body,querySelectorAll:selector=>body.querySelectorAll(selector),querySelector:selector=>body.querySelector(selector)};
-  const window={__legalwork:{slice:name=>{assert.equal(name,'route');return {selectedWorkspaceId:state.selected};}}};
-  const context={window,document,MutationObserver:class{observe(){}disconnect(){}},__owReactQueryClient:{getQueryCache:()=>({findAll:()=>[{queryKey:['workspace-files',workspace.id,null,7,workspace.path,panel.dataset.filesFolderPath],getObserversCount:()=>1,state:{status:'success',fetchStatus:'idle'}}]})}};
-  const expressions=[],waits=[];
-  const cdp={evaluate:async expression=>{expressions.push(expression);return runInNewContext(expression,context);}};
-  const waitError=Object.assign(new Error('fixture native wait expired'),{code:'ISIR_NATIVE_WAIT_EXPIRED'});
-  const until=async(read,description,...budgets)=>{assert.deepEqual(budgets,[],'retain the default native operation budget');waits.push(description);for(let i=0;i<3;i++){const result=await read();if(result)return result;}throw waitError;};
-  return {state,body,group,title,files,retained,panel,processing,nav,root,documents,input,context,expressions,waits,waitError,cdp,until,sync,
-    run:(readiness)=>openNativeProjectFiles({cdp,until,workspace,caseIndex:10,readiness})};
-}
+import { fixture, workspace } from './project-files-navigation-fixture.mjs';
 
-// Removing the pressed-state branch must close the already-open retained pane.
+// Removing the active-state branch must close the already-open retained pane.
 test('already-open Files stays visible without any toggle or workspace expansion click',async()=>{
   const f=fixture();await f.run();assert.equal(f.state.open,true);assert.equal(f.state.toggles,0);assert.equal(f.state.titles,0);
   assert.equal(f.documents.getBoundingClientRect().width>0,true);assert.equal(f.waits.length,4);
@@ -67,8 +18,21 @@ test('closed Files opens exactly once and repeated calls remain open',async()=>{
   const f=fixture({open:false});await f.run();await f.run();assert.equal(f.state.open,true);assert.equal(f.state.toggles,1);assert.equal(f.state.titles,0);
 });
 test('ordinary foreign-workspace Files activation acknowledges the new owner and root',async()=>{
-  const f=fixture({foreign:true,expanded:false,folder:'Dokumenty'});await f.run();assert.equal(f.state.selected,workspace.id);assert.equal(f.state.toggles,1);assert.equal(f.state.titles,1);assert.equal(f.state.roots,1);
+  const f=fixture({foreign:true,expanded:false,folder:'Dokumenty'});await f.run();assert.equal(f.state.selected,workspace.id);assert.equal(f.state.toggles,1);assert.equal(f.state.titles,0);assert.equal(f.state.expansions,1);assert.equal(f.state.roots,1);
   assert.equal(f.panel.dataset.filesFolderPath,'');assert.equal(f.root.getAttribute('aria-current'),'location');
+});
+test('workspace expansion ignores session chevrons and nested workspace controls',async()=>{
+  const f=fixture({expanded:false,open:false}),Element=f.expand.constructor;
+  const session=new Element('button',{'aria-label':'Expand sessions','aria-expanded':'false'});
+  const nested=new Element('div',{'data-slot':'collapsible'});
+  const nestedExpand=new Element('button',{'aria-label':'Expand','aria-expanded':'false'});
+  const nestedFiles=new Element('button',{'data-slot':'sidebar-menu-sub-button'},'Files');
+  let unrelatedClicks=0;
+  for(const control of [session,nestedExpand,nestedFiles])control.onClick=()=>unrelatedClicks++;
+  f.group.append(session,nested.append(nestedExpand,nestedFiles));
+  await f.run();await f.run();
+  assert.equal(unrelatedClicks,0);assert.equal(f.state.expansions,1);
+  assert.equal(f.state.titles,0);assert.equal(f.state.toggles,1);
 });
 test('root navigation is scoped to the visible owned pane rather than a retained foreign breadcrumb',async()=>{
   const f=fixture({folder:'Dokumenty'}),foreign=f.root.constructor;
@@ -77,20 +41,25 @@ test('root navigation is scoped to the visible owned pane rather than a retained
   await f.run();assert.equal(clicks,0);assert.equal(f.state.roots,1);assert.equal(f.documents.getBoundingClientRect().width>0,true);
 });
 for(const [name,mutate] of [
-  ['pressed but hidden',f=>{f.retained.attrs.hidden='';}],
+  ['active but hidden',f=>{f.retained.attrs.hidden='';}],
   ['hidden ancestor despite nonzero geometry',f=>{f.retained.attrs.hidden='';for(const node of [f.panel,f.processing,f.nav,f.root,f.documents])node.getBoundingClientRect=()=>({width:200,height:24});}],
   ['zero-height pane',f=>{f.panel.zeroHeight=true;}],
-  ['duplicate Files controls',f=>{f.group.append(new f.files.constructor('button',{'aria-pressed':'true'},'Files'));}],
+  ['duplicate Files controls',f=>{f.group.append(new f.files.constructor('button',{'data-slot':'sidebar-menu-sub-button','data-active':''},'Files'));}],
   ['wrong runtime owner',f=>{f.panel.attrs['data-files-workspace-id']='foreign';}],
   ['wrong root',f=>{f.panel.attrs['data-files-workspace-root']='/foreign';}],
-  ['wrong selected owner',f=>{f.state.selected='foreign';f.files.attrs['aria-pressed']='true';}],
+  ['wrong selected owner',f=>{f.state.selected='foreign';f.files.attrs['data-active']='';}],
   ['missing pane',f=>{f.retained.children=[];}],
   ['duplicate visible pane',f=>{const duplicate=new f.panel.constructor('div',{...f.panel.attrs});f.body.append(duplicate);}],
   ['missing processing panel',f=>{f.panel.children=f.panel.children.filter(node=>node!==f.processing);}],
   ['disabled Files control',f=>{f.files.disabled=true;}],
   ['missing Files control',f=>{f.group.children=f.group.children.filter(node=>node!==f.files);}],
   ['hidden Files control',f=>{f.files.zeroWidth=true;}],
-  ['unknown Files pressed state',f=>{delete f.files.attrs['aria-pressed'];}],
+  ['unknown Files component',f=>{delete f.files.attrs['data-slot'];}],
+  ['malformed Files active state',f=>{f.files.attrs['data-active']='false';}],
+  ['missing expansion control',f=>{f.group.children=f.group.children.filter(node=>node!==f.expand);}],
+  ['unknown expansion state',f=>{delete f.expand.attrs['aria-expanded'];}],
+  ['disabled expansion control',f=>{f.expand.disabled=true;}],
+  ['duplicate expansion control',f=>{f.group.append(new f.expand.constructor('button',{...f.expand.attrs}));}],
   ['disabled project title',f=>{f.title.disabled=true;}],
   ['hidden root breadcrumb',f=>{f.nav.attrs.hidden='';}],
   ['wrong root breadcrumb',f=>{f.root.text='Foreign project';}],
