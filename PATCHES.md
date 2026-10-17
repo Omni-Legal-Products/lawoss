@@ -1039,3 +1039,13 @@ Approval and final native platform checks remain required. This local change did
 | `scripts/release/publish-electron-assets.mjs`, `scripts/release/publish-electron-assets.test.mjs` | Shared promotion re-verifies canonical remote evidence chains; metadata goes through its owner and promotion receipts use digest-qualified immutable names. Installers are never clobbered. |
 
 These entries describe code and synthetic verification, not a real signing, native acceptance, public upload or deployment.
+## Typed governance refusal and runtime regression follow-up (2026-10-18)
+
+| Upstream files | Downstream change and reason |
+| --- | --- |
+| `apps/server/src/server.ts` | Optional constructor-only `scheduledTaskSend` uses the existing ScheduledExecutor contract for accepted non-model embedding work and shutdown-drain tests. Omitted port retains the ordinary governed send; preserve typed denial before protected delivery or grants. No HTTP/config/environment selector. |
+| `apps/server/src/routes/sessions.ts` | Verify queue session ownership before governance admission to preserve foreign-session 404 visibility. Check recovery admission before reserving the originating request, preserving typed 403 and leaving retries/other operations available without delivering protected input. |
+| `apps/server/src/reviews/executor.ts`, `apps/server/src/reviews/executor.test.ts`, `apps/server/src/review-recovery-governance.e2e.test.ts`, `apps/server/src/scheduled-governance.e2e.test.ts` | Preserve typed host denial before SDK error normalization/session creation. A constructor-only trusted transport dependency retains pure scoring/citation/model-selection/retry/cancellation tests; HTTP/default construction remains governed, with explicit denial and zero-inference receiver evidence. |
+| `apps/app/tests/lawoss-ai-governance.test.tsx` | Invoke the real API client with the actual resolved desktop connection shape and verify all three governance URLs plus current client/native credentials; SSR presentation alone missed the incompatible connection mapping. |
+
+The green-zone engine guard inventories installed SDK v2 prompt/compact, legacy execution, permission/question continuations and experimental background/name generation. Native acknowledgment/migration writes respect read-only mode. These checks prove host admission, not an engine OS sandbox or legal provider approval.

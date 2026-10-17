@@ -153,9 +153,9 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       const workspace = await resolveWorkspace(config, ctx.params.id);
       const parsed = queueActionSchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024 * 1024));
       if (!parsed.success) throw new ApiError(400, "invalid_queue_action", "Invalid message queue action.");
-      if (parsed.data.type === "enqueue") await requireGovernedEngineDispatch(config, workspace.id, "POST", `/session/${ctx.params.sessionId}/message`);
       // Reject stale/deleted or cross-workspace sessions before storing executable work.
       const client = await queueClient(workspace, ctx.params.sessionId);
+      if (parsed.data.type === "enqueue") await requireGovernedEngineDispatch(config, workspace.id, "POST", `/session/${ctx.params.sessionId}/message`);
       if (parsed.data.type === "enqueue") await validateQueuedExecution(client, parsed.data.execution);
       // Queued prompts bypass the public engine proxy. Refresh their authenticated
       // origin here too, including an existing chat resumed after server restart.
@@ -529,6 +529,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       if (latest?.info.id !== messageId) throw new ApiError(409, "recovery_changed", "New input takes precedence over recovery.");
       await requireIdle(client, [sessionID]);
       if (recoveredRequests.get(sessionID) === user.info.id) return jsonResponse({ ok: true });
+      await requireGovernedEngineDispatch(config, workspace.id, "POST", `/session/${sessionID}/prompt_async`);
       recoveredRequests.set(sessionID, user.info.id);
       const result = await client.session.promptAsync({ sessionID, agent: user.info.agent, model: user.info.model,
         parts: [{ type: "text", synthetic: true, text: REVIEW_RECOVERY_PROMPT }] });

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { AI_GUIDANCE_VERSION, type AiGovernanceView } from "@legalwork/types/ai-governance";
 import type { Language } from "@/i18n";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
-import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
+import { resolveLegalworkConnection, type ResolvedLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 
 const copy: Record<Language, {title: string; remote: string; reading: string; profile: string; action: string; blocked: string; acknowledge: string; saved: string; failed: string; jurisdiction: string}> = {
   cs: {
@@ -45,6 +45,10 @@ const copy: Record<Language, {title: string; remote: string; reading: string; pr
   },
 };
 
+export function createAiGuidanceClient(connection: ResolvedLegalworkConnection) {
+  return createLegalworkServerClient({baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken, hostToken: connection.resolvedHostToken});
+}
+
 /** Shared informational view: no checkbox or browser state can activate a provider. */
 export function AiGuidance({locale}: {locale: Language}) {
   const text = copy[locale], id = useId();
@@ -63,8 +67,8 @@ export function AiGuidance({locale}: {locale: Language}) {
     setPublicBusy(true); setPublicError(""); setPublicReply("");
     try {
       const connection = await resolveLegalworkConnection();
-      if (!connection) throw new Error(publicCopy.unavailable);
-      const result = await createLegalworkServerClient(connection).runPublicAiPrompt({providerId, modelId, text: publicText});
+      if (!connection.normalizedBaseUrl) throw new Error(publicCopy.unavailable);
+      const result = await createAiGuidanceClient(connection).runPublicAiPrompt({providerId, modelId, text: publicText});
       setPublicReply(result.reply);
     } catch (error) {setPublicError(error instanceof Error ? error.message : publicCopy.unavailable);} finally {setPublicBusy(false);}
   };
@@ -72,8 +76,8 @@ export function AiGuidance({locale}: {locale: Language}) {
   const [saved, setSaved] = useState(false), [busy, setBusy] = useState(false), [failed, setFailed] = useState(false);
   useEffect(() => {
     let active = true;
-    void resolveLegalworkConnection().then(connection => connection
-      ? createLegalworkServerClient(connection).aiGovernance() : null).then(view => {
+    void resolveLegalworkConnection().then(connection => connection.normalizedBaseUrl
+      ? createAiGuidanceClient(connection).aiGovernance() : null).then(view => {
       if (active) {setView(view); setSaved(view?.guidanceAck?.textVersion === AI_GUIDANCE_VERSION);}
     }).catch(() => {});
     return () => {active = false;};
@@ -82,8 +86,8 @@ export function AiGuidance({locale}: {locale: Language}) {
     setBusy(true); setFailed(false);
     try {
       const connection = await resolveLegalworkConnection();
-      if (!connection || !jurisdiction) throw new Error("host unavailable");
-      await createLegalworkServerClient(connection).acknowledgeAiGuidance(AI_GUIDANCE_VERSION, jurisdiction);
+      if (!connection.normalizedBaseUrl || !jurisdiction) throw new Error("host unavailable");
+      await createAiGuidanceClient(connection).acknowledgeAiGuidance(AI_GUIDANCE_VERSION, jurisdiction);
       setSaved(true);
     } catch {setFailed(true);} finally {setBusy(false);}
   };

@@ -9,11 +9,11 @@ export async function requireGovernedEngineDispatch(config: ServerConfig, worksp
   // Mounted SDK base URLs retain their prefix; encoded operation names must not
   // reach an engine router through a path spelling the guard did not inspect.
   const ambiguous = /[%\\]/.test(path);
-  const operation = path.match(/\/session\/[^/]+\/(message|prompt_async|command|shell|summarize|init)\/?$/)?.[1];
-  if (ambiguous || /\/(?:tui|permission|question)\//.test(path))
+  const operation = path.match(/\/session\/[^/]+\/(message|prompt_async|prompt|command|shell|summarize|compact|init)\/?$/)?.[1];
+  if (ambiguous || /\/(?:tui|permissions?|question)(?:\/|$)/.test(path) || /\/experimental\/(?:session\/[^/]+\/background|project\/[^/]+\/copy\/generate-name)\/?$/.test(path))
     await requireUnsupportedProtectedTransport(config, "chat", workspaceId);
   if (!operation) return;
-  await requireUnsupportedProtectedTransport(config, operation === "summarize" ? "compaction" : "chat", workspaceId);
+  await requireUnsupportedProtectedTransport(config, (operation === "summarize" || operation === "compact") ? "compaction" : "chat", workspaceId);
 }
 
 /** Unknown matter/jurisdiction cannot be claimed by a request body or a language preference. */

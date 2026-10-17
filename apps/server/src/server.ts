@@ -17,7 +17,7 @@ import { withSessionExecution } from "./session-execution-gate.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
-import { ScheduledTaskRunner } from "./scheduled-tasks/runner.js";
+import { ScheduledTaskRunner, type ScheduledExecutor } from "./scheduled-tasks/runner.js";
 import { registerScheduledTaskRoutes } from "./routes/scheduled-tasks.js";
 import type { ScheduledTask } from "@legalwork/types/scheduled-tasks";
 import { composedSkill } from "./skill-composition.js";
@@ -824,7 +824,7 @@ export type StartedServer = ServeResult & {
 const orgPolicyResource = Symbol("server-org-policy");
 const firmHubResource = Symbol("server-firm-hub");
 
-export async function startServer(config: ServerConfig, runtimeOptions: { publicEngineBinary?: () => string | undefined; documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void> } = {}): Promise<StartedServer> {
+export async function startServer(config: ServerConfig, runtimeOptions: { scheduledTaskSend?: ScheduledExecutor["send"]; publicEngineBinary?: () => string | undefined; documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void> } = {}): Promise<StartedServer> {
   const lifetime = acquireRuntimeDbLifetime(config);
   const cleanups: Array<() => void | Promise<unknown>> = [];
   const producerStops: Array<() => void | Promise<unknown>> = [];
@@ -966,8 +966,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: { public
       const client = createWorkspaceOpencodeClient(config, await scheduledWorkspace(task));
       return unwrapOpencodeResult(await client.session.create({ title: task.title }, { signal: AbortSignal.timeout(10000) }), "/session").id;
     },
-    send: (task, sessionId) => withSessionExecution(config, sessionId, async () => {
+    // Trusted embedding port for owned non-model jobs; never read from HTTP/config/env.
+    send: runtimeOptions.scheduledTaskSend ?? ((task: ScheduledTask, sessionId: string) => withSessionExecution(config, sessionId, async () => {
       const workspace = await scheduledWorkspace(task);
+      await requireGovernedEngineDispatch(config, workspace.id, "POST", `/session/${sessionId}/prompt_async`);
       const client = createWorkspaceOpencodeClient(config, workspace);
       const session = unwrapOpencodeResult(await client.session.get({ sessionID: sessionId }, { signal: AbortSignal.timeout(10000) }), "/session");
       if (resolve(session.directory) !== resolve(workspace.path) || session.time.archived) throw new ApiError(400, "schedule_session", "The destination chat is no longer available in this project.");
@@ -984,7 +986,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { public
       const result = await client.session.promptAsync({ sessionID: sessionId, agent, ...(task.model ? { model: task.model } : {}),
         parts: [{ type: "text", text: `[Scheduled task: ${task.title}]\n\n${task.prompt}` }] }, { signal: AbortSignal.timeout(30000) });
       if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
-    }, true),
+    }, true)),
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents, scheduledTasks, wikiStore, wikiSync, runtimeOptions.publicEngineBinary);
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) =>

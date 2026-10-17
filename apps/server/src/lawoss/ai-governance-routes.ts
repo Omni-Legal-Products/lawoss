@@ -21,8 +21,10 @@ export function registerAiGovernanceRoutes(options: {routes: Route[]; config: Se
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
   getPublicEngineBinary?: () => string | undefined}) {
   const {routes, config, jsonResponse} = options;
+  const ensureWritable = () => { if (config.readOnly) throw new ApiError(403, "read_only", "This server is read-only."); };
   addRoute(routes, "GET", "/lawoss/ai-governance", "client", async () => jsonResponse(await readAiGovernanceView(config, Boolean(options.getPublicEngineBinary?.()))));
   addRoute(routes, "POST", "/lawoss/ai-governance/acknowledge", "host-token", async ctx => {
+    ensureWritable();
     const parsed = z.strictObject({textVersion: z.literal(AI_GUIDANCE_VERSION), jurisdiction: z.enum(["CZ", "SK"])}).safeParse(await options.readJsonBodyLimited(ctx.request, 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_guidance_ack", "Read acknowledgment must name the current notice and jurisdiction only.");
     const body = parsed.data;
@@ -31,6 +33,7 @@ export function registerAiGovernanceRoutes(options: {routes: Route[]; config: Se
     return jsonResponse(await readAiGovernanceView(config, Boolean(options.getPublicEngineBinary?.())));
   });
   addRoute(routes, "POST", "/lawoss/ai-governance/public-text", "host-token", async ctx => {
+    ensureWritable();
     const binary = options.getPublicEngineBinary?.();
     if (!binary) throw new ApiError(409, "public_ai_engine_unavailable", "Start the managed engine to use a dedicated public scratch context.");
     const parsed = PublicAiInputSchema.safeParse(await options.readJsonBodyLimited(ctx.request, 64 * 1024));
@@ -39,6 +42,7 @@ export function registerAiGovernanceRoutes(options: {routes: Route[]; config: Se
   });
   addRoute(routes, "POST", "/lawoss/ai-governance/migration/preview", "host-token", async () => jsonResponse(await previewGovernanceMigration(config)));
   addRoute(routes, "POST", "/lawoss/ai-governance/migration/apply", "host-token", async ctx => {
+    ensureWritable();
     const parsed = z.strictObject({sourceHash: z.string().regex(/^[a-f0-9]{64}$/)}).safeParse(await options.readJsonBodyLimited(ctx.request, 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_migration_preview", "Provide the current migration preview hash.");
     return jsonResponse(await applyGovernanceMigration(config, parsed.data.sourceHash));
