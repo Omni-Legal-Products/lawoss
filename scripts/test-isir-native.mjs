@@ -11,7 +11,7 @@ import { startProvider, decodeNativeToolOutput } from "../lawoss/testing/isir/na
 import { partialPdf } from "../lawoss/testing/isir/native/partial-pdf.mjs";
 import { connectRenderer, until } from "../lawoss/testing/isir/native/cdp.mjs";
 import { stopNativeChild as stop } from "../lawoss/testing/isir/native/owned-process.mjs";
-import { createNativeDiagnostics, settleCleanup, errorMetadata } from "../lawoss/testing/isir/native/diagnostics.mjs";
+import { createNativeDiagnostics, settleCleanup, errorMetadata, summarizeRecoveryVerification } from "../lawoss/testing/isir/native/diagnostics.mjs";
 import { parseCsv } from "../apps/server/dist/lawoss/documents/validation.js";
 import { sha256 } from "../lawoss/testing/isir/corpus.mjs";
 import { prepareNativeEngineFiles, probeNativeEngineVersion, verifyNativeEngineRuntime } from "../lawoss/testing/isir/native/engine-identity.mjs";
@@ -45,6 +45,7 @@ const profile = path.join(root, "profile");
 const children = [];
 let cdp;
 let boundaryProbe;
+let recoveryVerificationStart;
 const caseRuns=[...corpus.cases.entries()].filter(([index])=>!debugPair||index===0||index===corpus.cases.length-1);
 const provider = await startProvider();
 let engineTraces;
@@ -493,7 +494,16 @@ try {
     const outputs=await api(workspace,'lawoss/documents/outputs');
     assert.equal(outputs.response.status,200);assert.equal(outputs.body.outputs.length,2);assert.ok(outputs.body.outputs.every(o=>o.verified&&o.hash===o.currentHash));
   }
-  await openFiles(first);await click('Dokumenty');await click('Prepare this folder');
+  recoveryVerificationStart=cdp.events.length;
+  await openFiles(first);await click('Dokumenty');
+  await until(()=>cdp.evaluate(`(()=>{const nav=[...document.querySelectorAll('[aria-label="Current folder"]')].find(e=>e.getBoundingClientRect().width>0);return nav&&[...nav.querySelectorAll('button')].slice(1).map(e=>e.textContent.trim()).join('/')==='Dokumenty'})()`),'recovered native source folder breadcrumb');
+  const recoveredPrepareStart=cdp.events.length;
+  await click('Prepare this folder');
+  const recoveredPrepareRequest=await until(()=>cdp.events.slice(recoveredPrepareStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&new URL(e.params.request.url).pathname===`/workspace/${first.id}/lawoss/documents/prepare`),'recovered native preparation request for the same project');
+  await until(()=>cdp.events.slice(recoveredPrepareStart).some(e=>e.method==='Network.responseReceived'&&e.params.requestId===recoveredPrepareRequest.params.requestId&&e.params.response.status===200),'recovered native preparation admission200');
+  const recoveredAdmission=await until(async()=>{try{return JSON.parse((await cdp.send('Network.getResponseBody',{requestId:recoveredPrepareRequest.params.requestId})).body)}catch{return false}},'recovered native preparation response bytes');
+  assert.deepEqual(recoveredAdmission.documents.map(d=>d.id).sort(),[...evidence[0].documentIds].sort(),'Repreparing unchanged recovered sources retains their original document identities');
+  assert.ok(recoveredAdmission.documents.every(d=>d.status==='readable'&&d.complete),'Previously prepared unchanged recovered sources remain readable');
   await until(async()=> (await panelText()).includes('Format and sources verified'),'recovered native renderer shows actual current verification');
   const finalEngine=await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('engineInfo')");
   const relaunchedHealthResponse=await engineRequest('/global/health');
@@ -514,6 +524,27 @@ try {
   console.error('Primary native failure before cleanup', JSON.stringify(diagnostics.failure(error)));
   const fetchPhases=children.filter(owner=>['electron','electron-relaunch'].includes(owner.label)).flatMap(owner=>nativeEngineFetchRecords(owner.output()).map(record=>({process:owner.label,...record}))).slice(-64);
   console.error('Owned engine fetch boundaries',JSON.stringify(fetchPhases));
+  if(corpus.mode==='synthetic'&&cdp&&recoveryVerificationStart!==undefined) {
+    let timer;
+    try {
+      const snapshot=await Promise.race([
+        cdp.send('Runtime.evaluate',{returnByValue:true,timeout:5000,expression:`(()=>{
+          const panels=[...document.querySelectorAll('[aria-label="Document processing"]')];
+          const visible=e=>e.getBoundingClientRect().width>0&&e.getBoundingClientRect().height>0;
+          const panel=panels.find(visible)??panels[0];
+          const lines=[...(panel?.querySelectorAll('p')??[])].map(e=>e.textContent.trim());
+          const selected=lines.find(text=>/^Selected files: \\d{1,2}$/.test(text));
+          const badges=Object.fromEntries(Object.entries({verified:'Format and sources verified',checking:'Checking current sources…',invalid:'Sources changed / invalid output',edited:'Output edited / removed',generated:'Generated, unverified',complete:'Selected sources fully extracted',partial:'Partially readable / incomplete OCR',readError:'Read could not be verified',stale:'Source changed — prepare again',pending:'Preparation pending',preparing:'Preparing',readable:'Readable'}).map(([key,label])=>[key,lines.filter(text=>text===label||text.startsWith(label+' ·')||(key==='complete'&&text.endsWith(' · '+label))).length]));
+          const controls=Object.fromEntries(Object.entries({prepareFolder:'Prepare this folder',prepareSelected:'Prepare selected',refresh:'Refresh status',generate:'Generate through chat',validate:'Validate saved output'}).map(([key,label])=>{const buttons=[...(panel?.querySelectorAll('button')??[])].filter(e=>e.textContent.trim()===label);return [key,{count:buttons.length,disabled:buttons.filter(e=>e.disabled||e.getAttribute('aria-disabled')==='true').length}]}));
+          const folder=[...(document.querySelector('[aria-label="Current folder"]')?.querySelectorAll('button')??[])].slice(1).map(e=>e.textContent.trim()).join('/');
+          return {visibility:document.visibilityState,focused:document.hasFocus(),viewportWidth:innerWidth,viewportHeight:innerHeight,panelCount:panels.length,visiblePanelCount:panels.filter(visible).length,firstPanelVisible:Boolean(panels[0]&&visible(panels[0])),firstPanelVerified:Boolean(panels[0]?.innerText.includes('Format and sources verified')),visible:Boolean(panel&&visible(panel)),folderMatches:folder==='Dokumenty',selectedFiles:selected?Number(selected.split(': ')[1]):null,alerts:panel?.querySelectorAll('[role="alert"]').length??0,badges,controls};
+        })()`}).then(result=>result.result?.value??null).catch(()=>null),
+        new Promise(resolve=>{timer=setTimeout(()=>resolve(null),5000)}),
+      ]);
+      console.error('Owned recovery verification state',JSON.stringify({capture:snapshot?'captured':'unavailable',...summarizeRecoveryVerification(snapshot,cdp.events.slice(recoveryVerificationStart))}));
+    } catch { /* Failure diagnostics must preserve the primary native error. */ }
+    finally {clearTimeout(timer);}
+  }
   await boundaryProbe?.().catch(()=>undefined);
   await diagnostics.write({events:cdp?.events,error}).catch(e=>console.error('Diagnostic publication failed',JSON.stringify(errorMetadata(e))));
   for (const owner of children) await writeFile(path.join(root, `${owner.label}.log`), owner.output(), { mode: 0o600 });

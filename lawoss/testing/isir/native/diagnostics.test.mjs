@@ -5,6 +5,55 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createNativeDiagnostics, summarizeNetwork, errorMetadata, settleCleanup } from './diagnostics.mjs';
 
+test('recovery diagnostics project fixed panel states and bounded values without arbitrary metadata', async () => {
+  const { summarizeRecoveryVerification } = await import('./diagnostics.mjs');
+  assert.equal(typeof summarizeRecoveryVerification, 'function');
+  const result = summarizeRecoveryVerification({
+    visibility:'visible',focused:true,viewportWidth:1800,viewportHeight:1400,panelCount:2,visiblePanelCount:1,firstPanelVisible:false,firstPanelVerified:false,visible:true,folderMatches:true,selectedFiles:4,alerts:1,
+    badges:{verified:0,checking:2,invalid:1,secret:'private DOM'},
+    controls:{prepareFolder:{count:1,disabled:0,error:'private error'},validate:{count:2,disabled:2},secret:'private URL'},
+    text:'private source',url:'https://private.example',error:'private message',
+  }, []);
+  assert.equal(result.panel.focused,true);
+  assert.equal(result.panel.selectedFiles,4);
+  assert.deepEqual(result.panel.viewport,{width:1800,height:1400});
+  assert.equal(result.panel.visiblePanelCount,1);assert.equal(result.panel.firstPanelVisible,false);
+  assert.equal(result.panel.badges.checking,2);
+  assert.deepEqual(result.panel.controls.validate,{count:2,disabled:2});
+  assert.doesNotMatch(JSON.stringify(result),/private|secret|text|url|error/);
+  const malformed=summarizeRecoveryVerification({visibility:'private source',focused:'private',panelCount:Infinity,selectedFiles:21,badges:{checking:-1},controls:{validate:{count:1e99,disabled:NaN}}},[]);
+  assert.equal(malformed.panel.visibility,'unknown');assert.equal(malformed.panel.focused,null);
+  assert.equal(malformed.panel.selectedFiles,null);assert.equal(malformed.panel.panelCount,0);
+  assert.equal(malformed.panel.badges.checking,0);assert.equal(malformed.panel.controls.validate.count,0);
+});
+
+test('recovery request timings use fixed document categories and monotonic network timestamps', async () => {
+  const { summarizeRecoveryVerification } = await import('./diagnostics.mjs');
+  assert.equal(typeof summarizeRecoveryVerification, 'function');
+  const event=(method,params)=>({method,params});
+  const request=(requestId,url,timestamp,method='GET')=>event('Network.requestWillBeSent',{requestId,timestamp,request:{url,method,headers:{authorization:'private'},postData:'private'}});
+  const result=summarizeRecoveryVerification({},[
+    request('private-read','http://127.0.0.1:1234/workspace/private/lawoss/documents/private-id/read?token=private',1),
+    event('Network.responseReceived',{requestId:'private-read',timestamp:1.4,response:{status:200}}),
+    event('Network.loadingFinished',{requestId:'private-read',timestamp:1.5}),
+    request('private-outputs','http://127.0.0.1:1234/workspace/private/lawoss/documents/outputs',1.5),
+    request('external','https://private.example/workspace/private/lawoss/documents/outputs',1.6),
+    request('prepare','http://127.0.0.1:1234/workspace/private/lawoss/documents/prepare',1.7,'POST'),
+    event('Network.loadingFailed',{requestId:'prepare',timestamp:2,errorText:'private'}),
+    event('Runtime.exceptionThrown',{timestamp:1792219181652,exceptionDetails:{text:'private'}}),
+  ]);
+  assert.deepEqual(result.requests.read,{started:1,pending:0,finished:1,failed:0,httpOk:1,httpFailure:0,maxElapsedMs:500,maxHeadersMs:400});
+  assert.equal(result.requests.outputs.pending,1);assert.equal(result.requests.outputs.maxElapsedMs,500);
+  assert.equal(result.requests.prepare.failed,1);assert.equal(result.requests.prepare.maxElapsedMs,300);
+  const bounded=summarizeRecoveryVerification({},[
+    request('bounded','http://127.0.0.1:1234/workspace/private/lawoss/documents',1),
+    event('Network.loadingFinished',{requestId:'bounded',timestamp:1e99}),
+  ]);
+  assert.equal(bounded.requests.sources.maxElapsedMs,300_000);
+  assert.deepEqual(Object.keys(bounded.requests),['sources','read','outputs','prepare']);
+  assert.doesNotMatch(JSON.stringify(result),/private|https|127\.0|requestId|headers|postData|errorText/);
+});
+
 test('workspace engine proxy diagnostics keep typed endpoints without workspace identities', () => {
   const result = summarizeNetwork([
     { method:'Network.requestWillBeSent',params:{requestId:'synthetic',timestamp:1,request:{url:'http://127.0.0.1:999/workspace/private-id/opencode/global/health'}} },

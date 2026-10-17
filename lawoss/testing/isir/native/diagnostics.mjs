@@ -31,6 +31,41 @@ function rendererCategory(url) {
   if(pathname==='/'||pathname==='/index.html'||pathname.startsWith('/@vite/')||pathname.startsWith('/@fs/')||pathname==='/@react-refresh')return 'internal';
   return null;
 }
+export function summarizeRecoveryVerification(snapshot = {}, events = []) {
+  const count=value=>Number.isInteger(value)&&value>=0&&value<=10_000?value:0;
+  const boolean=value=>typeof value==='boolean'?value:null;
+  const badges=Object.fromEntries(['verified','checking','invalid','edited','generated','complete','partial','readError','stale','pending','preparing','readable'].map(key=>[key,count(snapshot?.badges?.[key])]));
+  const controls=Object.fromEntries(['prepareFolder','prepareSelected','refresh','generate','validate'].map(key=>[key,{count:count(snapshot?.controls?.[key]?.count),disabled:count(snapshot?.controls?.[key]?.disabled)}]));
+  const panel={visibility:['visible','hidden'].includes(snapshot?.visibility)?snapshot.visibility:'unknown',focused:boolean(snapshot?.focused),viewport:{width:count(snapshot?.viewportWidth),height:count(snapshot?.viewportHeight)},panelCount:count(snapshot?.panelCount),visiblePanelCount:count(snapshot?.visiblePanelCount),firstPanelVisible:boolean(snapshot?.firstPanelVisible),firstPanelVerified:boolean(snapshot?.firstPanelVerified),visible:boolean(snapshot?.visible),folderMatches:boolean(snapshot?.folderMatches),selectedFiles:Number.isInteger(snapshot?.selectedFiles)&&snapshot.selectedFiles>=0&&snapshot.selectedFiles<=20?snapshot.selectedFiles:null,alerts:count(snapshot?.alerts),badges,controls};
+  const requests=Object.fromEntries(['sources','read','outputs','prepare'].map(key=>[key,{started:0,pending:0,finished:0,failed:0,httpOk:0,httpFailure:0,maxElapsedMs:0,maxHeadersMs:0}]));
+  const pending=new Map();let latest=0;
+  const elapsed=(end,start)=>Math.min(300_000,Math.max(0,Math.round((end-start)*1000)));
+  for(const event of events) {
+    const p=event.params??{};
+    if(event.method?.startsWith('Network.')&&Number.isFinite(p.timestamp))latest=Math.max(latest,p.timestamp);
+    if(event.method==='Network.requestWillBeSent') {
+      let category;
+      try {
+        const url=new URL(p.request?.url);
+        if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||!url.port)continue;
+        const route=url.pathname.replace(/^\/workspace\/[^/]+/,'');
+        if(p.request?.method==='GET')category=route==='/lawoss/documents'?'sources':route==='/lawoss/documents/outputs'?'outputs':/^\/lawoss\/documents\/[^/]+\/read$/.test(route)?'read':null;
+        else if(p.request?.method==='POST'&&route==='/lawoss/documents/prepare')category='prepare';
+      } catch { continue; }
+      if(category)pending.set(p.requestId,{category,started:Number.isFinite(p.timestamp)?p.timestamp:latest,headers:null,ended:null,state:'pending',status:null});
+    }
+    const request=pending.get(p.requestId);if(!request)continue;
+    if(event.method==='Network.responseReceived'){request.status=p.response?.status;request.headers=Number.isFinite(p.timestamp)?p.timestamp:latest;}
+    if(event.method==='Network.loadingFinished'||event.method==='Network.loadingFailed'){request.state=event.method==='Network.loadingFinished'?'finished':'failed';request.ended=Number.isFinite(p.timestamp)?p.timestamp:latest;}
+  }
+  for(const request of pending.values()) {
+    const result=requests[request.category];result.started++;result[request.state]++;
+    if(Number.isInteger(request.status)){if(request.status>=200&&request.status<300)result.httpOk++;else result.httpFailure++;}
+    result.maxElapsedMs=Math.max(result.maxElapsedMs,elapsed(request.ended??latest,request.started));
+    if(request.headers!==null)result.maxHeadersMs=Math.max(result.maxHeadersMs,elapsed(request.headers,request.started));
+  }
+  return {panel,requests};
+}
 export function summarizeNetwork(events) {
   const requests=new Map(),origins=new Map(),exceptions=new Map();
   const exceptionNames=['Error','TypeError','ReferenceError','SyntaxError','RangeError','EvalError','URIError','AggregateError','DOMException'];
