@@ -737,3 +737,14 @@ Sync nemení správanie: upstream wiki, OpenUI pohľady, kalendár, plánované 
 | `scripts/release/publish-electron-assets.test.mjs` | Fixture Windows `lawoss-win-*`; test `RELEASE_REPOSITORY` počíta so štyrmi nahrávaniami na beh (pribudol manifest Windows ARM64). |
 | `apps/server/src/security-file-boundary.e2e.test.ts` | Časť s aliasmi metadát (premenovanie `.opencode`) sa na Windows pri EPERM ukončí: od v0.2.9 server počas behu sleduje `.opencode` a drží v ňom handle. macOS a Linux ju pokrývajú celú. Test LAWOSS (zelená zóna), uvedené kvôli bezpečnostnému pokrytiu. |
 | `scripts/i18n-audit.mjs`, `package.json`, `apps/desktop/package.json` | `resolveSpreadImports()` s upstream `projectTemplateStrings`; skripty a zoznam testov ako zjednotenie. |
+
+## Ukončenie runtime spojení a natívne CI (#165)
+
+| Súbory upstreamu | Adaptácia LAWOSS |
+|---|---|
+| `apps/server/src/server.ts`, `apps/server/src/scheduled-tasks/store.ts`, `apps/server/src/scheduled-tasks/runner.ts` | `stop()` dokončí prijatú plánovanú úlohu a zatvorí vlastné SQLite spojenie; opakované volania zdieľajú jeden výsledok. Počítanie vlastníkov runtime chráni súbežné listenery; posledný počká na zdieľanú synchronizáciu a uvoľní cache. Regresie overujú skutočný zatvorený handle aj prísne odstránenie syntetického adresára. |
+| `apps/server/src/org-policy.ts`, `apps/server/src/firm-hub.ts`, `apps/server/src/eigenwelt-connection-store.ts`, `apps/server/src/runtime-opencode-config-store.ts` | Produkčné scoped close API pre posledného vlastníka servera; čaká na rozbehnutú synchronizáciu pred zatvorením spoločného spojenia. Zachytený kľúč runtime pri štarte ostáva platný aj pri neskoršej zmene konfiguračnej cesty. Testové aliasy zachovávajú existujúcich volajúcich. |
+| `apps/server/src/eigenwelt-connection-store.ts`, `apps/server/src/agent-sandbox/sync.ts` | Úložisko účtu používa existujúci `openSqlite` adaptér s cachovanými dotazmi, ktoré sa pri close finalizujú; schéma, migrácie a podmienené obnovovanie tokenov ostávajú. Ukončenie synchronizácie izolovaného prostredia počká na prijatú odpoveď, aby po zatvorení neotvorila nové DB spojenia. |
+| `apps/server/src/reviews/executor.test.ts` | Opustený quota mock po oneskorenej odpovedi ukončí svoju vetvu namiesto čítania stavu nasledujúceho testu. Riadená regresia uvoľní starý handler počas ďalších timeout retry a overí tri pokusy aj ich úklid; produkčný executor sa nemení. |
+
+Natívny LAWOSS harness používa autentizovanú workspace proxy bez znovuzavedenia engine hesiel do verejných metadát. Izolovaný macOS test vyberá mock keychain pred produkčným startupom; bežná aplikácia ani profil používateľa sa nemenia. Povinné CI kontroly, timeouty a prísne zlyhanie pri zamknutých súboroch zostávajú zachované.

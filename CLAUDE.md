@@ -76,6 +76,7 @@ Rules:
 - Use pnpm. Never use npm or yarn.
 - Pin Bun in `PATH` before running package build scripts; invoking a Bun binary by absolute path does not pin the shell commands inside `bun run`. Verify committed bundles by a second identical build.
 - Bun SQLite adapters with an explicit close lifecycle should use cached `Database.query()` or explicitly finalize prepared statements; uncached statements can retain WAL/file handles after `close()`. Verify immediate removal on Windows, not just Unix cleanup.
+- Server shutdown must drain accepted background work and release its owned database handles. Shared runtime caches close only after the last listener stops; preserve independent runtimes and idempotent shutdown.
 - Use components from `@/components` when possible.
 - Prefer shadcn/ui with Base UI for new components.
 - Assume end users are non-technical lawyers.
@@ -152,6 +153,8 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Use explicit static translation-key maps for native status labels. The CI audit rejects runtime key construction outside the existing LAWOSS domain dictionaries; type safety alone does not prove the audit will pass.
 - Starting an existing registered workspace must not recreate a missing source root. Check directory existence before runtime reuse or provisioning in either app-files mode; explicit home/new-project initialization remains a separate operation.
 - Native regression must verify the engine actually selected from built resources before and after relaunch. Follow platform-target priority, validate current manifest hashes and executable/health versions, and limit fixture-link cleanup to the link the test owns.
+- Native tests use the application's owner-authenticated engine proxy; serialized workspace metadata intentionally omits engine credentials. Isolated macOS fixtures must select the mock keychain before importing production startup.
+- Native UI fixtures explicitly emulate foreground focus on their owned renderer, including after relaunch. Preserve production foreground-only polling and assert real copy IPC, completed artifact paths and original byte hashes rather than obsolete toast text.
 - Historical engine metadata must account for native application archive timestamps of zero. Use supported archived-inclusive listing before strict directory/captured-ID filtering, while preserving each record archive state and filesystem scope.
 
 - CI diagnostic artifacts must be an explicit bounded allowlist restricted to synthetic fixtures. Record phase/status/timing and typed counts, never raw URLs, headers, bodies, paths, error messages, profiles or source content. Preserve the primary failure across cleanup and wait for actual owned-child exit; do not signal an already-exited leader's process group.

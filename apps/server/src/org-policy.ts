@@ -383,12 +383,13 @@ export function scheduleOrgPolicySync(config: ServerConfig, options: { force?: b
   return runtime.running;
 }
 
-/** Tests: forget the in-memory state for a runtime DB. */
-export async function resetOrgPolicyRuntimeForTests(config: ServerConfig): Promise<void> {
-  const path = runtimeDbPath(config);
+/** Drain synchronization and release a runtime no longer owned by any server. */
+export async function closeOrgPolicyRuntime(config: ServerConfig, path = runtimeDbPath(config)): Promise<void> {
   const runtime = runtimes.get(path);
   if (!runtime) return;
   await runtime.running;
   (await runtime.db).close();
   runtimes.delete(path);
 }
+
+export const resetOrgPolicyRuntimeForTests = closeOrgPolicyRuntime;

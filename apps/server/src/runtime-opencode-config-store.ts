@@ -185,8 +185,7 @@ async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
 const dbByPath = new Map<string, Promise<RuntimeOpencodeDb>>();
 
 /** Release a stopped server's config connection before removing its storage. */
-export async function closeRuntimeOpencodeConfig(config: ServerConfig): Promise<void> {
-  const path = runtimeDbPath(config);
+export async function closeRuntimeOpencodeConfig(config: ServerConfig, path = runtimeDbPath(config)): Promise<void> {
   const db = dbByPath.get(path);
   if (!db) return;
   dbByPath.delete(path);

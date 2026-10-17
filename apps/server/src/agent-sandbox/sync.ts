@@ -73,7 +73,7 @@ export async function syncSandboxSettings(config: ServerConfig, request: typeof 
   rounds.set(config, round);
   await round;
 }
-export function startSandboxSettingsSync(config: ServerConfig): () => void {
+export function startSandboxSettingsSync(config: ServerConfig): () => Promise<void> {
   let stopped = false, running = false, pending = false;
   const run = () => {
     if (stopped || config.readOnly) return;
@@ -85,5 +85,5 @@ export function startSandboxSettingsSync(config: ServerConfig): () => void {
   timer.unref?.();
   const unsubscribe = onSandboxSettingsChange(async (source, id) => { if (source === config && id === SANDBOX_DEFAULT_ID) run(); });
   run();
-  return () => { stopped = true; clearInterval(timer); unsubscribe(); };
+  return async () => { stopped = true; clearInterval(timer); unsubscribe(); await rounds.get(config); };
 }

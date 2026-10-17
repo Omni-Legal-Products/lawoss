@@ -135,7 +135,7 @@ import { registerCalendarRoutes } from "./routes/calendar.js";
 import { registerReviewRoutes } from "./routes/reviews.js";
 import { ReviewDefaults } from "./reviews/storage.js";
 import { ReviewLibrary } from "./reviews/library.js";
-import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
+import { closeRuntimeOpencodeConfig, runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { registerDocumentPreparationRoutes } from "./routes/document-preparation.js";
 import { registerOcrRoutes } from "./routes/ocr.js";
 import { OcrManager } from "./ocr/manager.js";
@@ -209,6 +209,7 @@ import {
   writeCachedEigenweltPaidManifest,
 } from "./eigenwelt-paid-manifest.js";
 import {
+  closeEigenweltConnection,
   readEigenweltConnection,
   readEigenweltEntitlementsView,
   writeEigenweltConnection,
@@ -242,8 +243,8 @@ import {
   type EigenweltHubKind,
 } from "./eigenwelt-hub.js";
 import { startSyncEvents } from "./eigenwelt-sync-events.js";
-import { firmHubConnectorNames, firmHubSkills, onFirmHubChange, readFirmHubSkill, readFirmHubView, scheduleFirmHubSync, setFirmHubAdded, setFirmHubMemberKey } from "./firm-hub.js";
-import { appliedOrgPolicy, onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyAllows, requireOrgPolicyToolsUnmanaged, requireOrgPolicyUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
+import { closeFirmHubRuntime, firmHubConnectorNames, firmHubSkills, onFirmHubChange, readFirmHubSkill, readFirmHubView, scheduleFirmHubSync, setFirmHubAdded, setFirmHubMemberKey } from "./firm-hub.js";
+import { appliedOrgPolicy, closeOrgPolicyRuntime, onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyAllows, requireOrgPolicyToolsUnmanaged, requireOrgPolicyUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
 import { orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
 import { allowedMemberConnectors, requireConnectorAllowed, requireHubInstallAllowed } from "./org-policy-items.js";
 import { orgOcr } from "./org-policy-ai.js";
@@ -815,7 +816,34 @@ export type StartedServer = ServeResult & {
   wordAddinPort: number | null;
 };
 
+// Distinct listeners may share a runtime, including during server replacement.
+// The last owner drains shared work before releasing its cached connections.
+const serverRuntimeOwners = new Map<string, { count: number; closing?: Promise<void> }>();
+async function retainServerRuntime(config: ServerConfig): Promise<() => Promise<void>> {
+  const path = runtimeDbPath(config);
+  while (serverRuntimeOwners.get(path)?.closing) await serverRuntimeOwners.get(path)?.closing;
+  const state = serverRuntimeOwners.get(path) ?? { count: 0 };
+  state.count++;
+  serverRuntimeOwners.set(path, state);
+  let released = false;
+  return async () => {
+    if (released) return;
+    released = true;
+    if (--state.count) return;
+    state.closing = (async () => {
+      try {
+        await Promise.all([closeOrgPolicyRuntime(config, path), closeFirmHubRuntime(config, join(dirname(path), 'firm-hub'))]);
+        await Promise.all([closeRuntimeOpencodeConfig(config, path), closeEigenweltConnection(config, path)]);
+      } finally { serverRuntimeOwners.delete(path); }
+    })();
+    await state.closing;
+  };
+}
+
 export async function startServer(config: ServerConfig, runtimeOptions: { documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void> } = {}): Promise<StartedServer> {
+  const releaseRuntime = await retainServerRuntime(config);
+  let ownedScheduledTasks: ScheduledTaskStore | undefined;
+  try {
   const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"));
   const agentSandbox = new AgentSandboxService(config, approvals);
   const reloadEvents = new ReloadEventStore();
@@ -890,6 +918,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     requireUnmanaged: () => requireOrgPolicyUnmanaged(config, "reviews.defaults"),
   }));
   const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
+  ownedScheduledTasks = scheduledTasks;
   const scheduledWorkspace = async (task: ScheduledTask) => {
     const workspace = await resolveWorkspace(config, task.workspaceId);
     if (workspace.workspaceType === "remote") throw new ApiError(400, "local_schedule_only", "Scheduled tasks require a local project.");
@@ -1217,11 +1246,12 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   }
 
   const stopScheduledTasks = config.readOnly ? () => {} : scheduledRunner.start();
+  let stopping: Promise<void> | undefined;
   const startedServer = {
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
-    stop: async () => {
-      stopSandboxSettingsSync();
+    stop: () => stopping ??= (async () => {
+      await stopSandboxSettingsSync();
       agentSandbox.stop();
       approvals.dispose();
       stopMessageQueue(config);
@@ -1237,7 +1267,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       stopFirmHub();
       stopTaskReminders();
       stopMarketplaceCheck();
-      stopScheduledTasks();
+      await stopScheduledTasks();
       await wikiSync.stop();
       await wikiStore.close();
       benchmarkRunner.dispose();
@@ -1246,7 +1276,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       reloadBaselineRefreshers.delete(config);
       await wordAddinServer?.stop();
       await server.stop();
-    },
+      scheduledTasks.close();
+      ownedScheduledTasks = undefined;
+      await releaseRuntime();
+    })(),
   };
   try {
     // Bind first: a busy preferred port can move the listener. Agent tools
@@ -1256,6 +1289,11 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     return startedServer;
   } catch (error) {
     await startedServer.stop();
+    throw error;
+  }
+  } catch (error) {
+    ownedScheduledTasks?.close();
+    await releaseRuntime();
     throw error;
   }
 }

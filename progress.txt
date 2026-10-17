@@ -1,5 +1,7 @@
 ## Codebase Patterns
 
+- Drain accepted background work before releasing the last server runtime owner; a logically closed SQLite connection can still retain uncached prepared statements. Use the shared cached-query adapter and verify retained statements plus strict Windows removal.
+- Delayed mock HTTP handlers must finish their own scenario before reading later mutable fixture state; cancellation of a client does not cancel the server handler.
 - Background source refresh and user-triggered generation have separate availability rules; generation always re-reads selected sources before dispatch, while output verification stays conservative during refresh.
 - Workspace identity and file paths are separate contracts: moving a folder must not create a new case or silently recreate the old path.
 - Reuse DocumentPreparation/OCR and scoped agent plugins; incomplete coverage is a durable result, not a successful empty document.
@@ -62,3 +64,5 @@
 - Learning: isFetching describes transport activity, not the result of evidence validation. Keep dispatch preflight separate from availability and from verified output labels.
 
 2026-10-17T01:56:05+02:00: Rebased unpublished fix onto current origin/dev 0d264f30 (upstream v0.2.9 sync), preserving its changes. Fresh frozen dependency install; app suite 2389 pass / 2 platform skips / 0 fail across 360 files, typecheck pass, same two browser regressions pass with one synthetic send. QA README and inspected synthetic screenshot refreshed. No product file beyond the original focused panel patch changed.
+
+2026-10-17T07:59:01+02:00: PR165 CI server shutdown: reproduced retained runtime connections, executable uncached Bun statements, accepted scheduled delivery cut short and late settings replies reopening DBs. Added scoped last-owner release, scheduled/policy/firm/sandbox drains and existing cached SQLite adapter; strict synthetic removal/diagnostics unchanged. Files: server.ts, agent-sandbox/sync.ts, eigenwelt-connection-store.ts, firm-hub.ts, org-policy.ts, runtime-opencode-config-store.ts, scheduled-tasks/store.ts and runner.ts, lawoss/test-support/inspect-cleanup.test.ts, reviews/executor.test.ts, PATCHES.md, AGENTS.md/CLAUDE.md, progress.txt. Full-suite evidence identified independent abandoned quota-handler fixture race; gated RED then early-return GREEN preserves actual timeout/cleanup assertions. QA pinned Bun1.4.2/Node24: full server2606pass69skip0fail (325files), targeted lifecycle88pass0fail, cleanup8pass, executor10x300pass; server typecheck/build and independent read-only review pass. Windows file-lock result awaits actual CI. Preexisting invalid-startup timer leak is outside this normal start/stop fix; no claim of complete startup resource unwinding.

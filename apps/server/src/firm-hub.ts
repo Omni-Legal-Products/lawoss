@@ -352,6 +352,15 @@ export function onFirmHubChange(config: ServerConfig, handler: (changes: Set<Cha
   return () => handlers.delete(handler);
 }
 
+/** Drain work before the last server releases the shared account connection. */
+export async function closeFirmHubRuntime(config: ServerConfig, key = hubDir(config)): Promise<void> {
+  const runtime = runtimes.get(key);
+  if (!runtime) return;
+  await runtime.running;
+  runtime.secrets.clear();
+  runtimes.delete(key);
+}
+
 async function connectorOf(config: ServerConfig, item: CatalogItem): Promise<Connector | null> {
   const parsed = ConnectorSchema.safeParse(await cachedPayload(config, item));
   return parsed.success ? parsed.data : null;
