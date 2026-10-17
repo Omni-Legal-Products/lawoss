@@ -22,24 +22,49 @@ function endpoint(url) {
   if (/\/workspace\/[^/]+\/config$/.test(pathname))return 'workspace.config';
   return 'other';
 }
+function rendererCategory(url) {
+  let pathname;try { pathname=new URL(url).pathname; } catch { return null; }
+  if(pathname.includes('/node_modules/')||pathname.startsWith('/@id/'))return 'dependency';
+  if(pathname.startsWith('/src/'))return 'source';
+  if(pathname.startsWith('/assets/'))return 'asset';
+  if(pathname==='/'||pathname==='/index.html'||pathname.startsWith('/@vite/')||pathname.startsWith('/@fs/')||pathname==='/@react-refresh')return 'internal';
+  return null;
+}
 export function summarizeNetwork(events) {
-  const requests=new Map(),origins=new Map();
+  const requests=new Map(),origins=new Map(),exceptions=new Map();
+  const exceptionNames=['Error','TypeError','ReferenceError','SyntaxError','RangeError','EvalError','URIError','AggregateError','DOMException'];
   let latest=0;
   for(const event of events) {
     const p=event.params??{};
-    if(Number.isFinite(p.timestamp))latest=Math.max(latest,p.timestamp);
+    if(event.method.startsWith('Network.')&&Number.isFinite(p.timestamp))latest=Math.max(latest,p.timestamp);
+    if(event.method==='Runtime.exceptionThrown') {
+      const supplied=p.exceptionDetails?.exception?.className;
+      const name=exceptionNames.includes(supplied)?supplied:'Error';
+      exceptions.set(name,(exceptions.get(name)??0)+1);
+    }
     if(event.method==='Network.requestWillBeSent') {
       let origin=null,workspaceIndex=null;
       try {const url=new URL(p.request?.url);if(!origins.has(url.origin))origins.set(url.origin,origins.size+1);origin=origins.get(url.origin);const match=url.pathname.match(/\/workspace\/ws_native_(\d+)(?:\/|$)/);if(match)workspaceIndex=Number(match[1]);}catch{}
-      requests.set(p.requestId,{endpoint:endpoint(p.request?.url),origin,workspaceIndex,status:null,state:'pending',stream:false,started:Number.isFinite(p.timestamp)?p.timestamp:latest});
+      requests.set(p.requestId,{endpoint:endpoint(p.request?.url),category:rendererCategory(p.request?.url),origin,workspaceIndex,status:null,state:'pending',stream:false,started:Number.isFinite(p.timestamp)?p.timestamp:latest});
     }
     const entry=requests.get(p.requestId);if(!entry)continue;
     if(event.method==='Network.responseReceived') {entry.status=Number.isInteger(p.response?.status)?p.response.status:null;entry.stream=p.response?.mimeType==='text/event-stream';}
     if(event.method==='Network.loadingFinished')entry.state='finished';
     if(event.method==='Network.loadingFailed')entry.state='failed';
   }
-  const all=[...requests.values()].map(({started,...request})=>({...request,ageMs:Math.max(0,Math.round((latest-started)*1000))}));
-  return {total:all.length,pending:all.filter(r=>r.state==='pending').length,streams:all.filter(r=>r.state==='pending'&&r.stream).length,requests:[...all.filter(r=>r.state==='pending'),...all.filter(r=>r.state!=='pending').slice(-40)].slice(0,128)};
+  const aggregates=new Map();
+  let http500Count=0;
+  const all=[...requests.values()].map(({started,category,...request})=>{
+    if(category) {
+      if(request.status===500)http500Count++;
+      const statusFamily=request.status===null?'none':request.status>=100&&request.status<600?`${Math.floor(request.status/100)}xx`:'other';
+      const key=JSON.stringify([category,statusFamily,request.state]);
+      const aggregate=aggregates.get(key)??{category,statusFamily,state:request.state,count:0};
+      aggregate.count++;aggregates.set(key,aggregate);
+    }
+    return {...request,ageMs:Math.max(0,Math.round((latest-started)*1000))};
+  });
+  return {total:all.length,pending:all.filter(r=>r.state==='pending').length,streams:all.filter(r=>r.state==='pending'&&r.stream).length,requests:[...all.filter(r=>r.state==='pending'),...all.filter(r=>r.state!=='pending').slice(-40)].slice(0,128),renderer:{network:[...aggregates.values()],http500Count,exceptions:[...exceptions].map(([name,count])=>({name,count}))}};
 }
 export async function settleCleanup(primary, operations) {
   const failures=[];

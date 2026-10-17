@@ -162,3 +162,4 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Historical engine metadata must account for native application archive timestamps of zero. Use supported archived-inclusive listing before strict directory/captured-ID filtering, while preserving each record archive state and filesystem scope.
 
 - CI diagnostic artifacts must be an explicit bounded allowlist restricted to synthetic fixtures. Record phase/status/timing and typed counts, never raw URLs, headers, bodies, paths, error messages, profiles or source content. Preserve the primary failure across cleanup and wait for actual owned-child exit; do not signal an already-exited leader's process group.
+- Aggregate renderer network diagnostics into fixed categories/status families before limiting individual requests, so pending imports cannot hide failures. Calculate network ages only from the network monotonic clock, never console epoch timestamps.
