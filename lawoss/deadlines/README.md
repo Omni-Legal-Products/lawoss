@@ -24,3 +24,11 @@ bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-pr
 ```
 
 The test-only fixture module explicitly injects an isolated artificial approved authority and calendar. Production does not import it. Technical tests do not constitute legal acceptance. Required pilot checks remain separate: responsible CZ/SK legal sign-off; native macOS/Windows dialogs; actual packaged Node resources; filesystem rename/open-file behavior; DST/year-boundary cases; same-mtime source changes; denied/expired decisions; concurrent confirmation; copied workspace; each crash stage; deterministic ICS parse-back; and visible pending/failure/revocation states. Local ICS creation is not sending, service, signing, filing, remote calendar synchronization or a guarantee of deadline monitoring.
+
+The explicit mounted selection mechanism check uses an isolated Chromium profile, the real production React workflow, browser WebCrypto and a fixture-owned loopback HTTP source:
+
+```sh
+node lawoss/testing/deadlines/selection.browser.mjs '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+```
+
+Pass the absolute Chromium executable for the current platform. It checks keyboard text selection, exact locator hashes, callback publication and the actual enabled candidate HTTP action. This does not substitute for native Electron focus/dialog or packaged acceptance.

@@ -60,7 +60,7 @@ export function DeadlineWorkflowPanel({ data, scope }: { data: OkfReadResult; sc
   const matter = data.inputs.find(input => input.path === selected), jurisdiction = matter?.cardFrontmatter?.jurisdiction ?? matter?.records.find(record => record.type === "matter")?.jurisdiction;
   return <section className="lw-reg"><h2>{t("lawoss.deadlines.title",locale)}</h2><label>{copy(locale,"Věc","Vec")} <select value={selected} onChange={event => setSelection({owner:ownerScope,path:event.target.value})}>{data.matters.map(m => <option key={m.path} value={m.path}>{m.title}</option>)}</select></label><ScopedWorkflow key={deadlineOwnerKey(owner)} owner={owner} client={client} jurisdiction={jurisdiction === "sk" ? "sk" : "cz"} locale={locale} /></section>;
 }
-function ScopedWorkflow({ client,owner,jurisdiction,locale }: { client: LegalworkServerClient; owner: DeadlineOwner; jurisdiction: "cz" | "sk"; locale: "cs" | "sk" }) {
+export function ScopedWorkflow({ client,owner,jurisdiction,locale }: { client: LegalworkServerClient; owner: DeadlineOwner; jurisdiction: "cz" | "sk"; locale: "cs" | "sk" }) {
   const {workspaceId,matterPath}=owner,cache=useQueryClient(),key=["lawoss-deadlines",deadlineOwnerKey(owner)];
   const lease=useRef<ReturnType<typeof createDeadlineOwnerLease>|null>(null);
   useEffect(()=>{const captured=createDeadlineOwnerLease();lease.current=captured;return()=>{captured.dispose();if(lease.current===captured)lease.current=null;};},[]);
