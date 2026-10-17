@@ -51,7 +51,24 @@ export async function openSqlite(path: string): Promise<SqliteHandle> {
   };
 }
 
+const ownedRuntimePaths = new WeakMap<ServerConfig, { path: string; owners: number }>();
+
+/** Keep accepted server work on its owned runtime until every listener stops. */
+export function retainRuntimeDbPath(config: ServerConfig, path = runtimeDbPath(config)): () => void {
+  const state = ownedRuntimePaths.get(config) ?? { path, owners: 0 };
+  state.owners++;
+  ownedRuntimePaths.set(config, state);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (--state.owners === 0) ownedRuntimePaths.delete(config);
+  };
+}
+
 export function runtimeDbPath(config: ServerConfig): string {
+  const owned = ownedRuntimePaths.get(config);
+  if (owned) return owned.path;
   const override = process.env.LEGALWORK_RUNTIME_DB?.trim();
   if (override) return resolve(override);
   const configPath = config.configPath?.trim();

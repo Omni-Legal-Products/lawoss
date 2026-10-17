@@ -38,11 +38,15 @@ export class ScheduledTaskRunner {
     } finally { this.ticking = false; }
   }
   start() {
-    const tick = () => { void this.tick().catch(error => console.warn("[scheduled-tasks]", error)); };
+    let pending: Promise<void> | undefined;
+    const tick = () => {
+      if (pending) return;
+      pending = this.tick().catch(error => console.warn("[scheduled-tasks]", error)).finally(() => { pending = undefined; });
+    };
     const timer = setInterval(tick, 15000);
     timer.unref();
     // Check persisted due times immediately on reopening, including overdue one-time tasks.
     tick();
-    return () => { this.stopped = true; clearInterval(timer); };
+    return async () => { this.stopped = true; clearInterval(timer); await pending; };
   }
 }

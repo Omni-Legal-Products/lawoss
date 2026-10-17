@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,6 +8,7 @@ import { ReloadEventStore } from "./events.js";
 import { startReloadWatchers } from "./reload-watcher.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
+import { promoteSkillToWorkflow } from "./github-skills.js";
 
 async function withWorkspace(fn: (root: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-reload-watcher-"));
@@ -61,6 +62,47 @@ async function waitForEvent(store: ReloadEventStore, workspaceId: string) {
 }
 
 describe("reload watcher fingerprints", () => {
+  test("promotes an actively watched skill without losing nested resources or later reload events", async () => {
+    await withWorkspace(async (root) => {
+      const { config, workspace } = buildConfig(root);
+      const skill = join(root, ".opencode", "skills", "synthetic");
+      await mkdir(join(skill, "resources"), { recursive: true });
+      await writeFile(join(skill, "SKILL.md"), "---\nname: synthetic\ndescription: Synthetic watcher fixture\n---\nSynthetic skill\n");
+      const bytes = new Uint8Array([0, 255, 17, 128, 10]);
+      await writeFile(join(skill, "resources", "sample.bin"), bytes);
+      // A nested SKILL.md attachment gives the real watcher a fingerprinted
+      // event from the resources directory itself, rather than just its parent.
+      const nested = join(skill, "resources", "SKILL.md");
+      await writeFile(nested, "Synthetic nested attachment\n");
+      const events = new ReloadEventStore();
+      const watcher = startReloadWatchers({ config, reloadEvents: events, debounceMs: 30 });
+      const observeChange = async (file: string, name: string) => {
+        const cursor = events.cursor();
+        // Poll actual delivery while changing the content. This acknowledges
+        // an armed nested watch without assuming when its initial scan runs.
+        for (let attempt = 0; attempt < 60; attempt++) {
+          await writeFile(file, `Synthetic nested attachment ${name} revision ${attempt}\n`);
+          await sleep(50);
+          const event = events.list(workspace.id, cursor).find(item => item.reason === "skills" && item.trigger?.name === name && item.trigger.path === file);
+          if (event) return event;
+        }
+        throw new Error("Nested skill change was not observed by the reload watcher");
+      };
+      try {
+        await watcher.refreshWorkspace(workspace.id);
+        const before = await observeChange(nested, "synthetic");
+        expect(before.trigger?.path).toBe(nested);
+        // The same watcher stays live across this one real rename.
+        const promoted = await promoteSkillToWorkflow(root, "synthetic");
+        expect(promoted.name).toBe("workflow-assistant-synthetic");
+        expect(new Uint8Array(await readFile(join(promoted.path, "resources", "sample.bin")))).toEqual(bytes);
+        const after = await observeChange(join(promoted.path, "resources", "SKILL.md"), promoted.name);
+        expect(after.seq).toBeGreaterThan(before.seq);
+        expect(after.trigger?.name).toBe(promoted.name);
+      } finally { watcher.close(); }
+    });
+  }, 10000);
+
   test("does not emit when a watched file is rewritten with identical content", async () => {
     await withWorkspace(async (root) => {
       const { config, workspace } = buildConfig(root);

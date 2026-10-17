@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { startBridge } from "../dist/bridge.js";
+import { normalizeScopedDirectoryPath } from "../dist/path-scope.js";
 
 function createLoggerStub() {
   const base = {
@@ -99,8 +100,8 @@ test("bridge: routes sessions per peer directory binding within workspace", asyn
   await bridge.dispatchInbound({ channel: "slack", identityId: "default", peerId: "D-B", text: "ping", raw: {} });
 
   // Ensure prompts were routed to different workspace subdirectories
-  assert.ok(prompted.includes(wsA));
-  assert.ok(prompted.includes(wsB));
+  assert.ok(prompted.includes(normalizeScopedDirectoryPath(wsA)));
+  assert.ok(prompted.includes(normalizeScopedDirectoryPath(wsB)));
 
   // Ensure output includes per-directory pong
   const output = sent.map((m) => `${m.peerId}:${m.text}`).join("\n");
@@ -176,7 +177,7 @@ test("bridge: rejects /dir outside workspace root", async () => {
   await bridge.dispatchInbound({ channel: "slack", identityId: "default", peerId: "D-OUT", text: "ping", raw: {} });
 
   assert.ok(sent.some((m) => m.text.includes("Directory must stay within workspace root")));
-  assert.ok(prompted.every((dirPath) => dirPath === wsA));
+  assert.ok(prompted.every((dirPath) => dirPath === normalizeScopedDirectoryPath(wsA)));
 
   await bridge.stop();
 });

@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { and, eq, sql } from "drizzle-orm";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { dirname } from "node:path";
+import { openSqlite, runtimeDbPath } from "./runtime-db.js";
+export { runtimeDbPath } from "./runtime-db.js";
 import type { EigenweltAccountIdentity, EigenweltEntitlements } from "./eigenwelt-auth.js";
 import {
   eigenweltPlatformUrl,
@@ -26,19 +25,6 @@ import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
 
 /** The single row's key in the `workspace_id` column (never a workspace id). */
 const ACCOUNT_ROW_ID = "eigenwelt-account";
-
-const eigenweltConnections = sqliteTable("eigenwelt_connections", {
-  workspaceId: text("workspace_id").primaryKey(),
-  entitlementsJson: text("entitlements_json"),
-  accountJson: text("account_json"),
-  platformUrl: text("platform_url"),
-  platformToken: text("platform_token"),
-  refreshToken: text("refresh_token"),
-  refreshRequestId: text("refresh_request_id"),
-  refreshError: text("refresh_error"),
-  platformTokenExpiresAt: integer("platform_token_expires_at"),
-  updatedAt: integer("updated_at").notNull(),
-});
 
 type EigenweltConnectionRow = {
   entitlementsJson: string | null;
@@ -128,74 +114,11 @@ const ACCOUNT_ROW_MIGRATION = [
   `DELETE FROM eigenwelt_connections WHERE workspace_id <> '${ACCOUNT_ROW_ID}'`,
 ];
 
-export function runtimeDbPath(config: ServerConfig): string {
-  const override = process.env.LEGALWORK_RUNTIME_DB?.trim();
-  if (override) return resolve(override);
-  const configPath = config.configPath?.trim();
-  const configDir = configPath ? dirname(configPath) : join(homedir(), ".config", "legalwork");
-  return join(configDir, "runtime.sqlite");
-}
-
 async function openDb(path: string): Promise<EigenweltConnectionDb> {
   await ensureDir(dirname(path));
-  if (typeof process.versions.bun === "string") {
-    const { Database } = await import("bun:sqlite");
-    const { drizzle } = await import("drizzle-orm/bun-sqlite");
-    const sqlite = new Database(path, { create: true });
-    sqlite.run("PRAGMA busy_timeout = 5000");
-    sqlite.run(CREATE_TABLE_SQL);
-    for (const sql of MIGRATION_COLUMNS) {
-      try {
-        sqlite.run(sql);
-      } catch {
-        // column already exists
-      }
-    }
-    try {
-      for (const sql of ACCOUNT_ROW_MIGRATION) sqlite.run(sql);
-    } catch {
-      // copy failed: the legacy rows stay, and the next open retries
-    }
-    const db = drizzle(sqlite);
-    return {
-      close: () => sqlite.close(),
-      get: (workspaceId) =>
-        db
-          .select()
-          .from(eigenweltConnections)
-          .where(eq(eigenweltConnections.workspaceId, workspaceId))
-          .get(),
-      upsert: (value) => {
-        const { workspaceId, updatedAt, ...set } = value;
-        db
-          .insert(eigenweltConnections)
-          .values(value)
-          .onConflictDoUpdate({
-            target: eigenweltConnections.workspaceId,
-            set: { ...set, updatedAt },
-          })
-          .run();
-      },
-      updateIfCurrent: (value, expected) => {
-        const { workspaceId, ...set } = value;
-        return db.update(eigenweltConnections).set(set).where(and(
-          eq(eigenweltConnections.workspaceId, workspaceId),
-          eq(eigenweltConnections.refreshToken, expected.refreshToken),
-          eq(eigenweltConnections.refreshRequestId, expected.refreshRequestId),
-        )).returning({ id: eigenweltConnections.workspaceId }).get() !== undefined;
-      },
-      claimRequest: (refreshToken, requestId) => {
-        const row = db.update(eigenweltConnections).set({
-          refreshRequestId: sql`coalesce(${eigenweltConnections.refreshRequestId}, ${requestId})`,
-        }).where(and(eq(eigenweltConnections.workspaceId, ACCOUNT_ROW_ID),
-          eq(eigenweltConnections.refreshToken, refreshToken)))
-          .returning({ requestId: eigenweltConnections.refreshRequestId }).get();
-        return row?.requestId ?? null;
-      },
-    };
-  }
-  const { DatabaseSync } = await import("node:sqlite");
-  const sqlite = new DatabaseSync(path);
+  // The shared adapter caches Bun statements so close releases native handles,
+  // including after Drizzle-style one-shot queries would outlive their Database.
+  const sqlite = await openSqlite(path);
   sqlite.exec("PRAGMA busy_timeout = 5000");
   sqlite.exec(CREATE_TABLE_SQL);
   for (const sql of MIGRATION_COLUMNS) {
@@ -210,22 +133,14 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
   } catch {
     // copy failed: the legacy rows stay, and the next open retries
   }
-  const get = sqlite.prepare(
-    "SELECT entitlements_json AS entitlementsJson, account_json AS accountJson, platform_url AS platformUrl, platform_token AS platformToken, refresh_token AS refreshToken, refresh_request_id AS refreshRequestId, refresh_error AS refreshError, platform_token_expires_at AS platformTokenExpiresAt FROM eigenwelt_connections WHERE workspace_id = ?",
-  );
-  const upsert = sqlite.prepare(
-    "INSERT INTO eigenwelt_connections (workspace_id, entitlements_json, account_json, platform_url, platform_token, refresh_token, refresh_request_id, refresh_error, platform_token_expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET entitlements_json = excluded.entitlements_json, account_json = excluded.account_json, platform_url = excluded.platform_url, platform_token = excluded.platform_token, refresh_token = excluded.refresh_token, refresh_request_id = excluded.refresh_request_id, refresh_error = excluded.refresh_error, platform_token_expires_at = excluded.platform_token_expires_at, updated_at = excluded.updated_at",
-  );
-  const update = sqlite.prepare(
-    "UPDATE eigenwelt_connections SET entitlements_json = ?, account_json = ?, platform_url = ?, platform_token = ?, refresh_token = ?, refresh_request_id = ?, refresh_error = ?, platform_token_expires_at = ?, updated_at = ? WHERE workspace_id = ? AND refresh_token = ? AND refresh_request_id = ?",
-  );
-  const claim = sqlite.prepare(
-    "UPDATE eigenwelt_connections SET refresh_request_id = coalesce(refresh_request_id, ?) WHERE workspace_id = ? AND refresh_token = ? RETURNING refresh_request_id",
-  );
+  const getSql = "SELECT entitlements_json AS entitlementsJson, account_json AS accountJson, platform_url AS platformUrl, platform_token AS platformToken, refresh_token AS refreshToken, refresh_request_id AS refreshRequestId, refresh_error AS refreshError, platform_token_expires_at AS platformTokenExpiresAt FROM eigenwelt_connections WHERE workspace_id = ?";
+  const upsertSql = "INSERT INTO eigenwelt_connections (workspace_id, entitlements_json, account_json, platform_url, platform_token, refresh_token, refresh_request_id, refresh_error, platform_token_expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET entitlements_json = excluded.entitlements_json, account_json = excluded.account_json, platform_url = excluded.platform_url, platform_token = excluded.platform_token, refresh_token = excluded.refresh_token, refresh_request_id = excluded.refresh_request_id, refresh_error = excluded.refresh_error, platform_token_expires_at = excluded.platform_token_expires_at, updated_at = excluded.updated_at";
+  const updateSql = "UPDATE eigenwelt_connections SET entitlements_json = ?, account_json = ?, platform_url = ?, platform_token = ?, refresh_token = ?, refresh_request_id = ?, refresh_error = ?, platform_token_expires_at = ?, updated_at = ? WHERE workspace_id = ? AND refresh_token = ? AND refresh_request_id = ?";
+  const claimSql = "UPDATE eigenwelt_connections SET refresh_request_id = coalesce(refresh_request_id, ?) WHERE workspace_id = ? AND refresh_token = ? RETURNING refresh_request_id";
   return {
     close: () => sqlite.close(),
     get: (workspaceId) => {
-      const row = get.get(workspaceId);
+      const row = sqlite.get(getSql, [workspaceId]);
       if (!isRecord(row)) return undefined;
       return {
         entitlementsJson: typeof row.entitlementsJson === "string" ? row.entitlementsJson : null,
@@ -240,7 +155,7 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
       };
     },
     upsert: (value) => {
-      upsert.run(
+      sqlite.run(upsertSql, [
         value.workspaceId,
         value.entitlementsJson,
         value.accountJson,
@@ -251,15 +166,15 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
         value.refreshError,
         value.platformTokenExpiresAt,
         value.updatedAt,
-      );
+      ]);
     },
-    updateIfCurrent: (value, expected) => update.run(
+    updateIfCurrent: (value, expected) => sqlite.get(updateSql + " RETURNING workspace_id", [
       value.entitlementsJson, value.accountJson, value.platformUrl, value.platformToken,
       value.refreshToken, value.refreshRequestId, value.refreshError, value.platformTokenExpiresAt,
       value.updatedAt, value.workspaceId, expected.refreshToken, expected.refreshRequestId,
-    ).changes > 0,
+    ]) !== undefined,
     claimRequest: (refreshToken, requestId) => {
-      const row = claim.get(requestId, ACCOUNT_ROW_ID, refreshToken);
+      const row = sqlite.get(claimSql, [requestId, ACCOUNT_ROW_ID, refreshToken]);
       return isRecord(row) && typeof row.refresh_request_id === "string" ? row.refresh_request_id : null;
     },
   };
@@ -267,14 +182,15 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
 
 const dbByPath = new Map<string, Promise<EigenweltConnectionDb>>();
 
-/** Release test profile handles before removing their files, including on Windows. */
-export async function closeEigenweltConnectionForTests(config: ServerConfig): Promise<void> {
-  const path = runtimeDbPath(config);
+/** Release the connection after the last server using this runtime has stopped. */
+export async function closeEigenweltConnection(config: ServerConfig, path = runtimeDbPath(config)): Promise<void> {
   const db = dbByPath.get(path);
   if (!db) return;
   dbByPath.delete(path);
   (await db).close();
 }
+
+export const closeEigenweltConnectionForTests = closeEigenweltConnection;
 
 async function connectionDb(config: ServerConfig): Promise<EigenweltConnectionDb> {
   const path = runtimeDbPath(config);

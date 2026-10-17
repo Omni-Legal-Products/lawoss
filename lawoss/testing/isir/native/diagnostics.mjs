@@ -10,7 +10,7 @@ export function errorMetadata(error, depth = 0) {
     ...(depth < 3 && error?.cause ? {cause:errorMetadata(error.cause,depth+1)} : {}) };
 }
 function endpoint(url) {
-  let pathname;try { pathname=new URL(url).pathname; } catch { return 'other'; }
+  let pathname;try { pathname=new URL(url).pathname.replace(/^\/workspace\/[^/]+\/opencode(?=\/|$)/,''); } catch { return 'other'; }
   if (/\/lawoss\/documents\/prepare$/.test(pathname)) return 'documents.prepare';
   if (/\/lawoss\/documents(?:\/.*)?$/.test(pathname)) return 'documents';
   if (/\/(?:events?|event-stream|stream)$/.test(pathname)) return 'events';
@@ -19,27 +19,103 @@ function endpoint(url) {
   if (/\/files\/(?:list|raw|content)$/.test(pathname)) return 'files';
   const fixed = new Map([['/global/health','engine.health'],['/provider','provider'],['/instance/dispose','engine.dispose'],['/auth/isir-native','synthetic.auth'],['/json/list','cdp.targets'],['/experimental/session','engine.sessions'],['/','ui']]);
   if(fixed.has(pathname))return fixed.get(pathname);
+  if (/\/workspace\/[^/]+\/engine\/reload$/.test(pathname))return 'engine.reload';
   if (/\/workspace\/[^/]+\/config$/.test(pathname))return 'workspace.config';
   return 'other';
 }
+function rendererCategory(url) {
+  let pathname;try { pathname=new URL(url).pathname; } catch { return null; }
+  if(pathname.includes('/node_modules/')||pathname.startsWith('/@id/'))return 'dependency';
+  if(pathname.startsWith('/src/'))return 'source';
+  if(pathname.startsWith('/assets/'))return 'asset';
+  if(pathname==='/'||pathname==='/index.html'||pathname.startsWith('/@vite/')||pathname.startsWith('/@fs/')||pathname==='/@react-refresh')return 'internal';
+  return null;
+}
+// Self-contained so the owned CDP page compares actual published renderer state
+// in place; callers receive only fixed booleans, never paths or capabilities.
+export function recoveryRendererIdentity(snapshot, expected = {}) {
+  expected ??= {};
+  const origin=value=>{
+    if(typeof value!=='string')return null;
+    try {const url=new URL(value);return url.protocol==='http:'&&url.hostname==='127.0.0.1'&&url.port&&!url.username&&!url.password&&!url.search&&!url.hash&&url.pathname==='/'?url.origin:null;}catch{return null;}
+  };
+  const valid=typeof expected.workspaceId==='string'&&expected.workspaceId.length>0&&typeof expected.root==='string'&&expected.root.length>0;
+  const expectedOrigin=origin(expected.baseUrl);
+  const matches=Array.isArray(snapshot?.workspaces)?snapshot.workspaces.filter(workspace=>workspace?.id===expected.workspaceId):[];
+  const identity={present:Boolean(snapshot&&typeof snapshot==='object'&&!Array.isArray(snapshot)),selectedWorkspace:Boolean(valid&&snapshot?.selectedWorkspaceId===expected.workspaceId),workspaceRoot:Boolean(valid&&matches.length===1&&matches[0].path===expected.root),serverOrigin:Boolean(expectedOrigin&&origin(snapshot?.baseUrl)===expectedOrigin),connected:snapshot?.connected===true,idle:snapshot?.loading===false,workspaceSettled:Boolean(valid&&Array.isArray(snapshot?.retryingWorkspaceIds)&&snapshot.retryingWorkspaceIds.every(id=>typeof id==='string')&&!snapshot.retryingWorkspaceIds.includes(expected.workspaceId))};
+  return {...identity,ready:Object.values(identity).every(value=>value===true)};
+}
+export function summarizeRecoveryVerification(snapshot = {}, events = []) {
+  const count=value=>Number.isInteger(value)&&value>=0&&value<=10_000?value:0;
+  const boolean=value=>typeof value==='boolean'?value:null;
+  const badges=Object.fromEntries(['verified','checking','invalid','edited','generated','complete','partial','readError','stale','pending','preparing','readable'].map(key=>[key,count(snapshot?.badges?.[key])]));
+  const controls=Object.fromEntries(['prepareFolder','prepareSelected','refresh','generate','validate'].map(key=>[key,{count:count(snapshot?.controls?.[key]?.count),disabled:count(snapshot?.controls?.[key]?.disabled)}]));
+  const identity=Object.fromEntries(['present','selectedWorkspace','workspaceRoot','serverOrigin','connected','idle','workspaceSettled','ready'].map(key=>[key,boolean(snapshot?.identity?.[key])]));
+  const panel={visibility:['visible','hidden'].includes(snapshot?.visibility)?snapshot.visibility:'unknown',focused:boolean(snapshot?.focused),viewport:{width:count(snapshot?.viewportWidth),height:count(snapshot?.viewportHeight)},panelCount:count(snapshot?.panelCount),visiblePanelCount:count(snapshot?.visiblePanelCount),firstPanelVisible:boolean(snapshot?.firstPanelVisible),firstPanelVerified:boolean(snapshot?.firstPanelVerified),visible:boolean(snapshot?.visible),folderMatches:boolean(snapshot?.folderMatches),selectedFiles:Number.isInteger(snapshot?.selectedFiles)&&snapshot.selectedFiles>=0&&snapshot.selectedFiles<=20?snapshot.selectedFiles:null,alerts:count(snapshot?.alerts),badges,controls};
+  const requests=Object.fromEntries(['sources','read','outputs','prepare'].map(key=>[key,{started:0,pending:0,finished:0,failed:0,httpOk:0,httpFailure:0,maxElapsedMs:0,maxHeadersMs:0}]));
+  const pending=new Map();let latest=0;
+  const elapsed=(end,start)=>Math.min(300_000,Math.max(0,Math.round((end-start)*1000)));
+  for(const event of events) {
+    const p=event.params??{};
+    if(event.method?.startsWith('Network.')&&Number.isFinite(p.timestamp))latest=Math.max(latest,p.timestamp);
+    if(event.method==='Network.requestWillBeSent') {
+      let category;
+      try {
+        const url=new URL(p.request?.url);
+        if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||!url.port)continue;
+        const route=url.pathname.replace(/^\/workspace\/[^/]+/,'');
+        if(p.request?.method==='GET')category=route==='/lawoss/documents'?'sources':route==='/lawoss/documents/outputs'?'outputs':/^\/lawoss\/documents\/[^/]+\/read$/.test(route)?'read':null;
+        else if(p.request?.method==='POST'&&route==='/lawoss/documents/prepare')category='prepare';
+      } catch { continue; }
+      if(category)pending.set(p.requestId,{category,started:Number.isFinite(p.timestamp)?p.timestamp:latest,headers:null,ended:null,state:'pending',status:null});
+    }
+    const request=pending.get(p.requestId);if(!request)continue;
+    if(event.method==='Network.responseReceived'){request.status=p.response?.status;request.headers=Number.isFinite(p.timestamp)?p.timestamp:latest;}
+    if(event.method==='Network.loadingFinished'||event.method==='Network.loadingFailed'){request.state=event.method==='Network.loadingFinished'?'finished':'failed';request.ended=Number.isFinite(p.timestamp)?p.timestamp:latest;}
+  }
+  for(const request of pending.values()) {
+    const result=requests[request.category];result.started++;result[request.state]++;
+    if(Number.isInteger(request.status)){if(request.status>=200&&request.status<300)result.httpOk++;else result.httpFailure++;}
+    result.maxElapsedMs=Math.max(result.maxElapsedMs,elapsed(request.ended??latest,request.started));
+    if(request.headers!==null)result.maxHeadersMs=Math.max(result.maxHeadersMs,elapsed(request.headers,request.started));
+  }
+  return {panel,identity,requests};
+}
 export function summarizeNetwork(events) {
-  const requests=new Map(),origins=new Map();
+  const requests=new Map(),origins=new Map(),exceptions=new Map();
+  const exceptionNames=['Error','TypeError','ReferenceError','SyntaxError','RangeError','EvalError','URIError','AggregateError','DOMException'];
   let latest=0;
   for(const event of events) {
     const p=event.params??{};
-    if(Number.isFinite(p.timestamp))latest=Math.max(latest,p.timestamp);
+    if(event.method.startsWith('Network.')&&Number.isFinite(p.timestamp))latest=Math.max(latest,p.timestamp);
+    if(event.method==='Runtime.exceptionThrown') {
+      const supplied=p.exceptionDetails?.exception?.className;
+      const name=exceptionNames.includes(supplied)?supplied:'Error';
+      exceptions.set(name,(exceptions.get(name)??0)+1);
+    }
     if(event.method==='Network.requestWillBeSent') {
       let origin=null,workspaceIndex=null;
       try {const url=new URL(p.request?.url);if(!origins.has(url.origin))origins.set(url.origin,origins.size+1);origin=origins.get(url.origin);const match=url.pathname.match(/\/workspace\/ws_native_(\d+)(?:\/|$)/);if(match)workspaceIndex=Number(match[1]);}catch{}
-      requests.set(p.requestId,{endpoint:endpoint(p.request?.url),origin,workspaceIndex,status:null,state:'pending',stream:false,started:Number.isFinite(p.timestamp)?p.timestamp:latest});
+      requests.set(p.requestId,{endpoint:endpoint(p.request?.url),category:rendererCategory(p.request?.url),origin,workspaceIndex,status:null,state:'pending',stream:false,started:Number.isFinite(p.timestamp)?p.timestamp:latest});
     }
     const entry=requests.get(p.requestId);if(!entry)continue;
     if(event.method==='Network.responseReceived') {entry.status=Number.isInteger(p.response?.status)?p.response.status:null;entry.stream=p.response?.mimeType==='text/event-stream';}
     if(event.method==='Network.loadingFinished')entry.state='finished';
     if(event.method==='Network.loadingFailed')entry.state='failed';
   }
-  const all=[...requests.values()].map(({started,...request})=>({...request,ageMs:Math.max(0,Math.round((latest-started)*1000))}));
-  return {total:all.length,pending:all.filter(r=>r.state==='pending').length,streams:all.filter(r=>r.state==='pending'&&r.stream).length,requests:[...all.filter(r=>r.state==='pending'),...all.filter(r=>r.state!=='pending').slice(-40)].slice(0,128)};
+  const aggregates=new Map();
+  let http500Count=0;
+  const all=[...requests.values()].map(({started,category,...request})=>{
+    if(category) {
+      if(request.status===500)http500Count++;
+      const statusFamily=request.status===null?'none':request.status>=100&&request.status<600?`${Math.floor(request.status/100)}xx`:'other';
+      const key=JSON.stringify([category,statusFamily,request.state]);
+      const aggregate=aggregates.get(key)??{category,statusFamily,state:request.state,count:0};
+      aggregate.count++;aggregates.set(key,aggregate);
+    }
+    return {...request,ageMs:Math.max(0,Math.round((latest-started)*1000))};
+  });
+  return {total:all.length,pending:all.filter(r=>r.state==='pending').length,streams:all.filter(r=>r.state==='pending'&&r.stream).length,requests:[...all.filter(r=>r.state==='pending'),...all.filter(r=>r.state!=='pending').slice(-40)].slice(0,128),renderer:{network:[...aggregates.values()],http500Count,exceptions:[...exceptions].map(([name,count])=>({name,count}))}};
 }
 export async function settleCleanup(primary, operations) {
   const failures=[];

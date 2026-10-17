@@ -13,6 +13,7 @@ let fail = false, wrongModel = false, fabricated = false, incomplete = false, mo
 let citationRepairSucceeds = false, incidentalAbsenceCitation = false;
 let stalledPrompts = 0;
 let onStalledPrompt: (() => void) | undefined;
+let waitForQuotaReply: (() => Promise<void>) | undefined;
 let engineError = false;
 let malformedResponses = 0, invalidStructures = 0, structuredResponse = false;
 const model = { id: "chat", name: "Reviewer", limit: { context: 128000, output: 4096 }, capabilities: { input: { text: true }, output: { text: true } } };
@@ -23,7 +24,11 @@ const engine = Bun.serve({ port: 0, async fetch(request) {
   if (path === "/experimental/tool/ids") return Response.json(["bash", "read", "task", "legalwork_review_start"]);
   if (path === "/session" && request.method === "POST") return Response.json({ id: "review-worker" });
   if (path === "/session/status") return Response.json(quota ? { "review-worker": { type: "retry", attempt: 1, message: "You have no credits remaining.", next: Date.now() + 60_000 } } : {});
-  if (quota && path === "/session/review-worker/message") await Bun.sleep(2500);
+  if (quota && path === "/session/review-worker/message") {
+    await (waitForQuotaReply?.() ?? Bun.sleep(2500));
+    // The client may already have aborted; keep this request's original branch.
+    return new Response("Stalled quota request", { status: 504 });
+  }
   if (path === "/session/review-worker/message" && stalledPrompts-- > 0) {
     onStalledPrompt?.();
     await Bun.sleep(300);
@@ -51,7 +56,7 @@ const executor = new ReviewExecutor(config, { settings: async () => structuredCl
 const column = ReviewColumnSchema.parse({ key: "assignment", label: "Assignment", question: "Is assignment permitted?", kind: "yes_no" });
 const review = (mode: "jev" | "mixed" | "llm") => SavedReviewSchema.parse({ id: "71953464-c3a7-47a5-ae2a-f28a1b090bea", name: "Review", revision: 0, createdAt: 0, updatedAt: 0, settings: { mode, jev: { providerId: "firm-jev", model: "jev" }, llm: { providerId: "firm", model: "chat" } }, documents: [], cells: [], columns: [column], status: "draft", runId: null });
 const evidence = { hash: "source-hash", complete: true, pages: [{ page: 1, text: "Assignment is permitted." }] };
-beforeEach(() => { calls.length = 0; decisions.length = 0; fail = false; wrongModel = false; fabricated = false; incomplete = false; modelOffline = false; quota = false; subscribed = false; noDefault = false; citationRepairSucceeds = false; incidentalAbsenceCitation = false; stalledPrompts = 0; onStalledPrompt = undefined; engineError = false; malformedResponses = 0; invalidStructures = 0; structuredResponse = false; });
+beforeEach(() => { calls.length = 0; decisions.length = 0; fail = false; wrongModel = false; fabricated = false; incomplete = false; modelOffline = false; quota = false; subscribed = false; noDefault = false; citationRepairSucceeds = false; incidentalAbsenceCitation = false; stalledPrompts = 0; onStalledPrompt = undefined; waitForQuotaReply = undefined; engineError = false; malformedResponses = 0; invalidStructures = 0; structuredResponse = false; });
 afterAll(() => engine.stop(true));
 test("model discovery filters embeddings, image and realtime models and retains actual engine text capabilities", () => {
   expect(isTextReviewModel(model)).toBe(true);
@@ -196,6 +201,32 @@ test("stalled LLM calls release their session and retry within a bounded request
   await expect(bounded.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).rejects.toThrow("request time limit");
   expect(calls.filter(call => call.path.endsWith("/message"))).toHaveLength(3);
   expect(calls.filter(call => call.method === "DELETE")).toHaveLength(3);
+});
+
+test("an abandoned quota reply cannot consume another request's stalled attempts", async () => {
+  let release = () => {}, entered = () => {};
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  waitForQuotaReply = async () => { entered(); await waiting; };
+  quota = true;
+  const controller = new AbortController();
+  const abandoned = executor.execute(workspace, review("llm"), column, evidence, controller.signal);
+  const cancelled = abandoned.then(() => undefined, (error: unknown) => error);
+  try {
+    await started;
+    const stopped = new Error("User stopped review");
+    controller.abort(stopped);
+    expect(await cancelled).toBe(stopped);
+    quota = false;
+    calls.length = 0;
+    stalledPrompts = 3;
+    // Resume the abandoned HTTP handler while the next request is running.
+    onStalledPrompt = release;
+    const bounded = new ReviewExecutor(config, { settings: async () => structuredClone(settings), infer: async () => { throw new Error("Unexpected JEV"); } }, new ReviewRequests({ cells: 1, documents: 1 }, { retryDelayMs: 1, jitterMs: 0 }), 60);
+    await expect(bounded.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).rejects.toThrow("request time limit");
+    expect(calls.filter(call => call.path.endsWith("/message"))).toHaveLength(3);
+    expect(calls.filter(call => call.method === "DELETE")).toHaveLength(3);
+  } finally { release(); controller.abort(); await abandoned.catch(() => undefined); }
 });
 
 test("stopping a stalled LLM request releases its session without retrying", async () => {
