@@ -298,6 +298,8 @@ export interface Actor {
 }
 
 export interface ApprovalRequest extends HostApprovalRequest {
+  /** Legal domain decisions require the private native host authority. */
+  nativeOnly?: boolean;
   actor: Actor;
 }
 

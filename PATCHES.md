@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Native host decisions and bounded engine credential (2026-10-17)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/approvals.ts`, `types.ts`, `routes/operations.ts` | Native-only decisions bypass neither manual host confirmation nor current domain binding; the original answer route rejects owner bearer and remembered replies for these requests. LAWOSS adapter and durable host-issued metadata live under `lawoss/host-decision.ts`. |
+| `apps/server/src/wiki/agent-access.ts`, `wiki/agent-access.test.ts` | A shared process credential is pinned once to the first authenticated canonical client workspace root. Registered sessions in another client root and borrowed all-projects grants fail closed. Host-profile office scopes and broad ancestors of an explicit client are denied; registered clients retain matter-child sessions. Shared process role is capped at the lowest authenticated role seen in that runtime. Switching clients needs a separate runtime until a session-bound dispatch transport is proven; this is not completed multi-client agent support. Regressions include existing-B-session spoof and A → B → A. |
+
+
 ## ISIR native Files navigation (2026-10-16)
 
 | Súbory | Downstream doplnenie a dôvod |

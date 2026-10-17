@@ -1,3 +1,4 @@
+import { requireClientWorkspaceBoundary } from "../lawoss/agent-client-boundary.js";
 import { forgetWikiProjectAccess, revokeWikiProjectAccess } from "./project-access.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { realpath } from "node:fs/promises";
@@ -9,7 +10,7 @@ import { ApiError } from "../errors.js";
 /** `allProjects` is recorded only by the scheduled runner for an all-projects task, never from a request. */
 type SessionOrigin = { directory: string; scope: TokenScope; generation: string; allProjects?: boolean };
 type SessionLookup = (workspace: WorkspaceInfo, sessionId: string, directory: string, signal: AbortSignal) => Promise<unknown>;
-type RuntimeAccess = { token: string; sessions: Map<string, SessionOrigin>; parents: Map<string, string>; revoked: Set<string>; lookup?: SessionLookup };
+type RuntimeAccess = { token: string; clientRoot?: string; credentialScope?: TokenScope; sessions: Map<string, SessionOrigin>; parents: Map<string, string>; revoked: Set<string>; lookup?: SessionLookup };
 const runtimes = new WeakMap<ServerConfig, RuntimeAccess>();
 const sessionSchema = z.object({ id: z.string().min(1).max(200), directory: z.string().min(1), parentID: z.string().min(1).max(200).optional() });
 
@@ -63,6 +64,17 @@ export async function grantWikiAgentSession(config: ServerConfig, input: {
     return;
   }
   const access = runtime(config);
+  // One process credential cannot authenticate self-declared sessions in multiple clients.
+  // Bind it once, from the first authenticated host dispatch. Never switch this pin:
+  // an old child process retains the same token even after its chat is revoked.
+  const workspace = await ownWorkspaceFor(config, directory);
+  const clientRoot = workspace ? await realpath(workspace.directory || workspace.path) : directory;
+  access.clientRoot ??= clientRoot;
+  const rank = {viewer: 0, collaborator: 1, owner: 2};
+  if (!access.credentialScope || rank[input.scope] < rank[access.credentialScope]) {
+    access.credentialScope = input.scope;
+    for (const id of access.sessions.keys()) revokeProjectTree(config, id);
+  }
   const previous = access.sessions.get(input.sessionId);
   if (previous && previous.directory !== directory)
     throw new ApiError(403, "wiki_agent_directory_mismatch", "This agent session belongs to another working directory.");
@@ -265,7 +277,16 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   if (directory !== origin.directory)
     throw new ApiError(403, "wiki_agent_directory_mismatch", "The wiki request does not match this session's working directory.");
   const own = await ownWorkspaceFor(config, directory);
-  const allProjects = origin.allProjects === true;
+  const clientRoot = own ? await realpath(own.directory || own.path) : directory;
+  if (!access.clientRoot || clientRoot !== access.clientRoot)
+    throw new ApiError(403, "wiki_agent_client_runtime_required", "This client requires a separate agent runtime.");
+  // The shared process credential cannot distinguish a normal chat from a scheduled
+  // all-projects session named in attacker-controlled headers. Keep cross-client reads
+  // unavailable until the scheduled transport has an independent scoped credential.
+  const allProjects = false;
+  await requireClientWorkspaceBoundary(config, clientRoot);
+  const rank = {viewer: 0, collaborator: 1, owner: 2};
+  const scope = access.credentialScope && rank[access.credentialScope] < rank[origin.scope] ? access.credentialScope : origin.scope;
   if (tool) {
     if (tool.session !== undefined && tool.session !== sessionId)
       throw new ApiError(403, "wiki_agent_session_mismatch", "Use this route only for this chat.");
@@ -280,5 +301,5 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
       throw new ApiError(403, "wiki_agent_project_access", "Ask the user to choose access to all projects in LegalWork.");
   }
   return { directory, sessionId, generation: origin.generation, workspaceId: own?.id ?? null, allProjects,
-    actor: { type: "remote", clientId: `wiki-agent:${sessionId}`, scope: origin.scope, tokenHash } };
+    actor: { type: "remote", clientId: `wiki-agent:${sessionId}`, scope, tokenHash } };
 }

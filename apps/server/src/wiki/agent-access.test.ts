@@ -66,6 +66,7 @@ test("Unicode directories use encoded headers and unavailable remote directories
   const { config, root, request } = await fixture();
   const unicode = join(root, "Prüfung 東京");
   await mkdir(unicode);
+  config.workspaces.push({id: "unicode-client", name: "Synthetic Unicode client", path: unicode, preset: "starter", workspaceType: "local"});
   await grantWikiAgentSession(config, { sessionId: "session-1", directory: unicode, scope: "owner" });
   expect((await authenticateWikiAgentRequest(config, request("/wikis", { directory: unicode })))?.directory).toBe(await realpath(unicode));
   await grantWikiAgentSession(config, { sessionId: "session-1", directory: join(root, "remote-unavailable"), scope: "collaborator" });
@@ -149,7 +150,7 @@ test("ancestor downgrades during engine lookup and explicit child grants cannot 
   await grantWikiAgentSession(config, { sessionId: "parent", directory: root, scope: "owner" });
   await grantWikiAgentSession(config, { sessionId: "child", directory: root, scope: "collaborator" });
   configureWikiAgentSessionLookup(config, async () => { throw new Error("A directly registered child must not use ancestor permissions"); });
-  expect((await authenticateWikiAgentRequest(config, request("/wikis", { session: "child" })))?.actor.scope).toBe("collaborator");
+  expect((await authenticateWikiAgentRequest(config, request("/wikis", { session: "child" })))?.actor.scope).toBe("viewer");
 });
 
 test("workspace tools retain the session origin and cannot borrow another workspace or chat", async () => {
@@ -171,8 +172,8 @@ test("workspace tools retain the session origin and cannot borrow another worksp
   await expect(authenticateWikiAgentRequest(config, request("/workspace/wiki/sessions/session-1/review-recovery", { method: "POST" }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
   await expect(authenticateWikiAgentRequest(config, shell("another-chat"))).rejects.toMatchObject({ code: "wiki_agent_session_mismatch" });
   await grantWikiAgentSession(config, { sessionId: "nested", directory: nested, scope: "owner" });
-  expect((await authenticateWikiAgentRequest(config, request("/workspace/wiki/storage/roots", { session: "nested", directory: nested })))?.actor.scope).toBe("owner");
-  await expect(authenticateWikiAgentRequest(config, request("/workspace/project/storage/roots", { session: "nested", directory: nested }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/wiki/storage/roots", { session: "nested", directory: nested }))).rejects.toMatchObject({ code: "wiki_agent_client_runtime_required" });
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/project/storage/roots", { session: "nested", directory: nested }))).rejects.toMatchObject({ code: "wiki_agent_client_runtime_required" });
   await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "viewer" });
   expect((await authenticateWikiAgentRequest(config, request("/workspace/project/storage/roots")))?.actor.scope).toBe("viewer");
 });
