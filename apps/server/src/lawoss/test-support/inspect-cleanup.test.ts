@@ -291,7 +291,8 @@ test('real server stop drains an accepted scheduled send and persists sent befor
   const task = store.create('project', { title: 'Synthetic', prompt: 'Synthetic', projectAccess: 'all', sessionId: 'synthetic-chat', reuseChat: false, pinSession: false, model: null, schedule: { kind: 'once', startAt: new Date(due).toISOString(), timeZone: 'UTC' } }, due - 60000);
   store.close();
   try {
-    const server = await fixture.start(config);
+    const accepted: string[] = [];
+    const server = await fixture.start(config, { scheduledTaskSend: async (acceptedTask, sessionId) => { accepted.push(`${acceptedTask.id}:${sessionId}`); entered(); await delivery; } });
     await sending;
     let stopped = false;
     const stopping = server.stop(); expect(server.stop()).toBe(stopping);
@@ -300,7 +301,8 @@ test('real server stop drains an accepted scheduled send and persists sent befor
     expect(stopped).toBe(false);
     release(); await observedStop;
     expect(server.stop()).toBe(stopping);
-    expect(requests.filter(path => path.endsWith('/prompt_async'))).toEqual(['/session/synthetic-chat/prompt_async']);
+    expect(accepted).toEqual([`${task.id}:synthetic-chat`]);
+    expect(requests.filter(path => path.endsWith('/prompt_async'))).toEqual([]);
     store = await ScheduledTaskStore.open(dbPath);
     try { expect(store.runs(task.id)[0]?.status).toBe('sent'); } finally { store.close(); }
     for (const connection of fixture.connections) expect(() => connection.query('SELECT 1').get()).toThrow();
