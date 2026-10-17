@@ -954,6 +954,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
     if (workspace.workspaceType === "remote") throw new ApiError(400, "local_schedule_only", "Scheduled tasks require a local project.");
     return workspace;
   };
+  const scheduledTaskSend = runtimeOptions.scheduledTaskSend;
   const scheduledRunner = new ScheduledTaskRunner(scheduledTasks, {
     available: async task => {
       if (config.readOnly) return false;
@@ -963,11 +964,15 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
       return !target || !status[target] || status[target].type === "idle";
     },
     createSession: async task => {
-      const client = createWorkspaceOpencodeClient(config, await scheduledWorkspace(task));
+      const workspace = await scheduledWorkspace(task);
+      // A new chat transmits its title too; default model work must be admitted
+      // before creating any engine session, not only before sending its prompt.
+      if (!scheduledTaskSend) await requireUnsupportedProtectedTransport(config, "chat", workspace.id);
+      const client = createWorkspaceOpencodeClient(config, workspace);
       return unwrapOpencodeResult(await client.session.create({ title: task.title }, { signal: AbortSignal.timeout(10000) }), "/session").id;
     },
     // Trusted embedding port for owned non-model jobs; never read from HTTP/config/env.
-    send: runtimeOptions.scheduledTaskSend ?? ((task: ScheduledTask, sessionId: string) => withSessionExecution(config, sessionId, async () => {
+    send: scheduledTaskSend ?? ((task: ScheduledTask, sessionId: string) => withSessionExecution(config, sessionId, async () => {
       const workspace = await scheduledWorkspace(task);
       await requireGovernedEngineDispatch(config, workspace.id, "POST", `/session/${sessionId}/prompt_async`);
       const client = createWorkspaceOpencodeClient(config, workspace);

@@ -22,7 +22,13 @@ test("wiki tools respect project access without overriding host file access", as
     startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false, agentSandboxEnabled: false,
   };
   const { workspace } = await registerLocalProject(config, { folderPath: join(root, "project"), name: "Project", preset: "starter" });
-  workspace.baseUrl = "http://127.0.0.1:1";
+  const enginePosts: string[] = [];
+  const engine = Bun.serve({hostname: "127.0.0.1", port: 0, async fetch(request) {
+    if (request.method === "POST") enginePosts.push(await request.text());
+    return Response.json({});
+  }});
+  cleanup.push(async () => {engine.stop(true);});
+  workspace.baseUrl = engine.url.origin;
   const store = new WikiStore(config); cleanup.push(() => store.close());
   const wiki = await store.create({ name: "Private disabled wiki", template: "blank" });
   await store.update(wiki.id, { allowInProjects: false });
@@ -57,9 +63,10 @@ test("wiki tools respect project access without overriding host file access", as
   await expect(wikiRuntime.run(() => ownWiki["tool.execute.before"]({ tool: "read", sessionID: "wiki-session" }, { args: { filePath: join(wiki.root, "AGENTS.md") } }))).resolves.toBeUndefined();
   expect(JSON.parse(await project.tool.wiki_list.execute({}, { sessionID: "project-session" })).wikis).toEqual([]);
   const headers = { authorization: `Bearer ${config.token}`, "x-legalwork-host-token": config.hostToken, "content-type": "application/json" };
-  for (const path of ["/session/project-session/shell", "/pty"]) {
-    const response = await fetch(`${base}/workspace/${workspace.id}/opencode${path}`, { method: "POST", headers, body: "{}" });
+  for (const [path, code] of [["/session/project-session/shell", "ai_transfer_denied"], ["/pty", "sandbox_required"]]) {
+    const response = await fetch(`${base}/workspace/${workspace.id}/opencode${path}`, { method: "POST", headers, body: JSON.stringify({command: "SYNTHETIC_DENIED_SHELL_CANARY"}) });
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ code: "sandbox_required" });
+    expect(await response.json()).toMatchObject({ code });
   }
+  expect(enginePosts).toEqual([]);
 });
