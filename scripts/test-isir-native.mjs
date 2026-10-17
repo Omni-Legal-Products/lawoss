@@ -141,6 +141,7 @@ try {
   const initialEngineIdentity = await verifyNativeEngineRuntime(preparedEngine, liveEngine.opencodeBinPath, health);
   const engineIdentities = [{ phase: 'initial', ...initialEngineIdentity }];
   await writeFile(path.join(root,'engine-identity-receipts.json'),JSON.stringify(engineIdentities,null,2),{mode:0o600});
+  await engineRequest.ready();
   let serverAuth = {authorization:'Bearer '+(serverInfo.ownerToken||serverInfo.clientToken),'content-type':'application/json'};
   diagnostics.phase("configure-provider");
   const providerConfig = JSON.parse(env.OPENCODE_CONFIG_CONTENT).provider;

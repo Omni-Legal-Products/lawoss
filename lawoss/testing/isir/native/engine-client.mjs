@@ -18,6 +18,15 @@ export function createNativeEngineClient(serverInfo, workspaceId, request = fetc
     assert.ok(route.startsWith('/') && !route.startsWith('//'), 'Native engine route must be relative');
     return authenticatedRequest(`${baseUrl}${route}`, options);
   };
+  // Global health and enabled renderer actions do not await instance bootstrap.
+  // Finish the real cold instance before configuring and reloading its provider.
+  engineRequest.ready = async () => {
+    const response = await authenticatedRequest(`${baseUrl}/mcp`, { signal: AbortSignal.timeout(90_000) }, 90_000);
+    assert.equal(response.status, 200, 'Owned engine instance must be ready before native configuration');
+    const body = await response.json();
+    assert.ok(body && typeof body === 'object' && !Array.isArray(body), 'Owned engine readiness requires a valid MCP status object');
+    return body;
+  };
   // Match provider sign-in in the application: the server awaits rebuilding
   // its derived config before disposing and warming the workspace instance.
   // The production SDK gives instance initialization and MCP restoration 90s.

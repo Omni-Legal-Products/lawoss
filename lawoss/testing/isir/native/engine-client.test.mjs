@@ -32,18 +32,62 @@ test('native engine client rejects a remote server or missing owner capability',
   assert.throws(() => createNativeEngineClient({ baseUrl: 'http://127.0.0.1:1234', clientToken: 'synthetic-viewer' }, 'ws_native_1'), /owner token/);
 });
 
-test('only workspace reload uses the production SDK ninety-second deadline', async () => {
+test('startup readiness and workspace reload are bounded separately from ordinary engine requests', async () => {
   const calls=[];
   const request=createNativeEngineClient({baseUrl:'http://127.0.0.1:4321',ownerToken:'synthetic-owner'},'ws_native_1',async(url,options,timeout=30_000)=>{
     calls.push({url,options,timeout});
     return new Response('{}');
   });
   await request('/global/health');
+  assert.equal(typeof request.ready, 'function');
+  await request.ready();
   await request.reload();
   assert.equal(calls[0].timeout,30_000,'Ordinary engine requests retain their existing deadline');
-  assert.equal(calls[1].timeout,90_000,'Diagnostics must not shorten the production reload contract');
-  assert.ok(calls[1].options.signal instanceof AbortSignal,'Default fetch also receives an explicit bounded reload signal');
-  assert.equal(calls[1].options.signal.aborted,false);
+  assert.equal(calls[1].timeout,90_000,'Cold instance startup has its own bounded readiness deadline');
+  assert.equal(calls[2].timeout,90_000,'Diagnostics must not shorten the production reload contract');
+  for (const call of calls.slice(1)) {
+    assert.ok(call.options.signal instanceof AbortSignal,'Default fetch also receives an explicit bounded signal');
+    assert.equal(call.options.signal.aborted,false);
+  }
+});
+
+test('native configuration waits for authenticated instance readiness headers and complete JSON', async () => {
+  const calls = [];
+  let finishBody;
+  let readyStarted;
+  const started = new Promise(resolve => { readyStarted = resolve; });
+  const request = createNativeEngineClient({baseUrl:'http://127.0.0.1:4321',ownerToken:'synthetic-owner'}, 'ws_native_1', async (url, options, timeout) => {
+    calls.push({url, method:options.method ?? 'GET', auth:options.headers.get('authorization'), timeout});
+    if (url.endsWith('/opencode/mcp')) {
+      readyStarted();
+      return new Response(new ReadableStream({start(controller) {
+        finishBody = () => { controller.enqueue(new TextEncoder().encode('{}')); controller.close(); };
+      }}));
+    }
+    return new Response('{}');
+  });
+  assert.equal(typeof request.ready, 'function', 'Native setup must await real instance readiness before configuration');
+  const setup = (async () => {
+    await request.ready();
+    await request('/auth/isir-native', {method:'PUT'});
+    await request.reload();
+  })();
+  await started;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, [{url:'http://127.0.0.1:4321/workspace/ws_native_1/opencode/mcp',method:'GET',auth:'Bearer synthetic-owner',timeout:90_000}]);
+  finishBody();
+  await setup;
+  assert.deepEqual(calls.slice(1).map(call => call.method), ['PUT', 'POST']);
+});
+
+test('native readiness rejects unsuccessful or malformed instance responses before configuration', async () => {
+  for (const response of [new Response('{}',{status:503}),new Response('not JSON'),new Response('null'),new Response('[]')]) {
+    let configured = false;
+    const request = createNativeEngineClient({baseUrl:'http://127.0.0.1:4321',ownerToken:'synthetic-owner'},'ws_native_1',async()=>response);
+    assert.equal(typeof request.ready, 'function');
+    await assert.rejects(async () => { await request.ready(); configured = true; });
+    assert.equal(configured, false);
+  }
 });
 
 test('native provider discovery waits for the production workspace reload to finish', async () => {
