@@ -91,15 +91,28 @@ test("serializes dialogs and skips a cancelled request waiting in the queue", as
   assert.equal(opened, 1);
 });
 
-test("public model confirmation displays the complete serialized context and explicit send action", async () => {
+test("public model confirmation uses bounded exact-context review, never the native message box", async () => {
   const window = hostWindow();
-  const description = 'Target: http://127.0.0.1/v1/chat/completions\nComplete context: {"system":"public","messages":["synthetic"]}';
-  const handler = createHostApprovalHandler({getWindow: () => window, showMessageBox: async (_parent, options) => {
-    assert.equal(options.title, "Public AI request");
-    assert.equal(options.message, "Send this public synthetic model request?");
-    assert.ok(options.detail.includes(description));
-    assert.equal(options.defaultId, 0);
-    return {response: 0};
-  }});
-  assert.equal(await handler({...request, action: "ai.public.synthetic", description}, new AbortController().signal), "deny");
+  const description = 'Target: http://127.0.0.1/v1/chat/completions\n' + '<img src="https://invalid.test/">'.repeat(400) + "EXACT-END";
+  const handler = createHostApprovalHandler({getWindow: () => window,
+    showMessageBox: async () => assert.fail("Long exact context cannot use the unbounded native sheet"),
+    showContextReview: async (parent, options) => {
+      assert.equal(parent, window);
+      assert.equal(options.title, "Public AI request");
+      assert.equal(options.message, "Send this public synthetic model request?");
+      assert.ok(options.detail.includes(description));
+      assert.ok(options.detail.endsWith(request.paths[0]));
+      assert.equal(options.defaultId, 0);
+      return {response: 1};
+    }});
+  assert.equal(await handler({...request, action: "ai.public.synthetic", description}, new AbortController().signal), "allow");
+});
+
+test("public context fails closed without review surface; long ordinary approvals use it too", async () => {
+  const handler = createHostApprovalHandler({getWindow: hostWindow, showMessageBox: async () => assert.fail("No context fallback")});
+  assert.equal(await handler({...request, action: "ai.public.synthetic", description: "full context"}, new AbortController().signal), "deny");
+  let shown = false;
+  const bounded = createHostApprovalHandler({getWindow: hostWindow, showMessageBox: async () => assert.fail("No native overflow"), showContextReview: async () => {shown = true; return {response: 0};}});
+  assert.equal(await bounded({...request, description: "x".repeat(9000)}, new AbortController().signal), "deny");
+  assert.equal(shown, true);
 });

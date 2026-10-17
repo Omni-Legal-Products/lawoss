@@ -292,3 +292,5 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 - Canonical evidence absence is not first-publication proof. The shared metadata owner must refuse create-only seeding whenever that target's snapshot namespace already exists; require explicit verified recovery so no caller can disconnect preserved history.
 - Preflight protected scheduled work before fresh-session creation: chat titles are content-bearing engine requests too. Keep default admission separate from explicitly trusted constructor-only non-model jobs and retain accepted-job shutdown drain coverage.
+
+- Native approval payloads must remain complete and inert text in a bounded scroll region with visible actions. A sender-bound isolated review preload must expose no application bridge; renderer success cannot substitute for the main process final decision and cancellation checks.
