@@ -129,6 +129,6 @@ try {
   cdp?.close();
   for(const child of [browser,preview])if(child)try{await stopNativeChild(child,3000);}catch(error){errors.push(error);}
   try{await new Promise(resolve=>sink.close(resolve));}catch(error){errors.push(error);}
-  if(!errors.length){await rm(root,{recursive:true,force:true});console.log('Owned browser/preview strict cleanup PASS');}
+  if(!errors.length){await rm(root,{recursive:true,force:true});console.log('Owned browser/preview strict cleanup PASS',JSON.stringify({browser:browser?{exitCode:browser.exitCode,signalCode:browser.signalCode}:null,preview:preview?{exitCode:preview.exitCode,signalCode:preview.signalCode}:null}));}
   if(errors.length)throw new AggregateError([...(primary?[primary]:[]),...errors],'Browser fixture primary/cleanup failure; owned root retained');
 }
