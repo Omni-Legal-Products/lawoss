@@ -69,10 +69,10 @@ async function windowsSkillLocks(root: string, source: string): Promise<LockRece
   } catch { return { status: "unavailable" }; }
 }
 
-type Snapshot = { renameAttempts: number; watchers: { source: number; descendants: number; ancestors: number }; active: Array<{ operation: string; count: number }> };
+type Snapshot = { observation: "full" | "rename-only"; renameAttempts: number; watchers: { source: number; descendants: number; ancestors: number } | null; active: Array<{ operation: string; count: number }> | null };
 
-/** Passive observation only, installed before this one fixture starts its server. */
-export function observeSyntheticSkillPromotion(root: string, onFailure?: (snapshot: Snapshot, error: unknown) => Promise<void>) {
+/** Passive test observation; rename-only mode needs no fixture setup hooks. */
+export function observeSyntheticSkillPromotion(root: string, onFailure?: (snapshot: Snapshot, error: unknown) => Promise<void>, observation: Snapshot["observation"] = "full") {
   root = resolve(root);
   if (!isSynthetic(root)) throw new Error("Synthetic auth fixture required");
   const source = join(root, "workspace", ".opencode", "skills", "synthetic");
@@ -80,14 +80,38 @@ export function observeSyntheticSkillPromotion(root: string, onFailure?: (snapsh
   const restores: Array<() => void> = [];
   let renameAttempts = 0;
   const snapshot = (): Snapshot => {
+    if (observation === "rename-only") return { observation, renameAttempts, watchers: null, active: null };
     const watchers = { source: 0, descendants: 0, ancestors: 0 };
     for (const path of watched.values()) {
       if (path === source) watchers.source++;
       else if (within(source, path)) watchers.descendants++;
       else if (within(path, source)) watchers.ancestors++;
     }
-    return { renameAttempts, watchers, active: [...active].filter(([, count]) => count > 0).map(([operation, count]) => ({ operation, count })) };
+    return { observation, renameAttempts, watchers, active: [...active].filter(([, count]) => count > 0).map(([operation, count]) => ({ operation, count })) };
   };
+  const reportFailure = async (error: unknown) => {
+    const state = snapshot();
+    try {
+      if (onFailure) await onFailure(state, error);
+      else {
+        const locks = await windowsSkillLocks(root, source);
+        const rawCode = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+        const code = typeof rawCode === "string" && ["EPERM", "EBUSY", "EACCES"].includes(rawCode) ? rawCode : "other";
+        console.error("Synthetic skill rename lock receipt", JSON.stringify({ code, ...state, locks }));
+      }
+    } catch { /* Diagnostics must preserve the original single-attempt failure. */ }
+  };
+  if (observation === "rename-only") {
+    // Do not wrap any setup I/O or watcher in this mode: the complete observer
+    // could shift the lifecycle relative to its initial 200ms directory scan.
+    const original = files.rename;
+    const rename = spyOn(files, "rename").mockImplementation((...args: Parameters<typeof files.rename>) => {
+      if (resolve(String(args[0])) !== source) return original(...args);
+      renameAttempts++;
+      return original(...args).catch(async error => { await reportFailure(error); throw error; });
+    });
+    return { snapshot, restore: () => rename.mockRestore() };
+  }
   const originalWatch = fs.watch;
   const watch = spyOn(fs, "watch").mockImplementation(((...args: any[]) => {
     const handle = (originalWatch as (...args: any[]) => fs.FSWatcher)(...args);
@@ -109,15 +133,7 @@ export function observeSyntheticSkillPromotion(root: string, onFailure?: (snapsh
       return (original as (...args: any[]) => Promise<any>)(...args).then(value => { finished(); return value; }, async error => {
         finished();
         if (promotion) {
-          const state = snapshot();
-          try {
-            if (onFailure) await onFailure(state, error);
-            else {
-              const locks = await windowsSkillLocks(root, source);
-              const code = ["EPERM", "EBUSY", "EACCES"].includes(error?.code) ? error.code : "other";
-              console.error("Synthetic skill rename lock receipt", JSON.stringify({ code, ...state, locks }));
-            }
-          } catch { /* Diagnostics must preserve the original single-attempt failure. */ }
+          await reportFailure(error);
         }
         throw error;
       });

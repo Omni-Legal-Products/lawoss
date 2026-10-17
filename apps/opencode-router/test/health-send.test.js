@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 
 import { startBridge } from "../dist/bridge.js";
 import { BridgeStore } from "../dist/db.js";
+import { normalizeScopedDirectoryPath } from "../dist/path-scope.js";
 
 const controlToken = "ab".repeat(32);
 
@@ -51,7 +52,7 @@ test("health /send delivers to directory bindings", async () => {
     },
   };
 
-  store.upsertBinding("slack", "default", "D123", dir.replace(/\\/g, "/").replace(/\/+$/, "") || "/");
+  store.upsertBinding("slack", "default", "D123", normalizeScopedDirectoryPath(dir));
 
   const bridge = await startBridge(
     {
@@ -413,7 +414,7 @@ test("health /send removes invalid telegram bindings and still sends valid ones"
     },
   };
 
-  const normalizedDir = dir.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+  const normalizedDir = normalizeScopedDirectoryPath(dir);
   store.upsertBinding("telegram", "default", "@bad-target", normalizedDir);
   store.upsertBinding("telegram", "default", "351743020", normalizedDir);
 

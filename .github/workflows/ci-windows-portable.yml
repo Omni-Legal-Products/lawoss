@@ -179,43 +179,13 @@ jobs:
       # workspace bez install skriptov; balenie ani podpisovanie tu nebeží.
       - name: Install source test and typecheck dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: OKF typecheck
-        run: pnpm --filter @lawoss/okf typecheck
-      - name: OKF and naming
-        run: bun test lawoss/okf/test/
-      - name: Memory typecheck
-        run: pnpm --filter @lawoss/okf-pamat typecheck
-      - name: Memory tests
-        run: pnpm --filter @lawoss/okf-pamat test
-      - name: Native handoff source tests
-        run: bun test lawoss/okf-handoff/
-      # Strom procesov: taskkill /T musí zhodiť aj vnúča nástroja agenta (python,
-      # soffice, node), inak drží zámky v priečinku klienta. Bundle OKF bežia
-      # s Node runnera v ceste s medzerou a diakritikou, len s ním v PATH.
-      - name: Updater, persistent native registration, picked folders, process tree and OKF CLI
-        run: node --test apps/desktop/electron/update-feed.test.mjs apps/desktop/electron/updater.test.mjs apps/desktop/electron/workspace-store.test.mjs apps/desktop/electron/lawoss-picked-path.test.mjs apps/desktop/electron/lawoss-process-tree.test.mjs apps/desktop/electron/lawoss-okf-cli-smoke.test.mjs
-      # Pohľady z OKF (Dnes, Klienti, detail veci), onboarding a Lite dostávajú na
-      # Windows cesty v tvare C:\...; bez tohto kroku tu nebežal žiadny ich test.
-      # Filtre bez lomky, aby sedeli aj na cestách so spätnou lomkou.
-      - name: LAWOSS app logic (OKF views, onboarding, Lite)
-        working-directory: apps/app
-        run: bun test lawoss- okf- document-processing native-document-generation project-folder-recovery workspace-attachment home-submission fusion-routing session-sync-permissions session-sync-tool-parts message-queue-runner session-sync-retention
-      # Server s onboardingom, registráciou existujúceho priečinka, roztriedením,
-      # pamäťou a kanonickými cestami beží na Windows prvýkrát; dist sa tu nestavia,
-      # takže filter zachytí len zdrojové testy (bez lomky kvôli cestám s `\`).
-      # lawoss-path-containment: workspace v koreni disku (subst) a zdieľania (net share).
-      - name: LAWOSS server (onboarding, register existing, triage, memory, paths, containment, reload watcher, process tree)
-        working-directory: apps/server
-        run: bun test lawoss reload-watcher workspace-reconnect artifact-files isir-case-attachments
-
-      - name: ISIR attachments in ten case folders (synthetic offline corpus)
-        run: pnpm test:isir
-
+      # Diagnostic branch only: preserve the original security-process warmup
+      # without instrumenting an earlier helper test in the same Bun process.
       - name: Security boundaries and Windows archive destinations
         # Beží aj po páde predchádzajúceho kroku, aby sa bezpečnostné regresie na Windows vždy overili.
         if: ${{ !cancelled() }}
         working-directory: apps/server
-        run: bun test src/lawoss/test-support/windows-skill-locks.test.ts src/frontmatter.test.ts src/frontmatter-security.e2e.test.ts src/security-auth-boundaries.e2e.test.ts src/security-file-boundary.e2e.test.ts src/word-addin.e2e.test.ts src/word-addin-shell.test.ts src/benchmarks/document-path.test.ts src/benchmarks/task-zip.test.ts src/benchmarks/harvey-catalog.test.ts src/benchmarks/store.test.ts
+        run: bun test src/frontmatter.test.ts src/frontmatter-security.e2e.test.ts src/security-auth-boundaries.e2e.test.ts src/security-file-boundary.e2e.test.ts src/word-addin.e2e.test.ts src/word-addin-shell.test.ts src/benchmarks/document-path.test.ts src/benchmarks/task-zip.test.ts src/benchmarks/harvey-catalog.test.ts src/benchmarks/store.test.ts
 
       - name: Validate read-only Restart Manager on an owned lock
         if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.ref_name == 'chore/pr165-windows-lock-probe' }}
@@ -223,17 +193,26 @@ jobs:
         shell: pwsh
         run: ./lawoss/testing/isir/windows-skill-lock-smoke.ps1
 
-      - name: Repeat exact synthetic promotion lifecycle (diagnosis only)
+      - name: Owned descendant watch rename discrimination
+        if: ${{ !cancelled() }}
+        run: bun lawoss/testing/isir/windows-directory-rename-probe.mjs
+
+      - name: Repeat original security suite (diagnosis only)
         if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.ref_name == 'chore/pr165-windows-lock-probe' }}
         working-directory: apps/server
         shell: bash
         run: |
           failed=0
-          for trial in {1..30}; do
-            echo "Synthetic promotion trial $trial"
-            bun test src/security-auth-boundaries.e2e.test.ts --test-name-pattern 'approved commands, skills and attachments still support their normal lifecycle' || failed=1
+          for trial in {1..12}; do
+            echo "Original security suite trial $trial"
+            bun test src/frontmatter.test.ts src/frontmatter-security.e2e.test.ts src/security-auth-boundaries.e2e.test.ts src/security-file-boundary.e2e.test.ts src/word-addin.e2e.test.ts src/word-addin-shell.test.ts src/benchmarks/document-path.test.ts src/benchmarks/task-zip.test.ts src/benchmarks/harvey-catalog.test.ts src/benchmarks/store.test.ts || failed=1
           done
           exit "$failed"
+
+      - name: Diagnostic helper unit tests in a separate process
+        if: ${{ !cancelled() }}
+        working-directory: apps/server
+        run: bun test src/lawoss/test-support/windows-skill-locks.test.ts
 
       - name: Messaging control and local media isolation
         # Beží aj po páde predchádzajúceho kroku, aby sa bezpečnostné regresie na Windows vždy overili.

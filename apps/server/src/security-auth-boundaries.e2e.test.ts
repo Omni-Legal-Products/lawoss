@@ -10,9 +10,8 @@ import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 const cleanup: Array<() => unknown | Promise<unknown>> = [];
 afterEach(async () => { while (cleanup.length) await cleanup.pop()?.(); });
 
-async function fixture(readOnly = false, onApproval?: ServerConfig["requestHostApproval"], onRoot?: (root: string) => void) {
+async function fixture(readOnly = false, onApproval?: ServerConfig["requestHostApproval"]) {
   const root = await mkdtemp(join(tmpdir(), "lawoss-auth-boundary-"));
-  onRoot?.(root);
   // Windows: server drží runtime.sqlite otvorenú aj po stop(), rm skončí EBUSY.
   cleanup.push(() => removeTestDir(root));
   const isolated = { LEGALWORK_TOKEN_STORE: join(root, "tokens.json"), LEGALWORK_RUNTIME_DB: join(root, "runtime.sqlite") };
@@ -237,7 +236,7 @@ test("approved commands, skills and attachments still support their normal lifec
   const { observeSyntheticSkillPromotion } = await import("./lawoss/test-support/windows-skill-locks.js");
   let observation: ReturnType<typeof observeSyntheticSkillPromotion> | undefined;
   try {
-  const f = await fixture(false, async () => "allow", root => { observation = observeSyntheticSkillPromotion(root); });
+  const f = await fixture(false, async () => "allow");
   const call = (route: string, method = "GET", body?: unknown) => fetch(`${f.base}/workspace/ws_1/${route}`, {
     method, headers: { ...f.collaborator, "Content-Type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -251,6 +250,7 @@ test("approved commands, skills and attachments still support their normal lifec
   expect(resource.status).toBe(200);
   expect(await resource.text()).toContain("Synthetic attachment");
   expect((await call("skills/synthetic/resources/sample.md", "DELETE")).status).toBe(200);
+  observation = observeSyntheticSkillPromotion(f.root, undefined, "rename-only");
   expect((await call("skills/synthetic/promote-workflow", "POST")).status).toBe(200);
   expect((await call("skills/workflow-assistant-synthetic", "DELETE")).status).toBe(200);
   } finally { observation?.restore(); }

@@ -3,6 +3,8 @@ import { mkdtemp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { watch } from "node:fs";
+import * as watches from "node:fs";
+import * as files from "node:fs/promises";
 import { once } from "node:events";
 
 async function implementation() {
@@ -58,4 +60,29 @@ test("passive promotion observation preserves real rename arguments and its orig
     expect(await readFile(join(destination, "SKILL.md"), "utf8")).toBe("synthetic source");
     expect(observer.snapshot().renameAttempts).toBe(2);
   } finally { sourceWatch.close(); descendantWatch.close(); observer.restore(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("rename-only diagnosis leaves watch and reads untouched and preserves each real rename", async () => {
+  const module = await implementation();
+  const root = await mkdtemp(join(tmpdir(), "lawoss-auth-boundary-"));
+  const source = join(root, "workspace/.opencode/skills/synthetic"), destination = join(root, "workspace/.opencode/skills/workflow-assistant-synthetic");
+  await mkdir(source, { recursive: true }); await mkdir(destination, { recursive: true });
+  await writeFile(join(source, "SKILL.md"), "source bytes"); await writeFile(join(destination, "keep.md"), "keep bytes");
+  const originalWatch = watches.watch, originalReadFile = files.readFile, originalReaddir = files.readdir;
+  let original: unknown;
+  const observer = module!.observeSyntheticSkillPromotion(root, async (_snapshot, error) => { original = error; throw new Error("probe failure"); }, "rename-only");
+  try {
+    expect(watches.watch).toBe(originalWatch);
+    expect(files.readFile).toBe(originalReadFile);
+    expect(files.readdir).toBe(originalReaddir);
+    const failure = await files.rename(source, destination).then(() => null, error => error);
+    expect(failure).toBe(original);
+    expect(observer.snapshot()).toEqual({ observation: "rename-only", renameAttempts: 1, watchers: null, active: null });
+    expect(await readFile(join(source, "SKILL.md"), "utf8")).toBe("source bytes");
+    expect(await readFile(join(destination, "keep.md"), "utf8")).toBe("keep bytes");
+    await rm(destination, { recursive: true });
+    await files.rename(source, destination);
+    expect(observer.snapshot().renameAttempts).toBe(2);
+    expect(await readFile(join(destination, "SKILL.md"), "utf8")).toBe("source bytes");
+  } finally { observer.restore(); await rm(root, { recursive: true, force: true }); }
 });
