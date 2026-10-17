@@ -1,14 +1,23 @@
 # LAWOSS: návod pre alfa testerov
 
-Jediný návod pre testerov je [D1 na zabalenej appke](lawoss-d1-zabalena-appka-2026-10-05.md):
-prejdené cesty, pripojenie modelu, klienti, veci a skilly, automatické roztriedenie
-dokumentov a odkazy na DPA. Dokument prichádza do `dev` s
-[lawoss#109](https://github.com/Omni-Legal-Products/lawoss/pull/109). Postup
-akceptačného behu s kritériami PASS/FAIL je v
-[alfa akceptačnom protokole](lawoss-alpha-acceptance.md).
+Aktuálny [akceptačný protokol](lawoss-alpha-acceptance.md) používa tok
+**Ty → AI (možno preskočiť) → Priečinok**. [D1 zo 4. až 5. 10. 2026](lawoss-d1-zabalena-appka-2026-10-05.md)
+je historický snapshot iného buildu, nie aktuálny návod ani dôkaz nového vydania.
 
-Nižšie je len to, čo D1 zatiaľ nemá. Po presune do D1 ostane z tohto súboru
-iba odkaz.
+## Nainštalujte konkrétny desktop asset
+
+Vyberte presný desktop release tag a súbor pre svoj systém a architektúru.
+CLI orchestrátora má samostatné vydania. Odkaz `releases/latest` preto neurčuje správny desktop.
+Žiadny aktuálny balíček tu nie je označený za otestovaný iba na základe názvu vydania.
+
+Stiahnite aj `release-evidence-<platform>-<arch>.json` a porovnajte názov, veľkosť a SHA-256
+inštalátora. Na macOS použite `shasum -a 256 <asset>`, na Windows
+`Get-FileHash .\<asset> -Algorithm SHA256`. Nainštalujte tieto presné bytes.
+V Nastaveniach → Debug prečítajte verziu, celý commit, kanál, target a stav identity.
+`unavailable` znamená nedoložený pôvod staršieho balíčka. SHA z iného checkoutu ho nenahrádza.
+
+Postup dokladovania podpisu, oboch profilov a publikácie je v [release evidence](release-evidence.md).
+Draft nie je verejná distribúcia. Verejný ukazovateľ sa neposunie bez prijatej platformovej akceptácie.
 
 ## Build zo zdrojov
 

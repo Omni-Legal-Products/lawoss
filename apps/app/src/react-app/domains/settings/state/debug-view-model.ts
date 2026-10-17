@@ -341,13 +341,14 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
 
   const runtimeSummary = useMemo(
     () => ({
+      build: appBuild,
       appVersionLabel: appBuild?.version ?? "—",
       appCommitLabel: appBuild?.gitSha ?? "—",
       opencodeVersionLabel: engineInfoState?.baseUrl ? "managed" : "—",
       legalworkServerVersionLabel: legalworkServerSnapshot.legalworkServerDiagnostics?.version ?? "—",
     }),
     [
-      appBuild?.gitSha,
+      appBuild,
       appBuild?.version,
       engineInfoState?.baseUrl,
       legalworkServerSnapshot.legalworkServerDiagnostics?.version,

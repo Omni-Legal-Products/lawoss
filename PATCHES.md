@@ -991,3 +991,14 @@ Zachované obe histórie a celý nezmenený samostatný SDK/dependency helper; r
 | Upstream file | Downstream change and reason |
 | --- | --- |
 | `apps/app/src/app/lib/legalwork-server.ts` | Host-only `lawossOfficeMemory(expectedPracticeRoot, { signal })` requires the selected profile-root precondition. Existing directory/file readers forward optional cancellation without changing their ordinary behavior. Domain aggregation, coverage and routing stay in `lawoss/**`; engine credential issuing/revocation is a separate integration dependency. |
+### Desktop identity and final-artifact evidence (2026-10-17, local review candidate)
+
+| Upstream files | Downstream change and reason |
+|---|---|
+| `apps/desktop/electron/main.mjs`, `apps/desktop/electron/ui-control-server.mjs`, `apps/desktop/electron/ui-control-server.test.mjs`, `packages/types/src/desktop-ipc.ts` | Validate packaged identity through a small embedded reader; packaged mode ignores development env. A fixed, bearer-protected `/build-info` endpoint invokes real renderer preload IPC and exposes process/profile/renderer ownership for native acceptance. No arbitrary JS or CDP bypass. |
+| `apps/desktop/scripts/electron-build.mjs`, `apps/desktop/electron-builder.yml`, `apps/desktop/package.json`, `.gitignore` | Generate target-aware identity after exact version stamping, include it as a resource, and expose the isolated release-acceptance runner. Dirty local packages remain explicitly unavailable. |
+| `apps/app/src/react-app/domains/settings/state/debug-view-model.ts`, `apps/app/src/react-app/domains/settings/pages/debug-view.tsx`, `apps/app/src/i18n/locales/en.ts`, `apps/app/src/i18n/locales/de.ts` | Reuse native Debug settings to display embedded/development/unavailable provenance, full selectable SHA and target, through one downstream component. CZ/SK translations remain in the green zone. |
+| `scripts/release/publish-electron-assets.mjs`, `scripts/release/publish-electron-assets.test.mjs`, `scripts/release/review.mjs`, `.github/workflows/alpha-macos-aarch64.yml`, `.github/workflows/alpha-windows-x64.yml`, `.github/workflows/release-macos-aarch64.yml` | Validate final target evidence, immutable byte collisions and exact-tag read-back before payload writes. One following job owns common manifests and binds their hashes to target evidence. Publication/pointer gates refuse missing native acceptance and equal/lower versions. Source review explicitly reports packaged acceptance as not-run. |
+| `AGENTS.md`, `CLAUDE.md`, `progress.txt` | Keep matching reusable release/provenance guidance and local verification record. |
+
+Approval and final native platform checks remain required. This local change did not publish, sign, commit, tag, or deliver a release.

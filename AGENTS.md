@@ -263,3 +263,8 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Host snapshots are keyed by canonical scope membership/path, server, authentication generation and local day. Retain last successful source content only within that identity; cancellation and a changed scope must not publish the preceding read.
 - A failed source is not empty. Keep per-source success timestamps, show partial/failed coverage even in empty views, and refuse actions until the owning client has a successful fresh read. Recheck membership before client actions; never fall back to another client or generic session on refusal.
 - Office-memory reads are host-only and require the exact expected profile root. Keep 500-file, 1 MiB/file and 8 MiB aggregate bounds, no symlink parents/files, bounded handle reads and identity rechecks. Source/SSR tests do not establish native Windows acceptance or the engine credential boundary.
+## Desktop release evidence
+
+- Generate embedded build identity after stamping from the exact checkout and target. Packaged identity never falls back to runtime environment variables; dirty local packages must show unavailable provenance.
+- Hash only final, post-signing bytes. Keep evidence per platform and architecture, immutable run-tag payloads, and one owner for common updater manifests. A retry may reuse identical bytes but must not clobber a different payload.
+- Native acceptance must bind the final installer, installed bundle, live IPC identity, owned profile, and actual journeys. Source tests, packaged startup, and operator-free preflight cannot provide native PASS. Preserve separate fresh/migrated receipts and historical evidence snapshots.

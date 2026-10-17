@@ -296,6 +296,7 @@ jobs:
         # orchestrator dependency pins so later pnpm invocations don't reject
         # the workspace (installs stay explicit + frozen before this step).
         run: |
+          node scripts/release/build-info.mjs --assert-clean
           node scripts/release/apply-version.mjs --version "$ALPHA_VERSION"
           pnpm install --lockfile-only --no-frozen-lockfile
 
@@ -425,6 +426,27 @@ jobs:
         if: matrix.arch == 'arm64'
         shell: bash
         run: mv apps/desktop/dist-electron/latest.yml apps/desktop/dist-electron/latest-arm64.yml
+
+      - name: Record final target evidence after signing and startup
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          node scripts/release/checksums.mjs apps/desktop/dist-electron
+          node scripts/release/release-evidence.mjs create --build apps/desktop/resources/build-info.json --assets-dir apps/desktop/dist-electron --release-tag "$RELEASE_TAG"
+
+      - name: Preserve target evidence for native acceptance
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence-win32-${{ matrix.arch }}
+          path: apps/desktop/dist-electron/release-evidence-win32-${{ matrix.arch }}.json
+          if-no-files-found: error
+
+      - name: Require exact native acceptance before public publication
+        if: ${{ inputs.publish && needs.signing.outputs.draft != 'true' }}
+        shell: bash
+        run: node scripts/release/release-evidence.mjs verify --evidence "apps/desktop/dist-electron/release-evidence-win32-${ALPHA_ARCH}.json" --assets-dir apps/desktop/dist-electron --require-tested
 
       # 🟡 LAWOSS: SHA-256 assetov až po podpise, teda presne tých, ktoré sa
       # nahrajú. Idú do súhrnu behu aj do popisu releasu.
@@ -563,10 +585,6 @@ jobs:
             console.log(`Pointer ${current} -> ${next}`);
             process.exit(0);
           }
-          if (order === 0 && Number(process.env.GITHUB_RUN_ATTEMPT ?? "1") > 1) {
-            console.log(`Re-run of ${next}: the pointer is refreshed with the re-uploaded assets.`);
-            process.exit(0);
-          }
           console.log(`::error title=Alfa nie je novšia::${next} nie je vyššia verzia než aktuálny ukazovateľ ${process.env.ALPHA_RELEASE_TAG}/${process.env.UPDATER_MANIFEST} (${current}). Zvýšte base_version alebo LAWOSS_ALPHA_BASE_VERSION; ukazovateľ ani release sa nemenia.`);
           process.exit(1);
           NODE
@@ -624,7 +642,7 @@ jobs:
               echo "::error title=Opakovaný beh s iným podpisom::Release $ALPHA_RUN_RELEASE_TAG má draft=$existing_draft, tento pokus draft=$DRAFT (signed=$SIGNED). Assety ani ukazovateľ sa nemenia. Spustite workflow znova ako nový beh (nová verzia a tag), prípadne release najprv odstráňte."
               exit 1
             fi
-            # Opakovaný beh prepíše assety (--clobber), preto aj názov a popis s hashmi.
+            # Immutable payloads are verified by digest. A retry never replaces their bytes.
             echo "Alpha prerelease $ALPHA_RUN_RELEASE_TAG already exists; reusing it."
             gh release edit "$ALPHA_RUN_RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
@@ -651,19 +669,7 @@ jobs:
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          assets=(
-            apps/desktop/dist-electron/*.exe
-            apps/desktop/dist-electron/*.blockmap
-            apps/desktop/dist-electron/"$UPDATER_MANIFEST"
-          )
-          if [ ${#assets[@]} -eq 0 ]; then
-            echo "No Electron alpha assets found in apps/desktop/dist-electron" >&2
-            exit 1
-          fi
-          gh release upload "$ALPHA_RUN_RELEASE_TAG" "${assets[@]}" \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber
+          node scripts/release/publish-electron-assets.mjs --payload-only ${{ needs.signing.outputs.draft == 'true' && '--draft-payload' || '' }} apps/desktop/dist-electron "$ALPHA_RUN_RELEASE_TAG"
 
       - name: Update alpha updater pointer
         # LAWOSS: koncept nemení ukazovateľ alfa kanála; nepodpísaný build je vždy
@@ -683,6 +689,7 @@ jobs:
             echo "::error title=Ukazovateľ sa neposúva::$ALPHA_RUN_RELEASE_TAG má draft=$target_draft, signed=$SIGNED. Verejný alpha-windows-latest smie mieriť len na podpísaný zverejnený release."
             exit 1
           fi
+          node scripts/release/channel-evidence.mjs --evidence "apps/desktop/dist-electron/release-evidence-win32-${ALPHA_ARCH}.json" --pointer-tag "$ALPHA_RELEASE_TAG" --manifest "$UPDATER_MANIFEST"
           POINTER_MANIFEST="$RUNNER_TEMP/$UPDATER_MANIFEST"
           export POINTER_MANIFEST
           node <<'NODE'
