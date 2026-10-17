@@ -289,3 +289,5 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - New server modules must load from the relocated packaged tree, including transitive imports. Reuse trusted host-owned pinned-version inputs instead of adding repository-root imports that depend on a packaging rewrite; verify strict version mismatch refusal as well as real packaged imports.
 
 - Native deadline projection ownership comes from the host receipt-consumption attestation, never writable Markdown export hashes, event counts or state. Preserve lifetime UID/sequence through revocation and explicit replacement, and recheck the current attestation under the canonical writer lock before export. Read-only trust GETs admit viewers; native/mutation authorization remains stricter.
+
+- Canonical evidence absence is not first-publication proof. The shared metadata owner must refuse create-only seeding whenever that target's snapshot namespace already exists; require explicit verified recovery so no caller can disconnect preserved history.

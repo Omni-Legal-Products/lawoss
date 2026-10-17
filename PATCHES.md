@@ -1058,3 +1058,9 @@ The green-zone engine guard inventories installed SDK v2 prompt/compact, legacy 
 ### Benchmark execution admission (2026-10-18)
 
 `apps/server/src/routes/benchmarks.ts` preflights create/resume with the existing strict host guard before creating a background run or clearing historical verdicts. Unknown/foreign resume visibility is checked first. Denial stays HTTP403 `ai_transfer_denied` instead of a background judge-parser failure. Pure runner/scoring/citation fixtures remain unchanged; `apps/server/src/benchmark-governance.e2e.test.ts` verifies actual HTTP create/resume denials, no run/session/model side effects and retained unknown-run404.
+
+### Metadata history owner invariant (2026-10-18, independent review P2)
+
+| Files | Change and validation |
+|---|---|
+| `scripts/release/evidence-revision.mjs`, `scripts/release/evidence-revision.test.mjs` | Create-only canonical publication refuses any existing snapshot namespace for the same target. Canonical absence after an interrupted upload is recovery state, not permission to reseed a new history root. The owner-level independent reproduction is RED before the fix and GREEN after it, with zero mutations on refusal; explicit full-chain recovery, malformed/forked-state refusal, genuine first creation, other-target isolation and idempotent retry remain covered. |

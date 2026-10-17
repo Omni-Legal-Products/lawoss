@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { publishEvidenceRevision, verifyEvidenceChain, evidenceSnapshotName } from './evidence-revision.mjs';
+import { publishEvidenceRevision, verifyEvidenceChain, evidenceSnapshotName, recoverEvidenceSnapshot } from './evidence-revision.mjs';
 import { createReleaseEvidence, evidenceFilename, sha256 } from './release-evidence.mjs';
 
 import { initialEvidence, fakeGh } from './release-test-fixtures.mjs';
@@ -19,4 +19,71 @@ test('canonical replacement during snapshot preservation is detected before dele
  let once=true;f.remote.setHook(args=>{if(once&&args[1]==='upload'&&basename(args[3]).includes('-sha256-')){once=false;f.remote.put(f.name,raced);}});
  await assert.rejects(publishEvidenceRevision({path:f.path,repo:'fixture/repo',tag:f.e.releaseTag,expectedRemoteSha256:sha256(f.old),gh:f.remote.gh}),/raced|stale/i);
  assert.equal(f.remote.assets.get(f.name).bytes.toString(),raced.toString());assert.ok(!f.remote.effects.some(effect=>effect[0]==='delete'));
+});
+
+
+test('create-only refuses reseeding a complete preserved target chain after canonical upload interruption', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'evidence-no-reseed-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const remote = fakeGh(), initial = initialEvidence(), name = evidenceFilename(initial.build), path = join(root, name);
+  await writeFile(path, JSON.stringify(initial));
+  const first = await publishEvidenceRevision({ path, repo: 'fixture/repo', tag: initial.releaseTag, gh: remote.gh });
+  const next = structuredClone(initial);
+  next.receipts.push({ ...next.receipts[0], at: '2026-10-18T00:00:00Z' });
+  await writeFile(path, JSON.stringify(next));
+  const second = await publishEvidenceRevision({ path, repo: 'fixture/repo', tag: initial.releaseTag, expectedRemoteSha256: first.sha256, gh: remote.gh });
+  // Exact state left after archiving the canonical and interrupting its replacement.
+  remote.put(evidenceSnapshotName(second.evidence.build, second.sha256), second.bytes);
+  remote.assets.delete(name);
+  const recovered = await recoverEvidenceSnapshot({ repo: 'fixture/repo', tag: initial.releaseTag, name, gh: remote.gh });
+  assert.equal(recovered.evidence.receipts.length, 2);
+  assert.equal(remote.assets.size, 2);
+  const before = [...remote.assets].map(([assetName, asset]) => [assetName, asset.id, sha256(asset.bytes)]);
+  const effects = remote.effects.length;
+  await writeFile(path, JSON.stringify(initial));
+  await assert.rejects(publishEvidenceRevision({ path, repo: 'fixture/repo', tag: initial.releaseTag, gh: remote.gh }), /snapshot.*recover|recover.*snapshot/i);
+  assert.equal(remote.effects.length, effects);
+  assert.deepEqual([...remote.assets].map(([assetName, asset]) => [assetName, asset.id, sha256(asset.bytes)]), before);
+  assert.equal(remote.assets.has(name), false);
+  // Recovery still succeeds with the last preserved state and its explicit digest.
+  await writeFile(path, recovered.bytes);
+  const restored = await publishEvidenceRevision({ path, repo: 'fixture/repo', tag: initial.releaseTag, expectedRemoteSha256: recovered.sha256, gh: remote.gh });
+  assert.equal(restored.evidence.receipts.length, 2);
+  assert.equal(restored.evidence.evidenceHistory.length, 2);
+});
+
+test('create-only refuses malformed or forked target snapshot namespaces without mutations', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'evidence-snapshot-refusal-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const initial = initialEvidence(), name = evidenceFilename(initial.build), path = join(root, name);
+  await writeFile(path, JSON.stringify(initial));
+  for (const malformed of [true, false]) {
+    const remote = fakeGh();
+    if (malformed) remote.put(name.replace(/\.json$/, '-sha256-invalid.json'), 'malformed snapshot');
+    else {
+      const first = Buffer.from(JSON.stringify(initial));
+      const fork = { ...initial, receipts: [...initial.receipts, { ...initial.receipts[0], at: '2026-10-18T01:00:00Z' }] };
+      const second = Buffer.from(JSON.stringify(fork));
+      remote.put(evidenceSnapshotName(initial.build, sha256(first)), first);
+      remote.put(evidenceSnapshotName(initial.build, sha256(second)), second);
+      await assert.rejects(recoverEvidenceSnapshot({ repo: 'fixture/repo', tag: initial.releaseTag, name, gh: remote.gh }), /ambiguous|forked/i);
+    }
+    await assert.rejects(publishEvidenceRevision({ path, repo: 'fixture/repo', tag: initial.releaseTag, gh: remote.gh }), /snapshot.*recover|recover.*snapshot/i);
+    assert.equal(remote.effects.length, 0);
+    assert.equal(remote.assets.has(name), false);
+  }
+});
+
+test('genuine target first creation and exact retry remain valid beside another target history', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'evidence-new-target-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const remote = fakeGh(), initial = initialEvidence(), name = evidenceFilename(initial.build), path = join(root, name);
+  remote.put('release-evidence-darwin-x64-sha256-invalid.json', 'other target snapshot');
+  await writeFile(path, JSON.stringify(initial));
+  const first = await publishEvidenceRevision({ path, repo: 'fixture/repo', tag: initial.releaseTag, gh: remote.gh });
+  assert.equal(first.evidence.evidenceHistory?.length ?? 0, 0);
+  const effects = remote.effects.length;
+  const retry = await publishEvidenceRevision({ path, repo: 'fixture/repo', tag: initial.releaseTag, gh: remote.gh });
+  assert.equal(retry.sha256, first.sha256);
+  assert.equal(remote.effects.length, effects);
 });

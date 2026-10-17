@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- A missing canonical evidence asset does not imply first publication: any existing snapshot namespace for that target requires explicit history recovery before writes. Enforce this in the shared metadata owner for every caller.
 - Resume release acceptance from immutable source-run/attempt artifacts rather than rebuilding under a new run number. Canonical metadata revisions preserve exact old bytes and full snapshot chains before exclusive replacement of the captured REST asset ID.
 - Packaged release provenance comes only from validated embedded identity; final payload hashes and fresh/migrated native results stay target-specific. Immutable publication retries compare exact remote bytes before writing.
 - Native picker IPC receipts precede renderer completion. Before returning to Files, acknowledge a new visible completed artifact tab, the committed workspace route and its selected owner; never reuse a prior same-path tab. A fragment-based entry menu owns the input immediately following its trigger, not every input under the shared list parent. Preserve exact captured/event input identity and refuse ambiguous adjacency.
@@ -469,3 +470,7 @@ Added actual Actions native-intake/collect/resume/publish wiring, retained final
 2026-10-18 — Deadline mounted source-selection follow-up (repair checkpoint d2639f25).
 - Actual production ScopedWorkflow/SourceSelector mounted in isolated real Chromium with WebCrypto and an owned HTTP prepared source. Real mouse focus + Chromium keyboard selection publishes exact quote/start/end/hashes, enables the actual candidate action, and sends the expected body through the real client. No product interaction change was needed; ScopedWorkflow export enables the explicit fixture.
 - Mounted check and app typecheck passed. Owned Chromium group and Vite resources close before temporary profile cleanup. This is a component mechanism proof, not native Electron/CUA or packaged legal acceptance.
+
+## 2026-10-18 — refuse canonical evidence history reseeding (independent P2)
+
+Added the independent two-snapshot/two-receipt reproduction as a failing owner-level regression, then made the create-only owner refuse an existing target snapshot namespace before all mutation. Complete explicit-precondition recovery, malformed/forked state refusal and genuine first-create/retry behavior are tested. Full revision/handoff/common publisher run: 18 pass, 0 fail. No real GitHub or profile effects. External evidence: release-reseed-red.log, release-reseed-green.log and release-reseed-report.md.

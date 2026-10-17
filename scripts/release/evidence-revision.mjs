@@ -119,6 +119,8 @@ export async function publishEvidenceRevision({ path, repo, tag, expectedRemoteS
     if (expectedRemoteSha256 === null) {
       if (currentBytes) throw new Error('Stale canonical metadata precondition: create-only');
       if ((input.evidenceHistory ?? []).length) throw new Error('Cannot create canonical metadata with an unverified chain');
+      const snapshotPrefix = name.replace(/\.json$/, '-sha256-');
+      if (state.assets.some(asset => asset.name.startsWith(snapshotPrefix))) throw new Error('Existing target snapshots require explicit recovery; refusing a new evidence root');
       await publishImmutableFiles({ files: [path], tag, repo, gh });
       return verifyEvidenceChain({ repo, tag, name, expectedSha256: sha256(inputBytes), gh });
     }
