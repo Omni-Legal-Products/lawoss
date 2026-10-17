@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,15 @@ import { CalendarStore } from "./store.js";
 import { exportCalendar, parseCalendar } from "./ical.js";
 import { scopeIncludes } from "../project-sync.js";
 import { fileKey } from "../project-file-sync.js";
+
+const cleanups: Array<() => unknown | Promise<unknown>> = [];
+afterEach(async () => {
+  const errors: unknown[] = [];
+  while (cleanups.length) {
+    try { await cleanups.pop()?.(); } catch (error) { errors.push(error); }
+  }
+  if (errors.length) throw new AggregateError(errors, "Calendar fixture cleanup failed");
+});
 
 test("deadline links validate project files and sessions without allowing traversal or symlink escape", async () => {
   const root = await mkdtemp(join(tmpdir(), "deadline-links-")), path = join(root, "project");
@@ -30,8 +39,10 @@ test("deadline links validate project files and sessions without allowing traver
 
 test("attachments survive revision history and iCalendar round trips; sessions remain local", async () => {
   const root = await mkdtemp(join(tmpdir(), "deadline-attachments-"));
-  try {
-    const store = await CalendarStore.open(join(root, "runtime.sqlite"));
+  cleanups.push(() => rm(root, { recursive: true }));
+  const store = await CalendarStore.open(join(root, "runtime.sqlite"));
+  cleanups.push(() => store.close());
+  {
     const entry = store.create("p", { title: "Deadline", start: "2026-10-01", attachmentPaths: ["Orders/Änderung.pdf"], sessionIds: ["ses_local"] });
     const { attachmentPaths: _files, sessionIds: _sessions, ...legacy } = entry;
     expect(CalendarItemSchema.parse(legacy)).toMatchObject({ attachmentPaths: [], sessionIds: [] });
@@ -51,7 +62,7 @@ test("attachments survive revision history and iCalendar round trips; sessions r
     const current = store.get("p", entry.id), local = store.patch("p", entry.id, { revision: current.revision, title: "Mine" });
     store.receive("p", { ...updated, sessionIds: ["ses_foreign"], title: "Theirs", revision: 11 });
     expect(store.resolve("p", entry.id, local.revision, "theirs").sessionIds).toEqual(["ses_local"]);
-  } finally { await rm(root, { recursive: true, force: true }); }
+  }
 });
 
 test("calendar-only sharing includes just its attached files", () => {

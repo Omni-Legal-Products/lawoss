@@ -1,0 +1,6 @@
+{
+  "name": "lawoss-plugin-sdk-payload",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": { "@opencode-ai/plugin": "1.18.29" }
+}

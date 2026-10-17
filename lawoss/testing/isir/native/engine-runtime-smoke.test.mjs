@@ -40,13 +40,19 @@ function childFixture() {
   return child;
 }
 
-test("owned probe waits for close and drained pipes rather than trusting exit", async () => {
+test("owned probe waits for close and drained pipes rather than trusting exit", async t => {
+  // The synthetic close-order contract uses a deterministic deadline while the
+  // real event-loop turn and stream/close assertions remain unchanged.
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
   const child = childFixture(), result = collectRuntimeProbe(child, 100);
   child.stdout.write(valid); child.exitCode = 0; child.emit("exit", 0, null);
   let settled = false; result.then(() => { settled = true; });
   await new Promise(resolve => setImmediate(resolve)); assert.equal(settled, false);
+  t.mock.timers.tick(99); assert.equal(settled, false);
   child.stdout.end(); child.stderr.end(); child.emit("close", 0, null);
   assert.deepEqual(await result, { outcome: "observed", engineVersion: "1.18.29", bunVersion: "1.3.14", preloadObserved: true, closed: true });
+  } finally { t.mock.timers.reset(); }
 });
 
 test("timeout and combined output overflow kill only the owned child then close with unknown metadata", async () => {

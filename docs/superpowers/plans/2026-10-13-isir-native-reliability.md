@@ -624,3 +624,310 @@ Cílená source analýza neprokázala konkrétní chybu. Nejmenší navazující
 **Task16 skutečné733 ověření:** ALL4/ALL11 terminální; celý Windows portable včetně helper19/korpusu20 PASS a samostatný empty-auth unit4 PASS. Tím je oprava writer lifetime provozně doložená na Windows; historická job membership/příčina se netvrdí. OriginalWindows startup RED87057ms; empty-authguard UNKNOWN/notrun, žádný skutečný experiment. Baseline install1/no build, compileguard UNKNOWN/no capability. Root report77evidence/11Gitproducer audit PASS. Task17 řeší konkrétní admission mezeru; původní startup/GUI/provider/protecteddev zůstávají otevřené.
 
 **Task17 lokálně uzavřeno:** workere575c3f2 → root8b5d9dcd. Pouze fyzicky následné Windows separator spelling a5nových skutečných filesystem/guard regresí; original33 byte-prefix přesně zachovaný. Exact Node24 focused5/5 a final38/38 jednou, syntax2/diff PASS. Fresh SPEC PASS / QUALITY APPROVED, nálezy0, root source/parity/report/review/DCO i733 ALL4/ALL11+77hash/11Gitproducer audit PASS. Žádný host Windows RED/GREEN ani konkrétní historická exception se netvrdí. Normální publikace a nové skutečné Windows run/native ověření následují.
+
+
+### Task22: Skutečný SDK build payload s úplným lockem a offline reprodukcí
+
+**Podklad:** oddělený Task21 Windows41c control DIRECT_READY/plugintrue se stejnou1.18.29/SHA32675; metadata-only control není produkční instalace. Root27evidence+8Git-source/pairSHA auditPASS. Source-only ověřená APIArborist9.4.0 ze stejného upstreambun.lock, veřejnýSDK1.18.29/distintegrity/dependency+optionalpeer metadata. Skutečný SDK closure zahrnuje volitelné nativní moduly, hosttarget tree není univerzálně přenositelný.
+
+**Scope:** pouze nový `lawoss/build/plugin-payload/**` (helper/validator/tests/README, oddělený tools/pnpm-lock, skutečný SDK manifest+vygenerovaný complete package-lock). Rootdependency/workspace/apps/pins/workflow/runtimeconfig/userdata bezezměny. Nová izolovaná větev `fix/pr157-plugin-sdk-payload` z původního mainPRe65.
+
+- [x] Přes Node24.21/pnpm11.4 a pinnedArborist9.4.0 API vytvořit skutečnýSDK1.18.29 s plnýmv3lock, ignorescripts/auditfalse/exactrootintegrity/directdeps. Žádné npm/yarn CLI, fakeemptytree/root-onlylock, usercache/credentials nebo nativeengine/provider. Initialcandidate resolution jednou explicitně, buildtooltree oddělený od runtimeSDK.
+- [x] Strictacceptedmanifest/lock/dependencyclosure/registryintegrity/optionalmetadata validace. Frozenoffline replay: detached virtualsnapshot před buildIdealTree, compare before reify(save:false/offline:true), žádné update/add/rm/networkfallback; afterward actualrequired+targetapplicableoptionalnodes, acceptedlockbytes/filehashes.
+- [x] Explicitní hostplatform/arch/Nodepatch a boundedrelative physicalinventory; žádný external link/unsafeexistingoutput. Ověřené ownedstaging/manifestcommitpoint, nooverwrite/concurrentrefusal, cancellation/primaryerror/ownedcleanup. Retainlicenses and completeactualtree, neverclaimcrossOSportability.
+- [x] FocusedTDD+filesystemnegative cases a skutečnýSDKcandidate→isolatedexports/imports→relocation→cleanoffline guard replay/hashcomparison; missing/corruptcache/lock/drift mustrefuse. Finalchangednewtestsjednou, syntax/diff, standalonetools frozenoffline reproduction.
+- [ ] NormálníDCOcommit, freshindependentSPEC+QUALITY a rootprovenance/source/targettests audit před publikací. Runtimehooks ještě nezapojovat: G/P/H/E jsou perselectedinstance, remote nepatřílocalprepareru, customdeps/capturedowner/sharedinstallerlocking a laterworkspaceactivation musí řešit další samostatný krok.
+
+Tento task je komponenta pro následnou produkční integraci, nikoli uzavření původního Windows startup/portableRED ani fullfive/devapprovalmerge/nováapp/actual10caseGUIprovider akceptace. Novéplacenévýstupy0.
+
+**Task22 dosavadní validace a deviation:** genuine acceptedSDKlock59f4b854…/32dependencyrecords. Workerreported hostdarwin/arm64 offline replay,27installed+root/5target-inertoptionalrecords,3654inventoryfiles/links, actualSDKexports+4runtimeimports/nativeextractload. Relocation/missingandcorruptcacheguardsreportedPASS; finalreviewpending. InitialESMimportharness require-condition chyba opravená bez změnySDK. PreflightRED test ovšem omylem admitted secondONLINEworker a vyprodukoval REJECTEDsamehashlock; žádná acceptedpublication/původnílock independentlyunchanged. Historicalonce-onlygateFAILED; testexec93466 exit1/cancelled1, directworkerclose/PIDnotcaptured,2exactpathps0observationsNOTcensus, descendantsUNKNOWN; exactownedincidentroot removedbeforelatestno-delete instruction. Rootpovolilsourceguardfix+OFFLINEONLY continuation, žádný novýonlinecandidate. Earlierunitfixtureos.tmpdir location deviatedfromallowedS/worktree; finalfixturesmovedowned .work/test-fixtures. Codeconformance a executionhistory musí být oddělené ve freshreview; nic ztoho není produkční startupfix.
+
+**Task22 aktuální kód lokálně uzavřen:** source70c0efe9/15newgreenfiles; final20/20 actualguardedoffline tests (TAP20/0fail/cancel/skip), syntax7/7, standalonetools113reused/0downloads. FreshSPEC codePASS/QUALITYAPPROVED/nofindings; root15source/DCO/SDK59f4 integrity+33lockrecords+4directdeps+optionalpeers/tools906e/finalTAP7f7586a/physicalreceipt43ae boundedread auditPASS. Node24/darwinarm64actualimports/nativeextract+relocation/offlinephysicalhashproof ONLY. Historicalonce-onlygateFAILED/incidentchildclose+descendantsUNKNOWN/earlierfixturelocationdeviation remain explicit, no sourcefixrewriteshistory. Runtimeintegration/actualWindowsBun/licensecompletion/fullPRstartupandGUIacceptanceneověřeny. Normalfeaturepublicationnext, protecteddevunchanged.
+
+
+### Task23: Přesné určení konfiguračních adresářů enginu
+
+**Stav před implementací:** SDK komponenta z Task22 je publikovaná jako af2d7ff8 v draft PR158 nad PR157. Lokální20/20 PASS; současné Linux/macOS CI PASS, žádné Windows/SDK-specific CI ověření. Historická porušení validačního postupu zůstávají zaznamenaná; nejsou přepsána novými výsledky.
+
+**Scope:** pouze nové `lawoss/engine-dependencies/config-roles.mjs`, testy, README a případné lokální ignore pravidlo. Izolovaná větev `fix/pr157-managed-config-roles` od af2d7ff8. Bez runtime hooků, instalace, síťových volání nebo čtení obsahu uživatelských konfigurací.
+
+- [x] Zachytit vstupní prostředí, skutečné cwd procesu a nativní home před prvním await; přesně napodobit pinned ConfigPaths/FSUtil/Project/Git/xdg.
+- [x] Vrátit uspořádané logické G/P/H/E adresáře s původem rolí, stejným string dedup jako engine a oddělenou fyzickou cestou. G/H se nesmějí ztratit při explicitním E ani při vypnutí project discovery. Role není oprávnění k přepisu.
+- [x] Bounded Git a přesné ancestor existence dotazy; stejný worktree/non-Git fallback, explicitní odmítnutí při abort/budget exhaustion, bez obsahu souborů nebo globů.
+- [x] Skutečné izolované filesystem/Git testy v owned .work, snapshot env, relativní ukotvení, provenance/dedup, linked worktree, chybové a cancellation větve. Windows path model označit jako model. Exact Node24.21, syntax/diff, závěrečný změněný testový soubor jednou.
+- [x] DCO commit, čerstvá nezávislá SPEC/QUALITY revize a root audit před feature publikací. Produkční integrace a skutečný Windows/Bun test jsou další samostatné kroky.
+
+Původní startup/portable RED, protected dev approval/merge, nová běžící aplikace a skutečná desetispisová GUI/provider akceptace zůstávají otevřené. Detailní binding brief je v SDD task-23-brief.md.
+
+**Task23 lokálně uzavřen:** source6112f036+fix4e128703, final29/29 exactNode24/darwinarm64, syntax2/diffPASS. Initial review Important drive-key case bug fixed with focused RED→GREEN; fresh scoped SPEC/QUALITY PASS/new0. Root4sourceSHA/DCO/report/review/fetchedbase/dev auditPASS. Runtime hooks, ownership/merge/preparation a skutečnéWindows/Bun zůstávají další kroky; původní fullgoal otevřený. Publikace do existujícího SDK draft PR158 následuje.
+
+
+### Task24: Přesná SDK cache a nativní ověření Windows/Bun
+
+**Výchozí stav:** Task23 source6112+fix4e128/rootdocs e7ace3f6 publikován do stávajícího SDK draft PR158. Final29/29 Node24/darwinarm64 a scoped SPEC/QUALITY PASS; rootsource/review/DCO/remoteSHA+clean/dev1c auditPASS. Nové e7a generické CI probíhá; žádné SDK/Windows/runtime ověření z něj neplyne.
+
+**Scope:** SDK green folder `lawoss/build/plugin-payload/**` a jeden nový `.github/workflows/plugin-sdk-payload.yml`; root čtyři dokumenty. Nová izolovaná větev `fix/pr157-sdk-native-validation` od e7ace3f6. Bez runtime hooků, přepisu accepted SDK/tool locků nebo dalšího generování candidate.
+
+- [x] Malý cache primer: přesně accepted32URL/SRI, žádné redirects/retries/packuments/onlineArborist, 32MiB/archive, 256MiB total, 45s/request a jeden300s absolute deadline. Backpressure/integrity/digest verification, own empty workspace/admission, primary error a skutečné zavření streamů.
+- [x] Offline testy reálné cacache se syntetickým transportem, preflight/hash/byte/error/deadline/abort/refusal; zachovat původní SDK testy a skutečný native-load oracle. Review zdrojů před prvním live acquisition.
+- [x] Node zůstane SDK producer; oddělený bounded Bun1.3.14 import smoke přes existující probe, pozorované guard preload admission, native loaded, Node payload inventory beze změny. Žádné tvrzení o shodném compiled-engine buildu ze samotné semver.
+- [x] PR-only paths-filtered Windows2022/x64 job: přesné nástroje, pouze standalone tools install, unit testy → cold exact primer → offline replay/integration → Bun smoke, malý uzavřený výsledek. Bez mainapp/provider/clientdata.
+- [x] DCO commit a fresh SPEC/QUALITY; root audit a publikace do PR158 až po terminálním e7aCI. Následně první skutečné Windows SDK ověření, ne opakování až do zelené. Chybějící cache metadata nebo native/Bun chyba zůstane konkrétní RED bez online solver fallbacku.
+
+Detaily a source API jsou v SDD task-24-brief.md. Produkční distribuce/notices, sdílené user-directory merges/locking/recovery, current/later-instance hooks, původní startup/portableRED, protected dev approval/merge, nová aplikace a skutečná10GUI/provider akceptace zůstávají samostatně otevřené.
+
+**Task24 reviewI1 / root Ruling:** real pinnedcacache delayed-index test prokázal návrat po outer streamclose před dokončením zápisu. Původní put.stream mandate nahrazen supported async put/get.byDigest + boundedarchive buffer; limity a všechny error/admission oracles zachovány. Cena: boundedextra memory. Na již zahájené I/O se čeká při cleanup, bez další práce po deadline a bez tvrzení o univerzálním zrušení OSoperací. Fixround1 a freshscopedrereview nutné před publikací/liveacquisition.
+
+**Task24 source/offline fáze lokálně uzavřena:** a0c0d58c+fix676f1872, earlier33/33offline a poslední covering11/11 po I1fixu. InitialreviewI1 skutečnýflushoutlivesstreamclose napraven publicawaitablecachepromises/boundedbuffer; focusedrealcacheRED→GREEN, freshscopedSPEC/QUALITYPASS/new0. Root11source/3immutable/bothDCO/TAP/review/producer94ec+workflowf174 contract auditPASS.
+
+- [ ] První skutečné Windows SDK acquisition/replay/integration/Bun výsledky po publikaci. Žádné dosavadní source/offline PASS tuto položku ani původní Windowsstartup/fullgoal neuzavírá.
+
+
+### Task25: Deterministická instalace build nástroje a její postcondition
+
+**Skutečný stav49e:** all3workflows/5jobs terminální, Linux/macOS SUCCESS, SDKWindowsFAIL admission/MODULE_NOT_FOUND předobservovanýmiunit/acquisition/Node/Bun. Step6toolsinstall metadataSUCCESS bezpoužitelné runtimeinstallační účtenky v jediném boundedlogprojection. Root17+263 a10+280 hash/source/summary audityPASS; nyní290frozenentries/12reports. Přesný chybějící modul/physicaltree/effectiveconfig/cause UNKNOWN; sourceonlyinspection vymezil jediný tools package manifest require.
+
+**Scope:** pouze SDK native-validation helper/test/README, jeden malý core-only tools-preflight modul a existing SDK workflow. Izolovaná větev `fix/pr158-sdk-tools-install` od49ef8ba8. Žádné SDK/tool manifest/lock/primer/consumer/app/runtime změny. Root4docs.
+
+- [x] Capture absolute pnpm Application (případně Node) předenvsanitization, zachovatPATHEXT/PATH/SystemRoot/ComSpec; explicitforegroundinvoke, freshLASTEXITCODE/actualzero, `--prod=false`, ostatnífrozenisolatedflags zachovat.
+- [x] Jeden sdílený tools-local manifest/name/version/resolver-realpath postcondition pro workflow i nativeadmission; pnpm symlink/junction podporovat, ancestor-onlyfallback odmítnout, nevyhodnocovatArboJS/SDK.
+- [x] Fixedobserved failurecodes TOOLSLINK/MANIFESTABSENT/INVALID/ADMISSIONFAILED v existujícím code/failedStage; žádný nový artifact/schema. Unitcounts aktualizovat dle actualnovýchtestů, původnístrict33+4oracles zachovat.
+- [x] TDDowned filesystem/refusal/symlink/ancestor/noJSsentinelcases v changednative-validation.test; exactNode24, finalchangedfileonce/syntax/diff/YAML. PWSHnativeflow jenpokudavailable, jinakexplicitNOTEXECUTED.
+- [x] DCO/freshSPECQUALITY/rootaudit/sourcehash+newunitcount readercontract rebind přednormálníSDKPR158publikací. NovéactualWindows gatebezsameheadrerunu; unresolvedcause/SDKnative/fullexistinggoal netvrditjakoopravené.
+
+**Ruling:** explicitdevinclude/capturedApplication+PATHEXT/checkedexit/sharedpostcondition je deterministické zlepšení, nikoli důkaz jediné příčiny49e. Cena při chybě další explicitsetuprefusal/CIcycle; žádné productdata/devmutation. Podrobný bindingbrief SDD task-25-brief.md.
+
+- [ ] Actual Windows SDK44units/4integration/acquisition/Node/Bun gate, original runtime/startup/GUI acceptance and protected dev merge remain OPEN.
+
+**Source/offline completion:** 75b0e393, fresh independent SPEC PASS / QUALITY APPROVED/no findings; actual changed-file17/17 from implementer, syntax/YAML/diff PASS. Root source/TAP/DCO/review/hash binding PASS; prior suites byte-identical and not repeated. Normal feature publication follows; no actual Windows claim.
+
+**Task25 actual3f44/fix1:** Windows setupfailedbeforeSDKproducer; finiteexistinglogprojection onlyobservedrenderedNodeversioncheck, actualversion/causeUNKNOWN. PrimaryPowerShellsource establishesCommandType-suppliedGetCommandmultiplicitywithoutAll.
+- [x] SelectfirstscalarApplication atall3Node/pnpm/Bun lookups, preserveversions/flags/closedsummary/44+4; scopedindependentreview andsourcebinding.
+- [ ] NewsourceWindowsCIafterall3f44terminalaudit; no sameheadrerun/causalstartupclaim.
+
+**Fix1 source completion:**95dc3201/workflow0cbbe64b, all21SDKbytesunchanged; freshscopedSPEC PASS/QUALITY APPROVED/new0. Current3f44ALLterminal root309entries/15reportsdirectauditPASS. NewWindows gateOPEN; actual3f44version/causeUNKNOWN.
+
+**Task25 fix2 observational gate:** actualf664setupFAIL/runtimeTOOLS_INSTALL_FAILED; observedexception/renderedline46 source-mapswithofficialrunnerone-lineprefix tobody45nativeexitguard, runnerpatchidentityunverified. Actualexitkind/value/causeUNKNOWN.
+- [x] Minimal finite logreceipt absent|int32|other plusint32|unknown immediatelybeforeunchangedinstallerexitguard; no appfix/schema/acquisition change, freshscopedreview/sourcebinding.
+- [ ] Actual nextWindows typedreceipt/SDKgate; no unchangedheadrerun or relaxedexitcheck.
+
+**Fix2 source complete:** b254d4ec/workflow1ca586d2, freshscopedSPEC PASS/QUALITY APPROVED/new0;21SDKfilesunchanged. Rootf664allterminal328entries/18reportsdirectauditPASS. Diagnostic-onlypublication/newactualWindowsreceipt next; actualtypedvalue/cause/fullgoalOPEN.
+
+**Task25 fix3 finite launch control:** actuald041installerexitint32/1; preclear--version11.4.0 passed, postclearlaunchunobserved. SourcecheckedPSwritesglobalInt32, no verifiedmandatoryomittedWindowsenvcause.
+- [x] One SAMEcapturedpnpm--version aftersanitation, stdoutclassifiedexact|absent|other|threw andfreshtypedexitonly; preserveoriginalinstall/reset/guard/all21SDKbytes, freshscopedreview/sourcebinding.
+- [ ] NextactualWindowscontrolledreceipt +SDKgate, no env/registryguess or claimunderlyingappfix.
+
+**Fix3 sourcecomplete:**8f4ab6f8/workflow3f53993a/freshscopedSPEC PASS/QUALITY APPROVED/new0;21SDKfilesunchanged. Rootd041allterminal345entries/20reportsdirectauditPASS. ActualnextWindowsversioncontrol/SDKgateOPEN; actualinstallerInt32/1/innercauseUNKNOWN.
+
+### Task26: Skutečné pnpm CLI pod přesně zachyceným Node24
+
+**Facts:** actual9bc7postclearlauncher--versionEXACT11.4.0/int32/0, installint32/1/causeUNKNOWN. toolsmanifestrequiresNode24.21.0, nativeApplicationpathdoesnotbindnestedruntime; source doesNOTproveNode20actualcause. Freshisolatedbranchfix/pr158-pnpm-node-installer/base9bc7, solefreshworkerworkflow/optionalREADME/root4docs.
+- [x] Pinnedactionid/documenteddestoutputasstepenvdata; validatefixedgenuinepnpmmanifestname/version/bin.pnpm+expectedCLIentry, allownormalmodulejunction.
+- [x] All3pnpmcalls viaexactcapturedNode24 +genuinebin/pnpm.mjs, preserveversions/isolation/frozenflags/freshnativeexit/postcondition/control/44+4.
+- [x] YAML/scope/sourcechecks/unchangedSDKbytes; PowerShellNOTEXECUTEDifunavailable, no mirroredtests/unchangedsuitereruns; normalDCO/freshSPECQUALITY/rootaudit.
+- [ ] NormalSDKPR158publicationonlyafter9bc7ALLterminalaudit/sourcecontractnewhashbinding; newactualWindowsgate.
+
+**Ruling:** correctexplicitruntimeinvariantwithgenuineCLI, noengineguardrelaxation/missingenvguess or provenrootcauseclaim; originalfullgoal/newapp/devapproval+merge/tenGUIprovider remainOPEN.
+
+**Task26 sourcecomplete:**0d596c1f/workflowa1613d95/freshindependentSPEC PASS/QUALITY PASS/0;21SDKfilesunchanged. Rootsource/DCO/parity/review+contractbindingPASS, previous9bc7allterminalroot361entries/22reportsdirectauditPASS. NormalSDKpublicationnext/actualWindowsOPEN; noNode20causeclaim/newpaid0.
+
+**Task26 fix1 actual argv defect:** exactcachedpnpm11.4nopt exploratoryunknownconfig.*withSPACE→Booleantrue/positionalcachepaths→installremappedadd/frozenunknown. =formkeepsString/intendedinstall. BarefrozenSUPPORTED; initialunsupportedversioninterpretationsuperseded.
+- [x] Actualfreshcorrectliteral17argvROOTpreflight/positiveexit0/113reuse0download113added; Arbo9.4fixturelocalresolverPASS; negativeERR_PNPM_OUTDATED_LOCKFILE/source+fixturelockunchanged. Old2malformedcontrolsINVALIDremainpreserved.
+- [x] Minimalquotedcache/state=value2arguments/sourceDCO/review/binding, allotherworkflow/21SDKfiles/44+4/strictguardunchanged.
+- [ ] NewactualWindows gateaftereb118allterminalroot377entries24reportsauditPASS; no app/fullgoalclaim.
+
+**Task26 fix1 sourcecomplete:** c2e8cac8/workflow9e6cd309/freshscopedSPEC PASS/QUALITY PASS/0. RootDCO/source/review/21SDKparity/docs/contractbindingPASS; actuallocalpositive/resolver/frozennegativeproofrootaudited, prior377CIentries24reportsunchanged. NewactualWindows gate/normalSDKpublicationnext; barefrozenretained/nofullgoalclaim/newpaid0.
+
+
+### Task 28: Zachovat npm konfiguraci enginu v pomocném procesu Node22
+
+**Context:** Předchozí navazující komponenty jsou doložené v pracovní ledger/briefs stejného plánu. PR158 head24214 má skutečný Windows SDK PASS44+4 a obecné Linux/macOS CI PASS. To neprokazuje produkční spuštění aplikace. Samostatná příprava SDK nesmí přepsat vlastní závislosti a npm konfiguraci uživatele.
+
+**Scope:** Nové `lawoss/engine-dependencies/npm-config.mjs`, test a oddělené `runtime-tools/` s přesně připnutými Arborist9.4.0/config10.8.1. Žádné volání z produkčního serveru, instalace do uživatelských složek ani změny přijatého SDK payloadu. Podrobná prováděcí specifikace je v task-28-brief.md pracovního adresáře tohoto plánu; schválený produktový cíl zůstává původních pět akceptačních zjištění.
+
+- [x] Genuine oddělená pnpm11.4 tools closure s vlastním frozen lockem; Node24 pouze pro správce balíčků. Žádný nový SDK-only candidate/lock, root install nebo uživatelský profil.
+- [x] Na skutečném přibaleném Node22.23.2 nejprve behavioral RED pro odlišný engine-v-helper executable prefix, poté explicitní engine constructor context a GREEN.
+- [x] Přesná Config10.8.1 precedence builtin/global/user/project/env, registry/auth/cache/omit/offline bez výrobních override; kopie prostředí před await, chybějící npmrc je normální, skutečné chyby nesmějí potichu vracet prázdnou konfiguraci.
+- [x] Syntetické izolované fixtures dokazují zachování manifestu/locku a absenci target node_modules; obsah a přístupové údaje se nelogují. Test celé nové sady a syntax/diff; nezměněné sady neopakovat.
+- [x] Nezávislá SPEC + QUALITY revize, signed-off commit a běžná publikace feature PR. Skutečný Windows/helper packaging i compiled npmPath/builtin provenience zůstávají před produkčním hookem samostatnými gates.
+
+**Runtime exception:** Repo a CI standard Node24 se nemění; tento nový helper cílí na již dodávaný Node22.23.2. Dokud není doložený built-in kontext kompilovaného enginu, nesmí být komponenta zapojena do spravovaného spuštění.
+
+**Task28 lokálně:** source5064d367 +445517bd, finální8/8 na skutečném přibaleném Node22.23.2/darwin-arm64; skutečný prefix a diagnostický sentinel RED→GREEN. Nezávislá scoped SPEC PASS/QUALITY APPROVED; root šestisouborový Git/runtime/lock/DCO/TAP audit PASS. Historické procesní odchylky zůstávají výslovně evidované: acquisition komunikace nejprve bufferovala před zkrácením; neúspěšná ambient-env assertion vypsala hodnoty do lokální diagnostiky a ztracený raw hash/velikost nelze rekonstruovat. Oprava ani pozdější PASS neznamenají zpětné splnění těchto protokolů nebo zneplatnění zveřejněných údajů. Žádný produkční caller.
+
+### Task 29: Skutečné nativní ověření konfigurace na Node22
+
+**Own:** nový `.github/workflows/engine-npm-config.yml` a README CI poznámka. Native matrix windows-2022 +ubuntu-24.04, přesně Node22.23.2 pro testy, Node24.21.0/pnpm11.4.0 pro frozen tools install. Root workspace/payload/selector/locks i produkční callers beze změny.
+
+- [x] Přesně připnuté Actions, contents:read, PR-path omezení, checkout bez credentials a vlastní concurrency; shell pwsh/matrix,10min.
+- [x] Ověřený genuine pnpm CLI spouštěný explicitním Node24; izolované instalační konfigurace/cache/store, frozen lock a ignore-scripts; generic config.key=value jako jednotlivé argumenty, přísný čerstvý Int32 exit0.
+- [x] Samostatný setup Node22 a skutečný nový npm-config test soubor; žádné modelové Windows tvrzení, catch-success, retry nebo oslabení assertions.
+- [x] YAML/diff kontrola, DCO commit a nezávislá SPEC/QUALITY revize před běžným feature pushem; první actual CI z daného head je autoritativní.
+- [x] Root ověřil skutečné CI joby/step výsledky na91cf i4b2. Úspěšný SDK komponentní proof se nepřevádí na důkaz spouštění aplikace; původních pět zjištění a chráněný dev merge/GUI/provider zůstávají povinné.
+
+**Task29 lokálně:** sourced6a14b04, YAML/diff PASS, nezávislá SPEC/QUALITY Approved/no findings; root workflow/lock/suite/DCO/review audit PASS. První skutečné nativní CI teprve po normální publikaci; žádné runtimehook/app/provider tvrzení.
+
+
+### Task 30: Sdílený zámek přípravy závislostí enginu
+
+**Scope:** Samostatný `dependency-lease.mjs`, skutečné Node22 procesové/FS testy a výslovně modelový protokolový peer; žádný produkční caller ani změna uživatelského stromu. Source16747470 effect-flock/flock/hash, původní MIT notice zachována.
+
+- [x] Přesný `npm-install:${dir}`/SHA1 klíč, zachované logické aliasy a captured state/locks; pevný stale60s/heartbeat20s, breaker a kontrola tokenu, stabilní pořízení a opačné uvolnění.
+- [x] Původní deadline/cancel, čekání na dokončení operace a rozpracovaných heartbeat zápisů před uvolněním; omezené metadata, zachování kompromitovaného nástupce i primární/cleanup chyby.
+- [x] Skutečný peer exclusion RED, finální25/25 na přibaleném Node22/darwin-arm64 včetně20s heartbeat/drain; současné I/O+close chyby RED3fail/3controls→GREEN. Syntax/diff/YAML PASS.
+- [x] Fresh SPEC/QUALITY revize a scoped re-review: původní Important masking chyby opravena, Minor název testu opraven; root six-file/source/unchanged-input/TAP/MIT/DCO auditPASS.
+- [x] Normální publikace4b2 a skutečné Windows/Ubuntu CI nové sady: run38828213962 obě platformy install/test SUCCESS. Celý head4workflows/7checks terminal bez selhání; číselný počet33 je source expectation, nikoli přečtený CI test receipt.
+
+**Limit:** callback musí skončit až po zavření vlastních procesů/práce; úklid může doběhnout po deadline, nesmí se zaměnit s dalším povoleným výkonem. Neznámé aliasy/odlišný state root a nespolupracující zápisy nejsou univerzálně vyloučené. Modelový wire peer není skutečný compiled-engine/Effect interoperability proof. Genuine preserving Arborist merge, compiled builtin kontext, produkční hook a původní app/GUI/dev gates zůstávají další kroky.
+
+### Task 31: Zachovávající skutečné sloučení SDK do existujícího stromu
+
+**Scope:** Samostatný prepare-target.mjs a sdílený tools preflight; žádný produkční caller, změna SDK locku ani přenos SDK-only locku přes vlastní uživatelský graf. Podrobná task-31-brief/report a root audit jsou ve workspace tohoto plánu.
+
+- [x] Shared lease před čtením a konfigurací, explicitní captured context, genuine exact Arborist, zachované registry/cache/offline/omit politiky; nepodporované global/workspaces/shrinkwrap se odmítnou.
+- [x] Omezená soukromá recovery původních a pozorovaných metadat, identity/hash kontroly, bez slepého rollbacku nebo smazání cizího stromu; chyby úklidu se zachovají s primární chybou.
+- [x] Zachované vlastní dependencies/dev/optional/peer a ostatní manifest metadata; skutečná fyzická required SDK closure a entrypoints po reify, oprava chybějícího SDK ze skutečného locku.
+- [x] Genuine OFFLINE sloučení do genuine custom-only locku, Node22.23.2 finální22/22 (Config8+target14), žádné přeskočené testy; syntetické chyby oddělené od skutečné instalace.
+- [x] Fresh nezávislá SPEC/QUALITY revize bez nálezů; root šest souborů/TAP/source/DCO/unchanged-lock auditPASS, source561e03c3.
+- [ ] Publikace feature PR a skutečná native Windows+Ubuntu akceptace merged graphu. Transport/compiled context/packaging/current+later engine dispatch a původních pět app/dev/GUI gates stále povinné.
+
+**Limit:** Advisory lease neřeší všechny nespolupracující zapisovače; in-place reify není transakce. In-process cancellation čeká na skutečné dokončení a neprokazuje pevný návratový deadline ani zavření externích potomků. Fyzická strukturální kontrola neprokazuje hash každého souboru ani všechny export conditions/native imports.
+
+### Task 32: Skutečný nativní test sloučení SDK na Windows a Ubuntu
+
+**Scope:** CI-only izolovaný Node22 acquisition worker/supervisor, přímé genuine make-fetch-happen HTTP cache full+corgi metadata, existující ověřený transfer32 přijatých archivů; následně nezměněné skutečné Config8+lease25+target14 testy. Žádný runtime caller ani změna přijatého SDK locku.
+
+- [x] Source-first implementace s novými offline behavioral testy21/21; původní47 testů lokálně zbytečně neopakováno.
+- [x] Explicitní owned prostředí/cache, max64metadata+32tarball requests, bez retry/redirect, per-body/aggregate limity a jeden300s acquisition deadline.
+- [x] Skutečné subprocess close před předáním cache nebo smazáním; pouze uzavřené malé počty/hashes, žádné raw config nebo diagnostika.
+- [ ] Fresh nezávislá SPEC/QUALITY revize, root unchanged-input audit a běžná feature publikace.
+- [ ] První skutečné Windows+Ubuntu CI: genuine mergedgraph testy nepřeskočené, skutečné počty a všechny required checks zelené. Při změně reálných metadata/rozlišení zůstává failure autoritativní; nefalšovat cache ani přepisovat accepted lock.
+
+**Hranice:** Do source review žádné síťové spuštění této komponenty. Cache tee může vidět mezní chunk před refusal; nejde o byte-exact disk quota. Nový nativní mergedgraph PASS stále neprokazuje produkční hook, packaging ani původní app/GUI/dev kritéria.
+
+**Task32 source:**7a44b3ec, fresh SPEC/QUALITY Approved/noCriticalImportant; root immutable/source/DCO auditPASS. Dva Minor jsou evidované pro wholebranchreview: částečně inicializovaný root bez prokázané identity se nemaže; uncoded operation error může nést nepřesné CLEANUP_FAILED. Source21/21 jsou původní worker execution evidence v toolhistory, nikoli uložený raw TAP/hash; native47 skutečně dosud nespouštěné.
+
+### Task 33: Pravdivá kontrola API připravenosti spravovaného enginu
+
+**Zjištění:** Zdrojové ověření pinned native route ukázalo, že app `/health` přijímá libovolnou HTTP odpověď, zatímco engine má skutečný instance-free `/global/health`. `/health` je UI catch-all/proxy; nejde o doložení příčiny původního startup timeoutu.
+
+- [x] Behavioral RED pro UI HTML falešně přijaté jako ready, poté skutečný `/global/health` status200 a kompletní bounded JSON healthy:true/version.
+- [x] Zachované auth, původní absolutní deadline a process-owner lifetime; idle/oversized/invalid/late body a exited child nesmějí vrátit ready. Žádné prodloužení timeoutu ani SDK/runtime hook.
+- [x] Wholemanaged14pass0fail42assert/exactBun1.4.2/Node24, typecheckexit0, retained final69972601, DCO a fresh SPEC/QUALITY0findings/rootauditPASS.
+- [ ] Root PATCHES/guidance/plan/progress a feature publikace až po předchozím2e6 ALLterminal audit. Původní wholeapp/portable/GUI/dev gates zůstávají otevřené.
+
+**Task33 source:**1726a52c, root unchanged environment/cwd/terminator comparison resolves reviewer context caveat; only health wait and maxzero remaining budget changed. API healthy není instance/plugin ready. Historický RED child nebyl explicitně uzavřen; pozdější absence není důkaz close. Předchozí2e6ALLterminal auditPASS pro evidenci, skutečný nativeRED/CHILD_FAILED zůstává a vyžaduje phase diagnostiku Task34.
+
+### Task 34: Zachovat skutečnou fázi nativního selhání
+
+**Důkaz:**2e6 actual native run38831595649 selhal na obou platformách po21/21 guardech; obecný CHILD_FAILED nerozlišil acquisition a následné47 testy. Původní RED a UNKNOWN zůstávají autoritativní. Obecné Linux/macOS i SDK CI úspěšné; celý head terminální a root audit evidencePASS.
+
+- [x] Malá konečná phase/childclose/exit projekce bez raw stderr/TAP/paths/config; žádný předpoklad vnitřní příčiny.
+- [x] Bounded private owned receipt od acquisition workeru se načte výhradně po prokázaném child close; chybějící/nevalidní receipt zůstává unknown.
+- [x] Skutečný platný acquisition success zůstane viditelný při pozdějším test/cleanup selhání; failed test může promítnout pouze čísla a source-known file/line identitu.
+- [x] Behavioral RED/GREEN amended whole source suite na Node22, původních47 neměnit/zbytečně neopakovat, vstupy/budgets/retries/TLS beze změny; DCO a fresh SPEC/QUALITY.
+- [ ] Root evidence/reader-contract/guidance/plan/progress, normální publikace health+nové diagnostiky a první skutečné nové nativní CI. Žádný rerun stejného kódu pro získání zelené.
+
+**Task34 source:**a070cdc8+a7de50cd, fresh SPEC/QUALITY0findings/rootauditPASS, finální28/28 actualNodeexit0/retainedb41a95cb. Earlier27TAP a vnějšícat exit zůstávají výslovně oddělené. Původní2e6nativeRED/CHILD_FAILED a actual32/64/64/47UNKNOWN se tím nemění.
+
+### Task 35: Nezávislé dokončení nativních platforem
+
+- [x] Pouze strategy.fail-fast:false pro existing Windows+Ubuntu native matrix; stejné10min limity, action/runtime piny, instalace i příkazy. YAML parse/type/matrix/diff PASS.
+- [x] Fresh nezávislá SPEC/QUALITY0findings a root exact-one-field/YAML2OS10min/DCO2 audit PASS před společným feature pushem. PůvodníWindows2e6cancelled není nový native výsledek.
+
+**Task35 provenance:** První lokální31df obsahoval omylem literal S/task-35-report.md, protože brief nedefinoval absolutníS cestu. Harmless synthetic report byl přenesen do exact externího scratch a normálním cleanup commitem22cf odstraněn, bez rewrite historie; finální netdiff je jediný YAML field. Žádná klientská data/credentials/runtime akce.
+
+### Task 36: Naměřená kompatibilita metadata a pravdivé health fixture
+
+Aktuální c213 CI je terminální: oba native joby skončily při metadata acquisition s METADATA_BODY_LIMIT (32 tarballs/14 metadata/0 offline); oba generic server joby selhaly. Source28 guardů prošlo; actual47 zůstává UNKNOWN. Root audit vazeb evidence PASS, nikoli runtime PASS. Čtyři samostatné public metadata streamy naměřily plné plugin/SDK odpovědi27–28MB, takže16MiB limit byl nekompatibilní.
+
+- [x] Změnit pouze default decoded-body bound na64MiB, ponechat aggregate128MiB/deadlines/retry0/TLS a genuine APIs/locky/47 oracles.
+- [x] Realistický28MiB streamed JSON RED→GREEN a crossing65MiB refusal bez čtení tail; final30/30 na shippedNode22.23.2.
+- [x] Pouze dvě fake-engine fixture odpovídají skutečným /global/health JSON protokolem; produkční health/auth/timeout beze změny. Controlled RED odmítnutí a constructor cleanup/PID absence; nikoli universal child/pipe close.
+- [x] Finální ordinary server selection1618pass32existing skip0fail/1650tests200files a typecheck0 na Node24.21.0/pnpm11.4.0/Bun1.4.2. Root retained-evidence/source/DCO identity auditPASS.
+- [x] Fresh nezávislá source SPEC compliant/QUALITY Approved; procesní odchylky explicitně přijaté pro reversible source publikaci, nikoli zpětně splněné. Root dokumentace a evidence audit PASS.
+- [x] Normální feature push beab a skutečné Windows+Ubuntu32/64/64/47 CI PASS; všech5 původních workflows terminálních, root audit434entries/31reports. Následný9e31 testuje také skutečný desktop proti dev; jeho Windowsstartup je RED.
+
+**Procesní odchylky:** Corepack version probe pod isolated HOME oznámil pnpm bootstrap, přestože source fáze měla být offline; původní request bytes/count UNKNOWN, bez SDK kandidáta. Následné kroky používají validovaný genuine CLI přímo pod capturedNode a COREPACK_ENABLE_NETWORK=0. První whole-server běh měl neplatnou lokální app dependency instalaci; covering běh následoval explicitní opravu readonly linků a reálný import preflight. Commit6c0 vznikl během covering běhu, finální exact source teprve následně prošel: neoznačovat jako tests-before-commit. Žádný rewrite ani nový běh pro přikrášlení historie.
+
+Produkční SDK helper/captured compiled context/packaging/transport pro current-and-later instances/CLI stále vyžadují integraci. Protected dev potřebuje skutečný approval a required-green CI; původní app/portable/public10GUI/provider cíle zůstávají otevřené.
+
+### Task 37: Přemístitelná distribuce helperu v desktop aplikaci
+
+- [x] Z genuine frozen runtime-tools locku vyrobit pnpm hoisted/copy strom bez symlinků/junctions; žádné vlastní zplošťování dependency graphu nebo další runtime.
+- [x] Přibalit přesné helper sources a plné runtime tool balíky/licence mimo asar přes existující desktop build/resource seam. Desktop Node22.23.2 a archive piny beze změny; žádná instalace do uživatelských konfigurací.
+- [x] Offline genuine staging z kopie existujícího20MBtoolstore, přes genuinepnpm11 pod explicitNode24 bez bootstrapu; přemístit do jiné cesty se spaces/#/% a actualshippedNode22 ověřit lokální closure bez ancestor fallback.
+- [x] Native Windows+Ubuntu CI stage/relocation smoke přidat úzce kolem stávajících instalací; zachovat30 guardů,47 testů, bounded acquisition a OS/budgets/pins.
+- [x] Fresh SPEC/QUALITYfixround1 Approved + root12source/evidence/2162artifact/11TAP/6selector/immutable/DCO audit, PATCHES/guidance/logs.
+- [x] Publikace9e31 po ALLterminal/rootaudit beab; draftPR158 přesměrován proti dev. Actualnative Windows+Linux component11+30+32/64/64+47 PASS, package2162files a relocation pod shippedNode22.
+- [ ] Skutečný Windows desktop startup:9e31 Linux/macOS package/native jobs SUCCESS, Windows /path timeout88312ms. Všech7workflows/15checks terminálních,5failedjobs; root449entries/32reports. ComponentPASS neuzavírá app gate.
+
+**Task37 source:**0aabd546+c16fbab2; původní8fixturePASS po sourcefix11/11PASS; genuineoffline package2162files/8582d90b a actualNode22relocation505localmodules PASS předcommit. Source-onlyRED je pouze setup; skutečné odmítnutí generated.bin a HIDDEN_EXISTS leak jsou zachovány jako behavioralevidence. Minor compoundcleanup masking explicitně do wholebranchreview; npmagentISCnoticesgap předrelease.
+
+Task31→37 zachovává relativní runtime-tools loader a immutable lock; desktop→37 pouze build/resources; CI→37 izolované offline zpracování po frozen install. CLI dostupnost, compiled engine context a produkční owner-bound current-and-later request transport zůstávají další samostatné integrační kroky. Distribuce sama neprokazuje aplikaci ani původních10 veřejných spisů.
+
+### Task 38: Aktuální workflow reference a bezpečné build artefakty
+
+- [x] Zachovat currentprefix guard po explicitně reviewed2Nodepins: původní13304/94cd431d přesnětransformovanýna13314/d3726555; ostatní suffix/first-attempt/Windows/budget oracles beze změny. Skutečný localassertionRED zachován, ne pouze změna golden pro zelenou.
+- [x] Compound publish/rollback/outercleanup drží původníerroridentity a oběcleanup chyby vpořadí; regressionRED→12/12 packagingPASS.
+- [x] Tři přesné anchored ignorecesty pro generatedresources/rootowned scratch, sourcesneignorované.
+- [x] Node24 whole204native helperPASS po skutečném serverbuild prerequisite/exactBun1.4.2; retainedfirstinvalidsetup202pass2fail. FreshsourceSPEC/QUALITYApproved/rootauditPASS.
+- [ ] Publikace společně s relevantním novým Windowsruntimefixem po ALLcurrent9e31terminal/rootaudit; neopakovat samotný unchangedWindowsapp gate jen kvůli dokumentaci/reference opravě.
+
+**Task38 source902fbc53:**Commit vznikl před corrected-prerequisite204PASS; jde o historickou procesníodchylku, nikoli tests-before-commit shodu. Exactcommittedsource následněprošel, žádný rewrite/emptycommit. Root release/pushgate zachován. Skutečný9e31Desktop Linux/macOS uspěl; Windowsstartup healthheaders200 a /path timeout88312ms předgeneration, unikátní vnitřní příčina neověřená. SDKhelper není produkčnězapojen.
+
+
+### Task 39: Změřit skutečný kontext zabaleného enginu před runtime integrací
+
+- [x] Readonly rozbor známého lokálního Bun graphu a oficiálního Inspector wait seam; žádný engine/provider běh. První privátní source fixture selection12/12 PASS na exactNode24.21.0.
+- [x] Opravit pět konkrétních source-review findings: skutečný AST kontext bindingu, kontrola zakázaného zápisu mimo owned root, samostatný direct-exit/stdio-close stav, idempotentní omezené chyby a poctivý deadline kontrakt. Pure lifecycle/AST counterexamples RED→GREEN, potom nezávislá scoped revize.
+- [x] Po source revizi samostatný root admission pro stejný sandbox profil a všechny pozitivní/negativní kontroly; při neúplné kontrole engine vůbec nespustit.
+- [x] Nejvýše jeden pokus přes Inspector dokončen INCONCLUSIVE/BREAKPOINT_LOCATION před čtením primitive npmPath; child close potvrzen, once-engine budget vyčerpán. Žádný jiný breakpoint ani opakování; výsledný kontext zůstává neověřený.
+- [ ] Výsledek použít pouze v rozsahu doložené platformy. Darwin neprokazuje Windows kontext, builtin npmrc nebo produkční readiness. Windows zůstává samostatný gate před zapojením helperu.
+
+**Rozhodnutí o čase:** původní slib absolutního30s života controlleru je při nepotvrzené smrti pozastaveného enginu v rozporu s bezpečným zachováním Inspector spojení. Nový kontrakt má původní absolutní28s cutoff práce, zbytek do30s pro cleanup a žádné nové operace po cut-off. Pokud child close chybí, výsledek je INCONCLUSIVE a život controlleru UNKNOWN; neukončovat jej násilně ani neodpojovat debugger pro zdánlivé splnění limitu. Náklad: možný zadržený privátní diagnostický proces; žádný zásah do běžící aplikace nebo klientského spisu. Podrobnosti a neměnné review jsou v privátním SDD workspace.
+
+**Aktuální Windows compile diagnostika:** existující9e31 artifact validně pozoroval zavřený build exit1 a výjimku bez konečného code/source position/members. Samostatná resolver capability chyba není skutečná build příčina; causeEquivalence vůči původnímu /path timeoutu zůstává UNKNOWN. Žádná oprava veřejného source buildu z tohoto výstupu neplyne.
+
+
+**Task39 skutečný výsledek:** finální source24/24 pure PASS/nezávislé revize schválené. První controller odmítl nativní macOS marker; přesná oprava guardu zachovala ostatní odmítnutí. Následný control odmítl chybnou syntaxi numeric-host v Seatbelt; samostatný veřejný CLI test s true prokázal nutný localhost. Opravený profil prošel všemi reálnými kontrolami vlastního/zakázaného/vnějšího zápisu a příchozího/odchozího spojení, directchildclose potvrzen. První a jediný Darwin engine byl pozastaven, ale odmítnut jako INCONCLUSIVE/BREAKPOINT_LOCATION před čtením hodnoty. Directchildclose potvrzen a původní binary nezávisle hashově beze změny. npmPath stále UNKNOWN; místní once-engine budget vyčerpán, bez opakování/jiného breakpointu. Úspěšné kontroly izolace nejsou produkční akceptace.
+
+### Task40: Minimální Windows reprodukce selected-instance timeoutu
+
+- [x] Izolovaná diagnostická větev z přesného9e31, při založení bez PR/tagu/pushe/CI. Jedna ephemeral Windows VM s veřejným syntetickým spisem a bez provider credentials je přijatá hranice; není to procesový write/network sandbox.
+- [x] Rozhraní a preflight scan: skutečný produkční managed factory přes úzký Node24 TS loader; skutečný awaitDirectoryInstance a původních90s; nutné vyčistit process.env před factory, protože options.env neodstraní zděděné hodnoty; známý originální Windows executable SHA.
+- [x] Source2a9e1eca+fix1021b988, skutečný factory/native helper a34/34 retained pure/fake PASS před fixcommitem. Nezávislý SPEC/QUALITY review nejprve odhalil ztracené secondary cleanup chyby a předčasný provider counter; fixreview993241a9 oba schválil. Root11manifest/source/DCO/immutables audit PASS. Žádné klonování factory, změny produkčních souborů ani plný Electron build.
+- [x] Root docs cce63711, normální push temporary větve a přesný remote/tree check; jeden ruční Windows run38847709601/workflow374005401/explicitwindows-2022. Default/dev heavy workflow nebyl spuštěn, schema/jméno a všech18 eventů zkontrolovány; před dispatch0automatických běhů. Není vytvořen PR/tag/release. Jediný povolený artefakt je finite synthetic receipt po cleanup; žádné binárky/logy/profily.
+- [ ] Skutečně potvrdit minimální RED se stejným /path timeoutem. Pokud samostatná instance projde, výsledek je NOT_REPRODUCED, nikoli opravená aplikace; pokračovat rozlišením app prostředí a souběhu více workspace. Hypotézu neopravovat před věrohodnou reprodukcí.
+
+První diagnostická větev se nikdy nemerguje jako produktová změna. Původní mainPR158 zůstává draft9e31/WindowsRED a Task38 source902f zůstává lokální. Protected dev, nová uživatelská aplikace i reálná desetispisová GUI/provider akceptace jsou stále otevřené.
+
+M1 semantic receipt validator Minor je explicitně odložený pro finální review; root na skutečném výsledku nezávisle ověřil source/engine/body/scope/request/close/finalization invariants. Run38847709601 je terminální failure: Windows pure-fake krok SUCCESS, validní receipt UNKNOWN/ARCHIVE_MISMATCH v acquisition před EXEhash/engineSpawns0; žádný health/path pokus. Extraction child close a root removal potvrzeny, provider0, elapsed31691ms není měření extraction fáze. Jediný ZIP971B/263511eb a receipt1491B/7a89dff7, strictschema+independentM1PASS, source-first47parserfixtures/root12manifest auditPASS. Není prokázán timeout, chyba archivu ani jiná konkrétní příčina. Ephemeral VM není process sandbox, žádné modelové požadavky ani nové placené výstupy. Once-run/receipt budget vyčerpán, žádné opakování.
+
+### Task41: Rozlišit skutečné selhání přípravy Windows enginu
+
+- [x] Readonly source triage: broad ARCHIVE_MISMATCH sloučí proces/script/predikáty/timeout; JS archive test nevolá skutečný PowerShell. Žádný bezpodmínečný bridge/API/bound defect prokázán.
+- [x] Root preflight rozhraní a source-only ruling; původní30000/7000ms/256MiB/192MiB/90s/EXE i production source beze změny. Veřejné release API ověřilo ZIPdigest81ea8263/60655377B a tagcommit16747470. Oddělený bounded64KiB tail Range skončil501/body0, bez opakování nebo fallbacku; nic neprokázal o ZIP shape ani starém CI.
+- [x] Sourceef6f7ba8: přesné finite extraction lifecycle/script-phase pozorování, tiny genuine samebridge control před publicdownload, nezávislé control/original údaje a ZIPdigest guard. ExactNode24 retained69/69 pure/fake PASS5checks0 před commitem, freshSPEC/QUALITY8102e79a Approved/root9source auditPASS; žádné místní PowerShell/engine spuštění.
+- [x] Root docs/publication fe09dc33/tree72454362, exactremote/18workflow hashes/bothremotes fetch ověřeny. Jeden NEWmanualWindowsrun38849456033, žádný rerun starého běhu/PR/tag/dev merge.
+- [ ] Původní application startup stále RED; nový skutečný control nedošel k engine ani původnímu ZIPu.
+
+**Skutečný Task41 control:** Windows fake krok SUCCESS, ale tiny control timerFired/30036ms, positiveclose SIGNAL/SIGTERM, protocolINCOMPLETE/lastphasestarted/stdout24/stderr0. Originaldownload/extraction/engine NOT_RUN. Receipt2366B/6631e861 a ZIP1268B/4c345e69, strictschema2+independentM1PASS; sourcefirst106parserfixtures/root12manifest auditPASS. Kontrolovaný proces uzavřen/rootremoved/provider0. Source interval po started a před dokončením assembly-ready zahrnuje Add-Type resolution/autoload/binding/load/next marker; přesný vnitřní důvod UNKNOWN, nikoli prokázaný CLR hang. Starý Task40 neznámý důvod se zpětně nepřiřazuje. One-run/body budget vyčerpán, bez dalšího spuštění.
+
+### Task42: Přímá CLR alternativa ve dvou pevných operacích
+
+- [x] Readonly primarysource plán: Assembly.Load(String) a Array.CreateInstance(Type,Int32) dokumentovány pro Framework; exactlongidentity FileSystem4.0.0.0/b77a5c561934e089 potvrzena Microsoft-owned manifestem, nikoli DLL na runneru. Žádná native garance.
+- [x] Root ruling/preflight: jako kontrolovaný candidate přesně dvě náhrady cmdletů Add-Type/New-Object za voidAssembly.Load a typedbyte[]CreateInstance65536; všechny markery/limity/schema a source/ZIP/EXE pins stejné. Obsolete textguard pouze na pořadí pevných markerů, ne falešný native test. ActualTask41control je pravý RED.
+- [x] Source69purefake/syntax/diff PASS, nezávislý sourceSPEC/QUALITY577f92d7 Approved. Root zachytil missingDCO v lokálním6375; nepublikován/odmítnut, beze změny historie. Nový normální signedoff4143966c z publishedfe09 v samostatné chore/windows-instance-repro-20261016-clr/W42 má identický celýtreec7c29967/sourcehashes, starý unsigned není předkem. Scopedreview0a06585e/rootauditDCO PASS; žádný retest kvůli identickému přenosu.
+- [x] Rootdocs371852f8/tree348420da, normalNEWbranchpush/remote+tree/0autotrigger ověřeny, jediný NEWmanualWindowsrun38850868109. Všechny joby terminální SUCCESS; sourcefirst106parserfixtures/root12manifest/schema2/M1 auditPASS, singleZIP1222B765beb62/receipt2377Bc68bf907.
+- [x] Skutečný tiny controlPASS3492ms a originalextractionPASS1549ms, fullprotocol/exit0/positiveclose/timerfalse; ZIP+EXEpins souhlasí, originalenginehealthcomplete a selectedheaders/body/scopePASS jedním requestem278ms. Engine spawn/exit/close1/1/1/provider0/rootsremoved/elapsed9166ms. Výsledek NOT_REPRODUCED pro jednu samostatnou syntetickou instanci; předchozí innercauseUNKNOWN a celé appWindowsRED zůstávají.
+
+### Task43: Věrně reprodukovat rozdíl proti startu celé aplikace
+
+- [x] Narrow baseline skutečně prošel; není oprávnění zopakovat nezměněný fullapp test a prohlásit jej za fix.
+- [x] Readonly sourcegapmap: full runtime manager má privátní HOME/XDG/configdir/Node shim, enginecwd=profile/managed-opencode-workdir místo selecteddirectory, skutečné workspace/config/plugin generátory a počáteční sequential MCPsync. Deset registrovaných spisů není deset enginů ani důkaz desetisouběhu. První native/path probíhá před pozdější providerconfiguration/reload.
+- [x] Source architecture: použít skutečný createWorkspaceStore/createRuntimeManager pod genuine locked Electron43.7.5 RUN_AS_NODE, skutečně sestavený server/dist/pluginy a automatický sequential MCP, jeden syntetický spis. Žádný nový production prep seam/sourcealiases/fakeplugins ani plainNode fallback; neověřené prerequisite odmítnout před enginem. Exact-edge observation zachová skutečné embedded start/options/error/stop a odhalí chybu stopu, kterou manager potlačuje; pending/error znamená UNKNOWN/root retained.
+- [ ] Fresh source-only writer v izolovaném W43/chore/windows-app-start-repro-20261016, base371852f8: bounded controller/host/observer/tests a temporarymanualworkflow. Připravit genuine Node24.21/pnpm11.4/Bun1.4.2 frozeninstall+server-only build a explicit supported Electron install.js (wrapper nemá postinstall), ownedcacheZIP s oficiálním checksumem. Žádný build/install/network/Electron/engine/push/CI v této source fázi. Lokální behaviorální RED→GREEN/syntax/diff před normálním signedoffcommitem, potom nezávislý SPEC+QUALITY review a root audit.
+- [ ] Až po source review samostatně posoudit jeden changed Windows run. Deadline factory15000 a selected90000/retries beze změn, stopobservace60000/directclose7000, workflow25min pouze outer containment. Zdrojový test ani samotný headlesspass nepotvrzují celé GUI/native acceptance. Deset registrací až podle prvního výsledku, bez vymyšleného Promise.all/warm reuse.
+
+PR158 draft zůstává9e31/dev1c a body odděluje oba temporary diagnostic výsledky od app acceptance. LokálníTask38source902f i rootdocs zůstávají held; helperruntime caller/publictenGUI/provider/realapproval/dev/newapp gate stále OPEN, newpaid0.

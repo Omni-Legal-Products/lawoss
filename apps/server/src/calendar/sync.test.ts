@@ -1,4 +1,3 @@
-import { acquireRuntimeDbLifetime } from "../runtime-db-lifecycle.js";
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -8,6 +7,7 @@ import { z } from "zod";
 import { CalendarItemSchema, type CalendarItem } from "@legalwork/types/calendar";
 import type { ServerConfig } from "../types.js";
 import type { ProjectLink } from "../project-sync-store.js";
+import { acquireRuntimeDbLifetime } from "../runtime-db-lifecycle.js";
 import { calendarStore } from "./store.js";
 import { syncProjectCalendar } from "./sync.js";
 
@@ -35,6 +35,7 @@ test("calendar HTTP sync survives offline edits, maps project IDs, resolves conc
   const client = { platformURL: `http://127.0.0.1:${endpoint.port}`, platformToken: "test-token" };
   const alice = config("alice"), bob = config("bob");
   const owners = [acquireRuntimeDbLifetime(alice), acquireRuntimeDbLifetime(bob)];
+  const errors: unknown[] = [];
   try {
     const a = await calendarStore(alice), b = await calendarStore(bob);
     const aliceLink = link("alice-local", "owner"), bobLink = link("bob-local", "member");
@@ -61,5 +62,13 @@ test("calendar HTTP sync survives offline edits, maps project IDs, resolves conc
     await syncProjectCalendar(alice, client, { ...aliceLink, settings: { ...aliceLink.settings, scope: { ...aliceLink.settings.scope, calendar: false } } });
     expect(a.get(aliceLink.workspaceId, original.id).uid).toBe(original.uid);
     expect(writes.length).toBeGreaterThan(2);
-  } finally { endpoint.stop(true); await Promise.all(owners.map(owner => owner.release())); await rm(root, { recursive: true, force: true }); }
+  } catch (error) { errors.push(error); }
+  finally {
+    try { endpoint.stop(true); } catch (error) { errors.push(error); }
+    for (const owner of owners.reverse()) {
+      try { await owner.release(); } catch (error) { errors.push(error); }
+    }
+    try { await rm(root, { recursive: true }); } catch (error) { errors.push(error); }
+  }
+  if (errors.length) throw new AggregateError(errors, "Calendar sync and cleanup failures");
 });

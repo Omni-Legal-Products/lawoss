@@ -87,7 +87,10 @@ const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
 const requestsPath = process.env.FAKE_ENGINE_ENV_PATH + ".requests";
 fs.writeFileSync(requestsPath, "");
 http.createServer((request, response) => {
-  response.end("ok");
+  if (request.url === "/global/health") {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ healthy: true, version: "embedded-app-files-fixture" }));
+  } else response.end("ok");
   fs.appendFileSync(requestsPath, request.url + "\\n");
 }).listen(port, "127.0.0.1", () => {
   process.stdout.write("opencode server listening on http://127.0.0.1:" + port + "\\n");

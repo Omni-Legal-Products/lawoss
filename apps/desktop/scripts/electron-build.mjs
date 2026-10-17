@@ -31,6 +31,11 @@ function run(command, args, cwd, env) {
 
 run(nodeCmd, [resolve(repoRoot, "scripts/sandbox/verify-runtime.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-node-runtime.mjs")], desktopRoot);
+// Build-only pure-JS runtime tools; never execute a foreign target Node.
+const runtimeScratch = resolve(desktopRoot, "resources", ".engine-dependencies-build");
+run(nodeCmd, [resolve(repoRoot, "lawoss/engine-dependencies/package-runtime.mjs"),
+  resolve(desktopRoot, "resources", "engine-dependencies"), runtimeScratch,
+  resolve(runtimeScratch, "store"), process.env.LAWOSS_BUILD_PNPM_CLI ?? process.env.npm_execpath ?? "", "online"], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-actaport-mcp.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-windows-arm64-speech.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], desktopRoot);

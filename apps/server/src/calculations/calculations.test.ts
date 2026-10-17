@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { afterEach, expect, test } from "bun:test";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CalendarStore } from "../calendar/store.js";
@@ -12,9 +12,22 @@ import { DocumentPreparation } from "../document-preparation/service.js";
 import { OcrManager } from "../ocr/manager.js";
 import { OcrService } from "../ocr/service.js";
 
+
+const cleanups: Array<() => unknown | Promise<unknown>> = [];
+afterEach(async () => {
+  const errors: unknown[] = [];
+  while (cleanups.length) {
+    try { await cleanups.pop()?.(); } catch (error) { errors.push(error); }
+  }
+  if (errors.length) throw new AggregateError(errors, "Calendar fixture cleanup failed");
+});
+
 async function fixture() {
   const path = await mkdtemp(join(tmpdir(), "calculation-test-"));
-  return { store: await CalendarStore.open(join(path, "db.sqlite")), workspace: { id: "project", name: "Demo", path, preset: "starter", workspaceType: "local" as const } };
+  cleanups.push(() => rm(path, { recursive: true }));
+  const store = await CalendarStore.open(join(path, "db.sqlite"));
+  cleanups.push(() => store.close());
+  return { store, workspace: { id: "project", name: "Demo", path, preset: "starter", workspaceType: "local" as const } };
 }
 const input = { rule: "de-zpo-period", region: "BE", triggerDate: "2026-01-12", duration: 2, unit: "weeks", source: "Personal service record" };
 const signal = new AbortController().signal;

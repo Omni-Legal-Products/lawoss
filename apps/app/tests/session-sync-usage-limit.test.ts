@@ -1,7 +1,12 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import {
   __applySessionSyncEventForTest,
+  __disposeWorkspaceSessionSyncForTest,
+  __hasWorkspaceSessionSyncForTest,
+  ensureWorkspaceSessionSync,
+  seedSessionState,
+  statusKey,
   __createWorkspaceSessionSyncForTest,
   snapshotKey,
   trackWorkspaceSessionSync,
@@ -10,6 +15,9 @@ import {
 import { useComposerStateStore } from "../src/react-app/domains/session/surface/composer-state-store";
 import { parseProviderUsageLimit, providerFromUsageLimitError } from "../src/app/lib/provider-usage-limit";
 import type { UIMessage } from "ai";
+import { createServer, type ServerResponse } from "node:http";
+import { createLegalworkServerClient, type LegalworkSessionSnapshot } from "../src/app/lib/legalwork-server";
+import { useSessionActivityStore } from "../src/react-app/domains/session/status/session-activity-store";
 
 test("a gateway admission reason survives stopping a background retry and is persisted with its turn", async () => {
   const limit = { reason: "organization_limit", requiredMicros: 200000, availableMicros: 90000 };
@@ -290,3 +298,136 @@ test("a terminal Anthropic billing failure immediately shows recovery and pauses
     query.clear();
   }
 });
+
+
+test("quota stop preserves native idle through metadata replay and releases only its tracked transport", async () => {
+  const streams = new Map<string, ServerResponse>(), closed = new Set<string>();
+  const aborts: string[] = [], persisted: unknown[] = [];
+  const snapshot: LegalworkSessionSnapshot = {
+    session: { id: "mixed-session", slug: "synthetic", projectID: "synthetic", directory: "/synthetic/quota", title: "Quota source", version: "1", time: { created: 1, updated: 1 } },
+    messages: [], todos: [], status: { type: "busy" },
+  };
+  const server = createServer((request, response) => {
+    expect(request.headers.authorization).toBe("Bearer mixed-token");
+    const url = new URL(request.url ?? "", "http://fixture");
+    const send = (body: unknown) => { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(body)); };
+    if (url.pathname.endsWith("/event")) {
+      const workspace = url.pathname.split("/")[2]!;
+      streams.set(workspace, response);
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write('data: {"type":"server.connected","properties":{}}\n\n');
+      const heartbeat = setInterval(() => response.write(": heartbeat\n\n"), 50);
+      response.once("close", () => { clearInterval(heartbeat); streams.delete(workspace); closed.add(workspace); });
+      return;
+    }
+    if (url.pathname.endsWith("/snapshot")) { send({ item: snapshot }); return; }
+    if (url.pathname.endsWith("/messages")) { send({ items: [{ info: { id: "current-assistant", role: "assistant", providerID: "openai" }, parts: [] }] }); return; }
+    if (url.pathname.endsWith("/abort")) { aborts.push(url.searchParams.get("directory") ?? ""); send(true); return; }
+    if (url.pathname.endsWith("/usage-limit")) {
+      let body = "";
+      request.on("data", chunk => { body += chunk; });
+      request.on("end", () => { persisted.push(JSON.parse(body)); send({ ok: true }); });
+      return;
+    }
+    send({ item: snapshot.session });
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing mixed fixture address");
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const input = (workspaceId: string) => ({ workspaceId, baseUrl: `${baseUrl}/workspace/${workspaceId}/opencode`, legalworkToken: "mixed-token", directory: "/synthetic/quota" });
+  const scoped = input("mixed-quota"), unrelated = input("mixed-unrelated");
+  let releaseProjection: Record<string, boolean | string | number> | undefined;
+  const owner = ensureWorkspaceSessionSync(scoped), otherOwner = ensureWorkspaceSessionSync(unrelated);
+  const release = trackWorkspaceSessionSync(scoped, "mixed-session"), releaseOther = trackWorkspaceSessionSync(unrelated, "other-session");
+  const query = getReactQueryClient();
+  const waitFor = async (read: () => boolean) => { for (let i = 0; i < 100 && !read(); i++) await Bun.sleep(10); expect(read()).toBe(true); };
+  const wire = (workspace: string, event: unknown) => streams.get(workspace)!.write(`data: ${JSON.stringify(event)}\n\n`);
+  try {
+    await waitFor(() => streams.size === 2);
+    const loaded = (await createLegalworkServerClient({ baseUrl, token: "mixed-token" }).getSessionSnapshot(scoped.workspaceId, "mixed-session")).item;
+    query.setQueryData(snapshotKey(scoped.workspaceId, "mixed-session"), loaded);
+    seedSessionState(scoped.workspaceId, loaded);
+    wire(unrelated.workspaceId, { type: "session.status", properties: { sessionID: "other-session", status: { type: "busy" } } });
+    const retry = { type: "session.status", properties: { sessionID: "mixed-session", status: { type: "retry", attempt: 1, message: "usage_limit_reached", next: Date.now() + 1000 } } };
+    wire(scoped.workspaceId, retry); wire(scoped.workspaceId, retry);
+    await waitFor(() => persisted.length === 1);
+    expect(aborts).toEqual(["/synthetic/quota"]);
+    expect(persisted).toEqual([{ messageId: "current-assistant" }]);
+    expect(useComposerStateStore.getState().pausedQueues["mixed-session"]).toBe(true);
+    wire(scoped.workspaceId, { type: "session.status", properties: { sessionID: "mixed-session", status: { type: "idle" } } });
+    await waitFor(() => query.getQueryData<{ type: string }>(statusKey(scoped.workspaceId, "mixed-session"))?.type === "idle");
+    wire(scoped.workspaceId, { type: "session.updated", properties: { info: { ...snapshot.session, title: "Metadata after quota", time: { created: 1, updated: 2 } } } });
+    await waitFor(() => query.getQueryData<LegalworkSessionSnapshot>(snapshotKey(scoped.workspaceId, "mixed-session"))?.session.time.updated === 2);
+    const replay = query.getQueryData<LegalworkSessionSnapshot>(snapshotKey(scoped.workspaceId, "mixed-session"))!;
+    for (let caller = 0; caller < 2; caller++) seedSessionState(scoped.workspaceId, replay);
+    expect(replay.status).toEqual({ type: "idle" });
+    expect(query.getQueryData(statusKey(scoped.workspaceId, "mixed-session"))).toEqual({ type: "idle" });
+    const releaseUnloaded = trackWorkspaceSessionSync(scoped, "unloaded-session");
+    wire(scoped.workspaceId, { type: "session.status", properties: { sessionID: "unloaded-session", status: { type: "idle" } } });
+    await waitFor(() => query.getQueryData<{ type: string }>(statusKey(scoped.workspaceId, "unloaded-session"))?.type === "idle");
+    expect(query.getQueryData(snapshotKey(scoped.workspaceId, "unloaded-session"))).toBeUndefined();
+    releaseUnloaded();
+    expect(query.getQueryCache().find({ queryKey: statusKey(scoped.workspaceId, "mixed-session"), exact: true })?.getObserversCount()).toBe(1);
+    const activity = useSessionActivityStore.getState().recordsByWorkspaceId[scoped.workspaceId]?.["mixed-session"];
+    const status = query.getQueryState(statusKey(scoped.workspaceId, "mixed-session"));
+    releaseProjection = { errorActive: activity?.errorActive ?? false, runActive: activity?.runActive ?? false,
+      compacting: activity?.compacting ?? false, permissions: activity?.waitingPermissionIds.length ?? 0, questions: activity?.waitingQuestionIds.length ?? 0,
+      evidence: activity?.executionEvidence?.source ?? "missing", evidenceError: activity?.executionEvidence?.error ?? false,
+      statusClock: status && activity ? status.dataUpdatedAt > activity.updatedAt ? "after" : status.dataUpdatedAt === activity.updatedAt ? "equal" : "before" : "missing" };
+    release(); owner();
+    await waitFor(() => closed.has(scoped.workspaceId));
+    expect(query.getQueryCache().find({ queryKey: statusKey(scoped.workspaceId, "mixed-session"), exact: true })?.getObserversCount()).toBe(0);
+    expect(__hasWorkspaceSessionSyncForTest(scoped)).toBe(false);
+    expect(closed.has(unrelated.workspaceId)).toBe(false);
+    expect(__hasWorkspaceSessionSyncForTest(unrelated)).toBe(true);
+    expect(useSessionActivityStore.getState().recordsByWorkspaceId[unrelated.workspaceId]?.["other-session"]?.runActive).toBe(true);
+    wire(unrelated.workspaceId, { type: "session.status", properties: { sessionID: "other-session", status: { type: "idle" } } });
+    await waitFor(() => query.getQueryData<{ type: string }>(statusKey(unrelated.workspaceId, "other-session"))?.type === "idle");
+    releaseOther(); otherOwner();
+    await waitFor(() => closed.has(unrelated.workspaceId));
+  } catch (error) {
+    if (releaseProjection) console.error(JSON.stringify({ fixture: "mixed-quota-release", ...releaseProjection }));
+    throw error;
+  } finally {
+    __disposeWorkspaceSessionSyncForTest(scoped); __disposeWorkspaceSessionSyncForTest(unrelated);
+    server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
+    query.clear();
+  }
+});
+
+
+for (const guard of ["native-idle", "newer-error", "foreign-scope", "missing-scope"] as const) {
+  test(`same-tick quota error release respects ${guard} execution evidence`, async () => {
+    const endpoint = Bun.serve({ port: 0, fetch: () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode('data: {"type":"server.connected","properties":{}}\n\n')); },
+    }), { headers: { "content-type": "text/event-stream" } }) });
+    const clock = spyOn(Date, "now").mockReturnValue(10_000);
+    const input = { workspaceId: `same-tick-${guard}`, baseUrl: endpoint.url.toString(), legalworkToken: "synthetic-token" };
+    const foreign = { ...input, legalworkToken: "different-synthetic-token" };
+    const owner = ensureWorkspaceSessionSync(input), otherOwner = __createWorkspaceSessionSyncForTest(foreign);
+    const release = trackWorkspaceSessionSync(input, "quota-session"), releaseForeign = trackWorkspaceSessionSync(foreign, "quota-session");
+    const query = getReactQueryClient();
+    const idle = { type: "session.status", properties: { sessionID: "quota-session", status: { type: "idle" } } };
+    const error = { type: "session.error", properties: { sessionID: "quota-session", error: { name: "UnknownError", data: { message: "Synthetic terminal failure" } } } };
+    try {
+      __applySessionSyncEventForTest(input, error);
+      if (guard === "foreign-scope") __applySessionSyncEventForTest(foreign, idle);
+      else if (guard === "missing-scope") {
+        query.setQueryData(statusKey(input.workspaceId, "quota-session"), { type: "idle" });
+        useSessionActivityStore.getState().setRunStatus(input.workspaceId, "quota-session", { type: "idle" });
+      } else {
+        __applySessionSyncEventForTest(input, idle);
+        if (guard === "newer-error") __applySessionSyncEventForTest(input, error);
+      }
+      expect(useSessionActivityStore.getState().recordsByWorkspaceId[input.workspaceId]?.["quota-session"]?.errorActive).toBe(true);
+      expect(query.getQueryState(statusKey(input.workspaceId, "quota-session"))?.dataUpdatedAt).toBe(10_000);
+      releaseForeign(); otherOwner();
+      release(); owner();
+      expect(__hasWorkspaceSessionSyncForTest(input)).toBe(guard !== "native-idle");
+      expect(query.getQueryCache().find({ queryKey: statusKey(input.workspaceId, "quota-session"), exact: true })?.getObserversCount()).toBe(0);
+    } finally {
+      __disposeWorkspaceSessionSyncForTest(input); otherOwner(); endpoint.stop(true); clock.mockRestore(); query.clear();
+    }
+  });
+}

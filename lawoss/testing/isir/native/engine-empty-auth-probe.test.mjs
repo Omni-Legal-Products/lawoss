@@ -48,7 +48,9 @@ function assertIntegratedHarness(source,startup) {
   assert.ok(source.indexOf('probeNativeEngineVersion(engine)')<source.indexOf(added[2]));
   assert.ok(source.indexOf('Object.assign(env, {')<source.indexOf(added[2]));
   assert.ok(source.indexOf(added[2])<source.indexOf('const launch ='));
-  assert.ok(source.includes('spawn(command, args, { cwd, env, detached:'));
+  assert.ok(source.includes('spawn(command, args, { cwd, env:quitNonce ? {...env,LAWOSS_ISIR_NATIVE_QUIT_NONCE:quitNonce} : env, detached:'));
+  assert.ok(source.includes('child.isirNativeQuitAcceptance={root,nonce:quitNonce,pid:child.pid}'));
+  assert.ok(source.includes('readQuitAcceptance:()=>readNativeQuitAcceptance(appChild.isirNativeQuitAcceptance)'));
   assert.match(source,/await awaitNativeStartup\(\{engineRequest,request:nativeFetch,serverInfo,workspace:workspaces\[0\]/);
   assert.ok(!/liveEngine\.(?:opencodeUsername|opencodePassword)/.test(source));
   assert.ok(startup.includes('await engineRequest.ready();'));

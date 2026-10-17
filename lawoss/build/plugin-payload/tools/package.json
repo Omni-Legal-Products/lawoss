@@ -1,0 +1,8 @@
+{
+  "name": "lawoss-plugin-payload-tools",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.4.0",
+  "engines": { "node": "24.21.0" },
+  "devDependencies": { "@npmcli/arborist": "9.4.0" }
+}
