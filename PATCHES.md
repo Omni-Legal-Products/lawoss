@@ -860,3 +860,11 @@ Konečné lokálne výsledky a výslovne kompozitný app dôkaz sú uvedené v i
 | `lawoss/testing/isir/native/renderer.mjs`, `renderer.test.mjs`, `scripts/test-isir-native.mjs` | Prebuilt app zostáva povinná. Oddelene kompilované mounted-regresie sa servírujú z owned kópie cez preview, bez TSX importov/development fallbacku a bez fixture súborov v normálnom app dist. Source-CI check používa explicitný built HTML marker, nie neexistujúci app build. Po skutočnom macOS CI OOM dostáva iba compiler child explicitný old-space limit6144MiB z existujúceho packaging kontraktu; regresia meria V8 heap pod parent2048MiB a zachováva zdedené NODE_OPTIONS. |
 | `scripts/test-isir-native.mjs`, `apps/app/tests/chooser-boundary.fixture.tsx`, `lawoss/testing/isir/native/chooser-boundary.browser.mjs` | Capture aktuálneho produkčného inputu tesne pred Add files. Samostatný izolovaný headless DOM/CDP/loopback-copy dôkaz, pôvodný native identity/connectedness/real-copy kontrakt nezmenený. |
 | `apps/server/src/server.ts`, `apps/server/src/lawoss/test-support/inspect-cleanup.test.ts` | Najprv zrušiť admission a dokončiť prijatých producentov, až potom zatvárať závislé zdroje. Skutočný server stop cez held synthetic scheduled send zachová sent journal aj fyzický SQLite close; agregácia chýb a idempotentný stop ostávajú. |
+
+
+### Skutočné Windows server chyby c406 (task 3)
+
+| Súbory | Úzky zásah a hranica dôkazu |
+|---|---|
+| `apps/server/src/legalwork-runtime-config.test.ts`, `mcp-shared-store.test.ts`, `runtime-opencode-config-store.test.ts`, `runtime-db-lifecycle.test.ts` | Fixture výslovne zatvorí vlastnú org-policy cache podľa zachytenej DB cesty, počká na unsubscribe, overí fyzické handle a obnoví env aj pri chybe. Pôvodné migračné očakávania a produkčná politika ostávajú. |
+| `apps/server/src/task-store.ts`, `project-sync-store.ts`, `runtime-db-lifecycle.test.ts`, `apps/server/scripts/runtime-db-lifecycle.node.test.mjs` | Jedna transakcia inicializácie schémy; skutočné ovládače Bun/Node overia rollback čiastočnej schémy, obnovu a uvoľnenie handle. Lokálne meranie zmierňuje hypotézu drahých jednotlivých commitov; pôvodných5s a fyzické path kontroly bez zmeny. Windows timing vyžaduje ďalší normálny CI. |

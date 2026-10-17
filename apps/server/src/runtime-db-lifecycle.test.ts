@@ -1,3 +1,5 @@
+import { buildLegalworkRuntimeConfig } from "./legalwork-runtime-config.js";
+import { closeOrgPolicyRuntime } from "./org-policy.js";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -296,3 +298,42 @@ for (const close of [closeRuntimeOpencodeConfig, closeEigenweltConnection]) {
     expect(await runtimeDbHandles(f.path)).toBe(0);
   });
 }
+
+
+test("standalone configuration owner closes the captured policy handle across environment drift", async () => {
+  const f = await fixture();
+  f.config.workspaces = [{ id: "fixture", name: "Fixture", path: f.root, workspaceType: "local", preset: "starter" }];
+  try {
+    await buildLegalworkRuntimeConfig(f.config, "fixture");
+    if (process.platform !== "win32") expect(await runtimeDbHandles(f.path)).toBeGreaterThan(0);
+    process.env.LEGALWORK_RUNTIME_DB = join(f.root, "other.sqlite");
+    await closeOrgPolicyRuntime(f.config, f.path);
+    expect(await runtimeDbHandles(f.path)).toBe(0);
+    await rm(f.root, { recursive: true });
+  } finally { await closeOrgPolicyRuntime(f.config, f.path); }
+});
+
+for (const [name, open] of [
+  ["tasks", async (path: string, root: string) => TaskStore.open(path, join(root, "attachments"))],
+  ["projects", async (path: string) => ProjectSyncStore.open(path)],
+] as const) test(`failed ${name} schema initialization leaves no partial committed schema`, async () => {
+  const f = await fixture();
+  const { Database } = await import("bun:sqlite");
+  const exec = Database.prototype.exec;
+  let creates = 0;
+  Database.prototype.exec = function(...args) {
+    if (typeof args[0] === "string" && args[0].startsWith("CREATE TABLE") && ++creates === 2) {
+      return exec.call(this, "SELECT * FROM missing_initialization_table");
+    }
+    return exec.apply(this, args);
+  };
+  try {
+    await expect(open(f.path, f.root)).rejects.toThrow("missing_initialization_table");
+  } finally { Database.prototype.exec = exec; }
+  const check = await openSqlite(f.path);
+  try { expect(check.get("SELECT count(*) AS n FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")?.n).toBe(0); }
+  finally { check.close(); }
+  const reopened = await open(f.path, f.root);
+  reopened.close();
+  expect(await runtimeDbHandles(f.path)).toBe(0);
+});

@@ -635,6 +635,8 @@ export class TaskStore {
     // Several store modules hold their own connection to runtime.sqlite, so a
     // write must wait for a sibling's rather than fail at once.
     db.exec("PRAGMA busy_timeout = 5000");
+    // One durable schema commit; initializeSqlite closes/rolls back on failure.
+    db.exec("BEGIN IMMEDIATE");
     for (const statement of SCHEMA) db.exec(statement);
     // project_links tells a task of a local project from one of a synced project.
     for (const statement of PROJECT_SYNC_SCHEMA) db.exec(statement);
@@ -657,6 +659,7 @@ export class TaskStore {
       );
       db.exec("DROP TABLE task_session_links");
     }
+    db.exec("COMMIT");
     return new TaskStore(db, filesDir);
     });
   }

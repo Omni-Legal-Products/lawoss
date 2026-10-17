@@ -74,6 +74,7 @@ test("Node native SQLite releases every adapter after overlapping servers, recon
     await verifyPendingOwnerHandoff(config);
     await verifyFailureRecovery();
     await verifyIndependentFailureRecovery();
+    await verifyAtomicSchema();
     assert.equal(await runtimeDbHandles(db), 0);
     await rm(root, { recursive: true }); await mkdir(root);
     assert.deepEqual(await readRuntimeOpencodeConfig(config, "stable"), {});
@@ -253,4 +254,31 @@ async function verifyIndependentFailureRecovery() {
     assert.equal(healthy.getSyncState("fixture").pullCursor, "kept");
   } finally { await failure?.retryCleanup?.(); DatabaseSync.prototype.exec = exec; DatabaseSync.prototype.close = close; healthy.close(); }
   assert.equal(await runtimeDbHandles(path), 0); await rm(directory, { recursive: true });
+}
+
+
+async function verifyAtomicSchema() {
+  const { DatabaseSync } = await import("node:sqlite");
+  for (const [name, open] of [
+    ["tasks", (path, directory) => TaskStore.open(path, join(directory, "attachments"))],
+    ["projects", path => ProjectSyncStore.open(path)],
+  ]) {
+    const directory = await mkdtemp(join(root, `atomic-${name}-`));
+    const path = join(directory, "runtime.sqlite");
+    const exec = DatabaseSync.prototype.exec;
+    let creates = 0;
+    DatabaseSync.prototype.exec = function(sql) {
+      if (sql.startsWith("CREATE TABLE") && ++creates === 2) return exec.call(this, "SELECT * FROM missing_initialization_table");
+      return exec.call(this, sql);
+    };
+    try { await assert.rejects(open(path, directory), /missing_initialization_table/); }
+    finally { DatabaseSync.prototype.exec = exec; }
+    const check = await openSqlite(path);
+    try { assert.equal(check.get("SELECT count(*) AS n FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").n, 0, name); }
+    finally { check.close(); }
+    const reopened = await open(path, directory);
+    reopened.close();
+    assert.equal(await runtimeDbHandles(path), 0, name);
+    await rm(directory, { recursive: true });
+  }
 }
