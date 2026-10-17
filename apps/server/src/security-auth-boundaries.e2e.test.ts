@@ -233,9 +233,6 @@ for (const method of ["POST", "DELETE", "PROMOTE"] as const) {
 }
 
 test("approved commands, skills and attachments still support their normal lifecycle", async () => {
-  const { observeSyntheticSkillPromotion } = await import("./lawoss/test-support/windows-skill-locks.js");
-  let observation: ReturnType<typeof observeSyntheticSkillPromotion> | undefined;
-  try {
   const f = await fixture(false, async () => "allow");
   const call = (route: string, method = "GET", body?: unknown) => fetch(`${f.base}/workspace/ws_1/${route}`, {
     method, headers: { ...f.collaborator, "Content-Type": "application/json" },
@@ -250,11 +247,9 @@ test("approved commands, skills and attachments still support their normal lifec
   expect(resource.status).toBe(200);
   expect(await resource.text()).toContain("Synthetic attachment");
   expect((await call("skills/synthetic/resources/sample.md", "DELETE")).status).toBe(200);
-  observation = observeSyntheticSkillPromotion(f.root, undefined, "rename-only");
   expect((await call("skills/synthetic/promote-workflow", "POST")).status).toBe(200);
   expect((await call("skills/workflow-assistant-synthetic", "DELETE")).status).toBe(200);
-  } finally { observation?.restore(); }
-}, 10000); // A failed single rename may add the bounded 2.5s read-only Windows probe.
+});
 
 test("resource deletion cannot replace an approved link node with its unchanged canonical target", async () => {
   let link = "", second = "";

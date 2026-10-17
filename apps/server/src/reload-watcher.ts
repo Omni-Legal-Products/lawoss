@@ -1,6 +1,6 @@
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 
 import type { ReloadEventStore } from "./events.js";
 import { computeReloadFingerprint, fingerprintedReloadReasons } from "./reload-fingerprint.js";
@@ -381,6 +381,9 @@ function createDirectoryTreeWatcher(input: {
 }): DirectoryTreeWatcher {
   const { rootDir, workspace, reason, triggerType, logger, onChange } = input;
   const resolvedRoot = resolve(rootDir);
+  // Windows rejects a parent rename while a descendant directory is open.
+  // Its native recursive watch needs only the tree root's handle.
+  const nativeRecursive = process.platform === "win32";
 
   const watchers = new Map<string, FSWatcher>();
   let closed = false;
@@ -451,16 +454,17 @@ function createDirectoryTreeWatcher(input: {
   const ensureWatcher = (dir: string) => {
     // 🟡 LAWOSS: scan() môže dobehnúť až po close(); nový watcher by ostal otvorený
     // navždy a na Windows by držal priečinok (EBUSY, „priečinok používa iný program“).
-    if (closed || watchers.has(dir)) return;
+    if (closed || watchers.has(dir) || nativeRecursive && dir !== resolvedRoot) return;
     try {
       const watcher = watch(
         dir,
-        { persistent: false },
+        { persistent: false, ...(nativeRecursive ? { recursive: true } : {}) },
         (_eventType, filename) => {
           if (closed) return;
           const raw = filename ? filename.toString() : "";
           const name = raw.trim();
           const absPath = name ? join(dir, name) : dir;
+          if (nativeRecursive && name && relative(resolvedRoot, absPath).split(/[/\\]+/).some(shouldSkipDir)) return;
           if (shouldRecordEntry(absPath)) {
             record(absPath);
           }
@@ -533,7 +537,7 @@ function createDirectoryTreeWatcher(input: {
         return;
       }
 
-      const dirs = await scanDirs();
+      const dirs = nativeRecursive ? new Set([resolvedRoot]) : await scanDirs();
       if (closed) return;
       for (const dir of dirs) {
         ensureWatcher(dir);
