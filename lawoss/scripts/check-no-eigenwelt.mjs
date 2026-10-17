@@ -156,7 +156,7 @@ export const ALLOWED = {
 export const STRUCTURE = [
   {
     file: "apps/server/src/managed-opencode.ts",
-    must: [/import \{ lawossEngineEnv \} from "\.\/lawoss\/engine-network\.js";/, /const lawossEnv = lawossEngineEnv\(\);/, /\.\.\.options\.env,\s*\.\.\.lawossEnv,/],
+    must: [/import \{ lawossEngineEnv \} from "\.\/lawoss\/engine-network\.js";/, /const lawossEnv = lawossEngineEnv\(options\.inheritEnvironment === false \? \{\} : process\.env\);/, /\.\.\.options\.env,\s*\.\.\.lawossEnv,/],
     why: "Engine musí dostať poistky LAWOSS ako posledné (bez sťahovania katalógu, zdieľania a aktualizácie).",
   },
   {

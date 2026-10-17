@@ -62,6 +62,21 @@ describe("LAWOSS stráž Eigenweltu a analytiky", () => {
     assert.equal(checkSources(fixture(files), Object.keys(files)).length, 1);
   });
 
+  test("izolovaný engine používa prázdne prostredie a poistky ostávajú posledné", () => {
+    const managed = "apps/server/src/managed-opencode.ts";
+    assert.deepEqual(checkStructure(structureWith(managed, text => text)).filter(line => line.startsWith(managed)), []);
+    const call = "lawossEngineEnv(options.inheritEnvironment === false ? {} : process.env)";
+    for (const unsafe of ["lawossEngineEnv()", "lawossEngineEnv(process.env)", "lawossEngineEnv(options.inheritEnvironment === false ? process.env : {})"]) {
+      assertCaught(managed, text => text.replace(call, unsafe));
+    }
+    assertCaught(managed, text => text.replace("    ...options.env,\n    ...lawossEnv,", "    ...lawossEnv,\n    ...options.env,"));
+    assertCaught(managed, text => text.replace("    ...lawossEnv,\n    OPENCODE_SERVER_USERNAME: username,", "    OPENCODE_SERVER_USERNAME: username,"));
+    for (const flag of ["OPENCODE_DISABLE_MODELS_FETCH", "OPENCODE_DISABLE_SHARE", "OPENCODE_DISABLE_AUTOUPDATE"]) {
+      assertCaught("apps/server/src/lawoss/engine-network.ts", text => text.replace(`${flag}: "1"`, `${flag}: "0"`));
+    }
+    assertCaught("apps/server/src/lawoss/engine-network.ts", text => text.replace("OPENCODE_MODELS_PATH: catalog", 'OPENCODE_MODELS_PATH: "https://models.example.test"'));
+  });
+
   test("návrat sťahovania katalógu zlyhá", () => {
     const managed = structureWith("apps/server/src/managed-opencode.ts", (text) => text.replace("    ...lawossEnv,\n    OPENCODE_SERVER_USERNAME: username,", "    OPENCODE_SERVER_USERNAME: username,"));
     assert.ok(checkStructure(managed).some((line) => line.startsWith("apps/server/src/managed-opencode.ts")));

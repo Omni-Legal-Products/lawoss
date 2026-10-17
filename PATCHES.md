@@ -1071,3 +1071,6 @@ The green-zone engine guard inventories installed SDK v2 prompt/compact, legacy 
 ### Source candidate availability documentation (2026-10-18)
 
 `README.md` distinguishes implemented source capabilities and blocked activation/native release gates in all four workstreams; CI tool versions, AI/voice admission and permanent LAWOSS telemetry state match this candidate. `TERMS.md` adds only a separate dated technical availability preface; the original upstream legal text remains byte-identical. Neither document claims a local patch is publicly installed, legally approved or published.
+### Required CI guard and release-test wiring (2026-10-18)
+
+`apps/desktop/package.json` appends exactly `electron/build-info.test.mjs`, `scripts/release-acceptance.test.mjs` and `scripts/release-acceptance-macos.test.mjs` to the existing explicit desktop test command; every previous command/test entry remains unchanged. The green-zone no-Eigenwelt structure checker recognizes only the supported managed-engine empty/inherited environment selector while preserving final policy-spread ordering and catalog/share/update guards. Mutation checks reject removing/reordering those guards; the existing real spawned engine fixture now verifies both inherited and empty environments without changing production environment behavior.
