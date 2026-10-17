@@ -852,3 +852,11 @@ Dodatočné potvrdené integračné hranice: `cloud-plugins.ts` odstraňuje MCP 
 Konečné lokálne výsledky a výslovne kompozitný app dôkaz sú uvedené v integračnom dokumente; Windows acceptance na novom feature head zostáva na skutočnom CI.
 
 `apps/server/src/calendar/calculator-code.ts` je deterministicky regenerovaný existujúcim current-dev build krokom pod Bun1.4.2; generator, kalkulačné vstupy a lockfile sú nezmenené voči dev. Manifest odlišuje tento generated výstup od ručnej integrácie.
+
+### Opravy task review integrácie PR157, kolo 1
+
+| Súbory | Zachovaná hranica a oprava |
+|---|---|
+| `lawoss/testing/isir/native/renderer.mjs`, `renderer.test.mjs`, `scripts/test-isir-native.mjs` | Prebuilt app zostáva povinná. Oddelene kompilované mounted-regresie sa servírujú z owned kópie cez preview, bez TSX importov/development fallbacku a bez fixture súborov v normálnom app dist. Source-CI check používa explicitný built HTML marker, nie neexistujúci app build. |
+| `scripts/test-isir-native.mjs`, `apps/app/tests/chooser-boundary.fixture.tsx`, `lawoss/testing/isir/native/chooser-boundary.browser.mjs` | Capture aktuálneho produkčného inputu tesne pred Add files. Samostatný izolovaný headless DOM/CDP/loopback-copy dôkaz, pôvodný native identity/connectedness/real-copy kontrakt nezmenený. |
+| `apps/server/src/server.ts`, `apps/server/src/lawoss/test-support/inspect-cleanup.test.ts` | Najprv zrušiť admission a dokončiť prijatých producentov, až potom zatvárať závislé zdroje. Skutočný server stop cez held synthetic scheduled send zachová sent journal aj fyzický SQLite close; agregácia chýb a idempotentný stop ostávajú. |

@@ -832,10 +832,12 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     stopPromise = (async () => {
       const errors: unknown[] = [];
       const producers = producerStops.map(async cancel => { try { await cancel(); } catch (error) { errors.push(error); } });
+      // Cancel admission for every producer, then drain accepted work while
+      // its stores/services are still live (scheduled delivery, wiki sync, etc.).
+      await Promise.all(producers);
       for (const cleanup of cleanups.reverse()) {
         try { await cleanup(); } catch (error) { errors.push(error); }
       }
-      await Promise.all(producers);
       try { await lifetime.release(); } catch (error) { errors.push(error); }
       if (errors.length) throw new AggregateError(errors, "Failed to stop server resources");
     })();

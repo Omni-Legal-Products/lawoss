@@ -133,7 +133,7 @@ try {
   engineTraces = await startNativeEngineTraceReceiver();
   env.OTEL_EXPORTER_OTLP_ENDPOINT = engineTraces.endpoint;
   diagnostics.phase("startup");
-  const renderer = await nativeRendererLaunch(path.join(repo,"apps/app"),uiPort);
+  const renderer = await nativeRendererLaunch(path.join(repo,"apps/app"),uiPort,root);
   launch(process.execPath, [path.join(path.dirname(requireApp.resolve("vite/package.json")), "bin/vite.js"), ...renderer.args], renderer.cwd, "vite");
   await until(async () => (await nativeFetch(env.LEGALWORK_ELECTRON_START_URL)).ok, "owned Vite");
   engineLogLaunchWallMs=Date.now();
@@ -181,7 +181,7 @@ try {
   await until(()=>cdp.evaluate("window.__legalworkControl?.listActions().some(a=>a.id==='session.create_task'&&!a.disabled)"),'configured native renderer',60000);
   assert.equal(await cdp.evaluate(`JSON.parse(localStorage.getItem('legalwork.preferences')??'{}').selectedAgent`),'legalwork','Ordinary persisted selected-agent fixture loaded by the actual new document');
 
-  const renderBoundary=await cdp.evaluate(`(async()=>{const tests=await import('/tests/session-render-boundary.test.tsx');return tests.runNativeSessionRenderBoundary(${JSON.stringify({baseUrl:serverInfo.baseUrl,token:serverInfo.ownerToken||serverInfo.clientToken,workspaceId:workspaces[0].id,workspaceRoot:workspaces[0].path})})})()`);
+  const renderBoundary=await cdp.evaluate(`(async()=>{const tests=await import('/__isir-fixtures/session-render-boundary.js');return tests.runNativeSessionRenderBoundary(${JSON.stringify({baseUrl:serverInfo.baseUrl,token:serverInfo.ownerToken||serverInfo.clientToken,workspaceId:workspaces[0].id,workspaceRoot:workspaces[0].path})})})()`);
   assert.equal(renderBoundary.actualMountedSurface,true);
   await writeFile(path.join(root,'session-render-boundary.json'),JSON.stringify(renderBoundary,null,2),{mode:0o600});
   console.log(`Mounted native Surface boundary: ${JSON.stringify(renderBoundary)}`);
@@ -233,7 +233,7 @@ try {
     await cdp.send('Page.enable'); await cdp.send('Page.setInterceptFileChooserDialog',{enabled:true});
     const eventStart=cdp.events.length;
     await until(()=>cdp.evaluate(`(()=>{const button=document.querySelector('button[aria-label="Refresh folder"]');return button&&!button.disabled})()`),'current native folder query settled');
-    await until(()=>cdp.evaluate(`(()=>{const upload=[...document.querySelectorAll('[role="menuitem"]')].find(e=>e.textContent.trim()==='Add files'&&e.getBoundingClientRect().width>0&&!e.disabled);if(upload){upload.click();return true}const nav=document.querySelector('[aria-label="Current folder"]');const folder=document.querySelector('[data-project-folder="Dokumenty"]');if(!folder||nav?.querySelector('button')?.textContent.trim()!==${JSON.stringify(workspace.name)})return false;folder.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:200,button:2}));return false})()`),'current project native upload menu action');
+    await until(()=>cdp.evaluate(`(()=>{const upload=[...document.querySelectorAll('[role="menuitem"]')].find(e=>e.textContent.trim()==='Add files'&&e.getBoundingClientRect().width>0&&!e.disabled);if(upload){window.__isirChooserBoundary.capture();upload.click();return true}const nav=document.querySelector('[aria-label="Current folder"]');const folder=document.querySelector('[data-project-folder="Dokumenty"]');if(!folder||nav?.querySelector('button')?.textContent.trim()!==${JSON.stringify(workspace.name)})return false;folder.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:200,button:2}));return false})()`),'current project native upload menu action');
     const chooser=await until(()=>cdp.events.slice(eventStart).find(e=>e.method==='Page.fileChooserOpened'),'actual native HTML chooser request');
     // The display-name ACK is independent of client identity: GREEN must keep
     // the same client. All raw connection operands remain inside the renderer.
@@ -309,7 +309,7 @@ try {
     const pickerReceipt=await picker([path.join(root,'originals',entry.id,entry.documents[0].name)],workspace);
     await until(async()=>{try{return sha256(await readFile(path.join(workspace.path,'Dokumenty',entry.documents[0].name)))===sha256(entry.documents[0].bytes)}catch{return false}},'actual picker copied bytes');
     if(endpointRefresh && index===0){
-      const behavior=await cdp.evaluate(`(async()=>{const tests=await import('/tests/workspace-endpoint-stability.test.tsx');return tests.runNativeEndpointStabilityBehavior()})()`);
+      const behavior=await cdp.evaluate(`(async()=>{const tests=await import('/__isir-fixtures/workspace-endpoint-stability.js');return tests.runNativeEndpointStabilityBehavior()})()`);
       assert.equal(behavior.actualMountedHook,true);assert.equal(behavior.checks,28,'Every mounted routing/auth/root transition completed');
       await writeFile(path.join(root,'endpoint-hook-behavior.json'),JSON.stringify(behavior,null,2),{mode:0o600});
       console.log(`Mounted native endpoint behavior: ${JSON.stringify(behavior)}`);
