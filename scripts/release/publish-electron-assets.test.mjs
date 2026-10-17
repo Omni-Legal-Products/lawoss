@@ -13,7 +13,8 @@ test('single promotion verifies final target bytes, all referenced architectures
  const root=await mkdtemp(join(tmpdir(),'lawoss-promotion-'));t.after(()=>rm(root,{recursive:true,force:true}));const dist=join(root,'dist'),remote=join(root,'remote'),log=join(root,'uploads.jsonl');await mkdir(remote);
  await writeFile(join(root,'gh'),`#!/usr/bin/env node
 const fs=require('node:fs'),p=require('node:path');const args=process.argv.slice(2);const remote=process.env.REMOTE;
-if(args[1]==='view'){console.log(JSON.stringify({isDraft:false,assets:fs.readdirSync(remote).map(name=>({name}))}));}
+if(args[0]==='api'&&args[1].includes('/releases/tags/')){console.log(JSON.stringify({tag_name:'v1.0.0',draft:false,assets:fs.readdirSync(remote).map(name=>({name,id:1}))}));}
+else if(args[1]==='view'){console.log(JSON.stringify({tagName:'v1.0.0',isDraft:false,assets:fs.readdirSync(remote).map(name=>({name}))}));}
 else if(args[1]==='download'){fs.copyFileSync(p.join(remote,args[args.indexOf('--pattern')+1]),p.join(args[args.indexOf('--dir')+1],args[args.indexOf('--pattern')+1]));}
 else if(args[1]==='upload'){if(args.includes('--clobber'))throw new Error('immutable clobber');fs.appendFileSync(process.env.UPLOAD_LOG,JSON.stringify(args)+'\\n');for(const file of args.slice(3,args.indexOf('--repo')))fs.copyFileSync(file,p.join(remote,p.basename(file)));}
 else throw new Error('unexpected gh');
@@ -27,11 +28,11 @@ else throw new Error('unexpected gh');
   const manifest=join(dir,platform==='darwin'?'latest-mac.yml':arch==='arm64'?'latest-arm64.yml':'latest.yml');await writeFile(manifest,`version: 1.0.0\nfiles:\n  - url: ${name}\n    sha512: ${createHash('sha512').update(bytes).digest('base64')}\n`);if(platform==='win32'&&arch==='x64')winManifest=manifest;
  }
  const run=()=>spawnSync(process.execPath,[fileURLToPath(new URL('./publish-electron-assets.mjs',import.meta.url)),'--manifests-only',dist,'v1.0.0'],{encoding:'utf8',env:{...process.env,PATH:`${root}${delimiter}${process.env.PATH}`,RUNNER_TEMP:root,REMOTE:remote,UPLOAD_LOG:log,RELEASE_REPOSITORY:'fixture/repo'}});
- const result=run();assert.equal(result.status,0,result.stderr);const calls=(await readFile(log,'utf8')).trim().split('\n').map(JSON.parse);assert.equal(calls.length,1);assert.ok(!calls[0].includes('--clobber'));assert.equal(await readFile(join(remote,'SHA256SUMS'),'utf8'),await createChecksums(payloads));
- assert.match(await readFile(join(remote,'latest-mac.yml'),'utf8'),/mac-x64/);assert.doesNotMatch(await readFile(join(remote,'latest.yml'),'utf8'),/arm64/);assert.ok((await readdir(remote)).includes('promotion-latest-mac.yml.json'));
- const repeat=run();assert.equal(repeat.status,0,repeat.stderr);assert.equal((await readFile(log,'utf8')).trim().split('\n').length,1);
+ const result=run();assert.equal(result.status,0,result.stderr);const calls=(await readFile(log,'utf8')).trim().split('\n').map(JSON.parse);assert.equal(calls.length,5);assert.ok(!calls[0].includes('--clobber'));assert.equal(await readFile(join(remote,'SHA256SUMS'),'utf8'),await createChecksums(payloads));
+ assert.match(await readFile(join(remote,'latest-mac.yml'),'utf8'),/mac-x64/);assert.doesNotMatch(await readFile(join(remote,'latest.yml'),'utf8'),/arm64/);assert.ok((await readdir(remote)).some(name=>name.startsWith('promotion-latest-mac.yml-')));
+ const repeat=run();assert.equal(repeat.status,0,repeat.stderr);assert.equal((await readFile(log,'utf8')).trim().split('\n').length,5);
  const original=await readFile(winManifest,'utf8');await writeFile(winManifest,original+'  - url: lawoss-win-arm64-1.0.0.exe\n    sha512: fixture\n');const mixed=run();assert.notEqual(mixed.status,0);assert.match(mixed.stderr,/only Windows x64/);await writeFile(winManifest,original);
- await writeFile(join(remote,'lawoss-win-x64-1.0.0.exe'),'changed after upload');const changed=run();assert.notEqual(changed.status,0);assert.match(changed.stderr,/bytes differ/);assert.equal((await readFile(log,'utf8')).trim().split('\n').length,1);
+ await writeFile(join(remote,'lawoss-win-x64-1.0.0.exe'),'changed after upload');const changed=run();assert.notEqual(changed.status,0);assert.match(changed.stderr,/bytes differ/);assert.equal((await readFile(log,'utf8')).trim().split('\n').length,5);
  await rm(join(dist,'darwin-x64','release-evidence-darwin-x64.json'));const incomplete=run();assert.notEqual(incomplete.status,0);assert.match(incomplete.stderr,/Missing validated target|missing.*target|Unowned release payload/i);
 });
 

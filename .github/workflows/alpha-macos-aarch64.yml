@@ -254,12 +254,17 @@ jobs:
           node scripts/release/checksums.mjs apps/desktop/dist-electron
           node scripts/release/release-evidence.mjs create --build apps/desktop/resources/build-info.json --assets-dir apps/desktop/dist-electron --release-tag "$RELEASE_TAG"
 
-      - name: Preserve target evidence for native acceptance
+      - name: Stage exact final artifact for native acceptance
+        shell: bash
+        run: node scripts/release/acceptance-handoff.mjs stage --assets-dir apps/desktop/dist-electron --out "$RUNNER_TEMP/release-candidate"
+
+      - name: Preserve final installer and target evidence before the public gate
         uses: actions/upload-artifact@v4
         with:
-          name: release-evidence-darwin-arm64
-          path: apps/desktop/dist-electron/release-evidence-darwin-arm64.json
+          name: release-candidate-${{ github.run_id }}-${{ github.run_attempt }}-darwin-arm64
+          path: ${{ runner.temp }}/release-candidate/
           if-no-files-found: error
+          retention-days: 30
 
       - name: Require exact native acceptance before public publication
         if: ${{ !inputs.draft }}

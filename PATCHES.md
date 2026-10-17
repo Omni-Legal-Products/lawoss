@@ -1030,3 +1030,12 @@ Approval and final native platform checks remain required. This local change did
 | --- | --- |
 | `apps/server/src/server.ts`, `apps/server/package.json` | Registers the scoped deadline workflow and bundles its portable OKF parser/shared-writer seam for the actual Node release. The rollout flag does not enable upstream calendar or hidden tools. Versioned proposed CZ/SK catalogues stay legally unapproved. |
 | `apps/app/src/app/lib/legalwork-server.ts`, `apps/app/src/i18n/locales/{en,de}.ts` | English base and German keys support the CZ/SK native deadline translations. One native transport method for scoped deadline list, manual selection, review, host-only decision and explicit retry. Preserves the existing desktop host-token transport and collaborator scope. Presentation lives in the LAWOSS Lehoty page. |
+### Exact-artifact acceptance resumption (2026-10-18)
+
+| Files | Change and validation |
+|---|---|
+| `.github/workflows/alpha-macos-aarch64.yml`, `.github/workflows/alpha-windows-x64.yml`, `.github/workflows/release-macos-aarch64.yml` | Preserve final installers, updater files, original evidence and source-run candidate manifest before the public gate. Internal unsigned Windows keeps the existing private-draft restriction. |
+| `.github/workflows/release-acceptance-resume.yml`, `scripts/release/acceptance-handoff.mjs`, `scripts/release/acceptance-promotion.mjs`, `scripts/release/evidence-revision.mjs` | Small explicit source-workflow adapters implement validated native intake artifacts, original-run/attempt download without rebuilding, serialized canonical snapshot extension, exact-tag published read-back, and gated feed promotion. Fake-gh filesystem orchestration covers public/draft retry and stale/replay/foreign/collision/missing-chain refusal. |
+| `scripts/release/publish-electron-assets.mjs`, `scripts/release/publish-electron-assets.test.mjs` | Shared promotion re-verifies canonical remote evidence chains; metadata goes through its owner and promotion receipts use digest-qualified immutable names. Installers are never clobbered. |
+
+These entries describe code and synthetic verification, not a real signing, native acceptance, public upload or deployment.

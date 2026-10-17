@@ -108,7 +108,7 @@ Identical retry is idempotent. Uploads omit `--clobber`, and read-back hashes de
 It never promotes an updater feed. Public payload publication requires complete target acceptance.
 The release workflows preserve initial target evidence and stop public publication when required native results are absent.
 They do not convert CI source tests or packaged startup into native receipts.
-Importing externally performed native acceptance into a resumed CI publication is still an operator-controlled integration step.
+The dedicated `release-acceptance-resume.yml` workflow validates operator intake against original run artifacts and resumes their publication without rebuilding.
 
 The stable matrix stages target payload and evidence. A single following `--manifests-only` job downloads and
 verifies every referenced target, checks updater SHA-512 against final bytes, then emits the common manifest.
@@ -126,6 +126,70 @@ Do not derive them from a draft upload or a workflow success label.
 `delivered` requires independent proof of transfer to the recipient. Download counts do not prove delivery.
 No command here grants publication, signing, or external-send authority.
 
+## Hand native acceptance back to CI
+
+Each source target preserves `release-candidate-<run-id>-<attempt>-<platform>-<arch>` for 30 days
+before its public acceptance gate. This artifact includes the actual final installer, target updater files,
+checksums, original target evidence, and `release-candidate.json`. A failed public gate does not discard the installer.
+Unsigned internal Windows candidates remain in the existing private draft path and are not uploaded as public Actions artifacts.
+
+Download the exact candidate from its original run and install that artifact. Complete the native runner for
+fresh and migrated profiles for each installer in the evidence. Keep the original candidate files unchanged.
+Package actual PASS receipts after the local capture hashes have been checked:
+
+```sh
+node scripts/release/acceptance-handoff.mjs pack --candidate-dir <downloaded-candidate> --receipt <fresh-receipt.json> --receipt <migrated-receipt.json> --out <target-intake.json>
+```
+
+Repeat `--receipt` for every installer. The portable intake keeps capture hashes and redacted evidence URLs,
+removes local capture paths, and binds the original repository, source run and attempt, workflow commit,
+target, build SHA, stamped version, release tag, source evidence digest, and candidate digest.
+It is an operator record, not a cryptographic attestation or an automatic native PASS.
+
+In **Resume exact desktop release acceptance**, choose **intake**, provide the original `source_run_id`,
+and paste the portable target JSON into `intake_json`. This read-only validation job downloads the original
+candidate and checks its producer identity, bytes, and complete target acceptance before preserving a
+`release-native-intake-<source-run-id>-<intake-run-id>` artifact. Intake may cover one target at a time.
+A pending, blocked, foreign-SHA, changed-byte, or missing migrated receipt fails the job.
+
+After all targets of the original workflow have successful intake runs, choose **resume** and provide their
+comma-separated `intake_run_ids`. The collector accepts only successful same-repository intake workflow runs.
+It downloads their exact artifacts and checks for missing or duplicate targets. Resume re-downloads and
+revalidates the original build candidate, then stages accepted evidence on the draft release.
+It never runs version stamping, compilation, packaging, signing, or the native runner.
+A new resume run number cannot change the source run's version, tag, SHA, or installer bytes.
+
+Choose **publish** only for the deliberate public operation after completing every target's acceptance.
+The job checks every intake and existing payload collision before release mutation, uploads immutable bytes,
+updates accepted canonical evidence, makes the exact release public, reads the final payload back, and appends
+`published` receipts. Only after every target's updated canonical evidence and full history are verified remotely
+may it publish a common manifest or the corresponding alpha platform feed. Repeating the same intake is
+idempotent. A different intake replay, foreign tag target, or stale payload is refused.
+
+The original workflow target matrix defines required coverage. The current native runner supports macOS;
+missing supported Windows/Linux native receipts remain blocked. Intake transport does not invent those results.
+
+## Preserve canonical evidence revisions
+
+`evidence-revision.mjs` is the dedicated metadata effect owner. The resume workflow serializes its revisions
+under `desktop-release-metadata-<repository>` with cancellation disabled. Payload uploads remain immutable.
+
+For a canonical update, the writer checks the original digest precondition, immutable build/tag/target/assets,
+and retention of every prior state receipt and passing acceptance. It archives the exact old remote bytes as
+`release-evidence-<platform>-<arch>-sha256-<digest>.json`, verifies that immutable upload, and appends the snapshot
+to `evidenceHistory`. All earlier snapshots must exist, retain their exact hashes, and form the same prefix chain.
+A snapshot collision or missing chain blocks both revision and subsequent feed publication.
+
+After preserving the snapshot, the writer rechecks the canonical bytes and numeric REST asset ID.
+It deletes only that captured asset ID, then creates the new canonical asset exclusively.
+It never uses `--clobber` for evidence or installers. A concurrent replacement has another asset ID or occupies
+the canonical name and is refused. If the canonical upload is interrupted, retry uses the unchanged prior digest
+and preserved snapshot. Exact successful retries make no changes. Only the existing named mutable updater feeds
+remain an explicit `--clobber` exception after all publication gates.
+
+This is serialized release automation, not a cross-service transaction. Out-of-band writers must use the same owner;
+any detected race, read-back error, or missing chain stops promotion and requires retry/reconciliation.
+
 ## Current verification limits
 
 The local implementation tests use synthetic bytes and fake `gh` fixtures.
@@ -141,4 +205,4 @@ Import the receipts, preserve snapshots, verify the exact uploaded payload, and 
 ## Open questions
 
 Assign release operators and supported baseline profiles. Define the Windows and Linux native adapters,
-and the approved CI artifact handoff for externally performed acceptance before enabling public automation.
+and actual native final-artifact receipts before using public automation. The implemented CI handoff preserves their original source identity.

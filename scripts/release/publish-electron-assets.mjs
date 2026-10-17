@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { publishEvidenceRevision, verifyEvidenceChain } from './evidence-revision.mjs';
 import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
@@ -266,8 +267,14 @@ try {
   }
   const outputPath=join(outputDir,name);const bytes=stringifyManifest(manifest);writeFileSync(outputPath,bytes,'utf8');outputs.push(outputPath);
   const receipt=createPromotionReceipt({manifest:{name,sha256:sha256(bytes),references:manifest.files.map(file=>file.url)},evidences:evidenceItems.map(item=>({evidence:item.evidence,sha256:sha256(readFileSync(item.path))}))});
-  const receiptPath=join(outputDir,`promotion-${name}.json`);writeFileSync(receiptPath,`${JSON.stringify(receipt,null,2)}\n`);outputs.push(receiptPath);
+  const receiptPath=join(outputDir,`promotion-${name}-${sha256(JSON.stringify(receipt))}.json`);writeFileSync(receiptPath,`${JSON.stringify(receipt,null,2)}\n`);outputs.push(receiptPath);
  }
  const checksumPath=join(outputDir,'SHA256SUMS');writeFileSync(checksumPath,checksums,'utf8');outputs.push(checksumPath);
- await publishImmutableFiles({files:[...(!manifestsOnly?releaseAssets:[]),...evidencePaths,...outputs],tag:releaseTag,repo});
+ // Canonical evidence is metadata owned by its dedicated writer. A caller here
+ // may create initial identical metadata, never silently rebase a remote revision.
+ for(const {path,evidence} of evidenceItems){
+  const revision=await publishEvidenceRevision({path,repo,tag:releaseTag});
+  await verifyEvidenceChain({repo,tag:releaseTag,name:evidenceFilename(evidence.build),expectedSha256:revision.sha256});
+ }
+ await publishImmutableFiles({files:[...(!manifestsOnly?releaseAssets:[]),...outputs],tag:releaseTag,repo});
 }finally{await rm(verificationRoot,{recursive:true,force:true});}
