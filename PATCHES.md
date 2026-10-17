@@ -1067,3 +1067,7 @@ The green-zone engine guard inventories installed SDK v2 prompt/compact, legacy 
 ### Fresh scheduled chat admission and wiki refusal oracle (2026-10-18)
 
 `apps/server/src/server.ts` checks ordinary protected scheduled execution before creating a new engine chat or transmitting its title. Capture the trusted constructor-only non-model send callback once for both create/send ownership; no HTTP/config/environment bypass is added. `apps/server/src/scheduled-governance.e2e.test.ts` covers both existing/null chat defaults with zero engine POSTs and preserved run session IDs, plus an accepted pure callback with a fresh chat whose owned delivery delays real server shutdown. `apps/server/src/wiki/file-access-policy.e2e.test.ts` keeps all wiki positives and separates the earlier typed AI shell denial from PTY sandbox denial; both use an actual receiver observing zero POST payloads. Pure sandbox gates remain unchanged.
+
+### Source candidate availability documentation (2026-10-18)
+
+`README.md` distinguishes implemented source capabilities and blocked activation/native release gates in all four workstreams; CI tool versions, AI/voice admission and permanent LAWOSS telemetry state match this candidate. `TERMS.md` adds only a separate dated technical availability preface; the original upstream legal text remains byte-identical. Neither document claims a local patch is publicly installed, legally approved or published.

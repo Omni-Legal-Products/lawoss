@@ -1,3 +1,13 @@
+> **LAWOSS technical availability note — 18 October 2026**
+>
+> This note describes the local LAWOSS source candidate, not the acceptance or availability of an installed or publicly released build. The upstream LegalWork terms below are preserved verbatim and describe the upstream product.
+>
+> LAWOSS application telemetry is permanently disabled in this candidate. Protected or unclassified model context, including ordinary chat and attachments, queue/Fusion, remote OCR, SystemOne and Realtime Voice Mode, is blocked because the H1 engine-boundary test did not establish isolation against direct shell access. An account, API key, localhost address or acknowledgement of the guidance does not enable these paths. Manual file work and use without a model remain available. A separate public/synthetic-text flow uses a host-owned empty engine workspace and requires native review of each actual serialized request before it is transmitted to the configured compatible provider; this technical confirmation does not constitute legal approval of that provider.
+>
+> The deadline workflow is off by default. Its bundled CZ/SK RulePacks are `synthetic_only`; confirmation and export of real deadlines require separate approval of the exact supported rule by the responsible lawyer. See the [deadline workflow](lawoss/deadlines/README.md). Source tests, embedded build identity, installer signatures, native platform acceptance and publication are separate states. Check the [active acceptance protocol](docs/lawoss-alpha-acceptance.md) and [release evidence instructions](docs/release-evidence.md) for the exact build. This note records technical availability and does not amend the upstream legal text.
+
+---
+
 # LegalWork — Terms & Conditions
 
 **Last updated: 11 September 2026**
