@@ -9,7 +9,7 @@ import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { stopMessageQueue } from "./session-message-queue.js";
 import { withSessionExecution } from "./session-execution-gate.js";
-import { runtimeDbPath } from "./runtime-db.js";
+import { retainRuntimeDbPath, runtimeDbPath } from "./runtime-db.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
 import { ScheduledTaskRunner } from "./scheduled-tasks/runner.js";
@@ -822,6 +822,7 @@ const serverRuntimeOwners = new Map<string, { count: number; closing?: Promise<v
 async function retainServerRuntime(config: ServerConfig): Promise<() => Promise<void>> {
   const path = runtimeDbPath(config);
   while (serverRuntimeOwners.get(path)?.closing) await serverRuntimeOwners.get(path)?.closing;
+  const releasePath = retainRuntimeDbPath(config, path);
   const state = serverRuntimeOwners.get(path) ?? { count: 0 };
   state.count++;
   serverRuntimeOwners.set(path, state);
@@ -829,14 +830,16 @@ async function retainServerRuntime(config: ServerConfig): Promise<() => Promise<
   return async () => {
     if (released) return;
     released = true;
-    if (--state.count) return;
-    state.closing = (async () => {
-      try {
-        await Promise.all([closeOrgPolicyRuntime(config, path), closeFirmHubRuntime(config, join(dirname(path), 'firm-hub'))]);
-        await Promise.all([closeRuntimeOpencodeConfig(config, path), closeEigenweltConnection(config, path)]);
-      } finally { serverRuntimeOwners.delete(path); }
-    })();
-    await state.closing;
+    try {
+      if (--state.count) return;
+      state.closing = (async () => {
+        try {
+          await Promise.all([closeOrgPolicyRuntime(config, path), closeFirmHubRuntime(config, join(dirname(path), 'firm-hub'))]);
+          await Promise.all([closeRuntimeOpencodeConfig(config, path), closeEigenweltConnection(config, path)]);
+        } finally { serverRuntimeOwners.delete(path); }
+      })();
+      await state.closing;
+    } finally { releasePath(); }
   };
 }
 

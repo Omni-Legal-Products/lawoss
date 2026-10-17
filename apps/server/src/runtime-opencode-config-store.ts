@@ -1,6 +1,6 @@
 import { sandboxSettingsSchema, sandboxSyncSchema, type SandboxSettings } from "./agent-sandbox/settings-schema.js";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname } from "node:path";
+import { runtimeDbPath } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
 import { connectorConfigVariables } from "./connector-config.js";
@@ -120,14 +120,6 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ...(instructions ? { instructions } : {}),
     ...(personalization ? { personalization } : {}),
   };
-}
-
-function runtimeDbPath(config: ServerConfig): string {
-  const override = process.env.LEGALWORK_RUNTIME_DB?.trim();
-  if (override) return resolve(override);
-  const configPath = config.configPath?.trim();
-  const configDir = configPath ? dirname(configPath) : join(homedir(), ".config", "legalwork");
-  return join(configDir, "runtime.sqlite");
 }
 
 /** Directory holding runtime state (the SQLite DB and derived files). */

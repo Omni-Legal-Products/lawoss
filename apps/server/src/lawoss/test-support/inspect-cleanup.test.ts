@@ -3,7 +3,7 @@ import { Database, type SQLQueryBindings } from 'bun:sqlite';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { inspectSyntheticRemainder, removeSyntheticTestDir } from './inspect-cleanup.js';
 import type { ServerConfig } from '../../types.js';
 
@@ -22,23 +22,24 @@ test('cleanup metadata reveals locked DB roles without names, absolute paths or 
 
 async function runtimeFixture() {
   const root = await mkdtemp(join(tmpdir(), 'synthetic-server-cleanup-'));
+  const owns = (filename: string) => filename.startsWith(root + sep);
   const connections = new Set<Database>();
   const statements = new Set<{ get(): unknown; finalize(): void }>();
   const originalPrepare = Database.prototype.prepare;
   const prepare = spyOn(Database.prototype, 'prepare').mockImplementation(function<Result, Params extends SQLQueryBindings | SQLQueryBindings[]>(this: Database, sql: string, bindings?: Params) {
     const prepareStatement = originalPrepare<Result, Params>;
     const statement = prepareStatement.call(this, sql, bindings);
-    if (this.filename === join(root, 'runtime.sqlite')) statements.add(statement);
+    if (owns(this.filename)) statements.add(statement);
     return statement;
   });
   const originalRun = Database.prototype.run;
   const originalExec = Database.prototype.exec;
   const run = spyOn(Database.prototype, 'run').mockImplementation(function(this: Database, sql, ...bindings) {
-    if (this.filename === join(root, 'runtime.sqlite')) connections.add(this);
+    if (owns(this.filename)) connections.add(this);
     return originalRun.call(this, sql, ...bindings);
   });
   const exec = spyOn(Database.prototype, 'exec').mockImplementation(function(this: Database, sql, ...bindings) {
-    if (this.filename === join(root, 'runtime.sqlite')) connections.add(this);
+    if (owns(this.filename)) connections.add(this);
     return originalExec.call(this, sql, ...bindings);
   });
   const config: ServerConfig = {
@@ -49,9 +50,9 @@ async function runtimeFixture() {
   const servers: Array<Awaited<ReturnType<typeof import('../../server.js').startServer>>> = [];
   return {
     root, connections, statements, config,
-    async start(overrides?: Partial<ServerConfig>) {
+    async start(overrides?: Partial<ServerConfig>, options?: Parameters<typeof import('../../server.js').startServer>[1]) {
       const { startServer } = await import('../../server.js');
-      const server = await startServer(overrides ? { ...config, ...overrides } : config);
+      const server = await startServer(overrides ? { ...config, ...overrides } : config, options);
       servers.push(server);
       return server;
     },
@@ -108,16 +109,50 @@ test('shutdown releases the original runtime when config and environment paths c
   const originalDb = process.env.LEGALWORK_RUNTIME_DB;
   try {
     const server = await fixture.start();
-    fixture.config.configPath = join(fixture.root, 'changed', 'server.json');
-    process.env.LEGALWORK_RUNTIME_DB = join(fixture.root, 'changed', 'runtime.sqlite');
+    const { runtimeDbPath } = await import('../../runtime-db.js');
+    fixture.config.configPath = join(fixture.root, 'config-changed', 'server.json');
+    process.env.LEGALWORK_RUNTIME_DB = join(fixture.root, 'environment-changed', 'runtime.sqlite');
     await server.stop();
     for (const connection of fixture.connections) expect(() => connection.query('SELECT 1').get()).toThrow();
+    expect(runtimeDbPath(fixture.config)).toBe(join(fixture.root, 'environment-changed', 'runtime.sqlite'));
+    delete process.env.LEGALWORK_RUNTIME_DB;
+    expect(runtimeDbPath(fixture.config)).toBe(join(fixture.root, 'config-changed', 'runtime.sqlite'));
     await removeSyntheticTestDir(fixture.root);
   } finally {
     if (originalDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
     else process.env.LEGALWORK_RUNTIME_DB = originalDb;
     await fixture.dispose();
   }
+});
+
+test('two listeners sharing one config retain its runtime identity until the last stop', async () => {
+  const fixture = await runtimeFixture();
+  try {
+    const first = await fixture.start(), second = await fixture.start();
+    const { runtimeDbPath } = await import('../../runtime-db.js');
+    fixture.config.configPath = join(fixture.root, 'changed', 'server.json');
+    await first.stop();
+    expect(runtimeDbPath(fixture.config)).toBe(join(fixture.root, 'runtime.sqlite'));
+    await second.stop();
+    for (const connection of fixture.connections) expect(() => connection.query('SELECT 1').get()).toThrow();
+    expect(runtimeDbPath(fixture.config)).toBe(join(fixture.root, 'changed', 'runtime.sqlite'));
+    await removeSyntheticTestDir(fixture.root);
+  } finally { await fixture.dispose(); }
+});
+
+test('a failed listening callback releases its runtime pin after owned work stops', async () => {
+  const fixture = await runtimeFixture();
+  try {
+    const failure = new Error('Synthetic listening failure');
+    await expect(fixture.start(undefined, { onListening: async () => {
+      fixture.config.configPath = join(fixture.root, 'changed', 'server.json');
+      throw failure;
+    } })).rejects.toBe(failure);
+    const { runtimeDbPath } = await import('../../runtime-db.js');
+    expect(runtimeDbPath(fixture.config)).toBe(join(fixture.root, 'changed', 'runtime.sqlite'));
+    for (const connection of fixture.connections) expect(() => connection.query('SELECT 1').get()).toThrow();
+    await removeSyntheticTestDir(fixture.root);
+  } finally { await fixture.dispose(); }
 });
 
 test('stopping a runtime does not close an independent live server', async () => {

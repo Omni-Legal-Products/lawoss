@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { openSqlite } from "./runtime-db.js";
+import { dirname } from "node:path";
+import { openSqlite, runtimeDbPath } from "./runtime-db.js";
+export { runtimeDbPath } from "./runtime-db.js";
 import type { EigenweltAccountIdentity, EigenweltEntitlements } from "./eigenwelt-auth.js";
 import {
   eigenweltPlatformUrl,
@@ -113,14 +113,6 @@ const ACCOUNT_ROW_MIGRATION = [
   `INSERT OR IGNORE INTO eigenwelt_connections (workspace_id, entitlements_json, account_json, platform_url, platform_token, refresh_token, platform_token_expires_at, updated_at) SELECT '${ACCOUNT_ROW_ID}', entitlements_json, account_json, platform_url, platform_token, refresh_token, platform_token_expires_at, updated_at FROM eigenwelt_connections WHERE workspace_id <> '${ACCOUNT_ROW_ID}' ORDER BY updated_at DESC LIMIT 1`,
   `DELETE FROM eigenwelt_connections WHERE workspace_id <> '${ACCOUNT_ROW_ID}'`,
 ];
-
-export function runtimeDbPath(config: ServerConfig): string {
-  const override = process.env.LEGALWORK_RUNTIME_DB?.trim();
-  if (override) return resolve(override);
-  const configPath = config.configPath?.trim();
-  const configDir = configPath ? dirname(configPath) : join(homedir(), ".config", "legalwork");
-  return join(configDir, "runtime.sqlite");
-}
 
 async function openDb(path: string): Promise<EigenweltConnectionDb> {
   await ensureDir(dirname(path));
