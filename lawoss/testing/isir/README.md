@@ -77,3 +77,7 @@ Testovací entry poskytne cestu obnovovacího chooseru z vlastní fixture a pasi
 `LAWOSS_ISIR_CORPUS=/absolutni/cesta/corpus.json pnpm test:isir:native` načte místní snapshot, ale stále použije lokální modelovou simulaci. Skutečný obsah ani autentizaci neukládejte do Gitu. Runner kontroluje originály i výsledné kopie; protokolové receipts se zapisují pouze pro syntetický režim. Diagnostika zůstává ve vypsané soukromé dočasné složce mimo checkout. `pnpm test:isir` zůstává rychlý offline transportní/helper balík, který sám nativní renderer neprokazuje.
 
 Diagnostický `node scripts/test-isir-native.mjs --debug-case-pair` provede pouze skutečné spisy 1 a 10. Receipt má `fullMatrix: false`; tento příkaz je v CI odmítnut a nenahrazuje závěrečný průchod všech deseti spisů.
+
+Bootstrap enginu sleduje vlastní loopback OTLP receiver. Z dokončených spanů uchová jen 15 pevných názvů, číselnou dobu a stav (nejvýše 8 záznamů na název); resource metadata, atributy, události, ID a texty chyb zahazuje. Chybějící dokončený span sám neprokazuje vstup do fáze. Při selhání se omezená projekce vypíše až po ukončení vlastněných procesů.
+
+Workflow `ci-windows-portable.yml` má navíc ruční `workflow_dispatch` s povinným `runtime_run_id`. Doplnkový Windows x64 job použije artefakt desktopového buildu ze stejného repozitáře a větve, jehož SHA je předkem vybraného refu. Běžná kontrola manifestu a celý syntetický nativní scénář zůstávají; pouze se znovu nesestavuje QEMU. Tento job nenahrazuje povinné PR/source/package kontroly.

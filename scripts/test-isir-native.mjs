@@ -18,6 +18,7 @@ import { prepareNativeEngineFiles, probeNativeEngineVersion, verifyNativeEngineR
 import { createNativeEngineClient } from "../lawoss/testing/isir/native/engine-client.mjs";
 import { nativeRendererLaunch } from "../lawoss/testing/isir/native/renderer.mjs";
 import { nativeEngineFetchRecords } from "../lawoss/testing/isir/native/engine-fetch.mjs";
+import { startNativeEngineTraceReceiver } from "../lawoss/testing/isir/native/engine-traces.mjs";
 
 const debugPair=process.argv.includes('--debug-case-pair');
 assert.ok(!debugPair || !process.env.CI,'CI must run the complete ten-case native gate');
@@ -46,6 +47,7 @@ let cdp;
 let boundaryProbe;
 const caseRuns=[...corpus.cases.entries()].filter(([index])=>!debugPair||index===0||index===corpus.cases.length-1);
 const provider = await startProvider();
+let engineTraces;
 const port = async () => { const server = net.createServer(); await new Promise(r => server.listen(0, "127.0.0.1", r)); const p = server.address().port; await new Promise(r => server.close(r)); return p; };
 const cdpPort = await port(), uiPort = await port();
 const osKeys=['PATH','Path','SystemRoot','WINDIR','COMSPEC','PATHEXT','TEMP','TMP','TMPDIR','DISPLAY','WAYLAND_DISPLAY','XAUTHORITY','LANG','LC_ALL','LC_CTYPE','TERM','NUMBER_OF_PROCESSORS','PROCESSOR_ARCHITECTURE','DBUS_SESSION_BUS_ADDRESS'];
@@ -96,10 +98,12 @@ const cleanup = () => cleanupPromise ??= (async () => {
   const result = await settleCleanup(primaryError, [
     () => cdp?.close(),
     ...[...children].reverse().map(({child}) => () => stop(child)),
+    () => engineTraces?.close(),
     () => provider.close(),
     () => preparedEngine.cleanup(),
   ]);
   for (const error of result.failures) console.error('Owned native cleanup failure', JSON.stringify(errorMetadata(error)));
+  if(primaryError&&engineTraces)console.error('Owned completed engine bootstrap spans',JSON.stringify(engineTraces.snapshot()));
   const processes=children.map(({child,label})=>({label,pid:child.pid,exitCode:child.exitCode,signal:child.signalCode}));
   await writeFile(path.join(root,'process-receipts.json'),JSON.stringify({cleaned:result.failures.length===0,processes},null,2),{mode:0o600});
   await diagnostics.write({events:cdp?.events,error:primaryError,cleanupErrors:result.failures});
@@ -109,6 +113,8 @@ const cleanup = () => cleanupPromise ??= (async () => {
 process.once('SIGINT',()=>void cleanup().then(()=>process.exit(130)));
 process.once('SIGTERM',()=>void cleanup().then(()=>process.exit(143)));
 try {
+  engineTraces = await startNativeEngineTraceReceiver();
+  env.OTEL_EXPORTER_OTLP_ENDPOINT = engineTraces.endpoint;
   diagnostics.phase("startup");
   const renderer = await nativeRendererLaunch(path.join(repo,"apps/app"),uiPort);
   launch(process.execPath, [path.join(path.dirname(requireApp.resolve("vite/package.json")), "bin/vite.js"), ...renderer.args], renderer.cwd, "vite");
