@@ -11,8 +11,8 @@ test("hosted subscription lifecycle, private snapshots, account isolation and ba
     import { createHash, randomBytes, randomUUID } from "node:crypto";
     import { join } from "node:path";
     const { calendarSubscription, changeCalendarSubscription, syncCalendarSubscriptions, subscriptionPayload } = await import(${JSON.stringify(source)} + "subscriptions.ts");
-    const { acquireRuntimeDbLifetime } = await import(${JSON.stringify(source)} + "../runtime-db-lifecycle.ts");
     const { calendarStore } = await import(${JSON.stringify(source)} + "store.ts");
+    const { acquireRuntimeDbLifetime } = await import(${JSON.stringify(source)} + "../runtime-db-lifecycle.ts");
     const { taskStore } = await import(${JSON.stringify(source)} + "../task-store.ts");
     const { projectSyncStore } = await import(${JSON.stringify(source)} + "../project-sync-store.ts");
     const { writeEigenweltConnection } = await import(${JSON.stringify(source)} + "../eigenwelt-connection-store.ts");
@@ -37,6 +37,7 @@ test("hosted subscription lifecycle, private snapshots, account isolation and ba
     } });
     process.env.EIGENWELT_PLATFORM_URL = "http://127.0.0.1:" + platform.port;
     const login = userId => writeEigenweltConnection(config, { platformToken: userId, platformTokenExpiresAt: Date.now() + 3600000, account: { userId, userName: userId, userEmail: userId + "@test.invalid", orgId: "firm", orgName: "Test" } });
+    const errors = [];
     try {
       assert.equal((await calendarSubscription(config, null)).available, false);
       await login("alice");
@@ -78,7 +79,12 @@ test("hosted subscription lifecycle, private snapshots, account isolation and ba
       await syncCalendarSubscriptions(config); assert(!feeds.has(replacement.url.split("/").at(-1)));
       assert(!JSON.stringify(feeds.get(allToken).body).includes(deadline.uid));
       console.log("subscription checks passed");
-    } finally { platform.stop(true); await owner.release(); }
+    } catch (error) { errors.push(error); }
+    finally {
+      try { platform.stop(true); } catch (error) { errors.push(error); }
+      try { await owner.release(); } catch (error) { errors.push(error); }
+    }
+    if (errors.length) throw new AggregateError(errors, "Subscription lifecycle and cleanup failures");
   `);
   try {
     const child = Bun.spawn([process.execPath, script], { env: { ...process.env, XDG_CONFIG_HOME: root, LEGALWORK_RUNTIME_DB: join(root, "runtime.sqlite") }, stdout: "pipe", stderr: "pipe" });

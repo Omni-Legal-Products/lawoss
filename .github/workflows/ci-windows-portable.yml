@@ -57,6 +57,8 @@ on:
       - apps/desktop/electron/lawoss-okf-cli-smoke.mjs
       - apps/desktop/electron/lawoss-okf-cli-smoke.test.mjs
       - apps/desktop/electron/main.mjs
+      - apps/desktop/electron/runtime.mjs
+      - apps/desktop/electron/runtime-embedded-auth.node.test.mjs
       - apps/app/src/react-app/shell/welcome-route.tsx
       - apps/server/src/lawoss/**
       - apps/server/src/lawoss-*
@@ -151,6 +153,8 @@ on:
       - apps/desktop/electron/lawoss-okf-cli-smoke.mjs
       - apps/desktop/electron/lawoss-okf-cli-smoke.test.mjs
       - apps/desktop/electron/main.mjs
+      - apps/desktop/electron/runtime.mjs
+      - apps/desktop/electron/runtime-embedded-auth.node.test.mjs
       - apps/app/src/react-app/shell/welcome-route.tsx
       - apps/server/src/lawoss/**
       - apps/server/src/lawoss-*
@@ -320,6 +324,9 @@ jobs:
         run: node --test apps/server/scripts/runtime-db-lifecycle.node.test.mjs
       - name: Node production engine proxy and idle response cancellation
         run: node --test apps/server/scripts/opencode-proxy-cancellation.node.test.mjs
+
+      - name: Private desktop engine authentication after server build
+        run: node --test apps/desktop/electron/runtime-embedded-auth.node.test.mjs
 
       - name: Verify native ISIR bootstrap, diagnostics and owned resources
         run: node --test lawoss/testing/isir/native/*.test.mjs

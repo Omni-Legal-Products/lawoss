@@ -27,7 +27,17 @@ if (n <= failUntil) {
 }
 process.stdout.write("opencode server listening on http://127.0.0.1:" + port + "\\n");
 setTimeout(() => http.createServer((request, response) => {
-  response.writeHead(200).end("ok");
+  const expected = "Basic " + Buffer.from(process.env.OPENCODE_SERVER_USERNAME + ":" + process.env.OPENCODE_SERVER_PASSWORD).toString("base64");
+  if (request.headers.authorization !== expected) return response.writeHead(401).end();
+  if (request.url !== "/global/health") return response.writeHead(200).end("<html>UI</html>");
+  const mode = process.env.FAKE_OPENCODE_HEALTH || "valid";
+  response.on("close", () => fs.writeFileSync(counter + ".closed", "closed"));
+  if (mode === "exit") { response.writeHead(200); response.write('{"healthy":'); return setTimeout(() => process.exit(1), 30); }
+  if (mode === "idle") { response.writeHead(200); return response.write('{"healthy":'); }
+  if (mode === "unauthorized") return response.writeHead(401).end();
+  if (mode === "status") return response.writeHead(500).end('{"healthy":true,"version":"custom"}');
+  const bodies = { html: "<html>UI</html>", shape: "null", malformed: "{", false: '{"healthy":false,"version":"custom"}', version: '{"healthy":true,"version":" "}', oversized: JSON.stringify({healthy:true,version:"x".repeat(17000)}), truncated: '{"healthy":true' };
+  response.writeHead(200).end(bodies[mode] || JSON.stringify({healthy:true,version:"custom-build"}));
 }).listen(Number(port), "127.0.0.1"), Number(process.env.FAKE_OPENCODE_LISTEN_DELAY_MS || "0"));
 process.on("SIGTERM", () => process.exit(0));
 setInterval(() => {}, 1 << 30);
@@ -77,7 +87,7 @@ test("waits for the HTTP listener even when the child announces readiness early"
   });
   try {
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(250);
-    expect((await fetch(`${server.url}/health`)).status).toBe(200);
+    expect(server.running()).toBe(true);
   } finally {
     await server.close();
   }
@@ -107,3 +117,17 @@ process.exit(1);
   ).rejects.toThrow(/config parse failed/);
   expect(Number(readFileSync(counter, "utf8"))).toBe(1); // exactly one attempt
 }, 20000);
+
+for (const mode of ["html", "status", "unauthorized", "shape", "malformed", "false", "version", "oversized", "truncated", "idle", "exit"]) {
+  test(`rejects unhealthy HTTP response: ${mode}`, async () => {
+    const { bin, counter } = fakeBin(0);
+    const start = Date.now();
+    await expect(createManagedOpencodeServer({
+      bin, cwd: dir!, timeoutMs: 350,
+      env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_HEALTH: mode },
+    }).then(async (server) => { await server.close(); return server; })).rejects.toThrow(/Timeout waiting|exited before/);
+    expect(Date.now() - start).toBeLessThan(1500);
+    expect(Number(readFileSync(counter, "utf8"))).toBe(1);
+    if (mode === "idle") expect(readFileSync(counter + ".closed", "utf8")).toBe("closed");
+  });
+}

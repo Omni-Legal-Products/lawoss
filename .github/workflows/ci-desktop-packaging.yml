@@ -82,7 +82,7 @@ jobs:
           version: 11.4.0
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 24.21.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
@@ -214,7 +214,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0; same Node 24 selector
         with:
-          node-version: 24
+          node-version: 24.21.0
       - name: Download only same-run Windows native projection
         continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0

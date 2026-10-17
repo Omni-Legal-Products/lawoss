@@ -17,6 +17,7 @@ const engine = `#!${process.execPath}
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
 const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
   const url = new URL(request.url);
+  if (url.pathname === "/global/health") return Response.json({ healthy: true, version: "synthetic-test" });
   if (url.pathname !== "/probe") return Response.json({ healthy: true });
   const results = [];
   for (const path of ["/wikis", "/workspace/" + url.searchParams.get("workspace") + "/storage/roots"]) {

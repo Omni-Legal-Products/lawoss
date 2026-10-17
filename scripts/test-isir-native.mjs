@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, writeFile, rm, access, symlink, realpath, rename, readdir } from "node:fs/promises";
@@ -10,10 +11,12 @@ import { loadNativeCorpus } from "../lawoss/testing/isir/native/corpus.mjs";
 import { startProvider, decodeNativeToolOutput } from "../lawoss/testing/isir/native/provider.mjs";
 import { partialPdf } from "../lawoss/testing/isir/native/partial-pdf.mjs";
 import { connectRenderer, until } from "../lawoss/testing/isir/native/cdp.mjs";
+import { stopForRelaunch } from "../lawoss/testing/isir/native/relaunch-stop.mjs";
+import { readNativeQuitAcceptance } from "../lawoss/testing/isir/native/quit-acceptance.mjs";
 import { stopNativeChild } from "../lawoss/testing/isir/native/owned-process.mjs";
 import { createNativeDiagnostics, settleCleanup, errorMetadata, observePromptClick, summarizeRecoveryVerification, recoveryRendererIdentity } from "../lawoss/testing/isir/native/diagnostics.mjs";
 import { configureNativeProvider } from "../lawoss/testing/isir/native/bootstrap.mjs";
-import { installChooserBoundary } from "../lawoss/testing/isir/native/chooser-boundary.mjs";
+import { openNativeProjectFiles } from "../lawoss/testing/isir/native/project-files-navigation.mjs";
 import { awaitNativeStartup } from "../lawoss/testing/isir/native/startup-readiness.mjs";
 import { parseCsv } from "../apps/server/dist/lawoss/documents/validation.js";
 import { sha256 } from "../lawoss/testing/isir/corpus.mjs";
@@ -102,13 +105,16 @@ for (const [index, entry] of corpus.cases.entries()) {
 await writeFile(path.join(profile, "legalwork-workspaces.json"), JSON.stringify({ selectedId: workspaces[0].id, watchedId: workspaces[0].id, activeId: workspaces[0].id, workspaces }));
 await writeFile(path.join(root, "chooser.json"), JSON.stringify({ paths: [path.join(root, "originals", corpus.cases[0].id, corpus.cases[0].documents[0].name)] }));
 const launch = (command, args, cwd, label) => {
-  const child = spawn(command, args, { cwd, env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+  const quitNonce = label.startsWith("electron") ? randomBytes(32).toString("hex") : null;
+  const child = spawn(command, args, { cwd, env:quitNonce ? {...env,LAWOSS_ISIR_NATIVE_QUIT_NONCE:quitNonce} : env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+  if (quitNonce) child.isirNativeQuitAcceptance={root,nonce:quitNonce,pid:child.pid};
   let output = ""; child.stdout.on("data", c => output += c); child.stderr.on("data", c => output += c);
   child.on("error", e => output += String(e));
   children.push({ child, label, output: () => output });
   return child;
 };
 
+const relaunchCleanupErrors=[];
 let cleanupPromise;
 const cleanup = () => cleanupPromise ??= (async () => {
   const result = await settleCleanup(primaryError, [
@@ -123,7 +129,7 @@ const cleanup = () => cleanupPromise ??= (async () => {
   if(primaryError&&engineTraces)console.error('Owned completed engine bootstrap spans',JSON.stringify(engineTraces.snapshot()));
   const processes=children.map(({child,label})=>({label,pid:child.pid,exitCode:child.exitCode,signal:child.signalCode}));
   await writeFile(path.join(root,'process-receipts.json'),JSON.stringify({cleaned:result.failures.length===0,processes},null,2),{mode:0o600});
-  await diagnostics.write({events:cdp?.events,error:primaryError,cleanupErrors:result.failures});
+  await diagnostics.write({events:cdp?.events,error:primaryError,cleanupErrors:[...relaunchCleanupErrors,...result.failures]});
   console.log(`Owned native cleanup ${result.failures.length ? 'failed' : 'completed'}; private evidence: ${root}`);
   if (result.error) throw result.error;
 })();
@@ -194,13 +200,9 @@ try {
     return {response,body:await response.json()};
   };
   const panelText = () => cdp.evaluate(`document.querySelector('[aria-label="Document processing"]')?.innerText??''`);
-  const openFiles = async workspace => {
+  const openFiles = async (workspace,readiness='listing') => {
     selectedIndex=workspaces.indexOf(workspace)+1;
-    await cdp.evaluate(`(${installChooserBoundary.toString()})(${JSON.stringify({id:workspace.id,root:workspace.path,name:workspace.name,caseIndex:selectedIndex})})`);
-    await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(workspace.name)}&&e.closest('[data-slot="collapsible"]'));if(!e)return false;e.click();return true})()`),`select native project ${workspace.id}`);
-    await until(()=>cdp.evaluate(`(()=>{const title=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(workspace.name)}&&e.closest('[data-slot="collapsible"]'));const group=title.closest('[data-slot="collapsible"]');const e=[...group.querySelectorAll('button,a')].find(e=>e.textContent.trim()==='Files'&&e.getBoundingClientRect().width>0);if(!e){group.querySelector('[aria-label="Expand"]')?.click();return false}e.click();return true})()`),'native project files action');
-    await until(()=>cdp.evaluate(`!!document.querySelector('[aria-label="Document processing"]')`),'native processing panel');
-    await until(()=>cdp.evaluate(`(()=>{const nav=document.querySelector('[aria-label="Current folder"]');if(!nav)return false;nav.querySelector('button')?.click();return true})()`),'native root breadcrumb');
+    await openNativeProjectFiles({cdp,until,workspace,caseIndex:selectedIndex,readiness});
   };
   const inputFiles = async (selector, paths) => {
     const doc = await cdp.send('DOM.getDocument');
@@ -233,7 +235,7 @@ try {
     await cdp.send('Page.enable'); await cdp.send('Page.setInterceptFileChooserDialog',{enabled:true});
     const eventStart=cdp.events.length;
     await until(()=>cdp.evaluate(`(()=>{const button=document.querySelector('button[aria-label="Refresh folder"]');return button&&!button.disabled})()`),'current native folder query settled');
-    await until(()=>cdp.evaluate(`(()=>{const upload=[...document.querySelectorAll('[role="menuitem"]')].find(e=>e.textContent.trim()==='Add files'&&e.getBoundingClientRect().width>0&&!e.disabled);if(upload){window.__isirChooserBoundary.capture();upload.click();return true}const nav=document.querySelector('[aria-label="Current folder"]');const folder=document.querySelector('[data-project-folder="Dokumenty"]');if(!folder||nav?.querySelector('button')?.textContent.trim()!==${JSON.stringify(workspace.name)})return false;folder.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:200,button:2}));return false})()`),'current project native upload menu action');
+    await until(()=>cdp.evaluate(`(()=>{const upload=[...document.querySelectorAll('[role="menuitem"]')].find(e=>e.textContent.trim()==='Add files'&&e.getBoundingClientRect().width>0&&!e.disabled);if(upload){window.__isirChooserBoundary.capture();const state=window.__isirChooserBoundary.sample('before-upload-ack');if(!['selectedOwnerEqual','runtimeOwnerEqual','workspaceRootEqual','folderPathEqual','rootBreadcrumbEqual','physicalScopeEqual','inputConnected','capturedConnected','inputGenerationEqual'].every(key=>state[key]===true))return false;upload.click();return true}const nav=document.querySelector('[aria-label="Current folder"]');const folder=document.querySelector('[data-project-folder="Dokumenty"]');if(!folder||nav?.querySelector('button')?.textContent.trim()!==${JSON.stringify(workspace.name)})return false;folder.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:200,button:2}));return false})()`),'current project native upload menu action');
     const chooser=await until(()=>cdp.events.slice(eventStart).find(e=>e.method==='Page.fileChooserOpened'),'actual native HTML chooser request');
     // The display-name ACK is independent of client identity: GREEN must keep
     // the same client. All raw connection operands remain inside the renderer.
@@ -272,6 +274,8 @@ try {
     console.log(`Native chooser input ${workspace.id}: ${JSON.stringify(inputIdentity)}`);
     await writeFile(path.join(root,`chooser-boundary-${selectedIndex}.json`),JSON.stringify(await cdp.evaluate('window.__isirChooserBoundary.receipt()'),null,2),{mode:0o600});
     assert.equal(inputIdentity.connected,true,'Chooser input remains mounted before OS-backed provisioning');
+    for(const key of ['selectedOwnerEqual','runtimeOwnerEqual','workspaceRootEqual','physicalScopeEqual','inputConnected','capturedConnected','panelGenerationEqual','inputGenerationEqual','documentGenerationEqual','eventInputEqual'])assert.equal(inputIdentity.boundary[key],true,`Chooser retains exact owned input: ${key}`);
+    const priorTabIds=await cdp.evaluate(`[...document.querySelectorAll('[data-panel-tab-id]')].map(e=>e.getAttribute('data-panel-tab-id'))`);
     await cdp.send('DOM.setFileInputFiles',{backendNodeId:chooser.params.backendNodeId,files:paths});
     const changed=await until(()=>cdp.evaluate('window.__isirPickerChange'),'actual native file input change event');
     assert.equal(changed.connected,true,'Native file input change bubbles from the mounted production input');
@@ -280,6 +284,15 @@ try {
     await cdp.evaluate('window.__isirChooserBoundary.disconnect()');
     const copied=await until(async()=>{const lines=(await readFile(path.join(root,'copy-receipts.jsonl'),'utf8').catch(()=>'' )).trim().split('\n').filter(Boolean).map(JSON.parse);return lines.findLast(r=>r.workspaceId===workspace.id&&JSON.stringify(r.paths)===JSON.stringify(paths)&&r.folder==='Dokumenty')},'actual picker preload/IPC receipt');
     assert.equal(copied.error,undefined);assert.ok(copied.result.files.every(f=>f.status==='copied'));
+    // Native IPC completion precedes the renderer's import/tab update. Wait for
+    // the same completed artifact boundary as drop before navigating to Files.
+    await until(()=>cdp.evaluate(`(()=>{
+      const expected=${JSON.stringify({id:workspace.id,paths:copied.result.files.map(f=>f.path),priorTabIds})};
+      if(location.pathname!=='/workspace/'+encodeURIComponent(expected.id.trim())+'/session'||new URLSearchParams(location.search).get('view')!=='workspace'||window.__legalwork?.slice('route')?.selectedWorkspaceId!==expected.id)return false;
+      const visible=e=>e.isConnected&&!e.closest('[hidden]')&&e.getBoundingClientRect().width>0&&e.getBoundingClientRect().height>0;
+      const tabs=[...document.querySelectorAll('[data-panel-tab-id]')].filter(e=>!expected.priorTabIds.includes(e.getAttribute('data-panel-tab-id'))&&visible(e)).flatMap(e=>[...e.querySelectorAll('[aria-label^="Select tab:"]')].filter(visible));
+      return expected.paths.every(path=>tabs.filter(tab=>tab.getAttribute('title')?.endsWith('/ '+path)).length===1);
+    })()`),'completed native picker tabs and committed workspace route');
     return {inputIdentity,changed,copied};
     } catch(error){pickerError=error;throw error;}
     finally {
@@ -447,7 +460,17 @@ try {
   const last=workspaces.at(-1);
   const csvPath=path.join(last.path,'native-registry.csv'),savedCsv=await readFile(csvPath);
   await writeFile(csvPath,Buffer.concat([savedCsv,Buffer.from('\ninvalid edit')]));
-  await openFiles(last);await click('Dokumenty');await click('Prepare this folder');
+  await openFiles(last);
+  // Re-enter the actual mounted Files journey without an extra model turn.
+  await cdp.evaluate(`(()=>{const panel=[...document.querySelectorAll('[data-files-workspace-id]')].find(e=>e.getBoundingClientRect().width>0);let clicks=0;const listener=e=>{if(e.target.closest('button,a')?.textContent.trim()==='Files')clicks++};document.addEventListener('click',listener,true);window.__isirFilesReentry={panel,listener,clicks:()=>clicks}})()`);
+  let filesReentryError=null;
+  try {
+    await openFiles(last);
+    assert.equal(await cdp.evaluate(`(()=>{const before=window.__isirFilesReentry;const panels=[...document.querySelectorAll('[data-files-workspace-id]')].filter(e=>e.isConnected&&!e.closest('[hidden]')&&e.getBoundingClientRect().width>0&&e.getBoundingClientRect().height>0);const state=window.__isirChooserBoundary.sample('mounted-files-reentry');return before.clicks()===0&&panels.length===1&&panels[0]===before.panel&&state.selectedOwnerEqual&&state.runtimeOwnerEqual&&state.workspaceRootEqual&&state.folderPathEqual&&state.rootBreadcrumbEqual})()`),true,'Mounted Files reentry preserves the visible project/root without toggling');
+  } catch(error) { filesReentryError=error; }
+  const filesReentryCleanup=await settleCleanup(filesReentryError,[()=>cdp.evaluate(`(()=>{const before=window.__isirFilesReentry;document.removeEventListener('click',before.listener,true);delete window.__isirFilesReentry})()`)]);
+  if(filesReentryCleanup.error)throw filesReentryCleanup.error;
+  await click('Dokumenty');await click('Prepare this folder');
   await until(async()=> (await panelText()).includes('Output edited / removed'),'rendered output hash invalidation');
   await click('Validate saved output');
   const edited=await api(last,'lawoss/documents/outputs');
@@ -510,7 +533,11 @@ try {
   const first=workspaces[0],oldPath=first.path,moved=path.join(root,'cases','case-01 přesunutý spis');
   await openFiles(first);
   diagnostics.phase("relaunch");
-  cdp.close();cdp=null;await stop(appChild);
+  await stopForRelaunch({
+    requestQuit:()=>cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('isirNativeQuit')"),
+    readQuitAcceptance:()=>readNativeQuitAcceptance(appChild.isirNativeQuitAcceptance),
+    closeCdp:()=>{cdp.close();cdp=null;},child:appChild,stop,cleanupFailures:relaunchCleanupErrors,
+  });
   await rename(oldPath,moved);
   await writeFile(path.join(root,'chooser.json'),JSON.stringify({paths:[moved]}));
   appChild=launch(electron,[...(process.platform==='linux'?['--no-sandbox','--disable-gpu']:[]),path.join(repo,'apps/desktop/scripts/isir-native-entry.mjs')],path.join(repo,'apps/desktop'),'electron-relaunch');
@@ -519,12 +546,13 @@ try {
   assert.deepEqual(await cdp.evaluate('({visibility:document.visibilityState,focused:document.hasFocus()})'),{visibility:'visible',focused:true},'Relaunched owned page is active for production UI polling');
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1800,height:1400,deviceScaleFactor:1,mobile:false});
   await until(()=>cdp.evaluate('!!window.__legalworkControl'),'relaunched native renderer',90000);
-  await openFiles(first);
+  await openFiles(first,'reconnect');
   const recoveryStart=cdp.events.length;
   await click('Reconnect project folder');
   await until(async()=>{const saved=JSON.parse(await readFile(path.join(profile,'legalwork-workspaces.json'),'utf8'));const found=saved.workspaces.find(w=>w.id===first.id);return found?.path===moved},'production native chooser canonical reconnect transaction',90000);
   await until(()=>['/workspace/'+first.id+'/reconnect','/workspaces/'+first.id+'/activate'].every(path=>cdp.events.slice(recoveryStart).some(e=>e.method==='Network.responseReceived'&&new URL(e.params.response.url).pathname.endsWith(path)&&e.params.response.status===200)),'actual native reconnect and activation200');
   first.path=moved;
+  await openFiles(first);
   serverInfo=await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('legalworkServerInfo')");
   serverAuth={authorization:'Bearer '+(serverInfo.ownerToken||serverInfo.clientToken),'content-type':'application/json'};
   engineRequest=createNativeEngineClient(serverInfo,first.id,nativeFetch);
@@ -620,6 +648,7 @@ try {
   diagnostics.phase("complete");
 } catch (error) {
   primaryError = error;
+  for(const failure of relaunchCleanupErrors)console.error('Relaunch owned cleanup failure',JSON.stringify(errorMetadata(failure)));
   const failure = diagnostics.failure(error);
   console.error('Primary native failure before cleanup', JSON.stringify(failure));
   await diagnostics.captureEngineLog({error,selectedDirectory:workspaces[0].path,launchWallMs:engineLogLaunchWallMs,deadlineWallMs:engineLogDeadlineWallMs}).catch(()=>undefined);

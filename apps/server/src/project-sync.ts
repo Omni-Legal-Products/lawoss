@@ -1291,11 +1291,13 @@ export async function resolveProjectSync(
 
 export async function noteProjectPersonalizationSaved(config: ServerConfig, workspaceId: string, before: string, after: string): Promise<void> {
   if (before === after) return;
+  return withRuntimeDb(config, async () => {
   const store = await projectSyncStore(config);
   const link = store.linkByWorkspace(workspaceId);
   if (!link || link.state !== "active" || !link.settings.scope.metadata) return;
   store.enqueue(link.projectId, { kind: "personalization", prompt: after, changedAt: new Date().toISOString() });
   scheduleProjectSync(config);
+  });
 }
 
 export async function noteProjectDetailsSaved(

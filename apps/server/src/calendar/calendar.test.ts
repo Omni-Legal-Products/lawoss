@@ -1,12 +1,27 @@
-import { describe, test, expect } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
+import { afterEach, describe, test, expect } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CalendarStore } from "./store.js";
 import { exportCalendar, occurrences, parseCalendar, updateCalendar } from "./ical.js";
 import { calculateDeadline } from "./deadline-rules.js";
 
-const store = async () => CalendarStore.open(join(await mkdtemp(join(tmpdir(), "calendar-test-")), "runtime.sqlite"));
+
+const cleanups: Array<() => unknown | Promise<unknown>> = [];
+afterEach(async () => {
+  const errors: unknown[] = [];
+  while (cleanups.length) {
+    try { await cleanups.pop()?.(); } catch (error) { errors.push(error); }
+  }
+  if (errors.length) throw new AggregateError(errors, "Calendar fixture cleanup failed");
+});
+const store = async () => {
+  const root = await mkdtemp(join(tmpdir(), "calendar-test-"));
+  cleanups.push(() => rm(root, { recursive: true }));
+  const db = await CalendarStore.open(join(root, "runtime.sqlite"));
+  cleanups.push(() => db.close());
+  return db;
+};
 const fixture = (properties: string) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//EN\r\nBEGIN:VEVENT\r\nUID:series@test\r\nDTSTAMP:20260901T000000Z\r\n${properties}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`;
 describe("calendar storage and RFC5545", () => {
   test("empty calendars retain a required component without inventing an entry", () => {

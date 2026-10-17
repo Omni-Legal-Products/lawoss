@@ -1613,7 +1613,14 @@ export function trackWorkspaceSessionSync(input: SyncOptions, sessionId: string 
       // Idle was already observed before untracking, so no future idle event
       // will shorten the usual background retention. Release its HTTP slot;
       // optimistic accepted prompts, live retries and waiting still retain it.
-      const knownIdle = status?.data?.type === "idle" && (!activity?.errorActive || status.dataUpdatedAt > activity.updatedAt);
+      const evidence = activity?.executionEvidence;
+      const latestStatus = evidence?.status;
+      // A scoped native idle is ordered after the quota stop even when both
+      // publications share a clock tick. A later error replaces this evidence.
+      const nativeIdle = evidence?.source === "action" && !evidence.error
+        && evidence.scope !== null && evidence.scope(syncKey(input))
+        && latestStatus && typeof latestStatus === "object" && "type" in latestStatus && latestStatus.type === "idle";
+      const knownIdle = status?.data?.type === "idle" && (!activity?.errorActive || nativeIdle || status.dataUpdatedAt > activity.updatedAt);
       if (knownIdle && !activity?.runActive && !activity?.compacting && !activity?.waitingPermissionIds.length && !activity?.waitingQuestionIds.length) {
         flushDeltas(entry, input.workspaceId);
         clearTrackedSession(input, entry, normalizedSessionId);

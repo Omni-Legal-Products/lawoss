@@ -28,12 +28,20 @@ export async function connectRenderer(url, request = fetch) {
     const item = pending.get(value.id);
     if (!item) return;
     pending.delete(value.id); clearTimeout(item.timer);
-    value.error ? item.reject(new Error(JSON.stringify(value.error))) : item.resolve(value.result);
+    if (value.error) {
+      const error = new Error(JSON.stringify(value.error));
+      // One exact protocol error on the awaited evaluation, not a raw-message
+      // heuristic. Keep the Error object/message and ordinary errors unchanged.
+      if (item.method === 'Runtime.evaluate' && value.error.code === -32000 && value.error.message === 'Inspected target navigated or closed') {
+        Object.assign(error,{code:'ISIR_NATIVE_CDP_SHUTDOWN_NAVIGATION',cdpMethod:item.method,cdpCode:value.error.code});
+      }
+      item.reject(error);
+    } else item.resolve(value.result);
   });
   const send = (method, params = {}) => new Promise((resolve, reject) => {
     const id = ++next;
     const timer = globalThis.setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout ${method}`)); }, 30_000);
-    pending.set(id, { resolve, reject, timer });
+    pending.set(id, { resolve, reject, timer, method });
     ws.send(JSON.stringify({ id, method, params }));
   });
   await send("Runtime.enable");
@@ -51,3 +59,6 @@ export async function connectRenderer(url, request = fetch) {
     close() { ws.close(); for (const item of pending.values()) { clearTimeout(item.timer); item.reject(new Error("CDP closed")); } pending.clear(); },
   };
 }
+
+export const isNativeShutdownNavigation = error => error?.code === 'ISIR_NATIVE_CDP_SHUTDOWN_NAVIGATION' &&
+  error.cdpMethod === 'Runtime.evaluate' && error.cdpCode === -32000;

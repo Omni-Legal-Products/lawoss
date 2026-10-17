@@ -308,6 +308,33 @@ async function changePrompt(config: ServerConfig, workspace: WorkspaceInfo, prom
   await noteProjectPersonalizationSaved(config, workspace.id, before.personalizationPrompt ?? "", saved.personalizationPrompt ?? "");
 }
 
+test("standalone instruction notification queues once after its seed lifetime is released", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "standalone-personalization-"));
+  cleanups.push(() => rm(dir, { recursive: true, force: true }));
+  const config = { configPath: join(dir, "server.json"), workspaces: [] } as unknown as ServerConfig;
+  const seed = acquireRuntimeDbLifetime(config);
+  cleanups.push(() => seed.release());
+  const store = await projectSyncStore(config);
+  store.saveLink({ workspaceId: "standalone", projectId: "project", orgId: ORG, origin: "local", role: "owner", ownerUserId: "owner",
+    settings: settings(), confirmed: true, remoteUpdatedAt: null, filesReconciledAt: null, state: "active", allowDeletions: false,
+    lastSyncAt: null, lastError: null, report: null });
+  await seed.release();
+  await noteProjectPersonalizationSaved(config, "standalone", "old", "new instructions");
+  await noteProjectPersonalizationSaved(config, "standalone", "new instructions", "new instructions");
+  const inspection = acquireRuntimeDbLifetime(config);
+  cleanups.push(() => inspection.release());
+  const fresh = await projectSyncStore(config);
+  expect(fresh.pendingOps("project")).toMatchObject([{ kind: "personalization", prompt: "new instructions" }]);
+  expect(fresh.pendingOps("project")).toHaveLength(1);
+  const link = fresh.linkByWorkspace("standalone")!;
+  fresh.saveLink({ ...link, settings: settings({ scope: { ...ALL, metadata: false } }) });
+  await inspection.release();
+  await noteProjectPersonalizationSaved(config, "standalone", "new instructions", "private instructions");
+  const final = acquireRuntimeDbLifetime(config);
+  cleanups.push(() => final.release());
+  expect((await projectSyncStore(config)).pendingOps("project")).toHaveLength(1);
+});
+
 describe("project sync between computers", () => {
   test("a manual sync consumes its scheduled round without calling the real platform later", async () => {
     const { platform } = fakeFirm();
