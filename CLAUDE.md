@@ -218,3 +218,4 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 - Standalone fixtures that borrow a process-cached policy runtime must close its captured path explicitly before removal and restore environment state in finally. A server lifetime and a standalone operation have different ownership contracts; never discard policy secrets/throttle state to make cleanup pass.
 - Initialize multi-table SQLite schemas in one transaction; prove partial-schema rollback, legacy migration and real native-handle release without changing durability settings or filesystem validation.
+- Mounted regressions compiled separately from the application must restore exact global API property descriptors around their complete import/mount lifetime, including thrown assertions. A fixture-private inspector can otherwise hide the application route registry even while refresh events continue; prove live getter and event-owner continuity in a real browser.

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { nativeRendererLaunch } from './renderer.mjs';
 import { connectRenderer, until } from './cdp.mjs';
@@ -32,10 +32,16 @@ try {
   catch(error){if(error.code!=='ENOENT')throw error;await nativeRendererLaunch(appRoot,0,buildRoot);}
   assert.deepEqual(await readFile(path.join(previewRoot,'index.html')),await readFile(path.join(appRoot,'dist/index.html')));
   await writeFile(path.join(previewRoot,'__isir-fixtures/probe.html'),'<!doctype html><title>Owned chooser fixture</title>');
+  // The app and mounted fixtures are separate bundles in native acceptance.
+  // Compile the real, dependency-free inspector independently to retain that boundary.
+  const require=createRequire(path.join(appRoot,'package.json'));
+  const { transformWithEsbuild }=await import(pathToFileURL(path.join(path.dirname(require.resolve('vite/package.json')),'dist/node/index.js')).href);
+  const ownerSource=await readFile(path.join(appRoot,'src/app/lib/app-inspector.ts'),'utf8');
+  const ownerModule=await transformWithEsbuild(ownerSource,'app-inspector.ts',{loader:'ts',target:'esnext'});
+  await writeFile(path.join(previewRoot,'__isir-fixtures/owner-inspector.js'),ownerModule.code);
   // OS-selected file and destination are synthetic and owned by this invocation.
   await writeFile(path.join(root,'selected.txt'),'Synthetic chooser bytes');
   await new Promise(resolve=>sink.listen(0,'127.0.0.1',resolve));
-  const require=createRequire(path.join(appRoot,'package.json'));
   preview=spawn(process.execPath,[path.join(path.dirname(require.resolve('vite/package.json')),'bin/vite.js'),'preview','--host','127.0.0.1','--port','0','--outDir',previewRoot],{cwd:appRoot,detached:process.platform!=='win32',stdio:['ignore','pipe','pipe']});
   let output='';preview.stdout.on('data',c=>output+=c);preview.stderr.on('data',c=>output+=c);
   origin=await until(()=>output.match(/http:\/\/127\.0\.0\.1:\d+/)?.[0],'isolated preview URL');
@@ -48,6 +54,39 @@ try {
   const navigation=await cdp.send('Page.navigate',{url:`${origin}/__isir-fixtures/probe.html`});
   assert.equal(navigation.errorText,undefined,'Owned fixture navigation must succeed');
   await until(()=>cdp.evaluate(`location.origin===${JSON.stringify(origin)}&&document.readyState==='complete'`),'actual owned fixture document');
+  const ownership=[];
+  for(const failure of [false,true]) {
+    // Each document gets a fresh fixture registry, as on application startup.
+    await cdp.send('Page.navigate',{url:`${origin}/__isir-fixtures/probe.html?failure=${failure}`});
+    await until(()=>cdp.evaluate(`location.search==='?failure=${failure}'&&document.readyState==='complete'`),'fresh inspector ownership document');
+    ownership.push(await cdp.evaluate(`(async()=>{
+      const owner=await import('/__isir-fixtures/owner-inspector.js');
+      const route={loading:false,selectedWorkspaceId:'synthetic',displayName:'before'};
+      owner.publishInspectorSlice('route',()=>route);
+      const descriptor=Object.getOwnPropertyDescriptor(window,'__legalwork'),api=window.__legalwork;
+      const control={owned:true};Object.defineProperty(window,'__legalworkControl',{value:control,writable:true,configurable:true,enumerable:false});
+      const controlDescriptor=Object.getOwnPropertyDescriptor(window,'__legalworkControl');
+      const textDescriptor=Object.getOwnPropertyDescriptor(HTMLElement.prototype,'innerText');
+      let result,error;
+      try {
+        if(${failure})Object.defineProperty(HTMLElement.prototype,'innerText',{...textDescriptor,get(){if(this.style.zIndex==='2147483647')throw new Error('Injected Surface assertion read failure');return textDescriptor.get.call(this)}});
+        const surface=await import('/__isir-fixtures/session-render-boundary.js');
+        result=await surface.runNativeSessionRenderBoundary({baseUrl:${JSON.stringify(`http://127.0.0.1:${sink.address().port}`)},token:'synthetic',workspaceId:'synthetic',workspaceRoot:'/synthetic'});
+      } catch(caught){error=caught.message}
+      finally{Object.defineProperty(HTMLElement.prototype,'innerText',textDescriptor)}
+      const sameDescriptor=(name,expected)=>{const actual=Object.getOwnPropertyDescriptor(window,name);return actual&&Reflect.ownKeys(expected).every(key=>actual[key]===expected[key])&&Reflect.ownKeys(actual).length===Reflect.ownKeys(expected).length};
+      route.displayName='after';owner.recordInspectorEvent('owned.after.fixture',{selectedWorkspaceId:'synthetic'});
+      return {failure:${failure},result,error,apiRetained:window.__legalwork===api,descriptorRetained:sameDescriptor('__legalwork',descriptor),controlRetained:sameDescriptor('__legalworkControl',controlDescriptor),routeGetterRetained:window.__legalwork?.slice('route')===route,liveMetadata:window.__legalwork?.slice('route')?.displayName==='after',eventDelivered:api.events().some(event=>event.name==='owned.after.fixture')};
+    })()`));
+  }
+  console.log('Actual independently compiled inspector / mounted Surface ownership:',JSON.stringify(ownership));
+  for(const receipt of ownership){
+    if(receipt.failure)assert.equal(receipt.error,'Injected Surface assertion read failure');
+    else {assert.equal(receipt.error,undefined);assert.equal(receipt.result?.checks,54);}
+    for(const key of ['apiRetained','descriptorRetained','controlRetained','routeGetterRetained','liveMetadata','eventDelivered'])assert.equal(receipt[key],true,`Surface ${receipt.failure?'failure':'success'} preserves ${key}`);
+  }
+  await cdp.send('Page.navigate',{url:`${origin}/__isir-fixtures/probe.html?chooser`});
+  await until(()=>cdp.evaluate("location.search==='?chooser'&&document.readyState==='complete'"),'fresh chooser document');
   const mountedModules=await cdp.evaluate(`(async()=>{const surface=await import('/__isir-fixtures/session-render-boundary.js');const endpoint=await import('/__isir-fixtures/workspace-endpoint-stability.js');return {surface:typeof surface.runNativeSessionRenderBoundary,endpoint:endpoint.runNativeEndpointStabilityBehavior()};})()`);
   assert.equal(mountedModules.surface,'function');assert.equal(mountedModules.endpoint.actualMountedHook,true);assert.equal(mountedModules.endpoint.checks,28);
   await cdp.evaluate(`(async()=>{window.__chooserFixture=(await import('/__isir-fixtures/chooser-boundary.js')).mountChooserBoundaryFixture(${JSON.stringify(`http://127.0.0.1:${sink.address().port}/copy`)});window.__legalwork={slice:()=>({selectedWorkspaceId:'synthetic'})};})()`);

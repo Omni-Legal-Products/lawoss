@@ -868,3 +868,10 @@ Konečné lokálne výsledky a výslovne kompozitný app dôkaz sú uvedené v i
 |---|---|
 | `apps/server/src/legalwork-runtime-config.test.ts`, `mcp-shared-store.test.ts`, `runtime-opencode-config-store.test.ts`, `runtime-db-lifecycle.test.ts` | Fixture výslovne zatvorí vlastnú org-policy cache podľa zachytenej DB cesty, počká na unsubscribe, overí fyzické handle a obnoví env aj pri chybe. Pôvodné migračné očakávania a produkčná politika ostávajú. |
 | `apps/server/src/task-store.ts`, `project-sync-store.ts`, `runtime-db-lifecycle.test.ts`, `apps/server/scripts/runtime-db-lifecycle.node.test.mjs` | Jedna transakcia inicializácie schémy; skutočné ovládače Bun/Node overia rollback čiastočnej schémy, obnovu a uvoľnenie handle. Lokálne meranie zmierňuje hypotézu drahých jednotlivých commitov; pôvodných5s a fyzické path kontroly bez zmeny. Windows timing vyžaduje ďalší normálny CI. |
+
+
+### Natívne potvrdenie metadát po mounted fixture (task 4)
+
+| Súbory | Úzky zásah a hranica dôkazu |
+|---|---|
+| `apps/app/tests/session-render-boundary.test.tsx`, `lawoss/testing/isir/native/chooser-boundary.browser.mjs` | Oddelene kompilovaná Surface fixture obnovuje presné descriptory globálneho inspector/control API aj po vyhodenej chybe. Skutočný Chromium a nezávisle kompilovaný produkčný inspector dokazujú kontinuitu live getteru a event ownera; pôvodná skutočná route/metadata/native chooser regresia aj timeouty ostávajú. Všetky4 pôvodné platformové native joby sú RED; celý výsledok overí až normálny CI nového headu. |
