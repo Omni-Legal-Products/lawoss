@@ -1,6 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { serve } from "./serve-node.js";
+import { adapterCancellationCases, verifyAdapterCancellation, adapterLoggerIsolationCases, verifyAdapterLoggerIsolation } from "./test-support/opencode-proxy-cancellation.js";
+
+for (const scenario of adapterCancellationCases) {
+  // These two logging/early-header assertions belong to the Node adapter.
+  // The full unchanged matrix runs postbuild under real Node in CI.
+  test.skipIf(typeof Bun !== "undefined" && scenario.startsWith("read error"))(`HTTP response body ownership: ${scenario}`, () => verifyAdapterCancellation(serve, scenario), 10_000);
+}
+
+for (const scenario of adapterLoggerIsolationCases) {
+  test(`HTTP adapter fixture logger isolation: ${scenario}`, () => verifyAdapterLoggerIsolation(serve, scenario), 10_000);
+}
 
 describe("serve", () => {
   test("accepts the encoded size of a permitted wiki attachment", async () => {

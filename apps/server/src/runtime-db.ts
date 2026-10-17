@@ -1,8 +1,4 @@
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-
-import type { ServerConfig } from "./types.js";
-
+import { RuntimeDbInitializationError } from "./runtime-db-lifecycle.js";
 /**
  * runtime.sqlite, the machine's own store beside the server config: the
  * statements its stores need, over bun:sqlite (bun) or node:sqlite (Node /
@@ -14,6 +10,10 @@ export type Row = Record<string, unknown>;
 
 export type SqliteHandle = {
   close: () => void;
+  prepare: (sql: string) => {
+    run: (...params: SqlValue[]) => { changes: number | bigint };
+    get: (...params: SqlValue[]) => Row | undefined;
+  };
   run: (sql: string, params?: SqlValue[]) => void;
   all: (sql: string, params?: SqlValue[]) => Row[];
   get: (sql: string, params?: SqlValue[]) => Row | undefined;
@@ -24,8 +24,18 @@ export async function openSqlite(path: string): Promise<SqliteHandle> {
   if (typeof process.versions.bun === "string") {
     const { Database } = await import("bun:sqlite");
     const db = new Database(path, { create: true });
+    let closed = false;
     return {
-      close: () => db.close(),
+      close: () => { if (!closed) { db.close(true); closed = true; } },
+      // Bun finalizes cached query statements on close; uncached prepare statements
+      // otherwise keep sqlite3_close_v2 handles alive until garbage collection.
+      prepare: (sql) => {
+        const statement = db.query(sql);
+        return {
+          run: (...params) => statement.run(...params),
+          get: (...params) => (statement.get(...params) as Row | null) ?? undefined,
+        };
+      },
       run: (sql, params = []) => {
         db.query(sql).run(...params);
       },
@@ -38,8 +48,10 @@ export async function openSqlite(path: string): Promise<SqliteHandle> {
   }
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(path);
+  let closed = false;
   return {
-    close: () => db.close(),
+    close: () => { if (!closed) { db.close(); closed = true; } },
+    prepare: (sql) => db.prepare(sql),
     run: (sql, params = []) => {
       db.prepare(sql).run(...params);
     },
@@ -51,27 +63,22 @@ export async function openSqlite(path: string): Promise<SqliteHandle> {
   };
 }
 
-const ownedRuntimePaths = new WeakMap<ServerConfig, { path: string; owners: number }>();
+export { runtimeDbPath } from "./runtime-db-lifecycle.js";
 
-/** Keep accepted server work on its owned runtime until every listener stops. */
-export function retainRuntimeDbPath(config: ServerConfig, path = runtimeDbPath(config)): () => void {
-  const state = ownedRuntimePaths.get(config) ?? { path, owners: 0 };
-  state.owners++;
-  ownedRuntimePaths.set(config, state);
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    if (--state.owners === 0) ownedRuntimePaths.delete(config);
-  };
-}
 
-export function runtimeDbPath(config: ServerConfig): string {
-  const owned = ownedRuntimePaths.get(config);
-  if (owned) return owned.path;
-  const override = process.env.LEGALWORK_RUNTIME_DB?.trim();
-  if (override) return resolve(override);
-  const configPath = config.configPath?.trim();
-  const configDir = configPath ? dirname(configPath) : join(homedir(), ".config", "legalwork");
-  return join(configDir, "runtime.sqlite");
+/** Close partial initialization without discarding either failure or its real native handle. */
+export async function initializeSqlite<T>(path: string, initialize: (db: SqliteHandle) => T | Promise<T>): Promise<T> {
+  const db = await openSqlite(path);
+  try { return await initialize(db); }
+  catch (initializationError) {
+    try { db.close(); }
+    catch (cleanupError) {
+      let retry: Promise<void> | undefined;
+      throw new RuntimeDbInitializationError([initializationError, cleanupError], db, () => {
+        retry ??= Promise.resolve().then(() => db.close()).catch(error => { retry = undefined; throw error; });
+        return retry;
+      });
+    }
+    throw initializationError;
+  }
 }

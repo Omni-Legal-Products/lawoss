@@ -1,3 +1,6 @@
+import { runtimeDbHandles } from "./test-support/runtime-db-handles.js";
+import { closeOrgPolicyRuntime } from "./org-policy.js";
+import { runtimeDbPath } from "./runtime-db-lifecycle.js";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -20,14 +23,24 @@ import {
 import type { ServerConfig } from "./types.js";
 
 const roots: string[] = [];
-const cleanups: Array<() => void> = [];
+const cleanups: Array<() => void | Promise<void>> = [];
 let previousDb: string | undefined;
 
 afterEach(async () => {
-  while (cleanups.length) cleanups.pop()?.();
-  while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
-  if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
-  else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+  const errors: unknown[] = [];
+  try {
+    while (cleanups.length) {
+      try { await cleanups.pop()?.(); } catch (error) { errors.push(error); }
+    }
+    while (roots.length) {
+      try { await rm(roots.pop()!, { recursive: true, force: true }); } catch (error) { errors.push(error); }
+    }
+  } finally {
+    if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
+    else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+  }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length) throw new AggregateError(errors, "Fixture cleanup failed");
 });
 
 async function setup() {
@@ -53,6 +66,11 @@ async function setup() {
     logFormat: "pretty",
     logRequests: false,
   };
+  const path = runtimeDbPath(config);
+  cleanups.push(async () => {
+    await closeOrgPolicyRuntime(config, path);
+    expect(await runtimeDbHandles(path)).toBe(0);
+  });
   return { root, config };
 }
 

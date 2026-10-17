@@ -116,6 +116,17 @@ jobs:
         if: runner.os == 'Linux'
         run: pnpm --filter legalwork-server test:node
 
+      - name: Build server for the macOS Node proxy cancellation gate
+        if: runner.os == 'macOS'
+        run: pnpm --filter legalwork-server build
+
+      - name: Verify SQLite lifetime and proxy cancellation under macOS Node
+        if: runner.os == 'macOS'
+        run: node --test apps/server/scripts/runtime-db-lifecycle.node.test.mjs apps/server/scripts/opencode-proxy-cancellation.node.test.mjs
+
+      - name: Verify native ISIR bootstrap, diagnostics and owned resources
+        run: node --test lawoss/testing/isir/native/*.test.mjs
+
       # LAWOSS: server/dist musí fungovať aj v rozložení app.asar, kde koreňový lawoss/ chýba.
       - name: Verify packaged server modules load
         if: runner.os == 'Linux'

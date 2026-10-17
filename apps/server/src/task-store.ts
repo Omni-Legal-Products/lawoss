@@ -1,3 +1,4 @@
+import { runtimeDbResource } from "./runtime-db-lifecycle.js";
 import { matchesSearch, searchExcerpt, type ContentSearchResult } from "./search-schema.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
@@ -6,7 +7,7 @@ import { dirname, join } from "node:path";
 
 import { ApiError } from "./errors.js";
 import { PROJECT_SYNC_SCHEMA } from "./project-sync-store.js";
-import { openSqlite, runtimeDbPath, type Row, type SqliteHandle, type SqlValue } from "./runtime-db.js";
+import { initializeSqlite, runtimeDbPath, type Row, type SqliteHandle, type SqlValue } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
 
@@ -460,9 +461,6 @@ const MIGRATION_COLUMNS: string[] = [
 const SIGNED_OUT_FLAG = "signed_out_at";
 
 /** Attachment bytes live as files next to the DB, one directory per task. */
-function attachmentsDir(config: ServerConfig): string {
-  return join(dirname(runtimeDbPath(config)), "task-attachments");
-}
 
 // ---------------------------------------------------------------------------
 // Value helpers
@@ -633,10 +631,12 @@ export class TaskStore {
 
   static async open(path: string, filesDir: string): Promise<TaskStore> {
     await ensureDir(dirname(path));
-    const db = await openSqlite(path);
+    return initializeSqlite(path, (db) => {
     // Several store modules hold their own connection to runtime.sqlite, so a
     // write must wait for a sibling's rather than fail at once.
     db.exec("PRAGMA busy_timeout = 5000");
+    // One durable schema commit; initializeSqlite closes/rolls back on failure.
+    db.exec("BEGIN IMMEDIATE");
     for (const statement of SCHEMA) db.exec(statement);
     // project_links tells a task of a local project from one of a synced project.
     for (const statement of PROJECT_SYNC_SCHEMA) db.exec(statement);
@@ -659,8 +659,13 @@ export class TaskStore {
       );
       db.exec("DROP TABLE task_session_links");
     }
+    db.exec("COMMIT");
     return new TaskStore(db, filesDir);
+    });
   }
+
+  /** Independently opened stores belong to their caller; cached stores to their lifetime. */
+  close(): void { this.db.close(); }
 
   private transaction<T>(fn: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");
@@ -1892,7 +1897,7 @@ export class TaskStore {
   }
 }
 
-const storeByPath = new Map<string, Promise<TaskStore>>();
+const resourceKey = Symbol("task-store");
 
 /**
  * Whether this machine has a runtime DB (and so maybe tasks) yet. Background
@@ -1900,17 +1905,17 @@ const storeByPath = new Map<string, Promise<TaskStore>>();
  * (or its folders) where there is nothing to read.
  */
 export function taskStoreAvailable(config: ServerConfig): boolean {
-  return storeByPath.has(runtimeDbPath(config)) || existsSync(runtimeDbPath(config));
+  return existsSync(runtimeDbPath(config));
 }
 
-/** The machine's task store, opened once per runtime DB path. */
+/** The machine's task store, borrowed from an active runtime lifetime.
+ * Standalone callers must hold acquireRuntimeDbLifetime(config) across every
+ * awaited use, then release it. Use TaskStore.open for an independently owned instance.
+ */
 export function taskStore(config: ServerConfig): Promise<TaskStore> {
-  const path = runtimeDbPath(config);
-  const existing = storeByPath.get(path);
-  if (existing) return existing;
-  const dir = attachmentsDir(config);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const opened = TaskStore.open(path, dir);
-  storeByPath.set(path, opened);
-  return opened;
+  return runtimeDbResource(config, resourceKey, path => {
+    const dir = join(dirname(path), "task-attachments");
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    return TaskStore.open(path, dir);
+  });
 }

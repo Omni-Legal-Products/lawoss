@@ -11,6 +11,7 @@ test("hosted subscription lifecycle, private snapshots, account isolation and ba
     import { createHash, randomBytes, randomUUID } from "node:crypto";
     import { join } from "node:path";
     const { calendarSubscription, changeCalendarSubscription, syncCalendarSubscriptions, subscriptionPayload } = await import(${JSON.stringify(source)} + "subscriptions.ts");
+    const { acquireRuntimeDbLifetime } = await import(${JSON.stringify(source)} + "../runtime-db-lifecycle.ts");
     const { calendarStore } = await import(${JSON.stringify(source)} + "store.ts");
     const { taskStore } = await import(${JSON.stringify(source)} + "../task-store.ts");
     const { projectSyncStore } = await import(${JSON.stringify(source)} + "../project-sync-store.ts");
@@ -20,6 +21,7 @@ test("hosted subscription lifecycle, private snapshots, account isolation and ba
       approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [],
       workspaces: ["one", "two", "member"].map(id => ({ id, name: id, path: join(root, id), preset: "starter", workspaceType: "local" })),
       authorizedRoots: [], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+    const owner = acquireRuntimeDbLifetime(config);
     const feeds = new Map(); let posts = 0, puts = 0, available = true, offline = false;
     const platform = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
       if (offline) return Response.json({ message: "Offline" }, { status: 503 });
@@ -76,7 +78,7 @@ test("hosted subscription lifecycle, private snapshots, account isolation and ba
       await syncCalendarSubscriptions(config); assert(!feeds.has(replacement.url.split("/").at(-1)));
       assert(!JSON.stringify(feeds.get(allToken).body).includes(deadline.uid));
       console.log("subscription checks passed");
-    } finally { platform.stop(true); }
+    } finally { platform.stop(true); await owner.release(); }
   `);
   try {
     const child = Bun.spawn([process.execPath, script], { env: { ...process.env, XDG_CONFIG_HOME: root, LEGALWORK_RUNTIME_DB: join(root, "runtime.sqlite") }, stdout: "pipe", stderr: "pipe" });

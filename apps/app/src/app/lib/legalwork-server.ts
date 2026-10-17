@@ -1556,11 +1556,11 @@ async function fetchWithDeadline(
 async function requestJson<T>(
   baseUrl: string,
   path: string,
-  options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number; signal?: AbortSignal } = {},
+  options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number; signal?: AbortSignal; preserveTransport?: boolean } = {},
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
   // The desktop text bridge cannot cancel an in-flight search request.
-  const fetchImpl = options.signal ? globalThis.fetch.bind(globalThis) : resolveFetch(url);
+  const fetchImpl = options.signal && !options.preserveTransport ? globalThis.fetch.bind(globalThis) : resolveFetch(url);
   const response = await fetchWithTimeout(
     fetchImpl,
     url,
@@ -2284,15 +2284,79 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/usage-limit`, {
         token, hostToken, method: "POST", body: { messageId, ...(limit ? { limit } : {}) },
       }),
-    getSessionSnapshot: (workspaceId: string, sessionId: string, options?: { limit?: number }) => {
-      const query = new URLSearchParams();
-      if (typeof options?.limit === "number") query.set("limit", String(options.limit));
-      const suffix = query.size ? `?${query.toString()}` : "";
-      return requestJson<{ item: LegalworkSessionSnapshot }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/snapshot${suffix}`,
-        { token, hostToken, timeoutMs: timeouts.sessionRead },
-      );
+    getSessionSnapshot: async (workspaceId: string, sessionId: string, options?: { limit?: number; signal?: AbortSignal }) => {
+      const controller = new AbortController();
+      const expiresAt = performance.now() + timeouts.sessionRead;
+      const timeoutError = new Error(t("app.request_timed_out"));
+      let timedOut = false;
+      let removeCallerAbort = () => {};
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+          reject(timeoutError);
+        }, timeouts.sessionRead);
+      });
+      let callerAborted = false;
+      const callerAbort = new Promise<never>((_, reject) => {
+        const abort = () => {
+          callerAborted = true;
+          controller.abort(options?.signal?.reason);
+          reject(options?.signal?.reason);
+        };
+        if (options?.signal?.aborted) abort();
+        else options?.signal?.addEventListener("abort", abort, { once: true });
+        removeCallerAbort = () => options?.signal?.removeEventListener("abort", abort);
+      });
+      const checkDeadline = () => {
+        if (callerAborted) throw options?.signal?.reason;
+        if (timedOut || performance.now() >= expiresAt) {
+          timedOut = true;
+          controller.abort();
+          throw timeoutError;
+        }
+      };
+      const read = async (limit?: number) => {
+        checkDeadline();
+        const query = new URLSearchParams();
+        if (typeof limit === "number") query.set("limit", String(limit));
+        const suffix = query.size ? `?${query.toString()}` : "";
+        const result = await requestJson<{ item: LegalworkSessionSnapshot }>(
+          baseUrl,
+          `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/snapshot${suffix}`,
+          // One owned deadline covers both response bodies and optional full read.
+          // Retain desktop transport even though the snapshot owns an abort signal.
+          { token, hostToken, timeoutMs: 0, signal: controller.signal, preserveTransport: true },
+        );
+        checkDeadline();
+        return result;
+      };
+      const missingBoundary = (snapshot: LegalworkSessionSnapshot) => {
+        const cursor = snapshot.session.revert?.messageID;
+        return cursor !== undefined && !snapshot.messages.some((message) => message.info.id === cursor);
+      };
+      const load = async () => {
+        try {
+          let result = await read(options?.limit);
+          if (missingBoundary(result.item) && typeof options?.limit === "number") result = await read();
+          if (missingBoundary(result.item)) {
+            throw new LegalworkServerError(409, "session_revert_boundary_unresolved", t("session.load_failed"));
+          }
+          return result;
+        } catch (error) {
+          checkDeadline();
+          if (error instanceof SyntaxError) throw new Error(t("session.load_failed"));
+          throw error;
+        }
+      };
+      try {
+        return await Promise.race([load(), deadline, callerAbort]);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+        removeCallerAbort();
+        controller.abort();
+      }
     },
     exportWorkspace: (
       workspaceId: string,

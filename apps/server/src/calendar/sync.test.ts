@@ -1,3 +1,4 @@
+import { acquireRuntimeDbLifetime } from "../runtime-db-lifecycle.js";
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -32,8 +33,10 @@ test("calendar HTTP sync survives offline edits, maps project IDs, resolves conc
     return Response.json({ items, conflicts });
   } });
   const client = { platformURL: `http://127.0.0.1:${endpoint.port}`, platformToken: "test-token" };
+  const alice = config("alice"), bob = config("bob");
+  const owners = [acquireRuntimeDbLifetime(alice), acquireRuntimeDbLifetime(bob)];
   try {
-    const alice = config("alice"), bob = config("bob"), a = await calendarStore(alice), b = await calendarStore(bob);
+    const a = await calendarStore(alice), b = await calendarStore(bob);
     const aliceLink = link("alice-local", "owner"), bobLink = link("bob-local", "member");
     const original = a.create(aliceLink.workspaceId, { title: "Deadline", start: "2026-09-30", sessionIds: ["ses_alice"], attachmentPaths: ["Order.pdf"], taskIds: [randomUUID()] });
     await expect(syncProjectCalendar(alice, client, aliceLink)).rejects.toThrow();
@@ -58,5 +61,5 @@ test("calendar HTTP sync survives offline edits, maps project IDs, resolves conc
     await syncProjectCalendar(alice, client, { ...aliceLink, settings: { ...aliceLink.settings, scope: { ...aliceLink.settings.scope, calendar: false } } });
     expect(a.get(aliceLink.workspaceId, original.id).uid).toBe(original.uid);
     expect(writes.length).toBeGreaterThan(2);
-  } finally { endpoint.stop(true); await rm(root, { recursive: true, force: true }); }
+  } finally { endpoint.stop(true); await Promise.all(owners.map(owner => owner.release())); await rm(root, { recursive: true, force: true }); }
 });

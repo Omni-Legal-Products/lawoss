@@ -1,3 +1,4 @@
+import { acquireRuntimeDbLifetime, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { resolveWorkspaceFilePath, recheckWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { LawossDocuments } from "./lawoss/documents/service.js";
 import { registerLawossDocumentRoutes } from "./routes/lawoss-documents.js";
@@ -9,7 +10,7 @@ import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { stopMessageQueue } from "./session-message-queue.js";
 import { withSessionExecution } from "./session-execution-gate.js";
-import { retainRuntimeDbPath, runtimeDbPath } from "./runtime-db.js";
+import { runtimeDbPath } from "./runtime-db.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
 import { ScheduledTaskRunner } from "./scheduled-tasks/runner.js";
@@ -816,83 +817,97 @@ export type StartedServer = ServeResult & {
   wordAddinPort: number | null;
 };
 
-// Distinct listeners may share a runtime, including during server replacement.
-// The last owner drains shared work before releasing its cached connections.
-const serverRuntimeOwners = new Map<string, { count: number; closing?: Promise<void> }>();
-async function retainServerRuntime(config: ServerConfig): Promise<() => Promise<void>> {
-  const path = runtimeDbPath(config);
-  while (serverRuntimeOwners.get(path)?.closing) await serverRuntimeOwners.get(path)?.closing;
-  const releasePath = retainRuntimeDbPath(config, path);
-  const state = serverRuntimeOwners.get(path) ?? { count: 0 };
-  state.count++;
-  serverRuntimeOwners.set(path, state);
-  let released = false;
-  return async () => {
-    if (released) return;
-    released = true;
-    try {
-      if (--state.count) return;
-      state.closing = (async () => {
-        try {
-          await Promise.all([closeOrgPolicyRuntime(config, path), closeFirmHubRuntime(config, join(dirname(path), 'firm-hub'))]);
-          await Promise.all([closeRuntimeOpencodeConfig(config, path), closeEigenweltConnection(config, path)]);
-        } finally { serverRuntimeOwners.delete(path); }
-      })();
-      await state.closing;
-    } finally { releasePath(); }
-  };
-}
+const orgPolicyResource = Symbol("server-org-policy");
+const firmHubResource = Symbol("server-firm-hub");
 
 export async function startServer(config: ServerConfig, runtimeOptions: { documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void> } = {}): Promise<StartedServer> {
-  const releaseRuntime = await retainServerRuntime(config);
-  let ownedScheduledTasks: ScheduledTaskStore | undefined;
-  try {
+  const lifetime = acquireRuntimeDbLifetime(config);
+  const cleanups: Array<() => void | Promise<unknown>> = [];
+  const producerStops: Array<() => void | Promise<unknown>> = [];
+  let stopping = false;
+  let stopPromise: Promise<void> | undefined;
+  const stop = () => {
+    if (stopPromise) return stopPromise;
+    stopping = true;
+    stopPromise = (async () => {
+      const errors: unknown[] = [];
+      const producers = producerStops.map(async cancel => { try { await cancel(); } catch (error) { errors.push(error); } });
+      // Cancel admission for every producer, then drain accepted work while
+      // its stores/services are still live (scheduled delivery, wiki sync, etc.).
+      await Promise.all(producers);
+      for (const cleanup of cleanups.reverse()) {
+        try { await cleanup(); } catch (error) { errors.push(error); }
+      }
+      try { await lifetime.release(); } catch (error) { errors.push(error); }
+      if (errors.length) throw new AggregateError(errors, "Failed to stop server resources");
+    })();
+    return stopPromise;
+  };
+  try { return await lifetime.run(async () => {
+
+  // These current-dev caches share PR157's captured generation and final owner.
+  await runtimeDbResource(config, orgPolicyResource, async path => ({ close: () => closeOrgPolicyRuntime(config, path) }));
+  await runtimeDbResource(config, firmHubResource, async path => ({ close: () => closeFirmHubRuntime(config, join(dirname(path), "firm-hub")) }));
+  cleanups.push(() => stopMessageQueue(config));
+  producerStops.push(retainOrgPolicyReloads(config));
   const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"));
+  cleanups.push(() => approvals.dispose());
   const agentSandbox = new AgentSandboxService(config, approvals);
+  cleanups.push(() => agentSandbox.stop());
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
   const env = new EnvService();
   const logger = createServerLogger(config);
   const wikiStore = new WikiStore(config);
+  cleanups.push(() => wikiStore.close());
   await wikiStore.list();
   let watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
+  cleanups.push(() => { watcherHandle.close(); workspaceBootstrapPromises.delete(config); reloadBaselineRefreshers.delete(config); });
   reloadBaselineRefreshers.set(
     config,
     (workspaceId, reasons) => watcherHandle.refreshWorkspace(workspaceId, reasons),
   );
   const restartReloadWatchers = () => {
+    if (stopping) return;
     watcherHandle.close();
     watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
   // Tasks push and pull with the firm's account in the background (a no-op
   // while no firm is connected); each local write also asks for a round.
   const stopTaskSync = startTaskSyncTimer(config);
+  producerStops.push(stopTaskSync);
   // Synced projects (Akten) likewise; a project arriving from the firm is a
   // new folder for the reload watchers too.
-  configureProjectSync(config, { onWorkspacesChanged: () => restartReloadWatchers() });
+  cleanups.push(configureProjectSync(config, { onWorkspacesChanged: () => restartReloadWatchers() }));
   const stopProjectSyncTimer = startProjectSyncTimer(config);
+  producerStops.push(stopProjectSyncTimer);
   // The firm pokes this computer when something changed, so rounds start at once.
   const stopSyncEvents = startSyncEvents(config);
+  producerStops.push(stopSyncEvents);
   const stopSandboxSettingsSync = startSandboxSettingsSync(config);
   // The firm's policy: pulled now and whenever the firm pokes; what changes
   // the engine's settings reloads the engines once they are idle.
   const stopOrgPolicy = onOrgPolicyChange(config, (scopes) => {
-    if (scopes.has("engine")) applyOrgPolicyToEngines(config);
+    if (!stopping && scopes.has("engine")) applyOrgPolicyToEngines(config);
   });
-  void scheduleOrgPolicySync(config, { force: true });
+  void withRuntimeDb(config, () => scheduleOrgPolicySync(config, { force: true }));
   // The firm's Knowledge Hub likewise: what it installs for everyone, and what
   // the member added, follows the platform; connectors and skills reload the engines.
   const stopFirmHub = onFirmHubChange(config, (changes) => {
-    if (changes.has("engine")) applyOrgPolicyToEngines(config);
+    if (!stopping && changes.has("engine")) applyOrgPolicyToEngines(config);
   });
-  void scheduleFirmHubSync(config, { force: true });
+  void withRuntimeDb(config, () => scheduleFirmHubSync(config, { force: true }));
+  producerStops.push(stopSandboxSettingsSync, stopOrgPolicy, stopFirmHub);
   // Due days are checked every minute, connected or not, for the app to announce.
   const stopTaskReminders = startTaskReminderTimer(config);
+  producerStops.push(stopTaskReminders);
   // LAWOSS: týždenná kontrola vydaní LAWOSS Marketplace, nikdy hneď pri štarte (lawoss/marketplace-updates.ts).
   const stopMarketplaceCheck = startWeeklyMarketplaceCheck(config);
+  producerStops.push(stopMarketplaceCheck);
   const officeTools = new OfficeToolRelay();
   const wikiSync = new WikiSync(config, wikiStore);
   wikiSync.start();
+  producerStops.push(() => wikiSync.stop());
   const benchmarkRunner = new BenchmarkRunner({
     config,
     // The SDK client is structurally compatible with the runner's reduced
@@ -904,8 +919,11 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   });
   // LAWOSS: OCR models download only after the lawyer turns OCR on (lawoss/ocr-opt-in.ts).
   const ocr = new LawossOcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config));
+  cleanups.push(() => { benchmarkRunner.dispose(); ocr.stop(); });
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
+  cleanups.push(() => preparation.stop());
   const documents = new LawossDocuments(config, preparation);
+  cleanups.push(() => documents.stop());
   const corpus = new CorpusService({
     selection: async () => {
       const settings = await readSystemOneSettings(config);
@@ -918,12 +936,14 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     extract: (workspace, path, signal) => extractCorpusText(workspace, path, preparation, signal),
     infer: (request, selection, signal) => systemOne(config, request, { providerId: selection.providerId, signal, retry: false }),
   });
+  cleanups.push(() => corpus.stop());
   const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config), {
     settings: async () => (await appliedOrgPolicy(config, "reviews.defaults"))?.value ?? null,
     requireUnmanaged: () => requireOrgPolicyUnmanaged(config, "reviews.defaults"),
   }));
+  cleanups.push(() => reviews.stop());
   const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
-  ownedScheduledTasks = scheduledTasks;
+  cleanups.push(() => scheduledTasks.close());
   const scheduledWorkspace = async (task: ScheduledTask) => {
     const workspace = await resolveWorkspace(config, task.workspaceId);
     if (workspace.workspaceType === "remote") throw new ApiError(400, "local_schedule_only", "Scheduled tasks require a local project.");
@@ -1019,7 +1039,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   } = {
     hostname: config.host,
     port: config.port,
-    fetch: async (request: Request) => {
+    fetch: (request: Request) => {
+      if (stopping) return new Response("Server stopping", { status: 503 });
+      return lifetime.run(async () => {
       const url = new URL(request.url);
       const startedAt = Date.now();
       let authMode: AuthMode = "none";
@@ -1215,6 +1237,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
         errorMessage = apiError.message;
         return finalize(jsonResponse(formatError(apiError), apiError.status));
       }
+      });
     },
   };
 
@@ -1223,6 +1246,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     idleTimeout: 120,
   });
 
+  cleanups.push(() => server.stop());
   config.port = server.port;
 
   if (config.autoDownloadOcr && !config.readOnly) void ocr.downloadDefaultIfNeeded();
@@ -1249,6 +1273,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
           idleTimeout: 120,
           tls: tlsMaterial.tls,
         });
+        cleanups.push(() => wordAddinServer?.stop());
         // Keep the manifest in sync with the actually bound port.
         config.wordAddin = { ...config.wordAddin, port: wordAddinServer.port };
         logger.log(
@@ -1263,54 +1288,17 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   }
 
   const stopScheduledTasks = config.readOnly ? () => {} : scheduledRunner.start();
-  let stopping: Promise<void> | undefined;
+  producerStops.push(stopScheduledTasks);
   const startedServer = {
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
-    stop: () => stopping ??= (async () => {
-      await stopSandboxSettingsSync();
-      agentSandbox.stop();
-      approvals.dispose();
-      stopMessageQueue(config);
-      await corpus.stop();
-      reviews.stop();
-      await documents.stop();
-      preparation.stop();
-      ocr.stop();
-      stopTaskSync();
-      stopProjectSyncTimer();
-      stopSyncEvents();
-      stopOrgPolicy();
-      stopFirmHub();
-      stopTaskReminders();
-      stopMarketplaceCheck();
-      await stopScheduledTasks();
-      await wikiSync.stop();
-      await wikiStore.close();
-      benchmarkRunner.dispose();
-      watcherHandle.close();
-      workspaceBootstrapPromises.delete(config);
-      reloadBaselineRefreshers.delete(config);
-      await wordAddinServer?.stop();
-      await server.stop();
-      scheduledTasks.close();
-      ownedScheduledTasks = undefined;
-      await releaseRuntime();
-    })(),
+    stop,
   };
-  try {
-    // Bind first: a busy preferred port can move the listener. Agent tools
-    // must receive this listener's actual address and matching credentials.
     await runtimeOptions.onListening?.(server.port);
     ready = true;
     return startedServer;
-  } catch (error) {
-    await startedServer.stop();
-    throw error;
-  }
-  } catch (error) {
-    ownedScheduledTasks?.close();
-    await releaseRuntime();
+  }); } catch (error) {
+    try { await stop(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "Server startup and cleanup failed"); }
     throw error;
   }
 }
@@ -1485,7 +1473,7 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     const metadataHeaders = new Headers(headers);
     metadataHeaders.delete("content-length");
     metadataHeaders.delete("content-type");
-    const metadata = await fetch(metadataUrl, { headers: metadataHeaders, signal: AbortSignal.timeout(10_000) });
+    const metadata = await fetch(metadataUrl, { headers: metadataHeaders, signal: AbortSignal.any([input.request.signal, AbortSignal.timeout(10_000)]) });
     if (!metadata.ok) throw new ApiError(404, "session_not_found", "Session not found");
     const parsed = sessionInfoSchema.safeParse(await metadata.json());
     if (!parsed.success || !workspaceOwnsSession(workspace, parsed.data)) throw new ApiError(404, "session_not_found", "Session does not belong to this project");
@@ -1535,6 +1523,7 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     method,
     headers,
     body,
+    signal: input.request.signal,
   });
 
   if (workspace && method === "GET" && scopedProxyPath === "/session" && response.ok && (workspace.previousPaths?.length || workspace.appFilesStorageKey)) {
@@ -1943,7 +1932,9 @@ function createRoutes(
     const primary = config.workspaces.find(workspace => workspace.workspaceType !== "remote");
     if (primary) {
       await writeLegalworkRuntimeConfigFile(config, primary.id);
-      idleWorkspaceReloads = idleWorkspaceReloads.then(async () => {
+      const previousReload = idleWorkspaceReloads;
+      idleWorkspaceReloads = withRuntimeDb(config, async () => {
+        await previousReload;
         for (const workspace of config.workspaces) {
           if (workspace.workspaceType === "remote") continue;
           try {
@@ -2073,7 +2064,9 @@ function createRoutes(
   // Po zmene globálnych pluginov sa nečinné inštancie enginu obnovia (nové skilly a MCP), pri bežiacej úlohe len MCP a výzva na obnovu.
   registerLawossMarketplaceRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, resolveWorkspace: (id) => resolveWorkspace(config, id), afterChange: async (ctx) => {
     const local = config.workspaces.filter((item) => item.workspaceType !== "remote");
-    idleWorkspaceReloads = idleWorkspaceReloads.then(async () => {
+    const previousReload = idleWorkspaceReloads;
+      idleWorkspaceReloads = withRuntimeDb(config, async () => {
+        await previousReload;
       for (const workspace of local) {
         try {
           if (!(await workspaceEngineBusy(config, workspace))) { await reloadOpencodeEngine(config, workspace); continue; }
@@ -4281,16 +4274,6 @@ function createRoutes(
         await requireOrgPolicyAllows(config, "ai.chat.allowCustom");
       }
       if (Object.keys(providerUpdate).length) {
-        // Mark disconnections before deleting config: the engine may still
-        // return its old provider until the client finishes reloading it.
-        await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {
-          const settings = readModelRefreshSettings(current.customProviderModelRefresh);
-          for (const [id, provider] of Object.entries(providerUpdate)) {
-            if (provider === null) settings[id] = { ...settings[id], enabled: false, disconnected: true, pendingReload: false };
-            else if (settings[id]?.disconnected) settings[id] = { ...settings[id], disconnected: false };
-          }
-          return { ...current, customProviderModelRefresh: settings };
-        });
         // LAWOSS: vlastní poskytovatelia sú globálni (GLOBAL_PROVIDERS_ID). `null` odstráni
         // poskytovateľa z globálneho riadku aj zo starého riadku priečinka.
         const globalRuntime = await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID);
@@ -4318,6 +4301,16 @@ function createRoutes(
         if (providerConflicts.length && body.confirmProviderOverwrite !== true) {
           throw new ApiError(409, "provider_conflict", "Another workspace has a different provider with the same id.", { providerConflicts });
         }
+        // Mark disconnections before deleting config: the engine may still
+        // return its old provider until the client finishes reloading it.
+        await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {
+          const settings = readModelRefreshSettings(current.customProviderModelRefresh);
+          for (const [id, provider] of Object.entries(providerUpdate)) {
+            if (provider === null) settings[id] = { ...settings[id], enabled: false, disconnected: true, pendingReload: false };
+            else if (settings[id]?.disconnected) settings[id] = { ...settings[id], disconnected: false };
+          }
+          return { ...current, customProviderModelRefresh: settings };
+        });
         const nextGlobal = mergeRuntimeProviderPatch(globalProviders, providerUpdate);
         await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, (current) => ({
           ...current,
@@ -5734,7 +5727,9 @@ async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceIn
 // reloads that workspace itself once it is open and idle.
 let idleWorkspaceReloads: Promise<void> = Promise.resolve();
 function reloadIdleWorkspaceEngines(config: ServerConfig, origin: WorkspaceInfo): void {
-  idleWorkspaceReloads = idleWorkspaceReloads.then(async () => {
+  const previousReload = idleWorkspaceReloads;
+  idleWorkspaceReloads = withRuntimeDb(config, async () => {
+    await previousReload;
     for (const workspace of otherLocalWorkspaces(config, origin)) {
       try {
         if (await workspaceEngineBusy(config, workspace)) continue;
@@ -5752,17 +5747,34 @@ function reloadIdleWorkspaceEngines(config: ServerConfig, origin: WorkspaceInfo)
 // an engine instance built later reads the new file anyway.
 const ORG_POLICY_RELOAD_RETRY_MS = 30_000;
 const ORG_POLICY_RELOAD_ATTEMPTS = 60;
-const orgPolicyReloads = new WeakMap<ServerConfig, { pending: Set<string>; attempts: number; timer: ReturnType<typeof setTimeout> | null }>();
+type OrgPolicyReloadState = { pending: Set<string>; attempts: number; timer: ReturnType<typeof setTimeout> | null; owners: number; stopped: boolean };
+const orgPolicyReloads = new WeakMap<ServerConfig, OrgPolicyReloadState>();
+function retainOrgPolicyReloads(config: ServerConfig): () => void {
+  const state = orgPolicyReloads.get(config) ?? { pending: new Set<string>(), attempts: 0, timer: null, owners: 0, stopped: false };
+  state.owners++;state.stopped=false;orgPolicyReloads.set(config,state);
+  return () => {
+    if (--state.owners) return;
+    state.stopped=true;
+    if (state.timer) clearTimeout(state.timer);
+    state.timer=null;
+    // Already accepted jobs retain this state and the captured DB operation.
+    if(orgPolicyReloads.get(config)===state)orgPolicyReloads.delete(config);
+  };
+}
 
 function applyOrgPolicyToEngines(config: ServerConfig): void {
   const primary = config.workspaces?.[0]?.id;
-  const state = orgPolicyReloads.get(config) ?? { pending: new Set<string>(), attempts: 0, timer: null };
+  const state = orgPolicyReloads.get(config);
+  if (!state || state.stopped) return;
   orgPolicyReloads.set(config, state);
   for (const workspace of config.workspaces) if (workspace.workspaceType !== "remote") state.pending.add(workspace.id);
   state.attempts = 0;
   const run = () => {
+    if(state.stopped)return;
     state.timer = null;
-    idleWorkspaceReloads = idleWorkspaceReloads.then(async () => {
+    const previousReload = idleWorkspaceReloads;
+    idleWorkspaceReloads = withRuntimeDb(config, async () => {
+      await previousReload;
       if (primary) await writeLegalworkRuntimeConfigFile(config, primary).catch(() => undefined);
       let reloaded = false;
       for (const id of [...state.pending]) {
@@ -5779,7 +5791,7 @@ function applyOrgPolicyToEngines(config: ServerConfig): void {
       // The windows re-read what the engine offers (the firm's providers, its rules).
       if (reloaded) announceSyncChange(config, "policy");
       state.attempts += 1;
-      if (state.pending.size > 0 && state.attempts < ORG_POLICY_RELOAD_ATTEMPTS) {
+      if (!state.stopped && state.pending.size > 0 && state.attempts < ORG_POLICY_RELOAD_ATTEMPTS) {
         state.timer = setTimeout(run, ORG_POLICY_RELOAD_RETRY_MS);
         state.timer.unref?.();
       }

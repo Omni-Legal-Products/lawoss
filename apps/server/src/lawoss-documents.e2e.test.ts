@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
@@ -258,6 +258,30 @@ test("actual HTTP and registered agent document tools enforce authorization, pag
     const exported=JSON.parse(await plugin.tool.lawoss_documents_export.execute(exportBody,context)); expect(exported.verified).toBe(false); expect(exported.path).toBe("registry.csv");
     const checked=JSON.parse(await plugin.tool.lawoss_documents_validate.execute({paths:["registry.csv"],documentIds:[id],outputLanguage:"cs"},context)); expect(checked.valid).toBe(true); expect(checked.legalApproval).toBe(false);
     const saved=await (await fetch(`${endpoint}/outputs?limit=1`,{headers})).json(); expect(saved.outputs[0].verified).toBe(true); expect(saved.outputs[0].currentHash).toBe(exported.hash); expect(saved.nextOffset).toBeNull();
+    // Only the model-tool boundary recognizes literal empty as create-only;
+    // direct HTTP retains its strict hash schema and all real ownership guards.
+    for (const expectedHash of ["", null, "wrong"]) expect((await fetch(`${endpoint}/export`, { headers, method: "POST", body: JSON.stringify({ ...exportBody, path: "http-invalid.csv", expectedHash }) })).status).toBe(400);
+    const emptyCreated = JSON.parse(await plugin.tool.lawoss_documents_export.execute({ ...exportBody, path: "empty-created.csv", expectedHash: "" }, context));
+    expect(emptyCreated.path).toBe("empty-created.csv"); expect(emptyCreated.hash).toMatch(/^[a-f0-9]{64}$/);
+    const before = await readFile(join(path, "registry.csv"), "utf8");
+    for (const extra of [{}, { expectedHash: "" }, { expectedHash: "0".repeat(64) }]) {
+      const conflict = JSON.parse(await plugin.tool.lawoss_documents_export.execute({ ...exportBody, ...extra }, context));
+      expect(conflict.error).toContain("409");
+      expect(await readFile(join(path, "registry.csv"), "utf8")).toBe(before);
+    }
+    expect((await fetch(`${endpoint}/export`, { headers, method: "POST", body: JSON.stringify(exportBody) })).status).toBe(409);
+    await writeFile(join(path, "ordinary.csv"), "Ordinary user bytes");
+    const ordinaryHash = createHash("sha256").update("Ordinary user bytes").digest("hex");
+    for (const extra of [{}, { expectedHash: "" }, { expectedHash: ordinaryHash }]) {
+      const conflict = JSON.parse(await plugin.tool.lawoss_documents_export.execute({ ...exportBody, path: "ordinary.csv", ...extra }, context));
+      expect(conflict.error).toContain("409");
+      expect(await readFile(join(path, "ordinary.csv"), "utf8")).toBe("Ordinary user bytes");
+    }
+    const repaired = JSON.parse(await plugin.tool.lawoss_documents_export.execute({ ...exportBody, expectedHash: exported.hash, entries: [{ documentId: id, summary: "Synthetic owned repair" }] }, context));
+    expect(repaired.path).toBe("registry.csv"); expect(repaired.hash).not.toBe(exported.hash);
+    expect(await readFile(join(path, "registry.csv"), "utf8")).toContain("Synthetic owned repair");
+    const staleRepair = JSON.parse(await plugin.tool.lawoss_documents_export.execute({ ...exportBody, expectedHash: exported.hash }, context));
+    expect(staleRepair.error).toContain("409");
     expect((await fetch(`${endpoint}/export`,{headers,method:"POST",body:JSON.stringify({...exportBody,outputLanguage:"de"})})).status).toBe(400);
     expect((await fetch(`${endpoint}/${id}/read`)).status).toBe(401);
     expect((await fetch(`${endpoint}/prepare`, { headers, method: "POST", body: '{"paths":["../server.json"]}' })).status).toBe(403);
@@ -287,6 +311,117 @@ test("actual HTTP and registered agent document tools enforce authorization, pag
     restoreAgent();
     await removeSyntheticTestDir(root);
   }
+}, 20000);
+
+// Generic child-selection/ENOENT errors must not hide correctable caller input;
+// catching every filesystem error instead would misclassify ENOTDIR below.
+test("actual HTTP export preconditions reject child IDs and missing parents without mutations", async () => {
+  const { mkdir, readdir, rename, stat, symlink } = await import("node:fs/promises");
+  const { startServer } = await import("./server.js");
+  const { workspaceAppFilesRoot } = await import("./lawoss/workspace-app-files.js");
+  const { parseCsv } = await import("./lawoss/documents/validation.js");
+  const root = await mkdtemp(join(tmpdir(), "lawoss-export-preconditions-")), path = join(root, "workspace"), outside = join(root, "outside");
+  const oldDb = Object.getOwnPropertyDescriptor(process.env, "LEGALWORK_RUNTIME_DB");
+  let server: Awaited<ReturnType<typeof startServer>> | undefined;
+  const errors: unknown[] = [];
+  try {
+    await mkdir(path); await mkdir(outside); await mkdir(join(path, "existing"));
+    process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
+    const workspace: WorkspaceInfo = { id: "synthetic-preconditions", name: "Synthetic", path, preset: "starter", workspaceType: "local", appFiles: "outside", appFilesStorageKey: "synthetic-preconditions" };
+    const config: import("./types.js").ServerConfig = {
+      host: "127.0.0.1", port: 0, token: "synthetic-token", hostToken: "synthetic-host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 0 }, corsOrigins: [],
+      workspaces: [workspace], authorizedRoots: [path], readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
+    };
+    server = await startServer(config);
+    const endpoint = `http://127.0.0.1:${server.port}/workspace/${workspace.id}/lawoss/documents`, headers = { Authorization: "Bearer synthetic-token", "content-type": "application/json" };
+    const post = (route: string, body: unknown) => fetch(`${endpoint}/${route}`, { headers, method: "POST", body: JSON.stringify(body) });
+    const portfolio = await PDFDocument.load(await pdf("Synthetic original evidence"));
+    await portfolio.attach(new TextEncoder().encode("Synthetic child evidence"), "child.txt");
+    await writeFile(join(path, "portfolio.pdf"), await portfolio.save());
+    expect((await post("prepare", { paths: ["portfolio.pdf"] })).status).toBe(200);
+    let records: import("./lawoss/documents/types.js").DocumentSummary[] = [];
+    for (let i = 0; i < 200; i++) {
+      records = (await (await fetch(endpoint, { headers })).json()).documents;
+      if (records.length === 2 && records.every(record => record.status === "readable")) break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    expect(records).toHaveLength(2); expect(records.every(record => record.status === "readable")).toBe(true);
+    const original = records.find(record => !record.provenance.parentId)!, child = records.find(record => record.provenance.parentId)!;
+    const childRead = await (await fetch(`${endpoint}/${child.id}/read`, { headers })).json();
+    expect(childRead.text).toBe("Synthetic child evidence"); expect(childRead.provenance.parentId).toBe(original.id);
+    const body = { path: "existing/registry.csv", kind: "registry", outputLanguage: "cs", documentIds: [original.id], entries: [] };
+    for (const [kind, file] of [["registry", "registry.csv"], ["summary", "summary.md"]]) {
+      const response = await post("export", { ...body, kind, path: `existing/${file}` });
+      expect(response.status).toBe(200); const result = await response.json();
+      expect(result.hash).toMatch(/^[a-f0-9]{64}$/); expect(result.verified).toBe(false);
+    }
+    const rows = parseCsv(await readFile(join(path, "existing/registry.csv"), "utf8"));
+    expect(rows).toHaveLength(2); expect(rows[1][1]).toBe(original.id);
+    expect(JSON.parse(rows[1][6]).children[0].provenance.parentId).toBe(original.id);
+    const checked = await (await post("validate", { paths: ["existing/registry.csv", "existing/summary.md"], documentIds: [original.id], outputLanguage: "cs" })).json();
+    expect(checked.valid).toBe(true); expect(checked.outputs).toHaveLength(2); expect(checked.legalApproval).toBe(false);
+    const storage = join(workspaceAppFilesRoot(config, workspace), ".legalwork", "lawoss-documents");
+    const beforeFiles = (await readdir(path, { recursive: true })).sort(), beforeStorage = (await readdir(storage)).sort();
+    const beforeRecords = await readFile(join(storage, "records.json")), beforeOutputs = await readFile(join(storage, "outputs.json"));
+    const registry = await readFile(join(path, "existing/registry.csv")), summary = await readFile(join(path, "existing/summary.md"));
+    const failures: Array<{ status: number; code: string; message: string }> = [];
+    for (const [kind, file] of [["registry", "new.csv"], ["summary", "new.md"]]) {
+      for (const input of [
+        { ...body, kind, path: file, documentIds: [original.id, child.id] },
+        { ...body, kind, path: `missing/nested/${file}` },
+      ]) {
+        const response = await post("export", input), error = await response.json();
+        failures.push({ status: response.status, code: error.code, message: error.message });
+      }
+    }
+    expect((await readdir(path, { recursive: true })).sort()).toEqual(beforeFiles);
+    expect((await readdir(storage)).sort()).toEqual(beforeStorage);
+    expect(await readFile(join(storage, "records.json"))).toEqual(beforeRecords);
+    expect(await readFile(join(storage, "outputs.json"))).toEqual(beforeOutputs);
+    expect(await readFile(join(path, "existing/registry.csv"))).toEqual(registry);
+    expect(await readFile(join(path, "existing/summary.md"))).toEqual(summary);
+    expect(failures.map(error => [error.status, error.code])).toEqual([[400, "source_selection"], [400, "output_parent"], [400, "source_selection"], [400, "output_parent"]]);
+    for (const failure of failures) {
+      expect(failure.message).not.toContain(path); expect(failure.message).not.toContain(original.id); expect(failure.message).not.toContain(child.id);
+      expect(failure.message).toMatch(failure.code === "source_selection" ? /original.*IDs/i : /parent.*already exist/i);
+    }
+    await symlink(outside, join(path, "escape"), process.platform === "win32" ? "junction" : "dir");
+    for (const unsafe of ["../outside/new.csv", "escape/new.csv"]) {
+      const response = await post("export", { ...body, path: unsafe });
+      expect(response.status).toBe(403); expect((await response.json()).code).toBe("output_path");
+    }
+    expect(await readdir(outside)).toEqual([]);
+    await writeFile(join(path, "not-directory"), "Synthetic ordinary file");
+    const unexpected = await post("export", { ...body, path: "not-directory/new.csv" });
+    expect(unexpected.status).toBe(500); expect((await unexpected.json()).code).toBe("internal_error");
+    expect(await readFile(join(path, "not-directory"), "utf8")).toBe("Synthetic ordinary file");
+    expect(await readFile(join(storage, "outputs.json"))).toEqual(beforeOutputs);
+    await rename(path, `${path}-moved`);
+    try {
+      const unavailable = await post("export", body);
+      expect(unavailable.status).toBe(404); expect((await unavailable.json()).code).toBe("project_folder_unavailable");
+      await expect(stat(path)).rejects.toThrow(); expect(await readdir(outside)).toEqual([]);
+    } finally { await rename(`${path}-moved`, path); }
+  } catch (error) {
+    errors.push(error);
+  } finally {
+    try {
+      await server?.stop();
+    } catch (error) {
+      errors.push(error);
+    } finally {
+      try {
+        if (oldDb) Object.defineProperty(process.env, "LEGALWORK_RUNTIME_DB", oldDb);
+        else delete process.env.LEGALWORK_RUNTIME_DB;
+      } catch (error) {
+        errors.push(error);
+      } finally {
+        try { await removeSyntheticTestDir(root); } catch (error) { errors.push(error); }
+      }
+    }
+  }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) throw new AggregateError(errors, "Export precondition test and cleanup failed", { cause: errors[0] });
 }, 20000);
 
 test("source/text limits reject oversized inputs without silent truncation", () => fixture(async (service, workspace, root) => {

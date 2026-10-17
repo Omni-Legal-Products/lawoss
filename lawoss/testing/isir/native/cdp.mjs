@@ -7,7 +7,7 @@ export async function until(read, description, timeout = 30_000) {
     try { last = await read(); if (last) return last; } catch (e) { last = e; }
     await setTimeout(100);
   }
-  throw new Error(`Timed out: ${description}; last=${String(last)}`);
+  throw Object.assign(new Error(`Timed out: ${description}; last=${String(last)}`), { code: "ISIR_NATIVE_WAIT_EXPIRED" });
 }
 
 export async function connectRenderer(url, request = fetch) {

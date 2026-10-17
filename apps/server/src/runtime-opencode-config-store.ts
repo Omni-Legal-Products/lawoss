@@ -1,6 +1,7 @@
-import { sandboxSettingsSchema, sandboxSyncSchema, type SandboxSettings } from "./agent-sandbox/settings-schema.js";
+import { initializeSqlite } from "./runtime-db.js";
+import { drainRuntimeDb, runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { dirname } from "node:path";
-import { runtimeDbPath } from "./runtime-db.js";
+import { sandboxSettingsSchema, sandboxSyncSchema, type SandboxSettings } from "./agent-sandbox/settings-schema.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
 import { connectorConfigVariables } from "./connector-config.js";
@@ -143,21 +144,7 @@ export function onRuntimeOpencodeConfigWrite(listener: RuntimeOpencodeConfigWrit
 
 async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
   await ensureDir(dirname(path));
-  if (typeof process.versions.bun === "string") {
-    const { Database } = await import("bun:sqlite");
-    const sqlite = new Database(path, { create: true });
-    sqlite.run("CREATE TABLE IF NOT EXISTS runtime_opencode_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
-    const get = sqlite.query<{ configJson: string }, [string]>("SELECT config_json AS configJson FROM runtime_opencode_configs WHERE workspace_id = ?");
-    const upsert = sqlite.query("INSERT INTO runtime_opencode_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at");
-    return {
-      close: () => { get.finalize(); upsert.finalize(); sqlite.close(); },
-      get: workspaceId => get.get(workspaceId) ?? undefined,
-      upsert: ({ workspaceId, configJson, updatedAt }) => { upsert.run(workspaceId, configJson, updatedAt); },
-    };
-  }
-
-  const { DatabaseSync } = await import("node:sqlite");
-  const sqlite = new DatabaseSync(path);
+  return initializeSqlite(path, (sqlite) => {
   sqlite.exec("CREATE TABLE IF NOT EXISTS runtime_opencode_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
   const get = sqlite.prepare("SELECT config_json AS configJson FROM runtime_opencode_configs WHERE workspace_id = ?");
   const upsert = sqlite.prepare("INSERT INTO runtime_opencode_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at");
@@ -172,25 +159,18 @@ async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
       upsert.run(workspaceId, configJson, updatedAt);
     },
   };
+  });
 }
 
-const dbByPath = new Map<string, Promise<RuntimeOpencodeDb>>();
+const resourceKey = Symbol("runtime-opencode-config-store");
 
 /** Release a stopped server's config connection before removing its storage. */
 export async function closeRuntimeOpencodeConfig(config: ServerConfig, path = runtimeDbPath(config)): Promise<void> {
-  const db = dbByPath.get(path);
-  if (!db) return;
-  dbByPath.delete(path);
-  (await db).close();
+  await drainRuntimeDb(config, path);
 }
 
 async function runtimeDb(config: ServerConfig): Promise<RuntimeOpencodeDb> {
-  const path = runtimeDbPath(config);
-  const existing = dbByPath.get(path);
-  if (existing) return existing;
-  const db = openRuntimeDb(path);
-  dbByPath.set(path, db);
-  return db;
+  return runtimeDbResource(config, resourceKey, openRuntimeDb);
 }
 
 /**
@@ -295,6 +275,7 @@ export function runtimeExternalDirectory(config: RuntimeOpencodeConfig): Record<
 }
 
 export async function readRuntimeOpencodeConfig(config: ServerConfig, workspaceId: string): Promise<RuntimeOpencodeConfig> {
+  return withRuntimeDb(config, async () => {
   const db = await runtimeDb(config);
   const row = db.get(workspaceId);
   if (!row) return {};
@@ -303,6 +284,8 @@ export async function readRuntimeOpencodeConfig(config: ServerConfig, workspaceI
   } catch {
     return {};
   }
+
+  });
 }
 
 export async function writeRuntimeOpencodeConfig(
@@ -310,6 +293,7 @@ export async function writeRuntimeOpencodeConfig(
   workspaceId: string,
   updater: (current: RuntimeOpencodeConfig) => RuntimeOpencodeConfig,
 ): Promise<RuntimeOpencodeConfig> {
+  return withRuntimeDb(config, async () => {
   const db = await runtimeDb(config);
   const current = await readRuntimeOpencodeConfig(config, workspaceId);
   // Snapshot before the updater, which may mutate current in place. Keep key
@@ -322,6 +306,8 @@ export async function writeRuntimeOpencodeConfig(
   db.upsert({ workspaceId, configJson, updatedAt: now });
   for (const listener of writeListeners) listener(config, workspaceId);
   return next;
+
+  });
 }
 
 /**

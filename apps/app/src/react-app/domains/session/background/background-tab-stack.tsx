@@ -208,7 +208,7 @@ function FloatingTabStack({ tabs, sessionId }: { tabs: MiniTab[]; sessionId: str
 
 export function BackgroundTabStack({ sessionId, workspaceId }: { sessionId: string; workspaceId: string }) {
   const runtime = useDocumentRuntime();
-  useSyncExternalStore(runtime?.subscribe ?? subscribeEmpty, runtime?.version ?? zero);
+  useSyncExternalStore(runtime?.subscribe ?? subscribeEmpty, runtime?.version ?? zero, zero);
   const panels = usePanelTabStore(state => state.sessions);
   const browsers = useTaskBrowserTabs(state => state.tabs);
   const tabs: MiniTab[] = [];

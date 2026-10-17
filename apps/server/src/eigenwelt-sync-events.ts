@@ -30,6 +30,7 @@ const IDLE_RETRY_MS = 30_000;
 const MAX_BACKOFF_MS = 60_000;
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, ms);
     timer.unref?.();
@@ -44,7 +45,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 export function startSyncEvents(
   config: ServerConfig,
   options: { fetch?: typeof fetch; onPoke?: (poke: SyncPoke) => void } = {},
-): () => void {
+): () => Promise<void> {
   const stop = new AbortController();
   const onPoke =
     options.onPoke ??
@@ -54,15 +55,17 @@ export function startSyncEvents(
       if (poke.policy || poke.resync) void scheduleOrgPolicySync(config, { force: true });
       if (poke.hub || poke.resync) void scheduleFirmHubSync(config, { force: true });
     });
-  void (async () => {
+  const running = (async () => {
     let backoff = 1_000;
     while (!stop.signal.aborted) {
       const connection = await readEigenweltConnection(config).catch(() => null);
+      if (stop.signal.aborted) break;
       if (!connection || connectedTaskOrgId(connection) === null) {
         await sleep(IDLE_RETRY_MS, stop.signal);
         continue;
       }
       await ensureFreshPlatformToken(config).catch(() => null);
+      if (stop.signal.aborted) break;
       let heard = false;
       try {
         const client = requireIntakeClient(await readEigenweltConnection(config));
@@ -70,6 +73,7 @@ export function startSyncEvents(
           headers: { Authorization: `Bearer ${client.platformToken}`, Accept: "text/event-stream" },
           signal: stop.signal,
         });
+        if (stop.signal.aborted) { await response.body?.cancel(); break; }
         if (!response.ok || !response.body) throw new Error(`sync events: HTTP ${response.status}`);
         setProjectSyncPoked(config, true);
         const reader = response.body.getReader();
@@ -77,7 +81,7 @@ export function startSyncEvents(
         const feed = serverSentEvents((data) => {
           heard = true;
           const poke = syncPokeOf(data);
-          if (poke) onPoke(poke);
+          if (poke && !stop.signal.aborted) onPoke(poke);
         });
         for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
           feed(decoder.decode(chunk.value, { stream: true }));
@@ -91,5 +95,5 @@ export function startSyncEvents(
       await sleep(backoff, stop.signal);
     }
   })();
-  return () => stop.abort();
+  return () => { stop.abort(); return running; };
 }

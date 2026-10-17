@@ -212,20 +212,20 @@ describe("Personalisation", () => {
 
   test("the personalization API queues saved and cleared instructions once, and rejects stale edits before syncing", async () => {
     const { config } = await setup();
-    const store = await projectSyncStore(config);
-    store.saveLink({
-      workspaceId: "ws_1", projectId: "11111111-1111-4111-8111-111111111111", orgId: "org_test",
-      origin: "local", role: "owner", ownerUserId: "user_test", confirmed: true,
-      settings: { access: "members", memberIds: [], scope: { documents: false, notes: false, tasks: false, recordings: false, metadata: true, reviews: false } },
-      remoteUpdatedAt: null, filesReconciledAt: null, state: "active", allowDeletions: false,
-      lastSyncAt: null, lastError: null, report: null,
-    });
     const server = await startServer(config);
-    const put = (revision: number, customInstructions: string) => fetch(`http://127.0.0.1:${server.port}/workspace/ws_1/personalization`, {
-      method: "PUT", headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ revision, customInstructions }),
-    });
     try {
+      const store = await projectSyncStore(config);
+      store.saveLink({
+        workspaceId: "ws_1", projectId: "11111111-1111-4111-8111-111111111111", orgId: "org_test",
+        origin: "local", role: "owner", ownerUserId: "user_test", confirmed: true,
+        settings: { access: "members", memberIds: [], scope: { documents: false, notes: false, tasks: false, recordings: false, metadata: true, reviews: false } },
+        remoteUpdatedAt: null, filesReconciledAt: null, state: "active", allowDeletions: false,
+        lastSyncAt: null, lastError: null, report: null,
+      });
+      const put = (revision: number, customInstructions: string) => fetch(`http://127.0.0.1:${server.port}/workspace/ws_1/personalization`, {
+        method: "PUT", headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ revision, customInstructions }),
+      });
       expect((await put(0, "Use formal English.")).status).toBe(200);
       expect(store.outbox().map((entry) => entry.op)).toEqual([{ kind: "personalization", prompt: "Use formal English.", changedAt: expect.any(String) }]);
       expect((await put(0, "Stale draft")).status).toBe(409);

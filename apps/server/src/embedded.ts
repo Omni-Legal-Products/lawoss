@@ -1,3 +1,4 @@
+import { acquireRuntimeDbLifetime } from "./runtime-db-lifecycle.js";
 /**
  * Single entry point for embedding the LegalWork server in-process.
  *
@@ -113,6 +114,28 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   const managed: { engine: ManagedOpencodeServer | null } = { engine: null };
+  const lifetime = acquireRuntimeDbLifetime(config);
+  let server: Awaited<ReturnType<typeof startServer>> | undefined;
+  let unsubscribe: (() => Promise<void>) | undefined;
+  let refresh: Promise<unknown> = Promise.resolve();
+  let initialMcpSync: Promise<unknown> = Promise.resolve();
+  let stopPromise: Promise<void> | undefined;
+  const stop = () => {
+    if (stopPromise) return stopPromise;
+    stopPromise = (async () => {
+      const errors: unknown[] = [];
+      // Unsubscribe synchronously; accepted writes and jobs still drain before the owner releases.
+      const freshness = unsubscribe?.();
+      for (const operation of [() => freshness, () => initialMcpSync, () => refresh,
+        () => managed.engine?.close(), () => server?.stop(), () => lifetime.release()]) {
+        try { await operation(); } catch (error) { errors.push(error); }
+      }
+      if (errors.length) throw new AggregateError(errors, "Failed to stop embedded server resources");
+    })();
+    return stopPromise;
+  };
+  try { return await lifetime.run(async () => {
+
 
   if (!config.readOnly) {
     await retireSharedLegacyReview(globalSkillsDir());
@@ -150,36 +173,36 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     console.log(`[embedded] moved connectors into the shared store: ${connectorImport.imported.join(", ")}`);
   }
 
-  const server = await startServer(config, { onListening: async (port) => {
+  server = await startServer(config, { onListening: async (port) => {
     const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
-    if (!config.opencodeBaseUrl && options.manageOpencode) {
-      // One managed engine has one process-wide OPENCODE_CONFIG_DIR. Select the
-      // workspace requested by the embedding host, not merely the first
-      // persisted registry item, so a restart on workspace activation isolates
-      // its external config, commands and skills from another matter.
-      const requestedDirectory = options.opencodeDirectory?.trim();
-      const workspace = requestedDirectory
-        ? config.workspaces.find((entry) => resolve(entry.path) === resolve(requestedDirectory)) ?? config.workspaces[0]
-        : config.workspaces[0];
-      if (workspace?.path) {
-        // Server-managed config file: the engine re-reads it from disk on every
-        // instance rebuild, and keepLegalworkRuntimeConfigFileFresh rewrites it
-        // on every runtime-DB write — so disposes always pick up current state.
-        const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
-        keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
-        // Fire-and-forget: refresh the GLOBAL paid manifest's model list around
-        // the kept key (no-op when not signed in) with the firm's access token,
-        // so the list reflects the admin's on/off choices, then rewrite the
-        // engine config so the current models appear across every workspace.
-        void ensureFreshPlatformToken(config)
-          .catch(() => null)
-          .then((platformToken) => refreshEigenweltPaidManifest(config, { platformToken }))
-          .then((r) => (r.changed ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))
-          .catch(() => undefined);
-        const cwd = options.opencodeCwd
-          || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim()
-          || workspace.path;
-        await mkdir(cwd, { recursive: true });
+  if (!config.opencodeBaseUrl && options.manageOpencode) {
+    // One managed engine has one process-wide OPENCODE_CONFIG_DIR. Select the
+    // workspace requested by the embedding host, not merely the first
+    // persisted registry item, so a restart on workspace activation isolates
+    // its external config, commands and skills from another matter.
+    const requestedDirectory = options.opencodeDirectory?.trim();
+    const workspace = requestedDirectory
+      ? config.workspaces.find((entry) => resolve(entry.path) === resolve(requestedDirectory)) ?? config.workspaces[0]
+      : config.workspaces[0];
+    if (workspace?.path) {
+      // Server-managed config file: the engine re-reads it from disk on every
+      // instance rebuild, and keepLegalworkRuntimeConfigFileFresh rewrites it
+      // on every runtime-DB write — so disposes always pick up current state.
+      const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
+      unsubscribe = keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
+      // Fire-and-forget: refresh the GLOBAL paid manifest's model list around
+      // the kept key (no-op when not signed in) with the firm's access token,
+      // so the list reflects the admin's on/off choices, then rewrite the
+      // engine config so the current models appear across every workspace.
+      refresh = ensureFreshPlatformToken(config)
+        .catch(() => null)
+        .then((platformToken) => refreshEigenweltPaidManifest(config, { platformToken }))
+        .then((r) => (r.changed ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))
+        .catch(() => undefined);
+      const cwd = options.opencodeCwd
+        || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim()
+        || workspace.path;
+      await mkdir(cwd, { recursive: true });
 
         // Private engine DB: never share OpenCode's global opencode.db with a
         // separately installed OpenCode — a newer install migrates it to a
@@ -243,15 +266,12 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         }
       }
     }
-  } }).catch(async (error: unknown) => {
-    await managed.engine?.close();
-    throw error;
-  });
+  } });
 
   // The runtime config file above only covers workspaces[0]. Push every
   // workspace's runtime-DB MCPs into the engine so they aren't invisible
   // until a manual reload. Best-effort.
-  const initialMcpSync = managed.engine
+  initialMcpSync = managed.engine
     ? syncAllWorkspacesRuntimeMcpToEngine(config).catch(() => undefined)
     : Promise.resolve();
 
@@ -263,11 +283,10 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     managedOpencodeStatus: () => managed.engine
       ? { running: managed.engine.running(), pid: managed.engine.pid }
       : null,
-    async stop() {
-      // Keep the engine alive until startup sync has stopped issuing requests.
-      await initialMcpSync;
-      await managed.engine?.close();
-      await server.stop();
-    },
+    stop,
   };
+  }); } catch (error) {
+    try { await stop(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "Embedded server startup and cleanup failed"); }
+    throw error;
+  }
 }

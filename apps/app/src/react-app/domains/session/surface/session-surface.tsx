@@ -16,7 +16,7 @@ import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types";
 import { RecordingDetailDialog } from "../../recorder/recorder-pane";
 import { useContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { UIMessage } from "ai";
-import { useQuery } from "@tanstack/react-query";
+import { environmentManager, useQuery } from "@tanstack/react-query";
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { TriangleAlert } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -54,9 +54,10 @@ import {
   type StorageFileDragItem,
 } from "@/app/lib/storage-file-drag";
 import type { WorkspaceFileDragItem } from "@/app/lib/workspace-file-drag";
-import type {
-  LegalworkServerClient,
-  LegalworkSessionSnapshot,
+import {
+  LegalworkServerError,
+  type LegalworkServerClient,
+  type LegalworkSessionSnapshot,
 } from "@/app/lib/legalwork-server";
 import type {
   ComposerAttachment,
@@ -111,6 +112,8 @@ import { deriveOpenTargets, resolvePathOpenTarget, selectAutoOpenTarget, type Op
 import { usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-store";
 import {
   seedSessionState,
+  observeSessionReadExecution,
+  publishSessionStatus,
   seedTodoState,
   captureRunOutcome,
   snapshotKey as reactSnapshotKey,
@@ -805,13 +808,23 @@ export function SessionSurface(props: SessionSurfaceProps) {
   if (searchMessageId) fullHistorySession.current = props.sessionId;
   const snapshotQuery = useQuery<LegalworkSessionSnapshot>({
     queryKey: snapshotQueryKey,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const startedAt = Date.now();
-      const snapshot = (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, fullHistorySession.current === props.sessionId ? undefined : { limit: 140 })).item;
-      seedTodoState(props.workspaceId, props.sessionId, snapshot.todos, startedAt);
-      return snapshot;
+      const execution = observeSessionReadExecution(
+        { workspaceId: props.workspaceId, baseUrl: props.opencodeBaseUrl, legalworkToken: props.legalworkToken, directory: props.workspaceRoot.trim() || undefined },
+        props.sessionId, queryClient.getQueryCache().find({ queryKey: snapshotQueryKey, exact: true }), signal,
+      );
+      try {
+        const snapshot = (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, fullHistorySession.current === props.sessionId ? { signal } : { limit: 140, signal })).item;
+        const status = execution.status(snapshot.status);
+        seedTodoState(props.workspaceId, props.sessionId, snapshot.todos, startedAt);
+        execution.complete(status, true);
+        return { ...snapshot, status };
+      } finally { execution.dispose(); }
     },
     staleTime: 500,
+    retry: (failureCount, error) => !(error instanceof LegalworkServerError && error.code === "session_revert_boundary_unresolved")
+      && failureCount < (environmentManager.isServer() ? 0 : 3),
   });
 
   const currentSnapshot = snapshotQuery.data?.session.id === props.sessionId ? snapshotQuery.data : null;
@@ -820,15 +833,19 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // Reconcile the visible session with the engine, independently of transcript snapshots.
   const statusQuery = useQuery<SessionStatus>({
     queryKey: statusQueryKey,
-    queryFn: async () => {
-      const startedAt = Date.now();
-      const statuses = unwrap(await opencodeClient.session.status({ directory: props.workspaceRoot.trim() || undefined }));
-      const activity = useSessionActivityStore.getState().recordsByWorkspaceId[props.workspaceId]?.[props.sessionId];
-      // A prompt submitted while this request was in flight supersedes its idle result.
-      if (activity?.runActive && activity.updatedAt > startedAt) return { type: "busy" };
-      const status = statuses[props.sessionId] ?? IDLE_STATUS;
-      useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, status);
-      return status;
+    queryFn: async ({ signal }) => {
+      const execution = observeSessionReadExecution(
+        { workspaceId: props.workspaceId, baseUrl: props.opencodeBaseUrl, legalworkToken: props.legalworkToken, directory: props.workspaceRoot.trim() || undefined },
+        props.sessionId, queryClient.getQueryCache().find({ queryKey: statusQueryKey, exact: true }), signal,
+      );
+      try {
+        const statuses = unwrap(await opencodeClient.session.status({ directory: props.workspaceRoot.trim() || undefined }, { signal }));
+        const status = execution.status(statuses[props.sessionId] ?? IDLE_STATUS);
+        useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, status, false);
+        publishSessionStatus(props.workspaceId, props.sessionId, status);
+        execution.complete(status);
+        return status;
+      } finally { execution.dispose(); }
     },
     refetchInterval: 2_000,
     refetchOnWindowFocus: "always",
@@ -945,6 +962,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
       !hasAssistantReplyAfter(renderedMessages, message.id) &&
       message.parts.some(part => part.type === "text" && isSubscriptionRecoveryError(part.text)));
   const queryClient = useQueryClient();
+  // Optimistic remount results can omit the last settled no-data load error.
+  const snapshotLoadError = snapshotQuery.error ?? queryClient.getQueryState(snapshotQueryKey)?.error;
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
     () => openTargets.map((target) => `${target.kind}:${target.value}:${target.confidence}`).join("|"),
@@ -1937,6 +1956,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
           )}
         >
           <div ref={contentRef} className="lw-session-column">
+            {(snapshot || renderedMessages.length > 0) && snapshotLoadError instanceof LegalworkServerError && snapshotLoadError.code === "session_revert_boundary_unresolved" ? (
+              <div role="alert" className="mx-auto mb-4 max-w-xl rounded-3xl border border-red-6/40 bg-red-3/20 px-6 py-5 text-sm text-red-11">
+                {t("session.load_failed")}
+              </div>
+            ) : null}
             {pendingSessionLoad ? (showDelayedLoading ? (
               <div className="px-6 py-16">
                 <div className="mx-auto max-w-sm rounded-3xl border border-dls-border bg-dls-hover/60 px-8 py-10 text-center">

@@ -30,6 +30,7 @@ on:
       - apps/app/tests/workspace-attachment.test.ts
       - apps/app/tests/home-submission.test.ts
       - apps/app/tests/session-sync-retention.test.ts
+      - apps/app/tests/session-render-boundary.test.tsx
       - apps/app/src/react-app/domains/session/sync/session-sync.ts
       - apps/app/tests/fusion-routing.test.ts
       - apps/server/src/workspace-reconnect.e2e.test.ts
@@ -73,6 +74,26 @@ on:
       - apps/orchestrator/scripts/router-control-security.test.mjs
       - apps/server/src/paths.ts
       - apps/server/src/server.ts
+      - apps/server/src/runtime-db*
+      - apps/server/src/runtime-opencode-config-store*
+      - apps/server/src/legalwork-workspace-config-store*
+      - apps/server/src/legalwork-runtime-config*
+      - apps/server/src/session-groups*
+      - apps/server/src/eigenwelt-connection-store*
+      - apps/server/src/eigenwelt-hub-installs-store*
+      - apps/server/src/eigenwelt-sync-events*
+      - apps/server/src/task-store*
+      - apps/server/src/task-sync*
+      - apps/server/src/task-notifications*
+      - apps/server/src/project-sync*
+      - apps/server/src/project-contents.test.ts
+      - apps/server/src/test-support/runtime-db-handles.ts
+      - apps/server/scripts/runtime-db-lifecycle.node.test.mjs
+      - apps/server/scripts/opencode-proxy-cancellation.node.test.mjs
+      - apps/server/src/opencode-proxy-cancellation.e2e.test.ts
+      - apps/server/src/test-support/opencode-proxy-cancellation.ts
+      - apps/server/src/serve-node*
+      - apps/server/src/embedded-app-files.e2e.test.ts
       - apps/server/src/embedded.ts
       - apps/server/src/cloud-plugins.ts
       - apps/server/src/opencode-plugins/office-plugin-shared.ts
@@ -103,6 +124,7 @@ on:
       - apps/app/tests/workspace-attachment.test.ts
       - apps/app/tests/home-submission.test.ts
       - apps/app/tests/session-sync-retention.test.ts
+      - apps/app/tests/session-render-boundary.test.tsx
       - apps/app/src/react-app/domains/session/sync/session-sync.ts
       - apps/app/tests/fusion-routing.test.ts
       - apps/server/src/workspace-reconnect.e2e.test.ts
@@ -146,6 +168,26 @@ on:
       - apps/orchestrator/scripts/router-control-security.test.mjs
       - apps/server/src/paths.ts
       - apps/server/src/server.ts
+      - apps/server/src/runtime-db*
+      - apps/server/src/runtime-opencode-config-store*
+      - apps/server/src/legalwork-workspace-config-store*
+      - apps/server/src/legalwork-runtime-config*
+      - apps/server/src/session-groups*
+      - apps/server/src/eigenwelt-connection-store*
+      - apps/server/src/eigenwelt-hub-installs-store*
+      - apps/server/src/eigenwelt-sync-events*
+      - apps/server/src/task-store*
+      - apps/server/src/task-sync*
+      - apps/server/src/task-notifications*
+      - apps/server/src/project-sync*
+      - apps/server/src/project-contents.test.ts
+      - apps/server/src/test-support/runtime-db-handles.ts
+      - apps/server/scripts/runtime-db-lifecycle.node.test.mjs
+      - apps/server/scripts/opencode-proxy-cancellation.node.test.mjs
+      - apps/server/src/opencode-proxy-cancellation.e2e.test.ts
+      - apps/server/src/test-support/opencode-proxy-cancellation.ts
+      - apps/server/src/serve-node*
+      - apps/server/src/embedded-app-files.e2e.test.ts
       - apps/server/src/embedded.ts
       - apps/server/src/cloud-plugins.ts
       - apps/server/src/opencode-plugins/office-plugin-shared.ts
@@ -199,14 +241,88 @@ jobs:
       # Filtre bez lomky, aby sedeli aj na cestách so spätnou lomkou.
       - name: LAWOSS app logic (OKF views, onboarding, Lite)
         working-directory: apps/app
-        run: bun test lawoss- okf- document-processing native-document-generation project-folder-recovery workspace-attachment home-submission fusion-routing session-sync-permissions session-sync-tool-parts message-queue-runner session-sync-retention
+        run: bun test lawoss- okf- document-processing native-document-generation project-folder-recovery workspace-attachment home-submission fusion-routing session-sync-permissions session-sync-tool-parts message-queue-runner session-sync-retention session-render-boundary
       # Server s onboardingom, registráciou existujúceho priečinka, roztriedením,
-      # pamäťou a kanonickými cestami beží na Windows prvýkrát; dist sa tu nestavia,
-      # takže filter zachytí len zdrojové testy (bez lomky kvôli cestám s `\`).
+      # pamäťou a kanonickými cestami. Explicitné ./src cesty fungujú aj
+      # na Windows a nevložia Node helpery do Bun; dist zostavujeme až potom.
       # lawoss-path-containment: workspace v koreni disku (subst) a zdieľania (net share).
       - name: LAWOSS server (onboarding, register existing, triage, memory, paths, containment, reload watcher, process tree)
+        id: windows_server_source
         working-directory: apps/server
-        run: bun test lawoss reload-watcher workspace-reconnect artifact-files isir-case-attachments
+        env:
+          LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS: '1'
+        run: >-
+          bun test
+          ./src/artifact-files.e2e.test.ts
+          ./src/cloud-plugin-resources.test.ts
+          ./src/cloud-plugins.test.ts
+          ./src/eigenwelt-connection-store.test.ts
+          ./src/eigenwelt-hub-installs-store.test.ts
+          ./src/eigenwelt-refresh.test.ts
+          ./src/eigenwelt-sync-events.test.ts
+          ./src/isir-case-attachments.e2e.test.ts
+          ./src/lawoss-anthropic-runtime.test.ts
+          ./src/lawoss-documents-export.test.ts
+          ./src/lawoss-documents.e2e.test.ts
+          ./src/lawoss-global-providers.e2e.test.ts
+          ./src/lawoss-okf-config-encoding.e2e.test.ts
+          ./src/lawoss-onboarding.e2e.test.ts
+          ./src/lawoss-path-containment.e2e.test.ts
+          ./src/lawoss-register-existing.e2e.test.ts
+          ./src/lawoss-triage.e2e.test.ts
+          ./src/lawoss-workspace-memory-context.e2e.test.ts
+          ./src/lawoss-workspace-memory.e2e.test.ts
+          ./src/lawoss/canonical-path.test.ts
+          ./src/lawoss/chatgpt-subscription.test.ts
+          ./src/lawoss/commercial-services.test.ts
+          ./src/lawoss/eigenwelt-account.test.ts
+          ./src/lawoss/engine-network.test.ts
+          ./src/lawoss/marketplace-global.test.ts
+          ./src/lawoss/marketplace-updates.test.ts
+          ./src/lawoss/ocr-on-demand.test.ts
+          ./src/lawoss/ocr-opt-in.test.ts
+          ./src/lawoss/path-within.test.ts
+          ./src/lawoss/plugin-provenance.test.ts
+          ./src/lawoss/process-tree.test.ts
+          ./src/lawoss/test-support/inspect-cleanup.test.ts
+          ./src/lawoss/test-support/owned-child-process.test.ts
+          ./src/legalwork-runtime-config.test.ts
+          ./src/mcp-shared-store.test.ts
+          ./src/opencode-proxy-cancellation.e2e.test.ts
+          ./src/project-contents.test.ts
+          ./src/project-sync.test.ts
+          ./src/reload-watcher.test.ts
+          ./src/runtime-config-migrate.e2e.test.ts
+          ./src/runtime-db-lifecycle.e2e.test.ts
+          ./src/runtime-db-lifecycle.test.ts
+          ./src/runtime-opencode-config-store.provider-patch.test.ts
+          ./src/runtime-opencode-config-store.test.ts
+          ./src/serve-node.test.ts
+          ./src/session-groups.e2e.test.ts
+          ./src/task-notifications.test.ts
+          ./src/task-store.test.ts
+          ./src/task-sync.test.ts
+          ./src/workspace-reconnect.e2e.test.ts
+          ./src/test-support/project-sync-first-failure-timing.test.ts
+
+      - name: Diagnose pending task handoff in a fresh Bun process
+        if: ${{ failure() && steps.windows_server_source.outcome == 'failure' }}
+        working-directory: apps/server
+        run: >-
+          bun test ./src/runtime-db-lifecycle.e2e.test.ts
+          --test-name-pattern '^an accepted pending tasks round survives its originating owner stopping$'
+
+      # Node 24 používa node:sqlite bez postinstall/native addon rebuildu. Proces
+      # ostáva živý počas kontroly handle aj skutočného odstránenia databázy.
+      - name: Build server for the Windows Node SQLite lifecycle gate
+        run: pnpm --filter legalwork-server build
+      - name: Node SQLite final release, overlapping owners and restart
+        run: node --test apps/server/scripts/runtime-db-lifecycle.node.test.mjs
+      - name: Node production engine proxy and idle response cancellation
+        run: node --test apps/server/scripts/opencode-proxy-cancellation.node.test.mjs
+
+      - name: Verify native ISIR bootstrap, diagnostics and owned resources
+        run: node --test lawoss/testing/isir/native/*.test.mjs
 
       - name: ISIR attachments in ten case folders (synthetic offline corpus)
         run: pnpm test:isir

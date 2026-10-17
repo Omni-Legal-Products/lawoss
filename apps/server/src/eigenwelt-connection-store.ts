@@ -1,7 +1,7 @@
+import { initializeSqlite } from "./runtime-db.js";
+import { drainRuntimeDb, runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
-import { openSqlite, runtimeDbPath } from "./runtime-db.js";
-export { runtimeDbPath } from "./runtime-db.js";
 import type { EigenweltAccountIdentity, EigenweltEntitlements } from "./eigenwelt-auth.js";
 import {
   eigenweltPlatformUrl,
@@ -116,9 +116,7 @@ const ACCOUNT_ROW_MIGRATION = [
 
 async function openDb(path: string): Promise<EigenweltConnectionDb> {
   await ensureDir(dirname(path));
-  // The shared adapter caches Bun statements so close releases native handles,
-  // including after Drizzle-style one-shot queries would outlive their Database.
-  const sqlite = await openSqlite(path);
+  return initializeSqlite(path, (sqlite) => {
   sqlite.exec("PRAGMA busy_timeout = 5000");
   sqlite.exec(CREATE_TABLE_SQL);
   for (const sql of MIGRATION_COLUMNS) {
@@ -178,27 +176,20 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
       return isRecord(row) && typeof row.refresh_request_id === "string" ? row.refresh_request_id : null;
     },
   };
+  });
 }
 
-const dbByPath = new Map<string, Promise<EigenweltConnectionDb>>();
+const resourceKey = Symbol("eigenwelt-connection-store");
 
 /** Release the connection after the last server using this runtime has stopped. */
 export async function closeEigenweltConnection(config: ServerConfig, path = runtimeDbPath(config)): Promise<void> {
-  const db = dbByPath.get(path);
-  if (!db) return;
-  dbByPath.delete(path);
-  (await db).close();
+  await drainRuntimeDb(config, path);
 }
 
 export const closeEigenweltConnectionForTests = closeEigenweltConnection;
 
 async function connectionDb(config: ServerConfig): Promise<EigenweltConnectionDb> {
-  const path = runtimeDbPath(config);
-  const existing = dbByPath.get(path);
-  if (existing) return existing;
-  const db = openDb(path);
-  dbByPath.set(path, db);
-  return db;
+  return runtimeDbResource(config, resourceKey, openDb);
 }
 
 function decodeEntitlements(json: string | null): EigenweltEntitlements | null {
@@ -221,6 +212,7 @@ function decodeAccount(json: string | null): EigenweltAccountIdentity | null {
 
 /** Full connection incl. the secret tokens — server-side callers only. */
 export async function readEigenweltConnection(config: ServerConfig): Promise<EigenweltConnection> {
+  return withRuntimeDb(config, async () => {
   // LAWOSS: bez povoleného účtu sa uložené pripojenie nečíta (lawoss/commercial-services.ts).
   const row = eigenweltAccountEnabled() ? (await connectionDb(config)).get(ACCOUNT_ROW_ID) : undefined;
   if (!row) {
@@ -245,6 +237,8 @@ export async function readEigenweltConnection(config: ServerConfig): Promise<Eig
     refreshError: row.refreshError,
     platformTokenExpiresAt: row.platformTokenExpiresAt,
   };
+
+  });
 }
 
 /** App-safe read: entitlements + platformURL, with the secret tokens stripped. */
@@ -295,6 +289,7 @@ async function persistConnection(
   input: WriteEigenweltConnectionInput,
   expected?: RefreshSnapshot,
 ): Promise<boolean> {
+  return withRuntimeDb(config, async () => {
   const db = await connectionDb(config);
   const current = db.get(ACCOUNT_ROW_ID);
 
@@ -348,12 +343,17 @@ async function persistConnection(
   if (expected) return db.updateIfCurrent(value, expected);
   db.upsert(value);
   return true;
+
+  });
 }
 
 export async function writeEigenweltConnection(config: ServerConfig,
   input: WriteEigenweltConnectionInput): Promise<EigenweltEntitlementsView> {
+  return withRuntimeDb(config, async () => {
   await persistConnection(config, input);
   return readEigenweltEntitlementsView(config);
+
+  });
 }
 
 /** Conditional SQLite update: a delayed response cannot change another session,
@@ -365,17 +365,25 @@ export async function writeEigenweltConnectionIfCurrent(config: ServerConfig,
 
 /** Claim durably before network I/O. Concurrent processes get the same ID. */
 export async function claimEigenweltRefreshRequest(config: ServerConfig, refreshToken: string): Promise<string | null> {
+  return withRuntimeDb(config, async () => {
   return (await connectionDb(config)).claimRequest(refreshToken, randomUUID());
+
+  });
 }
 
 // Keep account writes and asynchronous manifest writes in the same order within
 // this server. Network calls stay outside this queue so a new sign-in can proceed.
 const mutationQueues = new Map<string, Promise<unknown>>();
 export async function withEigenweltConnectionLock<T>(config: ServerConfig, operation: () => Promise<T>): Promise<T> {
+  return withRuntimeDb(config, async () => {
   const path = runtimeDbPath(config);
   const previous = mutationQueues.get(path) ?? Promise.resolve();
   const run = previous.catch(() => undefined).then(operation);
   mutationQueues.set(path, run);
   try { return await run; }
   finally { if (mutationQueues.get(path) === run) mutationQueues.delete(path); }
+
+  });
 }
+
+export { runtimeDbPath } from "./runtime-db-lifecycle.js";

@@ -252,7 +252,11 @@ function WorkspaceFilesPanelContent({
       <WorkspaceFileMoveTarget client={client} workspaceId={workspaceId} isRemoteWorkspace={isRemoteWorkspace} folder={path}>
       <ProjectFileDropTarget projectId={projectId ?? ""} folder={path} className="flex h-full min-h-0 flex-1 flex-col">
       <ProjectFilesDropzone projectId={selectedProjectId ?? workspaceId ?? ""} workspaceId={workspaceId ?? ""} isRemoteWorkspace={isRemoteWorkspace || !client || !workspaceId} destinationPath={path}>
-      <div className="flex h-full min-h-0 flex-col bg-background/90">
+      <div className="flex h-full min-h-0 flex-col bg-background/90"
+        data-files-workspace-id={workspaceId ?? ""}
+        data-files-folder-path={path}
+        data-files-client-identity={client ? documentClientIdentity(client) : undefined}
+        data-files-workspace-root={workspaceRoot}>
         <PanelHeader wrapActions headerTarget={headerTarget} title={t("workspace_files.files")}>
           {uploadPlacement === "header" && client && workspaceId && <WorkspaceUploadButton workspaceId={workspaceId} isRemoteWorkspace={isRemoteWorkspace} folderPath={path} compact />}
           <WorkspaceEntryMenu client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace}

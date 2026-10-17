@@ -1,9 +1,8 @@
+import { initializeSqlite } from "./runtime-db.js";
+import { runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { lstat, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
-import { eq } from "drizzle-orm";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { ServerConfig } from "./types.js";
 import { ApiError } from "./errors.js";
 import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
@@ -91,13 +90,8 @@ type WorkspaceCloudImports = {
   plugins: Record<string, CloudImportedPlugin>;
 };
 
-const cloudPluginInstallConfigs = sqliteTable("cloud_plugin_install_configs", {
-  workspaceId: text("workspace_id").primaryKey(),
-  configJson: text("config_json").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
-
 type CloudPluginDb = {
+  close: () => void;
   get: (workspaceId: string) => { configJson: string } | undefined;
   upsert: (value: { workspaceId: string; configJson: string; updatedAt: number }) => void;
 };
@@ -544,46 +538,14 @@ function readCloudImports(config: Record<string, unknown>): WorkspaceCloudImport
   };
 }
 
-function runtimeDbPath(config: ServerConfig): string {
-  const override = process.env.LEGALWORK_RUNTIME_DB?.trim();
-  if (override) return resolve(override);
-  const configPath = config.configPath?.trim();
-  const configDir = configPath ? dirname(configPath) : resolve(homedir(), ".config", "legalwork");
-  return resolve(configDir, "runtime.sqlite");
-}
-
 async function openCloudPluginDb(path: string): Promise<CloudPluginDb> {
   await ensureDir(dirname(path));
-  if (typeof process.versions.bun === "string") {
-    const { Database } = await import("bun:sqlite");
-    const { drizzle } = await import("drizzle-orm/bun-sqlite");
-    const sqlite = new Database(path, { create: true });
-    sqlite.run("CREATE TABLE IF NOT EXISTS cloud_plugin_install_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
-    const db = drizzle(sqlite);
-    return {
-      get: (workspaceId) => db
-        .select()
-        .from(cloudPluginInstallConfigs)
-        .where(eq(cloudPluginInstallConfigs.workspaceId, workspaceId))
-        .get(),
-      upsert: ({ workspaceId, configJson, updatedAt }) => {
-        db
-          .insert(cloudPluginInstallConfigs)
-          .values({ workspaceId, configJson, updatedAt })
-          .onConflictDoUpdate({
-            target: cloudPluginInstallConfigs.workspaceId,
-            set: { configJson, updatedAt },
-          })
-          .run();
-      },
-    };
-  }
-  const { DatabaseSync } = await import("node:sqlite");
-  const sqlite = new DatabaseSync(path);
+  return initializeSqlite(path, (sqlite) => {
   sqlite.exec("CREATE TABLE IF NOT EXISTS cloud_plugin_install_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
   const get = sqlite.prepare("SELECT config_json AS configJson FROM cloud_plugin_install_configs WHERE workspace_id = ?");
   const upsert = sqlite.prepare("INSERT INTO cloud_plugin_install_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at");
   return {
+    close: () => sqlite.close(),
     get: (workspaceId) => {
       const row = get.get(workspaceId);
       if (!isRecord(row) || typeof row.configJson !== "string") return undefined;
@@ -593,20 +555,17 @@ async function openCloudPluginDb(path: string): Promise<CloudPluginDb> {
       upsert.run(workspaceId, configJson, updatedAt);
     },
   };
+  });
 }
 
-const dbByPath = new Map<string, Promise<CloudPluginDb>>();
+const resourceKey = Symbol("cloud-plugins");
 
 async function cloudPluginDb(config: ServerConfig): Promise<CloudPluginDb> {
-  const path = runtimeDbPath(config);
-  const existing = dbByPath.get(path);
-  if (existing) return existing;
-  const db = openCloudPluginDb(path);
-  dbByPath.set(path, db);
-  return db;
+  return runtimeDbResource(config, resourceKey, openCloudPluginDb);
 }
 
 export async function readInstalledCloudPlugins(config: ServerConfig, workspaceId: string): Promise<WorkspaceCloudImports> {
+  return withRuntimeDb(config, async () => {
   const db = await cloudPluginDb(config);
   const row = db.get(workspaceId);
   if (!row) return readCloudImports({});
@@ -615,6 +574,8 @@ export async function readInstalledCloudPlugins(config: ServerConfig, workspaceI
   } catch {
     return readCloudImports({});
   }
+
+  });
 }
 
 export async function writeInstalledCloudPlugins(
@@ -622,10 +583,13 @@ export async function writeInstalledCloudPlugins(
   workspaceId: string,
   updater: (current: WorkspaceCloudImports) => WorkspaceCloudImports,
 ): Promise<WorkspaceCloudImports> {
+  return withRuntimeDb(config, async () => {
   const db = await cloudPluginDb(config);
   const next = updater(await readInstalledCloudPlugins(config, workspaceId));
   db.upsert({ workspaceId, configJson: JSON.stringify(next), updatedAt: Date.now() });
   return next;
+
+  });
 }
 
 export function resolveWorkspaceInstallPath(workspaceRoot: string, relativePath: string, global = false): string {
@@ -847,7 +811,7 @@ export async function installCloudPlugin(input: {
     const name = file.objectType === "mcp" && !nextPaths.has(file.path) ? cloudPluginMcpNameFromPath(file.path) : null;
     return name ? [name] : [];
   });
-  await Promise.all(removedMcpNames.map((name) => removeMcp(input.serverConfig, input.workspaceId, name)));
+  for (const name of removedMcpNames) await removeMcp(input.serverConfig, input.workspaceId, name);
 
   const imported: CloudImportedPlugin = {
     ...(input.resolved.plugin.excludedConnectors ? { excludedConnectors: input.resolved.plugin.excludedConnectors } : {}),
@@ -912,14 +876,14 @@ export async function removeCloudPlugin(input: {
   const global = input.global === true || imported.scope === "global";
 
   for (const file of imported.files) if (file.path.startsWith(".opencode/")) await assertPluginDestination(input.workspaceRoot, file.path, global);
-  await Promise.all(imported.files.map(async (file) => {
+  for (const file of imported.files) {
     const mcpName = file.objectType === "mcp" ? cloudPluginMcpNameFromPath(file.path) : null;
     if (mcpName) {
       await removeMcp(input.serverConfig, registryId, mcpName);
-      return;
+      continue;
     }
     await removePluginWorkspaceFile(input.workspaceRoot, file.path, global);
-  }));
+  }
 
   await writeInstalledCloudPlugins(input.serverConfig, registryId, current => {
     const plugins = { ...current.plugins };

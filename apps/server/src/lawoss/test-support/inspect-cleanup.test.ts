@@ -1,6 +1,6 @@
 import { test, expect, spyOn } from 'bun:test';
 import { Database, type SQLQueryBindings } from 'bun:sqlite';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, realpath } from 'node:fs/promises';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
@@ -21,7 +21,7 @@ test('cleanup metadata reveals locked DB roles without names, absolute paths or 
 });
 
 async function runtimeFixture() {
-  const root = await mkdtemp(join(tmpdir(), 'synthetic-server-cleanup-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'synthetic-server-cleanup-')));
   const owns = (filename: string) => filename.startsWith(root + sep);
   const connections = new Set<Database>();
   const statements = new Set<{ get(): unknown; finalize(): void }>();
@@ -264,4 +264,47 @@ test('server shutdown drains accepted settings replies before releasing shared r
     if (previousAccount === undefined) delete process.env.LAWOSS_EIGENWELT_ACCOUNT;
     else process.env.LAWOSS_EIGENWELT_ACCOUNT = previousAccount;
   }
+});
+
+
+test('real server stop drains an accepted scheduled send and persists sent before physical handle release', async () => {
+  const fixture = await runtimeFixture();
+  const { ScheduledTaskStore } = await import('../../scheduled-tasks/store.js');
+  const { runtimeDbPath } = await import('../../runtime-db.js');
+  const folder = join(fixture.root, 'project'); await mkdir(folder);
+  let release = () => {}, entered = () => {};
+  const sending = new Promise<void>(resolve => { entered = resolve; });
+  const delivery = new Promise<void>(resolve => { release = resolve; });
+  const requests: string[] = [];
+  const engine = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
+    const path = new URL(request.url).pathname; requests.push(path);
+    if (path === '/session/status') return Response.json({});
+    if (path === '/agent') return Response.json([{ name: 'legalwork-scheduled-all', permission: [] }]);
+    if (path === '/session/synthetic-chat') return Response.json({ id: 'synthetic-chat', directory: folder, time: {} });
+    if (path === '/session/synthetic-chat/prompt_async') { await request.json(); entered(); await delivery; return new Response(null, { status: 204 }); }
+    return new Response(null, { status: 404 });
+  } });
+  const config = { ...fixture.config, opencodeBaseUrl: `http://127.0.0.1:${engine.port}`, workspaces: [{ id: 'project', name: 'Synthetic', path: folder, preset: 'starter', workspaceType: 'local' as const }], authorizedRoots: [folder] };
+  const dbPath = runtimeDbPath(config);
+  let store = await ScheduledTaskStore.open(dbPath);
+  const now = Date.now(), due = now - 60000;
+  const task = store.create('project', { title: 'Synthetic', prompt: 'Synthetic', projectAccess: 'all', sessionId: 'synthetic-chat', reuseChat: false, pinSession: false, model: null, schedule: { kind: 'once', startAt: new Date(due).toISOString(), timeZone: 'UTC' } }, due - 60000);
+  store.close();
+  try {
+    const server = await fixture.start(config);
+    await sending;
+    let stopped = false;
+    const stopping = server.stop(); expect(server.stop()).toBe(stopping);
+    const observedStop = Promise.resolve(stopping).then(() => { stopped = true; });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(stopped).toBe(false);
+    release(); await observedStop;
+    expect(server.stop()).toBe(stopping);
+    expect(requests.filter(path => path.endsWith('/prompt_async'))).toEqual(['/session/synthetic-chat/prompt_async']);
+    store = await ScheduledTaskStore.open(dbPath);
+    try { expect(store.runs(task.id)[0]?.status).toBe('sent'); } finally { store.close(); }
+    for (const connection of fixture.connections) expect(() => connection.query('SELECT 1').get()).toThrow();
+    for (const statement of fixture.statements) expect(() => statement.get()).toThrow();
+    await removeSyntheticTestDir(fixture.root);
+  } finally { release(); store.close(); await fixture.dispose(); await engine.stop(true); }
 });

@@ -1,3 +1,4 @@
+import { runtimeDbResource } from "../runtime-db-lifecycle.js";
 import { CalculationPresentationSchema, CalculationRunSchema, type CalculationPresentation, type CalculationRun } from "../calculations/schema.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -9,7 +10,7 @@ import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import { renderEventDraft } from "../calendar-event-drafts/ics.js";
 import { CalendarCreateSchema, CalendarItemSchema, CalendarPatchSchema, DeadlineCalculationSchema } from "./schema.js";
 import { ApiError } from "../errors.js";
-import { openSqlite, runtimeDbPath, type SqliteHandle } from "../runtime-db.js";
+import { initializeSqlite, type SqliteHandle } from "../runtime-db.js";
 import type { ServerConfig } from "../types.js";
 import { zonedInstant, zoneValid } from "./dates.js";
 import { emptyCalendar, itemCalendar, parseCalendar, serializeCalendar, updateCalendar, calendarAttachmentPaths } from "./ical.js";
@@ -20,7 +21,7 @@ export class CalendarStore {
   private constructor(private db: SqliteHandle) {}
   static async open(path: string) {
     await mkdir(dirname(path), { recursive: true });
-    const db = await openSqlite(path);
+    return initializeSqlite(path, db => {
     db.exec(`CREATE TABLE IF NOT EXISTS calendar_items (
       id TEXT PRIMARY KEY, project_id TEXT NOT NULL, uid TEXT NOT NULL, data TEXT NOT NULL,
       remote_revision INTEGER NOT NULL DEFAULT 0, dirty INTEGER NOT NULL DEFAULT 1, replica INTEGER NOT NULL DEFAULT 0,
@@ -35,7 +36,9 @@ export class CalendarStore {
       CREATE TABLE IF NOT EXISTS calendar_subscriptions (account TEXT NOT NULL, scope TEXT NOT NULL, token TEXT NOT NULL, content_hash TEXT,
         PRIMARY KEY(account, scope));`);
     return new CalendarStore(db);
+    });
   }
+  close() { this.db.close(); }
   list(projectId: string, deleted = false): CalendarItem[] {
     return this.db.all("SELECT data FROM calendar_items WHERE project_id = ?", [projectId]).map(row => CalendarItemSchema.parse(JSON.parse(String(row.data)))).filter(item => deleted || !item.deletedAt);
   }
@@ -314,8 +317,8 @@ export class CalendarStore {
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
 }
-const stores = new Map<string, Promise<CalendarStore>>();
+const resourceKey = Symbol("calendar-store");
+/** Borrowed from the caller's operation/lifetime, like project/task stores. */
 export function calendarStore(config: ServerConfig) {
-  const path = runtimeDbPath(config); let store = stores.get(path);
-  if (!store) { store = CalendarStore.open(path); stores.set(path, store); } return store;
+  return runtimeDbResource(config, resourceKey, path => CalendarStore.open(path));
 }
