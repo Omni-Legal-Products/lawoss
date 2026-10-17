@@ -36,7 +36,7 @@ export function registerDeadlineRoutes(options: {
   const route = (method: string, suffix: string, native: boolean, action: (ctx: RequestContext, workspace: WorkspaceInfo, workflow: DeadlineWorkflow) => Promise<unknown>, trustOnly = false) => {
     addRoute(options.routes, method, `${base}${suffix}`, native ? "host-token" : "client", async ctx => {
       if (!enabled && !trustOnly) throw new ApiError(404, "deadline_disabled", "The deadline workflow is not enabled. Existing OKF records remain readable.");
-      options.requireClientScope(ctx, "collaborator");
+      if (method !== "GET") options.requireClientScope(ctx, "collaborator");
       if (method !== "GET") options.ensureWritable(options.config);
       const workspace = await options.resolveWorkspace(options.config, ctx.params.id);
       try { return options.jsonResponse(await action(ctx, workspace, service(workspace))); }

@@ -1,4 +1,4 @@
-import type { DeadlineReceiptLedger } from "./ledger.js";
+import { sameReceiptUse, type ProjectionAttestation, type DeadlineReceiptLedger } from "./ledger.js";
 import { closeSync, constants, existsSync, fsyncSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -24,7 +24,7 @@ export class DeadlineWorkflow {
   constructor(private readonly options: DeadlineWorkflowOptions) { this.rules = options.rules ?? proposedRulePacks; this.holidays = options.holidays ?? holidaySets; }
   private ledgerKey(binding: MatterBinding, candidateId: string): string { return fingerprint({ workspaceId: binding.workspaceId, matterId: binding.matterId, receiptScope: binding.receiptScope, candidateId }); }
   private now(): string { return this.options.now?.() ?? new Date().toISOString(); }
-  private result(record: StoredDeadline, replay = false): CommitResult { const candidate = head(record); return { candidateId: candidate.candidateId, revisionHash: candidate.revisionHash, state: candidate.state, exportState: record.payload.export?.state ?? "not_requested", recordHash: record.recordHash, ...(replay ? { replay: true } : {}), ...(record.payload.export?.error ? { error: record.payload.export.error } : {}) }; }
+  private result(record: StoredDeadline, replay = false): CommitResult { const candidate = head(record); return { candidateId: candidate.candidateId, revisionHash: candidate.revisionHash, state: candidate.state, exportState: record.payload.confirmation ? record.payload.export?.state ?? "not_requested" : "not_requested", recordHash: record.recordHash, ...(replay ? { replay: true } : {}), ...(record.payload.export?.error ? { error: record.payload.export.error } : {}) }; }
   private event(operationId: string, kind: DeadlinePayload["events"][number]["kind"], candidate: CandidateRevision, reason: string) { return { id: randomUUID(), operationId, kind, revisionHash: candidate.revisionHash, reason, at: this.now() }; }
   private calculateCandidate(binding: MatterBinding, input: CalculationInput): CandidateRevision {
     const candidate = proposeDeadline({ workspaceId: binding.workspaceId, matterId: binding.matterId, input });
@@ -48,7 +48,7 @@ export class DeadlineWorkflow {
       const next = { ...candidate, candidateId: target, revision: prior ? prior.revision + 1 : 1, supersedesRevisionHash: prior?.revisionHash ?? null }; next.revisionHash = semanticHash(next);
       // A committed record remains immutable until a separate native revocation; edit by explicit replacement after revoke.
       if (prior?.state === "confirmed") throw conflict("Revoke the confirmed deadline before preparing a replacement revision.");
-      const payload: DeadlinePayload = { version: 1, revisions: [...(existing?.payload.revisions ?? []), next], events: existing?.payload.events ?? [], confirmation: null, export: null };
+      const payload: DeadlinePayload = { version: 1, revisions: [...(existing?.payload.revisions ?? []), next], events: existing?.payload.events ?? [], confirmation: null, export: existing?.payload.export ?? null };
       assertSourceBytes(binding, payload);
       const saved = writeDeadlineRecord(binding, target, existing?.recordHash ?? expectedRecordHash, payload, this.event(randomUUID(), "candidate", next, "Untrusted manual/model extraction"), this.options.fault);
       return this.result(saved);
@@ -126,11 +126,17 @@ export class DeadlineWorkflow {
       if (decision === "confirm") assertSourceBytes(binding, current.payload);
       const next = { ...head(current), state: decision === "confirm" ? "confirmed" as const : "revoked" as const }, calculation = next.calculation;
       if (calculation.kind !== "determinate") throw conflict("Determinate calculation required.");
-      const sequence = (current.payload.export?.sequence ?? -1) + 1, projected = renderDeadlineIcs({ ...next, calculation, export: { uid: `lawoss-${candidateId}@legalwork.local`, sequence, decidedAt: receipt.decidedAt, cancelled: decision === "revoke" } });
-      const payload: DeadlinePayload = { ...current.payload, revisions: [...current.payload.revisions.slice(0, -1), next], confirmation: { receiptId: receipt.id, operationId, bindingHash, reviewHash: preview.reviewHash, sourceSetHash: preview.sourceSetHash, revisionHash: next.revisionHash, decidedAt: receipt.decidedAt, action, workspaceRootGeneration: binding.workspaceRootGeneration }, export: { state: "export_pending", uid: projected.uid, sequence, decidedAt: receipt.decidedAt, sha256: projected.sha256, previousHashes: current.payload.export ? [...current.payload.export.previousHashes, current.payload.export.sha256] : [], error: null, cancelled: decision === "revoke" } };
       const previousUse = ledger.current(ledgerKey);
+      if (previousUse && !previousUse.projection) throw conflict("Projection authority is unavailable for this historical receipt; preserve the files for explicit review.");
+      const resuming = previousUse?.operationId === operationId && previousUse.receiptId === receipt.id && previousUse.bindingHash === bindingHash;
+      const sequence = resuming ? previousUse.projection!.sequence : (previousUse?.projection?.sequence ?? -1) + 1;
+      const projected = renderDeadlineIcs({ ...next, calculation, export: { uid: `lawoss-${candidateId}@legalwork.local`, sequence, decidedAt: receipt.decidedAt, cancelled: decision === "revoke" } });
+      const projection: ProjectionAttestation = resuming ? previousUse.projection! : { uid: projected.uid, sequence: projected.sequence, sha256: projected.sha256, decidedAt: receipt.decidedAt, cancelled: decision === "revoke", ownedHashes: [...(previousUse?.projection?.ownedHashes ?? []),projected.sha256] };
+      if (projection.ownedHashes.length > 65 || projection.sha256 !== projected.sha256 || projection.uid !== projected.uid || projection.decidedAt !== receipt.decidedAt || projection.cancelled !== (decision === "revoke")) throw conflict("Native projection history is full or the reserved operation changed; archive review is required.");
+      const plannedExport = { state: "export_pending" as const, uid: projection.uid, sequence: projection.sequence, decidedAt: projection.decidedAt, sha256: projection.sha256, previousHashes: projection.ownedHashes.slice(0,-1), error: null, cancelled: projection.cancelled };
+      const payload: DeadlinePayload = { ...current.payload, revisions: [...current.payload.revisions.slice(0, -1), next], confirmation: { receiptId: receipt.id, operationId, bindingHash, reviewHash: preview.reviewHash, sourceSetHash: preview.sourceSetHash, revisionHash: next.revisionHash, decidedAt: receipt.decidedAt, action, workspaceRootGeneration: binding.workspaceRootGeneration }, export: plannedExport };
       if (previousUse && previousUse.operationId !== operationId && !current.payload.events.some(event => event.operationId === previousUse.operationId && ["confirmed","revoked"].includes(event.kind))) throw conflict("A previous native operation must be recovered before this confirmation.");
-      if (!ledger.advance(ledgerKey,previousUse?.receiptId ?? null,{receiptId:receipt.id,operationId,bindingHash,action})) throw conflict("A concurrent native decision already consumed this revision.");
+      if (!ledger.advance(ledgerKey,previousUse?.receiptId ?? null,{receiptId:receipt.id,operationId,bindingHash,action,projection})) throw conflict("A concurrent native decision already consumed this revision.");
       try { return writeDeadlineRecord(binding, candidateId, current.recordHash, payload, { ...this.event(operationId, decision === "confirm" ? "confirmed" : "revoked", next, reason), at: receipt.decidedAt }, this.options.fault); }
       catch (error) { try { if (readStoredDeadline(binding,candidateId).recordHash === current.recordHash) ledger.restore(ledgerKey,receipt.id,previousUse); } catch {} throw error; }
     }));
@@ -149,26 +155,52 @@ export class DeadlineWorkflow {
       const used = await this.options.ledger.run(store => store.current(this.ledgerKey(binding,candidate.candidateId)));
       if (used?.receiptId !== confirmation.receiptId || used.operationId !== confirmation.operationId || used.bindingHash !== confirmation.bindingHash) return false;
       const receipt = await verifyDeadlineReceipt(this.options.host, confirmation.receiptId, bound);
-      const exp = record.payload.export;
-      if (receipt.decidedAt !== confirmation.decidedAt || exp.decidedAt !== receipt.decidedAt || exp.uid !== `lawoss-${candidate.candidateId}@legalwork.local` || exp.sequence !== record.payload.events.filter(event=>event.kind === "confirmed" || event.kind === "revoked").length - 1) return false;
+      if (!used.projection || receipt.decidedAt !== confirmation.decidedAt || used.projection.decidedAt !== receipt.decidedAt || used.projection.uid !== `lawoss-${candidate.candidateId}@legalwork.local` || used.projection.cancelled !== (candidate.state === "revoked")) return false;
+      const projection = renderDeadlineIcs({ ...candidate, calculation: candidate.calculation, export: used.projection });
+      if (projection.sha256 !== used.projection.sha256) return false;
       return true;
     } catch { return false; }
   }
-  async list(binding: MatterBinding) { const records = listStoredDeadlines(binding); return Promise.all(records.map(async record => ({ ...this.result(record), candidate: head(record), export: record.payload.export, trusted: await this.trusted(binding, record), recordFingerprint: record.fingerprint, receiptId: record.payload.confirmation?.receiptId ?? null }))); }
+  private exportMetadata(projection: ProjectionAttestation, state: "export_pending" | "exported" | "export_failed", error: string | null): NonNullable<DeadlinePayload["export"]> {
+    return { uid: projection.uid, sequence: projection.sequence, decidedAt: projection.decidedAt, sha256: projection.sha256, previousHashes: projection.ownedHashes.slice(0,-1), cancelled: projection.cancelled, state, error };
+  }
+  private matchesProjectionHint(hint: NonNullable<DeadlinePayload["export"]>, projection: ProjectionAttestation): boolean {
+    return stableJson({...hint,state:"export_pending",error:null}) === stableJson(this.exportMetadata(projection,"export_pending",null));
+  }
+  private observedExport(binding: MatterBinding, record: StoredDeadline, projection: ProjectionAttestation): NonNullable<DeadlinePayload["export"]> {
+    try {
+      const target = safePath(binding.matterRoot,`exports/deadlines/${head(record).candidateId}.ics`), hash = existsSync(target) ? sha256(readFileSync(target)) : null;
+      if (hash === projection.sha256) return this.exportMetadata(projection,"exported",null);
+      if (hash !== null && !projection.ownedHashes.includes(hash)) return this.exportMetadata(projection,"export_failed","A foreign or externally edited ICS file is preserved.");
+      return this.exportMetadata(projection,record.payload.export?.state === "export_failed" ? "export_failed" : "export_pending",record.payload.export?.error ?? null);
+    } catch { return this.exportMetadata(projection,"export_failed","The local ICS path is unavailable or is not an ordinary owned file."); }
+  }
+  async list(binding: MatterBinding) {
+    const records = listStoredDeadlines(binding);
+    return Promise.all(records.map(async record => {
+      const candidate = head(record), used = await this.options.ledger.run(store=>store.current(this.ledgerKey(binding,candidate.candidateId)));
+      const projected = record.payload.confirmation && used?.receiptId === record.payload.confirmation.receiptId && used.projection ? this.observedExport(binding,record,used.projection) : null;
+      return { ...this.result(record), ...(projected ? {exportState:projected.state} : {}), candidate, export: projected ?? record.payload.export, trusted: await this.trusted(binding,record), recordFingerprint:record.fingerprint, receiptId:record.payload.confirmation?.receiptId ?? null };
+    }));
+  }
   async exportDeadlineIcs(binding: MatterBinding, candidateId: string, expectedRevisionHash: string): Promise<CommitResult> {
     const before = readStoredDeadline(binding, candidateId);
     if (head(before).revisionHash !== expectedRevisionHash || !await this.trusted(binding, before, true)) throw conflict("Current native confirmation and unchanged sources are required for export.");
-    return withDeadlineLock(binding, () => {
-      const current = readStoredDeadline(binding, candidateId), candidate = head(current), exp = current.payload.export;
+    const admitted = await this.options.ledger.run(store=>store.current(this.ledgerKey(binding,candidateId)));
+    return this.options.ledger.run(ledger=>withDeadlineLock(binding, () => {
+      const current = readStoredDeadline(binding, candidateId), candidate = head(current), hint = current.payload.export;
+      const used = ledger.current(this.ledgerKey(binding,candidateId));
+      if (!used?.projection || !admitted || !sameReceiptUse(used,admitted) || used.receiptId !== current.payload.confirmation?.receiptId) throw conflict("Native projection authority changed before export.");
+      const exp = { ...used.projection, state: hint?.state ?? "export_pending", previousHashes: used.projection.ownedHashes.slice(0,-1), error: hint?.error ?? null };
       if (current.recordHash !== before.recordHash || !exp || candidate.calculation.kind !== "determinate") throw conflict("Export revision changed.");
       if (candidate.state === "confirmed") assertSourceBytes(binding, current.payload);
-      if (exp.state === "exported") return this.result(current, true);
       try {
         const projected = renderDeadlineIcs({ ...candidate, calculation: candidate.calculation, export: { ...exp } });
         if (projected.sha256 !== exp.sha256 || projected.uid !== exp.uid) throw conflict("Planned projection does not match canonical OKF.");
         const target = safePath(binding.matterRoot, `exports/deadlines/${candidateId}.ics`, true);
         const oldHash = existsSync(target) ? sha256(readFileSync(target)) : null;
-        if (oldHash !== null && oldHash !== exp.sha256 && !exp.previousHashes.includes(oldHash)) throw conflict("A foreign or externally edited ICS file is preserved.");
+        if (oldHash !== null && !used.projection.ownedHashes.includes(oldHash)) throw conflict("A foreign or externally edited ICS file is preserved.");
+        if (oldHash === exp.sha256 && hint?.state === "exported" && this.matchesProjectionHint(hint,used.projection)) return this.result(current,true);
         if (oldHash !== exp.sha256) {
           const temporary = `${target}.${randomUUID()}.tmp`;
           try {
@@ -178,22 +210,22 @@ export class DeadlineWorkflow {
             renameSync(temporary, target); syncDirectory(dirname(target)); this.options.fault?.("ics_renamed");
           } finally { rmSync(temporary, { force: true }); }
         }
-        return this.result(writeDeadlineRecord(binding, candidateId, current.recordHash, { ...current.payload, export: { ...exp, state: "exported", error: null } }, this.event(randomUUID(), "exported", candidate, "Local ICS hash verified"), this.options.fault));
+        return this.result(writeDeadlineRecord(binding, candidateId, current.recordHash, { ...current.payload, export: this.exportMetadata(used.projection,"exported",null) }, this.event(randomUUID(), "exported", candidate, "Local ICS hash verified"), this.options.fault));
       } catch (error) {
         const safeError = error instanceof ApiError ? error.message : "Local ICS write failed; retry after resolving the filesystem error.";
-        return this.result(writeDeadlineRecord(binding, candidateId, current.recordHash, { ...current.payload, export: { ...exp, state: "export_failed", error: safeError } }, this.event(randomUUID(), "export_failed", candidate, safeError), this.options.fault));
+        return this.result(writeDeadlineRecord(binding, candidateId, current.recordHash, { ...current.payload, export: this.exportMetadata(used.projection,"export_failed",safeError) }, this.event(randomUUID(), "export_failed", candidate, safeError), this.options.fault));
       }
-    });
+    }));
   }
   async recoverDeadlineExports(binding: MatterBinding): Promise<readonly CommitResult[]> {
     const results: CommitResult[] = [];
     for (const record of listStoredDeadlines(binding)) {
       const candidate = head(record), used = await this.options.ledger.run(store=>store.current(this.ledgerKey(binding,candidate.candidateId)));
       try {
-        if (used && record.payload.confirmation?.receiptId !== used.receiptId) {
+        if (used && record.payload.confirmation?.receiptId !== used.receiptId && !record.payload.events.some(event=>event.operationId === used.operationId && (event.kind === "confirmed" || event.kind === "revoked"))) {
           const preview = await this.prepareReview(binding,candidate.candidateId,candidate.revisionHash);
           results.push(await this.decide(binding,candidate.candidateId,candidate.revisionHash,used.action === "deadline.confirm" ? "confirm" : "revoke",used.operationId,undefined,preview.reviewHash,"Recover exact previously decided operation"));
-        } else if (record.payload.export && record.payload.export.state !== "exported") results.push(await this.exportDeadlineIcs(binding,candidate.candidateId,candidate.revisionHash));
+        } else if (record.payload.confirmation && used?.projection && (record.payload.export?.state !== "exported" || !this.matchesProjectionHint(record.payload.export,used.projection) || this.observedExport(binding,record,used.projection).state !== "exported")) results.push(await this.exportDeadlineIcs(binding,candidate.candidateId,candidate.revisionHash));
       } catch { results.push({ ...this.result(record), error: "Recovery needs current local confirmation and unchanged evidence." }); }
       try { await this.options.mirrorAudit?.(binding,readStoredDeadline(binding,candidate.candidateId).payload); } catch { results.push({ ...this.result(readStoredDeadline(binding,candidate.candidateId)), error: "Canonical OKF events are preserved; audit mirror awaits retry." }); }
     }

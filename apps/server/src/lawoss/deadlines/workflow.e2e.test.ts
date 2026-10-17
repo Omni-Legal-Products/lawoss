@@ -124,3 +124,85 @@ test("native denial never commits active state or ICS",async()=>{
   await expect(new DeadlineWorkflow({...f.options,host:deniedHost}).decide(binding,saved.candidateId,saved.revisionHash,"confirm","denied-operation",undefined,preview.reviewHash)).rejects.toThrow("native host decision");
   expect((await f.service.list(binding))[0]?.state).toBe("candidate");expect(readdirSync(binding.matterRoot)).not.toContain("exports");
 });
+
+ test("INDEPENDENT: confirmed revoked replacement must retain trusted confirmation and export lifetime",async()=>{
+ const f=fixture(),binding=await resolveMatterBinding(f.workspace,"case"),saved=await f.service.saveCandidate(binding,f.input,null),preview=await f.service.prepareReview(binding,saved.candidateId,saved.revisionHash);
+ await f.service.decide(binding,saved.candidateId,saved.revisionHash,"confirm","first-confirm",undefined,preview.reviewHash);
+ const confirmed=await f.service.prepareReview(binding,saved.candidateId,saved.revisionHash);
+ await f.service.decide(binding,saved.candidateId,saved.revisionHash,"revoke","first-revoke",undefined,confirmed.reviewHash,"Withdraw");
+ const current=(await f.service.list(binding))[0]!;
+ const revised=await f.service.saveCandidate(binding,f.input,current.recordHash,{candidateId:saved.candidateId,supersedesRevisionHash:saved.revisionHash});
+ const review=await f.service.prepareReview(binding,saved.candidateId,revised.revisionHash);
+ const result=await f.service.decide(binding,saved.candidateId,revised.revisionHash,"confirm","second-confirm",undefined,review.reviewHash);
+ const after=(await f.service.list(binding))[0]!;
+
+ expect(after.trusted).toBe(true);expect(result.exportState).toBe("exported");expect(after.export?.sequence).toBe(2);
+ });
+
+ test("INDEPENDENT: editing unsigned export history must not authorize foreign-file overwrite",async()=>{
+ const f=fixture(),binding=await resolveMatterBinding(f.workspace,"case"),saved=await f.service.saveCandidate(binding,f.input,null),preview=await f.service.prepareReview(binding,saved.candidateId,saved.revisionHash);
+ await f.service.decide(binding,saved.candidateId,saved.revisionHash,"confirm","foreign-first-confirm",undefined,preview.reviewHash);
+ const file=join(binding.matterRoot,"memory",`${saved.candidateId}.md`),ics=join(binding.matterRoot,"exports","deadlines",`${saved.candidateId}.ics`),foreign="FOREIGN ICS USER CONTENT";
+ writeFileSync(ics,foreign);
+ const forged=readFileSync(file,"utf8").replace('"state":"exported"','"state":"export_pending"').replace('"previousHashes":[]',`"previousHashes":["${sha256(foreign)}"]`);
+ writeFileSync(file,forged);
+ const before=(await f.service.list(binding))[0]!;expect(before.trusted).toBe(true);
+ const result=await f.service.exportDeadlineIcs(binding,saved.candidateId,saved.revisionHash);
+ expect(result.exportState).toBe("export_failed");
+ expect(readFileSync(ics,"utf8")).toBe(foreign);
+ });
+
+for (const changed of [false,true]) test(`native reapproval preserves lifetime ownership for ${changed ? "changed" : "identical"} legal input`,async()=>{
+  const f=fixture(),binding=await resolveMatterBinding(f.workspace,"case"),saved=await f.service.saveCandidate(binding,f.input,null),preview=await f.service.prepareReview(binding,saved.candidateId,saved.revisionHash);
+  await f.service.decide(binding,saved.candidateId,saved.revisionHash,"confirm","lifetime-confirm",undefined,preview.reviewHash);
+  const first=(await f.service.list(binding))[0]!,firstBytes=readFileSync(join(binding.matterRoot,"exports","deadlines",`${saved.candidateId}.ics`),"utf8");
+  const reviewed=await f.service.prepareReview(binding,saved.candidateId,saved.revisionHash);
+  await f.service.decide(binding,saved.candidateId,saved.revisionHash,"revoke","lifetime-revoke",undefined,reviewed.reviewHash,"Synthetic withdrawal");
+  const revoked=(await f.service.list(binding))[0]!,input=structuredClone(f.input);if(changed)input.delivery!.method="Corrected service-method fact";
+  const replacement=await f.service.saveCandidate(binding,input,revoked.recordHash,{candidateId:saved.candidateId,supersedesRevisionHash:saved.revisionHash});
+  expect(replacement.exportState).toBe("not_requested");expect((await f.service.list(binding))[0]?.trusted).toBe(false);expect(await f.service.recoverDeadlineExports(binding)).toEqual([]);
+  const next=await f.service.prepareReview(binding,saved.candidateId,replacement.revisionHash);
+  await f.service.decide(binding,saved.candidateId,replacement.revisionHash,"confirm","lifetime-reconfirm",undefined,next.reviewHash);
+  const after=(await f.service.list(binding))[0]!;expect(after.trusted).toBe(true);expect(after.export?.sequence).toBe(2);expect(after.export?.previousHashes).toEqual([first.export!.sha256,revoked.export!.sha256]);
+  expect(after.export?.uid).toBe(first.export?.uid);expect(replacement.revisionHash===saved.revisionHash).toBe(!changed);
+  const bytes=readFileSync(join(binding.matterRoot,"exports","deadlines",`${saved.candidateId}.ics`),"utf8");expect(bytes).toContain("SEQUENCE:2");expect(bytes.match(/UID:[^\r\n]+/)?.[0]).toBe(firstBytes.match(/UID:[^\r\n]+/)?.[0]);
+  const retry=await f.service.exportDeadlineIcs(binding,saved.candidateId,replacement.revisionHash);expect(retry.replay).toBe(true);expect(f.prompts()).toBe(3);expect(readFileSync(join(binding.matterRoot,"exports","deadlines",`${saved.candidateId}.ics`),"utf8")).toBe(bytes);
+});
+
+for(const state of ["export_pending","exported"] as const)test(`forged ${state} hash/sequence metadata never grants ownership or claims a foreign file`,async()=>{
+  const f=fixture(),binding=await resolveMatterBinding(f.workspace,"case"),saved=await f.service.saveCandidate(binding,f.input,null),preview=await f.service.prepareReview(binding,saved.candidateId,saved.revisionHash);
+  await f.service.decide(binding,saved.candidateId,saved.revisionHash,"confirm","metadata-confirm",undefined,preview.reviewHash);
+  const file=join(binding.matterRoot,"memory",`${saved.candidateId}.md`),ics=join(binding.matterRoot,"exports","deadlines",`${saved.candidateId}.ics`),foreign="FOREIGN USER BYTES",original=readFileSync(file,"utf8"),marker="## LAWOSS deadline workflow v1\n",at=original.indexOf(marker)+marker.length;
+  const payload=JSON.parse(original.slice(at));payload.export={...payload.export,state,sequence:999,sha256:sha256(foreign),previousHashes:[sha256(foreign)],decidedAt:"2000-01-01T00:00:00Z"};
+  writeFileSync(file,original.slice(0,at)+JSON.stringify(payload)+"\n");writeFileSync(ics,foreign);
+  const listed=(await f.service.list(binding))[0]!;expect(listed.trusted).toBe(true);expect(listed.exportState).toBe("export_failed");expect(listed.export?.sequence).toBe(0);
+  expect((await f.service.exportDeadlineIcs(binding,saved.candidateId,saved.revisionHash)).exportState).toBe("export_failed");expect(readFileSync(ics,"utf8")).toBe(foreign);expect(f.prompts()).toBe(1);
+  expect((await f.service.recoverDeadlineExports(binding))[0]?.exportState).toBe("export_failed");expect(readFileSync(ics,"utf8")).toBe(foreign);
+});
+
+for(const point of ["okf_staged","okf_renamed","after_okf_commit","ics_renamed"])test(`replacement projection survives explicit ${point} fault without sequence reuse`,async()=>{
+  const f=fixture(),binding=await resolveMatterBinding(f.workspace,"case"),saved=await f.service.saveCandidate(binding,f.input,null),preview=await f.service.prepareReview(binding,saved.candidateId,saved.revisionHash);
+  await f.service.decide(binding,saved.candidateId,saved.revisionHash,"confirm","crash-confirm",undefined,preview.reviewHash);
+  const review=await f.service.prepareReview(binding,saved.candidateId,saved.revisionHash);await f.service.decide(binding,saved.candidateId,saved.revisionHash,"revoke","crash-revoke",undefined,review.reviewHash,"Synthetic withdrawal");
+  const current=(await f.service.list(binding))[0]!,input=structuredClone(f.input);input.delivery!.method="Changed method";
+  const replacement=await f.service.saveCandidate(binding,input,current.recordHash,{candidateId:saved.candidateId,supersedesRevisionHash:saved.revisionHash}),next=await f.service.prepareReview(binding,saved.candidateId,replacement.revisionHash);
+  let injected=false;const faulty=new DeadlineWorkflow({...f.options,fault:stage=>{if(stage===point&&!injected){injected=true;throw new Error("Synthetic stage crash");}}});
+  try{await faulty.decide(binding,saved.candidateId,replacement.revisionHash,"confirm","crash-reconfirm",undefined,next.reviewHash);}catch(error){expect(String(error)).toContain("Synthetic stage crash");}
+  expect(injected).toBe(true);
+  const latest=(await f.service.list(binding))[0]!;
+  if(latest.state==="candidate")await f.service.decide(binding,saved.candidateId,replacement.revisionHash,"confirm","crash-reconfirm",undefined,next.reviewHash);else await f.service.recoverDeadlineExports(binding);
+  const recovered=(await f.service.list(binding))[0]!;expect(recovered.trusted).toBe(true);expect(recovered.export?.sequence).toBe(2);expect(recovered.exportState).toBe("exported");
+  const bytes=readFileSync(join(binding.matterRoot,"exports","deadlines",`${saved.candidateId}.ics`),"utf8");expect(bytes).toContain("SEQUENCE:2");expect(await f.service.recoverDeadlineExports(binding)).toEqual([]);
+});
+
+test("export rechecks current host projection under writer lock after asynchronous admission",async()=>{
+  const f=fixture(),binding=await resolveMatterBinding(f.workspace,"case"),saved=await f.service.saveCandidate(binding,f.input,null),preview=await f.service.prepareReview(binding,saved.candidateId,saved.revisionHash);
+  await f.service.decide(binding,saved.candidateId,saved.revisionHash,"confirm","admission-confirm",undefined,preview.reviewHash);
+  const file=join(binding.matterRoot,"memory",`${saved.candidateId}.md`),ics=join(binding.matterRoot,"exports","deadlines",`${saved.candidateId}.ics`),before=readFileSync(file,"utf8"),bytes=readFileSync(ics,"utf8");
+  let calls=0,key="";
+  const ledger:import("./ledger.js").DeadlineReceiptLedger={async run(action){calls++;return f.options.ledger.run(store=>{
+    if(calls===3){const current=store.current(key)!;store.advance(key,current.receiptId,{...current,receiptId:"newer-native-reservation",operationId:"newer-native-reservation",bindingHash:"newer-binding",projection:{...current.projection!,sequence:current.projection!.sequence+1,sha256:sha256("newer projection"),ownedHashes:[...current.projection!.ownedHashes,sha256("newer projection")]}});}
+    return action({...store,current:at=>{key=at;return store.current(at);}});
+  });}};
+  await expect(new DeadlineWorkflow({...f.options,ledger}).exportDeadlineIcs(binding,saved.candidateId,saved.revisionHash)).rejects.toThrow("authority changed");expect(calls).toBe(3);expect(readFileSync(file,"utf8")).toBe(before);expect(readFileSync(ics,"utf8")).toBe(bytes);
+});

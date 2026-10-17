@@ -1,3 +1,4 @@
+import { sameReceiptUse } from "./ledger.js";
 /** Synthetic test factories only. Production never imports this module. */
 import { fingerprint, sha256 } from "./hash.js";
 import type { CalculationInput, EvidenceRef, HolidaySet, RulePack } from "./types.js";
@@ -12,5 +13,5 @@ export function fixtureInput(day = "2026-10-23"): CalculationInput { const evide
 /** Explicit isolated authority fixture; never selected by production configuration. */
 export function fixtureLedger(): import("./ledger.js").DeadlineReceiptLedger {
   const values = new Map<string, import("./ledger.js").ReceiptUse>();
-  return { async run(action) { return action({ current: key => values.get(key) ?? null, advance(key,expected,next) { const old=values.get(key); if (old?.receiptId === next.receiptId && old.bindingHash === next.bindingHash) return true; if ((old?.receiptId ?? null)!==expected) return false; values.set(key,next); return true; },restore(key,expected,previous) { if(values.get(key)?.receiptId!==expected)return; if(previous)values.set(key,previous);else values.delete(key); } }); } };
+  return { async run(action) { return action({ current: key => values.get(key) ?? null, advance(key,expected,next) { const old=values.get(key); if (old?.receiptId === next.receiptId) return sameReceiptUse(old,next); if ((old?.receiptId ?? null)!==expected) return false; values.set(key,next); return true; },restore(key,expected,previous) { if(values.get(key)?.receiptId!==expected)return; if(previous)values.set(key,previous);else values.delete(key); } }); } };
 }
