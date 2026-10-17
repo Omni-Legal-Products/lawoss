@@ -15,6 +15,7 @@ import { createNativeDiagnostics, settleCleanup, errorMetadata } from "../lawoss
 import { parseCsv } from "../apps/server/dist/lawoss/documents/validation.js";
 import { sha256 } from "../lawoss/testing/isir/corpus.mjs";
 import { prepareNativeEngineFiles, probeNativeEngineVersion, verifyNativeEngineRuntime } from "../lawoss/testing/isir/native/engine-identity.mjs";
+import { createNativeEngineClient } from "../lawoss/testing/isir/native/engine-client.mjs";
 
 const debugPair=process.argv.includes('--debug-case-pair');
 assert.ok(!debugPair || !process.env.CI,'CI must run the complete ten-case native gate');
@@ -111,6 +112,7 @@ try {
   await until(async () => (await nativeFetch(env.LEGALWORK_ELECTRON_START_URL)).ok, "owned Vite");
   let appChild = launch(electron, [...(process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : []), path.join(repo, "apps/desktop/scripts/isir-native-entry.mjs")], path.join(repo, "apps/desktop"), "electron");
   cdp = await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch);
+  assert.deepEqual(await cdp.evaluate('({visibility:document.visibilityState,focused:document.hasFocus()})'),{visibility:'visible',focused:true},'Owned native page is active for production UI polling');
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1800,height:1400,deviceScaleFactor:1,mobile:false});
   await until(() => cdp.evaluate("!!window.__legalworkControl"), "native renderer controls", 90000);
   await until(() => cdp.evaluate("!document.body.innerText.includes('Loading your workspaces') && document.body.innerText.length > 150"), "workspace ready", 90000);
@@ -122,20 +124,22 @@ try {
     await until(() => cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('button,a,[role="button"],[role="menuitem"],[role="option"]')].find(e=>e.textContent.trim()===${JSON.stringify(text)}&&e.getBoundingClientRect().width>0&&!e.disabled);if(!e)return false;e.click();return true})()`), `visible native control ${text}`);
   };
   const liveEngine = await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('engineInfo')");
-  const apiAuth = {authorization:'Basic '+Buffer.from(`${liveEngine.opencodeUsername}:${liveEngine.opencodePassword}`).toString('base64'),'content-type':'application/json'};
-  const health = await (await nativeFetch(`${liveEngine.baseUrl}/global/health`,{headers:apiAuth})).json();
+  let serverInfo = await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('legalworkServerInfo')");
+  let engineRequest = createNativeEngineClient(serverInfo, workspaces[0].id, nativeFetch);
+  const healthResponse = await engineRequest('/global/health');
+  assert.equal(healthResponse.status, 200, 'Owned workspace engine health must authenticate');
+  const health = await healthResponse.json();
   const initialEngineIdentity = await verifyNativeEngineRuntime(preparedEngine, liveEngine.opencodeBinPath, health);
   const engineIdentities = [{ phase: 'initial', ...initialEngineIdentity }];
   await writeFile(path.join(root,'engine-identity-receipts.json'),JSON.stringify(engineIdentities,null,2),{mode:0o600});
-  let serverInfo = await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('legalworkServerInfo')");
   let serverAuth = {authorization:'Bearer '+(serverInfo.ownerToken||serverInfo.clientToken),'content-type':'application/json'};
   diagnostics.phase("configure-provider");
   const providerConfig = JSON.parse(env.OPENCODE_CONFIG_CONTENT).provider;
   const patched = await nativeFetch(`${serverInfo.baseUrl}/workspace/${workspaces[0].id}/config`,{method:'PATCH',headers:serverAuth,body:JSON.stringify({opencode:{provider:providerConfig}})});
   assert.equal(patched.status,200);
-  assert.equal((await nativeFetch(`${liveEngine.baseUrl}/auth/isir-native`,{method:'PUT',headers:apiAuth,body:JSON.stringify({type:'api',key:'synthetic-local-only'})})).status,200);
-  await nativeFetch(`${liveEngine.baseUrl}/instance/dispose`,{method:'POST',headers:apiAuth});
-  const providerList = await (await nativeFetch(`${liveEngine.baseUrl}/provider?directory=${encodeURIComponent(workspaces[0].path)}`,{headers:apiAuth})).json();
+  assert.equal((await engineRequest('/auth/isir-native',{method:'PUT',body:JSON.stringify({type:'api',key:'synthetic-local-only'})})).status,200);
+  assert.equal((await engineRequest('/instance/dispose',{method:'POST'})).status,200);
+  const providerList = await (await engineRequest(`/provider?directory=${encodeURIComponent(workspaces[0].path)}`)).json();
   console.log('PASS running engine1.18.29; actual configured providers',JSON.stringify({connected:providerList.connected,custom:providerList.all?.filter(p=>p.id==='isir-native').map(p=>({id:p.id,source:p.source,models:Object.keys(p.models)}))}));
   assert.ok(providerList.connected.includes('isir-native'));
   // Persisted selected-agent is fixture input, consumed by the ordinary
@@ -170,25 +174,32 @@ try {
     assert.ok(input.nodeId,'OS-backed input node is present');
     await cdp.send('DOM.setFileInputFiles',{nodeId:input.nodeId,files:paths});
   };
-  const drop = async paths => {
+  const copyReceipts = async () => (await readFile(path.join(root,'copy-receipts.jsonl'),'utf8').catch(error=>{if(error.code==='ENOENT')return '';throw error})).trim().split('\n').filter(Boolean).map(JSON.parse);
+  const drop = async (paths,workspace) => {
     await until(()=>cdp.evaluate(`document.querySelector('[aria-label="Document processing"]')?.closest('[aria-busy]')?.getAttribute('aria-busy')==='false'`),'native file import is ready');
-    // Observe the production toast produced from the real IPC copy result.
-    // This observer cannot modify IPC results or application state.
-    await cdp.evaluate(`(()=>{window.__isirCopyObserver?.disconnect();window.__isirCopyReceipt=null;const seen=new WeakSet(document.querySelectorAll('[data-sonner-toast]'));window.__isirCopyObserver=new MutationObserver(()=>{for(const e of document.querySelectorAll('[data-sonner-toast]'))if(!seen.has(e)&&e.innerText.includes('copied into the project')){seen.add(e);window.__isirCopyReceipt=e.innerText}});window.__isirCopyObserver.observe(document.body,{childList:true,subtree:true,characterData:true})})()`);
+    const folder=await cdp.evaluate(`[...document.querySelector('[aria-label="Current folder"]').querySelectorAll('button')].slice(1).map(e=>e.textContent.trim()).join('/')`);
+    const receiptStart=(await copyReceipts()).length;
     await cdp.evaluate(`(()=>{document.querySelector('#isir-os-backed-drop')?.remove();const i=document.createElement('input');i.type='file';i.id='isir-os-backed-drop';i.multiple=true;document.body.append(i)})()`);
     await inputFiles('#isir-os-backed-drop',paths);
     await cdp.evaluate(`(()=>{const dt=new DataTransfer();for(const f of document.querySelector('#isir-os-backed-drop').files)dt.items.add(f);const target=document.querySelector('[aria-label="Document processing"]').parentElement;target.dispatchEvent(new DragEvent('dragover',{bubbles:true,dataTransfer:dt}));target.dispatchEvent(new DragEvent('drop',{bubbles:true,dataTransfer:dt}));document.querySelector('#isir-os-backed-drop').remove()})()`);
-    const receipt=await until(()=>cdp.evaluate('window.__isirCopyReceipt'),'actual production file-copy UI receipt');
-    await until(()=>cdp.evaluate(`document.querySelector('[aria-label="Document processing"]')?.closest('[aria-busy]')?.getAttribute('aria-busy')==='false'`),'native IPC copy completed');
-    await cdp.evaluate('window.__isirCopyObserver.disconnect()');
-    assert.ok(receipt.includes(paths.length===1?'Item copied into the project':`${paths.length} items copied into the project`));
-    return receipt;
+    // Current native UI opens one artifact tab per copy instead of a toast.
+    // Observe the unchanged production dispatcher and completed tab paths.
+    const ipcCopies=await until(async()=>{
+      const receipts=(await copyReceipts()).slice(receiptStart).filter(r=>r.workspaceId===workspace.id&&r.folder===folder);
+      return paths.every(source=>receipts.some(r=>r.paths.includes(source)))?receipts:false;
+    },'actual production file-copy IPC receipts');
+    assert.ok(ipcCopies.every(r=>!r.error&&r.result.files.every(f=>f.status==='copied'&&f.path)));
+    const copied=ipcCopies.flatMap(r=>r.result.files);
+    const tabs=await until(()=>cdp.evaluate(`(()=>{const tabs=[...document.querySelectorAll('[data-panel-tab-id] [aria-label^="Select tab:"]')].map(e=>({label:e.getAttribute('aria-label'),title:e.getAttribute('title')}));return ${JSON.stringify(copied.map(f=>f.path))}.every(path=>tabs.some(tab=>tab.title?.endsWith('/ '+path)))?tabs:false})()`),'completed native file-copy tabs show actual project paths');
+    await openFiles(workspace);
+    for(const segment of folder.split('/').filter(Boolean))await click(segment);
+    return {ipcCopies,tabs};
   };
   const picker = async (paths,workspace) => {
     await cdp.send('Page.enable'); await cdp.send('Page.setInterceptFileChooserDialog',{enabled:true});
     const eventStart=cdp.events.length;
     await until(()=>cdp.evaluate(`(()=>{const button=document.querySelector('button[aria-label="Refresh folder"]');return button&&!button.disabled})()`),'current native folder query settled');
-    await until(()=>cdp.evaluate(`(()=>{const upload=[...document.querySelectorAll('[role="menuitem"],button')].find(e=>e.textContent.trim()==='Upload files'&&e.getBoundingClientRect().width>0&&!e.disabled);if(upload){upload.click();return true}const nav=document.querySelector('[aria-label="Current folder"]');const folder=document.querySelector('[data-project-folder="Dokumenty"]');if(!folder||nav?.querySelector('button')?.textContent.trim()!==${JSON.stringify(workspace.name)})return false;folder.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:200,button:2}));return false})()`),'current project native upload menu action');
+    await until(()=>cdp.evaluate(`(()=>{const upload=[...document.querySelectorAll('[role="menuitem"]')].find(e=>e.textContent.trim()==='Add files'&&e.getBoundingClientRect().width>0&&!e.disabled);if(upload){upload.click();return true}const nav=document.querySelector('[aria-label="Current folder"]');const folder=document.querySelector('[data-project-folder="Dokumenty"]');if(!folder||nav?.querySelector('button')?.textContent.trim()!==${JSON.stringify(workspace.name)})return false;folder.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:200,button:2}));return false})()`),'current project native upload menu action');
     const chooser=await until(()=>cdp.events.slice(eventStart).find(e=>e.method==='Page.fileChooserOpened'),'actual native HTML chooser request');
     const resolved=await cdp.send('DOM.resolveNode',{backendNodeId:chooser.params.backendNodeId});
     const observed=await cdp.send('Runtime.callFunctionOn',{objectId:resolved.object.objectId,functionDeclaration:`function(){window.__isirPickerChange=null;this.addEventListener('change',()=>{window.__isirPickerChange={connected:this.isConnected,files:[...this.files].map(f=>({name:f.name,size:f.size}))}},{once:true});return {connected:this.isConnected,type:this.type}}`,returnByValue:true});
@@ -218,8 +229,9 @@ try {
     await until(()=>cdp.evaluate(`!!document.querySelector('[data-project-folder="Dokumenty"]')`),'native source folder');
     const pickerReceipt=await picker([path.join(root,'originals',entry.id,entry.documents[0].name)],workspace);
     await until(async()=>{try{return sha256(await readFile(path.join(workspace.path,'Dokumenty',entry.documents[0].name)))===sha256(entry.documents[0].bytes)}catch{return false}},'actual picker copied bytes');
+    await openFiles(workspace);
     await click('Dokumenty');
-    await drop(entry.documents.slice(1).map(d=>path.join(root,'originals',entry.id,d.name)));
+    await drop(entry.documents.slice(1).map(d=>path.join(root,'originals',entry.id,d.name)),workspace);
     await until(async()=>{try{await hashes(entry,workspace);return true}catch{return false}},'actual OS-backed drop hashes');
     if(index===0){
       await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('input')].find(e=>e.getAttribute('aria-label')===${JSON.stringify('Select source '+entry.documents[0].name)});if(!e)return false;if(!e.checked)e.click();return true})()`),'select unprepared native source');
@@ -242,10 +254,10 @@ try {
       await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.includes('ISIR synthetic')&&!e.textContent.includes('protocol'));if(!e)return false;e.click();return true})()`),'choose actual connected model');
       await cdp.evaluate("window.__legalworkControl.execute('route.session')");
       await until(()=>cdp.evaluate(`(()=>{const e=document.querySelector('button[aria-label="Behavior"]');if(!e||e.disabled)return false;e.click();return true})()`),'native selected model behavior control');
-      const deep = await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('[role="option"]')].find(e=>e.textContent.trim()==='Deep');if(!e)return false;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`),'actual Deep choice');
-      await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...deep});
-      await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...deep});
-      await until(()=>cdp.evaluate(`JSON.parse(localStorage.getItem('legalwork.preferences')??'{}').modelVariant==='high'`),'persisted native Deep variant selection');
+      const high = await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('[role="option"]')].find(e=>e.textContent.trim()==='high');if(!e)return false;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`),'actual synthetic provider high reasoning choice');
+      await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...high});
+      await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...high});
+      await until(()=>cdp.evaluate(`JSON.parse(localStorage.getItem('legalwork.preferences')??'{}').modelVariant==='high'`),'persisted native high variant selection');
       await openFiles(workspace);await click('Dokumenty');await click('Prepare this folder');
       await until(async()=>(await panelText()).includes('Selected sources fully extracted'),'selected model/variant retains original source scope');
 
@@ -370,19 +382,18 @@ try {
     const originalSource=path.join(root,'originals',corpus.cases.at(-1).id,chatSource.name);
     const checks=path.join(last.path,'Checks'),beforeFirst=await readdir(checks);
     assert.equal(beforeFirst.length,0);
-    const firstCopyReceipt=await drop([originalSource]);
+    const firstCopyReceipt=await drop([originalSource],last);
     await until(async()=>{try{return sha256(await readFile(path.join(last.path,'Checks',chatSource.name)))===sha256(chatSource.bytes)}catch{return false}},'native collision first copy');
     const beforeSecond=await readdir(checks);assert.deepEqual(beforeSecond,[chatSource.name]);
-    const copyReceipt=await drop([originalSource,scanPath]);
+    const copyReceipt=await drop([originalSource,scanPath],last);
     const collided=await until(async()=>{for(const name of await readdir(path.join(last.path,'Checks'))){if(beforeSecond.includes(name))continue;try{if(sha256(await readFile(path.join(last.path,'Checks',name)))===sha256(chatSource.bytes))return name}catch{}}return false},'actual native filename collision preserves first copy');
     assert.equal(sha256(await readFile(path.join(last.path,'Checks',chatSource.name))),sha256(chatSource.bytes));
     const afterSecond=await readdir(checks),added=afterSecond.filter(name=>!beforeSecond.includes(name));
     assert.equal(added.length,2);assert.ok(added.includes(collided)&&added.includes('synthetic-incomplete-scan.pdf'));
-    const copyLines=(await readFile(path.join(root,'copy-receipts.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
-    const ipcCopy=copyLines.findLast(r=>r.workspaceId===last.id&&r.folder==='Checks'&&JSON.stringify(r.paths)===JSON.stringify([originalSource,scanPath]));
-    assert.ok(ipcCopy);assert.equal(ipcCopy.error,undefined);assert.ok(ipcCopy.result.files.every(f=>f.status==='copied'));
-    assert.deepEqual(new Set(ipcCopy.result.files.map(f=>path.basename(f.path))),new Set(added));
-    extraEvidence.collision={before:beforeSecond,after:afterSecond,newPaths:added,hash:sha256(chatSource.bytes),uiReceipts:[firstCopyReceipt,copyReceipt],ipcCopy};
+    assert.equal(copyReceipt.ipcCopies.length,2);
+    assert.deepEqual(new Set(copyReceipt.ipcCopies.flatMap(r=>r.paths)),new Set([originalSource,scanPath]));
+    assert.deepEqual(new Set(copyReceipt.ipcCopies.flatMap(r=>r.result.files.map(f=>path.basename(f.path)))),new Set(added));
+    extraEvidence.collision={before:beforeSecond,after:afterSecond,newPaths:added,hash:sha256(chatSource.bytes),uiReceipts:[firstCopyReceipt,copyReceipt],ipcCopies:copyReceipt.ipcCopies};
     await until(()=>cdp.evaluate(`(()=>{const e=document.querySelector('input[aria-label="Select source synthetic-incomplete-scan.pdf"]');if(!e)return false;e.click();return true})()`),'select actual incomplete PDF');
     await click('Prepare selected');
     const partial=await until(async()=>{const {body}=await api(last,'lawoss/documents');return body.documents.find(d=>d.path==='Checks/synthetic-incomplete-scan.pdf'&&d.status==='partial')},'production partial extraction without configured OCR',60000);
@@ -411,6 +422,7 @@ try {
   await writeFile(path.join(root,'chooser.json'),JSON.stringify({paths:[moved]}));
   appChild=launch(electron,[...(process.platform==='linux'?['--no-sandbox','--disable-gpu']:[]),path.join(repo,'apps/desktop/scripts/isir-native-entry.mjs')],path.join(repo,'apps/desktop'),'electron-relaunch');
   cdp=await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch);
+  assert.deepEqual(await cdp.evaluate('({visibility:document.visibilityState,focused:document.hasFocus()})'),{visibility:'visible',focused:true},'Relaunched owned page is active for production UI polling');
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1800,height:1400,deviceScaleFactor:1,mobile:false});
   await until(()=>cdp.evaluate('!!window.__legalworkControl'),'relaunched native renderer',90000);
   await openFiles(first);
@@ -421,22 +433,12 @@ try {
   first.path=moved;
   serverInfo=await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('legalworkServerInfo')");
   serverAuth={authorization:'Bearer '+(serverInfo.ownerToken||serverInfo.clientToken),'content-type':'application/json'};
+  engineRequest=createNativeEngineClient(serverInfo,first.id,nativeFetch);
   const chooserReceipts=(await readFile(path.join(root,'chooser-receipts.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
   assert.ok(chooserReceipts.some(r=>r.properties.includes('openDirectory')&&r.paths[0]===moved),'Actual native recovery chooser bridge was invoked');
   assert.equal(await access(oldPath).then(()=>true,()=>false),false,'Recovery cannot recreate the old path');
   const persisted=JSON.parse(await readFile(path.join(profile,'legalwork-workspaces.json'),'utf8'));
   assert.equal(persisted.workspaces.length,10);assert.ok(persisted.workspaces.find(w=>w.id===first.id).previousPaths.includes(oldPath));
-  if(debugPair){
-    const engineInfo=await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('engineInfo')");
-    const auth={authorization:'Basic '+Buffer.from(`${engineInfo.opencodeUsername}:${engineInfo.opencodePassword}`).toString('base64')};
-    const probe=[];
-    for(const [label,directory,includeArchived] of [['unicode-encoded',encodeURIComponent(moved),false],['ascii-existing',workspaces.at(-1).path,false],['engine-default',null,false],['unicode-with-archived',encodeURIComponent(moved),true],['ascii-with-archived',workspaces.at(-1).path,true],['default-with-archived',null,true]]){
-      const response=await nativeFetch(`${engineInfo.baseUrl}/experimental/session?limit=1000${includeArchived?'&archived=true':''}`,{headers:{...auth,...(directory===null?{}:{'x-opencode-directory':directory})}});
-      const body=await response.json();probe.push({label,status:response.status,sessions:Array.isArray(body)?body.map(s=>({id:s.id,directory:s.directory})):body});
-    }
-    await writeFile(path.join(root,'history-transport-probe.json'),JSON.stringify(probe,null,2),{mode:0o600});
-    console.log('DEBUG actual history transport',JSON.stringify(probe.map(p=>({label:p.label,status:p.status,count:Array.isArray(p.sessions)?p.sessions.length:null}))));
-  }
   diagnostics.phase("recovery");
   const recovered=await api(first,`sessions/${evidence[0].sessionId}/snapshot?limit=20`);
   await writeFile(path.join(root,'recovered-snapshot.json'),JSON.stringify(recovered.body,null,2),{mode:0o600});
@@ -475,7 +477,9 @@ try {
   await openFiles(first);await click('Dokumenty');await click('Prepare this folder');
   await until(async()=> (await panelText()).includes('Format and sources verified'),'recovered native renderer shows actual current verification');
   const finalEngine=await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('engineInfo')");
-  const relaunchedHealth=await (await nativeFetch(`${finalEngine.baseUrl}/global/health`,{headers:{authorization:'Basic '+Buffer.from(`${finalEngine.opencodeUsername}:${finalEngine.opencodePassword}`).toString('base64')}})).json();
+  const relaunchedHealthResponse=await engineRequest('/global/health');
+  assert.equal(relaunchedHealthResponse.status,200,'Relaunched workspace engine health must authenticate');
+  const relaunchedHealth=await relaunchedHealthResponse.json();
   const relaunchedEngineIdentity=await verifyNativeEngineRuntime(preparedEngine,finalEngine.opencodeBinPath,relaunchedHealth);
   engineIdentities.push({ phase: 'relaunch', ...relaunchedEngineIdentity });
   await writeFile(path.join(root,'engine-identity-receipts.json'),JSON.stringify(engineIdentities,null,2),{mode:0o600});

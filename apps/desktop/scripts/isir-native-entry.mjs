@@ -11,6 +11,9 @@ if (!root || !path.isAbsolute(root) || process.env.LEGALWORK_DEV_MODE !== "1" ||
 const profile = process.env.LEGALWORK_ELECTRON_USERDATA;
 const outside = (value) => !value || !path.isAbsolute(value) || path.relative(root,value).startsWith("..") || path.isAbsolute(path.relative(root,value));
 if (outside(profile)) throw new Error("ISIR native entry requires a profile inside the owned test root");
+// safeStorage probes during production boot otherwise enter the host login
+// keychain and can block CI's main thread before any renderer exists.
+if (process.platform === "darwin") app.commandLine.appendSwitch("use-mock-keychain");
 app.setPath("appData", path.join(root,"appdata"));
 app.setPath("userData", profile);
 app.setPath("sessionData", profile);

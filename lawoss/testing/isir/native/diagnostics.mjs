@@ -10,7 +10,7 @@ export function errorMetadata(error, depth = 0) {
     ...(depth < 3 && error?.cause ? {cause:errorMetadata(error.cause,depth+1)} : {}) };
 }
 function endpoint(url) {
-  let pathname;try { pathname=new URL(url).pathname; } catch { return 'other'; }
+  let pathname;try { pathname=new URL(url).pathname.replace(/^\/workspace\/[^/]+\/opencode(?=\/|$)/,''); } catch { return 'other'; }
   if (/\/lawoss\/documents\/prepare$/.test(pathname)) return 'documents.prepare';
   if (/\/lawoss\/documents(?:\/.*)?$/.test(pathname)) return 'documents';
   if (/\/(?:events?|event-stream|stream)$/.test(pathname)) return 'events';

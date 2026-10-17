@@ -5,6 +5,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createNativeDiagnostics, summarizeNetwork, errorMetadata, settleCleanup } from './diagnostics.mjs';
 
+test('workspace engine proxy diagnostics keep typed endpoints without workspace identities', () => {
+  const result = summarizeNetwork([
+    { method:'Network.requestWillBeSent',params:{requestId:'synthetic',timestamp:1,request:{url:'http://127.0.0.1:999/workspace/private-id/opencode/global/health'}} },
+  ]);
+  assert.equal(result.requests[0].endpoint, 'engine.health');
+  assert.doesNotMatch(JSON.stringify(result), /private-id|127\.0/);
+});
+
 test('network diagnostics retain pending prepare and streams without payload, IDs, URLs or headers', () => {
   const events = [
     { method:'Network.requestWillBeSent',params:{requestId:'secret-id',timestamp:1,request:{url:'http://127.0.0.1:999/workspace/private/lawoss/documents/prepare?token=secret',method:'POST',headers:{authorization:'secret'},postData:'private-source'}}},
