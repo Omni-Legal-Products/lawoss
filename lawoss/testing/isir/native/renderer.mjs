@@ -24,7 +24,9 @@ export async function nativeRendererLaunch(appRoot, port, fixtureRoot) {
 }
 
 export async function compileNativeRendererFixtures(appRoot,previewRoot) {
-  await execFile(process.execPath,[fileURLToPath(import.meta.url),'--compile-fixtures',appRoot,previewRoot],{cwd:appRoot,maxBuffer:1024*1024});
+  // Match the packaging build's bounded heap only for this compiler child.
+  // An explicit argv option also overrides a source-CI parent's smaller NODE_OPTIONS.
+  await execFile(process.execPath,['--max-old-space-size=6144',fileURLToPath(import.meta.url),'--compile-fixtures',appRoot,previewRoot],{cwd:appRoot,maxBuffer:1024*1024});
 }
 
 // Keep compiler/plugin resolution rooted in the app in a separate build process;

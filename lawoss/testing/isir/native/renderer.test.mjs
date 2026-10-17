@@ -4,11 +4,13 @@ import { mkdtemp, mkdir, writeFile, rm, readFile, readdir, stat } from 'node:fs/
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'node:net';
-import { spawn } from 'node:child_process';
+import { spawn, execFile as execFileCallback } from 'node:child_process';
+import { promisify } from 'node:util';
 import { until } from './cdp.mjs';
 import { createHash } from 'node:crypto';
+const execFile=promisify(execFileCallback);
 async function builtFiles(root) {
   const hashes={};
   for(const name of (await readdir(root,{recursive:true})).sort())if((await stat(path.join(root,name))).isFile())hashes[name]=createHash('sha256').update(await readFile(path.join(root,name))).digest('hex');
@@ -31,8 +33,8 @@ test('native renderer serves the built app and rejects a missing build without a
 });
 
 
-test('built preview serves compiled mounted regressions without source TSX or changing the built app', async () => {
-  const { nativeRendererLaunch,compileNativeRendererFixtures } = await import('./renderer.mjs');
+test('built preview serves compiled mounted regressions without source TSX or changing the built app', async t => {
+  const { nativeRendererLaunch } = await import('./renderer.mjs');
   const appRoot=fileURLToPath(new URL('../../../../apps/app/',import.meta.url));
   // Source CI builds the server, not the app. Use an explicit built HTML marker;
   // compile the actual mounted TSX entries, never source-transform the app.
@@ -45,7 +47,26 @@ test('built preview serves compiled mounted regressions without source TSX or ch
   const port=socket.address().port;await new Promise(resolve=>socket.close(resolve));
   let child,exit;
   try {
-    await compileNativeRendererFixtures(appRoot,path.join(root,'dist'));
+    // Observe real V8 budgets at the compiler boundary, including inherited options.
+    // The constrained driver owns these options; the test runner's env is untouched.
+    const probe=path.join(root,'heap-probe.mjs');
+    await writeFile(probe,`import { getHeapStatistics } from 'node:v8';
+import { writeFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
+const compiler=process.argv.includes('--compile-fixtures');
+const heap=getHeapStatistics().heap_size_limit/1024/1024;
+writeFileSync(new URL(compiler?'compiler-heap.json':'parent-heap.json',import.meta.url),JSON.stringify({heap,nodeOptions:process.env.NODE_OPTIONS}));
+if(compiler)assert.ok(heap>=6144&&heap<6400,'Fixture compiler needs a bounded 6144 MiB old-space budget under a constrained parent; actual heap '+heap+' MiB');
+`);
+    await execFile(process.execPath,['--input-type=module','-e',
+      `import { compileNativeRendererFixtures } from ${JSON.stringify(new URL('./renderer.mjs',import.meta.url).href)};await compileNativeRendererFixtures(...process.argv.slice(1));`,
+      appRoot,path.join(root,'dist')],{env:{...process.env,NODE_OPTIONS:`${process.env.NODE_OPTIONS??''} --max-old-space-size=2048 --import=${pathToFileURL(probe).href}`},maxBuffer:1024*1024});
+    const parentHeap=JSON.parse(await readFile(path.join(root,'parent-heap.json'),'utf8'));
+    const compilerHeap=JSON.parse(await readFile(path.join(root,'compiler-heap.json'),'utf8'));
+    assert.ok(parentHeap.heap>=2048&&parentHeap.heap<2304,'Driver retains its constrained parent budget');
+    assert.ok(compilerHeap.heap>=6144&&compilerHeap.heap<6400,'Compiler gets the explicit bounded build budget');
+    assert.equal(compilerHeap.nodeOptions,parentHeap.nodeOptions,'Compiler preserves inherited NODE_OPTIONS');
+    t.diagnostic(`Effective V8 heap: constrained parent ${parentHeap.heap} MiB; compiler ${compilerHeap.heap} MiB`);
     const launch=await nativeRendererLaunch(root,port);
     const require=createRequire(path.join(appRoot,'package.json'));
     child=spawn(process.execPath,[path.join(path.dirname(require.resolve('vite/package.json')),'bin/vite.js'),...launch.args],{cwd:launch.cwd,stdio:['ignore','pipe','pipe']});
