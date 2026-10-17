@@ -31,3 +31,35 @@ test('native engine client rejects a remote server or missing owner capability',
   assert.throws(() => createNativeEngineClient({ baseUrl: 'https://example.com', ownerToken: 'synthetic-owner' }, 'ws_native_1'), /loopback/);
   assert.throws(() => createNativeEngineClient({ baseUrl: 'http://127.0.0.1:1234', clientToken: 'synthetic-viewer' }, 'ws_native_1'), /owner token/);
 });
+
+test('native provider discovery waits for the production workspace reload to finish', async () => {
+  let completeReload;
+  let reloadStarted;
+  const started = new Promise(resolve => { reloadStarted = resolve; });
+  let ready = false;
+  const receipts = [];
+  const server = createServer((req, res) => {
+    receipts.push({ route: req.url, method: req.method, auth: req.headers.authorization });
+    reloadStarted();
+    res.setHeader('content-type', 'application/json');
+    if (req.url === '/workspace/ws_native_1/engine/reload') {
+      completeReload = () => { ready = true; res.end(JSON.stringify({ ok: true })); };
+      return;
+    }
+    res.end(JSON.stringify({ connected: ready ? ['isir-native'] : [] }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const request = createNativeEngineClient({ baseUrl: `http://127.0.0.1:${server.address().port}`, ownerToken: 'synthetic-owner' }, 'ws_native_1');
+    assert.equal(typeof request.reload, 'function', 'Native setup must expose the awaited production workspace reload');
+    const discovery = (async () => {
+      assert.equal((await request.reload()).status, 200);
+      return (await request('/provider')).json();
+    })();
+    await started;
+    assert.deepEqual(receipts, [{ route: '/workspace/ws_native_1/engine/reload', method: 'POST', auth: 'Bearer synthetic-owner' }]);
+    completeReload();
+    assert.deepEqual((await discovery).connected, ['isir-native']);
+    assert.equal(receipts[1].route, '/workspace/ws_native_1/opencode/provider');
+  } finally { completeReload?.(); await new Promise(resolve => server.close(resolve)); }
+});

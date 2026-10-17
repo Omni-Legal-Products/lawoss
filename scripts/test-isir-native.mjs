@@ -138,7 +138,7 @@ try {
   const patched = await nativeFetch(`${serverInfo.baseUrl}/workspace/${workspaces[0].id}/config`,{method:'PATCH',headers:serverAuth,body:JSON.stringify({opencode:{provider:providerConfig}})});
   assert.equal(patched.status,200);
   assert.equal((await engineRequest('/auth/isir-native',{method:'PUT',body:JSON.stringify({type:'api',key:'synthetic-local-only'})})).status,200);
-  assert.equal((await engineRequest('/instance/dispose',{method:'POST'})).status,200);
+  assert.equal((await engineRequest.reload()).status,200);
   const providerList = await (await engineRequest(`/provider?directory=${encodeURIComponent(workspaces[0].path)}`)).json();
   console.log('PASS running engine1.18.29; actual configured providers',JSON.stringify({connected:providerList.connected,custom:providerList.all?.filter(p=>p.id==='isir-native').map(p=>({id:p.id,source:p.source,models:Object.keys(p.models)}))}));
   assert.ok(providerList.connected.includes('isir-native'));
