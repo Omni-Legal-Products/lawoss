@@ -32,6 +32,17 @@ overí `codesign` a Gatekeeper, spustí ju s izolovaným profilom a číta živ�
 UI-control. Rozhranie CDP ani runtime fuses sa nemenia. Bez manuálne dokončených
 nativných scenárov runner zapíše `blocked` a skončí nenulovo.
 
+## AI režimy v governance kandidátovi
+
+Zaznamenajte presný SHA: táto zmena zatiaľ nie je release acceptance. Poučenie v onboardingu, AI a integráciách uvádza aktuálne vypnuté spracovanie chráneného/neznámeho kontextu. Prečítanie ani pripojený účet/provider spracovanie nepovoľujú. Ručné súbory a priečinky zostávajú dostupné; bez modelu sa nevyberá náhradný provider. Samotné `localhost` nie je dôkaz lokálneho modelu ani izolovaného downstreamu.
+
+Pre syntetický pozitívny test nastavte vlastný OpenAI-compatible model na vlastnenom loopback receiveri bez reálnych credentials/billing. V existujúcom AI nastavení použite samostatný formulár verejného textu. Vytvorí nový prázdny scratch bez spisu, histórie, AGENTS/wiki/personalizácie a nástrojov. Natívny dialóg pred každým odoslaním ukáže cieľ a úplný serializovaný systémový/textový kontext. Potvrdenie je technická klasifikácia jedného verejného požiadavku, nie právny grant. Očakávajte skutočnú odpoveď `PUBLIC_SYNTHETIC_OK`; pri zamietnutí nesmie receiver dostať nový požiadavok. Tento formulár nesprístupňuje generovanie v klientskom priečinku, prílohy, shell, MCP ani subagentov. Bez spravovaného pripnutého enginu alebo nakonfigurovaného kompatibilného modelu je nedostupný.
+
+Chránené chat/queue/Fusion, remote OCR/SystemOne/voice a ostatné nepreukázané prenosy zostávajú unsupported. Existujúci výslovne vybraný vstavaný lokálny OCR je samostatná cesta. Podpora chráneného modelu vyžaduje preukázanú engine/OS/receiver hranicu, zhodný enforced wire kontrakt a konkrétny právny profil schválený príslušným gestorom. Generický engine v lokálnom H1 teste čítal cez priamy shell mimo workspace aj pri permission deny; tento výsledok sa nesmie označiť za bezpečnú izoláciu. Nepripájajte skutočný spis.
+
+Migráciu legacy nastavení najprv zobrazte cez host-only `/lawoss/ai-governance/migration/preview`; apply prijíma aktuálny `sourceHash`. Import zachová iba preferenciu, nevytvára approved profil. Produkčný backup/restore, retention, incident owner/contact a Windows rollback ešte vyžadujú samostatnú acceptance. Rollback už odoslané dáta nevráti; starší build bez governance vyžaduje prevádzkové odobratie vzdialených credentials/povolení, nie zmazanie policy DB.
+
+
 ## Prejdite aktuálny onboarding
 
 1. V kroku **Ty** zadajte vymyslené meno, jurisdikciu a jazyk rozhrania.
