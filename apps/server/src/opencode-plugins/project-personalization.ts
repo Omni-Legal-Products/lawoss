@@ -1,4 +1,4 @@
-import { listWorkspaces, serverToken, serverUrl } from "./office-plugin-shared.js";
+import { listWorkspaces, serverConnected, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 function normalizeDirectory(directory: string): string {
   const normalized = directory.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -9,14 +9,14 @@ function normalizeDirectory(directory: string): string {
  * Read on every turn so edits apply to existing chats without disposing the
  * engine: "" without a project prompt, null when the server could not be asked.
  */
-export async function projectPersonalizationPrompt(directory?: string): Promise<string | null> {
+export async function projectPersonalizationPrompt(context: OpenCodeContext): Promise<string | null> {
   const url = serverUrl();
-  const token = serverToken();
-  if (!url || !token || !directory) return "";
+  const directory = context.directory;
+  if (!serverConnected(context) || !directory) return "";
 
   try {
     const currentDirectory = normalizeDirectory(directory);
-    const workspaces = await listWorkspaces();
+    const workspaces = await listWorkspaces(context);
     // Prefer the closest project root, including nested projects. Never use
     // another project's prompt when the session directory is unrecognised.
     const workspace = workspaces
@@ -28,7 +28,7 @@ export async function projectPersonalizationPrompt(directory?: string): Promise<
     if (!workspace) return "";
 
     const response = await fetch(`${url}/workspace/${encodeURIComponent(workspace.id)}/personalization`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: await workspaceToolHeaders(context),
       signal: AbortSignal.timeout(3_000),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);

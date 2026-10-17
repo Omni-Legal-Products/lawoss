@@ -14,11 +14,18 @@ describe("LegalWork capabilities knowledge plugin", () => {
 
   test("reports the project prompt as a reminder, resolving Windows project paths without matching neighbouring folders", async () => {
     const previousUrl = process.env.LEGALWORK_SERVER_URL;
-    const previousToken = process.env.LEGALWORK_SERVER_TOKEN;
+    const previousToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    let requestCount = 0;
     const server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
       fetch(request) {
+        // The reminder asks as the chat it is for, never with a server-wide token.
+        expect(request.headers.get("x-legalwork-wiki-agent-token")).toBe("test-token");
+        expect(request.headers.get("x-legalwork-wiki-agent-session")).toBe("ses_project");
+        expect(request.headers.has("x-legalwork-wiki-agent-directory")).toBe(true);
+        expect(request.headers.has("authorization")).toBe(false);
+        requestCount++;
         const path = new URL(request.url).pathname;
         if (path === "/workspaces") return Response.json({ items: [
           { id: "parent", path: "C:\\Matters\\Acme\\" },
@@ -30,7 +37,7 @@ describe("LegalWork capabilities knowledge plugin", () => {
       },
     });
     process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${server.port}`;
-    process.env.LEGALWORK_SERVER_TOKEN = "test-token";
+    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-token";
     /** The fixed system text and the reminder on the next user message. */
     const modelContext = async (plugin: Awaited<ReturnType<typeof LegalWorkCapabilitiesKnowledge>>) => {
       const output: { system: string[] } = { system: [] };
@@ -62,12 +69,13 @@ describe("LegalWork capabilities knowledge plugin", () => {
       expect(nested).toContain("Nested writing style");
       expect(nested).not.toContain("Parent writing style");
       expect(await prompt("C:\\Matters\\Acme-other")).toBe("");
+      expect(requestCount).toBeGreaterThan(0);
     } finally {
       server.stop(true);
       if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
       else process.env.LEGALWORK_SERVER_URL = previousUrl;
-      if (previousToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
-      else process.env.LEGALWORK_SERVER_TOKEN = previousToken;
+      if (previousToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+      else process.env.LEGALWORK_WIKI_AGENT_TOKEN = previousToken;
     }
   });
 });

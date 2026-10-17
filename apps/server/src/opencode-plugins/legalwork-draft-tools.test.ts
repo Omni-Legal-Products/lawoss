@@ -13,17 +13,21 @@ test("meeting requests use the editable card without a connected calendar or bac
 });
 
 test("draft tools use the chat's project, carry revisions, and surface server conflicts", async () => {
-  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_SERVER_TOKEN;
+  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
   const requests: Array<{ path: string; method: string; body: unknown }> = [];
   const server = Bun.serve({ port: 0, async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/workspaces") return Response.json({ items: [{ id: "parent", path: "/matters" }, { id: "child", path: "/matters/current" }] });
-    expect(request.headers.get("authorization")).toBe("Bearer fixture-token");
+    // The chat-bound credential only, never a server-wide token.
+    expect(request.headers.get("x-legalwork-wiki-agent-token")).toBe("fixture-token");
+    expect(request.headers.get("x-legalwork-wiki-agent-session")).toBe("session");
+    expect(request.headers.get("x-legalwork-wiki-agent-directory")).toBe(encodeURIComponent("/matters/current/subfolder"));
+    expect(request.headers.has("authorization")).toBe(false);
     requests.push({ path: url.pathname, method: request.method, body: request.method === "GET" ? null : await request.json() });
     return request.method === "PUT" ? Response.json({ error: "draft_conflict" }, { status: 409 }) : Response.json({ draft: { title: "untrusted content" } });
   } });
   process.env.LEGALWORK_SERVER_URL = server.url.origin;
-  process.env.LEGALWORK_SERVER_TOKEN = "fixture-token";
+  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "fixture-token";
   try {
     const { tool } = await LegalWorkDraftTools();
     const context = { directory: "/matters/current/subfolder", sessionID: "session" };
@@ -47,7 +51,8 @@ test("draft tools use the chat's project, carry revisions, and surface server co
     ]);
     expect(requests[2].body).toMatchObject({ revision: previous.revision });
     expect(requests[5].body).toMatchObject({ ...event, revision: previous.revision });
-    for (const unknown of [{}, { directory: "/elsewhere" }]) {
+    // An unrelated project, or a call that does not name its chat, never reaches the server's drafts.
+    for (const unknown of [{}, { directory: "/elsewhere", sessionID: "session" }, { directory: "/matters/current/subfolder" }]) {
       expect(JSON.parse(await tool.legalwork_email_draft.execute({}, unknown)).ok).toBe(false);
       expect(JSON.parse(await tool.legalwork_calendar_event_draft.execute(event, unknown)).ok).toBe(false);
     }
@@ -55,6 +60,6 @@ test("draft tools use the chat's project, carry revisions, and surface server co
   } finally {
     server.stop(true);
     if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
-    if (oldToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = oldToken;
+    if (oldToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = oldToken;
   }
 });

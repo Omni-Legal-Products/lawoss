@@ -93,8 +93,8 @@ const runCodeArgs = z.object({
 export const LegalWorkExcelTools = async (pluginInput?: SavedConversations) => {
   const excelPane = appStateReminders(
     "excel-pane",
-    async () => {
-      const pane = await officePaneIfKnown("excel");
+    async (sessionID) => {
+      const pane = await officePaneIfKnown("excel", { sessionID, directory: pluginInput?.directory });
       if (pane === undefined) return null;
       return pane ? excelModeInstruction(pane.documentUrl) : "";
     },

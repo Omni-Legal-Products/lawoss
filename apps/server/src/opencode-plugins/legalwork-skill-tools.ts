@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { buildSkillMarkdown, resolveSkillName } from "../skill-tool-content.js";
 
-import { resolveWorkspaceId, serverToken, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, serverConnected, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 /**
  * Agent tools for the ordinary discoverable skill library. Workflows is the
@@ -86,8 +86,7 @@ async function requestJson(
   options: { method?: string; body?: unknown; context?: OpenCodeContext } = {},
 ): Promise<{ ok: true; payload: unknown } | { ok: false; error: string }> {
   const url = serverUrl();
-  const token = serverToken();
-  if (!url || !token) {
+  if (!serverConnected(options.context)) {
     return { ok: false, error: "LegalWork server connection is not configured for this engine." };
   }
   const response = await fetch(`${url}${path}`, {

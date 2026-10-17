@@ -97,7 +97,7 @@ export const LegalWorkCapabilitiesKnowledge = async (input: SavedConversations =
   // reminder instead of in the system prompt (see app-state-reminders.ts).
   const projectPrompt = appStateReminders(
     "project-prompt",
-    () => projectPersonalizationPrompt(input.directory),
+    (sessionID) => projectPersonalizationPrompt({ sessionID, directory: input.directory }),
     "The project personalisation was removed. Earlier project personalisation reminders no longer apply; use the global writing preferences again.",
     input,
   );

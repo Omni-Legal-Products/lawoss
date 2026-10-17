@@ -25,8 +25,12 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
   const modelRequests: { tools: string[]; toolDefinitions: string; toolResults: string[]; system: string; users: string[] }[] = [];
   const created: ScheduledTaskInput[] = [];
   const sourceReads: string[] = [];
+  const serverAuth: Array<{ authorization: string | null; session: string | null }> = [];
   const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
+    // LAWOSS: the engine reaches the server only with its chat-bound credential.
+    if (path.startsWith("/workspace") || path.startsWith("/scheduled-tasks"))
+      serverAuth.push({ authorization: request.headers.get("authorization"), session: request.headers.get("x-legalwork-wiki-agent-session") });
     if (path === "/snapshot") return Response.json({ ok: true, route: "/unrelated-chat" });
     if (path === "/execute") {
       const input = z.object({ actionId: z.string(), args: z.unknown().optional() }).parse(await request.json());
@@ -82,7 +86,7 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
   const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: folder, env: {
     ...process.env, XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"),
     XDG_STATE_HOME: join(root, "state"), OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: config, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-    LEGALWORK_UI_CONTROL_DISCOVERY: discovery, LEGALWORK_SERVER_URL: fixture.url.origin, LEGALWORK_SERVER_TOKEN: "fixture", TZ: "Europe/Berlin",
+    LEGALWORK_UI_CONTROL_DISCOVERY: discovery, LEGALWORK_SERVER_URL: fixture.url.origin, LEGALWORK_WIKI_AGENT_TOKEN: "fixture", TZ: "Europe/Berlin",
   }, stdout: "ignore", stderr: "pipe" });
   const logs = new Response(engine.stderr).text();
   const base = `http://127.0.0.1:${port}`;
@@ -163,5 +167,7 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
     }
     expect(uiActions).toBe(0);
     expect(documentReads).toBeGreaterThan(0);
+    expect(serverAuth.length).toBeGreaterThan(0);
+    expect(serverAuth.every(entry => entry.authorization === null && Boolean(entry.session))).toBe(true);
   } finally { engine.kill("SIGKILL"); await engine.exited; fixture.stop(true); await rm(root, { recursive: true, force: true }); }
 }, 60000);

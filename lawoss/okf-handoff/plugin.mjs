@@ -1,4 +1,4 @@
-import { resolveHostMemoryContext } from "./host-memory-grants.mjs";
+import { nativeAgentHeaders, resolveHostMemoryContext } from "./host-memory-grants.mjs";
 import { createHandoff } from "./checkpoint.mjs";
 
 /** Native lifecycle hooks; native mode refreshes authenticated host permissions. */
@@ -7,7 +7,8 @@ export async function LawossOkfHandoff(input, { mode = "standalone" } = {}) {
   if (mode !== "native" && !handoff) return {};
   const checkpoint = async (sessionId, trigger) => {
     try { if (mode === "native") {
-      const context = await resolveHostMemoryContext({ directory: input.directory, serverUrl: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN });
+      const headers = await nativeAgentHeaders(input.directory, sessionId);
+      const context = await resolveHostMemoryContext({ directory: input.directory, serverUrl: process.env.LEGALWORK_SERVER_URL, headers });
       handoff = createHandoff(input.directory, { ...context, resolveAllowedRoots: () => context.allowedRoots });
       if (!handoff) throw new Error("Host memory profile is unavailable");
     }

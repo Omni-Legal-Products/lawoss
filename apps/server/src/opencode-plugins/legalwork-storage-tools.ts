@@ -7,7 +7,7 @@ import { workingCopy } from "../file-storage/working-copy.js";
 import { ApiError } from "../errors.js";
 import { storagePath, renameDestination } from "../file-storage/common.js";
 import { storageSearchModeSchema } from "@legalwork/types/file-storage";
-import { serverToken, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
+import { serverConnected, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 const RULES = `## Connected file storage
 Use storage_* tools for file storage connected in Settings and shown in Memory Drive. The same tools work across providers and multiple connections.
@@ -51,8 +51,7 @@ const toolContext = new AsyncLocalStorage<OpenCodeContext>();
 
 async function request(path: string, method = "GET", body?: unknown): Promise<unknown> {
   const url = serverUrl();
-  const token = serverToken();
-  if (!url || !token)
+  if (!serverConnected(toolContext.getStore()))
     throw new ApiError(503, "storage_connection_unavailable", "The workspace connection is not ready.");
   const response = await fetch(`${url}${path}`, {
     method,

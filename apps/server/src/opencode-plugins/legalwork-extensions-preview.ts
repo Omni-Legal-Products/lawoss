@@ -2,6 +2,7 @@ import { nativeFileEdits } from "./native-file-edits.js";
 import { compactBrowserResult } from "./browser-snapshot.js";
 import { legalworkBrowserTools } from "./legalwork-browser-tools.js";
 import { requireBrowserNetwork } from "./browser-network-policy.js";
+import { serverConnected, serverUrl, workspaceToolHeaders } from "./office-plugin-shared.js";
 import { uiBridgeRequest, taskDocumentSnapshot, inAppDocumentSurface, documentMatchesSession, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "../inapp-document-bridge.js";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { z } from "zod";
@@ -163,21 +164,11 @@ Downloads save in the originating project's visible Downloads folder. Use legalw
 Use the exact browser_url and target_id for the existing browser_snapshot, browser_click, browser_fill, browser_eval, and browser_screenshot tools when a batch does not support the needed action. If a snapshot has no useful controls, use one focused DOM observation rather than repeating identical empty snapshots. Built-in browser tasks do not require unrelated global browser skills unless the user explicitly requests them.
 Do not call browser_navigate without a target_id returned by legalwork_browser_open_url. Do not use browser_* tools on the LegalWork app target (avoid targets with title "LegalWork" or URLs containing ":5173/#/").`;
 
-function serverUrl(): string {
-  return String(process.env.LEGALWORK_SERVER_URL || "").replace(/\/$/, "");
-}
-
-function serverToken(): string {
-  return String(process.env.LEGALWORK_SERVER_TOKEN || "");
-}
-
-function requireLegalWorkServer(): { url: string; token: string } {
-  const url = serverUrl();
-  const token = serverToken();
-  if (!url || !token) {
+async function requireLegalWorkServer(context: OpenCodeContext): Promise<{ url: string; headers: Record<string, string> }> {
+  if (!serverConnected(context)) {
     throw new Error("LegalWork extension tools are only available when OpenCode is launched by LegalWork.");
   }
-  return { url, token };
+  return { url: serverUrl(), headers: await workspaceToolHeaders(context) };
 }
 
 async function parseResponse(response: Response): Promise<unknown> {
@@ -287,14 +278,14 @@ function errorMessage(payload: unknown, fallback: string): string {
   return getStringProperty(payload, "message") ?? getStringProperty(payload, "code") ?? fallback;
 }
 
-async function postJson(path: string, body: ExtensionActionPayload): Promise<unknown> {
-  const { url, token } = requireLegalWorkServer();
+async function postJson(context: OpenCodeContext, path: string, body: ExtensionActionPayload): Promise<unknown> {
+  const { url, headers } = await requireLegalWorkServer(context);
   const connectorToken = connectorDefinitions.some((definition) => definition.id === body.extensionId)
     ? process.env.LEGALWORK_CONNECTOR_TOKEN?.trim() : undefined;
   const response = await fetch(url + path, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
+      ...headers,
       "Content-Type": "application/json",
       ...(connectorToken ? { "x-legalwork-connector-token": connectorToken } : {}),
     },
@@ -615,10 +606,8 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = listActionsArgsSchema.parse(rawArgs);
         const query = args.extensionId ? `?extensionId=${encodeURIComponent(args.extensionId)}` : "";
-        const { url, token } = requireLegalWorkServer();
-        const response = await fetch(`${url}/experimental/extensions/actions${query}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const { url, headers } = await requireLegalWorkServer(context);
+        const response = await fetch(`${url}/experimental/extensions/actions${query}`, { headers });
         const payload = await parseResponse(response);
         if (!response.ok) throw new Error(errorMessage(payload, "LegalWork extension action listing failed"));
         return JSON.stringify(addContext(payload, context), null, 2);
@@ -629,7 +618,7 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
       args: callArgsSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = callArgsSchema.parse(rawArgs);
-        const payload = await postJson("/experimental/extensions/call", {
+        const payload = await postJson(context, "/experimental/extensions/call", {
           extensionId: args.extensionId,
           action: args.action,
           args: args.args ?? {},
