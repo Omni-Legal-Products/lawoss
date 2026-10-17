@@ -11,7 +11,10 @@ export function installChooserBoundary(expected) {
     const folder = panel?.querySelector('[data-project-folder="Dokumenty"]');
     const trigger = folder?.closest('[data-slot="context-menu-trigger"]');
     const row = trigger?.parentElement;
-    const inputs = row ? [...row.children].filter(e => e.matches('input[type="file"]')) : [];
+    // WorkspaceEntryMenu is a fragment: its input follows its own trigger.
+    // The list parent also contains other entries' inputs, not one owned row.
+    const inputs = [];
+    for (let node = trigger?.nextElementSibling; node?.matches('input[type="file"]'); node = node.nextElementSibling) inputs.push(node);
     const input = inputs.length === 1 ? inputs[0] : null;
     const nav = panel?.querySelector('[aria-label="Current folder"]');
     const route = window.__legalwork?.slice('route');

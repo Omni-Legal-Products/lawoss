@@ -11,6 +11,7 @@ export function fixture({open=true,expanded=true,foreign=false,folder='',renderC
   class Element {
     constructor(tag,attrs={},text='') {this.tagName=tag;this.attrs={...attrs};this.text=text;this.children=[];this.isConnected=true;this.disabled=false;this.zeroWidth=false;this.zeroHeight=false;}
     append(...children){for(const child of children){child.parentElement=this;this.children.push(child);}return this;}
+    get nextElementSibling(){const siblings=this.parentElement?.children??[];return siblings[siblings.indexOf(this)+1]??null;}
     get dataset(){return Object.fromEntries(Object.entries(this.attrs).filter(([key])=>key.startsWith('data-')).map(([key,value])=>[key.slice(5).replace(/-([a-z])/g,(_,c)=>c.toUpperCase()),value]));}
     get textContent(){return this.text+this.children.map(child=>child.textContent).join('');}
     get innerText(){return this.textContent;}

@@ -150,3 +150,43 @@ test('actual driver recovery call reaches reconnect with old root absent, then r
   await runInNewContext(`(async()=>{let selectedIndex=1;const workspaces=[first];const openFiles=${wrapper};${relink}})()`,{first,moved,cdp:f.cdp,until:f.until,openNativeProjectFiles});
   assert.equal(first.path,moved);assert.equal(f.state.toggles,0);assert.equal(await access(oldRoot).then(()=>true,()=>false),false);
 });
+
+
+test('chooser binds the input following the intended trigger, not sibling entry inputs',async()=>{
+  const f=fixture(),row=f.input.parentElement,Element=f.input.constructor;
+  const before=new Element('div',{'data-slot':'context-menu-trigger'}),beforeInput=new Element('input',{type:'file'});
+  const after=new Element('div',{'data-slot':'context-menu-trigger'}),afterInput=new Element('input',{type:'file'});
+  row.children.unshift(before,beforeInput);before.parentElement=row;beforeInput.parentElement=row;row.append(after,afterInput);
+  await f.run();
+  const observer=f.context.window.__isirChooserBoundary;
+  assert.equal(observer.capture().inputCount,1);
+  assert.equal(observer.event(f.input).eventInputEqual,true);
+  assert.equal(observer.event(beforeInput).eventInputEqual,false);
+  assert.equal(observer.event(afterInput).eventInputEqual,false);
+});
+for(const [name,mutate] of [
+  ['duplicate adjacent input',f=>f.input.parentElement.append(new f.input.constructor('input',{type:'file'}))],
+  ['missing adjacent input',f=>{f.input.parentElement.children.pop();}],
+  ['unrelated node between trigger and input',f=>{const row=f.input.parentElement,node=new f.input.constructor('div');node.parentElement=row;row.children.splice(1,0,node);}],
+])test(`chooser cannot capture ${name}`,async()=>{
+  const f=fixture();mutate(f);await f.run();
+  const receipt=f.context.window.__isirChooserBoundary.capture();
+  assert.equal(receipt.physicalScopeEqual,false);assert.equal(receipt.capturedConnected,null);
+  assert.equal(f.context.window.__isirChooserBoundary.event(f.input).eventInputEqual,false);
+});
+
+
+test('actual picker menu action refuses ambiguous or foreign ownership before opening an input',async()=>{
+  const source=await readFile(new URL('../../../../scripts/test-isir-native.mjs',import.meta.url),'utf8');
+  const caller=source.split('\n').find(line=>line.includes('const upload=')&&line.includes('current project native upload menu action'));
+  const expression=caller.split('cdp.evaluate(`')[1].split("`),'current project")[0].replace('${JSON.stringify(workspace.name)}',JSON.stringify(workspace.name));
+  for(const mutation of ['none','duplicate','runtime','selected','root']) {
+    const f=fixture();await f.run();let clicks=0;
+    const upload=new f.files.constructor('button',{role:'menuitem'},'Add files');upload.onClick=()=>clicks++;f.body.append(upload);
+    if(mutation==='duplicate')f.input.parentElement.append(new f.input.constructor('input',{type:'file'}));
+    if(mutation==='runtime')f.panel.attrs['data-files-workspace-id']='foreign';
+    if(mutation==='selected')f.state.selected='foreign';
+    if(mutation==='root')f.panel.attrs['data-files-workspace-root']='/foreign';
+    assert.equal(await f.cdp.evaluate(expression),mutation==='none');assert.equal(clicks,mutation==='none'?1:0);
+  }
+});
