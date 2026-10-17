@@ -1,4 +1,5 @@
 import { realpathSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { checkedDirectory, checkedPath, contained, isObject } from "../okf-pamat/src/workspace-memory-fs.ts";
 
@@ -6,8 +7,18 @@ const MAX_BYTES = 1024 * 1024;
 const MAX_ENTRIES = 1024;
 const failure = () => new Error("Host memory permissions unavailable; verify this workspace's native folder permissions.");
 
-function hostBase(serverUrl, token) {
-  if (!serverUrl || typeof token !== "string" || !token.trim()) throw failure();
+/**
+ * The engine's chat-bound credential (apps/server/src/wiki/agent-access.ts). The server
+ * answers only for the directory it recorded for this chat. Empty without one.
+ */
+export async function nativeAgentHeaders(directory, sessionId, env = process.env) {
+  const token = env.LEGALWORK_WIKI_AGENT_TOKEN?.trim();
+  if (!token || typeof sessionId !== "string" || !sessionId) return {};
+  return { "x-legalwork-wiki-agent-token": token, "x-legalwork-wiki-agent-session": sessionId, "x-legalwork-wiki-agent-directory": encodeURIComponent(await realpath(directory)) };
+}
+
+function hostBase(serverUrl, headers) {
+  if (!serverUrl || !isObject(headers) || Object.keys(headers).length === 0) throw failure();
   try {
     const base = new URL(serverUrl);
     if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password || base.search || base.hash) throw failure();
@@ -15,8 +26,8 @@ function hostBase(serverUrl, token) {
   } catch { throw failure(); }
 }
 
-async function boundedJson(fetcher, base, token, signal, path) {
-  const response = await fetcher(`${base}${path}`, { headers: { authorization: `Bearer ${token}` }, signal, redirect: "error" });
+async function boundedJson(fetcher, base, headers, signal, path) {
+  const response = await fetcher(`${base}${path}`, { headers, signal, redirect: "error" });
   if (!response.ok || !response.body || response.redirected) throw failure();
   const reader = response.body.getReader(), chunks = [];
   let size = 0;
@@ -59,11 +70,11 @@ function validatedFolders(value, selected) {
   return value.hiddenCount > 0 ? [] : [...new Set(value.folders.map(folder => checkedDirectory(folder)))].sort();
 }
 
-async function withHost({ directory, serverUrl, token, fetch: fetcher = globalThis.fetch, timeoutMs = 5000 }, operation) {
-  const base = hostBase(serverUrl, token), controller = new AbortController();
+async function withHost({ directory, serverUrl, headers, fetch: fetcher = globalThis.fetch, timeoutMs = 5000 }, operation) {
+  const base = hostBase(serverUrl, headers), controller = new AbortController();
   let timer;
   const run = async () => {
-    const get = path => boundedJson(fetcher, base, token, controller.signal, path);
+    const get = path => boundedJson(fetcher, base, headers, controller.signal, path);
     const selected = selectWorkspace(directory, await get("/workspaces"));
     const grants = await get(`/workspace/${encodeURIComponent(selected.id)}/lawoss/memory/grants`);
     const folders = validatedFolders(grants, selected);

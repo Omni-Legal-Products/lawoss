@@ -21,7 +21,6 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
   const results = [];
   for (const path of ["/wikis", "/workspace/" + url.searchParams.get("workspace") + "/storage/roots"]) {
     const response = await fetch(process.env.LEGALWORK_SERVER_URL + path, { headers: {
-      authorization: "Bearer " + process.env.LEGALWORK_SERVER_TOKEN,
       "x-legalwork-wiki-agent-token": process.env.LEGALWORK_WIKI_AGENT_TOKEN,
       "x-legalwork-wiki-agent-session": "verified-session",
       "x-legalwork-wiki-agent-directory": encodeURIComponent(url.searchParams.get("directory")),

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { engineAgentSession } from "./lawoss/test-support/engine-agent.js";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { LegalWorkStorageTools } from "./opencode-plugins/legalwork-storage-tools.js";
 import { tmpdir } from "node:os";
@@ -31,6 +32,7 @@ let config: ServerConfig;
 let server: Awaited<ReturnType<typeof startServer>>;
 let base: string;
 let viewerToken: string;
+let agentContext: { sessionID: string; directory: string };
 const priorEnv = { ...process.env };
 const idSchema = z.object({ connection: z.object({ id: z.string() }) });
 const fileSchema = z.object({ dataBase64: z.string(), version: z.string(), writable: z.boolean() });
@@ -103,7 +105,9 @@ beforeAll(async () => {
   server = await startServer(config);
   base = `http://127.0.0.1:${server.port}`;
   process.env.LEGALWORK_SERVER_URL = base;
-  process.env.LEGALWORK_SERVER_TOKEN = config.token;
+  // afterAll restores the environment, including the engine credential set here.
+  agentContext = (await engineAgentSession(config, { sessionID: "ses_storage", directory: temporary })).context;
+  await engineAgentSession(config, { sessionID: "ses_storage_viewer", directory: temporary, scope: "viewer" });
   const issued = await fetch(`${base}/tokens`, {
     method: "POST",
     headers: { "x-legalwork-host-token": config.hostToken, "content-type": "application/json" },
@@ -131,7 +135,7 @@ test("storage_read_file reads Office and PDF sources without a viewer or sandbox
   dav.files.set("first/source.pdf", Buffer.from(await pdf.save()));
   const id = await connect(storageInputSchema.parse({ name: "Source reading", readOnly: true, config: { kind: "webdav", endpoint: `${dav.endpoint}/first` } }));
   const { tool } = await LegalWorkStorageTools();
-  const read = (path: string, args: Record<string, unknown> = {}) => tool.storage_read_file.execute({ connection_id: id, path, ...args }, { directory: temporary }).then(JSON.parse);
+  const read = (path: string, args: Record<string, unknown> = {}) => tool.storage_read_file.execute({ connection_id: id, path, ...args }, agentContext).then(JSON.parse);
   try {
     const first = await read("source.docx", { max_chars: 24 });
     expect(first).toMatchObject({ complete: true, extraction: "native", writable: false, next_offset: 24 });
@@ -621,7 +625,7 @@ async function roundTrip(input: StorageInput) {
   const filenameToolResults = JSON.parse(
     await filenameTools.storage_search_filenames.execute(
       { connection_ids: [id, "missing-connection"], query: "IDDEN", path: folder },
-      { directory: temporary },
+      agentContext,
     ),
   );
   expect(filenameToolResults.results[0].page.entries).toEqual(filenamePage.entries);
@@ -677,7 +681,7 @@ async function roundTrip(input: StorageInput) {
             query,
             ...(cursor ? { cursors: { [id]: cursor } } : {}),
           },
-          { directory: temporary },
+          agentContext,
         ),
       ).results[0];
     const first = await search("page-");
@@ -738,7 +742,7 @@ async function roundTrip(input: StorageInput) {
 
 async function mutationRoundTrip(id: string, folder: string) {
   const { tool } = await LegalWorkStorageTools();
-  const context = { directory: temporary };
+  const context = agentContext;
   const rename = (path: string, name: string, kind: "file" | "folder") => tool.storage_rename.execute({ connection_id: id, path, name, kind }, context).then(JSON.parse);
   const source = `${folder}/rename-source`;
   const destination = `${folder}/renamed-ä`;
@@ -784,7 +788,7 @@ async function mutationRoundTrip(id: string, folder: string) {
 
 async function agentRoundTrip(id: string, folder: string) {
   const { tool } = await LegalWorkStorageTools();
-  const context = { directory: temporary };
+  const context = agentContext;
   const source = { connection_id: id, path: `${folder}/agent.txt` };
   const roots = JSON.parse(await tool.storage_list_connections.execute({}, context)).connections;
   expect(roots).toContainEqual(expect.objectContaining({ connection_id: id }));
@@ -870,14 +874,14 @@ async function agentRoundTrip(id: string, folder: string) {
       .code,
   ).toBe("storage_read_only");
   await api("PUT", `/${id}`, { ...connection, readOnly: false });
-  process.env.LEGALWORK_SERVER_TOKEN = viewerToken;
+  // A chat started by a viewer keeps the viewer's scope through the engine credential.
+  const viewer = { ...context, sessionID: "ses_storage_viewer" };
   expect(
-    JSON.parse(await tool.storage_get_capabilities.execute({ connection_id: id }, context)).capabilities.write,
+    JSON.parse(await tool.storage_get_capabilities.execute({ connection_id: id }, viewer)).capabilities.write,
   ).toBe(false);
   expect(
-    JSON.parse(await tool.storage_write_file.execute({ ...source, mode: "create", content: "Viewer" }, context)).ok,
+    JSON.parse(await tool.storage_write_file.execute({ ...source, mode: "create", content: "Viewer" }, viewer)).ok,
   ).toBe(false);
-  process.env.LEGALWORK_SERVER_TOKEN = config.token;
 }
 
 describe.skipIf(process.env.LEGALWORK_STORAGE_INTEGRATION !== "1")("real storage reference services", () => {

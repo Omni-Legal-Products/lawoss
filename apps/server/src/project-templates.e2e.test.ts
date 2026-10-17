@@ -9,6 +9,7 @@ import { projectTemplateCatalogSchema } from "./project-schema.js";
 import { readProjectDetails } from "./project-store.js";
 import { readProjectTemplates, localizeProjectTemplates } from "./project-templates.js";
 import { LegalWorkProjectTools } from "./opencode-plugins/legalwork-project-tools.js";
+import { engineAgentSession } from "./lawoss/test-support/engine-agent.js";
 
 test("humans and agents create projects from the same edited catalog, with custom fields or no template", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-template-api-"));
@@ -16,7 +17,7 @@ test("humans and agents create projects from the same edited catalog, with custo
     LEGALWORK_DATA_DIR: process.env.LEGALWORK_DATA_DIR,
     LEGALWORK_TOKEN_STORE: process.env.LEGALWORK_TOKEN_STORE,
     LEGALWORK_SERVER_URL: process.env.LEGALWORK_SERVER_URL,
-    LEGALWORK_SERVER_TOKEN: process.env.LEGALWORK_SERVER_TOKEN,
+    LEGALWORK_WIKI_AGENT_TOKEN: process.env.LEGALWORK_WIKI_AGENT_TOKEN,
   };
   process.env.LEGALWORK_DATA_DIR = join(root, "data");
   process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
@@ -34,7 +35,7 @@ test("humans and agents create projects from the same edited catalog, with custo
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   process.env.LEGALWORK_SERVER_URL = url;
-  process.env.LEGALWORK_SERVER_TOKEN = "template-owner";
+  const agent = await engineAgentSession(config, { sessionID: "ses_templates", directory: root });
   try {
     const initial = projectTemplateCatalogSchema.parse(await (await request("/workspaces/project-templates?language=de")).json());
     expect(initial.templates.map((template) => template.name)).toEqual(["Akte", "Internes Projekt", "Vertrag & Transaktion", "Recherche & Analyse"]);
@@ -50,9 +51,9 @@ test("humans and agents create projects from the same edited catalog, with custo
     expect(persisted.revision).toBe(1);
     expect(persisted.templates.at(-1)?.fields[0].value).toBeNull();
     const plugin = await LegalWorkProjectTools();
-    const catalog = projectTemplateCatalogSchema.parse(JSON.parse(await plugin.tool.legalwork_project_templates.execute({ language: "de" })));
+    const catalog = projectTemplateCatalogSchema.parse(JSON.parse(await plugin.tool.legalwork_project_templates.execute({ language: "de" }, agent.context)));
     expect(catalog).toEqual(localizeProjectTemplates(persisted, "de"));
-    const agentProject: { activeId: string } = JSON.parse(await plugin.tool.legalwork_project_create.execute({ name: "Agent custom template", templateId: "company", templateLanguage: "de" }));
+    const agentProject: { activeId: string } = JSON.parse(await plugin.tool.legalwork_project_create.execute({ name: "Agent custom template", templateId: "company", templateLanguage: "de" }, agent.context));
     const details = async (id: string) => {
       const workspace = config.workspaces.find((entry) => entry.id === id);
       if (!workspace) throw new Error("Created project missing");
@@ -65,9 +66,9 @@ test("humans and agents create projects from the same edited catalog, with custo
     const human: { activeId: string } = await humanResponse.json();
     expect((await details(human.activeId)).fields).toEqual(original.fields);
     // Selection omitted uses the saved default; explicit null is a saved, empty schema.
-    const byDefault: { activeId: string } = JSON.parse(await plugin.tool.legalwork_project_create.execute({ name: "Default" }));
+    const byDefault: { activeId: string } = JSON.parse(await plugin.tool.legalwork_project_create.execute({ name: "Default" }, agent.context));
     expect((await details(byDefault.activeId)).fields).toEqual(original.fields);
-    const none: { activeId: string } = JSON.parse(await plugin.tool.legalwork_project_create.execute({ name: "No template", templateId: null }));
+    const none: { activeId: string } = JSON.parse(await plugin.tool.legalwork_project_create.execute({ name: "No template", templateId: null }, agent.context));
     expect(await details(none.activeId)).toMatchObject({ revision: 1, fields: [] });
     const ownFields: ProjectField[] = [
       { id: "vendor", label: "Our supplier", type: "text", value: "Example GmbH" },
@@ -76,16 +77,16 @@ test("humans and agents create projects from the same edited catalog, with custo
       { id: "phase", label: "Phase", type: "select", options: ["Draft", "Signed"], value: "Draft" },
       { id: "unknown", label: "Unknown fact", type: "text", value: null },
     ];
-    const custom: { activeId: string } = JSON.parse(await plugin.tool.legalwork_project_create.execute({ name: "Ad hoc fields", projectFields: ownFields }));
+    const custom: { activeId: string } = JSON.parse(await plugin.tool.legalwork_project_create.execute({ name: "Ad hoc fields", projectFields: ownFields }, agent.context));
     expect((await details(custom.activeId)).fields).toEqual(ownFields.map((field) => ({ ...field, labelSource: "custom" })));
     for (const templateId of ["legal_matter", "internal", "contracts", "research"]) {
-      const created: { activeId: string } = JSON.parse(await plugin.tool.legalwork_project_create.execute({ name: templateId, templateId, templateLanguage: "de" }));
+      const created: { activeId: string } = JSON.parse(await plugin.tool.legalwork_project_create.execute({ name: templateId, templateId, templateLanguage: "de" }, agent.context));
       expect((await details(created.activeId)).fields).toEqual(catalog.templates.find((entry) => entry.id === templateId)!.fields);
     }
     // Template changes affect future projects only.
     expect((await request("/workspaces/project-templates", { ...persisted, templates: persisted.templates.map((entry) => entry.id === "company" ? { ...entry, fields: [] } : entry) }, "PUT")).status).toBe(200);
     expect(await details(agentProject.activeId)).toEqual(original);
-    const later: { activeId: string } = JSON.parse(await plugin.tool.legalwork_project_create.execute({ name: "Updated template", templateId: "company" }));
+    const later: { activeId: string } = JSON.parse(await plugin.tool.legalwork_project_create.execute({ name: "Updated template", templateId: "company" }, agent.context));
     expect((await details(later.activeId)).fields).toEqual([]);
     const folders = await readdir(config.projectsDirectory!);
     for (const invalid of [

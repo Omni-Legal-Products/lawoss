@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { stopHostProcessTree } from "./host-processes.js";
 import { windowsHostEnvironment, windowsHostScript } from "./host-windows.js";
 import { spawn } from "node:child_process";
+import { withoutServerCredentials } from "../lawoss/engine-credentials.js";
 import { sandboxResources, type SandboxResult } from "./vm.js";
 
 export const hostShell = () => process.platform === "win32" ? "PowerShell" : "Bash";
@@ -22,7 +23,8 @@ export async function runHostCommand(input: { command: string; cwd: string; time
       const child = spawn(windows ? join(sandboxResources(), "legalwork-host.exe") : "/bin/bash", windows
         ? [script]
         : ["-c", input.command], { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: !windows,
-          env: windows ? windowsHostEnvironment(process.env) : process.env });
+          // LAWOSS: a host command sees the user's environment, never this server's credentials.
+          env: withoutServerCredentials(windows ? windowsHostEnvironment(process.env) : process.env) });
       const chunks: Buffer[] = [];
       let size = 0, truncated = false, finished = false;
       let failure: Error | undefined;

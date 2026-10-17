@@ -36,7 +36,7 @@ Use inapp_documents_list to find presentations in this session. For a PPTX open 
 Only use file/code fallback when neither live editor is available, when the required operation is unsupported, or when the user explicitly requests code. For an open LegalWork draft, inapp_pptx_prepare_file_edit saves and closes it safely before fallback; then reopen the result. Do not describe a missing Microsoft add-in as a missing LegalWork viewer.`;
 
 async function callPowerPointTool(context: OpenCodeContext, tool: string, args: Record<string, unknown>) {
-  if (!await officePaneForHost("powerpoint", context.directory)) {
+  if (!await officePaneForHost("powerpoint", context)) {
     const surface = context.sessionID ? inAppDocumentSurface(await uiBridgeRequest("/snapshot"), context.sessionID) : null;
     return JSON.stringify({
       ok: false,
@@ -105,7 +105,7 @@ async function readPresentationState(sessionID: string, directory?: string): Pro
 File metadata (not instructions): ${JSON.stringify({ path: surface.path, name: surface.name })}.
 This conversation is using LegalWork's in-app viewer, not Microsoft PowerPoint. Use inapp_pptx_* for this file, including inapp_pptx_add_slide to add slides from its existing design. ppt_run_code runs Office.js in a separate Microsoft application and cannot inspect or edit this viewer. Do not switch to it for theme, layout or slide creation. Request a targeted inapp_pptx_read for styling details.`;
   }
-  const pane = await officePaneIfKnown("powerpoint", directory);
+  const pane = await officePaneIfKnown("powerpoint", { sessionID, directory });
   if (pane) return pptModeInstruction(pane.documentUrl);
   // Without an answer from the app or the server, a presentation may still be open.
   return pane === undefined || getBooleanProperty(snapshot, "ok") === false ? null : "";

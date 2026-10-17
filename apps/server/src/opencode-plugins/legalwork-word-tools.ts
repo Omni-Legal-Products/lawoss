@@ -114,8 +114,8 @@ const runCodeArgs = z.object({
 export const LegalWorkWordTools = async (pluginInput?: SavedConversations) => {
   const wordPane = appStateReminders(
     "word-pane",
-    async () => {
-      const pane = await officePaneIfKnown("word", pluginInput?.directory);
+    async (sessionID) => {
+      const pane = await officePaneIfKnown("word", { sessionID, directory: pluginInput?.directory });
       if (pane === undefined) return null;
       return pane ? wordModeInstruction(pane.documentUrl) : "";
     },
@@ -133,10 +133,10 @@ export const LegalWorkWordTools = async (pluginInput?: SavedConversations) => {
   "tool.execute.after": wordPane.toolResult,
   event: wordPane.event,
   "tool.execute.before": async (
-    input: { tool: string },
+    input: { tool: string; sessionID?: string },
     output: { args: Record<string, unknown> },
   ) => {
-    const pane = await officePaneForHost("word", pluginInput?.directory);
+    const pane = await officePaneForHost("word", { sessionID: input.sessionID, directory: pluginInput?.directory });
     if (!pane || !isOpenWordFilePipelineCall(input.tool, output.args, pane.documentUrl)) return;
     throw new Error(
       "The target document is open in Microsoft Word. The FILE DOCX pipeline is disabled for that document: use word_* tools for live tracked changes, or stop and retry if the Word relay is not ready.",

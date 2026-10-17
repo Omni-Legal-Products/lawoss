@@ -9,10 +9,11 @@ import { upsertSkillResource } from "./skill-resources.js";
 import { LegalWorkSkillTools } from "./opencode-plugins/legalwork-skill-tools.js";
 import type { OpenCodeContext } from "./opencode-plugins/office-plugin-shared.js";
 import type { ServerConfig } from "./types.js";
+import { engineAgentSession } from "./lawoss/test-support/engine-agent.js";
 
 test("a global workflow exposes current Markdown and Word resources in fresh projects without external-folder grants", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "skill-package-http-")));
-  const previous = Object.fromEntries(["XDG_CONFIG_HOME", "LEGALWORK_RUNTIME_DB", "LEGALWORK_SERVER_URL", "LEGALWORK_SERVER_TOKEN"].map(key => [key, process.env[key]]));
+  const previous = Object.fromEntries(["XDG_CONFIG_HOME", "LEGALWORK_RUNTIME_DB", "LEGALWORK_SERVER_URL", "LEGALWORK_WIKI_AGENT_TOKEN"].map(key => [key, process.env[key]]));
   process.env.XDG_CONFIG_HOME = join(root, "config");
   process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
   const workspace = join(root, "matter"), other = join(root, "other");
@@ -27,7 +28,10 @@ test("a global workflow exposes current Markdown and Word resources in fresh pro
   const server = await startServer(config);
   try {
     const base = `http://127.0.0.1:${server.port}`;
-    process.env.LEGALWORK_SERVER_URL = base; process.env.LEGALWORK_SERVER_TOKEN = "token";
+    process.env.LEGALWORK_SERVER_URL = base;
+    // The engine knows only the chat-bound credential; the proxy records each chat's folder.
+    for (const [sessionID, directory] of [["chat-a", workspace], ["chat-b", workspace], ["fresh-chat", other]])
+      await engineAgentSession(config, { sessionID, directory });
     const name = "workflow-assistant-bkl-mandatsaufnahme";
     const skill = await upsertSkill(workspace, { name, scope: "global", content: "Read resources/felder.md and resources/template.docx.", description: "Firm intake workflow" });
     await upsertSkillResource(workspace, name, { name: "felder.md", content: "Current intake fields" });
@@ -57,7 +61,8 @@ test("a global workflow exposes current Markdown and Word resources in fresh pro
     await expect(read("resources/private.md", context, "unrelated")).rejects.toThrow("Load this skill");
     await expect(read("../unrelated/resources/private.md")).rejects.toThrow("exact path");
     await expect(read("resources/felder.md", { ...context, sessionID: "chat-b" })).rejects.toThrow("Load this skill");
-    await expect(read("resources/felder.md", { ...context, directory: other })).rejects.toThrow("Load this skill");
+    // The server refuses a chat that claims another project's folder before any skill state is read.
+    await expect(read("resources/felder.md", { ...context, directory: other })).rejects.toThrow("HTTP 403");
     denied = "read";
     await expect(read("resources/felder.md")).rejects.toThrow("Permission denied");
     denied = "skill";

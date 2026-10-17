@@ -1,4 +1,4 @@
-import { serverToken, serverUrl } from "./office-plugin-shared.js";
+import { engineHeaders, serverUrl } from "./office-plugin-shared.js";
 
 /**
  * The firm's policy, checked at every tool call (server: org-policy-engine.ts).
@@ -87,8 +87,9 @@ async function readGuard(): Promise<Guard | null> {
   // Unreachable (the server restarting): the last answer stands.
   let guard = guardCache?.guard ?? null;
   try {
+    // LAWOSS: the firm's guard is server-wide, read with the engine credential alone.
     const response = await fetch(`${serverUrl()}/org-policy/guard`, {
-      headers: { Authorization: `Bearer ${serverToken()}` },
+      headers: engineHeaders(),
       signal: AbortSignal.timeout(5_000),
     });
     if (response.ok) guard = parseGuard(await response.json());
