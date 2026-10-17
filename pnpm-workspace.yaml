@@ -3,6 +3,12 @@ minimumReleaseAgeExclude:
   - "@opencode-ai/sdk"
   # Explicitly allow the reviewed Electron security update.
   - "electron@43.7.5"
+  # Pinned standalone OpenUI runtime reviewed for the reversible wiki prototype.
+  - "@openuidev/react-lang@0.4.1"
+  - "@openuidev/lang-core@0.4.1"
+  - "@openuidev/react-ui@0.17.1"
+  - "@openuidev/react-headless@0.17.1"
+  - "@openuidev/devtools@0.2.3"
 
 packages:
   - "apps/*"
@@ -26,6 +32,8 @@ preferWorkspacePackages: true
 # Installs are always explicit here, so skip the pre-run check.
 verifyDepsBeforeRun: false
 allowBuilds:
+  # The published runtime is prebuilt; its postinstall only sends telemetry.
+  "@openuidev/lang-core": false
   cpu-features: false
   ssh2: false
   "@whiskeysockets/baileys": true
@@ -48,6 +56,7 @@ overrides:
   '@xmldom/xmldom@>=0.9.0 <0.9.12': 0.9.12
   '@xmldom/xmldom@>=0.8.0 <0.8.15': 0.8.15
 patchedDependencies:
+  '@eigenpal/docx-editor-agents@1.8.3': patches/@eigenpal__docx-editor-agents@1.8.3.patch
   '@eigenpal/docx-editor-core@1.8.3': patches/@eigenpal__docx-editor-core@1.8.3.patch
   '@eigenpal/docx-editor-react@1.8.3': patches/@eigenpal__docx-editor-react@1.8.3.patch
   pptx-react-viewer@3.5.4: patches/pptx-react-viewer@3.5.4.patch

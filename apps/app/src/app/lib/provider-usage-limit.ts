@@ -1,7 +1,8 @@
+import { parseProviderUsageLimit, usageLimitDetailsSchema } from "@legalwork/types/provider-usage-limit";
+export { providerUsageLimitErrorText, parseProviderUsageLimit } from "@legalwork/types/provider-usage-limit";
 /** Permanent quota failures need user action; temporary throttling still retries. */
 const QUOTA_PATTERN =
   /budget[_ ](?:has been )?exceeded|insufficient[_ ](?:quota|credits)|billing[_ ](?:hard[_ ])?limit|(?:credit|account) balance (?:is too low|is insufficient|exhausted)|(?:usage|subscription|spending|spend|monthly|weekly|daily)[_ ]limit[_ ](?:reached|exceeded)|subscription_sharing_usage_(?:limit_exceeded|unavailable)|(?:exceeded|reached|hit|exhausted).{0,40}(?:usage limit|usage quota|current quota|monthly budget)|(?:usage limit|usage quota|monthly budget).{0,30}(?:exceeded|reached|exhausted)|out of credits|not enough credits|no credits remaining/i;
-const MARKER = "LegalWork provider usage limit: ";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -52,6 +53,7 @@ export function isProviderUsageLimitError(
   error: unknown,
   providerId?: string,
 ): boolean {
+  if (providerId === "eigenwelt" && eigenweltUsageLimitFromError(error)) return true;
   const data = apiErrorData(error);
   const body = data && responseBody(data);
   // A typed Anthropic response is authoritative, including a negative result.
@@ -67,19 +69,30 @@ export function usageLimitRetryEvent(properties: unknown) {
   return { sessionId: properties.sessionID, error: properties.error };
 }
 
-export function providerUsageLimitErrorText(providerId: string): string {
-  return MARKER + encodeURIComponent(providerId);
+/** LiteLLM may wrap the gateway's detail in its OpenAI-compatible error body. */
+export function eigenweltUsageLimitFromError(error: unknown) {
+  const data = apiErrorData(error);
+  const body = data && responseBody(data);
+  const texts = [typeof error === "string" ? error : data?.message, isRecord(body?.error) ? body.error.message : null];
+  for (const text of texts) {
+    if (typeof text !== "string") continue;
+    const marker = "Eigenwelt usage limit: ";
+    const index = text.indexOf(marker);
+    if (index < 0) continue;
+    const json = text.slice(index + marker.length).match(/^\{[^{}]{1,400}\}/)?.[0];
+    if (!json) continue;
+    try {
+      const parsed = usageLimitDetailsSchema.safeParse(JSON.parse(json));
+      if (parsed.success) return parsed.data;
+    } catch { /* A malformed upstream detail keeps the generic recovery path. */ }
+  }
+  return null;
 }
 
 export function providerFromUsageLimitError(
   error: string | null | undefined,
 ): string | null {
-  if (!error?.startsWith(MARKER)) return null;
-  try {
-    return decodeURIComponent(error.slice(MARKER.length));
-  } catch {
-    return null;
-  }
+  return parseProviderUsageLimit(error)?.providerId ?? null;
 }
 
 export function usageLimitOptions(plan: "sync" | "plus" | "pro" | null) {

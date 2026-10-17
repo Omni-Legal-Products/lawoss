@@ -18,6 +18,19 @@
   height: var(--docx-layout-height, auto) !important;
 }
 
+/* Fitting the scroll track can make it narrower than the unscaled pages.
+   Extend only the overlay's paint clip to that stack, keeping Eigenpal's
+   coordinate origin intact. The outer viewport still clips to the pane. */
+.docx-host [data-testid="selection-overlay"] {
+  overflow: clip !important;
+  overflow-clip-margin: var(--docx-selection-outset, 0px);
+}
+
+/* Selection geometry uses the current zoom, not an in-between animated scale. */
+.docx-host .paged-editor > div:has(> .paged-editor__pages) {
+  transition: none !important;
+}
+
 /* Keep the selected native card readable and anchored to its rendered revision.
    Its ancestors are scaled with the page, so the host supplies an inverse scale. */
 .docx-host .docx-unified-sidebar [data-docx-review-anchor] {
@@ -46,9 +59,10 @@
 /* In a side pane, annotations open over the page when their inline mark is
    selected. Reserve a separate review rail only when there is room for it. */
 @container (max-width: 899px) {
-  .docx-host .paged-editor > div {
-    /* Keep native zoom, without reserving space for a separate review rail. */
-    transform: scale(var(--docx-zoom, 1)) !important;
+  .docx-host .paged-editor > div:has(> .paged-editor__pages) {
+    /* Cancel only the sidebar shift. Leave native zoom in charge so selection
+       geometry never sees a stale, frame-delayed copy of the scale. */
+    translate: var(--docx-sidebar-offset, 0px) 0;
   }
 
   .docx-host .docx-unified-sidebar {
@@ -68,3 +82,31 @@
     display: block;
   }
 }
+
+.docx-host .docx-outline-nav {
+  background: var(--doc-bg, #fff);
+  border-right: 1px solid var(--doc-border, #ddd);
+  padding-left: 12px;
+  box-shadow: 2px 0 8px var(--doc-shadow, #0000000d);
+}
+
+.docx-host:has(.docx-outline-nav) .paged-editor__pages {
+  margin-left: calc(256px / var(--docx-zoom, 1));
+}
+
+.docx-host [data-word-bookmark],
+.docx-host .layout-run[data-word-note-id],
+.docx-host [data-word-note-reference-pos] {
+  cursor: pointer;
+}
+
+.docx-host [data-word-bookmark]:focus-visible {
+  outline: 2px solid var(--doc-selection, #1a73e8);
+  outline-offset: 2px;
+}
+
+.docx-host .layout-footnote-content:focus {
+  outline: 2px solid var(--doc-selection, #1a73e8);
+  outline-offset: 4px;
+}
+

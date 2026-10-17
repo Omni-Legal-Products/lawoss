@@ -311,7 +311,10 @@ export class ProjectSyncStore {
     await ensureDir(dirname(path));
     return initializeSqlite(path, (db) => {
     db.exec("PRAGMA busy_timeout = 5000");
+    // One durable schema commit; initializeSqlite closes/rolls back on failure.
+    db.exec("BEGIN IMMEDIATE");
     for (const statement of PROJECT_SYNC_SCHEMA) db.exec(statement);
+    db.exec("COMMIT");
     return new ProjectSyncStore(db);
     });
   }

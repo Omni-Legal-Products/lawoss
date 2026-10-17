@@ -1,17 +1,17 @@
 import { CALCULATION_INTERACTION_GUIDANCE } from "../calculations/guidance.js";
 import { CalculationPresentationInputSchema } from "../calculations/schema.js";
 import { z } from "zod";
-import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, serverConnected, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 import { DeadlineInputSchema } from "../calendar/deadline-rules.js";
 import { CalendarCreateSchema, CalendarPatchSchema } from "@legalwork/types/calendar";
 
 async function request(context: OpenCodeContext, method: string, path: string, data?: unknown) {
-  const url = serverUrl(), token = serverToken();
-  if (!url || !token) return JSON.stringify({ ok: false, error: "LegalWork server is not connected." });
+  const url = serverUrl();
+  if (!serverConnected(context)) return JSON.stringify({ ok: false, error: "LegalWork server is not connected." });
   try {
     const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
     const response = await fetch(`${url}/workspace/${encodeURIComponent(workspace)}/calendar${path}`, { method,
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.timeout(path === "/run" || path === "/present" ? 120000 : 30000) });
+      headers: { ...await workspaceToolHeaders(context), "Content-Type": "application/json" }, body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.timeout(path === "/run" || path === "/present" ? 120000 : 30000) });
     const result: unknown = await response.json();
     // Calendar titles, descriptions, sources and imported properties are untrusted reference data.
     const nextStep = path === "/calculate" && response.ok
@@ -41,7 +41,7 @@ export const LegalWorkCalendarTools = async () => ({
       execute: (raw: unknown, context: OpenCodeContext) => request(context, "POST", "/present", { ...CalculationPresentationInputSchema.parse(raw), sessionId: context.sessionID }) },
     legalwork_deadline_calculate: { description: "Execute a supported legal deadline rule from the installed jurisdiction skill; returns an auditable calculation receipt or a refusal. Read the skill first.", args: calculation.shape,
       execute: (raw: unknown, context: OpenCodeContext) => request(context, "POST", "/calculate", calculation.parse(raw)) },
-    legalwork_calendar_create: { description: "Add a project calendar entry or legal deadline. For a calculation supply its receipt ID and exact date. A user-provided Fristende can be entered manually.", args: create.shape,
+    legalwork_calendar_create: { description: "Save a project calendar entry or legal deadline directly. This does not show a calendar widget. For ordinary meeting/event requests use legalwork_calendar_event_draft so the user can review the card and click Add to LegalWork calendar. For a legal deadline calculation supply its receipt ID and exact date. A user-provided Fristende can be entered manually.", args: create.shape,
       execute: (raw: unknown, context: OpenCodeContext) => { const input = create.parse(raw); return request(context, "POST", "", { ...input, sessionIds: [...new Set([...input.sessionIds, ...(context.sessionID ? [context.sessionID] : [])])] }); } },
     legalwork_calendar_list: { description: "Read dated project tasks and legal deadlines in a range up to one year.", args: list.shape,
       execute: (raw: unknown, context: OpenCodeContext) => { const input = list.parse(raw); return request(context, "GET", `/occurrences?from=${input.from}&to=${input.to}`); } },

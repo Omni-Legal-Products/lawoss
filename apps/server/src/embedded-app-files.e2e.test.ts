@@ -5,6 +5,9 @@ import { dirname, join } from "node:path";
 import { startEmbeddedServer } from "./embedded.js";
 import { externalAppFilesRoot } from "./lawoss/workspace-app-files.js";
 
+// Spravovaný engine beží od v0.2.9 v izolovanom režime (upstream #227): skills idú do `skills.paths`.
+const skillPaths = (skills: string[] | { paths?: string[] } | undefined): string[] => Array.isArray(skills) ? skills : skills?.paths ?? [];
+
 async function waitForEngineWorkspaces(requestsPath: string, workspaces: string[]) {
   const deadline = Date.now() + 3000;
   while (Date.now() < deadline) {
@@ -110,8 +113,8 @@ process.on("SIGTERM", () => process.exit(0));
     const activeWorkspace = server.config.workspaces.find((entry) => entry.path === workspace)!;
     const expected = join(externalAppFilesRoot(server.config, activeWorkspace), ".opencode");
     expect(JSON.parse(await readFile(envPath, "utf8"))).toEqual({ configDir: expected, disableProjectConfig: "true" });
-    const runtimeConfig = JSON.parse(await readFile(join(dirname(configPath), "runtime-opencode-config.json"), "utf8")) as { skills?: string[]; instructions?: string[] };
-    expect(runtimeConfig.skills).toContain(join(expected, "skills"));
+    const runtimeConfig = JSON.parse(await readFile(join(dirname(configPath), "runtime-opencode-config.json"), "utf8")) as { skills?: string[] | { paths?: string[] }; instructions?: string[] };
+    expect(skillPaths(runtimeConfig.skills)).toContain(join(expected, "skills"));
     expect(runtimeConfig.instructions).toContain(join(workspace, "AGENTS.md"));
     expect((await readdir(workspace)).sort()).toEqual(["AGENTS.md", "original.txt"]);
     expect(await readdir(firstWorkspace)).toEqual(["original.txt"]);
@@ -131,8 +134,8 @@ process.on("SIGTERM", () => process.exit(0));
     const firstEntry = server.config.workspaces.find((entry) => entry.path === firstWorkspace)!;
     const firstExpected = join(externalAppFilesRoot(server.config, firstEntry), ".opencode");
     expect(JSON.parse(await readFile(envPath, "utf8"))).toEqual({ configDir: firstExpected, disableProjectConfig: "true" });
-    const restartedRuntimeConfig = JSON.parse(await readFile(join(dirname(configPath), "runtime-opencode-config.json"), "utf8")) as { skills?: string[] };
-    expect(restartedRuntimeConfig.skills).toContain(join(firstExpected, "skills"));
+    const restartedRuntimeConfig = JSON.parse(await readFile(join(dirname(configPath), "runtime-opencode-config.json"), "utf8")) as { skills?: string[] | { paths?: string[] } };
+    expect(skillPaths(restartedRuntimeConfig.skills)).toContain(join(firstExpected, "skills"));
     await waitForEngineWorkspaces(`${envPath}.requests`, [firstWorkspace, workspace]);
   } finally {
     await server?.stop();

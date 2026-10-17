@@ -1,38 +1,47 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as pluginModule from "./legalwork-skill-tools.js";
 import { LegalWorkSkillTools } from "./legalwork-skill-tools.js";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildSkillMarkdown,
   fitSkillName,
   resolveSkillName,
 } from "../skill-tool-content.js";
 
-type Recorded = { url: string; method: string; body: Record<string, unknown> | null };
+type Recorded = { url: string; method: string; body: Record<string, unknown> | null; headers: Headers };
 
 const originalFetch = globalThis.fetch;
 const originalUrl = process.env.LEGALWORK_SERVER_URL;
-const originalToken = process.env.LEGALWORK_SERVER_TOKEN;
+const originalServerToken = process.env.LEGALWORK_SERVER_TOKEN;
+const originalWikiToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
 
 let requests: Recorded[] = [];
 let installedNames: string[] = [];
 let existingCorrection = false;
 
-// The office-plugin-shared workspace lookup caches per URL, so every test hits
-// the same server URL and workspace to keep the cache consistent.
+// The office-plugin-shared workspace lookup asks the server on every call;
+// every test hits the same server URL and workspace.
 const SERVER_URL = "http://127.0.0.1:9911";
 const WORKSPACE = { id: "ws-1", path: "/firm/matters" };
+let workspace = WORKSPACE;
 
 function stubFetch() {
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = init?.method ?? "GET";
     const body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : null;
-    requests.push({ url, method, body });
+    requests.push({ url, method, body, headers: new Headers(init?.headers) });
 
     const path = url.slice(SERVER_URL.length);
     if (path === "/workspaces") {
-      return new Response(JSON.stringify({ items: [WORKSPACE] }), { status: 200 });
+      return new Response(JSON.stringify({ items: [workspace] }), { status: 200 });
     }
+    if (path === "/workspace/ws-1/skills/wiki-setup/composed") {
+      return Response.json({ chain: [{ name: "wiki-setup", directory: join(workspace.path, "Skills/wiki-setup"), files: [{ path: "SKILL.md", size: 12 }] }] });
+    }
+    if (path.startsWith("/workspace/ws-1/skills/wiki-setup/package-file?")) return Response.json({ text: "Wiki-local setup" });
     if (path.startsWith("/workspace/ws-1/skills?")) {
       return new Response(JSON.stringify({ items: installedNames.map((name) => ({ name, scope: "global", ...(existingCorrection ? { kind: "workflow" } : {}) })) }), {
         status: 200,
@@ -50,9 +59,9 @@ function stubFetch() {
   }) as typeof fetch;
 }
 
-async function createSkill(args: Record<string, unknown>) {
+async function createSkill(args: Record<string, unknown>, context: { directory: string; sessionID?: string } = { directory: WORKSPACE.path, sessionID: "ses_test" }) {
   const plugin = await LegalWorkSkillTools();
-  const raw = await plugin.tool.legalwork_skill_create.execute(args, { directory: WORKSPACE.path });
+  const raw = await plugin.tool.legalwork_skill_create.execute(args, context);
   return JSON.parse(raw) as Record<string, unknown>;
 }
 
@@ -60,8 +69,10 @@ beforeEach(() => {
   requests = [];
   installedNames = [];
   existingCorrection = false;
+  workspace = WORKSPACE;
+  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-agent-token";
+  delete process.env.LEGALWORK_SERVER_TOKEN;
   process.env.LEGALWORK_SERVER_URL = SERVER_URL;
-  process.env.LEGALWORK_SERVER_TOKEN = "test-token";
   stubFetch();
 });
 
@@ -69,8 +80,33 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
   if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
   else process.env.LEGALWORK_SERVER_URL = originalUrl;
-  if (originalToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
-  else process.env.LEGALWORK_SERVER_TOKEN = originalToken;
+  if (originalServerToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
+  else process.env.LEGALWORK_SERVER_TOKEN = originalServerToken;
+  if (originalWikiToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+  else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalWikiToken;
+});
+
+test("wiki-local skill loading and resource reads retain authenticated chat origin", async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "wiki-skill-origin-")));
+  try {
+    workspace = { id: "ws-1", path: directory };
+    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-wiki-runtime-token";
+    // Present in the environment, never sent: the engine authenticates per chat only.
+    process.env.LEGALWORK_SERVER_TOKEN = "server-wide-token";
+    const context = { directory, sessionID: "wiki-chat", ask: async () => {} };
+    const plugin = await LegalWorkSkillTools();
+    expect(JSON.parse(await plugin.tool.legalwork_skill_load.execute({ name: "wiki-setup" }, context)).ok).toBe(true);
+    expect(JSON.parse(await plugin.tool.legalwork_skill_read.execute({ name: "wiki-setup", path: "SKILL.md" }, context)).ok).toBe(true);
+    expect(requests.filter(request => request.url.includes("/skills/"))).toHaveLength(2);
+    for (const request of requests) {
+      expect(request.headers.get("authorization")).toBeNull();
+      expect(request.headers.get("x-legalwork-wiki-agent-token")).toBe("test-wiki-runtime-token");
+      expect(request.headers.get("x-legalwork-wiki-agent-session")).toBe("wiki-chat");
+      expect(request.headers.get("x-legalwork-wiki-agent-directory")).toBe(encodeURIComponent(directory));
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 describe("skill naming", () => {
@@ -192,7 +228,7 @@ describe("legalwork_skill_create", () => {
   });
 
   test("reports a missing server connection instead of throwing", async () => {
-    delete process.env.LEGALWORK_SERVER_TOKEN;
+    delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
     const result = await createSkill({
       name: "NDA review",
       description: "Use when a counterparty sends an NDA.",
@@ -201,6 +237,18 @@ describe("legalwork_skill_create", () => {
 
     expect(result.ok).toBe(false);
     expect(String(result.error)).toContain("not configured");
+    expect(requests.some((entry) => entry.method === "POST")).toBe(false);
+  });
+
+  test("a call without its chat has no server connection", async () => {
+    const result = await createSkill(
+      { name: "NDA review", description: "Use when a counterparty sends an NDA.", instructions: "Review it." },
+      { directory: WORKSPACE.path },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(String(result.error)).toContain("not configured");
+    expect(requests.some((entry) => entry.method === "POST")).toBe(false);
   });
 });
 

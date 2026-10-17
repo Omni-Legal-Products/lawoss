@@ -22,6 +22,8 @@ type Entry = {
 type Scope = { config: ServerConfig; entry: Entry; active: boolean };
 const entries = new Map<string, Entry>();
 const context = new AsyncLocalStorage<Scope>();
+// Path metadata for callers outside ALS; entries remain the sole resource owners.
+const liveConfigLifetimes = new WeakMap<ServerConfig, { entry: Entry; owners: number }>();
 
 /** Recovery always targets the captured failed resource/generation, never the current path. */
 export class RuntimeDbCleanupError extends AggregateError {
@@ -53,6 +55,8 @@ export function runtimeDbPath(config: ServerConfig): string {
     if (!scope.active && !scope.entry.owners) throw new Error("Runtime database scope has been released");
     return scope.entry.path;
   }
+  const pinned = liveConfigLifetimes.get(config);
+  if (pinned) return pinned.entry.path;
   const override = process.env.LEGALWORK_RUNTIME_DB?.trim();
   const configDir = config.configPath?.trim() ? dirname(config.configPath) : join(homedir(), ".config", "legalwork");
   return canonicalPath(resolve(override || join(configDir, "runtime.sqlite")));
@@ -127,6 +131,8 @@ function waitForFinalClose(entry: Entry): Promise<void> {
 /** A unique owner of a fixed path. Cached class facades are borrowed until release. */
 export function acquireRuntimeDbLifetime(config: ServerConfig) {
   const entry = entryFor(config);
+  const pin = liveConfigLifetimes.get(config) ?? { entry, owners: 0 };
+  pin.owners++;liveConfigLifetimes.set(config, pin);
   entry.owners++;
   let released = false;
   const running = new Set<Promise<unknown>>();
@@ -146,6 +152,7 @@ export function acquireRuntimeDbLifetime(config: ServerConfig) {
       released = true;
       releasePromise = (async () => {
         await Promise.allSettled([...running]);
+        if (--pin.owners === 0 && liveConfigLifetimes.get(config) === pin) liveConfigLifetimes.delete(config);
         entry.owners--;
         if (!entry.owners) await waitForFinalClose(entry);
       })();
@@ -207,4 +214,16 @@ export async function runtimeDbResource<T extends Resource>(config: ServerConfig
     }
     throw error;
   }
+}
+
+/** Legacy explicit teardown drains an existing generation, never a live borrow. */
+export async function drainRuntimeDb(config: ServerConfig, path = runtimeDbPath(config)): Promise<void> {
+  const capturedPath = canonicalPath(resolve(path));
+  const scope = context.getStore();
+  if (scope?.active && scope.entry.path === capturedPath) {
+    throw new Error("Cannot drain runtime database from its active operation");
+  }
+  const entry = entries.get(capturedPath);
+  if (!entry || entry.owners) return;
+  await waitForFinalClose(entry);
 }

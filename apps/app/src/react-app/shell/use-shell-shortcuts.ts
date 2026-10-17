@@ -24,7 +24,7 @@ export function useShellShortcuts(input: UseShellShortcutsInput) {
   const handleGlobalShortcut = useEffectEvent((event: KeyboardEvent) => {
     const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
     const mod = isMac ? event.metaKey : event.ctrlKey;
-    if (!mod || event.isComposing) return;
+    if (!mod || event.isComposing || event.defaultPrevented) return;
     if (event.shiftKey && !event.altKey && event.key?.toLowerCase() === "f") {
       event.preventDefault();
       setCommandPaletteOpen((value) => !value);
@@ -37,7 +37,7 @@ export function useShellShortcuts(input: UseShellShortcutsInput) {
     }
     if (event.shiftKey || event.altKey) return;
 
-    const target = event.target as HTMLElement | null;
+    const target = event.target instanceof HTMLElement ? event.target : null;
     const inEditable =
       !!target &&
       (target.tagName === "INPUT" ||
@@ -51,6 +51,7 @@ export function useShellShortcuts(input: UseShellShortcutsInput) {
       return;
     }
     if (key === "k") {
+      if (target?.closest(".lw-markdown-editor [contenteditable=true]")) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       if (!event.repeat) setCommandPaletteOpen((value) => !value);
@@ -70,8 +71,7 @@ export function useShellShortcuts(input: UseShellShortcutsInput) {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => handleGlobalShortcut(event);
-    // App search owns Cmd/Ctrl+K before embedded editors can insert a link.
-    // Other shortcuts keep their existing bubbling behavior.
+    // Rich-text pages own their link shortcut; elsewhere Cmd/Ctrl+K opens search.
     const captureSearch = (event: KeyboardEvent) => {
       if (!event.isComposing && event.key.toLowerCase() === "k") handleGlobalShortcut(event);
     };

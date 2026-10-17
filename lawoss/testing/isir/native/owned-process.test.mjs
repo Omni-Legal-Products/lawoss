@@ -43,8 +43,9 @@ setInterval(()=>{},1000);`;
   try {
     descendant=Number(String((await once(leader.stdout,'data'))[0]).trim());
     assert.ok(Number.isInteger(descendant)&&descendant>0);
-    // Preserve the production phase budget for real per-PID identity checks.
-    await stopNativeChild(leader);
+    const stages=[],signals=[];
+    try {await stopNativeChild(leader,100,{observe:row=>stages.push(row),kill:(pid,kind)=>{signals.push({kind,elapsedMs:stages.at(-1)?.elapsedMs??0});process.kill(pid,kind);}});}
+    catch(error){console.error('OWNED_PROCESS_FIXED_BUDGET',JSON.stringify({stages,signals}));throw error;}
     assert.equal(leader.signalCode,'SIGTERM');
     assert.equal(isRunning(descendant),false,'Owned same-group descendant must not survive resolved cleanup');
   }finally{
@@ -85,10 +86,10 @@ test('a non-detached child does not authorize signals to the callers shared grou
 // not establish which unknown real member appeared in the macOS CI run.
 const identity=(pid,extra={})=>({pid,parent:process.pid,group:700001,uid:process.getuid?.()??0,start:'synthetic-birth',running:true,...extra});
 function sequenceFixture(tables){
-  const child={pid:700001,exitCode:null,signalCode:null},signals=[],observations=[];
+  const child={pid:700001,exitCode:null,signalCode:null},signals=[],observations=[],queries=[];
   // These one-unit sequence budgets must not depend on JIT or scheduler time.
   let index=0,clock=0;
-  return {child,signals,observations,options:{now:()=>clock,readTable:()=>tables[Math.min(index++,tables.length-1)],kill:(pid,signal)=>{signals.push([pid,signal]);if(pid===child.pid)child.signalCode=signal},observe:value=>{observations.push(value);if(value.stage.endsWith('-wait'))clock+=1;}}};
+  return {child,signals,observations,queries,options:{now:()=>clock,readTable:selection=>{queries.push(selection);return tables[Math.min(index++,tables.length-1)];},kill:(pid,signal)=>{signals.push([pid,signal]);if(pid===child.pid)child.signalCode=signal},observe:value=>{observations.push(value);if(value.stage.endsWith('-wait'))clock+=1;}}};
 }
 
 test('sequence captures a late member only with a living anchor and rechecks each PID before signalling',{skip:process.platform==='win32'},async()=>{
@@ -98,6 +99,9 @@ test('sequence captures a late member only with a living anchor and rechecks eac
   assert.deepEqual(f.signals,[[b.pid,'SIGTERM'],[c.pid,'SIGTERM'],[a.pid,'SIGTERM']]);
   assert.ok(f.observations.some(o=>o.unknown===1&&o.anchored));
   assert.equal(f.observations.filter(o=>o.stage==='signal-recheck').length,3);
+  assert.ok(f.queries.every(query=>query.group===a.group&&query.sentinelPid===process.pid&&!query.pids.includes(process.pid)));
+  assert.ok(f.queries.slice(2).every(query=>query.pids.includes(b.pid)&&query.pids.includes(c.pid)));
+  assert.ok(f.signals.every(([pid])=>pid!==process.pid));
 });
 
 test('sequence refuses unanchored late survivor and records census before rejection',{skip:process.platform==='win32'},async()=>{
@@ -118,6 +122,7 @@ test('sequence never signals a reused captured PID after identity changed at ind
 test('sequence refuses moved owned identity before any signal',{skip:process.platform==='win32'},async()=>{
   const a=identity(700001),b=identity(700002),f=sequenceFixture([[a,b],[a,{...b,group:800001}]]);
   await assert.rejects(stopNativeChild(f.child,1,f.options),/changed group/);
+  assert.ok(f.queries.at(-1).pids.includes(b.pid),'A moved captured PID remains selected independently of its original group');
   assert.deepEqual(f.signals,[]);assert.ok(f.observations.some(o=>o.moved===1));
 });
 

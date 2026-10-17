@@ -168,3 +168,45 @@ test('a held header timeout records only request and preserves primary timeout i
     assert.deepEqual(stages,['request']);
   }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
+
+test('composed native startup completes cold MCP before starting the selected-instance absolute budget', async t => {
+  const { awaitNativeStartup } = await import('./startup-readiness.mjs');
+  const { createNativeEngineClient } = await import('./engine-client.mjs');
+  t.mock.timers.enable({apis:['Date'],now:1000});
+  let finishCold, finishSelected, coldArrive, selectedArrive, configured=false, deadline;
+  const coldStarted=new Promise(resolve=>{coldArrive=resolve;});
+  const selectedStarted=new Promise(resolve=>{selectedArrive=resolve;});
+  const calls=[];
+  const workspace={id:'ws_native_1',path:pathForHost()};
+  function pathForHost(){return process.platform==='win32'?'C:\\synthetic\\selected':'/synthetic/selected';}
+  const server=createServer((req,res)=>{
+    const url=new URL(req.url,'http://fixture');
+    assert.equal(req.headers.authorization,'Bearer synthetic-owner');
+    calls.push(url.pathname);
+    res.writeHead(200,{'content-type':'application/json'});
+    if(url.pathname.endsWith('/mcp')){res.write('{');finishCold=()=>res.end('}');coldArrive();return;}
+    assert.ok(url.pathname.endsWith('/path'));
+    assert.equal(url.searchParams.get('directory'),workspace.path);
+    res.write('{"directory":');finishSelected=()=>res.end(JSON.stringify(workspace.path)+'}');selectedArrive();
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const serverInfo={baseUrl:`http://127.0.0.1:${server.address().port}`,ownerToken:'synthetic-owner'};
+  const engineRequest=createNativeEngineClient(serverInfo,workspace.id);
+  let pending;
+  try {
+    pending=awaitNativeStartup({engineRequest,request:fetch,serverInfo,workspace,onDeadline:value=>{deadline=value;}}).then(receipt=>{configured=true;return receipt;});
+    await coldStarted;
+    t.mock.timers.tick(120_000);
+    assert.equal(deadline,undefined);assert.equal(configured,false);
+    assert.deepEqual(calls,[`/workspace/${workspace.id}/opencode/mcp`]);
+    finishCold();await selectedStarted;
+    assert.equal(deadline,211_000,'Selected90s starts after completed cold provisioning, not before it');
+    assert.equal(configured,false,'Configuration still waits for selected-instance whole body');
+    finishSelected();
+    const receipt=await pending;
+    assert.equal(receipt.directoryMatches,true);assert.equal(receipt.bodyCompleted,true);assert.equal(configured,true);
+  } finally {
+    finishCold?.();finishSelected?.();await pending?.catch(()=>{});
+    server.closeAllConnections();await new Promise(resolve=>server.close(resolve));
+  }
+});

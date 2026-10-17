@@ -109,11 +109,8 @@ for (const platform of ["darwin", "linux", "win32"]) for (const arch of ["arm64"
         assert.equal(await readFile(path.join(fixture.sidecars, alias), "utf8"),
           `target contents: ${base}-${fixture.triple}${fixture.suffix}`);
       }
-      assert.equal(fixture.signed.length, platform === "darwin" ? 1 : 0);
-      if (platform === "darwin") {
-        assert.equal(fixture.signed[0][0], "codesign");
-        assert.equal(fixture.signed[0][1].at(-1), path.join(fixture.resources, "helpers", "LegalWork Computer Use.app"));
-      }
+      // Upstream v0.2.9 (#274) zrušil pomocnú appku Computer Use; afterPack už nič nepodpisuje.
+      assert.equal(fixture.signed.length, 0);
     });
   }
   test(`afterPack rejects a missing required sidecar for ${platform}/${arch}`, async (t) => {

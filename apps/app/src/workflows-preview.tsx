@@ -1,6 +1,7 @@
 /** Development fixture: the real workflow library and editor, with in-memory files. */
 import { useMemo, useState } from "react";
 import type { SkillCard, SkillResourceCard } from "@/app/types";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { WorkflowsView } from "@/react-app/domains/settings/pages/workflows-view";
 import type { SkillsExtensionsStore } from "@/react-app/domains/settings/pages/skills-view";
 import { newWorkflowContent } from "@/react-app/domains/settings/state/workflow-document";
@@ -57,12 +58,13 @@ function fixture(changed: () => void) {
     refreshHubSkills: async () => {}, setHubRepo: async () => {}, addHubRepo: async () => {}, removeHubRepo: async () => {},
     installSkillCreator: unavailable, installHubSkill: unavailable, importLocalSkill: unavailable, importLocalSkillZip: unavailable,
     scanGithubSkills: unavailable, importGithubSkills: unavailable, revealSkillsFolder: unavailable, exportSkillZip: unavailable,
+    previewClaudePlugin: unavailable, installClaudePlugin: unavailable, importedPackages: async () => [], removeImportedPackage: unavailable, readFirmSkill: unavailable,
   };
   return store;
 }
 
-export function WorkflowsPreview() {
+export function WorkflowsPreview({ workspaceId = "visual-workspace", reviewClient, active }: { active?: boolean; workspaceId?: string; reviewClient?: LegalworkServerClient }) {
   const [, setRevision] = useState(0);
   const extensions = useMemo(() => fixture(() => setRevision((value) => value + 1)), []);
-  return <WorkflowsView workspaceId="visual-workspace" workspaceName="Northstar Legal" busy={false} canInstallSkillCreator canUseDesktopTools extensions={extensions} onOpenLink={() => {}} createSessionAndOpen={() => {}} />;
+  return <WorkflowsView active={active} workspaceId={workspaceId} reviewWorkspaceId={workspaceId} reviewClient={reviewClient} workspaceName="Northstar Legal" busy={false} canInstallSkillCreator canUseDesktopTools extensions={extensions} onOpenLink={() => {}} createSessionAndOpen={() => {}} />;
 }

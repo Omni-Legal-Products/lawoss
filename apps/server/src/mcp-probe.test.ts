@@ -230,7 +230,7 @@ describe("registerMcpClient", () => {
     });
     expect(await registerMcpClient(`${fake.origin}/mcp`)).toEqual({
       registered: true,
-      client: { clientId: "client-1", clientSecret: "s3cret" },
+      client: { clientId: "client-1" },
       registrationEndpoint: `${fake.origin}/auth/register`,
     });
     expect(registration).toEqual({

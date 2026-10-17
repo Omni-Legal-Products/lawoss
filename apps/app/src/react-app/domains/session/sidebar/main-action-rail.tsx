@@ -6,6 +6,7 @@ import { hideCommercialSidebarItems } from "@/lawoss/feature-flags";
 import { useUiMode } from "@/lawoss/lite/ui-mode";
 import { isMainRailItemVisible } from "@/lawoss/lite/visibility";
 import { cn } from "@/lib/utils";
+import { useOrgPolicyForbids } from "@/react-app/domains/connections/org-policy";
 import { useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
 import { SIDEBAR_ITEMS } from "./sidebar-customization";
 
@@ -23,7 +24,12 @@ export function MainActionRail({ actions, onOpenWindow, unreadTasks = 0, childre
 }) {
   const { config } = useShellConfig();
   const mode = useUiMode();
-  const items = hideCommercialSidebarItems(config.navOrder).filter(key => isMainRailItemVisible(key, mode) && config[key] && actions[key].available !== false);
+  // What the firm switched off leaves the rail.
+  const firmOff: Partial<Record<ShellNavKey, boolean>> = {
+    navRecorder: useOrgPolicyForbids("recorder.allow"),
+    navEvaluations: useOrgPolicyForbids("evaluations.allow"),
+  };
+  const items = hideCommercialSidebarItems(config.navOrder).filter(key => isMainRailItemVisible(key, mode) && config[key] && actions[key].available !== false && !firmOff[key]);
 
   return (
     <nav aria-label={t("sidebar.main_actions")} className="flex w-[var(--lw-window-left-rail-width)] shrink-0 flex-col items-center gap-1.5 px-1 py-2 mac:titlebar-no-drag">

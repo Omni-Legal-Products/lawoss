@@ -74,7 +74,8 @@ const ALL = { documents: true, notes: true, tasks: true, recordings: false, meta
  * project's documents with their sha256 as version.
  */
 function fakeFirm() {
-  let clock = Date.parse("2026-09-25T08:00:00.000Z");
+  // Synthetic server revisions must precede real local edit timestamps on every runner.
+  let clock = Date.now() - 60 * 60 * 1000;
   const tick = () => new Date((clock += 1000)).toISOString();
   type Stored = {
     record: Omit<RemoteProject, "role">;
@@ -335,6 +336,25 @@ test("standalone instruction notification queues once after its seed lifetime is
 });
 
 describe("project sync between computers", () => {
+  test("a manual sync consumes its scheduled round without calling the real platform later", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const akte = await localProject(owner.config, "Manual sync");
+    const requests: string[] = [];
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return new Response("unavailable", { status: 503 });
+    }, { preconnect: globalThis.fetch.preconnect }));
+    try {
+      await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
+      expect((await runProjectSync(owner.config, { platform })).error).toBeNull();
+      await new Promise((resolve) => setTimeout(resolve, 650));
+      expect(requests.filter((url) => url.includes("/api/projects"))).toEqual([]);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   test("instructions arrive with a shared project, edits return, and clearing reaches both computers", async () => {
     const { platform } = fakeFirm();
     const owner = await machine("user_anna", "Anna");
@@ -475,6 +495,8 @@ describe("project sync between computers", () => {
     // The copy knows which Akte it is, so it is never taken for a new one.
     expect((await readProjectDetails(copy.path)).syncProjectId).toBe((await readProjectDetails(akte.path)).syncProjectId);
     expect((await projectSyncStatus(member.config, copy)).role).toBe("member");
+    expect((await projectSyncOverview(owner.config)).roles?.[akte.id]).toBe("owner");
+    expect((await projectSyncOverview(member.config)).roles?.[copy.id]).toBe("member");
 
     await runProjectSync(outsider.config, { platform });
     expect(projectsOf(outsider.config)).toEqual([]);
@@ -982,6 +1004,7 @@ describe("project sync between computers", () => {
       offer: { name: "Akte", ownerUserId: "user_anna" },
     });
     expect((await projectSyncOverview(member.config)).states[own.id]).toBe("offered");
+    expect((await projectSyncOverview(member.config)).roles?.[own.id]).toBeUndefined();
     expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([own.id]);
     expect(tasks.listOutbox().filter((entry) => entry.taskId === task.id)).toEqual([]);
     await expect(saveProjectSyncSettings(member.config, own, settings())).rejects.toMatchObject({ code: "project_sync_offer_pending" });
@@ -1001,6 +1024,7 @@ describe("project sync between computers", () => {
     await resolveProjectSync(member.config, own, { action: "use_folder" });
     await runProjectSync(member.config, { platform });
     expect(await projectSyncStatus(member.config, own)).toMatchObject({ mode: "synced", role: "member", ownFolder: true });
+    expect((await projectSyncOverview(member.config)).roles?.[own.id]).toBe("member");
     expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([own.id]);
 
     // Taken off: the project stays Ben's own, and Anna's id in the shared folder is left alone.

@@ -5,6 +5,7 @@ import {
   classifyOpenTarget,
   deriveOpenTargets,
   isCollectibleArtifactTarget,
+  resolveHrefOpenTarget,
   selectAutoOpenTarget,
 } from "../src/react-app/domains/session/artifacts/open-target";
 
@@ -19,6 +20,35 @@ it("opens media files in players while keeping remote URLs in browser tabs", () 
   const targets = deriveOpenTargets([message("media", "assistant", "Created recordings/interview.wav and recordings/review.webm.")]);
   expect(targets).toHaveLength(2);
   expect(targets.every((target) => isCollectibleArtifactTarget({ ...target, exists: true }))).toBe(true);
+});
+
+it.each([
+  ["contracts/Contract.docx_#a1b2c3d4.PDF", "pdf"],
+  ["contracts/Contract.docx_?a1b2c3d4.pdf", "pdf"],
+  ["contracts/#draft/Contract.docx", "word"],
+  ["tables/Revenue#final.tsv", "sheet"],
+  ["images/Signature?final.png", "image"],
+  ["notes/Summary#final.md", "markdown"],
+])("classifies the literal file path %s as %s", (path, preview) => {
+  expect(classifyOpenTarget(path, "file")).toBe(preview);
+});
+
+it("preserves special characters in file targets and their display names", () => {
+  const path = "contracts/?draft/Contract.docx_#a1b2c3d4.pdf";
+  const targets = deriveOpenTargets([
+    toolMessage("literal-path", "write", { filePath: path }, { filePath: path }),
+  ]);
+  expect(targets).toHaveLength(1);
+  expect(targets[0]).toMatchObject({ value: path, name: "Contract.docx_#a1b2c3d4.pdf", preview: "pdf" });
+});
+
+it("keeps URL queries and fragments while deriving names from the URL path", () => {
+  const url = "https://example.com/reports/Contract.pdf?download=1#page=2";
+  const targets = deriveOpenTargets([
+    message("url", "assistant", `[Contract.pdf](${url})`),
+  ]);
+  expect(targets).toHaveLength(1);
+  expect(targets[0]).toMatchObject({ value: url, name: "Contract.pdf", preview: "browser" });
 });
 
 function message(id: string, role: "user" | "assistant", text: string): UIMessage {
@@ -39,6 +69,34 @@ function toolMessage(id: string, toolName: string, input: Record<string, unknown
     }],
   };
 }
+
+describe("file chip links", () => {
+  it("decodes the reported wiki link before file verification and opening", () => {
+    const href = "Clients/Belmont%20Ridge%20Bank%20National%20Association.md";
+    const path = "Clients/Belmont Ridge Bank National Association.md";
+    const targets = deriveOpenTargets([message("profile", "assistant", `[Belmont Ridge’s profile](${href})`)]);
+    expect(targets.find(target => target.value === path)).toBeDefined();
+    expect(targets.some(target => target.value.includes("%20"))).toBe(false);
+    const verified = targets.map(target => ({ ...target, exists: target.value === path }));
+    const opened = resolveHrefOpenTarget(href, verified);
+    expect(opened).toMatchObject({ value: path, exists: true, preview: "markdown" });
+    expect(opened && isCollectibleArtifactTarget(opened)).toBe(true);
+  });
+
+  it("decodes spaces and Unicode in attachments, including file URLs", () => {
+    for (const [href, path] of [
+      ["Templates/Engagement%20letter.docx", "Templates/Engagement letter.docx"],
+      ["./Clients/M%C3%BCller.md#sources", "Clients/Müller.md"],
+      ["file:///wiki/Clients/Belmont%20Ridge.md", "/wiki/Clients/Belmont Ridge.md"],
+      ["file:///C:/wiki/Client%20profile.md", "C:/wiki/Client profile.md"],
+      ["Reports/100%25%20complete.md", "Reports/100% complete.md"],
+      ["Reports/Literal%2520name.md", "Reports/Literal%20name.md"],
+      ["Reports/100%complete.md", "Reports/100%complete.md"],
+    ]) expect(resolveHrefOpenTarget(href, [])?.value).toBe(path);
+    expect(resolveHrefOpenTarget("#sources", [])).toBeNull();
+    expect(resolveHrefOpenTarget("https://example.com/Client%20profile.md", [])).toMatchObject({ kind: "url", value: "https://example.com/Client%20profile.md" });
+  });
+});
 
 describe("deriveOpenTargets", () => {
   it("extracts file and localhost URL targets from recent assistant output", () => {
@@ -89,7 +147,7 @@ describe("deriveOpenTargets", () => {
     expect(targets[0]).toMatchObject({ value: "reports/summary.md", preview: "markdown", confidence: 95 });
   });
 
-  it("keeps written unsupported files available for opening externally", () => {
+  it("opens written code files in editor tabs", () => {
     const targets = deriveOpenTargets([
       toolMessage("msg_tool", "write", { filePath: "src/widget.tsx" }, { filePath: "src/widget.tsx" }),
     ]);
@@ -97,7 +155,7 @@ describe("deriveOpenTargets", () => {
     const target = targets[0];
 
     expect(target).toMatchObject({ value: "src/widget.tsx", preview: "text", confidence: 95 });
-    expect(target ? isCollectibleArtifactTarget({ ...target, exists: true }) : true).toBe(false);
+    expect(target ? isCollectibleArtifactTarget({ ...target, exists: true }) : false).toBe(true);
   });
 
   it("uses markdown link href once when the label is the href basename", () => {

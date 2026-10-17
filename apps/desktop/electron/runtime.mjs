@@ -669,6 +669,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   const userDataDir = app.getPath("userData");
+  const pluginDiscoveryHome = app.getPath("home");
   const projectsDirectory = desktopProjectsDirectory(app.getPath("documents"), process.env.LEGALWORK_DEV_MODE === "1");
   const sidecarDirs = [
     path.join(desktopRoot, "resources", "sidecars"),
@@ -967,6 +968,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       ...process.env,
       BUN_CONFIG_DNS_RESULT_ORDER: "verbatim",
       ...extra,
+      // Import sources belong to the OS user, even when dev isolates OpenCode's HOME.
+      LEGALWORK_PLUGIN_DISCOVERY_HOME: pluginDiscoveryHome,
     };
     const pathKey =
       Object.prototype.hasOwnProperty.call(env, "PATH") ||
@@ -1466,6 +1469,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // into EADDRINUSE (see apps/server/src/serve-node.ts), so the bound port
     // below is authoritative.
     const handle = await startEmbeddedServer({
+      decryptLegacyConnectorSecrets: async (value) => {
+        const { safeStorage } = await import("electron");
+        return safeStorage.decryptString(Buffer.from(value, "base64"));
+      },
       projectsDirectory,
       host,
       port: portSelection.port,
@@ -2378,7 +2385,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     officeAddinUninstall: (appId) => officeAddinManager.uninstall(appId),
     officeAddinOpenApp: (appId) => officeAddinManager.openApp(appId),
     orchestratorStatus,
-    orchestratorWorkspaceActivate,
+    orchestratorWorkspaceActivate: (input) => withRuntimeLifecycle(() => orchestratorWorkspaceActivate(input)),
     orchestratorInstanceDispose,
     orchestratorStartDetached,
     opencodeMcpAuth,

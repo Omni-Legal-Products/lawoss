@@ -54,8 +54,12 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
   });
   const missingPaths = selection.filter(path => !roots.some(record => record.path === path));
   const coverage = documentCoverage(records, selection);
-  const readsCurrent = !sources.isFetching && !sources.isError && records.length > 0 && records.every(record => record.freshness === "current");
+  const sourcesAvailable = !sources.isError && records.length > 0 && records.every(record => record.freshness === "current");
+  const readsCurrent = !sources.isFetching && sourcesAvailable;
   const current = missingPaths.length === 0 && readsCurrent;
+  // Polling must not starve the Generate action. It performs its own fresh
+  // source check before invoking onGenerate; cached data never authorizes send.
+  const canGenerate = missingPaths.length === 0 && sourcesAvailable;
   let generationDirectory: string;
   try {
     generationDirectory = documentExecutionDirectory(props.workspaceRoot, caseDirectory, props.isRemote).directory;
@@ -209,7 +213,7 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
       setCaseDirectory(event.target.value);
       persistDocumentWorkingDirectory(projectKey, event.target.value);
     }} placeholder={t("documents.root_directory")} /></label> : null}
-    <Button size="sm" disabled={busy || !current || generationActive || lifecycle.isError || !props.onGenerate} onClick={() => void generate(binding?.phase === "completed")}>
+    <Button size="sm" disabled={busy || !canGenerate || generationActive || lifecycle.isError || !props.onGenerate} onClick={() => void generate(binding?.phase === "completed")}>
       {binding?.phase === "error" ? t("documents.retry_generation") : binding?.phase === "completed" ? t("documents.new_generation") : t("documents.generate")}
     </Button>
     {generationActive ? <p role="status">{t("documents.run_active")}</p> : null}

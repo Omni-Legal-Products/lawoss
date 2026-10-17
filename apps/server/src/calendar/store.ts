@@ -1,3 +1,4 @@
+import { runtimeDbResource } from "../runtime-db-lifecycle.js";
 import { CalculationPresentationSchema, CalculationRunSchema, type CalculationPresentation, type CalculationRun } from "../calculations/schema.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -5,10 +6,11 @@ import { dirname } from "node:path";
 import ICAL from "ical.js";
 import { z } from "zod";
 import type { CalendarItem, DeadlineCalculation } from "@legalwork/types/calendar";
+import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
+import { renderEventDraft } from "../calendar-event-drafts/ics.js";
 import { CalendarCreateSchema, CalendarItemSchema, CalendarPatchSchema, DeadlineCalculationSchema } from "./schema.js";
 import { ApiError } from "../errors.js";
 import { initializeSqlite, type SqliteHandle } from "../runtime-db.js";
-import { runtimeDbResource } from "../runtime-db-lifecycle.js";
 import type { ServerConfig } from "../types.js";
 import { zonedInstant, zoneValid } from "./dates.js";
 import { emptyCalendar, itemCalendar, parseCalendar, serializeCalendar, updateCalendar, calendarAttachmentPaths } from "./ical.js";
@@ -19,7 +21,7 @@ export class CalendarStore {
   private constructor(private db: SqliteHandle) {}
   static async open(path: string) {
     await mkdir(dirname(path), { recursive: true });
-    return initializeSqlite(path, (db) => {
+    return initializeSqlite(path, db => {
     db.exec(`CREATE TABLE IF NOT EXISTS calendar_items (
       id TEXT PRIMARY KEY, project_id TEXT NOT NULL, uid TEXT NOT NULL, data TEXT NOT NULL,
       remote_revision INTEGER NOT NULL DEFAULT 0, dirty INTEGER NOT NULL DEFAULT 1, replica INTEGER NOT NULL DEFAULT 0,
@@ -36,7 +38,7 @@ export class CalendarStore {
     return new CalendarStore(db);
     });
   }
-  close(): void { this.db.close(); }
+  close() { this.db.close(); }
   list(projectId: string, deleted = false): CalendarItem[] {
     return this.db.all("SELECT data FROM calendar_items WHERE project_id = ?", [projectId]).map(row => CalendarItemSchema.parse(JSON.parse(String(row.data)))).filter(item => deleted || !item.deletedAt);
   }
@@ -44,6 +46,32 @@ export class CalendarStore {
     const row = this.db.get("SELECT data FROM calendar_items WHERE project_id = ? AND id = ?", [projectId, id]);
     if (!row) throw new ApiError(404, "calendar_not_found", "Calendar entry not found.");
     return CalendarItemSchema.parse(JSON.parse(String(row.data)));
+  }
+  eventDraftStatus(projectId: string, draft: CalendarEventDraft) {
+    const item = this.list(projectId, true).find(item => item.uid === `${draft.id}@legalwork.local`) ?? null;
+    const savedRevision = item && !item.deletedAt ? String(parseCalendar(item.ical).getFirstSubcomponent("vevent")?.getFirstPropertyValue("x-legalwork-draft-revision") ?? "") : null;
+    return { item, savedRevision };
+  }
+  saveEventDraft(projectId: string, draft: CalendarEventDraft, revision?: number, sessionId?: string) {
+    if (draft.workspaceId !== projectId) throw new ApiError(404, "calendar_draft_missing", "Calendar event draft not found.");
+    const { item: previous } = this.eventDraftStatus(projectId, draft);
+    if (previous && previous.revision !== revision) throw new ApiError(409, "calendar_conflict", "This calendar entry changed. Reload before updating it.");
+    if (previous?.deletedAt) throw new ApiError(410, "calendar_deleted", "Restore the entry in LegalWork calendar before updating it.");
+    const now = new Date().toISOString(), root = parseCalendar(renderEventDraft(draft, draft.id, draft.sequence));
+    root.getFirstSubcomponent("vevent")!.addPropertyWithValue("x-legalwork-draft-revision", draft.revision);
+    const item: CalendarItem = {
+      id: previous?.id ?? randomUUID(), uid: `${draft.id}@legalwork.local`, projectId, kind: "event",
+      title: draft.title, description: draft.description, start: draft.start, end: draft.end, timeZone: draft.timeZone,
+      status: previous?.status ?? "active", verified: previous?.verified ?? false,
+      assigneeUserId: previous?.assigneeUserId ?? null, taskIds: previous?.taskIds ?? [], attachmentPaths: previous?.attachmentPaths ?? [],
+      sessionIds: [...new Set([...(previous?.sessionIds ?? []), ...(sessionId ? [sessionId] : [])])], reminders: draft.reminders,
+      provenance: { kind: "manual", source: draft.path, reason: "" }, ical: serializeCalendar(root),
+      revision: (previous?.revision ?? 0) + 1, createdAt: previous?.createdAt ?? now, updatedAt: now, deletedAt: null,
+    };
+    this.validateDates(item);
+    item.ical = updateCalendar(item, new Set(["attachmentPaths", "status", "kind"]));
+    this.write(item, previous?.revision);
+    return { item, savedRevision: draft.revision };
   }
   private write(item: CalendarItem, expected?: number, remoteRevision?: number, replica = false, transaction = true): CalendarItem {
     CalendarItemSchema.parse(item);
@@ -290,6 +318,7 @@ export class CalendarStore {
   }
 }
 const resourceKey = Symbol("calendar-store");
+/** Borrowed from the caller's operation/lifetime, like project/task stores. */
 export function calendarStore(config: ServerConfig) {
   return runtimeDbResource(config, resourceKey, path => CalendarStore.open(path));
 }

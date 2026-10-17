@@ -31,6 +31,8 @@ export type ResolvedWorkspaceEndpoint = {
   baseUrl: string;
   /** Auth token for that server. May be empty for unauthenticated local servers. */
   token: string;
+  /** Explicit host capability for the server owning this workspace; never borrowed across owners. */
+  hostToken?: string;
   /** Workspace id as the owning server expects it in URL paths. No `rem_` prefix. */
   workspaceId: string;
   /** True when the workspace lives on a remote LegalWork worker, not the user's local server. */
@@ -44,12 +46,14 @@ export type ResolvedWorkspaceEndpoint = {
 };
 
 export type LocalServerHandle = {
+  localClient?: LegalworkServerClient | null;
   baseUrl: string | null | undefined;
   token: string | null | undefined;
+  hostToken?: string | null;
 };
 
 /** Effective routing/auth operands, without allocating a transport. */
-export type WorkspaceEndpointConnection = Pick<ResolvedWorkspaceEndpoint, "baseUrl" | "token" | "workspaceId" | "isRemote">;
+export type WorkspaceEndpointConnection = Pick<ResolvedWorkspaceEndpoint, "baseUrl" | "token" | "workspaceId" | "isRemote" | "hostToken"> & { localClient?: LegalworkServerClient };
 
 type WorkspaceEndpointInput = Pick<
   WorkspaceInfo,
@@ -120,25 +124,27 @@ export function resolveWorkspaceEndpointConnection(
     if (!baseUrl) return null;
     const token = pickRemoteToken(workspace);
     const workspaceId = workspaceServerId(workspace);
-    return { baseUrl, token, workspaceId, isRemote: true };
+    return { baseUrl, token, workspaceId, isRemote: true, hostToken: workspace.legalworkHostToken?.trim() || undefined };
   }
 
   const localBaseUrl = (localServer.baseUrl ?? "").trim();
   if (!localBaseUrl) return null;
   const localToken = (localServer.token ?? "").trim();
+  const hostToken = localServer.hostToken?.trim() || undefined;
   const workspaceId = workspace.id.trim();
-  return { baseUrl: localBaseUrl, token: localToken, workspaceId, isRemote: false };
+  return { baseUrl: localBaseUrl, token: localToken, hostToken, workspaceId, isRemote: false, localClient: localServer.localClient?.baseUrl === localBaseUrl.replace(/\/+$/, "") ? localServer.localClient : undefined };
 }
 
 /** Allocate a client only after the caller has resolved the connection. */
 export function createWorkspaceEndpoint(connection: WorkspaceEndpointConnection): ResolvedWorkspaceEndpoint {
-  const { baseUrl, token, workspaceId } = connection;
-  const client = createLegalworkServerClient({ baseUrl, token: token || undefined });
+  const { baseUrl, token, hostToken, workspaceId, localClient, ...scope } = connection;
+  const client = localClient ?? createLegalworkServerClient({ baseUrl, token: token || undefined, hostToken });
   const mountedBaseUrl = (
     buildLegalworkWorkspaceBaseUrl(baseUrl, workspaceId) ?? baseUrl
   ).replace(/\/+$/, "");
   return {
-    ...connection,
+    ...scope,
+    baseUrl, token, hostToken, workspaceId,
     client,
     mountedBaseUrl,
     opencodeBaseUrl: `${mountedBaseUrl}/opencode`,

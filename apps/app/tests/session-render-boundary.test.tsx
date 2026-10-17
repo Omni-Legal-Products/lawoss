@@ -37,6 +37,9 @@ function boundaryScenarios(sessionId:string){
 
 /** Full production Surface mounted in the owned native Chromium renderer. */
 export async function runNativeSessionRenderBoundary(input:{baseUrl:string;token:string;workspaceId:string;workspaceRoot:string}) {
+ const previousInspector=Object.getOwnPropertyDescriptor(window,"__legalwork");
+ const previousControl=Object.getOwnPropertyDescriptor(window,"__legalworkControl");
+ try {
  // Mount-only imports must not initialize browser stores in the Bun unit runner
  // before the stores' own tests install their browser storage fixtures.
  const [{createRoot},{flushSync},{QueryClientProvider},{MemoryRouter},{createLegalworkServerClient},{useComposerStateStore},{SessionSurface},{LocalProvider},{ShellConfigProvider},{LegalworkControlProvider},{WorkspaceProvider}]=await Promise.all([
@@ -55,7 +58,7 @@ export async function runNativeSessionRenderBoundary(input:{baseUrl:string;token
  const client=getReactQueryClient(),sessionId=`synthetic-render-boundary-${crypto.randomUUID()}`;
  const keys=[snapshotKey(input.workspaceId,sessionId),statusKey(input.workspaceId,sessionId),transcriptKey(input.workspaceId,sessionId)];
  const host=document.createElement("div");host.style.cssText="position:fixed;inset:0;z-index:2147483647;background:white";document.body.appendChild(host);
- const root=createRoot(host),previousControl=window.__legalworkControl;
+ const root=createRoot(host);
  const props:SessionSurfaceProps={client:createLegalworkServerClient({baseUrl:input.baseUrl,token:input.token}),workspaceId:input.workspaceId,workspaceRoot:input.workspaceRoot,sessionId,opencodeBaseUrl:`${input.baseUrl}/workspace/${input.workspaceId}/opencode`,legalworkToken:input.token,developerMode:false,modelLabel:"Synthetic",onModelClick:()=>{},modelPickerOpen:false,selectedModel:{providerID:"synthetic",modelID:"synthetic"},onModelPickerOpenChange:()=>{},onModelChange:()=>{},onSendDraft:()=>{},onDraftChange:()=>{},attachmentsEnabled:false,attachmentsDisabledReason:null,modelVariantLabel:"Synthetic",modelVariant:null,onModelVariantChange:()=>{},agentLabel:"Synthetic",selectedAgent:null,listAgents:async()=>[],onSelectAgent:()=>{},listCommands:async()=>[],recentFiles:[],searchFiles:async()=>[],isRemoteWorkspace:false,isSandboxWorkspace:false};
  try {
   // Only these owned cached session queries are disabled; no client/module mock.
@@ -75,11 +78,18 @@ export async function runNativeSessionRenderBoundary(input:{baseUrl:string;token
   return {schema:1,actualMountedSurface:true,checks};
  } finally {
   flushSync(()=>root.unmount());host.remove();
-  window.__legalworkControl=previousControl;
   for(const key of keys)client.setQueryDefaults(key,{});
   useComposerStateStore.getState().clearSession(sessionId);
   for(const query of client.getQueryCache().findAll())if(query.queryKey.includes(sessionId))client.removeQueries({queryKey:query.queryKey,exact:true});
   useSessionActivityStore.getState().removeSession(input.workspaceId,sessionId);
+ }
+ } finally {
+  // Separately compiled fixtures own their registries only while mounted.
+  // Restore the application's live getters and property semantics, even on failure.
+  if(previousInspector)Object.defineProperty(window,"__legalwork",previousInspector);
+  else Reflect.deleteProperty(window,"__legalwork");
+  if(previousControl)Object.defineProperty(window,"__legalworkControl",previousControl);
+  else Reflect.deleteProperty(window,"__legalworkControl");
  }
 }
 

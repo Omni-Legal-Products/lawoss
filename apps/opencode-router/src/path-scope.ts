@@ -47,9 +47,28 @@ export function isWithinWorkspaceRootPath(input: {
 }) {
   const platform = input.platform ?? process.platform;
   const paths = platform === "win32" ? win32 : posix;
-  const normalize = (value: string) => platform === "win32" ? normalizeScopedDirectoryPath(value, platform) : value;
-  const root = paths.resolve(normalize(input.workspaceRoot));
-  const target = paths.resolve(normalize(input.candidate || input.workspaceRoot));
-  const relativePath = paths.relative(root, target);
-  return relativePath !== ".." && !relativePath.startsWith(`..${paths.sep}`) && !paths.isAbsolute(relativePath);
+  const root = paths.resolve(input.workspaceRoot);
+  const rootForComparison =
+    platform === "win32"
+      ? normalizeScopedDirectoryPath(root, platform)
+      : root;
+  const resolved = paths.resolve(input.candidate || input.workspaceRoot);
+  const resolvedForComparison =
+    platform === "win32"
+      ? normalizeScopedDirectoryPath(resolved, platform)
+      : resolved;
+  const relativePath = paths.relative(rootForComparison, resolvedForComparison);
+  if (!relativePath || relativePath === ".") return true;
+  if (
+    relativePath === ".." ||
+    relativePath.startsWith(`..${paths.sep}`) ||
+    paths.isAbsolute(relativePath)
+  ) return false;
+  const boundary = rootForComparison.endsWith("/")
+    ? rootForComparison
+    : `${rootForComparison}/`;
+  return (
+    resolvedForComparison === rootForComparison ||
+    resolvedForComparison.startsWith(boundary)
+  );
 }

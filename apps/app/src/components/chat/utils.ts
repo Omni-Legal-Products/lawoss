@@ -1,7 +1,12 @@
+import { isCalendarEventDraftTool } from "./calendar-event-draft-card";
+import { isEmailDraftTool } from "./email-draft-card";
+import { suggestionOutcome, suggestionTools } from "@/react-app/domains/wiki/wiki-suggestion-model";
+import { isScheduledTaskTool } from "./scheduled-task-card";
 import { isCalculationTool } from "./calculation/calculation-card";
 import { shouldRenderJevSearchCard, jevSearchIdentity, withLatestJevSearchProgress } from "./review/jev-search-card";
 import { isReviewCardTool, reviewCardIdentity } from "./review/review-tool";
 import { isProjectListTool, suppressProjectCard } from "./project/project-tool";
+import { isSubagentTool } from "./subagent-tool";
 import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type FileUIPart, type ReasoningUIPart, type ToolUIPart, type UIMessage } from "ai"
 import type { ThreadStatus } from "@/lib/messages"
 import { t } from "@/i18n";
@@ -129,8 +134,14 @@ type AssistantRenderGroup =
   | { kind: "jev-search"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "review"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "reviews"; parts: Array<ToolUIPart | DynamicToolUIPart> }
+  | { kind: "calendar-event-draft"; part: ToolUIPart | DynamicToolUIPart }
+  | { kind: "email-draft"; part: ToolUIPart | DynamicToolUIPart }
+  | { kind: "scheduled-task"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "calculation"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "project"; part: ToolUIPart | DynamicToolUIPart }
+  | { kind: "wiki-suggestion"; part: DynamicToolUIPart }
+  | { kind: "view"; part: DynamicToolUIPart }
+  | { kind: "subagents"; parts: Array<ToolUIPart | DynamicToolUIPart> }
   | { kind: "tools"; parts: Array<ToolUIPart | DynamicToolUIPart | ReasoningUIPart> }
 
 /** Combine consecutive activity across engine messages, retaining prose boundaries. */
@@ -267,6 +278,14 @@ export function getAssistantRenderGroups(
     }
 
     if (isToolUIPart(part)) {
+      if (part.type === "dynamic-tool" && suggestionTools.includes(part.toolName) && suggestionOutcome(part.output)) { groups.push({ kind: "wiki-suggestion", part }); continue; }
+      if (part.type === "dynamic-tool" && ["view_create", "view_update", "view_read"].includes(part.toolName)) { groups.push({ kind: "view", part }); continue; }
+      if (isSubagentTool(part)) {
+        const previous = groups.at(-1);
+        if (previous?.kind === "subagents") previous.parts.push(part);
+        else groups.push({ kind: "subagents", parts: [part] });
+        continue;
+      }
       if (shouldRenderJevSearchCard(part)) {
         const id = jevSearchIdentity(part);
         const existing = id ? groups.findIndex(group => group.kind === "jev-search" && jevSearchIdentity(group.part) === id) : -1;
@@ -289,6 +308,9 @@ export function getAssistantRenderGroups(
         }
         groups.push({ kind: "review", part }); continue;
       }
+      if (isCalendarEventDraftTool(part)) { groups.push({ kind: "calendar-event-draft", part }); continue; }
+      if (isEmailDraftTool(part)) { groups.push({ kind: "email-draft", part }); continue; }
+      if (isScheduledTaskTool(part)) { groups.push({ kind: "scheduled-task", part }); continue; }
       if (isCalculationTool(part)) { groups.push({ kind: "calculation", part }); continue; }
       if (isProjectListTool(part)) { groups.push({ kind: "project", part }); continue; }
       const previous = groups.at(-1)

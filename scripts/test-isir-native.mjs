@@ -8,20 +8,24 @@ import path from "node:path";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
 import { loadNativeCorpus } from "../lawoss/testing/isir/native/corpus.mjs";
-import { startProvider } from "../lawoss/testing/isir/native/provider.mjs";
+import { startProvider, decodeNativeToolOutput } from "../lawoss/testing/isir/native/provider.mjs";
 import { partialPdf } from "../lawoss/testing/isir/native/partial-pdf.mjs";
 import { connectRenderer, until } from "../lawoss/testing/isir/native/cdp.mjs";
 import { stopForRelaunch } from "../lawoss/testing/isir/native/relaunch-stop.mjs";
 import { readNativeQuitAcceptance } from "../lawoss/testing/isir/native/quit-acceptance.mjs";
 import { stopNativeChild } from "../lawoss/testing/isir/native/owned-process.mjs";
-import { createNativeDiagnostics, settleCleanup, errorMetadata, observePromptClick } from "../lawoss/testing/isir/native/diagnostics.mjs";
+import { createNativeDiagnostics, settleCleanup, errorMetadata, observePromptClick, summarizeRecoveryVerification, recoveryRendererIdentity } from "../lawoss/testing/isir/native/diagnostics.mjs";
 import { configureNativeProvider } from "../lawoss/testing/isir/native/bootstrap.mjs";
 import { openNativeProjectFiles } from "../lawoss/testing/isir/native/project-files-navigation.mjs";
-import { awaitDirectoryInstance } from "../lawoss/testing/isir/native/startup-readiness.mjs";
+import { awaitNativeStartup } from "../lawoss/testing/isir/native/startup-readiness.mjs";
 import { parseCsv } from "../apps/server/dist/lawoss/documents/validation.js";
 import { sha256 } from "../lawoss/testing/isir/corpus.mjs";
 import { validateProbeOption, applyProducer } from "../lawoss/testing/isir/native/engine-empty-auth-probe.mjs";
 import { prepareNativeEngineFiles, probeNativeEngineVersion, verifyNativeEngineRuntime } from "../lawoss/testing/isir/native/engine-identity.mjs";
+import { createNativeEngineClient } from "../lawoss/testing/isir/native/engine-client.mjs";
+import { nativeRendererLaunch } from "../lawoss/testing/isir/native/renderer.mjs";
+import { nativeEngineFetchRecords } from "../lawoss/testing/isir/native/engine-fetch.mjs";
+import { startNativeEngineTraceReceiver } from "../lawoss/testing/isir/native/engine-traces.mjs";
 
 const emptyAuthProbe = await validateProbeOption(process.argv.slice(2));
 const debugPair=process.argv.includes('--debug-case-pair');
@@ -57,8 +61,11 @@ let engineLogLaunchWallMs=null,engineLogDeadlineWallMs=null;
 const children = [];
 let cdp;
 let boundaryProbe;
+let recoveryVerificationStart;
+let recoveryRendererExpected;
 const caseRuns=[...corpus.cases.entries()].filter(([index])=>!debugPair||index===0||index===corpus.cases.length-1);
 const provider = await startProvider();
+let engineTraces;
 const port = async () => { const server = net.createServer(); await new Promise(r => server.listen(0, "127.0.0.1", r)); const p = server.address().port; await new Promise(r => server.close(r)); return p; };
 const cdpPort = await port(), uiPort = await port();
 const osKeys=['PATH','Path','SystemRoot','WINDIR','COMSPEC','PATHEXT','TEMP','TMP','TMPDIR','DISPLAY','WAYLAND_DISPLAY','XAUTHORITY','LANG','LC_ALL','LC_CTYPE','TERM','NUMBER_OF_PROCESSORS','PROCESSOR_ARCHITECTURE','DBUS_SESSION_BUS_ADDRESS'];
@@ -114,10 +121,12 @@ const cleanup = () => cleanupPromise ??= (async () => {
     () => cdp?.evaluate('window.__isirChooserBoundary?.disconnect()'),
     () => cdp?.close(),
     ...[...children].reverse().map(({child}) => () => stop(child)),
+    () => engineTraces?.close(),
     () => provider.close(),
     () => preparedEngine.cleanup(),
   ]);
   for (const error of result.failures) console.error('Owned native cleanup failure', JSON.stringify(errorMetadata(error)));
+  if(primaryError&&engineTraces)console.error('Owned completed engine bootstrap spans',JSON.stringify(engineTraces.snapshot()));
   const processes=children.map(({child,label})=>({label,pid:child.pid,exitCode:child.exitCode,signal:child.signalCode}));
   await writeFile(path.join(root,'process-receipts.json'),JSON.stringify({cleaned:result.failures.length===0,processes},null,2),{mode:0o600});
   await diagnostics.write({events:cdp?.events,error:primaryError,cleanupErrors:[...relaunchCleanupErrors,...result.failures]});
@@ -127,42 +136,45 @@ const cleanup = () => cleanupPromise ??= (async () => {
 process.once('SIGINT',()=>void cleanup().then(()=>process.exit(130)));
 process.once('SIGTERM',()=>void cleanup().then(()=>process.exit(143)));
 try {
+  engineTraces = await startNativeEngineTraceReceiver();
+  env.OTEL_EXPORTER_OTLP_ENDPOINT = engineTraces.endpoint;
   diagnostics.phase("startup");
-  launch(process.execPath, [path.join(path.dirname(requireApp.resolve("vite/package.json")), "bin/vite.js"), "--host", "127.0.0.1", "--port", String(uiPort), "--strictPort"], path.join(repo, "apps/app"), "vite");
+  const renderer = await nativeRendererLaunch(path.join(repo,"apps/app"),uiPort,root);
+  launch(process.execPath, [path.join(path.dirname(requireApp.resolve("vite/package.json")), "bin/vite.js"), ...renderer.args], renderer.cwd, "vite");
   await until(async () => (await nativeFetch(env.LEGALWORK_ELECTRON_START_URL)).ok, "owned Vite");
   engineLogLaunchWallMs=Date.now();
   let appChild = launch(electron, [...(process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : []), path.join(repo, "apps/desktop/scripts/isir-native-entry.mjs")], path.join(repo, "apps/desktop"), "electron");
   cdp = await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch);
   await cdp.send('Page.enable');
+  assert.deepEqual(await cdp.evaluate('({visibility:document.visibilityState,focused:document.hasFocus()})'),{visibility:'visible',focused:true},'Owned native page is active for production UI polling');
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1800,height:1400,deviceScaleFactor:1,mobile:false});
   await until(() => cdp.evaluate("!!window.__legalworkControl"), "native renderer controls", 90000);
   await until(() => cdp.evaluate("!document.body.innerText.includes('Loading your workspaces') && document.body.innerText.length > 150"), "workspace ready", 90000);
   await cdp.evaluate("window.__legalworkControl.execute('lawoss.lite.mode.set', {mode:'pro'})");
   await cdp.evaluate("window.__legalworkControl.execute('route.session')");
-  const startupStarted=performance.now(),startupDeadline=Date.now()+90000;
-  engineLogDeadlineWallMs=startupDeadline;
-  const startupRemaining=()=>Math.max(0,startupDeadline-Date.now());
-  await until(() => cdp.evaluate("window.__legalworkControl.listActions().some(a=>a.id==='session.create_task'&&!a.disabled)"), "native engine workspace ready", startupRemaining());
+  await until(() => cdp.evaluate("window.__legalworkControl.listActions().some(a=>a.id==='session.create_task'&&!a.disabled)"), "native engine workspace ready", 90000);
   const click = async (text, promptObservation=null) => {
     await cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()==='Got it');e?.click()})()`);
     const clicked=await until(() => cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('button,a,[role="button"],[role="menuitem"],[role="option"]')].find(e=>e.textContent.trim()===${JSON.stringify(text)}&&e.getBoundingClientRect().width>0&&!e.disabled);if(!e)return false;${promptObservation?`let observation=null;try{observation=(${observePromptClick.toString()})(${JSON.stringify(promptObservation.context)},e)}catch{}e.click();return {clicked:true,observation}`:'e.click();return true'}})()`), `visible native control ${text}`);
     try{if(promptObservation&&clicked?.clicked===true)diagnostics.promptClick(promptObservation.role,clicked.observation);}catch{}
   };
   const liveEngine = await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('engineInfo')");
-  const apiAuth = {authorization:'Basic '+Buffer.from(`${liveEngine.opencodeUsername}:${liveEngine.opencodePassword}`).toString('base64'),'content-type':'application/json'};
-  const health = await (await nativeFetch(`${liveEngine.baseUrl}/global/health`,{headers:apiAuth,signal:AbortSignal.timeout(startupRemaining())},Math.max(1,startupRemaining()))).json();
+  let serverInfo = await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('legalworkServerInfo')");
+  let engineRequest = createNativeEngineClient(serverInfo, workspaces[0].id, nativeFetch);
+  const healthResponse = await engineRequest('/global/health');
+  assert.equal(healthResponse.status, 200, 'Owned workspace engine health must authenticate');
+  const health = await healthResponse.json();
   const initialEngineIdentity = await verifyNativeEngineRuntime(preparedEngine, liveEngine.opencodeBinPath, health);
   const engineIdentities = [{ phase: 'initial', ...initialEngineIdentity }];
   await writeFile(path.join(root,'engine-identity-receipts.json'),JSON.stringify(engineIdentities,null,2),{mode:0o600});
-  let serverInfo = await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('legalworkServerInfo')");
   let serverAuth = {authorization:'Bearer '+(serverInfo.ownerToken||serverInfo.clientToken),'content-type':'application/json'};
   // Initial registered root only. A restart after moving the folder must never
   // probe or recreate its missing historical root.
-  const startupReceipt=await awaitDirectoryInstance({request:(url,options)=>nativeFetch(url,options,Math.max(1,startupRemaining())),baseUrl:liveEngine.baseUrl,headers:apiAuth,directory:workspaces[0].path,deadline:startupDeadline,observe:diagnostics.startup});
-  console.log('Native selected-instance startup',JSON.stringify({...startupReceipt,elapsedMs:Math.round(performance.now()-startupStarted),remainingMs:startupRemaining()}));
+  const startupReceipt=await awaitNativeStartup({engineRequest,request:nativeFetch,serverInfo,workspace:workspaces[0],observe:diagnostics.startup,onDeadline:deadline=>{engineLogDeadlineWallMs=deadline;}});
+  console.log('Native selected-instance startup',JSON.stringify(startupReceipt));
   diagnostics.phase("configure-provider");
   const providerConfig = JSON.parse(env.OPENCODE_CONFIG_CONTENT).provider;
-  await configureNativeProvider({request:nativeFetch,serverInfo,serverAuth,liveEngine,apiAuth,workspace:workspaces[0],providerConfig});
+  await configureNativeProvider({request:nativeFetch,serverInfo,serverAuth,engineRequest,workspace:workspaces[0],providerConfig});
   console.log('PASS running engine1.18.29; configured synthetic provider connected after supported workspace reload');
   // Persisted selected-agent is fixture input, consumed by the ordinary
   // native preference loader. It does not replace any send/tool callback.
@@ -175,7 +187,7 @@ try {
   await until(()=>cdp.evaluate("window.__legalworkControl?.listActions().some(a=>a.id==='session.create_task'&&!a.disabled)"),'configured native renderer',60000);
   assert.equal(await cdp.evaluate(`JSON.parse(localStorage.getItem('legalwork.preferences')??'{}').selectedAgent`),'legalwork','Ordinary persisted selected-agent fixture loaded by the actual new document');
 
-  const renderBoundary=await cdp.evaluate(`(async()=>{const tests=await import('/tests/session-render-boundary.test.tsx');return tests.runNativeSessionRenderBoundary(${JSON.stringify({baseUrl:serverInfo.baseUrl,token:serverInfo.ownerToken||serverInfo.clientToken,workspaceId:workspaces[0].id,workspaceRoot:workspaces[0].path})})})()`);
+  const renderBoundary=await cdp.evaluate(`(async()=>{const tests=await import('/__isir-fixtures/session-render-boundary.js');return tests.runNativeSessionRenderBoundary(${JSON.stringify({baseUrl:serverInfo.baseUrl,token:serverInfo.ownerToken||serverInfo.clientToken,workspaceId:workspaces[0].id,workspaceRoot:workspaces[0].path})})})()`);
   assert.equal(renderBoundary.actualMountedSurface,true);
   await writeFile(path.join(root,'session-render-boundary.json'),JSON.stringify(renderBoundary,null,2),{mode:0o600});
   console.log(`Mounted native Surface boundary: ${JSON.stringify(renderBoundary)}`);
@@ -198,25 +210,32 @@ try {
     assert.ok(input.nodeId,'OS-backed input node is present');
     await cdp.send('DOM.setFileInputFiles',{nodeId:input.nodeId,files:paths});
   };
-  const drop = async paths => {
+  const copyReceipts = async () => (await readFile(path.join(root,'copy-receipts.jsonl'),'utf8').catch(error=>{if(error.code==='ENOENT')return '';throw error})).trim().split('\n').filter(Boolean).map(JSON.parse);
+  const drop = async (paths,workspace) => {
     await until(()=>cdp.evaluate(`document.querySelector('[aria-label="Document processing"]')?.closest('[aria-busy]')?.getAttribute('aria-busy')==='false'`),'native file import is ready');
-    // Observe the production toast produced from the real IPC copy result.
-    // This observer cannot modify IPC results or application state.
-    await cdp.evaluate(`(()=>{window.__isirCopyObserver?.disconnect();window.__isirCopyReceipt=null;const seen=new WeakSet(document.querySelectorAll('[data-sonner-toast]'));window.__isirCopyObserver=new MutationObserver(()=>{for(const e of document.querySelectorAll('[data-sonner-toast]'))if(!seen.has(e)&&e.innerText.includes('copied into the project')){seen.add(e);window.__isirCopyReceipt=e.innerText}});window.__isirCopyObserver.observe(document.body,{childList:true,subtree:true,characterData:true})})()`);
+    const folder=await cdp.evaluate(`[...document.querySelector('[aria-label="Current folder"]').querySelectorAll('button')].slice(1).map(e=>e.textContent.trim()).join('/')`);
+    const receiptStart=(await copyReceipts()).length;
     await cdp.evaluate(`(()=>{document.querySelector('#isir-os-backed-drop')?.remove();const i=document.createElement('input');i.type='file';i.id='isir-os-backed-drop';i.multiple=true;document.body.append(i)})()`);
     await inputFiles('#isir-os-backed-drop',paths);
     await cdp.evaluate(`(()=>{const dt=new DataTransfer();for(const f of document.querySelector('#isir-os-backed-drop').files)dt.items.add(f);const target=document.querySelector('[aria-label="Document processing"]').parentElement;target.dispatchEvent(new DragEvent('dragover',{bubbles:true,dataTransfer:dt}));target.dispatchEvent(new DragEvent('drop',{bubbles:true,dataTransfer:dt}));document.querySelector('#isir-os-backed-drop').remove()})()`);
-    const receipt=await until(()=>cdp.evaluate('window.__isirCopyReceipt'),'actual production file-copy UI receipt');
-    await until(()=>cdp.evaluate(`document.querySelector('[aria-label="Document processing"]')?.closest('[aria-busy]')?.getAttribute('aria-busy')==='false'`),'native IPC copy completed');
-    await cdp.evaluate('window.__isirCopyObserver.disconnect()');
-    assert.ok(receipt.includes(paths.length===1?'Item copied into the project':`${paths.length} items copied into the project`));
-    return receipt;
+    // Current native UI opens one artifact tab per copy instead of a toast.
+    // Observe the unchanged production dispatcher and completed tab paths.
+    const ipcCopies=await until(async()=>{
+      const receipts=(await copyReceipts()).slice(receiptStart).filter(r=>r.workspaceId===workspace.id&&r.folder===folder);
+      return paths.every(source=>receipts.some(r=>r.paths.includes(source)))?receipts:false;
+    },'actual production file-copy IPC receipts');
+    assert.ok(ipcCopies.every(r=>!r.error&&r.result.files.every(f=>f.status==='copied'&&f.path)));
+    const copied=ipcCopies.flatMap(r=>r.result.files);
+    const tabs=await until(()=>cdp.evaluate(`(()=>{const tabs=[...document.querySelectorAll('[data-panel-tab-id] [aria-label^="Select tab:"]')].map(e=>({label:e.getAttribute('aria-label'),title:e.getAttribute('title')}));return ${JSON.stringify(copied.map(f=>f.path))}.every(path=>tabs.some(tab=>tab.title?.endsWith('/ '+path)))?tabs:false})()`),'completed native file-copy tabs show actual project paths');
+    await openFiles(workspace);
+    for(const segment of folder.split('/').filter(Boolean))await click(segment);
+    return {ipcCopies,tabs};
   };
   const picker = async (paths,workspace) => {
     await cdp.send('Page.enable'); await cdp.send('Page.setInterceptFileChooserDialog',{enabled:true});
     const eventStart=cdp.events.length;
     await until(()=>cdp.evaluate(`(()=>{const button=document.querySelector('button[aria-label="Refresh folder"]');return button&&!button.disabled})()`),'current native folder query settled');
-    await until(()=>cdp.evaluate(`(()=>{const upload=[...document.querySelectorAll('[role="menuitem"],button')].find(e=>e.textContent.trim()==='Upload files'&&e.getBoundingClientRect().width>0&&!e.disabled);if(upload){window.__isirChooserBoundary.capture();upload.click();window.__isirChooserBoundary.sample('after-upload');return true}const nav=document.querySelector('[aria-label="Current folder"]');const folder=document.querySelector('[data-project-folder="Dokumenty"]');if(!folder||nav?.querySelector('button')?.textContent.trim()!==${JSON.stringify(workspace.name)})return false;window.__isirChooserBoundary.sample('before-menu');folder.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:200,button:2}));return false})()`),'current project native upload menu action');
+    await until(()=>cdp.evaluate(`(()=>{const upload=[...document.querySelectorAll('[role="menuitem"]')].find(e=>e.textContent.trim()==='Add files'&&e.getBoundingClientRect().width>0&&!e.disabled);if(upload){window.__isirChooserBoundary.capture();upload.click();return true}const nav=document.querySelector('[aria-label="Current folder"]');const folder=document.querySelector('[data-project-folder="Dokumenty"]');if(!folder||nav?.querySelector('button')?.textContent.trim()!==${JSON.stringify(workspace.name)})return false;folder.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:200,button:2}));return false})()`),'current project native upload menu action');
     const chooser=await until(()=>cdp.events.slice(eventStart).find(e=>e.method==='Page.fileChooserOpened'),'actual native HTML chooser request');
     // The display-name ACK is independent of client identity: GREEN must keep
     // the same client. All raw connection operands remain inside the renderer.
@@ -292,13 +311,14 @@ try {
     const pickerReceipt=await picker([path.join(root,'originals',entry.id,entry.documents[0].name)],workspace);
     await until(async()=>{try{return sha256(await readFile(path.join(workspace.path,'Dokumenty',entry.documents[0].name)))===sha256(entry.documents[0].bytes)}catch{return false}},'actual picker copied bytes');
     if(endpointRefresh && index===0){
-      const behavior=await cdp.evaluate(`(async()=>{const tests=await import('/tests/workspace-endpoint-stability.test.tsx');return tests.runNativeEndpointStabilityBehavior()})()`);
-      assert.equal(behavior.actualMountedHook,true);assert.equal(behavior.checks,26,'Every mounted routing/auth/root transition completed');
+      const behavior=await cdp.evaluate(`(async()=>{const tests=await import('/__isir-fixtures/workspace-endpoint-stability.js');return tests.runNativeEndpointStabilityBehavior()})()`);
+      assert.equal(behavior.actualMountedHook,true);assert.equal(behavior.checks,28,'Every mounted routing/auth/root transition completed');
       await writeFile(path.join(root,'endpoint-hook-behavior.json'),JSON.stringify(behavior,null,2),{mode:0o600});
       console.log(`Mounted native endpoint behavior: ${JSON.stringify(behavior)}`);
     }
+    await openFiles(workspace);
     await click('Dokumenty');
-    await drop(entry.documents.slice(1).map(d=>path.join(root,'originals',entry.id,d.name)));
+    await drop(entry.documents.slice(1).map(d=>path.join(root,'originals',entry.id,d.name)),workspace);
     await until(async()=>{try{await hashes(entry,workspace);return true}catch{return false}},'actual OS-backed drop hashes');
     if(index===0){
       await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('input')].find(e=>e.getAttribute('aria-label')===${JSON.stringify('Select source '+entry.documents[0].name)});if(!e)return false;if(!e.checked)e.click();return true})()`),'select unprepared native source');
@@ -321,10 +341,10 @@ try {
       await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.includes('ISIR synthetic')&&!e.textContent.includes('protocol'));if(!e)return false;e.click();return true})()`),'choose actual connected model');
       await cdp.evaluate("window.__legalworkControl.execute('route.session')");
       await until(()=>cdp.evaluate(`(()=>{const e=document.querySelector('button[aria-label="Behavior"]');if(!e||e.disabled)return false;e.click();return true})()`),'native selected model behavior control');
-      const deep = await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('[role="option"]')].find(e=>e.textContent.trim()==='Deep');if(!e)return false;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`),'actual Deep choice');
-      await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...deep});
-      await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...deep});
-      await until(()=>cdp.evaluate(`JSON.parse(localStorage.getItem('legalwork.preferences')??'{}').modelVariant==='high'`),'persisted native Deep variant selection');
+      const high = await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('[role="option"]')].find(e=>e.textContent.trim()==='high');if(!e)return false;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`),'actual synthetic provider high reasoning choice');
+      await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...high});
+      await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...high});
+      await until(()=>cdp.evaluate(`JSON.parse(localStorage.getItem('legalwork.preferences')??'{}').modelVariant==='high'`),'persisted native high variant selection');
       await openFiles(workspace);await click('Dokumenty');await click('Prepare this folder');
       await until(async()=>(await panelText()).includes('Selected sources fully extracted'),'selected model/variant retains original source scope');
 
@@ -338,9 +358,9 @@ try {
     const generation=await until(()=>{
       const receipts=provider.receipts.slice(receiptStart).filter(r=>r.sources.length);
       const last=receipts.at(-1);
-      const error=last?.toolResults.find(r=>{try{return Boolean(JSON.parse(r.content).error)}catch{return false}});
-      if(error)return {error:JSON.parse(error.content).error};
-      const result=last?.toolResults.map(r=>{try{return JSON.parse(r.content)}catch{return null}}).find(r=>r&&typeof r.valid==='boolean');
+      const error=last?.toolResults.find(r=>{try{return Boolean(decodeNativeToolOutput(r.content).error)}catch{return false}});
+      if(error)return {error:decodeNativeToolOutput(error.content).error};
+      const result=last?.toolResults.map(r=>{try{return decodeNativeToolOutput(r.content)}catch{return null}}).find(r=>r&&typeof r.valid==='boolean');
       return result?{result,receipts}:false;
     },'actual engine tool validation result',90000);
     assert.equal(generation.error,undefined,`Production native tool failed: ${generation.error}`);
@@ -409,7 +429,11 @@ try {
   const chatObservation={role:'attachment',context:{sessionId:chatEvidence.sessionId,workspaceId:chatWorkspace.id,marker:'Native attachment submission fixture.'}};
   diagnostics.promptStart('attachment',cdp.events,chatStart,chatObservation.context);
   await click('Run task',chatObservation);
-  const chatRequest=await until(()=>cdp.events.slice(chatStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&e.params.request.url.endsWith('/prompt_async')),'ordinary native chat submission');
+  const chatQueuePath=`/workspace/${chatWorkspace.id}/sessions/${chatEvidence.sessionId}/queue`;
+  const chatRequest=await until(()=>cdp.events.slice(chatStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&new URL(e.params.request.url).pathname===chatQueuePath&&JSON.parse(e.params.request.postData??'{}').type==='enqueue'),'ordinary native chat queue submission');
+  const queuedChat=JSON.parse(chatRequest.params.request.postData);
+  assert.equal(queuedChat.execution.kind,'prompt');assert.deepEqual(queuedChat.execution.model,{providerID:'isir-native',modelID:'synthetic'});assert.equal(queuedChat.execution.agent,'legalwork');assert.equal(queuedChat.execution.variant,'high');
+  await until(()=>cdp.events.slice(chatStart).some(e=>e.method==='Network.responseReceived'&&e.params.requestId===chatRequest.params.requestId&&e.params.response.status===200),'ordinary native queue admission returned200');
   diagnostics.promptEnd('attachment');
   const attachmentPath=path.relative(chatWorkspace.path,attachment).replaceAll('\\','/');
   assert.match(attachmentPath,/^\.legalwork\/attachments\/[a-f0-9-]{36}\//);
@@ -417,7 +441,7 @@ try {
   const uploaded=cdp.events.slice(attachStart).find(e=>e.method==='Network.responseReceived'&&e.params.response.url.endsWith(`/workspace/${chatWorkspace.id}/files/raw`)&&e.params.response.status===200);
   assert.ok(uploaded,'Actual authenticated binary upload returned200');
   extraEvidence.chat={path:attachmentPath,hash:sha256(await readFile(attachment)),uploadStatus:200,promptRequestId:chatRequest.params.requestId};
-  await until(async()=>{const {body}=await api(chatWorkspace,`sessions/${chatEvidence.sessionId}/snapshot?limit=20`);return body.item?.status.type==='idle'&&body.item.messages.some(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('Native attachment submission fixture.')))},'real engine stores native attachment turn');
+  await until(async()=>{const {body}=await api(chatWorkspace,`sessions/${chatEvidence.sessionId}/snapshot?limit=20`);const user=body.item?.messages.find(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('Native attachment submission fixture.')));return body.item?.status.type==='idle'&&user&&body.item.messages.some(m=>m.info.parentID===user.info.id&&m.info.finish==='stop')},'real engine stores and completes native attachment turn');
   assert.equal(sha256(await readFile(attachment)),sha256(chatSource.bytes));
   console.log('PASS native composer attachment upload, actual saved bytes and real engine submission');
   // Actual saved bytes are the input for invalidation tests, never generated
@@ -463,19 +487,18 @@ try {
     const originalSource=path.join(root,'originals',corpus.cases.at(-1).id,chatSource.name);
     const checks=path.join(last.path,'Checks'),beforeFirst=await readdir(checks);
     assert.equal(beforeFirst.length,0);
-    const firstCopyReceipt=await drop([originalSource]);
+    const firstCopyReceipt=await drop([originalSource],last);
     await until(async()=>{try{return sha256(await readFile(path.join(last.path,'Checks',chatSource.name)))===sha256(chatSource.bytes)}catch{return false}},'native collision first copy');
     const beforeSecond=await readdir(checks);assert.deepEqual(beforeSecond,[chatSource.name]);
-    const copyReceipt=await drop([originalSource,scanPath]);
+    const copyReceipt=await drop([originalSource,scanPath],last);
     const collided=await until(async()=>{for(const name of await readdir(path.join(last.path,'Checks'))){if(beforeSecond.includes(name))continue;try{if(sha256(await readFile(path.join(last.path,'Checks',name)))===sha256(chatSource.bytes))return name}catch{}}return false},'actual native filename collision preserves first copy');
     assert.equal(sha256(await readFile(path.join(last.path,'Checks',chatSource.name))),sha256(chatSource.bytes));
     const afterSecond=await readdir(checks),added=afterSecond.filter(name=>!beforeSecond.includes(name));
     assert.equal(added.length,2);assert.ok(added.includes(collided)&&added.includes('synthetic-incomplete-scan.pdf'));
-    const copyLines=(await readFile(path.join(root,'copy-receipts.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
-    const ipcCopy=copyLines.findLast(r=>r.workspaceId===last.id&&r.folder==='Checks'&&JSON.stringify(r.paths)===JSON.stringify([originalSource,scanPath]));
-    assert.ok(ipcCopy);assert.equal(ipcCopy.error,undefined);assert.ok(ipcCopy.result.files.every(f=>f.status==='copied'));
-    assert.deepEqual(new Set(ipcCopy.result.files.map(f=>path.basename(f.path))),new Set(added));
-    extraEvidence.collision={before:beforeSecond,after:afterSecond,newPaths:added,hash:sha256(chatSource.bytes),uiReceipts:[firstCopyReceipt,copyReceipt],ipcCopy};
+    assert.equal(copyReceipt.ipcCopies.length,2);
+    assert.deepEqual(new Set(copyReceipt.ipcCopies.flatMap(r=>r.paths)),new Set([originalSource,scanPath]));
+    assert.deepEqual(new Set(copyReceipt.ipcCopies.flatMap(r=>r.result.files.map(f=>path.basename(f.path)))),new Set(added));
+    extraEvidence.collision={before:beforeSecond,after:afterSecond,newPaths:added,hash:sha256(chatSource.bytes),uiReceipts:[firstCopyReceipt,copyReceipt],ipcCopies:copyReceipt.ipcCopies};
     await until(()=>cdp.evaluate(`(()=>{const e=document.querySelector('input[aria-label="Select source synthetic-incomplete-scan.pdf"]');if(!e)return false;e.click();return true})()`),'select actual incomplete PDF');
     await click('Prepare selected');
     const partial=await until(async()=>{const {body}=await api(last,'lawoss/documents');return body.documents.find(d=>d.path==='Checks/synthetic-incomplete-scan.pdf'&&d.status==='partial')},'production partial extraction without configured OCR',60000);
@@ -509,6 +532,7 @@ try {
   appChild=launch(electron,[...(process.platform==='linux'?['--no-sandbox','--disable-gpu']:[]),path.join(repo,'apps/desktop/scripts/isir-native-entry.mjs')],path.join(repo,'apps/desktop'),'electron-relaunch');
   cdp=await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch);
   await cdp.send('Page.enable');
+  assert.deepEqual(await cdp.evaluate('({visibility:document.visibilityState,focused:document.hasFocus()})'),{visibility:'visible',focused:true},'Relaunched owned page is active for production UI polling');
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1800,height:1400,deviceScaleFactor:1,mobile:false});
   await until(()=>cdp.evaluate('!!window.__legalworkControl'),'relaunched native renderer',90000);
   await openFiles(first,'reconnect');
@@ -520,22 +544,12 @@ try {
   await openFiles(first);
   serverInfo=await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('legalworkServerInfo')");
   serverAuth={authorization:'Bearer '+(serverInfo.ownerToken||serverInfo.clientToken),'content-type':'application/json'};
+  engineRequest=createNativeEngineClient(serverInfo,first.id,nativeFetch);
   const chooserReceipts=(await readFile(path.join(root,'chooser-receipts.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
   assert.ok(chooserReceipts.some(r=>r.properties.includes('openDirectory')&&r.paths[0]===moved),'Actual native recovery chooser bridge was invoked');
   assert.equal(await access(oldPath).then(()=>true,()=>false),false,'Recovery cannot recreate the old path');
   const persisted=JSON.parse(await readFile(path.join(profile,'legalwork-workspaces.json'),'utf8'));
   assert.equal(persisted.workspaces.length,10);assert.ok(persisted.workspaces.find(w=>w.id===first.id).previousPaths.includes(oldPath));
-  if(debugPair){
-    const engineInfo=await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('engineInfo')");
-    const auth={authorization:'Basic '+Buffer.from(`${engineInfo.opencodeUsername}:${engineInfo.opencodePassword}`).toString('base64')};
-    const probe=[];
-    for(const [label,directory,includeArchived] of [['unicode-encoded',encodeURIComponent(moved),false],['ascii-existing',workspaces.at(-1).path,false],['engine-default',null,false],['unicode-with-archived',encodeURIComponent(moved),true],['ascii-with-archived',workspaces.at(-1).path,true],['default-with-archived',null,true]]){
-      const response=await nativeFetch(`${engineInfo.baseUrl}/experimental/session?limit=1000${includeArchived?'&archived=true':''}`,{headers:{...auth,...(directory===null?{}:{'x-opencode-directory':directory})}});
-      const body=await response.json();probe.push({label,status:response.status,sessions:Array.isArray(body)?body.map(s=>({id:s.id,directory:s.directory})):body});
-    }
-    await writeFile(path.join(root,'history-transport-probe.json'),JSON.stringify(probe,null,2),{mode:0o600});
-    console.log('DEBUG actual history transport',JSON.stringify(probe.map(p=>({label:p.label,status:p.status,count:Array.isArray(p.sessions)?p.sessions.length:null}))));
-  }
   diagnostics.phase("recovery");
   diagnostics.recoveryStage('snapshot-request');
   const recovered=await api(first,`sessions/${evidence[0].sessionId}/snapshot?limit=20`,undefined,()=>diagnostics.recoveryStage('snapshot-body'));
@@ -556,8 +570,9 @@ try {
   await cdp.send('Input.insertText',{text:'NATIVE_RECOVERED_CWD_PROOF'});
   diagnostics.recoveryStage('prompt-click');
   await click('Run task',recoveryObservation);
-  diagnostics.recoveryStage('prompt-observe');
-  const recoveryRequest=await until(()=>cdp.events.slice(recoveryPromptStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&e.params.request.url.endsWith('/prompt_async')&&e.params.request.postData?.includes('NATIVE_RECOVERED_CWD_PROOF')),'actual recovered-session native prompt');
+  const recoveryQueuePath=`/workspace/${first.id}/sessions/${evidence[0].sessionId}/queue`;
+  const recoveryRequest=await until(()=>cdp.events.slice(recoveryPromptStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&new URL(e.params.request.url).pathname===recoveryQueuePath&&JSON.parse(e.params.request.postData??'{}').type==='enqueue'&&e.params.request.postData.includes('NATIVE_RECOVERED_CWD_PROOF')),'actual recovered-session native queue submission');
+  await until(()=>cdp.events.slice(recoveryPromptStart).some(e=>e.method==='Network.responseReceived'&&e.params.requestId===recoveryRequest.params.requestId&&e.params.response.status===200),'recovered-session queue admission returned200');
   diagnostics.promptEnd('recovery');
   diagnostics.recoveryStage('fresh-poll');
   const freshRead=await until(async()=>{
@@ -565,13 +580,16 @@ try {
     const user=item?.messages.find(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('NATIVE_RECOVERED_CWD_PROOF')));
     const assistant=user&&item.messages.find(m=>m.info.parentID===user.info.id&&m.info.finish==='stop');
     const read=user&&item.messages.filter(m=>m.info.parentID===user.info.id).flatMap(m=>m.parts).find(p=>p.type==='tool'&&p.tool==='lawoss_documents_read'&&p.state.status==='completed');
-    const cwd=user&&item.messages.filter(m=>m.info.parentID===user.info.id).flatMap(m=>m.parts).find(p=>p.type==='tool'&&p.tool==='bash'&&p.state.status==='completed'&&p.state.input.command===(process.platform==='win32'?'node -p "process.cwd()"':'pwd'));
+    const cwd=user&&item.messages.filter(m=>m.info.parentID===user.info.id).flatMap(m=>m.parts).find(p=>p.type==='tool'&&p.tool==='legalwork_shell'&&p.state.status==='completed'&&p.state.input.command===(process.platform==='win32'?'node -p "process.cwd()"':'pwd'));
     return item?.status.type==='idle'&&assistant&&read&&cwd?{session:item.session,user:user.info.id,read,cwd}:false;
   },'real engine executes a fresh scoped document read after native reconnect',60000);
   diagnostics.recoveryStage('fresh-check');
   assert.equal(freshRead.session.directory,moved);assert.equal(freshRead.session.id,evidence[0].sessionId);
   assert.ok(evidence[0].documentIds.includes(freshRead.read.state.input.id));
-  assert.equal(freshRead.cwd.state.output.trim(),moved,"Actual engine process cwd uses the moved folder, without an absolute read operand");
+  assert.equal(freshRead.cwd.state.input.workdir,undefined,'Managed shell uses the recovered default directory without an explicit path');
+  assert.equal(freshRead.cwd.state.metadata.exit,0,'Actual managed shell command exited successfully');
+  assert.equal(freshRead.cwd.state.metadata.sandbox,'host','Actual host shell reports the recovered native folder');
+  assert.equal(freshRead.cwd.state.output.trim(),moved,"Actual managed shell cwd uses the moved folder, without an absolute read operand");
   assert.equal(await access(oldPath).then(()=>true,()=>false),false);
   extraEvidence.recoveryRead={sessionId:freshRead.session.id,messageId:freshRead.user,directory:freshRead.session.directory,actualPwd:freshRead.cwd.state.output.trim(),documentId:freshRead.read.state.input.id,promptRequestId:recoveryRequest.params.requestId};
   // Every output, source and project is independently reread after an actual
@@ -586,17 +604,25 @@ try {
     assert.equal(outputs.response.status,200);assert.equal(outputs.body.outputs.length,2);assert.ok(outputs.body.outputs.every(o=>o.verified&&o.hash===o.currentHash));
   }
   diagnostics.recoveryStage('verification-open');
-  await openFiles(first);
-  diagnostics.recoveryStage('verification-folder');
-  await click('Dokumenty');
-  diagnostics.recoveryStage('verification-prepare');
+  recoveryVerificationStart=cdp.events.length;
+  recoveryRendererExpected={workspaceId:first.id,root:moved,baseUrl:serverInfo.baseUrl};
+  await until(()=>cdp.evaluate(`(${recoveryRendererIdentity.toString()})(window.__legalwork?.slice('route'),${JSON.stringify(recoveryRendererExpected)}).ready`),'recovered renderer acknowledges the moved project root and current owned client');
+  await openFiles(first);await click('Dokumenty');
+  await until(()=>cdp.evaluate(`(()=>{const nav=[...document.querySelectorAll('[aria-label="Current folder"]')].find(e=>e.getBoundingClientRect().width>0);return nav&&[...nav.querySelectorAll('button')].slice(1).map(e=>e.textContent.trim()).join('/')==='Dokumenty'})()`),'recovered native source folder breadcrumb');
+  const recoveredPrepareStart=cdp.events.length;
   await click('Prepare this folder');
-  diagnostics.recoveryStage('verification-wait');
+  const recoveredPrepareRequest=await until(()=>cdp.events.slice(recoveredPrepareStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&new URL(e.params.request.url).pathname===`/workspace/${first.id}/lawoss/documents/prepare`),'recovered native preparation request for the same project');
+  await until(()=>cdp.events.slice(recoveredPrepareStart).some(e=>e.method==='Network.responseReceived'&&e.params.requestId===recoveredPrepareRequest.params.requestId&&e.params.response.status===200),'recovered native preparation admission200');
+  const recoveredAdmission=await until(async()=>{try{return JSON.parse((await cdp.send('Network.getResponseBody',{requestId:recoveredPrepareRequest.params.requestId})).body)}catch{return false}},'recovered native preparation response bytes');
+  assert.deepEqual(recoveredAdmission.documents.map(d=>d.id).sort(),[...evidence[0].documentIds].sort(),'Repreparing unchanged recovered sources retains their original document identities');
+  assert.ok(recoveredAdmission.documents.every(d=>d.status==='readable'&&d.complete),'Previously prepared unchanged recovered sources remain readable');
   await until(async()=> (await panelText()).includes('Format and sources verified'),'recovered native renderer shows actual current verification');
   diagnostics.recoveryStage('engine-info');
   const finalEngine=await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('engineInfo')");
   diagnostics.recoveryStage('engine-health');
-  const relaunchedHealth=await (await nativeFetch(`${finalEngine.baseUrl}/global/health`,{headers:{authorization:'Basic '+Buffer.from(`${finalEngine.opencodeUsername}:${finalEngine.opencodePassword}`).toString('base64')}})).json();
+  const relaunchedHealthResponse=await engineRequest('/global/health');
+  assert.equal(relaunchedHealthResponse.status,200,'Relaunched workspace engine health must authenticate');
+  const relaunchedHealth=await relaunchedHealthResponse.json();
   diagnostics.recoveryStage('engine-identity');
   const relaunchedEngineIdentity=await verifyNativeEngineRuntime(preparedEngine,finalEngine.opencodeBinPath,relaunchedHealth);
   engineIdentities.push({ phase: 'relaunch', ...relaunchedEngineIdentity });
@@ -615,6 +641,30 @@ try {
   const failure = diagnostics.failure(error);
   console.error('Primary native failure before cleanup', JSON.stringify(failure));
   await diagnostics.captureEngineLog({error,selectedDirectory:workspaces[0].path,launchWallMs:engineLogLaunchWallMs,deadlineWallMs:engineLogDeadlineWallMs}).catch(()=>undefined);
+  const fetchPhases=children.filter(owner=>['electron','electron-relaunch'].includes(owner.label)).flatMap(owner=>nativeEngineFetchRecords(owner.output()).map(record=>({process:owner.label,...record}))).slice(-64);
+  console.error('Owned engine fetch boundaries',JSON.stringify(fetchPhases));
+  if(corpus.mode==='synthetic'&&cdp&&recoveryVerificationStart!==undefined) {
+    let timer;
+    try {
+      const snapshot=await Promise.race([
+        cdp.send('Runtime.evaluate',{returnByValue:true,timeout:5000,expression:`(()=>{
+          const panels=[...document.querySelectorAll('[aria-label="Document processing"]')];
+          const visible=e=>e.getBoundingClientRect().width>0&&e.getBoundingClientRect().height>0;
+          const panel=panels.find(visible)??panels[0];
+          const lines=[...(panel?.querySelectorAll('p')??[])].map(e=>e.textContent.trim());
+          const selected=lines.find(text=>/^Selected files: \\d{1,2}$/.test(text));
+          const badges=Object.fromEntries(Object.entries({verified:'Format and sources verified',checking:'Checking current sources…',invalid:'Sources changed / invalid output',edited:'Output edited / removed',generated:'Generated, unverified',complete:'Selected sources fully extracted',partial:'Partially readable / incomplete OCR',readError:'Read could not be verified',stale:'Source changed — prepare again',pending:'Preparation pending',preparing:'Preparing',readable:'Readable'}).map(([key,label])=>[key,lines.filter(text=>text===label||text.startsWith(label+' ·')||(key==='complete'&&text.endsWith(' · '+label))).length]));
+          const controls=Object.fromEntries(Object.entries({prepareFolder:'Prepare this folder',prepareSelected:'Prepare selected',refresh:'Refresh status',generate:'Generate through chat',validate:'Validate saved output'}).map(([key,label])=>{const buttons=[...(panel?.querySelectorAll('button')??[])].filter(e=>e.textContent.trim()===label);return [key,{count:buttons.length,disabled:buttons.filter(e=>e.disabled||e.getAttribute('aria-disabled')==='true').length}]}));
+          const folder=[...(document.querySelector('[aria-label="Current folder"]')?.querySelectorAll('button')??[])].slice(1).map(e=>e.textContent.trim()).join('/');
+          const identity=(${recoveryRendererIdentity.toString()})(window.__legalwork?.slice('route'),${JSON.stringify(recoveryRendererExpected)});
+          return {identity,visibility:document.visibilityState,focused:document.hasFocus(),viewportWidth:innerWidth,viewportHeight:innerHeight,panelCount:panels.length,visiblePanelCount:panels.filter(visible).length,firstPanelVisible:Boolean(panels[0]&&visible(panels[0])),firstPanelVerified:Boolean(panels[0]?.innerText.includes('Format and sources verified')),visible:Boolean(panel&&visible(panel)),folderMatches:folder==='Dokumenty',selectedFiles:selected?Number(selected.split(': ')[1]):null,alerts:panel?.querySelectorAll('[role="alert"]').length??0,badges,controls};
+        })()`}).then(result=>result.result?.value??null).catch(()=>null),
+        new Promise(resolve=>{timer=setTimeout(()=>resolve(null),5000)}),
+      ]);
+      console.error('Owned recovery verification state',JSON.stringify({capture:snapshot?'captured':'unavailable',...summarizeRecoveryVerification(snapshot,cdp.events.slice(recoveryVerificationStart))}));
+    } catch { /* Failure diagnostics must preserve the primary native error. */ }
+    finally {clearTimeout(timer);}
+  }
   await boundaryProbe?.().catch(()=>undefined);
   await diagnostics.write({events:cdp?.events,error}).catch(e=>console.error('Diagnostic publication failed',JSON.stringify(errorMetadata(e))));
   for (const owner of children) await writeFile(path.join(root, `${owner.label}.log`), owner.output(), { mode: 0o600 });

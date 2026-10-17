@@ -7,6 +7,7 @@ const port = Number(process.env.PORT || 3978);
 const issuer = process.env.ISSUER || `http://${host}:${port}`;
 const autoApprove = process.env.AUTO_APPROVE !== "0";
 const dynamicRegistration = process.env.DYNAMIC_REGISTRATION !== "0";
+const normalizeLoopbackCallback = process.env.NORMALIZE_LOOPBACK_CALLBACK === "1";
 
 const clients = new Map();
 const codes = new Map();
@@ -96,10 +97,22 @@ function authorizationServerMetadata() {
   };
 }
 
+function normalizedCallback(value) {
+  if (!normalizeLoopbackCallback) return value;
+  const url = new URL(value);
+  if (url.hostname === "127.0.0.1") url.hostname = "localhost";
+  return url.toString();
+}
+
 function redirectWithCode(res, params) {
-  const redirectUri = params.get("redirect_uri");
-  if (!redirectUri) {
+  const requestedRedirect = params.get("redirect_uri");
+  if (!requestedRedirect) {
     json(res, 400, { error: "invalid_request", error_description: "redirect_uri is required" });
+    return;
+  }
+  const redirectUri = normalizedCallback(requestedRedirect);
+  if (normalizeLoopbackCallback && !clients.get(params.get("client_id"))?.redirect_uris?.includes(redirectUri)) {
+    json(res, 400, { error: "invalid_request", error_description: "The redirect_uri parameter does not match the client's registered redirect URLs." });
     return;
   }
 
@@ -109,6 +122,7 @@ function redirectWithCode(res, params) {
     codeChallenge: params.get("code_challenge") || null,
     codeChallengeMethod: params.get("code_challenge_method") || "plain",
     scope: params.get("scope") || "mcp:read mcp:write",
+    redirectUri,
   });
 
   const callback = new URL(redirectUri);
@@ -189,6 +203,10 @@ async function issueToken(req, res) {
     }
     if (grant.clientId !== client.client_id) {
       json(res, 400, { error: "invalid_grant", error_description: "Code belongs to another client" });
+      return;
+    }
+    if (normalizeLoopbackCallback && (!form.redirect_uri || normalizedCallback(form.redirect_uri) !== grant.redirectUri)) {
+      json(res, 400, { error: "invalid_grant", error_description: "The token exchange callback does not match authorization." });
       return;
     }
     if (grant.codeChallenge) {

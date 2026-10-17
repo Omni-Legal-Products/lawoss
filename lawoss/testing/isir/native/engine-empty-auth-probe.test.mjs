@@ -40,98 +40,79 @@ test('real bundle helpers verify synthetic file identity but probe refuses all n
 test('fresh owner roots discard inherited auth, config and credentials',async t=>{assert.equal(typeof api.createPrivateRoot,'function');const first=await api.createPrivateRoot({PATH:process.env.PATH,GITHUB_TOKEN:'PRIVATE',OPENCODE_AUTH_CONTENT:'PRIVATE',NODE_OPTIONS:'PRIVATE'}),second=await api.createPrivateRoot({PATH:process.env.PATH});for(const item of [first,second])t.after(()=>fs.rm(item.root,{recursive:true,force:true}));assert.notEqual(first.root,second.root);assert.equal(first.env.GITHUB_ACTIONS,'true');assert.equal(first.env.CI,'true');assert.equal(first.env.OPENCODE_AUTH_CONTENT,undefined);assert.equal(first.env.GITHUB_TOKEN,undefined);assert.equal(first.env.LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE,path.join(first.root,'native-diagnostics.private.json'));assert.equal(await fs.readFile(first.env.NPM_CONFIG_USERCONFIG,'utf8'),'');assert.equal(await fs.readFile(first.env.GIT_CONFIG_GLOBAL,'utf8'),'');});
 test('actual collector children freeze close, error, timeout and bounded-output results without retaining raw text',async()=>{for(const [source,want,options] of [['process.stdout.write("PRIVATE");','ok',{}],['process.exitCode=7','child-error',{}],['setInterval(()=>{},1000)','timeout',{timeoutMs:100,drainMs:1000}],['process.stdout.write("x".repeat(10000));setInterval(()=>{},1000)','output-limit',{limit:10,drainMs:1000}]]){const result=await collectChild(spawn(process.execPath,['-e',source],{stdio:['ignore','pipe','pipe']}),options);assert.equal(result.outcome,want);assert.equal(result.closed,true);assert.equal(result.text,undefined);assert.ok(!JSON.stringify(result).includes('PRIVATE'));}const failed=await collectChild(spawn(path.join(tmpdir(),'absent-empty-auth-executable'),[],{stdio:['ignore','pipe','pipe']}),{timeoutMs:200,drainMs:100});assert.equal(failed.outcome,'child-error');assert.equal(failed.closed,true);});
 test('inert import is quiet from paths containing spaces hash and percent',async t=>{const dir=await root(t),script=path.join(dir,'quiet #%.mjs');await fs.writeFile(script,`await import(${JSON.stringify(pathToFileURL(entry).href)});`);const result=await collectChild(spawn(process.execPath,[script],{stdio:['ignore','pipe','pipe']}),{capture:true,limit:10});assert.deepEqual(result,{outcome:'ok',closed:true,code:0,text:''});});
-test('harness adopts early guard and post-assembly producer while preserving every legacy byte',async()=>{const source=await fs.readFile(path.join(repo,'scripts/test-isir-native.mjs'),'utf8');const added=[`import { validateProbeOption, applyProducer } from "../lawoss/testing/isir/native/engine-empty-auth-probe.mjs";\n`,`const emptyAuthProbe = await validateProbeOption(process.argv.slice(2));\n`,`await applyProducer(env, emptyAuthProbe, preparedEngine.expectedHash);\n`];for(const line of added)assert.equal(source.split(line).length,2);// Preserve the original full-driver oracle, explicitly accounting only for
-// the admitted ordinary-quit caller seam and ordered failure retention.
-const relaunchChanges=[
-  [
-    "import { stopForRelaunch } from \"../lawoss/testing/isir/native/relaunch-stop.mjs\";\n",
-    ""
-  ],
-  [
-    "const relaunchCleanupErrors=[];\n",
-    ""
-  ],
-  [
-    "cleanupErrors:[...relaunchCleanupErrors,...result.failures]",
-    "cleanupErrors:result.failures"
-  ],
-  [
-    "  await stopForRelaunch({\n    requestQuit:()=>cdp.evaluate(\"window.__LEGALWORK_ELECTRON__.invokeDesktop('isirNativeQuit')\"),\n    closeCdp:()=>{cdp.close();cdp=null;},child:appChild,stop,cleanupFailures:relaunchCleanupErrors,\n  });",
-    "  cdp.close();cdp=null;await stop(appChild);"
-  ],
-  [
-    "  for(const failure of relaunchCleanupErrors)console.error('Relaunch owned cleanup failure',JSON.stringify(errorMetadata(failure)));\n",
-    ""
-  ]
-];
-// Task57's exact occurrence-one inverse proves the current d671 driver as
-// well as the independently frozen legacy oracle below; never repin either.
-const finalReviewChanges=[
-  [
-    "import { randomBytes } from \"node:crypto\";\n",
-    ""
-  ],
-  [
-    "import { readNativeQuitAcceptance } from \"../lawoss/testing/isir/native/quit-acceptance.mjs\";\n",
-    ""
-  ],
-  [
-    "  const quitNonce = label.startsWith(\"electron\") ? randomBytes(32).toString(\"hex\") : null;\n",
-    ""
-  ],
-  [
-    "  const child = spawn(command, args, { cwd, env:quitNonce ? {...env,LAWOSS_ISIR_NATIVE_QUIT_NONCE:quitNonce} : env, detached:",
-    "  const child = spawn(command, args, { cwd, env, detached:"
-  ],
-  [
-    "  if (quitNonce) child.isirNativeQuitAcceptance={root,nonce:quitNonce,pid:child.pid};\n",
-    ""
-  ],
-  [
-    "  const openFiles = async (workspace,readiness='listing') => {\n    selectedIndex=workspaces.indexOf(workspace)+1;\n    await openNativeProjectFiles({cdp,until,workspace,caseIndex:selectedIndex,readiness});\n  };\n",
-    "  const openFiles = async workspace => {\n    selectedIndex=workspaces.indexOf(workspace)+1;\n    await openNativeProjectFiles({cdp,until,workspace,caseIndex:selectedIndex});\n  };\n"
-  ],
-  [
-    "    readQuitAcceptance:()=>readNativeQuitAcceptance(appChild.isirNativeQuitAcceptance),\n",
-    ""
-  ],
-  [
-    "  await openFiles(first,'reconnect');\n  const recoveryStart",
-    "  await openFiles(first);\n  const recoveryStart"
-  ],
-  [
-    "  first.path=moved;\n  await openFiles(first);\n",
-    "  first.path=moved;\n"
-  ]
-];
-let currentBase=source;
-for(const [current,previous] of finalReviewChanges){assert.equal(currentBase.split(current).length,2);currentBase=currentBase.replace(current,previous);}
-assert.equal(hash(currentBase),"2ef13f2a9722637d47b3a92fdd9d961ec44fff1d8d6ef1cb6eda44285bff41b7");
-let original=added.reduce((text,line)=>text.replace(line,''),currentBase);
-// Exact reversible navigation extraction and mounted reentry seams. The
-// original frozen driver digest below remains independent and unchanged.
-const navigationChanges=[
-  [
-    "import { openNativeProjectFiles } from \"../lawoss/testing/isir/native/project-files-navigation.mjs\";\n",
-    "import { installChooserBoundary } from \"../lawoss/testing/isir/native/chooser-boundary.mjs\";\n"
-  ],
-  [
-    "  const openFiles = async workspace => {\n    selectedIndex=workspaces.indexOf(workspace)+1;\n    await openNativeProjectFiles({cdp,until,workspace,caseIndex:selectedIndex});\n  };\n",
-    "  const openFiles = async workspace => {\n    selectedIndex=workspaces.indexOf(workspace)+1;\n    await cdp.evaluate(`(${installChooserBoundary.toString()})(${JSON.stringify({id:workspace.id,root:workspace.path,name:workspace.name,caseIndex:selectedIndex})})`);\n    await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(workspace.name)}&&e.closest('[data-slot=\"collapsible\"]'));if(!e)return false;e.click();return true})()`),`select native project ${workspace.id}`);\n    await until(()=>cdp.evaluate(`(()=>{const title=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(workspace.name)}&&e.closest('[data-slot=\"collapsible\"]'));const group=title.closest('[data-slot=\"collapsible\"]');const e=[...group.querySelectorAll('button,a')].find(e=>e.textContent.trim()==='Files'&&e.getBoundingClientRect().width>0);if(!e){group.querySelector('[aria-label=\"Expand\"]')?.click();return false}e.click();return true})()`),'native project files action');\n    await until(()=>cdp.evaluate(`!!document.querySelector('[aria-label=\"Document processing\"]')`),'native processing panel');\n    await until(()=>cdp.evaluate(`(()=>{const nav=document.querySelector('[aria-label=\"Current folder\"]');if(!nav)return false;nav.querySelector('button')?.click();return true})()`),'native root breadcrumb');\n  };\n"
-  ],
-  [
-    "  await writeFile(csvPath,Buffer.concat([savedCsv,Buffer.from('\\ninvalid edit')]));\n  await openFiles(last);\n  // Re-enter the actual mounted Files journey without an extra model turn.\n  await cdp.evaluate(`(()=>{const panel=[...document.querySelectorAll('[data-files-workspace-id]')].find(e=>e.getBoundingClientRect().width>0);let clicks=0;const listener=e=>{if(e.target.closest('button,a')?.textContent.trim()==='Files')clicks++};document.addEventListener('click',listener,true);window.__isirFilesReentry={panel,listener,clicks:()=>clicks}})()`);\n  let filesReentryError=null;\n  try {\n    await openFiles(last);\n    assert.equal(await cdp.evaluate(`(()=>{const before=window.__isirFilesReentry;const panels=[...document.querySelectorAll('[data-files-workspace-id]')].filter(e=>e.isConnected&&!e.closest('[hidden]')&&e.getBoundingClientRect().width>0&&e.getBoundingClientRect().height>0);const state=window.__isirChooserBoundary.sample('mounted-files-reentry');return before.clicks()===0&&panels.length===1&&panels[0]===before.panel&&state.selectedOwnerEqual&&state.runtimeOwnerEqual&&state.workspaceRootEqual&&state.folderPathEqual&&state.rootBreadcrumbEqual})()`),true,'Mounted Files reentry preserves the visible project/root without toggling');\n  } catch(error) { filesReentryError=error; }\n  const filesReentryCleanup=await settleCleanup(filesReentryError,[()=>cdp.evaluate(`(()=>{const before=window.__isirFilesReentry;document.removeEventListener('click',before.listener,true);delete window.__isirFilesReentry})()`)]);\n  if(filesReentryCleanup.error)throw filesReentryCleanup.error;\n  await click('Dokumenty');await click('Prepare this folder');\n",
-    "  await writeFile(csvPath,Buffer.concat([savedCsv,Buffer.from('\\ninvalid edit')]));\n  await openFiles(last);await click('Dokumenty');await click('Prepare this folder');\n"
-  ]
-];
-for(const [current,previous] of navigationChanges){assert.equal(original.split(current).length,2);original=original.replace(current,previous);}
-for(const [current,previous] of relaunchChanges){assert.equal(original.split(current).length,2);original=original.replace(current,previous);}
-assert.equal(hash(original),'ab95f619598df7daccb8b741d9ae454715bc9440e1c0b7a06a29647642279ee1');assert.ok(source.indexOf(added[1])<source.indexOf('const electron ='));assert.ok(source.indexOf(added[1])<source.indexOf('probeNativeEngineVersion(externalEngine)'));assert.ok(source.indexOf('probeNativeEngineVersion(engine)')<source.indexOf(added[2]));assert.ok(source.indexOf('Object.assign(env, {')<source.indexOf(added[2]));assert.ok(source.indexOf(added[2])<source.indexOf('const launch ='));assert.ok(original.includes('spawn(command, args, { cwd, env, detached:'));assert.ok(source.includes('env:quitNonce ? {...env,LAWOSS_ISIR_NATIVE_QUIT_NONCE:quitNonce} : env'));assert.ok(source.includes('child.isirNativeQuitAcceptance={root,nonce:quitNonce,pid:child.pid}'));assert.ok(source.includes('readQuitAcceptance:()=>readNativeQuitAcceptance(appChild.isirNativeQuitAcceptance)'));assert.ok(source.includes('startupDeadline=Date.now()+90000'));assert.ok(source.lastIndexOf('verifyNativeEngineRuntime')<source.indexOf('diagnostics.phase("complete")'));});
-test('workflow appends only the separate first-attempt guarded job and preserves the entire three-job prefix',async()=>{const bytes=await fs.readFile(path.join(repo,'.github/workflows/ci-desktop-packaging.yml'));const prefixLength=13314;assert.equal(hash(bytes.subarray(0,prefixLength)),'d3726555afe6bb3197e06ca1f6683b79b4692253bdbfe5455d0ea4608e45ac52');const added=bytes.subarray(prefixLength).toString('utf8');assert.ok(added.includes('  windows-engine-empty-auth-probe:'));assert.ok(added.includes('needs: [package-smoke]'));assert.ok(added.includes('node-version: 24.21.0'));assert.ok(added.indexOf('node --test ')<added.indexOf('actions/download-artifact@'));assert.equal((added.match(/build:electron/g)??[]).length,1);assert.ok(!/electron-builder|engine-baseline-probe|engine-compile-monitor/.test(added));assert.ok(added.includes('if: always() && steps.empty-auth-finalize.outcome'));assert.ok(added.includes('name: isir-engine-empty-auth-probe-windows-2022'));assert.ok(added.includes('retention-days: 7'));});
+function assertIntegratedHarness(source,startup) {
+  const added=[`import { validateProbeOption, applyProducer } from "../lawoss/testing/isir/native/engine-empty-auth-probe.mjs";\n`,`const emptyAuthProbe = await validateProbeOption(process.argv.slice(2));\n`,`await applyProducer(env, emptyAuthProbe, preparedEngine.expectedHash);\n`];
+  for(const line of added)assert.equal(source.split(line).length,2);
+  assert.ok(source.indexOf(added[1])<source.indexOf('const electron ='));
+  assert.ok(source.indexOf(added[1])<source.indexOf('probeNativeEngineVersion(externalEngine)'));
+  assert.ok(source.indexOf('probeNativeEngineVersion(engine)')<source.indexOf(added[2]));
+  assert.ok(source.indexOf('Object.assign(env, {')<source.indexOf(added[2]));
+  assert.ok(source.indexOf(added[2])<source.indexOf('const launch ='));
+  assert.ok(source.includes('spawn(command, args, { cwd, env:quitNonce ? {...env,LAWOSS_ISIR_NATIVE_QUIT_NONCE:quitNonce} : env, detached:'));
+  assert.ok(source.includes('child.isirNativeQuitAcceptance={root,nonce:quitNonce,pid:child.pid}'));
+  assert.ok(source.includes('readQuitAcceptance:()=>readNativeQuitAcceptance(appChild.isirNativeQuitAcceptance)'));
+  assert.match(source,/await awaitNativeStartup\(\{engineRequest,request:nativeFetch,serverInfo,workspace:workspaces\[0\]/);
+  assert.ok(!/liveEngine\.(?:opencodeUsername|opencodePassword)/.test(source));
+  assert.ok(startup.includes('await engineRequest.ready();'));
+  assert.ok(startup.indexOf('await engineRequest.ready();')<startup.indexOf('deadline = Date.now() + 90_000'));
+  assert.ok(startup.indexOf('deadline = Date.now() + 90_000')<startup.indexOf('const receipt = await awaitDirectoryInstance'));
+  assert.match(startup,/await response\.json\(\)/);
+  assert.ok(source.lastIndexOf('verifyNativeEngineRuntime')<source.indexOf('diagnostics.phase("complete")'));
+}
+test('integrated harness keeps early producer admission and cold-to-selected scope proof',async()=>{
+  const source=await fs.readFile(path.join(repo,'scripts/test-isir-native.mjs'),'utf8');
+  const startup=await fs.readFile(path.join(repo,'lawoss/testing/isir/native/startup-readiness.mjs'),'utf8');
+  assertIntegratedHarness(source,startup);
+  assert.throws(()=>assertIntegratedHarness(source.replace('await applyProducer(env, emptyAuthProbe, preparedEngine.expectedHash);',''),startup));
+  assert.throws(()=>assertIntegratedHarness(source.replace('await awaitNativeStartup({engineRequest','await awaitNativeStartup({wrongRequest'),startup));
+  assert.throws(()=>assertIntegratedHarness(source,startup.replace('await engineRequest.ready();','')));
+});
+function assertFrozenAdmissions(source) {
+  for(const name of ['windows-engine-baseline','windows-engine-compile-monitor','windows-engine-empty-auth-probe']){
+    const start=source.indexOf('  '+name+':\n');assert.ok(start>=0);
+    const rest=source.slice(start),next=rest.slice(3).search(/^  [a-z][a-z-]*:/m);
+    const block=next<0?rest:rest.slice(0,next+3);
+    assert.match(block,/^    if: false$/m);
+  }
+  const start=source.indexOf('  package-smoke:\n'),end=source.indexOf('  windows-engine-baseline:\n');
+  const normal=source.slice(start,end);
+  assert.ok(!/^    if: false$/m.test(normal));
+  assert.ok(normal.includes('pnpm test:isir:native'));
+}
+test('frozen diagnostic jobs cannot automatically renew while normal native packaging stays active',async()=>{
+  const source=await fs.readFile(path.join(repo,'.github/workflows/ci-desktop-packaging.yml'),'utf8');
+  assertFrozenAdmissions(source);
+  assert.throws(()=>assertFrozenAdmissions(source.replace('    if: false','    if: true')));
+  const added=source.slice(source.indexOf('  windows-engine-empty-auth-probe:\n'));
+  assert.ok(added.includes('needs: [package-smoke]'));
+  assert.ok(added.includes('node-version: 24.21.0'));
+  assert.ok(added.indexOf('node --test ')<added.indexOf('actions/download-artifact@'));
+  assert.equal((added.match(/build:electron/g)??[]).length,1);
+  assert.ok(!/electron-builder|engine-baseline-probe|engine-compile-monitor/.test(added));
+  assert.ok(added.includes('if: always() && steps.empty-auth-finalize.outcome'));
+  assert.ok(added.includes('name: isir-engine-empty-auth-probe-windows-2022'));
+  assert.ok(added.includes('retention-days: 7'));
+});
 test('complete phase proves final version even if bounded request retention has evicted initial HTTP rows',()=>{const r=observedReceipt(),m=progressed();m.phase='complete';m.requests=[];r.exit='ok';r.lifecycle.code=0;r.engine.afterVersionVerified=true;assert.equal(api.classifyAltered(r,m),'altered-complete');r.stage='complete';r.outcome='altered-complete';r.alteredBoundary=api.compactBoundary(m);assert.doesNotThrow(()=>api.projectReceipt(r));});
 test('receipt rejects forged origin, incomplete stages and contradictory collector exit codes',()=>{const r=observedReceipt();for(const mutate of [v=>v.originalBoundary.phase='complete',v=>v.originalBoundary.health200=false,v=>v.originalBoundary.startupStage='verified',v=>v.exit='ok',v=>{v.exit='child-unclosed';},v=>{v.stage='awaiting-lawoss-build';},v=>{v.engine.afterVersionVerified=true;},v=>{v.producer.status='not-run';v.producer.ackSha256=null;},v=>{v.exit='not-run';}]){const v=structuredClone(r);mutate(v);assert.throws(()=>api.projectReceipt(v));}});
 test('timeout and unclosed outcomes cannot be promoted by late bounded child evidence',()=>{const r=observedReceipt(),m=progressed();r.exit='timeout';r.lifecycle.code=0;assert.equal(api.classifyAltered(r,m),'unknown');const unclosed=structuredClone(r);unclosed.exit='child-unclosed';unclosed.lifecycle.closed=false;unclosed.lifecycle.code=null;unclosed.stage='native';unclosed.engine.afterSha256=null;unclosed.engine.afterManifestsSha256=null;unclosed.producer={status:'unknown',ackSha256:null};unclosed.engine.beforeVersionVerified=false;unclosed.alteredBoundary=null;assert.doesNotThrow(()=>api.projectReceipt(unclosed));assert.equal(api.classifyAltered(unclosed,m),'unknown');});
-test('source propagation retains reserved filters, process merge and original managed spawn env',async()=>{const runtime=await fs.readFile(path.join(repo,'apps/desktop/electron/runtime.mjs'),'utf8'),managed=await fs.readFile(path.join(repo,'apps/server/src/managed-opencode.ts'),'utf8'),network=await fs.readFile(path.join(repo,'apps/server/src/lawoss/engine-network.ts'),'utf8');assert.ok(runtime.includes('const USER_ENV_RESERVED_PREFIXES = ["LEGALWORK_", "OPENCODE_"];'));assert.ok(runtime.includes('if (USER_ENV_RESERVED_PREFIXES.some((p) => key.startsWith(p))) continue;'));assert.match(runtime,/\.\.\.loadUserEnvFile\(\),\s+\.\.\.process\.env,/);assert.ok(runtime.includes('const serverEnv = await buildChildEnv({});\n    Object.assign(process.env, serverEnv);'));assert.match(managed,/const env = \{\s+\.\.\.process.env,\s+\.\.\.options.env,\s+\.\.\.lawossEnv,/);assert.match(managed,/spawn\(command, args, \{\s+cwd: options.cwd,\s+env,/);assert.ok(!network.includes('OPENCODE_AUTH_CONTENT'));});
+function assertManagedCredentialBoundary(managed) {
+  assert.match(managed,/const env = withoutServerCredentials\(\{\s+\.\.\.process.env,\s+\.\.\.features,\s+\.\.\.options.env,\s+\.\.\.lawossEnv,/);
+  assert.match(managed,/Object.entries\(withoutServerCredentials\(\{\s+\.\.\.features,/);
+  assert.match(managed,/spawn\(command, args, \{\s+cwd: options.cwd,\s+env,/);
+}
+test('source propagation retains reserved filters and current-dev credential stripping',async()=>{
+  const runtime=await fs.readFile(path.join(repo,'apps/desktop/electron/runtime.mjs'),'utf8');
+  const managed=await fs.readFile(path.join(repo,'apps/server/src/managed-opencode.ts'),'utf8');
+  const network=await fs.readFile(path.join(repo,'apps/server/src/lawoss/engine-network.ts'),'utf8');
+  assert.ok(runtime.includes('const USER_ENV_RESERVED_PREFIXES = ["LEGALWORK_", "OPENCODE_"];'));
+  assert.ok(runtime.includes('if (USER_ENV_RESERVED_PREFIXES.some((p) => key.startsWith(p))) continue;'));
+  assert.match(runtime,/\.\.\.loadUserEnvFile\(\),\s+\.\.\.process\.env,/);
+  assert.ok(runtime.includes('const serverEnv = await buildChildEnv({});\n    Object.assign(process.env, serverEnv);'));
+  assertManagedCredentialBoundary(managed);
+  assert.throws(()=>assertManagedCredentialBoundary(managed.replace('const env = withoutServerCredentials({','const env = ({')));
+  assert.ok(!network.includes('OPENCODE_AUTH_CONTENT'));
+});
 test('closed publication CLI rejects wrong filename with fixed nonraw error and missing private receipt publishes unknown',async t=>{const dir=await root(t),privateFile=path.join(dir,'missing'),env={...process.env,...context(),GITHUB_SHA:await api.actualCheckout()};const bad=await collectChild(spawn(process.execPath,[entry,'finalize',privateFile,path.join(dir,'PRIVATE-wrong')],{env,stdio:['ignore','pipe','pipe']}),{limit:1024});assert.equal(bad.outcome,'child-error');assert.equal(bad.text,undefined);const good=await collectChild(spawn(process.execPath,[entry,'finalize',privateFile,path.join(dir,'engine-empty-auth-probe.json')],{env,stdio:['ignore','pipe','pipe']}),{capture:true,limit:1024});assert.deepEqual(good,{outcome:'ok',closed:true,code:0,text:''});const result=JSON.parse(await fs.readFile(path.join(dir,'engine-empty-auth-probe.json')));assert.equal(result.outcome,'unknown');assert.equal(result.exit,'not-run');assert.ok(!JSON.stringify(result).includes(dir));});
 test('owner finalizer maps oversized, duplicate, nonfinite, malformed and symlink receipts to clean unknown',async t=>{const dir=await root(t),env={...context(),GITHUB_SHA:await api.actualCheckout()},r=api.newReceipt(env);const poisoned=[Buffer.alloc(65537),Buffer.from([0xff]),Buffer.from(JSON.stringify(r).replace('"schemaVersion":1','"schemaVersion":1,"schemaVersion":1')),Buffer.from(JSON.stringify(r).replace('"runId":123','"runId":1e999')),Buffer.from(JSON.stringify({...r,delta:{...r.delta,private:'PRIVATE'}}))];for(const [i,payload] of poisoned.entries()){const sub=path.join(dir,String(i));await fs.mkdir(sub);const file=path.join(sub,'owner.private.json');await fs.writeFile(file,payload);assert.deepEqual(await api.finalize(file,path.join(sub,'engine-empty-auth-probe.json'),env),r);}const linked=path.join(dir,'linked');await fs.symlink(path.join(dir,'0','owner.private.json'),linked);assert.deepEqual(await api.finalize(linked,path.join(dir,'engine-empty-auth-probe.json'),env),r);});
 test('raw artifact limits and unsafe paths close admission before any build',async t=>{const dir=await root(t),env={...context(),GITHUB_SHA:await api.actualCheckout()},mainFile=path.join(dir,'main'),runtimeFile=path.join(dir,'runtime');const cases=[[Buffer.alloc(256*1024+1),Buffer.from(JSON.stringify(runtime()))],[Buffer.from(JSON.stringify(main())),Buffer.alloc(4097)],[Buffer.from(JSON.stringify({...main(),unselected:Infinity}).replace('"unselected":null','"unselected":1e999')),Buffer.from(JSON.stringify(runtime()))],[Buffer.from([0xff]),Buffer.from(JSON.stringify(runtime()))]];for(const [i,[m,r]] of cases.entries()){await fs.writeFile(mainFile,m);await fs.writeFile(runtimeFile,r);assert.equal((await api.guard(path.join(dir,`owner-${i}`),mainFile,runtimeFile,env)).eligibility,'unknown');}await fs.rm(mainFile);await fs.symlink(runtimeFile,mainFile);assert.equal((await api.guard(path.join(dir,'owner-linked'),mainFile,runtimeFile,env)).eligibility,'unknown');});

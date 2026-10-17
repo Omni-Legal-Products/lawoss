@@ -1,17 +1,30 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { viewMarkdownPlugin } from "../../views/view-markdown-plugin";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, type ReactElement, type ReactNode } from "react";
+import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme";
+import { createPortal } from "react-dom";
 import {
-  MDXEditor, type MDXEditorMethods, UndoRedo, BoldItalicUnderlineToggles,
-  BlockTypeSelect, ListsToggle, CreateLink, InsertImage, InsertTable,
-  InsertCodeBlock, InsertThematicBreak, Separator, DiffSourceToggleWrapper,
+  MDXEditor, type MDXEditorMethods,
   headingsPlugin, listsPlugin, quotePlugin, linkPlugin, linkDialogPlugin,
   imagePlugin, tablePlugin, thematicBreakPlugin, frontmatterPlugin,
   codeBlockPlugin, codeMirrorPlugin, diffSourcePlugin, toolbarPlugin, markdownShortcutPlugin,
+  realmPlugin, addSyntaxExtension$, viewMode$, readOnly$, activeEditor$, openLinkEditDialog$, markdownProcessingError$, markdown$, muteChange$, createRootEditorSubscription$, useCellValue, usePublisher, type RealmPlugin, type ViewMode,
 } from "@mdxeditor/editor";
+import { EditorView } from "@codemirror/view";
+import { Transaction } from "@codemirror/state";
+import { Code, FileText, GitCompareArrows, Ellipsis, Link } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { MarkdownImageDialog } from "./markdown-image-dialog";
 import "@mdxeditor/editor/style.css";
 import "./markdown-editor.css";
+import { markdownCodeTheme } from "./markdown-code-theme";
 import { t } from "@/i18n";
 import { restorePristineMarkdown, type PristineMarkdown } from "@/lawoss/markdown/pristine";
 import { pristineMarkdownPlugin } from "@/lawoss/markdown/pristine-plugin";
+import { markdownBlocksPlugin } from "./markdown-block-controls";
+import { preservedFrontmatterPlugin } from "./markdown-frontmatter-plugin";
+import { documentFingerprint, literalHtmlSyntax, requiresMarkdownSource } from "./markdown-document-sync";
+import { preserveMarkdownFrontmatter } from "./markdown-block-model";
 
 type Props = {
   value: string;
@@ -20,48 +33,158 @@ type Props = {
   onChange: (value: string) => void;
   imageUpload: (file: File) => Promise<string>;
   imagePreview: (source: string) => Promise<string>;
+  extensions?: RealmPlugin[];
+  viewModeRequest?: { mode: ViewMode };
+  linkSuggestions?: string[];
+  LinkDialog?: () => ReactElement;
+  /** Place page options beside an external title instead of above the editor body. */
+  toolbarTarget?: HTMLElement | null;
+  toolbarMenuItems?: ReactNode;
+  onOpenLink?: (url: string) => void;
+  suppressHtmlProcessing?: boolean;
+  allowDiff?: boolean;
+  /** Render typed properties outside the editor while keeping full-file Source editing. */
+  externalFrontmatter?: boolean;
+  /** Reattach page content managed outside the rich-text body. Source stays complete. */
+  serializeRichText?: (previous: string, body: string) => string;
 };
 
-export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview }: Props) {
+function MarkdownToolbar({ rawMarkdown, showLink = true, allowDiff, literalHtml, menuItems }: { rawMarkdown: () => string; showLink?: boolean; allowDiff: boolean; literalHtml: boolean; menuItems?: ReactNode }) {
+  const mode = useCellValue(viewMode$);
+  const readOnly = useCellValue(readOnly$);
+  const editLink = usePublisher(openLinkEditDialog$);
+  const activeEditor = useCellValue(activeEditor$);
+  const sourceRequired = requiresMarkdownSource(rawMarkdown(), literalHtml);
+  const changeMode = usePublisher(viewMode$);
+  const changeSource = usePublisher(markdown$);
+  const selectMode = (next: ViewMode) => {
+    const raw = rawMarkdown();
+    changeMode(next);
+    if (next !== "rich-text") changeSource(raw);
+  };
+  return <div className="lw-markdown-tools">
+    {showLink && mode === "rich-text" && !readOnly && <Button size="icon-sm" variant="ghost" aria-label={t("markdown.toolbar.link")} title={t("markdown.toolbar.link")} onMouseDown={event => event.preventDefault()} onClick={() => activeEditor?.focus(() => editLink(), { defaultSelection: "rootEnd" })}><Link /></Button>}
+    {mode !== "rich-text" && sourceRequired && <span className="lw-source-note" role="status">{t("markdown.blocks.source_required")}</span>}
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" aria-label={t("markdown.page.options")} />}><Ellipsis /></DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem disabled={sourceRequired} onClick={() => selectMode("rich-text")}><FileText />{t("markdown.toolbar.richText")}</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => selectMode("source")}><Code />{t("markdown.toolbar.source")}</DropdownMenuItem>
+        {allowDiff && <DropdownMenuItem onClick={() => selectMode("diff")}><GitCompareArrows />{t("markdown.toolbar.diffMode")}</DropdownMenuItem>}
+        {menuItems}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  </div>;
+}
+
+export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview, extensions, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, toolbarMenuItems, onOpenLink, suppressHtmlProcessing = false, allowDiff = true, externalFrontmatter = false, serializeRichText }: Props) {
+  const theme = useSyncExternalStore(subscribeToTheme, getResolvedThemeMode, getResolvedThemeMode);
   const editor = useRef<MDXEditorMethods>(null);
   const initial = useRef(value);
+  const initialMode = useRef<ViewMode>(viewModeRequest?.mode === "diff" ? "diff" : requiresMarkdownSource(value, suppressHtmlProcessing) ? "source" : viewModeRequest?.mode ?? "rich-text");
   const lastValue = useRef(value);
   // LAWOSS (#90): original bytes and their canonical form, to map Undo back to the original.
   const pristine = useRef<PristineMarkdown | null>(value === baseline ? { source: value, normalized: value } : null);
-  const viewMode = useRef("rich-text");
   const sourceEdited = useRef(false);
-  const setViewMode = useCallback((mode: string) => { viewMode.current = mode; }, []);
   const setPristine = useCallback((next: PristineMarkdown) => {
     // Merely visiting Source displays canonical text; it is not an intentional edit.
     if (!sourceEdited.current && next.source === pristine.current?.normalized) return;
     pristine.current = next;
     sourceEdited.current = false;
   }, []);
+  const syncSource = useRef<((value: string, previous: string) => void) | null>(null);
+  const lastViewRequest = useRef(viewModeRequest);
+  const mode = useRef<ViewMode>(initialMode.current);
+  const currentProps = useRef({ onChange, externalFrontmatter, serializeRichText });
+  currentProps.current = { onChange, externalFrontmatter, serializeRichText };
+  const publish = (next: string) => {
+    if (next === lastValue.current) return;
+    lastValue.current = next;
+    currentProps.current.onChange(next);
+  };
+  const sourceExtensions = useMemo(() => [...markdownCodeTheme, EditorView.updateListener.of(update => {
+    // The upstream SourceEditor reports focus/selection transactions as changes.
+    // Only an actual source document edit may replace the canonical raw file.
+    if (update.docChanged && !update.state.readOnly && mode.current !== "rich-text" && update.transactions.some(transaction => transaction.annotation(Transaction.userEvent))) {
+      sourceEdited.current = true; // LAWOSS (#90)
+      publish(update.state.doc.toString());
+    }
+  })], []);
+  const requestedViewPlugin = useMemo(() => realmPlugin<{ mode: ViewMode }>({
+    init(realm) {
+      if (suppressHtmlProcessing) realm.pub(addSyntaxExtension$, literalHtmlSyntax);
+      syncSource.current = (value, previous) => {
+        if (mode.current === "rich-text" && requiresMarkdownSource(value, suppressHtmlProcessing)) realm.pub(viewMode$, "source");
+        if (mode.current !== "rich-text") {
+          // Source edits update the visible CodeMirror document independently of
+          // markdown$. Advance that cell through the previous raw value so an
+          // external edit still refreshes Diff after a user reverts a change.
+          realm.pub(markdown$, previous);
+          realm.pub(markdown$, value);
+        }
+      };
+      let fingerprint: string | null = null;
+      realm.pub(createRootEditorSubscription$, root => root.registerUpdateListener(({ editorState, dirtyElements, dirtyLeaves }) => {
+        if (!dirtyElements.size && !dirtyLeaves.size) return;
+        const nextFingerprint = documentFingerprint(editorState.toJSON());
+        const changed = fingerprint !== null && fingerprint !== nextFingerprint;
+        fingerprint = nextFingerprint;
+        if (changed && !realm.getValue(muteChange$) && !realm.getValue(markdownProcessingError$)) {
+          // LAWOSS (#90): Undo až na nedotknutý dokument vráti jeho presné bajty, autosave potom nič nezapíše.
+          const markdown = restorePristineMarkdown(realm.getValue(markdown$), pristine.current, mode.current);
+          const preserved = currentProps.current.externalFrontmatter ? preserveMarkdownFrontmatter(lastValue.current, markdown) : markdown;
+          publish(currentProps.current.serializeRichText?.(lastValue.current, preserved) ?? preserved);
+        }
+        // SourceEditor initializes from markdown$, not markdownSourceEditorValue$.
+        // Nested table editors can serialize on blur, after a view switch. Restore
+        // the exact source after that flush even when there was no document edit.
+        if (mode.current !== "rich-text") realm.pub(markdown$, lastValue.current);
+      }));
+      realm.sub(viewMode$, value => {
+        mode.current = value;
+        if (value === "rich-text" && requiresMarkdownSource(lastValue.current, suppressHtmlProcessing)) { realm.pub(viewMode$, "source"); return; }
+        if (value !== "rich-text") realm.pub(markdown$, lastValue.current);
+      });
+      realm.sub(markdownProcessingError$, error => {
+        if (!error) return;
+        if (mode.current !== "diff") realm.pub(viewMode$, "source");
+        realm.pub(markdown$, lastValue.current);
+      });
+    },
+    update(realm, request) {
+      if (request === lastViewRequest.current) return;
+      lastViewRequest.current = request;
+      if (request) realm.pub(viewMode$, request.mode);
+    },
+  }), [suppressHtmlProcessing]);
   const plugins = useMemo(() => [
     // AutoLink runs after initial normalization and dirties untouched files containing bare URLs.
     // Existing Markdown links and explicit CreateLink actions remain available.
-    headingsPlugin(), listsPlugin(), quotePlugin(), linkPlugin({ disableAutoLink: true }), linkDialogPlugin(),
-    imagePlugin({ imageUploadHandler: imageUpload, imagePreviewHandler: imagePreview }),
-    tablePlugin(), thematicBreakPlugin(), frontmatterPlugin(),
+    headingsPlugin(), listsPlugin(), quotePlugin(), linkPlugin({ disableAutoLink: true }), linkDialogPlugin({ LinkDialog, linkAutocompleteSuggestions: linkSuggestions, onClickLinkCallback: onOpenLink }),
+    imagePlugin({ imageUploadHandler: imageUpload, imagePreviewHandler: imagePreview, ImageDialog: MarkdownImageDialog }),
+    tablePlugin(), thematicBreakPlugin(), externalFrontmatter ? preservedFrontmatterPlugin() : frontmatterPlugin(),
     codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
-    codeMirrorPlugin({ codeBlockLanguages: { txt: "Text", js: "JavaScript", ts: "TypeScript", json: "JSON", python: "Python", sql: "SQL", bash: "Shell", mermaid: "Mermaid" } }),
-    diffSourcePlugin({ viewMode: "rich-text", diffMarkdown: baseline }),
+    viewMarkdownPlugin(),
+    codeMirrorPlugin({ codeMirrorExtensions: markdownCodeTheme, codeBlockLanguages: { txt: "Text", js: "JavaScript", ts: "TypeScript", json: "JSON", python: "Python", sql: "SQL", bash: "Shell", mermaid: "Mermaid" } }),
+    diffSourcePlugin({ codeMirrorExtensions: sourceExtensions, viewMode: initialMode.current, diffMarkdown: baseline }),
+    requestedViewPlugin(viewModeRequest),
+    ...(extensions ?? []),
     markdownShortcutPlugin(),
-    pristineMarkdownPlugin({ onImport: setPristine, onMode: setViewMode }),
-    toolbarPlugin({ toolbarContents: () => (
-      <DiffSourceToggleWrapper>
-        <UndoRedo /><Separator /><BlockTypeSelect /><Separator />
-        <BoldItalicUnderlineToggles options={["Bold", "Italic"]} /><ListsToggle />
-        <Separator /><CreateLink /><InsertImage /><InsertTable /><InsertCodeBlock /><InsertThematicBreak />
-      </DiffSourceToggleWrapper>
-    ) }),
-  ], [baseline, imageUpload, imagePreview, setViewMode, setPristine]);
+    // LAWOSS (#90): sleduje importy, aby Undo na nedotknutý dokument vrátilo pôvodné bajty.
+    pristineMarkdownPlugin({ onImport: setPristine, onMode: () => {} }), // režim sleduje upstream ref `mode`
+    markdownBlocksPlugin(),
+    toolbarPlugin({ toolbarContents: () => toolbarTarget === undefined
+      ? <MarkdownToolbar rawMarkdown={() => lastValue.current} allowDiff={allowDiff} literalHtml={suppressHtmlProcessing} menuItems={toolbarMenuItems} />
+      : toolbarTarget ? createPortal(<MarkdownToolbar rawMarkdown={() => lastValue.current} showLink={false} allowDiff={allowDiff} literalHtml={suppressHtmlProcessing} menuItems={toolbarMenuItems} />, toolbarTarget) : null }),
+  ], [baseline, sourceExtensions, imageUpload, imagePreview, extensions, requestedViewPlugin, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, toolbarMenuItems, onOpenLink, externalFrontmatter, readOnly, allowDiff, suppressHtmlProcessing, setPristine]);
 
   useEffect(() => {
     if (value === lastValue.current) return;
+    const previous = lastValue.current;
     lastValue.current = value;
     pristine.current = null;
     editor.current?.setMarkdown(value);
+    syncSource.current?.(value, previous);
   }, [value]);
 
   return <MDXEditor
@@ -71,23 +194,17 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
       const translated = t(translationKey, Object.fromEntries(Object.entries(interpolations ?? {}).map(([name, value]) => [name, String(value)])));
       return translated === translationKey ? defaultValue : translated;
     }}
-    className="lw-markdown-editor"
+    className={`lw-markdown-editor${toolbarTarget === undefined ? "" : " lw-markdown-external-toolbar"}${theme === "dark" ? " dark-theme" : ""}`}
     contentEditableClassName="lw-markdown-page"
     markdown={initial.current}
     trim={false}
     readOnly={readOnly}
+    suppressHtmlProcessing={suppressHtmlProcessing}
     plugins={plugins}
     placeholder={t("artifact.start_writing")}
     onChange={(markdown, initialNormalize) => {
-      // Opening a file must not rewrite its original whitespace or bullet style.
-      if (initialNormalize) {
-        if (pristine.current?.source === initial.current) pristine.current = { source: initial.current, normalized: markdown };
-        return;
-      }
-      if (viewMode.current !== "rich-text") sourceEdited.current = true;
-      const next = restorePristineMarkdown(markdown, pristine.current, viewMode.current);
-      lastValue.current = next;
-      onChange(next);
+      // LAWOSS (#90): kanonická podoba nedotknutého súboru; úpravy publikuje listener nad fingerprintom.
+      if (initialNormalize && pristine.current?.source === initial.current) pristine.current = { source: initial.current, normalized: markdown };
     }}
   />;
 }

@@ -1,13 +1,15 @@
+import { buildLegalworkRuntimeConfig } from "./legalwork-runtime-config.js";
+import { closeOrgPolicyRuntime } from "./org-policy.js";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { RuntimeDbCleanupError, acquireRuntimeDbLifetime, runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { initializeSqlite, openSqlite } from "./runtime-db.js";
-import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { closeRuntimeOpencodeConfig, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { readLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
 import { readSessionGroupState } from "./session-groups.js";
-import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
+import { closeEigenweltConnection, readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { readHubInstalls } from "./eigenwelt-hub-installs-store.js";
 import { readInstalledCloudPlugins } from "./cloud-plugins.js";
 import { TaskStore, taskStore } from "./task-store.js";
@@ -263,4 +265,75 @@ test("recovering a failed independent open cannot close another caller's connect
     finally { Database.prototype.exec = exec; Database.prototype.close = close; healthy.close(); }
   }
   expect(await runtimeDbHandles(f.path)).toBe(0); await rm(f.root, { recursive: true });
+});
+
+for (const close of [closeRuntimeOpencodeConfig, closeEigenweltConnection]) {
+  test(`${close.name} drains the captured operation-only generation across environment drift`, async () => {
+    const f = await fixture(), entered = barrier(), gate = barrier();
+    const pending = withRuntimeDb(f.config, async () => {
+      await writeRuntimeOpencodeConfig(f.config, "stable", () => ({ default_agent: "kept" }));
+      entered.resolve(); await gate.promise;
+    });
+    await entered.promise;
+    process.env.LEGALWORK_RUNTIME_DB = join(f.root, "other.sqlite");
+    let finished = false;
+    const drained = close(f.config, f.path).then(() => { finished = true; });
+    try { await Promise.resolve(); expect(finished).toBe(false); }
+    finally { gate.resolve(); await pending; }
+    await drained;
+    expect(await runtimeDbHandles(f.path)).toBe(0);
+  });
+  test(`${close.name} preserves a live borrowed owner and refuses self-drain`, async () => {
+    const f = await fixture(), owner = acquireRuntimeDbLifetime(f.config);
+    try {
+      const tasks = await taskStore(f.config);
+      await close(f.config, f.path);
+      tasks.setSyncState({ orgId: "fixture", pullCursor: "kept", lastPullAt: 1, lastPushAt: null, lastError: null });
+      expect(tasks.getSyncState("fixture").pullCursor).toBe("kept");
+      await owner.run(async () => {
+        await expect(close(f.config, f.path)).rejects.toThrow("active operation");
+        await expect(close({ ...f.config }, f.path)).rejects.toThrow("active operation");
+      });
+    } finally { await owner.release(); }
+    expect(await runtimeDbHandles(f.path)).toBe(0);
+  });
+}
+
+
+test("standalone configuration owner closes the captured policy handle across environment drift", async () => {
+  const f = await fixture();
+  f.config.workspaces = [{ id: "fixture", name: "Fixture", path: f.root, workspaceType: "local", preset: "starter" }];
+  try {
+    await buildLegalworkRuntimeConfig(f.config, "fixture");
+    if (process.platform !== "win32") expect(await runtimeDbHandles(f.path)).toBeGreaterThan(0);
+    process.env.LEGALWORK_RUNTIME_DB = join(f.root, "other.sqlite");
+    await closeOrgPolicyRuntime(f.config, f.path);
+    expect(await runtimeDbHandles(f.path)).toBe(0);
+    await rm(f.root, { recursive: true });
+  } finally { await closeOrgPolicyRuntime(f.config, f.path); }
+});
+
+for (const [name, open] of [
+  ["tasks", async (path: string, root: string) => TaskStore.open(path, join(root, "attachments"))],
+  ["projects", async (path: string) => ProjectSyncStore.open(path)],
+] as const) test(`failed ${name} schema initialization leaves no partial committed schema`, async () => {
+  const f = await fixture();
+  const { Database } = await import("bun:sqlite");
+  const exec = Database.prototype.exec;
+  let creates = 0;
+  Database.prototype.exec = function(...args) {
+    if (typeof args[0] === "string" && args[0].startsWith("CREATE TABLE") && ++creates === 2) {
+      return exec.call(this, "SELECT * FROM missing_initialization_table");
+    }
+    return exec.apply(this, args);
+  };
+  try {
+    await expect(open(f.path, f.root)).rejects.toThrow("missing_initialization_table");
+  } finally { Database.prototype.exec = exec; }
+  const check = await openSqlite(f.path);
+  try { expect(check.get("SELECT count(*) AS n FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")?.n).toBe(0); }
+  finally { check.close(); }
+  const reopened = await open(f.path, f.root);
+  reopened.close();
+  expect(await runtimeDbHandles(f.path)).toBe(0);
 });

@@ -89,6 +89,33 @@ test("startup preserves customized bundled workflows and attached templates", as
   expect(await readFile(join(folder, "resources/DD-Report-Template.docx"), "utf8")).toBe("Firm's customized template.");
 });
 
+test("wiki launcher discovers wiki-owned procedures and preserves firm edits", async () => {
+  await ensureBundledWorkflows();
+  const name = "workflow-firm-knowledge";
+  for (const workspace of workspaces) {
+    expect((await listSkills(workspace, false)).find(item => item.name === name)).toMatchObject({ kind: "workflow", workflowType: "assistant", scope: "global" });
+  }
+  const file = join(globalSkillsDir(), name, "SKILL.md");
+  expect(await readFile(file, "utf8")).toBe(await readFile(new URL("../resources/core-opencode/skills/workflow-firm-knowledge/SKILL.md", import.meta.url), "utf8"));
+  expect(await readFile(file, "utf8")).toContain("wiki_guidance");
+  expect(await readFile(file, "utf8")).not.toContain("Skills/Build firm wiki.md");
+  await writeFile(file, "Firm's own knowledge procedure.\n");
+  await ensureBundledWorkflows();
+  expect(await readFile(file, "utf8")).toBe("Firm's own knowledge procedure.\n");
+});
+
+test("startup replaces only the known unmodified global wiki procedure with its launcher", async () => {
+  const folder = join(globalSkillsDir(), "workflow-firm-knowledge");
+  await mkdir(folder, { recursive: true });
+  const original = await readFile(new URL("./test-fixtures/legacy-firm-knowledge.md", import.meta.url), "utf8");
+  await writeFile(join(folder, "SKILL.md"), original);
+  await ensureBundledWorkflows();
+  expect(await readFile(join(folder, "SKILL.md"), "utf8")).toContain("wiki_guidance");
+  await writeFile(join(folder, "SKILL.md"), original + "\nUse our firm's custom structure.\n");
+  await ensureBundledWorkflows();
+  expect(await readFile(join(folder, "SKILL.md"), "utf8")).toBe(original + "\nUse our firm's custom structure.\n");
+});
+
 test("desktop Windows uses OpenCode's XDG folder after migration", () => {
   process.env.XDG_CONFIG_HOME = join(home, ".config");
   expect(globalSkillsDir()).toBe(join(home, ".config", "opencode", "skills"));

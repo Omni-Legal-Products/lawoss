@@ -1,0 +1,36 @@
+/** Select hardware acceleration only for a compatible physical CPU. Nested
+ * Intel HVF can corrupt or hang the guest even when hv_support reports 1. */
+export function canUseMacHypervisor(architecture: "aarch64" | "x86_64", systemFlags: string): boolean {
+  const flags = new Map<string, string>();
+  for (const line of systemFlags.split("\n")) {
+    const colon = line.indexOf(":");
+    if (colon > 0) flags.set(line.slice(0, colon).trim(), line.slice(colon + 1).trim());
+  }
+  if (flags.get("kern.hv_support") !== "1") return false;
+  const arm = flags.get("hw.optional.arm64");
+  // QEMU's ARM HVF backend calls VM configuration APIs introduced in macOS 13.
+  // The same binary still supports macOS 12 through TCG, without touching them.
+  if (architecture === "aarch64") return arm === "1" && Number(flags.get("kern.osproductversion")?.split(".")[0]) >= 13;
+  // hw.optional.arm64 may be absent on Intel. It remains 1 under Rosetta.
+  return (arm === undefined || arm === "0") && flags.get("kern.hv_vmm_present") === "0";
+}
+
+export type Accelerator = "hvf" | "whpx" | "tcg";
+
+/** Try hardware only before any command is sent. A failed command must never
+ * be retried automatically: it may already have changed files or sent data. */
+export async function bootWithFallback<T extends { waitUntilReady(): Promise<void>; close(): Promise<void> }>(
+  preferred: Accelerator, launch: (accelerator: Accelerator) => Promise<T>,
+): Promise<{ runtime: T; accelerator: Accelerator }> {
+  for (const accelerator of preferred === "tcg" ? [preferred] : [preferred, "tcg"] satisfies Accelerator[]) {
+    const runtime = await launch(accelerator);
+    try {
+      await runtime.waitUntilReady();
+      return { runtime, accelerator };
+    } catch (error) {
+      await runtime.close();
+      if (accelerator === "tcg") throw error;
+    }
+  }
+  throw new Error("Protected runtime failed to start.");
+}

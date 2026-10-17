@@ -1,0 +1,24 @@
+{
+  "name": "@legalwork/openui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./catalog": "./src/catalog.ts",
+    "./styles.css": "./src/styles.css"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2"
+  },
+  "dependencies": {
+    "@openuidev/react-lang": "0.4.1",
+    "@openuidev/react-ui": "0.17.1",
+    "@openuidev/react-headless": "0.17.1",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "zod": "^4.3.6",
+    "zustand": "4.5.7"
+  }
+}

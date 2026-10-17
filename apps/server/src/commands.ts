@@ -40,6 +40,7 @@ async function listCommandsInDir(
   const entries = await readdir(dir, { withFileTypes: true });
   const items: CommandItem[] = [];
   for (const entry of entries) {
+    if (entry.isDirectory()) { items.push(...await listCommandsInDir(join(dir, entry.name), scope, repairLegacy, workspaceRoot)); continue; }
     if (!entry.isFile()) continue;
     if (!entry.name.endsWith(".md")) continue;
     const filePath = workspaceRoot ? await resolveWorkspaceFilePath(workspaceRoot, join(dir, entry.name)) : join(dir, entry.name);

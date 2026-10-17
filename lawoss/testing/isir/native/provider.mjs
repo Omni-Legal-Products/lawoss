@@ -2,6 +2,14 @@ import http from "node:http";
 import { createRequire } from "node:module";
 const { z } = createRequire(new URL("../../../../apps/server/package.json", import.meta.url))("zod");
 
+export function decodeNativeToolOutput(content) {
+  const text=typeof content === 'string' ? content : content.map(part=>part.text??'').join('\n');
+  // app-state-reminders.ts appends complete, named reminder frames to plugin
+  // JSON. Strip only that exact trailing envelope; all other suffixes fail.
+  const reminders=/(?:\n\n<system-reminder topic="[a-z][a-z0-9-]*">\n(?:(?!\n<\/system-reminder>)[\s\S])*\n<\/system-reminder>)+$/;
+  return JSON.parse(text.replace(reminders,''));
+}
+
 // Only the remote completion protocol is fake. Tool execution is never called
 // here: the real OpenCode loop executes the advertised production tool names.
 export async function startProvider() {
@@ -24,8 +32,7 @@ export async function startProvider() {
       const decoded = call => {
         const result = toolResults.find(r => r.tool_call_id === call.id);
         if (!result) return null;
-        const content = typeof result.content === "string" ? result.content : (result.content ?? []).map(p => p.text ?? "").join("\n");
-        return JSON.parse(content);
+        return decodeNativeToolOutput(result.content);
       };
       const previous = (name, matches = () => true) => calls.filter(c => c.function.name === name && matches(JSON.parse(c.function.arguments))).at(-1);
       const originalIds = sources.filter(s => !s.parentId).map(s => s.id);
@@ -33,7 +40,7 @@ export async function startProvider() {
       if (recoveryTurn && sources.length) {
         const freshCalls = messages.slice(lastUser + 1).flatMap(m => m.tool_calls ?? []);
         if (!freshCalls.some(c => c.function.name === "lawoss_documents_read")) call = {name:"lawoss_documents_read",args:{id:sources[0].id,limit:16000}};
-        else if (!freshCalls.some(c => c.function.name === "bash")) call = {name:"bash",args:{command:process.platform === "win32" ? 'node -p "process.cwd()"' : "pwd",description:"Report the recovered session current working directory"}};
+        else if (!freshCalls.some(c => c.function.name === "legalwork_shell")) call = {name:"legalwork_shell",args:{command:process.platform === "win32" ? 'node -p "process.cwd()"' : "pwd",description:"Report the recovered session current working directory",write:false}};
       } else if (sources.length && !toolResults.some(r => String(r.content).includes('"error"'))) {
         const listCall = previous("lawoss_documents_list");
         if (!listCall) call = {name:"lawoss_documents_list",args:{limit:50}};

@@ -48,15 +48,45 @@ test("isWithinWorkspaceRootPath still rejects directories outside the workspace 
   );
 });
 
-test("Windows UNC aliases preserve their share boundary on every test host", () => {
+test("Windows scope checks preserve UNC aliases and path boundaries on every host", () => {
+  assert.equal(
+    normalizeScopedDirectoryPath(String.raw`\\?\UNC\server\share\project`, "win32"),
+    "//server/share/project",
+  );
   const workspaceRoot = String.raw`\\server\share\project`;
-  assert.equal(isWithinWorkspaceRootPath({ workspaceRoot, candidate: String.raw`\\?\UNC\server\share\project\child`, platform: "win32" }), true);
-  for (const candidate of [String.raw`\\server\share\project-other`, String.raw`\\server\other\project`, String.raw`H:\project`]) {
-    assert.equal(isWithinWorkspaceRootPath({ workspaceRoot, candidate, platform: "win32" }), false);
+  for (const [candidate, expected] of [
+    [String.raw`\\?\UNC\SERVER\SHARE\project\notes`, true],
+    [String.raw`\\server\share\project\..notes`, true],
+    [String.raw`\\server\share\project\notes\..\drafts`, true],
+    [String.raw`\\server\share\project\..\outside`, false],
+    [String.raw`\\server\share\project-copy`, false],
+    [String.raw`\\server\other\project`, false],
+  ]) {
+    assert.equal(isWithinWorkspaceRootPath({ workspaceRoot, candidate, platform: "win32" }), expected, candidate);
   }
 });
 
-test("scope permits harmless dotted child names while rejecting parent traversal", () => {
-  assert.equal(isWithinWorkspaceRootPath({ workspaceRoot: "/workspace", candidate: "/workspace/..notes", platform: "darwin" }), true);
-  assert.equal(isWithinWorkspaceRootPath({ workspaceRoot: "/workspace", candidate: "/workspace/../outside", platform: "darwin" }), false);
+test("Windows scope checks reject sibling prefixes, parent traversal and other drives", () => {
+  const workspaceRoot = String.raw`G:\project\legalwork_project`;
+  for (const [candidate, expected] of [
+    [String.raw`g:\PROJECT\legalwork_project\notes`, true],
+    [String.raw`G:\project\legalwork_project\..notes`, true],
+    [String.raw`G:\project\legalwork_project\..\outside`, false],
+    [String.raw`G:\project\legalwork_project-copy`, false],
+    [String.raw`H:\project\legalwork_project`, false],
+  ]) {
+    assert.equal(isWithinWorkspaceRootPath({ workspaceRoot, candidate, platform: "win32" }), expected, candidate);
+  }
+});
+
+test("POSIX scope checks retain case sensitivity and directory boundaries", () => {
+  for (const [candidate, expected] of [
+    ["/project/work/notes/../drafts", true],
+    ["/project/work/..notes", true],
+    ["/project/work/../outside", false],
+    ["/project/work-copy", false],
+    ["/project/WORK", false],
+  ]) {
+    assert.equal(isWithinWorkspaceRootPath({ workspaceRoot: "/project/work/", candidate, platform: "linux" }), expected, candidate);
+  }
 });

@@ -55,6 +55,7 @@ const entries = FILES.map((file) => {
 const WORKFLOW_FILES = [
   "SKILL.md", "references/report.md", "references/template-fields.json", "resources/DD-Report-Template.docx",
 ].map((file) => ({ path: `workflow-assistant-due-diligence/${file}`, encoding: file.endsWith(".docx") ? "base64" : "utf8" }));
+WORKFLOW_FILES.push({ path: "workflow-firm-knowledge/SKILL.md", encoding: "utf8" });
 const workflowEntries = WORKFLOW_FILES.map((file) => {
   const content = readFileSync(join(repoRoot, sourceRoot, "skills", file.path)).toString(file.encoding);
   return `  { path: ${JSON.stringify(file.path)}, encoding: ${JSON.stringify(file.encoding)}, content: ${JSON.stringify(content)} },`;

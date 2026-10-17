@@ -1,7 +1,8 @@
 /** @jsxImportSource react */
 // Dev-only fixture, deliberately absent from production Vite inputs.
 // Uses the real onboarding steps without creating projects or changing device settings.
-import { useRef, useState } from "react";
+import { StrictMode, useRef, useState } from "react";
+import { defaultProjectTemplates } from "@legalwork/types/workspace";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -27,8 +28,22 @@ document.documentElement.dataset.theme = params.get("theme") === "dark" ? "dark"
 const delay = () => new Promise<void>((resolve) => window.setTimeout(resolve, 700));
 const queryClient = new QueryClient();
 let previewConfig: Record<string, unknown> = {};
+let previewSandbox: Awaited<ReturnType<LegalworkServerClient["sandboxStatus"]>> = {
+  enabled: params.has("sandbox-on") || params.has("managed"), supported: true, backend: "vm", available: true,
+  networkMode: "approve", sync: "local",
+  policy: params.has("managed") ? { mode: "enforced", locked: true, orgName: "Your firm" } : null,
+};
 const permissionsClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "http://127.0.0.1:0" }),
+  canApprove: true,
+  sandboxStatus: async () => previewSandbox,
+  setSandboxSettings: async settings => {
+    if (previewSandbox.policy?.locked) throw new Error("Managed by your firm");
+    previewSandbox = { ...previewSandbox, ...settings };
+    return {};
+  },
+  orgPolicy: async () => ({ state: "none", orgId: null, orgName: null, role: null, revision: 0, platformURL: null, entries: {}, restored: null }),
+  getProjectTemplates: async () => ({ revision: 1, defaultTemplateId: "legal_matter", templates: defaultProjectTemplates() }),
   getConfig: async () => ({ opencode: previewConfig, legalwork: {} }),
   patchConfig: async (_workspaceId, payload) => {
     previewConfig = { ...previewConfig, ...payload.opencode };
@@ -46,22 +61,23 @@ function OnboardingPreview() {
       <div className="fixed right-6 top-5 z-50 rounded-full border border-border bg-background/90 px-3 py-1 text-[10px] text-muted-foreground">Preview · Simulated setup</div>
       {step === "ai" && params.has("sync-flow") ? <SyncFlowPreview />
       : step === "office" ? <OfficeStep onBack={() => setStep("welcome")} onDone={() => setStep("audio")} />
-      : step === "audio" ? <AudioStep legalworkClient={null} workspaceId={null} onBack={() => setStep("office")} onDone={() => setStep("permissions")} />
-      : step === "permissions" ? <PermissionsStep legalworkClient={permissionsClient} runtimeWorkspaceId="preview" onConfigUpdated={() => {}} onBack={() => setStep("audio")} onDone={() => setStep("ai")} />
+      : step === "audio" ? <AudioStep legalworkClient={null} workspaceId={null} onBack={() => setStep("office")} onDone={() => setStep("ai")} />
+      : step === "permissions" ? <PermissionsStep legalworkClient={permissionsClient} runtimeWorkspaceId="preview" onConfigUpdated={() => {}} onBack={() => setStep("audio")} onDone={previewAction} />
       : step === "ai" ? <AiPlansOverlay
         mode="onboarding"
         variant="new"
         account={null}
         serverReady
-        onBack={() => setStep("permissions")}
+        onBack={params.has("web") ? undefined : () => setStep("audio")}
         onStartSignIn={async () => { throw new Error("Sign-in is disabled in this preview."); }}
         onWaitSignIn={async () => ({ connected: false, cancelled: true })}
-        onSignedIn={previewAction}
-        onBringOwnModel={previewAction}
+        onSignedIn={() => setStep("permissions")}
+        onBringOwnModel={() => setStep("permissions")}
         onOpenBilling={previewAction}
         onCheckModels={async () => false}
       />
       : <WelcomePage
+        client={permissionsClient}
         totalSteps={params.has("web") ? 3 : 5}
         analyticsEnabled={analytics}
         onAnalyticsChange={setAnalytics}
@@ -76,7 +92,7 @@ function OnboardingPreview() {
           await delay();
           setPhase(null);
           toast.success(`Preview: ${input.name}`, { description: "No project was created." });
-          setStep(params.has("web") ? "permissions" : "office");
+          setStep(params.has("web") ? "ai" : "office");
         }}
       />}
       <Toaster />
@@ -110,10 +126,10 @@ function SyncFlowPreview() {
   return <>
     {plan ? <div className="p-12"><h1 className="text-2xl">Sync plan active · Preview</h1></div> : <AiPlansOverlay
       mode="onboarding"
-      variant={params.get("sync-flow") === "sign-in" ? "signed-out" : "new"}
+      variant={params.get("variant") === "ended" ? "ended" : params.get("sync-flow") === "sign-in" ? "signed-out" : "new"}
       account={null}
       serverReady
-      onStartSignIn={async () => { setWaiting(true); return { authorizeUrl: "about:blank", sessionId: "preview" }; }}
+      onStartSignIn={async options => { sessionStorage.setItem("preview-checkout", JSON.stringify(options)); setWaiting(true); return { authorizeUrl: "about:blank", sessionId: "preview" }; }}
       onWaitSignIn={async (_sessionId, options) => new Promise<{ connected: boolean }>(resolve => {
         finish.current = () => resolve({ connected: !options.cancelled() });
       })}
@@ -170,4 +186,4 @@ function SyncFlowPreview() {
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Preview root element not found");
-createRoot(root).render(<QueryClientProvider client={queryClient}><TooltipProvider><OnboardingPreview /></TooltipProvider></QueryClientProvider>);
+createRoot(root).render(<StrictMode><QueryClientProvider client={queryClient}><TooltipProvider><OnboardingPreview /></TooltipProvider></QueryClientProvider></StrictMode>);

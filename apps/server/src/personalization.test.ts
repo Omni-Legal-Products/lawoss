@@ -15,12 +15,12 @@ import {
 } from "./runtime-opencode-config-store.js";
 import { buildLegalworkRuntimeConfigObject } from "./legalwork-runtime-config.js";
 import { startServer } from "./server.js";
-import { acquireRuntimeDbLifetime } from "./runtime-db-lifecycle.js";
 import { projectSyncStore } from "./project-sync-store.js";
 import type { ServerConfig } from "./types.js";
 import { LegalWorkCapabilitiesKnowledge } from "./opencode-plugins/legalwork-capabilities-knowledge.js";
 import { LegalWorkProjectTools } from "./opencode-plugins/legalwork-project-tools.js";
 import type { OpenCodeContext } from "./opencode-plugins/office-plugin-shared.js";
+import { engineAgentSession } from "./lawoss/test-support/engine-agent.js";
 import { readLegalworkWorkspaceConfig, writeLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
 import { readProjectDetails, updateProjectDetails, updateProjectPersonalization } from "./project-store.js";
 
@@ -137,9 +137,13 @@ describe("Personalisation", () => {
     const base = `http://127.0.0.1:${server.port}`;
     const headers = { authorization: `Bearer ${config.token}`, "content-type": "application/json" };
     const previousUrl = process.env.LEGALWORK_SERVER_URL;
-    const previousToken = process.env.LEGALWORK_SERVER_TOKEN;
     process.env.LEGALWORK_SERVER_URL = base;
-    process.env.LEGALWORK_SERVER_TOKEN = config.token;
+    // One chat per folder, recorded by the server the way the engine proxy records it.
+    await mkdir(join(nested, "documents"), { recursive: true });
+    const chats = new Map<string, string>([[workspace, "ses_first"], [join(nested, "documents"), "ses_second"], [root, "ses_root"]]);
+    let restoreAgent = () => {};
+    for (const [directory, sessionID] of chats) restoreAgent = (await engineAgentSession(config, { sessionID, directory })).restore;
+    const chatFor = (directory: string) => chats.get(directory) ?? "ses_unrecorded";
     const write = async (id: string, customInstructions: string) => {
       const project = config.workspaces.find((item) => item.id === id);
       if (!project) throw new Error("Project missing");
@@ -148,12 +152,22 @@ describe("Personalisation", () => {
         method: "PUT", headers, body: JSON.stringify({ customInstructions, revision }),
       });
     };
-    const firstPlugin = await LegalWorkCapabilitiesKnowledge({ directory: workspace });
-    const secondPlugin = await LegalWorkCapabilitiesKnowledge({ directory: join(nested, "documents") });
+    const plugins = new Map<object, string>();
+    const pluginFor = async (directory: string) => {
+      const plugin = await LegalWorkCapabilitiesKnowledge({ directory });
+      plugins.set(plugin, chatFor(directory));
+      return plugin;
+    };
+    const firstPlugin = await pluginFor(workspace);
+    const secondPlugin = await pluginFor(join(nested, "documents"));
+    // What an existing chat knows: the latest project prompt reminder it received.
+    const known = new Map<typeof firstPlugin, string>();
     const prompt = async (plugin: typeof firstPlugin) => {
-      const output: { system: string[] } = { system: [] };
-      await plugin["experimental.chat.system.transform"](null, output);
-      return output.system.join("\n");
+      const message: { message: { id: string }; parts: object[] } = { message: { id: "msg_test" }, parts: [] };
+      await plugin["chat.message"]({ sessionID: plugins.get(plugin) ?? "ses_unrecorded" }, message);
+      const reminder = message.parts.map((part) => String(Reflect.get(part, "text"))).join("\n");
+      if (reminder) known.set(plugin, reminder);
+      return known.get(plugin) ?? "";
     };
     try {
       expect(await (await fetch(`${base}/workspace/ws_1/personalization`, { headers })).json()).toEqual({ customInstructions: "", revision: 0 });
@@ -169,14 +183,14 @@ describe("Personalisation", () => {
       expect(await prompt(secondPlugin)).toContain("Use short German paragraphs.");
       expect(await prompt(secondPlugin)).not.toContain("Use formal British English.");
       expect(await prompt(firstPlugin)).toContain("take precedence over conflicting global");
-      expect(await prompt(await LegalWorkCapabilitiesKnowledge({ directory: root }))).not.toContain("Project personalisation");
-      expect(await prompt(await LegalWorkCapabilitiesKnowledge({ directory: `${workspace}-other` }))).not.toContain("Project personalisation");
+      expect(await prompt(await pluginFor(root))).not.toContain("Project personalisation");
+      expect(await prompt(await pluginFor(`${workspace}-other`))).not.toContain("Project personalisation");
 
       await write("ws_1", "Prefer numbered headings.");
       expect(await prompt(firstPlugin)).toContain("Prefer numbered headings.");
       expect(await prompt(firstPlugin)).not.toContain("Use formal British English.");
       await write("ws_1", " \n ");
-      expect(await prompt(firstPlugin)).not.toContain("Project personalisation");
+      expect(await prompt(firstPlugin)).toContain("project personalisation was removed");
       expect(await prompt(secondPlugin)).toContain("Use short German paragraphs.");
       expect((await readGlobalPersonalizationSettings(config)).customInstructions).toBe("");
 
@@ -192,38 +206,26 @@ describe("Personalisation", () => {
       await server.stop();
       if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
       else process.env.LEGALWORK_SERVER_URL = previousUrl;
-      if (previousToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
-      else process.env.LEGALWORK_SERVER_TOKEN = previousToken;
+      restoreAgent();
     }
   });
 
   test("the personalization API queues saved and cleared instructions once, and rejects stale edits before syncing", async () => {
     const { config } = await setup();
-    const { store, server } = await (async () => {
-      const seed = acquireRuntimeDbLifetime(config);
-      let failure: { error: unknown } | undefined;
-      try {
-        const store = await projectSyncStore(config);
-        store.saveLink({
-          workspaceId: "ws_1", projectId: "11111111-1111-4111-8111-111111111111", orgId: "org_test",
-          origin: "local", role: "owner", ownerUserId: "user_test", confirmed: true,
-          settings: { access: "members", memberIds: [], scope: { documents: false, notes: false, tasks: false, recordings: false, metadata: true, reviews: false } },
-          remoteUpdatedAt: null, filesReconciledAt: null, state: "active", allowDeletions: false,
-          lastSyncAt: null, lastError: null, report: null,
-        });
-        const server = await startServer(config);
-        return { store, server };
-      } catch (error) { failure = { error }; throw error; }
-      finally {
-        try { await seed.release(); }
-        catch (error) { if (failure) throw new AggregateError([failure.error, error], "Personalization fixture setup and cleanup failed"); throw error; }
-      }
-    })();
-    const put = (revision: number, customInstructions: string) => fetch(`http://127.0.0.1:${server.port}/workspace/ws_1/personalization`, {
-      method: "PUT", headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ revision, customInstructions }),
-    });
+    const server = await startServer(config);
     try {
+      const store = await projectSyncStore(config);
+      store.saveLink({
+        workspaceId: "ws_1", projectId: "11111111-1111-4111-8111-111111111111", orgId: "org_test",
+        origin: "local", role: "owner", ownerUserId: "user_test", confirmed: true,
+        settings: { access: "members", memberIds: [], scope: { documents: false, notes: false, tasks: false, recordings: false, metadata: true, reviews: false } },
+        remoteUpdatedAt: null, filesReconciledAt: null, state: "active", allowDeletions: false,
+        lastSyncAt: null, lastError: null, report: null,
+      });
+      const put = (revision: number, customInstructions: string) => fetch(`http://127.0.0.1:${server.port}/workspace/ws_1/personalization`, {
+        method: "PUT", headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ revision, customInstructions }),
+      });
       expect((await put(0, "Use formal English.")).status).toBe(200);
       expect(store.outbox().map((entry) => entry.op)).toEqual([{ kind: "personalization", prompt: "Use formal English.", changedAt: expect.any(String) }]);
       expect((await put(0, "Stale draft")).status).toBe(409);
@@ -279,15 +281,15 @@ describe("Personalisation", () => {
     await updateProjectPersonalization(nested, { revision: 0, customInstructions: "Use formal German." });
     const server = await startServer(config);
     const oldUrl = process.env.LEGALWORK_SERVER_URL;
-    const oldToken = process.env.LEGALWORK_SERVER_TOKEN;
     process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${server.port}`;
-    process.env.LEGALWORK_SERVER_TOKEN = config.token;
+    await mkdir(join(nested, "documents"), { recursive: true });
+    const agent = await engineAgentSession(config, { sessionID: "ses_test", directory: join(nested, "documents") });
     let approve = () => {};
     let requested = () => {};
     const approval = new Promise<void>(resolve => { approve = resolve; });
     const requestSeen = new Promise<void>(resolve => { requested = resolve; });
     const context: OpenCodeContext = {
-      directory: join(nested, "documents"),
+      ...agent.context,
       ask: async input => {
         expect(input).toEqual({
           permission: "legalwork_project_set_instructions", patterns: [nested], always: [],
@@ -309,14 +311,14 @@ describe("Personalisation", () => {
       expect(JSON.parse(await pending)).toEqual({ revision: 2, customInstructions: "Prefer short paragraphs." });
       expect((await readProjectDetails(workspace)).personalizationPrompt).toBe("Parent preferences");
       expect((await readGlobalPersonalizationSettings(config)).customInstructions).toBe("");
-      const output: { system: string[] } = { system: [] };
-      await (await LegalWorkCapabilitiesKnowledge(context))["experimental.chat.system.transform"]({}, output);
-      expect(output.system.join("\n")).toContain("Prefer short paragraphs.");
+      const message: { message: { id: string }; parts: object[] } = { message: { id: "msg_test" }, parts: [] };
+      await (await LegalWorkCapabilitiesKnowledge(context))["chat.message"]({ sessionID: "ses_test" }, message);
+      expect(message.parts.map((part) => String(Reflect.get(part, "text"))).join("\n")).toContain("Prefer short paragraphs.");
 
       const args = { revision: 2, customInstructions: "Not approved" };
       const rejected = await tool.execute(args, { ...context, ask: async () => { throw new Error("Permission rejected by the user"); } });
       expect(JSON.parse(rejected).error).toContain("Permission rejected");
-      const unavailable = await tool.execute(args, { directory: context.directory });
+      const unavailable = await tool.execute(args, agent.context);
       expect(JSON.parse(unavailable).error).toContain("User approval is required");
       expect((await readProjectDetails(nested)).personalizationPrompt).toBe("Prefer short paragraphs.");
       let asked = false;
@@ -324,7 +326,8 @@ describe("Personalisation", () => {
       expect(JSON.parse(stale).error).toContain("project changed");
       expect(asked).toBe(false);
       const outside = await tool.execute(args, { ...context, directory: `${workspace}-other`, ask: async () => { asked = true; } });
-      expect(JSON.parse(outside).error).toContain("not inside a registered project");
+      // The chat's recorded folder is the nested project; the server refuses another folder outright.
+      expect(JSON.parse(outside).error).toContain("HTTP 403");
       expect(asked).toBe(false);
       expect(() => tool.execute({ ...args, customInstructions: "x".repeat(12_001) }, context)).toThrow();
 
@@ -345,7 +348,7 @@ describe("Personalisation", () => {
       approve();
       await server.stop();
       if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
-      if (oldToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = oldToken;
+      agent.restore();
     }
   });
 });

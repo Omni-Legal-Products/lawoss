@@ -1,3 +1,4 @@
+import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
 import type { AudioRecordingDetail, AudioRecordingMeta } from "@legalwork/types/audio";
 import type { WorkspaceWire } from "@legalwork/types/workspace";
 
@@ -132,6 +133,8 @@ export interface RecorderBridge {
 }
 
 export interface ServerConfig {
+  /** Read-only migration from the previous desktop safeStorage connector store. */
+  decryptLegacyConnectorSecrets?: (value: string) => string | Promise<string>;
   host: string;
   port: number;
   token: string;
@@ -154,6 +157,8 @@ export interface ServerConfig {
   recorder?: RecorderBridge | null;
   /** In-process host confirmation. Never set from client input or persisted config. */
   requestHostApproval?: HostApprovalHandler;
+  /** Host-owned managed execution capability, not the user’s sandbox preference. Routes both native and protected commands; never accepted from API config patches. */
+  agentSandboxEnabled?: boolean;
   opencodeBaseUrl?: string;
   opencodeDirectory?: string;
   opencodeUsername?: string;
@@ -259,6 +264,8 @@ export interface SkillItem {
   trigger?: string;
   kind?: "workflow";
   workflowType?: "tabular" | "assistant";
+  /** From the firm's hub (firm-hub.ts): installed for everyone, or added by the member. Members cannot change it. */
+  firm?: "automatic" | "optional";
 }
 
 export interface HubSkillItem {
@@ -290,13 +297,7 @@ export interface Actor {
   scope?: TokenScope;
 }
 
-export interface ApprovalRequest {
-  id: string;
-  workspaceId: string;
-  action: string;
-  summary: string;
-  paths: string[];
-  createdAt: number;
+export interface ApprovalRequest extends HostApprovalRequest {
   actor: Actor;
 }
 

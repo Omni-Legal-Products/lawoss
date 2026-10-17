@@ -1,3 +1,6 @@
+import { runtimeDbHandles } from "./test-support/runtime-db-handles.js";
+import { closeOrgPolicyRuntime } from "./org-policy.js";
+import { runtimeDbPath } from "./runtime-db-lifecycle.js";
 import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,6 +16,7 @@ import {
   readGlobalMcpMap,
   readGlobalToolPermissions,
   readRuntimeOpencodeConfig,
+  onRuntimeOpencodeConfigWrite,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
@@ -51,13 +55,26 @@ async function withWorkspace(fn: (input: { root: string; config: ServerConfig })
   const previousDb = process.env.LEGALWORK_RUNTIME_DB;
   const dbPath = join(root, "runtime.sqlite");
   process.env.LEGALWORK_RUNTIME_DB = dbPath;
+  const config = serverConfig(root, dbPath);
+  const path = runtimeDbPath(config);
+  const errors: unknown[] = [];
   try {
-    await fn({ root, config: serverConfig(root, dbPath) });
-  } finally {
-    if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
-    else process.env.LEGALWORK_RUNTIME_DB = previousDb;
-    await rm(root, { recursive: true, force: true });
+    await fn({ root, config });
+  } catch (error) { errors.push(error); }
+  finally {
+    try {
+      try {
+        await closeOrgPolicyRuntime(config, path);
+        expect(await runtimeDbHandles(path)).toBe(0);
+      } catch (error) { errors.push(error); }
+      try { await rm(root, { recursive: true, force: true }); } catch (error) { errors.push(error); }
+    } finally {
+      if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
+      else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+    }
   }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length) throw new AggregateError(errors, "Fixture body and cleanup failed");
 }
 
 async function expectMissing(path: string): Promise<void> {
@@ -480,5 +497,28 @@ describe("runtime OpenCode config store", () => {
         await server.stop(true);
       }
     });
+  });
+});
+
+
+test("config notifications skip exact no-ops but retain mutation and permission rule ordering", async () => {
+  await withWorkspace(async ({ config }) => {
+    await writeRuntimeOpencodeConfig(config, WORKSPACE_ID, () => ({ permission: { read: { "*": "allow", "*.secret": "deny" } } }));
+    const changes: string[] = [];
+    const stop = onRuntimeOpencodeConfigWrite((source, workspace) => { if (source === config) changes.push(workspace); });
+    try {
+      await writeRuntimeOpencodeConfig(config, WORKSPACE_ID, current => current);
+      expect(changes).toEqual([]);
+      await writeRuntimeOpencodeConfig(config, WORKSPACE_ID, current => {
+        current.permission = { read: { "*.secret": "deny", "*": "allow" } };
+        return current;
+      });
+      expect(changes).toEqual([WORKSPACE_ID]);
+      await writeRuntimeOpencodeConfig(config, WORKSPACE_ID, current => {
+        current.permission = { read: "deny" };
+        return current;
+      });
+      expect(changes).toEqual([WORKSPACE_ID, WORKSPACE_ID]);
+    } finally { stop(); }
   });
 });

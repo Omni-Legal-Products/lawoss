@@ -139,7 +139,8 @@
     font-feature-settings: "cv01", "ss01";
   }
   ::selection {
-    background: var(--lw-accent-soft);
+    background: var(--lw-text-selection-bg);
+    color: var(--lw-text-selection-fg);
   }
 }
 

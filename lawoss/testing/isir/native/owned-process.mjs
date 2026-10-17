@@ -10,25 +10,38 @@ const waitForExit = (child, timeout) => new Promise(resolve => {
 
 // Read identity metadata only, never process command lines or environments.
 // Both supported POSIX runners provide these ps columns.
-function processTable() {
-  const result=spawnSync('/bin/ps',['-axo','pid=,ppid=,pgid=,uid=,lstart=,stat='],{
-    encoding:'utf8',timeout:1000,env:{...process.env,LC_ALL:'C'},
+function processTable(group, capturedPids) {
+  // Darwin ps(1) selects the union of -g and -p; -x includes detached members.
+  // Keep every captured PID to detect moves/reuse. The living caller is only a
+  // nonempty-query sentinel, never an owned member or permission to signal.
+  if(process.platform==='darwin'&&(!Number.isInteger(group)||group<=0||[...capturedPids].some(pid=>!Number.isInteger(pid)||pid<=0)))throw new Error('Invalid owned native process selection');
+  const args=process.platform==='darwin'
+    ? ['-x','-g',String(group),'-p',[process.pid,...capturedPids].join(','),'-o','pid=,ppid=,pgid=,uid=,lstart=,stat=']
+    : ['-axo','pid=,ppid=,pgid=,uid=,lstart=,stat='];
+  const result=spawnSync('/bin/ps',args,{
+    encoding:'utf8',timeout:1000,env:{...process.env,LC_ALL:'C',...(process.platform==='darwin'?{COMMAND_MODE:'unix2003'}:{})},
   });
   if(result.error)throw result.error;
   if(result.status!==0)throw new Error('Could not verify owned native process identities');
-  return result.stdout.trim().split('\n').map(line=>{
+  const rows=result.stdout.trim().split('\n').map(line=>{
     const fields=line.trim().split(/\s+/);
     if(fields.length!==10||!fields.slice(0,4).every(value=>/^\d+$/.test(value)))throw new Error('Invalid process identity snapshot');
     return {pid:Number(fields[0]),parent:Number(fields[1]),group:Number(fields[2]),uid:Number(fields[3]),start:fields.slice(4,9).join(' '),running:!fields[9].startsWith('Z')};
   });
+  return process.platform==='darwin'?rows.filter(row=>row.pid!==process.pid):rows;
 }
 const sameIdentity = (a,b) => a.pid===b.pid&&a.group===b.group&&a.uid===b.uid&&a.start===b.start;
 
-async function stopPosixGroup(child, timeout, {readTable=processTable,kill=(pid,kind)=>process.kill(pid,kind),observe=()=>{},now=()=>performance.now()}) {
+async function stopPosixGroup(child, timeout, {readTable,kill=(pid,kind)=>process.kill(pid,kind),observe=()=>{},now=()=>performance.now()}) {
   const started=performance.now();let index=1,ownershipEstablished=false;
-  const table=readTable();
+  const capturedPids=new Set([child.pid]);
+  const snapshot=()=>readTable
+    ? readTable({group:child.pid,pids:[...capturedPids],sentinelPid:process.pid})
+    : processTable(child.pid,capturedPids);
+  const table=snapshot();
   const members=table.filter(row=>row.group===child.pid&&row.running);
   const owned=new Map(members.map(member=>[member.pid,member]));
+  for(const member of members)capturedPids.add(member.pid);
   const census=(stage,rows)=>{
     const matching=row=>owned.has(row.pid)&&sameIdentity(owned.get(row.pid),row);
     const knownLive=rows.filter(row=>row.running&&matching(row)).length;
@@ -61,10 +74,10 @@ async function stopPosixGroup(child, timeout, {readTable=processTable,kill=(pid,
     // A still-matching member anchors the original detached group. Capture
     // descendants born during graceful shutdown only while that proof remains.
     if(unknown.length&&!living.length)throw new Error('Native cleanup found unverified surviving group members');
-    for(const member of unknown){owned.set(member.pid,member);living.push(member);}
+    for(const member of unknown){owned.set(member.pid,member);capturedPids.add(member.pid);living.push(member);}
     return living;
   };
-  const inspect=stage=>admit(stage,readTable());
+  const inspect=stage=>admit(stage,snapshot());
   const phase=async(kind,signalStage,waitStage)=>{
     // Discovery, every signal recheck, and waiting share this phase's original
     // budget. A stream of newly anchored members cannot restart the timeout.
@@ -79,7 +92,7 @@ async function stopPosixGroup(child, timeout, {readTable=processTable,kill=(pid,
         attempted.add(key(identity));
         // Re-read immediately before each individual PID signal. In particular,
         // leader exit never turns its old PGID into permission to kill a group.
-        const fresh=readTable();living=admit('signal-recheck',fresh);
+        const fresh=snapshot();living=admit('signal-recheck',fresh);
         if(now()>=deadline)return;
         const current=fresh.find(row=>row.pid===identity.pid&&row.running);
         if(!current||!sameIdentity(identity,current)) {

@@ -188,7 +188,6 @@ test("nový poskytovateľ, ktorého ostatní klienti nemali, nie je zmena adresy
   expect(response.status).toBe(200);
 });
 
-
 for (const change of ["replacement", "deletion"] as const) {
   test(`rejected provider ${change} preserves complete refresh state and confirmed changes retain audit and stale-engine guards`, async () => {
     const { config, baseUrl, ws } = await fixture();

@@ -10,6 +10,9 @@ import { connectedTaskOrgId } from "../tasks-api.js";
 import { z } from "zod";
 import { resolve } from "node:path";
 import { CalendarCreateSchema, CalendarPatchSchema } from "../calendar/schema.js";
+import { CalendarEventDraftSchema } from "../calendar-event-drafts/schema.js";
+import { draftPaths, readDraft } from "../email-drafts/store.js";
+import { withFileWriteLocks } from "../file-write-lock.js";
 import { validateCalendarLinks } from "../calendar/links.js";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { addDays, dayInZone } from "../calendar/dates.js";
@@ -104,6 +107,18 @@ export function registerCalendarRoutes(options: {
   route("POST", "/import", async (ctx, workspace) => {
     const input = z.strictObject({ ical: z.string(), source: z.string().max(4000).default(""), timeZone: z.string().default("Europe/Berlin"), revisions: z.record(z.string(), z.number().int()).default({}) }).parse(await body(ctx));
     return { items: (await calendarStore(config)).import(workspace.id, input.ical, input.source, input.revisions, input.timeZone) };
+  });
+  for (const method of ["GET", "POST"]) route(method, "/drafts/:draft", async (ctx, workspace) => {
+    const input = method === "POST" ? z.strictObject({ draftRevision: z.uuid(), calendarRevision: z.number().int().nonnegative().optional(), sessionId: z.string().min(1).max(255).optional() }).parse(await body(ctx)) : null;
+    if (input?.sessionId) await validateCalendarLinks(workspace, { sessionIds: [input.sessionId] }, undefined, options.getSession);
+    const store = await calendarStore(config), paths = await draftPaths(workspace.path, ctx.params.draft, "calendar");
+    return withFileWriteLocks([paths.metadata, paths.artifact], async () => {
+      const draft = CalendarEventDraftSchema.parse(await readDraft(workspace.path, ctx.params.draft, "calendar"));
+      if (draft.workspaceId !== workspace.id) throw new ApiError(404, "calendar_draft_missing", "Calendar event draft not found.");
+      if (!input) return store.eventDraftStatus(workspace.id, draft);
+      if (input.draftRevision !== draft.revision) throw new ApiError(409, "draft_conflict", "This draft changed. Reload before adding it to the calendar.");
+      return store.saveEventDraft(workspace.id, draft, input.calendarRevision, input.sessionId);
+    });
   });
   route("POST", "/feeds", async (_ctx, workspace) => ({ token: (await calendarStore(config)).createFeed(workspace.id) }));
   route("DELETE", "/feeds/:token", async (ctx, workspace) => {

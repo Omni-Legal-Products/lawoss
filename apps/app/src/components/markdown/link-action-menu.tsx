@@ -1,6 +1,14 @@
 /** @jsxImportSource react */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ExternalLink, Eye, FolderOpen, Loader2 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 
 import type { DesktopApplication } from "@/app/lib/desktop";
 import { getDesktopApplicationsForFile, openDesktopWithApp } from "@/app/lib/desktop";
@@ -9,48 +17,40 @@ import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-targ
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { t } from "@/i18n";
 
-const SUPPORTED_PANEL_PREVIEWS = new Set(["markdown", "sheet", "slides", "word", "image", "pdf", "html", "text"]);
+const SUPPORTED_PANEL_PREVIEWS = new Set(["browser", "markdown", "sheet", "slides", "word", "image", "audio", "video", "pdf", "html", "text"]);
 
 type LinkActionMenuProps = {
   target: OpenTarget;
-  anchorRect: DOMRect;
+  anchor: HTMLElement;
   onOpenTarget: (target: OpenTarget, options?: OpenTargetOptions) => void;
   onClose: () => void;
 };
 
-export function LinkActionMenu({ target, anchorRect, onOpenTarget, onClose }: LinkActionMenuProps) {
-  const menuRef = useRef<HTMLDivElement>(null);
+export function LinkActionMenu({ target, anchor, onOpenTarget, onClose }: LinkActionMenuProps) {
   const [apps, setApps] = useState<DesktopApplication[] | null>(null);
   const [appsLoading, setAppsLoading] = useState(false);
-  const canOpenInPanel = target.kind === "file" && SUPPORTED_PANEL_PREVIEWS.has(target.preview);
-  const canOpenExternally = isElectronRuntime() && target.kind === "file";
+  const canOpenInPanel = SUPPORTED_PANEL_PREVIEWS.has(target.preview);
+  const canOpenExternally = isElectronRuntime();
+  const canReveal = canOpenExternally && target.kind === "file";
 
   useEffect(() => {
-    function handleOutside(event: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        onClose();
-      }
-    }
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-    document.addEventListener("mousedown", handleOutside);
-    document.addEventListener("keydown", handleEscape);
+    anchor.setAttribute("aria-haspopup", "menu");
+    anchor.setAttribute("aria-expanded", "true");
     return () => {
-      document.removeEventListener("mousedown", handleOutside);
-      document.removeEventListener("keydown", handleEscape);
+      anchor.setAttribute("aria-expanded", "false");
     };
-  }, [onClose]);
+  }, [anchor]);
 
   useEffect(() => {
-    if (!canOpenExternally) return;
-    setAppsLoading(true);
+    setApps(null);
+    setAppsLoading(canReveal);
+    if (!canReveal) return;
     let cancelled = false;
     void (async () => {
       try {
         const result = await getDesktopApplicationsForFile(target.value);
         if (!cancelled) {
-          setApps(result.slice(0, 12));
+          setApps(result.slice(0, 3));
         }
       } catch {
         if (!cancelled) setApps([]);
@@ -59,7 +59,7 @@ export function LinkActionMenu({ target, anchorRect, onOpenTarget, onClose }: Li
       }
     })();
     return () => { cancelled = true; };
-  }, [canOpenExternally, target.value]);
+  }, [canReveal, target.value]);
 
   const handleOpenDefault = () => {
     onOpenTarget(target, { external: true });
@@ -86,73 +86,71 @@ export function LinkActionMenu({ target, anchorRect, onOpenTarget, onClose }: Li
     onClose();
   };
 
-  const top = anchorRect.bottom + 4;
-  const left = anchorRect.left;
-
   return (
-    <div
-      ref={menuRef}
-      className="fixed z-50 min-w-52 rounded-lg border border-border bg-popover/95 p-1 shadow-lg backdrop-blur-xl"
-      style={{ top, left }}
-    >
-      <button
-        type="button"
-        onClick={handleOpenDefault}
-        disabled={!canOpenExternally}
-        className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/10 disabled:opacity-50"
+    <DropdownMenu open modal={false} onOpenChange={(open, details) => {
+      if (details.reason === "outside-press" && details.event.target instanceof Node && anchor.contains(details.event.target)) {
+        details.cancel();
+        return;
+      }
+      if (!open) onClose();
+    }}>
+      <DropdownMenuContent
+        anchor={anchor}
+        align="end"
+        finalFocus={() => anchor}
+        aria-label={t("markdown.open_with")}
+        className="w-60 max-w-[calc(100vw-1rem)] rounded-xl bg-popover shadow-lg"
       >
-        <ExternalLink className="size-4 shrink-0" />
-        {t("link_menu.open_default_app")}
-      </button>
-      {canOpenInPanel ? (
-        <button
-          type="button"
-          onClick={handleOpenInPanel}
-          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/10"
+        <DropdownMenuItem
+          onClick={handleOpenDefault}
+          disabled={!canOpenExternally}
         >
-          <Eye className="size-4 shrink-0" />
-          {t("link_menu.open_in_panel")}
-        </button>
-      ) : null}
-      <button
-        type="button"
-        onClick={handleReveal}
-        disabled={!canOpenExternally}
-        className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/10 disabled:opacity-50"
-      >
-        <FolderOpen className="size-4 shrink-0" />
-        {t("link_menu.show_in_folder")}
-      </button>
-      {canOpenExternally && apps && apps.length > 0 ? (
-        <>
-          <div className="my-1 h-px bg-foreground/5" />
-          <div className="max-h-48 overflow-y-auto">
-            {apps.map((app) => (
-              <button
-                key={app.appPath}
-                type="button"
-                onClick={() => void handleOpenWithApp(app)}
-                className="flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
-              >
-                {app.icon ? (
-                  <img src={app.icon} alt="" className="size-4 shrink-0 object-contain" />
-                ) : (
-                  <span className="size-4 shrink-0" />
-                )}
-                <span className="truncate">{app.name}</span>
-              </button>
-            ))}
-          </div>
-        </>
-      ) : appsLoading ? (
-        <>
-          <div className="my-1 h-px bg-foreground/5" />
-          <div className="flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground">
-            <Loader2 className="size-3.5 shrink-0 animate-spin" />
-            {t("link_menu.loading_apps")}
-          </div>
-        </>
-      ) : null}
-    </div>
+          <ExternalLink className="size-4 shrink-0" />
+          {t(target.kind === "url" ? "link_menu.open_default_browser" : "link_menu.open_default_app")}
+        </DropdownMenuItem>
+        {canOpenInPanel ? (
+          <DropdownMenuItem onClick={handleOpenInPanel}>
+            <Eye className="size-4 shrink-0" />
+            {t("link_menu.open_in_panel")}
+          </DropdownMenuItem>
+        ) : null}
+        {target.kind === "file" ? <DropdownMenuItem
+          onClick={handleReveal}
+          disabled={!canReveal}
+        >
+          <FolderOpen className="size-4 shrink-0" />
+          {t("link_menu.show_in_folder")}
+        </DropdownMenuItem> : null}
+        {canOpenExternally && apps && apps.length > 0 ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="py-1">{t("markdown.open_with")}</DropdownMenuLabel>
+              {apps.map((app) => (
+                <DropdownMenuItem
+                  key={app.appPath}
+                  onClick={() => void handleOpenWithApp(app)}
+                >
+                  {app.icon ? (
+                    <img src={app.icon} alt="" className="size-4 shrink-0 object-contain" />
+                  ) : (
+                    <span className="size-4 shrink-0" />
+                  )}
+                  <span className="truncate">{app.name}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </>
+        ) : appsLoading ? (
+          <>
+            <DropdownMenuSeparator />
+            <div className="flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground">
+              <Loader2 className="size-3.5 shrink-0 animate-spin" />
+              {t("markdown.open_with")}
+            </div>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

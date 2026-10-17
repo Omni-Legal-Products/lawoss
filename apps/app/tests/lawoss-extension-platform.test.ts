@@ -12,7 +12,8 @@ const repoRoot = join(import.meta.dir, "..", "..", "..");
 // Katalóg rozšírení so zapnutým zdrojom LegalWork; bez neho LAWOSS Computer Use
 // neponúka vôbec (`isHiddenQuickConnect` v src/lawoss/feature-flags.ts).
 const extensionCatalog = MCP_QUICK_CONNECT_ALL.filter((entry) => entry.kind === "extension");
-const computerUse = extensionCatalog.find((entry) => entry.id === "computer-use");
+// Od v0.2.9 nahradil macOS Computer Use upstream Open Computer Use (macOS a Windows, #274).
+const computerUse = extensionCatalog.find((entry) => entry.id === "open-computer-use");
 
 /**
  * `meta.platform` tak, ako ho appke dá skutočný preload Electronu pre zadaný
@@ -37,10 +38,11 @@ const composerCatalog = (platform: Platform) =>
   extensionCatalog.filter((entry) => isExtensionAvailableOnPlatform(entry, platform)).map((entry) => entry.id);
 
 describe("rozšírenia podľa platformy (composer aj Nastavenia)", () => {
-  test("Computer Use je v katalógu len pre macOS", () => {
-    expect(computerUse?.extensionManifest?.platform).toEqual(["darwin"]);
+  test("Open Computer Use je v katalógu len pre macOS a Windows", () => {
+    expect(computerUse?.extensionManifest?.platform).toEqual(["darwin", "windows"]);
     expect(isExtensionAvailableOnPlatform(computerUse!, "darwin")).toBe(true);
-    for (const platform of ["windows", "linux", "web"] as const) {
+    expect(isExtensionAvailableOnPlatform(computerUse!, "windows")).toBe(true);
+    for (const platform of ["linux", "web"] as const) {
       expect(isExtensionAvailableOnPlatform(computerUse!, platform)).toBe(false);
     }
   });
@@ -52,11 +54,13 @@ describe("rozšírenia podľa platformy (composer aj Nastavenia)", () => {
     }
   });
 
-  test("preload pre win32 dá platformu windows a composer Computer Use neponúkne", () => {
+  test("preload pre win32 dá platformu windows; Open Computer Use chýba len na Linuxe", () => {
     expect(preloadPlatform("win32")).toBe("windows");
     expect(preloadPlatform("darwin")).toBe("darwin");
-    expect(composerCatalog(preloadPlatform("win32"))).not.toContain("computer-use");
-    expect(composerCatalog(preloadPlatform("darwin"))).toContain("computer-use");
+    expect(preloadPlatform("linux")).toBe("linux");
+    expect(composerCatalog(preloadPlatform("win32"))).toContain("open-computer-use");
+    expect(composerCatalog(preloadPlatform("darwin"))).toContain("open-computer-use");
+    expect(composerCatalog(preloadPlatform("linux"))).not.toContain("open-computer-use");
   });
 
   test("composer a Nastavenia vidia na Windows ten istý katalóg", () => {
@@ -72,20 +76,21 @@ describe("rozšírenia podľa platformy (composer aj Nastavenia)", () => {
     expect(settings.builtInItems.map((item) => item.builtInEntry?.id)).not.toContain("computer-use");
   });
 
-  // Composer sa v testoch nerenderuje (desiatky props); stráž, aby upstream sync
-  // nevrátil ponuku bez platformového filtra a so zdrojom platformy mimo Nastavení.
-  test("composer filtruje rozšírenia platformou z mostíka Electronu", () => {
+  // Composer sa v testoch nerenderuje (desiatky props). Od v0.2.9 upstream ponuku katalógu
+  // rozšírení z composera odstránil; ak ju sync vráti, musí mať platformový filter.
+  test("composer neponúka katalóg rozšírení bez platformového filtra", () => {
     const composer = readFileSync(
       join(import.meta.dir, "..", "src/react-app/domains/session/surface/composer/composer.tsx"),
       "utf8",
     );
+    if (!composer.includes("LEGALWORK_EXTENSION_CATALOG")) return;
     expect(composer).toContain('window.__LEGALWORK_ELECTRON__?.meta?.platform ?? "web"');
     expect(composer).toMatch(/LEGALWORK_EXTENSION_CATALOG\.filter\([\s\S]{0,200}isExtensionAvailableOnPlatform\(entry, extensionPlatform\)/);
   });
 
-  test.skipIf(process.platform !== "win32")("na skutočnom Windows preload hlási windows a Computer Use chýba", () => {
+  test.skipIf(process.platform !== "win32")("na skutočnom Windows preload hlási windows a ponúkne Open Computer Use", () => {
     const platform = preloadPlatform(process.platform);
     expect(platform).toBe("windows");
-    expect(composerCatalog(platform)).not.toContain("computer-use");
+    expect(composerCatalog(platform)).toContain("open-computer-use");
   });
 });

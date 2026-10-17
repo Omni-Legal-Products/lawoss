@@ -18,6 +18,7 @@ _worktrees/
 
 # Desktop sidecars
 apps/desktop/resources/sidecars/
+apps/desktop/resources/actaport-mcp/
 apps/desktop/server/
 
 # SwiftPM build output (native audiotap helper)
@@ -72,3 +73,5 @@ apps/desktop/resources/node/
 /.work/
 /apps/desktop/resources/engine-dependencies/
 /apps/desktop/resources/.engine-dependencies-build/
+# Built, checksum-verified sandbox runtime
+apps/server/resources/agent-sandbox/runtime/

@@ -21,6 +21,7 @@ test("hosted subscription lifecycle, private snapshots, account isolation and ba
       approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [],
       workspaces: ["one", "two", "member"].map(id => ({ id, name: id, path: join(root, id), preset: "starter", workspaceType: "local" })),
       authorizedRoots: [], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+    const owner = acquireRuntimeDbLifetime(config);
     const feeds = new Map(); let posts = 0, puts = 0, available = true, offline = false;
     const platform = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
       if (offline) return Response.json({ message: "Offline" }, { status: 503 });
@@ -36,7 +37,7 @@ test("hosted subscription lifecycle, private snapshots, account isolation and ba
     } });
     process.env.EIGENWELT_PLATFORM_URL = "http://127.0.0.1:" + platform.port;
     const login = userId => writeEigenweltConnection(config, { platformToken: userId, platformTokenExpiresAt: Date.now() + 3600000, account: { userId, userName: userId, userEmail: userId + "@test.invalid", orgId: "firm", orgName: "Test" } });
-    const owner = acquireRuntimeDbLifetime(config), errors = [];
+    const errors = [];
     try {
       assert.equal((await calendarSubscription(config, null)).available, false);
       await login("alice");

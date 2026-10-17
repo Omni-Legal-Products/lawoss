@@ -1,0 +1,141 @@
+Window: "DOCX review validation", App: Electron.
+0 standard window DOCX review validation, Secondary Actions: Raise
+	1 container DOCX review validation
+		2 container
+			3 HTML content DOCX review validation, URL: localhost:5482/docx-review.html?fixture=references
+				4 container
+					5 button Save to workspace
+					6 button Reopen saved copy
+					7 button Narrow panel
+					8 button Test typed native batch
+					9 button Test partial batch
+					10 button Test references
+					11 button Verify reopened references
+					12 button Read selection
+					13 button Test agent Word workflow
+					14 button Read agent Word structure
+					15 button Verify reopened agent data
+					16 button Test agent copy tools
+					17 button Test agent formatting
+					18 button Verify reopened formatting
+					19 button Retry agent save
+					20 Tick box Read only, Value: 0
+					21 Tick box Simulate save failure, Value: 0
+					22 container Document status
+						23 text No unsaved changes  ·  Reopened saved copy
+					24 disclosure triangle Saved DOCX contents
+						25 text Saved DOCX contents
+					26 container Agent tool verification
+						27 text {
+  "referencesPassed": true,
+  "nativeLinkedFields": 2,
+  "shortTarget": "§ 2 Schlussbestimmungen",
+  "wrappedFragments": 3,
+  "clipped": false,
+  "nativeRanges": [
+    {
+      "id": 2,
+      "name": "_LW_Ref2",
+      "from": 73,
+      "to": 96,
+      "scope": "range",
+      "text": "§ 2 Schlussbestimmungen",
+      "paraId": "541C72CF",
+      "number": ""
+    },
+    {
+      "id": 1,
+      "name": "_LW_Ref1",
+      "from": 72,
+      "to": 233,
+      "scope": "range",
+      "text": "§ 2 Schlussbestimmungen: 
+					28 heading legal-review.docx, Value: 2
+						29 text legal-review.docx
+					30 text Saved
+					31 button Save
+					32 button Expand document
+					33 toolbar Document tools
+						34 button Update fields
+					35 container
+						36 container
+							37 image
+							38 text legal-review
+							39 menu bar Menu bar
+								40 button File
+								41 button Format
+								42 button Insert
+								43 button Help
+							44 toolbar Formatting toolbar
+								45 container History
+									46 toggle button (disabled) Description: Undo, Value: 0
+									47 toggle button (disabled) Description: Redo, Value: 0
+								48 container Zoom
+									49 button Zoom out
+									50 combo box (settable) Description: Zoom: 100%, Value: 100%
+										51 text 100%
+										52 image
+									53 button Zoom in
+								54 container Styles
+									55 combo box (settable) Description: Select paragraph style, Value: Normal text
+										56 text Normal text
+										57 image
+								58 container Font
+									59 combo box (settable) Description: Select font family, Value: Arial
+										60 text Arial
+										61 image
+									62 button Decrease font size
+									63 pop-up button Font size
+									64 button Increase font size
+								65 container Text formatting
+									66 toggle button Description: Bold, Value: 0
+									67 toggle button Description: Italic, Value: 0
+									68 toggle button Description: Underline, Value: 0
+									69 toggle button Description: Strikethrough, Value: 0
+									70 container
+										71 button Font Color
+										72 pop-up button Font Color
+									73 container
+										74 button Text Highlight Color
+										75 pop-up button Text Highlight Color
+									76 toggle button Description: Insert link, Value: 0
+								77 container Script
+									78 toggle button Description: Superscript, Value: 0
+									79 toggle button Description: Subscript, Value: 0
+								80 container Alignment
+									81 pop-up button Align Left (Ctrl+L)
+								82 container List formatting
+									83 container List formatting
+										84 container List type
+											85 toggle button Description: Bullet List, Value: 0
+											86 toggle button Description: Numbered List, Value: 0
+										87 container List indentation
+											88 toggle button (disabled) Description: Decrease Indent, Value: 0
+											89 toggle button Description: Increase Indent, Value: 0
+									90 combo box (settable) Line spacing: Single
+										91 image
+								92 toggle button Description: Clear formatting, Value: 0
+								93 toggle button Description: Toggle comments sidebar, Value: 0
+								94 button Editing, Help: Editing (Ctrl+Shift+E)
+						95 container
+						96 button Show document outline
+						97 container Notifications alt+T
+					98 container Notifications alt+T
+					99 text entry area (settable) § 1 Vertragsgegenstand: Vollständiger Verweis: § 2 Schlussbestimmungen: Dies ist der zweite Absatz der Test-Datei. Änderungen und Ergänzungen dieses Testdokuments können direkt im Editor vorgenommen werden.. Kurzer Verweis: § 2 Schlussbestimmungen.
+§ 2 Schlussbestimmungen: Dies ist der zweite Absatz der Test-Datei. Änderungen und Ergänzungen dieses Testdokuments können direkt im Editor vorgenommen werden.
+
+						100 container
+							101 text § 1 Vertragsgegenstand: Vollständiger Verweis:  § 2 Schlussbestimmungen: Dies ist der zweite Absatz der Test-Datei. Änderungen und Ergänzungen dieses Testdokuments können direkt im Editor vorgenommen werden. . Kurzer Verweis:  § 2 Schlussbestimmungen .
+						102 container
+							103 text § 2 Schlussbestimmungen : Dies ist der zweite Absatz der Test-Datei. Änderungen und Ergänzungen dieses Testdokuments können direkt im Editor vorgenommen werden.
+	104 close button
+	105 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	106 minimise button
+107 menu bar
+	108 Word References QA
+	109 File
+	110 Edit
+	111 View
+	112 Window
+
+The focused UI element is 11 button Verify reopened references

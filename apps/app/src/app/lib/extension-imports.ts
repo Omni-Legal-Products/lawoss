@@ -37,9 +37,13 @@ export type ImportedPluginFile = {
 };
 
 export type ImportedPlugin = {
+  excludedConnectors?: Array<{ name: string; message: string }>;
+  scope?: "global";
+  sourceKind?: "plugin" | "skill" | "connector";
   pluginId: string;
   marketplaceId: string | null;
   name: string;
+  displayName?: string;
   description: string | null;
   updatedAt: string | null;
   files: ImportedPluginFile[];
@@ -170,8 +174,12 @@ export function readWorkspaceImports(value: unknown): WorkspaceImports {
         : [];
       const imported = {
         pluginId,
+        ...(Array.isArray(entry.excludedConnectors) ? { excludedConnectors: entry.excludedConnectors.flatMap(item => isRecord(item) && typeof item.name === "string" && typeof item.message === "string" ? [{ name: item.name, message: item.message }] : []) } : {}),
+        ...(entry.sourceKind === "plugin" || entry.sourceKind === "skill" || entry.sourceKind === "connector" ? { sourceKind: entry.sourceKind } : {}),
+        ...(entry.scope === "global" ? { scope: "global" } : {}),
         marketplaceId: typeof entry.marketplaceId === "string" ? entry.marketplaceId.trim() || null : null,
         name,
+        ...(typeof entry.displayName === "string" && entry.displayName.trim() ? { displayName: entry.displayName.trim() } : {}),
         description: typeof entry.description === "string" ? entry.description.trim() || null : null,
         updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt.trim() || null : null,
         files,

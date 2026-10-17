@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFile, mkdtemp, rm, realpath, rename, mkdir, access } from 'node:fs/promises';
 import { publishNativeQuitAcceptance, readNativeQuitAcceptance } from './quit-acceptance.mjs';
 import { connectRenderer } from './cdp.mjs';
+import { observeNativeEngineFetch, ENGINE_FETCH_PREFIX } from './engine-fetch.mjs';
 import { tmpdir } from 'node:os';
 import { EventEmitter } from 'node:events';
 import { stopForRelaunch } from './relaunch-stop.mjs';
@@ -22,6 +23,7 @@ async function fixture({packaged=false,env={},commandError,quit,publisher,pid=70
   const app={isPackaged:packaged,setPath:()=>events.push('setPath'),quit:()=>{events.push('app.quit');quit?.();}};
   const ipcMain={handle:(channel,handler)=>handlers.set(channel,handler)};
   const context=vm.createContext({app,ipcMain,dialog:{},path,
+    observeNativeEngineFetch,ENGINE_FETCH_PREFIX,fetch:globalThis.fetch,console,
     publishNativeQuitAcceptance:launch=>{events.push('quit-publication');publisher?.(launch);},
     process:{pid,env:{LAWOSS_ISIR_NATIVE_ROOT:'/owned',LEGALWORK_DEV_MODE:'1',LEGALWORK_ELECTRON_USERDATA:'/owned/profile',...env}},
     readFile:()=>{throw new Error('Unexpected chooser read');},appendFile:()=>{throw new Error('Unexpected audit write');},

@@ -1,18 +1,20 @@
 import { useState, type FormEvent } from "react";
 import { Check, ExternalLink, Loader2 } from "lucide-react";
 import type { UsageControlView } from "@legalwork/types/usage-control";
+import type { UsageLimitDetails } from "@legalwork/types/provider-usage-limit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { parseUsageAmount, type Text, type UsageTransport } from "./transport";
 import { usageIntentAction, type UsageIntent } from "./usage-intent";
-import { usageIsAvailable } from "./usage-recovery";
-import { usageBlockMessageKey } from "./usage-block";
+import { requestUsageBlockReason, usageIsAvailable } from "./usage-recovery";
+import { usageBlockMessageKey, usageRequestMessageKey } from "./usage-block";
 
-export function AdminUsageIntent({ intent, view, transport, t, onSaved, onUpdated, onRefreshError, onBusyChange, onClose, openManagement }: {
+export function AdminUsageIntent({ intent, view, transport, t, onSaved, onUpdated, onRefreshError, onBusyChange, onClose, openManagement, limit }: {
   intent: UsageIntent; view: UsageControlView; transport: UsageTransport; t: Text;
   onSaved: () => void; onUpdated: (view: UsageControlView) => void;
   onRefreshError: () => void;
   onBusyChange: (busy: boolean) => void; onClose: () => void; openManagement: () => Promise<void>;
+  limit?: UsageLimitDetails | null;
 }) {
   const [busy, setBusy] = useState(false), [saved, setSaved] = useState(false), [error, setError] = useState("");
   const [updated, setUpdated] = useState<UsageControlView | null>(null);
@@ -44,7 +46,7 @@ export function AdminUsageIntent({ intent, view, transport, t, onSaved, onUpdate
   return <div className="space-y-4">
     {saved ? <div className="space-y-4">
       <p role="status" className="flex items-center gap-2 font-medium"><Check className="size-4" />{t(intent === "enable" ? "limits.intent_enabled" : "limits.intent_increased")}</p>
-      <p className="text-sm text-muted-foreground">{updated ? t(usageIsAvailable(updated) ? "limits.intent_ready" : usageBlockMessageKey(updated.me.blockedReason, updated.isAdmin)) : t(error ? "limits.intent_refresh_error" : "limits.intent_checking")}</p>
+      <p className="text-sm text-muted-foreground">{updated ? t(usageIsAvailable(updated, limit) ? limit ? "limits.request_ready" : "limits.intent_ready" : limit ? usageRequestMessageKey(requestUsageBlockReason(updated, limit), updated.isAdmin) : usageBlockMessageKey(updated.me.blockedReason, updated.isAdmin)) : t(error ? "limits.intent_refresh_error" : "limits.intent_checking")}</p>
       {!updated && <Button variant="outline" disabled={busy} onClick={() => {
         setWorking(true); void checkUsage().finally(() => setWorking(false));
       }}>{busy && <Loader2 className="size-4 animate-spin" />}{t("limits.refresh")}</Button>}

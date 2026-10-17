@@ -109,6 +109,7 @@ import { FolderIcon } from "@/react-app/design-system/folder-icon";
 - `IconTile`: `sm`, `md`, or `lg`; `default`, `glass`, or `inset`. Use it to give feature/action icons a consistent container, not around every dense file-tree glyph.
 - `PanelHeader` and `PanelEmptyState`: shared compact chrome and empty/loading/unavailable-state layout for file browsers and preview panes. Headers keep the title, metadata, and action areas aligned; empty states use the same icon tile and text measure.
 - `Button`: existing `default`, `outline`, `secondary`, `ghost`, `destructive`, and `link` variants. Use a real `disabled` state and `aria-busy` for busy actions. Icon-only actions need an accessible name. A tooltip supplements that name.
+- Segmented category and mode switchers: reuse `HubTabs` from `domains/settings/segmented-tabs.tsx`, as on Integrations and Recorder. It owns the pill shape, spacing, selected surface and focus treatment; use it unchanged for choices such as URL / Local server.
 - `FolderIcon`: layered light-blue SVG with `open` state. `WorkspaceIcon` delegates to it. Each SVG has unique gradient IDs so multiple instances remain reliable.
 - `DocumentIcon`: one folded-paper asset family with subtle type-specific tints and content glyphs for documents, sheets, slides, media, PDF, and code. Existing `ArtifactIcon` adapts artifact types to this component.
 - Menus/dialogs/sheets: retain the Base UI wrappers. Use the trigger `render` API to compose the app button; avoid nested buttons. Keep destructive actions semantically distinct.
@@ -119,7 +120,7 @@ import { FolderIcon } from "@/react-app/design-system/folder-icon";
 
 On entering an empty session, “Hello.”, the description, suggestions, and composer arrive first. After 500 ms, “Let’s get to work.” reveals one letter every 40 ms, completing in 720 ms. The entire phrase reserves its final space, has no blinking cursor, and is exposed to screen readers as a complete sentence. Typing in the composer remains available immediately and does not replay the entrance. Reduced motion reveals the complete phrase immediately.
 
-[Welcome entrance recording](reviews/welcome-typing.mp4). Browser verification in the production session fixture checked the 500 ms delay, progressive reveal, stable text/card dimensions, immediate composer input without restarting the animation, and the reduced-motion state. `pnpm typecheck`, `pnpm build:ui`, and `git diff --check` passed. To reproduce, open `/session-preview.html`, select an existing sample conversation, then choose **New Task → Northstar Legal** and begin typing immediately.
+Browser verification in the production session fixture checked the 500 ms delay, progressive reveal, stable text/card dimensions, immediate composer input without restarting the animation, and the reduced-motion state. `pnpm typecheck`, `pnpm build:ui`, and `git diff --check` passed. To reproduce, open `/session-preview.html`, select an existing sample conversation, then choose **New Task → Northstar Legal** and begin typing immediately.
 
 Reduced motion keeps the final visible content and control feedback without spatial animation. It must not leave an initially hidden component invisible. The gallery offers a simulation, but reviewers should also test the operating system/browser preference because CSS and Motion are separate rendering paths.
 

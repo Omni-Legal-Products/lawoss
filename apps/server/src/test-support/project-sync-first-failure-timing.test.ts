@@ -487,12 +487,9 @@ describe("first settings invocation failure observation", () => {
   });
 });
 
-// Historical canonical function: exact 6ccc1bd258cc9632c2b92068bff50f67484b1619,
-// SHA256 c2ed8a3eb1675d7c9b68c6443a79e61caed090ea25587aed0fb76b23733e7439.
-// Integration reference independently composes exact dev34df1a4f08129a652d4cbd747853186b25a3bf81
-// saveProjectSyncSettings with the preserved held withRuntimeDb wrapper only.
-// Its new calendar-settings/personalization statement is intentional. No git,
-// mutable-candidate hash derivation or snapshot refresh occurs at test runtime.
+// Canonical TypeScript printer hashes captured BEFORE edits from exact
+// Function: immutable dev48846426 + existing PR157 lifetime wrapper (independently printed).
+// Selected fixture: 6ccc1bd258cc9632c2b92068bff50f67484b1619. No snapshot refresh at runtime.
 const frozenFunctionHash = "6f63631efa24b71557c9ec98796e4c82707e231e263f61eb30c5a2d5d0c50674";
 const frozenSelectedTestHash = "69d34d0fab87a5d332945bc948cce4a6279a580a6d9dc2b53666eaea3f172277";
 const printer = ts.createPrinter({ removeComments: true });

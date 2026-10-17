@@ -72,7 +72,7 @@ test("a failed link removes the empty chat and leaves no misleading draft", asyn
   const f = fixture(true);
   try {
     await expect(startCalendarSession(f.input)).rejects.toThrow();
-    expect(f.calls.at(-1)).toEqual({ method: "DELETE", path: `/workspace/project/opencode/session/${f.sessionId}`, body: null });
+    expect(f.calls.at(-1)).toEqual({ method: "DELETE", path: `/workspace/project/sessions/${f.sessionId}`, body: null });
     expect(useComposerStateStore.getState().sessions[f.sessionId]).toBeUndefined();
   } finally { f.stop(); }
 });

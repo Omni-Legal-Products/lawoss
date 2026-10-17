@@ -229,7 +229,8 @@ test("encrypted PDF is failed without claiming readable coverage", () => fixture
 test("actual HTTP and registered agent document tools enforce authorization, pagination and read-only", async () => {
   const { mkdir } = await import("node:fs/promises"), { startServer } = await import("./server.js"), { LegalWorkProjectTools } = await import("./opencode-plugins/legalwork-project-tools.js");
   const root = await mkdtemp(join(tmpdir(), "lawoss-documents-http-")), path = join(root, "workspace"); await mkdir(path);
-  const old = { db: process.env.LEGALWORK_RUNTIME_DB, url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN };
+  const old = { db: process.env.LEGALWORK_RUNTIME_DB, url: process.env.LEGALWORK_SERVER_URL };
+  const { engineAgentSession } = await import("./lawoss/test-support/engine-agent.js");
   process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
   const config: import("./types.js").ServerConfig = {
     host: "127.0.0.1", port: 0, token: "synthetic-token", hostToken: "synthetic-host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 0 }, corsOrigins: [],
@@ -237,12 +238,15 @@ test("actual HTTP and registered agent document tools enforce authorization, pag
     authorizedRoots: [path], readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
   };
   const server = await startServer(config);
+  let restoreAgent = () => {};
   try {
     const base = `http://127.0.0.1:${server.port}`, endpoint = `${base}/workspace/synthetic-http/lawoss/documents`, headers = { Authorization: "Bearer synthetic-token", "content-type": "application/json" };
     await writeFile(join(path, "source.txt"), "Synthetic HTTP evidence");
     expect((await fetch(endpoint)).status).toBe(401); expect((await fetch(`${endpoint}/prepare`, { method: "POST", body: '{"paths":["source.txt"]}' })).status).toBe(401);
-    process.env.LEGALWORK_SERVER_URL = base; process.env.LEGALWORK_SERVER_TOKEN = "synthetic-token";
-    const plugin = await LegalWorkProjectTools(), context = { directory: path };
+    process.env.LEGALWORK_SERVER_URL = base;
+    const agent = await engineAgentSession(config, { sessionID: "ses_documents", directory: path });
+    restoreAgent = agent.restore;
+    const plugin = await LegalWorkProjectTools(), context = agent.context;
     const started = JSON.parse(await plugin.tool.lawoss_documents_prepare.execute({ paths: ["source.txt"] }, context));
     const id = started.documents[0].id;
     for (let i = 0; i < 200; i++) { const list = JSON.parse(await plugin.tool.lawoss_documents_list.execute({ limit: 1 }, context)); if (list.documents[0].status === "readable") break; await new Promise(resolve => setTimeout(resolve, 10)); }
@@ -304,7 +308,7 @@ test("actual HTTP and registered agent document tools enforce authorization, pag
     await server.stop();
     if (old.db === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = old.db;
     if (old.url === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = old.url;
-    if (old.token === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = old.token;
+    restoreAgent();
     await removeSyntheticTestDir(root);
   }
 }, 20000);

@@ -7,7 +7,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
 const electronSidecarDir = resolve(desktopRoot, "resources", "sidecars");
-const electronHelperDir = resolve(desktopRoot, "resources", "helpers");
 const electronRoot = resolve(desktopRoot, "electron");
 const packagedServerRoot = resolve(desktopRoot, "server");
 
@@ -30,14 +29,16 @@ function run(command, args, cwd, env) {
   }
 }
 
+run(nodeCmd, [resolve(repoRoot, "scripts/sandbox/verify-runtime.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-node-runtime.mjs")], desktopRoot);
 // Build-only pure-JS runtime tools; never execute a foreign target Node.
 const runtimeScratch = resolve(desktopRoot, "resources", ".engine-dependencies-build");
 run(nodeCmd, [resolve(repoRoot, "lawoss/engine-dependencies/package-runtime.mjs"),
   resolve(desktopRoot, "resources", "engine-dependencies"), runtimeScratch,
   resolve(runtimeScratch, "store"), process.env.LAWOSS_BUILD_PNPM_CLI ?? process.env.npm_execpath ?? "", "online"], desktopRoot);
+run(nodeCmd, [resolve(__dirname, "prepare-actaport-mcp.mjs")], desktopRoot);
+run(nodeCmd, [resolve(__dirname, "prepare-windows-arm64-speech.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], desktopRoot);
-run(nodeCmd, [resolve(__dirname, "prepare-computer-use-helper.mjs"), "--force", "--outdir", electronHelperDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], desktopRoot);
 // Build the server TS → JS so Electron can import it in-process
 run(pnpmCmd, ["--filter", "legalwork-server", "build"], repoRoot);
