@@ -7,6 +7,8 @@
 | `apps/desktop/electron/{host-approvals.mjs,runtime.mjs,host-context-review.mjs,host-review-preload.cjs}` | Public AI and long approvals use a work-area-bounded scrollable native-owned BrowserWindow, retaining complete context as immutable textContent. Isolated sandboxed preload exposes no application API; main accepts only its own main frame and request nonce. Deny gets focus; Escape, close, cancellation, navigation and renderer failure deny. Short ordinary native approvals and the existing approval queue/receipt/binding remain unchanged. |
 | `apps/desktop/electron/{host-approvals.test.mjs,host-context-review.test.mjs}`, `apps/desktop/scripts/host-review-regression.mjs`, `apps/desktop/package.json` | Node guards and actual Electron renderer smoke verify complete long payload, inert markup, scroll/buttons within work area, sender binding and Allow/Deny/Escape/abort/close/navigation. Root actual application/native screenshot and final desktop suite remain separate gates. |
 
+The normal macOS `ci-tests.yml` job runs `test:host-review` beside the existing Electron preview/browser gates with a two-minute bound and no soft-failure option. `scripts/ci/host-review-workflow.test.mjs` verifies actual command wiring; it does not replace the renderer test.
+
 ## Native host decisions and bounded engine credential (2026-10-17)
 
 | Súbory | Downstream doplnenie a dôvod |

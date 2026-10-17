@@ -486,3 +486,6 @@ Added the independent two-snapshot/two-receipt reproduction as a failing owner-l
 - Fixed actual macOS long NSAlert overflow with separate sandboxed scrollable host-owned review; complete payload is textContent, no remote resources/navigation/windows or app bridge. Main sender/frame/request-bound final decision preserves queue/receipts; default focus Deny and Escape/close/abort deny. Short normal approvals keep native dialog.
 - RED handler2 failures then Node34PASS, desktop typecheck0, real Electron6-case full-text/scroll/visible-buttons/decision smoke. Optional extra Return synthesis timed out with hidden fixture parent; retained external failure evidence and deferred actual Enter keyboard oracle to root native retest, not claimed passing.
 - Packaging existing electron/**/* includes new preload. New test:host-review runs owned isolated Electron fixture; root owns integration/native screenshots and final broad desktop gate.
+
+2026-10-18 — Native context review CI follow-up
+- Added actual Electron test:host-review to normal macOS CI alongside preview/browser gates, timeout2min, no continue-on-error. CI command-wiring regression RED missingstep then GREEN; actual six-case renderer evidence retained from7a4ac5e9. No workflow restructuring or support/acceptance claim for unrun GitHub CI.
