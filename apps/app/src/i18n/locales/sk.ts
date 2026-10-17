@@ -1,3 +1,4 @@
+import { deadlinesSk } from "../../lawoss/i18n/deadlines";
 import { setupSk } from "../../lawoss/i18n/setup";
 import { initialSk } from "../../lawoss/i18n/initial";
 import { mattersSk } from "../../lawoss/i18n/matters";
@@ -6961,4 +6962,5 @@ export default {
   "wiki.whole_wiki": "Celá wiki",
   "wiki.wiki_root": "Koreň wiki",
   "wiki.your_firm": "vaša kancelária",
+  ...deadlinesSk,
 } as const;

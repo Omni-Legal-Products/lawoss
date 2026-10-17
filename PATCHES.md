@@ -1023,3 +1023,10 @@ Approval and final native platform checks remain required. This local change did
 | Upstream files | Downstream test change and reason |
 | --- | --- |
 | `apps/server/src/wiki/{file-access-policy,team-agent-access,write-approval,project-access}.e2e.test.ts` | Preserve wiki policy/read/write/suggestion Save and pending-approval lifecycle assertions under the immutable first-root process-credential contract. Own-wiki positives use a separate actual ServerConfig/listener and independently issued first-pinned wiki token over shared synthetic registry/files. Shared project credentials explicitly fail at the wiki root; owner regrant cannot elevate a downgraded process role. No production authorization changes. |
+
+## Managed deadline review and local projection (2026-10-18)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/server.ts`, `apps/server/package.json` | Registers the scoped deadline workflow and bundles its portable OKF parser/shared-writer seam for the actual Node release. The rollout flag does not enable upstream calendar or hidden tools. Versioned proposed CZ/SK catalogues stay legally unapproved. |
+| `apps/app/src/app/lib/legalwork-server.ts`, `apps/app/src/i18n/locales/{en,de}.ts` | English base and German keys support the CZ/SK native deadline translations. One native transport method for scoped deadline list, manual selection, review, host-only decision and explicit retry. Preserves the existing desktop host-token transport and collaborator scope. Presentation lives in the LAWOSS Lehoty page. |

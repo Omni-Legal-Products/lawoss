@@ -1,3 +1,4 @@
+import { deadlinesCs } from "../../lawoss/i18n/deadlines";
 import { setupCs } from "../../lawoss/i18n/setup";
 import { initialCs } from "../../lawoss/i18n/initial";
 import { mattersCs } from "../../lawoss/i18n/matters";
@@ -6960,4 +6961,5 @@ export default {
   "wiki.whole_wiki": "Celá wiki",
   "wiki.wiki_root": "Kořen wiki",
   "wiki.your_firm": "vaše kancelář",
+  ...deadlinesCs,
 } as const;

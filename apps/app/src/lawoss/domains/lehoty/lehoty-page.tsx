@@ -1,3 +1,4 @@
+import { DeadlineWorkflowPanel } from "./deadline-review";
 /** @jsxImportSource react */
 import { deadlineText } from "../../okf/view-rules";
 import { OkfPage, useMatterText } from "../okf-page";
@@ -12,7 +13,7 @@ import type { UpcomingDeadline } from "../../../../../../lawoss/okf/read";
 /** Iba skutočné údaje zo spisov; chýbajúce údaje nenahrádza ukážka. */
 export function LehotyPage() {
   const { text } = useMatterText();
-  return <OkfPage title={text("deadlinesTitle")}>{(data) => <RealRegister data={data} />}</OkfPage>;
+  return <OkfPage title={text("deadlinesTitle")}>{(data, _meta, scope) => <><DeadlineWorkflowPanel data={data} scope={scope} /><RealRegister data={data} /></>}</OkfPage>;
 }
 
 export function RealRegister({ data }: { data: OkfReadResult }) {

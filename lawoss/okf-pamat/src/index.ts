@@ -42,7 +42,7 @@ export {
   type StandingAuthorization,
 } from "./config.ts";
 export {
-  readStore, readScope, findClientDir, findOfficeDir, documentLanguageFromCard, MEMORY_DIR, OFFICE_DIR, LEGACY_OFFICE_DIR, STATUS_FILE, applyRecordWrite, LeakBlockedError, ConcurrentWriteError,
+  readStore, readScope, findClientDir, findOfficeDir, documentLanguageFromCard, MEMORY_DIR, OFFICE_DIR, LEGACY_OFFICE_DIR, STATUS_FILE, applyRecordWrite, withRecordWriteLock, LeakBlockedError, ConcurrentWriteError,
   writeIndex, writeLog, ensureBrain, syncStatus, retrofitStatusFile, standingApproval, statusLinkResolver, STANDING,
   type ApprovalInput,
   type Store, type Scope, type StoreProblem,

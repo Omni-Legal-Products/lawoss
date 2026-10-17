@@ -1751,6 +1751,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
 
   return {
     baseUrl,
+    lawossDeadlineRequest: <T>(workspaceId: string, suffix: string, input?: unknown, options?: { signal?: AbortSignal }) => requestJson<T>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/deadlines${suffix}`, { token, hostToken, method: input === undefined ? "GET" : "POST", body: input, timeoutMs: 900_000, signal: options?.signal }),
     token,
     wikiContributions: (wikiId: string) => requestJson<{ items: WikiContribution[]; unavailableProjects: string[] }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/suggestions`, { token, hostToken }),
     wikiRevision: (wikiId: string, path: string, revisionId: string) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/history/${encodeURIComponent(revisionId)}?path=${encodeURIComponent(path)}`, { token, hostToken }),
@@ -3435,9 +3436,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, signal: options?.signal },
       ),
 
-    prepareLawossDocuments: (workspaceId: string, paths: string[]) => requestJson<{ documents: LawossDocumentSummary[]; untrusted: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/prepare`, { token, hostToken, method: "POST", body: { paths } }),
-    listLawossDocuments: (workspaceId: string, offset = 0, limit = 50) => requestJson<{ documents: LawossDocumentSummary[]; nextOffset: number | null; untrusted: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents?offset=${offset}&limit=${limit}`, { token, hostToken }),
-    readLawossDocument: (workspaceId: string, id: string, offset = 0, limit = 16000) => requestJson<LawossDocumentRead>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/${encodeURIComponent(id)}/read?offset=${offset}&limit=${limit}`, { token, hostToken }),
+    prepareLawossDocuments: (workspaceId: string, paths: string[], options?: { signal?: AbortSignal }) => requestJson<{ documents: LawossDocumentSummary[]; untrusted: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/prepare`, { token, hostToken, method: "POST", body: { paths }, signal: options?.signal }),
+    listLawossDocuments: (workspaceId: string, offset = 0, limit = 50, options?: { signal?: AbortSignal }) => requestJson<{ documents: LawossDocumentSummary[]; nextOffset: number | null; untrusted: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents?offset=${offset}&limit=${limit}`, { token, hostToken, signal: options?.signal }),
+    readLawossDocument: (workspaceId: string, id: string, offset = 0, limit = 16000, options?: { signal?: AbortSignal }) => requestJson<LawossDocumentRead>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/${encodeURIComponent(id)}/read?offset=${offset}&limit=${limit}`, { token, hostToken, signal: options?.signal }),
     cancelLawossDocument: (workspaceId: string, id: string) => requestJson<{ id: string; cancelled: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE" }),
     exportLawossDocument: (workspaceId: string, input: LawossExportInput) => requestJson<LawossExportResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/export`, { token, hostToken, method: "POST", body: input }),
     validateLawossDocuments: (workspaceId: string, input: LawossValidateInput) => requestJson<LawossValidationResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/validate`, { token, hostToken, method: "POST", body: input }),

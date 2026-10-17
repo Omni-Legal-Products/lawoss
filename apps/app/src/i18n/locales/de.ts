@@ -1,3 +1,4 @@
+import { deadlinesDe } from "../../lawoss/i18n/deadlines";
 import { setupDe } from "../../lawoss/i18n/setup";
 import { initialDe } from "../../lawoss/i18n/initial";
 import { mattersDe } from "../../lawoss/i18n/matters";
@@ -7422,6 +7423,7 @@ const de = {
   "views.project_hint": "Dashboards und Berichte, die Sie bewusst in diesem Projekt gespeichert haben.",
   "views.no_saved_dashboards": "Noch keine gespeicherten Dashboards. Erstellen Sie eines im Chat und wählen Sie dann Speichern und dieses Projekt.",
   "views.report": "Bericht",
+  ...deadlinesDe,
 } as const;
 
 export default de;

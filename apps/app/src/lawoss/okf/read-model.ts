@@ -1,3 +1,4 @@
+import { isManagedDeadline } from "../../../../../lawoss/okf/deadline-workflow.ts";
 /**
  * Načítanie pamäte spisov cez server API — iba čítanie, nič nezapisuje.
  *
@@ -24,7 +25,7 @@ import { selectSourceSnapshot } from "./practice-read-state";
 import { loadOkfConnection, type OkfConnection } from "./connection";
 import type { OfficeMemoryRead } from "./office-memory";
 
-export type OkfReadClient = Pick<LegalworkServerClient, "listWorkspaceDirectory" | "readWorkspaceFile">;
+export type OkfReadClient = Pick<LegalworkServerClient, "listWorkspaceDirectory" | "readWorkspaceFile"> & Partial<Pick<LegalworkServerClient, "lawossDeadlineRequest">>;
 type ReadProblem = { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office" };
 export type OkfSourceReadState = { source: "workspace" | "office"; workspaceId?: string; checkedAt: number; lastSuccessAt: number | null; state: "fresh" | "stale" | "unavailable" | "truncated" };
 export type OkfCoverage = { status: "complete" | "partial" | "failed"; scopeKey: string; sources: readonly OkfSourceReadState[] };
@@ -296,6 +297,15 @@ export async function readWorkspaceMemory(
       try { input.manualStatus = readManualStatus((await readFile(statusPath)).content, input.records, todayIso); }
       catch (error) { problems.push({ path: statusPath, message: message(error) }); }
     }
+    if (input.records.some(isManagedDeadline)) {
+      input.deadlineWorkflowEvidence = {};
+      if (client.lawossDeadlineRequest) {
+        try {
+          const result = await client.lawossDeadlineRequest<{ items: Array<{ candidateId: string; revisionHash: string; recordFingerprint: string; receiptId: string | null; trusted: boolean }> }>(workspaceId, `?matterPath=${encodeURIComponent(path)}`, undefined, { signal: options.signal });
+          input.deadlineWorkflowEvidence = Object.fromEntries(result.items.map(item => [item.candidateId, { recordFingerprint: item.recordFingerprint, revisionHash: item.revisionHash, receiptId: item.receiptId, trusted: item.trusted }]));
+        } catch { problems.push({ path, message: "Potvrzení lhůt hostitelem se nepodařilo ověřit; zobrazují se k právní kontrole." }); }
+      }
+    }
     return input;
   });
   // Súbežné čítanie pridáva problémy v náhodnom poradí; zoradené sa nemenia, kým sa nezmenia súbory
@@ -488,7 +498,7 @@ export async function readScopeMemory(client: OkfScopeClient, scope: OkfScope, t
     const selected = selectSourceSnapshot({ current, previous: old, previousState: oldState, source, ...(source === "workspace" ? { workspaceId: id } : {}), checkedAt, valid, truncated: cut });
     if (selected.retain) snapshots[snapshotKey] = selected.snapshot;
     sources.push(selected.state);
-    return selected.snapshot;
+    return selected.state.state === "fresh" ? selected.snapshot : { ...selected.snapshot, inputs: selected.snapshot.inputs.map(input => ({ ...input, deadlineWorkflowEvidence: {} })) };
   };
   const selected = parts.map((part,i) => select(scope.members[i].workspace.id, "workspace", { inputs: part.inputs, clients: part.clients ?? [] }, part.problems.map(p => ({ ...p, path: joinPath(scope.members[i].prefix,p.path) })), part.truncated));
   let office: OfficeBundle | null = null;

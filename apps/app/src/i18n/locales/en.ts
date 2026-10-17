@@ -1,3 +1,4 @@
+import { deadlinesEn } from "../../lawoss/i18n/deadlines";
 import { setupEn } from "../../lawoss/i18n/setup";
 import { initialEn } from "../../lawoss/i18n/initial";
 import { mattersEn } from "../../lawoss/i18n/matters";
@@ -7045,4 +7046,5 @@ export default {
   "views.project_hint": "Dashboards and reports you chose to save in this project.",
   "views.no_saved_dashboards": "No saved dashboards yet. Create one in a chat, then choose Save and this project.",
   "views.report": "Report",
+  ...deadlinesEn,
 } as const;

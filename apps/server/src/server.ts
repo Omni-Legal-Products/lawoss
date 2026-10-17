@@ -1,6 +1,7 @@
 import { registerAiGovernanceRoutes } from "./lawoss/ai-governance-routes.js";
 import { retainWikiAgentRuntime } from "./wiki/agent-access.js";
 import { createGovernedEngineFetch, requireGovernedEngineDispatch, requireUnsupportedProtectedTransport } from "./lawoss/ai-governance-engine.js";
+import { registerDeadlineRoutes } from "./lawoss/deadlines/routes.js";
 import { acquireRuntimeDbLifetime, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { resolveWorkspaceFilePath, recheckWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { LawossDocuments } from "./lawoss/documents/service.js";
@@ -1988,6 +1989,7 @@ function createRoutes(
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerAiGovernanceRoutes({routes, config, jsonResponse, readJsonBodyLimited, getPublicEngineBinary: publicEngineBinary});
   registerLawossDocumentRoutes({ routes, config, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerDeadlineRoutes({ routes, config, approvals, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   registerLawossOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   const projectFolders = registerStorageRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace, onProjectFoldersChanged: (id) => noteProjectFoldersChanged(config, id), onProjectRenamed: (id, name) => noteProjectRenamed(config, id, name) });

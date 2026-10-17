@@ -2471,16 +2471,7 @@ function standingApproval(dir, diff, today) {
     at: new Date().toISOString()
   };
 }
-function applyRecordWrite(dir, diff, approval, leakScopeDir = dir) {
-  for (const id of [diff.id, ...diff.before ? [diff.before.id] : [], ...diff.after ? [diff.after.id] : []]) {
-    if (typeof id !== "string" || !/^[\p{L}\p{N}][\p{L}\p{N}_-]*$/u.test(id)) {
-      throw new Error("Neplatné ID záznamu: použi písmená, číslice, pomlčku alebo podčiarkovník; ID nesmie byť cesta.");
-    }
-  }
-  authorize(diff, approval === STANDING ? standingApproval(dir, diff) : approval);
-  if (diff.after)
-    assertNoLeak(leakScopeDir, diff.after);
-  assertHasSource(diff.after);
+function withRecordWriteLock(dir, action) {
   mkdirSync(dir, { recursive: true });
   const lock = join2(dir, ".okf-write.lock");
   try {
@@ -2492,6 +2483,22 @@ function applyRecordWrite(dir, diff, approval, leakScopeDir = dir) {
     throw error;
   }
   try {
+    return action();
+  } finally {
+    rmSync(lock, { recursive: true });
+  }
+}
+function applyRecordWrite(dir, diff, approval, leakScopeDir = dir) {
+  for (const id of [diff.id, ...diff.before ? [diff.before.id] : [], ...diff.after ? [diff.after.id] : []]) {
+    if (typeof id !== "string" || !/^[\p{L}\p{N}][\p{L}\p{N}_-]*$/u.test(id)) {
+      throw new Error("Neplatné ID záznamu: použi písmená, číslice, pomlčku alebo podčiarkovník; ID nesmie byť cesta.");
+    }
+  }
+  authorize(diff, approval === STANDING ? standingApproval(dir, diff) : approval);
+  if (diff.after)
+    assertNoLeak(leakScopeDir, diff.after);
+  assertHasSource(diff.after);
+  withRecordWriteLock(dir, () => {
     const store = readStore(dir);
     assertNotStale(store, diff);
     mkdirSync(store.memoryDir, { recursive: true });
@@ -2518,9 +2525,7 @@ function applyRecordWrite(dir, diff, approval, leakScopeDir = dir) {
     } finally {
       rmSync(temporary, { force: true });
     }
-  } finally {
-    rmSync(lock, { recursive: true });
-  }
+  });
 }
 function linkResolver(store, zVnutraMemory) {
   const podlaId = new Map;
