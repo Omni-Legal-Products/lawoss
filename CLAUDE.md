@@ -4,6 +4,15 @@ LAWOSS is a Czech and Slovak legal practice fork of LegalWork. It helps lawyers 
 
 This file is the single source of truth for people and AI agents working in this repository. `CLAUDE.md` must always contain identical instructions.
 
+## Synthetic OKF test dataset
+
+A complete prebuilt Slovak synthetic office is available for testing. **Download and reuse it; do not regenerate it for routine tests.** Read [the dataset guide](SYNTHETIC_DATA.md) for the pinned download, SHA-256, setup commands and coverage limits. The machine-readable catalog is [synthetic-dataset.json](synthetic-dataset.json).
+
+- Use this dataset for OKF onboarding, sorting, client/matter scaffolds, document parsing, memory and edge-case tests. Select relevant fixtures; do not load the entire corpus into context.
+- Reuse a checksum-verified local download. Extract under ignored `.work/synthetic-sk/`; run write tests on disposable copies.
+- Keep `ground-truth/` and validation answers outside the tested model's source selection. Open a selected office/client/matter rather than the package root.
+- Distinguish expected scenario results from observed application behavior. Synthetic legal content is not verified legal guidance. Record actual checks and limitations.
+
 ## Repository relationship
 
 - Product code lives in this repository.
