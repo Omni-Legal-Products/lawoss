@@ -4,10 +4,12 @@ import { shellCs, shellDe, shellEn, shellSk } from "../src/lawoss/i18n/shell";
 const BANNED = /workspace|session|skill|\bMCP\b|\bOKF\b|opencode|plugin/i;
 const REQUIRED = ["nav_today", "nav_clients", "nav_ask", "today_title", "deadlines_title", "due_in_days_one", "due_in_days_other", "due_tomorrow",
   "inputs_title", "clients_title", "tab_overview", "tab_known", "action_summarize",
-  "action_deadlines", "action_reply", "action_add_document", "action_verify_client", "mode_title",
-  "mode_lite", "mode_pro", "memory_write_title", "memory_write_matter", "memory_write_approved_by"];
+  "action_deadlines", "action_reply", "action_add_document", "action_verify_client",
+  "mode_pro", "mode_note", "memory_write_title", "memory_write_matter", "memory_write_approved_by"];
 /** Nepoužívané klíče odstraněné při finální revizi (M2) - nesmí se vrátit. */
-const REMOVED = ["open_conversation", "advanced", "matter_counterparty", "new_client", "due_in_days"];
+const REMOVED = ["open_conversation", "advanced", "matter_counterparty", "new_client", "due_in_days",
+  // MČ 16. 10. 2026: bežná appka nemá nálepku „Jednoduchý/Lite“, len prepínač Pokročilé.
+  "mode_lite", "mode_title"];
 
 const dictionaries = { en: shellEn, cs: shellCs, sk: shellSk, de: shellDe } as const;
 
