@@ -19,7 +19,7 @@ export async function readAiGovernanceView(config: ServerConfig, publicEngineAva
 export function registerAiGovernanceRoutes(options: {routes: Route[]; config: ServerConfig;
   jsonResponse: (value: unknown, status?: number) => Response;
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
-  getPublicEngineBinary?: () => string | undefined}) {
+  getPublicEngineBinary?: () => string | undefined; pinnedEngineVersion: string}) {
   const {routes, config, jsonResponse} = options;
   const ensureWritable = () => { if (config.readOnly) throw new ApiError(403, "read_only", "This server is read-only."); };
   addRoute(routes, "GET", "/lawoss/ai-governance", "client", async () => jsonResponse(await readAiGovernanceView(config, Boolean(options.getPublicEngineBinary?.()))));
@@ -38,7 +38,7 @@ export function registerAiGovernanceRoutes(options: {routes: Route[]; config: Se
     if (!binary) throw new ApiError(409, "public_ai_engine_unavailable", "Start the managed engine to use a dedicated public scratch context.");
     const parsed = PublicAiInputSchema.safeParse(await options.readJsonBodyLimited(ctx.request, 64 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_public_prompt", "Provide the selected provider, model and public text only.");
-    return jsonResponse(await runPublicAiPrompt(config, ctx.approvals, parsed.data, binary, ctx.request.signal));
+    return jsonResponse(await runPublicAiPrompt(config, ctx.approvals, parsed.data, binary, options.pinnedEngineVersion, ctx.request.signal));
   });
   addRoute(routes, "POST", "/lawoss/ai-governance/migration/preview", "host-token", async () => jsonResponse(await previewGovernanceMigration(config)));
   addRoute(routes, "POST", "/lawoss/ai-governance/migration/apply", "host-token", async ctx => {

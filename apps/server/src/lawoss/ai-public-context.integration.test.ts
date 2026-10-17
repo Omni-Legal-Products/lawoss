@@ -8,6 +8,8 @@ import { GLOBAL_PERSONALIZATION_ID, GLOBAL_PROVIDERS_ID, writeRuntimeOpencodeCon
 import { closeOrgPolicyRuntime } from "../org-policy.js";
 import { syntheticHostConfig } from "./test-support/host-config.js";
 import { runPublicAiPrompt } from "./ai-public-context.js";
+import constants from "../../../../constants.json" with {type: "json"};
+const pinnedVersion = constants.opencodeVersion.trim().replace(/^v/, "");
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 
 test.skipIf(!binary)("native public text uses an empty isolated engine and exact-context host decisions; denial emits nothing", async () => {
@@ -48,7 +50,7 @@ test.skipIf(!binary)("native public text uses an empty isolated engine and exact
     await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({provider: {fixture: {npm: "@ai-sdk/openai-compatible", options: {baseURL: receiver.url.origin + "/v1", apiKey: "SYNTHETIC_TARGET_KEY"}, models: {fixture: {limit: {context: 100000, output: 4000}}}}}}));
     await writeRuntimeOpencodeConfig(config, GLOBAL_PERSONALIZATION_ID, () => ({personalization: {customInstructions: "PRIVATE-PERSONALIZATION-CANARY", personality: "default"}}));
     const input = {providerId: "fixture", modelId: "fixture", text: "PUBLIC-TEXT-CANARY"};
-    const result = await runPublicAiPrompt(config, approvals, input, binary);
+    const result = await runPublicAiPrompt(config, approvals, input, binary, pinnedVersion);
     expect(result.reply).toContain("PUBLIC_SYNTHETIC_OK");
     expect(received.some(body => body.includes("PUBLIC-TEXT-CANARY"))).toBe(true);
     expect(reviewed.length).toBeGreaterThan(0);
@@ -67,15 +69,18 @@ test.skipIf(!binary)("native public text uses an empty isolated engine and exact
     const publicResponse = await fetch(base + "/lawoss/ai-governance/public-text", {method: "POST", headers: {"x-legalwork-host-token": config.hostToken, "content-type": "application/json"}, body: JSON.stringify(input)});
     expect(publicResponse.status).toBe(200);
     expect(await publicResponse.json()).toMatchObject({reply: "PUBLIC_SYNTHETIC_OK", scope: "public-text-scratch", legalApproval: false});
+    const beforeMismatch = received.length;
+    await expect(runPublicAiPrompt(config, approvals, input, binary, "0.0.0-synthetic-mismatch")).rejects.toMatchObject({code: "public_ai_engine_version"});
+    expect(received).toHaveLength(beforeMismatch);
     malicious = true;
     const beforeTool = received.length;
-    await expect(runPublicAiPrompt(config, approvals, {...input, text: "PUBLIC-TOOL-ATTEMPT"}, binary)).rejects.toBeDefined();
+    await expect(runPublicAiPrompt(config, approvals, {...input, text: "PUBLIC-TOOL-ATTEMPT"}, binary, pinnedVersion)).rejects.toBeDefined();
     expect(received).toHaveLength(beforeTool + 1);
     await expect(access(toolMarker)).rejects.toBeDefined();
     expect(received.slice(beforeTool).join("\n")).not.toContain("PRIVATE-AGENTS-CANARY");
     malicious = false;
     const before = received.length; allow = false;
-    await expect(runPublicAiPrompt(config, approvals, {...input, text: "DENIED-PUBLIC-CANARY"}, binary)).rejects.toMatchObject({code: "public_ai_denied"});
+    await expect(runPublicAiPrompt(config, approvals, {...input, text: "DENIED-PUBLIC-CANARY"}, binary, pinnedVersion)).rejects.toMatchObject({code: "public_ai_denied"});
     expect(received).toHaveLength(before);
     expect(await readFile(join(client, "AGENTS.md"), "utf8")).toBe("PRIVATE-AGENTS-CANARY");
   } finally {

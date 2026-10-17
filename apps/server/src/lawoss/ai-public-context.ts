@@ -4,7 +4,6 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
-import constants from "../../../../constants.json" with {type: "json"};
 import type { ApprovalService } from "../approvals.js";
 import { ApiError } from "../errors.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "../managed-opencode.js";
@@ -68,10 +67,11 @@ async function boundedPublicBody(request: Request): Promise<string> {
  * The engine owns an empty scratch directory, isolated config/DB/environment, and no
  * real provider credential. Each final serialized provider body gets a separate native
  * decision at the host relay; no remembered or browser-provided public flag is accepted. */
-export async function runPublicAiPrompt(config: ServerConfig, approvals: ApprovalService, raw: PublicAiInput, binary: string, signal?: AbortSignal): Promise<{reply: string; operationId: string; scope: "public-text-scratch"; legalApproval: false}> {
+export async function runPublicAiPrompt(config: ServerConfig, approvals: ApprovalService, raw: PublicAiInput, binary: string, expectedEngineVersion: string, signal?: AbortSignal): Promise<{reply: string; operationId: string; scope: "public-text-scratch"; legalApproval: false}> {
   const parsed = PublicAiInputSchema.safeParse(raw);
   if (!parsed.success) throw new ApiError(400, "invalid_public_prompt", "Provide the selected provider, model and public text only.");
   if (config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
+  if (!expectedEngineVersion.trim()) throw new ApiError(409, "public_ai_engine_version", "A pinned managed engine version is required for the public scratch test.");
   if (!isAbsolute(binary)) throw new ApiError(409, "public_ai_engine_unavailable", "A pinned managed engine is required for the public scratch test.");
   const input = parsed.data, target = await targetFor(config, input), engineHash = await fileHash(binary);
   const operationId = randomUUID(), capability = randomUUID();
@@ -124,7 +124,7 @@ export async function runPublicAiPrompt(config: ServerConfig, approvals: Approva
         OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: "false", OPENCODE_DISABLE_AUTOCOMPACT: "true", OPENCODE_DISABLE_LSP_DOWNLOAD: "true"}});
     const headers = {Authorization: "Basic " + Buffer.from(`${engine.username}:${engine.password}`).toString("base64"), "content-type": "application/json"};
     const health = await fetch(engine.url + "/global/health", {headers, signal: active}).then(response => response.json());
-    if (health.version !== constants.opencodeVersion.replace(/^v/, "")) throw new ApiError(409, "public_ai_engine_version", "The public scratch engine does not match the pinned version.");
+    if (health.version !== expectedEngineVersion) throw new ApiError(409, "public_ai_engine_version", "The public scratch engine does not match the pinned version.");
     const session = z.object({id: z.string()}).parse(await fetch(engine.url + "/session", {method: "POST", headers, signal: active, body: JSON.stringify({title: "Public scratch", permission: [{permission: "*", pattern: "*", action: "deny"}]})}).then(response => response.json()));
     const response = await fetch(`${engine.url}/session/${session.id}/message`, {method: "POST", headers, signal: active,
       body: JSON.stringify({model: {providerID: "public-synthetic", modelID: input.modelId}, parts: [{type: "text", text: input.text}]})});

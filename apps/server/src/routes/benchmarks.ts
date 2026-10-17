@@ -1,3 +1,4 @@
+import { requireGovernedEngineDispatch } from "../lawoss/ai-governance-engine.js";
 import { readdir, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { mkdir } from "node:fs/promises";
@@ -545,6 +546,7 @@ export function registerBenchmarkRoutes(options: RegisterBenchmarkRoutesOptions)
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
+    await requireGovernedEngineDispatch(config, workspace.id, "POST", "/session/benchmark/message");
     const run = await runner.createRun(workspace, body);
     return jsonResponse({ run }, 201);
   });
@@ -588,7 +590,11 @@ export function registerBenchmarkRoutes(options: RegisterBenchmarkRoutesOptions)
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const run = await runner.resumeRun(workspace, (ctx.params.runId ?? "").trim());
+    // Preserve unknown/foreign-run visibility before checking processing policy.
+    const runId = (ctx.params.runId ?? "").trim();
+    await runner.getRunDetail(workspace, runId);
+    await requireGovernedEngineDispatch(config, workspace.id, "POST", "/session/benchmark/message");
+    const run = await runner.resumeRun(workspace, runId);
     return jsonResponse({ run });
   });
 

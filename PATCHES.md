@@ -1049,3 +1049,11 @@ These entries describe code and synthetic verification, not a real signing, nati
 | `apps/app/tests/lawoss-ai-governance.test.tsx` | Invoke the real API client with the actual resolved desktop connection shape and verify all three governance URLs plus current client/native credentials; SSR presentation alone missed the incompatible connection mapping. |
 
 The green-zone engine guard inventories installed SDK v2 prompt/compact, legacy execution, permission/question continuations and experimental background/name generation. Native acknowledgment/migration writes respect read-only mode. These checks prove host admission, not an engine OS sandbox or legal provider approval.
+
+### Public scratch packaged import portability (2026-10-18)
+
+`apps/server/src/server.ts` passes its existing normalized pinned engine version through the trusted governance route dependency. The green-zone public scratch module no longer imports a repository-root JSON path that escapes the packaged server tree. Version matching remains mandatory, including an actual pinned-engine mismatch refusal with zero provider traffic. No engine-version constant or build rewrite list changes. Validate through the real server build and relocated `check-packaged-server-imports.mjs`, not only repository-local imports/typechecking.
+
+### Benchmark execution admission (2026-10-18)
+
+`apps/server/src/routes/benchmarks.ts` preflights create/resume with the existing strict host guard before creating a background run or clearing historical verdicts. Unknown/foreign resume visibility is checked first. Denial stays HTTP403 `ai_transfer_denied` instead of a background judge-parser failure. Pure runner/scoring/citation fixtures remain unchanged; `apps/server/src/benchmark-governance.e2e.test.ts` verifies actual HTTP create/resume denials, no run/session/model side effects and retained unknown-run404.
