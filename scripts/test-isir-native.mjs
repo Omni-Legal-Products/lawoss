@@ -16,6 +16,7 @@ import { parseCsv } from "../apps/server/dist/lawoss/documents/validation.js";
 import { sha256 } from "../lawoss/testing/isir/corpus.mjs";
 import { prepareNativeEngineFiles, probeNativeEngineVersion, verifyNativeEngineRuntime } from "../lawoss/testing/isir/native/engine-identity.mjs";
 import { createNativeEngineClient } from "../lawoss/testing/isir/native/engine-client.mjs";
+import { nativeRendererLaunch } from "../lawoss/testing/isir/native/renderer.mjs";
 
 const debugPair=process.argv.includes('--debug-case-pair');
 assert.ok(!debugPair || !process.env.CI,'CI must run the complete ten-case native gate');
@@ -108,7 +109,8 @@ process.once('SIGINT',()=>void cleanup().then(()=>process.exit(130)));
 process.once('SIGTERM',()=>void cleanup().then(()=>process.exit(143)));
 try {
   diagnostics.phase("startup");
-  launch(process.execPath, [path.join(path.dirname(requireApp.resolve("vite/package.json")), "bin/vite.js"), "--host", "127.0.0.1", "--port", String(uiPort), "--strictPort"], path.join(repo, "apps/app"), "vite");
+  const renderer = await nativeRendererLaunch(path.join(repo,"apps/app"),uiPort);
+  launch(process.execPath, [path.join(path.dirname(requireApp.resolve("vite/package.json")), "bin/vite.js"), ...renderer.args], renderer.cwd, "vite");
   await until(async () => (await nativeFetch(env.LEGALWORK_ELECTRON_START_URL)).ok, "owned Vite");
   let appChild = launch(electron, [...(process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : []), path.join(repo, "apps/desktop/scripts/isir-native-entry.mjs")], path.join(repo, "apps/desktop"), "electron");
   cdp = await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch);

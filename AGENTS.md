@@ -158,6 +158,7 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Native tests use the application's owner-authenticated engine proxy; serialized workspace metadata intentionally omits engine credentials. Isolated macOS fixtures must select the mock keychain before importing production startup.
 - After provider configuration changes, use the application's workspace engine-reload endpoint. It awaits derived runtime configuration before rebuilding the engine; low-level instance disposal does not establish that ordering.
 - Native UI fixtures explicitly emulate foreground focus on their owned renderer, including after relaunch. Preserve production foreground-only polling and assert real copy IPC, completed artifact paths and original byte hashes rather than obsolete toast text.
+- Native acceptance serves the built renderer via loopback preview, matching the UI artifact produced by desktop CI. Fail before launch if the build is missing; do not fall back to development compilation or weaken readiness assertions.
 - Native protocol fixtures strip only complete documented engine reminder frames before strict JSON parsing and preserve raw tool receipts. Ordinary composer queue admission and direct generation acknowledgment need their own transport assertions plus actual engine terminal evidence.
 - Historical engine metadata must account for native application archive timestamps of zero. Use supported archived-inclusive listing before strict directory/captured-ID filtering, while preserving each record archive state and filesystem scope.
 
