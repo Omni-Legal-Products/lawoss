@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { startBridge } from "../dist/bridge.js";
+import { normalizeScopedDirectoryPath } from "../dist/path-scope.js";
 
 function createLoggerStub() {
   const base = {
@@ -67,7 +68,10 @@ test("bridge end-to-end: inbound -> prompt -> outbound", async () => {
     createLoggerStub(),
     undefined,
     {
-      client: fakeClient,
+      clientFactory: (directory) => {
+        assert.equal(normalizeScopedDirectoryPath(directory), normalizeScopedDirectoryPath(dir));
+        return fakeClient;
+      },
       adapters: new Map([["slack:default", slackAdapter]]),
       disableEventStream: true,
       disableHealthServer: true,
@@ -142,7 +146,10 @@ test("bridge recovers from empty prompt replies by clearing stale session", asyn
     createLoggerStub(),
     undefined,
     {
-      client: fakeClient,
+      clientFactory: (directory) => {
+        assert.equal(normalizeScopedDirectoryPath(directory), normalizeScopedDirectoryPath(dir));
+        return fakeClient;
+      },
       adapters: new Map([["slack:default", slackAdapter]]),
       disableEventStream: true,
       disableHealthServer: true,
