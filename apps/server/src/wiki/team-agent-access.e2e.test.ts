@@ -1,3 +1,4 @@
+import { scopedWikiRuntime } from "./scoped-runtime.test-helper.js";
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
@@ -60,12 +61,24 @@ async function teamFlow(sandbox?: VmSandbox) {
   Object.assign(process.env, { LEGALWORK_SERVER_URL: b.url, LEGALWORK_SERVER_TOKEN: member.config.token, LEGALWORK_WIKI_AGENT_TOKEN: agentToken });
   cleanup.push(async () => { for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
   const outside = await LegalWorkWikiTools({ directory: project.path, sessionID: "matter-agent" });
-  const inside = await LegalWorkWikiTools({ directory: wiki.root, sessionID: "wiki-agent" });
+  const refused = await fetch(`${b.url}/wikis`,{ headers: {
+    "x-legalwork-wiki-agent-token": agentToken,"x-legalwork-wiki-agent-session": "wiki-agent",
+    "x-legalwork-wiki-agent-directory": encodeURIComponent(wiki.root),
+  } });
+  expect(refused.status).toBe(403);
+  expect(await refused.json()).toMatchObject({ code: "wiki_agent_client_runtime_required" });
+  const wikiRuntime = await scopedWikiRuntime(member.config,"wiki-agent",wiki.root);
+  cleanup.push(() => wikiRuntime.close());
+  expect(wikiRuntime.config === member.config).toBe(false);
+  expect(wikiRuntime.headers()["x-legalwork-wiki-agent-token"] === agentToken).toBe(false);
+  const inside = await wikiRuntime.run(() => LegalWorkWikiTools({ directory: wiki.root, sessionID: "wiki-agent" }));
+  const projectRun = async <T>(action: () => Promise<T>): Promise<T> => action();
+  const variants = [{ tools: inside,run: wikiRuntime.run },{ tools: outside,run: projectRun }];
   expect(JSON.parse(await outside.tool.wiki_list.execute({})).wikis.map((item: { id: string }) => item.id)).toContain(wiki.id);
-  expect(JSON.parse(await inside.tool.wiki_list.execute({})).current_wiki_id).toBe(wiki.id);
-  for (const tools of [inside, outside]) {
-    expect(JSON.parse(await tools.tool.wiki_read.execute({ wiki_id: wiki.id, path: "Shared.md" })).content).toContain("Shared source");
-    expect(JSON.parse(await tools.tool.wiki_query.execute({ wiki_id: wiki.id, query: { fields: ["title"] } })).rows.some((row: { title: string }) => row.title === "Shared source")).toBe(true);
+  expect(JSON.parse(await wikiRuntime.run(() => inside.tool.wiki_list.execute({}))).current_wiki_id).toBe(wiki.id);
+  for (const { tools,run } of variants) {
+    expect(JSON.parse(await run(() => tools.tool.wiki_read.execute({ wiki_id: wiki.id, path: "Shared.md" }))).content).toContain("Shared source");
+    expect(JSON.parse(await run(() => tools.tool.wiki_query.execute({ wiki_id: wiki.id, query: { fields: ["title"] } }))).rows.some((row: { title: string }) => row.title === "Shared source")).toBe(true);
   }
   expect(await listApprovals(b.url, member.config.hostToken)).toEqual([]);
   const staged = JSON.parse(await outside.tool.wiki_write.execute({ wiki_id: wiki.id, path: "From-project.md", content: "# Approved project knowledge\n", base_revision: null }));
@@ -75,9 +88,10 @@ async function teamFlow(sandbox?: VmSandbox) {
   expect(await listApprovals(b.url, member.config.hostToken)).toEqual([]);
   expect(await readFile(join(project.path, staged.suggestion.filePath), "utf8")).toBe("# Approved project knowledge\n");
   expect((await b.request(`/workspace/${project.id}/wiki-suggestions/${staged.suggestion.id}/save`, "POST", { revision: staged.suggestion.revision })).status).toBe(200);
-  expect(JSON.parse(await inside.tool.wiki_write.execute({ wiki_id: wiki.id, path: "From-wiki.md", content: "# Wiki knowledge\n", base_revision: null })).ok).toBe(true);
+  expect(JSON.parse(await wikiRuntime.run(() => inside.tool.wiki_write.execute({ wiki_id: wiki.id, path: "From-wiki.md", content: "# Wiki knowledge\n", base_revision: null }))).ok).toBe(true);
   expect(await listApprovals(b.url, member.config.hostToken)).toEqual([]);
-  const view = previewResult.parse(await inside.tool.view_create.execute({ wiki_id: wiki.id, input: { version: 1, title: "Firm overview", mode: "dashboard", catalog: "legalwork-1", queries: {}, program: 'root = Text("No firm records reviewed yet")' } }));
+  expect(await listApprovals(wikiRuntime.url,wikiRuntime.config.hostToken)).toEqual([]);
+  const view = previewResult.parse(await wikiRuntime.run(() => inside.tool.view_create.execute({ wiki_id: wiki.id, input: { version: 1, title: "Firm overview", mode: "dashboard", catalog: "legalwork-1", queries: {}, program: 'root = Text("No firm records reviewed yet")' } })));
   expect(view).not.toHaveProperty("error");
   expect(view.status).toBe("preview");
   expect((await (await b.request(`/wikis/${wiki.id}/ui-views`)).json()).items).toEqual([]);
@@ -101,9 +115,10 @@ async function teamFlow(sandbox?: VmSandbox) {
     await writeSandboxDefault(member.config, { enabled: true, networkMode: "block" });
     await writeRuntimeOpencodeConfig(member.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "allow", read: "allow", edit: "allow", external_directory: { "*": "allow" } } }));
     const service = new AgentSandboxService(member.config, new ApprovalService(member.config.approval), sandbox);
-    const own = member.config.workspaces.find(item => item.id === wiki.workspaceId);
+    const own = wikiRuntime.config.workspaces.find(item => item.id === wiki.workspaceId);
     if (!own) throw new Error("Wiki workspace missing");
-    const insideResult = await service.run(own, { sessionID: "wiki-agent", command: "cat Shared.md && printf '# Sandbox knowledge\\n' > Sandbox.md", write: true, timeoutMs: 30_000 }, { type: "host" }, AbortSignal.timeout(240_000));
+    const ownService = new AgentSandboxService(wikiRuntime.config,new ApprovalService(wikiRuntime.config.approval),sandbox);
+    const insideResult = await ownService.run(own, { sessionID: "wiki-agent", command: "cat Shared.md && printf '# Sandbox knowledge\\n' > Sandbox.md", write: true, timeoutMs: 30_000 }, { type: "host" }, AbortSignal.timeout(240_000));
     expect(insideResult).toMatchObject({ sandbox: "virtual-machine", exitCode: 0 });
     expect(insideResult.output).toContain("Shared source");
     expect(await readFile(join(wiki.root, "Sandbox.md"), "utf8")).toBe("# Sandbox knowledge\n");
@@ -118,7 +133,7 @@ async function teamFlow(sandbox?: VmSandbox) {
   for (const path of ["From-project.md", "From-wiki.md", ...(sandbox ? ["Sandbox.md"] : [])])
     expect((await a.request(`/wikis/${original.id}/page?path=${path}`)).status).toBe(200);
   await a.request(`/wikis/${original.id}/share`, "PATCH", { access: "members", memberIds: [] });
-  for (const tools of [inside, outside]) expect(JSON.parse(await tools.tool.wiki_read.execute({ wiki_id: wiki.id, path: "Shared.md" })).ok).toBe(false);
+  for (const { tools,run } of variants) expect(JSON.parse(await run(() => tools.tool.wiki_read.execute({ wiki_id: wiki.id, path: "Shared.md" }))).ok).toBe(false);
 }
 
 test("team wiki tools separate wiki and project chats, stage project drafts for human Save and retain project datasets", () => teamFlow(), 30_000);

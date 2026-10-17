@@ -311,3 +311,13 @@ test("office records without any matter cannot be reported as a complete empty o
   expect(data.coverage.status).toBe("partial");
   expect(data.problems.some(p => p.scope === "office")).toBe(true);
 });
+
+test("absolute Windows drive-root practices preserve their root separator", () => {
+  const a = ws("drive-a", "Z:\\A"), b = ws("drive-b", "Z:/B");
+  for (const root of ["Z:\\", "Z:/"]) {
+    const scope = okfScope([a,b],a,root);
+    expect(scope?.members.map(member => member.prefix)).toEqual(["A","B"]);
+    expect(scope?.practiceRoot).toBe(root);
+  }
+  expect(okfScope([a,b],a,"Z:")).toBeNull();
+});

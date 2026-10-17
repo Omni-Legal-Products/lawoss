@@ -114,8 +114,10 @@ export function registerOnboardingRoutes(options: {
   route("GET", "office-memory", async ctx => {
     const expected = new URL(ctx.request.url).searchParams.get("expectedPracticeRoot");
     const officeRoot = (await readProfile())?.officeRoot;
-    if (!expected || !officeRoot || await canonicalDirectory(officeRoot) !== expected) throw new ApiError(409, "practice_scope_changed", "The selected practice changed. Refresh the overview.");
-    const read = await readOfficeMemory(expected, { signal: ctx.request.signal });
+    const currentRoot = officeRoot ? await canonicalDirectory(officeRoot) : null;
+    const expectedRoot = expected ? await canonicalDirectory(expected).catch(() => null) : null;
+    if (!currentRoot || currentRoot !== expectedRoot) throw new ApiError(409, "practice_scope_changed", "The selected practice changed. Refresh the overview.");
+    const read = await readOfficeMemory(currentRoot, { signal: ctx.request.signal });
     if ((await readProfile())?.officeRoot !== officeRoot) throw new ApiError(409, "practice_scope_changed", "The selected practice changed. Refresh the overview.");
     return read;
   });

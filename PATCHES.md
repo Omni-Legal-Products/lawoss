@@ -1002,3 +1002,10 @@ Zachované obe histórie a celý nezmenený samostatný SDK/dependency helper; r
 | `AGENTS.md`, `CLAUDE.md`, `progress.txt` | Keep matching reusable release/provenance guidance and local verification record. |
 
 Approval and final native platform checks remain required. This local change did not publish, sign, commit, tag, or deliver a release.
+
+
+## Scoped wiki regression owners (2026-10-18)
+
+| Upstream files | Downstream test change and reason |
+| --- | --- |
+| `apps/server/src/wiki/{file-access-policy,team-agent-access,write-approval,project-access}.e2e.test.ts` | Preserve wiki policy/read/write/suggestion Save and pending-approval lifecycle assertions under the immutable first-root process-credential contract. Own-wiki positives use a separate actual ServerConfig/listener and independently issued first-pinned wiki token over shared synthetic registry/files. Shared project credentials explicitly fail at the wiki root; owner regrant cannot elevate a downgraded process role. No production authorization changes. |

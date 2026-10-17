@@ -268,3 +268,7 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Generate embedded build identity after stamping from the exact checkout and target. Packaged identity never falls back to runtime environment variables; dirty local packages must show unavailable provenance.
 - Hash only final, post-signing bytes. Keep evidence per platform and architecture, immutable run-tag payloads, and one owner for common updater manifests. A retry may reuse identical bytes but must not clobber a different payload.
 - Native acceptance must bind the final installer, installed bundle, live IPC identity, owned profile, and actual journeys. Source tests, packaged startup, and operator-free preflight cannot provide native PASS. Preserve separate fresh/migrated receipts and historical evidence snapshots.
+
+
+- Auxiliary raw-source diagnostics must use the overview's server/authentication/scope owner and propagate cancellation through every file read; relative names and workspace IDs alone do not identify source text.
+- Multi-root wiki fixtures use separate actual ServerConfig/listener credentials first pinned to each owning root. Preserve project/own-wiki positives independently, assert shared-token refusals, and exercise owner-only approval lifecycle on a fresh owner runtime after a monotone role downgrade.

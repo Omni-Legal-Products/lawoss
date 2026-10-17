@@ -277,3 +277,20 @@ test("suggest navrhne prax z mien priečinkov a nič nezapíše", async () => {
   expect((await f.call("suggest", { root: "relatívna/cesta" })).status).toBe(400);
   expect((await f.call("suggest", { root }, {} as { "X-LegalWork-Host-Token": string; "Content-Type": string })).status).toBe(401);
 });
+
+test("office-memory accepts the same canonical profile root with trailing separators only", async () => {
+  const f = await fixture(), root = join(f.base,"trailing-practice"), other = join(f.base,"other-practice");
+  for (const directory of [root,other]) {
+    await mkdir(join(directory,"Office","memory"),{ recursive: true });
+    await writeFile(join(directory,"Office","okf.config"),"version: 1\n");
+    await writeFile(join(directory,"Office","memory","T-001.md"),directory === root ? "selected" : "foreign");
+  }
+  const profile = await f.success("profile",{ lawyerName: "Synthetic", jurisdiction: "sk", language: "sk", officeRoot: `${root}/` });
+  const endpoint = (expected: string) => `office-memory?expectedPracticeRoot=${encodeURIComponent(expected)}`;
+  const response = await f.call(endpoint(profile.officeRoot));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ practiceRoot: root, files: [{ content: "selected" }] });
+  expect((await f.call(endpoint(root))).status).toBe(200);
+  expect((await f.call(endpoint(other))).status).toBe(409);
+  expect((await f.call(endpoint(join(f.base,"missing")))).status).toBe(409);
+});

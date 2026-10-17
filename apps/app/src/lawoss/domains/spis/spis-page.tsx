@@ -1,3 +1,4 @@
+import { okfRawFilesQueryOptions } from "../../okf/raw-files";
 import { revalidateScopeTarget } from "../../okf/scope-target";
 import { PracticeCoverage } from "../../okf/practice-coverage";
 /** @jsxImportSource react */
@@ -24,9 +25,6 @@ import {
   useOkfOverview,
   useOkfScope,
   canActOnSource, localMatter,
-  locateInScope,
-  type OkfScope,
-  type OkfReadClient,
 } from "../../okf/read-model";
 import {
   buildCockpit,
@@ -64,7 +62,7 @@ export function SpisPage() {
   // Konverzácia beží v priečinku klienta veci, nikdy nad celou praxou.
   const local = scope && cockpit && data ? localMatter(scope, cockpit.matter, data.matters) : null;
   const workspace = local?.workspace ?? null;
-  const raw = useRawFiles(connection?.client ?? null, scope, cockpit?.unreadable.map((p) => p.path) ?? []);
+  const raw = useQuery(okfRawFilesQueryOptions(connection, scope, cockpit?.unreadable.map((p) => p.path) ?? []));
   async function openTask() {
     if (opening.current || !connection || !workspace || !cockpit || !data || !canActOnSource(data, workspace.id) || query.error) return;
     opening.current = true; setOpeningSession(true); setSessionError("");
@@ -106,30 +104,6 @@ export function SpisPage() {
       )}
     </LawossLayout>
   );
-}
-
-/** Surový obsah nečitateľných záznamov — bez neho by z obrazovky ticho zmizli. */
-function useRawFiles(client: OkfReadClient | null, scope: OkfScope | null, paths: readonly string[]) {
-  const key = paths.join("|");
-  return useQuery({
-    queryKey: ["okf-raw", scope?.members.map((m) => m.workspace.id).join("|") ?? "", key],
-    enabled: Boolean(client && scope && paths.length > 0),
-    queryFn: async (): Promise<Record<string, string>> => {
-      if (!client || !scope) return {};
-      const out: Record<string, string> = {};
-      for (const path of paths) {
-        try {
-          // Cesta z prehľadu praxe → súbor v priečinku jej klienta (súbor kancelárie praxe tu nie je).
-          const at = locateInScope(scope, path);
-          if (!at) throw new Error("Súbor nie je v žiadnom pripojenom priečinku.");
-          out[path] = (await client.readWorkspaceFile(at.workspace.id, at.path)).content;
-        } catch (e) {
-          out[path] = e instanceof Error ? e.message : String(e);
-        }
-      }
-      return out;
-    },
-  });
 }
 
 function NotFound({ found, vec }: { found: { path: string; title: string }[]; vec: string | null }) {

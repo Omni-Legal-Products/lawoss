@@ -332,7 +332,11 @@ export type OkfScope = {
 };
 export type OkfScopeClient = OkfReadClient & Partial<Pick<LegalworkServerClient, "lawossOfficeMemory">>;
 
-const queryPath = (path: string | undefined): string => normalizeDirectoryQueryPath(path);
+const queryPath = (path: string | undefined): string => {
+  // A drive root is absolute; the normalized drive-relative spelling Z: is not.
+  if (path && /^[A-Za-z]:[\\/]+$/.test(path)) return `${path.slice(0,2)}/`;
+  return normalizeDirectoryQueryPath(path);
+};
 const safeAbsolute = (path: string): boolean => {
   const normalized = queryPath(path);
   return path === path.trim() && /^(?:[A-Za-z]:\/|\/)/.test(normalized) && !normalized.split("/").some(p => p === "." || p === "..") && !normalized.replace(/^\/\//, "/").includes("//");
