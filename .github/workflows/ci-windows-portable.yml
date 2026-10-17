@@ -220,6 +220,7 @@ jobs:
       - name: Messaging control and local media isolation
         # Beží aj po páde predchádzajúceho kroku, aby sa bezpečnostné regresie na Windows vždy overili.
         if: ${{ !cancelled() }}
+        shell: bash
         run: |
           pnpm --filter opencode-router test:unit
           node --test apps/orchestrator/scripts/router-control-security.test.mjs

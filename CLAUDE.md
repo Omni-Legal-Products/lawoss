@@ -75,6 +75,7 @@ Rules:
 - Prefer functional patterns, short focused functions, DRY, KISS, and YAGNI.
 - Use pnpm. Never use npm or yarn.
 - Pin Bun in `PATH` before running package build scripts; invoking a Bun binary by absolute path does not pin the shell commands inside `bun run`. Verify committed bundles by a second identical build.
+- Cross-platform Bun test commands use explicit test directories instead of shell-expanded globs. Windows workflow steps with multiple native commands need an explicit fail-fast shell so a later success cannot mask an earlier failure.
 - Packaged security checks take the `.app` bundle root on macOS and the executable on Linux/Windows. Use the matrix security target, which also identifies packaged resources, rather than the launch executable.
 - Bun SQLite adapters with an explicit close lifecycle should use cached `Database.query()` or explicitly finalize prepared statements; uncached statements can retain WAL/file handles after `close()`. Verify immediate removal on Windows, not just Unix cleanup.
 - Server shutdown must drain accepted background work and release its owned database handles. Shared runtime caches close only after the last listener stops; preserve independent runtimes and idempotent shutdown.
