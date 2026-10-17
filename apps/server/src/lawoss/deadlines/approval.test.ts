@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdir, readFile, rm, writeFile, cp } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { ApprovalService } from "../../approvals.js";
 import { createHostDecisionPort } from "../host-decision.js";
 import { syntheticHostConfig } from "../test-support/host-config.js";
@@ -43,7 +44,8 @@ test("separate stale process cannot roll native projection authority back after 
     expect(await ledger.run(store=>store.advance("cross-process",null,first))).toBe(true);
     const childFile=join(root,"ledger-child.test.ts"),ledgerUrl=new URL("./ledger.ts",import.meta.url).href;
     await writeFile(childFile,`import {test} from "bun:test";\nimport {createDeadlineReceiptLedger} from ${JSON.stringify(ledgerUrl)};\ntest("isolated stale projection writer",async()=>{process.env.LEGALWORK_RUNTIME_DB=${JSON.stringify(runtimeDbPath(config))};const ledger=createDeadlineReceiptLedger(${JSON.stringify(config)});const stale=await ledger.run(store=>store.current("cross-process"));if(!stale)throw new Error("Missing stale capture");process.stdout.write("DEADLINE_LEDGER_READY\\n");await new Promise(resolve=>process.stdin.once("data",resolve));const changed=await ledger.run(store=>store.advance("cross-process",stale.receiptId,{...stale,receiptId:"stale-child",operationId:"stale-child"}));const current=await ledger.run(store=>store.current("cross-process"));process.stdout.write(JSON.stringify({changed,sequence:current?.projection?.sequence})+"\\n");});\n`);
-    child=spawn(process.execPath,["test","--preload","./apps/server/test-preload.ts","--preload","./apps/server/test-preload-lawoss.ts",childFile],{cwd:process.cwd(),env:process.env,stdio:["pipe","pipe","pipe"]});
+    const preloads=["test-preload.ts","test-preload-lawoss.ts"].flatMap(name=>["--preload",fileURLToPath(new URL(`../../../${name}`,import.meta.url))]);
+    child=spawn(process.execPath,["test",...preloads,childFile],{cwd:process.cwd(),env:process.env,stdio:["pipe","pipe","pipe"]});
     let stdout="",stderr="",ready:()=>void=()=>{};const entered=new Promise<void>(resolve=>{ready=resolve;});child.stdout?.on("data",bytes=>{stdout+=String(bytes);if(stdout.includes("DEADLINE_LEDGER_READY"))ready();});child.stderr?.on("data",bytes=>{stderr+=String(bytes);});
     closed=new Promise((resolve,reject)=>{child!.once("close",code=>resolve(code));child!.once("error",reject);});
     const budget=new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error("Owned ledger child rendezvous timed out")),10000);});
