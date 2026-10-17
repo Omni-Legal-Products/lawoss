@@ -1,15 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync } from "node:fs";
-import { rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { app, BrowserWindow, ipcMain, screen } from "electron";
 import { createHostApprovalHandler } from "../electron/host-approvals.mjs";
 import { createContextReview } from "../electron/host-context-review.mjs";
 
-const root = mkdtempSync(path.join(tmpdir(), "lawoss-host-review-"));
-app.setPath("userData", root);
+const userData = process.env.LEGALWORK_HOST_REVIEW_USERDATA;
+if (!userData) throw new Error("Use the owned run-host-review-regression.mjs launcher");
+app.setPath("userData", userData);
 app.on("window-all-closed", () => {});
 const watchdog = setTimeout(() => {console.error("Owned host review regression timed out"); app.exit(1);}, 45000);
 let parent;
@@ -74,7 +71,7 @@ try {
 } finally {
   clearTimeout(watchdog);
   for (const window of BrowserWindow.getAllWindows()) window.destroy();
-  await rm(root, {recursive: true, force: true});
-  app.exit(process.exitCode ?? 0);
+  if (process.exitCode) app.exit(process.exitCode);
+  else app.quit();
 }
-});
+}).catch(error => {console.error(error); app.exit(1);});

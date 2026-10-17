@@ -489,3 +489,6 @@ Added the independent two-snapshot/two-receipt reproduction as a failing owner-l
 
 2026-10-18 — Native context review CI follow-up
 - Added actual Electron test:host-review to normal macOS CI alongside preview/browser gates, timeout2min, no continue-on-error. CI command-wiring regression RED missingstep then GREEN; actual six-case renderer evidence retained from7a4ac5e9. No workflow restructuring or support/acceptance claim for unrun GitHub CI.
+
+2026-10-18 — Host review fixture cleanup lifecycle
+- Reproduced root6-case success followed by ENOTEMPTY/unhandled/hang: child removed Chromium profile before quitting. Added narrow Node parent owner, child orderly quit, await child close, bounded rm retries; preserve child/timeout/cleanup errors. Real Electron6cases+parent exit0; targeted lifetime/failure/timeout/CIwiring4PASS. Production review unchanged.

@@ -14,6 +14,7 @@ test('normal macOS test job runs the real host review gate without an optional o
   assert.match(step, /^        run: pnpm --filter @legalwork\/desktop test:host-review$/m);
   assert.doesNotMatch(step, /continue-on-error|workflow_dispatch|inputs\./);
   const desktop = JSON.parse(readFileSync(new URL('../../apps/desktop/package.json', import.meta.url), 'utf8'));
-  assert.equal(desktop.scripts['test:host-review'], 'electron scripts/host-review-regression.mjs');
+  assert.equal(desktop.scripts['test:host-review'], 'node scripts/run-host-review-regression.mjs');
+  assert.match(readFileSync(new URL('../../apps/desktop/scripts/run-host-review-regression.mjs', import.meta.url), 'utf8'), /new URL\("host-review-regression\.mjs"/);
   assert.ok(readFileSync(new URL('../../apps/desktop/scripts/host-review-regression.mjs', import.meta.url), 'utf8').includes('createHostApprovalHandler'));
 });

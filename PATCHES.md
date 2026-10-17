@@ -9,6 +9,8 @@
 
 The normal macOS `ci-tests.yml` job runs `test:host-review` beside the existing Electron preview/browser gates with a two-minute bound and no soft-failure option. `scripts/ci/host-review-workflow.test.mjs` verifies actual command wiring; it does not replace the renderer test.
 
+The host-review smoke uses a Node-owned temporary profile and launcher, following the preview-security fixture. Electron quits before the parent removes Chromium Session Storage with bounded retries; nonzero child exit, timeout and cleanup failure remain failures. No production review/receipt code changes.
+
 ## Native host decisions and bounded engine credential (2026-10-17)
 
 | Súbory | Downstream doplnenie a dôvod |
