@@ -7,7 +7,7 @@ import path from "node:path";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
 import { loadNativeCorpus } from "../lawoss/testing/isir/native/corpus.mjs";
-import { startProvider } from "../lawoss/testing/isir/native/provider.mjs";
+import { startProvider, decodeNativeToolOutput } from "../lawoss/testing/isir/native/provider.mjs";
 import { partialPdf } from "../lawoss/testing/isir/native/partial-pdf.mjs";
 import { connectRenderer, until } from "../lawoss/testing/isir/native/cdp.mjs";
 import { stopNativeChild as stop } from "../lawoss/testing/isir/native/owned-process.mjs";
@@ -271,9 +271,9 @@ try {
     const generation=await until(()=>{
       const receipts=provider.receipts.slice(receiptStart).filter(r=>r.sources.length);
       const last=receipts.at(-1);
-      const error=last?.toolResults.find(r=>{try{return Boolean(JSON.parse(r.content).error)}catch{return false}});
-      if(error)return {error:JSON.parse(error.content).error};
-      const result=last?.toolResults.map(r=>{try{return JSON.parse(r.content)}catch{return null}}).find(r=>r&&typeof r.valid==='boolean');
+      const error=last?.toolResults.find(r=>{try{return Boolean(decodeNativeToolOutput(r.content).error)}catch{return false}});
+      if(error)return {error:decodeNativeToolOutput(error.content).error};
+      const result=last?.toolResults.map(r=>{try{return decodeNativeToolOutput(r.content)}catch{return null}}).find(r=>r&&typeof r.valid==='boolean');
       return result?{result,receipts}:false;
     },'actual engine tool validation result',90000);
     assert.equal(generation.error,undefined,`Production native tool failed: ${generation.error}`);
@@ -339,14 +339,18 @@ try {
   await cdp.send('Input.insertText',{text:'\nNative attachment submission fixture.'});
   const chatStart=cdp.events.length;
   await click('Run task');
-  const chatRequest=await until(()=>cdp.events.slice(chatStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&e.params.request.url.endsWith('/prompt_async')),'ordinary native chat submission');
+  const chatQueuePath=`/workspace/${chatWorkspace.id}/sessions/${chatEvidence.sessionId}/queue`;
+  const chatRequest=await until(()=>cdp.events.slice(chatStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&new URL(e.params.request.url).pathname===chatQueuePath&&JSON.parse(e.params.request.postData??'{}').type==='enqueue'),'ordinary native chat queue submission');
+  const queuedChat=JSON.parse(chatRequest.params.request.postData);
+  assert.equal(queuedChat.execution.kind,'prompt');assert.deepEqual(queuedChat.execution.model,{providerID:'isir-native',modelID:'synthetic'});assert.equal(queuedChat.execution.agent,'legalwork');assert.equal(queuedChat.execution.variant,'high');
+  await until(()=>cdp.events.slice(chatStart).some(e=>e.method==='Network.responseReceived'&&e.params.requestId===chatRequest.params.requestId&&e.params.response.status===200),'ordinary native queue admission returned200');
   const attachmentPath=path.relative(chatWorkspace.path,attachment).replaceAll('\\','/');
   assert.match(attachmentPath,/^\.legalwork\/attachments\/[a-f0-9-]{36}\//);
   assert.ok(chatRequest.params.request.postData.includes(attachmentPath),'Native prompt carries this newly saved attachment reference');
   const uploaded=cdp.events.slice(attachStart).find(e=>e.method==='Network.responseReceived'&&e.params.response.url.endsWith(`/workspace/${chatWorkspace.id}/files/raw`)&&e.params.response.status===200);
   assert.ok(uploaded,'Actual authenticated binary upload returned200');
   extraEvidence.chat={path:attachmentPath,hash:sha256(await readFile(attachment)),uploadStatus:200,promptRequestId:chatRequest.params.requestId};
-  await until(async()=>{const {body}=await api(chatWorkspace,`sessions/${chatEvidence.sessionId}/snapshot?limit=20`);return body.item?.status.type==='idle'&&body.item.messages.some(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('Native attachment submission fixture.')))},'real engine stores native attachment turn');
+  await until(async()=>{const {body}=await api(chatWorkspace,`sessions/${chatEvidence.sessionId}/snapshot?limit=20`);const user=body.item?.messages.find(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('Native attachment submission fixture.')));return body.item?.status.type==='idle'&&user&&body.item.messages.some(m=>m.info.parentID===user.info.id&&m.info.finish==='stop')},'real engine stores and completes native attachment turn');
   assert.equal(sha256(await readFile(attachment)),sha256(chatSource.bytes));
   console.log('PASS native composer attachment upload, actual saved bytes and real engine submission');
   // Actual saved bytes are the input for invalidation tests, never generated
@@ -450,18 +454,23 @@ try {
   const recoveryPromptStart=cdp.events.length;
   await cdp.send('Input.insertText',{text:'NATIVE_RECOVERED_CWD_PROOF'});
   await click('Run task');
-  const recoveryRequest=await until(()=>cdp.events.slice(recoveryPromptStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&e.params.request.url.endsWith('/prompt_async')&&e.params.request.postData?.includes('NATIVE_RECOVERED_CWD_PROOF')),'actual recovered-session native prompt');
+  const recoveryQueuePath=`/workspace/${first.id}/sessions/${evidence[0].sessionId}/queue`;
+  const recoveryRequest=await until(()=>cdp.events.slice(recoveryPromptStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&new URL(e.params.request.url).pathname===recoveryQueuePath&&JSON.parse(e.params.request.postData??'{}').type==='enqueue'&&e.params.request.postData.includes('NATIVE_RECOVERED_CWD_PROOF')),'actual recovered-session native queue submission');
+  await until(()=>cdp.events.slice(recoveryPromptStart).some(e=>e.method==='Network.responseReceived'&&e.params.requestId===recoveryRequest.params.requestId&&e.params.response.status===200),'recovered-session queue admission returned200');
   const freshRead=await until(async()=>{
     const {body}=await api(first,`sessions/${evidence[0].sessionId}/snapshot?limit=20`),item=body.item;
     const user=item?.messages.find(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('NATIVE_RECOVERED_CWD_PROOF')));
     const assistant=user&&item.messages.find(m=>m.info.parentID===user.info.id&&m.info.finish==='stop');
     const read=user&&item.messages.filter(m=>m.info.parentID===user.info.id).flatMap(m=>m.parts).find(p=>p.type==='tool'&&p.tool==='lawoss_documents_read'&&p.state.status==='completed');
-    const cwd=user&&item.messages.filter(m=>m.info.parentID===user.info.id).flatMap(m=>m.parts).find(p=>p.type==='tool'&&p.tool==='bash'&&p.state.status==='completed'&&p.state.input.command===(process.platform==='win32'?'node -p "process.cwd()"':'pwd'));
+    const cwd=user&&item.messages.filter(m=>m.info.parentID===user.info.id).flatMap(m=>m.parts).find(p=>p.type==='tool'&&p.tool==='legalwork_shell'&&p.state.status==='completed'&&p.state.input.command===(process.platform==='win32'?'node -p "process.cwd()"':'pwd'));
     return item?.status.type==='idle'&&assistant&&read&&cwd?{session:item.session,user:user.info.id,read,cwd}:false;
   },'real engine executes a fresh scoped document read after native reconnect',60000);
   assert.equal(freshRead.session.directory,moved);assert.equal(freshRead.session.id,evidence[0].sessionId);
   assert.ok(evidence[0].documentIds.includes(freshRead.read.state.input.id));
-  assert.equal(freshRead.cwd.state.output.trim(),moved,"Actual engine process cwd uses the moved folder, without an absolute read operand");
+  assert.equal(freshRead.cwd.state.input.workdir,undefined,'Managed shell uses the recovered default directory without an explicit path');
+  assert.equal(freshRead.cwd.state.metadata.exit,0,'Actual managed shell command exited successfully');
+  assert.equal(freshRead.cwd.state.metadata.sandbox,'host','Actual host shell reports the recovered native folder');
+  assert.equal(freshRead.cwd.state.output.trim(),moved,"Actual managed shell cwd uses the moved folder, without an absolute read operand");
   assert.equal(await access(oldPath).then(()=>true,()=>false),false);
   extraEvidence.recoveryRead={sessionId:freshRead.session.id,messageId:freshRead.user,directory:freshRead.session.directory,actualPwd:freshRead.cwd.state.output.trim(),documentId:freshRead.read.state.input.id,promptRequestId:recoveryRequest.params.requestId};
   // Every output, source and project is independently reread after an actual
