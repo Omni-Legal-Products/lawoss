@@ -33,7 +33,8 @@ try {
   try {await readFile(path.join(previewRoot,'__isir-fixtures/chooser-boundary.js'));}
   catch(error){if(error.code!=='ENOENT')throw error;await nativeRendererLaunch(appRoot,0,buildRoot);}
   assert.deepEqual(await readFile(path.join(previewRoot,'index.html')),await readFile(path.join(appRoot,'dist/index.html')));
-  await writeFile(path.join(previewRoot,'__isir-fixtures/probe.html'),'<!doctype html><title>Owned chooser fixture</title>');
+  const css=(await readFile(path.join(previewRoot,'index.html'),'utf8')).match(/<link[^>]+rel="stylesheet"[^>]*>/g)??[];
+  await writeFile(path.join(previewRoot,'__isir-fixtures/probe.html'),'<!doctype html><title>Owned chooser fixture</title>'+css.join(''));
   const require=createRequire(path.join(appRoot,'package.json'));
   // OS-selected file and destination are synthetic and owned by this invocation.
   await writeFile(path.join(root,'selected.txt'),'Synthetic chooser bytes');
@@ -52,7 +53,10 @@ try {
   await until(()=>cdp.evaluate(`location.origin===${JSON.stringify(origin)}&&document.readyState==='complete'`),'actual owned fixture document');
   await cdp.send('Page.navigate',{url:`${origin}/__isir-fixtures/probe.html?chooser`});
   await until(()=>cdp.evaluate("location.search==='?chooser'&&document.readyState==='complete'"),'fresh chooser document');
-  await cdp.evaluate(`(async()=>{window.__chooserFixture=(await import('/__isir-fixtures/chooser-boundary.js')).mountChooserBoundaryFixture(${JSON.stringify(`http://127.0.0.1:${sink.address().port}/copy`)},{holdCompletion:${processMode!=='immediate'},sibling:${processMode==='siblings'}});window.__legalwork={slice:()=>({selectedWorkspaceId:'synthetic'})};})()`);
+  await cdp.evaluate(`(async()=>{window.__chooserFixture=await (await import('/__isir-fixtures/chooser-boundary.js')).mountProductionImportFixture(${JSON.stringify(`http://127.0.0.1:${sink.address().port}/copy`)},{holdCompletion:${processMode!=='immediate'},sibling:${processMode==='siblings'}});})()`);
+  await until(()=>cdp.evaluate("window.__legalworkControl?.snapshot().route.endsWith('/files')"),'actual control-off provider route publication');
+  assert.equal(await cdp.evaluate('window.__legalworkControl.snapshot().enabled'),false);
+  assert.deepEqual(await cdp.evaluate("({parked:!document.querySelector('[data-panel-tab-id=stale]'),published:window.__legalworkControl.snapshot().openFiles.some(file=>file.id==='stale'&&file.path==='Dokumenty/selected.txt'&&!file.active)})"),{parked:true,published:true},'Actual inactive DocumentPane is absent from DOM but retained in public control state');
   await cdp.evaluate(`(${observer.toString()})({id:'synthetic',root:'/synthetic',name:'Synthetic',caseIndex:1})`);
   await cdp.send('Page.enable');await cdp.send('Page.setInterceptFileChooserDialog',{enabled:true});
   const source=await readFile(driverSource??new URL('../../../../scripts/test-isir-native.mjs',import.meta.url),'utf8');
@@ -82,18 +86,29 @@ try {
       return actualReadFile(file,...args);
     };
     const observedUntil=async(read,description,...budgets)=>{
+      if(!receiptRead&&description==='current native folder query settled') {
+        for(const mutation of ['missing-control','foreign-control','missing-files','missing-bridge','owner']) {
+          await cdp.evaluate(`(()=>{const api=window.__legalworkControl;window.__readyUndo={api,snapshot:api.snapshot,bridge:Object.getOwnPropertyDescriptor(window,'__LEGALWORK_ELECTRON__')};if(${JSON.stringify(mutation)}==='missing-control')delete window.__legalworkControl;if(${JSON.stringify(mutation)}==='foreign-control')api.snapshot=()=>({...window.__readyUndo.snapshot(),route:'/workspace/foreign/files'});if(${JSON.stringify(mutation)}==='missing-files')api.snapshot=()=>({...window.__readyUndo.snapshot(),openFiles:undefined});if(${JSON.stringify(mutation)}==='missing-bridge')delete window.__LEGALWORK_ELECTRON__;if(${JSON.stringify(mutation)}==='owner')window.__chooserFixture.setOwner('foreign')})()`);
+          try { assert.equal(Boolean(await read()),false,`Pre-provision state refuses ${mutation}`); }
+          finally { await cdp.evaluate("(()=>{const saved=window.__readyUndo;saved.api.snapshot=saved.snapshot;window.__legalworkControl=saved.api;Object.defineProperty(window,'__LEGALWORK_ELECTRON__',saved.bridge);window.__chooserFixture.setOwner('synthetic');delete window.__readyUndo})()"); }
+        }
+      }
       if(receiptRead) {
         if(processMode==='wait-error')throw primaryWait;
         const before=await read();
         if(processMode!=='immediate')assert.equal(Boolean(before),false,'IPC receipt alone must not establish completed renderer tabs');
         assert.equal(await cdp.evaluate("document.querySelector('[data-copy-route]').textContent"),'/workspace/synthetic/session','Actual import request commits its workspace route');
         await cdp.evaluate('window.__chooserFixture.release()');
+        await until(()=>cdp.evaluate("[...document.querySelectorAll('[data-panel-tab-id]:not([data-panel-tab-id=stale]) [title]')].some(e=>e.title.endsWith('/ Dokumenty/selected.txt')&&e.getBoundingClientRect().width>0)"),'actual SidePanel completed visible title');
+        const proof=await cdp.evaluate("({desktop:window.__LEGALWORK_ELECTRON__!=null,pathnameIsDocument:location.pathname==='/__isir-fixtures/probe.html',hashIsWorkspace:location.hash==='#/workspace/synthetic/session?view=workspace',publishedRoute:window.__legalworkControl.snapshot().route,owner:window.__legalwork.slice('route').selectedWorkspaceId,completionPredicate: null})");
+        proof.completionPredicate=Boolean(await read());console.log('Actual production route/tab proof',JSON.stringify(proof));
+        assert.equal(proof.completionPredicate,true,'Actual completed SessionPage desktop import must satisfy picker completion');
         const value=await until(read,description,...budgets);
         // Exercise the exact caller predicate against real DOM after completion.
-        for(const mutation of ['owner','route','hidden','duplicate']) {
-          await cdp.evaluate(`(()=>{const node=[...document.querySelectorAll('[data-panel-tab-id]')].find(e=>e.getAttribute('data-panel-tab-id')!=='stale');window.__copyUndo={api:window.__legalwork,url:location.href,node};if(${JSON.stringify(mutation)}==='owner')window.__legalwork={slice:()=>({selectedWorkspaceId:'foreign'})};if(${JSON.stringify(mutation)}==='route')history.replaceState(null,'','/workspace/foreign/session?view=workspace');if(${JSON.stringify(mutation)}==='hidden')node.hidden=true;if(${JSON.stringify(mutation)}==='duplicate'){const clone=node.cloneNode(true);clone.dataset.copyDecoy='';node.after(clone)}})()`);
+        for(const mutation of ['owner','route','hidden','duplicate','missing-control','foreign-control','missing-bridge','malformed-hash']) {
+          await cdp.evaluate(`(()=>{const node=[...document.querySelectorAll('[data-panel-tab-id]')].find(e=>e.getAttribute('data-panel-tab-id')!=='stale');window.__copyUndo={url:location.href,node,api:window.__legalworkControl,snapshot:window.__legalworkControl.snapshot,bridge:Object.getOwnPropertyDescriptor(window,'__LEGALWORK_ELECTRON__')};if(${JSON.stringify(mutation)}==='owner')window.__chooserFixture.setOwner('foreign');if(${JSON.stringify(mutation)}==='route')history.replaceState(null,'',window.__LEGALWORK_ELECTRON__?'#/workspace/foreign/session?view=workspace':'/workspace/foreign/session?view=workspace');if(${JSON.stringify(mutation)}==='missing-control')delete window.__legalworkControl;if(${JSON.stringify(mutation)}==='foreign-control')window.__legalworkControl.snapshot=()=>({...window.__copyUndo.snapshot(),route:'/workspace/foreign/session?view=workspace'});if(${JSON.stringify(mutation)}==='missing-bridge')delete window.__LEGALWORK_ELECTRON__;if(${JSON.stringify(mutation)}==='malformed-hash')history.replaceState(null,'','#not-a-route');if(${JSON.stringify(mutation)}==='hidden')node.hidden=true;if(${JSON.stringify(mutation)}==='duplicate'){const clone=node.cloneNode(true);clone.dataset.copyDecoy='';node.after(clone)}})()`);
           try{assert.equal(Boolean(await read()),false,`Completion refuses ${mutation}`);}
-          finally{await cdp.evaluate(`(()=>{const saved=window.__copyUndo;window.__legalwork=saved.api;history.replaceState(null,'',saved.url);saved.node.hidden=false;document.querySelector('[data-copy-decoy]')?.remove();delete window.__copyUndo})()`);}
+          finally{await cdp.evaluate(`(()=>{const saved=window.__copyUndo;saved.api.snapshot=saved.snapshot;window.__legalworkControl=saved.api;Object.defineProperty(window,'__LEGALWORK_ELECTRON__',saved.bridge);window.__chooserFixture.setOwner('synthetic');history.replaceState(null,'',saved.url);saved.node.hidden=false;document.querySelector('[data-copy-decoy]')?.remove();delete window.__copyUndo})()`);}
         }
         assert.equal(Boolean(await read()),true,'Restored exact owner and new completed tab pass');
         completionObserved=true;return value;
@@ -114,7 +129,7 @@ try {
     } finally {await cdp.evaluate('window.__chooserFixture.release()');}
   }
   await cdp.evaluate('window.__chooserFixture.dispose()');
- } catch(error) {primary=error;throw error;} finally {
+ } catch(error) {primary=error;console.error('Owned fixture renderer exceptions',JSON.stringify(cdp?.events.filter(e=>e.method==='Runtime.exceptionThrown').slice(-5).map(e=>e.params.exceptionDetails.exception?.description)));throw error;} finally {
   const errors=[];
   // Browser shutdown is graceful and awaited before strict owned cleanup.
   if(cdp)try{

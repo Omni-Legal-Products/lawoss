@@ -234,7 +234,13 @@ try {
   const picker = async (paths,workspace) => {
     await cdp.send('Page.enable'); await cdp.send('Page.setInterceptFileChooserDialog',{enabled:true});
     const eventStart=cdp.events.length;
-    await until(()=>cdp.evaluate(`(()=>{const button=document.querySelector('button[aria-label="Refresh folder"]');return button&&!button.disabled})()`),'current native folder query settled');
+    const priorTabIds=await until(()=>cdp.evaluate(`(()=>{
+      const button=document.querySelector('button[aria-label="Refresh folder"]'),snapshot=window.__legalworkControl?.snapshot?.();
+      if(!button||button.disabled||window.__LEGALWORK_ELECTRON__==null||snapshot?.route!=='/workspace/'+encodeURIComponent(${JSON.stringify(workspace.id)}.trim())+'/files'||snapshot.route!==location.hash.slice(1)||!Array.isArray(snapshot.openFiles)||window.__legalwork?.slice('route')?.selectedWorkspaceId!==${JSON.stringify(workspace.id)})return false;
+      // DocumentPane parks hidden workspace tabs outside document. The public
+      // control list retains their completed IDs while their DOM is detached.
+      return [...new Set([...snapshot.openFiles.map(file=>file.id),...[...document.querySelectorAll('[data-panel-tab-id]')].map(node=>node.getAttribute('data-panel-tab-id'))])];
+    })()`),'current native folder query settled');
     await until(()=>cdp.evaluate(`(()=>{const upload=[...document.querySelectorAll('[role="menuitem"]')].find(e=>e.textContent.trim()==='Add files'&&e.getBoundingClientRect().width>0&&!e.disabled);if(upload){window.__isirChooserBoundary.capture();const state=window.__isirChooserBoundary.sample('before-upload-ack');if(!['selectedOwnerEqual','runtimeOwnerEqual','workspaceRootEqual','folderPathEqual','rootBreadcrumbEqual','physicalScopeEqual','inputConnected','capturedConnected','inputGenerationEqual'].every(key=>state[key]===true))return false;upload.click();return true}const nav=document.querySelector('[aria-label="Current folder"]');const folder=document.querySelector('[data-project-folder="Dokumenty"]');if(!folder||nav?.querySelector('button')?.textContent.trim()!==${JSON.stringify(workspace.name)})return false;folder.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:200,button:2}));return false})()`),'current project native upload menu action');
     const chooser=await until(()=>cdp.events.slice(eventStart).find(e=>e.method==='Page.fileChooserOpened'),'actual native HTML chooser request');
     // The display-name ACK is independent of client identity: GREEN must keep
@@ -275,7 +281,6 @@ try {
     await writeFile(path.join(root,`chooser-boundary-${selectedIndex}.json`),JSON.stringify(await cdp.evaluate('window.__isirChooserBoundary.receipt()'),null,2),{mode:0o600});
     assert.equal(inputIdentity.connected,true,'Chooser input remains mounted before OS-backed provisioning');
     for(const key of ['selectedOwnerEqual','runtimeOwnerEqual','workspaceRootEqual','physicalScopeEqual','inputConnected','capturedConnected','panelGenerationEqual','inputGenerationEqual','documentGenerationEqual','eventInputEqual'])assert.equal(inputIdentity.boundary[key],true,`Chooser retains exact owned input: ${key}`);
-    const priorTabIds=await cdp.evaluate(`[...document.querySelectorAll('[data-panel-tab-id]')].map(e=>e.getAttribute('data-panel-tab-id'))`);
     await cdp.send('DOM.setFileInputFiles',{backendNodeId:chooser.params.backendNodeId,files:paths});
     const changed=await until(()=>cdp.evaluate('window.__isirPickerChange'),'actual native file input change event');
     assert.equal(changed.connected,true,'Native file input change bubbles from the mounted production input');
@@ -288,7 +293,10 @@ try {
     // the same completed artifact boundary as drop before navigating to Files.
     await until(()=>cdp.evaluate(`(()=>{
       const expected=${JSON.stringify({id:workspace.id,paths:copied.result.files.map(f=>f.path),priorTabIds})};
-      if(location.pathname!=='/workspace/'+encodeURIComponent(expected.id.trim())+'/session'||new URLSearchParams(location.search).get('view')!=='workspace'||window.__legalwork?.slice('route')?.selectedWorkspaceId!==expected.id)return false;
+      const route='/workspace/'+encodeURIComponent(expected.id.trim())+'/session?view=workspace';
+      // index.react selects HashRouter for the native Electron bridge. The
+      // control provider publishes useLocation after React commits navigation.
+      if(window.__LEGALWORK_ELECTRON__==null||location.hash!=='#'+route||window.__legalworkControl?.snapshot?.()?.route!==route||window.__legalwork?.slice('route')?.selectedWorkspaceId!==expected.id)return false;
       const visible=e=>e.isConnected&&!e.closest('[hidden]')&&e.getBoundingClientRect().width>0&&e.getBoundingClientRect().height>0;
       const tabs=[...document.querySelectorAll('[data-panel-tab-id]')].filter(e=>!expected.priorTabIds.includes(e.getAttribute('data-panel-tab-id'))&&visible(e)).flatMap(e=>[...e.querySelectorAll('[aria-label^="Select tab:"]')].filter(visible));
       return expected.paths.every(path=>tabs.filter(tab=>tab.getAttribute('title')?.endsWith('/ '+path)).length===1);

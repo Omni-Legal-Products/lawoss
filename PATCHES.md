@@ -970,3 +970,9 @@ Zachované obe histórie a celý nezmenený samostatný SDK/dependency helper; r
 | Súbory | Oprava a overenie |
 |---|---|
 | `apps/app/tests/native-files-navigation.test.tsx`, `lawoss/testing/isir/native/project-files-navigation{,-fixture,.test}.mjs` | Existujúca SSR seam renderuje produkčné sidebar primitives; helper používa samostatný scoped Expand/Collapse chevron a známy SidebarMenuSubButton s boolean-presence data-active. RED 0/2, GREEN 2/2; samostatný helper 49/49 vrátane owner/root/reconnect odmietnutí, nested chevrons a idempotencie. Produkčné UI/handlers ani timeouty sa nemenia. |
+
+### PR158 Task2: natívny import a skutočný desktop router (2026-10-17)
+
+| Súbory | Oprava a overenie |
+|---|---|
+| `scripts/test-isir-native.mjs`, `apps/app/tests/chooser-boundary.fixture.tsx`, `lawoss/testing/isir/native/import-boundary.browser.mjs` | Po skutočnom fddcc CI páde pri case1 nový guard číta desktop HashRouter a skutočný committed control snapshot, nie browser pathname. Pôvodné IDs zahŕňajú public openFiles aj odpojených DocumentPane portalov. Mounted regresia používa skutočný SessionPage import event, SidePanel, runtime-env a control provider; pôvodný modeled callback už nie je acceptance oracle. Strict owner/input/new-tab/bytes odmietnutia a pôvodné rozpočty zostávajú. Normálny native CI nového headu ostáva povinný. |
