@@ -85,7 +85,7 @@ import { requireProjectAppFilesInside, usesExternalWorkspaceAppFiles, workspaceA
 import { isPathWithin } from "./lawoss/path-within.js";
 import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
-import { authenticateWikiAgentRequest, configureWikiAgentSessionLookup, grantWikiAgentSession } from "./wiki/agent-access.js";
+import { agentMayList, authenticateWikiAgentRequest, configureWikiAgentSessionLookup, grantWikiAgentSession } from "./wiki/agent-access.js";
 import { EnvService } from "./env-file.js";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports, withPluginImportLock } from "./plugin-imports.js";
 import { createdPluginId, parsePluginCreateRequest, planPluginCreation, pluginCreateOptions } from "./plugin-create.js";
@@ -899,6 +899,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     // client surface, but the generics make TS unable to prove it.
     createClient: (workspace, directory) =>
       createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
+    // Runs start only from a collaborator request (routes/benchmarks.ts).
+    grantAgentSession: (sessionId, directory) => grantWikiAgentSession(config, { sessionId, directory, scope: "collaborator" }),
   });
   // LAWOSS: OCR models download only after the lawyer turns OCR on (lawoss/ocr-opt-in.ts).
   const ocr = new LawossOcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config));
@@ -953,7 +955,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
         throw new ApiError(409, "schedule_chat_permissions", "This chat has broader saved permissions. Choose a new chat for each run to use project-only access.");
       // The server records the schedule editor's authority. A collaborator edit
       // downgrades it; old schedules default to shared-wiki access.
-      await grantWikiAgentSession(config, { sessionId, directory: session.directory, scope: task.wikiScope });
+      await grantWikiAgentSession(config, { sessionId, directory: session.directory, scope: task.wikiScope, allProjects: task.projectAccess === "all" });
       const result = await client.session.promptAsync({ sessionID: sessionId, agent, ...(task.model ? { model: task.model } : {}),
         parts: [{ type: "text", text: `[Scheduled task: ${task.title}]\n\n${task.prompt}` }] }, { signal: AbortSignal.timeout(30000) });
       if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
@@ -1148,6 +1150,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       authMode = route.auth;
       try {
         const agentAccess = await authenticateWikiAgentRequest(config, request);
+        // LAWOSS: the engine credential never stands in for a host or owner-only route.
+        if (agentAccess && route.auth !== "client")
+          throw new ApiError(403, "wiki_agent_endpoint_denied", "This agent credential is limited to this project's tools.");
         const actor =
           agentAccess?.actor ?? (route.auth === "host-token"
             ? requireHostToken(request, config)
@@ -1169,10 +1174,11 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
           tokens,
           actor,
         });
-        const workspaceList = url.pathname === "/workspaces" ? { field: "items", identity: "id" }
-          : url.pathname === "/scheduled-tasks/projects" ? { field: "projects", identity: "id" }
-          : url.pathname === "/scheduled-tasks" ? { field: "tasks", identity: "workspaceId" }
-          : url.pathname === "/session-inbox" ? { field: "sessions", identity: "workspaceId" } : null;
+        // LAWOSS: `/workspaces` repeats the list as `workspaces`; both are filtered.
+        const workspaceList = url.pathname === "/workspaces" ? { fields: ["items", "workspaces"], identity: "id" }
+          : url.pathname === "/scheduled-tasks/projects" ? { fields: ["projects"], identity: "id" }
+          : url.pathname === "/scheduled-tasks" ? { fields: ["tasks"], identity: "workspaceId" }
+          : url.pathname === "/session-inbox" ? { fields: ["sessions"], identity: "workspaceId" } : null;
         if (request.method === "GET" && workspaceList && response.ok) {
           const wikis = await wikiStore.list();
           const hidden = new Set<string>();
@@ -1183,11 +1189,19 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
           }
           const payload: unknown = await response.json();
           if (isRecord(payload)) {
-            const items = payload[workspaceList.field];
-            if (Array.isArray(items)) response = jsonResponse({ ...payload, [workspaceList.field]: items.filter((item: unknown) => {
-              const id = isRecord(item) ? item[workspaceList.identity] : undefined;
-              return typeof id !== "string" || !hidden.has(id);
-            }) });
+            // LAWOSS: an engine session lists only its own project (and wikis it may open).
+            const wikiIds = new Set(wikis.map((wiki) => wiki.workspaceId));
+            const visible = (id: string) => !hidden.has(id) && (!agentAccess || wikiIds.has(id) || agentMayList(agentAccess, url.pathname, id));
+            const filtered: Record<string, unknown> = { ...payload };
+            for (const field of workspaceList.fields) {
+              const items = payload[field];
+              if (Array.isArray(items)) filtered[field] = items.filter((item: unknown) => {
+                const id = isRecord(item) ? item[workspaceList.identity] : undefined;
+                return typeof id === "string" ? visible(id) : !agentAccess;
+              });
+            }
+            if (agentAccess && typeof payload.activeId === "string" && !visible(payload.activeId)) filtered.activeId = agentAccess.workspaceId;
+            response = jsonResponse(filtered);
           }
         }
         return finalize(response);

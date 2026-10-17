@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 export function isBrowserTool(tool: string, args: Record<string, unknown>) {
   return /(^|_)browser_/.test(tool) || tool === "legalwork_ui_execute_action" &&
@@ -12,7 +12,7 @@ export async function requireBrowserNetwork(context: OpenCodeContext) {
   const directory = context.directory || context.worktree;
   const workspaceId = await resolveWorkspaceId({ ...context, directory }, { requireDirectory: true });
   const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspaceId)}/sandbox/session/${encodeURIComponent(context.sessionID)}`, {
-    headers: { Authorization: `Bearer ${serverToken()}` }, signal: AbortSignal.timeout(10000),
+    headers: await workspaceToolHeaders({ ...context, directory }), signal: AbortSignal.timeout(10000),
   });
   if (!response.ok) throw new Error("Browser tools are unavailable because this chat's network policy could not be verified.");
   const settings = z.object({ enabled: z.boolean(), networkMode: z.enum(["allow", "approve", "block"]) }).parse(await response.json());

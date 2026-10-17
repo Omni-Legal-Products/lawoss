@@ -3,16 +3,16 @@ import { z } from "zod";
 import { ScheduledTaskInputSchema, TaskScheduleSchema } from "@legalwork/types/scheduled-tasks";
 import { wallTime } from "../scheduled-tasks/schedule.js";
 import type { createOpencodeClient } from "@opencode-ai/sdk";
-import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, serverConnected, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 import { appStateReminders } from "./app-state-reminders.js";
 
 async function request(context: OpenCodeContext, method: string, path: string, data?: unknown) {
-  const url = serverUrl(), token = serverToken();
-  if (!url || !token) return JSON.stringify({ ok: false, error: "LegalWork server is not connected." });
+  const url = serverUrl();
+  if (!serverConnected(context)) return JSON.stringify({ ok: false, error: "LegalWork server is not connected." });
   try {
     const workspaceId = await resolveWorkspaceId(context, { requireDirectory: true });
     const response = await fetch(`${url}/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks${path}`, {
-      method, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      method, headers: { ...await workspaceToolHeaders(context), "Content-Type": "application/json" },
       body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.timeout(30000),
     });
     const referenceData: unknown = await response.json();
@@ -84,7 +84,7 @@ async function projectRequest(context: OpenCodeContext, route?: "contents" | "co
   try {
     if (context.agent !== PROJECT_TASK_AGENT && context.agent !== ALL_PROJECTS_TASK_AGENT) throw new Error("This tool is available only to scheduled runs. Use the current project's tools in a regular chat.");
     const current = await resolveWorkspaceId(context, { requireDirectory: true });
-    const headers = { Authorization: `Bearer ${serverToken()}` };
+    const headers = await workspaceToolHeaders(context);
     const response = await fetch(`${serverUrl()}/scheduled-tasks/projects`, { headers, signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error("Could not verify project access.");
     const { projects } = z.object({ projects: z.array(z.object({ id: z.string(), name: z.string(), path: z.string() })) }).parse(await response.json());

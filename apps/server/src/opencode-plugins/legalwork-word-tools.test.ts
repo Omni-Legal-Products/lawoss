@@ -23,12 +23,14 @@ describe("LegalWork Word tools", () => {
   test("reports live mode as a reminder while Word is connected, keeping the system prompt fixed", async () => {
     const originalFetch = globalThis.fetch;
     const originalUrl = process.env.LEGALWORK_SERVER_URL;
-    const originalToken = process.env.LEGALWORK_SERVER_TOKEN;
+    const originalToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
     process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
-    process.env.LEGALWORK_SERVER_TOKEN = "test-token";
+    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-token";
+    const sent: Headers[] = [];
     globalThis.fetch = Object.assign(
-      async (input: Parameters<typeof fetch>[0]) => {
+      async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
         const url = input instanceof Request ? input.url : input.toString();
+        sent.push(new Headers(init?.headers));
         if (url.endsWith("/workspaces")) {
           return Response.json({
             items: [{ id: "matter", path: "/Users/lawyer/Matter" }],
@@ -53,21 +55,29 @@ describe("LegalWork Word tools", () => {
       expect(reminder).toContain("NDA Example.docx");
       expect(system).toContain("## Microsoft Word document tools");
       expect(system).not.toContain("NDA Example.docx");
+      // The pane check asks as the chat the reminder is for, never with a server-wide token.
+      expect(sent.length).toBeGreaterThan(0);
+      for (const headers of sent) {
+        expect(headers.get("x-legalwork-wiki-agent-token")).toBe("test-token");
+        expect(headers.get("x-legalwork-wiki-agent-session")).toBe("ses_word");
+        expect(headers.get("x-legalwork-wiki-agent-directory")).toBe(encodeURIComponent("/Users/lawyer/Matter"));
+        expect(headers.get("authorization")).toBeNull();
+      }
     } finally {
       globalThis.fetch = originalFetch;
       if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
       else process.env.LEGALWORK_SERVER_URL = originalUrl;
-      if (originalToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
-      else process.env.LEGALWORK_SERVER_TOKEN = originalToken;
+      if (originalToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+      else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalToken;
     }
   });
 
   test("treats a failed pane check as no change, not as a disconnect", async () => {
     const originalFetch = globalThis.fetch;
     const originalUrl = process.env.LEGALWORK_SERVER_URL;
-    const originalToken = process.env.LEGALWORK_SERVER_TOKEN;
+    const originalToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
     process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
-    process.env.LEGALWORK_SERVER_TOKEN = "test-token";
+    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-token";
     let pane: "connected" | "failing" | "closed" = "connected";
     globalThis.fetch = Object.assign(
       async (input: Parameters<typeof fetch>[0]) => {
@@ -98,8 +108,8 @@ describe("LegalWork Word tools", () => {
       globalThis.fetch = originalFetch;
       if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
       else process.env.LEGALWORK_SERVER_URL = originalUrl;
-      if (originalToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
-      else process.env.LEGALWORK_SERVER_TOKEN = originalToken;
+      if (originalToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+      else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalToken;
     }
   });
 
@@ -111,6 +121,47 @@ describe("LegalWork Word tools", () => {
         OPEN_DOCUMENT,
       ),
     ).toBe(true);
+  });
+
+  test("guards the file pipeline with the calling chat's own pane check", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalUrl = process.env.LEGALWORK_SERVER_URL;
+    const originalToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
+    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-token";
+    const sessions: Array<string | null> = [];
+    globalThis.fetch = Object.assign(
+      async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        sessions.push(new Headers(init?.headers).get("x-legalwork-wiki-agent-session"));
+        if (url.endsWith("/workspaces")) return Response.json({ items: [{ id: "matter", path: "/Users/lawyer/Matter" }] });
+        if (url.endsWith("/workspace/matter/office-tools/status")) {
+          return Response.json({ connected: true, hosts: [{ host: "word", documentUrl: OPEN_DOCUMENT }] });
+        }
+        return new Response("Not found", { status: 404 });
+      },
+      { preconnect: originalFetch.preconnect },
+    );
+
+    try {
+      const plugin = await LegalWorkWordTools({ directory: "/Users/lawyer/Matter" });
+      const call = { args: { command: 'node .opencode/skills/docx-edit/assets/docx-agent.mjs inspect "NDA Example.docx"' } };
+      await expect(plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_word_guard" }, call)).rejects.toThrow(
+        "open in Microsoft Word",
+      );
+      expect(sessions.length).toBeGreaterThan(0);
+      expect(sessions.every((session) => session === "ses_word_guard")).toBe(true);
+      // Without its chat the check cannot ask the server, so it finds no pane.
+      sessions.length = 0;
+      await plugin["tool.execute.before"]({ tool: "bash" }, call);
+      expect(sessions).toHaveLength(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
+      else process.env.LEGALWORK_SERVER_URL = originalUrl;
+      if (originalToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+      else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalToken;
+    }
   });
 
   test("blocks a docx-redliner task targeting the open document", () => {
@@ -158,9 +209,9 @@ describe("routing an unqualified edit request to the live document", () => {
   test("live-mode prompt routes an unqualified rename to the open document", async () => {
     const originalFetch = globalThis.fetch;
     const originalUrl = process.env.LEGALWORK_SERVER_URL;
-    const originalToken = process.env.LEGALWORK_SERVER_TOKEN;
+    const originalToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
     process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
-    process.env.LEGALWORK_SERVER_TOKEN = "test-token";
+    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-token";
     globalThis.fetch = Object.assign(
       async (input: Parameters<typeof fetch>[0]) => {
         const url = input instanceof Request ? input.url : input.toString();
@@ -188,8 +239,8 @@ describe("routing an unqualified edit request to the live document", () => {
       globalThis.fetch = originalFetch;
       if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
       else process.env.LEGALWORK_SERVER_URL = originalUrl;
-      if (originalToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
-      else process.env.LEGALWORK_SERVER_TOKEN = originalToken;
+      if (originalToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+      else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalToken;
     }
   });
 });

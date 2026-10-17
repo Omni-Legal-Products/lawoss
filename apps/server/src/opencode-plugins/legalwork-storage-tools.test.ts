@@ -1,12 +1,14 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { workingCopy } from "../file-storage/working-copy.js";
 import { ApiError } from "../errors.js";
 import { LegalWorkStorageTools } from "./legalwork-storage-tools.js";
 
-type Call = { url: URL; method: string; body: unknown };
+type Call = { url: URL; method: string; body: unknown; headers: Headers };
+/** The chat every tool call below is made from. */
+const SESSION = "ses_storage";
 async function fixture(
   run: (value: {
     plugin: Awaited<ReturnType<typeof LegalWorkStorageTools>>;
@@ -22,16 +24,21 @@ async function fixture(
   await writeFile(join(outside, "private.txt"), "outside workspace");
   const calls: Call[] = [];
   const previousUrl = process.env.LEGALWORK_SERVER_URL;
-  const previousToken = process.env.LEGALWORK_SERVER_TOKEN;
+  const previousToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+  const previousServerToken = process.env.LEGALWORK_SERVER_TOKEN;
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
     async fetch(request) {
-      expect(request.headers.get("authorization")).toBe("Bearer client-token");
+      // Only the chat-bound agent credential reaches the server, never a server-wide token.
+      expect(request.headers.get("x-legalwork-wiki-agent-token")).toBe("client-token");
+      expect(request.headers.get("x-legalwork-wiki-agent-session")).toBe(SESSION);
+      expect(request.headers.has("x-legalwork-wiki-agent-directory")).toBe(true);
+      expect(request.headers.has("authorization")).toBe(false);
       expect(request.headers.has("x-legalwork-host-token")).toBe(false);
       const url = new URL(request.url);
       const body: unknown = request.method === "GET" ? undefined : await request.json();
-      calls.push({ url, method: request.method, body });
+      calls.push({ url, method: request.method, body, headers: request.headers });
       if (url.pathname === "/workspaces")
         return Response.json({
           items: [
@@ -119,15 +126,18 @@ async function fixture(
     },
   });
   process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${server.port}`;
-  process.env.LEGALWORK_SERVER_TOKEN = "client-token";
+  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "client-token";
+  process.env.LEGALWORK_SERVER_TOKEN = "server-wide-token";
   try {
     await run({ plugin: await LegalWorkStorageTools(), directory, outside, calls });
   } finally {
     await server.stop(true);
     if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
     else process.env.LEGALWORK_SERVER_URL = previousUrl;
-    if (previousToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
-    else process.env.LEGALWORK_SERVER_TOKEN = previousToken;
+    if (previousToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    else process.env.LEGALWORK_WIKI_AGENT_TOKEN = previousToken;
+    if (previousServerToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
+    else process.env.LEGALWORK_SERVER_TOKEN = previousServerToken;
     await rm(directory, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
   }
@@ -136,18 +146,26 @@ async function fixture(
 test("discovers stable connection IDs in the closest workspace without exposing configuration", async () => {
   await fixture(async ({ plugin, directory, outside, calls }) => {
     const result = JSON.parse(
-      await plugin.tool.storage_list_connections.execute({}, { directory: join(directory, "nested") }),
+      await plugin.tool.storage_list_connections.execute({}, { directory: join(directory, "nested"), sessionID: SESSION }),
     );
     expect(result.connections.map((item: { connection_id: string }) => item.connection_id)).toEqual(["one", "two"]);
     expect(result.team_sync_error).toBe("Team connections could not sync.");
     expect(calls.at(-1)?.url.pathname).toBe("/workspace/inner/storage/roots");
     expect(calls).toHaveLength(2);
-    const missing = JSON.parse(await plugin.tool.storage_list_connections.execute({}, { directory: outside }));
+    expect(calls[0]?.headers.get("x-legalwork-wiki-agent-directory")).toBe(
+      encodeURIComponent(await realpath(join(directory, "nested"))),
+    );
+    const missing = JSON.parse(await plugin.tool.storage_list_connections.execute({}, { directory: outside, sessionID: SESSION }));
     expect(missing.code).toBe("storage_workspace_unknown");
     expect(calls).toHaveLength(3);
-    expect(JSON.parse(await plugin.tool.storage_list_connections.execute({}, {})).code).toBe(
-      "storage_workspace_unknown",
+    // Without its directory or its chat a call is not connected, so it never falls back to a workspace.
+    expect(JSON.parse(await plugin.tool.storage_list_connections.execute({}, { sessionID: SESSION })).code).toBe(
+      "storage_connection_unavailable",
     );
+    expect(JSON.parse(await plugin.tool.storage_list_connections.execute({}, { directory })).code).toBe(
+      "storage_connection_unavailable",
+    );
+    expect(calls).toHaveLength(3);
   });
 });
 
@@ -161,7 +179,7 @@ test("searches multiple sources with distinct identity, errors and continuation 
           query: "Contract & #1",
           path: "Matters",
         },
-        { directory },
+        { directory, sessionID: SESSION },
       ),
     );
     expect(result.results.map((item: { connection_id: string }) => item.connection_id)).toEqual([
@@ -190,18 +208,19 @@ test("searches multiple sources with distinct identity, errors and continuation 
           path: "Matters",
           cursors: { one: "next-one", two: "next-two" },
         },
-        { directory },
+        { directory, sessionID: SESSION },
       ),
     );
     expect(next.results.every((item: { page: { nextCursor?: string } }) => !item.page.nextCursor)).toBe(true);
-    expect(calls.slice(-2).map((call) => call.url.searchParams.get("cursor"))).toEqual(["next-one", "next-two"]);
+    // The two sources are searched in parallel; their request order is not part of the contract.
+    expect(calls.slice(-2).map((call) => call.url.searchParams.get("cursor")).sort()).toEqual(["next-one", "next-two"]);
   });
 });
 
 test("defaults matter discovery to recursive paths across providers without native capability checks", async () => {
   await fixture(async ({ plugin, directory, calls }) => {
     const args = { connection_ids: ["one", "two", "one", "offline"], query: "MAT-00005" };
-    const first = JSON.parse(await plugin.tool.storage_search.execute(args, { directory }));
+    const first = JSON.parse(await plugin.tool.storage_search.execute(args, { directory, sessionID: SESSION }));
     expect(first).toMatchObject({ query: "MAT-00005", mode: "path", path: "", content_searched: false });
     expect(first.results).toHaveLength(3);
     expect(first.results[0]).toMatchObject({
@@ -219,7 +238,7 @@ test("defaults matter discovery to recursive paths across providers without nati
     const next = JSON.parse(
       await plugin.tool.storage_search.execute(
         { ...args, connection_ids: ["one", "two"], cursors: { one: "next-one", two: "next-two" } },
-        { directory },
+        { directory, sessionID: SESSION },
       ),
     );
     expect(
@@ -231,11 +250,13 @@ test("defaults matter discovery to recursive paths across providers without nati
       ["one", true],
       ["two", true],
     ]);
-    expect(calls.slice(-2).map((call) => call.body)).toEqual([
+    // Parallel sources: compare the two requests regardless of their order.
+    expect(calls.slice(-2).map((call) => call.body)).toHaveLength(2);
+    expect(calls.slice(-2).map((call) => call.body)).toEqual(expect.arrayContaining([
       { query: "MAT-00005", path: "", match: "path", cursor: "next-one" },
       { query: "MAT-00005", path: "", match: "path", cursor: "next-two" },
-    ]);
-    await plugin.tool.storage_search_filenames.execute({ query: "Activity", connection_ids: ["one"] }, { directory });
+    ]));
+    await plugin.tool.storage_search_filenames.execute({ query: "Activity", connection_ids: ["one"] }, { directory, sessionID: SESSION });
     expect(calls.at(-1)?.body).toEqual({ query: "Activity", path: "" });
   });
 });
@@ -243,7 +264,7 @@ test("defaults matter discovery to recursive paths across providers without nati
 test("downloads binary documents to editable workspace copies and requires explicit versioned save-back", async () => {
   await fixture(async ({ plugin, directory, calls }) => {
     const source = { connection_id: "one", path: "Matters/Contract.docx" };
-    const read = JSON.parse(await plugin.tool.storage_read_file.execute(source, { directory }));
+    const read = JSON.parse(await plugin.tool.storage_read_file.execute(source, { directory, sessionID: SESSION }));
     expect(read.local_path).toStartWith(".legalwork/storage-downloads/");
     expect(await readFile(join(directory, read.local_path))).toEqual(Buffer.from([0, 255, 1, 2]));
     expect(calls.every((call) => call.method === "GET" || call.url.pathname.endsWith("/checkout"))).toBe(true);
@@ -251,7 +272,7 @@ test("downloads binary documents to editable workspace copies and requires expli
     const saved = JSON.parse(
       await plugin.tool.storage_write_file.execute(
         { ...source, mode: "replace", local_path: read.local_path, version: read.version },
-        { directory },
+        { directory, sessionID: SESSION },
       ),
     );
     expect(saved.result.version).toBe("v2");
@@ -262,14 +283,14 @@ test("downloads binary documents to editable workspace copies and requires expli
     });
     expect(
       JSON.parse(
-        await plugin.tool.storage_write_file.execute({ ...source, mode: "replace", content: "new" }, { directory }),
+        await plugin.tool.storage_write_file.execute({ ...source, mode: "replace", content: "new" }, { directory, sessionID: SESSION }),
       ).code,
     ).toBe("storage_version_required");
     expect(
       JSON.parse(
         await plugin.tool.storage_write_file.execute(
           { ...source, mode: "create", content: "new", local_path: read.local_path },
-          { directory },
+          { directory, sessionID: SESSION },
         ),
       ).code,
     ).toBe("storage_content_required");
@@ -284,24 +305,24 @@ test("confines uploads and downloads to the task workspace, including symlink ta
       JSON.parse(
         await plugin.tool.storage_write_file.execute(
           { ...source, mode: "create", local_path: "linked.txt" },
-          { directory },
+          { directory, sessionID: SESSION },
         ),
       ).code,
     ).toBe("storage_local_path_outside_workspace");
     expect(calls.every((call) => call.method === "GET")).toBe(true);
     await symlink(outside, join(directory, ".legalwork"));
-    expect(JSON.parse(await plugin.tool.storage_read_file.execute(source, { directory })).code).toBe(
+    expect(JSON.parse(await plugin.tool.storage_read_file.execute(source, { directory, sessionID: SESSION })).code).toBe(
       "storage_local_path_outside_workspace",
     );
     expect(
-      JSON.parse(await plugin.tool.storage_read_file.execute({ ...source, path: "../outside" }, { directory })).code,
+      JSON.parse(await plugin.tool.storage_read_file.execute({ ...source, path: "../outside" }, { directory, sessionID: SESSION })).code,
     ).toBe("invalid_storage_path");
   });
 });
 
 test("omitted search connections default exclusively to project folder aliases", async () => {
   await fixture(async ({ plugin, directory, calls }) => {
-    const result = JSON.parse(await plugin.tool.storage_search.execute({ query: "agreement" }, { directory }));
+    const result = JSON.parse(await plugin.tool.storage_search.execute({ query: "agreement" }, { directory, sessionID: SESSION }));
     expect(result.results.map((entry: { connection_id: string }) => entry.connection_id)).toEqual(["project:linked-folder"]);
     const searches = calls.filter((call) => call.url.pathname.endsWith("/filename-search"));
     expect(searches).toHaveLength(1);

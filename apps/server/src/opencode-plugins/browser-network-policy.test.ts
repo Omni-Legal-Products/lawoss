@@ -10,14 +10,18 @@ test("browser tools use fresh effective chat policy, including native tools and 
   const api = Bun.serve({ port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
     paths.push(path);
-    expect(request.headers.get("authorization")).toBe("Bearer fixture");
+    // The calling chat's own credential and directory, never the forged args or a server-wide token.
+    expect(request.headers.get("x-legalwork-wiki-agent-token")).toBe("fixture");
+    expect(request.headers.get("x-legalwork-wiki-agent-session")).toBe("calling-chat");
+    expect(request.headers.get("x-legalwork-wiki-agent-directory")).toBe(encodeURIComponent("/project"));
+    expect(request.headers.has("authorization")).toBe(false);
     if (path === "/workspaces") return Response.json({ items: [{ id: "project", path: "/project" }] });
     if (path === "/workspace/project/sandbox/session/calling-chat") return Response.json(settings, { status });
     return new Response("Unexpected route", { status: 404 });
   } });
-  const previous = { url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN };
+  const previous = { url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_WIKI_AGENT_TOKEN };
   process.env.LEGALWORK_SERVER_URL = api.url.origin;
-  process.env.LEGALWORK_SERVER_TOKEN = "fixture";
+  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "fixture";
   try {
     const plugin = await LegalWorkSandbox({ directory: "/project" });
     const before = plugin["tool.execute.before"];
@@ -57,7 +61,7 @@ test("browser tools use fresh effective chat policy, including native tools and 
     await expect(extensions.tool.legalwork_ui_execute_action.execute({ actionId: "browser.open_url", args: { url: "https://example.org", sessionId: "other-chat" } }, context)).rejects.toThrow("disabled");
   } finally {
     if (previous.url === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previous.url;
-    if (previous.token === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = previous.token;
+    if (previous.token === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = previous.token;
     api.stop(true);
   }
 });

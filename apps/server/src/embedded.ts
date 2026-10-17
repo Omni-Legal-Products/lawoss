@@ -203,7 +203,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
             ...(process.env.LEGALWORK_DEV_MODE ? { LEGALWORK_DEV_MODE: process.env.LEGALWORK_DEV_MODE } : {}),
             ...(process.env.LEGALWORK_UI_CONTROL_DISCOVERY ? { LEGALWORK_UI_CONTROL_DISCOVERY: process.env.LEGALWORK_UI_CONTROL_DISCOVERY } : {}),
             LEGALWORK_SERVER_URL: serverUrl,
-            LEGALWORK_SERVER_TOKEN: config.token,
+            // LAWOSS: no server-wide token. Plugins name their chat and the server limits
+            // each call to that chat's own workspace (wiki/agent-access.ts).
             LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config),
             LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
             OPENCODE_CONFIG: runtimeConfigPath,

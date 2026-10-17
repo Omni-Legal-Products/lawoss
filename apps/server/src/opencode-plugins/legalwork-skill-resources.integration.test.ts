@@ -9,6 +9,7 @@ import { upsertSkill } from "../skills.js";
 import { upsertSkillResource } from "../skill-resources.js";
 import { writeSandboxDefault } from "../agent-sandbox/settings.js";
 import type { ServerConfig } from "../types.js";
+import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 test.skipIf(!binary)("shipped engine reads global workflow resources with sandbox on and off while other folders still ask", async () => {
@@ -56,11 +57,16 @@ test.skipIf(!binary)("shipped engine reads global workflow resources with sandbo
   const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: directory, env: {
     ...process.env, XDG_CONFIG_HOME: join(root, "engine-config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
     OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: engineConfig, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-    LEGALWORK_SERVER_URL: `http://127.0.0.1:${server.port}`, LEGALWORK_SERVER_TOKEN: "fixture",
+    LEGALWORK_SERVER_URL: `http://127.0.0.1:${server.port}`, LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config),
   }, stdout: "ignore", stderr: "pipe" });
   const logs = new Response(engine.stderr).text(), base = `http://127.0.0.1:${port}`;
   const jsonHeaders = { "content-type": "application/json" };
-  const session = async () => z.object({ id: z.string() }).parse(await (await fetch(base + "/session", { method: "POST", headers: jsonHeaders, body: "{}", signal: AbortSignal.timeout(30000) })).json()).id;
+  const session = async () => {
+    const id = z.object({ id: z.string() }).parse(await (await fetch(base + "/session", { method: "POST", headers: jsonHeaders, body: "{}", signal: AbortSignal.timeout(30000) })).json()).id;
+    // Chats normally start through the LegalWork proxy, which records their folder for the engine credential.
+    await grantWikiAgentSession(config, { sessionId: id, directory, scope: "collaborator" });
+    return id;
+  };
   const prompt = (id: string) => fetch(`${base}/session/${id}/message`, { method: "POST", headers: jsonHeaders,
     body: JSON.stringify({ agent: "build", model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: "Read the workflow resources." }] }), signal: AbortSignal.timeout(60000) });
   try {

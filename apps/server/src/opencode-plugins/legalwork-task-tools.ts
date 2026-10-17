@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, join } from "node:path";
 import { z } from "zod";
 
-import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, serverConnected, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 /**
  * Agent tools for LegalWork Tasks — the firm's work list on this machine.
@@ -13,7 +13,7 @@ import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from
  * was pulled down (spec of record for intake: EIG-165). Both kinds live in the
  * LegalWork server's local store, so every call here goes to the same
  * authenticated server the other LegalWork tools use (LEGALWORK_SERVER_URL +
- * LEGALWORK_SERVER_TOKEN → /workspace/:id/tasks) and works with or without a
+ * the session-bound agent credential → /workspace/:id/tasks) and works with or without a
  * connection; the server syncs the store with the firm's account when there is
  * one. What arrived from the platform was filtered by the signed-in user's
  * visibility there, so these tools can only ever reach what the person at the
@@ -391,16 +391,15 @@ function safeParse(value: string): unknown {
   }
 }
 
-async function requestJson(path: string, options: { method?: string; body?: unknown } = {}): Promise<ServerResult> {
+async function requestJson(context: OpenCodeContext, path: string, options: { method?: string; body?: unknown } = {}): Promise<ServerResult> {
   const url = serverUrl();
-  const token = serverToken();
-  if (!url || !token) {
+  if (!serverConnected(context)) {
     return { ok: false, error: "LegalWork server connection is not configured for this engine." };
   }
   const response = await fetch(`${url}${path}`, {
     method: options.method ?? "GET",
     headers: {
-      Authorization: `Bearer ${token}`,
+      ...await workspaceToolHeaders(context),
       ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
     },
     ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
@@ -500,7 +499,7 @@ const TASK_TOOLS = {
         if (args.limit !== undefined) query.set("limit", String(args.limit));
         if (args.cursor) query.set("cursor", args.cursor);
         const search = query.toString();
-        const result = await requestJson(tasksPath(workspaceId, search ? `?${search}` : ""));
+        const result = await requestJson(context, tasksPath(workspaceId, search ? `?${search}` : ""));
         if (!result.ok) return JSON.stringify({ ok: false, error: result.error });
         const payload = isRecord(result.payload) ? result.payload : {};
         const rows = Array.isArray(payload.tasks) ? payload.tasks : [];
@@ -535,7 +534,7 @@ const TASK_TOOLS = {
       const args = getArgs.parse(rawArgs);
       try {
         const workspaceId = await resolveWorkspaceId(context);
-        const result = await requestJson(tasksPath(workspaceId, `/${encodeURIComponent(args.taskId)}`));
+        const result = await requestJson(context, tasksPath(workspaceId, `/${encodeURIComponent(args.taskId)}`));
         if (!result.ok) return JSON.stringify({ ok: false, error: result.error });
         const payload = isRecord(result.payload) ? result.payload : {};
         const task = isRecord(payload.task) ? payload.task : null;
@@ -605,7 +604,7 @@ const TASK_TOOLS = {
       }
       try {
         const workspaceId = await resolveWorkspaceId(context);
-        const result = await requestJson(tasksPath(workspaceId, `/${encodeURIComponent(args.taskId)}`), {
+        const result = await requestJson(context, tasksPath(workspaceId, `/${encodeURIComponent(args.taskId)}`), {
           method: "PATCH",
           body: patch,
         });
@@ -627,8 +626,7 @@ const TASK_TOOLS = {
     async execute(rawArgs: unknown, context: OpenCodeContext): Promise<string> {
       const args = attachArgs.parse(rawArgs);
       const url = serverUrl();
-      const token = serverToken();
-      if (!url || !token) {
+      if (!serverConnected(context)) {
         return JSON.stringify({ ok: false, error: "LegalWork server connection is not configured for this engine." });
       }
       try {
@@ -667,7 +665,7 @@ const TASK_TOOLS = {
         const response = await fetch(`${url}${tasksPath(workspaceId, `/${encodeURIComponent(args.taskId)}/attachments`)}`, {
           method: "POST",
           // No Content-Type: fetch attaches the multipart boundary itself.
-          headers: { Authorization: `Bearer ${token}` },
+          headers: await workspaceToolHeaders(context),
           body: form,
           signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
         });
@@ -692,7 +690,7 @@ const TASK_TOOLS = {
         const workspaceId = await resolveWorkspaceId(context);
         const dueDate = clearable(args.dueDate);
         const sessionId = context.sessionID?.trim();
-        const result = await requestJson(tasksPath(workspaceId, ""), {
+        const result = await requestJson(context, tasksPath(workspaceId, ""), {
           method: "POST",
           body: {
             title: args.title,
@@ -732,7 +730,7 @@ const TASK_TOOLS = {
       const args = deleteArgs.parse(rawArgs);
       try {
         const workspaceId = await resolveWorkspaceId(context);
-        const result = await requestJson(tasksPath(workspaceId, `/${encodeURIComponent(args.taskId)}`), { method: "DELETE" });
+        const result = await requestJson(context, tasksPath(workspaceId, `/${encodeURIComponent(args.taskId)}`), { method: "DELETE" });
         if (!result.ok) return JSON.stringify({ ok: false, error: result.error });
         return JSON.stringify(
           writeResult(result.payload, "Moved the task to the trash. Tell the user it can be restored from Tasks."),

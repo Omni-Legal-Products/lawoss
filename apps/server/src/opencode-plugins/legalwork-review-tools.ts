@@ -10,7 +10,7 @@ import { reviewExportData } from "./review-export.js";
 import { ReportEvidenceIndexSchema, ReportEvidenceSchema, ReportTemplateFieldsSchema, reportClassText, reportDraftData, reportPacketFiles, reportSourceText, reviewReportData } from "../reviews/report-data.js";
 import { ReviewLibraryEntrySchema, reviewLibraryKind } from "@legalwork/types/reviews";
 import { CreateReviewSchema, EditReviewSchema, QueryReviewResultsSchema, RunReviewSchema, SaveReviewLibrarySchema, SavedReviewSchema, WaitReviewsSchema } from "../reviews/schema.js";
-import { listWorkspaces, resolveWorkspaceId, serverToken, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
+import { listWorkspaces, resolveWorkspaceId, serverConnected, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 const id = z.string().uuid();
 const settingsArgs = z.strictObject({ reviewId: id.optional() });
@@ -61,15 +61,15 @@ function creationId(context: OpenCodeContext, input: z.infer<typeof createArgs>)
 }
 
 async function call(context: OpenCodeContext, path: string, method = "GET", body?: unknown, resource: "reviews" | "project" | "files" = "reviews", timeoutMs = 60_000) {
-  if (!serverUrl() || !serverToken() || !context.directory) throw new Error("A connected project is required.");
+  if (!serverConnected(context) || !context.directory) throw new Error("A connected project is required.");
   const directory = resolve(context.directory);
-  const workspace = (await listWorkspaces()).sort((a, b) => b.path.length - a.path.length).find(item => {
+  const workspace = (await listWorkspaces(context)).sort((a, b) => b.path.length - a.path.length).find(item => {
     const part = relative(resolve(item.path), directory);
     return part === "" || (!isAbsolute(part) && part !== ".." && !part.startsWith(`..${sep}`));
   });
   if (!workspace) throw new Error("This session is not in a registered project.");
   const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace.id)}/${resource}${path}`, {
-    method, headers: { Authorization: `Bearer ${serverToken()}`, "Content-Type": "application/json" },
+    method, headers: { ...await workspaceToolHeaders(context), "Content-Type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(timeoutMs),
   });
   const result: unknown = await response.json();
@@ -122,12 +122,12 @@ export const LegalWorkReviewTools = async (context: OpenCodeContext & { client?:
   // system prompt must not change within a conversation (app-state-reminders.ts).
   // A failed refresh keeps the last listing instead of dropping it.
   const folderContext: { at: number; value: string | null } = { at: 0, value: null };
-  const readFolders = async (): Promise<string | null> => {
-    if (!context.directory || !serverUrl() || !serverToken()) return "";
+  const readFolders = async (sessionID: string): Promise<string | null> => {
+    if (!serverConnected({ ...context, sessionID })) return "";
     if (Date.now() - folderContext.at > 15_000) {
       folderContext.at = Date.now();
       try {
-        const result = await call(context, "/contents?kind=files&limit=50", "GET", undefined, "project", 3_000);
+        const result = await call({ ...context, sessionID }, "/contents?kind=files&limit=50", "GET", undefined, "project", 3_000);
         if (result.ok) {
           const parsed = projectContentsSchema.safeParse(result.data);
           const section = parsed.success ? parsed.data.sections.find(section => section.kind === "files") : undefined;

@@ -12,7 +12,7 @@ import { WIKI_SELECTION_GUIDANCE } from "../wiki/synthesis.js";
 import { ApiError } from "../errors.js";
 import { wikiPageUrl } from "@legalwork/types/wiki";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
-import { serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
 
 const RULES = `## Markdown wikis
 For a question about a person, client, matter, firm, internal process or prior work, search accessible wiki knowledge before a public web search, including short questions such as "Who is [name]?" with no explicit wiki mention. Use wiki_search(query) directly: in a wiki it searches that wiki; in a project it searches the wikis available to that project. No wiki_list, inventory or skill-loading step is needed for a simple factual lookup. Read the best matching page with wiki_read and answer the actual question concisely, with a clickable source. If multiple internal matches remain plausible, distinguish them or ask briefly. Use the web when the user asks for public/current information or internal sources do not answer the question; do not substitute unrelated public namesakes for an internal match. Do not send private wiki content to web search.
@@ -65,19 +65,16 @@ const pagePath = z.string().min(1).max(4096).refine(
 
 async function request(path: string, method = "GET", body?: unknown, context?: OpenCodeContext, timeoutMs = method === "GET" ? 30_000 : 900_000): Promise<unknown> {
   const url = serverUrl();
-  const token = serverToken();
-  if (!url || !token) throw new ApiError(503, "wiki_connection_unavailable", "The LegalWork server connection is not ready.");
-  const headers: Record<string, string> = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
   const agentToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN?.trim();
-  if (agentToken) {
-    if (!context?.sessionID || !context.directory)
-      throw new ApiError(403, "wiki_agent_session_unknown", "Use these tools from an authenticated LegalWork session.");
-    const directory = await realpath(context.directory).catch(() => null);
-    if (!directory) throw new ApiError(403, "wiki_workspace_unknown", "The task's directory could not be resolved.");
-    headers["x-legalwork-wiki-agent-token"] = agentToken;
-    headers["x-legalwork-wiki-agent-session"] = context.sessionID;
-    headers["x-legalwork-wiki-agent-directory"] = encodeURIComponent(directory);
-  }
+  if (!url || !agentToken) throw new ApiError(503, "wiki_connection_unavailable", "The LegalWork server connection is not ready.");
+  if (!context?.sessionID || !context.directory)
+    throw new ApiError(403, "wiki_agent_session_unknown", "Use these tools from an authenticated LegalWork session.");
+  const directory = await realpath(context.directory).catch(() => null);
+  if (!directory) throw new ApiError(403, "wiki_workspace_unknown", "The task's directory could not be resolved.");
+  const headers: Record<string, string> = { "Content-Type": "application/json",
+    "x-legalwork-wiki-agent-token": agentToken,
+    "x-legalwork-wiki-agent-session": context.sessionID,
+    "x-legalwork-wiki-agent-directory": encodeURIComponent(directory) };
   const response = await fetch(`${url}${path}`, {
     method,
     headers,

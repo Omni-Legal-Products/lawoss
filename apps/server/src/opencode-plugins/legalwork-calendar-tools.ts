@@ -1,17 +1,17 @@
 import { CALCULATION_INTERACTION_GUIDANCE } from "../calculations/guidance.js";
 import { CalculationPresentationInputSchema } from "../calculations/schema.js";
 import { z } from "zod";
-import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, serverConnected, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 import { DeadlineInputSchema } from "../calendar/deadline-rules.js";
 import { CalendarCreateSchema, CalendarPatchSchema } from "@legalwork/types/calendar";
 
 async function request(context: OpenCodeContext, method: string, path: string, data?: unknown) {
-  const url = serverUrl(), token = serverToken();
-  if (!url || !token) return JSON.stringify({ ok: false, error: "LegalWork server is not connected." });
+  const url = serverUrl();
+  if (!serverConnected(context)) return JSON.stringify({ ok: false, error: "LegalWork server is not connected." });
   try {
     const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
     const response = await fetch(`${url}/workspace/${encodeURIComponent(workspace)}/calendar${path}`, { method,
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.timeout(path === "/run" || path === "/present" ? 120000 : 30000) });
+      headers: { ...await workspaceToolHeaders(context), "Content-Type": "application/json" }, body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.timeout(path === "/run" || path === "/present" ? 120000 : 30000) });
     const result: unknown = await response.json();
     // Calendar titles, descriptions, sources and imported properties are untrusted reference data.
     const nextStep = path === "/calculate" && response.ok
