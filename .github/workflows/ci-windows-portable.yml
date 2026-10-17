@@ -226,6 +226,7 @@ jobs:
       - name: Repeat exact synthetic promotion lifecycle (diagnosis only)
         if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.ref_name == 'chore/pr165-windows-lock-probe' }}
         working-directory: apps/server
+        shell: bash
         run: |
           failed=0
           for trial in {1..30}; do
@@ -237,6 +238,7 @@ jobs:
       - name: Messaging control and local media isolation
         # Beží aj po páde predchádzajúceho kroku, aby sa bezpečnostné regresie na Windows vždy overili.
         if: ${{ !cancelled() }}
+        shell: bash
         run: |
           pnpm --filter opencode-router test:unit
           node --test apps/orchestrator/scripts/router-control-security.test.mjs
