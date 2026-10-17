@@ -31,11 +31,26 @@ function rendererCategory(url) {
   if(pathname==='/'||pathname==='/index.html'||pathname.startsWith('/@vite/')||pathname.startsWith('/@fs/')||pathname==='/@react-refresh')return 'internal';
   return null;
 }
+// Self-contained so the owned CDP page compares actual published renderer state
+// in place; callers receive only fixed booleans, never paths or capabilities.
+export function recoveryRendererIdentity(snapshot, expected = {}) {
+  expected ??= {};
+  const origin=value=>{
+    if(typeof value!=='string')return null;
+    try {const url=new URL(value);return url.protocol==='http:'&&url.hostname==='127.0.0.1'&&url.port&&!url.username&&!url.password&&!url.search&&!url.hash&&url.pathname==='/'?url.origin:null;}catch{return null;}
+  };
+  const valid=typeof expected.workspaceId==='string'&&expected.workspaceId.length>0&&typeof expected.root==='string'&&expected.root.length>0;
+  const expectedOrigin=origin(expected.baseUrl);
+  const matches=Array.isArray(snapshot?.workspaces)?snapshot.workspaces.filter(workspace=>workspace?.id===expected.workspaceId):[];
+  const identity={present:Boolean(snapshot&&typeof snapshot==='object'&&!Array.isArray(snapshot)),selectedWorkspace:Boolean(valid&&snapshot?.selectedWorkspaceId===expected.workspaceId),workspaceRoot:Boolean(valid&&matches.length===1&&matches[0].path===expected.root),serverOrigin:Boolean(expectedOrigin&&origin(snapshot?.baseUrl)===expectedOrigin),connected:snapshot?.connected===true,idle:snapshot?.loading===false,workspaceSettled:Boolean(valid&&Array.isArray(snapshot?.retryingWorkspaceIds)&&snapshot.retryingWorkspaceIds.every(id=>typeof id==='string')&&!snapshot.retryingWorkspaceIds.includes(expected.workspaceId))};
+  return {...identity,ready:Object.values(identity).every(value=>value===true)};
+}
 export function summarizeRecoveryVerification(snapshot = {}, events = []) {
   const count=value=>Number.isInteger(value)&&value>=0&&value<=10_000?value:0;
   const boolean=value=>typeof value==='boolean'?value:null;
   const badges=Object.fromEntries(['verified','checking','invalid','edited','generated','complete','partial','readError','stale','pending','preparing','readable'].map(key=>[key,count(snapshot?.badges?.[key])]));
   const controls=Object.fromEntries(['prepareFolder','prepareSelected','refresh','generate','validate'].map(key=>[key,{count:count(snapshot?.controls?.[key]?.count),disabled:count(snapshot?.controls?.[key]?.disabled)}]));
+  const identity=Object.fromEntries(['present','selectedWorkspace','workspaceRoot','serverOrigin','connected','idle','workspaceSettled','ready'].map(key=>[key,boolean(snapshot?.identity?.[key])]));
   const panel={visibility:['visible','hidden'].includes(snapshot?.visibility)?snapshot.visibility:'unknown',focused:boolean(snapshot?.focused),viewport:{width:count(snapshot?.viewportWidth),height:count(snapshot?.viewportHeight)},panelCount:count(snapshot?.panelCount),visiblePanelCount:count(snapshot?.visiblePanelCount),firstPanelVisible:boolean(snapshot?.firstPanelVisible),firstPanelVerified:boolean(snapshot?.firstPanelVerified),visible:boolean(snapshot?.visible),folderMatches:boolean(snapshot?.folderMatches),selectedFiles:Number.isInteger(snapshot?.selectedFiles)&&snapshot.selectedFiles>=0&&snapshot.selectedFiles<=20?snapshot.selectedFiles:null,alerts:count(snapshot?.alerts),badges,controls};
   const requests=Object.fromEntries(['sources','read','outputs','prepare'].map(key=>[key,{started:0,pending:0,finished:0,failed:0,httpOk:0,httpFailure:0,maxElapsedMs:0,maxHeadersMs:0}]));
   const pending=new Map();let latest=0;
@@ -64,7 +79,7 @@ export function summarizeRecoveryVerification(snapshot = {}, events = []) {
     result.maxElapsedMs=Math.max(result.maxElapsedMs,elapsed(request.ended??latest,request.started));
     if(request.headers!==null)result.maxHeadersMs=Math.max(result.maxHeadersMs,elapsed(request.headers,request.started));
   }
-  return {panel,requests};
+  return {panel,identity,requests};
 }
 export function summarizeNetwork(events) {
   const requests=new Map(),origins=new Map(),exceptions=new Map();

@@ -11,7 +11,7 @@ import { startProvider, decodeNativeToolOutput } from "../lawoss/testing/isir/na
 import { partialPdf } from "../lawoss/testing/isir/native/partial-pdf.mjs";
 import { connectRenderer, until } from "../lawoss/testing/isir/native/cdp.mjs";
 import { stopNativeChild as stop } from "../lawoss/testing/isir/native/owned-process.mjs";
-import { createNativeDiagnostics, settleCleanup, errorMetadata, summarizeRecoveryVerification } from "../lawoss/testing/isir/native/diagnostics.mjs";
+import { createNativeDiagnostics, settleCleanup, errorMetadata, summarizeRecoveryVerification, recoveryRendererIdentity } from "../lawoss/testing/isir/native/diagnostics.mjs";
 import { parseCsv } from "../apps/server/dist/lawoss/documents/validation.js";
 import { sha256 } from "../lawoss/testing/isir/corpus.mjs";
 import { prepareNativeEngineFiles, probeNativeEngineVersion, verifyNativeEngineRuntime } from "../lawoss/testing/isir/native/engine-identity.mjs";
@@ -46,6 +46,7 @@ const children = [];
 let cdp;
 let boundaryProbe;
 let recoveryVerificationStart;
+let recoveryRendererExpected;
 const caseRuns=[...corpus.cases.entries()].filter(([index])=>!debugPair||index===0||index===corpus.cases.length-1);
 const provider = await startProvider();
 let engineTraces;
@@ -495,6 +496,8 @@ try {
     assert.equal(outputs.response.status,200);assert.equal(outputs.body.outputs.length,2);assert.ok(outputs.body.outputs.every(o=>o.verified&&o.hash===o.currentHash));
   }
   recoveryVerificationStart=cdp.events.length;
+  recoveryRendererExpected={workspaceId:first.id,root:moved,baseUrl:serverInfo.baseUrl};
+  await until(()=>cdp.evaluate(`(${recoveryRendererIdentity.toString()})(window.__legalwork?.slice('route'),${JSON.stringify(recoveryRendererExpected)}).ready`),'recovered renderer acknowledges the moved project root and current owned client');
   await openFiles(first);await click('Dokumenty');
   await until(()=>cdp.evaluate(`(()=>{const nav=[...document.querySelectorAll('[aria-label="Current folder"]')].find(e=>e.getBoundingClientRect().width>0);return nav&&[...nav.querySelectorAll('button')].slice(1).map(e=>e.textContent.trim()).join('/')==='Dokumenty'})()`),'recovered native source folder breadcrumb');
   const recoveredPrepareStart=cdp.events.length;
@@ -537,7 +540,8 @@ try {
           const badges=Object.fromEntries(Object.entries({verified:'Format and sources verified',checking:'Checking current sources…',invalid:'Sources changed / invalid output',edited:'Output edited / removed',generated:'Generated, unverified',complete:'Selected sources fully extracted',partial:'Partially readable / incomplete OCR',readError:'Read could not be verified',stale:'Source changed — prepare again',pending:'Preparation pending',preparing:'Preparing',readable:'Readable'}).map(([key,label])=>[key,lines.filter(text=>text===label||text.startsWith(label+' ·')||(key==='complete'&&text.endsWith(' · '+label))).length]));
           const controls=Object.fromEntries(Object.entries({prepareFolder:'Prepare this folder',prepareSelected:'Prepare selected',refresh:'Refresh status',generate:'Generate through chat',validate:'Validate saved output'}).map(([key,label])=>{const buttons=[...(panel?.querySelectorAll('button')??[])].filter(e=>e.textContent.trim()===label);return [key,{count:buttons.length,disabled:buttons.filter(e=>e.disabled||e.getAttribute('aria-disabled')==='true').length}]}));
           const folder=[...(document.querySelector('[aria-label="Current folder"]')?.querySelectorAll('button')??[])].slice(1).map(e=>e.textContent.trim()).join('/');
-          return {visibility:document.visibilityState,focused:document.hasFocus(),viewportWidth:innerWidth,viewportHeight:innerHeight,panelCount:panels.length,visiblePanelCount:panels.filter(visible).length,firstPanelVisible:Boolean(panels[0]&&visible(panels[0])),firstPanelVerified:Boolean(panels[0]?.innerText.includes('Format and sources verified')),visible:Boolean(panel&&visible(panel)),folderMatches:folder==='Dokumenty',selectedFiles:selected?Number(selected.split(': ')[1]):null,alerts:panel?.querySelectorAll('[role="alert"]').length??0,badges,controls};
+          const identity=(${recoveryRendererIdentity.toString()})(window.__legalwork?.slice('route'),${JSON.stringify(recoveryRendererExpected)});
+          return {identity,visibility:document.visibilityState,focused:document.hasFocus(),viewportWidth:innerWidth,viewportHeight:innerHeight,panelCount:panels.length,visiblePanelCount:panels.filter(visible).length,firstPanelVisible:Boolean(panels[0]&&visible(panels[0])),firstPanelVerified:Boolean(panels[0]?.innerText.includes('Format and sources verified')),visible:Boolean(panel&&visible(panel)),folderMatches:folder==='Dokumenty',selectedFiles:selected?Number(selected.split(': ')[1]):null,alerts:panel?.querySelectorAll('[role="alert"]').length??0,badges,controls};
         })()`}).then(result=>result.result?.value??null).catch(()=>null),
         new Promise(resolve=>{timer=setTimeout(()=>resolve(null),5000)}),
       ]);

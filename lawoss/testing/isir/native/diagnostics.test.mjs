@@ -5,6 +5,20 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createNativeDiagnostics, summarizeNetwork, errorMetadata, settleCleanup } from './diagnostics.mjs';
 
+test('recovered renderer identity waits for the actual settled moved root and owned client', async () => {
+  const { recoveryRendererIdentity } = await import('./diagnostics.mjs');
+  assert.equal(typeof recoveryRendererIdentity, 'function');
+  const expected={workspaceId:'synthetic-workspace',root:'/synthetic/moved',baseUrl:'http://127.0.0.1:4321/'};
+  const ready={selectedWorkspaceId:expected.workspaceId,workspaces:[{id:expected.workspaceId,path:expected.root}],baseUrl:'http://127.0.0.1:4321',connected:true,loading:false,retryingWorkspaceIds:[]};
+  assert.equal(recoveryRendererIdentity(ready,expected).ready,true);
+  for (const snapshot of [undefined,null,{}, {...ready,selectedWorkspaceId:'old'}, {...ready,workspaces:[{id:expected.workspaceId,path:'/synthetic/old'}]}, {...ready,baseUrl:'http://127.0.0.1:1234'}, {...ready,baseUrl:'https://private.example'}, {...ready,baseUrl:'http://private:secret@127.0.0.1:4321'}, {...ready,loading:true}, {...ready,connected:false}, {...ready,retryingWorkspaceIds:[expected.workspaceId]}, {...ready,retryingWorkspaceIds:null}, {...ready,retryingWorkspaceIds:[null]}, {...ready,workspaces:null}]) {
+    assert.equal(recoveryRendererIdentity(snapshot,expected).ready,false);
+  }
+  assert.equal(recoveryRendererIdentity(ready,{}).ready,false);
+  assert.equal(recoveryRendererIdentity(ready,null).ready,false);
+  assert.doesNotMatch(JSON.stringify(recoveryRendererIdentity({...ready,raw:'private DOM',error:'secret'},expected)),/synthetic|private|secret|4321|baseUrl/);
+});
+
 test('recovery diagnostics project fixed panel states and bounded values without arbitrary metadata', async () => {
   const { summarizeRecoveryVerification } = await import('./diagnostics.mjs');
   assert.equal(typeof summarizeRecoveryVerification, 'function');
@@ -12,6 +26,7 @@ test('recovery diagnostics project fixed panel states and bounded values without
     visibility:'visible',focused:true,viewportWidth:1800,viewportHeight:1400,panelCount:2,visiblePanelCount:1,firstPanelVisible:false,firstPanelVerified:false,visible:true,folderMatches:true,selectedFiles:4,alerts:1,
     badges:{verified:0,checking:2,invalid:1,secret:'private DOM'},
     controls:{prepareFolder:{count:1,disabled:0,error:'private error'},validate:{count:2,disabled:2},secret:'private URL'},
+    identity:{ready:true,workspaceRoot:false,serverOrigin:true,private:'private identity'},
     text:'private source',url:'https://private.example',error:'private message',
   }, []);
   assert.equal(result.panel.focused,true);
@@ -20,6 +35,7 @@ test('recovery diagnostics project fixed panel states and bounded values without
   assert.equal(result.panel.visiblePanelCount,1);assert.equal(result.panel.firstPanelVisible,false);
   assert.equal(result.panel.badges.checking,2);
   assert.deepEqual(result.panel.controls.validate,{count:2,disabled:2});
+  assert.equal(result.identity.ready,true);assert.equal(result.identity.workspaceRoot,false);
   assert.doesNotMatch(JSON.stringify(result),/private|secret|text|url|error/);
   const malformed=summarizeRecoveryVerification({visibility:'private source',focused:'private',panelCount:Infinity,selectedFiles:21,badges:{checking:-1},controls:{validate:{count:1e99,disabled:NaN}}},[]);
   assert.equal(malformed.panel.visibility,'unknown');assert.equal(malformed.panel.focused,null);
