@@ -67,7 +67,7 @@ await importConnectorsIntoSharedRow(config, {
   console.warn(`[legalwork-server] connector import skipped: ${error instanceof Error ? error.message : String(error)}`);
 });
 
-const server = await startServer(config, { onListening: async (port) => {
+const server = await startServer(config, { publicEngineBinary: () => managedOpencode?.execution.command, onListening: async (port) => {
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
   if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
     const workspace = config.workspaces[0];

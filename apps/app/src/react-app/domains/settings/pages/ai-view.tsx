@@ -4,7 +4,8 @@ import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { ProviderActionsMenu } from "../provider-actions-menu";
 import { useState, type ReactNode } from "react";
 
-import { t } from "@/i18n";
+import { t, currentLocale } from "@/i18n";
+import { AiGuidance } from "@/lawoss/domains/ai/guidance";
 import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { ProviderIcon } from "../../../design-system/provider-icon";
 import { SettingsNotice, SettingsStatusBadge } from "../settings-section";
@@ -82,6 +83,7 @@ export function AiSettingsView(props: AiSettingsViewProps) {
   const [keyFor, setKeyFor] = useState<FirmChatProvider | null>(null);
   return (
     <LayoutStack>
+      <AiGuidance locale={currentLocale()} />
       {/* ---- Providers ---- */}
       <LayoutSection>
         <LayoutSectionHeader>

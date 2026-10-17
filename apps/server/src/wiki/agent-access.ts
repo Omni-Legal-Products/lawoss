@@ -10,14 +10,14 @@ import { ApiError } from "../errors.js";
 /** `allProjects` is recorded only by the scheduled runner for an all-projects task, never from a request. */
 type SessionOrigin = { directory: string; scope: TokenScope; generation: string; allProjects?: boolean };
 type SessionLookup = (workspace: WorkspaceInfo, sessionId: string, directory: string, signal: AbortSignal) => Promise<unknown>;
-type RuntimeAccess = { token: string; clientRoot?: string; credentialScope?: TokenScope; sessions: Map<string, SessionOrigin>; parents: Map<string, string>; revoked: Set<string>; lookup?: SessionLookup };
+type RuntimeAccess = { token: string; owners: number; clientRoot?: string; credentialScope?: TokenScope; sessions: Map<string, SessionOrigin>; parents: Map<string, string>; revoked: Set<string>; lookup?: SessionLookup };
 const runtimes = new WeakMap<ServerConfig, RuntimeAccess>();
 const sessionSchema = z.object({ id: z.string().min(1).max(200), directory: z.string().min(1), parentID: z.string().min(1).max(200).optional() });
 
 function runtime(config: ServerConfig): RuntimeAccess {
   let access = runtimes.get(config);
   if (!access) {
-    access = { token: randomBytes(32).toString("hex"), sessions: new Map(), parents: new Map(), revoked: new Set() };
+    access = { owners: 0, token: randomBytes(32).toString("hex"), sessions: new Map(), parents: new Map(), revoked: new Set() };
     runtimes.set(config, access);
   }
   return access;
@@ -302,4 +302,17 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   }
   return { directory, sessionId, generation: origin.generation, workspaceId: own?.id ?? null, allProjects,
     actor: { type: "remote", clientId: `wiki-agent:${sessionId}`, scope, tokenHash } };
+}
+
+/** Last listener shutdown revokes process credentials; a reused config starts a fresh generation. */
+export function retainWikiAgentRuntime(config: ServerConfig): () => void {
+  const access = runtime(config); access.owners++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (--access.owners !== 0) return;
+    for (const id of access.sessions.keys()) revokeProjectTree(config, id);
+    if (runtimes.get(config) === access) runtimes.delete(config);
+  };
 }

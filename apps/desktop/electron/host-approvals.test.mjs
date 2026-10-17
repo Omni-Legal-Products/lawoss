@@ -90,3 +90,16 @@ test("serializes dialogs and skips a cancelled request waiting in the queue", as
   assert.equal(await second, "deny");
   assert.equal(opened, 1);
 });
+
+test("public model confirmation displays the complete serialized context and explicit send action", async () => {
+  const window = hostWindow();
+  const description = 'Target: http://127.0.0.1/v1/chat/completions\nComplete context: {"system":"public","messages":["synthetic"]}';
+  const handler = createHostApprovalHandler({getWindow: () => window, showMessageBox: async (_parent, options) => {
+    assert.equal(options.title, "Public AI request");
+    assert.equal(options.message, "Send this public synthetic model request?");
+    assert.ok(options.detail.includes(description));
+    assert.equal(options.defaultId, 0);
+    return {response: 0};
+  }});
+  assert.equal(await handler({...request, action: "ai.public.synthetic", description}, new AbortController().signal), "deny");
+});

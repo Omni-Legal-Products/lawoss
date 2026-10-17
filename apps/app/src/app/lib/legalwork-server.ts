@@ -1,3 +1,4 @@
+import type { AiGovernanceView, PublicAiResult } from "@legalwork/types/ai-governance";
 import type { OnboardingApi, OnboardingSuggestion } from "../../lawoss/domains/onboarding/api";
 import type { TriageApiPath } from "../../lawoss/domains/roztriedenie/api";
 import type { OfficeMemoryRead } from "../../lawoss/okf/office-memory";
@@ -1842,6 +1843,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     installOcrEngine: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/install`, { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
     cancelOcrInstall: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/install", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
     // LAWOSS: OCR only after the lawyer turns it on (lawoss/domains/settings/ocr-opt-in.ts).
+    aiGovernance: () => requestJson<AiGovernanceView>(baseUrl, "/lawoss/ai-governance", {token, hostToken, timeoutMs: timeouts.config}),
+    runPublicAiPrompt: (input: {providerId: string; modelId: string; text: string}) => requestJson<PublicAiResult>(baseUrl, "/lawoss/ai-governance/public-text", {token, hostToken, method: "POST", body: input, timeoutMs: 120000}),
+    acknowledgeAiGuidance: (textVersion: string, jurisdiction: "CZ" | "SK") => requestJson<AiGovernanceView>(baseUrl, "/lawoss/ai-governance/acknowledge", {token, hostToken, method: "POST", body: {textVersion, jurisdiction}, timeoutMs: timeouts.config}),
     lawossOcr: () => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr", { token, hostToken, timeoutMs: timeouts.config }),
     setLawossOcr: (enabled: boolean) => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),
     downloadLawossOcrModel: () => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr/model", { token, hostToken, method: "POST", timeoutMs: timeouts.config }),

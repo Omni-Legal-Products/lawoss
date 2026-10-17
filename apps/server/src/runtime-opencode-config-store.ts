@@ -1,3 +1,4 @@
+import { GuidanceAckSchema, type GuidanceAck } from "./ai-governance-schema.js";
 import { initializeSqlite } from "./runtime-db.js";
 import { drainRuntimeDb, runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { dirname } from "node:path";
@@ -7,6 +8,9 @@ import { ensureDir } from "./utils.js";
 import { connectorConfigVariables } from "./connector-config.js";
 
 export type RuntimeOpencodeConfig = {
+  /** Informational read acknowledgment; never a permission or provider profile. */
+  guidanceAck?: GuidanceAck;
+  aiPreference?: {version: 1; preferredMode: "local" | "unspecified"; sourceHash: string};
   sandbox?: SandboxSettings;
   sandboxEdit?: string;
   sandboxSync?: { account: string; revision: number; dirty: boolean };
@@ -104,7 +108,14 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
   const personalization = isRecord(value.personalization)
     ? normalizePersonalizationSettings(value.personalization)
     : undefined;
+  const guidanceAck = GuidanceAckSchema.safeParse(value.guidanceAck);
+  const preference: RuntimeOpencodeConfig["aiPreference"] = isRecord(value.aiPreference) && value.aiPreference.version === 1
+    && (value.aiPreference.preferredMode === "local" || value.aiPreference.preferredMode === "unspecified")
+    && typeof value.aiPreference.sourceHash === "string" && /^[a-f0-9]{64}$/.test(value.aiPreference.sourceHash)
+    ? {version: 1 as const, preferredMode: value.aiPreference.preferredMode, sourceHash: value.aiPreference.sourceHash} : undefined;
   return {
+    ...(guidanceAck.success ? {guidanceAck: guidanceAck.data} : {}),
+    ...(preference ? {aiPreference: preference} : {}),
     ...(typeof value.sandboxEdit === "string" ? { sandboxEdit: value.sandboxEdit } : {}),
     ...(value.sandbox !== undefined ? { sandbox: sandboxSettingsSchema.parse(value.sandbox) } : {}),
     ...(value.sandboxSync !== undefined ? { sandboxSync: sandboxSyncSchema.parse(value.sandboxSync) } : {}),

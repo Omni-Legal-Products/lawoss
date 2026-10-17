@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig } from "../types.js";
-import { authenticateWikiAgentRequest, configureWikiAgentSessionLookup, ensureWikiAgentToken, grantWikiAgentSession, revokeWikiAgentSession, verifiedWikiSessionOrigin } from "./agent-access.js";
+import { authenticateWikiAgentRequest, retainWikiAgentRuntime, configureWikiAgentSessionLookup, ensureWikiAgentToken, grantWikiAgentSession, revokeWikiAgentSession, verifiedWikiSessionOrigin } from "./agent-access.js";
 import { grantWikiProjectAccess, wikiProjectAccessRevision, wikiProjectAccessSignal, wikiProjectGrants } from "./project-access.js";
 
 const roots: string[] = [];
@@ -211,4 +211,15 @@ test("verified descendants retain live scope and ancestor changes abort grants a
   revokeWikiAgentSession(config, "middle");
   expect(nextSignal.aborted).toBe(true);
   await expect(authenticateWikiAgentRequest(config, request("/wikis", { session: "child" }))).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+});
+
+test("a stopped last runtime owner invalidates the old token even when the config object is reused", async () => {
+  const {config, root, token, request} = await fixture();
+  const release = retainWikiAgentRuntime(config);
+  await grantWikiAgentSession(config, {sessionId: "session-1", directory: root, scope: "collaborator"});
+  expect(await authenticateWikiAgentRequest(config, request())).not.toBeNull();
+  release();
+  await expect(authenticateWikiAgentRequest(config, request())).rejects.toMatchObject({code: "wiki_agent_unauthorized"});
+  const replacement = await ensureWikiAgentToken(config);
+  expect(replacement).not.toBe(token);
 });

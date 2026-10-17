@@ -26,6 +26,7 @@ export type HostDecisionRequest = {
   /** Domain hash includes action, operationId, scope and all relevant revisions. */
   bindingHash: string;
   summary: string;
+  description?: string;
   paths?: string[];
   /** Host-owned domain reader, never supplied by the HTTP client. */
   readCurrentBindingHash: () => Promise<string>;
@@ -62,6 +63,7 @@ export function createHostDecisionPort(approvals: ApprovalService, config: Serve
         workspaceId: input.workspaceId,
         action: input.action,
         summary: input.summary,
+        ...(input.description ? {description: input.description} : {}),
         paths: input.paths ?? [],
         actor: { type: "host" },
         nativeOnly: true,
@@ -69,7 +71,9 @@ export function createHostDecisionPort(approvals: ApprovalService, config: Serve
       if (!result.nativeDecision || signal?.aborted) {
         throw new ApiError(409, "host_decision_unavailable", "The native host did not decide this request.");
       }
-      if (await input.readCurrentBindingHash() !== input.bindingHash) {
+      const currentBinding = await input.readCurrentBindingHash();
+      if (signal?.aborted) throw new ApiError(409, "host_decision_unavailable", "The native decision was cancelled before issuance.");
+      if (currentBinding !== input.bindingHash) {
         throw new ApiError(409, "host_decision_stale", "The decision inputs changed. Review the current version.");
       }
       const receipt: HostDecisionReceipt = {
@@ -81,7 +85,9 @@ export function createHostDecisionPort(approvals: ApprovalService, config: Serve
         decision: result.allowed ? "allow" : "deny",
       };
       await withRuntimeDb(config, async () => {
-        (await receiptDb(config)).run("INSERT INTO host_decision_receipts (id, operation_id, workspace_id, receipt_json) VALUES (?, ?, ?, ?)",
+        const db = await receiptDb(config);
+        if (signal?.aborted) throw new ApiError(409, "host_decision_unavailable", "The native decision was cancelled before issuance.");
+        db.run("INSERT INTO host_decision_receipts (id, operation_id, workspace_id, receipt_json) VALUES (?, ?, ?, ?)",
           [receipt.id, input.operationId, input.workspaceId, JSON.stringify(receipt)]);
       });
       return receipt;

@@ -1,3 +1,4 @@
+import { createGovernedEngineFetch } from "../lawoss/ai-governance-engine.js";
 import { z } from "zod";
 import { setTimeout as delay } from "node:timers/promises";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
@@ -49,7 +50,7 @@ export class ReviewExecutor {
   private client(workspace: WorkspaceInfo) {
     const connection = resolveWorkspaceOpencodeConnection(this.config, workspace);
     if (!connection.baseUrl) throw new ApiError(503, "review_engine_unavailable", "Connect the project to its agent engine first.");
-    return createOpencodeClient({ baseUrl: connection.baseUrl, ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}) });
+    return createOpencodeClient({ baseUrl: connection.baseUrl, fetch: createGovernedEngineFetch(this.config, workspace.id), ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}) });
   }
   async models(workspace: WorkspaceInfo): Promise<ReviewCapabilities> {
     const models: ReviewCapabilities["models"] = [], errors: string[] = [];

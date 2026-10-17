@@ -16,14 +16,15 @@ export function createHostApprovalHandler({ getWindow, showMessageBox }) {
           : `Connected client (app, agent or remote connection)${request.actor.clientId ? `: ${request.actor.clientId}` : ""}`;
         const result = await showMessageBox(window, {
           type: "question",
-          title: "LegalWork approval",
-          message: "Allow this workspace change?",
+          title: request.action === "ai.public.synthetic" ? "Public AI request" : "LegalWork approval",
+          message: request.action === "ai.public.synthetic" ? "Send this public synthetic model request?" : "Allow this workspace change?",
           detail: [
             `Source: ${source}`,
             ...(request.actor.scope ? [`Access: ${request.actor.scope}`] : []),
             `Workspace: ${request.workspaceId}`,
             `Action: ${request.action}`,
             request.summary,
+            ...(request.description ? [request.description] : []),
             ...(request.paths.length ? ["Paths:", ...request.paths] : []),
           ].join("\n"),
           buttons: ["Deny", "Allow"],

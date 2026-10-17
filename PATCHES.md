@@ -8,6 +8,20 @@
 | `apps/server/src/wiki/agent-access.ts`, `wiki/agent-access.test.ts` | A shared process credential is pinned once to the first authenticated canonical client workspace root. Registered sessions in another client root and borrowed all-projects grants fail closed. Host-profile office scopes and broad ancestors of an explicit client are denied; registered clients retain matter-child sessions. Shared process role is capped at the lowest authenticated role seen in that runtime. Switching clients needs a separate runtime until a session-bound dispatch transport is proven; this is not completed multi-client agent support. Regressions include existing-B-session spoof and A → B → A. |
 
 
+## AI admission and isolated public text (2026-10-18)
+
+| Súbory | Downstream doplnenie a hranica |
+| --- | --- |
+| `apps/server/src/{server.ts,routes/sessions.ts,reviews/executor.ts}` | Current protected/unknown model dispatch is denied before forwarding; SDK and queue bypasses use the same admission guard. This is host admission, not proof of engine-internal egress isolation. |
+| `apps/server/src/{systemone.ts,ocr/manager.ts,routes/core.ts}` | Protected SystemOne, configured remote OCR and realtime voice refuse dispatch; voice/OCR expose unsupported status. Existing explicitly selected built-in local OCR remains separate. |
+| `apps/server/src/{runtime-opencode-config-store.ts,ai-governance-schema.ts}`, `apps/server/package.json`, `packages/types/{package.json,src/ai-governance.ts}` | Host-owned guidance metadata and schema bundle for packaged Node. LAWOSS evaluator/profile CAS/migration live under `lawoss/ai-governance*`; legacy preferences never become approval. No unmirrored `ai.governance` wire key is published. |
+| `apps/server/src/{managed-opencode.ts,embedded.ts,cli.ts}` | An opt-in empty environment and the existing managed binary feed the dedicated public scratch runner. No global executable fallback, provider credential or client session is given to that child. |
+| `apps/server/src/lawoss/{ai-public-context.ts,host-decision.ts}`, `apps/desktop/electron/host-approvals.mjs` | Native-only public endpoint creates isolated scratch/config/DB, forbids tools and reviews each complete serialized system/message body at the host relay. Bind target/account/model/body/binary/operation before egress; native detail displays that context. Cancellation after binding await and before durable receipt insert cannot issue an abandoned receipt. This is technical public classification, never legal/provider approval or an OS sandbox. |
+| `apps/server/src/wiki/agent-access.ts`, `server.ts` | Last runtime listener release revokes scoped session grants and rotates the next credential; a reused config cannot preserve a stopped runtime token. |
+| `apps/app/src/{lawoss/domains/ai/guidance.tsx,lawoss/domains/onboarding/ai-step.tsx,react-app/domains/settings/pages/ai-view.tsx,react-app/domains/settings/pages/extensions-view.tsx,app/lib/legalwork-server.ts}` | One four-language notice in existing surfaces. Reading and explicit jurisdiction selection do not grant processing. Separate public text form sends only new text/provider/model and shows actual assistant text after native complete-context confirmation. Ordinary protected/unknown chat stays explicitly unavailable. |
+
+Actual macOS ARM64 engine 1.18.29 receiver tests cover successful public assistant text, full-context confirmation, private ambient canaries, native denial and a malicious provider tool-call. Generic engine H1 fails: its direct shell route reads outside the synthetic workspace despite permission deny/hooks. Protected cloud, arbitrary client-folder public classification and multi-client process isolation are **not accepted**. See the implementation-run evidence; Windows/packaged/UI release gates remain separate.
+
 ## ISIR native Files navigation (2026-10-16)
 
 | Súbory | Downstream doplnenie a dôvod |

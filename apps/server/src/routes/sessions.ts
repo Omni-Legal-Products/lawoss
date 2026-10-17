@@ -1,3 +1,4 @@
+import { requireGovernedEngineDispatch } from "../lawoss/ai-governance-engine.js";
 import { workspaceOwnsSession } from "../lawoss/workspace-history.js";
 import type { SessionViewPreview } from "@legalwork/types/views";
 import { beginSessionDeletion, withSessionExecution } from "../session-execution-gate.js";
@@ -118,6 +119,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     },
     send: (workspaceId, sessionID, entry) => withSessionExecution(config, sessionID, async () => {
       ensureWritable(config);
+      await requireGovernedEngineDispatch(config, workspaceId, "POST", `/session/${sessionID}/message`);
       const client = await (async () => {
         try {
           const workspace = await resolveWorkspace(config, workspaceId);
@@ -151,6 +153,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       const workspace = await resolveWorkspace(config, ctx.params.id);
       const parsed = queueActionSchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024 * 1024));
       if (!parsed.success) throw new ApiError(400, "invalid_queue_action", "Invalid message queue action.");
+      if (parsed.data.type === "enqueue") await requireGovernedEngineDispatch(config, workspace.id, "POST", `/session/${ctx.params.sessionId}/message`);
       // Reject stale/deleted or cross-workspace sessions before storing executable work.
       const client = await queueClient(workspace, ctx.params.sessionId);
       if (parsed.data.type === "enqueue") await validateQueuedExecution(client, parsed.data.execution);

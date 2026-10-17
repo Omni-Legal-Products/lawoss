@@ -1,3 +1,6 @@
+import { registerAiGovernanceRoutes } from "./lawoss/ai-governance-routes.js";
+import { retainWikiAgentRuntime } from "./wiki/agent-access.js";
+import { createGovernedEngineFetch, requireGovernedEngineDispatch, requireUnsupportedProtectedTransport } from "./lawoss/ai-governance-engine.js";
 import { acquireRuntimeDbLifetime, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { resolveWorkspaceFilePath, recheckWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { LawossDocuments } from "./lawoss/documents/service.js";
@@ -820,7 +823,7 @@ export type StartedServer = ServeResult & {
 const orgPolicyResource = Symbol("server-org-policy");
 const firmHubResource = Symbol("server-firm-hub");
 
-export async function startServer(config: ServerConfig, runtimeOptions: { documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void> } = {}): Promise<StartedServer> {
+export async function startServer(config: ServerConfig, runtimeOptions: { publicEngineBinary?: () => string | undefined; documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void> } = {}): Promise<StartedServer> {
   const lifetime = acquireRuntimeDbLifetime(config);
   const cleanups: Array<() => void | Promise<unknown>> = [];
   const producerStops: Array<() => void | Promise<unknown>> = [];
@@ -850,6 +853,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   await runtimeDbResource(config, firmHubResource, async path => ({ close: () => closeFirmHubRuntime(config, join(dirname(path), "firm-hub")) }));
   cleanups.push(() => stopMessageQueue(config));
   producerStops.push(retainOrgPolicyReloads(config));
+  cleanups.push(retainWikiAgentRuntime(config));
   const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"));
   cleanups.push(() => approvals.dispose());
   const agentSandbox = new AgentSandboxService(config, approvals);
@@ -918,7 +922,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     grantAgentSession: (sessionId, directory) => grantWikiAgentSession(config, { sessionId, directory, scope: "collaborator" }),
   });
   // LAWOSS: OCR models download only after the lawyer turns OCR on (lawoss/ocr-opt-in.ts).
-  const ocr = new LawossOcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config));
+  const ocr = new LawossOcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config), {state: "unsupported", request: async () => requireUnsupportedProtectedTransport(config, "ocr")});
   cleanups.push(() => { benchmarkRunner.dispose(); ocr.stop(); });
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
   cleanups.push(() => preparation.stop());
@@ -981,7 +985,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
     }, true),
   });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents, scheduledTasks, wikiStore, wikiSync);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents, scheduledTasks, wikiStore, wikiSync, runtimeOptions.publicEngineBinary);
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) =>
     unwrapOpencodeResult(await createDirectoryOpencodeClient(config, workspace, directory).session.get({ sessionID }, { signal }), "/session"));
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
@@ -1352,13 +1356,14 @@ async function resolveProxyOpencodeDirectory(workspace: WorkspaceInfo, headers: 
   throw new ApiError(400, "path_escape", "Session directory escapes workspace root");
 }
 
-function createOpencodeDirectoryFetch(directory: string): typeof fetch {
+function createOpencodeDirectoryFetch(directory: string, config: ServerConfig, workspaceId: string): typeof fetch {
+  const governedFetch = createGovernedEngineFetch(config, workspaceId);
   return Object.assign(
     (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const request = input instanceof Request ? input : new Request(input, init);
       const headers = new Headers(init?.headers ?? request.headers);
       headers.set("x-opencode-directory", buildOpencodeDirectoryHeader(directory));
-      return fetch(new Request(request, { headers }));
+      return governedFetch(new Request(request, { headers }));
     },
     { preconnect: fetch.preconnect },
   );
@@ -1371,7 +1376,7 @@ type OpencodeClientResult<T, E> =
 function createWorkspaceOpencodeClient(config: ServerConfig, workspace: WorkspaceInfo) {
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const directory = resolveOpencodeDirectory(workspace);
-  const directoryFetch = directory ? createOpencodeDirectoryFetch(directory) : undefined;
+  const directoryFetch = directory ? createOpencodeDirectoryFetch(directory, config, workspace.id) : createGovernedEngineFetch(config, workspace.id);
 
   return createOpencodeClient({
     baseUrl: connection.baseUrl?.trim(),
@@ -1391,7 +1396,7 @@ function createDirectoryOpencodeClient(config: ServerConfig, workspace: Workspac
   return createOpencodeClient({
     baseUrl: connection.baseUrl?.trim(),
     directory,
-    fetch: createOpencodeDirectoryFetch(directory),
+    fetch: createOpencodeDirectoryFetch(directory, config, workspace.id),
     ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}),
   });
 }
@@ -1433,6 +1438,7 @@ async function proxyOpencodeRequest(input: {
 
 async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequest>[0]) {
   const workspace = input.workspace;
+  await requireGovernedEngineDispatch(input.config, workspace?.id ?? null, input.request.method, normalizeOpencodeProxyPath(input.proxyPath ?? input.url.pathname));
   const baseUrl = workspace ? resolveWorkspaceOpencodeConnection(input.config, workspace).baseUrl?.trim() ?? "" : "";
   if (!baseUrl) {
     throw new ApiError(400, "opencode_unconfigured", "OpenCode base URL is missing for this workspace");
@@ -1926,6 +1932,7 @@ function createRoutes(
   scheduledTasks: ScheduledTaskStore,
   wikiStore: WikiStore,
   wikiSync: WikiSync,
+  publicEngineBinary?: () => string | undefined,
 ): Route[] {
   const routes: Route[] = [];
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
@@ -1979,6 +1986,7 @@ function createRoutes(
     },
   });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerAiGovernanceRoutes({routes, config, jsonResponse, readJsonBodyLimited, getPublicEngineBinary: publicEngineBinary});
   registerLawossDocumentRoutes({ routes, config, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   registerLawossOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });

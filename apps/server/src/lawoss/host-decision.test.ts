@@ -1,3 +1,5 @@
+import { initializeSqlite } from "../runtime-db.js";
+import { runtimeDbPath } from "../runtime-db-lifecycle.js";
 import { rm } from "node:fs/promises";
 import { syntheticHostConfig } from "./test-support/host-config.js";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -72,5 +74,23 @@ test("issued receipts survive a new port and reject copied, forged, cross-operat
   expect(await restarted.validateReceipt(receipt, {...binding, operationId: "different"})).toBe(false);
   const otherHost = createHostDecisionPort(approvals, await fixture());
   expect(await otherHost.validateReceipt(receipt, binding)).toBe(false);
+  approvals.dispose();
+});
+
+test("cancellation during current-binding validation cannot issue or persist an allow receipt", async () => {
+  const config = await fixture();
+  let entered!: () => void, release!: (hash: string) => void;
+  const started = new Promise<void>(resolve => {entered = resolve;});
+  const binding = new Promise<string>(resolve => {release = resolve;});
+  const approvals = new ApprovalService({mode: "auto", timeoutMs: 1000}, async () => "allow");
+  const controller = new AbortController();
+  const decision = createHostDecisionPort(approvals, config).requestDecision({...input, readCurrentBindingHash: async () => {entered(); return binding;}}, controller.signal);
+  await started; controller.abort(); release(input.bindingHash);
+  await expect(decision).rejects.toMatchObject({code: "host_decision_unavailable"});
+  const db = await initializeSqlite(runtimeDbPath(config), db => db);
+  try {
+    const table = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='host_decision_receipts'");
+    expect(table ? db.get("SELECT COUNT(*) AS count FROM host_decision_receipts")?.count : 0).toBe(0);
+  } finally {db.close();}
   approvals.dispose();
 });
