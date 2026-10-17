@@ -28,6 +28,7 @@ async function entryFixture(platform, outsideProfile = false) {
     `);
     const source = await readFile(new URL('../../../../apps/desktop/scripts/isir-native-entry.mjs', import.meta.url), 'utf8');
     const fixture = source.replace('from "electron"', `from ${JSON.stringify(pathToFileURL(path.join(root, 'electron.mjs')).href)}`)
+      .replace('from "../../../lawoss/testing/isir/native/engine-fetch.mjs"', `from ${JSON.stringify(new URL('./engine-fetch.mjs',import.meta.url).href)}`)
       .replace('import("../electron/main.mjs")', 'import("./main.mjs")');
     await writeFile(path.join(root, 'entry.mjs'), fixture);
     return spawnSync(process.execPath, [path.join(root, 'entry.mjs')], {

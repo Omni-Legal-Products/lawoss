@@ -8,8 +8,10 @@ import { createNativeDiagnostics, summarizeNetwork, errorMetadata, settleCleanup
 test('workspace engine proxy diagnostics keep typed endpoints without workspace identities', () => {
   const result = summarizeNetwork([
     { method:'Network.requestWillBeSent',params:{requestId:'synthetic',timestamp:1,request:{url:'http://127.0.0.1:999/workspace/private-id/opencode/global/health'}} },
+    { method:'Network.requestWillBeSent',params:{requestId:'reload',timestamp:2,request:{url:'http://127.0.0.1:999/workspace/private-id/engine/reload'}} },
   ]);
   assert.equal(result.requests[0].endpoint, 'engine.health');
+  assert.equal(result.requests[1].endpoint, 'engine.reload');
   assert.doesNotMatch(JSON.stringify(result), /private-id|127\.0/);
 });
 

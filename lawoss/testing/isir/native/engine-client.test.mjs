@@ -32,6 +32,20 @@ test('native engine client rejects a remote server or missing owner capability',
   assert.throws(() => createNativeEngineClient({ baseUrl: 'http://127.0.0.1:1234', clientToken: 'synthetic-viewer' }, 'ws_native_1'), /owner token/);
 });
 
+test('only workspace reload uses the production SDK ninety-second deadline', async () => {
+  const calls=[];
+  const request=createNativeEngineClient({baseUrl:'http://127.0.0.1:4321',ownerToken:'synthetic-owner'},'ws_native_1',async(url,options,timeout=30_000)=>{
+    calls.push({url,options,timeout});
+    return new Response('{}');
+  });
+  await request('/global/health');
+  await request.reload();
+  assert.equal(calls[0].timeout,30_000,'Ordinary engine requests retain their existing deadline');
+  assert.equal(calls[1].timeout,90_000,'Diagnostics must not shorten the production reload contract');
+  assert.ok(calls[1].options.signal instanceof AbortSignal,'Default fetch also receives an explicit bounded reload signal');
+  assert.equal(calls[1].options.signal.aborted,false);
+});
+
 test('native provider discovery waits for the production workspace reload to finish', async () => {
   let completeReload;
   let reloadStarted;

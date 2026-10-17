@@ -8,11 +8,11 @@ export function createNativeEngineClient(serverInfo, workspaceId, request = fetc
   assert.ok(typeof serverInfo.ownerToken === 'string' && serverInfo.ownerToken, 'Native engine setup requires the owned server owner token');
   assert.ok(typeof workspaceId === 'string' && workspaceId, 'Native engine workspace required');
   const baseUrl = `${server.origin}/workspace/${encodeURIComponent(workspaceId)}/opencode`;
-  const authenticatedRequest = (url, options = {}) => {
+  const authenticatedRequest = (url, options = {}, timeout = 30_000) => {
     const headers = new Headers(options.headers);
     headers.set('authorization', `Bearer ${serverInfo.ownerToken}`);
     headers.set('content-type', 'application/json');
-    return request(url, { ...options, headers });
+    return request(url, { ...options, headers }, timeout);
   };
   const engineRequest = (route, options = {}) => {
     assert.ok(route.startsWith('/') && !route.startsWith('//'), 'Native engine route must be relative');
@@ -20,6 +20,8 @@ export function createNativeEngineClient(serverInfo, workspaceId, request = fetc
   };
   // Match provider sign-in in the application: the server awaits rebuilding
   // its derived config before disposing and warming the workspace instance.
-  engineRequest.reload = () => authenticatedRequest(`${server.origin}/workspace/${encodeURIComponent(workspaceId)}/engine/reload`, { method: 'POST' });
+  // The production SDK gives instance initialization and MCP restoration 90s.
+  // Supply both contracts: diagnostics' explicit deadline and native fetch's signal.
+  engineRequest.reload = () => authenticatedRequest(`${server.origin}/workspace/${encodeURIComponent(workspaceId)}/engine/reload`, { method: 'POST', signal: AbortSignal.timeout(90_000) }, 90_000);
   return engineRequest;
 }

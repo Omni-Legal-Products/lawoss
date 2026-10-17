@@ -19,6 +19,7 @@ function endpoint(url) {
   if (/\/files\/(?:list|raw|content)$/.test(pathname)) return 'files';
   const fixed = new Map([['/global/health','engine.health'],['/provider','provider'],['/instance/dispose','engine.dispose'],['/auth/isir-native','synthetic.auth'],['/json/list','cdp.targets'],['/experimental/session','engine.sessions'],['/','ui']]);
   if(fixed.has(pathname))return fixed.get(pathname);
+  if (/\/workspace\/[^/]+\/engine\/reload$/.test(pathname))return 'engine.reload';
   if (/\/workspace\/[^/]+\/config$/.test(pathname))return 'workspace.config';
   return 'other';
 }

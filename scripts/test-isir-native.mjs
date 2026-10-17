@@ -17,6 +17,7 @@ import { sha256 } from "../lawoss/testing/isir/corpus.mjs";
 import { prepareNativeEngineFiles, probeNativeEngineVersion, verifyNativeEngineRuntime } from "../lawoss/testing/isir/native/engine-identity.mjs";
 import { createNativeEngineClient } from "../lawoss/testing/isir/native/engine-client.mjs";
 import { nativeRendererLaunch } from "../lawoss/testing/isir/native/renderer.mjs";
+import { nativeEngineFetchRecords } from "../lawoss/testing/isir/native/engine-fetch.mjs";
 
 const debugPair=process.argv.includes('--debug-case-pair');
 assert.ok(!debugPair || !process.env.CI,'CI must run the complete ten-case native gate');
@@ -504,6 +505,8 @@ try {
 } catch (error) {
   primaryError = error;
   console.error('Primary native failure before cleanup', JSON.stringify(diagnostics.failure(error)));
+  const fetchPhases=children.filter(owner=>['electron','electron-relaunch'].includes(owner.label)).flatMap(owner=>nativeEngineFetchRecords(owner.output()).map(record=>({process:owner.label,...record}))).slice(-64);
+  console.error('Owned engine fetch boundaries',JSON.stringify(fetchPhases));
   await boundaryProbe?.().catch(()=>undefined);
   await diagnostics.write({events:cdp?.events,error}).catch(e=>console.error('Diagnostic publication failed',JSON.stringify(errorMetadata(e))));
   for (const owner of children) await writeFile(path.join(root, `${owner.label}.log`), owner.output(), { mode: 0o600 });

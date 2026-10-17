@@ -3,6 +3,7 @@
 import { app, dialog, ipcMain } from "electron";
 import { readFile, appendFile } from "node:fs/promises";
 import path from "node:path";
+import { observeNativeEngineFetch, ENGINE_FETCH_PREFIX } from "../../../lawoss/testing/isir/native/engine-fetch.mjs";
 
 const root = process.env.LAWOSS_ISIR_NATIVE_ROOT;
 if (!root || !path.isAbsolute(root) || process.env.LEGALWORK_DEV_MODE !== "1" || app.isPackaged) {
@@ -11,6 +12,8 @@ if (!root || !path.isAbsolute(root) || process.env.LEGALWORK_DEV_MODE !== "1" ||
 const profile = process.env.LEGALWORK_ELECTRON_USERDATA;
 const outside = (value) => !value || !path.isAbsolute(value) || path.relative(root,value).startsWith("..") || path.isAbsolute(path.relative(root,value));
 if (outside(profile)) throw new Error("ISIR native entry requires a profile inside the owned test root");
+// Passive test-only phase receipts; production fetch arguments/results stay real.
+globalThis.fetch=observeNativeEngineFetch(globalThis.fetch,record=>console.log(ENGINE_FETCH_PREFIX+JSON.stringify(record)));
 // safeStorage probes during production boot otherwise enter the host login
 // keychain and can block CI's main thread before any renderer exists.
 if (process.platform === "darwin") app.commandLine.appendSwitch("use-mock-keychain");
