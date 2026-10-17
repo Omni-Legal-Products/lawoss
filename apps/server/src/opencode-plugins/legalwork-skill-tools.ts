@@ -1,22 +1,16 @@
+import { SkillLessonInputSchema } from "../skill-lesson-schema.js";
 import { readFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
 import { z } from "zod";
 
 import { buildSkillMarkdown, resolveSkillName } from "../skill-tool-content.js";
 
-import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, serverConnected, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 /**
- * Agent tools for adding skills and workflows to the firm's LegalWork library —
- * the one Settings > Skills and Settings > Workflows list.
- *
- * Hand-writing a SKILL.md with the file tools does NOT put it there: the app
- * lists the shared (global) skills library, not a workspace's .opencode/skills,
- * so a skill written into the working directory stays an invisible file. These
- * tools persist through the same authenticated legalwork-server relay the other
- * LegalWork tools use (LEGALWORK_SERVER_URL + LEGALWORK_SERVER_TOKEN →
- * POST /workspace/:id/skills with scope "global"), which writes into the library
- * the app reads and the engine loads for every workspace.
+ * Agent tools for the ordinary discoverable skill library. Workflows is the
+ * user-facing home for playbooks and corrections; Skills holds supporting capabilities.
+ * Both use the same authenticated server API and engine discovery.
  */
 
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -24,11 +18,13 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_RESOURCE_BYTES = 20 * 1024 * 1024;
 
 const SKILL_TOOLS_INSTRUCTION = `## Creating skills and workflows
-When the user asks you to create, save, or "remember" a reusable skill or workflow (a repeatable drafting/review task, a firm playbook, a checklist they want to run again), create it with legalwork_skill_create. That is the only way it lands in the firm's library and shows up in the LegalWork app under Settings > Skills and Settings > Workflows. Writing a SKILL.md yourself with the file tools leaves it as a loose file the app never lists.
+When the user asks you to create, save, or "remember" a reusable skill or workflow (a repeatable drafting/review task, a firm playbook, a correction), save it through legalwork_skill_create so it is installed in the library with the correct scope and metadata.
 Exception: tabular-review prompts and sets are structured library entries. Load author-review-prompts and use legalwork_review_library_save for those; never create new tabular workflow skills. Existing tabular workflows remain ordinary workflows.
-Use kind "workflow" for a legal task the user runs on documents (drafting from a template, a review pass); use kind "skill" for knowledge or capability the assistant should pick up automatically. Attach the firm's template with resourcePaths when the task drafts from one. Call legalwork_skill_list first if you need to check what already exists.`;
+Workflows are ordinary discoverable skills, not manual-only tasks. Both kinds can be loaded automatically when relevant. Use kind "workflow" for user-facing instructions, playbooks and saved corrections, shown in Workflows; use kind "skill" for supporting capabilities, shown in Settings > Integrations > Skills. Attach the firm's template with resourcePaths when the task drafts from one. Call legalwork_skill_list first if you need to check what already exists.`;
 
 const createArgs = z.object({
+  lesson: SkillLessonInputSchema.optional().describe("For a lawyer-approved reusable correction, extend an installed skill or workflow. Saved in Workflows and automatically composed with the base. Supply precise scope and positive and negative regression examples. A code defect also needs an executable fix and tests; prose cannot fix code."),
+  scope: z.enum(["project", "global"]).default("global").describe("Project for a matter-specific correction; global for a reusable correction in this user library."),
   name: z
     .string()
     .min(1)
@@ -48,13 +44,13 @@ const createArgs = z.object({
     .min(1)
     .max(80_000)
     .describe(
-      "The SKILL.md body in markdown (no frontmatter — it is generated). Open with a '# Title' heading, then write the steps the assistant follows when this runs: what to ask the user for, how to produce the output, and a short 'Before delivering' checklist.",
+      "The SKILL.md body in markdown (frontmatter is generated). Open with a '# Title' heading, then write the steps the assistant follows: what facts it needs, how to produce the output, and a short 'Before delivering' checklist.",
     ),
   kind: z
     .enum(["skill", "workflow"])
     .optional()
     .describe(
-      "'workflow' (shown under Settings > Workflows) for a legal task the user runs on documents; 'skill' (Settings > Skills) for knowledge the assistant loads on its own. Defaults to 'skill'.",
+      "'workflow' for user-facing instructions, playbooks and corrections in Workflows; 'skill' for supporting capabilities in Settings > Integrations > Skills. Both are automatically discoverable. Lessons always use 'workflow'; otherwise defaults to 'skill'.",
     ),
   workflowType: z
     .literal("assistant")
@@ -76,22 +72,27 @@ const createArgs = z.object({
 });
 
 const listArgs = z.object({});
+const packageEntry = z.object({ name: z.string(), directory: z.string(), files: z.array(z.object({ path: z.string(), size: z.number() })) });
+const resourceArgs = z.object({
+  name: z.string().min(1).describe("Exact name from a workflow or skill loaded in this chat with legalwork_skill_load."),
+  path: z.string().min(1).describe("Exact relative path from that package's files, e.g. resources/felder.md or resources/template.docx."),
+  offset: z.number().int().nonnegative().optional().describe("Continue a long resource using the returned nextOffset."),
+});
 
 type SkillListItem = { name?: unknown; description?: unknown; kind?: unknown; scope?: unknown };
 
 async function requestJson(
   path: string,
-  options: { method?: string; body?: unknown } = {},
+  options: { method?: string; body?: unknown; context?: OpenCodeContext } = {},
 ): Promise<{ ok: true; payload: unknown } | { ok: false; error: string }> {
   const url = serverUrl();
-  const token = serverToken();
-  if (!url || !token) {
+  if (!serverConnected(options.context)) {
     return { ok: false, error: "LegalWork server connection is not configured for this engine." };
   }
   const response = await fetch(`${url}${path}`, {
     method: options.method ?? "GET",
     headers: {
-      Authorization: `Bearer ${token}`,
+      ...await workspaceToolHeaders(options.context),
       ...(options.body ? { "Content-Type": "application/json" } : {}),
     },
     ...(options.body ? { body: JSON.stringify(options.body) } : {}),
@@ -120,6 +121,7 @@ async function attachResources(
   skillName: string,
   paths: string[],
   baseDir: string,
+  context: OpenCodeContext,
 ): Promise<{ attached: string[]; warnings: string[] }> {
   const attached: string[] = [];
   const warnings: string[] = [];
@@ -138,7 +140,7 @@ async function attachResources(
       const name = basename(path);
       const result = await requestJson(
         `/workspace/${encodeURIComponent(workspaceId)}/skills/${encodeURIComponent(skillName)}/resources`,
-        { method: "POST", body: { name, contentBase64: bytes.toString("base64") } },
+        { method: "POST", body: { name, contentBase64: bytes.toString("base64") }, context },
       );
       if (result.ok) attached.push(name);
       else warnings.push(`${path}: ${result.error}`);
@@ -149,18 +151,60 @@ async function attachResources(
   return { attached, warnings };
 }
 
-export const LegalWorkSkillTools = async () => ({
+export const LegalWorkSkillTools = async () => {
+  // Package grants are scoped to the workspace and chat, never the library.
+  // They contain locations, not copies of instructions or resource bytes.
+  const loaded = new Map<string, Map<string, z.infer<typeof packageEntry>>>();
+  function sessionKey(workspace: string, context: OpenCodeContext) {
+    if (!context.sessionID || !context.ask) throw new Error("Skill resources require a chat identity and permission checks.");
+    return `${workspace}:${context.sessionID}`;
+  }
+  return {
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
-    output.system.push(SKILL_TOOLS_INSTRUCTION);
+    output.system.push(SKILL_TOOLS_INSTRUCTION + "\nUse legalwork_skill_load for installed skills and workflows, then legalwork_skill_read with its exact package file references for attached Markdown and Word resources. Helpers run through legalwork_shell with the returned skills and mount paths, under normal execution permissions.\nBefore calculating legal deadlines, use legalwork_skill_load to read the jurisdiction skill AND its expert corrections. When a lawyer corrects you, distinguish an extracted fact, a matter-specific exception, a reusable rule, and a code defect. Propose the exact correction and project/global scope. On an explicit request to remember/save it, call legalwork_skill_create with kind=workflow, lesson={base, appliesWhen, correction, examples}, and a new descriptive name. The correction appears in Workflows and loads automatically with its base. Preserve the base. Include both the corrected case and a nearby case whose correct behavior must not change. Never claim these examples are executed tests. Reload the composed skill before retrying, including in a new session.");
   },
   tool: {
+    legalwork_skill_load: {
+      description: "Load an installed skill or workflow, its expert corrections and its full package of attached resources. Returns exact file references for legalwork_skill_read and shell mounts. Use this for all workflows and skills, including deadlines. Resolves dependencies and refuses changed base versions.",
+      args: { name: z.string().min(1) },
+      async execute(raw: unknown, context: OpenCodeContext) {
+        const { name } = z.object({ name: z.string().min(1) }).parse(raw);
+        const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
+        const key = sessionKey(workspace, context);
+        const result = await requestJson(`/workspace/${encodeURIComponent(workspace)}/skills/${encodeURIComponent(name)}/composed`, { context });
+        if (!result.ok) return JSON.stringify(result);
+        const { chain } = z.object({ chain: z.array(packageEntry) }).parse(result.payload);
+        for (const entry of chain) {
+          await context.ask!({ permission: "skill", patterns: [entry.name], always: [entry.name], metadata: {} });
+          await context.ask!({ permission: "read", patterns: [join(entry.directory, "SKILL.md")], always: [], metadata: {} });
+        }
+        const grants = loaded.get(key) ?? new Map();
+        for (const entry of chain) grants.set(entry.name, entry);
+        loaded.set(key, grants);
+        return JSON.stringify(result);
+      },
+    },
+    legalwork_skill_read: {
+      description: "Read an attached resource from a skill or workflow already loaded in this chat. Reads Markdown, other UTF-8 files and Word document text directly from the installed package, including updates. Does not execute helpers, grant library-wide access or copy files into the project. Existing skill and read permissions apply. For long files follow nextOffset; Word drawings and tracked changes may require visual review.",
+      args: resourceArgs.shape,
+      async execute(raw: unknown, context: OpenCodeContext) {
+        const input = resourceArgs.parse(raw);
+        const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
+        const entry = loaded.get(sessionKey(workspace, context))?.get(input.name);
+        if (!entry || !entry.files.some(file => file.path === input.path)) throw new Error("Load this skill with legalwork_skill_load and use an exact path from its files.");
+        await context.ask!({ permission: "skill", patterns: [entry.name], always: [entry.name], metadata: {} });
+        await context.ask!({ permission: "read", patterns: [join(entry.directory, input.path)], always: [], metadata: {} });
+        const query = new URLSearchParams({ directory: entry.directory, path: input.path, offset: String(input.offset ?? 0) });
+        return JSON.stringify(await requestJson(`/workspace/${encodeURIComponent(workspace)}/skills/${encodeURIComponent(input.name)}/package-file?${query}`, { context }));
+      },
+    },
     legalwork_skill_create: {
       description:
-        "Add a skill or workflow to the firm's LegalWork library so it appears in Settings > Skills / Settings > Workflows and loads in every workspace. Use whenever the user asks to create, save, or reuse a repeatable task — 'make a workflow for this', 'save this as a skill', 'remember how we draft these'. For tabular-review prompts and sets, use the author-review-prompts skill and legalwork_review_library_save instead. This is the only way a new skill/workflow reaches the app: writing a SKILL.md yourself with the file tools leaves it as a loose file the app never lists.",
+        "Save reusable instructions through the ordinary skill library. User-facing playbooks and corrections appear in Workflows; supporting capabilities appear in Settings > Integrations > Skills. Both are automatically discoverable within their project/global scope. Use when the user asks to create, save or remember instructions. For tabular-review prompts and sets, use the author-review-prompts skill and legalwork_review_library_save instead.",
       args: createArgs.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = createArgs.parse(rawArgs);
-        const kind = args.kind ?? "skill";
+        const kind = args.lesson ? "workflow" : args.kind ?? "skill";
         const workflowType = args.workflowType ?? "assistant";
         let fullName = resolveSkillName({ name: args.name, kind, workflowType });
         if (!fullName) {
@@ -169,7 +213,7 @@ export const LegalWorkSkillTools = async () => ({
         try {
           const workspaceId = await resolveWorkspaceId(context);
           const existing = await requestJson(
-            `/workspace/${encodeURIComponent(workspaceId)}/skills?includeGlobal=true`,
+            `/workspace/${encodeURIComponent(workspaceId)}/skills?includeGlobal=true`, { context },
           );
           const items = existing.ok ? (existing.payload as { items?: SkillListItem[] } | null)?.items ?? [] : [];
           const original = items.find(item => item.name === args.name);
@@ -185,7 +229,7 @@ export const LegalWorkSkillTools = async () => ({
             }
           }
           const created = await requestJson(`/workspace/${encodeURIComponent(workspaceId)}/skills`, {
-            method: "POST",
+            method: "POST", context,
             body: {
               name: fullName,
               description: args.description.trim(),
@@ -196,17 +240,17 @@ export const LegalWorkSkillTools = async () => ({
                 kind,
                 workflowType,
               }),
-              // The library the app lists, not this workspace's .opencode/skills.
-              scope: "global",
+              scope: args.scope,
+              lesson: args.lesson,
             },
           });
           if (!created.ok) {
             return JSON.stringify({ ok: false, name: fullName, error: `Could not save the ${kind}: ${created.error}` });
           }
           const { attached, warnings } = args.resourcePaths?.length
-            ? await attachResources(workspaceId, fullName, args.resourcePaths, context.directory?.trim() || process.cwd())
+            ? await attachResources(workspaceId, fullName, args.resourcePaths, context.directory?.trim() || process.cwd(), context)
             : { attached: [], warnings: [] };
-          const where = kind === "workflow" ? "Settings > Workflows" : "Settings > Skills";
+          const where = kind === "workflow" ? "Workflows" : "Settings > Integrations > Skills";
           return JSON.stringify(
             {
               ok: true,
@@ -216,7 +260,12 @@ export const LegalWorkSkillTools = async () => ({
               path: (created.payload as { path?: string } | null)?.path,
               ...(attached.length ? { attachedResources: attached } : {}),
               ...(warnings.length ? { resourceWarnings: warnings } : {}),
-              message: `Saved "${fullName}" to the firm's library. It is listed under ${where} and is available in every workspace. Tell the user where to find it, and that the assistant can run it once they accept the reload the app offers above the conversation.`,
+              scope: args.scope,
+              ...(args.lesson ? { extends: args.lesson.base } : {}),
+              message: args.lesson
+                ? `Saved "${fullName}" in Workflows as a ${args.scope}-scoped extension of ${args.lesson.base}. It loads automatically with its base. Call legalwork_skill_load to resolve it immediately, including in a fresh session. The saved examples are expectations, not executed tests.`
+                : args.scope === "project" ? `Saved "${fullName}" for this project under ${where}. Accept the offered reload to refresh the skill list.`
+                : `Saved "${fullName}" to the user's library under ${where}. Accept the offered reload to refresh the skill list.`,
             },
             null,
             2,
@@ -233,7 +282,7 @@ export const LegalWorkSkillTools = async () => ({
       async execute(_rawArgs: unknown, context: OpenCodeContext) {
         try {
           const workspaceId = await resolveWorkspaceId(context);
-          const result = await requestJson(`/workspace/${encodeURIComponent(workspaceId)}/skills?includeGlobal=true`);
+          const result = await requestJson(`/workspace/${encodeURIComponent(workspaceId)}/skills?includeGlobal=true`, { context });
           if (!result.ok) return JSON.stringify({ ok: false, error: result.error });
           const items = (result.payload as { items?: SkillListItem[] } | null)?.items ?? [];
           const entries = items.flatMap((item) =>
@@ -263,4 +312,5 @@ export const LegalWorkSkillTools = async () => ({
       },
     },
   },
-});
+  };
+};

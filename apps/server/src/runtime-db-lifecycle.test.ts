@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { RuntimeDbCleanupError, acquireRuntimeDbLifetime, runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { initializeSqlite, openSqlite } from "./runtime-db.js";
-import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { closeRuntimeOpencodeConfig, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { readLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
 import { readSessionGroupState } from "./session-groups.js";
-import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
+import { closeEigenweltConnection, readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { readHubInstalls } from "./eigenwelt-hub-installs-store.js";
 import { readInstalledCloudPlugins } from "./cloud-plugins.js";
 import { TaskStore, taskStore } from "./task-store.js";
@@ -264,3 +264,35 @@ test("recovering a failed independent open cannot close another caller's connect
   }
   expect(await runtimeDbHandles(f.path)).toBe(0); await rm(f.root, { recursive: true });
 });
+
+for (const close of [closeRuntimeOpencodeConfig, closeEigenweltConnection]) {
+  test(`${close.name} drains the captured operation-only generation across environment drift`, async () => {
+    const f = await fixture(), entered = barrier(), gate = barrier();
+    const pending = withRuntimeDb(f.config, async () => {
+      await writeRuntimeOpencodeConfig(f.config, "stable", () => ({ default_agent: "kept" }));
+      entered.resolve(); await gate.promise;
+    });
+    await entered.promise;
+    process.env.LEGALWORK_RUNTIME_DB = join(f.root, "other.sqlite");
+    let finished = false;
+    const drained = close(f.config, f.path).then(() => { finished = true; });
+    try { await Promise.resolve(); expect(finished).toBe(false); }
+    finally { gate.resolve(); await pending; }
+    await drained;
+    expect(await runtimeDbHandles(f.path)).toBe(0);
+  });
+  test(`${close.name} preserves a live borrowed owner and refuses self-drain`, async () => {
+    const f = await fixture(), owner = acquireRuntimeDbLifetime(f.config);
+    try {
+      const tasks = await taskStore(f.config);
+      await close(f.config, f.path);
+      tasks.setSyncState({ orgId: "fixture", pullCursor: "kept", lastPullAt: 1, lastPushAt: null, lastError: null });
+      expect(tasks.getSyncState("fixture").pullCursor).toBe("kept");
+      await owner.run(async () => {
+        await expect(close(f.config, f.path)).rejects.toThrow("active operation");
+        await expect(close({ ...f.config }, f.path)).rejects.toThrow("active operation");
+      });
+    } finally { await owner.release(); }
+    expect(await runtimeDbHandles(f.path)).toBe(0);
+  });
+}

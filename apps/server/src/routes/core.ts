@@ -22,8 +22,12 @@ import {
   jsResponse,
   svgResponse,
 } from "../toy-ui.js";
-import type { Capabilities, ServerConfig, WorkspaceInfo } from "../types.js";
+import type { Actor, Capabilities, ServerConfig, WorkspaceInfo } from "../types.js";
 import { addRoute, type Route } from "./registry.js";
+import { connectorSettings } from "../connectors/settings.js";
+import { registerConnectorRoutes } from "./connectors.js";
+import { isConnectorExtension, connectorActionWrites } from "../connectors/index.js";
+import { hasConnectorRuntimeCapability, hasConnectorHostAuthorization } from "../connectors/capability.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
@@ -45,7 +49,7 @@ interface RegisterCoreRoutesOptions {
   buildCapabilities: (config: ServerConfig) => Capabilities;
   fetchRuntimeControl: FetchRuntimeControl;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
-  serializeWorkspace: (workspace: ServerConfig["workspaces"][number]) => unknown;
+  serializeWorkspace: (workspace: ServerConfig["workspaces"][number], scope?: Actor["scope"]) => unknown;
   resolveToyUiEnabled: () => boolean;
   resolveDevLogPath: () => string | null;
   getOpenAiRealtimeVoiceCapability: (env: EnvService) => Promise<unknown>;
@@ -79,6 +83,7 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     createOpenAiRealtimeVoiceCall,
   } = options;
   const googleWorkspaceConnectFlows = createGoogleWorkspaceConnectFlowManager(config);
+  registerConnectorRoutes({ routes, config, jsonResponse, readOptionalJsonBody, resolveWorkspace });
   const envPendingChangesByRuntime = new Map<string, boolean>();
 
   const healthResponse = () => jsonResponse({
@@ -186,7 +191,7 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
       corsOrigins: config.corsOrigins,
       workspaceCount: 1,
       activeWorkspaceId: workspace.id,
-      workspace: serializeWorkspace(workspace),
+      workspace: serializeWorkspace(workspace, ctx.actor?.scope),
       authorizedRoots: config.authorizedRoots,
       server: {
         host: config.host,
@@ -206,10 +211,10 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
 
   addRoute(routes, "GET", "/w/:id/workspaces", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    return jsonResponse({ items: [serializeWorkspace(workspace)], activeId: workspace.id });
+    return jsonResponse({ items: [serializeWorkspace(workspace, ctx.actor?.scope)], activeId: workspace.id });
   });
 
-  addRoute(routes, "GET", "/status", "client", async () => {
+  addRoute(routes, "GET", "/status", "client", async (ctx) => {
     const active = config.workspaces[0];
     return jsonResponse({
       ok: true,
@@ -221,7 +226,7 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
       corsOrigins: config.corsOrigins,
       workspaceCount: config.workspaces.length,
       activeWorkspaceId: active?.id ?? null,
-      workspace: active ? serializeWorkspace(active) : null,
+      workspace: active ? serializeWorkspace(active, ctx.actor?.scope) : null,
       authorizedRoots: config.authorizedRoots,
       server: {
         host: config.host,
@@ -271,6 +276,7 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
       ok: true,
       schemaVersion: 1,
       actions: listExperimentalExtensionActions(extensionId),
+      nativeConnectorWriteAccess: Object.fromEntries(Object.entries((await connectorSettings(config)).writeAccess).map(([id, enabled]) => [id, enabled && !config.readOnly])),
     });
   });
 
@@ -279,6 +285,10 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
       throw new ApiError(403, "forbidden", "Viewer tokens cannot call extension actions");
     }
     const body = await readJsonBody(ctx.request);
+    if (typeof body.extensionId === "string" && isConnectorExtension(body.extensionId)) {
+      if (ctx.actor?.scope === "collaborator" && !hasConnectorRuntimeCapability(config, ctx.request) && !hasConnectorHostAuthorization(config, ctx.request)) throw new ApiError(403, "forbidden", "Only the LegalWork server owner or their managed agent can use personal email connections.");
+      if (config.readOnly && typeof body.action === "string" && connectorActionWrites(body.extensionId, body.action)) throw new ApiError(403, "read_only", "This server is read-only.");
+    }
     return jsonResponse(await callExperimentalExtensionAction(config, env, body));
   });
 
@@ -321,9 +331,9 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     return jsonResponse(await googleWorkspaceRunScopeSmokeTest(config));
   });
 
-  addRoute(routes, "GET", "/workspaces", "client", async () => {
+  addRoute(routes, "GET", "/workspaces", "client", async (ctx) => {
     const active = config.workspaces[0] ?? null;
-    const items = config.workspaces.map(serializeWorkspace);
+    const items = config.workspaces.map((workspace) => serializeWorkspace(workspace, ctx.actor?.scope));
     return jsonResponse({ items, workspaces: items, activeId: active?.id ?? null });
   });
 

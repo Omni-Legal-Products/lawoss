@@ -19,6 +19,10 @@ on:
   # signed/unsigned package steps below).
   workflow_dispatch:
     inputs:
+      sandbox_tests:
+        description: Run sandbox validation tests (adds build time)
+        type: boolean
+        default: false
       base_version:
         description: "LAWOSS: alpha base X.Y.Z, e.g. 0.2.1 (overrides vars.LAWOSS_ALPHA_BASE_VERSION; empty = next patch after the latest v* tag)"
         required: false
@@ -37,7 +41,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  sandbox-runtime:
+    uses: ./.github/workflows/sandbox-runtime.yml
+    with:
+      targets: darwin-arm64
+      run_tests: ${{ inputs.sandbox_tests }}
   publish-alpha-macos-aarch64:
+    needs: sandbox-runtime
     name: Build + Publish alpha (aarch64-apple-darwin)
     runs-on: macos-14
     timeout-minutes: 180
@@ -163,6 +173,16 @@ jobs:
           node scripts/release/apply-version.mjs --version "$ALPHA_VERSION"
           pnpm install --lockfile-only --no-frozen-lockfile
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: sandbox-runtime-darwin-arm64
+          path: ${{ runner.temp }}/sandbox-runtime
+      - name: Unpack protected runtime
+        shell: bash
+        run: |
+          mkdir -p apps/server/resources/agent-sandbox/runtime
+          tar -xzf "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz" -C apps/server/resources/agent-sandbox/runtime
+
       - name: Write notary API key
         if: env.MACOS_NOTARIZE == 'true'
         env:
@@ -219,6 +239,10 @@ jobs:
             --mac \
             --arm64 \
             --publish never
+
+      - name: Verify packaged startup
+        timeout-minutes: 3
+        run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/mac-arm64/LAWOSS.app/Contents/MacOS/LAWOSS"
 
       - name: Create immutable alpha prerelease
         shell: bash

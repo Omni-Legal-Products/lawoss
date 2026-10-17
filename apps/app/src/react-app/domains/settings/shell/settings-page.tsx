@@ -20,7 +20,7 @@ import {
   ShieldCheck,
   Sparkles,
   Store,
-  Table2,
+  TableProperties,
   UserCircle,
   Wrench,
   Zap,
@@ -61,13 +61,14 @@ import {
   SettingsPanelToolbarStatus,
 } from "./panel";
 import { WorkspaceIcon } from "../../../design-system/workspace-icon";
+import { OrgPolicyBanner } from "../../connections/org-policy-ui";
 
 export function getSettingsTabIcon(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return Zap;
     case "tabular-review":
-      return Table2;
+      return TableProperties;
     case "account":
       return UserCircle;
     case "personalisation":
@@ -238,7 +239,9 @@ export function getWorkspaceSettingsTabs(): SettingsTab[] {
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
-  // LAWOSS: Appearance/Language is visible (dark theme + sk/cs locales are core).
+  // Appearance/Language live in Customization. Recovery is hidden.
+  // LAWOSS: samostatná karta Appearance ostáva v zozname (tmavá téma a jazyky sk/cs
+  // sú jadro; režim Lite nemá kartu Customization).
   // "preferences" is the Privacy tab (usage-analytics opt-out toggle).
   // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
@@ -394,11 +397,11 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
 export function SettingsPage(props: SettingsPageProps) {
   return (
     <SettingsContent>
-      <SettingsPanel key={props.activeTab} className="lw-enter">
-        <SettingsPanelHeading>
+      <SettingsPanel key={props.activeTab} className={props.activeTab === "extensions" ? "lw-enter lg:max-w-5xl" : "lw-enter"}>
+        {props.activeTab !== "extensions" ? <SettingsPanelHeading>
           <SettingsPanelTitle>{getSettingsTabLabel(props.activeTab)}</SettingsPanelTitle>
           <SettingsPanelDescription>{getSettingsTabDescription(props.activeTab)}</SettingsPanelDescription>
-        </SettingsPanelHeading>
+        </SettingsPanelHeading> : null}
 
         {props.showUpdateToolbar && props.activeTab === "general" ? (
           <SettingsPanelToolbar>
@@ -426,6 +429,8 @@ export function SettingsPage(props: SettingsPageProps) {
           </SettingsPanelToolbar>
         ) : null}
       </SettingsPanel>
+
+      <OrgPolicyBanner showSignIn={props.activeTab !== "account"} />
 
       {props.children}
     </SettingsContent>

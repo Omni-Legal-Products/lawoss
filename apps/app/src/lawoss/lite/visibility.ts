@@ -31,6 +31,9 @@ export const landingPath = (mode: UiMode): string => (mode === "lite" ? LITE_TOD
 /** Úvodné stránky oboch režimov: aj pri `preserveRoute` z nich musí prvé spustenie presmerovať na /welcome. */
 export const isLandingPath = (pathname: string): boolean => pathname === LITE_TODAY_PATH || pathname === "/home";
 
-/** Apply Lite filtering to the v0.2.1 native action rail. */
+/**
+ * Apply Lite filtering to the v0.2.1 native action rail. Wiki, kalendár a plánované úlohy
+ * (spec 0017, časť 6.2) ostanú v Lite skryté aj po neskoršom odkrytí v Pro.
+ */
 export const isMainRailItemVisible = (key: string, mode: UiMode): boolean =>
-  mode === "pro" || !["navTasks", "navWorkflows", "navRecorder", "navEvaluations"].includes(key);
+  mode === "pro" || !["navTasks", "navWorkflows", "navRecorder", "navEvaluations", "navWikis", "navCalendar", "navScheduled"].includes(key);

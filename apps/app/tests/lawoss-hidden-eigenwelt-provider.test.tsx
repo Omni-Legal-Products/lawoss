@@ -20,6 +20,9 @@ const view = () =>
       onOpenProviderAuth={() => {}}
       onDisconnectProvider={() => {}}
       canDisconnectProvider={() => true}
+      firmProviders={[]}
+      onSignInFirmProvider={() => {}}
+      onSaveFirmProviderKey={async () => undefined}
       eigenweltConnected={false}
       onManageEigenweltAccount={() => {}}
     />,

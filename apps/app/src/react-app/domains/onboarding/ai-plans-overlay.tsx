@@ -2,15 +2,14 @@
 /**
  * The plan screen. LegalWork has no free model tier, so while no model is
  * usable (see aiAccessState) this screen lies over the blurred app, and it is
- * the last onboarding step. Three cards: "own model" on the left, then the
- * same Plus and Pro cards as the platform's plan comparison.
+ * the last onboarding step. Three cards: a free own-model option, Sync, and
+ * a combined Plus/Pro card with the same tiers as the platform.
  *
  *  - Own model is free and opens the provider connection. Closing that
  *    without connecting lands back here: the route keeps the screen up until
  *    a model is usable.
- *  - Plus and Pro run the Eigenwelt sign-in in the browser and carry the plan,
- *    so a firm without a subscription lands on that plan's checkout (sign-up,
- *    firm, trial) and the app connects when it is done.
+ *  - Paid plans confirm billing and seats here. The browser handles Eigenwelt
+ *    sign-in, Stripe checkout and model setup, then connects the app.
  *
  * The variant follows the account: "signed-out" asks to sign in first (the
  * cards stay one click away), "ended" offers to restart a plan, and
@@ -19,10 +18,15 @@
  * Analytics (in memory only, like every other app event): the route sends
  * ai_plans_viewed, ai_plans_own_model_closed and ai_plans_completed; this
  * screen sends what happens on it. Every event carries `mode` and `variant`.
- *   ai_plans_option_selected     { choice, previous_choice } own_model | plus | pro | sign_in;
+ *   ai_plans_option_selected     { choice, previous_choice } own_model | sync | plus | pro | sign_in;
  *                                previous_choice is the earlier choice on this
  *                                screen, e.g. own_model before plus
  *   ai_plans_sign_in_started     { choice } the browser opened
+ *   ai_plans_confirmation_viewed { plan, interval, seats, trial_offered } once per visit
+ *   ai_plans_billing_interval_changed { plan, from, to, seats }
+ *   ai_plans_seats_adjusted      { plan, from, to, interval }
+ *   ai_plans_confirmation_back  { plan, interval, seats, source } back | change_plan
+ *   ai_plans_checkout_confirmed  { plan, interval, seats, trial_offered } native confirmation
  *   ai_plans_sign_in_cancelled   { choice } "Cancel" while the browser was open
  *   ai_plans_sign_in_failed      { choice }
  *   ai_plans_connected           { choice } the sign-in finished
@@ -31,10 +35,20 @@
  *   ai_plans_updates_opened                 "Check for updates"
  */
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, Check, KeyRound, Loader2, RefreshCcw, Sparkles, type LucideIcon } from "lucide-react";
+import { flushSync } from "react-dom";
+import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
+import {
+  ArrowLeft,
+  Check,
+  KeyRound,
+  Loader2,
+  RefreshCcw,
+  type LucideIcon,
+} from "lucide-react";
 
 import legalworkMark from "@/assets/legalwork-mark-dark.svg";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import type { AiPlansVariant } from "@/app/lib/eigenwelt-access";
@@ -48,8 +62,15 @@ import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { cn } from "@/lib/utils";
 import { StepDots } from "./onboarding-cover";
+import { PlanConfirmation } from "./plan-confirmation";
+import "./ai-plans-transition.css";
 
-type SignInResult = { connected: boolean; cancelled?: boolean; message?: string };
+type SignInResult = {
+  connected: boolean;
+  cancelled?: boolean;
+  message?: string;
+  preferredAiProvider?: "openai" | "other";
+};
 
 export type AiPlansAccount = { email: string | null; firmName: string | null };
 
@@ -64,17 +85,22 @@ export type AiPlansOverlayProps = {
   account: AiPlansAccount | null;
   /** The LegalWork server is up. Every action needs it. */
   serverReady: boolean;
+  initialSeats?: number;
   /** Bind the sign-in loopback and return the platform URL to open. */
   onStartSignIn: (opts: {
     intent?: "sign-in";
     plan?: EigenweltPlanId;
+    checkout?: EigenweltCheckoutSelection;
   }) => Promise<{ authorizeUrl: string; sessionId: string }>;
   /** Long-poll until the browser flow completes. */
-  onWaitSignIn: (sessionId: string, opts: { cancelled: () => boolean }) => Promise<SignInResult>;
+  onWaitSignIn: (
+    sessionId: string,
+    opts: { cancelled: () => boolean },
+  ) => Promise<SignInResult>;
   /** The browser flow finished and the app is connected. */
   onSignedIn: (plan: EigenweltPlanId | null) => void;
   /** "I bring my own model": open the provider connection. */
-  onBringOwnModel: () => void;
+  onBringOwnModel: (preferredProviderId?: string) => void;
   /** "no-models": open the firm's billing page. */
   onOpenBilling: () => void;
   /** "no-models": re-read the plan now; true once it includes the models. */
@@ -92,6 +118,7 @@ export type AiPlansOverlayProps = {
 
 type Phase =
   | { kind: "choose" }
+  | { kind: "confirm"; plan: EigenweltPlanId }
   /** A sign-in (with or without a plan) is open in the browser. */
   | { kind: "browser"; plan: EigenweltPlanId | null; authorizeUrl: string }
   /** "no-models": the billing page is open; the plan is re-read until it has the models. */
@@ -105,28 +132,45 @@ const UPGRADE_TIMEOUT_MS = 10 * 60_000;
 const CONNECTING_TIMEOUT_MS = 20_000;
 
 const TAGLINE: Record<EigenweltPlanId, string> = {
+  sync: "ai_plans.tagline_sync",
   plus: "ai_plans.tagline_plus",
   pro: "ai_plans.tagline_pro",
 };
 
-/** What each plan lists, in order; "usage" is the included amount. Pro only adds to Plus. */
+/** What each plan lists, in order; "usage" is the included amount. */
 const FEATURES: Record<EigenweltPlanId, string[]> = {
-  plus: [
-    "ai_plans.feature_models",
-    "usage",
+  sync: [
+    "ai_plans.sync_no_usage",
+    "ai_plans.sync_own_ai",
     "ai_plans.feature_hub",
     "ai_plans.feature_admin",
+    "ai_plans.feature_priority_support",
+  ],
+  plus: [
+    "ai_plans.everything_in_sync",
+    "usage",
+    "ai_plans.feature_models",
+    "ai_plans.feature_ai_tasks",
+    "ai_plans.feature_model_controls",
     "ai_plans.feature_hosting_retention",
   ],
-  pro: ["usage", "ai_plans.feature_pro_headroom", "ai_plans.feature_priority_support"],
+  pro: [
+    "ai_plans.everything_in_sync",
+    "usage",
+    "ai_plans.feature_models",
+    "ai_plans.feature_ai_tasks",
+    "ai_plans.feature_model_controls",
+    "ai_plans.feature_hosting_retention",
+  ],
 };
 
 // Side by side, each card spans the row's five tracks (name, tagline, price,
 // action, features), so the buttons line up across the cards whatever the
 // length of the text above them.
 const cardClass =
-  "flex flex-col rounded-2xl border border-dls-border bg-dls-surface p-5 shadow-[0_24px_60px_-34px_rgba(15,23,42,0.45)] md:row-span-5 md:grid md:grid-rows-subgrid md:gap-y-0 xl:p-6 roomy:p-7";
-const planButtonClass = "h-11 w-full rounded-full text-[14px] roomy:h-12 roomy:text-[15px]";
+  "flex flex-col rounded-2xl border border-dls-border bg-dls-surface p-5 md:row-span-5 md:grid md:grid-rows-subgrid md:gap-y-0 xl:p-6 roomy:p-7";
+const planButtonClass =
+  "h-11 w-full rounded-full text-[14px] roomy:h-12 roomy:text-[15px]";
 const textLinkClass =
   "font-medium text-dls-text underline underline-offset-2 transition-opacity hover:opacity-80 disabled:pointer-events-none disabled:opacity-45";
 
@@ -147,15 +191,26 @@ function BrandMark(props: { size: number; className?: string }) {
 
 function accountLabel(account: AiPlansAccount | null): string | null {
   if (!account) return null;
-  if (account.email && account.firmName) return `${account.email} (${account.firmName})`;
+  if (account.email && account.firmName)
+    return `${account.email} (${account.firmName})`;
   return account.email ?? account.firmName ?? null;
 }
 
 /** One line of a card's list. The first line of a list can be `strong`, with its own icon. */
-function FeatureRow(props: { children: ReactNode; strong?: boolean; icon?: LucideIcon }) {
+function FeatureRow(props: {
+  children: ReactNode;
+  strong?: boolean;
+  icon?: LucideIcon;
+}) {
   const Icon = props.icon ?? Check;
   return (
-    <li className={props.strong ? "flex items-start gap-2.5 font-medium" : "flex items-start gap-2.5"}>
+    <li
+      className={
+        props.strong
+          ? "flex items-start gap-2.5 font-medium"
+          : "flex items-start gap-2.5"
+      }
+    >
       <Icon
         className={
           props.strong
@@ -178,27 +233,38 @@ function CardFrame(props: {
   action: ReactNode;
   features: ReactNode;
   testId: string;
+  switcher?: ReactNode;
+  priceNote?: string;
 }) {
   return (
-    <article className={cardClass} data-testid={props.testId}>
-      <h2 className="flex items-center gap-2 text-[26px] font-medium leading-none tracking-[-0.03em] text-dls-text roomy:gap-2.5 roomy:text-[30px]">
-        {props.icon ? (
-          <span aria-hidden className="flex size-6 shrink-0 items-center justify-center roomy:size-7">
-            {props.icon}
-          </span>
-        ) : null}
-        {props.name}
-      </h2>
+    <article className={cardClass} data-testid={props.testId} style={{ viewTransitionName: props.testId.replace("ai-plan-", "ai-plan-card-") }}>
+      <div className="flex min-h-9 items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-[26px] font-medium leading-none tracking-[-0.03em] text-dls-text roomy:gap-2.5 roomy:text-[30px]" style={{ viewTransitionName: props.testId.replace("ai-plan-", "ai-plan-name-") }}>
+          {props.icon ? (
+            <span
+              aria-hidden
+              className="flex size-6 shrink-0 items-center justify-center roomy:size-7"
+            >
+              {props.icon}
+            </span>
+          ) : null}
+          {props.name}
+        </h2>
+        {props.switcher}
+      </div>
       <p className="mt-2 text-[13.5px] leading-5 text-dls-secondary roomy:mt-2.5 roomy:text-[14.5px] roomy:leading-[22px]">
         {props.tagline}
       </p>
       <div className="mt-4 roomy:mt-5">
-        <div className="text-[34px] font-medium leading-none tracking-[-0.04em] text-dls-text tabular-nums roomy:text-[44px]">
+        <div className="text-[34px] font-medium leading-none tracking-[-0.04em] text-dls-text tabular-nums roomy:text-[44px]" style={{ viewTransitionName: props.testId.replace("ai-plan-", "ai-plan-price-") }}>
           {props.price}
         </div>
         <div className="mt-1.5 text-[13px] leading-[18px] text-dls-secondary roomy:mt-2 roomy:text-[15px] roomy:leading-[22px]">
           {props.priceSuffix}
         </div>
+        {props.priceNote && (
+          <p className="mt-1 text-xs text-dls-secondary">{props.priceNote}</p>
+        )}
       </div>
       <div className="mt-5 roomy:mt-6">{props.action}</div>
       <ul className="mt-5 space-y-2 border-t border-dls-border pt-5 text-[13px] leading-[18px] text-dls-text roomy:mt-6 roomy:space-y-2.5 roomy:pt-6 roomy:text-[14px] roomy:leading-5">
@@ -214,33 +280,41 @@ function PlanCard(props: {
   label: string;
   disabled: boolean;
   onChoose: () => void;
+  switcher?: ReactNode;
 }) {
   const { plan, locale } = props;
   return (
     <CardFrame
       testId={`ai-plan-${plan.id}`}
+      switcher={props.switcher}
+      priceNote={t("ai_plans.price_note", {
+        amount: formatEuroCents(plan.monthlyCents, locale),
+      })}
       icon={<BrandMark size={28} className="size-6 roomy:size-7" />}
       name={plan.name}
       tagline={t(TAGLINE[plan.id])}
       price={formatEuroCents(plan.yearlyPerMonthCents, locale)}
       priceSuffix={t("ai_plans.per_seat_month")}
       action={
-        <Button size="lg" className={planButtonClass} disabled={props.disabled} onClick={props.onChoose}>
+        <Button
+          size="lg"
+          className={planButtonClass}
+          disabled={props.disabled}
+          onClick={props.onChoose}
+        >
           {props.label}
         </Button>
       }
       features={
         <>
-          {plan.id === "pro" ? (
-            <FeatureRow strong icon={Sparkles}>
-              {t("ai_plans.everything_in_plus")}
-            </FeatureRow>
-          ) : null}
           {FEATURES[plan.id].map((key) => (
-            <FeatureRow key={key}>
+            <FeatureRow key={key} icon={key === "ai_plans.everything_in_sync" ? RefreshCcw : undefined}>
               {key === "usage"
                 ? t("ai_plans.feature_usage", {
-                    amount: formatEuroCents(plan.includedMonthlyUsageCents, locale),
+                    amount: formatEuroCents(
+                      plan.includedMonthlyUsageCents,
+                      locale,
+                    ),
                   })
                 : t(key)}
             </FeatureRow>
@@ -319,11 +393,41 @@ function UpdatesLink(props: { onClick: () => void }) {
 
 export function AiPlansOverlay(props: AiPlansOverlayProps) {
   const locale = useLocale();
+  const { mode, variant } = props;
   const titleId = useId();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "choose" });
+  const [checkout, setCheckout] = useState<EigenweltCheckoutSelection>({ interval: "year", seats: Math.min(Math.max(props.initialSeats ?? 1, 1), 500) });
+  const transitionRef = useRef<ViewTransition | null>(null);
+  const confirmationVisitRef = useRef<EigenweltPlanId | null>(null);
+  const choiceScroll = useRef(0);
+  const confirmPlan = (plan: EigenweltPlanId | null, source?: "back" | "change_plan") => {
+    if (!plan && phase.kind === "confirm" && source) {
+      captureAnalyticsEvent("ai_plans_confirmation_back", { plan: phase.plan, interval: checkout.interval, seats: checkout.seats, source, mode, variant });
+    }
+    const scroller = containerRef.current?.querySelector<HTMLElement>(".overflow-y-auto");
+    if (plan) choiceScroll.current = scroller?.scrollTop ?? 0;
+    const update = () => {
+      flushSync(() => setPhase(plan ? { kind: "confirm", plan } : { kind: "choose" }));
+      const heading = containerRef.current?.querySelector<HTMLElement>("h1");
+      if (heading?.hasAttribute("tabindex")) heading.focus({ preventScroll: true });
+      else containerRef.current?.focus({ preventScroll: true });
+      scroller?.scrollTo({ top: plan ? 0 : choiceScroll.current, behavior: "instant" });
+    };
+    if (!document.startViewTransition || window.matchMedia("(prefers-reduced-motion: reduce)").matches) { update(); return; }
+    transitionRef.current?.skipTransition();
+    document.documentElement.dataset.aiPlanTransition = "true";
+    const active = document.startViewTransition(update);
+    transitionRef.current = active;
+    void active.ready.catch(() => {});
+    void active.finished.finally(() => {
+      if (transitionRef.current === active) { transitionRef.current = null; delete document.documentElement.dataset.aiPlanTransition; }
+    }).catch(() => {});
+  };
+  useEffect(() => () => { transitionRef.current?.skipTransition(); delete document.documentElement.dataset.aiPlanTransition; }, []);
   // "signed-out" starts on the sign-in card; this shows the cards instead.
   const [showPlans, setShowPlans] = useState(false);
+  const [aiTier, setAiTier] = useState("plus");
   const [error, setError] = useState<string | null>(null);
   const [switchingAccount, setSwitchingAccount] = useState(false);
   // Bumping cancels whatever flow is running (a sign-in wait, the upgrade poll).
@@ -338,8 +442,27 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   // then a plan". Lives as long as the screen does.
   const lastChoiceRef = useRef<AiPlansChoice | null>(null);
 
-  const { mode, variant } = props;
   const signInFirst = variant === "signed-out" && !showPlans;
+  const offerTrial = variant === "new" || variant === "signed-out";
+
+  useEffect(() => {
+    if (phase.kind !== "confirm") { confirmationVisitRef.current = null; return; }
+    // Billing edits and Strict Mode effect replays are still the same visit.
+    if (confirmationVisitRef.current === phase.plan) return;
+    confirmationVisitRef.current = phase.plan;
+    captureAnalyticsEvent("ai_plans_confirmation_viewed", { plan: phase.plan, interval: checkout.interval, seats: checkout.seats, trial_offered: offerTrial, mode, variant });
+  }, [phase, checkout.interval, checkout.seats, offerTrial, mode, variant]);
+
+  const changeCheckout = (selection: EigenweltCheckoutSelection) => {
+    if (phase.kind !== "confirm") return;
+    if (selection.interval !== checkout.interval) {
+      captureAnalyticsEvent("ai_plans_billing_interval_changed", { plan: phase.plan, from: checkout.interval, to: selection.interval, seats: selection.seats, mode, variant });
+    }
+    if (selection.seats !== checkout.seats) {
+      captureAnalyticsEvent("ai_plans_seats_adjusted", { plan: phase.plan, from: checkout.seats, to: selection.seats, interval: selection.interval, mode, variant });
+    }
+    setCheckout(selection);
+  };
 
   useEffect(() => {
     containerRef.current?.focus({ preventScroll: true });
@@ -353,12 +476,17 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
     if (variantRef.current === variant) return;
     variantRef.current = variant;
     setShowPlans(false);
-    setPhase((current) => (current.kind === "connecting" ? { kind: "choose" } : current));
+    setPhase((current) =>
+      current.kind === "connecting" || current.kind === "confirm" ? { kind: "choose" } : current,
+    );
   }, [variant]);
 
   useEffect(() => {
     if (phase.kind !== "connecting") return;
-    const timer = window.setTimeout(() => setPhase({ kind: "choose" }), CONNECTING_TIMEOUT_MS);
+    const timer = window.setTimeout(
+      () => setPhase({ kind: "choose" }),
+      CONNECTING_TIMEOUT_MS,
+    );
     return () => window.clearTimeout(timer);
   }, [phase.kind]);
 
@@ -374,22 +502,28 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
     lastChoiceRef.current = choice;
   };
 
-  const signIn = async (plan: EigenweltPlanId | null) => {
+  const signIn = async (plan: EigenweltPlanId | null, confirmed = false) => {
     if (disabled) return;
     const flow = ++flowRef.current;
     const choice: AiPlansChoice = plan ?? "sign_in";
     setError(null);
-    trackChoice(choice);
+    if (!confirmed) trackChoice(choice);
+    else captureAnalyticsEvent("ai_plans_checkout_confirmed", { plan, interval: checkout.interval, seats: checkout.seats, trial_offered: offerTrial, mode, variant });
     // New customers land on sign-up; everyone who had an account on sign-in.
     const intent = variant === "new" && plan ? undefined : ("sign-in" as const);
     try {
       const { authorizeUrl, sessionId } = await props.onStartSignIn({
         ...(intent ? { intent } : {}),
         ...(plan ? { plan } : {}),
+        ...(plan && confirmed ? { checkout } : {}),
       });
       if (flowRef.current !== flow) return;
       setPhase({ kind: "browser", plan, authorizeUrl });
-      captureAnalyticsEvent("ai_plans_sign_in_started", { choice, mode, variant });
+      captureAnalyticsEvent("ai_plans_sign_in_started", {
+        choice,
+        mode,
+        variant,
+      });
       await openDesktopUrl(authorizeUrl);
       const result = await props.onWaitSignIn(sessionId, {
         cancelled: () => flowRef.current !== flow,
@@ -401,13 +535,21 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
         props.onSignedIn(plan);
         return;
       }
-      setPhase({ kind: "choose" });
+      setPhase(confirmed && plan ? { kind: "confirm", plan } : { kind: "choose" });
       if (!result.cancelled && result.message) setError(result.message);
     } catch (signInError) {
       if (flowRef.current !== flow) return;
-      setPhase({ kind: "choose" });
-      setError(signInError instanceof Error ? signInError.message : String(signInError));
-      captureAnalyticsEvent("ai_plans_sign_in_failed", { choice, mode, variant });
+      setPhase(confirmed && plan ? { kind: "confirm", plan } : { kind: "choose" });
+      setError(
+        signInError instanceof Error
+          ? signInError.message
+          : String(signInError),
+      );
+      captureAnalyticsEvent("ai_plans_sign_in_failed", {
+        choice,
+        mode,
+        variant,
+      });
     }
   };
 
@@ -437,8 +579,8 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   };
 
   const choosePlan = (plan: EigenweltPlanId) => {
-    if (variant === "no-models") upgrade(plan);
-    else void signIn(plan);
+    if (variant === "no-models" && plan !== "sync") upgrade(plan);
+    else { setError(null); trackChoice(plan); confirmPlan(plan); }
   };
 
   const bringOwnModel = () => {
@@ -457,7 +599,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       });
     }
     ++flowRef.current;
-    setPhase({ kind: "choose" });
+    setPhase(phase.kind === "browser" && phase.plan ? { kind: "confirm", plan: phase.plan } : { kind: "choose" });
   };
 
   const switchAccount = async () => {
@@ -469,7 +611,11 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
     try {
       await props.onUseOtherAccount();
     } catch (switchError) {
-      setError(switchError instanceof Error ? switchError.message : String(switchError));
+      setError(
+        switchError instanceof Error
+          ? switchError.message
+          : String(switchError),
+      );
     } finally {
       setSwitchingAccount(false);
     }
@@ -477,14 +623,12 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
 
   const planLabel = (plan: EigenweltPlan) => {
     switch (variant) {
-      case "new":
-        return t("ai_plans.try", { plan: plan.name });
       case "ended":
         return t("ai_plans.restart", { plan: plan.name });
       case "no-models":
         return t("ai_plans.upgrade", { plan: plan.name });
       default:
-        return t("ai_plans.get", { plan: plan.name });
+        return t("ai_plans.try", { plan: plan.name });
     }
   };
   const firm = props.account?.firmName ?? t("ai_plans.your_firm");
@@ -499,9 +643,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       ? t("ai_plans.subtitle_ended", { firm })
       : variant === "no-models"
         ? t("ai_plans.subtitle_no_models", { firm })
-        : variant === "signed-out"
-          ? t("ai_plans.subtitle_returning")
-          : t("ai_plans.subtitle");
+        : t("ai_plans.subtitle");
   const account = accountLabel(props.account);
 
   const notice = error ? (
@@ -509,18 +651,22 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       {error}
     </p>
   ) : !props.serverReady ? (
-    <p className="text-[12.5px] leading-relaxed text-dls-secondary">{t("ai_plans.server_starting")}</p>
+    <p className="text-[12.5px] leading-relaxed text-dls-secondary">
+      {t("ai_plans.server_starting")}
+    </p>
   ) : null;
 
   const stepDots =
     mode === "onboarding" ? (
       <div className="flex justify-center [&>div]:mb-4">
-        <StepDots step={5} total={5} />
+        <StepDots step={4} total={5} />
       </div>
     ) : null;
 
-  const backRow =
-    mode === "onboarding" && props.onBack ? <BackButton onClick={props.onBack} /> : null;
+  const backRow = phase.kind === "confirm" ? <BackButton onClick={() => confirmPlan(null, "back")} /> :
+    mode === "onboarding" && props.onBack ? (
+      <BackButton onClick={props.onBack} />
+    ) : null;
   const onOpenUpdates = props.onOpenUpdates;
   const updatesLink = onOpenUpdates ? (
     <UpdatesLink
@@ -535,12 +681,18 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   // Pinned to the bottom of the window: Back on the left, the account line in
   // the middle, the update check on the right.
   let footerCenter: ReactNode = null;
-  if (phase.kind === "browser" || phase.kind === "upgrade" || phase.kind === "connecting") {
+  if (
+    phase.kind === "browser" ||
+    phase.kind === "upgrade" ||
+    phase.kind === "connecting"
+  ) {
     const waitingBody =
       phase.kind === "browser"
         ? phase.plan
           ? t("ai_plans.waiting_body_plan", {
-              plan: EIGENWELT_PLANS.find((plan) => plan.id === phase.plan)?.name ?? phase.plan,
+              plan:
+                EIGENWELT_PLANS.find((plan) => plan.id === phase.plan)?.name ??
+                phase.plan,
             })
           : t("ai_plans.waiting_body_sign_in")
         : phase.kind === "upgrade"
@@ -556,11 +708,18 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
         ) : (
           <BrandMark size={36} className="mx-auto" />
         )}
-        <h1 id={titleId} className="mt-5 text-[22px] font-medium tracking-[-0.02em] text-dls-text">
-          {phase.kind === "connecting" ? t("ai_plans.connecting") : t("ai_plans.waiting_title")}
+        <h1
+          id={titleId}
+          className="mt-5 text-[22px] font-medium tracking-[-0.02em] text-dls-text"
+        >
+          {phase.kind === "connecting"
+            ? t("ai_plans.connecting")
+            : t("ai_plans.waiting_title")}
         </h1>
         {waitingBody ? (
-          <p className="mt-2 text-[13.5px] leading-[1.6] text-dls-secondary">{waitingBody}</p>
+          <p className="mt-2 text-[13.5px] leading-[1.6] text-dls-secondary">
+            {waitingBody}
+          </p>
         ) : null}
         {phase.kind === "browser" ? (
           <Button
@@ -593,6 +752,16 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
         ) : null}
       </FocusCard>
     );
+  } else if (phase.kind === "confirm") {
+    body = <>
+      <header className="mx-auto max-w-[760px] text-center roomy:max-w-[900px]">
+        {stepDots}
+        <h1 id={titleId} tabIndex={-1} className="text-[30px] font-medium leading-[1.08] tracking-[-0.035em] text-dls-text outline-none lg:text-[32px] roomy:text-[38px]">{t("ai_plans.confirm_title")}</h1>
+        {notice ? <div className="mt-4">{notice}</div> : null}
+      </header>
+      <div className="mt-8 md:mt-10 roomy:mt-14 md:[@media(max-height:800px)]:mt-6"><PlanConfirmation planId={phase.plan} selection={checkout} disabled={disabled} offerTrial={offerTrial}
+        onChange={changeCheckout} onBack={() => confirmPlan(null, "change_plan")} onConfirm={() => void signIn(phase.plan, true)} /></div>
+    </>;
   } else if (signInFirst) {
     body = (
       <div className="mx-auto flex w-full max-w-[480px] flex-col">
@@ -605,7 +774,9 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
           >
             {t("ai_plans.welcome_title")}
           </h1>
-          <p className="mt-2.5 text-[14px] leading-[1.6] text-dls-secondary">{t("ai_plans.welcome_body")}</p>
+          <p className="mt-2.5 text-[14px] leading-[1.6] text-dls-secondary">
+            {t("ai_plans.welcome_body")}
+          </p>
           {account ? (
             <p className="mt-3 break-words text-[13px] text-dls-text">
               {t("ai_plans.welcome_account", { account })}
@@ -624,7 +795,10 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
             type="button"
             className="mt-4 text-[13px] text-dls-secondary underline underline-offset-2 transition-colors hover:text-dls-text"
             onClick={() => {
-              captureAnalyticsEvent("ai_plans_other_options_clicked", { mode, variant });
+              captureAnalyticsEvent("ai_plans_other_options_clicked", {
+                mode,
+                variant,
+              });
               setError(null);
               setShowPlans(true);
             }}
@@ -652,7 +826,9 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
         </header>
         <div className="mt-10 grid gap-4 md:grid-cols-3 md:gap-x-4 md:gap-y-0 xl:gap-x-5 roomy:mt-14 roomy:gap-x-7">
           <OwnModelCard disabled={disabled} onChoose={bringOwnModel} />
-          {EIGENWELT_PLANS.map((plan) => (
+          {EIGENWELT_PLANS.filter(
+            (plan) => plan.id === "sync" || plan.id === aiTier,
+          ).map((plan) => (
             <PlanCard
               key={plan.id}
               plan={plan}
@@ -660,6 +836,34 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
               label={planLabel(plan)}
               disabled={disabled}
               onChoose={() => choosePlan(plan.id)}
+              switcher={
+                plan.id === "sync" ? undefined : (
+                  <Tabs
+                    value={aiTier}
+                    onValueChange={(value) => {
+                      if (value === "plus" || value === "pro") setAiTier(value);
+                    }}
+                  >
+                    <TabsList
+                      className="h-8 rounded-full"
+                      aria-label={t("ai_plans.ai_tier")}
+                    >
+                      <TabsTrigger
+                        className="rounded-full px-3 text-xs"
+                        value="plus"
+                      >
+                        Plus
+                      </TabsTrigger>
+                      <TabsTrigger
+                        className="rounded-full px-3 text-xs"
+                        value="pro"
+                      >
+                        Pro
+                      </TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                )
+              }
             />
           ))}
         </div>
@@ -680,7 +884,11 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
             </button>
           </>
         ) : variant === "signed-out" ? (
-          <button type="button" className={textLinkClass} onClick={() => setShowPlans(false)}>
+          <button
+            type="button"
+            className={textLinkClass}
+            onClick={() => setShowPlans(false)}
+          >
             {t("ai_plans.back_to_sign_in")}
           </button>
         ) : (
@@ -728,7 +936,9 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-[1200px] flex-col px-6 lg:px-8 roomy:max-w-[1360px] roomy:px-12">
-          <div className="flex flex-1 flex-col justify-center py-8 roomy:py-10">{body}</div>
+          <div className={cn("flex flex-1 flex-col justify-center py-8 roomy:py-10", phase.kind === "confirm" && "[@media(max-height:780px)]:py-4")}>
+            {body}
+          </div>
           {backRow || footerCenter || updatesLink ? (
             <footer className="flex flex-col items-center gap-3 pb-6 pt-2 md:grid md:grid-cols-[1fr_auto_1fr] roomy:pb-8">
               <div className="justify-self-start">{backRow}</div>

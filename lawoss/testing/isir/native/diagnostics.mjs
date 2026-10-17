@@ -27,16 +27,86 @@ function endpoint(url) {
   if (/\/sessions?\/[^/]+\/snapshot$/.test(pathname)) return 'snapshot';
   if (/\/files\/(?:list|raw|content)$/.test(pathname)) return 'files';
   const fixed = new Map([['/path','engine.path'],['/global/health','engine.health'],['/provider','provider'],['/instance/dispose','engine.dispose'],['/auth/isir-native','synthetic.auth'],['/json/list','cdp.targets'],['/experimental/session','engine.sessions'],['/','ui']]);
-  if(fixed.has(pathname))return fixed.get(pathname);
+  const enginePath=pathname.replace(/^\/workspace\/[^/]+\/opencode(?=\/|$)/,'');
+  if(fixed.has(enginePath))return fixed.get(enginePath);
+  if (/\/workspace\/[^/]+\/engine\/reload$/.test(pathname))return 'engine.reload';
   if (/\/workspace\/[^/]+\/config$/.test(pathname))return 'workspace.config';
   if (/\/workspace\/[^/]+\/engine\/reload$/.test(pathname))return 'workspace.reload';
   return 'other';
 }
+function rendererCategory(url) {
+  let pathname;try { pathname=new URL(url).pathname; } catch { return null; }
+  if(pathname.includes('/node_modules/')||pathname.startsWith('/@id/'))return 'dependency';
+  if(pathname.startsWith('/src/'))return 'source';
+  if(pathname.startsWith('/assets/'))return 'asset';
+  if(pathname==='/'||pathname==='/index.html'||pathname.startsWith('/@vite/')||pathname.startsWith('/@fs/')||pathname==='/@react-refresh')return 'internal';
+  return null;
+}
+// Self-contained so the owned CDP page compares actual published renderer state
+// in place; callers receive only fixed booleans, never paths or capabilities.
+export function recoveryRendererIdentity(snapshot, expected = {}) {
+  expected ??= {};
+  const origin=value=>{
+    if(typeof value!=='string')return null;
+    try {const url=new URL(value);return url.protocol==='http:'&&url.hostname==='127.0.0.1'&&url.port&&!url.username&&!url.password&&!url.search&&!url.hash&&url.pathname==='/'?url.origin:null;}catch{return null;}
+  };
+  const valid=typeof expected.workspaceId==='string'&&expected.workspaceId.length>0&&typeof expected.root==='string'&&expected.root.length>0;
+  const expectedOrigin=origin(expected.baseUrl);
+  const matches=Array.isArray(snapshot?.workspaces)?snapshot.workspaces.filter(workspace=>workspace?.id===expected.workspaceId):[];
+  const identity={present:Boolean(snapshot&&typeof snapshot==='object'&&!Array.isArray(snapshot)),selectedWorkspace:Boolean(valid&&snapshot?.selectedWorkspaceId===expected.workspaceId),workspaceRoot:Boolean(valid&&matches.length===1&&matches[0].path===expected.root),serverOrigin:Boolean(expectedOrigin&&origin(snapshot?.baseUrl)===expectedOrigin),connected:snapshot?.connected===true,idle:snapshot?.loading===false,workspaceSettled:Boolean(valid&&Array.isArray(snapshot?.retryingWorkspaceIds)&&snapshot.retryingWorkspaceIds.every(id=>typeof id==='string')&&!snapshot.retryingWorkspaceIds.includes(expected.workspaceId))};
+  return {...identity,ready:Object.values(identity).every(value=>value===true)};
+}
+export function summarizeRecoveryVerification(snapshot = {}, events = []) {
+  const count=value=>Number.isInteger(value)&&value>=0&&value<=10_000?value:0;
+  const boolean=value=>typeof value==='boolean'?value:null;
+  const badges=Object.fromEntries(['verified','checking','invalid','edited','generated','complete','partial','readError','stale','pending','preparing','readable'].map(key=>[key,count(snapshot?.badges?.[key])]));
+  const controls=Object.fromEntries(['prepareFolder','prepareSelected','refresh','generate','validate'].map(key=>[key,{count:count(snapshot?.controls?.[key]?.count),disabled:count(snapshot?.controls?.[key]?.disabled)}]));
+  const identity=Object.fromEntries(['present','selectedWorkspace','workspaceRoot','serverOrigin','connected','idle','workspaceSettled','ready'].map(key=>[key,boolean(snapshot?.identity?.[key])]));
+  const panel={visibility:['visible','hidden'].includes(snapshot?.visibility)?snapshot.visibility:'unknown',focused:boolean(snapshot?.focused),viewport:{width:count(snapshot?.viewportWidth),height:count(snapshot?.viewportHeight)},panelCount:count(snapshot?.panelCount),visiblePanelCount:count(snapshot?.visiblePanelCount),firstPanelVisible:boolean(snapshot?.firstPanelVisible),firstPanelVerified:boolean(snapshot?.firstPanelVerified),visible:boolean(snapshot?.visible),folderMatches:boolean(snapshot?.folderMatches),selectedFiles:Number.isInteger(snapshot?.selectedFiles)&&snapshot.selectedFiles>=0&&snapshot.selectedFiles<=20?snapshot.selectedFiles:null,alerts:count(snapshot?.alerts),badges,controls};
+  const requests=Object.fromEntries(['sources','read','outputs','prepare'].map(key=>[key,{started:0,pending:0,finished:0,failed:0,httpOk:0,httpFailure:0,maxElapsedMs:0,maxHeadersMs:0}]));
+  const pending=new Map();let latest=0;
+  const elapsed=(end,start)=>Math.min(300_000,Math.max(0,Math.round((end-start)*1000)));
+  for(const event of events) {
+    const p=event.params??{};
+    if(event.method?.startsWith('Network.')&&Number.isFinite(p.timestamp))latest=Math.max(latest,p.timestamp);
+    if(event.method==='Network.requestWillBeSent') {
+      let category;
+      try {
+        const url=new URL(p.request?.url);
+        if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||!url.port)continue;
+        const route=url.pathname.replace(/^\/workspace\/[^/]+/,'');
+        if(p.request?.method==='GET')category=route==='/lawoss/documents'?'sources':route==='/lawoss/documents/outputs'?'outputs':/^\/lawoss\/documents\/[^/]+\/read$/.test(route)?'read':null;
+        else if(p.request?.method==='POST'&&route==='/lawoss/documents/prepare')category='prepare';
+      } catch { continue; }
+      if(category)pending.set(p.requestId,{category,started:Number.isFinite(p.timestamp)?p.timestamp:latest,headers:null,ended:null,state:'pending',status:null});
+    }
+    const request=pending.get(p.requestId);if(!request)continue;
+    if(event.method==='Network.responseReceived'){request.status=p.response?.status;request.headers=Number.isFinite(p.timestamp)?p.timestamp:latest;}
+    if(event.method==='Network.loadingFinished'||event.method==='Network.loadingFailed'){request.state=event.method==='Network.loadingFinished'?'finished':'failed';request.ended=Number.isFinite(p.timestamp)?p.timestamp:latest;}
+  }
+  for(const request of pending.values()) {
+    const result=requests[request.category];result.started++;result[request.state]++;
+    if(Number.isInteger(request.status)){if(request.status>=200&&request.status<300)result.httpOk++;else result.httpFailure++;}
+    result.maxElapsedMs=Math.max(result.maxElapsedMs,elapsed(request.ended??latest,request.started));
+    if(request.headers!==null)result.maxHeadersMs=Math.max(result.maxHeadersMs,elapsed(request.headers,request.started));
+  }
+  return {panel,identity,requests};
+}
 export function summarizeNetwork(events) {
   const active=new Map(),origins=new Map(),loaders=new Map();
+  const aggregates=new Map(),exceptions=new Map(),categories=new Map();
+  const rendererCount=(entry,amount)=>{
+    if(!entry.category)return;
+    if(!categories.has(entry.category))categories.set(entry.category,categories.size);
+    const statusFamily=entry.status===null?'none':entry.status>=100&&entry.status<600?`${Math.floor(entry.status/100)}xx`:'other';
+    const key=JSON.stringify([entry.category,statusFamily,entry.state]);
+    const aggregate=aggregates.get(key)??{category:entry.category,statusFamily,state:entry.state,count:0};
+    aggregate.count+=amount;
+    aggregates.set(key,aggregate);
+  };
   const counts=()=>({total:0,pending:0,streams:0});
   const all=counts();let current=counts(),currentRows=[],historyRows=[];
-  let latest=0,epoch=0,mainFrame=null,mainLoader=null,trackingDropped=0;
+  let latest=0,epoch=0,mainFrame=null,mainLoader=null,trackingDropped=0,http500Count=0;
   const retain=(rows,entry)=>{
     rows.push(entry);
     if(rows.length>128){const finished=rows.findIndex(row=>row.state!=='pending');rows.splice(finished<0?0:finished,1);}
@@ -45,7 +115,7 @@ export function summarizeNetwork(events) {
   const finish=(entry,state)=>{
     if(entry.state!=='pending')return;
     adjust(entry,'pending',-1);if(entry.stream)adjust(entry,'streams',-1);
-    entry.state=state;entry.ended=latest;
+    rendererCount(entry,-1);entry.state=state;entry.ended=latest;rendererCount(entry,1);
   };
   const documentEpoch=(loader,frame)=>{
     if(!loader)return;
@@ -60,6 +130,11 @@ export function summarizeNetwork(events) {
     const p=event.params??{};
     // Runtime timestamps are epoch milliseconds; Network uses monotonic seconds.
     if(event.method.startsWith('Network.')&&Number.isFinite(p.timestamp))latest=Math.max(latest,p.timestamp);
+    if(event.method==='Runtime.exceptionThrown'){
+      const supplied=p.exceptionDetails?.exception?.className;
+      const name=['Error','TypeError','ReferenceError','SyntaxError','RangeError','EvalError','URIError','AggregateError','DOMException'].includes(supplied)?supplied:'Error';
+      exceptions.set(name,(exceptions.get(name)??0)+1);
+    }
     if(event.method==='Page.frameNavigated'&&!p.frame?.parentId)documentEpoch(p.frame?.loaderId,p.frame?.id);
     if(event.method==='Network.requestWillBeSent') {
       if(p.type==='Document'&&(!mainFrame||p.frameId===mainFrame))documentEpoch(p.loaderId,p.frameId);
@@ -74,9 +149,10 @@ export function summarizeNetwork(events) {
       }catch{}
       const previous=active.get(p.requestId);
       if(previous&&p.redirectResponse){
-        finish(previous,'redirected');previous.status=Number.isInteger(p.redirectResponse.status)?p.redirectResponse.status:null;
+        rendererCount(previous,-1);previous.status=Number.isInteger(p.redirectResponse.status)?p.redirectResponse.status:null;rendererCount(previous,1);finish(previous,'redirected');
       }
-      const entry={endpoint:endpoint(p.request?.url),origin,workspaceIndex,epoch:loaders.get(p.loaderId)??epoch,status:null,state:'pending',stream:false,started:Number.isFinite(p.timestamp)?p.timestamp:latest};
+      const entry={category:rendererCategory(p.request?.url),endpoint:endpoint(p.request?.url),origin,workspaceIndex,epoch:loaders.get(p.loaderId)??epoch,status:null,state:'pending',stream:false,started:Number.isFinite(p.timestamp)?p.timestamp:latest};
+      rendererCount(entry,1);
       adjust(entry,'total',1);adjust(entry,'pending',1);
       retain(entry.epoch===epoch?currentRows:historyRows,entry);active.set(p.requestId,entry);
       // Bounded temporary correlation storage; expose loss rather than claiming
@@ -86,7 +162,8 @@ export function summarizeNetwork(events) {
     if(!event.method.startsWith('Network.'))continue;
     const entry=active.get(p.requestId);if(!entry)continue;
     if(event.method==='Network.responseReceived') {
-      entry.status=Number.isInteger(p.response?.status)?p.response.status:null;
+      if(entry.category&&p.response?.status===500)http500Count++;
+      rendererCount(entry,-1);entry.status=Number.isInteger(p.response?.status)?p.response.status:null;rendererCount(entry,1);
       const stream=p.response?.mimeType==='text/event-stream';
       if(stream!==entry.stream&&entry.state==='pending')adjust(entry,'streams',stream?1:-1);
       entry.stream=stream;
@@ -95,10 +172,10 @@ export function summarizeNetwork(events) {
       finish(entry,event.method==='Network.loadingFinished'?'finished':'failed');active.delete(p.requestId);
     }
   }
-  const project=rows=>rows.map(({started,ended,...request})=>({...request,ageMs:Math.max(0,Math.round(((ended??latest)-started)*1000))}));
+  const project=rows=>rows.map(({started,ended,category,...request})=>({...request,ageMs:Math.max(0,Math.round(((ended??latest)-started)*1000))}));
   const history=Object.fromEntries(Object.keys(all).map(key=>[key,all[key]-current[key]]));
   // Historical pending means no terminal CDP event was observed, not a live socket.
-  return {epoch,...current,trackingDropped,requests:project(currentRows),history:{...history,requests:project(historyRows)}};
+  return {epoch,...current,trackingDropped,requests:project(currentRows),history:{...history,requests:project(historyRows)},renderer:{network:[...aggregates.values()].filter(row=>row.count).sort((a,b)=>categories.get(a.category)-categories.get(b.category)),http500Count,exceptions:[...exceptions].map(([name,count])=>({name,count}))}};
 }
 // Runs only inside the existing successful click evaluation. The inspector is
 // effect-published and can lag React; these are observations, never readiness or
@@ -160,10 +237,11 @@ export function summarizePromptEvents(events,context,start=0,end=events.length){
       if(previous){finish(previous);active.delete(p.requestId);}
       const request=p.request??{};if(request.method==='POST')count(result,'anyPost');
       let url;try{url=new URL(request.url);}catch{continue;}
-      const match=url.pathname.match(/^(?:\/workspace\/([^/]+)\/opencode)?\/session\/([^/]+)(\/prompt_async)?$/);
+      const queued=url.pathname.match(/^\/workspace\/([^/]+)\/sessions\/([^/]+)\/queue$/);
+      const match=queued??url.pathname.match(/^(?:\/workspace\/([^/]+)\/opencode)?\/session\/([^/]+)(\/prompt_async)?$/);
       if(!match)continue;
       let row;
-      if(request.method==='POST'&&match[3]){
+      if(request.method==='POST'&&(queued||match[3])){
         row=prompt;count(row,'count');
         if(request.url.endsWith('/prompt_async'))count(row,'originalSuffix');
         if(url.search.length)count(row,'queryPresent');
@@ -175,7 +253,8 @@ export function summarizePromptEvents(events,context,start=0,end=events.length){
           count(row,'bodyKnown');if(body.includes(context.marker))count(row,'inlineMarker');
           try{
             const parsed=JSON.parse(body);count(row,'jsonValid');
-            if(Array.isArray(parsed?.parts)&&parsed.parts.some(part=>part?.type==='text'&&typeof part.text==='string'&&part.text.includes(context.marker)))count(row,'jsonTextMarker');
+            const parts=queued?(parsed?.type==='enqueue'&&parsed.execution?.kind==='prompt'?parsed.execution.parts:null):parsed?.parts;
+            if(Array.isArray(parts)&&parts.some(part=>part?.type==='text'&&typeof part.text==='string'&&part.text.includes(context.marker)))count(row,'jsonTextMarker');
           }catch{count(row,'jsonInvalid');}
         }
       }else if(request.method==='PATCH'&&!match[3]&&match[2]===context.sessionId&&(match[1]===undefined||match[1]===context.workspaceId)){

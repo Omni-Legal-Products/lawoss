@@ -5,6 +5,18 @@
 256-bit capability for that tab. Treat it as a credential; do not log or share it.
 It expires when the tab closes or the app exits.
 
+Automation requires the originating project and chat identity, supplied by the
+server tool's execution context. When that chat's effective sandbox setting is on,
+browser tools require network Allow. Approve and Off disable automation, including
+proxy changes and generic UI browser actions. Manual browser tabs remain usable.
+Missing identity, invalid policy, and an unavailable policy service fail closed.
+
+The broker binds each capability to that identity and rechecks policy for HTTP
+routes, WebSocket upgrades, CDP commands and events. It also checks live grants once
+per second so a page cannot retain automation access indefinitely without another
+tool call. A denied check revokes its capability, disconnects clients and closes
+the agent-created page. Switching the visible project does not change its policy.
+
 The main process broker listens on an ephemeral loopback port. Both `/json/list`
 and the page WebSocket require that capability. Discovery returns only the
 authorized tab. Requests with an Origin header or an unexpected Host are refused.
@@ -30,3 +42,40 @@ through launch arguments. The broker works independently of this setting.
 
 Run `pnpm --filter @legalwork/desktop test` for broker authorization, connection
 lifecycle, development-debugging configuration, and sandboxed preload checks.
+Run `pnpm --filter @legalwork/desktop test:browser-network` for real Electron
+navigation, connection revocation and independent-chat policy checks.
+
+## Project downloads
+
+Every automation tab resolves its caller's execution directory against registered
+local projects before navigation. Downloads remain bound to that project even
+when the visible chat or project changes. Manual tabs bind to the selected local
+project when they are created. Downloads are saved in the visible `Downloads/`
+folder, with exclusive filename reservation to preserve existing files.
+Unbound tabs report a download error instead of silently saving elsewhere.
+
+The tab capability also exposes `GET /downloads`. Records include completion
+state, received/total bytes, absolute path and project-relative path. The agent's
+`legalwork_browser_downloads` tool can wait for completion and use a previous
+record ID as a cursor. Failed or interrupted files must not be treated as complete.
+The existing Project Files polling displays downloaded files without requiring a
+new file-indexing system.
+
+## Fewer browser round trips
+
+The bridge lifts descendants of ignored, unnamed accessibility containers before
+returning CDP snapshots. This prevents the upstream snapshot walker from dropping
+an entire page under a layout container.
+
+Opening a tab returns its initial snapshot. `POST /batch`, exposed to the agent as
+`legalwork_browser_batch`, runs up to 20 observed-selector clicks, fills and
+condition waits, then returns a fresh snapshot plus download records. An empty
+batch only reads the page. Batches stop at the first failure and report completed
+steps; callers must inspect state before deciding which actions to retry.
+
+Both HTTP routes require the same per-tab capability, loopback Host and absent
+Origin as CDP discovery. Batch execution shares the debugger attachment with
+existing CDP clients. It does not grant access to other tabs, app renderers or
+browser-wide commands. User decisions and required confirmations remain outside
+batches. No fixed sleep is added to normal actions; waits poll a page condition
+within the caller's bounded timeout.

@@ -22,6 +22,7 @@ export function registerProjectFolderRoutes(options: {
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
   ensureWritable: (config: ServerConfig) => void;
   requireClientScope: (ctx: RequestContext, scope: TokenScope) => void;
+  personalAccess?: (ctx: RequestContext, item: StoredStorage) => void;
   onChanged?: (workspaceId: string) => Promise<void>;
   onRenamed?: (workspaceId: string, name: string) => Promise<void>;
 }) {
@@ -31,7 +32,7 @@ export function registerProjectFolderRoutes(options: {
     if (!item.enabled || item.team?.installed === false)
       throw new ApiError(409, "storage_disconnected", "Enable or install this connection in File storage settings.");
   };
-  const prepare = async (input: unknown): Promise<PreparedProjectFolders> => {
+  const prepare = async (input: unknown, ctx?: RequestContext): Promise<PreparedProjectFolders> => {
     const parsed = selections.safeParse(input ?? []);
     if (!parsed.success) throw new ApiError(400, "invalid_project_folders", "Choose up to 30 remote folders.");
     const result: PreparedProjectFolders = [];
@@ -39,6 +40,7 @@ export function registerProjectFolderRoutes(options: {
       await resolveWorkspace(config, selection.sourceWorkspaceId);
       const item = await lookup(selection.sourceWorkspaceId, selection.connectionId);
       enabled(item);
+      if (ctx) options.personalAccess?.(ctx, item);
       oauth.bind(selection.sourceWorkspaceId, item.id, item);
       const folder = await withStorage(item, (adapter) => captureFolder(adapter, selection.path, item.name));
       if (result.some(({ location }) => location.connectionId === item.id && location.folder.path === folder.path)) continue;
@@ -98,12 +100,13 @@ export function registerProjectFolderRoutes(options: {
     projectFolderScopes.set(item, location.folder);
     return item;
   };
-  const statuses = async (workspace: WorkspaceInfo): Promise<ProjectRemoteFolderStatus[]> => {
+  const statuses = async (workspace: WorkspaceInfo, ctx: RequestContext): Promise<ProjectRemoteFolderStatus[]> => {
     const details = await readProjectDetails(workspace.path);
     return Promise.all((details.remote?.folders ?? []).map(async (location): Promise<ProjectRemoteFolderStatus> => {
       const connectionId = `project:${location.id}`;
       try {
         const item = await selected(workspace.id, connectionId);
+        options.personalAccess?.(ctx, item);
         const capabilities = await withStorage(item, async (adapter) => {
           await adapter.list("");
           return adapter.searchCapabilities?.();
@@ -123,13 +126,13 @@ export function registerProjectFolderRoutes(options: {
   addRoute(routes, "GET", base, "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const details = await readProjectDetails(workspace.path);
-    return jsonResponse({ revision: details.revision, initialization: details.remote?.initialization ?? "none", folders: await statuses(workspace) });
+    return jsonResponse({ revision: details.revision, initialization: details.remote?.initialization ?? "none", folders: await statuses(workspace, ctx) });
   });
   addRoute(routes, "POST", base, "host", async (ctx) => {
     options.ensureWritable(config); options.requireClientScope(ctx, "collaborator");
     const body = await options.readJsonBodyLimited(ctx.request, 128 * 1024);
     const revision = z.number().int().nonnegative().parse(body.revision);
-    const prepared = await prepare(body.folders);
+    const prepared = await prepare(body.folders, ctx);
     return jsonResponse(await attach(await resolveWorkspace(config, ctx.params.id), prepared, false, revision));
   });
   addRoute(routes, "DELETE", `${base}/:folderId`, "host", async (ctx) => {

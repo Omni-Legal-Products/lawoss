@@ -15,6 +15,8 @@ import {
   t,
 } from "@/i18n";
 import { useLanguagePreference, useLocale } from "@/i18n/use-locale";
+import { changeOrgPolicySetting, useOrgPolicy } from "@/react-app/domains/connections/org-policy";
+import { OrgPolicyNote } from "@/react-app/domains/connections/org-policy-ui";
 import {
   LayoutSection,
   LayoutSectionDescription,
@@ -32,7 +34,9 @@ type LanguageSectionProps = {
 };
 
 export function LanguageSection(props: LanguageSectionProps) {
-  const preference = useLanguagePreference();
+  const own = useLanguagePreference();
+  const firm = useOrgPolicy("language");
+  const preference = firm ? firm.value : own;
   const locale = useLocale();
 
   const items = [
@@ -55,6 +59,7 @@ export function LanguageSection(props: LanguageSectionProps) {
         <LayoutSectionItemHeader>
           <LayoutSectionItemTitle>{t("settings.language_display", locale)}</LayoutSectionItemTitle>
           <LayoutSectionItemDescription>{t("settings.language.description", locale)}</LayoutSectionItemDescription>
+          <OrgPolicyNote policyKey="language" />
 
           <LayoutSectionItemHeaderActions>
             <div className="w-64 max-w-full">
@@ -62,9 +67,9 @@ export function LanguageSection(props: LanguageSectionProps) {
                 value={preference}
                 items={items}
                 onValueChange={(value) => {
-                  if (isLanguagePreference(value)) setLanguagePreference(value);
+                  if (isLanguagePreference(value)) void changeOrgPolicySetting("language", () => setLanguagePreference(value));
                 }}
-                disabled={props.busy}
+                disabled={props.busy || firm?.locked === true}
               >
                 <SelectTrigger className="w-full" aria-label={t("settings.language", locale)}>
                   <SelectValue placeholder={t("settings.language", locale)} />

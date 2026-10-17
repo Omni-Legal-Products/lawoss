@@ -5,6 +5,7 @@ import { quoteRange } from "../document-preparation/highlights.js";
 export type ReviewEvidenceInput = { pages: EvidencePage[]; columns: Array<{ key: string; fallback?: { absent: string; uncertain: string } | null }> };
 
 export class ReviewCitationError extends Error {}
+export class ReviewFormatError extends Error {}
 
 /** Allow layout whitespace only; return the original source substring for the viewer. */
 export function sourceQuote(text: string, quote: string) {
@@ -12,27 +13,37 @@ export function sourceQuote(text: string, quote: string) {
   return match ? text.slice(match.start, match.end) : null;
 }
 
-const LlmCells = z.object({
-  cells: z.record(z.string(), z.object({
-    value: z.string().min(1),
-    reason: z.string(),
-    quote: z.string(),
-    page: z.number().int().positive().nullable(),
-    // Section labels are optional; exact quotes and page references remain validated below.
-    location: z.string().default(""),
-    confidence: z.enum(["high", "medium", "low"]),
-    citations: z.array(z.object({
-      page: z.number().int().positive(), quote: z.string().min(1),
-      source: z.enum(["native", "ocr"]), regionIds: z.array(z.number().int().nonnegative()).optional(),
-    })).optional(),
-  })),
+const LlmCell = z.object({
+  value: z.string().min(1),
+  reason: z.string(),
+  quote: z.string(),
+  page: z.number().int().positive().nullable(),
+  // Section labels are optional; exact quotes and page references remain validated below.
+  location: z.string().default(""),
+  confidence: z.enum(["high", "medium", "low"]),
+  citations: z.array(z.object({
+    page: z.number().int().positive(), quote: z.string().min(1),
+    source: z.enum(["native", "ocr"]), regionIds: z.array(z.number().int().nonnegative()).optional(),
+  })).optional(),
 });
+const LlmCells = z.object({ cells: z.record(z.string(), LlmCell) });
 
-export function parseReviewCells(input: ReviewEvidenceInput, text: string) {
-  const fenced = /^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$/.exec(text);
-  const result = LlmCells.parse(JSON.parse(fenced ? fenced[1] : text));
+export function reviewOutputSchema(key: string) {
+  return z.toJSONSchema(z.object({ cells: z.object({ [key]: LlmCell }) }));
+}
+
+export function parseReviewCells(input: ReviewEvidenceInput, output: unknown) {
+  let value: unknown = output;
+  if (typeof output === "string") {
+    const fenced = /^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$/.exec(output);
+    try { value = JSON.parse(fenced ? fenced[1] : output); }
+    catch { throw new ReviewFormatError("The model returned malformed JSON. Return a complete JSON object with properly escaped strings."); }
+  }
+  const parsed = LlmCells.safeParse(value);
+  if (!parsed.success) throw new ReviewFormatError("The model returned an invalid cell structure. Use the requested fields and their exact types.");
+  const result = parsed.data;
   if (JSON.stringify(Object.keys(result.cells).sort()) !== JSON.stringify(input.columns.map((c) => c.key).sort()))
-    throw new Error("Review result must contain exactly the requested columns.");
+    throw new ReviewFormatError("Review result must contain exactly the requested columns.");
   for (const [key, cell] of Object.entries(result.cells)) {
     const fallback = input.columns.find(column => column.key === key)?.fallback;
     if (fallback && cell.value === fallback.absent) cell.value = "Not found";

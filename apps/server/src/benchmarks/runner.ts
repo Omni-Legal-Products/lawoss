@@ -207,6 +207,8 @@ type RunnerTimings = {
 export type BenchmarkRunnerOptions = {
   config: ServerConfig;
   createClient: CreateBenchmarkClient;
+  /** LAWOSS: records a server-started agent session so its tools reach only this workspace. */
+  grantAgentSession?: (sessionID: string, directory: string) => Promise<void>;
   judgeConcurrency?: number;
   timings?: Partial<RunnerTimings>;
   now?: () => number;
@@ -247,6 +249,7 @@ const TERMINAL_ITEM_STATUSES: BenchmarkItemStatus[] = ["passed", "failed", "erro
 export class BenchmarkRunner {
   private readonly config: ServerConfig;
   private readonly createClient: CreateBenchmarkClient;
+  private readonly grantAgentSession?: (sessionID: string, directory: string) => Promise<void>;
   private readonly judgeConcurrency: number;
   private readonly timings: RunnerTimings;
   private readonly now: () => number;
@@ -265,6 +268,7 @@ export class BenchmarkRunner {
   constructor(options: BenchmarkRunnerOptions) {
     this.config = options.config;
     this.createClient = options.createClient;
+    this.grantAgentSession = options.grantAgentSession;
     this.judgeConcurrency = options.judgeConcurrency ?? envInt("LEGALWORK_BENCHMARK_JUDGE_CONCURRENCY", 2);
     this.timings = {
       pollIntervalMs: options.timings?.pollIntervalMs ?? envInt("LEGALWORK_BENCHMARK_POLL_MS", 2000),
@@ -488,6 +492,7 @@ export class BenchmarkRunner {
       if (!sessionID) {
         throw new Error(`could not create benchmark session: ${errorMessage(session.error ?? "empty response")}`);
       }
+      await this.grantAgentSession?.(sessionID, workDir);
       this.store.updateItem(item.id, { sessionId: sessionID, status: "running" });
       handle.sessions.set(item.id, { client, sessionID, directory: workDir });
 

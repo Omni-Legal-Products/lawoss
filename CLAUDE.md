@@ -75,6 +75,13 @@ Rules:
 - Prefer functional patterns, short focused functions, DRY, KISS, and YAGNI.
 - Use pnpm. Never use npm or yarn.
 - Match verification runtimes to the active CI workflow and select exact executable paths when several versions are installed. Keep results from other local runtimes as supplemental evidence, not a substitute for the CI-matching gate.
+- Pin Bun in `PATH` before running package build scripts; invoking a Bun binary by absolute path does not pin the shell commands inside `bun run`. Verify committed bundles by a second identical build.
+- Cross-platform Bun test commands use explicit test directories instead of shell-expanded globs. Windows workflow steps with multiple native commands need an explicit fail-fast shell so a later success cannot mask an earlier failure.
+- Windows tree watchers use native recursion at the tree root; descendant directory handles can block parent renames even with delete sharing. Mutation regressions acknowledge a real nested watch event before renaming and verify subsequent events and resource bytes. Preserve unnamed-event rescans and ignore filters for every relative path component.
+- Packaged security checks take the `.app` bundle root on macOS and the executable on Linux/Windows. Use the matrix security target, which also identifies packaged resources, rather than the launch executable.
+- Bun SQLite adapters with an explicit close lifecycle should use cached `Database.query()` or explicitly finalize prepared statements; uncached statements can retain WAL/file handles after `close()`. Verify immediate removal on Windows, not just Unix cleanup.
+- Server shutdown must drain accepted background work and release its owned database handles. Shared runtime caches close only after the last listener stops; preserve independent runtimes and idempotent shutdown.
+- Pin the runtime DB identity while a server owns its config, including accepted asynchronous work. Centralize path resolution and release the pin after cleanup; test every fixture-owned descendant DB so Unix unlink cannot hide a leaked Windows handle.
 - Use components from `@/components` when possible.
 - Prefer shadcn/ui with Base UI for new components.
 - Assume end users are non-technical lawyers.
@@ -100,6 +107,11 @@ Rules:
 8. Release as `vX.Y.Z-lawoss.1` after merge.
 
 If maintaining a downstream patch becomes disproportionately expensive, prefer removing or redesigning it as a new file or upstream contribution.
+
+## Prompt caching
+
+- The system prompt must not change within a conversation: providers reuse their prompt cache only as far as a request matches the previous one from the start, so one changed line costs the cache for the whole conversation.
+- `experimental.chat.system.transform` hooks add fixed text only. Live app state (open files, Office panes, project details, connections) goes into the conversation as a reminder via `app-state-reminders.ts`; per-turn context from the app goes into a hidden part of the user's message (`systemReminderPart`), never the prompt's `system` field.
 
 ## Telegram notification routing
 
@@ -150,6 +162,8 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 ## Native document generation
 
+- Background source polling must not starve a user-triggered generation. Keep availability separate from verified display state, and always re-read selected sources before dispatch; failed refreshes and changed sources still fail closed.
+- Every native file view that exposes generation must forward the existing scoped callback and persisted project ID; keep the runtime endpoint workspace ID separate. Verify availability on the standalone Files page as well as the chat sidebar.
 - Extraction completeness requires coverage of every selected original. Failed refreshes must retract current verification even when query caches retain previously successful data.
 - Recursive selection enforces the canonical selected-folder boundary as well as the workspace boundary. Require the server's exact boundary acknowledgment; older servers must not silently widen selection.
 - An asynchronous prompt acknowledgment is not task completion. Retain the scoped session through native running/error/terminal states and reload; retries reuse the accepted chat. Associate source selection with ultimate-original IDs and hashes, and correlate each submitted attempt with its engine-visible user-message ID. Completed tool steps and comparisons between client/server clocks are not terminal evidence.
@@ -159,6 +173,12 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Use explicit static translation-key maps for native status labels. The CI audit rejects runtime key construction outside the existing LAWOSS domain dictionaries; type safety alone does not prove the audit will pass.
 - Starting an existing registered workspace must not recreate a missing source root. Check directory existence before runtime reuse or provisioning in either app-files mode; explicit home/new-project initialization remains a separate operation.
 - Native regression must verify the engine actually selected from built resources before and after relaunch. Follow platform-target priority, validate current manifest hashes and executable/health versions, and limit fixture-link cleanup to the link the test owns.
+- Native tests use the application's owner-authenticated engine proxy; serialized workspace metadata intentionally omits engine credentials. Isolated macOS fixtures must select the mock keychain before importing production startup.
+- After provider configuration changes, use the application's workspace engine-reload endpoint. It awaits derived runtime configuration before rebuilding the engine; low-level instance disposal does not establish that ordering. Match the application client's operation-specific reload deadline instead of a generic fetch default.
+- Global engine health and enabled renderer controls do not prove workspace bootstrap completion. Before mutating native fixture configuration, await an authenticated instance-scoped readiness response with a valid body and its own bounded startup deadline; retain the separate production reload contract.
+- Native UI fixtures explicitly emulate foreground focus on their owned renderer, including after relaunch. Preserve production foreground-only polling and assert real copy IPC, completed artifact paths and original byte hashes rather than obsolete toast text.
+- Native acceptance serves the built renderer via loopback preview, matching the UI artifact produced by desktop CI. Fail before launch if the build is missing; do not fall back to development compilation or weaken readiness assertions.
+- Native protocol fixtures strip only complete documented engine reminder frames before strict JSON parsing and preserve raw tool receipts. Ordinary composer queue admission and direct generation acknowledgment need their own transport assertions plus actual engine terminal evidence.
 - Historical engine metadata must account for native application archive timestamps of zero. Use supported archived-inclusive listing before strict directory/captured-ID filtering, while preserving each record archive state and filesystem scope.
 
 - CI diagnostic artifacts must be an explicit bounded allowlist restricted to synthetic fixtures. Record phase/status/timing and typed counts, never raw URLs, headers, bodies, paths, error messages, profiles or source content. Preserve the primary failure across cleanup and wait for actual owned-child exit; do not signal an already-exited leader's process group.
@@ -183,3 +203,12 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 - Metadata-only snapshot updates are not new execution evidence. Keep existing cached execution status aligned with authoritative native publications; preserve current errors until native recovery or ordered nonreverted raw messages prove newer accepted work. Resolve authoritative message identities before UI conversion can replace them. Read-local ordering must distinguish explicit native/accepted actions, scoped validated HTTP completions and native waiting/compaction guards from manual hydration, including initially absent records and same-status actions. Capture the producing read scope; current Query options do not prove it. Protect activity newer than a poll while preserving ordinary fresh-poll recovery without SSE. Fold status authority and activity guards separately; activity cleanup cannot erase already observed terminal status. Keep scope credentials nonserializable, release subscriptions with the read, and preserve accepted/waiting/compacting guards. Canonical and rendered history must share the proved raw/UI boundary; if both aliases coexist, cut at the earliest proved occurrence.
 - Snapshot fallback reads share one original operation deadline and caller cancellation through headers and bodies. Replace only an exact active stale read when its authoritative cursor changes; initial-read deduplication belongs to the existing tracked query lifetime and must clear with it. Incomplete history needs a visible localized failure even when live transcript data exists without a successful snapshot.
+- Aggregate renderer network diagnostics into fixed categories/status families before limiting individual requests, so pending imports cannot hide failures. Calculate network ages only from the network monotonic clock, never console epoch timestamps.
+- Recovery UI assertions must acknowledge the visible target folder and the actual same-workspace preparation response before checking refreshed verification. Failure probes may export only fixed control/badge counts and typed visibility/timing values, never raw DOM text.
+- After folder reconnect, acknowledge the renderer's published current workspace root and server identity before selecting sources. Backend persistence alone does not establish that the renderer has consumed the new identity; a later identity update intentionally resets folder/selection state.
+- Engine OTLP diagnostics use an owned loopback receiver and fixed completed-span names with numeric duration/status only. Drop resource metadata, attributes, events, IDs and error text; missing completed spans do not prove phase entry.
+- Manual diagnostic jobs supplement the required PR matrix. Reused runtime artifacts must come from the same repository/branch and an ancestor commit, with the normal manifest verification retained.
+- Merge newer cached stores into the existing captured runtime generation rather than adding a parallel owner map. Compatibility drains target existing operation-only generations, preserve live borrowers and refuse self-drain; accepted queue jobs reserve that generation before awaiting their predecessor.
+- Effective endpoint identity includes the explicit owning host capability and application-owned local client. Remote capabilities never borrow local host credentials. Cold provisioning completes before the separate selected-instance proof budget starts; queue observations follow the current public prompt boundary.
+- A scoped Darwin process census must select the original group plus every captured PID, so moved or reused identities remain visible. A live sentinel keeps selection nonempty but must never become an owner, anchor or signal target; preserve fresh identity checks and the original signal budget.
+- A closed diagnostic experiment needs disabled job admission, not only an opt-in step deep inside its producer. Preserve required package/native gates and historical source; integrated static guards must test actual producer/environment contracts and reject concrete unsafe mutations.

@@ -120,3 +120,29 @@ export function forgetWorkspaceMemory(workspaceId: string): void {
     writeWorkspaceOrderIds(workspaceOrderIds.filter((id) => id !== wsId));
   }
 }
+
+/** The global Wiki entry restores its own selection, independently of projects. */
+export function readLastWikiWorkspaceId(serverUrl: string): string | null {
+  return safeGet(`legalwork.wiki.workspace.${serverUrl}`);
+}
+
+export function writeLastWikiWorkspaceId(serverUrl: string, id: string): void {
+  safeSet(`legalwork.wiki.workspace.${serverUrl}`, id);
+}
+
+export function readWikiNavigationWidth(workspaceId: string): number {
+  const width = Number(safeGet(`legalwork.wiki.navigationWidth.${workspaceId}`));
+  return Number.isFinite(width) && width >= 200 && width <= 440 ? width : 260;
+}
+
+export function readWikiNavigationOpen(workspaceId: string): boolean {
+  return safeGet(`legalwork.wiki.navigationOpen.${workspaceId}`) !== "false";
+}
+
+export function writeWikiNavigationOpen(workspaceId: string, open: boolean): void {
+  safeSet(`legalwork.wiki.navigationOpen.${workspaceId}`, String(open));
+}
+
+export function writeWikiNavigationWidth(workspaceId: string, width: number): void {
+  if (Number.isFinite(width) && width >= 200 && width <= 440) safeSet(`legalwork.wiki.navigationWidth.${workspaceId}`, String(Math.round(width)));
+}

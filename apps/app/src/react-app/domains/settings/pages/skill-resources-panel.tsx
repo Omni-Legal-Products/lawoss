@@ -37,7 +37,7 @@ const rowIconBtnClass =
 const inputClass =
   "w-full rounded-xl border border-dls-border bg-dls-hover px-3 py-2 text-sm text-dls-text focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.25)]";
 
-const RESOURCE_NAME_REGEX = /^[A-Za-z0-9][A-Za-z0-9 ._-]*$/;
+const RESOURCE_NAME_REGEX = /^[\p{L}\p{N}][^<>:"/\\|?*\p{C}]{0,127}$/u;
 const TEXT_RESOURCE_EXTENSIONS = new Set(["md", "markdown", "txt", "csv"]);
 
 export function isTextResourceName(name: string): boolean {

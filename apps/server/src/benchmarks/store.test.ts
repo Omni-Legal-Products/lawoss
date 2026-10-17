@@ -62,6 +62,16 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("close releases database files for immediate removal and reopening", async () => {
+  expect(store.listRuns("synthetic-workspace")).toEqual([]);
+  store.close();
+  store.close();
+  // Windows refuses this while SQLite or its WAL still has an open handle.
+  rmSync(dir, { recursive: true });
+  store = await BenchmarkStore.open(join(dir, "benchmarks.sqlite"));
+  expect(store.listRuns("synthetic-workspace")).toEqual([]);
+});
+
 describe("runs", () => {
   test("create/get/list roundtrip", () => {
     createRun("run-1");

@@ -7,7 +7,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
 const electronSidecarDir = resolve(desktopRoot, "resources", "sidecars");
-const electronHelperDir = resolve(desktopRoot, "resources", "helpers");
 const electronRoot = resolve(desktopRoot, "electron");
 const packagedServerRoot = resolve(desktopRoot, "server");
 
@@ -30,9 +29,11 @@ function run(command, args, cwd, env) {
   }
 }
 
+run(nodeCmd, [resolve(repoRoot, "scripts/sandbox/verify-runtime.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-node-runtime.mjs")], desktopRoot);
+run(nodeCmd, [resolve(__dirname, "prepare-actaport-mcp.mjs")], desktopRoot);
+run(nodeCmd, [resolve(__dirname, "prepare-windows-arm64-speech.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], desktopRoot);
-run(nodeCmd, [resolve(__dirname, "prepare-computer-use-helper.mjs"), "--force", "--outdir", electronHelperDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], desktopRoot);
 // Build the server TS → JS so Electron can import it in-process
 run(pnpmCmd, ["--filter", "legalwork-server", "build"], repoRoot);

@@ -43,8 +43,9 @@ export async function refreshProviderListQueries(queryClient: QueryClient) {
   // (or the server reloading those workspaces) may have changed them too, and a
   // stale list would show their models as unavailable when one is opened.
   queryClient.removeQueries({ queryKey: PROVIDER_LIST_QUERY_ROOT, type: "inactive" });
+  // invalidateQueries already refetches active observers. Refetching again
+  // starts a second full provider enumeration after the first one completes.
   await queryClient.invalidateQueries({ queryKey: PROVIDER_LIST_QUERY_ROOT });
-  await queryClient.refetchQueries({ queryKey: PROVIDER_LIST_QUERY_ROOT, type: "active" });
 }
 
 export async function fetchProviderList(input: {
@@ -231,7 +232,7 @@ export function ensureProviderListQuery(
       staleTime: 0,
     });
   }
-  return queryClient.ensureQueryData({
+  return queryClient.fetchQuery({
     ...options,
     staleTime: PROVIDER_LIST_CACHE_MS,
   });

@@ -43,3 +43,16 @@ export async function awaitDirectoryInstance({ request, baseUrl, headers, direct
     if (response && !response.bodyUsed) await response.body?.cancel().catch(() => {});
   }
 }
+
+/** Cold provisioning and selected-instance proof are separate production phases. */
+export async function awaitNativeStartup({ engineRequest, request, serverInfo, workspace, observe, onDeadline = () => {} }) {
+  await engineRequest.ready();
+  const started = performance.now(), deadline = Date.now() + 90_000;
+  onDeadline(deadline);
+  const receipt = await awaitDirectoryInstance({
+    request: (url, options) => request(url, options, Math.max(1, deadline - Date.now())),
+    baseUrl: `${serverInfo.baseUrl}/workspace/${encodeURIComponent(workspace.id)}/opencode`,
+    headers: { authorization: `Bearer ${serverInfo.ownerToken}` }, directory: workspace.path, deadline, observe,
+  });
+  return { ...receipt, elapsedMs: Math.round(performance.now() - started), remainingMs: Math.max(0, deadline - Date.now()) };
+}

@@ -39,7 +39,7 @@ async function fixture(fail = false, layoutAvailable = true) {
 const signal = () => new AbortController().signal;
 async function settled(f: Awaited<ReturnType<typeof fixture>>, query: string) {
   for (let index = 0; index < 200; index++) {
-    const result = await searchFileContents(f.workspace, query, signal(), f.preparation);
+    const result = await searchFileContents(f.workspace, query, signal(), f.preparation, "owner");
     if (!result.preparing) return result;
     await Bun.sleep(20);
   }
@@ -121,7 +121,7 @@ test("retry recovers every unreadable file across the background concurrency lim
   for (const name of ["first.png", "second.png", "third.png"]) await writeFile(join(f.root, name), png);
   expect((await settled(f, "escrow")).incomplete).toBe(3);
   f.setFailure(false);
-  await searchFileContents(f.workspace, "escrow", signal(), f.preparation, true);
+  await searchFileContents(f.workspace, "escrow", signal(), f.preparation, "owner", true);
   const recovered = await settled(f, "escrow");
   expect(recovered.items).toHaveLength(3);
   expect(recovered.incomplete).toBe(0);

@@ -15,6 +15,7 @@ function browserTab(id) {
     getTitle: () => "Example page",
     getURL: () => "https://example.org/",
     destroy: () => { tab.destroyed = true; tab.emit("destroyed"); },
+    close: () => tab.destroy(),
     debugger: Object.assign(new EventEmitter(), {
       attach: () => { assert.equal(tab.attached, false); tab.attached = true; },
       detach: () => { tab.attached = false; tab.emit("debugger-detached"); },
@@ -60,7 +61,7 @@ function statusWithHost(url, host) {
 }
 
 test("discovery and WebSocket upgrades require a tab capability and reject web origins", async (t) => {
-  const broker = createBrowserAutomationBroker();
+  const broker = createBrowserAutomationBroker({ authorize: async () => {} });
   t.after(() => broker.close());
   const first = await broker.grant(browserTab(10));
   const second = await broker.grant(browserTab(11));
@@ -82,7 +83,7 @@ test("discovery and WebSocket upgrades require a tab capability and reject web o
 });
 
 test("page commands and events work while cross-target and browser commands are denied", async (t) => {
-  const broker = createBrowserAutomationBroker();
+  const broker = createBrowserAutomationBroker({ authorize: async () => {} });
   t.after(() => broker.close());
   const tab = browserTab(20);
   const grant = await broker.grant(tab);
@@ -112,7 +113,7 @@ test("page commands and events work while cross-target and browser commands are 
 });
 
 test("concurrent clients share the attachment until the last disconnect", async (t) => {
-  const broker = createBrowserAutomationBroker();
+  const broker = createBrowserAutomationBroker({ authorize: async () => {} });
   t.after(() => broker.close());
   const tab = browserTab(30);
   const grant = await broker.grant(tab);
@@ -132,7 +133,7 @@ test("concurrent clients share the attachment until the last disconnect", async 
 });
 
 test("disconnecting during a pending command releases the debugger safely", async (t) => {
-  const broker = createBrowserAutomationBroker();
+  const broker = createBrowserAutomationBroker({ authorize: async () => {} });
   t.after(() => broker.close());
   const tab = browserTab(40);
   tab.debugger.sendCommand = async () => {
@@ -153,4 +154,60 @@ test("disconnecting during a pending command releases the debugger safely", asyn
   tab.emit("finish-command");
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(tab.attached, false);
+});
+
+test("policy changes deny existing HTTP capabilities and new WebSocket connections", async t => {
+  for (const route of ["json/list", "downloads", "batch", "websocket"]) {
+    let allowed = true;
+    const context = { workspaceId: "project", sessionId: "chat" };
+    const broker = createBrowserAutomationBroker({ authorize: async caller => {
+      assert.deepEqual(caller, context);
+      if (!allowed) throw new Error("Browser tools are disabled by network policy.");
+    } });
+    t.after(() => broker.close());
+    const tab = browserTab(50);
+    const grant = await broker.grant(tab, () => [], context);
+    const [target] = await (await fetch(`${grant.browser_url}/json/list`)).json();
+    allowed = false;
+    if (route === "websocket") assert.equal(await rejectedUpgrade(target.webSocketDebuggerUrl), 403);
+    else assert.equal((await fetch(`${grant.browser_url}/${route}`, route === "batch" ? { method: "POST", body: JSON.stringify({ steps: [] }) } : {})).status, 403);
+    assert.equal(tab.commands.length, 0);
+    assert.equal(tab.destroyed, true);
+    await assert.rejects(broker.grant(browserTab(51), () => [], context), /disabled/);
+  }
+});
+
+test("an already connected browser cannot execute commands after network access is revoked", async t => {
+  let allowed = true;
+  const broker = createBrowserAutomationBroker({ authorize: async () => {
+    if (!allowed) throw new Error("Browser tools are disabled.");
+  } });
+  t.after(() => broker.close());
+  const tab = browserTab(60);
+  const grant = await broker.grant(tab);
+  const [target] = await (await fetch(`${grant.browser_url}/json/list`)).json();
+  const client = await connect(target.webSocketDebuggerUrl);
+  const closed = once(client, "close");
+  allowed = false;
+  client.send(JSON.stringify({ id: 1, method: "Runtime.evaluate", params: { expression: "fetch('https://example.org')" } }));
+  await closed;
+  assert.equal(tab.commands.length, 0);
+  assert.equal(tab.destroyed, true);
+});
+
+test("policy revocation closes a running page without waiting for another tool call", async t => {
+  let allowed = true;
+  const broker = createBrowserAutomationBroker({ authorize: async () => {
+    if (!allowed) throw new Error("Network policy cannot be verified.");
+  } });
+  t.after(() => broker.close());
+  const tab = browserTab(70);
+  await broker.grant(tab);
+  const closed = once(tab, "destroyed");
+  allowed = false;
+  // Keep the fixture alive while the broker's unreferenced policy timer fires.
+  const deadline = setTimeout(() => tab.emit("policy-timeout"), 3000);
+  t.after(() => clearTimeout(deadline));
+  await Promise.race([closed, once(tab, "policy-timeout").then(() => { throw new Error("Page was not revoked"); })]);
+  assert.equal(tab.destroyed, true);
 });

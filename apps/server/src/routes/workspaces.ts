@@ -7,6 +7,7 @@ import { readFile, rename, rm, writeFile, lstat } from "node:fs/promises";
 import { realpath } from "../lawoss/canonical-path.js";
 import { basename, dirname, resolve, isAbsolute, relative, sep } from "node:path";
 import { recordAudit } from "../audit.js";
+import { readProjectTemplates, saveProjectTemplates, localizeProjectTemplates, projectFieldsFromTemplate } from "../project-templates.js";
 import { ApiError } from "../errors.js";
 import { inheritWorkspaceOpencodeConnection, resolveWorkspaceOpencodeConnection } from "../opencode-connection.js";
 import type { ProjectField } from "@legalwork/types/workspace";
@@ -15,7 +16,10 @@ import { ensureDir, exists, shortId } from "../utils.js";
 import { ensureWorkspaceFiles } from "../workspace-init.js";
 import { workspaceIdForPath, workspaceIdForRemote } from "../workspaces.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
-import { initializeProjectFields, parseProjectFieldDefaults, createDefaultProjectFolder, defaultProjectRoot, readProjectDetails, updateProjectDetails, updateProjectFieldValues } from "../project-store.js";
+import { initializeProjectFields, parseProjectFields, createDefaultProjectFolder, defaultProjectRoot, readProjectDetails, updateProjectDetails, updateProjectFieldValues } from "../project-store.js";
+import { WikiStore } from "../wiki/store.js";
+import { revokeWikiProjectEverywhere } from "../wiki/project-access.js";
+import { assertProjectFolderIndependent } from "../wiki/workspace-safety.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
@@ -261,7 +265,7 @@ export async function registerLocalProject(
     folderPath: string;
     name: string;
     preset: string;
-    projectFields?: ReturnType<typeof parseProjectFieldDefaults> | null;
+    projectFields?: ReturnType<typeof parseProjectFields> | null;
     position?: "first" | "last";
     registerExisting?: boolean;
     appFiles?: "inside" | "outside";
@@ -269,6 +273,7 @@ export async function registerLocalProject(
 ): Promise<{ workspace: WorkspaceInfo; persisted: boolean }> {
   return serializeWorkspaceMutation(config, async () => {
     const workspacePath = resolve(input.folderPath);
+  await assertProjectFolderIndependent(workspacePath, await new WikiStore(config).list());
     const registered = config.workspaces.find((entry) => entry.workspaceType !== "remote" && resolve(entry.path) === workspacePath);
     const pathId = workspaceIdForPath(workspacePath);
     const pathIdTaken = config.workspaces.some(entry => entry.id === pathId);
@@ -306,6 +311,8 @@ export async function registerLocalProject(
       ...(displayName ? { displayName } : {}),
       ...inheritWorkspaceOpencodeConnection(config),
     };
+  const previous = config.workspaces.find(entry => entry.id === workspace.id);
+  if (previous && (previous.workspaceType !== workspace.workspaceType || (previous.directory || previous.path) !== workspace.path)) revokeWikiProjectEverywhere(config, workspace.id);
     const others = config.workspaces.filter((entry) => entry.id !== workspace.id);
     config.workspaces = input.position === "last" ? [...others, workspace] : [workspace, ...others];
     if (!config.authorizedRoots.some((root) => resolve(root) === workspacePath)) {
@@ -331,6 +338,7 @@ export async function renameRegisteredWorkspace(config: ServerConfig, id: string
 export async function unregisterWorkspace(config: ServerConfig, workspace: WorkspaceInfo): Promise<{ deleted: boolean; persisted: boolean }> {
   return serializeWorkspaceMutation(config, async () => {
     const before = config.workspaces.length;
+  revokeWikiProjectEverywhere(config, workspace.id);
     config.workspaces = config.workspaces.filter((entry) => entry.id !== workspace.id);
     const deleted = before !== config.workspaces.length;
     if (deleted && workspace.workspaceType === "local") {
@@ -361,7 +369,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     onProjectRemoved,
   } = options;
 
-  const resolveWorkspaceForRegistry = async (id: string): Promise<WorkspaceInfo> => {
+  const registeredWorkspace = (id: string): WorkspaceInfo => {
     const workspaceId = id.trim();
     const aliasWorkspaceId = workspaceId.startsWith("rem_") ? workspaceId.slice("rem_".length) : "";
     const workspace =
@@ -370,9 +378,11 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     if (!workspace) {
       throw new ApiError(404, "workspace_not_found", "Workspace not found");
     }
-    if (workspace.workspaceType === "remote") {
-      return { ...workspace, path: workspace.path?.trim() ?? "" };
-    }
+    return workspace;
+  };
+  const resolveWorkspaceForRegistry = async (id: string): Promise<WorkspaceInfo> => {
+    const workspace = registeredWorkspace(id);
+    if (workspace.workspaceType === "remote") return { ...workspace, path: workspace.path?.trim() ?? "" };
     return resolveWorkspace(config, id);
   };
 
@@ -461,6 +471,16 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     return jsonResponse({ folderPath: defaultProjectRoot(config.projectsDirectory) });
   });
 
+  addRoute(routes, "GET", "/workspaces/project-templates", "client", async (ctx) => {
+    const language = new URL(ctx.request.url).searchParams.get("language") === "de" ? "de" : "en";
+    return jsonResponse(localizeProjectTemplates(await readProjectTemplates(config), language));
+  });
+
+  addRoute(routes, "PUT", "/workspaces/project-templates", "host", async (ctx) => {
+    ensureWritable(config);
+    return jsonResponse(await saveProjectTemplates(config, await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024)));
+  });
+
   addRoute(routes, "GET", "/workspace/:id/project", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     return jsonResponse(await readProjectDetails(workspace.path));
@@ -486,7 +506,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     return jsonResponse(updated);
   });
 
-  addRoute(routes, "POST", "/workspaces/local", "host", async (ctx) => {
+  const createLocalWorkspace = async (ctx: RequestContext, newProjectOnly = false) => {
     ensureWritable(config);
     const body = await readJsonBody(ctx.request);
     if (body.registerExisting !== undefined && typeof body.registerExisting !== "boolean") {
@@ -501,9 +521,19 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     if (body.registerExisting === true && (body.folderMode === "default" || body.remoteFolders !== undefined || body.projectFields !== undefined || body.initializeFromFolders || body.fromRemoteFolder)) {
       throw new ApiError(400, "invalid_payload", "Existing matter registration cannot initialize project files");
     }
-    const preparedFolders = await options.projectFolders?.prepare(body.remoteFolders);
+    if (newProjectOnly) {
+      requireClientScope(ctx, "collaborator");
+      if (Object.keys(body).some((key) => !["name", "templateId", "templateLanguage", "projectFields"].includes(key)))
+        throw new ApiError(400, "invalid_payload", "This endpoint creates a new project folder. Only name, templateId, templateLanguage and projectFields are supported.");
+      body.folderMode = "default";
+      body.preset = "starter";
+    }
+    const preparedFolders = await options.projectFolders?.prepare(body.remoteFolders, ctx);
     if (body.fromRemoteFolder && !preparedFolders?.length) throw new ApiError(400, "project_folder_required", "Select a remote folder first.");
-    const projectFields = body.projectFields === undefined ? null : parseProjectFieldDefaults(body.projectFields);
+    if (body.projectFields !== undefined && body.templateId !== undefined)
+      throw new ApiError(400, "invalid_project_template", "Choose either a template or explicit fields.");
+    const projectFields = body.projectFields === undefined
+      ? await projectFieldsFromTemplate(config, body) : parseProjectFields(body.projectFields);
     let folderPath = typeof body.folderPath === "string" ? body.folderPath.trim() : "";
     const initializeFromFolders = body.initializeFromFolders === true || body.fromRemoteFolder === true;
     if (initializeFromFolders && !folderPath && !preparedFolders?.length)
@@ -546,12 +576,20 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       timestamp: Date.now(),
     });
 
+    if (newProjectOnly) return jsonResponse({
+      activeId: workspace.id,
+      project: { id: workspace.id, name: workspace.name, localFolder: workspace.path, ...await readProjectDetails(workspace.path) },
+      persisted,
+    }, 201);
     return jsonResponse({
       activeId: workspace.id,
       workspaces: config.workspaces.map(serializeWorkspace),
       persisted,
     }, 201);
-  });
+  };
+  addRoute(routes, "POST", "/workspaces/local", "host", (ctx) => createLocalWorkspace(ctx));
+  // Agents can create a fresh project using collaborator permissions, without host folder-registration access.
+  addRoute(routes, "POST", "/workspaces/projects", "client", (ctx) => createLocalWorkspace(ctx, true));
 
   addRoute(routes, "POST", "/workspaces/remote", "host", async (ctx) => {
     return serializeWorkspaceMutation(config, async () => {
@@ -625,6 +663,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
         ...(sandboxContainerName ? { sandboxContainerName } : {}),
       };
 
+      revokeWikiProjectEverywhere(config, workspace.id);
       config.workspaces = [workspace, ...config.workspaces.filter((entry) => entry.id !== workspace.id)];
       const persisted = await persistServerWorkspaceState(config);
       onWorkspacesChanged();
@@ -711,7 +750,9 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
   addRoute(routes, "DELETE", "/workspaces/:id", "host", async (ctx) => {
     ensureWritable(config);
 
-    const workspace = await resolveWorkspaceForRegistry(ctx.params.id);
+    // Removing a registration does not read or change its folder. It must
+    // remain possible when a drive is disconnected or the folder was moved.
+    const workspace = registeredWorkspace(ctx.params.id);
 
     const { deleted, persisted } = await unregisterWorkspace(config, workspace);
     onWorkspacesChanged();

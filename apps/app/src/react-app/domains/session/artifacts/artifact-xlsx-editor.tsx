@@ -12,6 +12,7 @@ import "@univerjs/preset-sheets-core/lib/index.css";
 import "./office-fonts.css";
 import "./office-editor.css";
 import { t } from "@/i18n";
+import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme";
 
 // Structural edits require rewriting references in charts, names, tables and
 // other retained parts. Block them at command execution, including shortcuts.
@@ -30,7 +31,7 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
     let cleanup: (() => void) | undefined;
     void openWorkbook(initial, props.name).then((adapter) => {
       if (disposed || !container.current) return;
-      const univer = new Univer({ locale: LocaleType.EN_US, logLevel: LogLevel.WARN, locales: { [LocaleType.EN_US]: enUS }, theme: { ...defaultTheme, primary: { 50: "#f0f5f4", 100: "#dde9e6", 200: "#bdd4cd", 300: "#93b8ad", 400: "#66968a", 500: "#3c7668", 600: "#285e51", 700: "#204c42", 800: "#1c3d35", 900: "#17342d" } } });
+      const univer = new Univer({ darkMode: getResolvedThemeMode() === "dark", locale: LocaleType.EN_US, logLevel: LogLevel.WARN, locales: { [LocaleType.EN_US]: enUS }, theme: { ...defaultTheme, primary: { 50: "#f0f5f4", 100: "#dde9e6", 200: "#bdd4cd", 300: "#93b8ad", 400: "#66968a", 500: "#3c7668", 600: "#285e51", 700: "#204c42", 800: "#1c3d35", 900: "#17342d" } } });
       const preset = UniverSheetsCorePreset({ container: container.current, header: true, toolbar: !props.readOnly, formulaBar: true, contextMenu: false, footer: { sheetBar: true, statisticBar: true, addSheetButtonConfig: { show: false } }, menu: Object.fromEntries(hidden.map((id) => [`sheet.command.${id}`, { hidden: true }])) });
       for (const plugin of preset.plugins) {
         if (Array.isArray(plugin)) univer.registerPlugin(plugin[0], plugin[1]);
@@ -57,6 +58,19 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
           state.serialize.current = async () => {
             await univerAPI.getFormula().onCalculationResultApplied(10000);
             return adapter.save(workbook.save(), true);
+          };
+          state.navigation.current = async (target) => {
+            if (target.kind !== "cells") throw new Error("Excel navigation requires a sheet and cell range.");
+            const sheet = workbook.getSheetByName(target.sheet);
+            if (!sheet) throw new Error(t("xlsx.sheet_not_found"));
+            const bounds = officeRange(target.range);
+            const snapshot = workbook.save().sheets[sheet.getSheetId()];
+            if (!snapshot || snapshot.hidden) throw new Error("The requested sheet is hidden or unavailable.");
+            if (bounds.endRow >= (snapshot.rowCount ?? 0) || bounds.endColumn >= (snapshot.columnCount ?? 0)) throw new Error("The range exceeds the current sheet grid.");
+            workbook.setActiveSheet(sheet);
+            sheet.setActiveRange(sheet.getRange(target.range));
+            sheet.scrollToCell(bounds.startRow, bounds.startColumn);
+            return { sheet: target.sheet, range: target.range };
           };
           state.agentTool.current = async (name, rawArgs) => {
             if (name !== "read" && name !== "write") throw new Error(t("xlsx.unknown_tool"));
@@ -97,10 +111,11 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
       };
       const lifecycle = univerAPI.addEvent(univerAPI.Event.LifeCycleChanged, finishOpening);
       finishOpening();
-      cleanup = () => { lifecycle.dispose(); listener.dispose(); before.dispose(); state.serialize.current = null; state.agentTool.current = null; queueMicrotask(() => univer.dispose()); };
+      const unsubscribeTheme = subscribeToTheme(() => univerAPI.toggleDarkMode(getResolvedThemeMode() === "dark"));
+      cleanup = () => { unsubscribeTheme(); lifecycle.dispose(); listener.dispose(); before.dispose(); state.serialize.current = null; state.agentTool.current = null; state.navigation.current = null; queueMicrotask(() => univer.dispose()); };
     }).catch((error: unknown) => { if (!disposed) state.setError(error instanceof Error ? error.message : t("xlsx.open_failed")); });
     return () => { disposed = true; cleanup?.(); };
-  }, [initial, workbookId, props.name, props.readOnly, state.changed, state.setError, state.serialize, state.agentTool]);
+  }, [initial, workbookId, props.name, props.readOnly, state.changed, state.setError, state.serialize, state.agentTool, state.navigation]);
   useEffect(() => {
     if (!ready) return;
     const strip = container.current?.querySelector('[data-u-comp="slide-tab-item"]')?.parentElement;

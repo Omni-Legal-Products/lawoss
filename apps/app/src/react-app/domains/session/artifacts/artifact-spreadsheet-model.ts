@@ -3,7 +3,7 @@ import type { Data } from "./open-target";
 export type SpreadsheetRows = string[][];
 
 function extension(name: string) {
-  const clean = name.toLowerCase().split(/[?#]/)[0] ?? name.toLowerCase();
+  const clean = name.toLowerCase();
   const index = clean.lastIndexOf(".");
   
   return index >= 0 ? clean.slice(index + 1) : "";

@@ -93,6 +93,20 @@ describe("parseManifestModels", () => {
 });
 
 describe("applyEigenweltPaidManifestModels", () => {
+  test("renames a model around its existing ID and key, so saved selections remain valid", async () => {
+    const config = await setup();
+    const original = { id: "Eigenwelt Europe Gemini", name: "Eigenwelt Europe Gemini", region: "EU" };
+    await writeCachedEigenweltPaidManifest(config, {
+      baseURL: "https://gateway.test/v1", apiKey: "existing-firm-key", models: [original],
+    });
+    const renamed = { ...original, name: "Gemini 3.8 Flash (EU)" };
+    const argon = { id: "gemini-4-argon-eu", name: "Gemini 4 Argon (EU)", region: "EU" };
+    expect(await applyEigenweltPaidManifestModels(config, [renamed, argon])).toBe(true);
+    const cached = await readCachedEigenweltPaidManifest(config);
+    expect(cached).toMatchObject({ apiKey: "existing-firm-key", models: [renamed, argon] });
+    expect(cached?.models.find((model) => model.id === original.id)?.name).toBe(renamed.name);
+    expect(await applyEigenweltPaidManifestModels(config, [renamed, argon])).toBe(false);
+  });
   test("is a no-op without a cached manifest (not signed in)", async () => {
     const config = await setup();
     expect(await applyEigenweltPaidManifestModels(config, [EUROPE])).toBe(false);

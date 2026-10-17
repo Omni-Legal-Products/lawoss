@@ -37,6 +37,15 @@ async function fixture(options: { allowConnectionChanges?: boolean; gcTime?: num
    return;
   }
   if(requestUrl.pathname==="/session/status" && options.statusReply){options.statusReply(response,++statusReads);return;}
+  // Current dev refreshes pending interactions after server.connected.
+  if(["/permission","/question","/api/permission/request","/api/question/request"].includes(requestUrl.pathname)){
+   if(!options.allowConnectionChanges)expect(request.headers.authorization).toBe(`Bearer ${token}`);
+   response.writeHead(200,{"content-type":"application/json"});response.end(requestUrl.pathname.startsWith("/api/")?'{"data":[]}':"[]");return;
+  }
+  if(/^\/session\/[^/]+$/.test(requestUrl.pathname)){
+   const id=decodeURIComponent(requestUrl.pathname.split("/").at(-1)!);
+   response.writeHead(200,{"content-type":"application/json"});response.end(JSON.stringify({id,title:"Synthetic lineage",directory:options.directory??"/synthetic/selected",time:{created:1,updated:1}}));return;
+  }
   expect(request.url?.split("?")[0]).toBe("/event");if(!options.allowConnectionChanges)expect(request.headers.authorization).toBe(`Bearer ${token}`);
   if(options.snapshot && options.directory && !options.allowConnectionChanges) expect(new URL(request.url ?? "", "http://fixture").searchParams.get("directory")).toBe(options.directory);
   response.writeHead(200,{"content-type":"text/event-stream"});response.write('data: {"type":"server.connected","properties":{}}\n\n');opened++;responses.add(response);
@@ -258,7 +267,16 @@ for(const transition of ["same","change","clear","recreate","cached","deleted","
    expect(observer.getCurrentResult().data?.session.revert?.messageID).toBe("source-turn");
    void observer.refetch();await waitFor(()=>bodies.length===4);
   }
-  if(transition==="deleted")f.wire({type:"session.deleted",properties:{sessionID:"session-one"}});
+  if(transition==="deleted"){
+   f.wire({type:"session.deleted",properties:{sessionID:"session-one"}});
+   // Current dev tombstones deleted chats; late metadata must not revive them.
+   f.wire({type:"session.updated",properties:{info:{id:"session-one",title:"Late deleted chat",time:{created:1,updated:3},revert:{messageID:"source-turn"}}}});
+   for(const finish of bodies)finish();
+   await waitFor(()=>observer.getCurrentResult().fetchStatus==="idle");
+   expect(f.updated()).toBe(1);expect(f.snapshotReads()).toEqual(["140","140"]);
+   expect(observer.getCurrentResult().data?.session.revert?.messageID).toBe("cursor-user");
+   return;
+  }
   if(transition==="clear-owned"){
    await f.wireStatus({type:"idle"});f.release();
    const retracked=trackWorkspaceSessionSync(f.input,"session-one");cleanups.push(async()=>retracked());
@@ -682,7 +700,7 @@ test("HTTP snapshots with unavailable, older, reverted or failed newer-turn evid
    // Its position alone cannot identify which current user failed.
    f.wire({type:"message.updated",properties:{info:candidate.info}});
    f.wire({type:"session.error",properties:{sessionID:"session-one",error:{name:"UnknownError",data:{message:"Synthetic known candidate failed"}}}});
-   await waitFor(()=>useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"].errorMessage==="Synthetic known candidate failed");
+   await waitFor(()=>useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"].errorMessage==="Synthetic known candidate failed\nProvider: synthetic");
    httpSnapshot.messages.push(candidate);
   }
   if(evidence==="unknown") {

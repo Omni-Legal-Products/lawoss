@@ -9,7 +9,7 @@ open-model version of "ask the assistant to redline this contract").
 
 Load and follow the **`docx-edit`** skill — **start with its Step 0** to pick the
 backend. First try the document open in LegalWork's in-app editor and use
-inapp_docx_* tools; otherwise try the Microsoft Word add-in and use word_* tools.
+the inapp_docx_* tools; otherwise try the Microsoft Word add-in and use word_* tools.
 Only when neither live surface has the target document should you use the file
 pipeline. Then carry out this request:
 

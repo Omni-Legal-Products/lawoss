@@ -25,6 +25,9 @@ const configSchema = z.discriminatedUnion("kind", [
     kind: z.literal("oauth"),
     provider: z.string().regex(/^[a-z][a-z0-9-]{1,50}$/),
     root: z.string().max(2048).default(""),
+    /** Reuses a native connector account; never another OAuth grant. */
+    accountId: z.string().min(1).max(500).optional(),
+    driveId: z.string().min(1).max(1000).optional(),
   }),
   z.object({
     kind: z.literal("smb"),
@@ -184,6 +187,7 @@ export type StorageRoot = {
   revision?: string;
   /** A linked folder already contained in this available connection. Browsers show the source once; tools keep the scoped root. */
   sourceConnectionId?: string;
+  provider?: string;
 };
 export type StorageEntry = {
   path: string;
@@ -193,8 +197,51 @@ export type StorageEntry = {
   modifiedAt: string | null;
   /** The version a conditional write names, when the provider lists it. */
   version?: string;
+  id?: string;
+  webUrl?: string;
+  /** Native Google documents open as editable exports with a separate save destination. */
+  exported?: boolean;
 };
-export type StoragePage = { entries: StorageEntry[]; nextCursor?: string };
+// Window navigation transfers retain the source connection, never just its
+// temporary local working path (which would lose read-only/publish semantics).
+export const storageFileSourceSchema = z.object({
+  workspaceId: z.string(),
+  root: z.object({
+    id: z.string(), name: z.string(), writable: z.boolean(),
+    kind: z.enum(["oauth", "smb", "webdav", "s3", "azure", "gcs", "sftp", "ftp", "linked"]),
+    revision: z.string().optional(), sourceConnectionId: z.string().optional(), provider: z.string().optional(),
+  }),
+  file: z.object({
+    path: z.string(), name: z.string(), kind: z.enum(["file", "folder"]),
+    size: z.number().nullable(), modifiedAt: z.string().nullable(), version: z.string().optional(),
+    id: z.string().optional(), webUrl: z.string().optional(), exported: z.boolean().optional(),
+  }),
+});
+
+export type StoragePage = { entries: StorageEntry[]; nextCursor?: string; truncated?: boolean };
+export const storageTransferSchema = z.object({
+  path: z.string().min(1).max(4096),
+  kind: z.enum(["file", "folder"]),
+  destinationId: z.string().min(1).max(200),
+  destinationPath: z.string().max(4096),
+  mode: z.enum(["move", "copy"]).default("copy"),
+});
+export type StorageTransfer = z.infer<typeof storageTransferSchema>;
+export const storageTransferProgressSchema = z.object({
+  phase: z.enum(["scanning", "transferring", "verifying", "removing", "completed"]),
+  completedFiles: z.number().int().nonnegative(),
+  totalFiles: z.number().int().nonnegative().nullable(),
+  elapsedMs: z.number().nonnegative(),
+  currentFile: z.string().optional(),
+});
+export type StorageTransferProgress = z.infer<typeof storageTransferProgressSchema>;
+export type StorageTransferUpdate = Omit<StorageTransferProgress, "elapsedMs">;
+export const storageTransferEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("progress"), progress: storageTransferProgressSchema }),
+  z.object({ type: z.literal("result"), path: z.string() }),
+  z.object({ type: z.literal("error"), status: z.number(), code: z.string(), message: z.string() }),
+]);
+export type StorageTransferEvent = z.infer<typeof storageTransferEventSchema>;
 /** Literal, case-insensitive metadata search over files, including unopened folders. */
 export const storageFilenameSearchSchema = z.object({
   query: z.string().trim().min(1).max(512),

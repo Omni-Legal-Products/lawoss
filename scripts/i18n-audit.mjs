@@ -21,6 +21,7 @@
 import { readFileSync, readdirSync, existsSync, writeFileSync } from "node:fs";
 import { join, basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { projectTemplateStrings } from "../packages/types/src/project-template-strings.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..");
@@ -78,7 +79,7 @@ function parseLocale(filePath) {
   const content = readFileSync(filePath, "utf-8");
   const match = content.match(/export default \{([\s\S]*?)\} as const;/);
   if (!match) throw new Error(`Could not parse ${filePath}`);
-  return new Function(`${resolveSpreadImports(content, filePath)}\nreturn {${match[1]}}`)();
+  return new Function("projectTemplateStrings", `${resolveSpreadImports(content, filePath)}\nreturn {${match[1]}}`)(projectTemplateStrings);
 }
 
 /** Extract translation keys from a locale .ts file (as a Set). */

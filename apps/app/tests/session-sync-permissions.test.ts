@@ -4,6 +4,7 @@ import type { PermissionRequest, PermissionV2Request, QuestionRequest } from "@o
 
 import type { LegalworkSessionSnapshot } from "../src/app/lib/legalwork-server";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
+import { interactionSessionIds, interactionSessionsKey, type InteractionSessions } from "../src/react-app/domains/session/sync/interaction-state";
 import {
   __applySessionSyncEventForTest,
   __createWorkspaceSessionSyncForTest,
@@ -14,12 +15,35 @@ import {
   permissionKey,
   questionKey,
   seedPermissionState,
+  seedHostApprovalState,
   seedQuestionState,
   seedSessionState,
   snapshotKey,
   trackWorkspaceSessionSync,
   transcriptKey,
 } from "../src/react-app/domains/session/sync/session-sync";
+import type { PendingPermission } from "../src/app/types";
+import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
+
+test("host requests stay in their originating chats and survive engine snapshots", () => {
+  const cache = getReactQueryClient();
+  const requests = Array.from({ length: 10 }, (_, index) => ({ id: `request-${index}`, workspaceId: "workspace-host",
+    sessionID: `chat-${index}`, action: "sandbox.webfetch", summary: "GET https://example.com", paths: [], createdAt: index,
+    actor: { type: "host" } } satisfies HostApprovalRequest));
+  seedPermissionState("workspace-host", "chat-0", [permission("engine", "chat-0")]);
+  seedHostApprovalState("workspace-host", requests);
+  for (let index = 0; index < 10; index++) {
+    const pending = cache.getQueryData<PendingPermission[]>(permissionKey("workspace-host", `chat-${index}`)) ?? [];
+    expect(pending.filter((item) => item.protocol === "host").map((item) => item.id)).toEqual([`host:request-${index}`]);
+  }
+  seedPermissionState("workspace-host", "chat-0", [permission("engine", "chat-0")]);
+  expect(cache.getQueryData<PendingPermission[]>(permissionKey("workspace-host", "chat-0"))?.map((item) => item.id)).toEqual(["host:request-0", "engine"]);
+  seedHostApprovalState("workspace-host", requests.slice(1));
+  expect(cache.getQueryData<PendingPermission[]>(permissionKey("workspace-host", "chat-0"))?.map((item) => item.id)).toEqual(["engine"]);
+  seedHostApprovalState("workspace-host", []);
+  expect(cache.getQueryData(permissionKey("workspace-host", "chat-9"))).toEqual([]);
+  cache.removeQueries({ queryKey: ["react-session-permissions", "workspace-host"] });
+});
 
 function permission(id: string, sessionID: string): PermissionRequest {
   return {
@@ -424,4 +448,30 @@ describe("session metadata sync", () => {
       cleanup();
     }
   });
+});
+
+test("a mounted sibling chat remains subscribed after route focus releases it", () => {
+  const input = { workspaceId: "workspace-a", baseUrl: "http://127.0.0.1:1234", legalworkToken: "token" };
+  const cleanup = __createWorkspaceSessionSyncForTest(input);
+  const releaseRoute = trackWorkspaceSessionSync(input, "session-a");
+  const releasePane = trackWorkspaceSessionSync(input, "session-a");
+  const releaseSibling = trackWorkspaceSessionSync(input, "session-b");
+  releaseRoute();
+  try {
+    for (const sessionID of ["session-a", "session-b"]) {
+      __applySessionSyncEventForTest(input, { type: "session.idle", properties: { sessionID } });
+      __applySessionSyncEventForTest(input, { type: "permission.asked", properties: permission(`permission-${sessionID}`, sessionID) });
+      __applySessionSyncEventForTest(input, { type: "question.asked", properties: question(`question-${sessionID}`, sessionID) });
+      expect(getReactQueryClient().getQueryData(permissionKey(input.workspaceId, sessionID))).toMatchObject([{ sessionID }]);
+      expect(getReactQueryClient().getQueryData(questionKey(input.workspaceId, sessionID))).toMatchObject([{ sessionID }]);
+    }
+    __applySessionSyncEventForTest(input, { type: "permission.asked", properties: permission("foreign", "session-c") });
+    // Unopened chats now retain requests for subagent recovery, but each pane
+    // still selects only its own chat and descendants.
+    expect(getReactQueryClient().getQueryData(permissionKey(input.workspaceId, "session-c"))).toMatchObject([{ sessionID: "session-c" }]);
+    const sessions = getReactQueryClient().getQueryData<InteractionSessions>(interactionSessionsKey(input.workspaceId)) ?? {};
+    for (const sessionID of ["session-a", "session-b"]) {
+      expect(interactionSessionIds(sessionID, sessions)).toEqual([sessionID]);
+    }
+  } finally { releasePane(); releaseSibling(); cleanup(); }
 });

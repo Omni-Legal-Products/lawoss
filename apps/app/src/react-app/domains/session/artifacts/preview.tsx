@@ -132,7 +132,10 @@ interface PdfPreviewProps {
   url: string;
   title: string;
   className?: string;
+  apiRef?: React.RefObject<PdfPreviewApi | null>;
 }
+
+export type PdfPreviewApi = { navigate: (page: number) => Promise<{ requestedPage: number }> };
 
 /**
  * PDFs render through the browser/Chromium built-in PDF viewer (PDFium). That
@@ -142,8 +145,17 @@ interface PdfPreviewProps {
  * own workspace file served from a same-origin blob URL, and PDFium sandboxes
  * any script embedded in the PDF itself.
  */
-export function PdfPreview({ url, title, className }: PdfPreviewProps) {
-  return <iframe src={url} title={title} className={cn("h-full w-full border-0", className)} />;
+export function PdfPreview({ url, title, className, apiRef }: PdfPreviewProps) {
+  const [navigation, setNavigation] = React.useState<{ url: string; page: number; request: number } | null>(null);
+  React.useImperativeHandle(apiRef, () => ({ navigate: async page => {
+    if (!Number.isInteger(page) || page < 1 || page > 100000) throw new Error("Provide a positive page number.");
+    setNavigation(previous => ({ url, page, request: (previous?.request ?? 0) + 1 }));
+    // PDFium owns its page count and clamps out-of-range destinations. Report
+    // dispatch, not a verified current page. Remount also handles repeated jumps.
+    return { requestedPage: page };
+  } }), [url]);
+  const current = navigation?.url === url ? navigation : null;
+  return <iframe key={`${url}:${current?.request ?? 0}`} src={current ? `${url.split("#")[0]}#page=${current.page}` : url} title={title} className={cn("h-full w-full border-0", className)} />;
 }
 
 interface ImagePreviewProps extends React.ComponentProps<"div"> {

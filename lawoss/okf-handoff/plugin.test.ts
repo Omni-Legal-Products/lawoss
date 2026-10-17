@@ -45,6 +45,16 @@ describe("native engine handoff hooks", () => {
     await hooks["experimental.session.compacting"]!({ sessionID: "ses_error" }, output);
     expect(output.context[0]).toContain("FAILED"); expect(readFileSync(path, "utf8")).toBe(good);
   });
+  test("systémový text pri zlyhaní neobsahuje text chyby a je stály (cache promptu)", async () => {
+    const root = fixture(); const hooks = await LawossOkfHandoff({ directory: root });
+    writeFileSync(join(root, "memory/broken.md"), "not an OKF record");
+    const first = { system: [] as string[] }; const second = { system: [] as string[] };
+    await hooks["experimental.chat.system.transform"]!({ sessionID: "ses_cache" }, first);
+    await hooks["experimental.chat.system.transform"]!({ sessionID: "ses_cache" }, second);
+    expect(first.system[0]).toContain("FAILED");
+    expect(second.system).toEqual(first.system);
+    expect(first.system[0]).not.toContain("OKF record");
+  });
   test.skipIf(Boolean(dirSymlinkSkip))(`symlink handoff directory cannot send data outside the matter${dirSymlinkSkip ? ` (${dirSymlinkSkip})` : ""}`, async () => {
     const root = fixture(); const external = fixture(); symlinkSync(external, join(root, ".lawoss"), "dir");
     const hooks = await LawossOkfHandoff({ directory: root }); const output = { context: [] as string[] };

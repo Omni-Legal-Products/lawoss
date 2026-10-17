@@ -1,3 +1,4 @@
+import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { resolveWorkspaceEndpoint, type LocalServerHandle, type ResolvedWorkspaceEndpoint } from "../src/app/lib/workspace-endpoint";
@@ -47,7 +48,11 @@ export function runNativeEndpointStabilityBehavior() {
     const remoteEndpoint = render(remote).endpoint;
     check(remoteEndpoint?.isRemote === true && remoteEndpoint.workspaceId === "server-id" && remoteEndpoint.token === "client-token");
     check(render({ ...remote, baseUrl: null, legalworkToken: null }).endpoint === remoteEndpoint);
-    check(render({ ...remote, displayNameResolved: "New remote label", legalworkHostToken: "ignored", path: "/different" }, { baseUrl: "http://irrelevant-local", token: "ignored" }).endpoint === remoteEndpoint);
+    check(render({ ...remote, displayNameResolved: "New remote label", path: "/different" }, { baseUrl: "http://irrelevant-local", token: "ignored" }).endpoint === remoteEndpoint);
+    const rotatedHost = render({ ...remote, legalworkHostToken: "rotated-host" }).endpoint;
+    check(rotatedHost !== remoteEndpoint && rotatedHost?.hostToken === "rotated-host");
+    const removedHost = render({ ...remote, legalworkHostToken: undefined }).endpoint;
+    check(removedHost !== rotatedHost && removedHost?.hostToken === undefined);
     const remoteAuth = render({ ...remote, legalworkToken: " rotated-remote " }).endpoint;
     check(remoteAuth !== remoteEndpoint && remoteAuth?.token === "rotated-remote");
     const emptyAuth = render({ ...remote, legalworkToken: "" }).endpoint;
@@ -111,7 +116,16 @@ if (typeof document === "undefined") {
       expect(endpoint?.opencodeBaseUrl).toBe(`${baseUrl}/workspace/selected/opencode`);
     });
   });
-  test("remote token nullish and empty precedence reaches the actual HTTP boundary without separate host auth", async () => {
+  test("local owner client is reused with its host capability and survives metadata-only endpoint allocation", async () => {
+    await fixture(async (baseUrl, requests) => {
+      const client = createLegalworkServerClient({baseUrl,token:"local-auth",hostToken:"local-host"});
+      const endpoint = resolveWorkspaceEndpoint(local,{baseUrl,token:"local-auth",hostToken:"local-host",localClient:client});
+      expect(endpoint?.client).toBe(client);expect(endpoint?.hostToken).toBe("local-host");
+      await endpoint?.client.listWorkspaceDirectory(endpoint.workspaceId,"Dokumenty");
+      expect(requests.at(-1)).toEqual({url:"/workspace/selected/files/list?path=Dokumenty",authorization:"Bearer local-auth",hostToken:"local-host"});
+    });
+  });
+  test("remote nullish bearer precedence and explicit remote host capability reach only the owning server", async () => {
     await fixture(async (baseUrl, requests) => {
       const remote: RouteWorkspace = { ...local, id: " rem_worker ", workspaceType: "remote", legalworkHostUrl: ` ${baseUrl} `, legalworkClientToken: " client-auth ", legalworkHostToken: "host-auth", legalworkWorkspaceId: " server-id " };
       for (const [fields, authorization] of [
@@ -122,12 +136,12 @@ if (typeof document === "undefined") {
         [{ legalworkToken: undefined, legalworkClientToken: undefined }, "Bearer host-auth"],
         [{ legalworkToken: null, legalworkClientToken: null }, "Bearer host-auth"],
       ] satisfies Array<[Partial<RouteWorkspace>, string | undefined]>) {
-        const endpoint = resolveWorkspaceEndpoint({ ...remote, ...fields }, { baseUrl: "http://wrong-local", token: "wrong-local" });
+        const endpoint = resolveWorkspaceEndpoint({ ...remote, ...fields }, { baseUrl: "http://wrong-local", token: "wrong-local", hostToken: "never-borrow-local-host" });
         expect(endpoint?.isRemote).toBe(true);
         await endpoint?.client.listWorkspaceDirectory(endpoint.workspaceId, "Dokumenty");
-        expect(requests.at(-1)).toEqual({ url: "/workspace/server-id/files/list?path=Dokumenty", authorization, hostToken: undefined });
+        expect(requests.at(-1)).toEqual({ url: "/workspace/server-id/files/list?path=Dokumenty", authorization, hostToken: "host-auth" });
       }
-      const fallback = resolveWorkspaceEndpoint({ ...remote, legalworkWorkspaceId: " " }, { baseUrl: "http://wrong-local", token: "wrong-local" });
+      const fallback = resolveWorkspaceEndpoint({ ...remote, legalworkWorkspaceId: " " }, { baseUrl: "http://wrong-local", token: "wrong-local", hostToken: "never-borrow-local-host" });
       await fallback?.client.listWorkspaceDirectory(fallback.workspaceId, "Dokumenty");
       expect(requests.at(-1)?.url).toBe("/workspace/worker/files/list?path=Dokumenty");
     });

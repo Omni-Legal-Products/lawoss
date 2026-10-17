@@ -4,3 +4,4 @@
 # odtlačky skillov a prázdne popisy z frontmatteru než build pre macOS.
 * text=auto eol=lf
 apps/app/public/third-party/** linguist-vendored
+*.pdf binary

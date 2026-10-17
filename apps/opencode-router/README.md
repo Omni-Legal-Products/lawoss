@@ -108,11 +108,14 @@ The router can expose a small local HTTP server for health/config and simple mes
 - `OPENCODE_ROUTER_HEALTH_PORT` controls the port (LegalWork defaults to a random free port when using `legalwork`).
 - `PORT` is also accepted as a convenience if the above are unset.
 - `OPENCODE_ROUTER_HEALTH_HOST` controls bind host (default: `127.0.0.1`).
+- `OPENCODE_ROUTER_CONTROL_TOKEN` is required: provision 32 random bytes encoded as 64 hex characters in the private process environment. The LegalWork orchestrator generates and shares this capability with its managed processes automatically. Standalone users can set `export OPENCODE_ROUTER_CONTROL_TOKEN="$(openssl rand -hex 32)"` before starting the router; supply the same value to native control clients. Do not put it in workspace files, exported config, URLs, or command arguments.
+- All control requests require `Authorization: Bearer <token>`. Unauthenticated `GET /health` (and `/`) returns only `{ "ok": true|false }`; authenticated health includes details. Browser origins and CORS/private-network preflights are rejected. Use a matching bind hostname, loopback address, or an IP literal when binding to all interfaces. Keep the default loopback binding unless the surrounding network provides confidential transport.
 
 Send a message to all peers bound to a directory:
 
 ```bash
 curl -sS "http://127.0.0.1:${OPENCODE_ROUTER_HEALTH_PORT:-3005}/send" \
+  -H "Authorization: Bearer ${OPENCODE_ROUTER_CONTROL_TOKEN}" \
   -H 'Content-Type: application/json' \
   -d '{"channel":"telegram","directory":"/path/to/workdir","text":"hello"}'
 ```
@@ -121,6 +124,7 @@ Send text + media in one request:
 
 ```bash
 curl -sS "http://127.0.0.1:${OPENCODE_ROUTER_HEALTH_PORT:-3005}/send" \
+  -H "Authorization: Bearer ${OPENCODE_ROUTER_CONTROL_TOKEN}" \
   -H 'Content-Type: application/json' \
   -d '{
     "channel":"slack",
@@ -139,7 +143,7 @@ Supported media part types:
 - `file`
 
 Each media part accepts:
-- `filePath` (absolute path, or relative to the send directory/workspace root)
+- `filePath` (absolute path, or relative to the send directory/workspace root; the actual file and selected directory must remain within the workspace after resolving symbolic links)
 - optional `caption`
 - optional `filename`
 - optional `mimeType`

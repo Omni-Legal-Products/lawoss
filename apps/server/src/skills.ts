@@ -1,3 +1,4 @@
+import { composedSkill, SkillLessonInputSchema } from "./skill-composition.js";
 import { readdir, readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -6,6 +7,7 @@ import type { SkillItem } from "./types.js";
 import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
 import { exists } from "./utils.js";
 import { validateDescription, validateSkillName } from "./validators.js";
+import { isOutsideWorkspacePath, resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { ApiError } from "./errors.js";
 import { globalSkillsDir, projectSkillsDir } from "./workspace-files.js";
 import { BUNDLED_WORKFLOW_NAMES } from "./bundled-workflows.js";
@@ -69,10 +71,12 @@ async function parseSkillEntry(
   entryName: string,
   scope: "project" | "global",
   skipped?: SkippedSkill[],
+  workspaceRoot?: string,
 ): Promise<SkillItem | null> {
   let parsed: ReturnType<typeof parseFrontmatter>;
   try {
-    parsed = parseFrontmatter(await readFile(skillPath, "utf8"));
+    const readablePath = workspaceRoot ? await resolveWorkspaceFilePath(workspaceRoot, skillPath) : skillPath;
+    parsed = parseFrontmatter(await readFile(readablePath, "utf8"));
   } catch (error) {
     console.warn("[skills] Skipped unreadable or malformed skill:", skillPath, error);
     skipped?.push({ path: skillPath, reason: error instanceof Error ? error.message.split("\n")[0]! : "Could not read or parse SKILL.md" });
@@ -81,8 +85,9 @@ async function parseSkillEntry(
   const { data, body } = parsed;
   const name = typeof data.name === "string" ? data.name : entryName;
   const description = typeof data.description === "string" ? data.description : "";
-  // Legacy tabular workflows remain callable under their original names and paths.
-  const kind = data.kind === "workflow" || data.workflow_type === "tabular" || name.startsWith("workflow-") ? "workflow" : undefined;
+  // Workflows are user-facing skills. Recognize older corrections without rewriting pinned packages.
+  const kind = data.kind === "workflow" || data.workflow_type === "tabular" || name.startsWith("workflow-")
+    || await exists(join(dirname(skillPath), "legalwork-extension.json")) ? "workflow" : undefined;
   const workflowType = kind === "workflow" ? "assistant" : undefined;
   const trigger =
     typeof data.trigger === "string"
@@ -109,16 +114,26 @@ async function parseSkillEntry(
   };
 }
 
-async function listSkillsInDir(dir: string, scope: "project" | "global", skipped?: SkippedSkill[]): Promise<SkillItem[]> {
-  if (!(await exists(dir))) return [];
-  const entries = await readdir(dir, { withFileTypes: true });
+export async function listSkillsInDir(dir: string, scope: "project" | "global", skipped?: SkippedSkill[], workspaceRoot?: string): Promise<SkillItem[]> {
+  let readableDir = dir;
+  if (workspaceRoot) {
+    try {
+      readableDir = await resolveWorkspaceFilePath(workspaceRoot, dir);
+    } catch (error) {
+      if (!isOutsideWorkspacePath(error)) throw error;
+      skipped?.push({ path: dir, reason: error.message });
+      return [];
+    }
+  }
+  if (!(await exists(readableDir))) return [];
+  const entries = (await readdir(readableDir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
   const items: SkillItem[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const skillPath = join(dir, entry.name, "SKILL.md");
     if (await exists(skillPath)) {
       // Direct skill: <dir>/<name>/SKILL.md
-      const item = await parseSkillEntry(skillPath, entry.name, scope, skipped);
+      const item = await parseSkillEntry(skillPath, entry.name, scope, skipped, workspaceRoot);
       if (item) items.push(item);
     } else {
       // Domain/category folder: <dir>/<domain>/<name>/SKILL.md – scan one level deeper.
@@ -128,16 +143,16 @@ async function listSkillsInDir(dir: string, scope: "project" | "global", skipped
       const domainDir = join(dir, entry.name);
       let subEntries: Dirent[];
       try {
-        subEntries = await readdir(domainDir, { withFileTypes: true });
+        subEntries = await readdir(workspaceRoot ? await resolveWorkspaceFilePath(workspaceRoot, domainDir) : domainDir, { withFileTypes: true });
       } catch (error) {
         console.warn("[skills] Could not read skill folder:", domainDir, error);
         continue;
       }
-      for (const subEntry of subEntries) {
+      for (const subEntry of subEntries.sort((a, b) => a.name.localeCompare(b.name))) {
         if (!subEntry.isDirectory()) continue;
         const subSkillPath = join(domainDir, subEntry.name, "SKILL.md");
         if (!(await exists(subSkillPath))) continue;
-        const item = await parseSkillEntry(subSkillPath, subEntry.name, scope, skipped);
+        const item = await parseSkillEntry(subSkillPath, subEntry.name, scope, skipped, workspaceRoot);
         if (item) items.push(item);
       }
     }
@@ -147,12 +162,14 @@ async function listSkillsInDir(dir: string, scope: "project" | "global", skipped
 
 export async function listSkills(workspaceRoot: string, includeGlobal: boolean, skipped?: SkippedSkill[]): Promise<SkillItem[]> {
   const roots = await findWorkspaceRoots(workspaceRoot);
-  const items: SkillItem[] = [];
+  // Visible workspace packages travel with a wiki and remain editable in its tree.
+  // Only scan this workspace, never another wiki or a parent's visible content.
+  const items = await listSkillsInDir(join(workspaceRoot, "Skills"), "project", skipped, workspaceRoot);
   for (const root of roots) {
     const opencodeDir = join(root, ".opencode", "skills");
     const claudeDir = join(root, ".claude", "skills");
-    items.push(...(await listSkillsInDir(opencodeDir, "project", skipped)));
-    items.push(...(await listSkillsInDir(claudeDir, "project", skipped)));
+    items.push(...(await listSkillsInDir(opencodeDir, "project", skipped, root)));
+    items.push(...(await listSkillsInDir(claudeDir, "project", skipped, root)));
   }
 
   if (includeGlobal) {
@@ -197,12 +214,20 @@ export function skillsDirForScope(workspaceRoot: string, scope: SkillScope): str
   return scope === "global" ? globalSkillsDir() : projectSkillsDir(workspaceRoot);
 }
 
+export async function skillPathForScope(workspaceRoot: string, scope: SkillScope, name: string): Promise<string> {
+  validateSkillName(name);
+  const visible = join(workspaceRoot, "Skills", name, "SKILL.md");
+  if (scope === "project" && await exists(visible)) return visible;
+  return join(skillsDirForScope(workspaceRoot, scope), name, "SKILL.md");
+}
+
 export type UpsertSkillPayload = {
   name: string;
   content: string;
   description?: string;
   /** Defaults to "project" so existing callers keep writing into the workspace. */
   scope?: SkillScope;
+  lesson?: unknown;
 };
 
 export function buildSkillContent(payload: UpsertSkillPayload): { name: string; content: string } {
@@ -244,26 +269,37 @@ export async function upsertSkill(
   workspaceRoot: string,
   payload: UpsertSkillPayload,
 ): Promise<{ path: string; action: "added" | "updated"; scope: SkillScope }> {
+  const lesson = payload.lesson === undefined ? null : SkillLessonInputSchema.parse(payload.lesson);
+  const dependency = lesson ? await composedSkill(workspaceRoot, lesson.base, false) : null;
+  if (dependency?.chain.some(item => item.name === payload.name)) throw new ApiError(422, "skill_cycle", "A skill cannot extend itself or its descendants.");
   const skill = buildSkillContent(payload);
   const scope: SkillScope = payload.scope === "global" ? "global" : "project";
 
-  const baseDir = skillsDirForScope(workspaceRoot, scope);
-  const skillDir = join(baseDir, skill.name);
+  const requestedPath = await skillPathForScope(workspaceRoot, scope, skill.name);
+  // LAWOSS: projektový skill sa zapisuje len cez kanonickú hranicu workspace (#142).
+  const skillDir = scope === "project" ? await resolveWorkspaceFilePath(workspaceRoot, dirname(requestedPath)) : dirname(requestedPath);
   await mkdir(skillDir, { recursive: true });
-  const skillPath = join(skillDir, "SKILL.md");
+  const skillPath = scope === "project" ? await resolveWorkspaceFilePath(workspaceRoot, join(skillDir, "SKILL.md")) : requestedPath;
   const existed = await exists(skillPath);
+  if (lesson && existed) throw new ApiError(409, "skill_exists", "Choose a new name for this correction to preserve the existing skill.");
+  if (lesson && dependency) {
+    const base = dependency.chain.find(item => item.name === lesson.base)!;
+    const pinned = { ...lesson, baseHash: base.hash, createdAt: new Date().toISOString() };
+    skill.content += `\n## Extends ${lesson.base}\n\nBefore using this skill, call legalwork_skill_load with name=${lesson.base}. It resolves the base and applicable extensions and checks pinned versions. If the dependency changed, stop and review the correction.\n\n### Applies when\n${lesson.appliesWhen}\n\n### Expert correction\n${lesson.correction}\n\n### Regression examples\n${lesson.examples.map(example => `- Input: ${example.input}\n  Expected: ${example.expected}`).join("\n")}\n`;
+    await writeFile(join(skillDir, "legalwork-extension.json"), JSON.stringify(pinned, null, 2) + "\n", { flag: "wx" });
+  }
   await writeFile(skillPath, skill.content, "utf8");
-  return { path: skillPath, action: existed ? "updated" : "added", scope };
+  return { path: requestedPath, action: existed ? "updated" : "added", scope };
 }
 
 export async function deleteSkill(workspaceRoot: string, name: string): Promise<{ path: string }> {
   const trimmed = name.trim();
   validateSkillName(trimmed);
-  const baseDir = projectSkillsDir(workspaceRoot);
-  const flatDir = join(baseDir, trimmed);
-  if (await exists(join(flatDir, "SKILL.md"))) {
+  const requested = dirname(await skillPathForScope(workspaceRoot, "project", trimmed));
+  const flatDir = await resolveWorkspaceFilePath(workspaceRoot, requested, { preserveLeaf: true });
+  if (await exists(await resolveWorkspaceFilePath(workspaceRoot, join(flatDir, "SKILL.md")))) {
     await rm(flatDir, { recursive: true, force: true });
-    return { path: flatDir };
+    return { path: requested };
   }
   // Nested layout: skills/<domain>/<name>/SKILL.md (e.g. skills installed by
   // marketplace plugin bundles are namespaced under a plugin folder). Listing
@@ -273,7 +309,7 @@ export async function deleteSkill(workspaceRoot: string, name: string): Promise<
   if (!item) {
     throw new ApiError(404, "skill_not_found", `Skill not found: ${trimmed}`);
   }
-  const skillDir = dirname(item.path);
+  const skillDir = await resolveWorkspaceFilePath(workspaceRoot, dirname(item.path), { preserveLeaf: true });
   await rm(skillDir, { recursive: true, force: true });
-  return { path: skillDir };
+  return { path: dirname(item.path) };
 }

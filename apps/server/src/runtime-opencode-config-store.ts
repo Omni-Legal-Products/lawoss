@@ -1,10 +1,16 @@
 import { initializeSqlite } from "./runtime-db.js";
-import { runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
+import { drainRuntimeDb, runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { dirname } from "node:path";
+import { sandboxSettingsSchema, sandboxSyncSchema, type SandboxSettings } from "./agent-sandbox/settings-schema.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
+import { connectorConfigVariables } from "./connector-config.js";
 
 export type RuntimeOpencodeConfig = {
+  sandbox?: SandboxSettings;
+  sandboxEdit?: string;
+  sandboxSync?: { account: string; revision: number; dirty: boolean };
+  sandboxNetworkMode?: "allow" | "block" | "approve";
   default_agent?: string;
   plugin?: string[];
   disabled_providers?: string[];
@@ -34,19 +40,16 @@ export type Personality = (typeof PERSONALITY_VALUES)[number];
 
 export type PersonalizationSettings = {
   customInstructions: string;
-  localMemoriesEnabled: boolean;
-  allowToolAssistedMemory: boolean;
   personality: Personality;
 };
 
 export const DEFAULT_PERSONALIZATION_SETTINGS: PersonalizationSettings = {
   customInstructions: "",
-  localMemoriesEnabled: false,
-  allowToolAssistedMemory: true,
   personality: "pragmatic",
 };
 
 export const MAX_CUSTOM_INSTRUCTIONS_LENGTH = 12_000;
+
 
 type RuntimeOpencodeDb = {
   close: () => void;
@@ -62,6 +65,7 @@ export function isPersonality(value: unknown): value is Personality {
   return typeof value === "string" && PERSONALITY_VALUES.some((item) => item === value);
 }
 
+/** Settings saved while local memories existed also carry localMemoriesEnabled and allowToolAssistedMemory; they are dropped here. */
 export function normalizePersonalizationSettings(value: unknown): PersonalizationSettings {
   if (!isRecord(value)) return { ...DEFAULT_PERSONALIZATION_SETTINGS };
   return {
@@ -69,14 +73,6 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
       typeof value.customInstructions === "string"
         ? value.customInstructions.slice(0, MAX_CUSTOM_INSTRUCTIONS_LENGTH)
         : DEFAULT_PERSONALIZATION_SETTINGS.customInstructions,
-    localMemoriesEnabled:
-      typeof value.localMemoriesEnabled === "boolean"
-        ? value.localMemoriesEnabled
-        : DEFAULT_PERSONALIZATION_SETTINGS.localMemoriesEnabled,
-    allowToolAssistedMemory:
-      typeof value.allowToolAssistedMemory === "boolean"
-        ? value.allowToolAssistedMemory
-        : DEFAULT_PERSONALIZATION_SETTINGS.allowToolAssistedMemory,
     personality: isPersonality(value.personality)
       ? value.personality
       : DEFAULT_PERSONALIZATION_SETTINGS.personality,
@@ -109,6 +105,11 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ? normalizePersonalizationSettings(value.personalization)
     : undefined;
   return {
+    ...(typeof value.sandboxEdit === "string" ? { sandboxEdit: value.sandboxEdit } : {}),
+    ...(value.sandbox !== undefined ? { sandbox: sandboxSettingsSchema.parse(value.sandbox) } : {}),
+    ...(value.sandboxSync !== undefined ? { sandboxSync: sandboxSyncSchema.parse(value.sandboxSync) } : {}),
+    ...(value.sandboxNetworkMode !== undefined ? { sandboxNetworkMode:
+      value.sandboxNetworkMode === "allow" || value.sandboxNetworkMode === "approve" ? value.sandboxNetworkMode : "block" } : {}),
     ...(defaultAgent ? { default_agent: defaultAgent } : {}),
     ...(plugin ? { plugin } : {}),
     ...(disabledProviders ? { disabled_providers: disabledProviders } : {}),
@@ -162,6 +163,11 @@ async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
 }
 
 const resourceKey = Symbol("runtime-opencode-config-store");
+
+/** Release a stopped server's config connection before removing its storage. */
+export async function closeRuntimeOpencodeConfig(config: ServerConfig, path = runtimeDbPath(config)): Promise<void> {
+  await drainRuntimeDb(config, path);
+}
 
 async function runtimeDb(config: ServerConfig): Promise<RuntimeOpencodeDb> {
   return runtimeDbResource(config, resourceKey, openRuntimeDb);
@@ -253,7 +259,9 @@ export function runtimeDisabledProviderList(config: RuntimeOpencodeConfig): stri
 }
 
 export function runtimeMcpMap(config: RuntimeOpencodeConfig): Record<string, Record<string, unknown>> {
-  return isRecord(config.mcp) ? config.mcp as Record<string, Record<string, unknown>> : {};
+  return Object.fromEntries(Object.entries(recordRecordMap(config.mcp) ?? {}).map(([name, entry]): [string, Record<string, unknown>] => [name,
+    connectorConfigVariables(entry).length || entry.url === "https://configure-before-connecting.invalid/mcp" ? { ...entry, enabled: false } : entry,
+  ]));
 }
 
 export function runtimeAgentMap(config: RuntimeOpencodeConfig): Record<string, Record<string, unknown>> {
@@ -287,9 +295,14 @@ export async function writeRuntimeOpencodeConfig(
 ): Promise<RuntimeOpencodeConfig> {
   return withRuntimeDb(config, async () => {
   const db = await runtimeDb(config);
-  const next = normalizeRuntimeOpencodeConfig(updater(await readRuntimeOpencodeConfig(config, workspaceId)));
-  const now = Date.now();
+  const current = await readRuntimeOpencodeConfig(config, workspaceId);
+  // Snapshot before the updater, which may mutate current in place. Keep key
+  // order: ordered permission rules can change meaning when reordered.
+  const previous = JSON.stringify(current);
+  const next = normalizeRuntimeOpencodeConfig(updater(current));
   const configJson = JSON.stringify(next);
+  if (configJson === previous) return next;
+  const now = Date.now();
   db.upsert({ workspaceId, configJson, updatedAt: now });
   for (const listener of writeListeners) listener(config, workspaceId);
   return next;

@@ -1,4 +1,4 @@
-import { resolveHostMemoryContext } from "./host-memory-grants.mjs";
+import { nativeAgentHeaders, resolveHostMemoryContext } from "./host-memory-grants.mjs";
 import { createHandoff } from "./checkpoint.mjs";
 
 /** Native lifecycle hooks; native mode refreshes authenticated host permissions. */
@@ -7,7 +7,8 @@ export async function LawossOkfHandoff(input, { mode = "standalone" } = {}) {
   if (mode !== "native" && !handoff) return {};
   const checkpoint = async (sessionId, trigger) => {
     try { if (mode === "native") {
-      const context = await resolveHostMemoryContext({ directory: input.directory, serverUrl: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN });
+      const headers = await nativeAgentHeaders(input.directory, sessionId);
+      const context = await resolveHostMemoryContext({ directory: input.directory, serverUrl: process.env.LEGALWORK_SERVER_URL, headers });
       handoff = createHandoff(input.directory, { ...context, resolveAllowedRoots: () => context.allowedRoots });
       if (!handoff) throw new Error("Host memory profile is unavailable");
     }
@@ -34,9 +35,12 @@ export async function LawossOkfHandoff(input, { mode = "standalone" } = {}) {
     async "experimental.chat.system.transform"({ sessionID }, output) {
       if (!sessionID) return;
       const result = await checkpoint(sessionID, "before-turn");
+      // Systémový text sa mení len pri zmene stavu (úspech, zlyhanie), nie s textom chyby,
+      // aby poskytovateľ nezahadzoval cache promptu (upstream #220/#249/#259). Cesta checkpointu
+      // je pre reláciu stála; podrobnosti chyby idú do logu a stavového súboru.
       output.system.push(result.ok
         ? `This workspace uses persisted matter memory at ${handoff.root}. A derived checkpoint is available at ${result.path}. Read current persisted memory with /okf-pamat before substantive work; the checkpoint does not include facts that were never recorded. Record work through the normal approval and revision gates before the final answer.`
-        : `Memory handoff FAILED: ${result.error}. The previous checkpoint is not current. Read the matter directly; do not treat incomplete context as empty or verified.`);
+        : "Memory handoff FAILED for this session. The previous checkpoint is not current. Read the matter directly; do not treat incomplete context as empty or verified.");
     },
   };
 }

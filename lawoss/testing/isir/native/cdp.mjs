@@ -38,6 +38,9 @@ export async function connectRenderer(url, request = fetch) {
   });
   await send("Runtime.enable");
   await send("Network.enable");
+  // Only this fixture-owned page: background CI windows must still exercise
+  // the production foreground-only query polling, including after reload.
+  await send("Emulation.setFocusEmulationEnabled", { enabled: true });
   return {
     send, events,
     async evaluate(expression) {

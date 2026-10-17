@@ -6,18 +6,23 @@ import { matchesSearch, searchExcerpt, type ContentSearchResponse, type ContentS
 import { openSqliteReadonly, MANAGED_ENGINE_DB_FILENAME } from "./managed-opencode-db.js";
 import { resolveOpencodeDbPath } from "./opencode-db.js";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
-import type { ServerConfig, WorkspaceInfo } from "./types.js";
+import type { ServerConfig, TokenScope, WorkspaceInfo } from "./types.js";
 import { CORPUS_EXTENSIONS, extractCorpusText, type CorpusText } from "./corpus/extract.js";
 import { documentMatches } from "./corpus/passages.js";
 import type { DocumentPreparation } from "./document-preparation/service.js";
 import { within } from "./reviews/storage.js";
+import { viewerProtectedPaths } from "./lawoss/filesystem-boundary.js";
 
 const RESULT_LIMIT = 60;
 
+export function localSessionDatabasePath(config: ServerConfig) {
+  const managedPath = join(runtimeStorageDir(config), MANAGED_ENGINE_DB_FILENAME);
+  return !process.env.OPENCODE_DB?.trim() && process.env.LEGALWORK_DEV_MODE !== "1" && existsSync(managedPath) ? managedPath : resolveOpencodeDbPath();
+}
+
 /** Read the engine's own local transcripts, including messages older than the UI's history window. */
 export async function searchSessionContents(config: ServerConfig, workspace: WorkspaceInfo, query: string, signal: AbortSignal): Promise<ContentSearchResponse> {
-  const managedPath = join(runtimeStorageDir(config), MANAGED_ENGINE_DB_FILENAME);
-  const dbPath = !process.env.OPENCODE_DB?.trim() && process.env.LEGALWORK_DEV_MODE !== "1" && existsSync(managedPath) ? managedPath : resolveOpencodeDbPath();
+  const dbPath = localSessionDatabasePath(config);
   if (!existsSync(dbPath)) throw new Error("The local session database is unavailable.");
   const db = await openSqliteReadonly(dbPath);
   try {
@@ -89,8 +94,10 @@ function documentEntry(preparation: DocumentPreparation, root: string, path: str
   return entry;
 }
 
-export async function searchFileContents(workspace: WorkspaceInfo, query: string, signal: AbortSignal, preparation: DocumentPreparation, retry = false): Promise<ContentSearchResponse> {
+export async function searchFileContents(workspace: WorkspaceInfo, query: string, signal: AbortSignal, preparation: DocumentPreparation, scope: TokenScope, retry = false): Promise<ContentSearchResponse> {
   const root = await realpath(workspace.path);
+  // 🟡 LAWOSS: viewer nesmie nájsť chránenú konfiguráciu ani jej aliasy, ani podľa názvu, ani úryvkom.
+  const isProtected = scope === "viewer" ? await viewerProtectedPaths(root) : () => false;
   const items: ContentSearchResult[] = [], issues: Array<{ path: string; reason: string }> = [];
   let visited = 0, skipped = 0, incomplete = 0, preparing = 0, limited = false;
   const deadline = Date.now() + 2500;
@@ -113,6 +120,8 @@ export async function searchFileContents(workspace: WorkspaceInfo, query: string
       try {
         const canonicalPath = await realpath(path);
         if (!within(root, canonicalPath)) continue;
+        // Before the preparation cache, which all roles share.
+        if (isProtected(canonicalPath, relativePath)) continue;
         const info = await stat(canonicalPath);
         const nameMatch = matchesSearch(relativePath, query);
         let source: CorpusText | undefined;

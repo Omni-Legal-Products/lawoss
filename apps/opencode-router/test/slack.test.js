@@ -211,7 +211,7 @@ test("createSlackAdapter downloads inbound files into media store", async () => 
   }
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "opencode-router-slack-media-"));
-  const mediaStore = new MediaStore(path.join(tempDir, "media"));
+  const mediaStore = new MediaStore(path.join(tempDir, "media"), tempDir);
   await mediaStore.ensureReady();
 
   const originalFetch = globalThis.fetch;

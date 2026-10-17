@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { measureRun, resetCanvasContext } from "@eigenpal/docx-editor-core/layout-bridge/measuring";
+import { measureParagraph, measureRun, resetCanvasContext } from "@eigenpal/docx-editor-core/layout-bridge/measuring";
+import { schema } from "@eigenpal/docx-editor-core/prosemirror/schema";
+import { toFlowBlocks } from "@eigenpal/docx-editor-core/layout-bridge";
+import { sliceRunsForLine } from "@eigenpal/docx-editor-core/layout-painter";
 
 function rawWidth(character: string) {
   return character.charCodeAt(0) % 19 + 1;
@@ -45,6 +48,21 @@ function createCanvas() {
 }
 
 const style = { fontFamily: "Calibri", fontSize: 12 };
+
+test("long native reference results wrap while all fragments retain the field's atomic positions", () => {
+  withCanvas(() => {
+    const result = "§ 2 Schlussbestimmungen: Änderungen und Ergänzungen können direkt im Editor vorgenommen werden. ".repeat(3);
+    const doc = schema.node("doc", null, [schema.node("paragraph", null, [schema.text("See "), schema.node("field", { fieldType: "REF", instruction: "REF Clause2 \\h", displayText: result }), schema.text(" after")])]);
+    const block = toFlowBlocks(doc)[0]; assert.equal(block.kind, "paragraph");
+    if (block.kind !== "paragraph") throw new Error("Expected paragraph");
+    const measure = measureParagraph(block, 260);
+    assert.ok(measure.lines.length > 3); assert.ok(measure.lines.every(line => line.width <= 261));
+    const pieces = measure.lines.flatMap(line => sliceRunsForLine(block, line)).filter(run => run.pmStart === 5);
+    assert.ok(pieces.length > 3); assert.ok(pieces.every(run => run.pmEnd === 6));
+    assert.equal(pieces.map(run => run.kind === "text" ? run.text : "").join(""), result);
+    assert.equal(doc.nodeAt(5)?.type.name, "field");
+  });
+});
 
 test("repeated characters reuse exact widths across typing transactions", () => {
   withCanvas(({ calls }) => {

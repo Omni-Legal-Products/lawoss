@@ -128,7 +128,7 @@ test("createTelegramAdapter downloads inbound media to store", async () => {
   const logger = createLoggerStub();
   const inbound = [];
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "opencode-router-tg-inbound-"));
-  const mediaStore = new MediaStore(path.join(tempDir, "media"));
+  const mediaStore = new MediaStore(path.join(tempDir, "media"), tempDir);
   await mediaStore.ensureReady();
 
   const originalFetch = globalThis.fetch;

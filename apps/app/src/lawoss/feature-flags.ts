@@ -21,9 +21,54 @@ export const HIDDEN_SIDEBAR_ITEMS: ReadonlySet<string> = new Set<string>([
   "navRecorder",
 ]);
 
+/**
+ * Spec 0017 (časť 8.1, S3): plochy LegalWork v0.2.9, ktoré alfa neprevzala. Wiki, kalendár
+ * (hlavný aj projektu, s widgetom lehôt na domove projektu), plánované úlohy a uložené pohľady
+ * (Dashboards) sa skryjú pri vykreslení v Pro aj Lite a ich trasy presmerujú na úvodnú stránku
+ * režimu. Kód upstreamu ostáva, nástroje agenta blokuje server (`apps/server/src/lawoss/hidden-upstream-tools.ts`).
+ * Návrat: `false`.
+ */
+export const ALPHA_HIDE_UNADOPTED_UPSTREAM = true;
+
+/** Položky hlavnej lišty a navigácie projektu z neprevzatých plôch. */
+const UNADOPTED_UPSTREAM_SIDEBAR_ITEMS: ReadonlySet<string> = new Set<string>([
+  "navWikis",
+  "navCalendar",
+  "navScheduled",
+  "projectCalendar",
+]);
+
+/** Pohľady projektu v bočnom paneli („+“) a na stránke projektu. */
+const UNADOPTED_UPSTREAM_PROJECT_VIEWS: ReadonlySet<string> = new Set<string>(["calendar", "dashboards"]);
+
+/** Trasy neprevzatých plôch; platí pre adresu aj pre vzor trasy z `app-root.tsx`. */
+const UNADOPTED_UPSTREAM_ROUTES: readonly RegExp[] = [
+  /^\/wikis(?:\/|$)/,
+  /^\/calendar$/,
+  /^\/scheduled$/,
+  /^\/workspace\/[^/]+\/(?:calendar|dashboards)$/,
+];
+
+/** Je navigačná položka (hlavná lišta, sekcia chatu, položka projektu) skrytá? */
+export const isSidebarItemHidden = (item: string): boolean =>
+  HIDDEN_SIDEBAR_ITEMS.has(item) ||
+  (ALPHA_HIDE_UNADOPTED_UPSTREAM && UNADOPTED_UPSTREAM_SIDEBAR_ITEMS.has(item)) ||
+  (item === "sectionSharedProjects" && isCommercialSurfaceHidden("shared-projects"));
+
 /** Odstráni skryté navigačné položky a poradie zvyšku zachová. */
 export const hideCommercialSidebarItems = <T extends string>(items: T[]): T[] =>
-  items.filter((item) => !HIDDEN_SIDEBAR_ITEMS.has(item));
+  items.filter((item) => !isSidebarItemHidden(item));
+
+/** Pohľad projektu (`calendar`, `dashboards`) sa neponúka. */
+export const isProjectViewHidden = (view: string): boolean =>
+  ALPHA_HIDE_UNADOPTED_UPSTREAM && UNADOPTED_UPSTREAM_PROJECT_VIEWS.has(view);
+
+/** Wiki (stránka a graf v ponuke „+“ bočného panela) sa neponúka. */
+export const isWikiHidden = (): boolean => ALPHA_HIDE_UNADOPTED_UPSTREAM;
+
+/** Trasa neprevzatej plochy presmeruje na úvodnú stránku režimu. */
+export const isUpstreamRouteHidden = (path: string): boolean =>
+  ALPHA_HIDE_UNADOPTED_UPSTREAM && UNADOPTED_UPSTREAM_ROUTES.some((route) => route.test(path));
 
 /** Odstráni skryté záložky a poradie zvyšku zachová. */
 export const hideCommercialTabs = <T extends string>(tabs: T[]): T[] =>
@@ -68,6 +113,8 @@ export const isLegalQuantsHidden = (): boolean => !isLegalworkSourceEnabled();
  * výzvy na skúšobnú verziu / prihlásenie do platformy dodávateľa (lišta nad
  * composerom, migračný dialóg zrušenej bezplatnej vrstvy, posledný krok
  * onboardingu). Pripojenie vlastného modelu (Anthropic, OpenRouter, …) ostáva.
+ * Spec 0017 (S5) natrvalo: `wiki-team` je zdieľanie a pripojenie tímovej wiki, `shared-projects`
+ * sekcia Zdieľané projekty a `calendar-subscription` odber kalendára (odkaz vydáva Eigenwelt).
  */
 type CommercialSurface =
   | "ai-plans"
@@ -76,7 +123,10 @@ type CommercialSurface =
   | "premium-upsell"
   | "eigenwelt-account"
   | "eigenwelt-sign-in"
-  | "eigenwelt-trial";
+  | "eigenwelt-trial"
+  | "wiki-team"
+  | "shared-projects"
+  | "calendar-subscription";
 
 const HIDDEN_COMMERCIAL_SURFACES: ReadonlySet<CommercialSurface> = new Set<CommercialSurface>([
   "ai-plans",
@@ -85,11 +135,22 @@ const HIDDEN_COMMERCIAL_SURFACES: ReadonlySet<CommercialSurface> = new Set<Comme
   "premium-upsell",
   "eigenwelt-account",
   "eigenwelt-sign-in",
+  "wiki-team",
+  "shared-projects",
+  "calendar-subscription",
   "eigenwelt-trial",
 ]);
 
 export const isCommercialSurfaceHidden = (surface: CommercialSurface): boolean =>
   HIDDEN_COMMERCIAL_SURFACES.has(surface);
+
+/**
+ * Prihlásenie predplatným ChatGPT (OpenAI OAuth) je v LAWOSS vždy dostupné.
+ * Upstream #211 ho ponúka len pri pripojenom účte Eigenwelt s `org_management`,
+ * čo by pri skrytom účte Eigenwelt zrušilo každú OpenAI OAuth metódu.
+ */
+export const allowChatGptSubscription = (upstreamAllowed: boolean): boolean =>
+  isCommercialSurfaceHidden("eigenwelt-account") || upstreamAllowed;
 
 /**
  * Analytika je natrvalo vypnutá (MČ 5. 10. 2026). `app/lib/analytics.ts` nemá

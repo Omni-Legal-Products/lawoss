@@ -41,6 +41,9 @@ export function getStoredAnalyticsConsent(): boolean | null {
 // bootstrap, refreshed by polling — see word-addin/index.tsx). LAWOSS: ignored.
 export function setAnalyticsConsentOverride(_enabled: boolean): void {}
 
+// Upstream: politika firmy môže zdieľanie vypnúť. LAWOSS: nič sa neposiela, prázdna funkcia.
+export function setFirmAnalyticsRefused(_refused: boolean): void {}
+
 /** LAWOSS: vždy `false`, nech je uložená voľba alebo prepis z panela akýkoľvek. */
 export function isAnalyticsEnabled(): boolean {
   return false;

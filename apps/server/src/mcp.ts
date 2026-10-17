@@ -1,3 +1,5 @@
+import { resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
+import { exists } from "./utils.js";
 import { minimatch } from "minimatch";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -61,6 +63,11 @@ export async function runtimeMcpMapForWorkspace(
   return { ...rows.global, ...rows.workspace };
 }
 
+export async function existingMcpScope(config: ServerConfig, workspaceId: string, name: string): Promise<McpScope | null> {
+  const rows = await readMcpRows(config, workspaceId);
+  return hasOwn(rows.workspace, name) ? "workspace" : hasOwn(rows.global, name) ? "global" : null;
+}
+
 function getMcpConfig(config: Record<string, unknown>): Record<string, Record<string, unknown>> {
   const mcp = config.mcp;
   if (!mcp || typeof mcp !== "object") return {};
@@ -83,7 +90,7 @@ function isMcpDisabledByTools(config: Record<string, unknown>, name: string): bo
 }
 
 export async function listMcp(serverConfig: ServerConfig, workspaceId: string, workspaceRoot: string): Promise<McpItem[]> {
-  const { data: config } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>, { allowInvalid: true });
+  const { data: config } = await readJsoncFile(await resolveWorkspaceFilePath(workspaceRoot, opencodeConfigPath(workspaceRoot)), {} as Record<string, unknown>, { allowInvalid: true });
   const { data: globalConfig } = await readJsoncFile(globalOpenCodeConfigPath(), {} as Record<string, unknown>, { allowInvalid: true });
 
   const projectMcpMap = getMcpConfig(config);
@@ -158,7 +165,7 @@ export async function addMcp(
   }));
   // A workspace copy of the same name would shadow the shared entry in this
   // workspace's engine config.
-  if (scope === "global" && hasOwn(rows.workspace, name)) {
+  if (scope === "global" && workspaceId !== GLOBAL_MCP_ID && hasOwn(rows.workspace, name)) {
     await writeRuntimeOpencodeConfig(serverConfig, workspaceId, withoutMcp(name));
   }
   return { action: existed ? "updated" : "added" };
@@ -176,9 +183,9 @@ export async function removeMcp(serverConfig: ServerConfig, workspaceId: string,
   // OpenCode can merge several config files. Remove every copy of this entry,
   // including a lower-priority file that would become visible after removal.
   for (const workspace of serverConfig.workspaces) {
-    if (workspace.workspaceType === "remote") continue;
+    if (workspace.workspaceType === "remote" || !(await exists(workspace.path))) continue;
     for (const path of opencodeConfigPaths(workspace.path)) {
-      files.push(path);
+      files.push(await resolveWorkspaceFilePath(workspace.path, path));
     }
   }
   for (const filename of ["opencode.json", "opencode.jsonc"]) {

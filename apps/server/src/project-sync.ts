@@ -1,4 +1,6 @@
 import { runtimeDbPath, runtimeDbScopeActive, withRuntimeDb } from "./runtime-db-lifecycle.js";
+import { syncProjectCalendar } from "./calendar/sync.js";
+import { calendarStore } from "./calendar/store.js";
 import { updateProjectRemote } from "./project-store.js";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
@@ -27,6 +29,7 @@ import {
   type RemoteProject,
 } from "./eigenwelt-projects.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
+import { syncCalendarSubscriptions } from "./calendar/subscriptions.js";
 import { ApiError } from "./errors.js";
 import type { StorageAdapter } from "./file-storage/common.js";
 import { fileKey, hashFile, moveToSyncTrash, syncExcluded, syncProjectFiles } from "./project-file-sync.js";
@@ -37,6 +40,7 @@ import {
   readProjectDetails,
   setProjectSyncId,
   updateProjectDetails,
+  updateProjectPersonalization,
 } from "./project-store.js";
 import {
   projectSyncStore,
@@ -94,6 +98,7 @@ const REAL_PLATFORM: ProjectSyncPlatform = {
 };
 
 export const DEFAULT_PROJECT_SCOPE: ProjectSyncScope = {
+  calendar: true,
   documents: true,
   notes: true,
   tasks: true,
@@ -182,7 +187,8 @@ function roundStopper(error: unknown): boolean {
  * folder. A document also goes with the reviews when they are shared and one
  * of them reviews it (`reviewed`: file keys, see reviewDocumentKeys).
  */
-export function scopeIncludes(scope: ProjectSyncScope, path: string, reviewed?: Set<string>): boolean {
+export function scopeIncludes(scope: ProjectSyncScope, path: string, reviewed?: Set<string>, attached?: Set<string>): boolean {
+  if (scope.calendar !== false && attached?.has(fileKey(path))) return true;
   const top = path.split("/")[0].toLowerCase();
   if (top === "notes") return scope.notes;
   if (top === "recordings") return scope.recordings;
@@ -292,8 +298,9 @@ async function pushOne(
         id: link.projectId,
         name: nameOf(workspace),
         fields: link.settings.scope.metadata ? details.fields : [],
+        ...(link.settings.scope.metadata ? { personalizationPrompt: details.personalizationPrompt ?? "" } : {}),
         ...(details.remote ? { remote: details.remote } : {}),
-        scope: link.settings.scope,
+        scope: { ...link.settings.scope, calendar: link.settings.scope.calendar !== false },
         access: link.settings.access,
         memberIds: link.settings.memberIds,
       });
@@ -302,6 +309,9 @@ async function pushOne(
         if (!repaired.project?.remote) throw new ApiError(503, "project_remote_upgrade_required", "The team service needs an update before folder mappings can sync.");
       }
       if (details.remote && remote.remote === undefined) throw new ApiError(503, "project_remote_upgrade_required", "The team service needs an update before folder mappings can sync.");
+      if (link.settings.scope.metadata && details.personalizationPrompt && remote.personalizationPrompt == null) {
+        await pushPersonalization(platform, client, link.projectId, details.personalizationPrompt);
+      }
       store.updateLink(link.workspaceId, {
         confirmed: true,
         ownerUserId: remote.ownerUserId,
@@ -319,6 +329,9 @@ async function pushOne(
     case "rename":
       await platform.patchProject(client, projectId, { name: op.name, changedAt: op.changedAt });
       return;
+    case "personalization":
+      if (link.settings.scope.metadata) await pushPersonalization(platform, client, projectId, op.prompt, op.changedAt);
+      return;
     case "fields":
       await platform.patchProject(client, projectId, {
         fieldChanges: op.changes,
@@ -333,6 +346,13 @@ async function pushOne(
         scope: op.settings.scope,
       });
       return;
+  }
+}
+
+async function pushPersonalization(platform: ProjectSyncPlatform, client: IntakeClient, projectId: string, prompt: string, changedAt?: string): Promise<void> {
+  const result = await platform.patchProject(client, projectId, { personalizationPrompt: prompt, changedAt });
+  if (result.project && (result.project.personalizationPrompt === undefined || (result.project.scope.metadata && result.project.personalizationPrompt === null))) {
+    throw new ApiError(503, "project_personalization_upgrade_required", "The team service needs an update before project instructions can sync.");
   }
 }
 
@@ -363,7 +383,7 @@ async function unregisteredCopy(config: ServerConfig, root: string, projectId: s
 }
 
 /** Take the firm's details, keeping each one with a change here still on its way up. */
-async function applyRemoteFields(store: ProjectSyncStore, link: ProjectLink, workspace: WorkspaceInfo, remote: RemoteProject): Promise<void> {
+async function applyRemoteDetails(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink, workspace: WorkspaceInfo, remote: RemoteProject): Promise<void> {
   const pending = store.pendingOps(link.projectId);
   const dirty = new Set(pending.flatMap((op) => (op.kind === "fields" ? op.changes.map((change) => change.id) : [])));
   const orderDirty = pending.some((op) => op.kind === "fields" && op.order !== null);
@@ -383,8 +403,15 @@ async function applyRemoteFields(store: ProjectSyncStore, link: ProjectLink, wor
         return indexOf(a.id) - indexOf(b.id);
       })
     : merged;
-  if (JSON.stringify(ordered) === JSON.stringify(current.fields)) return;
-  await updateProjectDetails(workspace.path, { revision: current.revision, fields: ordered });
+  const updated = JSON.stringify(ordered) === JSON.stringify(current.fields) ? current
+    : await updateProjectDetails(workspace.path, { revision: current.revision, fields: ordered });
+  if (pending.some((op) => op.kind === "personalization")) return;
+  if (remote.personalizationPrompt === null && updated.personalizationPrompt) {
+    // Existing shared projects gain instructions without erasing a saved local prompt.
+    await noteProjectPersonalizationSaved(config, workspace.id, "", updated.personalizationPrompt);
+  } else if (typeof remote.personalizationPrompt === "string" && remote.personalizationPrompt !== (updated.personalizationPrompt ?? "")) {
+    await updateProjectPersonalization(workspace.path, { revision: updated.revision, customInstructions: remote.personalizationPrompt });
+  }
 }
 
 /**
@@ -444,7 +471,7 @@ async function arrive(config: ServerConfig, store: ProjectSyncStore, orgId: stri
     report: null,
   };
   store.saveLink(link);
-  if (remote.scope.metadata) await applyRemoteFields(store, link, workspace, remote);
+  if (remote.scope.metadata) await applyRemoteDetails(config, store, link, workspace, remote);
   if (remote.remote) await updateProjectRemote(workspace.path, remote.remote);
   const tasks = await taskStore(config);
   tasks.linkRemoteProjectTasks(remote.id, workspace.id);
@@ -488,14 +515,15 @@ async function applyRemote(config: ServerConfig, store: ProjectSyncStore, link: 
     if (JSON.stringify(current.remote) !== JSON.stringify(remote.remote)) await updateProjectRemote(workspace.path, remote.remote, current.revision);
   }
   if (settings.scope.metadata && (await folderAvailable(workspace.path))) {
-    await applyRemoteFields(store, { ...link, settings }, workspace, remote);
+    await applyRemoteDetails(config, store, { ...link, settings }, workspace, remote);
   }
 }
 
 /** Files here that differ from what both sides last agreed on, without reading their content. */
-async function localChanges(store: ProjectSyncStore, link: ProjectLink, root: string): Promise<number> {
+async function localChanges(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink, root: string): Promise<number> {
   const base = store.fileBase(link.projectId).entries();
   const reviewed = await reviewedDocuments(link.settings.scope, root);
+  const attached = new Set((await calendarStore(config)).list(link.workspaceId).flatMap(item => item.attachmentPaths.map(fileKey)));
   const seen = new Set<string>();
   let changed = 0;
   const folders = [root];
@@ -507,7 +535,7 @@ async function localChanges(store: ProjectSyncStore, link: ProjectLink, root: st
       if (item.isDirectory()) folders.push(abs);
       if (!item.isFile()) continue;
       const path = abs.slice(root.length + 1).split(sep).join("/").normalize("NFC");
-      if (!scopeIncludes(link.settings.scope, path, reviewed)) continue;
+      if (!scopeIncludes(link.settings.scope, path, reviewed, attached)) continue;
       const key = fileKey(path);
       seen.add(key);
       const info = await stat(abs);
@@ -518,13 +546,14 @@ async function localChanges(store: ProjectSyncStore, link: ProjectLink, root: st
   }
   for (const key of base.keys()) if (!seen.has(key)) changed += 1;
   if (link.settings.scope.reviews) changed += await pendingReviewChanges(root, store.reviewBase(link.projectId));
-  return changed + store.pendingOps(link.projectId).length;
+  return changed + store.pendingOps(link.projectId).length + (await calendarStore(config)).pending(link.workspaceId).length;
 }
 
 /** The project stays here as a local project: nothing about it syncs any more. */
 async function keepAsLocal(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink): Promise<void> {
   const workspace = workspaceOf(config, link.workspaceId);
   (await taskStore(config)).keepProjectTasksLocal(link.workspaceId);
+  (await calendarStore(config)).withdraw(link.workspaceId, true);
   // A member's own folder may be the owner's too (a shared drive): its id is not the member's to clear.
   const ownFolder = link.origin === "local" && link.role !== "owner";
   if (workspace && !ownFolder && (await folderAvailable(workspace.path))) await setProjectSyncId(workspace.path, null);
@@ -544,6 +573,7 @@ async function removeCopy(config: ServerConfig, store: ProjectSyncStore, link: P
     return;
   }
   const workspace = workspaceOf(config, link.workspaceId);
+  (await calendarStore(config)).withdraw(link.workspaceId, false);
   store.discardOutbox(link.projectId);
   store.removeLink(link.workspaceId);
   if (workspace) {
@@ -572,7 +602,7 @@ async function onHidden(config: ServerConfig, store: ProjectSyncStore, link: Pro
     return true;
   }
   const workspace = workspaceOf(config, link.workspaceId);
-  if (workspace && (await folderAvailable(workspace.path)) && (await localChanges(store, link, workspace.path)) > 0) {
+  if (workspace && (await folderAvailable(workspace.path)) && (await localChanges(config, store, link, workspace.path)) > 0) {
     store.updateLink(link.workspaceId, { state: "revoked" });
     workspacesChanged(config);
     return false;
@@ -661,7 +691,7 @@ async function syncDocuments(
   const workspace = workspaceOf(config, link.workspaceId);
   if (!workspace || !(await folderAvailable(workspace.path))) return;
   const scope = link.settings.scope;
-  if (!scope.documents && !scope.notes && !scope.recordings && !scope.reviews) {
+  if (!scope.documents && !scope.notes && !scope.recordings && !scope.reviews && scope.calendar === false) {
     store.updateLink(link.workspaceId, { lastSyncAt: Date.now(), lastError: null, report: null });
     return;
   }
@@ -684,11 +714,12 @@ async function syncDocuments(
         })
       : null;
     const reviewed = await reviewedDocuments(scope, workspace.path);
+    const attached = new Set((await calendarStore(config)).list(link.workspaceId).flatMap(item => item.attachmentPaths.map(fileKey)));
     const files = await syncProjectFiles({
       root: resolve(workspace.path),
       remote,
       base: store.fileBase(link.projectId),
-      includes: (path) => scopeIncludes(scope, path, reviewed),
+      includes: (path) => scopeIncludes(scope, path, reviewed, attached),
       reconcile,
       allowDeletions: link.allowDeletions,
       label,
@@ -740,6 +771,10 @@ export function runProjectSync(
   const key = keyOf(config);
   const inFlight = rounds.get(key);
   if (inFlight) return inFlight;
+  // This round handles the pending changes; its old timer must not start another round later.
+  const pending = pendingRounds.get(key);
+  if (pending) clearTimeout(pending);
+  pendingRounds.delete(key);
   const round = runRound(config, options.platform ?? REAL_PLATFORM).finally(() => {
     if (rounds.get(key) === round) rounds.delete(key);
   });
@@ -770,7 +805,16 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
     };
     for (const link of store.links(orgId)) {
       if (link.state !== "active" || !link.confirmed) continue;
+      if (platform === REAL_PLATFORM) {
+        try { await syncProjectCalendar(config, client, link); }
+        catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; /* An older platform may not have the calendar API yet. Keep the outbox and continue document sync. */ }
+      }
       await syncDocuments(config, platform, client, store, link, runner);
+      if (platform === REAL_PLATFORM) {
+        const pendingCalendar = (await calendarStore(config)).pending(link.workspaceId).length;
+        const report = store.linkByWorkspace(link.workspaceId)?.report;
+        if (pendingCalendar > 0) store.updateLink(link.workspaceId, { report: { pending: (report?.pending ?? 0) + pendingCalendar, skipped: report?.skipped ?? [], heldDeletions: report?.heldDeletions ?? 0 } });
+      }
     }
     roundStates.set(key, { offline: false, error: null, at: Date.now() });
     // Tasks published this round go up with the task sync (which waits for a
@@ -780,6 +824,10 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
   } catch (error) {
     result.error = messageOf(error);
     roundStates.set(key, { offline: unreachable(error), error: result.error, at: Date.now() });
+  }
+  if (platform === REAL_PLATFORM) {
+    try { await syncCalendarSubscriptions(config); }
+    catch (error) { result.error ??= messageOf(error); }
   }
   refreshWatchers(config, store.links(orgId));
   // What the round changed (states, files, conflicts) shows in the app now.
@@ -944,7 +992,7 @@ export async function projectSyncStatus(config: ServerConfig, workspace: Workspa
   // A copy held back no longer syncs, so no round reports on it: count what it is held for.
   const pendingChanges =
     link.state === "revoked" && available
-      ? await localChanges(store, link, workspace.path)
+      ? await localChanges(config, store, link, workspace.path)
       : store.pendingOps(link.projectId).length + (link.report?.pending ?? 0);
   return {
     workspaceId: workspace.id,
@@ -974,9 +1022,11 @@ export async function projectSyncOverview(config: ServerConfig): Promise<Project
   const { orgId } = await connectedOrg(config);
   const round = roundStates.get(keyOf(config));
   const states: Record<string, ProjectSyncState> = {};
+  const roles: Record<string, "owner" | "member"> = {};
   for (const link of store.links(orgId ?? undefined)) {
     const workspace = workspaceOf(config, link.workspaceId);
     if (!workspace) continue;
+    roles[link.workspaceId] = link.role;
     const pendingChanges = store.pendingOps(link.projectId).length + (link.report?.pending ?? 0);
     states[link.workspaceId] = stateOf(
       link,
@@ -995,6 +1045,7 @@ export async function projectSyncOverview(config: ServerConfig): Promise<Project
     connected: orgId !== null,
     revision: revisions.get(keyOf(config)) ?? 0,
     states,
+    roles,
     contents: Object.fromEntries(contentRevisions.get(keyOf(config)) ?? []),
     removed: [...(removedWorkspaces.get(keyOf(config)) ?? [])],
   };
@@ -1091,7 +1142,11 @@ export async function saveProjectSyncSettings(
   } else {
     checkpoint?.("mutations-enter");
     store.updateLink(workspace.id, { settings, lastError: null });
-    store.enqueue(link.projectId, { kind: "settings", settings });
+    store.enqueue(link.projectId, { kind: "settings", settings: { ...settings, scope: { ...settings.scope, calendar: settings.scope.calendar !== false } } });
+    if (!link.settings.scope.metadata && settings.scope.metadata && await folderAvailable(workspace.path)) {
+      const details = await readProjectDetails(workspace.path);
+      store.enqueue(link.projectId, { kind: "personalization", prompt: details.personalizationPrompt ?? "", changedAt: new Date().toISOString() });
+    }
     if (link.settings.scope.tasks && !settings.scope.tasks) tasks.keepProjectTasksLocal(workspace.id);
     if (!link.settings.scope.tasks && settings.scope.tasks) tasks.publishProjectTasks(workspace.id);
   }
@@ -1174,7 +1229,7 @@ export async function resolveProjectSync(
       await keepAsLocal(config, store, link);
       break;
     case "remove": {
-      const changes = (await folderAvailable(workspace.path)) ? await localChanges(store, link, workspace.path) : 0;
+      const changes = (await folderAvailable(workspace.path)) ? await localChanges(config, store, link, workspace.path) : 0;
       if (changes > 0 && input.force !== true) {
         throw new ApiError(409, "project_changes_pending", `${changes} change(s) made on this computer have not reached the firm yet.`, {
           pending: changes,
@@ -1233,6 +1288,15 @@ export async function resolveProjectSync(
 }
 
 // --- Local edits the firm has to hear about -----------------------------------------------
+
+export async function noteProjectPersonalizationSaved(config: ServerConfig, workspaceId: string, before: string, after: string): Promise<void> {
+  if (before === after) return;
+  const store = await projectSyncStore(config);
+  const link = store.linkByWorkspace(workspaceId);
+  if (!link || link.state !== "active" || !link.settings.scope.metadata) return;
+  store.enqueue(link.projectId, { kind: "personalization", prompt: after, changedAt: new Date().toISOString() });
+  scheduleProjectSync(config);
+}
 
 export async function noteProjectDetailsSaved(
   config: ServerConfig,
@@ -1302,7 +1366,7 @@ export async function signOutOfFirmProjects(
   let pending = 0;
   for (const link of copies) {
     const workspace = workspaceOf(config, link.workspaceId);
-    if (workspace && (await folderAvailable(workspace.path))) pending += await localChanges(store, link, workspace.path);
+    if (workspace && (await folderAvailable(workspace.path))) pending += await localChanges(config, store, link, workspace.path);
   }
   if (pending > 0 && !options.force) return { ok: false, pending };
   // Checked only: the caller has more to check before anything leaves.

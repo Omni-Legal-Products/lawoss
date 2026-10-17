@@ -14,7 +14,7 @@ import { alphaReleaseDownloadUrl } from "./lawoss-branding.mjs";
  * allowPrerelease?: boolean,
  * allowDowngrade?: boolean,
  * on(event: string, listener: (info: UpdaterEvent) => void): void,
- * setFeedURL(input: { provider: "generic", url: string }): void,
+ * setFeedURL(input: { provider: "generic", url: string, channel?: string }): void,
  * checkForUpdates(): Promise<object | null>,
  * downloadUpdate(): Promise<unknown>,
  * quitAndInstall(isSilent: boolean, isForceRunAfter: boolean): void,
@@ -138,6 +138,12 @@ async function writeElectronUpdaterChannel(app, channel) {
   return normalized;
 }
 
+// NSIS chooses the first .exe in a manifest. Keep legacy x64 clients on
+// latest.yml and native ARM64 clients on latest-arm64.yml, including fallback.
+export function electronUpdaterFeedConfig(url, platform = process.platform, arch = process.arch) {
+  return { provider: "generic", url, ...(platform === "win32" && arch === "arm64" ? { channel: "latest-arm64" } : {}) };
+}
+
 function electronUpdaterFeedUrl(channel) {
   return ELECTRON_UPDATER_FEEDS[normalizeElectronUpdaterChannel(channel)];
 }
@@ -231,7 +237,7 @@ async function applyElectronUpdaterFeed(app, updater) {
   // the latest stable so users can return to the stable channel deliberately.
   updater.allowDowngrade = state.channel === "stable";
   if (updater?.setFeedURL) {
-    updater.setFeedURL({ provider: "generic", url: state.feedUrl });
+    updater.setFeedURL(electronUpdaterFeedConfig(state.feedUrl));
   }
   return state;
 }
@@ -267,7 +273,7 @@ export async function checkForUpdatesWithFeedFallback(app, updater, options = {}
     console.warn("[updater] feed check failed, retrying via GitHub", error?.message ?? error);
     try {
       const fallback = await resolveFallback();
-      updater.setFeedURL({ provider: "generic", url: fallback.feedUrl });
+      updater.setFeedURL(electronUpdaterFeedConfig(fallback.feedUrl));
       const result = await updater.checkForUpdates();
       return {
         channelState: { ...channelState, feedUrl: fallback.feedUrl, feedFallback: true },
@@ -294,7 +300,7 @@ export async function checkForUpdatesWithFeedFallback(app, updater, options = {}
     let fallbackApplied = false;
     try {
       const fallback = await resolveFallback();
-      updater.setFeedURL({ provider: "generic", url: fallback.feedUrl });
+      updater.setFeedURL(electronUpdaterFeedConfig(fallback.feedUrl));
       fallbackApplied = true;
       const crossResult = await updater.checkForUpdates();
       const crossVersion = crossResult?.updateInfo?.version;
@@ -310,7 +316,7 @@ export async function checkForUpdatesWithFeedFallback(app, updater, options = {}
     }
     if (fallbackApplied) {
       try {
-        updater.setFeedURL({ provider: "generic", url: channelState.feedUrl });
+        updater.setFeedURL(electronUpdaterFeedConfig(channelState.feedUrl));
       } catch (restoreError) {
         console.warn("[updater] failed to restore tracked feed after cross-check", restoreError?.message ?? restoreError);
       }
@@ -406,7 +412,7 @@ export function registerUpdaterIpc({
       currentVersion: resolveAppVersion(app),
       channel: "stable",
     });
-    updater.setFeedURL({ provider: "generic", url: fallback.feedUrl });
+    updater.setFeedURL(electronUpdaterFeedConfig(fallback.feedUrl));
     const result = await updater.checkForUpdates();
     return { fallback, result };
   }

@@ -7,6 +7,11 @@ import { documentClientIdentity, persistDocumentSelection, readDocumentSelection
 import { t } from "../src/i18n";
 
 const source: FreshDocument = { id: "source", path: '<img src=x onerror="unsafe">.pdf', workspaceId: "selected", hash: "a", status: "partial", complete: false, pageCount: 2, readablePages: 1, updatedAt: 1, provenance: { sourcePath: "source.pdf", depth: 0 }, freshness: "current", pages: [{ page: 1, text: "<script>unsafe</script>" }] };
+function generateButtonAttributes(html: string) {
+  const button = [...html.matchAll(/<button\b([^>]*)>(.*?)<\/button>/gs)].find(button => button[2].includes(t("documents.generate")));
+  expect(button).toBeDefined();
+  return button![1];
+}
 function render(records: FreshDocument[], baseUrl = "http://fixture") {
   const client = createLegalworkServerClient({ baseUrl });
   const queryClient = new QueryClient();
@@ -33,6 +38,9 @@ test("React upload/stale state is distinct from readable and cannot enable gener
   expect(html).not.toContain(t("documents.output_verified"));
   const stale = render([{ ...source, freshness: "stale" }]);
   expect(stale).toContain(t("documents.stale"));
+  for (const unavailable of [html, stale, render([{ ...source, freshness: "error" }]), render([])]) {
+    expect(generateButtonAttributes(unavailable)).toMatch(/\sdisabled(?:=|\s|$)/);
+  }
 });
 
 test("React query identity cannot reuse another owning client with the same runtime project id", () => {
@@ -78,4 +86,41 @@ test("real output query success, failed refetch and recovery retract and restore
   expect(html()).not.toContain(t("documents.output_verified"));
   await queryClient.fetchQuery({ queryKey: key, staleTime: 0, queryFn: async () => [output] });
   expect(html()).toContain(t("documents.output_verified"));
+});
+
+test("background source verification keeps generation available without presenting cached output as verified", async () => {
+  const client = createLegalworkServerClient({ baseUrl: "http://background-verification" });
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const identity = [client.baseUrl, documentClientIdentity(client), "selected", "/root"];
+  const key = ["lawoss-documents", ...identity, [source.path], "files"];
+  queryClient.setQueryData(key, [source]);
+  queryClient.setQueryData(["lawoss-document-outputs", ...identity, ["source"], "files"], [{ path: "report.md", documentIds: ["source"], verified: true, hash: "a", currentHash: "a", sourceHash: "x", currentSourceHash: "x" }]);
+  let finish = () => {};
+  const refresh = queryClient.fetchQuery({ queryKey: key, queryFn: () => new Promise<FreshDocument[]>(resolve => {
+    finish = () => resolve([source]);
+  }) });
+  try {
+    const html = renderToStaticMarkup(<QueryClientProvider client={queryClient}><DocumentProcessingPanel client={client} workspaceId="selected" projectId="app-selected" workspaceRoot="/root" folder="" selectedPaths={[source.path]} onSelectPaths={() => {}} fileVersion="files" active={false} isRemote={false} onGenerate={async () => "session"} /></QueryClientProvider>);
+    expect(generateButtonAttributes(html)).not.toMatch(/\sdisabled(?:=|\s|$)/);
+    expect(html).toContain(t("documents.checking"));
+    expect(html).not.toContain(t("documents.output_verified"));
+  } finally {
+    finish(); await refresh; queryClient.clear();
+  }
+});
+
+test("failed source refresh blocks cached generation until successful recovery", async () => {
+  const client = createLegalworkServerClient({ baseUrl: "http://failed-source-refresh" });
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const key = ["lawoss-documents", client.baseUrl, documentClientIdentity(client), "selected", "/root", [source.path], "files"];
+  const html = () => renderToStaticMarkup(<QueryClientProvider client={queries}><DocumentProcessingPanel client={client} workspaceId="selected" projectId="app-selected" workspaceRoot="/root" folder="" selectedPaths={[source.path]} onSelectPaths={() => {}} fileVersion="files" active={false} isRemote={false} onGenerate={async () => "session"} /></QueryClientProvider>);
+  try {
+    queries.setQueryData(key, [source]);
+    await expect(queries.fetchQuery({ queryKey: key, queryFn: async () => { throw new Error("Synthetic source unavailable"); } })).rejects.toThrow();
+    expect(generateButtonAttributes(html())).toMatch(/\sdisabled(?:=|\s|$)/);
+    await queries.fetchQuery({ queryKey: key, queryFn: async () => [source] });
+    expect(generateButtonAttributes(html())).not.toMatch(/\sdisabled(?:=|\s|$)/);
+  } finally {
+    queries.clear();
+  }
 });

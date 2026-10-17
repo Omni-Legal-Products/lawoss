@@ -14,6 +14,7 @@ import {
 import { startServer } from "../../apps/server/src/server.js";
 import { writeEigenweltConnection } from "../../apps/server/src/eigenwelt-connection-store.js";
 import { LegalWorkStorageTools } from "../../apps/server/src/opencode-plugins/legalwork-storage-tools.js";
+import { engineAgentSession } from "../../apps/server/src/lawoss/test-support/engine-agent.js";
 import type { ServerConfig } from "../../apps/server/src/types.js";
 
 const platformUrl = process.env.EIGENWELT_PLATFORM_URL;
@@ -71,7 +72,6 @@ await s3.send(new CreateBucketCommand({ Bucket: bucket }));
 const app = await startServer(config);
 const url = `http://127.0.0.1:${app.port}`;
 process.env.LEGALWORK_SERVER_URL = url;
-process.env.LEGALWORK_SERVER_TOKEN = config.token;
 async function api(workspace: string, method: string, suffix: string, body?: unknown) {
   const response = await fetch(`${url}/workspace/${workspace}/storage${suffix}`, {
     method,
@@ -114,7 +114,7 @@ try {
   assert(connectionId.startsWith("team:"));
   assert.equal((await api("member", "POST", `/${connectionId}/installation`, { installed: false })).status, 409);
   const { tool } = await LegalWorkStorageTools();
-  const context = { directory: join(temporary, "member") };
+  const { context } = await engineAgentSession(config, { sessionID: "ses_team_sync", directory: join(temporary, "member") });
   const connected = JSON.parse(await tool.storage_list_connections.execute({}, context));
   assert.equal(connected.connections[0].connection_id, connectionId);
   const source = { connection_id: connectionId, path: "Nested/Agreement.txt" };

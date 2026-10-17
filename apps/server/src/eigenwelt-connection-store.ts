@@ -1,5 +1,5 @@
 import { initializeSqlite } from "./runtime-db.js";
-import { runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
+import { drainRuntimeDb, runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import type { EigenweltAccountIdentity, EigenweltEntitlements } from "./eigenwelt-auth.js";
@@ -131,22 +131,14 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
   } catch {
     // copy failed: the legacy rows stay, and the next open retries
   }
-  const get = sqlite.prepare(
-    "SELECT entitlements_json AS entitlementsJson, account_json AS accountJson, platform_url AS platformUrl, platform_token AS platformToken, refresh_token AS refreshToken, refresh_request_id AS refreshRequestId, refresh_error AS refreshError, platform_token_expires_at AS platformTokenExpiresAt FROM eigenwelt_connections WHERE workspace_id = ?",
-  );
-  const upsert = sqlite.prepare(
-    "INSERT INTO eigenwelt_connections (workspace_id, entitlements_json, account_json, platform_url, platform_token, refresh_token, refresh_request_id, refresh_error, platform_token_expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET entitlements_json = excluded.entitlements_json, account_json = excluded.account_json, platform_url = excluded.platform_url, platform_token = excluded.platform_token, refresh_token = excluded.refresh_token, refresh_request_id = excluded.refresh_request_id, refresh_error = excluded.refresh_error, platform_token_expires_at = excluded.platform_token_expires_at, updated_at = excluded.updated_at",
-  );
-  const update = sqlite.prepare(
-    "UPDATE eigenwelt_connections SET entitlements_json = ?, account_json = ?, platform_url = ?, platform_token = ?, refresh_token = ?, refresh_request_id = ?, refresh_error = ?, platform_token_expires_at = ?, updated_at = ? WHERE workspace_id = ? AND refresh_token = ? AND refresh_request_id = ?",
-  );
-  const claim = sqlite.prepare(
-    "UPDATE eigenwelt_connections SET refresh_request_id = coalesce(refresh_request_id, ?) WHERE workspace_id = ? AND refresh_token = ? RETURNING refresh_request_id",
-  );
+  const getSql = "SELECT entitlements_json AS entitlementsJson, account_json AS accountJson, platform_url AS platformUrl, platform_token AS platformToken, refresh_token AS refreshToken, refresh_request_id AS refreshRequestId, refresh_error AS refreshError, platform_token_expires_at AS platformTokenExpiresAt FROM eigenwelt_connections WHERE workspace_id = ?";
+  const upsertSql = "INSERT INTO eigenwelt_connections (workspace_id, entitlements_json, account_json, platform_url, platform_token, refresh_token, refresh_request_id, refresh_error, platform_token_expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET entitlements_json = excluded.entitlements_json, account_json = excluded.account_json, platform_url = excluded.platform_url, platform_token = excluded.platform_token, refresh_token = excluded.refresh_token, refresh_request_id = excluded.refresh_request_id, refresh_error = excluded.refresh_error, platform_token_expires_at = excluded.platform_token_expires_at, updated_at = excluded.updated_at";
+  const updateSql = "UPDATE eigenwelt_connections SET entitlements_json = ?, account_json = ?, platform_url = ?, platform_token = ?, refresh_token = ?, refresh_request_id = ?, refresh_error = ?, platform_token_expires_at = ?, updated_at = ? WHERE workspace_id = ? AND refresh_token = ? AND refresh_request_id = ?";
+  const claimSql = "UPDATE eigenwelt_connections SET refresh_request_id = coalesce(refresh_request_id, ?) WHERE workspace_id = ? AND refresh_token = ? RETURNING refresh_request_id";
   return {
     close: () => sqlite.close(),
     get: (workspaceId) => {
-      const row = get.get(workspaceId);
+      const row = sqlite.get(getSql, [workspaceId]);
       if (!isRecord(row)) return undefined;
       return {
         entitlementsJson: typeof row.entitlementsJson === "string" ? row.entitlementsJson : null,
@@ -161,7 +153,7 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
       };
     },
     upsert: (value) => {
-      upsert.run(
+      sqlite.run(upsertSql, [
         value.workspaceId,
         value.entitlementsJson,
         value.accountJson,
@@ -172,15 +164,15 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
         value.refreshError,
         value.platformTokenExpiresAt,
         value.updatedAt,
-      );
+      ]);
     },
-    updateIfCurrent: (value, expected) => update.run(
+    updateIfCurrent: (value, expected) => sqlite.get(updateSql + " RETURNING workspace_id", [
       value.entitlementsJson, value.accountJson, value.platformUrl, value.platformToken,
       value.refreshToken, value.refreshRequestId, value.refreshError, value.platformTokenExpiresAt,
       value.updatedAt, value.workspaceId, expected.refreshToken, expected.refreshRequestId,
-    ).changes > 0,
+    ]) !== undefined,
     claimRequest: (refreshToken, requestId) => {
-      const row = claim.get(requestId, ACCOUNT_ROW_ID, refreshToken);
+      const row = sqlite.get(claimSql, [requestId, ACCOUNT_ROW_ID, refreshToken]);
       return isRecord(row) && typeof row.refresh_request_id === "string" ? row.refresh_request_id : null;
     },
   };
@@ -188,6 +180,13 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
 }
 
 const resourceKey = Symbol("eigenwelt-connection-store");
+
+/** Release the connection after the last server using this runtime has stopped. */
+export async function closeEigenweltConnection(config: ServerConfig, path = runtimeDbPath(config)): Promise<void> {
+  await drainRuntimeDb(config, path);
+}
+
+export const closeEigenweltConnectionForTests = closeEigenweltConnection;
 
 async function connectionDb(config: ServerConfig): Promise<EigenweltConnectionDb> {
   return runtimeDbResource(config, resourceKey, openDb);

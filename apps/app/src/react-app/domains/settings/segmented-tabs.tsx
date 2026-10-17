@@ -22,6 +22,7 @@ export function HubTabs<T extends string>(props: {
   onChange: (id: T) => void;
   className?: string;
   label?: string;
+  disabled?: boolean;
 }) {
   return (
     <div role="group" aria-label={props.label} className={cn(segmentedTrackClass, props.className)}>
@@ -32,8 +33,9 @@ export function HubTabs<T extends string>(props: {
             key={id}
             type="button"
             aria-pressed={active}
+            disabled={props.disabled}
             onClick={() => props.onChange(id)}
-            className={`${segmentedItemClass} ${active ? segmentedActiveClass : segmentedInactiveClass}`}
+            className={`${segmentedItemClass} ${active ? segmentedActiveClass : segmentedInactiveClass} disabled:pointer-events-none disabled:opacity-50`}
           >
             {Icon ? <Icon size={14} strokeWidth={1.75} /> : null}
             {label}
