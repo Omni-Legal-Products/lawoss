@@ -10,8 +10,9 @@ import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 const cleanup: Array<() => unknown | Promise<unknown>> = [];
 afterEach(async () => { while (cleanup.length) await cleanup.pop()?.(); });
 
-async function fixture(readOnly = false, onApproval?: ServerConfig["requestHostApproval"]) {
+async function fixture(readOnly = false, onApproval?: ServerConfig["requestHostApproval"], onRoot?: (root: string) => void) {
   const root = await mkdtemp(join(tmpdir(), "lawoss-auth-boundary-"));
+  onRoot?.(root);
   // Windows: server drží runtime.sqlite otvorenú aj po stop(), rm skončí EBUSY.
   cleanup.push(() => removeTestDir(root));
   const isolated = { LEGALWORK_TOKEN_STORE: join(root, "tokens.json"), LEGALWORK_RUNTIME_DB: join(root, "runtime.sqlite") };
@@ -233,7 +234,10 @@ for (const method of ["POST", "DELETE", "PROMOTE"] as const) {
 }
 
 test("approved commands, skills and attachments still support their normal lifecycle", async () => {
-  const f = await fixture(false, async () => "allow");
+  const { observeSyntheticSkillPromotion } = await import("./lawoss/test-support/windows-skill-locks.js");
+  let observation: ReturnType<typeof observeSyntheticSkillPromotion> | undefined;
+  try {
+  const f = await fixture(false, async () => "allow", root => { observation = observeSyntheticSkillPromotion(root); });
   const call = (route: string, method = "GET", body?: unknown) => fetch(`${f.base}/workspace/ws_1/${route}`, {
     method, headers: { ...f.collaborator, "Content-Type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -249,7 +253,8 @@ test("approved commands, skills and attachments still support their normal lifec
   expect((await call("skills/synthetic/resources/sample.md", "DELETE")).status).toBe(200);
   expect((await call("skills/synthetic/promote-workflow", "POST")).status).toBe(200);
   expect((await call("skills/workflow-assistant-synthetic", "DELETE")).status).toBe(200);
-});
+  } finally { observation?.restore(); }
+}, 10000); // A failed single rename may add the bounded 2.5s read-only Windows probe.
 
 test("resource deletion cannot replace an approved link node with its unchanged canonical target", async () => {
   let link = "", second = "";

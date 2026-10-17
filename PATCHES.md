@@ -756,6 +756,10 @@ Sync nemení správanie: upstream wiki, OpenUI pohľady, kalendár, plánované 
 | `apps/server/src/security-file-boundary.e2e.test.ts` | Časť s aliasmi metadát (premenovanie `.opencode`) sa na Windows pri EPERM ukončí: od v0.2.9 server počas behu sleduje `.opencode` a drží v ňom handle. macOS a Linux ju pokrývajú celú. Test LAWOSS (zelená zóna), uvedené kvôli bezpečnostnému pokrytiu. |
 | `scripts/i18n-audit.mjs`, `package.json`, `apps/desktop/package.json` | `resolveSpreadImports()` s upstream `projectTemplateStrings`; skripty a zoznam testov ako zjednotenie. |
 
+## Dočasná samostatná diagnostika Windows zámkov
+
+Vetva `chore/pr165-windows-lock-probe` nie je produktová oprava ani náhrada PR #165. `apps/server/src/security-auth-boundaries.e2e.test.ts` tu pasívne sleduje jediný existujúci pokus o rename; read-only Restart Manager po chybe exportuje iba pevné počty kategórií vlastníkov známeho syntetického SKILL.md. Workflow opakuje presný test v samostatných procesoch a zachováva každé zlyhanie. Natívny job je vypnutý iba na tejto pomocnej vetve; hlavná PR matica ani jej workflow sa tým nemenia. Nezistený file lock nevylučuje directory lock.
+
 ## Ukončenie runtime spojení a natívne CI (#165)
 
 | Súbory upstreamu | Adaptácia LAWOSS |

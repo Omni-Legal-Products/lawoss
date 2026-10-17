@@ -1,4 +1,4 @@
-name: LAWOSS Windows source tests
+name: LAWOSS Windows lock probe (diagnostic only)
 
 on:
   workflow_dispatch:
@@ -215,7 +215,24 @@ jobs:
         # Beží aj po páde predchádzajúceho kroku, aby sa bezpečnostné regresie na Windows vždy overili.
         if: ${{ !cancelled() }}
         working-directory: apps/server
-        run: bun test src/frontmatter.test.ts src/frontmatter-security.e2e.test.ts src/security-auth-boundaries.e2e.test.ts src/security-file-boundary.e2e.test.ts src/word-addin.e2e.test.ts src/word-addin-shell.test.ts src/benchmarks/document-path.test.ts src/benchmarks/task-zip.test.ts src/benchmarks/harvey-catalog.test.ts src/benchmarks/store.test.ts
+        run: bun test src/lawoss/test-support/windows-skill-locks.test.ts src/frontmatter.test.ts src/frontmatter-security.e2e.test.ts src/security-auth-boundaries.e2e.test.ts src/security-file-boundary.e2e.test.ts src/word-addin.e2e.test.ts src/word-addin-shell.test.ts src/benchmarks/document-path.test.ts src/benchmarks/task-zip.test.ts src/benchmarks/harvey-catalog.test.ts src/benchmarks/store.test.ts
+
+      - name: Validate read-only Restart Manager on an owned lock
+        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.ref_name == 'chore/pr165-windows-lock-probe' }}
+        timeout-minutes: 1
+        shell: pwsh
+        run: ./lawoss/testing/isir/windows-skill-lock-smoke.ps1
+
+      - name: Repeat exact synthetic promotion lifecycle (diagnosis only)
+        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.ref_name == 'chore/pr165-windows-lock-probe' }}
+        working-directory: apps/server
+        run: |
+          failed=0
+          for trial in {1..30}; do
+            echo "Synthetic promotion trial $trial"
+            bun test src/security-auth-boundaries.e2e.test.ts --test-name-pattern 'approved commands, skills and attachments still support their normal lifecycle' || failed=1
+          done
+          exit "$failed"
 
       - name: Messaging control and local media isolation
         # Beží aj po páde predchádzajúceho kroku, aby sa bezpečnostné regresie na Windows vždy overili.
@@ -227,7 +244,7 @@ jobs:
   # Manual supplementary probe: reuse a verified ancestor's runtime artifact
   # while retaining every regular PR/source/package check unchanged.
   native-windows-diagnostics:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.ref_name != 'chore/pr165-windows-lock-probe'
     name: Diagnostic native Windows (full synthetic flow)
     runs-on: windows-2022
     timeout-minutes: 30
