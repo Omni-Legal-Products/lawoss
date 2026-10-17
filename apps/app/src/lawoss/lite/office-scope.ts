@@ -1,3 +1,4 @@
+import { revalidateScopeTarget } from "../okf/scope-target";
 /**
  * LAWOSS-lite pracuje s celou kanceláří. Konverzace nad věcí ale aktivuje složku věci
  * (session route to dělá sama), takže nová věc, „Zeptat se“ i Personalizace by jinak
@@ -6,7 +7,7 @@
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../okf/connection";
 import { activateLocalWorkspace } from "../okf/matter-session";
-import { activeWorkspace, officeOf, officeWorkspace, OFFICE_SCOPE_RESTORED } from "../okf/read-model";
+import { activeWorkspace, officeOf, officeWorkspace, type OkfScope, OFFICE_SCOPE_RESTORED } from "../okf/read-model";
 import { currentUiMode } from "./ui-mode";
 
 let pending: Promise<OkfConnection> | null = null;
@@ -35,6 +36,14 @@ export async function openOfficeChat(): Promise<string> {
   const office = officeWorkspace(connection);
   if (!office) throw new Error("no office workspace");
   return openSessionWithPrompt(connection, office, "");
+}
+
+/** „Opýtať sa“ v praxi: nová konverzácia v priečinku vybraného klienta, nikdy nad celou praxou (prehľad praxe). */
+export async function openClientChat(workspaceId: string, expectedScope: OkfScope | null, expectedConnection: OkfConnection | null): Promise<string> {
+  if (!expectedConnection) throw new Error("client_workspace_unavailable");
+  const { connection, workspace } = await revalidateScopeTarget(expectedScope,expectedConnection,workspaceId);
+  const active = connection.activeWorkspaceId === workspace.id ? connection : await activateLocalWorkspace({ ...connection, client: connection.client }, workspace, connection.workspaces);
+  return openSessionWithPrompt(active, workspace, "");
 }
 
 /** Nastavení v lite: složka věci → kancelář (Personalizace je profil kanceláře). `null` = nic neměnit. */

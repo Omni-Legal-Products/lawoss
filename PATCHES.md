@@ -984,3 +984,10 @@ Zachované obe histórie a celý nezmenený samostatný SDK/dependency helper; r
 | Súbory | Oprava a overenie |
 |---|---|
 | `scripts/test-isir-native.mjs`, `apps/app/tests/chooser-boundary.fixture.tsx`, `lawoss/testing/isir/native/import-boundary.browser.mjs` | Po skutočnom fddcc CI páde pri case1 nový guard číta desktop HashRouter a skutočný committed control snapshot, nie browser pathname. Pôvodné IDs zahŕňajú public openFiles aj odpojených DocumentPane portalov. Mounted regresia používa skutočný SessionPage import event, SidePanel, runtime-env a control provider; pôvodný modeled callback už nie je acceptance oracle. Strict owner/input/new-tab/bytes odmietnutia a pôvodné rozpočty zostávajú. Normálny native CI nového headu ostáva povinný. |
+
+
+## Selected-practice host overview (2026-10-17)
+
+| Upstream file | Downstream change and reason |
+| --- | --- |
+| `apps/app/src/app/lib/legalwork-server.ts` | Host-only `lawossOfficeMemory(expectedPracticeRoot, { signal })` requires the selected profile-root precondition. Existing directory/file readers forward optional cancellation without changing their ordinary behavior. Domain aggregation, coverage and routing stay in `lawoss/**`; engine credential issuing/revocation is a separate integration dependency. |

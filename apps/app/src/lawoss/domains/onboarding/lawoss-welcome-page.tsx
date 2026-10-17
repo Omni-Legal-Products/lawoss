@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { Check, FileWarning, ShieldCheck } from "lucide-react";
+import { normalizeDirectoryPath } from "@/app/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocale } from "@/i18n/use-locale";
@@ -549,6 +550,19 @@ export async function preferOpenClient(
     return null;
   }
 }
+/**
+ * „+ Nová vec“ pre klienta vybraného v prehľade praxe: zapíše ho ako klienta formulára.
+ * Server overí, že priečinok je klient; chybu ohlási volajúci.
+ */
+export async function chooseClient(api: Pick<WelcomeApi, "updateOnboardingProfile" | "listWorkspaces">, profile: OnboardingProfile | null, clientRoot: string): Promise<OnboardingProfile | null> {
+  if (!api.listWorkspaces) throw new Error("client_workspace_unavailable");
+  const list = await api.listWorkspaces();
+  const root = normalizeDirectoryPath(clientRoot);
+  const practice = normalizeDirectoryPath(profile?.officeRoot);
+  if (!list.items.some(workspace => workspace.workspaceType !== "remote" && sameFolder(workspace.path,clientRoot)) || (practice && root !== practice && !root.startsWith(`${practice}/`))) throw new Error("client_workspace_unavailable");
+  if (sameFolder(clientRoot, profile?.clientRoot)) return null;
+  return api.updateOnboardingProfile({ clientRoot, step: "matter" });
+}
 /** Meno klienta pre formulár veci; bez prístupu k pracovným priestorom názov priečinka. */
 async function clientTitleFor(api: WelcomeApi, root: string): Promise<string> {
   const fallback = root.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? root;
@@ -610,6 +624,7 @@ export function LawossWelcomePage({
   const found = foundText(locale);
   // „+ Nová vec“ mimo prvého onboardingu: formulár počká, kým sa zistí otvorený klient.
   const [openClientPending, setOpenClientPending] = useState(initialStep === "matter");
+  const [clientSelectionFailed, setClientSelectionFailed] = useState(false);
   const [clientTitle, setClientTitle] = useState("");
   // Obrazovka „Toto som našiel“ dostane stabilného klienta roztriedenia; jej návrh sa inak volá pri každom vykreslení znova.
   const triage = useMemo<TriageClient | null>(
@@ -621,12 +636,21 @@ export function LawossWelcomePage({
     [locale],
   );
   useEffect(() => {
+    let cancelled = false;
+    setOpenClientPending(initialStep === "matter");
+    setClientSelectionFailed(false);
     void api
       .onboardingStatus()
       .then(async (status) => {
+        if (cancelled) return;
         setProfile(status.profile);
         if (initialStep === "matter") {
-          const preferred = await preferOpenClient(api, status.profile, readActiveWorkspaceId());
+          // Klient vybraný v prehľade praxe (`?root=`, prehľad praxe) má prednosť pred otvoreným klientom.
+          // Ak ho nastaviť nejde, formulár to povie; nová vec nesmie potichu vzniknúť u iného klienta.
+          const preferred = initialRoot
+            ? await chooseClient(api, status.profile, initialRoot).catch((reason: unknown) => { setClientSelectionFailed(true); setProfile(null); setError(onboardingErrorMessage(reason, locale)); return null; })
+            : await preferOpenClient(api, status.profile, readActiveWorkspaceId());
+          if (cancelled) return;
           if (preferred) setProfile(preferred);
           setOpenClientPending(false);
         }
@@ -644,10 +668,12 @@ export function LawossWelcomePage({
         );
       })
       .catch(() => {
+        if (cancelled) return;
         setOpenClientPending(false);
         setError(tr("error"));
       });
-  }, [api, initialStep]);
+    return () => { cancelled = true; };
+  }, [api, initialStep, initialRoot]);
   const savedClientRoot = profile?.clientRoot;
   useEffect(() => {
     let cancelled = false;
@@ -703,6 +729,7 @@ export function LawossWelcomePage({
     setBusy(true);
     setError(null);
     try {
+      if (request.action === "matter" && initialRoot) await chooseClient(api,profile,request.clientRoot);
       const pending = { request, value: await api.planOnboarding(request) };
       setPreview(pending);
       writePendingOnboarding(window.localStorage, pending);
@@ -934,7 +961,7 @@ export function LawossWelcomePage({
           {step === "matter" && openClientPending ? (
             <p role="status">{tr("openClientLoading")}</p>
           ) : null}
-          {step === "matter" && !openClientPending ? (
+          {step === "matter" && !openClientPending && !clientSelectionFailed ? (
             <Matter
               title={initialStep === "matter" ? tr("newMatter") : tr("matter")}
               clientTitle={clientTitle}

@@ -1,4 +1,14 @@
 export const shellEn = {
+  "lawoss.practice.selected": "Selected practice",
+  "lawoss.practice.single": "Only this client",
+  "lawoss.practice.excluded": "Excluded workspaces: {count}",
+  "lawoss.practice.incomplete": "The practice overview is incomplete. Other deadlines may exist.",
+  "lawoss.practice.office": "Office",
+  "lawoss.practice.fresh": "Current",
+  "lawoss.practice.stale": "Last successful read",
+  "lawoss.practice.unavailable": "Unavailable",
+  "lawoss.practice.truncated": "Truncated",
+
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Sort documents",
   "lawoss.triage.trial_entry": "Sort documents in the trial copy",
@@ -208,6 +218,11 @@ export const shellEn = {
   "lawoss.lite.state_error": "Your matters could not be loaded.",
   "lawoss.lite.state_partial": "Some files could not be read - their deadlines and tasks may be missing here.",
   "lawoss.lite.state_retry": "Try again",
+  "lawoss.lite.client_pick_new_matter": "New matter for which client?",
+  "lawoss.lite.client_pick_ask": "Which client is this question about?",
+  "lawoss.lite.client_pick_note": "The assistant only sees this client.",
+  "lawoss.lite.client_pick_continue": "Continue",
+  "lawoss.lite.client_pick_cancel": "Cancel",
   "lawoss.lite.mode_title": "Display mode",
   "lawoss.lite.mode_lite": "Simple",
   "lawoss.lite.mode_pro": "Advanced",
@@ -258,6 +273,16 @@ export const shellEn = {
 type SlavicPluralKey = "lawoss.lite.due_in_days_few" | "lawoss.lite.due_in_days_many";
 
 export const shellCs = {
+  "lawoss.practice.selected": "Vybraná praxe",
+  "lawoss.practice.single": "Pouze tento klient",
+  "lawoss.practice.excluded": "Vyloučené pracovní prostory: {count}",
+  "lawoss.practice.incomplete": "Přehled praxe je neúplný. Mohou existovat další lhůty.",
+  "lawoss.practice.office": "Kancelář",
+  "lawoss.practice.fresh": "Aktuální",
+  "lawoss.practice.stale": "Poslední úspěšné čtení",
+  "lawoss.practice.unavailable": "Nedostupné",
+  "lawoss.practice.truncated": "Neúplné čtení",
+
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Roztřídit dokumenty",
   "lawoss.triage.trial_entry": "Roztřídit dokumenty ve zkušebním klonu",
@@ -469,6 +494,11 @@ export const shellCs = {
   "lawoss.lite.state_error": "Vaše věci se nepodařilo načíst.",
   "lawoss.lite.state_partial": "Některé soubory se nepodařilo načíst - jejich lhůty a úkoly tu mohou chybět.",
   "lawoss.lite.state_retry": "Zkusit znovu",
+  "lawoss.lite.client_pick_new_matter": "Nová věc pro kterého klienta?",
+  "lawoss.lite.client_pick_ask": "Ke kterému klientovi je dotaz?",
+  "lawoss.lite.client_pick_note": "Asistent uvidí jen tohoto klienta.",
+  "lawoss.lite.client_pick_continue": "Pokračovat",
+  "lawoss.lite.client_pick_cancel": "Zrušit",
   "lawoss.lite.mode_title": "Režim zobrazení",
   "lawoss.lite.mode_lite": "Jednoduchý",
   "lawoss.lite.mode_pro": "Pokročilý",
@@ -516,6 +546,16 @@ export const shellCs = {
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
+  "lawoss.practice.selected": "Vybraná prax",
+  "lawoss.practice.single": "Iba tento klient",
+  "lawoss.practice.excluded": "Vylúčené pracovné priestory: {count}",
+  "lawoss.practice.incomplete": "Prehľad praxe je neúplný. Môžu existovať ďalšie lehoty.",
+  "lawoss.practice.office": "Kancelária",
+  "lawoss.practice.fresh": "Aktuálne",
+  "lawoss.practice.stale": "Posledné úspešné čítanie",
+  "lawoss.practice.unavailable": "Nedostupné",
+  "lawoss.practice.truncated": "Neúplné čítanie",
+
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Roztriediť dokumenty",
   "lawoss.triage.trial_entry": "Roztriediť dokumenty v skúšobnom klone",
@@ -727,6 +767,11 @@ export const shellSk = {
   "lawoss.lite.state_error": "Vaše veci sa nepodarilo načítať.",
   "lawoss.lite.state_partial": "Niektoré súbory sa nepodarilo načítať - ich lehoty a úlohy tu môžu chýbať.",
   "lawoss.lite.state_retry": "Skúsiť znova",
+  "lawoss.lite.client_pick_new_matter": "Nová vec pre ktorého klienta?",
+  "lawoss.lite.client_pick_ask": "Ku ktorému klientovi je otázka?",
+  "lawoss.lite.client_pick_note": "Asistent uvidí len tohto klienta.",
+  "lawoss.lite.client_pick_continue": "Pokračovať",
+  "lawoss.lite.client_pick_cancel": "Zrušiť",
   "lawoss.lite.mode_title": "Režim zobrazenia",
   "lawoss.lite.mode_lite": "Jednoduchý",
   "lawoss.lite.mode_pro": "Pokročilý",
@@ -774,6 +819,16 @@ export const shellSk = {
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
+  "lawoss.practice.selected": "Ausgewählte Kanzlei",
+  "lawoss.practice.single": "Nur dieser Mandant",
+  "lawoss.practice.excluded": "Ausgeschlossene Arbeitsbereiche: {count}",
+  "lawoss.practice.incomplete": "Die Kanzleiübersicht ist unvollständig. Weitere Fristen sind möglich.",
+  "lawoss.practice.office": "Kanzlei",
+  "lawoss.practice.fresh": "Aktuell",
+  "lawoss.practice.stale": "Letzte erfolgreiche Abfrage",
+  "lawoss.practice.unavailable": "Nicht verfügbar",
+  "lawoss.practice.truncated": "Unvollständige Abfrage",
+
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Dokumente sortieren",
   "lawoss.triage.trial_entry": "Dokumente in der Testkopie sortieren",
@@ -983,6 +1038,11 @@ export const shellDe = {
   "lawoss.lite.state_error": "Ihre Akten konnten nicht geladen werden.",
   "lawoss.lite.state_partial": "Einige Dateien konnten nicht gelesen werden; ihre Fristen und Aufgaben fehlen hier möglicherweise.",
   "lawoss.lite.state_retry": "Erneut versuchen",
+  "lawoss.lite.client_pick_new_matter": "Neue Angelegenheit für welchen Mandanten?",
+  "lawoss.lite.client_pick_ask": "Zu welchem Mandanten ist die Frage?",
+  "lawoss.lite.client_pick_note": "Der Assistent sieht nur diesen Mandanten.",
+  "lawoss.lite.client_pick_continue": "Weiter",
+  "lawoss.lite.client_pick_cancel": "Abbrechen",
   "lawoss.lite.mode_title": "Anzeigemodus",
   "lawoss.lite.mode_lite": "Einfach",
   "lawoss.lite.mode_pro": "Erweitert",

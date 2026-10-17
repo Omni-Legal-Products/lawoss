@@ -255,3 +255,11 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Native picker IPC receipts precede renderer completion. Before returning to Files, acknowledge a new visible completed artifact tab, the committed workspace route and its selected owner; never reuse a prior same-path tab. A fragment-based entry menu owns the input immediately following its trigger, not every input under the shared list parent. Preserve exact captured/event input identity and refuse ambiguous adjacency.
 
 - Desktop native route assertions follow the actual HashRouter selected by the Electron bridge and the control provider's committed useLocation snapshot. Parked DocumentPane portals are outside document: include public openFiles IDs when excluding preexisting imports. Regressions must mount the real import-event handler and panel rendering; a modeled BrowserRouter callback cannot prove desktop history or hidden-tab ownership.
+
+
+## Selected-practice overview invariants
+
+- Practice overview membership is explicit: registered top-level local clients under the selected profile `officeRoot`; unrelated and remote workspaces are excluded visibly. Never register a practice root merely to aggregate clients.
+- Host snapshots are keyed by canonical scope membership/path, server, authentication generation and local day. Retain last successful source content only within that identity; cancellation and a changed scope must not publish the preceding read.
+- A failed source is not empty. Keep per-source success timestamps, show partial/failed coverage even in empty views, and refuse actions until the owning client has a successful fresh read. Recheck membership before client actions; never fall back to another client or generic session on refusal.
+- Office-memory reads are host-only and require the exact expected profile root. Keep 500-file, 1 MiB/file and 8 MiB aggregate bounds, no symlink parents/files, bounded handle reads and identity rechecks. Source/SSR tests do not establish native Windows acceptance or the engine credential boundary.

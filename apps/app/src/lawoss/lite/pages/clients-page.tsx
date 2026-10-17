@@ -1,16 +1,18 @@
 /** @jsxImportSource react */
-import type { CSSProperties, ReactNode } from "react";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpRight, FolderOpen } from "lucide-react";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
 import { litePageProps } from "../state-text";
-import { formatDay, today, type OkfReadResult } from "../../okf/read-model";
+import { formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { urgencyOf } from "../../okf/view-rules";
 import { groupByClient, nextDeadline, type ClientGroup } from "../today-model";
-import { ATTACH_EXISTING_CLIENT_PATH, liteMatterLink, NEW_MATTER_PATH } from "../links";
+import { ATTACH_EXISTING_CLIENT_PATH, liteMatterLink } from "../links";
+import { clientPreferenceScope, clientRootOf, practiceClientChoices, type ClientChoice } from "../client-choice";
+import { NewMatterAction } from "../client-picker";
 import { TriageEntry } from "../../domains/roztriedenie/triage-entry";
 import { hotDeadlineCount, LiveStamp, matterUrgency, useHotTitle, useMinuteTick } from "../live";
 import "./okf-glass.css";
@@ -18,13 +20,18 @@ import "./clients.css";
 
 export function ClientsPage() {
   const locale = useLocale();
-  return <OkfPage {...litePageProps(locale)} hasContent={(data) => data.matters.length > 0 || (data.clients?.length ?? 0) > 0}>{(data, meta) => <ClientsLive data={data} meta={meta} locale={locale} />}</OkfPage>;
+  return <OkfPage {...litePageProps(locale)} hasContent={(data) => data.matters.length > 0 || (data.clients?.length ?? 0) > 0}>{(data, meta, scope) => <ClientsLive data={data} meta={meta} scope={scope} locale={locale} />}</OkfPage>;
 }
 
-function ClientsLive({ data, meta, locale }: { data: OkfReadResult; meta: OkfPageMeta; locale: Language }) {
+function ClientsLive({ data, meta, scope, locale }: { data: OkfReadResult; meta: OkfPageMeta; scope: OkfScope | null; locale: Language }) {
   useMinuteTick();
   useHotTitle(hotDeadlineCount(data, today()));
-  return <ClientsView groups={groupByClient(data.matters, data.inputs, data.clients)} meta={meta} locale={locale} actions={<TriageEntry />} />;
+  const { connection } = useOkfConnection();
+  const choices = useMemo(() => practiceClientChoices(scope, data.clients), [scope, data.clients]);
+  // Karta klienta ide rovno do svojho klienta, bez výberu.
+  const clientRoot = (key: string) => key.startsWith("client:") ? clientRootOf(scope, key.slice("client:".length)) : undefined;
+  return <ClientsView groups={groupByClient(data.matters, data.inputs, data.clients)} meta={meta} locale={locale} actions={<TriageEntry />}
+    choices={choices} preferenceScope={clientPreferenceScope(scope, connection?.baseUrl)} activeId={connection?.activeWorkspaceId} clientRoot={clientRoot} />;
 }
 
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });
@@ -32,7 +39,11 @@ const initials = (name: string) => name.split(/\s+/).filter((part) => /\p{L}/u.t
 
 /** Klienti ako karty s ich vecami; najbližšia lehota a jej naliehavosť z tej istej pamäte ako Dnes. */
 /** `actions`: ďalšie vstupy vedľa novej veci (roztriedenie skúšobného klona). */
-export function ClientsView({ groups, meta, locale: forced, actions }: { groups: readonly ClientGroup[]; meta?: OkfPageMeta; locale?: Language; actions?: ReactNode }) {
+export function ClientsView({ groups, meta, locale: forced, actions, choices, activeId, clientRoot, preferenceScope }: {
+  groups: readonly ClientGroup[]; meta?: OkfPageMeta; locale?: Language; actions?: ReactNode;
+  /** Prax: klienti na krátky výber pri „+ Nová vec“ a priečinok klienta z karty (prehľad praxe). */
+  choices?: readonly ClientChoice[]; activeId?: string | null; preferenceScope?: string; clientRoot?: (groupKey: string) => string | undefined;
+}) {
   const current = useLocale();
   const locale = forced ?? current;
   const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.lite.${key}`, locale, params);
@@ -47,7 +58,7 @@ export function ClientsView({ groups, meta, locale: forced, actions }: { groups:
         <div className="lw-clients-actions">
           {actions}
           <Link className="lw-btn" to={ATTACH_EXISTING_CLIENT_PATH}>{text("attach_existing_client")}</Link>
-          <Link className="lw-today-primary" to={NEW_MATTER_PATH}>+ {text("new_matter")}</Link>
+          <NewMatterAction className="lw-today-primary" locale={locale} choices={choices} activeId={activeId} preferenceScope={preferenceScope}>+ {text("new_matter")}</NewMatterAction>
         </div>
       </header>
 
@@ -64,7 +75,7 @@ export function ClientsView({ groups, meta, locale: forced, actions }: { groups:
                 <h2>{group.client || text("client_unnamed")}</h2>
                 <span className="lw-matter-count">{group.matters.length}</span>
               </header>
-              {group.matters.length === 0 ? <p className="lw-clients-none">{text("client_no_matters")} <Link to={NEW_MATTER_PATH}>{text("new_matter")}</Link></p> : null}
+              {group.matters.length === 0 ? <p className="lw-clients-none">{text("client_no_matters")} <NewMatterAction locale={locale} clientRoot={clientRoot?.(group.key)}>{text("new_matter")}</NewMatterAction></p> : null}
               <ul className="lw-clients-matters">
                 {group.matters.map((m) => {
                   const own = m.deadlines.filter((d) => !isOfficeFile(d.file));

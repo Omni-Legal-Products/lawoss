@@ -1,5 +1,6 @@
 import type { OnboardingApi, OnboardingSuggestion } from "../../lawoss/domains/onboarding/api";
 import type { TriageApiPath } from "../../lawoss/domains/roztriedenie/api";
+import type { OfficeMemoryRead } from "../../lawoss/okf/office-memory";
 import type { LawossOcrView } from "../../lawoss/domains/settings/ocr-opt-in";
 import { lawossMarketplaceMethods } from "../../lawoss/domains/marketplace/marketplace-api";
 import type { WorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
@@ -1977,6 +1978,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     updateProjectDetails: (workspaceId: string, payload: { revision: number; fields: ProjectField[] }) =>
       requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken, method: "PATCH", body: payload }),
     onboardingStatus: (): ReturnType<OnboardingApi["onboardingStatus"]> => requestJson(baseUrl, "/lawoss/onboarding/status", { token, hostToken }),
+    lawossOfficeMemory: (expectedPracticeRoot: string, options?: { signal?: AbortSignal }): Promise<OfficeMemoryRead> => requestJson(baseUrl, `/lawoss/onboarding/office-memory?expectedPracticeRoot=${encodeURIComponent(expectedPracticeRoot)}`, { token, hostToken, signal: options?.signal }),
     updateOnboardingProfile: (profile: Parameters<OnboardingApi["updateOnboardingProfile"]>[0]): ReturnType<OnboardingApi["updateOnboardingProfile"]> => requestJson(baseUrl, "/lawoss/onboarding/profile", { token, hostToken, method: "POST", body: profile }),
     classifyOnboarding: (input: Parameters<OnboardingApi["classifyOnboarding"]>[0]): ReturnType<OnboardingApi["classifyOnboarding"]> => requestJson(baseUrl, "/lawoss/onboarding/classify", { token, hostToken, method: "POST", body: input, timeoutMs: 120_000 }),
     suggestOnboarding: (input: { root: string }): Promise<OnboardingSuggestion> => requestJson(baseUrl, "/lawoss/onboarding/suggest", { token, hostToken, method: "POST", body: input, timeoutMs: 120_000 }),
@@ -3422,11 +3424,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     refreshCalendarEventDraft: (workspaceId: string, draft: CalendarEventDraft) => requestJson<{ draft: CalendarEventDraft }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/connector-drafts/calendar/${encodeURIComponent(draft.id)}/refresh`, { token, hostToken, method: "POST", body: { revision: draft.revision } }),
     saveEmailDraft: (workspaceId: string, draft: EmailDraft) => requestJson<{ draft: EmailDraft }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/email-drafts/${encodeURIComponent(draft.id)}`, { token, hostToken, method: "PUT", body: draft }),
 
-    readWorkspaceFile: (workspaceId: string, path: string) =>
+    readWorkspaceFile: (workspaceId: string, path: string, options?: { signal?: AbortSignal }) =>
       requestJson<LegalworkWorkspaceFileContent>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/files/content?path=${encodeURIComponent(path)}`,
-        { token, hostToken },
+        { token, hostToken, signal: options?.signal },
       ),
 
     prepareLawossDocuments: (workspaceId: string, paths: string[]) => requestJson<{ documents: LawossDocumentSummary[]; untrusted: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/prepare`, { token, hostToken, method: "POST", body: { paths } }),
@@ -3437,11 +3439,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     validateLawossDocuments: (workspaceId: string, input: LawossValidateInput) => requestJson<LawossValidationResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/validate`, { token, hostToken, method: "POST", body: input }),
     listLawossOutputs: (workspaceId: string, offset = 0, limit = 20) => requestJson<{ outputs: LawossOutputStatus[]; nextOffset: number | null; legalApproval: false }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/outputs?offset=${offset}&limit=${limit}`, { token, hostToken }),
 
-    listWorkspaceDirectory: (workspaceId: string, path: string, options?: { within?: string }) =>
+    listWorkspaceDirectory: (workspaceId: string, path: string, options?: { within?: string; signal?: AbortSignal }) =>
       requestJson<LegalworkWorkspaceDirectoryList>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/files/list?path=${encodeURIComponent(path)}${options?.within === undefined ? "" : `&within=${encodeURIComponent(options.within)}`}`,
-        { token, hostToken },
+        { token, hostToken, signal: options?.signal },
       ),
 
     statWorkspaceFile: (workspaceId: string, path: string) =>

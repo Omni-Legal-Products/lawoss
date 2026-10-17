@@ -24,7 +24,7 @@ async function fixture() {
   const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(data, "server.json"), token: "synthetic-client", hostToken: "synthetic-host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [], authorizedRoots: [], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   let server = await startServer(config); stops.push(() => server.stop());
   const headers = { "X-LegalWork-Host-Token": "synthetic-host", "Content-Type": "application/json" };
-  const call = (path: string, body?: unknown, auth = headers) => fetch(`http://127.0.0.1:${server.port}/lawoss/onboarding/${path}`, { headers: auth, ...(body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }) });
+  const call = (path: string, body?: unknown, auth: Record<string, string> = headers) => fetch(`http://127.0.0.1:${server.port}/lawoss/onboarding/${path}`, { headers: auth, ...(body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }) });
   const success = async (path: string, body?: unknown) => { const response = await call(path, body), result = await response.json(); expect({ status: response.status, error: result.error }).toEqual({ status: 200, error: undefined }); return result; };
   const apply = async (request: unknown) => { const preview = await success("plan", request); return success("apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true }); };
   return {
@@ -63,6 +63,22 @@ test("practice applies configuration without registering its clients as workspac
   expect(result.workspace).toBeUndefined(); expect(f.config.workspaces).toHaveLength(0);
   expect((await lstat(join(root, "Office", "okf.config"))).isFile()).toBe(true);
   expect(await readFile(join(client, "original.txt"), "utf8")).toBe(before);
+});
+
+test("office memory of a practice is readable by the host only (N1)", async () => {
+  const f = await fixture(), root = join(f.base, "praxe");
+  await mkdir(join(root, "Klient A"), { recursive: true });
+  expect((await f.call("office-memory")).status).toBe(409);
+  await f.apply({ action: "practice", root, title: "Syntetická prax", jurisdiction: "sk", language: "sk", lawyerName: "Syntetický advokát", clientPattern: "*", scope: "client" });
+  await f.success("profile", { lawyerName: "Syntetický advokát", jurisdiction: "sk", language: "sk", officeRoot: root });
+  await mkdir(join(root, "Office", "memory"), { recursive: true });
+  await writeFile(join(root, "Office", "memory", "T-001-poistka.md"), "syntetická úloha kancelárie\n");
+  const read = await f.success(`office-memory?expectedPracticeRoot=${encodeURIComponent(root)}`);
+  expect(read).toMatchObject({ directory: "Office", files: [{ path: "Office/memory/T-001-poistka.md", content: "syntetická úloha kancelárie\n" }], truncated: false });
+  expect((await f.call(`office-memory?expectedPracticeRoot=${encodeURIComponent(join(f.base, "other"))}`)).status).toBe(409);
+  expect((await f.call(`office-memory?expectedPracticeRoot=${encodeURIComponent(root)}`, undefined, {})).status).toBe(401);
+  // Token, ktorý dostáva engine (OpenCode), hostiteľské čítanie nepustí.
+  expect((await f.call("office-memory", undefined, { Authorization: "Bearer synthetic-client" })).status).toBe(401);
 });
 
 test("office stays configuration, client remains workspace for subject and both matter kinds", async () => {

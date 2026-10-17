@@ -1,3 +1,4 @@
+import { revalidateScopeTarget } from "../../okf/scope-target";
 /** @jsxImportSource react */
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,7 +11,7 @@ import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
 import { deadlineAnchor, hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick } from "../live";
 import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
-import { officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
+import { canActOnSource, localMatter, officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
 import { daysUntil, deadlineKey, deadlineText, dueText, inHorizon, urgencyOf } from "../../okf/view-rules";
 import { composeQuickAction, MORE_ACTIONS, QUICK_ACTIONS } from "../quick-actions";
 import { POSTPROCESS_RESOURCE_NAME, postprocessSource, VYSTUP_SKILL_NAME, vystupSkillBody } from "../../okf/skill-bundle";
@@ -39,7 +40,7 @@ export function LiteMatterPage() {
   // Bez nadpisu stránky: hlavním nadpisem je název věci (LiteMatterView), ne „Klienti a věci“.
   const [params] = useSearchParams();
   // Kľúč podľa veci: pri prechode na inú vec sa vynulujú aj stavy akcií, potvrdenia a chyby.
-  return <OkfPage {...litePageProps(locale)}>{(data, meta) => <LiteMatterBody key={params.get("vec") ?? ""} data={data} meta={meta} />}</OkfPage>;
+  return <OkfPage {...litePageProps(locale)}>{(data, meta, scope) => <LiteMatterBody key={params.get("vec") ?? ""} data={data} meta={meta} scope={scope} />}</OkfPage>;
 }
 
 /** Jen přesná shoda `?vec=`; na rozdíl od `selectMatter` nikdy nespadne na první věc (akce by běžely nad jinou). */
@@ -48,7 +49,7 @@ export function matterFromParams(matters: readonly MatterOverview[], params: URL
   return path === null ? null : matters.find((m) => m.path === path) ?? null;
 }
 
-function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta }) {
+function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfPageMeta; scope: OkfScope | null }) {
   const locale = useLocale();
   const [params] = useSearchParams();
   const navigate = useNavigate();
@@ -62,14 +63,17 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
   const [saved, setSaved] = useState<string | null>(null);
   const queries = useQueryClient();
   const matter = matterFromParams(data.matters, params);
+  // Vec v priečinku svojho klienta: v praxi „každý klient zvlášť“ nikdy nad inou vecou ani nad celou praxou (N1).
+  const local = matter && scope ? localMatter(scope, matter, data.matters) : null;
+  const target = !matter ? null : local;
   useMinuteTick(); // o polnoci sa posunie „dnes" aj odpočet
   useHotTitle(hotDeadlineCount(data, today()));
   const conversations = useQuery({
-    queryKey: ["lite-matter-conversations", matter?.path ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
-    enabled: Boolean(connection?.client && matter),
+    queryKey: ["lite-matter-conversations", target?.workspace?.id ?? "", target?.selected.path ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
+    enabled: Boolean(connection?.client && target),
     queryFn: () => {
-      if (!connection || !matter) throw new Error("no connection");
-      return listMatterConversations(connection, matter.path);
+      if (!connection || !target) throw new Error("no connection");
+      return listMatterConversations(connection, target.selected.path, 5, target.workspace);
     },
   });
   // Bez modelu sa rýchla akcia ani nespustí; detail to povie vopred a ukáže cestu k pripojeniu.
@@ -80,15 +84,16 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
   const input = data.inputs.find((entry) => entry.path === matter.path);
 
   async function onAction(id: ActionId) {
-    if (running.current || !matter || modelGap) return;
+    if (running.current || !matter || !target || meta.failed || !canActOnSource(data, target.workspace.id) || modelGap) return;
     running.current = true; setBusy(id); setError(null);
     try {
       if (!connection) throw new Error(t("lawoss.integrations.error.registration_denied", locale));
-      const prompt = composeQuickAction(id, { title: matter.title, matterRef: matter.matterRef, path: matter.path }, locale);
+      const prompt = composeQuickAction(id, { title: matter.title, matterRef: matter.matterRef, path: target.selected.path }, locale);
       // Jen připraví koncept v nové konverzaci nad věcí; nic se neodesílá.
       // Shared client and office access remains controlled by native Permissions.
-      const target = await openMatterSession(connection, officeWorkspace(connection), matter, data.matters, prompt, id === "document" ? installVystupSkill : undefined);
-      if (alive.current) navigate(target);
+      const current = await revalidateScopeTarget(scope,connection,target.workspace.id);
+      const route = await openMatterSession(current.connection, current.workspace, target.selected, target.discovered, prompt, id === "document" ? installVystupSkill : undefined);
+      if (alive.current) navigate(route);
     } catch (failure) {
       // Surová hláška může obsahovat interní pojmy; advokát vidí obecný text, diagnostika jde do konzole.
       console.warn("LAWOSS-lite: quick action failed", failure);
@@ -97,11 +102,12 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
   }
 
   async function onContinue(conversation: MatterConversation) {
-    if (running.current || !connection) return;
+    if (running.current || !connection || !target || meta.failed || !canActOnSource(data, target.workspace.id)) return;
     running.current = true; setError(null);
     try {
-      const target = await openMatterConversation(connection, conversation);
-      if (alive.current) navigate(target);
+      const current = await revalidateScopeTarget(scope,connection,target.workspace.id);
+      const route = await openMatterConversation(current.connection, conversation);
+      if (alive.current) navigate(route);
     } catch (failure) {
       console.warn("LAWOSS-lite: continue conversation failed", failure);
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -109,12 +115,13 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
   }
 
   async function onFiles(files: File[]) {
-    const office = officeWorkspace(connection);
-    if (running.current || !matter || files.length === 0) return;
+    const office = target?.workspace;
+    if (running.current || !target || meta.failed || !canActOnSource(data, target.workspace.id) || files.length === 0) return;
     running.current = true; setBusy("add_document"); setError(null); setSaved(null);
     try {
       if (!connection?.client || !office) throw new Error(t("lawoss.integrations.error.registration_denied", locale));
-      const result = await saveDocumentsToMatter(connection.client, office.id, matter, files);
+      const current = await revalidateScopeTarget(scope,connection,office.id);
+      const result = await saveDocumentsToMatter(current.connection.client, current.workspace.id, target.selected, files);
       setSaved(result.map((r) => `${r.name} (${r.id})`).join(", "));
       // Dnes a „K zařazení“ mají nový vstup ukázat hned.
       void queries.invalidateQueries({ queryKey: ["okf-overview"] });
@@ -127,7 +134,7 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
   // Kľúč podľa veci: pri prechode na inú vec sa záložka, zvýraznenie aj potvrdenia vynulujú.
   return <LiteMatterView key={matter.path} matter={matter} cockpit={cockpit} busy={busy} error={error} onAction={(id) => void onAction(id)}
     conversations={conversations.data ?? []} onContinue={(c) => void onContinue(c)}
-    onFiles={(files) => void onFiles(files)} saved={saved} modelGap={modelGap}
+    onFiles={(files) => void onFiles(files)} saved={saved} modelGap={modelGap} sourceReady={Boolean(!meta.failed && target && canActOnSource(data,target.workspace.id))}
     scopePaths={input?.scopePaths}
     existingMemorySources={input?.existingMemorySources}
     truths={Object.fromEntries((input?.records ?? []).map((record) => [record.id, record.truth]))}
@@ -135,7 +142,7 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
     meta={meta} focusDeadline={params.get("lehota")} />;
 }
 
-export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], onContinue, onFiles, saved = null, modelGap = null, scopePaths = [], existingMemorySources = [], truths = {}, client, meta, focusDeadline = null }: {
+export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], onContinue, onFiles, saved = null, modelGap = null, sourceReady = true, scopePaths = [], existingMemorySources = [], truths = {}, client, meta, focusDeadline = null }: {
   matter: MatterOverview;
   scopePaths?: readonly string[];
   existingMemorySources?: readonly string[];
@@ -143,6 +150,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
   busy: ActionId | null;
   error: string | null;
   onAction: (id: ActionId) => void;
+  sourceReady?: boolean;
   /** Rozpracované konverzace nad věcí, nejnovější první. */
   conversations?: readonly MatterConversation[];
   onContinue?: (conversation: MatterConversation) => void;
@@ -275,14 +283,14 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
       <div className="lw-matter-dock" style={reveal(1)}>
         <div className="lw-matter-actions">
           {QUICK_ACTIONS.map((action, index) => (
-            <button key={action.id} type="button" className={index === 0 ? "lw-matter-action is-primary" : "lw-matter-action"} disabled={busy !== null || (modelGap !== null && !(action.id === "add_document" && onFiles))} aria-busy={busy === action.id}
+            <button key={action.id} type="button" className={index === 0 ? "lw-matter-action is-primary" : "lw-matter-action"} disabled={!sourceReady || busy !== null || (modelGap !== null && !(action.id === "add_document" && onFiles))} aria-busy={busy === action.id}
               onClick={() => action.id === "add_document" && onFiles ? fileInput.current?.click() : onAction(action.id)}>{t(action.labelKey, locale)}</button>
           ))}
           <details className="lw-matter-more" ref={moreMenu}>
             <summary>{text("matter_more")}</summary>
             <div className="lw-matter-more-list" aria-label={text("more_actions")}>
               {MORE_ACTIONS.map((action) => (
-                <button key={action.id} type="button" className="lw-matter-action" disabled={busy !== null || modelGap !== null} aria-busy={busy === action.id} onClick={() => { if (moreMenu.current) moreMenu.current.open = false; onAction(action.id); }}>{t(action.labelKey, locale)}</button>
+                <button key={action.id} type="button" className="lw-matter-action" disabled={!sourceReady || busy !== null || modelGap !== null} aria-busy={busy === action.id} onClick={() => { if (moreMenu.current) moreMenu.current.open = false; onAction(action.id); }}>{t(action.labelKey, locale)}</button>
               ))}
             </div>
           </details>
@@ -305,7 +313,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
           <h2 className="lw-matter-section">{text("conversations_title")}</h2>
           <div className="lw-matter-conv-list">
             {conversations.map((c) => (
-              <button key={c.id} type="button" className="lw-matter-conv" disabled={busy !== null} onClick={() => onContinue?.(c)}>
+              <button key={c.id} type="button" className="lw-matter-conv" disabled={!sourceReady || busy !== null} onClick={() => onContinue?.(c)}>
                 <span className="lw-matter-conv-title">{c.title ?? text("conversation_untitled")}</span>
                 <span className="lw-matter-conv-meta"><span className="lw-matter-mono">{formatStamp(c.updated, locale)}</span><span className="lw-matter-conv-go">{text("conversation_continue")}</span></span>
               </button>

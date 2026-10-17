@@ -417,3 +417,8 @@ Finalround1: ordinaryCI renderer2/2PASS after explicit syntheticbuiltindex refin
 - Minimal native driver fix requires known Electron/hash/committed public route and owner, with prior public+DOM IDs captured inside the existing folder wait. No application routing/store change, new wait budget or weakened chooser guard.
 - Existing browser regression now mounts production import handler and tab rendering, with control-off publication and parked-tab proof; missing/foreign state and original ownership/visibility/error checks retained. Two missing-provider setup failures are distinct from intended RED; all owned browser cleanup receipts PASS. Final gate details are private and source-bound.
 - Files: native driver/browser fixture, app chooser fixture, README, PATCHES and identical instruction twins. No local engine/Electron/provider or publication; ordinary next-head platform CI remains authoritative.
+
+2026-10-17 — Selected-practice overview local implementation (base fdd10927).
+Files: lawoss app scope/read-model/coverage/client routing; host office-memory and SDK cancellation; source regressions; PATCHES.md; AGENTS.md/CLAUDE.md.
+Pattern: preserve raw per-source successful inputs in RAM and recompute one buildOverview; a failed attempt cannot advance the success timestamp. Keep connection identity separate from scope and calendar day, and do not treat a removed source as successful absence.
+Evidence: practice-red-scope.log, practice-red-office.log, practice-red-routing.log and practice-green-* under the external implementation-run/evidence directory. Native/package/Windows and cross-client engine credentials require the parent integration gate; no live profile/model calls, send, publication or commit performed.
