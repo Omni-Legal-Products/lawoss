@@ -1097,3 +1097,9 @@ The green-zone engine guard inventories installed SDK v2 prompt/compact, legacy 
 ### Required CI guard and release-test wiring (2026-10-18)
 
 `apps/desktop/package.json` appends exactly `electron/build-info.test.mjs`, `scripts/release-acceptance.test.mjs` and `scripts/release-acceptance-macos.test.mjs` to the existing explicit desktop test command; every previous command/test entry remains unchanged. The green-zone no-Eigenwelt structure checker recognizes only the supported managed-engine empty/inherited environment selector while preserving final policy-spread ordering and catalog/share/update guards. Mutation checks reject removing/reordering those guards; the existing real spawned engine fixture now verifies both inherited and empty environments without changing production environment behavior.
+
+### Standalone OKF reader-test portability (2026-10-18)
+
+| Green-zone file | Change and validation |
+| --- | --- |
+| `lawoss/okf/test/deadline-trust.test.ts` | Build the synthetic managed-record input with the existing portable envelope writer instead of importing server calculation/codec fixtures. Preserve all host-evidence, forged human attribution, cockpit and external-edit assertions. The actual standalone CI filtered install now passes strict typecheck, all OKF tests and unchanged reproducible bundle; server deadline codec/receipt regressions stay separate and unchanged. No production authority, package dependencies or workflow changes. |
