@@ -9,7 +9,7 @@
  * persisted synchronously, so run status survives server restarts; on boot,
  * orphaned in-flight work is marked `interrupted` and can be resumed explicitly.
  */
-import { collectScenarioEvidence } from "../lawoss/benchmark-scenario-evidence.js";
+import { captureScenarioSources, collectScenarioEvidence, type ScenarioSourceInventory } from "../lawoss/benchmark-scenario-evidence.js";
 import { scenarioToolBehaviorDecision, scenarioFormatDecision, SCENARIO_FORMAT_CRITERION, SCENARIO_TAG } from "../lawoss/benchmark-scenarios.js";
 import { ApiError } from "../errors.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
@@ -497,6 +497,7 @@ export class BenchmarkRunner {
     const releaseAgent = await input.agentSemaphore.acquire();
     let workDir: string;
     let deliverables: JudgeDeliverable[];
+    let admittedSources: ScenarioSourceInventory | undefined;
     try {
       if (handle.abortRequested) {
         this.store.updateItem(item.id, { status: "aborted", finishedAt: this.now() });
@@ -512,6 +513,7 @@ export class BenchmarkRunner {
         documentsDir,
       });
       this.store.updateItem(item.id, { workDir });
+      if (task.tags.includes(SCENARIO_TAG)) admittedSources = await captureScenarioSources(workDir);
 
       const client = this.createClient(workspace, workDir);
       const session = await client.session.create({
@@ -552,10 +554,11 @@ export class BenchmarkRunner {
       });
       // A reply cut off at the output limit loses whatever it was writing —
       // typically the whole deliverable in one tool call — and the session just
-      // ends. Ask the agent to carry on in smaller steps before giving up.
+      // ends. Generic document benchmarks may continue in smaller steps.
+      // Scenario scoring preserves the first output; never repair it in place.
       for (
         let attempt = 0;
-        attempt < OUTPUT_LIMIT_RECOVERY_ATTEMPTS && wasCutOffAtOutputLimit(assistant);
+        !task.tags.includes(SCENARIO_TAG) && attempt < OUTPUT_LIMIT_RECOVERY_ATTEMPTS && wasCutOffAtOutputLimit(assistant);
         attempt += 1
       ) {
         assistant = await this.runAgentPrompt({
@@ -589,6 +592,7 @@ export class BenchmarkRunner {
       // did get written is complete (a tool call runs whole or not at all), so
       // that case is judged normally.
       if (cutOff && !collected.deliverables.some((deliverable) => deliverable.relativePath)) {
+        if (task.tags.includes(SCENARIO_TAG)) throw new Error("SCENARIO_OUTPUT_LIMIT: first attempt reached the output limit without an artifact; no automatic repair was submitted");
         throw new Error(await this.outputLimitFailureMessage(client, workDir, item));
       }
       // Extract deliverable text once per item so each judge call is a single
@@ -614,7 +618,7 @@ export class BenchmarkRunner {
     try {
       if (handle.abortRequested) throw new BenchmarkAbortError();
       this.store.updateItem(item.id, { status: "judging" });
-      const verdicts = await this.judgeItem({ workspace, run, item, task, workDir, deliverables, handle });
+      const verdicts = await this.judgeItem({ workspace, run, item, task, workDir, deliverables, handle, admittedSources });
       const { score, nCriteria, nPassed } = scoreVerdicts(verdicts);
       // A wall of judge errors is a broken pipeline (e.g. the judge provider
       // rejecting every call), not a graded failure — surface it as such.
@@ -831,6 +835,7 @@ export class BenchmarkRunner {
     workDir: string;
     deliverables: JudgeDeliverable[];
     handle: RunHandle;
+    admittedSources?: ScenarioSourceInventory;
   }): Promise<Array<{ verdict: "pass" | "fail" | "error" }>> {
     const { run, item, task, workDir, handle } = input;
     const judgeModel = { providerID: run.judgeProviderId, modelID: run.judgeModelId };
@@ -838,7 +843,11 @@ export class BenchmarkRunner {
     const client = this.createClient(input.workspace, workDir);
     const formatDecision = scenarioFormatDecision(task, input.deliverables);
     const judgedTask = formatDecision ? { ...task, criteria: task.criteria.filter(criterion => criterion.id !== SCENARIO_FORMAT_CRITERION) } : task;
-    const evidence = formatDecision ? await collectScenarioEvidence(workDir, input.deliverables) : null;
+    let evidence: Awaited<ReturnType<typeof collectScenarioEvidence>> | null = null;
+    if (formatDecision) {
+      if (!input.admittedSources) throw new Error("missing pre-agent source inventory");
+      evidence = await collectScenarioEvidence(workDir, input.deliverables, input.admittedSources);
+    }
     const prompt = buildJudgePrompt({ task: judgedTask, deliverables: input.deliverables }) +
       (evidence && !evidence.blocked ? `
 
