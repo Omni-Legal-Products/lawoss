@@ -10,7 +10,7 @@
  * orphaned in-flight work is marked `interrupted` and can be resumed explicitly.
  */
 import { collectScenarioEvidence } from "../lawoss/benchmark-scenario-evidence.js";
-import { scenarioFormatDecision, SCENARIO_FORMAT_CRITERION, SCENARIO_TAG } from "../lawoss/benchmark-scenarios.js";
+import { scenarioToolBehaviorDecision, scenarioFormatDecision, SCENARIO_FORMAT_CRITERION, SCENARIO_TAG } from "../lawoss/benchmark-scenarios.js";
 import { ApiError } from "../errors.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { shortId } from "../utils.js";
@@ -928,7 +928,7 @@ ${evidence.prompt}` : "");
     const verdicts: Array<{ verdict: "pass" | "fail" | "error" }> = [];
     for (const criterion of task.criteria) {
       const decision = formatDecision && criterion.id === SCENARIO_FORMAT_CRITERION ? formatDecision
-        : evidence?.blocked ? evidence : decisions?.get(criterion.id) ?? null;
+        : scenarioToolBehaviorDecision(task, criterion) ?? (evidence?.blocked ? evidence : decisions?.get(criterion.id) ?? null);
       const verdict = decision?.verdict ?? "error";
       const reasoning =
         decision?.reasoning ?? (decisions ? "judge omitted this criterion from its verdicts" : failureReason);

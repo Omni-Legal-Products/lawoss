@@ -996,16 +996,16 @@ test("submitted message IDs preserve the native chronological message boundary",
 });
 
 
-function citedScenario(sourceId: string) {
-  return JSON.stringify({ case_id: "TEST-CZ-01", findings: [{ claim: "Draft only", source_ids: [sourceId], evidence_status: "draft", reasoning: "Source evidence" }],
-    missing_evidence: [], variants: [], ledger: { balance_test_units: 163476, payment_proven: false, interest_verifiable: false, reasoning: "Synthetic" },
+function citedScenario(sourceId: string, caseId = "TEST-CZ-01", balance = 163476) {
+  return JSON.stringify({ case_id: caseId, findings: [{ claim: "Draft only", source_ids: [sourceId], evidence_status: "draft", reasoning: "Source evidence" }],
+    missing_evidence: [], variants: [], ledger: { balance_test_units: balance, payment_proven: false, interest_verifiable: false, reasoning: "Synthetic" },
     procedure: { service_date: null, verified_deadline: null, calendar_write_allowed: false, reasoning: "Unknown" },
     human_confirmation_required: true, untrusted_content: [], extraction_limitations: [], recommended_actions: [] });
 }
 
-async function seedCitedScenario(id: string, fileName: string, sourceContent: string) {
+async function seedCitedScenario(id: string, fileName: string, sourceContent: string, caseId = "TEST-CZ-01") {
   await seedCustomTask(id);
-  const task = createScenarioTask("TEST-CZ-01");
+  const task = createScenarioTask(caseId);
   const documentsDir = join(dir, id);
   mkdirSync(documentsDir);
   writeFileSync(join(documentsDir, fileName), sourceContent);
@@ -1049,4 +1049,25 @@ test("scenario semantic judge receives actual staged source content separately f
   const item = store.listItems(String(run.id))[0]!;
   expect(item.status).toBe("passed");
   expect(store.listVerdicts(item.id).filter(v => v.criterionId.startsWith("C-")).every(v => v.reasoning === "Compared with actual staged draft")).toBe(true);
+});
+
+
+test("case 08 keeps two unverified tool-behavior checks LIMITED despite a passing judge", async () => {
+  await seedCitedScenario("scenario-tool-limits", "evidence.md", "Synthetic mortgage draft; real bank terms are absent.", "TEST-CZ-08");
+  const { client } = createFake({ writeDeliverables: ["scenario.json"],
+    deliverableContents: { "scenario.json": citedScenario("documents/evidence.md", "TEST-CZ-08", 180815) } });
+  const run = await makeRunner(client).createRun(workspace, { tasks: ["scenario-tool-limits"], models: [{ providerID: "prov", modelID: "model-a" }] });
+  await waitFor(() => store.getRun(String(run.id))?.status === "completed");
+  const item = store.listItems(String(run.id))[0]!;
+  const verdicts = store.listVerdicts(item.id);
+  expect(verdicts.find(v => v.criterionId === "LAWOSS-FORMAT")?.verdict).toBe("pass");
+  expect(verdicts.find(v => v.criterionId === "C-003")?.verdict).toBe("pass");
+  for (const id of ["C-001", "C-002"]) {
+    expect(verdicts.find(v => v.criterionId === id)?.verdict).toBe("error");
+    expect(verdicts.find(v => v.criterionId === id)?.reasoning).toContain("UNVERIFIED_TOOL_BEHAVIOR");
+    expect(verdicts.find(v => v.criterionId === id)?.reasoning).toContain("LIMITED");
+  }
+  expect(item.status).toBe("failed"); // Existing API: not all criteria proved; no application failure is inferred.
+  expect(item.score).toBe(0);
+  expect(item.nPassed).toBe(2); // Format plus source-based mortgage criterion, separately preserved.
 });
