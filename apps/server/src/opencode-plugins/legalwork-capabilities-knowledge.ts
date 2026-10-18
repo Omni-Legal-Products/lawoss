@@ -1,4 +1,5 @@
 import { boundedProviderRetries } from "./bounded-provider-retries.js";
+import { providerFailureObserver } from "./provider-failure-observer.js";
 /**
  * LegalWork Capabilities Knowledge Plugin
  *
@@ -107,6 +108,7 @@ export const LegalWorkCapabilitiesKnowledge = async (input: SavedConversations =
       output.system.push(LEGALWORK_CAPABILITIES_KNOWLEDGE);
     },
     "chat.message": projectPrompt.userMessage,
+    "chat.headers": providerFailureObserver(input),
     "tool.execute.after": projectPrompt.toolResult,
     event: async (event: Parameters<typeof stopRetries>[0]) => { projectPrompt.event(event); await stopRetries(event); },
   };
