@@ -11,6 +11,7 @@ import { addRoute, type RequestContext, type Route } from "../routes/registry.js
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { externalAppFilesRoot } from "./workspace-app-files.js";
 import { registerTriageRoutes } from "./triage.js";
+import { readOfficeMemory } from "./office-memory.js";
 import { executeOnboarding, inspectCardLevel, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, suggestOnboardingLevel, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
 
 /** OKF is opt-in; enabling it requires a dated acknowledgement of a versioned notice. */
@@ -109,6 +110,11 @@ export function registerOnboardingRoutes(options: {
     }
   });
   route("GET", "status", async () => ({ profile: await readProfile(), capabilities: { map: true, trialClone: true } }));
+  // Prehľad praxe (N1, MČ 16. 10. 2026): pamäť kancelárie v koreni praxe číta len hostiteľ, agent ju má cez grant.
+  route("GET", "office-memory", async () => {
+    const officeRoot = (await readProfile())?.officeRoot;
+    return officeRoot ? readOfficeMemory(await canonicalDirectory(officeRoot)) : { directory: null, files: [], problems: [], truncated: false };
+  });
   route("POST", "profile", async ctx => {
     const rawPatch = profileSchema.partial().extend({ subjectRoot: z.string().min(1).max(4096).nullable().optional() }).parse(await body(ctx));
     const patch = { ...rawPatch, ...(rawPatch.subjectRoot === null ? { subjectRoot: undefined, matterRoot: undefined } : {}) };
