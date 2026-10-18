@@ -1,6 +1,6 @@
 # @lawoss/okf-reader
 
-Prenositeľné čítanie OKF. [Specifikácia](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/spec/obsidian-okf-reader/specs/0018-obsidian-okf-plugin.md).
+Prenositeľné čítanie OKF. [Specifikácia](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/dcd7661/specs/0018-obsidian-okf-plugin.md).
 
 `OkfReadSource.list(path)` vracia bezprostredné súbory/priečinky a príznak neúplného výpisu. `readText(path)` vracia skutočný obsah. Obe cesty sú relatívne ku koreňu zdroja. Hostiteľ zabezpečuje fyzický rozsah a dekódovanie; API nemá zápis.
 
