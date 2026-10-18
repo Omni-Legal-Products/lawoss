@@ -3,7 +3,7 @@ import { lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "n
 import { extname, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { ApiError } from "../../errors.js";
-import { CORPUS_EXTENSIONS, extractCorpusText } from "../../corpus/extract.js";
+import { CORPUS_EXTENSIONS, extractCorpusText, type CorpusAttachment } from "../../corpus/extract.js";
 import type { DocumentPreparation } from "../../document-preparation/service.js";
 import { within } from "../../reviews/storage.js";
 import type { ServerConfig, WorkspaceInfo } from "../../types.js";
@@ -161,28 +161,31 @@ export class LawossDocuments {
     if (!CORPUS_EXTENSIONS.has(extension)) { await this.update(workspace, record.id, { status: "failed", issue: "Unsupported attachment or document format.", complete: false }); return false; }
     const file = `${record.id}${extension}`; await writeFile(join(scratch, file), bytes, { flag: "wx", mode: 0o600 });
     let result;
-    try { result = await extractCorpusText(scratch, file, this.preparation, signal, { retry: true }); }
+    try { result = await extractCorpusText(scratch, file, this.preparation, signal, { retry: true, attachments: true }); }
     catch (error) { signal.throwIfAborted(); await this.update(workspace, record.id, { status: "failed", issue: error instanceof Error ? error.message : "Extraction failed.", complete: false }); return false; }
     budget.text += result.text.length;
     if (budget.text > LIMIT.text) {
       await this.update(workspace, record.id, { status: "failed", complete: false, issue: "Portfolio text exceeds 2 million characters; narrow the source." }); return false;
     }
-    let complete = result.complete, issue = result.issue;
+    let complete = result.attachments ? !!result.text.trim() && result.pages.every(page => page.status === "complete") : result.complete;
+    let issue = result.attachments?.length && complete ? undefined : result.issue;
     await this.update(workspace, record.id, { pages: result.pages.map(({ page, text, source, status }) => ({ page, text, source, status })), extraction: result.extraction });
-    if (extension === ".pdf") {
+    if (extension === ".pdf" || result.attachments) {
       try {
         const { inspectPdfAttachments } = await import("../../document-preparation/render.js");
-        const attachments = await inspectPdfAttachments(bytes, signal, { count: LIMIT.attachments - budget.count, bytes: LIMIT.attachmentBytes - budget.bytes });
+        const attachments: CorpusAttachment[] = result.attachments ?? await inspectPdfAttachments(bytes, signal, { count: LIMIT.attachments - budget.count, bytes: LIMIT.attachmentBytes - budget.bytes });
+        if (attachments.length > LIMIT.attachments - budget.count) throw new Error("Document attachment count exceeds the tree limit.");
+        if (attachments.reduce((sum, attachment) => sum + attachment.bytes.length, 0) > LIMIT.attachmentBytes - budget.bytes) throw new Error("Document attachment bytes exceed the tree limit.");
         // Reserve all immediate siblings before recursion. A nested subtree
         // must not spend bytes/count already needed by later siblings.
         budget.count += attachments.length;
         budget.bytes += attachments.reduce((sum, attachment) => sum + attachment.bytes.length, 0);
         for (const attachment of attachments) {
           signal.throwIfAborted();
-          if (record.provenance.depth >= LIMIT.depth) throw new Error("Portfolio attachment nesting exceeds 3 levels.");
+          if (record.provenance.depth >= LIMIT.depth) throw new Error("Document attachment nesting exceeds 3 levels.");
           const child: DocumentRecord = { id: randomUUID(), workspaceId: workspace.id, path: record.path, hash: hash(attachment.bytes), status: "preparing", pages: [], complete: false, updatedAt: Date.now(), provenance: { sourcePath: record.provenance.sourcePath, parentId: record.id, parentHash: record.hash, attachmentName: attachment.name.slice(0, 4096), depth: record.provenance.depth + 1 } };
           await this.lock(async () => { const records = await this.records(workspace); if (records.length >= LIMIT.records) throw new Error("Document record limit reached."); records.push(child); await this.save(workspace, records); });
-          if (!await this.extract(workspace, child, attachment.bytes, extname(attachment.name).toLowerCase(), scratch, signal, budget, seen)) { complete = false; issue = "Some portfolio attachments are unreadable or incomplete."; }
+          if (!await this.extract(workspace, child, attachment.bytes, attachment.extension ?? extname(attachment.name).toLowerCase(), scratch, signal, budget, seen)) { complete = false; issue = "Some document attachments are unreadable or incomplete."; }
         }
       } catch (error) { signal.throwIfAborted(); complete = false; issue = error instanceof Error ? error.message : "Portfolio discovery failed."; }
     }

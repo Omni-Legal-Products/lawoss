@@ -28,6 +28,22 @@ async function setup(): Promise<ProjectContentSources> {
 }
 const actor = { userId: null, name: null, email: null };
 
+test("native project read directs visible EML to preparation by path and subsequent UUID reads", async () => {
+  const sources = await setup();
+  await mkdir(join(sources.workspace.path, "Mail"));
+  await writeFile(join(sources.workspace.path, "Mail", "message.eml"), "Content-Type: text/plain\r\n\r\nSynthetic email");
+  try {
+    await readProjectContent(sources, { kind: "files", id: "Mail/message.eml" });
+    throw new Error("Expected document redirect");
+  } catch (error) {
+    const { ApiError } = await import("./errors.js");
+    expect(error).toBeInstanceOf(ApiError);
+    if (!(error instanceof ApiError)) throw error;
+    expect(error.code).toBe("document_tool_required");
+    expect(error.details).toEqual({ nextTool: "lawoss_documents_prepare", arguments: { paths: ["Mail/message.eml"] }, then: ["lawoss_documents_list", "lawoss_documents_read"] });
+  }
+});
+
 test("overview scopes linked tasks and includes note previews, files, sessions and recording availability", async () => {
   const sources = await setup();
   sources.tasks.createTask({ title: "Included", description: "Draft this", projectId: sources.workspace.id }, actor);
