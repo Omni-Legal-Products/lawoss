@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "release_tag": "testdata-sk-okf-v1",
+  "download_url": "https://github.com/Omni-Legal-Products/lawoss/releases/download/testdata-sk-okf-v1/2026-10-17-lawoss-slovak-okf-synthetic-dataset-v1.zip",
+  "sha256": "0edddcc3c22eb8770ae13ad663be963c5446e1622c9a6b5146075fdf6ee4824c",
+  "size_bytes": 171898323,
+  "archive_root": "LAWOSS-SK-synthetic-v1",
+  "file_count": 5792,
+  "clients": 24,
+  "matters": 72,
+  "source_documents": 1152,
+  "edge_scenarios": 60,
+  "setup": "Download, verify checksum, extract and reuse; no generation required."
+}
