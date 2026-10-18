@@ -417,3 +417,10 @@ Finalround1: ordinaryCI renderer2/2PASS after explicit syntheticbuiltindex refin
 - Minimal native driver fix requires known Electron/hash/committed public route and owner, with prior public+DOM IDs captured inside the existing folder wait. No application routing/store change, new wait budget or weakened chooser guard.
 - Existing browser regression now mounts production import handler and tab rendering, with control-off publication and parked-tab proof; missing/foreign state and original ownership/visibility/error checks retained. Two missing-provider setup failures are distinct from intended RED; all owned browser cleanup receipts PASS. Final gate details are private and source-bound.
 - Files: native driver/browser fixture, app chooser fixture, README, PATCHES and identical instruction twins. No local engine/Electron/provider or publication; ordinary next-head platform CI remains authoritative.
+
+2026-10-18/19 — Spoločný OKF reader pre Obsidian (VŘ)
+- Vyčlenené `lawoss/okf-reader`, serverový adaptér a prekladové obaly v appke zachované. Zdrojové Markdown súbory ostávajú jedinou pravdou.
+- Baseline 83/83; po extrakcii čítacie/paritné regrese zelené. Celá app sada: 2597 PASS / 2 platform SKIP / 0 FAIL (bun test tests/). Pamäť: 676 PASS / 2 SKIP / 0 FAIL. Typecheck app aj browser jadra overené.
+- Závislosti: prvý beh bez React/server deps bol neúplný setup, opakovaný beh po filtrovanom install prešiel. Pôvodný lockfile nemal integrity pre priamy oficiálny xlsx tarball; doplnený SHA-512 pre ten istý xlsx 0.20.3, bez zmeny URL/verzie.
+- Poučenie: validovať efektívny zdedený kontext, nie samostatné adresáre; inak platná väzba vec→klient vyzerá ako BROKEN_LINK. Výsledky súbežných čítaní normalizovať stabilným poradím.
+- Súbory: lawoss/okf-reader/**, apps/app/src/lawoss/okf/read-model.ts, view-rules.ts, pnpm-lock.yaml, PATCHES.md, reader CI. Nové lokálne AGENTS.md vysvetľuje read-only vstup bez write-capable barrelov.
