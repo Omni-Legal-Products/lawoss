@@ -49,4 +49,4 @@ This catalog pins v1 by tag, asset name, byte count and SHA-256. For a future re
 
 ## Česká scenárová sada
 
-Pre desať českých syntetických pracovných situácií použite [zmrazený CZ corpus](lawoss/testing/fixtures/README.md). Jeho 300 súborov je viazaných manifestom SHA256 `e7cd7b73470269a1e02b0267b5a627db2dd02f05909f80f68a013a2cec7c965b` a offline kontrolou po Git checkoute. Ground truth zůstává mimo modelový výber; sada s dátumami2035nedokladá budúceprávo ani kladný kalendárový workflow. Nenahrádza vyššie uvedený slovenský korpus pre rutinné OKF testy.
+Pre desať českých syntetických pracovných situácií použite [zmrazený CZ corpus](lawoss/testing/fixtures/README.md). Jeho 300 súborov je viazaných manifestom SHA256 `e7cd7b73470269a1e02b0267b5a627db2dd02f05909f80f68a013a2cec7c965b` a offline kontrolou po Git checkoute. Ground truth zostáva mimo modelového výberu; sada s dátumami v roku 2035 nedokladá budúce právo ani kladný kalendárový workflow. Nenahrádza vyššie uvedený slovenský korpus pre rutinné OKF testy.
