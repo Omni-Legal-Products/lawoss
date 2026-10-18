@@ -1004,3 +1004,10 @@ Zachované obe histórie a celý nezmenený samostatný SDK/dependency helper; r
 |---|---|
 | `apps/app/src/react-app/shell/use-session-group-sync.ts`, `apps/app/src/react-app/shell/session-group-sync-controller.ts` | Jediný životný cyklus vlastní initial sync, polling, cursory a backoff naprieč metadata rendermi. Nedostupný root čaká na existujúcu akciu reconnect alebo zmenu root/capability; žiadny projekt sa nemaže. Generačné kontroly odmietnu oneskorené odpovede; reconnect počas pending čítania sa zopakuje až po uvoľnení vlastníka. |
 | `apps/app/tests/session-group-sync-controller.test.ts`, `apps/app/tests/session-group-sync.fixture.tsx`, `apps/app/tests/fixtures/session-group-sync.html` | Jednotkové interleaving/fake-clock regresie a skutočne mounted React hook s existujúcim HTTP klientom v izolovanom Chromiu. Tridsať minút je simulovaný čas, nie 30-minútový wall-clock Electron test; sedem nedostupných projektov vyvolá sedem vlastných warnings, dostupný ďalej polluje. |
+
+### Frozen public CZ fixture bytes (2026-10-18)
+
+| Súbory | Dôvod a overenie |
+|---|---|
+| `.gitattributes` | Úzka `-text whitespace=cr-at-eol` výnimka pre `lawoss/testing/fixtures/cz-workflow-derived-v1/**` zachová pôvodné MIME/CSV CRLF viazané nezávisle overeným manifestom. RED20zmienhashovpoGitadd; GREEN všetkých299payloads zGitobjektov, fresharchive aj checkout-index s core.autocrlf=true. Ostatné textové súbory si ponechávajú LF. |
+| `.github/workflows/ci-public-fixtures.yml` | Samostatná offline Node24 kontrola presného allowlistu/hashov/symlinkov po skutočnom Git checkoute, bez providerov/modelov/secrets a bez inštalácie závislostí. |
