@@ -5,3 +5,6 @@
 * text=auto eol=lf
 apps/app/public/third-party/** linguist-vendored
 *.pdf binary
+
+# Frozen test corpus: manifests bind original bytes, including MIME/CSV CRLF.
+lawoss/testing/fixtures/cz-workflow-derived-v1/** -text
