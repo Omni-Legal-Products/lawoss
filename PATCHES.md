@@ -1013,3 +1013,16 @@ Zachované obe histórie a celý nezmenený samostatný SDK/dependency helper; r
 |---|---|
 | `.gitattributes` | Úzka `-text whitespace=cr-at-eol` výnimka pre `lawoss/testing/fixtures/cz-workflow-derived-v1/**` zachová pôvodné MIME/CSV CRLF viazané nezávisle overeným manifestom. RED20zmienhashovpoGitadd; GREEN všetkých299payloads zGitobjektov, fresharchive aj checkout-index s core.autocrlf=true. Ostatné textové súbory si ponechávajú LF. |
 | `.github/workflows/ci-public-fixtures.yml` | Samostatná offline Node24 kontrola presného allowlistu/hashov/symlinkov po skutočnom Git checkoute, bez providerov/modelov/secrets a bez inštalácie závislostí. |
+### 2026-10-18 — PDF visual coverage and host review
+
+Approved repair scope: scenario repair plan; coordination proposal remains [PR #100](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/100). No calculator or Google feature implementation.
+
+| Upstream files | Small hook / preservation contract |
+|---|---|
+| `apps/server/src/document-preparation/render.ts`, `apps/server/src/corpus/extract.ts`, `apps/server/src/content-search.test.ts` | Add per-page native text/visual reasons; preserve OCR recognition and coordinates while visual uncertainty remains partial. Existing OCR regression retains its location assertions. |
+| `apps/app/src/app/lib/legalwork-server.ts`, `apps/app/src/react-app/domains/session/panel/{document-processing-panel,workspace-files-panel}.tsx` | Native document panel shows text vs visual coverage, opens the original viewer and submits explicit hash/revision-bound host confirmation. Host capability is a boolean; credentials remain closed over in the existing client. |
+| `apps/app/src/i18n/locales/{en,de,cs,sk}.ts`, `apps/app/tests/{document-processing-client.test.ts,document-processing-panel.test.tsx}` | Localized exact-source confirmation, bearer-only explanation, and native rendering/client regressions. |
+
+LAWOSS service/types/route additions remain under their existing document workflow. Host-only review cannot clear images, annotations, missing text, failed attachment discovery or unreviewed descendants. No source bytes or raw preparation evidence are edited.
+
+Native embedded-child review controls stay blocked until the viewer opens the exact decoded child bytes; a parent cover/email is not sufficient visual evidence. The source-container open action is labeled separately.
