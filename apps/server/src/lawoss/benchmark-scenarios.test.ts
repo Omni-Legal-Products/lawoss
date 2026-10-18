@@ -2,10 +2,14 @@ import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { zipSync, strToU8 } from "fflate";
-import { collectScenarioEvidence } from "./benchmark-scenario-evidence.js";
+import { captureScenarioSources, collectScenarioEvidence as collectAdmittedScenarioEvidence } from "./benchmark-scenario-evidence.js";
 import { describe, expect, test } from "bun:test";
 import { buildAgentPrompt } from "../benchmarks/judge.js";
 import { createScenarioTask, gradeScenarioOutput, SCENARIO_CASES, scenarioFormatDecision } from "./benchmark-scenarios.js";
+
+async function collectScenarioEvidence(workDir: string, deliverables: Parameters<typeof collectAdmittedScenarioEvidence>[1]) {
+  return collectAdmittedScenarioEvidence(workDir, deliverables, await captureScenarioSources(workDir));
+}
 
 function answer() {
   return {
@@ -103,7 +107,7 @@ describe("bounded staged citation evidence", () => {
     await withSources(async dir => {
       await mkdir(join(dir, "outside")); await writeFile(join(dir, "outside", "x.md"), "Outside");
       await symlink(join(dir, "outside"), join(dir, "documents", "nested"), "dir");
-      expect(await collectScenarioEvidence(dir, cited(["documents/nested/x.md"]))).toEqual({ blocked: true, verdict: "fail", reasoning: "OUTSIDE_SOURCE_ID" });
+      expect(await collectScenarioEvidence(dir, cited(["documents/nested/x.md"]))).toEqual({ blocked: true, verdict: "fail", reasoning: "UNADMITTED_SOURCE" });
     });
   });
   test("refuses an oracle path even if accidentally staged", async () => {
@@ -154,6 +158,53 @@ describe("bounded staged citation evidence", () => {
       for (let index = 0; index < 1000; index++) files[`unused/${index}`] = new Uint8Array();
       await writeFile(join(dir, "documents", "many.docx"), zipSync(files));
       expect(await collectScenarioEvidence(dir, cited(["documents/many.docx"]))).toEqual({ blocked: true, verdict: "error", reasoning: "SOURCE_ARCHIVE_LIMIT" });
+    });
+  });
+
+  function overlappingStoredArchive(compression = 0, count = 20, payloadSize = 1024 * 1024) {
+    const prefix = strToU8("<w:document><w:p>Draft only</w:p><!--");
+    const suffix = strToU8("--></w:document>");
+    const payload = Buffer.concat([prefix, Buffer.alloc(payloadSize - prefix.length - suffix.length, 65), suffix]);
+    const base = Buffer.from(zipSync({ payload }, { level: 0 }));
+    const centralOffset = base.readUInt32LE(base.length - 6);
+    const template = base.subarray(centralOffset, centralOffset + 46);
+    const records: Buffer[] = [];
+    for (let index = 0; index < count; index++) {
+      const name = Buffer.from(index === 0 ? "word/document.xml" : `word/media/${index === 1 ? "xx0" : `x${index - 1}`}.bin`);
+      const header = Buffer.from(template);
+      header.writeUInt16LE(compression, 10);
+      header.writeUInt32LE(payloadSize, 20);
+      header.writeUInt32LE(1, 24); // Understated declared size, regardless of actual stored payload.
+      header.writeUInt16LE(name.length, 28);
+      header.writeUInt16LE(0, 30); header.writeUInt16LE(0, 32);
+      header.writeUInt32LE(0, 42); // All output names alias the same local record.
+      records.push(header, name);
+    }
+    const central = Buffer.concat(records);
+    const footer = Buffer.alloc(22);
+    footer.writeUInt32LE(0x06054b50, 0);
+    footer.writeUInt16LE(count, 8); footer.writeUInt16LE(count, 10);
+    footer.writeUInt32LE(central.length, 12); footer.writeUInt32LE(centralOffset, 16);
+    return Buffer.concat([base.subarray(0, centralOffset), central, footer]);
+  }
+  test("rejects overlapping stored entries whose declared original sizes hide twenty MiB", async () => {
+    await withSources(async dir => {
+      const archive = overlappingStoredArchive();
+      expect(archive.length).toBe(1049905);
+      await writeFile(join(dir, "documents", "overlap.docx"), archive);
+      expect(await collectScenarioEvidence(dir, cited(["documents/overlap.docx"]))).toEqual({ blocked: true, verdict: "error", reasoning: "UNREAD_SOURCE_ARCHIVE" });
+    });
+  });
+  test("rejects a small stored entry size mismatch independently of total archive limits", async () => {
+    await withSources(async dir => {
+      await writeFile(join(dir, "documents", "mismatch.docx"), overlappingStoredArchive(0, 1, 160));
+      expect(await collectScenarioEvidence(dir, cited(["documents/mismatch.docx"]))).toEqual({ blocked: true, verdict: "error", reasoning: "UNREAD_SOURCE_ARCHIVE" });
+    });
+  });
+  test("bounds aggregate encoded entry sizes even when original sizes claim only twenty bytes", async () => {
+    await withSources(async dir => {
+      await writeFile(join(dir, "documents", "encoded.docx"), overlappingStoredArchive(8));
+      expect(await collectScenarioEvidence(dir, cited(["documents/encoded.docx"]))).toEqual({ blocked: true, verdict: "error", reasoning: "SOURCE_ARCHIVE_LIMIT" });
     });
   });
 

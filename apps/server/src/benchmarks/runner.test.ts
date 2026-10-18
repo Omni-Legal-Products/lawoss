@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
@@ -1070,4 +1070,69 @@ test("case 08 keeps two unverified tool-behavior checks LIMITED despite a passin
   expect(item.status).toBe("failed"); // Existing API: not all criteria proved; no application failure is inferred.
   expect(item.score).toBe(0);
   expect(item.nPassed).toBe(2); // Format plus source-based mortgage criterion, separately preserved.
+});
+
+
+test.each(["rewrite", "create", "replace", "session-create"])("agent %s of cited input cannot become independent source proof", async mutation => {
+  await seedCitedScenario("scenario-source-mutation", "evidence.md", "Original synthetic draft; not completion.");
+  const cited = mutation === "create" ? "fabricated.md" : "evidence.md";
+  const { client } = createFake({ writeDeliverables: ["scenario.json"], deliverableContents: { "scenario.json": citedScenario(`documents/${cited}`) } });
+  const prompt = client.session.promptAsync;
+  const mutate = (directory: string) => {
+    const path = join(directory, "documents", cited);
+    if (mutation === "replace") renameSync(path, `${path}.old`);
+    writeFileSync(path, mutation === "replace" ? "Original synthetic draft; not completion." : "Agent-fabricated confirmation of completion.");
+  };
+  if (mutation === "session-create") {
+    const create = client.session.create;
+    client.session.create = async params => {
+      if (String(params.title).startsWith("Benchmark:")) mutate(String(params.directory));
+      return create(params);
+    };
+  }
+  client.session.promptAsync = async params => {
+    if (mutation !== "session-create") mutate(String(params.directory));
+    return prompt(params);
+  };
+  const run = await makeRunner(client).createRun(workspace, { tasks: ["scenario-source-mutation"], models: [{ providerID: "prov", modelID: "model-a" }] });
+  await waitFor(() => store.getRun(String(run.id))?.status === "completed");
+  const item = store.listItems(String(run.id))[0]!;
+  expect(item.status).toBe("failed");
+  expect(store.listVerdicts(item.id).find(v => v.criterionId === "LAWOSS-FORMAT")?.verdict).toBe("pass");
+  const semantic = store.listVerdicts(item.id).filter(v => v.criterionId.startsWith("C-"));
+  expect(semantic.every(v => v.verdict === "fail")).toBe(true);
+  expect(semantic[0]?.reasoning).toContain(mutation === "create" ? "UNADMITTED_SOURCE" : "CHANGED_SOURCE");
+});
+
+
+test("a truncated malformed scenario remains the first attempt without automatic repair", async () => {
+  await seedCitedScenario("scenario-first-truncated", "evidence.md", "Original synthetic draft.");
+  const outputs = { "scenario.json": "{" };
+  const { client, stats } = createFake({ cutOffTurns: 1, cutOffAfterWriting: true,
+    writeDeliverables: ["scenario.json"], deliverableContents: outputs });
+  const prompt = client.session.promptAsync;
+  let submissions = 0;
+  client.session.promptAsync = async params => {
+    outputs["scenario.json"] = ++submissions === 1 ? "{" : citedScenario("documents/evidence.md");
+    return prompt(params);
+  };
+  const run = await makeRunner(client).createRun(workspace, { tasks: ["scenario-first-truncated"], models: [{ providerID: "prov", modelID: "model-a" }] });
+  await waitFor(() => store.getRun(String(run.id))?.status === "completed");
+  const item = store.listItems(String(run.id))[0]!;
+  expect(stats.agentStarts).toBe(1);
+  expect(item.status).toBe("failed");
+  expect(item.score).toBe(0);
+  expect(readFileSync(join(item.workDir!, "scenario.json"), "utf8")).toBe("{");
+});
+
+test("scenario output-limit without a file reports the original failure without invented recovery", async () => {
+  await seedCitedScenario("scenario-empty-truncated", "evidence.md", "Original synthetic draft.");
+  const { client, stats } = createFake({ cutOffTurns: 5, writeDeliverables: ["scenario.json"] });
+  const run = await makeRunner(client).createRun(workspace, { tasks: ["scenario-empty-truncated"], models: [{ providerID: "prov", modelID: "model-a" }] });
+  await waitFor(() => store.getRun(String(run.id))?.status === "completed");
+  const item = store.listItems(String(run.id))[0]!;
+  expect(stats.agentStarts).toBe(1);
+  expect(item.status).toBe("error");
+  expect(item.error).toContain("SCENARIO_OUTPUT_LIMIT");
+  expect(item.error).not.toContain("asked 2");
 });
