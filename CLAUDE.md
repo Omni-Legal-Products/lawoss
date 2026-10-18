@@ -4,6 +4,15 @@ LAWOSS is a Czech and Slovak legal practice fork of LegalWork. It helps lawyers 
 
 This file is the single source of truth for people and AI agents working in this repository. `CLAUDE.md` must always contain identical instructions.
 
+## Synthetic OKF test dataset
+
+A complete prebuilt Slovak synthetic office is available for testing. **Download and reuse it; do not regenerate it for routine tests.** Read [the dataset guide](SYNTHETIC_DATA.md) for the pinned download, SHA-256, setup commands and coverage limits. The machine-readable catalog is [synthetic-dataset.json](synthetic-dataset.json).
+
+- Use this dataset for OKF onboarding, sorting, client/matter scaffolds, document parsing, memory and edge-case tests. Select relevant fixtures; do not load the entire corpus into context.
+- Reuse a checksum-verified local download. Extract under ignored `.work/synthetic-sk/`; run write tests on disposable copies.
+- Keep `ground-truth/` and validation answers outside the tested model's source selection. Open a selected office/client/matter rather than the package root.
+- Distinguish expected scenario results from observed application behavior. Synthetic legal content is not verified legal guidance. Record actual checks and limitations.
+
 ## Repository relationship
 
 - Product code lives in this repository.
@@ -75,6 +84,7 @@ Rules:
 - Prefer functional patterns, short focused functions, DRY, KISS, and YAGNI.
 - Use pnpm. Never use npm or yarn.
 - Match verification runtimes to the active CI workflow and select exact executable paths when several versions are installed. Keep results from other local runtimes as supplemental evidence, not a substitute for the CI-matching gate.
+- Run filtered server Bun tests through `pnpm --filter legalwork-server exec bun test src/...` so the server bunfig/preload is loaded. Running server test paths from the repository root omits fixture-only upstream service opt-ins and can create unrelated authorization failures.
 - Pin Bun in `PATH` before running package build scripts; invoking a Bun binary by absolute path does not pin the shell commands inside `bun run`. Verify committed bundles by a second identical build.
 - Cross-platform Bun test commands use explicit test directories instead of shell-expanded globs. Windows workflow steps with multiple native commands need an explicit fail-fast shell so a later success cannot mask an earlier failure.
 - Windows tree watchers use native recursion at the tree root; descendant directory handles can block parent renames even with delete sharing. Mutation regressions acknowledge a real nested watch event before renaming and verify subsequent events and resource bytes. Preserve unnamed-event rescans and ignore filters for every relative path component.

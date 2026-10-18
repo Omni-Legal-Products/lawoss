@@ -35,6 +35,8 @@ export type OnboardingProfile = {
   trial?: boolean;
   okf?: OkfChoice;
   step?: OnboardingStep;
+  /** Kedy sa nastavenie praxe dokončilo (ISO); neskoršie kroky z bočného panela ho neprepíšu (#96). */
+  completedAt?: string;
 };
 
 export type OnboardingStatus = {

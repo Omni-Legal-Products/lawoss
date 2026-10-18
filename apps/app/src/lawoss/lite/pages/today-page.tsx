@@ -5,7 +5,10 @@ import { ArrowUpRight, CalendarClock, Check, FolderOpen, Inbox, ListChecks } fro
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { useQuery } from "@tanstack/react-query";
+import { useOptionalLocal } from "@/react-app/kernel/local-provider";
 import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
+import { onboardingIncomplete } from "../../domains/onboarding/resume";
+import { OnboardingResumeCardView } from "../../domains/onboarding/resume-card";
 import { litePageProps } from "../state-text";
 import { addDays, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
 import { deadlineKey, deadlineText, dueTextFromDays, isCalendarDay, urgencyOf, type Urgency } from "../../okf/view-rules";
@@ -29,16 +32,20 @@ const MATTER_CARDS = 6;
 export function TodayPage() {
   const locale = useLocale();
   const { connection } = useOkfConnection();
-  // Meno z onboardingu do pozdravu; bez neho ostáva pozdrav bez mena.
+  const local = useOptionalLocal();
+  // Profil z onboardingu: meno do pozdravu a karta nedokončeného nastavenia (#96). Bez cache, aby karta po dokončení hneď zmizla.
   const profile = useQuery({
-    queryKey: ["lawoss-lawyer-name", connection?.baseUrl ?? ""],
+    queryKey: ["lawoss-onboarding-profile", connection?.baseUrl ?? ""],
     enabled: Boolean(connection?.client),
     retry: false,
-    staleTime: 5 * 60_000,
-    queryFn: async () => (await connection?.client?.onboardingStatus())?.profile?.lawyerName ?? "",
+    staleTime: 0,
+    queryFn: async () => (await connection?.client?.onboardingStatus())?.profile ?? null,
   });
-  return <OkfPage {...litePageProps(locale)}>
-    {(data, meta, scope) => <TodayLive data={data} meta={meta} scope={scope} locale={locale} name={profile.data || undefined} />}
+  const resume = profile.data && onboardingIncomplete(profile.data, local?.prefs.hasCompletedOnboarding ?? false)
+    ? <OnboardingResumeCardView locale={locale} />
+    : null;
+  return <OkfPage {...litePageProps(locale)} notice={resume}>
+    {(data, meta, scope) => <TodayLive data={data} meta={meta} scope={scope} locale={locale} name={profile.data?.lawyerName || undefined} />}
   </OkfPage>;
 }
 

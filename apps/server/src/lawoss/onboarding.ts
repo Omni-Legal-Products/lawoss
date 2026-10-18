@@ -31,6 +31,8 @@ const profileSchema = z.strictObject({
   okf: okfChoiceSchema.optional(),
   // Nový tok (spec 2026-10-08): identity, ai, folder, found, done. Staré hodnoty ostávajú pre uložené profily alfa testerov.
   step: z.enum(["identity", "ai", "folder", "found", "okf", "office", "packs", "client", "matter", "done"]).optional(),
+  // Dokončenie nastavenia praxe (#96): trvalá značka, `step` sa po dokončení ďalej mení (napr. „+ Nová vec“).
+  completedAt: z.iso.datetime().optional(),
 });
 type Profile = z.infer<typeof profileSchema>;
 const previewSchema = z.looseObject({
