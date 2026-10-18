@@ -44,7 +44,7 @@ let githubServer: ReturnType<typeof Bun.serve>;
 
 // ---- mock opencode engine ----------------------------------------------------
 
-type MockSession = { directory: string; state: "idle" | "busy" };
+type MockSession = { directory: string; state: "idle" | "busy"; userId?: string; finished?: boolean };
 let opencodeServer: ReturnType<typeof Bun.serve>;
 const mockSessions = new Map<string, MockSession>();
 let sessionCounter = 0;
@@ -87,19 +87,26 @@ function startMockOpencode() {
       const promptAsync = path.match(/^\/session\/([^/]+)\/prompt_async$/);
       if (request.method === "POST" && promptAsync) {
         const session = mockSessions.get(promptAsync[1]!)!;
-        session.state = "busy";
+        const body = await request.json() as { messageID: string };
+        session.userId = body.messageID;
+        session.finished = false;
+        // A completed intermediate tool step can precede the next busy event.
+        session.state = "idle";
         setTimeout(() => {
           writeFileSync(join(session.directory, "memo.docx"), "the memo");
           session.state = "idle";
+          session.finished = true;
         }, 30);
         return new Response(null, { status: 204 });
       }
       const message = path.match(/^\/session\/([^/]+)\/message$/);
       if (request.method === "GET" && message) {
+        const session = mockSessions.get(message[1]!)!;
         return Response.json([
+          { info: { id: session.userId, sessionID: message[1], role: "user" }, parts: [] },
           {
-            info: { id: "msg-1", sessionID: message[1], role: "assistant", cost: 0.02, tokens: { input: 10, output: 5 } },
-            parts: [],
+            info: { id: session.finished ? "msg-final" : "msg-tool", parentID: session.userId, sessionID: message[1], role: "assistant", time: { completed: 1 }, finish: session.finished ? "stop" : "tool-calls", cost: 0.02, tokens: { input: 10, output: 5 } },
+            parts: [{ type: "text", text: session.finished ? "Memo written" : "Reading inputs" }],
           },
         ]);
       }

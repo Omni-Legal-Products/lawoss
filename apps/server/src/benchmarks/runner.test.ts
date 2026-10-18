@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import type { BenchmarkArm } from "./ablation.js";
 import { BenchmarkRunner, type BenchmarkOpencodeClient } from "./runner.js";
+import { createScenarioTask } from "../lawoss/benchmark-scenarios.js";
 import { openBenchmarkStore, resetBenchmarkStoreCache, type BenchmarkStore } from "./store.js";
+
+type MessageEntry = NonNullable<Awaited<ReturnType<BenchmarkOpencodeClient["session"]["messages"]>>["data"]>[number];
 
 let dir: string;
 let config: ServerConfig;
@@ -22,7 +25,8 @@ type FakeBehavior = {
   agentNeverFinishes?: boolean;
   agentError?: string;
   writeDeliverables?: string[];
-  judgeStructured?: () => unknown;
+  deliverableContents?: Record<string, string>;
+  judgeStructured?: (prompt: string) => unknown;
   judgeDelayMs?: number;
   /** Simulate providers that reject the structured-output tool call (DeepSeek thinking mode). */
   judgeStructuredUnsupported?: boolean;
@@ -75,7 +79,8 @@ function createFake(behavior: FakeBehavior = {}) {
     state: "idle" | "busy";
     aborted: boolean;
     turns: number;
-    replies: Array<Record<string, unknown>>;
+    replies: Array<NonNullable<MessageEntry["info"]>>;
+    userId?: string;
     /** The in-flight turn, cancelled by abort like a real engine stops generating. */
     timer?: ReturnType<typeof setTimeout>;
   };
@@ -99,6 +104,7 @@ function createFake(behavior: FakeBehavior = {}) {
           return { error: { status: 404, message: "prompt_async unsupported" } };
         }
         const session = sessions.get(String(params.sessionID))!;
+        session.userId = String(params.messageID);
         session.turns += 1;
         const cutOff = session.turns <= (behavior.cutOffTurns ?? 0);
         stats.agentStarts += 1;
@@ -112,16 +118,16 @@ function createFake(behavior: FakeBehavior = {}) {
             session.timer = undefined;
             if (!cutOff || behavior.cutOffAfterWriting) {
               for (const name of behavior.writeDeliverables ?? []) {
-                writeFileSync(join(session.directory, name), `content of ${name}`);
+                writeFileSync(join(session.directory, name), behavior.deliverableContents?.[name] ?? `content of ${name}`);
               }
             }
             const id = `msg-${++replyCounter}`;
             session.replies.push(
               behavior.agentError
-                ? { id, role: "assistant", error: { name: "UnknownError", data: { message: behavior.agentError } } }
+                ? { id, parentID: session.userId, role: "assistant", error: { name: "UnknownError", data: { message: behavior.agentError } } }
                 : cutOff
-                  ? { id, role: "assistant", finish: "length", cost: 0, tokens: { input: 5, output: 0 } }
-                  : { id, role: "assistant", finish: "stop", cost: 0.25, tokens: { input: 5, output: 9 } },
+                  ? { id, parentID: session.userId, role: "assistant", time: { completed: 1 }, finish: "length", cost: 0, tokens: { input: 5, output: 0 } }
+                  : { id, parentID: session.userId, role: "assistant", time: { completed: 1 }, finish: "stop", cost: 0.25, tokens: { input: 5, output: 9 } },
             );
             session.state = "idle";
             stats.activeAgents -= 1;
@@ -158,7 +164,7 @@ function createFake(behavior: FakeBehavior = {}) {
               };
             }
             const structured = behavior.judgeStructured
-              ? behavior.judgeStructured()
+              ? behavior.judgeStructured(promptText)
               : { verdicts: criterionIds.map((id) => ({ id, verdict: "pass", reasoning: "looks good" })) };
             return { data: { info: { role: "assistant", structured }, parts: [] } };
           }
@@ -173,9 +179,12 @@ function createFake(behavior: FakeBehavior = {}) {
         const session = sessions.get(String(params.sessionID))!;
         stats.agentStarts += 1;
         for (const name of behavior.writeDeliverables ?? []) {
-          writeFileSync(join(session.directory, name), `content of ${name}`);
+          writeFileSync(join(session.directory, name), behavior.deliverableContents?.[name] ?? `content of ${name}`);
         }
-        return { data: { info: { role: "assistant", cost: 0.5, tokens: { input: 10, output: 20 } }, parts: [] } };
+        session.userId = String(params.messageID);
+        const info = { id: `msg-${++replyCounter}`, parentID: session.userId, role: "assistant", finish: "stop", time: { completed: 1 }, cost: 0.5, tokens: { input: 10, output: 20 } };
+        session.replies.push(info);
+        return { data: { info, parts: [{ type: "text", text: "Done" }] } };
       },
       status: async () => {
         const map: Record<string, { type: string }> = {};
@@ -186,8 +195,10 @@ function createFake(behavior: FakeBehavior = {}) {
       },
       messages: async (params) => {
         const session = sessions.get(String(params.sessionID));
-        const replies = (session?.replies ?? []).map((info) => ({ info }));
-        return { data: [{ info: { role: "user" } }, ...replies] };
+        const replies = (session?.replies ?? []).map((info) => ({ info, parts: [{ type: "text", text: "Done" }] }));
+        const entries: MessageEntry[] = replies.flatMap(entry => [{ info: { id: entry.info.parentID, role: "user" } }, entry]);
+        if (!entries.some(entry => entry.info?.id === session?.userId)) entries.push({ info: { id: session?.userId, role: "user" } });
+        return { data: entries };
       },
       abort: async (params) => {
         const session = sessions.get(String(params.sessionID));
@@ -237,6 +248,7 @@ function makeRunner(client: BenchmarkOpencodeClient, overrides?: { itemTimeoutMs
       pollIntervalMs: 5,
       itemTimeoutMs: overrides?.itemTimeoutMs ?? 2_000,
       judgeTimeoutMs: 500,
+      quietIdleMs: 15,
     },
   });
 }
@@ -758,4 +770,283 @@ describe("replies cut off at the output limit", () => {
     expect(item.status).toBe("error");
     expect(item.error).toContain("timed out");
   });
+});
+
+
+describe("agent terminal evidence", () => {
+  // Mutations caught: returning the first idle assistant, trusting completed
+  // tool calls, stale parent replies, or status observed before a newer busy.
+  async function runFrames(frames: Array<{
+    finish?: string; text?: string; completed?: number; error?: string;
+    parent?: "stale"; newerBusy?: boolean; write?: boolean; userVisible?: boolean; laterUser?: boolean;
+  }>, idleOmitted = false) {
+    await seedCustomTask("terminal-evidence");
+    const { client, stats } = createFake();
+    let userId = "";
+    let directory = "";
+    let index = 0;
+    let postRead = false;
+    client.session.promptAsync = async params => {
+      userId = String(params.messageID ?? "current-user");
+      directory = String(params.directory);
+      return {};
+    };
+    client.session.status = async params => {
+      const frame = frames[Math.min(index, frames.length - 1)]!;
+      const busy = postRead && frame.newerBusy;
+      if (postRead) { index += 1; postRead = false; }
+      return { data: !busy && idleOmitted ? {} : { "ses-1": { type: busy ? "busy" : "idle" } } };
+    };
+    client.session.messages = async () => {
+      const frame = frames[Math.min(index, frames.length - 1)]!;
+      if (frame.write) writeFileSync(join(directory, "memo.docx"), "real final deliverable");
+      postRead = true;
+      return { data: [
+        { info: { id: "old-user", role: "user" } },
+        { info: { id: "old-answer", role: "assistant", parentID: "old-user", time: { completed: 1 }, finish: "stop" }, parts: [{ type: "text", text: "Stale" }] },
+        ...(frame.userVisible === false ? [] : [{ info: { id: userId, role: "user" } }]),
+        ...(frame.laterUser ? [{ info: { id: "later-user", role: "user" } }] : []),
+        { info: { id: `reply-${Math.min(index, frames.length - 1)}`, role: "assistant", parentID: frame.parent === "stale" ? "old-user" : userId,
+          time: { completed: frame.completed }, finish: frame.finish,
+          ...(frame.error ? { error: { name: frame.error, data: { message: frame.error } } } : {}) },
+          parts: [{ type: "text", text: frame.text ?? "" }] },
+      ] };
+    };
+    const runner = makeRunner(client, { itemTimeoutMs: 120 });
+    const run = await runner.createRun(workspace, {
+      tasks: ["terminal-evidence"], models: [{ providerID: "prov", modelID: "model-a" }],
+    });
+    await waitFor(() => store.getRun(String(run.id))?.status === "completed");
+    return { item: store.listItems(String(run.id))[0]!, stats };
+  }
+
+  test("waits through completed tool rounds and unfinished assistant until the final answer", async () => {
+    const { item } = await runFrames([
+      { finish: "tool-calls", completed: 1, text: "Reading" },
+      { completed: 1, text: "unfinished" },
+      { finish: "tool-calls", completed: 2 },
+      { finish: "stop", completed: 3, text: "Finished", write: true },
+    ]);
+    expect(item.status).toBe("passed");
+    expect(item.deliverablesFound).toContain("memo.docx");
+    expect(item.deliverablesFound).not.toContain('"relativePath":null');
+  });
+
+  test("ignores replies parented to an older user message", async () => {
+    const { item } = await runFrames([
+      { finish: "stop", completed: 1, text: "Old reply", parent: "stale" },
+      { finish: "stop", completed: 2, text: "Current reply", write: true },
+    ]);
+    expect(item.deliverablesFound).not.toContain('"relativePath":null');
+  });
+
+  test("rechecks busy after reading a completed reply", async () => {
+    const { item } = await runFrames([
+      { finish: "stop", completed: 1, text: "Early answer", newerBusy: true },
+      { finish: "stop", completed: 2, text: "Actual answer", write: true },
+    ]);
+    expect(item.deliverablesFound).not.toContain('"relativePath":null');
+  });
+
+  test("successful empty native status map proves idle for the current answer", async () => {
+    const { item } = await runFrames([{ finish: "stop", completed: 1, text: "Done", write: true }], true);
+    expect(item.status).toBe("passed");
+    expect(item.deliverablesFound).not.toContain('"relativePath":null');
+  });
+
+  test("an answer cannot precede observed current user acceptance", async () => {
+    const { item, stats } = await runFrames([{ finish: "stop", completed: 1, text: "Unbound", userVisible: false }]);
+    expect(item.status).toBe("error");
+    expect(item.error).toBe("agent session timed out");
+    expect(stats.judgeStarts).toBe(0);
+  });
+
+  test("a newer user message prevents borrowing its reply", async () => {
+    const { item, stats } = await runFrames([{ finish: "stop", completed: 1, text: "Superseded", laterUser: true }]);
+    expect(item.status).toBe("error");
+    expect(item.error).toBe("agent session timed out");
+    expect(stats.judgeStarts).toBe(0);
+  });
+
+  test("late tool rounds reset the empty idle observation", async () => {
+    const { item } = await runFrames([
+      { completed: 1 }, { finish: "tool-calls", completed: 2 },
+      { finish: "stop", completed: 3, text: "Finished after tools", write: true },
+    ]);
+    expect(item.status).toBe("passed");
+    expect(item.deliverablesFound).not.toContain('"relativePath":null');
+  });
+
+  test("empty stable idle is a harness error rather than a scored missing deliverable", async () => {
+    const { item, stats } = await runFrames([{ completed: 1 }]);
+    expect(item.status).toBe("error");
+    expect(item.error).toContain("EMPTY_TERMINAL_RESULT");
+    expect(item.score).toBeNull();
+    expect(stats.judgeStarts).toBe(0);
+  });
+
+  test("a model interruption remains distinct from a model failure", async () => {
+    const { item } = await runFrames([{ error: "MessageAbortedError" }]);
+    expect(item.status).toBe("interrupted");
+    expect(item.score).toBeNull();
+  });
+});
+
+
+describe("LAWOSS deterministic scenario grading", () => {
+  test("strict JSON failure cannot be overridden by a passing semantic judge", async () => {
+    await seedCustomTask("scenario-format", 1);
+    store.upsertTask({ ...store.getTask(workspace.id, "scenario-format")!,
+      tagsJson: '["lawoss.scenario/v1"]',
+      deliverablesJson: '["scenario.json"]',
+      criteriaJson: JSON.stringify([
+        { id: "LAWOSS-FORMAT", title: "Strict JSON", deliverables: ["scenario.json"],
+          matchCriteria: JSON.stringify({ schema: "lawoss.scenario-grade/v1", case_id: "TEST-CZ-01", balance_test_units: 163476 }) },
+        { id: "C-001", title: "Evidence", deliverables: ["scenario.json"], matchCriteria: "Check evidence." },
+      ]),
+    });
+    const { client } = createFake({ writeDeliverables: ["scenario.json"], judgeStructured: () => ({ verdicts: [
+      { id: "LAWOSS-FORMAT", verdict: "pass", reasoning: "unsupported format override" },
+      { id: "C-001", verdict: "pass", reasoning: "evidence reviewed" },
+    ] }) });
+    const run = await makeRunner(client).createRun(workspace, {
+      tasks: ["scenario-format"], models: [{ providerID: "prov", modelID: "model-a" }],
+    });
+    await waitFor(() => store.getRun(String(run.id))?.status === "completed");
+    const item = store.listItems(String(run.id))[0]!;
+    expect(item.status).toBe("failed");
+    expect(store.listVerdicts(item.id).find(v => v.criterionId === "LAWOSS-FORMAT")?.verdict).toBe("fail");
+    expect(store.listVerdicts(item.id).find(v => v.criterionId === "C-001")?.verdict).toBe("fail");
+  });
+});
+
+
+test("an unacknowledged transport failure never submits a second prompt", async () => {
+  await seedCustomTask("unacknowledged");
+  const { client } = createFake({ writeDeliverables: ["memo.docx"] });
+  client.session.promptAsync = async () => ({ error: { status: 503, message: "temporarily unavailable" } });
+  const run = await makeRunner(client).createRun(workspace, {
+    tasks: ["unacknowledged"], models: [{ providerID: "prov", modelID: "model-a" }],
+  });
+  await waitFor(() => store.getRun(String(run.id))?.status === "completed");
+  const item = store.listItems(String(run.id))[0]!;
+  expect(item.status).toBe("error");
+  expect(item.score).toBeNull();
+});
+
+
+test("strict fixture success stays separate from failed semantic evidence and retains the original artifact", async () => {
+  await seedCustomTask("scenario-evidence");
+  const task = createScenarioTask("TEST-CZ-01");
+  store.upsertTask({ ...store.getTask(workspace.id, "scenario-evidence")!, tagsJson: JSON.stringify(task.tags), instructions: task.instructions,
+    deliverablesJson: JSON.stringify(task.deliverables), criteriaJson: JSON.stringify(task.criteria) });
+  const original = JSON.stringify({ case_id: "TEST-CZ-01", findings: [], missing_evidence: [], variants: [],
+    ledger: { balance_test_units: 163476, payment_proven: false, interest_verifiable: false, reasoning: "Synthetic" },
+    procedure: { service_date: null, verified_deadline: null, calendar_write_allowed: false, reasoning: "Unknown" },
+    human_confirmation_required: true, untrusted_content: [], extraction_limitations: [], recommended_actions: [] });
+  const { client, stats } = createFake({ writeDeliverables: ["scenario.json"], deliverableContents: { "scenario.json": original },
+    judgeStructured: () => ({ verdicts: [
+      { id: "LAWOSS-FORMAT", verdict: "fail", reasoning: "Judge cannot override deterministic pass" },
+      { id: "C-001", verdict: "fail", reasoning: "Missing evidence" },
+      { id: "C-002", verdict: "pass", reasoning: "Reviewed" },
+      { id: "C-003", verdict: "pass", reasoning: "Reviewed" },
+    ] }) });
+  const run = await makeRunner(client).createRun(workspace, { tasks: ["scenario-evidence"], models: [{ providerID: "prov", modelID: "model-a" }] });
+  await waitFor(() => store.getRun(String(run.id))?.status === "completed");
+  const item = store.listItems(String(run.id))[0]!;
+  expect(item.status).toBe("failed");
+  const verdicts = store.listVerdicts(item.id);
+  expect(verdicts.find(v => v.criterionId === "LAWOSS-FORMAT")?.verdict).toBe("pass");
+  expect(verdicts.find(v => v.criterionId === "C-001")?.verdict).toBe("fail");
+  expect(readFileSync(join(item.workDir!, "scenario.json"), "utf8")).toBe(original);
+  expect(stats.agentStarts).toBe(1); // No automatic repair can replace the scored first attempt.
+});
+
+
+test("a deterministic format pass cannot turn a broken semantic judge into a scored model failure", async () => {
+  await seedCitedScenario("scenario-judge-error", "evidence.md", "Actual synthetic draft evidence");
+  const raw = citedScenario("documents/evidence.md");
+  const { client } = createFake({ writeDeliverables: ["scenario.json"], deliverableContents: { "scenario.json": raw },
+    judgeStructured: () => null, judgeFallbackText: "Unavailable" });
+  const run = await makeRunner(client).createRun(workspace, { tasks: ["scenario-judge-error"], models: [{ providerID: "prov", modelID: "model-a" }] });
+  await waitFor(() => store.getRun(String(run.id))?.status === "completed");
+  const item = store.listItems(String(run.id))[0]!;
+  expect(item.status).toBe("error");
+  expect(item.score).toBeNull();
+  expect(item.error).toContain("no parseable verdicts");
+});
+
+
+test("submitted message IDs preserve the native chronological message boundary", async () => {
+  await seedCustomTask("native-message-id");
+  const { client } = createFake({ writeDeliverables: ["memo.docx"] });
+  const prompt = client.session.promptAsync;
+  client.session.promptAsync = async params => {
+    const id = String(params.messageID);
+    // The real engine sorts message IDs; a UUID prefix can sort a user's
+    // prompt after its native assistant and break the current-user boundary.
+    const shape = /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/.test(id);
+    const timestamp = shape ? Number(BigInt(`0x${id.slice(4, 16)}`) / 4096n) : 0;
+    if (!shape || Math.abs((Date.now() % 0x1000000000) - timestamp) > 1000) return { error: { status: 400 } };
+    return prompt(params);
+  };
+  const run = await makeRunner(client).createRun(workspace, { tasks: ["native-message-id"], models: [{ providerID: "prov", modelID: "model-a" }] });
+  await waitFor(() => store.getRun(String(run.id))?.status === "completed");
+  expect(store.listItems(String(run.id))[0]!.status).toBe("passed");
+});
+
+
+function citedScenario(sourceId: string) {
+  return JSON.stringify({ case_id: "TEST-CZ-01", findings: [{ claim: "Draft only", source_ids: [sourceId], evidence_status: "draft", reasoning: "Source evidence" }],
+    missing_evidence: [], variants: [], ledger: { balance_test_units: 163476, payment_proven: false, interest_verifiable: false, reasoning: "Synthetic" },
+    procedure: { service_date: null, verified_deadline: null, calendar_write_allowed: false, reasoning: "Unknown" },
+    human_confirmation_required: true, untrusted_content: [], extraction_limitations: [], recommended_actions: [] });
+}
+
+async function seedCitedScenario(id: string, fileName: string, sourceContent: string) {
+  await seedCustomTask(id);
+  const task = createScenarioTask("TEST-CZ-01");
+  const documentsDir = join(dir, id);
+  mkdirSync(documentsDir);
+  writeFileSync(join(documentsDir, fileName), sourceContent);
+  store.upsertTask({ ...store.getTask(workspace.id, id)!, tagsJson: JSON.stringify(task.tags), instructions: task.instructions,
+    deliverablesJson: JSON.stringify(task.deliverables), criteriaJson: JSON.stringify(task.criteria), documentsDir });
+}
+
+test.each(["documents/missing.md", "documents/../ground-truth/expected.json", "prepared-uuid"])("unknown or outside source ID %s cannot receive a semantic pass", async sourceId => {
+  await seedCitedScenario("scenario-unknown", "evidence.md", "Synthetic draft; no completion evidence.");
+  const { client } = createFake({ writeDeliverables: ["scenario.json"], deliverableContents: { "scenario.json": citedScenario(sourceId) } });
+  const run = await makeRunner(client).createRun(workspace, { tasks: ["scenario-unknown"], models: [{ providerID: "prov", modelID: "model-a" }] });
+  await waitFor(() => store.getRun(String(run.id))?.status === "completed");
+  const item = store.listItems(String(run.id))[0]!;
+  expect(item.status).toBe("failed");
+  expect(store.listVerdicts(item.id).find(v => v.criterionId === "LAWOSS-FORMAT")?.verdict).toBe("pass");
+  expect(store.listVerdicts(item.id).filter(v => v.criterionId.startsWith("C-")).every(v => v.verdict === "fail")).toBe(true);
+});
+
+test("unread cited PDF coverage cannot be promoted to a semantic pass", async () => {
+  await seedCitedScenario("scenario-unread", "scan.pdf", "%PDF synthetic image-only fixture");
+  const { client } = createFake({ writeDeliverables: ["scenario.json"], deliverableContents: { "scenario.json": citedScenario("documents/scan.pdf") } });
+  const run = await makeRunner(client).createRun(workspace, { tasks: ["scenario-unread"], models: [{ providerID: "prov", modelID: "model-a" }] });
+  await waitFor(() => store.getRun(String(run.id))?.status === "completed");
+  const item = store.listItems(String(run.id))[0]!;
+  expect(item.status).toBe("error");
+  expect(item.score).toBeNull();
+  expect(store.listVerdicts(item.id).find(v => v.criterionId === "LAWOSS-FORMAT")?.verdict).toBe("pass");
+  expect(item.error).toContain("UNREAD_SOURCE");
+});
+
+
+test("scenario semantic judge receives actual staged source content separately from model claims", async () => {
+  await seedCitedScenario("scenario-source-proof", "evidence.md", "SERVER ACTUAL: draft only; completion is not proven.");
+  const { client } = createFake({ writeDeliverables: ["scenario.json"], deliverableContents: { "scenario.json": citedScenario("documents/evidence.md") },
+    judgeStructured: prompt => {
+      if (!prompt.includes("SERVER ACTUAL: draft only; completion is not proven.") || !prompt.includes("Server-read cited source evidence")) throw new Error("Missing actual source evidence");
+      return { verdicts: ["C-001", "C-002", "C-003"].map(id => ({ id, verdict: "pass", reasoning: "Compared with actual staged draft" })) };
+    } });
+  const run = await makeRunner(client).createRun(workspace, { tasks: ["scenario-source-proof"], models: [{ providerID: "prov", modelID: "model-a" }] });
+  await waitFor(() => store.getRun(String(run.id))?.status === "completed");
+  const item = store.listItems(String(run.id))[0]!;
+  expect(item.status).toBe("passed");
+  expect(store.listVerdicts(item.id).filter(v => v.criterionId.startsWith("C-")).every(v => v.reasoning === "Compared with actual staged draft")).toBe(true);
 });
