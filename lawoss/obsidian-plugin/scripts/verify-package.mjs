@@ -1,0 +1,14 @@
+import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { unzipSync, strFromU8 } from 'fflate';
+const zip = await readFile('artifacts/lawoss-okf-0.1.0.zip');
+const expected = (await readFile('artifacts/SHA256SUMS', 'utf8')).split(' ')[0];
+if (createHash('sha256').update(zip).digest('hex') !== expected) throw new Error('ZIP checksum mismatch');
+const files = unzipSync(zip);
+const names = ['LICENSE', 'README.txt', 'main.js', 'manifest.json', 'styles.css'].map(n => 'lawoss-okf/' + n).sort();
+if (JSON.stringify(Object.keys(files).sort()) !== JSON.stringify(names)) throw new Error('Unexpected ZIP contents');
+const manifest = JSON.parse(strFromU8(files['lawoss-okf/manifest.json']));
+if (manifest.id !== 'lawoss-okf' || manifest.version !== '0.1.0' || manifest.minAppVersion !== '1.14.4' || manifest.isDesktopOnly !== true) throw new Error('Incompatible manifest');
+const hashes = JSON.parse(await readFile('artifacts/content-hashes.json', 'utf8'));
+for (const [name, hash] of Object.entries(hashes)) if (createHash('sha256').update(files['lawoss-okf/' + name]).digest('hex') !== hash) throw new Error('Content hash mismatch: ' + name);
+console.log('Verified ZIP paths, manifest, content hashes and archive SHA-256.');
