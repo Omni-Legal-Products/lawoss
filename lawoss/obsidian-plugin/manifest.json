@@ -1,0 +1,6 @@
+{
+  "id": "lawoss-okf", "name": "LAWOSS OKF", "version": "0.1.0", "minAppVersion": "1.14.4",
+  "description": "Read-only views of LAWOSS OKF clients, matters, memory and deadlines in this vault.",
+  "author": "Omni Legal Products", "authorUrl": "https://github.com/Omni-Legal-Products",
+  "isDesktopOnly": true
+}
