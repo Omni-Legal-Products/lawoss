@@ -138,4 +138,23 @@ describe("bounded staged citation evidence", () => {
       expect(await collectScenarioEvidence(dir, cited(["documents/a.md", "documents/b.md", "documents/c.md"]))).toEqual({ blocked: true, verdict: "error", reasoning: "SOURCE_TEXT_LIMIT" });
     });
   });
+  test.each(["word/document.xml", "word/media/irrelevant.bin"])("refuses compressed oversized archive entry %s before extraction", async entry => {
+    await withSources(async dir => {
+      const files: Record<string, Uint8Array> = { "word/document.xml": strToU8("<w:document><w:p>Draft only</w:p></w:document>") };
+      files[entry] = new Uint8Array(16 * 1024 * 1024 + 1);
+      const archive = zipSync(files);
+      expect(archive.length).toBeLessThan(4 * 1024 * 1024);
+      await writeFile(join(dir, "documents", "bomb.docx"), archive);
+      expect(await collectScenarioEvidence(dir, cited(["documents/bomb.docx"]))).toEqual({ blocked: true, verdict: "error", reasoning: "SOURCE_ARCHIVE_LIMIT" });
+    });
+  });
+  test("refuses excessive archive entries before extraction", async () => {
+    await withSources(async dir => {
+      const files: Record<string, Uint8Array> = { "word/document.xml": strToU8("<w:document><w:p>Draft only</w:p></w:document>") };
+      for (let index = 0; index < 1000; index++) files[`unused/${index}`] = new Uint8Array();
+      await writeFile(join(dir, "documents", "many.docx"), zipSync(files));
+      expect(await collectScenarioEvidence(dir, cited(["documents/many.docx"]))).toEqual({ blocked: true, verdict: "error", reasoning: "SOURCE_ARCHIVE_LIMIT" });
+    });
+  });
+
 });

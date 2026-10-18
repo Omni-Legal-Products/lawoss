@@ -1,4 +1,5 @@
 /** Bounded evidence snapshots for scenario judges; never a document/OCR pipeline. */
+import { unzipSync } from "fflate";
 import { constants } from "node:fs";
 import { lstat, mkdtemp, open, realpath, rm, writeFile } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
@@ -16,6 +17,25 @@ type EvidenceFailure = { blocked: true; verdict: "fail" | "error"; reasoning: st
 type ScenarioEvidence = EvidenceFailure | { blocked: false; prompt: string };
 const refused = (reasoning: string): EvidenceFailure => ({ blocked: true, verdict: "fail", reasoning });
 const unread = (reasoning: string): EvidenceFailure => ({ blocked: true, verdict: "error", reasoning });
+
+/** Inspect all central-directory sizes without inflating even irrelevant media. */
+function archiveRefusal(bytes: Uint8Array): string | null {
+  let entries = 0;
+  let decodedBytes = 0;
+  let exceeded = false;
+  try {
+    unzipSync(bytes, { filter: entry => {
+      entries += 1;
+      decodedBytes += entry.originalSize;
+      if (!Number.isSafeInteger(entry.originalSize) || entry.originalSize < 0 || entries > 1000 || decodedBytes > 16 * 1024 * 1024) {
+        exceeded = true;
+        throw new Error("archive budget exceeded");
+      }
+      return false; // Metadata-only preflight: never inflate selected entries.
+    } });
+  } catch { return exceeded ? "SOURCE_ARCHIVE_LIMIT" : "UNREAD_SOURCE_ARCHIVE"; }
+  return null;
+}
 
 /** Source IDs in NEW adapter tasks are exact documents-relative paths, not prepared UUIDs. */
 export async function collectScenarioEvidence(workDir: string, deliverables: JudgeDeliverable[]): Promise<ScenarioEvidence> {
@@ -69,6 +89,10 @@ export async function collectScenarioEvidence(workDir: string, deliverables: Jud
         bytes = buffer.subarray(0, length);
       } finally { await file.close(); }
       totalBytes += bytes.length;
+      if ([".docx", ".xlsx", ".pptx"].includes(extname(canonical).toLowerCase())) {
+        const refusal = archiveRefusal(bytes);
+        if (refusal) return unread(refusal);
+      }
       const copy = join(snapshot, `source-${index}${extname(canonical)}`);
       await writeFile(copy, bytes, { flag: "wx" });
       // Reuse the existing extractor against the bounded immutable snapshot.
