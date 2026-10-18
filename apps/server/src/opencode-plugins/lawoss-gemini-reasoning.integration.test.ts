@@ -1,16 +1,20 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
+// Build the server first: stage the exact shipped JavaScript outside node_modules.
 
 for (const rejection of [false, true]) test.skipIf(!binary)(`pinned engine Gemini stream/tool round trip ${rejection ? "records a scoped provider rejection" : "preserves opaque reasoning"}`, async () => {
   if (!binary) return;
   const root = await realpath(await mkdtemp(join(tmpdir(), "gemini-wire-")));
   const project = join(root, "project"); await mkdir(project);
+  const plugins = join(root, "plugins"); await mkdir(plugins);
+  const capabilities = join(plugins, "legalwork-capabilities-knowledge.js");
+  await copyFile(join(import.meta.dir, "../../dist/opencode-plugins/legalwork-capabilities-knowledge.js"), capabilities);
   await writeFile(join(project, "fixture.txt"), "synthetic fixture");
   const wires: Record<string, unknown>[] = [];
   const witnesses: Record<string, unknown>[] = [];
@@ -38,7 +42,7 @@ for (const rejection of [false, true]) test.skipIf(!binary)(`pinned engine Gemin
   await writeFile(config, JSON.stringify({ enabled_providers: ["openrouter"], model: "openrouter/google/gemini-3-flash-preview", small_model: "openrouter/google/gemini-3-flash-preview", share: "disabled", autoupdate: false,
     provider: { openrouter: { npm: "@openrouter/ai-sdk-provider", options: { baseURL: fixture.url.origin + "/v1", apiKey: "synthetic" }, models: { "google/gemini-3-flash-preview": { name: "Synthetic Gemini", limit: { context: 100000, output: 4000 } } } } },
     permission: { read: "allow" }, lsp: false, formatter: false,
-    plugin: [pathToFileURL(join(import.meta.dir, "legalwork-capabilities-knowledge.ts")).href],
+    plugin: [pathToFileURL(capabilities).href],
   }));
   const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: project, env: {
     ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("OPENCODE_") && !key.startsWith("LEGALWORK_"))),
