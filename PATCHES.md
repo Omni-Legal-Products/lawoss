@@ -4,6 +4,7 @@
 
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
+| `apps/server/src/opencode-plugins/office-plugin-shared.ts`, `apps/app/src/react-app/infra/query-client.ts`, `apps/app/src/react-app/shell/session-route.tsx` | Diagnostická publikácia neblokuje EOF pôvodnej provider odpovede: najviac osem nezávislých úloh vlastní plugin, dispose ich zruší a odčerpá; workspace lookup zachová caller abort aj svoj timeout. Po trvalom zápise server oznámi sessions sync a existujúci shell invaliduje session snapshots; aktívne sa znovu načítajú a neaktívne ostávajú stale. |
 | `apps/server/src/opencode-plugins/legalwork-capabilities-knowledge.ts`, `apps/server/src/routes/sessions.ts`, `apps/server/src/wiki/agent-access.ts` | Existujúci managed plugin pripája privátny provider observation hook; nonce sa odstráni pred vzdialeným fetch. Úzko autorizovaný endpoint overí skutočný assistant/user/provider/model a ukladá iba konečný kód do app-owned runtime SQLite. Messages/snapshot zobrazia odmietnutie podpisu iba pri nedokončenom terminálnom idle ťahu, po reštarte rovnako; úspešný retry ani tool step sa neprepíše. Bez overeného witness sa prázdny Gemini ťah označí ako incomplete/unknown. Engine ostáva 1.18.29; opaque reasoning/signature ani engine DB sa nemenia. Toto je oprava pozorovateľnosti, príčina incidentov s podpisom zostáva otvorená. |
 
 ## ISIR native Files navigation (2026-10-16)

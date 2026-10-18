@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { startServer } from "./server.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "./wiki/agent-access.js";
 import type { ServerConfig } from "./types.js";
+import { syncEventStream } from "./app-sync-events.js";
 
 test("scoped provider witness survives server reload only on its failed terminal assistant", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "provider-witness-")));
@@ -42,7 +43,16 @@ test("scoped provider witness survives server reload only on its failed terminal
     expect((await snapshot()).messages[0].info.error?.data.message).toContain("incomplete");
     expect((await snapshot()).messages[0].info.error?.data.message).not.toContain("signature");
     idle = false;
-    expect((await post(witness)).status).toBe(200);
+    const syncStop = new AbortController();
+    const syncReader = syncEventStream(config, syncStop.signal).body?.getReader();
+    if (!syncReader) throw new Error("Missing app sync stream.");
+    await syncReader.read(); // Initial resync precedes the late failure witness.
+    const changed = syncReader.read();
+    try {
+      expect((await post(witness)).status).toBe(200);
+      const event = await Promise.race([changed, Bun.sleep(500).then(() => null)]);
+      expect(event && !event.done ? new TextDecoder().decode(event.value) : "").toContain('"sessions":true');
+    } finally { syncStop.abort(); await changed; }
     expect((await snapshot()).messages[0].info.error).toBeUndefined();
     idle = true;
     expect((await snapshot()).messages[0].info.error?.data.message).toContain("thought signature");

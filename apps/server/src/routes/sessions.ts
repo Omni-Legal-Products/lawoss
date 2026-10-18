@@ -17,6 +17,7 @@ import { posix, win32 } from "node:path";
 import { applySessionUsageLimits, deleteSessionUsageLimits, recordSessionUsageLimit } from "../session-usage-limits.js";
 import { applySessionProviderFailures, deleteSessionProviderFailures, providerFailureWitnessSchema, recordSessionProviderFailure } from "../session-provider-failures.js";
 import { authenticateWikiAgentRequest } from "../wiki/agent-access.js";
+import { announceSyncChange } from "../app-sync-events.js";
 import { usageLimitDetailsSchema } from "../provider-usage-limit.js";
 import { buildSession, buildSessionList, buildSessionMessages, buildSessionSnapshot } from "../session-read-model.js";
 import {
@@ -479,6 +480,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     const message = unwrapOpencodeResult(await client.session.message({ sessionID: ctx.params.sessionId, messageID: witness.messageId }), "session message");
     if (message.info.role !== "assistant" || message.info.sessionID !== ctx.params.sessionId || message.info.parentID !== witness.userMessageId || message.info.providerID !== witness.providerId || message.info.modelID !== witness.modelId) throw new ApiError(409, "provider_witness_changed", "The observed assistant does not match this provider request.");
     await recordSessionProviderFailure(config, workspace.id, ctx.params.sessionId, witness);
+    announceSyncChange(config, "sessions");
     return jsonResponse({ ok: true });
   });
 

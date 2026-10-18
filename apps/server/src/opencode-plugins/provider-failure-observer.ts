@@ -5,7 +5,10 @@ import { resolveWorkspaceId, serverUrl, workspaceToolHeaders } from "./office-pl
 
 const HEADER = "x-lawoss-provider-observation";
 const MAX_BYTES = 32768;
-const pending = new Map<string, { at: number; publish: () => Promise<void> }>();
+const MAX_PUBLICATIONS = 8;
+type Owner = { closed: boolean; stop: AbortController; jobs: Set<Promise<void>>; keys: Set<string> };
+type Observation = { at: number; owner: Owner; publishing: boolean; publish: (signal: AbortSignal) => Promise<void> };
+const pending = new Map<string, Observation>();
 let installed = false;
 const messagesSchema = z.array(z.object({ info: z.object({ id: z.string(), sessionID: z.string(), role: z.string(), parentID: z.string().optional(), providerID: z.string().optional(), modelID: z.string().optional(), time: z.object({ completed: z.number().optional() }).optional() }) }));
 
@@ -16,6 +19,16 @@ function signatureRejection(text: string): boolean {
     if (error.metadata?.raw) return z.object({ error: z.object({ message: z.literal("Corrupted thought signature.") }) }).safeParse(JSON.parse(error.metadata.raw)).success;
   } catch { /* Unknown provider responses remain unknown. */ }
   return false;
+}
+
+function enqueue(source: Observation) {
+  const owner = source.owner;
+  if (owner.closed || source.publishing || owner.jobs.size >= MAX_PUBLICATIONS) return;
+  source.publishing = true;
+  const job = Promise.resolve().then(() => source.publish(owner.stop.signal))
+    .catch(() => { source.publishing = false; })
+    .finally(() => { owner.jobs.delete(job); });
+  owner.jobs.add(job);
 }
 
 function install() {
@@ -39,10 +52,9 @@ function install() {
         bytes += chunk.byteLength;
         if (bytes <= MAX_BYTES) text += decoder.decode(chunk, { stream: true }); else text = "";
       },
-      async flush() {
-        if (bytes <= MAX_BYTES && signatureRejection(text + decoder.decode())) {
-          try { await source.publish(); } catch { /* Observation cannot change provider transport behavior. */ }
-        }
+      flush() {
+        // Diagnostics have their own bounded owner; they never hold the provider's EOF.
+        if (bytes <= MAX_BYTES && signatureRejection(text + decoder.decode())) enqueue(source);
         text = "";
       },
     }));
@@ -53,29 +65,41 @@ function install() {
 
 /** Correlation comes from the engine's current assistant before dispatch. Local nonce is never sent upstream. */
 export function providerFailureObserver(initial: SavedConversations) {
-  return async (input: { sessionID: string; model: { providerID: string; id: string; api?: { id?: string; npm?: string } }; message: { id: string } }, output: { headers: Record<string, string> }) => {
+  const owner: Owner = { closed: false, stop: new AbortController(), jobs: new Set(), keys: new Set() };
+  const headers = async (input: { sessionID: string; model: { providerID: string; id: string; api?: { id?: string; npm?: string } }; message: { id: string } }, output: { headers: Record<string, string> }) => {
     const modelId = input.model.api?.id ?? input.model.id;
-    if (input.model.providerID !== "openrouter" || !/^google\/gemini-3(?:[.-]|$)/.test(modelId) || !initial.directory || !initial.client?.session || !serverUrl() || !process.env.LEGALWORK_WIKI_AGENT_TOKEN) return;
+    if (owner.closed || input.model.providerID !== "openrouter" || !/^google\/gemini-3(?:[.-]|$)/.test(modelId) || !initial.directory || !initial.client?.session || !serverUrl() || !process.env.LEGALWORK_WIKI_AGENT_TOKEN) return;
     try {
       const query = { directory: initial.directory, limit: 1 };
       const data = (await initial.client.session.messages({ path: { id: input.sessionID }, query })).data;
       const parsed = messagesSchema.safeParse(data);
       const last = parsed.success ? parsed.data.at(-1)?.info : undefined;
-      if (!last || last.role !== "assistant" || last.sessionID !== input.sessionID || last.parentID !== input.message.id || last.providerID !== input.model.providerID || last.modelID !== input.model.id || last.time?.completed) return;
+      if (owner.closed || !last || last.role !== "assistant" || last.sessionID !== input.sessionID || last.parentID !== input.message.id || last.providerID !== input.model.providerID || last.modelID !== input.model.id || last.time?.completed) return;
       install();
       const now = Date.now();
-      for (const [id, entry] of pending) if (entry.at < now - 600_000) pending.delete(id);
+      for (const [id, entry] of pending) if (entry.at < now - 600_000) { pending.delete(id); entry.owner.keys.delete(id); }
       if (pending.size >= 256) return;
       const id = randomBytes(16).toString("hex");
       const context = { sessionID: input.sessionID, directory: initial.directory };
-      pending.set(id, { at: now, async publish() {
-        const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
-        await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace)}/sessions/${encodeURIComponent(input.sessionID)}/provider-failure`, {
-          method: "POST", headers: { ...await workspaceToolHeaders(context), "content-type": "application/json" }, signal: AbortSignal.timeout(5000),
+      pending.set(id, { at: now, owner, publishing: false, async publish(signal) {
+        signal.throwIfAborted();
+        const workspace = await resolveWorkspaceId({ ...context, abort: signal }, { requireDirectory: true });
+        const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace)}/sessions/${encodeURIComponent(input.sessionID)}/provider-failure`, {
+          method: "POST", headers: { ...await workspaceToolHeaders(context), "content-type": "application/json" }, signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]),
           body: JSON.stringify({ messageId: last.id, userMessageId: input.message.id, providerId: input.model.providerID, modelId, code: "gemini_thought_signature" }),
         });
+        await response.body?.cancel();
+        if (!response.ok) throw new Error("Provider observation was not accepted.");
       } });
+      owner.keys.add(id);
       output.headers[HEADER] = id;
     } catch { /* Missing ownership never guesses a message or modifies the request. */ }
   };
+  return { headers, async dispose() {
+    owner.closed = true;
+    owner.stop.abort();
+    for (const id of owner.keys) pending.delete(id);
+    owner.keys.clear();
+    await Promise.all([...owner.jobs]);
+  } };
 }

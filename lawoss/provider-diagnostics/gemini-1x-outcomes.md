@@ -7,8 +7,10 @@ The pinned engine remains OpenCode 1.18.29. This change makes an otherwise empty
 - The existing managed capabilities plugin reads the current native assistant, its originating user, provider and model before dispatch. This read requests only the latest message.
 - A random local correlation header is removed before provider fetch. Request bodies and opaque reasoning/signature bytes remain unchanged.
 - Only HTTP 400 with the specific Gemini thought-signature rejection is classified. Error bodies are observed while forwarding their original bytes, with a 32 KiB bound; the observer never persists raw content.
+- Publication never holds provider body EOF. The plugin admits at most eight independent publication jobs, coalesces retries for the same observation, and cancels/drains its jobs on disposal. Lookup and publication keep their own network deadlines and cancellation; none becomes an additional provider-body deadline.
 - The engine credential can submit only within its own workspace/session. The server independently verifies the actual assistant ID, user parent, provider and model. Ordinary client credentials cannot submit a provider witness.
 - A closed failure code is stored in the existing app-owned runtime database lifecycle. The engine database is not edited.
+- A durable late write emits the existing sessions sync poke. The shell refreshes active session snapshots and marks inactive snapshots stale, so an initially unknown outcome can acquire its verified explanation.
 - The read model adds an error only to an idle, completed, empty Gemini assistant lacking both a finish reason and an existing error. Successful retries and tool-call steps take precedence. Without a verified witness, the same shape is labelled incomplete with unknown cause.
 
 ## Verification on 2026-10-18
