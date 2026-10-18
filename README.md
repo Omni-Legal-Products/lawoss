@@ -147,6 +147,8 @@ pnpm dev
 
 Pred otvorením PR spustite minimálne:
 
+Desktop builds also require the bundled protected-execution resources. See [the sandbox build instructions](docs/security/agent-sandbox.md#build-and-verify) to build them locally or use the platform artifacts from the **Protected execution runtime** workflow. Released installers include these resources; users do not install Docker or Python.
+
 ```bash
 pnpm typecheck
 pnpm test:e2e

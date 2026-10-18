@@ -161,6 +161,9 @@ test("slovo veci musí stáť samostatne na začiatku; klient s podobným menom 
   for (const name of ["Nájomné domy s.r.o.", "Sporiteľňa a.s.", "Alfa s.r.o.", "Novák Ján", "Kúpeľe Piešťany a.s."]) expect(looksLikeMatterName(name)).toBe(false);
   expect(looksLikeMatterName("Spor s Alfa".normalize("NFD"))).toBe(true);
   expect(looksLikeMatterName("Žaloba Beta".normalize("NFD"))).toBe(true);
+  // Bez diakritiky (sken, e-mail, starý systém): test 16. 10. 2026, N2.
+  for (const name of ["Kupa haly Senec", "Zaloba o zaplaceni", "Najom Beta k.s.", "Rizeni Gama a.s.", "VYPOVED Beta"]) expect(looksLikeMatterName(name)).toBe(true);
+  for (const name of ["Najomne domy s.r.o.", "Sporitelna a.s.", "Kupele Piestany a.s.", "Novak Jan"]) expect(looksLikeMatterName(name)).toBe(false);
 });
 test("prax s klientmi s právnou formou ostáva praxou aj vedľa priečinka veci", async () => {
   const root = await tree(["Alfa s.r.o./", "Beta a.s./", "Gama k.s./", "Delta s.r.o./", "Epsilon s.r.o./", "Spor s Omega s.r.o./"]);

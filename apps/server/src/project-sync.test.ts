@@ -1,5 +1,9 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { scheduleTaskSync, startTaskSyncTimer } from "./task-sync.js";
+import { startProjectSyncTimer } from "./project-sync.js";
+import { acquireRuntimeDbLifetime } from "./runtime-db-lifecycle.js";
+import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { createServer } from "node:http";
 import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,16 +14,19 @@ import type { IntakeClient } from "./eigenwelt-intake.js";
 import type { RemoteProject } from "./eigenwelt-projects.js";
 import { ApiError } from "./errors.js";
 import { checkCondition, conflict, entry, type StorageAdapter } from "./file-storage/common.js";
-import { readProjectDetails, updateProjectDetails, updateProjectRemote } from "./project-store.js";
+import { readProjectDetails, updateProjectDetails, updateProjectPersonalization, updateProjectRemote } from "./project-store.js";
+import { projectSyncStore } from "./project-sync-store.js";
 import {
   diffFields,
   noteProjectDetailsSaved,
+  noteProjectPersonalizationSaved,
   noteProjectFoldersChanged,
   noteProjectRenamed,
   projectSyncOverview,
   projectSyncStatus,
   resolveProjectSync,
   runProjectSync,
+  scheduleProjectSync,
   saveProjectSyncSettings,
   stopProjectSync,
   type ProjectSyncPlatform,
@@ -27,10 +34,12 @@ import {
 import { ReviewStore } from "./reviews/storage.js";
 import { registerLocalProject } from "./routes/workspaces.js";
 import { taskStore } from "./task-store.js";
+import { createProjectSyncFirstFailureTiming, type ProjectSyncFirstFailureTiming } from "./test-support/project-sync-first-failure-timing.js";
 import type { RecorderBridge, ServerConfig, WorkspaceInfo } from "./types.js";
 
 const ORG = "org_kanzlei";
 const cleanups: Array<() => Promise<void>> = [];
+let activeFirstFailureTiming: ProjectSyncFirstFailureTiming | undefined;
 const originalPlatformUrl = process.env.EIGENWELT_PLATFORM_URL;
 const originalRuntimeDb = process.env.LEGALWORK_RUNTIME_DB;
 
@@ -45,7 +54,16 @@ afterAll(() => {
   if (originalRuntimeDb !== undefined) process.env.LEGALWORK_RUNTIME_DB = originalRuntimeDb;
 });
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()?.();
+  const observer = activeFirstFailureTiming;
+  activeFirstFailureTiming = undefined;
+  observer?.cleanupEntry(cleanups.length);
+  try {
+    while (cleanups.length) await cleanups.pop()?.();
+  } catch (error) {
+    observer?.cleanupExit(true, cleanups.length);
+    throw error;
+  }
+  observer?.cleanupExit(false, cleanups.length);
 });
 
 const ALL = { documents: true, notes: true, tasks: true, recordings: false, metadata: true, reviews: true };
@@ -56,11 +74,13 @@ const ALL = { documents: true, notes: true, tasks: true, recordings: false, meta
  * project's documents with their sha256 as version.
  */
 function fakeFirm() {
-  let clock = Date.parse("2026-09-25T08:00:00.000Z");
+  // Synthetic server revisions must precede real local edit timestamps on every runner.
+  let clock = Date.now() - 60 * 60 * 1000;
   const tick = () => new Date((clock += 1000)).toISOString();
   type Stored = {
     record: Omit<RemoteProject, "role">;
     deleted: boolean;
+    personalizationAt: string | null;
     files: Map<string, { path: string; bytes: Buffer }>;
   };
   const projects = new Map<string, Stored>();
@@ -71,6 +91,7 @@ function fakeFirm() {
   const wire = (stored: Stored, userId: string): RemoteProject => ({
     ...stored.record,
     fields: stored.record.scope.metadata ? stored.record.fields : [],
+    personalizationPrompt: stored.record.scope.metadata ? stored.record.personalizationPrompt ?? null : null,
     role: stored.record.ownerUserId === userId ? "owner" : "member",
   });
   const lookup = (client: IntakeClient, id: string) => {
@@ -96,6 +117,7 @@ function fakeFirm() {
       const stored: Stored = {
         record: { ...input, ownerUserId: userOf(client), createdAt: now, updatedAt: now },
         deleted: false,
+        personalizationAt: input.personalizationPrompt === undefined ? null : now,
         files: projects.get(input.id)?.files ?? new Map(),
       };
       projects.set(input.id, stored);
@@ -103,6 +125,16 @@ function fakeFirm() {
     },
     patchProject: async (client, id, patch) => {
       const stored = lookup(client, id);
+      const now = tick();
+      const scope = patch.scope ?? stored.record.scope;
+      let personalizationPrompt = scope.metadata ? stored.record.personalizationPrompt ?? null : null;
+      const applied: string[] = [];
+      if (!scope.metadata) stored.personalizationAt = null;
+      if (scope.metadata && patch.personalizationPrompt !== undefined && (patch.changedAt ?? now) >= (stored.personalizationAt ?? "")) {
+        personalizationPrompt = patch.personalizationPrompt;
+        stored.personalizationAt = patch.changedAt ?? now;
+        applied.push("personalization");
+      }
       const fields = [...stored.record.fields];
       for (const change of patch.fieldChanges ?? []) {
         const index = fields.findIndex((field) => field.id === change.id);
@@ -116,12 +148,13 @@ function fakeFirm() {
         name: patch.name ?? stored.record.name,
         remote: patch.remote ?? stored.record.remote,
         fields,
+        personalizationPrompt,
         access: patch.access ?? stored.record.access,
         memberIds: patch.memberIds ?? stored.record.memberIds,
-        scope: patch.scope ?? stored.record.scope,
-        updatedAt: tick(),
+        scope,
+        updatedAt: now,
       };
-      return { project: wire(stored, userOf(client)), applied: [] };
+      return { project: wire(stored, userOf(client)), applied };
     },
     deleteProject: async (client, id) => {
       const stored = lookup(client, id);
@@ -180,7 +213,7 @@ function fakeFirm() {
 }
 
 /** One member's computer: its own server config, runtime DB and projects folder. */
-async function machine(userId: string, userName: string) {
+async function machine(userId: string, userName: string, options: { syncMode?: "manual" | "background" } = {}) {
   const dir = await mkdtemp(join(tmpdir(), `legalwork-${userId}-`));
   cleanups.push(() => rm(dir, { recursive: true, force: true }));
   const config = {
@@ -189,12 +222,53 @@ async function machine(userId: string, userName: string) {
     authorizedRoots: [],
     projectsDirectory: join(dir, "Projects"),
   } as unknown as ServerConfig;
+  const lifetime = acquireRuntimeDbLifetime(config);
+  cleanups.push(() => lifetime.release());
+  const stopTaskTimer = startTaskSyncTimer(config, 60_000, 60_000);
+  cleanups.push(stopTaskTimer);
+  const stopProjectTimer = startProjectSyncTimer(config, 60_000, 60_000);
+  cleanups.push(stopProjectTimer);
   await writeEigenweltConnection(config, {
     platformToken: `tok_${userId}`,
     account: { userId, userName, userEmail: `${userId}@kanzlei.test`, orgId: ORG, orgName: "Kanzlei" },
   });
-  return { config, dir, userId };
+  // Manual rounds retain the DB lifetime, but automatic producers must be stopped.
+  if (options.syncMode !== "background") await Promise.all([stopProjectTimer(), stopTaskTimer()]);
+  return { config, dir, userId, stopProjectTimer, stopTaskTimer };
 }
+
+test("manual machines reject automatic rounds while allowing explicit project sync", async () => {
+  const fetchSpy = spyOn(globalThis, "fetch").mockRejectedValue(new Error("unexpected fixture request"));
+  const timerSpy = spyOn(globalThis, "setTimeout");
+  let owner: Awaited<ReturnType<typeof machine>> | undefined;
+  try {
+    owner = await machine("user_anna", "Anna");
+    timerSpy.mockClear();
+    scheduleProjectSync(owner.config, 500);
+    scheduleTaskSync(owner.config, 500);
+    expect(timerSpy.mock.calls.filter(([, delay]) => delay === 500)).toHaveLength(0);
+
+    const { platform } = fakeFirm();
+    const originalList = platform.listProjects;
+    let fakeRounds = 0;
+    platform.listProjects = async (...args) => { fakeRounds++; return originalList(...args); };
+    expect(await runProjectSync(owner.config, { platform })).toEqual({
+      ran: true, pushed: 0, pulled: 0, arrived: 0, removed: 0, error: null,
+    });
+    expect(fakeRounds).toBe(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  } finally {
+    try {
+      if (owner) {
+        const stopped = await Promise.allSettled([owner.stopProjectTimer(), owner.stopTaskTimer()]);
+        for (const result of stopped) if (result.status === "rejected") throw result.reason;
+      }
+    } finally {
+      timerSpy.mockRestore();
+      fetchSpy.mockRestore();
+    }
+  }
+});
 
 async function localProject(config: ServerConfig, name: string): Promise<WorkspaceInfo> {
   const folderPath = join(config.projectsDirectory ?? "", name);
@@ -228,7 +302,179 @@ function settings(overrides: Partial<ProjectSyncSettings> = {}): ProjectSyncSett
   return { access: "members", memberIds: [], scope: ALL, ...overrides };
 }
 
+async function changePrompt(config: ServerConfig, workspace: WorkspaceInfo, prompt: string) {
+  const before = await readProjectDetails(workspace.path);
+  const saved = await updateProjectPersonalization(workspace.path, { revision: before.revision, customInstructions: prompt });
+  await noteProjectPersonalizationSaved(config, workspace.id, before.personalizationPrompt ?? "", saved.personalizationPrompt ?? "");
+}
+
+test("standalone instruction notification queues once after its seed lifetime is released", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "standalone-personalization-"));
+  cleanups.push(() => rm(dir, { recursive: true, force: true }));
+  const config = { configPath: join(dir, "server.json"), workspaces: [] } as unknown as ServerConfig;
+  const seed = acquireRuntimeDbLifetime(config);
+  cleanups.push(() => seed.release());
+  const store = await projectSyncStore(config);
+  store.saveLink({ workspaceId: "standalone", projectId: "project", orgId: ORG, origin: "local", role: "owner", ownerUserId: "owner",
+    settings: settings(), confirmed: true, remoteUpdatedAt: null, filesReconciledAt: null, state: "active", allowDeletions: false,
+    lastSyncAt: null, lastError: null, report: null });
+  await seed.release();
+  await noteProjectPersonalizationSaved(config, "standalone", "old", "new instructions");
+  await noteProjectPersonalizationSaved(config, "standalone", "new instructions", "new instructions");
+  const inspection = acquireRuntimeDbLifetime(config);
+  cleanups.push(() => inspection.release());
+  const fresh = await projectSyncStore(config);
+  expect(fresh.pendingOps("project")).toMatchObject([{ kind: "personalization", prompt: "new instructions" }]);
+  expect(fresh.pendingOps("project")).toHaveLength(1);
+  const link = fresh.linkByWorkspace("standalone")!;
+  fresh.saveLink({ ...link, settings: settings({ scope: { ...ALL, metadata: false } }) });
+  await inspection.release();
+  await noteProjectPersonalizationSaved(config, "standalone", "new instructions", "private instructions");
+  const final = acquireRuntimeDbLifetime(config);
+  cleanups.push(() => final.release());
+  expect((await projectSyncStore(config)).pendingOps("project")).toHaveLength(1);
+});
+
 describe("project sync between computers", () => {
+  test("a manual sync consumes its scheduled round without calling the real platform later", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const akte = await localProject(owner.config, "Manual sync");
+    const requests: string[] = [];
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return new Response("unavailable", { status: 503 });
+    }, { preconnect: globalThis.fetch.preconnect }));
+    try {
+      await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
+      expect((await runProjectSync(owner.config, { platform })).error).toBeNull();
+      await new Promise((resolve) => setTimeout(resolve, 650));
+      expect(requests.filter((url) => url.includes("/api/projects"))).toEqual([]);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test("instructions arrive with a shared project, edits return, and clearing reaches both computers", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Writing preferences");
+    await changePrompt(owner.config, akte, "Use formal English.");
+    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config);
+    expect((await readProjectDetails(copy.path)).personalizationPrompt).toBe("Use formal English.");
+    const previous = await readProjectDetails(akte.path);
+    await changePrompt(member.config, copy, "Use short paragraphs.");
+    await runProjectSync(member.config, { platform });
+    await runProjectSync(owner.config, { platform });
+    expect((await readProjectDetails(akte.path)).personalizationPrompt).toBe("Use short paragraphs.");
+    expect((await readProjectDetails(akte.path)).fields).toEqual(previous.fields);
+    await expect(updateProjectPersonalization(akte.path, { revision: previous.revision, customInstructions: "Stale draft" })).rejects.toMatchObject({ code: "project_changed" });
+    await changePrompt(owner.config, akte, "");
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    for (const path of [akte.path, copy.path]) expect((await readProjectDetails(path)).personalizationPrompt).toBe("");
+  });
+
+  test("a failed upload keeps offline instructions while a newer remote prompt is pulled", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Offline preferences");
+    await changePrompt(owner.config, akte, "Original instructions");
+    await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config);
+    await changePrompt(owner.config, akte, "Remote edit");
+    await runProjectSync(owner.config, { platform });
+    await changePrompt(member.config, copy, "Offline edit");
+    const offline: ProjectSyncPlatform = { ...platform, patchProject: async (client, id, patch) => {
+      if (patch.personalizationPrompt !== undefined) throw new ApiError(503, "temporarily_unavailable", "Try later");
+      return platform.patchProject(client, id, patch);
+    } };
+    await runProjectSync(member.config, { platform: offline });
+    const refused: ProjectSyncPlatform = { ...platform, patchProject: async (client, id, patch) => {
+      if (patch.personalizationPrompt !== undefined) throw new ApiError(409, "retry_instruction_write", "Try later");
+      return platform.patchProject(client, id, patch);
+    } };
+    expect((await runProjectSync(member.config, { platform: refused })).pulled).toBeGreaterThan(0);
+    expect((await readProjectDetails(copy.path)).personalizationPrompt).toBe("Offline edit");
+    expect((await projectSyncStore(member.config)).outbox().some((entry) => entry.op.kind === "personalization")).toBe(true);
+    await runProjectSync(member.config, { platform });
+    await runProjectSync(owner.config, { platform });
+    expect((await readProjectDetails(akte.path)).personalizationPrompt).toBe("Offline edit");
+  });
+
+  test("Project details scope keeps instructions local when off and publishes them when enabled", async () => {
+    const { platform, projects } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Private preferences");
+    await changePrompt(owner.config, akte, "Private instructions");
+    await saveProjectSyncSettings(owner.config, akte, settings({ access: "org", scope: { ...ALL, metadata: false } }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config);
+    expect((await readProjectDetails(copy.path)).personalizationPrompt).toBeUndefined();
+    await changePrompt(owner.config, akte, "Updated private instructions");
+    expect((await projectSyncStore(owner.config)).outbox()).toEqual([]);
+    await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    expect((await readProjectDetails(copy.path)).personalizationPrompt).toBe("Updated private instructions");
+    await saveProjectSyncSettings(owner.config, akte, settings({ access: "org", scope: { ...ALL, metadata: false } }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    expect([...projects.values()][0].record.personalizationPrompt).toBeNull();
+    expect((await readProjectDetails(copy.path)).personalizationPrompt).toBe("Updated private instructions");
+  });
+
+  test("older services retain queued changes and do not erase local instructions", async () => {
+    const { platform } = fakeFirm();
+    const legacy: ProjectSyncPlatform = { ...platform,
+      createProject: async (client, input) => { const result = await platform.createProject(client, input); delete result.personalizationPrompt; return result; },
+      patchProject: async (client, id, patch) => { const result = await platform.patchProject(client, id, patch); if (result.project) delete result.project.personalizationPrompt; return result; },
+      listProjects: async (client, params) => { const result = await platform.listProjects(client, params); for (const project of result.projects) delete project.personalizationPrompt; return result; },
+    };
+    const owner = await machine("user_anna", "Anna");
+    const akte = await localProject(owner.config, "Legacy service");
+    await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
+    await runProjectSync(owner.config, { platform: legacy });
+    await changePrompt(owner.config, akte, "Keep these instructions");
+    await runProjectSync(owner.config, { platform: legacy });
+    expect((await readProjectDetails(akte.path)).personalizationPrompt).toBe("Keep these instructions");
+    const pending = (await projectSyncStore(owner.config)).outbox();
+    expect(pending).toHaveLength(1);
+    expect(pending[0].op.kind).toBe("personalization");
+    expect((await projectSyncStatus(owner.config, akte)).error).toContain("team service needs an update");
+    await runProjectSync(owner.config, { platform });
+    expect((await projectSyncStore(owner.config)).outbox()).toEqual([]);
+    expect((await projectSyncStatus(owner.config, akte)).error).toBeNull();
+  });
+
+  test("an existing shared project's saved local instructions survive service rollout and are published", async () => {
+    const { platform, projects } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Existing project");
+    await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
+    await runProjectSync(owner.config, { platform });
+    const stored = [...projects.values()][0];
+    stored.record.personalizationPrompt = null;
+    stored.record.updatedAt = new Date(Date.parse(stored.record.updatedAt) + 1000).toISOString();
+    const details = await readProjectDetails(akte.path);
+    await updateProjectPersonalization(akte.path, { revision: details.revision, customInstructions: "Previously saved instructions" });
+    await runProjectSync(owner.config, { platform });
+    expect((await readProjectDetails(akte.path)).personalizationPrompt).toBe("Previously saved instructions");
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    expect((await readProjectDetails(projectsOf(member.config)[0].path)).personalizationPrompt).toBe("Previously saved instructions");
+  });
+
   test("a shared project and its documents reach a named member, and edits come back", async () => {
     const { platform } = fakeFirm();
     const owner = await machine("user_anna", "Anna");
@@ -249,6 +495,8 @@ describe("project sync between computers", () => {
     // The copy knows which Akte it is, so it is never taken for a new one.
     expect((await readProjectDetails(copy.path)).syncProjectId).toBe((await readProjectDetails(akte.path)).syncProjectId);
     expect((await projectSyncStatus(member.config, copy)).role).toBe("member");
+    expect((await projectSyncOverview(owner.config)).roles?.[akte.id]).toBe("owner");
+    expect((await projectSyncOverview(member.config)).roles?.[copy.id]).toBe("member");
 
     await runProjectSync(outsider.config, { platform });
     expect(projectsOf(outsider.config)).toEqual([]);
@@ -474,60 +722,156 @@ describe("project sync between computers", () => {
   });
 
   test("a member taken off the project loses the copy — or decides, when changes made there had not reached the firm", async () => {
-    const { platform } = fakeFirm();
-    const owner = await machine("user_anna", "Anna");
-    const member = await machine("user_ben", "Ben");
-    const akte = await localProject(owner.config, "Akte");
-    await write(akte, "a.txt", "a");
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
-    await runProjectSync(owner.config, { platform });
-    await runProjectSync(member.config, { platform });
-    const [copy] = projectsOf(member.config);
+    const observer = createProjectSyncFirstFailureTiming({
+      env: {
+        LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS: process.env.LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS,
+        CI: process.env.CI,
+        GITHUB_ACTIONS: process.env.GITHUB_ACTIONS,
+      },
+      now: () => performance.now(),
+      write: (frame) => { console.error(frame.trimEnd()); },
+    });
+    activeFirstFailureTiming = observer;
+    try {
+      const { platform } = fakeFirm();
+      observer.enter(1);
+      const owner = await machine("user_anna", "Anna");
+      observer.done(1);
+      observer.enter(2);
+      const member = await machine("user_ben", "Ben");
+      observer.done(2);
+      observer.enter(3);
+      const akte = await localProject(owner.config, "Akte");
+      observer.done(3);
+      observer.enter(4);
+      await write(akte, "a.txt", "a");
+      observer.done(4);
+      observer.enter(5);
+      await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }), observer.settingsCheckpoint);
+      observer.done(5);
+      observer.enter(6);
+      await runProjectSync(owner.config, { platform });
+      observer.done(6);
+      observer.enter(7);
+      await runProjectSync(member.config, { platform });
+      observer.done(7);
+      const [copy] = projectsOf(member.config);
 
-    // Offline edit on Ben's computer, then Anna takes him off the Akte.
-    await write(copy, "b.txt", "Ben's note");
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
-    await runProjectSync(owner.config, { platform });
-    const pull = await runProjectSync(member.config, { platform: { ...platform, storage: () => {
-      throw new ApiError(502, "intake_unreachable", "offline for documents");
-    } } });
-    expect(pull.removed).toBe(0);
-    expect(await projectSyncStatus(member.config, copy)).toMatchObject({ state: "revoked", pendingChanges: 1 });
-    expect(await read(copy, "b.txt")).toBe("Ben's note");
+      // Offline edit on Ben's computer, then Anna takes him off the Akte.
+      observer.enter(8);
+      await write(copy, "b.txt", "Ben's note");
+      observer.done(8);
+      observer.enter(9);
+      await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
+      observer.done(9);
+      observer.enter(10);
+      await runProjectSync(owner.config, { platform });
+      observer.done(10);
+      observer.enter(11);
+      const pull = await runProjectSync(member.config, { platform: { ...platform, storage: () => {
+        throw new ApiError(502, "intake_unreachable", "offline for documents");
+      } } });
+      observer.done(11);
+      observer.enter(12);
+      expect(pull.removed).toBe(0);
+      observer.done(12);
+      observer.enter(13);
+      expect(await projectSyncStatus(member.config, copy)).toMatchObject({ state: "revoked", pendingChanges: 1 });
+      observer.done(13);
+      observer.enter(14);
+      expect(await read(copy, "b.txt")).toBe("Ben's note");
+      observer.done(14);
 
-    // Given access again, the held-back copy syncs again, changes included.
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
-    await runProjectSync(owner.config, { platform });
-    await settleFiles(copy);
-    await runProjectSync(member.config, { platform });
-    await runProjectSync(owner.config, { platform });
-    expect((await projectSyncStatus(member.config, copy)).state).toBe("synced");
-    expect(await read(akte, "b.txt")).toBe("Ben's note");
+      // Given access again, the held-back copy syncs again, changes included.
+      observer.enter(15);
+      await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+      observer.done(15);
+      observer.enter(16);
+      await runProjectSync(owner.config, { platform });
+      observer.done(16);
+      observer.enter(17);
+      await settleFiles(copy);
+      observer.done(17);
+      observer.enter(18);
+      await runProjectSync(member.config, { platform });
+      observer.done(18);
+      observer.enter(19);
+      await runProjectSync(owner.config, { platform });
+      observer.done(19);
+      observer.enter(20);
+      expect((await projectSyncStatus(member.config, copy)).state).toBe("synced");
+      observer.done(20);
+      observer.enter(21);
+      expect(await read(akte, "b.txt")).toBe("Ben's note");
+      observer.done(21);
 
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
-    await runProjectSync(owner.config, { platform });
-    await write(copy, "c.txt", "another offline note");
-    await runProjectSync(member.config, { platform: { ...platform, storage: () => {
-      throw new ApiError(502, "intake_unreachable", "offline for documents");
-    } } });
-    expect((await projectSyncStatus(member.config, copy)).state).toBe("revoked");
-    await resolveProjectSync(member.config, copy, { action: "keep_local" });
-    expect((await projectSyncStatus(member.config, copy)).mode).toBe("local");
-    expect(await read(copy, "c.txt")).toBe("another offline note");
+      observer.enter(22);
+      await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
+      observer.done(22);
+      observer.enter(23);
+      await runProjectSync(owner.config, { platform });
+      observer.done(23);
+      observer.enter(24);
+      await write(copy, "c.txt", "another offline note");
+      observer.done(24);
+      observer.enter(25);
+      await runProjectSync(member.config, { platform: { ...platform, storage: () => {
+        throw new ApiError(502, "intake_unreachable", "offline for documents");
+      } } });
+      observer.done(25);
+      observer.enter(26);
+      expect((await projectSyncStatus(member.config, copy)).state).toBe("revoked");
+      observer.done(26);
+      observer.enter(27);
+      await resolveProjectSync(member.config, copy, { action: "keep_local" });
+      observer.done(27);
+      observer.enter(28);
+      expect((await projectSyncStatus(member.config, copy)).mode).toBe("local");
+      observer.done(28);
+      observer.enter(29);
+      expect(await read(copy, "c.txt")).toBe("another offline note");
+      observer.done(29);
 
-    // Without such changes the copy simply goes.
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
-    await runProjectSync(owner.config, { platform });
-    await runProjectSync(member.config, { platform });
-    const second = projectsOf(member.config).find((workspace) => workspace.id !== copy.id);
-    expect(second).toBeDefined();
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
-    await runProjectSync(owner.config, { platform });
-    await runProjectSync(member.config, { platform });
-    expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([copy.id]);
-    expect(await readdir(second?.path ?? "").catch(() => null)).toBeNull();
-    // The app's own list forgets it too.
-    expect((await projectSyncOverview(member.config)).removed).toEqual([second?.id ?? ""]);
+      // Without such changes the copy simply goes.
+      observer.enter(30);
+      await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+      observer.done(30);
+      observer.enter(31);
+      await runProjectSync(owner.config, { platform });
+      observer.done(31);
+      observer.enter(32);
+      await runProjectSync(member.config, { platform });
+      observer.done(32);
+      const second = projectsOf(member.config).find((workspace) => workspace.id !== copy.id);
+      observer.enter(33);
+      expect(second).toBeDefined();
+      observer.done(33);
+      observer.enter(34);
+      await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
+      observer.done(34);
+      observer.enter(35);
+      await runProjectSync(owner.config, { platform });
+      observer.done(35);
+      observer.enter(36);
+      await runProjectSync(member.config, { platform });
+      observer.done(36);
+      observer.enter(37);
+      expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([copy.id]);
+      observer.done(37);
+      observer.enter(38);
+      expect(await readdir(second?.path ?? "").catch(() => null)).toBeNull();
+      observer.done(38);
+      // The app's own list forgets it too.
+      observer.enter(39);
+      expect((await projectSyncOverview(member.config)).removed).toEqual([second?.id ?? ""]);
+      observer.done(39);
+      observer.complete();
+    } catch (error) {
+      observer.failed();
+      throw error;
+    } finally {
+      observer.settled();
+    }
   });
 
   test("a file whose time alone moved is no change: without real changes, the copy goes when access ends", async () => {
@@ -660,6 +1004,7 @@ describe("project sync between computers", () => {
       offer: { name: "Akte", ownerUserId: "user_anna" },
     });
     expect((await projectSyncOverview(member.config)).states[own.id]).toBe("offered");
+    expect((await projectSyncOverview(member.config)).roles?.[own.id]).toBeUndefined();
     expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([own.id]);
     expect(tasks.listOutbox().filter((entry) => entry.taskId === task.id)).toEqual([]);
     await expect(saveProjectSyncSettings(member.config, own, settings())).rejects.toMatchObject({ code: "project_sync_offer_pending" });
@@ -679,6 +1024,7 @@ describe("project sync between computers", () => {
     await resolveProjectSync(member.config, own, { action: "use_folder" });
     await runProjectSync(member.config, { platform });
     expect(await projectSyncStatus(member.config, own)).toMatchObject({ mode: "synced", role: "member", ownFolder: true });
+    expect((await projectSyncOverview(member.config)).roles?.[own.id]).toBe("member");
     expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([own.id]);
 
     // Taken off: the project stays Ben's own, and Anna's id in the shared folder is left alone.
@@ -798,3 +1144,46 @@ test("team project configuration shares folder references and setup status even 
   expect((await readProjectDetails(akte.path)).remote?.folders).toEqual([]);
   expect((await readProjectDetails(akte.path)).remote).not.toHaveProperty("context");
 });
+
+test("stopping project sync awaits the already running round before releasing its producers", async () => {
+  const { startProjectSyncTimer } = await import("./project-sync.js");
+  const { platform } = fakeFirm(); const owner = await machine("user_anna", "Anna", { syncMode: "background" });
+  let enter!: () => void, resume!: () => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; }); const barrier = new Promise<void>(resolve => { resume = resolve; });
+  const originalList = platform.listProjects;
+  platform.listProjects = async (...args) => { enter(); await barrier; return originalList(...args); };
+  const stop = startProjectSyncTimer(owner.config, 60_000, 60_000);
+  const round = runProjectSync(owner.config, { platform }); await entered;
+  let stopped = false; const closing = Promise.resolve(stop()).then(() => { stopped = true; });
+  try { await new Promise(resolve => setTimeout(resolve, 10)); expect(stopped).toBe(false); }
+  finally { resume(); await round; await closing; }
+  expect((await projectSyncOverview(owner.config)).connected).toBeDefined();
+});
+
+
+test("a shared project watcher dispatches to the surviving timer owner", async () => {
+  const owner = await machine("user_anna", "Anna", { syncMode: "background" });
+  const { platform } = fakeFirm();
+  const workspace = await localProject(owner.config, "Retained watcher");
+  await saveProjectSyncSettings(owner.config, workspace, settings());
+  await runProjectSync(owner.config, { platform });
+  let calls = 0;
+  const http = createServer((request, response) => {
+    calls++; request.resume(); response.writeHead(500, { "Content-Type": "application/json" }).end(JSON.stringify({ code: "unavailable" }));
+  });
+  await new Promise<void>(resolve => http.listen(0, "127.0.0.1", resolve));
+  cleanups.push(() => new Promise<void>(resolve => http.close(() => resolve())));
+  const address = http.address(); if (!address || typeof address === "string") throw new Error("platform failed to bind");
+  const previousPlatform = process.env.EIGENWELT_PLATFORM_URL;
+  process.env.EIGENWELT_PLATFORM_URL = `http://127.0.0.1:${address.port}`;
+  cleanups.push(async () => { if (previousPlatform === undefined) delete process.env.EIGENWELT_PLATFORM_URL; else process.env.EIGENWELT_PLATFORM_URL = previousPlatform; });
+  await writeEigenweltConnection(owner.config, { platformURL: process.env.EIGENWELT_PLATFORM_URL });
+  const secondConfig = { ...owner.config };
+  const stopSecond = startProjectSyncTimer(secondConfig, 60_000, 60_000); cleanups.push(stopSecond);
+  await owner.stopProjectTimer();
+  await write(workspace, "surviving-owner.txt", "watcher still dispatches");
+  const deadline = Date.now() + 4_500;
+  while (!calls && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+  expect(calls).toBeGreaterThan(0);
+  await stopSecond();
+}, 10_000);

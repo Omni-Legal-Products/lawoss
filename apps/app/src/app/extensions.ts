@@ -1,4 +1,5 @@
 import { t } from "@/i18n";
+import { connectorDefinitions } from "@legalwork/types/connectors";
 // Owned here: reload vocabulary is part of the extension manifest contract.
 // types.ts re-exports it for the rest of the app.
 export type ReloadReason = "plugins" | "skills" | "mcp" | "config" | "agents" | "commands";
@@ -44,7 +45,7 @@ export type LegalWorkExtensionResource = {
   packageName?: string;
   providerId?: string;
   mcpServerName?: string;
-  localCommandRef?: "legalwork.computerUseMcp" | "legalwork.uiMcp";
+  localCommandRef?: "legalwork.openComputerUseMcp" | "legalwork.uiMcp" | "legalwork.actaportMcp";
   required?: boolean;
 };
 
@@ -151,6 +152,30 @@ export function isTrustedBuiltInExtension(manifest: LegalWorkExtensionManifest |
 }
 
 export const BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS: LegalWorkExtensionManifest[] = [
+  ...connectorDefinitions.map(({ id, name, icon, descriptionKey, promptKey }): LegalWorkExtensionManifest => ({
+    schemaVersion: 1, id, name,
+    get description() { return t(descriptionKey); },
+    source: { format: "legalwork-builtin", origin: "builtin", trusted: true },
+    icon: { simpleIconSlug: icon },
+    composer: { get prompt() { return t(promptKey, { name, id }); } },
+    resources: [ { type: "provider", id, label: name, providerId: id, required: true } ],
+    contributions: [ { type: "settings-panel", ref: id, location: "settings-detail" } ],
+    lifecycle: { detection: [`provider:${id}`] },
+  })),
+  {
+    schemaVersion: 1,
+    id: "actaport",
+    name: "Actaport",
+    get description() { return t("actaport.description"); },
+    source: { format: "legalwork-builtin", origin: "builtin", trusted: true },
+    icon: { src: "/ext-actaport.svg" },
+    composer: { get prompt() { return t("actaport.prompt"); } },
+    resources: [{ type: "mcp", id: "actaport-mcp", mcpServerName: "actaport", command: ["legalwork-actaport-mcp"], localCommandRef: "legalwork.actaportMcp", required: true }],
+    contributions: [{ type: "settings-panel", ref: "actaport", location: "settings-detail" }],
+    enablement: [{ type: "mcp-connected", ref: "actaport", label: "Actaport" }],
+    lifecycle: { reload: ["mcp"], detection: ["mcp:actaport"] },
+    platform: ["darwin", "linux", "windows"],
+  },
   {
     schemaVersion: 1,
     id: "legalwork-voice",
@@ -182,50 +207,37 @@ export const BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS: LegalWorkExtensionManifest[
   },
   {
     schemaVersion: 1,
-    id: "computer-use",
-    name: "Computer Use",
-    get description() { return t("ext.cu_desc"); },
+    id: "open-computer-use",
+    name: "Open Computer Use",
+    get description() { return t("open_computer_use.description"); },
     preview: true,
-    source: { format: "legalwork-builtin", origin: "builtin", trusted: true },
-    icon: { src: "/legalwork-mark.svg" },
-    composer: { prompt: t("ext.composer_computer_use") },
-    setup: {
-      get instructions() { return t("ext.cu_instructions"); },
-      get primaryCta() { return t("ext.cu_primary_cta"); },
-      get secondaryCta() { return t("ext.cu_secondary_cta"); },
-      testActionRef: "legalwork.computerUse.healthCheck",
+    source: {
+      format: "legalwork-builtin", origin: "builtin", trusted: true,
+      reference: "https://github.com/iFurySt/open-codex-computer-use",
     },
+    icon: { src: "/ext-open-computer-use.svg" },
+    composer: { prompt: t("ext.composer_computer_use") },
+    setup: { get instructions() { return t("open_computer_use.instructions"); } },
     resources: [
       {
-        type: "mcp",
-        id: "computer-use-mcp",
-        get label() { return t("ext.cu_mcp_label"); },
-        mcpServerName: "computer-use",
-        command: ["npx", "-y", "@legalwork/handsfree", "mcp"],
-        localCommandRef: "legalwork.computerUseMcp",
-        required: true,
+        type: "mcp", id: "open-computer-use-mcp", mcpServerName: "open-computer-use",
+        command: ["open-computer-use", "mcp"], localCommandRef: "legalwork.openComputerUseMcp", required: true,
+        get label() { return t("open_computer_use.tools_label"); },
       },
       {
-        type: "native-binary",
-        id: "computer-use-native",
-        get label() { return t("ext.cu_runtime_label"); },
-        packageName: "@legalwork/handsfree",
-        required: true,
+        type: "native-binary", id: "open-computer-use-runtime", packageName: "open-computer-use@1.1.0", required: true,
+        get label() { return t("open_computer_use.runtime_label"); },
       },
     ],
     contributions: [
-      { type: "setup-instructions", ref: "legalwork.computerUse.setup", location: "settings-detail" },
-      { type: "native-capability", ref: "legalwork.computerUse.axPermissions", get label() { return t("ext.cu_permissions_label"); } },
-      { type: "test-action", ref: "legalwork.computerUse.healthCheck", get label() { return t("ext.cu_verify_label"); } },
+      { type: "settings-panel", ref: "legalwork.openComputerUse.settings", location: "settings-detail" },
       { type: "composer-prompt", prompt: t("ext.composer_computer_use"), location: "composer" },
     ],
     enablement: [
-      { type: "mcp-connected", ref: "computer-use", get label() { return t("ext.cu_mcp_connected"); } },
-      { type: "permission-granted", ref: "accessibility", get label() { return t("ext.cu_ax_permission"); } },
-      { type: "permission-granted", ref: "screenRecording", get label() { return t("ext.cu_screen_permission"); } },
+      { type: "mcp-connected", ref: "open-computer-use", get label() { return t("ext.cu_mcp_connected"); } },
     ],
-    lifecycle: { reload: ["mcp"], detection: ["mcp:computer-use"] },
-    platform: ["darwin"],
+    lifecycle: { reload: ["mcp"], detection: ["mcp:open-computer-use"] },
+    platform: ["darwin", "windows"],
   },
   {
     schemaVersion: 1,

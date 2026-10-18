@@ -23,7 +23,7 @@ test("clean export accepts changes and removes comments without altering the sou
   assert.ok(unchanged.getComments().length > 0);
 });
 
-test("clean export refuses unsupported review markup in a header", async () => {
+test("clean export accepts review markup in a header", async () => {
   const zip = await JSZip.loadAsync(await fixture());
   const header = Object.keys(zip.files).find((name) => /^word\/header\d+\.xml$/.test(name));
   assert.ok(header);
@@ -31,7 +31,8 @@ test("clean export refuses unsupported review markup in a header", async () => {
   assert.ok(file);
   const xml = await file.async("string");
   zip.file(header, xml.replace(/(<w:r[ >][\s\S]*?<\/w:r>)/, '<w:ins w:id="91" w:author="Header reviewer">$1</w:ins>'));
-  await assert.rejects(createCleanDocx(await zip.generateAsync({ type: "arraybuffer" })), /cannot yet be removed safely/);
+  const clean = await JSZip.loadAsync(await createCleanDocx(await zip.generateAsync({ type: "arraybuffer" })));
+  assert.doesNotMatch(await clean.file(header)!.async("string"), /w:ins\b/);
 });
 
 test("overlapping comments coexist in the ProseMirror schema", () => {

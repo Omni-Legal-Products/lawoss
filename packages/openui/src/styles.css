@@ -1,0 +1,38 @@
+@import "@openuidev/react-ui/layered/styles/index.css";
+/* Stock OpenUI owns component appearance. These rules only arrange the local
+   data adapters and keep them usable inside tabs and embedded page blocks. */
+.lw-openui { min-width: 0; container-type: inline-size; color: var(--openui-text-neutral-primary); font: var(--openui-text-body-default); }
+.lw-view-stack { display: grid; gap: var(--openui-space-xl); }
+.lw-view-stack-item, .lw-view-card-body > *, .lw-view-chart { min-width: 0; }
+.lw-view-card-body { display: grid; min-width: 0; gap: var(--openui-space-xl); }
+.lw-view-title { font: var(--openui-text-heading-xl); letter-spacing: var(--openui-text-heading-xl-letter-spacing); margin: 0; }
+.lw-view-heading { font: var(--openui-text-heading-md); margin: 0; }
+.lw-view-prose { white-space: pre-wrap; margin: 0; }
+.lw-view-source { cursor: pointer; text-align: left; color: inherit; }
+.lw-view-source:hover { text-decoration: underline; text-underline-offset: 3px; }
+.lw-view-source:focus-visible { outline: 2px solid var(--openui-border-interactive-selected); outline-offset: 3px; border-radius: 3px; }
+.lw-view-table { display: grid; gap: var(--openui-space-m); min-width: 0; }
+.lw-view-table th button { cursor: pointer; text-align: inherit; }
+.lw-view-number, .lw-view-board-count { font-variant-numeric: tabular-nums; }
+.lw-view-muted, .lw-view-query-status, .lw-view-board-empty { color: var(--openui-text-neutral-secondary); font: var(--openui-text-body-sm); }
+.lw-view-board { display: flex; align-items: flex-start; min-width: 0; gap: var(--openui-space-m); overflow-x: auto; padding: 2px 2px var(--openui-space-m); }
+.lw-view-board-column { display: flex; flex-direction: column; gap: var(--openui-space-m); min-width: 240px; max-width: 320px; flex: 1 0 240px; max-height: 392px; }
+.lw-view-board-heading { display: flex; align-items: center; gap: var(--openui-space-s); font: var(--openui-text-label-sm); }
+.lw-view-board-count { margin-left: auto; color: var(--openui-text-neutral-secondary); }
+.lw-view-board-items { display: flex; min-height: 0; flex-direction: column; gap: var(--openui-space-m); overflow-y: auto; padding: 1px 2px 4px; scrollbar-width: thin; }
+.lw-view-board-items > * { flex-shrink: 0; }
+.lw-view-board-field { display: flex; justify-content: space-between; gap: var(--openui-space-m); font: var(--openui-text-body-sm); }
+.lw-view-board-field > :first-child { color: var(--openui-text-neutral-secondary); }
+.lw-view-board-field > :last-child { text-align: right; }
+.lw-view-board-stage { width: 100%; border: 0; background: transparent; color: var(--openui-text-neutral-secondary); font: var(--openui-text-label-xs); cursor: pointer; }
+.lw-view-board-stage:focus-visible { outline: 2px solid var(--openui-border-interactive-selected); outline-offset: 2px; }
+.lw-view-board-stage:disabled { opacity: .5; cursor: wait; }
+.lw-view-board-stage option { color: var(--openui-text-neutral-primary); background: var(--openui-foreground); }
+.lw-view-board article[draggable="true"] { cursor: grab; }
+.lw-view-board-drop { outline: 2px solid var(--openui-border-interactive-selected); outline-offset: -2px; }
+.lw-view-board-error { margin-bottom: var(--openui-space-m); color: var(--openui-text-danger-primary); font: var(--openui-text-body-sm); }
+.lw-view-chart h3 { font: var(--openui-text-heading-xs); margin: 0 0 var(--openui-space-m); }
+.lw-view-chart details { font: var(--openui-text-body-xs); margin-top: var(--openui-space-m); color: var(--openui-text-neutral-secondary); }
+.lw-view-chart summary { cursor: pointer; margin-bottom: var(--openui-space-s); }
+@container (max-width: 520px) { .lw-view-stack { grid-template-columns: 1fr !important; } }
+@media (prefers-reduced-motion: reduce) { .lw-openui *, .lw-openui *::before, .lw-openui *::after { animation: none !important; transition: none !important; } }

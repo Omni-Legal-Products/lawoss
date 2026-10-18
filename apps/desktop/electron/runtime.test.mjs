@@ -1,9 +1,12 @@
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
 
 import path from "node:path";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 import { mkdir, mkdtemp, readFile, rm, writeFile, stat, symlink } from "node:fs/promises";
 
 import {
@@ -24,6 +27,32 @@ import {
   selectStickyLegalworkPortWorkspace,
   usesExternalWorkspaceAppFiles,
 } from "./runtime.mjs";
+
+it("engine doctor bounds actual probes and preserves primary startup failures", { timeout: 20_000 }, async () => {
+  // Builtin ESM bindings are process-wide: isolate the adapter and restore it
+  // inside the fixture, without sharing it with other runtime tests.
+  const { spawnSync } = await import("node:child_process");
+  const root = await mkdtemp(path.join(os.tmpdir(), "lawoss-doctor-"));
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (/^(LEGALWORK_|OPENCODE_|XDG_)/.test(key)) delete env[key];
+  }
+  Object.assign(env, {
+    HOME: root, USERPROFILE: root, PATH: "", LEGALWORK_ENV_STORE: path.join(root, "env.json"),
+    LEGALWORK_SERVER_CONFIG: path.join(root, "server.json"), LEGALWORK_DATA_DIR: path.join(root, "data"),
+    XDG_CONFIG_HOME: path.join(root, "config"), XDG_DATA_HOME: path.join(root, "data"),
+  });
+  try {
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL("./runtime-doctor.fixture.mjs", import.meta.url))], {
+      env, encoding: "utf8", timeout: 15_000, maxBuffer: 1024 * 1024, windowsHide: true,
+    });
+    assert.equal(result.error, undefined, result.error?.message);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /doctor controls passed/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 describe("workspace app files policy", () => {
   it("requires an explicit outside policy before skipping project setup", () => {
@@ -360,13 +389,31 @@ describe("selected existing project startup", () => {
 
 for (const appFiles of ["inside","outside"]) it(`existing canonical aliases still reach ordinary runtime startup (${appFiles})`, async()=>{
  const root=await mkdtemp(path.join(os.tmpdir(),"lawoss-runtime-existing-"));
+ const ownedBinary=path.join(root,"inert-opencode");
+ const controlledCalls=[],unexpectedSync=[],unexpectedAsync=[];
+ const syncMock=mock.method(childProcess,"spawnSync",(program,argv,options)=>{
+  if(program==="/usr/libexec/path_helper"||program==="ps")return {status:0,stdout:"",stderr:""};
+  if(program!==ownedBinary){unexpectedSync.push(program);throw new Error("Unowned diagnostic subprocess denied");}
+  controlledCalls.push({argv,options});
+  return {status:0,stdout:"synthetic-version",stderr:""};
+ });
+ const asyncMock=mock.method(childProcess,"spawn",()=>{unexpectedAsync.push(true);throw new Error("Unexpected startup child denied");});
+ syncBuiltinESMExports();
  try {
+  await writeFile(ownedBinary,"Inert diagnostic fixture; never executable");
   const target=path.join(root,"actual"),alias=path.join(root,"alias");await mkdir(target);await symlink(target,alias,process.platform==="win32"?"junction":"dir");
   const manager=createRuntimeManager({app:{isPackaged:true,getPath:key=>key==="exe"?path.join(root,"app","Electron"):root},desktopRoot:path.join(root,"desktop"),listLocalWorkspacePaths:async()=>[],listLocalWorkspaceAppFiles:async()=>({}),listLocalWorkspaces:async()=>[],reconnectHostWorkspace:async()=>null,recorder:undefined,onSidecarExit:()=>{},getApprovalWindow:()=>null});
   // This Node fixture has no packaged Node binary. The real existing-root
   // precondition must pass, without pretending the Electron engine launched.
-  await assert.rejects(manager.engineStart(alias,{appFiles}),error=>!String(error).includes("Project folder is unavailable"));
+  await assert.rejects(manager.engineStart(alias,{appFiles,opencodeBinPath:ownedBinary}),error=>!String(error).includes("Project folder is unavailable"));
+  assert.equal((await manager.engineInfo()).lifecycleState,"error");
+  assert.equal(unexpectedSync.length,0,"Automatic error diagnostics must not attempt an ambient binary");
+  assert.equal(unexpectedAsync.length,0,"Startup must not attempt any real engine child");
+  assert.deepEqual(controlledCalls,[
+   {argv:["--version"],options:{encoding:"utf8",timeout:2000,maxBuffer:1048576,windowsHide:true}},
+   {argv:["serve","--help"],options:{encoding:"utf8",timeout:2000,maxBuffer:1048576,windowsHide:true}},
+  ],"Real startup-error catch must exercise both controlled doctor calls");
   assert.equal((await stat(target)).isDirectory(),true);
   assert.equal(await stat(path.join(target,".opencode")).then(()=>true,()=>false),appFiles==="inside");
- }finally{await rm(root,{recursive:true,force:true});}
+ }finally{syncMock.mock.restore();asyncMock.mock.restore();syncBuiltinESMExports();await rm(root,{recursive:true,force:true});}
 });

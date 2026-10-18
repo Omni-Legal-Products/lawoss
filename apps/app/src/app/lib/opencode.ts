@@ -1,6 +1,6 @@
 import { createOpencodeClient, type Message, type Part, type Session, type Todo } from "@opencode-ai/sdk/v2/client";
 
-import { desktopFetch } from "./desktop";
+import { desktopFetch, desktopStreamFetch } from "./desktop";
 import { createLegalworkServerClient, LegalworkServerError } from "./legalwork-server";
 import { isDesktopRuntime } from "./runtime-env";
 import { t } from "@/i18n";
@@ -59,11 +59,13 @@ export type OpencodeAuth = {
   username?: string;
   password?: string;
   token?: string;
+  hostToken?: string;
   mode?: "basic" | "legalwork";
 };
 
 const DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS = 10_000;
 const SESSION_CREATE_TIMEOUT_MS = 60_000;
+const ENGINE_BOOTSTRAP_TIMEOUT_MS = 90_000;
 const OAUTH_OPENCODE_REQUEST_TIMEOUT_MS = 5 * 60_000;
 const MCP_AUTH_OPENCODE_REQUEST_TIMEOUT_MS = 90_000;
 const SESSION_LONG_RUNNING_URL_RE = /\/session\/[^/?#]+\/(?:command|prompt_async|summarize)(?:[?#]|$)/;
@@ -83,8 +85,19 @@ export function resolveRequestTimeoutMs(input: RequestInfo | URL, fallbackMs: nu
   if (method === "POST" && /\/session\/?(?:[?#]|$)/.test(url)) {
     return Math.max(fallbackMs, SESSION_CREATE_TIMEOUT_MS);
   }
+  // The first metadata read initializes plugins and their dependencies. On a
+  // fresh Windows profile this took over a minute. Avoid timing out and
+  // queueing retries behind the same initialization work.
+  if (!(input instanceof Request && input.method !== "GET") && /\/(?:provider(?:\/auth)?|config(?:\/providers)?|mcp|session)(?:[?#]|$)/.test(url)) {
+    return Math.max(fallbackMs, ENGINE_BOOTSTRAP_TIMEOUT_MS);
+  }
   if (SESSION_LONG_RUNNING_URL_RE.test(url) || (input instanceof Request && input.method === "POST" && /\/session\/[^/?#]+\/message(?:[?#]|$)/.test(url))) {
     return 0;
+  }
+  // Disposing an instance may wait for OneDrive-backed files. Give the
+  // direct recovery path the same window as the server-managed reload.
+  if (/\/instance\/dispose(?:[?#]|$)/.test(url)) {
+    return Math.max(fallbackMs, 90_000);
   }
   // The OAuth callback long-polls until the user finishes signing in. Cut
   // short, the app reloads the engine, which drops the pending sign-in.
@@ -146,7 +159,7 @@ async function postSessionRequest<T>(
   return { error, request, response };
 }
 
-function resolveLegalworkWorkspaceMount(baseUrl: string): { baseUrl: string; workspaceId: string } | null {
+export function resolveLegalworkWorkspaceMount(baseUrl: string): { baseUrl: string; workspaceId: string } | null {
   try {
     const url = new URL(baseUrl);
     const match = url.pathname
@@ -236,9 +249,10 @@ async function fetchWithTimeout(
     return fetchImpl(input, init);
   }
 
-  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-  const signal = controller?.signal;
-  const initWithSignal = signal && !init?.signal ? { ...(init ?? {}), signal } : init;
+  const controller = new AbortController();
+  const callerSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+  const signal = callerSignal ? AbortSignal.any([controller.signal, callerSignal]) : controller.signal;
+  const initWithSignal = { ...init, signal };
 
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -255,8 +269,7 @@ async function fetchWithTimeout(
   try {
     return await Promise.race([fetchImpl(input, initWithSignal), timeoutPromise]);
   } catch (error) {
-    const name = (error && typeof error === "object" && "name" in error ? (error as any).name : "") as string;
-    if (name === "AbortError") {
+    if (controller.signal.aborted) {
       throw new Error(t("app.request_timed_out"));
     }
     throw error;
@@ -284,12 +297,8 @@ const resolveAuthHeader = (auth?: OpencodeAuth) => {
 
 /**
  * URLs whose response body we must stream chunk-by-chunk (SSE, long-running
- * message streams, event subscriptions). The Tauri HTTP plugin's
- * `fetch_read_body` IPC call blocks until the entire body is delivered, so
- * pointing it at an infinite stream freezes the webview's main thread for
- * minutes. For these endpoints we always use the webview's native fetch —
- * CORS is already wide open on the legalwork/opencode stack, so there's no
- * reason to route them through the plugin.
+ * message streams, event subscriptions). These need the pull-based stream
+ * bridge; the ordinary text fetch helper waits for the complete body.
  */
 const STREAM_URL_RE = /\/(event|stream)(\b|\/|$|\?)/;
 
@@ -303,24 +312,21 @@ function requestIsStreaming(input: RequestInfo | URL, init?: RequestInit): boole
   return typeof accept === "string" && accept.toLowerCase().includes("text/event-stream");
 }
 
-function nativeFetchRef(): typeof globalThis.fetch {
-  if (typeof window !== "undefined" && typeof window.fetch === "function") return window.fetch.bind(window);
-  return globalThis.fetch as typeof globalThis.fetch;
-}
-
 const createDesktopFetch = (auth?: OpencodeAuth) => {
   const authHeader = resolveAuthHeader(auth);
   const addAuth = (headers: Headers) => {
-    if (!authHeader || headers.has("Authorization")) return;
-    headers.set("Authorization", authHeader);
+    if (authHeader && !headers.has("Authorization")) headers.set("Authorization", authHeader);
+    if (auth?.mode === "legalwork" && auth.hostToken && !headers.has("X-LegalWork-Host-Token")) {
+      headers.set("X-LegalWork-Host-Token", auth.hostToken);
+    }
   };
 
   return (input: RequestInfo | URL, init?: RequestInit) => {
-    // Streams must go through the webview's native fetch to avoid the
-    // Tauri HTTP plugin's `fetch_read_body` hang on never-closing bodies.
+    // Pull stream chunks through Electron instead of occupying Chromium's
+    // shared HTTP pool for the lifetime of every open app window.
     const shouldStream = requestIsStreaming(input, init);
     const underlyingFetch = shouldStream
-      ? nativeFetchRef()
+      ? desktopStreamFetch
       : desktopFetch;
     // Streams should never be timed out at the transport layer; the caller
     // aborts via AbortSignal when the subscription unmounts.
@@ -351,12 +357,14 @@ export function unwrap<T>(result: FieldsResult<T>): NonNullable<T> {
   if (result.data !== undefined) {
     return result.data as NonNullable<T>;
   }
-  const message =
-    result.error instanceof Error
-      ? result.error.message
-      : typeof result.error === "string"
-        ? result.error
-        : JSON.stringify(result.error);
+  const error = result.error;
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === "object" && error !== null && "message" in error && typeof error.message === "string"
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : JSON.stringify(error);
   throw new Error(message || t("app.unknown_error"));
 }
 
@@ -375,6 +383,7 @@ export function createClient(baseUrl: string, directory?: string, auth?: Opencod
     if (authHeader) {
       headers.Authorization = authHeader;
     }
+    if (auth?.mode === "legalwork" && auth.hostToken) headers["X-LegalWork-Host-Token"] = auth.hostToken;
   }
 
   const transportFetch = isDesktopRuntime()
@@ -415,7 +424,7 @@ export function createClient(baseUrl: string, directory?: string, auth?: Opencod
   const legalworkMount = auth?.mode === "legalwork" ? resolveLegalworkWorkspaceMount(baseUrl) : null;
   const legalworkSessionClient =
     legalworkMount && auth?.token
-      ? createLegalworkServerClient({ baseUrl: legalworkMount.baseUrl, token: auth.token })
+      ? createLegalworkServerClient({ baseUrl: legalworkMount.baseUrl, token: auth.token, hostToken: auth.hostToken })
       : null;
   // TODO(2026-04-12): remove the old-server compatibility path here once all
   // LegalWork servers expose the workspace-scoped session read APIs.

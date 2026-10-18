@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
+import { browserSnapshot, normalizeAccessibilityTree, runBrowserBatch } from "./browser-automation-actions.mjs";
 
 // The browser tools only need page operations. Never forward Browser/Target
 // commands or client-supplied session IDs, which can reach other renderers.
@@ -13,17 +14,49 @@ const ALLOWED_METHODS = new Set([
 ]);
 const EVENT_DOMAINS = new Set(["Accessibility", "DOM", "Input", "Page", "Runtime"]);
 
+async function readBody(request) {
+  let body = "";
+  request.setEncoding("utf8");
+  for await (const chunk of request) {
+    body += chunk;
+    if (body.length > 64000) throw new Error("Browser batch is too large.");
+  }
+  return JSON.parse(body);
+}
+
 /** A capability URL grants access to one explicitly registered browser tab. */
-export function createBrowserAutomationBroker() {
+export function createBrowserAutomationBroker({ authorize }) {
+  if (typeof authorize !== "function") throw new Error("Browser automation requires a network policy check.");
   const grants = new Map();
   const websocketServer = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
   let authority = "";
   let startPromise;
   let closed = false;
 
+  async function authorizeGrant(grant) {
+    if (!grants.has(grant.token) || grant.webContents.isDestroyed()) throw new Error("Browser tab is closed.");
+    try { await authorize(grant.context); }
+    catch (error) {
+      revoke(grant);
+      // Stop the page too, so its scripts cannot keep using a revoked grant.
+      try { grant.webContents.close(); } catch { /* Already closed. */ }
+      throw error;
+    }
+    if (!grants.has(grant.token) || grant.webContents.isDestroyed()) throw new Error("Browser tab is closed.");
+  }
+
+  // A page can keep making requests without another tool call. Revoke its
+  // capability and close it when the originating chat's policy changes.
+  const policyTimer = setInterval(() => {
+    for (const grant of grants.values()) {
+      if (grant.checking) continue;
+      grant.checking = true;
+      void authorizeGrant(grant).catch(() => {}).finally(() => { grant.checking = false; });
+    }
+  }, 1000);
+  policyTimer.unref();
+
   function resolveRequest(request) {
-    // Browsing content must never call this surface, even with a leaked URL.
-    // Native CDP clients do not send Origin. Check Host to reject DNS rebinding.
     if ("origin" in request.headers || request.headers.host !== authority) return null;
     const parts = request.url?.split("/") ?? [];
     const grant = grants.get(parts[1]);
@@ -31,23 +64,63 @@ export function createBrowserAutomationBroker() {
     return { grant, route: parts.slice(2).join("/") };
   }
 
-  const server = createServer((request, response) => {
+  function acquire(grant) {
+    if (grant.users === 0) grant.webContents.debugger.attach("1.3");
+    grant.users += 1;
+  }
+
+  function release(grant) {
+    grant.users -= 1;
+    if (grant.users === 0) {
+      try { grant.webContents.debugger.detach(); } catch { /* Tab may already be closed. */ }
+    }
+  }
+
+  async function sendCommand(grant, method, params = {}) {
+    await authorizeGrant(grant);
+    grant.onActivity?.();
+    const result = await grant.webContents.debugger.sendCommand(method, params);
+    return method === "Accessibility.getFullAXTree" ? normalizeAccessibilityTree(result) : result;
+  }
+
+  async function withDebugger(grant, action) {
+    await authorizeGrant(grant);
+    acquire(grant);
+    try { return await action((method, params) => sendCommand(grant, method, params)); }
+    finally { release(grant); }
+  }
+
+  const server = createServer(async (request, response) => {
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("Referrer-Policy", "no-referrer");
     const resolved = resolveRequest(request);
-    if (request.method !== "GET" || !resolved || resolved.route !== "json/list") {
-      response.writeHead(403).end();
-      return;
-    }
-    const { grant } = resolved;
+    if (!resolved) { response.writeHead(403).end(); return; }
+    const { grant, route } = resolved;
     response.setHeader("Content-Type", "application/json");
-    response.end(JSON.stringify([{
-      id: grant.targetId,
-      type: "page",
-      title: grant.webContents.getTitle(),
-      url: grant.webContents.getURL(),
-      webSocketDebuggerUrl: `ws://${authority}/${grant.token}/devtools/page/${grant.targetId}`,
-    }]));
+    try { await authorizeGrant(grant); }
+    catch (error) { response.writeHead(403).end(JSON.stringify({ ok: false, error: error.message })); return; }
+    try {
+      if (request.method === "GET" && route === "json/list") {
+        response.end(JSON.stringify([{
+          id: grant.targetId, type: "page", title: grant.webContents.getTitle(), url: grant.webContents.getURL(),
+          webSocketDebuggerUrl: `ws://${authority}/${grant.token}/devtools/page/${grant.targetId}`,
+        }]));
+      } else if (request.method === "GET" && route === "downloads") {
+        response.end(JSON.stringify({ downloads: grant.getDownloads() }));
+      } else if (request.method === "POST" && route === "batch") {
+        if (grant.busy) { response.writeHead(409).end(JSON.stringify({ ok: false, error: "A browser batch is already running on this tab." })); return; }
+        grant.busy = true;
+        try {
+          const body = await readBody(request);
+          const result = await withDebugger(grant, (send) => runBrowserBatch(send, grant.webContents, body.steps, body.timeout_ms));
+          response.end(JSON.stringify({ ...result, downloads: grant.getDownloads() }));
+        } finally { grant.busy = false; }
+      } else {
+        response.writeHead(403).end();
+      }
+    } catch (error) {
+      response.writeHead(400).end(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "Browser request failed." }));
+    }
   });
 
   function revoke(grant) {
@@ -56,30 +129,27 @@ export function createBrowserAutomationBroker() {
     grant.webContents.removeListener("destroyed", grant.onDestroyed);
   }
 
-  server.on("upgrade", (request, socket, head) => {
+  server.on("upgrade", async (request, socket, head) => {
     const resolved = resolveRequest(request);
     if (request.method !== "GET" || !resolved || resolved.route !== `devtools/page/${resolved.grant.targetId}`) {
       socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
       return;
     }
+    try { await authorizeGrant(resolved.grant); }
+    catch { socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"); return; }
+    if (socket.destroyed) return;
     websocketServer.handleUpgrade(request, socket, head, (client) => {
       const { grant } = resolved;
       const debuggerApi = grant.webContents.debugger;
-      try {
-        if (!grant.clients.size) {
-          // Do not take over an attachment created by DevTools or another owner.
-          debuggerApi.attach("1.3");
-        }
-      } catch {
-        client.close(1011, "Browser tab is unavailable for automation");
-        return;
-      }
+      try { acquire(grant); }
+      catch { client.close(1011, "Browser tab is unavailable for automation"); return; }
       grant.clients.add(client);
       const send = (message) => {
         if (client.readyState === 1) client.send(JSON.stringify(message));
       };
-      const onMessage = (_event, method, params, sessionId) => {
-        if (!sessionId && EVENT_DOMAINS.has(method.split(".")[0])) send({ method, params });
+      const onMessage = async (_event, method, params, sessionId) => {
+        if (sessionId || !EVENT_DOMAINS.has(method.split(".")[0])) return;
+        try { await authorizeGrant(grant); send({ method, params }); } catch { /* Policy revocation closes the connection. */ }
       };
       const onDetach = () => client.close(1011, "Browser debugger detached");
       debuggerApi.on("message", onMessage);
@@ -87,22 +157,15 @@ export function createBrowserAutomationBroker() {
       client.on("message", async (data) => {
         if (!grants.has(grant.token) || grant.webContents.isDestroyed()) return;
         let message;
-        try {
-          message = JSON.parse(data.toString());
-        } catch {
-          client.close(1007, "Invalid CDP message");
-          return;
-        }
-        if (!Number.isSafeInteger(message?.id)) {
-          client.close(1007, "Invalid CDP message ID");
-          return;
-        }
+        try { message = JSON.parse(data.toString()); }
+        catch { client.close(1007, "Invalid CDP message"); return; }
+        if (!Number.isSafeInteger(message?.id)) { client.close(1007, "Invalid CDP message ID"); return; }
         if (!ALLOWED_METHODS.has(message.method) || message.sessionId !== undefined) {
           send({ id: message.id, error: { code: -32601, message: "Command is not available for browser automation" } });
           return;
         }
         try {
-          const result = await debuggerApi.sendCommand(message.method, message.params ?? {});
+          const result = await sendCommand(grant, message.method, message.params ?? {});
           send({ id: message.id, result });
         } catch (error) {
           send({ id: message.id, error: { code: -32000, message: error instanceof Error ? error.message : "Browser command failed" } });
@@ -112,9 +175,7 @@ export function createBrowserAutomationBroker() {
         if (!grant.clients.delete(client)) return;
         debuggerApi.removeListener("message", onMessage);
         debuggerApi.removeListener("detach", onDetach);
-        if (!grant.clients.size) {
-          try { debuggerApi.detach(); } catch { /* Tab may already be closed. */ }
-        }
+        release(grant);
       };
       client.once("close", cleanup);
       client.on("error", () => { cleanup(); client.terminate(); });
@@ -128,10 +189,7 @@ export function createBrowserAutomationBroker() {
       server.listen(0, "127.0.0.1", () => {
         server.removeListener("error", reject);
         const address = server.address();
-        if (!address || typeof address === "string") {
-          reject(new Error("Browser automation listener is unavailable"));
-          return;
-        }
+        if (!address || typeof address === "string") { reject(new Error("Browser automation listener is unavailable")); return; }
         authority = `127.0.0.1:${address.port}`;
         server.unref();
         resolve();
@@ -141,23 +199,42 @@ export function createBrowserAutomationBroker() {
   }
 
   return {
-    async grant(webContents) {
+    async grant(webContents, getDownloads = () => [], context, onActivity) {
+      await authorize(context);
       await start();
       if (closed || webContents.isDestroyed()) throw new Error("Browser tab is closed");
       const token = randomBytes(32).toString("hex");
       const grant = {
-        token,
-        targetId: String(webContents.id),
-        webContents,
-        clients: new Set(),
-        onDestroyed: () => revoke(grant),
+        token, targetId: String(webContents.id), webContents, getDownloads, context, onActivity,
+        clients: new Set(), users: 0, busy: false, checking: false, onDestroyed: () => revoke(grant),
       };
       grants.set(token, grant);
       webContents.once("destroyed", grant.onDestroyed);
       return { browser_url: `http://${authority}/${token}`, target_id: grant.targetId };
     },
+    async snapshot(webContents) {
+      const grant = [...grants.values()].find((entry) => entry.webContents === webContents);
+      if (!grant) throw new Error("Browser tab has no automation grant.");
+      return withDebugger(grant, (send) => browserSnapshot(send, webContents));
+    },
+    async preview(webContents) {
+      const grant = [...grants.values()].find(entry => entry.webContents === webContents);
+      if (!grant) return null;
+      await authorizeGrant(grant);
+      acquire(grant);
+      try {
+        // Previewing from the app is not agent activity and must not reclaim a
+        // dismissed tab or detach a debugger another tool is still using.
+        const image = await webContents.debugger.sendCommand("Page.captureScreenshot", {
+          format: "png", captureBeyondViewport: true,
+          clip: { x: 0, y: 0, width: 1200, height: 800, scale: 0.4 },
+        });
+        return image.data ? `data:image/png;base64,${image.data}` : null;
+      } finally { release(grant); }
+    },
     async close() {
       closed = true;
+      clearInterval(policyTimer);
       for (const grant of grants.values()) revoke(grant);
       websocketServer.close();
       if (startPromise) {

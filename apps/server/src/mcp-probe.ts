@@ -66,6 +66,7 @@ export type McpProbeResult = {
     registrationEndpoint: string | null;
     /** Scopes the resource metadata lists; a registration asks for them, as the engine does. */
     scopesSupported: string[];
+    tokenEndpointAuthMethods?: string[];
   };
   steps: McpProbeStep[];
   error?: string;
@@ -74,7 +75,9 @@ export type McpProbeResult = {
 export type McpProbeOptions = {
   headers?: Record<string, string>;
   timeoutMs?: number;
-  fetch?: typeof fetch;
+  fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+  /** Imports check the declared address, without silently trying a different endpoint. */
+  exactUrl?: boolean;
 };
 
 const PROTOCOL_VERSION = "2025-06-18";
@@ -153,6 +156,34 @@ async function discardBody(response: Response): Promise<void> {
   }
 }
 
+/** A 200 JSON page is not proof that it implements the MCP initialize contract. */
+async function isInitializeResponse(response: Response): Promise<boolean> {
+  const reader = response.body?.getReader();
+  if (!reader) return false;
+  const decoder = new TextDecoder();
+  let text = "";
+  let bytes = 0;
+  const valid = (value: unknown) => isRecord(value) && value.jsonrpc === "2.0" && value.id === 1 && isRecord(value.result) && typeof value.result.protocolVersion === "string" && isRecord(value.result.serverInfo);
+  try {
+    while (bytes <= 65536) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bytes += chunk.value.length;
+      if (bytes > 65536) return false;
+      text += decoder.decode(chunk.value, { stream: true });
+      if (contentType(response).includes("text/event-stream")) {
+        for (const event of text.split(/\r?\n\r?\n/).slice(0, -1)) {
+          const data = event.split(/\r?\n/).filter(line => line.startsWith("data:")).map(line => line.slice(5).trimStart()).join("\n");
+          try { if (valid(JSON.parse(data))) return true; } catch { /* Wait for a complete initialize event. */ }
+        }
+      } else {
+        try { if (valid(JSON.parse(text))) return true; } catch { /* A later chunk may complete the JSON. */ }
+      }
+    }
+    return false;
+  } finally { await reader.cancel().catch(() => undefined); }
+}
+
 export async function probeMcpServer(input: string, options: McpProbeOptions = {}): Promise<McpProbeResult> {
   const url = parseMcpProbeUrl(input);
   const timeoutMs = options.timeoutMs ?? 10_000;
@@ -180,7 +211,7 @@ export async function probeMcpServer(input: string, options: McpProbeOptions = {
   // 1. The MCP endpoint itself: an anonymous `initialize`.
   type Attempt =
     | { kind: "open"; status: number; transport: "streamable-http" | "sse" }
-    | { kind: "auth"; status: number; challenge: string | null }
+    | { kind: "auth"; status: number; challenge: string | null; transport?: "sse" }
     | { kind: "refused"; status: number }
     | { kind: "not_mcp"; status: number; detail: string }
     | { kind: "unreachable"; message: string };
@@ -202,10 +233,12 @@ export async function probeMcpServer(input: string, options: McpProbeOptions = {
         }),
       });
       const type = contentType(response);
-      await discardBody(response);
       if (response.ok && (type.includes("application/json") || type.includes("text/event-stream"))) {
+        if (options.exactUrl && !await isInitializeResponse(response)) return { kind: "not_mcp", status: response.status, detail: "unexpected content type" };
+        await discardBody(response);
         return { kind: "open", status: response.status, transport: "streamable-http" };
       }
+      await discardBody(response);
       if (response.status === 401) return { kind: "auth", status: 401, challenge: response.headers.get("www-authenticate") };
       if (response.status === 403) {
         const challenge = response.headers.get("www-authenticate");
@@ -218,7 +251,7 @@ export async function probeMcpServer(input: string, options: McpProbeOptions = {
         await discardBody(sse);
         if (sse.ok && sseType.includes("text/event-stream")) return { kind: "open", status: sse.status, transport: "sse" };
         if (sse.status === 401 || (sse.status === 403 && sse.headers.get("www-authenticate"))) {
-          return { kind: "auth", status: sse.status, challenge: sse.headers.get("www-authenticate") };
+          return { kind: "auth", status: sse.status, challenge: sse.headers.get("www-authenticate"), transport: "sse" };
         }
         return { kind: "not_mcp", status: response.status, detail: "no MCP endpoint answered here" };
       }
@@ -234,7 +267,7 @@ export async function probeMcpServer(input: string, options: McpProbeOptions = {
 
   let outcome = await attempt(url.toString());
   let answered = url;
-  if (outcome.kind === "not_mcp") {
+  if (outcome.kind === "not_mcp" && !options.exactUrl) {
     for (const sibling of siblingEndpointCandidates(url)) {
       const alternative = await attempt(sibling);
       if (alternative.kind === "not_mcp" || alternative.kind === "unreachable") continue;
@@ -271,6 +304,7 @@ export async function probeMcpServer(input: string, options: McpProbeOptions = {
     return result;
   }
   const challenge = outcome.challenge;
+  if (outcome.transport) result.transport = outcome.transport;
   steps.push({ id: "connect", status: outcome.status, ok: true, detail: foundElsewhere ?? "sign-in required" });
   const resource = answered;
 
@@ -320,6 +354,7 @@ export async function probeMcpServer(input: string, options: McpProbeOptions = {
       clientIdMetadataDocuments: json.client_id_metadata_document_supported === true,
       registrationEndpoint,
       scopesSupported,
+      ...(Array.isArray(json.token_endpoint_auth_methods_supported) ? { tokenEndpointAuthMethods: json.token_endpoint_auth_methods_supported.filter((method): method is string => typeof method === "string") } : {}),
     };
     return result;
   }
@@ -391,8 +426,8 @@ export function registrationRefusalMessage(status: number, body: string): string
  * client is saved with the connector as its pre-registered client, so the
  * engine signs in with it rather than registering a second one.
  */
-export async function registerMcpClient(input: string, options: McpProbeOptions = {}): Promise<McpRegisterClientResult> {
-  const probe = await probeMcpServer(input, options);
+export async function registerMcpClient(input: string, options: McpProbeOptions & { probe?: McpProbeResult; redirectUri?: string; scope?: string } = {}): Promise<McpRegisterClientResult> {
+  const probe = options.probe ?? await probeMcpServer(input, options);
   const endpoint = probe.oauth?.registrationEndpoint ?? null;
   if (probe.auth !== "oauth" || !endpoint) {
     return {
@@ -402,10 +437,10 @@ export async function registerMcpClient(input: string, options: McpProbeOptions 
       message: probe.error ?? "The sign-in provider does not offer automatic registration.",
     };
   }
-  const scope = probe.oauth?.scopesSupported.join(" ");
+  const scope = options.scope ?? probe.oauth?.scopesSupported.join(" ");
   const metadata = {
     client_name: "LegalWork",
-    redirect_uris: [MCP_OAUTH_REDIRECT_URI],
+    redirect_uris: [options.redirectUri ?? MCP_OAUTH_REDIRECT_URI],
     grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code"],
     token_endpoint_auth_method: "none",
@@ -439,6 +474,9 @@ export async function registerMcpClient(input: string, options: McpProbeOptions 
   if (!clientId) {
     return { registered: false, reason: "refused", status: response.status, message: "The sign-in provider answered without a client ID." };
   }
+  const method = info.token_endpoint_auth_method ?? "none";
+  if (method !== "none" && method !== "client_secret_post") return { registered: false, reason: "unsupported", status: response.status, message: "The sign-in provider requires a client authentication method LegalWork cannot use." };
+  if (Array.isArray(info.redirect_uris) && !info.redirect_uris.includes(metadata.redirect_uris[0])) return { registered: false, reason: "refused", status: response.status, message: "The provider did not register LegalWork's callback address." };
   // A secret the provider issued is used as the engine uses one it registered
   // itself, unless it has already expired (0 means never).
   const expiresAt = typeof info.client_secret_expires_at === "number" ? info.client_secret_expires_at : 0;
@@ -446,5 +484,6 @@ export async function registerMcpClient(input: string, options: McpProbeOptions 
     typeof info.client_secret === "string" && info.client_secret && (expiresAt === 0 || expiresAt > Date.now() / 1000)
       ? info.client_secret
       : undefined;
-  return { registered: true, client: { clientId, ...(secret ? { clientSecret: secret } : {}) }, registrationEndpoint: endpoint };
+  if (method === "client_secret_post" && !secret) return { registered: false, reason: "refused", status: response.status, message: "The provider requires a client secret but did not supply a usable one." };
+  return { registered: true, client: { clientId, ...(method === "client_secret_post" && secret ? { clientSecret: secret } : {}) }, registrationEndpoint: endpoint };
 }

@@ -1,3 +1,4 @@
+import { withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { announceSyncChange } from "./app-sync-events.js";
 import {
   localDayKey,
@@ -72,6 +73,7 @@ export async function runTaskReminders(
   state: { prunedDay: string | null },
   now: number = Date.now(),
 ): Promise<number> {
+  return withRuntimeDb(config, async () => {
   // No runtime DB yet, no tasks: nothing to open (or create) for a check.
   if (!taskStoreAvailable(config)) return 0;
   const store = await taskStore(config);
@@ -83,6 +85,8 @@ export async function runTaskReminders(
     state.prunedDay = today;
   }
   return noted;
+
+  });
 }
 
 /** Checks the due days in the background while the server is up. Returns the stop function. */

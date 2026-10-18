@@ -18,6 +18,8 @@ export function planFingerprint(plan: Omit<TriagePlan, "fingerprint"> & { finger
 
 const MATTER_TITLE: Record<"sk" | "cs" | "en", string> = { sk: "Konanie", cs: "Řízení", en: "Proceedings" };
 const MATTER_AREA: Record<"sk" | "cs" | "en", string> = { sk: "Súdne konanie", cs: "Soudní řízení", en: "Litigation" };
+const GENERAL_AREA: Record<"sk" | "cs" | "en", string> = { sk: "Všeobecné", cs: "Obecné", en: "General" };
+const INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"];
 /** Pravidlá zakladajú vec zo spisovej značky len vtedy, keď ju nesú aspoň dva dokumenty. */
 const RULE_MATTER_MIN_DOCUMENTS = 2;
 
@@ -46,16 +48,17 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
   const model = new Map((options.classification?.documents ?? []).map(decision => [decision.id, decision]));
   const decisions = new Map<string, Decision>();
   const caseGroups = new Map<string, { display: string; ids: string[] }>();
+  // Dokument vo veci bez karty (`document.matter`) v nej ostáva: ani model, ani spisová značka ho z nej nevyberú.
   for (const document of inventory.documents) {
     const fromModel = model.get(document.id);
     if (fromModel) {
       // Nejasné od modelu ide na zatriedenie aj s jeho dôvodom, aby advokát videl, čo model zvažoval.
-      decisions.set(document.id, { role: fromModel.confidence === "low" ? "inbox" : fromModel.role, matter: fromModel.matter, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...(fromModel.truncated ? { truncated: true } : {}) });
+      decisions.set(document.id, { role: fromModel.confidence === "low" ? "inbox" : fromModel.role, matter: document.matter ?? fromModel.matter, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...(fromModel.truncated ? { truncated: true } : {}) });
       continue;
     }
     const rule = classifyByRules(document);
-    decisions.set(document.id, { role: rule.role, source: "rules", confidence: rule.confidence, rule: rule.rule, ...(rule.matched ? { matched: rule.matched } : {}) });
-    if (rule.caseNumber) {
+    decisions.set(document.id, { role: rule.role, source: "rules", confidence: rule.confidence, rule: rule.rule, ...(rule.matched ? { matched: rule.matched } : {}), ...(document.matter ? { matter: document.matter } : {}) });
+    if (rule.caseNumber && !document.matter) {
       const group = caseGroups.get(rule.caseNumber.key) ?? { display: rule.caseNumber.display, ids: [] };
       group.ids.push(document.id);
       caseGroups.set(rule.caseNumber.key, group);
@@ -92,7 +95,8 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
     }
     if (key) for (const id of group.ids) { const decision = decisions.get(id); if (decision) decision.matter = key; }
   }
-  for (const id of keep) { const decision = decisions.get(id); if (decision) Object.assign(decision, { role: "inbox", matter: undefined, source: "user", confidence: "high" }); }
+  const homes = new Map(inventory.documents.map(document => [document.id, document.matter]));
+  for (const id of keep) { const decision = decisions.get(id); if (decision) Object.assign(decision, { role: "inbox", matter: homes.get(id), source: "user", confidence: "high" }); }
 
   const destinations = new Map<string, Destination>([["", { base: "", roles: inventory.profile.roles }]]);
   for (const matter of inventory.matters) destinations.set(matter.id, { base: matter.path, roles: matter.roles });
@@ -100,8 +104,28 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
 
   const occupied = new Set(inventory.occupied.map(path => path.toLocaleLowerCase()));
   const needsMattersDir = planned.length > 0 && !occupied.has("spisy");
+  // Vec bez karty dostane kartu a pracovné priečinky na mieste. Existujúce sa nikdy neprepíše: chýba len to,
+  // čo v priečinku ešte nie je. Pri vlastných inštrukciách alebo pracovnom profile veci sa doplní len karta.
+  const adopted = inventory.matters.filter(matter => matter.implicit).map(matter => {
+    const caseNumber = matter.implicit?.caseNumber;
+    const kind: TriageNewMatter["kind"] = caseNumber ? "contentious" : "non_contentious";
+    const area = caseNumber ? MATTER_AREA[language] : GENERAL_AREA[language];
+    const built = buildMatterOperations({ title: matter.title ?? matter.path, date: options.today, kind, area, jurisdiction: inventory.jurisdiction, language, workingProfile: inventory.newMatterProfile, clientTitle: inventory.client.title, clientCardPath: `../${inventory.client.card}`, folder: matter.path, extras: { caseNumber } });
+    const has = (name: string) => occupied.has(`${matter.path}/${name}`.toLocaleLowerCase());
+    const ownProfile = has(PROFILE_FILE), ownInstructions = INSTRUCTION_FILES.some(has);
+    const operations = built.operations.filter(operation => {
+      const rest = operation.path.slice(matter.path.length + 1);
+      if (!rest || occupied.has(operation.path.toLocaleLowerCase())) return false;
+      if (ownInstructions && INSTRUCTION_FILES.includes(rest)) return false;
+      if (ownProfile && rest.includes("/")) return false;
+      // `.keep` drží len priečinok, ktorý vznikne; do existujúceho priečinka advokáta sa nepridáva.
+      return !(rest.endsWith("/.keep") && occupied.has(operation.path.slice(0, -"/.keep".length).toLocaleLowerCase()));
+    });
+    const entry: TriageNewMatter = { key: matter.id, title: matter.title ?? matter.path, folder: matter.path, date: options.today, dateSource: "today", kind, area, jurisdiction: inventory.jurisdiction, ...(caseNumber ? { caseNumber } : {}), source: "folder", documents: 0 };
+    return { entry, operations };
+  });
   // Cesty nových vecí sa správajú ako existujúce: ich priečinky vytvorí šablóna veci, nie tento plán.
-  for (const matter of planned) for (const operation of matter.operations) occupied.add(operation.path.toLocaleLowerCase());
+  for (const matter of [...planned, ...adopted]) for (const operation of matter.operations) occupied.add(operation.path.toLocaleLowerCase());
   if (needsMattersDir) occupied.add("spisy");
   const claimed = new Set<string>();
   const extraDirectories: CreateOperation[] = [];
@@ -119,7 +143,8 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
     const destination = destinations.get(decision.matter ?? "") ?? destinations.get("")!;
     const requested: TriageRole = decision.role ?? "inbox";
     const primary = resolveFolder(destination.roles, requested);
-    const target = primary ?? (destination.base ? resolveFolder(inventory.profile.roles, "inbox") : null);
+    // Dokument z veci sa nikdy nepresunie na úroveň klienta; bez priečinka vo veci ostane, kde je.
+    const target = primary ?? (destination.base && !document.matter ? resolveFolder(inventory.profile.roles, "inbox") : null);
     if (!target) { stays.push({ id: document.id, path: document.path, why: "no_inbox" }); continue; }
     const base = primary ? destination.base : "";
     const folder = base ? `${base}/${target.folder}` : target.folder;
@@ -142,16 +167,17 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
   }
   // Vec bez jediného dokumentu sa nezakladá; nevznikne prázdna karta, ktorú by advokát musel mazať.
   const kept = planned.filter(matter => used.has(matter.key));
-  for (const matter of kept) matter.documents = moves.filter(move => move.matter === matter.key).length;
+  for (const matter of [...kept, ...adopted.map(item => item.entry)]) matter.documents = moves.filter(move => move.matter === matter.key).length;
   const create: CreateOperation[] = [
     ...(needsMattersDir && kept.length ? [{ path: "Spisy", kind: "directory" as const }] : []),
     ...kept.flatMap(matter => matter.operations),
+    ...adopted.flatMap(matter => matter.operations),
     ...extraDirectories,
   ];
   const plan: Omit<TriagePlan, "fingerprint"> = {
     schema: PLAN_SCHEMA, runId: options.runId, root: inventory.root, treeDigest: inventory.treeDigest, createdAt: options.createdAt, language,
     classification: options.classification ? { used: true, digest: sha256(JSON.stringify(options.classification)), documents: options.classification.documents.length } : { used: false, documents: 0 },
-    matters: kept.map(({ operations: _operations, roles: _roles, ...matter }) => matter),
+    matters: [...kept.map(({ operations: _operations, roles: _roles, ...matter }) => matter), ...adopted.map(matter => matter.entry)],
     create, moves, stays,
   };
   return { ...plan, fingerprint: planFingerprint(plan) };

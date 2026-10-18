@@ -5,6 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 process.env.VITE_LEGALWORK_POSTHOG_KEY = "phc_lawoss_test_key_must_never_be_used";
 process.env.VITE_LEGALWORK_POSTHOG_HOST = "https://analytics.invalid";
@@ -86,13 +87,16 @@ describe("LAWOSS: analytika natrvalo vypnutá", () => {
     expect(settings).not.toContain("settings.analytics_toggle");
     expect(settings).not.toMatch(/anonym/i);
 
+    // Uvítacia obrazovka upstreamu číta katalóg šablón projektu cez react-query (#268).
     const welcome = renderToStaticMarkup(
-      <WelcomePage
-        onCreateProject={async () => {}}
-        totalSteps={3}
-        analyticsEnabled={true}
-        onAnalyticsChange={() => {}}
-      />,
+      <QueryClientProvider client={new QueryClient()}>
+        <WelcomePage
+          onCreateProject={async () => {}}
+          totalSteps={3}
+          analyticsEnabled={true}
+          onAnalyticsChange={() => {}}
+        />
+      </QueryClientProvider>,
     );
     expect(welcome).not.toMatch(/anonym/i);
     expect(welcome).not.toContain("welcome.analytics");

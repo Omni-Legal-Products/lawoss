@@ -1,3 +1,5 @@
+import { acquireRuntimeDbLifetime, runtimeDbPath, withRuntimeDb } from "./runtime-db-lifecycle.js";
+import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, projectTaskPermissions, allProjectTaskPermissions } from "./scheduled-tasks/access.js";
 import { readSystemOneSettings } from "./systemone.js";
 /**
  * Runtime OpenCode configuration injected via a server-managed config file
@@ -15,25 +17,34 @@ import { readSystemOneSettings } from "./systemone.js";
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { listSkills } from "./skills.js";
 import { pathToFileURL } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
 import {
   legalworkPluginPath,
   legalworkExtensionsPreviewPluginPath,
+  legalworkSandboxPluginPath,
   legalworkCapabilitiesKnowledgePluginPath,
   legalworkLegalMemoryKnowledgePluginPath,
   legalworkAnthropicAdaptiveThinkingPluginPath,
   legalworkAnthropicToolSchemaPluginPath,
+  legalworkOpenAIToolCallIdsPluginPath,
   legalworkWordToolsPluginPath,
   legalworkSkillToolsPluginPath,
   legalworkStorageToolsPluginPath,
   legalworkTaskToolsPluginPath,
+  legalworkCalendarToolsPluginPath,
+  legalworkDraftToolsPluginPath,
+  legalworkScheduledTaskToolsPluginPath,
   legalworkProjectToolsPluginPath,
+  legalworkToolOutputPluginPath,
   legalworkReviewToolsPluginPath,
+  legalworkWikiToolsPluginPath,
   legalworkExcelToolsPluginPath,
   legalworkPowerPointToolsPluginPath,
   legalworkBenchmarkToolsPluginPath,
+  legalworkOrgPolicyGuardPluginPath,
 } from "./legalwork-extensions-plugin-path.js";
 import type { ServerConfig } from "./types.js";
 import {
@@ -53,8 +64,13 @@ import {
   runtimeMcpMap,
   runtimePluginList,
   runtimeStorageDir,
+  type RuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
-import { AGENT_MEMORY_PLUGIN_SPEC, buildPersonalizedAgentPrompt } from "./personalization.js";
+import { buildPersonalizedAgentPrompt, withFirmInstructions } from "./personalization.js";
+import { buildOrgPolicyEngineLayer, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
+import { appliedOrgPolicy } from "./org-policy.js";
+import { orgChatEngineIds } from "./org-policy-ai.js";
+import { allowedMemberConnectors } from "./org-policy-items.js";
 // The engine's built-in anonymous provider — always disabled: the free tier
 // is retired, so no unauthenticated fallback models exist.
 const OPENCODE_ZEN_PROVIDER_ID = "opencode";
@@ -68,6 +84,9 @@ import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { repairRuntimeProviders } from "./runtime-provider-repair.js";
 import { externalOpencodeConfigDir } from "./lawoss/workspace-app-files.js";
 import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
+import { appendLawossToolDenials, LAWOSS_LOAD_WIKI_TOOLS } from "./lawoss/hidden-upstream-tools.js";
+import { sandboxEngineAgents, sandboxEnginePermissions } from "./agent-sandbox/engine-policy.js";
+import { REVIEW_AGENT, reviewAgentConfig } from "./reviews/agent.js";
 
 const LEGALWORK_AGENT_PROMPT = `You are LegalWork — an AI agent that works alongside legal professionals inside a law firm.
 
@@ -178,23 +197,29 @@ async function bundledPluginSpec(absolutePath: string, config?: ServerConfig): P
   return url.href;
 }
 
-export async function buildLegalworkRuntimeConfigObject(
-  config?: ServerConfig,
-  workspaceId?: string,
-): Promise<Record<string, unknown>> {
-  // Tool permissions are global (one safety posture across workspaces);
-  // the workspace row only contributes external_directory.
-  const runtimeConfig = config && workspaceId
+// Tool permissions are global (one safety posture across workspaces);
+// the workspace row only contributes external_directory.
+async function memberRuntimeConfig(config?: ServerConfig, workspaceId?: string): Promise<RuntimeOpencodeConfig> {
+  return config && workspaceId
     ? applyGlobalToolPermissions(
         await readRuntimeOpencodeConfig(config, workspaceId),
         await readGlobalToolPermissions(config),
       )
     : {};
+}
+
+export async function buildLegalworkRuntimeConfigObject(
+  config?: ServerConfig,
+  workspaceId?: string,
+): Promise<Record<string, unknown>> {
+  const runtimeConfig = await memberRuntimeConfig(config, workspaceId);
   const workspace = config && workspaceId
     ? config.workspaces.find((entry) => entry.id === workspaceId)
     : undefined;
   const externalConfigDir = config && workspace ? externalOpencodeConfigDir(config, workspace) : null;
   const externalSkillsDir = externalConfigDir ? join(externalConfigDir, "skills") : null;
+  // LAWOSS: uložené a externé priečinky skills; v sandboxe idú do `skills.paths`, inak ako zoznam.
+  const lawossSkillDirs = [...new Set([...(runtimeConfig.skills ?? []), ...(externalSkillsDir ? [externalSkillsDir] : [])])];
   // Outside mode disables OpenCode's project discovery so it cannot load
   // client-local app config. Preserve the user's workspace instructions as an
   // explicit, read-only runtime input instead.
@@ -228,8 +253,10 @@ export async function buildLegalworkRuntimeConfigObject(
   const jevSettings = config ? await readSystemOneSettings(config).catch(() => null) : null;
   const jevSearchEnabled = process.env.LEGALWORK_DISABLE_JEV_SEARCH !== "1" && !!jevSettings?.providers.some(provider => provider.status === "ready" && provider.id === jevSettings.selection.providerId
     && provider.models.some(model => model.id === jevSettings.selection.model && model.questionTypes.includes("noul") && model.questionTypes.includes("choice")));
+  // The firm's providers stay on, whatever the member disconnected.
+  const firmProviderIds = config ? await orgChatEngineIds(config) : [];
   const disabledProviders = [
-    ...runtimeDisabledProviderList(runtimeConfig),
+    ...runtimeDisabledProviderList(runtimeConfig).filter((id) => !firmProviderIds.includes(id)),
     // The free tier is retired: the engine's anonymous OpenCode Zen provider
     // is always disabled so no unauthenticated fallback models exist.
     OPENCODE_ZEN_PROVIDER_ID,
@@ -237,33 +264,70 @@ export async function buildLegalworkRuntimeConfigObject(
     ...(eigenweltAccountEnabled() ? [] : [EIGENWELT_PROVIDER_ID]),
   ].filter((item, index, list) => list.indexOf(item) === index);
   const globalProviders = config ? await readGlobalProviderMap(config) : {};
+  const storedProviders = repairRuntimeProviders(runtimeConfig.provider ?? {}).providers;
+  // An account manifest is authoritative even when empty (unfunded Sync or
+  // all models disabled). Never resurrect a stale per-workspace paid model.
+  if (paidManifest) delete storedProviders[EIGENWELT_PROVIDER_ID];
   const providerMap = {
     // Never let a retired or unparsable stored block reach the engine: it
     // would invalidate this whole file. The startup repair also removes such
     // blocks from the DB and notifies the app.
     // LAWOSS: globálni vlastní poskytovatelia; starý riadok priečinka má pri rovnakom id prednosť.
     ...repairRuntimeProviders(globalProviders).providers,
-    ...repairRuntimeProviders(runtimeConfig.provider ?? {}).providers,
+    ...storedProviders,
     // Global injection wins over any stale per-workspace eigenwelt block.
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
   };
-  return {
+  // The firm's tool permissions apply over the member's own.
+  const { permission } = config
+    ? await orgPolicyPermissions(config, { ...runtimeConfig.permission })
+    : { permission: { ...runtimeConfig.permission } };
+  const instructionPermission = permission.legalwork_project_set_instructions === "deny" ? "deny" : "ask";
+  // Append the specific rule after wildcard rules; approvals cannot be saved
+  // for this tool, so every proposed instructions change is reviewed.
+  delete permission.legalwork_project_set_instructions;
+  // LAWOSS: neprevzaté zapisujúce nástroje upstreamu (spec 0017 S2) za pravidlami používateľa a firmy, aj pre plánované behy.
+  appendLawossToolDenials(permission);
+  // The firm's instructions too, for every agent the member works with (scheduled runs included).
+  const agentPrompt = withFirmInstructions(
+    personalization ? buildPersonalizedAgentPrompt(LEGALWORK_AGENT_PROMPT, personalization) : LEGALWORK_AGENT_PROMPT,
+    config ? (await appliedOrgPolicy(config, "personalization.firmInstructions"))?.value : undefined,
+  );
+  const result = {
     ...runtimeConfig,
+    // Enable bounded output reads in the native explore agent, whose default
+    // denies unknown tools. User and firm rules follow and keep precedence.
+    permission: { ...(!Object.hasOwn(permission, "legalwork_tool_output_read") ? { legalwork_tool_output_read: "allow" } : {}),
+      ...permission, legalwork_project_set_instructions: instructionPermission },
     // A refusal remains a tool error visible to the model. The engine should
     // continue within the user's boundaries instead of silently ending the turn.
     experimental: { continue_loop_on_deny: true },
     tools: { legalwork_jev_corpus_question: jevSearchEnabled },
-    ...(Object.keys(providerMap).length ? { provider: providerMap } : {}),
+    ...(config?.agentSandboxEnabled ? { lsp: false, formatter: false,
+      // Restore skill content discovery without allowing project configuration
+      // to load executable plugins into the host engine.
+      skills: { paths: [...new Set([...(workspace ? (await listSkills(workspace.path, true)).map((skill) => dirname(skill.path)) : []), ...lawossSkillDirs])] },
+    } : {}),
+    provider: providerMap,
     default_agent: runtimeConfig.default_agent ?? "legalwork",
     agent: {
       ...runtimeAgentMap(runtimeConfig),
+      [REVIEW_AGENT]: reviewAgentConfig(),
+      [PROJECT_TASK_AGENT]: {
+        description: "Scheduled task with access to this project only", mode: "primary", hidden: true,
+        prompt: agentPrompt + "\nThis scheduled run may access only its own project through the project-scoped tools. Use legalwork_project_list/read, project calendar and review tools. Shell, browser, delegation and unrestricted connectors are unavailable. Do not work around a scope denial. Explain any missing capability. Existing chat history remains visible.",
+        permission: projectTaskPermissions(permission),
+      },
+      [ALL_PROJECTS_TASK_AGENT]: {
+        description: "Scheduled task with access to all authorized local projects", mode: "primary", hidden: true,
+        prompt: agentPrompt + "\nThis scheduled run may access all authorized local projects. Use legalwork_schedule_projects and legalwork_schedule_project_list/read to find and read project data. Read chat transcripts directly using kind=sessions and exact chat IDs. Do not open chats or navigate the LegalWork UI to retrieve data. If direct reads are unavailable, report that limitation. Existing tool permissions and approvals still apply.",
+        permission: allProjectTaskPermissions(permission),
+      },
       legalwork: {
         description: "LegalWork default agent",
         mode: "primary",
         temperature: 0.2,
-        prompt: personalization
-          ? buildPersonalizedAgentPrompt(LEGALWORK_AGENT_PROMPT, personalization)
-          : LEGALWORK_AGENT_PROMPT,
+        prompt: agentPrompt,
       },
     },
     plugin: (await Promise.all([
@@ -277,6 +341,7 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkLegalMemoryKnowledgePluginPath(), config),
       bundledPluginSpec(legalworkAnthropicAdaptiveThinkingPluginPath(), config),
       bundledPluginSpec(legalworkAnthropicToolSchemaPluginPath(), config),
+      bundledPluginSpec(legalworkOpenAIToolCallIdsPluginPath(), config),
       bundledPluginSpec(legalworkWordToolsPluginPath(), config),
       bundledPluginSpec(legalworkExcelToolsPluginPath(), config),
       bundledPluginSpec(legalworkPowerPointToolsPluginPath(), config),
@@ -284,21 +349,39 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkSkillToolsPluginPath(), config),
       bundledPluginSpec(legalworkStorageToolsPluginPath(), config),
       bundledPluginSpec(legalworkTaskToolsPluginPath(), config),
+      bundledPluginSpec(legalworkCalendarToolsPluginPath(), config),
+      bundledPluginSpec(legalworkDraftToolsPluginPath(), config),
+      bundledPluginSpec(legalworkScheduledTaskToolsPluginPath(), config),
       bundledPluginSpec(legalworkProjectToolsPluginPath(), config),
+      bundledPluginSpec(legalworkToolOutputPluginPath(), config),
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
       bundledPluginSpec(legalworkPluginPath("lawoss-okf-handoff"), config),
-      ...(personalization?.localMemoriesEnabled ? [AGENT_MEMORY_PLUGIN_SPEC] : []),
-      ...runtimePluginList(runtimeConfig),
+      // LAWOSS: wiki sa v alfe nenačíta (spec 0017 S1, lawoss/hidden-upstream-tools.ts).
+      ...(LAWOSS_LOAD_WIKI_TOOLS ? [bundledPluginSpec(legalworkWikiToolsPluginPath(), config)] : []),
+      bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
+      // The member's own plugins, unless the firm allows none.
+      ...(config && (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : runtimePluginList(runtimeConfig)),
+      ...(config?.agentSandboxEnabled ? [bundledPluginSpec(legalworkSandboxPluginPath(), config)] : []),
     ])).filter((item, index, list) => list.indexOf(item) === index),
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
-    mcp: { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) },
-    ...(externalSkillsDir
-      ? { skills: [...new Set([...(runtimeConfig.skills ?? []), externalSkillsDir])] }
-      : runtimeConfig.skills?.length ? { skills: runtimeConfig.skills } : {}),
+    mcp: config
+      ? await allowedMemberConnectors(config, { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) })
+      : { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) },
+    ...(!config?.agentSandboxEnabled && lawossSkillDirs.length ? { skills: lawossSkillDirs } : {}),
     ...((runtimeConfig.instructions?.length || clientInstructions.length)
       ? { instructions: [...new Set([...(runtimeConfig.instructions ?? []), ...clientInstructions])] }
       : {}),
   };
+  if (config?.agentSandboxEnabled) {
+    return { ...result, permission: sandboxEnginePermissions(result.permission), agent: sandboxEngineAgents(result.agent) };
+  }
+  return result;
+}
+
+/** The firm's enforced engine layer, against the member's own settings of `workspaceId`. */
+export async function buildOrgPolicyEngineLayerFor(config: ServerConfig, workspaceId: string): Promise<Record<string, unknown>> {
+  const own = await memberRuntimeConfig(config, workspaceId);
+  return buildOrgPolicyEngineLayer(config, { permission: { ...own.permission } });
 }
 
 export async function buildLegalworkRuntimeConfig(config?: ServerConfig, workspaceId?: string): Promise<string> {
@@ -338,6 +421,7 @@ const fileWriteQueue = new Map<string, Promise<void>>();
  * mid-dispose.
  */
 export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, workspaceId: string): Promise<string> {
+  return withRuntimeDb(config, async () => {
   const path = legalworkRuntimeConfigFilePath(config);
   const job = async () => {
     const content = await buildLegalworkRuntimeConfig(config, workspaceId);
@@ -345,12 +429,16 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     const tmp = `${path}.${randomUUID()}.tmp`;
     await writeFile(tmp, content, "utf8");
     await rename(tmp, path);
+    // The firm's enforced layer is rewritten with it, before every reload.
+    await writeOrgPolicyEngineLayer(config, await buildOrgPolicyEngineLayerFor(config, workspaceId));
   };
   const previous = fileWriteQueue.get(path) ?? Promise.resolve();
   const next = previous.then(job, job);
   fileWriteQueue.set(path, next);
-  await next;
-  return path;
+  try { await next; return path; }
+  finally { if (fileWriteQueue.get(path) === next) fileWriteQueue.delete(path); }
+
+  });
 }
 
 /**
@@ -358,8 +446,12 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
  * instance rebuild reads fresh state instead of a spawn-time snapshot.
  * Returns an unsubscribe function.
  */
-export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, workspaceId: string): () => void {
-  return onRuntimeOpencodeConfigWrite((writeConfig, writtenWorkspaceId) => {
+export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, workspaceId: string): () => Promise<void> {
+  const owner = acquireRuntimeDbLifetime(config);
+  const jobs = new Set<Promise<unknown>>();
+  const failures: unknown[] = [];
+  const unsubscribe = onRuntimeOpencodeConfigWrite((writeConfig, writtenWorkspaceId) => {
+    if (runtimeDbPath(writeConfig) !== owner.path) return;
     // Global tool-permission, personalisation and connector writes affect
     // every workspace's derived config.
     if (
@@ -369,6 +461,19 @@ export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, worksp
       writtenWorkspaceId !== GLOBAL_MCP_ID &&
       writtenWorkspaceId !== GLOBAL_PROVIDERS_ID
     ) return;
-    void writeLegalworkRuntimeConfigFile(writeConfig, workspaceId).catch(() => undefined);
+    const job = owner.run(() => writeLegalworkRuntimeConfigFile(config, workspaceId));
+    jobs.add(job);
+    void job.then(() => jobs.delete(job), error => { failures.push(error); jobs.delete(job); });
   });
+  let stopPromise: Promise<void> | undefined;
+  return () => {
+    if (stopPromise) return stopPromise;
+    unsubscribe();
+    stopPromise = (async () => {
+      await Promise.allSettled([...jobs]);
+      try { await owner.release(); } catch (error) { failures.push(error); }
+      if (failures.length) throw new AggregateError(failures, "Failed to update runtime configuration");
+    })();
+    return stopPromise;
+  };
 }

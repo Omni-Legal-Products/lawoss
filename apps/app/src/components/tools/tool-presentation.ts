@@ -19,14 +19,14 @@ function categoryOf(part: ToolPart) {
   if (name === "request_env_var" || name === "env_var_request") return "credentials";
   if (name === "skill") return "skill";
   if (name === "todowrite") return "plan";
-  if (name === "webfetch") return "web";
+  if ((name === "webfetch" || name === "legalwork_webfetch")) return "web";
   if (name === "legalwork_review_settings" || name === "legalwork_review_library") return "read";
   if (name === "legalwork_review_list" || name === "legalwork_review_files") return "browse";
   if (name === "legalwork_jev_corpus_question") return "search";
   if (/(?:^|[_-])(?:search|grep|glob|find)(?:$|[_-])/.test(name)) return "search";
-  if (name === "websearch") return "search";
+  if ((name === "websearch" || name === "legalwork_websearch")) return "search";
   if (/(?:^|[_-])(?:read|get|results|inspect)(?:$|[_-])/.test(name) || name === "lsp") return "read";
-  if (/(?:^|[_-])(?:edit|patch|update|rename)(?:$|[_-])/.test(name)) return "edit";
+  if (/(?:^|[_-])(?:edit|patch|update|rename|suggest_change|fill_template|propose_change|replace_text|insert_text|add_comment|reply_comment|accept_changes|reject_changes)(?:$|[_-])/.test(name)) return "edit";
   if (/(?:^|[_-])(?:write|create|save)(?:$|[_-])/.test(name)) return "write";
   if (name.startsWith("legalwork_review_")) return "review";
   if (/(?:^|[_-])(?:list|files|browse)(?:$|[_-])/.test(name)) return "browse";

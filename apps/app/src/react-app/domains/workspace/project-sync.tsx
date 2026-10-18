@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Building2,
+  CalendarDays,
   ChevronDown,
   CloudOff,
   Folder,
@@ -12,7 +13,7 @@ import {
   SlidersHorizontal,
   SquareCheck,
   StickyNote,
-  Table2,
+  TableProperties,
   UserPlus,
   Users,
   X,
@@ -41,6 +42,7 @@ import { formatTaskDateTime } from "../tasks/task-format";
 import { initialsOf, OptionText } from "../tasks/task-glyphs";
 import { useTaskMembers } from "../tasks/tasks-queries";
 import { PROJECT_SYNC_POLL_MS, useProjectSyncStore } from "./project-sync-store";
+import { useOrgPolicy, useOrgPolicyStore } from "../connections/org-policy";
 
 /**
  * Sharing a project with the firm (Eigenwelt Sync), as the member sees it:
@@ -95,8 +97,9 @@ export function ProjectFolderIcon(props: { workspaceId: string; open: boolean })
 
 const SCOPE_ROWS: { key: keyof ProjectSyncScope; icon: ReactNode; label: () => string }[] = [
   { key: "documents", icon: <Folder />, label: () => t("project_sync.scope_documents") },
-  { key: "reviews", icon: <Table2 />, label: () => t("project_sync.scope_reviews") },
+  { key: "reviews", icon: <TableProperties />, label: () => t("project_sync.scope_reviews") },
   { key: "notes", icon: <StickyNote />, label: () => t("project_sync.scope_notes") },
+  { key: "calendar", icon: <CalendarDays />, label: () => t("calendar.sharing") },
   { key: "tasks", icon: <SquareCheck />, label: () => t("project_sync.scope_tasks") },
   { key: "recordings", icon: <Mic />, label: () => t("project_sync.scope_recordings") },
   { key: "metadata", icon: <SlidersHorizontal />, label: () => t("project_sync.scope_metadata") },
@@ -487,6 +490,9 @@ function ProjectShareDialog(props: {
   const added = settings ? colleagues.filter((member) => settings.memberIds.includes(member.userId)) : [];
   const addable = settings ? colleagues.filter((member) => !settings.memberIds.includes(member.userId)) : [];
   const alone = settings?.access === "members" && settings.memberIds.length === 0;
+  // The firm's policy may allow no sharing.
+  const sharingOff = useOrgPolicy("sharing.projects")?.value.allow === false;
+  const firmName = useOrgPolicyStore((state) => state.view?.orgName) || t("org_policy.your_firm");
   const nameOf = (member: LegalworkTaskMember | undefined, fallback: string) => {
     const name = member ? memberName(member) : fallback;
     return member && member.userId === data?.viewerUserId ? t("project_sync.you", { name }) : name;
@@ -553,11 +559,12 @@ function ProjectShareDialog(props: {
         ) : (
           <>
             {!data.connected ? <p className="rounded-xl bg-muted px-4 py-3 text-sm">{t("project_sync.sign_in")}</p> : null}
+            {isOwner && sharingOff ? <p className="rounded-xl bg-muted px-4 py-3 text-sm">{t("org_policy.sharing_off", { org: firmName })}</p> : null}
 
             {isOwner ? (
               <DropdownMenu>
                 <DropdownMenuTrigger
-                  disabled={!data.connected || (settings.access === "org" && addable.length === 0)}
+                  disabled={!data.connected || sharingOff || (settings.access === "org" && addable.length === 0)}
                   render={<Button variant="outline" className="h-11 w-full justify-start gap-2.5 rounded-xl px-4 font-normal text-muted-foreground shadow-none" />}
                 >
                   <UserPlus />
@@ -652,7 +659,7 @@ function ProjectShareDialog(props: {
                           <span className="flex-1">{row.label()}</span>
                           {isOwner ? (
                             <Switch
-                              checked={settings.scope[row.key]}
+                              checked={settings.scope[row.key] !== false}
                               disabled={!data.connected}
                               onCheckedChange={(checked) => update({ scope: { ...settings.scope, [row.key]: checked } })}
                             />

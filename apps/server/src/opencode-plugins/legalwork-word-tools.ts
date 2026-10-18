@@ -3,11 +3,12 @@ import { z } from "zod";
 import {
   callOfficeTool,
   describeOpenDocument,
-  describeOtherOpenApps,
   officePaneForHost,
+  officePaneIfKnown,
   type OpenCodeContext,
 } from "./office-plugin-shared.js";
 import { decodedDocumentUrl, isOpenWordFilePipelineCall } from "./legalwork-word-tools-shared.js";
+import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 
 /**
  * Agent tools for editing the Microsoft Word document that is open next to
@@ -27,11 +28,11 @@ const WORD_TOOL_RULES = `Rules for word_* tools:
 - Call word_read_document before editing so anchors are exact.
 - Anchors are short snippets (under 200 characters) copied VERBATIM from the document — including punctuation and casing. Prefer distinctive phrases; if an anchor matches several places, the tool reports the count and you must pass "occurrence".
 - Every edit is normally applied as a tracked change (redline). Never claim you changed text silently; the user reviews and accepts each change in Word. If an edit result carries trackedChange: false with a warning, follow that warning.
-- After substantive edits, add a short word_add_comment on the edited text explaining the reasoning, like a careful colleague would.
+- Make the smallest exact-span edit that fulfills the request. Preserve surrounding wording, numbering, formatting and unrelated revisions. Explain your reasoning in chat; add document comments only when the user explicitly asks for comments.
 - word_run_code executes raw Office.js for anything the typed tools cannot do (formatting, styles, tables, headers/footers, sections). Prefer the typed tools when they fit; keep snippets small and return a compact summary.
 - If a tool answers "No Office pane is connected", tell the user to open the LegalWork pane in Word and retry.`;
 
-/** Injected when no pane is connected: the tools exist but may be offline. */
+/** Always in the system prompt; a connected pane is reported as a reminder. */
 const WORD_TOOLS_INSTRUCTION = `## Microsoft Word document tools
 The user may have a Word document open either in LegalWork's in-app right sidebar or in the LegalWork pane inside Microsoft Word.
 
@@ -39,7 +40,7 @@ For an open/current document, try inapp_docx_read_document first. If it succeeds
 
 ${WORD_TOOL_RULES}`;
 
-/** Injected when a Word pane is live: switch to document-first behavior. */
+/** Reported when a Word pane connects: switch to document-first behavior. */
 const wordModeInstruction = (documentUrl: string | null) => `## You are working inside Microsoft Word right now
 The user has the LegalWork pane open inside Microsoft Word with a document next to the chat. ${describeOpenDocument(documentUrl)} Behave accordingly:
 
@@ -48,12 +49,10 @@ The user has the LegalWork pane open inside Microsoft Word with a document next 
 - The workspace usually holds sidecar copies of the open document: a .md, .txt, or .pdf export with the same name. Editing one of those does not change what the user is looking at. Never satisfy a request about the document by editing a sidecar; if the user actually means one, they will name it.
 - NON-NEGOTIABLE: edit the open document ONLY with the word_* tools (word_replace_text / word_insert_text / word_add_comment / word_run_code). They apply native tracked changes directly in the document the user is looking at. NEVER edit the open document through the file system: no docx-agent.mjs, no docx-redliner subagent, no bash/python on the .docx, and never a .redlined.docx or any other copy of it.
 - If the docx-edit skill or /edit-docx is invoked, follow its LIVE backend (the word_* tools) for the open document. Its FILE pipeline applies only to OTHER .docx files in the workspace that are not open in Word.
-- Attach a short word_add_comment rationale to each substantive edit, like a careful colleague would.
+- Keep edits minimal. Put rationale and unresolved questions in chat unless the user requested document comments. When asked to reply to an existing comment, use its native reply thread rather than adding a separate comment referring to an internal ID.
 - The user reviews your edits in Word itself (Review ribbon, accept/reject). Never tell them to open another file or the LegalWork viewer — the redlines are already in front of them.
 - The chat is a narrow sidebar: keep replies short and skimmable. Lead with what you did or found, avoid wide tables and long headed sections, and do not paste large document excerpts back into the chat — the user can see the document.
-- After editing, summarize the redlines in one or two sentences and remind the user to review and accept or reject them in Word.
-
-${WORD_TOOL_RULES}`;
+- After editing, summarize the redlines in one or two sentences and remind the user to review and accept or reject them in Word.`;
 
 const readDocumentArgs = z.object({
   max_chars: z
@@ -112,24 +111,32 @@ const runCodeArgs = z.object({
     ),
 });
 
-export const LegalWorkWordTools = async (pluginInput?: { directory?: string }) => ({
+export const LegalWorkWordTools = async (pluginInput?: SavedConversations) => {
+  const wordPane = appStateReminders(
+    "word-pane",
+    async (sessionID) => {
+      const pane = await officePaneIfKnown("word", { sessionID, directory: pluginInput?.directory });
+      if (pane === undefined) return null;
+      return pane ? wordModeInstruction(pane.documentUrl) : "";
+    },
+    "The LegalWork pane in Microsoft Word is no longer connected. Earlier Word reminders no longer apply; word_* tools are unavailable until the user opens the pane again.",
+    pluginInput,
+  );
+  return ({
   "experimental.chat.system.transform": async (
     _input: unknown,
     output: { system: string[] },
   ) => {
-    const pane = await officePaneForHost("word", pluginInput?.directory);
-    output.system.push(
-      pane
-        ? wordModeInstruction(pane.documentUrl) +
-          (await describeOtherOpenApps("word", pluginInput?.directory))
-        : WORD_TOOLS_INSTRUCTION,
-    );
+    output.system.push(WORD_TOOLS_INSTRUCTION);
   },
+  "chat.message": wordPane.userMessage,
+  "tool.execute.after": wordPane.toolResult,
+  event: wordPane.event,
   "tool.execute.before": async (
-    input: { tool: string },
+    input: { tool: string; sessionID?: string },
     output: { args: Record<string, unknown> },
   ) => {
-    const pane = await officePaneForHost("word", pluginInput?.directory);
+    const pane = await officePaneForHost("word", { sessionID: input.sessionID, directory: pluginInput?.directory });
     if (!pane || !isOpenWordFilePipelineCall(input.tool, output.args, pane.documentUrl)) return;
     throw new Error(
       "The target document is open in Microsoft Word. The FILE DOCX pipeline is disabled for that document: use word_* tools for live tracked changes, or stop and retry if the Word relay is not ready.",
@@ -201,4 +208,5 @@ export const LegalWorkWordTools = async (pluginInput?: { directory?: string }) =
       },
     },
   },
-});
+  });
+};

@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { usePanelTabStore } from "../panel/panel-tab-store";
 import { useCallback, useMemo } from "react";
 
 import type { createClient } from "../../../../app/lib/opencode";
@@ -8,6 +9,7 @@ import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import { useSessionManagementStore } from "../sidebar/session-management-store";
 import { t } from "@/i18n";
+import { deleteOrReviewSession } from "../../views/session-view-delete";
 
 type SessionLike = {
   id?: string;
@@ -98,6 +100,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
   const listSessionsControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.list_sessions",
+    background: true,
     label: t("control.list_sessions"),
     description: "Return the list of sessions across workspaces so the user can ask to open one by name.",
     sideEffect: "none",
@@ -118,22 +121,6 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
     },
   }), [sessionsByWorkspaceId, workspaces]);
   useControlAction(listSessionsControlAction);
-
-  const openSessionControlAction = useMemo<LegalworkControlAction>(() => ({
-    id: "session.open",
-    label: t("control.open_session"),
-    description: "Navigate to a specific session. Use list_sessions first to get the session ID.",
-    sideEffect: "navigation",
-    requiresArgs: true,
-    args: [{ name: "sessionId", type: "string", required: true, description: "Session ID from session.list_sessions." }],
-    execute: (args) => {
-      const sessionId = stringArg(args, "sessionId");
-      if (!sessionId) return { ok: false, error: "sessionId is required" };
-      navigateToSession(sessionId);
-      return { ok: true, navigatedTo: sessionId };
-    },
-  }), [navigateToSession]);
-  useControlAction(openSessionControlAction);
 
   const renameSessionControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.rename",
@@ -186,7 +173,9 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
       const targetWorkspace = findSessionWorkspace(workspaces, sessionsByWorkspaceId, sessionId);
       if (!targetWorkspace) return { ok: false, error: t("control.session_not_found") };
-      await legalworkClient.deleteSession(targetWorkspace.id, sessionId);
+      const review = await deleteOrReviewSession(async () => { await legalworkClient.deleteSession(targetWorkspace.id, sessionId); });
+      if (review) return { ok: false, code: "unsaved_session_views", error: t("views.delete_use_chat_action"), sessionId, unsavedDashboards: review.items.map(item => ({ title: item.title, canSave: Boolean(item.preview) })) };
+      usePanelTabStore.getState().clearSession(sessionId);
       if (selectedSessionId === sessionId) {
         navigateToSessionRoot();
       }

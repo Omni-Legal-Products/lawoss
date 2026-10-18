@@ -114,3 +114,19 @@ test("moving and clearing frozen panes persist without changing cells", async ()
   expect(final.book.sheets["sheet-0"]!.freeze?.xSplit).toBe(0);
   expect(final.book.sheets["sheet-0"]!.cellData![3]![3]!.f).toBe("=B4*C4");
 });
+
+
+test("XML byte-order marks load and survive a cell edit without damaging workbook parts", async () => {
+  const zip = await JSZip.loadAsync(await fixture());
+  for (const path of Object.keys(zip.files).filter(path => /\.(?:xml|rels)$/.test(path))) {
+    zip.file(path, "\uFEFF" + (await zip.file(path)!.async("string")).replace(/^\uFEFF/, ""));
+  }
+  const buffer = await zip.generateAsync({ type: "arraybuffer" });
+  const adapter = await openWorkbook(buffer, "bom.xlsx");
+  expect(new Uint8Array(await adapter.save(adapter.book))).toEqual(new Uint8Array(buffer));
+  const changed = structuredClone(adapter.book);
+  changed.sheets["sheet-0"]!.cellData![3]![1]!.v = 99;
+  const reopened = await openWorkbook(await adapter.save(changed), "bom.xlsx");
+  expect(reopened.book.sheets["sheet-0"]!.cellData![3]![1]!.v).toBe(99);
+  expect(reopened.book.sheetOrder).toHaveLength(2);
+});

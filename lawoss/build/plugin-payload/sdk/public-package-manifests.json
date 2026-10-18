@@ -1,0 +1,1649 @@
+{
+  "node_modules/@ai-sdk/provider": {
+    "name": "@ai-sdk/provider",
+    "version": "3.0.8",
+    "license": "Apache-2.0",
+    "sideEffects": false,
+    "main": "./dist/index.js",
+    "module": "./dist/index.mjs",
+    "types": "./dist/index.d.ts",
+    "source": "./src/index.ts",
+    "files": [
+      "dist/**/*",
+      "src",
+      "!src/**/*.test.ts",
+      "!src/**/*.test-d.ts",
+      "!src/**/__snapshots__",
+      "!src/**/__fixtures__",
+      "CHANGELOG.md",
+      "README.md"
+    ],
+    "exports": {
+      "./package.json": "./package.json",
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.mjs",
+        "require": "./dist/index.js"
+      }
+    },
+    "dependencies": {
+      "json-schema": "^0.4.0"
+    },
+    "devDependencies": {
+      "@types/json-schema": "7.0.15",
+      "@types/node": "20.17.24",
+      "tsup": "^8",
+      "typescript": "5.8.3",
+      "@vercel/ai-tsconfig": "0.0.0"
+    },
+    "engines": {
+      "node": ">=18"
+    },
+    "publishConfig": {
+      "access": "public"
+    },
+    "homepage": "https://ai-sdk.dev/docs",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/vercel/ai.git"
+    },
+    "bugs": {
+      "url": "https://github.com/vercel/ai/issues"
+    },
+    "keywords": [
+      "ai"
+    ],
+    "scripts": {
+      "build": "pnpm clean && tsup --tsconfig tsconfig.build.json",
+      "build:watch": "pnpm clean && tsup --watch",
+      "clean": "del-cli dist *.tsbuildinfo",
+      "lint": "eslint \"./**/*.ts*\"",
+      "type-check": "tsc --build",
+      "prettier-check": "prettier --check \"./**/*.ts*\""
+    }
+  },
+  "node_modules/@msgpackr-extract/msgpackr-extract-darwin-arm64": {
+    "name": "@msgpackr-extract/msgpackr-extract-darwin-arm64",
+    "version": "3.0.4",
+    "os": [
+      "darwin"
+    ],
+    "cpu": [
+      "arm64"
+    ],
+    "license": "MIT",
+    "author": "Kris Zyp",
+    "repository": {
+      "type": "git",
+      "url": "http://github.com/kriszyp/msgpackr-extract"
+    },
+    "description": "Platform specific binary for msgpackr-extract on darwin OS with arm64 architecture"
+  },
+  "node_modules/@opencode-ai/plugin": {
+    "$schema": "https://json.schemastore.org/package.json",
+    "name": "@opencode-ai/plugin",
+    "version": "1.18.29",
+    "type": "module",
+    "license": "MIT",
+    "scripts": {
+      "typecheck": "tsgo --noEmit",
+      "build": "tsc"
+    },
+    "exports": {
+      ".": {
+        "import": "./dist/index.js",
+        "types": "./dist/index.d.ts"
+      },
+      "./tool": {
+        "import": "./dist/tool.js",
+        "types": "./dist/tool.d.ts"
+      },
+      "./tui": {
+        "import": "./dist/tui.js",
+        "types": "./dist/tui.d.ts"
+      },
+      "./v2/effect": {
+        "import": "./dist/v2/effect/index.js",
+        "types": "./dist/v2/effect/index.d.ts"
+      },
+      "./v2/effect/integration": {
+        "import": "./dist/v2/effect/integration.js",
+        "types": "./dist/v2/effect/integration.d.ts"
+      },
+      "./v2/effect/plugin": {
+        "import": "./dist/v2/effect/plugin.js",
+        "types": "./dist/v2/effect/plugin.d.ts"
+      },
+      "./v2/promise": {
+        "import": "./dist/v2/promise/index.js",
+        "types": "./dist/v2/promise/index.d.ts"
+      }
+    },
+    "files": [
+      "dist"
+    ],
+    "dependencies": {
+      "@ai-sdk/provider": "3.0.8",
+      "@opencode-ai/sdk": "1.18.29",
+      "effect": "4.0.0-beta.83",
+      "zod": "4.1.8"
+    },
+    "peerDependencies": {
+      "@opentui/core": ">=0.4.5",
+      "@opentui/keymap": ">=0.4.5",
+      "@opentui/solid": ">=0.4.5"
+    },
+    "peerDependenciesMeta": {
+      "@opentui/core": {
+        "optional": true
+      },
+      "@opentui/keymap": {
+        "optional": true
+      },
+      "@opentui/solid": {
+        "optional": true
+      }
+    },
+    "devDependencies": {
+      "@opentui/core": "0.4.5",
+      "@opentui/keymap": "0.4.5",
+      "@opentui/solid": "0.4.5",
+      "@tsconfig/node22": "22.0.2",
+      "@types/node": "24.12.2",
+      "typescript": "5.8.2",
+      "@typescript/native-preview": "7.0.0-dev.20251207.1"
+    }
+  },
+  "node_modules/@opencode-ai/sdk": {
+    "$schema": "https://json.schemastore.org/package.json",
+    "name": "@opencode-ai/sdk",
+    "version": "1.18.29",
+    "type": "module",
+    "license": "MIT",
+    "scripts": {
+      "test": "bun test",
+      "typecheck": "tsgo --noEmit",
+      "build": "bun ./script/build.ts"
+    },
+    "exports": {
+      ".": {
+        "import": "./dist/index.js",
+        "types": "./dist/index.d.ts"
+      },
+      "./client": {
+        "import": "./dist/client.js",
+        "types": "./dist/client.d.ts"
+      },
+      "./server": {
+        "import": "./dist/server.js",
+        "types": "./dist/server.d.ts"
+      },
+      "./v2": {
+        "import": "./dist/v2/index.js",
+        "types": "./dist/v2/index.d.ts"
+      },
+      "./v2/client": {
+        "import": "./dist/v2/client.js",
+        "types": "./dist/v2/client.d.ts"
+      },
+      "./v2/gen/client": {
+        "import": "./dist/v2/gen/client/index.js",
+        "types": "./dist/v2/gen/client/index.d.ts"
+      },
+      "./v2/server": {
+        "import": "./dist/v2/server.js",
+        "types": "./dist/v2/server.d.ts"
+      },
+      "./v2/types": {
+        "import": "./dist/v2/gen/types.gen.js",
+        "types": "./dist/v2/gen/types.gen.d.ts"
+      }
+    },
+    "files": [
+      "dist"
+    ],
+    "devDependencies": {
+      "@hey-api/openapi-ts": "0.90.10",
+      "@tsconfig/node22": "22.0.2",
+      "@types/cross-spawn": "6.0.6",
+      "@types/node": "24.12.2",
+      "@typescript/native-preview": "7.0.0-dev.20251207.1",
+      "typescript": "5.8.2"
+    },
+    "dependencies": {
+      "cross-spawn": "7.0.6"
+    }
+  },
+  "node_modules/@standard-schema/spec": {
+    "name": "@standard-schema/spec",
+    "description": "A family of specs for interoperable TypeScript",
+    "version": "1.1.0",
+    "license": "MIT",
+    "author": "Colin McDonnell",
+    "homepage": "https://standardschema.dev",
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/standard-schema/standard-schema"
+    },
+    "keywords": [
+      "typescript",
+      "schema",
+      "validation",
+      "standard",
+      "interface"
+    ],
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "standard-schema-spec": "./src/index.ts",
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/index.js"
+        },
+        "require": {
+          "types": "./dist/index.d.cts",
+          "default": "./dist/index.cjs"
+        }
+      }
+    },
+    "sideEffects": false,
+    "files": [
+      "dist"
+    ],
+    "publishConfig": {
+      "access": "public"
+    },
+    "devDependencies": {
+      "tsup": "^8.3.0",
+      "typescript": "^5.6.2"
+    },
+    "scripts": {
+      "lint": "pnpm biome lint ./src",
+      "format": "pnpm biome format --write ./src",
+      "check": "pnpm biome check ./src",
+      "build": "tsup"
+    }
+  },
+  "node_modules/cross-spawn": {
+    "name": "cross-spawn",
+    "version": "7.0.6",
+    "description": "Cross platform child_process#spawn and child_process#spawnSync",
+    "keywords": [
+      "spawn",
+      "spawnSync",
+      "windows",
+      "cross-platform",
+      "path-ext",
+      "shebang",
+      "cmd",
+      "execute"
+    ],
+    "author": "André Cruz <andre@moxy.studio>",
+    "homepage": "https://github.com/moxystudio/node-cross-spawn",
+    "repository": {
+      "type": "git",
+      "url": "git@github.com:moxystudio/node-cross-spawn.git"
+    },
+    "license": "MIT",
+    "main": "index.js",
+    "files": [
+      "lib"
+    ],
+    "scripts": {
+      "lint": "eslint .",
+      "test": "jest --env node --coverage",
+      "prerelease": "npm t && npm run lint",
+      "release": "standard-version",
+      "postrelease": "git push --follow-tags origin HEAD && npm publish"
+    },
+    "husky": {
+      "hooks": {
+        "commit-msg": "commitlint -E HUSKY_GIT_PARAMS",
+        "pre-commit": "lint-staged"
+      }
+    },
+    "lint-staged": {
+      "*.js": [
+        "eslint --fix",
+        "git add"
+      ]
+    },
+    "commitlint": {
+      "extends": [
+        "@commitlint/config-conventional"
+      ]
+    },
+    "dependencies": {
+      "path-key": "^3.1.0",
+      "shebang-command": "^2.0.0",
+      "which": "^2.0.1"
+    },
+    "devDependencies": {
+      "@commitlint/cli": "^8.1.0",
+      "@commitlint/config-conventional": "^8.1.0",
+      "babel-core": "^6.26.3",
+      "babel-jest": "^24.9.0",
+      "babel-preset-moxy": "^3.1.0",
+      "eslint": "^5.16.0",
+      "eslint-config-moxy": "^7.1.0",
+      "husky": "^3.0.5",
+      "jest": "^24.9.0",
+      "lint-staged": "^9.2.5",
+      "mkdirp": "^0.5.1",
+      "rimraf": "^3.0.0",
+      "standard-version": "^9.5.0"
+    },
+    "engines": {
+      "node": ">= 8"
+    }
+  },
+  "node_modules/detect-libc": {
+    "name": "detect-libc",
+    "version": "2.1.2",
+    "description": "Node.js module to detect the C standard library (libc) implementation family and version",
+    "main": "lib/detect-libc.js",
+    "files": [
+      "lib/",
+      "index.d.ts"
+    ],
+    "scripts": {
+      "test": "semistandard && nyc --reporter=text --check-coverage --branches=100 ava test/unit.js",
+      "changelog": "conventional-changelog -i CHANGELOG.md -s",
+      "bench": "node benchmark/detect-libc",
+      "bench:calls": "node benchmark/call-familySync.js && sleep 1 && node benchmark/call-isNonGlibcLinuxSync.js && sleep 1 && node benchmark/call-versionSync.js"
+    },
+    "repository": {
+      "type": "git",
+      "url": "git://github.com/lovell/detect-libc.git"
+    },
+    "keywords": [
+      "libc",
+      "glibc",
+      "musl"
+    ],
+    "author": "Lovell Fuller <npm@lovell.info>",
+    "contributors": [
+      "Niklas Salmoukas <niklas@salmoukas.com>",
+      "Vinícius Lourenço <vinyygamerlol@gmail.com>"
+    ],
+    "license": "Apache-2.0",
+    "devDependencies": {
+      "ava": "^2.4.0",
+      "benchmark": "^2.1.4",
+      "conventional-changelog-cli": "^5.0.0",
+      "eslint-config-standard": "^13.0.1",
+      "nyc": "^15.1.0",
+      "proxyquire": "^2.1.3",
+      "semistandard": "^14.2.3"
+    },
+    "engines": {
+      "node": ">=8"
+    },
+    "types": "index.d.ts"
+  },
+  "node_modules/effect": {
+    "name": "effect",
+    "type": "module",
+    "version": "4.0.0-beta.83",
+    "license": "MIT",
+    "description": "The missing standard library for TypeScript, for writing production-grade software.",
+    "homepage": "https://effect.website",
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/Effect-TS/effect-smol.git",
+      "directory": "packages/effect"
+    },
+    "bugs": {
+      "url": "https://github.com/Effect-TS/effect-smol/issues"
+    },
+    "tags": [
+      "typescript",
+      "error-handling",
+      "concurrency",
+      "observability"
+    ],
+    "keywords": [
+      "typescript",
+      "error-handling",
+      "concurrency",
+      "observability"
+    ],
+    "sideEffects": [],
+    "exports": {
+      "./package.json": "./package.json",
+      ".": "./dist/index.js",
+      "./testing": "./dist/testing/index.js",
+      "./unstable/ai": "./dist/unstable/ai/index.js",
+      "./unstable/cli": "./dist/unstable/cli/index.js",
+      "./unstable/cluster": "./dist/unstable/cluster/index.js",
+      "./unstable/devtools": "./dist/unstable/devtools/index.js",
+      "./unstable/encoding": "./dist/unstable/encoding/index.js",
+      "./unstable/eventlog": "./dist/unstable/eventlog/index.js",
+      "./unstable/http": "./dist/unstable/http/index.js",
+      "./unstable/httpapi": "./dist/unstable/httpapi/index.js",
+      "./unstable/observability": "./dist/unstable/observability/index.js",
+      "./unstable/persistence": "./dist/unstable/persistence/index.js",
+      "./unstable/process": "./dist/unstable/process/index.js",
+      "./unstable/reactivity": "./dist/unstable/reactivity/index.js",
+      "./unstable/rpc": "./dist/unstable/rpc/index.js",
+      "./unstable/schema": "./dist/unstable/schema/index.js",
+      "./unstable/socket": "./dist/unstable/socket/index.js",
+      "./unstable/sql": "./dist/unstable/sql/index.js",
+      "./unstable/workflow": "./dist/unstable/workflow/index.js",
+      "./unstable/workers": "./dist/unstable/workers/index.js",
+      "./*": "./dist/*.js",
+      "./internal/*": null,
+      "./unstable/cli/internal/*": null,
+      "./unstable/cluster/internal/*": null,
+      "./*/index": null
+    },
+    "files": [
+      "src/**/*.ts",
+      "dist/**/*.js",
+      "dist/**/*.js.map",
+      "dist/**/*.d.ts",
+      "dist/**/*.d.ts.map"
+    ],
+    "publishConfig": {
+      "access": "public",
+      "provenance": true
+    },
+    "devDependencies": {
+      "@types/ini": "^4.1.1",
+      "@types/node": "^25.7.0",
+      "ajv": "^8.20.0",
+      "arktype": "^2.2.0",
+      "ast-types": "^0.14.2",
+      "immer": "^11.1.8",
+      "tinybench": "^6.0.1",
+      "valibot": "^1.4.0"
+    },
+    "dependencies": {
+      "@standard-schema/spec": "^1.1.0",
+      "fast-check": "^4.8.0",
+      "find-my-way-ts": "^0.1.6",
+      "ini": "^7.0.0",
+      "kubernetes-types": "^1.30.0",
+      "msgpackr": "^2.0.1",
+      "multipasta": "^0.2.7",
+      "toml": "^4.1.1",
+      "uuid": "^14.0.0",
+      "yaml": "^2.9.0"
+    },
+    "scripts": {
+      "codegen": "effect-utils codegen",
+      "build": "tsc -b tsconfig.json && pnpm babel",
+      "build:tsgo": "tsgo -b tsconfig.json && pnpm babel",
+      "babel": "babel dist --plugins annotate-pure-calls --out-dir dist --source-maps",
+      "check": "tsc -b tsconfig.json",
+      "test": "vitest --sequence.concurrent=false",
+      "coverage": "vitest --run --coverage --sequence.concurrent=false"
+    }
+  },
+  "node_modules/fast-check": {
+    "name": "fast-check",
+    "version": "4.10.2",
+    "description": "Property based testing framework for JavaScript (like QuickCheck)",
+    "type": "module",
+    "main": "lib/fast-check.js",
+    "exports": {
+      "./package.json": "./package.json",
+      ".": {
+        "require": {
+          "types@<5.7": "./lib/cjs/types57/fast-check.d.ts",
+          "types": "./lib/cjs/fast-check.d.ts",
+          "default": "./lib/cjs/fast-check.js"
+        },
+        "import": {
+          "types@<5.7": "./lib/types57/fast-check.d.ts",
+          "types": "./lib/fast-check.d.ts",
+          "default": "./lib/fast-check.js"
+        }
+      }
+    },
+    "module": "lib/fast-check.js",
+    "types": "lib/fast-check.d.ts",
+    "typesVersions": {
+      "<5.7": {
+        "lib/fast-check.d.ts": [
+          "lib/types57/fast-check.d.ts"
+        ]
+      }
+    },
+    "files": [
+      "lib"
+    ],
+    "sideEffects": false,
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/dubzzz/fast-check.git",
+      "directory": "packages/fast-check"
+    },
+    "author": "Nicolas DUBIEN <github@dubien.org>",
+    "license": "MIT",
+    "bugs": {
+      "url": "https://github.com/dubzzz/fast-check/issues"
+    },
+    "homepage": "https://fast-check.dev/",
+    "engines": {
+      "node": ">=12.17.0"
+    },
+    "dependencies": {
+      "pure-rand": "^8.0.0"
+    },
+    "devDependencies": {
+      "@microsoft/api-extractor": "^7.59.1",
+      "@types/node": "^24.13.4",
+      "not-node-buffer": "npm:buffer@^6.0.3",
+      "regexp-tree": "^0.1.27",
+      "typescript": "~6.0.3",
+      "vitest": "^4.1.10",
+      "@fast-check/poisoning": "0.3.1",
+      "fast-check": "4.10.2"
+    },
+    "keywords": [
+      "property-based testing",
+      "end-to-end testing",
+      "unit testing",
+      "testing",
+      "quickcheck",
+      "faker",
+      "fuzzer",
+      "fuzz",
+      "jest",
+      "vitest",
+      "random"
+    ],
+    "funding": [
+      {
+        "type": "individual",
+        "url": "https://github.com/sponsors/dubzzz"
+      },
+      {
+        "type": "opencollective",
+        "url": "https://opencollective.com/fast-check"
+      }
+    ],
+    "scripts": {
+      "build:post-build": "sed -i 's/^declare namespace fast_check_default_d_exports {/\\/\\*\\* @public \\*\\/ declare namespace fast_check_default_d_exports {/' lib/fast-check.d.ts && sed -i 's/fast_check_default_d_exports/fc/' lib/fast-check.d.ts && mkdir -p lib/types57 && cp lib/*.d.ts lib/types57/ && for f in lib/types57/*.d.ts; do [ -f \"$f\" ] && sed -i 's/Array<ArrayBuffer>>/Array>/g' \"$f\"; done && cp lib/*.d.ts lib/cjs/ && cp -r lib/types57 lib/cjs/ && cp package.cjs-template.json lib/cjs/package.json",
+      "build": "rolldown -c && pnpm run build:post-build",
+      "build-ci": "rolldown -c && pnpm run build:post-build",
+      "typecheck": "tsc --noEmit",
+      "test-bundle": "for f in test-bundle/*.mjs test-bundle/*.cjs; do [ -f \"$f\" ] && echo \"Running ${f##*/}\" && node \"$f\" || exit 1; done",
+      "test-legacy-bundle": "nvs add 12.17.0 && for f in test-bundle/*.cjs; do [ -f \"$f\" ] && echo \"Running ${f##*/}\" && $(nvs which 12.17.0) \"$f\" || exit 1; done",
+      "api-extractor": "api-extractor run --local"
+    }
+  },
+  "node_modules/find-my-way-ts": {
+    "name": "find-my-way-ts",
+    "version": "0.1.6",
+    "description": "Crazy fast http radix based router",
+    "license": "MIT",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/tim-smart/find-my-way-ts.git"
+    },
+    "sideEffects": [],
+    "author": "Tomas Della Vedova - @delvedor (http://delved.org)",
+    "main": "./dist/cjs/index.js",
+    "module": "./dist/esm/index.js",
+    "types": "./dist/dts/index.d.ts",
+    "exports": {
+      "./package.json": "./package.json",
+      ".": {
+        "types": "./dist/dts/index.d.ts",
+        "import": "./dist/esm/index.js",
+        "default": "./dist/cjs/index.js"
+      },
+      "./QueryString": {
+        "types": "./dist/dts/QueryString.d.ts",
+        "import": "./dist/esm/QueryString.js",
+        "default": "./dist/cjs/QueryString.js"
+      }
+    },
+    "typesVersions": {
+      "*": {
+        "QueryString": [
+          "./dist/dts/QueryString.d.ts"
+        ]
+      }
+    }
+  },
+  "node_modules/ini": {
+    "author": "GitHub Inc.",
+    "name": "ini",
+    "description": "An ini encoder/decoder for node",
+    "version": "7.0.0",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/npm/ini.git"
+    },
+    "main": "lib/ini.js",
+    "scripts": {
+      "eslint": "eslint \"**/*.{js,cjs,ts,mjs,jsx,tsx}\"",
+      "lint": "npm run eslint",
+      "lintfix": "npm run eslint -- --fix",
+      "test": "tap",
+      "snap": "tap",
+      "posttest": "npm run lint",
+      "postlint": "template-oss-check",
+      "template-oss-apply": "template-oss-apply --force"
+    },
+    "devDependencies": {
+      "@npmcli/eslint-config": "^6.0.0",
+      "@npmcli/template-oss": "5.0.0",
+      "tap": "^16.0.1"
+    },
+    "license": "ISC",
+    "files": [
+      "bin/",
+      "lib/"
+    ],
+    "engines": {
+      "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+    },
+    "templateOSS": {
+      "//@npmcli/template-oss": "This file is partially managed by @npmcli/template-oss. Edits may be overwritten.",
+      "version": "5.0.0",
+      "publish": "true"
+    },
+    "tap": {
+      "nyc-arg": [
+        "--exclude",
+        "tap-snapshots/**"
+      ]
+    }
+  },
+  "node_modules/isexe": {
+    "name": "isexe",
+    "version": "2.0.0",
+    "description": "Minimal module to check if a file is executable.",
+    "main": "index.js",
+    "directories": {
+      "test": "test"
+    },
+    "devDependencies": {
+      "mkdirp": "^0.5.1",
+      "rimraf": "^2.5.0",
+      "tap": "^10.3.0"
+    },
+    "scripts": {
+      "test": "tap test/*.js --100",
+      "preversion": "npm test",
+      "postversion": "npm publish",
+      "postpublish": "git push origin --all; git push origin --tags"
+    },
+    "author": "Isaac Z. Schlueter <i@izs.me> (http://blog.izs.me/)",
+    "license": "ISC",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/isaacs/isexe.git"
+    },
+    "keywords": [],
+    "bugs": {
+      "url": "https://github.com/isaacs/isexe/issues"
+    },
+    "homepage": "https://github.com/isaacs/isexe#readme"
+  },
+  "node_modules/json-schema": {
+    "name": "json-schema",
+    "version": "0.4.0",
+    "author": "Kris Zyp",
+    "description": "JSON Schema validation and specifications",
+    "maintainers": [
+      {
+        "name": "Kris Zyp",
+        "email": "kriszyp@gmail.com"
+      }
+    ],
+    "keywords": [
+      "json",
+      "schema"
+    ],
+    "files": [
+      "lib"
+    ],
+    "license": "(AFL-2.1 OR BSD-3-Clause)",
+    "repository": {
+      "type": "git",
+      "url": "http://github.com/kriszyp/json-schema"
+    },
+    "directories": {
+      "lib": "./lib"
+    },
+    "main": "./lib/validate.js",
+    "devDependencies": {
+      "vows": "*"
+    },
+    "scripts": {
+      "test": "vows --spec test/*.js"
+    }
+  },
+  "node_modules/kubernetes-types": {
+    "name": "kubernetes-types",
+    "version": "1.30.0",
+    "description": "TypeScript definitions of Kubernetes resource types",
+    "repository": "https://github.com/silverlyra/kubernetes-types",
+    "author": "Lyra Naeseth <lyra@naeseth.com>",
+    "license": "Apache-2.0",
+    "devDependencies": {
+      "typescript": ">=3.2.0"
+    }
+  },
+  "node_modules/msgpackr": {
+    "name": "msgpackr",
+    "author": "Kris Zyp",
+    "version": "2.1.0",
+    "description": "Ultra-fast MessagePack implementation with extensions for records and structured cloning",
+    "license": "MIT",
+    "types": "./index.d.ts",
+    "main": "./dist/node.cjs",
+    "module": "./index.js",
+    "react-native": "./index.js",
+    "keywords": [
+      "MessagePack",
+      "msgpack",
+      "performance",
+      "structured",
+      "clone"
+    ],
+    "repository": {
+      "type": "git",
+      "url": "http://github.com/kriszyp/msgpackr"
+    },
+    "scripts": {
+      "benchmark": "node ./tests/benchmark.cjs",
+      "build": "rollup -c && cpy index.d.ts . --rename=index.d.cts && cpy pack.d.ts . --rename=pack.d.cts && cpy unpack.d.ts . --rename=unpack.d.cts",
+      "dry-run": "npm publish --dry-run",
+      "prepare": "npm run build",
+      "test": "mocha tests/test**.*js -u tdd --experimental-json-modules"
+    },
+    "type": "module",
+    "exports": {
+      ".": {
+        "types": {
+          "require": "./index.d.cts",
+          "import": "./index.d.ts"
+        },
+        "browser": "./index.js",
+        "node": {
+          "require": "./dist/node.cjs",
+          "import": "./node-index.js"
+        },
+        "bun": {
+          "require": "./dist/node.cjs",
+          "import": "./node-index.js"
+        },
+        "default": "./index.js"
+      },
+      "./pack": {
+        "types": {
+          "require": "./pack.d.cts",
+          "import": "./pack.d.ts"
+        },
+        "browser": "./pack.js",
+        "node": {
+          "import": "./index.js",
+          "require": "./dist/node.cjs"
+        },
+        "bun": {
+          "import": "./index.js",
+          "require": "./dist/node.cjs"
+        },
+        "default": "./pack.js"
+      },
+      "./unpack": {
+        "types": {
+          "require": "./unpack.d.cts",
+          "import": "./unpack.d.ts"
+        },
+        "browser": "./unpack.js",
+        "node": {
+          "import": "./index.js",
+          "require": "./dist/node.cjs"
+        },
+        "bun": {
+          "import": "./index.js",
+          "require": "./dist/node.cjs"
+        },
+        "default": "./unpack.js"
+      },
+      "./unpack-no-eval": "./dist/unpack-no-eval.cjs",
+      "./index-no-eval": "./dist/index-no-eval.cjs"
+    },
+    "files": [
+      "/dist",
+      "*.md",
+      "/*.js",
+      "/*.ts",
+      "/*.cts"
+    ],
+    "optionalDependencies": {
+      "msgpackr-extract": "^3.0.4"
+    },
+    "devDependencies": {
+      "@rollup/plugin-json": "^5.0.1",
+      "@rollup/plugin-replace": "^5.0.1",
+      "@types/node": "latest",
+      "async": "^3",
+      "chai": "^4.3.4",
+      "cpy-cli": "^4.1.0",
+      "esm": "^3.2.25",
+      "mocha": "^10.1.0",
+      "rollup": "^3.2.5",
+      "@rollup/plugin-terser": "^0.1.0"
+    }
+  },
+  "node_modules/msgpackr-extract": {
+    "name": "msgpackr-extract",
+    "author": "Kris Zyp",
+    "version": "3.0.4",
+    "description": "Node addon for string extraction for msgpackr",
+    "license": "MIT",
+    "repository": {
+      "type": "git",
+      "url": "http://github.com/kriszyp/msgpackr-extract"
+    },
+    "scripts": {
+      "install": "node-gyp-build-optional-packages",
+      "recompile": "node-gyp rebuild",
+      "before-publish": "prebuildify-ci download && node set-optional-deps.cjs",
+      "prebuild": "prebuildify-platform-packages --target 20.14.0",
+      "prebuild-win32": "prebuildify-platform-packages --target 20.14.0 && set ENABLE_V8_FUNCTIONS=false&& prebuildify-platform-packages --platform-packages --napi --target 20.14.0",
+      "prebuild-libc": "prebuildify-platform-packages --tag-libc --target 20.14.0 && prebuildify-platform-packages --platform-packages --napi --tag-libc --target 22.2.0 && ENABLE_V8_FUNCTIONS=false prebuildify-platform-packages --platform-packages --napi --tag-libc --target 20.14.0",
+      "prebuild-libc-napi": "ENABLE_V8_FUNCTIONS=false prebuildify-platform-packages --platform-packages --napi --tag-libc --target 20.14.0",
+      "prebuild-libc-alpine": "prebuildify-cross --image alpine --tag-libc --target 20.14.0",
+      "publish-all": "cd prebuilds/win32-x64 && (npm publish --access public || true) && cd ../darwin-x64 && (npm publish --access public || true) && cd ../darwin-arm64 && (npm publish --access public || true) && cd ../linux-x64 && (npm publish --access public || true) && cd ../linux-arm64 && (npm publish --access public || true) && cd ../linux-arm && (npm publish --access public || true) && cd ../.. && npm publish --access public",
+      "test": "node ./index.js"
+    },
+    "main": "./index.js",
+    "gypfile": true,
+    "dependencies": {
+      "node-gyp-build-optional-packages": "5.2.2"
+    },
+    "files": [
+      "index.js",
+      "/src",
+      "/*.gyp",
+      "/bin"
+    ],
+    "bin": {
+      "download-msgpackr-prebuilds": "./bin/download-prebuilds.js"
+    },
+    "optionalDependencies": {
+      "@msgpackr-extract/msgpackr-extract-darwin-arm64": "3.0.4",
+      "@msgpackr-extract/msgpackr-extract-darwin-x64": "3.0.4",
+      "@msgpackr-extract/msgpackr-extract-linux-arm": "3.0.4",
+      "@msgpackr-extract/msgpackr-extract-linux-arm64": "3.0.4",
+      "@msgpackr-extract/msgpackr-extract-linux-x64": "3.0.4",
+      "@msgpackr-extract/msgpackr-extract-win32-x64": "3.0.4"
+    },
+    "devDependencies": {
+      "prebuildify-platform-packages": "5.0.4",
+      "prebuildify-ci": "^1.0.5",
+      "prebuildify-cross": "5.0.0"
+    }
+  },
+  "node_modules/multipasta": {
+    "name": "multipasta",
+    "version": "0.2.8",
+    "description": "",
+    "license": "MIT",
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/tim-smart/multipasta.git"
+    },
+    "sideEffects": false,
+    "author": "Tim Smart <hello@timsmart.co>",
+    "main": "./dist/cjs/index.js",
+    "module": "./dist/esm/index.js",
+    "types": "./dist/dts/index.d.ts",
+    "exports": {
+      "./package.json": "./package.json",
+      ".": {
+        "types": "./dist/dts/index.d.ts",
+        "import": "./dist/esm/index.js",
+        "default": "./dist/cjs/index.js"
+      },
+      "./HeadersParser": {
+        "types": "./dist/dts/HeadersParser.d.ts",
+        "import": "./dist/esm/HeadersParser.js",
+        "default": "./dist/cjs/HeadersParser.js"
+      },
+      "./Search": {
+        "types": "./dist/dts/Search.d.ts",
+        "import": "./dist/esm/Search.js",
+        "default": "./dist/cjs/Search.js"
+      },
+      "./node": {
+        "types": "./dist/dts/node.d.ts",
+        "import": "./dist/esm/node.js",
+        "default": "./dist/cjs/node.js"
+      },
+      "./web": {
+        "types": "./dist/dts/web.d.ts",
+        "import": "./dist/esm/web.js",
+        "default": "./dist/cjs/web.js"
+      }
+    },
+    "typesVersions": {
+      "*": {
+        "HeadersParser": [
+          "./dist/dts/HeadersParser.d.ts"
+        ],
+        "Search": [
+          "./dist/dts/Search.d.ts"
+        ],
+        "node": [
+          "./dist/dts/node.d.ts"
+        ],
+        "web": [
+          "./dist/dts/web.d.ts"
+        ]
+      }
+    }
+  },
+  "node_modules/node-gyp-build-optional-packages": {
+    "name": "node-gyp-build-optional-packages",
+    "version": "5.2.2",
+    "description": "Build tool and bindings loader for node-gyp that supports prebuilds",
+    "main": "index.js",
+    "devDependencies": {
+      "array-shuffle": "^1.0.1",
+      "standard": "^14.0.0",
+      "tape": "^5.0.0"
+    },
+    "dependencies": {
+      "detect-libc": "^2.0.1"
+    },
+    "scripts": {
+      "test": "standard && node test"
+    },
+    "bin": {
+      "node-gyp-build-optional-packages": "./bin.js",
+      "node-gyp-build-optional-packages-optional": "./optional.js",
+      "node-gyp-build-optional-packages-test": "./build-test.js"
+    },
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/prebuild/node-gyp-build.git"
+    },
+    "author": "Mathias Buus (@mafintosh)",
+    "license": "MIT",
+    "bugs": {
+      "url": "https://github.com/prebuild/node-gyp-build/issues"
+    },
+    "homepage": "https://github.com/prebuild/node-gyp-build"
+  },
+  "node_modules/path-key": {
+    "name": "path-key",
+    "version": "3.1.1",
+    "description": "Get the PATH environment variable key cross-platform",
+    "license": "MIT",
+    "repository": "sindresorhus/path-key",
+    "author": {
+      "name": "Sindre Sorhus",
+      "email": "sindresorhus@gmail.com",
+      "url": "sindresorhus.com"
+    },
+    "engines": {
+      "node": ">=8"
+    },
+    "scripts": {
+      "test": "xo && ava && tsd"
+    },
+    "files": [
+      "index.js",
+      "index.d.ts"
+    ],
+    "keywords": [
+      "path",
+      "key",
+      "environment",
+      "env",
+      "variable",
+      "var",
+      "get",
+      "cross-platform",
+      "windows"
+    ],
+    "devDependencies": {
+      "@types/node": "^11.13.0",
+      "ava": "^1.4.1",
+      "tsd": "^0.7.2",
+      "xo": "^0.24.0"
+    }
+  },
+  "node_modules/pure-rand": {
+    "name": "pure-rand",
+    "version": "8.4.2",
+    "description": " Pure random number generator written in TypeScript",
+    "type": "commonjs",
+    "exports": {
+      "./package.json": "./package.json",
+      "./distribution/uniformBigInt": {
+        "require": "./lib/distribution/uniformBigInt.js",
+        "import": "./lib/esm/distribution/uniformBigInt.js"
+      },
+      "./distribution/uniformInt": {
+        "require": "./lib/distribution/uniformInt.js",
+        "import": "./lib/esm/distribution/uniformInt.js"
+      },
+      "./distribution/uniformFloat32": {
+        "require": "./lib/distribution/uniformFloat32.js",
+        "import": "./lib/esm/distribution/uniformFloat32.js"
+      },
+      "./distribution/uniformFloat64": {
+        "require": "./lib/distribution/uniformFloat64.js",
+        "import": "./lib/esm/distribution/uniformFloat64.js"
+      },
+      "./generator/congruential32": {
+        "require": "./lib/generator/congruential32.js",
+        "import": "./lib/esm/generator/congruential32.js"
+      },
+      "./generator/mersenne": {
+        "require": "./lib/generator/mersenne.js",
+        "import": "./lib/esm/generator/mersenne.js"
+      },
+      "./generator/xorshift128plus": {
+        "require": "./lib/generator/xorshift128plus.js",
+        "import": "./lib/esm/generator/xorshift128plus.js"
+      },
+      "./generator/xoroshiro128plus": {
+        "require": "./lib/generator/xoroshiro128plus.js",
+        "import": "./lib/esm/generator/xoroshiro128plus.js"
+      },
+      "./types/JumpableRandomGenerator": {
+        "require": "./lib/types/JumpableRandomGenerator.js",
+        "import": "./lib/esm/types/JumpableRandomGenerator.js"
+      },
+      "./types/RandomGenerator": {
+        "require": "./lib/types/RandomGenerator.js",
+        "import": "./lib/esm/types/RandomGenerator.js"
+      },
+      "./utils/generateN": {
+        "require": "./lib/utils/generateN.js",
+        "import": "./lib/esm/utils/generateN.js"
+      },
+      "./utils/purify": {
+        "require": "./lib/utils/purify.js",
+        "import": "./lib/esm/utils/purify.js"
+      },
+      "./utils/skipN": {
+        "require": "./lib/utils/skipN.js",
+        "import": "./lib/esm/utils/skipN.js"
+      }
+    },
+    "files": [
+      "lib"
+    ],
+    "sideEffects": false,
+    "devEngines": {
+      "runtime": {
+        "name": "node",
+        "onFail": "warn"
+      },
+      "packageManager": {
+        "name": "pnpm",
+        "version": "11.8.0",
+        "onFail": "download"
+      }
+    },
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/dubzzz/pure-rand.git"
+    },
+    "author": "Nicolas DUBIEN <github@dubien.org>",
+    "license": "MIT",
+    "bugs": {
+      "url": "https://github.com/dubzzz/pure-rand/issues"
+    },
+    "homepage": "https://github.com/dubzzz/pure-rand#readme",
+    "devDependencies": {
+      "@fast-check/packaged": "^0.7.0",
+      "@vitest/coverage-v8": "4.1.9",
+      "fast-check": "^4.8.0",
+      "oxfmt": "^0.56.0",
+      "pkg-pr-new": "^0.0.75",
+      "publint": "0.3.21",
+      "rolldown": "1.1.3",
+      "rolldown-plugin-dts": "^0.26.0",
+      "typescript": "^6.0.3",
+      "vitest": "^4.1.9"
+    },
+    "keywords": [
+      "seed",
+      "random",
+      "prng",
+      "generator",
+      "pure",
+      "rand",
+      "mersenne",
+      "random number generator",
+      "fastest",
+      "fast"
+    ],
+    "funding": [
+      {
+        "type": "individual",
+        "url": "https://github.com/sponsors/dubzzz"
+      },
+      {
+        "type": "opencollective",
+        "url": "https://opencollective.com/fast-check"
+      }
+    ],
+    "scripts": {
+      "format:check": "oxfmt --list-different",
+      "format": "oxfmt",
+      "typecheck": "tsc --noEmit",
+      "build": "rolldown -c && cd lib/esm/ && find . -type f -name '*.d.ts' -exec cp --parents {} ../ \\; && cp ../../package.esm-template.json package.json && cd ../..",
+      "test": "vitest",
+      "test-bundle": "echo \"node: $(${NODE_BIN:-node} --version)\" && rm -rf test-bundle/*.mjs && for f in test-bundle/*.cjs; do if [ -f \"$f\" ]; then echo \"Creating ${f%.cjs}.mjs\" &&  mjs=\"${f%.cjs}.mjs\" && sed -E \"s/^const (\\{[^}]*\\}) = require\\(([^)]+)\\);$/import \\1 from \\2;/; s/^const ([a-zA-Z_][a-zA-Z0-9_]*) = require\\(([^)]+)\\);$/import \\1 from \\2;/; s/^'use strict';$//\" \"$f\" > \"$mjs\"; fi; done && for f in test-bundle/*.cjs test-bundle/*.mjs; do if [ -f \"$f\" ]; then echo \"Running ${f##*/}\" && ${NODE_BIN:-node} \"$f\" || exit 1; fi; done",
+      "test-legacy-bundle": "nvs add 12.17.0 && NODE_BIN=$(nvs which 12.17.0) pnpm test-bundle",
+      "bench": "vitest bench",
+      "bench:ci": "vitest bench --outputJson benchmark.json --compare benchmark.json",
+      "bench:snap": "vitest bench --outputJson benchmark.json",
+      "bench:compare": "vitest bench --compare benchmark.json"
+    }
+  },
+  "node_modules/shebang-command": {
+    "name": "shebang-command",
+    "version": "2.0.0",
+    "description": "Get the command from a shebang",
+    "license": "MIT",
+    "repository": "kevva/shebang-command",
+    "author": {
+      "name": "Kevin Mårtensson",
+      "email": "kevinmartensson@gmail.com",
+      "url": "github.com/kevva"
+    },
+    "engines": {
+      "node": ">=8"
+    },
+    "scripts": {
+      "test": "xo && ava"
+    },
+    "files": [
+      "index.js"
+    ],
+    "keywords": [
+      "cmd",
+      "command",
+      "parse",
+      "shebang"
+    ],
+    "dependencies": {
+      "shebang-regex": "^3.0.0"
+    },
+    "devDependencies": {
+      "ava": "^2.3.0",
+      "xo": "^0.24.0"
+    }
+  },
+  "node_modules/shebang-regex": {
+    "name": "shebang-regex",
+    "version": "3.0.0",
+    "description": "Regular expression for matching a shebang line",
+    "license": "MIT",
+    "repository": "sindresorhus/shebang-regex",
+    "author": {
+      "name": "Sindre Sorhus",
+      "email": "sindresorhus@gmail.com",
+      "url": "sindresorhus.com"
+    },
+    "engines": {
+      "node": ">=8"
+    },
+    "scripts": {
+      "test": "xo && ava && tsd"
+    },
+    "files": [
+      "index.js",
+      "index.d.ts"
+    ],
+    "keywords": [
+      "regex",
+      "regexp",
+      "shebang",
+      "match",
+      "test",
+      "line"
+    ],
+    "devDependencies": {
+      "ava": "^1.4.1",
+      "tsd": "^0.7.2",
+      "xo": "^0.24.0"
+    }
+  },
+  "node_modules/toml": {
+    "name": "toml",
+    "version": "4.3.0",
+    "description": "TOML parser for Node.js (TOML v1.1.0 compliant)",
+    "main": "index.js",
+    "types": "index.d.ts",
+    "files": [
+      "index.js",
+      "index.d.ts",
+      "lib/"
+    ],
+    "engines": {
+      "node": ">=20"
+    },
+    "scripts": {
+      "build": "peggy -o lib/parser.js src/toml.pegjs",
+      "test": "node --test test/test_toml.js",
+      "test:spec": "node test/spec-test.js",
+      "test:spec:fresh": "node scripts/test-spec-fresh.js",
+      "test:spec:failures": "node test/spec-test.js --failures",
+      "test:all": "node --test test/test_toml.js && node test/spec-test.js",
+      "prepublishOnly": "npm run build"
+    },
+    "repository": {
+      "type": "git",
+      "url": "git://github.com/BinaryMuse/toml-node.git"
+    },
+    "keywords": [
+      "toml",
+      "parser"
+    ],
+    "author": "Michelle Tilley <michelle@michelletilley.net>",
+    "license": "MIT",
+    "devDependencies": {
+      "@js-temporal/polyfill": "^0.5.1",
+      "peggy": "^5.1.0"
+    }
+  },
+  "node_modules/uuid": {
+    "name": "uuid",
+    "version": "14.0.3",
+    "description": "RFC9562 UUIDs",
+    "type": "module",
+    "funding": [
+      "https://github.com/sponsors/broofa",
+      "https://github.com/sponsors/ctavan"
+    ],
+    "commitlint": {
+      "extends": [
+        "@commitlint/config-conventional"
+      ]
+    },
+    "keywords": [
+      "uuid",
+      "guid",
+      "rfc4122",
+      "rfc9562"
+    ],
+    "license": "MIT",
+    "bin": {
+      "uuid": "./dist-node/bin/uuid"
+    },
+    "sideEffects": false,
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "node": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist-node/index.js"
+        },
+        "default": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    },
+    "files": [
+      "dist",
+      "dist-node",
+      "!**/test"
+    ],
+    "devDependencies": {
+      "@biomejs/biome": "2.5.13",
+      "@commitlint/cli": "21.2.2",
+      "@commitlint/config-conventional": "21.2.2",
+      "bundlewatch": "0.4.2",
+      "commander": "15.0.0",
+      "globals": "17.12.0",
+      "jest": "30.5.1",
+      "lefthook": "2.1.12",
+      "lint-staged": "17.5.1",
+      "neostandard": "0.13.0",
+      "npm-run-all2": "9.0.3",
+      "prettier": "3.9.6",
+      "publint": "0.3.24",
+      "release-please": "17.11.2",
+      "runmd": "2.1.1",
+      "standard-version": "9.5.0",
+      "typescript": "5.4.3"
+    },
+    "optionalDevDependencies": {
+      "@wdio/browserstack-service": "9.27.0",
+      "@wdio/cli": "9.27.0",
+      "@wdio/jasmine-framework": "9.27.0",
+      "@wdio/local-runner": "9.27.0",
+      "@wdio/spec-reporter": "9.27.0",
+      "@wdio/static-server-service": "9.27.0"
+    },
+    "scripts": {
+      "build": "./scripts/build.sh",
+      "build:watch": "tsc --watch -p tsconfig.json",
+      "bundlewatch": "npm run pretest:browser && bundlewatch --config bundlewatch.config.json",
+      "docs:diff": "npm run docs && git diff README.md",
+      "docs": "npm run build && npx runmd --output=README.md README_js.md",
+      "biome:check": "biome check .",
+      "biome:fix": "biome check --write .",
+      "examples:browser:rollup:build": "cd examples/browser-rollup && npm run build",
+      "examples:browser:webpack:build": "cd examples/browser-webpack && npm run build",
+      "examples:node:esmodules:test": "cd examples/node-esmodules && npm test",
+      "examples:node:jest:test": "cd examples/node-jest && npm test",
+      "examples:node:typescript:test": "cd examples/typescript && npm test",
+      "format": "biome format --write .",
+      "format:check": "biome format --check .",
+      "lint": "npm run biome:check",
+      "md": "runmd --watch --output=README.md README_js.md",
+      "prepack": "npm run build -- --no-pack",
+      "prepare": "if [ -d .git ]; then npx lefthook install; fi",
+      "prepublishOnly": "npm run build",
+      "pretest:benchmark": "npm run build",
+      "pretest:browser": "./scripts/iodd && npm run build && npm-run-all --parallel examples:browser:**",
+      "pretest:node": "npm run build",
+      "pretest": "if [ -d .git ]; then npm run build; fi",
+      "release": "standard-version --no-verify",
+      "test:benchmark": "cd examples/benchmark && npm test",
+      "test:browser": "wdio run ./wdio.conf.js",
+      "test:node": "npm-run-all --parallel examples:node:**",
+      "test:watch": "node --test --enable-source-maps --watch dist-node/test/*.js",
+      "test": "node --test --enable-source-maps dist-node/test/*.js"
+    },
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/uuidjs/uuid.git"
+    },
+    "lint-staged": {
+      "*": [
+        "biome check --write --no-errors-on-unmatched"
+      ]
+    },
+    "standard-version": {
+      "scripts": {
+        "postchangelog": "biome format --write CHANGELOG.md"
+      }
+    },
+    "packageManager": "npm@12.0.2"
+  },
+  "node_modules/which": {
+    "author": "Isaac Z. Schlueter <i@izs.me> (http://blog.izs.me)",
+    "name": "which",
+    "description": "Like which(1) unix command. Find the first instance of an executable in the PATH.",
+    "version": "2.0.2",
+    "repository": {
+      "type": "git",
+      "url": "git://github.com/isaacs/node-which.git"
+    },
+    "main": "which.js",
+    "bin": {
+      "node-which": "./bin/node-which"
+    },
+    "license": "ISC",
+    "dependencies": {
+      "isexe": "^2.0.0"
+    },
+    "devDependencies": {
+      "mkdirp": "^0.5.0",
+      "rimraf": "^2.6.2",
+      "tap": "^14.6.9"
+    },
+    "scripts": {
+      "test": "tap",
+      "preversion": "npm test",
+      "postversion": "npm publish",
+      "prepublish": "npm run changelog",
+      "prechangelog": "bash gen-changelog.sh",
+      "changelog": "git add CHANGELOG.md",
+      "postchangelog": "git commit -m 'update changelog - '${npm_package_version}",
+      "postpublish": "git push origin --follow-tags"
+    },
+    "files": [
+      "which.js",
+      "bin/node-which"
+    ],
+    "tap": {
+      "check-coverage": true
+    },
+    "engines": {
+      "node": ">= 8"
+    }
+  },
+  "node_modules/yaml": {
+    "name": "yaml",
+    "version": "2.9.1",
+    "license": "ISC",
+    "author": "Eemeli Aro <eemeli@gmail.com>",
+    "funding": "https://github.com/sponsors/eemeli",
+    "repository": "github:eemeli/yaml",
+    "description": "JavaScript parser and stringifier for YAML",
+    "keywords": [
+      "YAML",
+      "parser",
+      "stringifier"
+    ],
+    "homepage": "https://eemeli.org/yaml/",
+    "files": [
+      "browser/",
+      "dist/",
+      "util.js"
+    ],
+    "type": "commonjs",
+    "main": "./dist/index.js",
+    "bin": "./bin.mjs",
+    "browser": {
+      "./dist/index.js": "./browser/index.js",
+      "./dist/util.js": "./browser/dist/util.js",
+      "./util.js": "./browser/dist/util.js"
+    },
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "node": "./dist/index.js",
+        "default": "./browser/index.js"
+      },
+      "./package.json": "./package.json",
+      "./util": {
+        "types": "./dist/util.d.ts",
+        "node": "./dist/util.js",
+        "default": "./browser/dist/util.js"
+      }
+    },
+    "scripts": {
+      "build": "npm run build:node && npm run build:browser",
+      "build:browser": "rollup -c config/rollup.browser-config.mjs",
+      "build:node": "rollup -c config/rollup.node-config.mjs",
+      "clean": "git clean -fdxe node_modules",
+      "lint": "eslint config/ src/",
+      "prettier": "prettier --write .",
+      "prestart": "rollup --sourcemap -c config/rollup.node-config.mjs",
+      "start": "node --enable-source-maps -i -e 'YAML=require(\"./dist/index.js\");const{parse,parseDocument,parseAllDocuments}=YAML'",
+      "test": "jest --config config/jest.config.js",
+      "test:all": "npm test && npm run test:types && npm run test:dist && npm run test:dist:types",
+      "test:browsers": "cd playground && npm test",
+      "test:dist": "npm run build:node && jest --config config/jest.config.js",
+      "test:dist:types": "tsc --allowJs --moduleResolution node --noEmit --target es5 dist/index.js",
+      "test:types": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
+      "docs:install": "cd docs-slate && bundle install",
+      "predocs:deploy": "node docs/prepare-docs.mjs",
+      "docs:deploy": "cd docs-slate && ./deploy.sh",
+      "predocs": "node docs/prepare-docs.mjs",
+      "docs": "cd docs-slate && bundle exec middleman server",
+      "preversion": "npm test && npm run build",
+      "prepublishOnly": "npm run clean && npm test && npm run build"
+    },
+    "browserslist": "defaults, not ie 11",
+    "prettier": {
+      "arrowParens": "avoid",
+      "semi": false,
+      "singleQuote": true,
+      "trailingComma": "none"
+    },
+    "devDependencies": {
+      "@babel/core": "^7.12.10",
+      "@babel/plugin-transform-typescript": "^7.12.17",
+      "@babel/preset-env": "^7.12.11",
+      "@eslint/js": "^9.9.1",
+      "@rollup/plugin-babel": "^6.0.3",
+      "@rollup/plugin-replace": "^6.0.3",
+      "@rollup/plugin-typescript": "^12.1.1",
+      "@types/jest": "^29.2.4",
+      "@types/node": "^20.11.20",
+      "babel-jest": "^29.0.1",
+      "eslint": "^9.9.1",
+      "eslint-config-prettier": "^10.1.8",
+      "fast-check": "^2.12.0",
+      "jest": "^29.0.1",
+      "jest-resolve": "^29.7.0",
+      "jest-ts-webcompat-resolver": "^1.0.0",
+      "prettier": "^3.0.2",
+      "rollup": "^4.12.0",
+      "tslib": "^2.8.1",
+      "typescript": "^5.7.2",
+      "typescript-eslint": "^8.4.0"
+    },
+    "engines": {
+      "node": ">= 14.6"
+    }
+  },
+  "node_modules/zod": {
+    "name": "zod",
+    "version": "4.1.8",
+    "type": "module",
+    "license": "MIT",
+    "author": "Colin McDonnell <zod@colinhacks.com>",
+    "description": "TypeScript-first schema declaration and validation library with static type inference",
+    "homepage": "https://zod.dev",
+    "llms": "https://zod.dev/llms.txt",
+    "llmsFull": "https://zod.dev/llms-full.txt",
+    "mcpServer": "https://mcp.inkeep.com/zod/mcp",
+    "funding": "https://github.com/sponsors/colinhacks",
+    "sideEffects": false,
+    "files": [
+      "src",
+      "**/*.js",
+      "**/*.mjs",
+      "**/*.cjs",
+      "**/*.d.ts",
+      "**/*.d.mts",
+      "**/*.d.cts",
+      "**/package.json"
+    ],
+    "keywords": [
+      "typescript",
+      "schema",
+      "validation",
+      "type",
+      "inference"
+    ],
+    "main": "./index.cjs",
+    "types": "./index.d.cts",
+    "module": "./index.js",
+    "zshy": {
+      "exports": {
+        "./package.json": "./package.json",
+        ".": "./src/index.ts",
+        "./mini": "./src/mini/index.ts",
+        "./locales": "./src/locales/index.ts",
+        "./v3": "./src/v3/index.ts",
+        "./v4": "./src/v4/index.ts",
+        "./v4-mini": "./src/v4-mini/index.ts",
+        "./v4/mini": "./src/v4/mini/index.ts",
+        "./v4/core": "./src/v4/core/index.ts",
+        "./v4/locales": "./src/v4/locales/index.ts",
+        "./v4/locales/*": "./src/v4/locales/*"
+      },
+      "conditions": {
+        "@zod/source": "src"
+      }
+    },
+    "exports": {
+      "./package.json": "./package.json",
+      ".": {
+        "@zod/source": "./src/index.ts",
+        "types": "./index.d.cts",
+        "import": "./index.js",
+        "require": "./index.cjs"
+      },
+      "./mini": {
+        "@zod/source": "./src/mini/index.ts",
+        "types": "./mini/index.d.cts",
+        "import": "./mini/index.js",
+        "require": "./mini/index.cjs"
+      },
+      "./locales": {
+        "@zod/source": "./src/locales/index.ts",
+        "types": "./locales/index.d.cts",
+        "import": "./locales/index.js",
+        "require": "./locales/index.cjs"
+      },
+      "./v3": {
+        "@zod/source": "./src/v3/index.ts",
+        "types": "./v3/index.d.cts",
+        "import": "./v3/index.js",
+        "require": "./v3/index.cjs"
+      },
+      "./v4": {
+        "@zod/source": "./src/v4/index.ts",
+        "types": "./v4/index.d.cts",
+        "import": "./v4/index.js",
+        "require": "./v4/index.cjs"
+      },
+      "./v4-mini": {
+        "@zod/source": "./src/v4-mini/index.ts",
+        "types": "./v4-mini/index.d.cts",
+        "import": "./v4-mini/index.js",
+        "require": "./v4-mini/index.cjs"
+      },
+      "./v4/mini": {
+        "@zod/source": "./src/v4/mini/index.ts",
+        "types": "./v4/mini/index.d.cts",
+        "import": "./v4/mini/index.js",
+        "require": "./v4/mini/index.cjs"
+      },
+      "./v4/core": {
+        "@zod/source": "./src/v4/core/index.ts",
+        "types": "./v4/core/index.d.cts",
+        "import": "./v4/core/index.js",
+        "require": "./v4/core/index.cjs"
+      },
+      "./v4/locales": {
+        "@zod/source": "./src/v4/locales/index.ts",
+        "types": "./v4/locales/index.d.cts",
+        "import": "./v4/locales/index.js",
+        "require": "./v4/locales/index.cjs"
+      },
+      "./v4/locales/*": {
+        "@zod/source": "./src/v4/locales/*",
+        "types": "./v4/locales/*",
+        "import": "./v4/locales/*",
+        "require": "./v4/locales/*"
+      }
+    },
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/colinhacks/zod.git"
+    },
+    "bugs": {
+      "url": "https://github.com/colinhacks/zod/issues"
+    },
+    "support": {
+      "backing": {
+        "npm-funding": true
+      }
+    },
+    "scripts": {
+      "clean": "git clean -xdf . -e node_modules",
+      "build": "zshy --project tsconfig.build.json",
+      "postbuild": "tsx ../../scripts/write-stub-package-jsons.ts && pnpm biome check --write .",
+      "test:watch": "pnpm vitest",
+      "test": "pnpm vitest run",
+      "prepublishOnly": "tsx ../../scripts/check-versions.ts"
+    }
+  }
+}

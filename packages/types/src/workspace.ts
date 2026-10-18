@@ -67,6 +67,8 @@ export type ProjectDetails = {
   version: 1;
   revision: number;
   fields: ProjectField[];
+  /** User-provided writing preferences for every chat in this project. */
+  personalizationPrompt?: string;
   remote?: ProjectRemote;
   /**
    * The firm's id for this project once it syncs. Kept with the folder, so a
@@ -81,6 +83,7 @@ export type ProjectDetails = {
  * each chat is shared on its own, through its own sharing.
  */
 export type ProjectSyncScope = {
+  calendar?: boolean;
   documents: boolean;
   notes: boolean;
   tasks: boolean;
@@ -165,6 +168,8 @@ export type ProjectSyncOverview = {
   connected: boolean;
   revision: number;
   states: Record<string, ProjectSyncState>;
+  /** Owner or recipient for each linked project. Absent on older servers. */
+  roles?: Record<string, "owner" | "member">;
   /** Per project: moves whenever sync changed its files on this computer, so what shows them reloads. */
   contents: Record<string, number>;
   /** Projects sync took off this computer while the server ran: the app's own list forgets them too. */
@@ -240,3 +245,5 @@ export type ProjectContentKind = z.infer<typeof kind>;
 export type ProjectContentItem = z.infer<typeof item>;
 export type ProjectContentSection = z.infer<typeof projectContentsSchema>["sections"][number];
 export type ProjectContents = z.infer<typeof projectContentsSchema>;
+
+export * from "./project-templates.js";

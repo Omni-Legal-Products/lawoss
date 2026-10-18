@@ -1,3 +1,4 @@
+import { runtimeDbResource } from "./runtime-db-lifecycle.js";
 import { projectRemoteSchema } from "./project-schema.js";
 import { dirname } from "node:path";
 import type { ProjectSyncConflict, ProjectSyncSettings, ProjectSyncSkipped } from "@legalwork/types/workspace";
@@ -7,9 +8,10 @@ import type { FileBase, FileBaseStore } from "./project-file-sync.js";
 import type { ReviewBase, ReviewBaseStore } from "./project-review-sync.js";
 import type { RemoteFileIndex } from "./eigenwelt-project-storage.js";
 import type { RemoteProjectFile } from "./eigenwelt-projects.js";
-import { openSqlite, runtimeDbPath, type Row, type SqliteHandle } from "./runtime-db.js";
+import { initializeSqlite, runtimeDbPath, type Row, type SqliteHandle } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
+import { MAX_CUSTOM_INSTRUCTIONS_LENGTH } from "./runtime-opencode-config-store.js";
 
 /**
  * What this machine knows about its synced projects, in runtime.sqlite beside
@@ -165,6 +167,7 @@ const scopeSchema = z.object({
   metadata: z.boolean(),
   // Shared before reviews were part of it: they stay out until the owner adds them.
   reviews: z.boolean().default(false),
+  calendar: z.boolean().default(true),
 });
 
 export const projectSyncSettingsSchema = z.object({
@@ -189,6 +192,7 @@ const opSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("create") }),
   z.object({ kind: z.literal("remote"), remote: projectRemoteSchema, changedAt: z.string() }),
   z.object({ kind: z.literal("rename"), name: z.string(), changedAt: z.string() }),
+  z.object({ kind: z.literal("personalization"), prompt: z.string().max(MAX_CUSTOM_INSTRUCTIONS_LENGTH), changedAt: z.string() }),
   z.object({
     kind: z.literal("fields"),
     changes: z.array(fieldChangeSchema),
@@ -257,7 +261,7 @@ function parseJson<T>(schema: z.ZodType<T>, value: unknown): T | null {
   }
 }
 
-const NO_SCOPE = { documents: false, notes: false, tasks: false, recordings: false, metadata: false, reviews: false };
+const NO_SCOPE = { calendar: false, documents: false, notes: false, tasks: false, recordings: false, metadata: false, reviews: false };
 
 export type ProjectOffer = {
   projectId: string;
@@ -305,11 +309,18 @@ export class ProjectSyncStore {
 
   static async open(path: string): Promise<ProjectSyncStore> {
     await ensureDir(dirname(path));
-    const db = await openSqlite(path);
+    return initializeSqlite(path, (db) => {
     db.exec("PRAGMA busy_timeout = 5000");
+    // One durable schema commit; initializeSqlite closes/rolls back on failure.
+    db.exec("BEGIN IMMEDIATE");
     for (const statement of PROJECT_SYNC_SCHEMA) db.exec(statement);
+    db.exec("COMMIT");
     return new ProjectSyncStore(db);
+    });
   }
+
+  /** Independently opened stores belong to their caller; cached stores to their lifetime. */
+  close(): void { this.db.close(); }
 
   // --- Links -------------------------------------------------------------------
 
@@ -674,14 +685,12 @@ export class ProjectSyncStore {
   }
 }
 
-const storeByPath = new Map<string, Promise<ProjectSyncStore>>();
+const resourceKey = Symbol("project-sync-store");
 
-/** The machine's project sync store, opened once per runtime DB path. */
+/** The machine's project sync store, borrowed from an active runtime lifetime.
+ * Standalone callers must hold acquireRuntimeDbLifetime(config) across every
+ * awaited use, then release it. Use ProjectSyncStore.open for an independently owned instance.
+ */
 export function projectSyncStore(config: ServerConfig): Promise<ProjectSyncStore> {
-  const path = runtimeDbPath(config);
-  const existing = storeByPath.get(path);
-  if (existing) return existing;
-  const opened = ProjectSyncStore.open(path);
-  storeByPath.set(path, opened);
-  return opened;
+  return runtimeDbResource(config, resourceKey, path => ProjectSyncStore.open(path));
 }

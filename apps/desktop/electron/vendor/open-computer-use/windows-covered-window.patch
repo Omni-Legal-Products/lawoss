@@ -1,0 +1,49 @@
+diff --git a/apps/OpenComputerUseWindows/runtime.ps1 b/apps/OpenComputerUseWindows/runtime.ps1
+index 3cf4df0..1cb34e8 100644
+--- a/apps/OpenComputerUseWindows/runtime.ps1
++++ b/apps/OpenComputerUseWindows/runtime.ps1
+@@ -51,0 +52,9 @@ public static class OCUWin32 {
++    [DllImport("user32.dll")]
++    public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint flags);
++
++    [DllImport("user32.dll")]
++    public static extern IntPtr GetForegroundWindow();
++
++    [DllImport("user32.dll")]
++    public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
++
+@@ -68,0 +78,3 @@ public static class OCUWin32 {
++# UI Automation uses physical pixels; keep Win32 bounds and captures in the same space.
++try { [void][OCUWin32]::SetProcessDpiAwarenessContext([IntPtr](-4)) } catch {}
++
+@@ -638 +650,13 @@ function Render-Tree($element, $windowBounds, $TextLimit = $script:DefaultTextLi
+-function Capture-WindowPngBase64($bounds) {
++function Test-FlatCapture($bitmap) {
++    $first = $bitmap.GetPixel(0, 0).ToArgb()
++    foreach ($fraction in @(0.1, 0.25, 0.5, 0.75, 0.9)) {
++        foreach ($other in @(0.1, 0.25, 0.5, 0.75, 0.9)) {
++            $x = [int][math]::Round(($bitmap.Width - 1) * $fraction)
++            $y = [int][math]::Round(($bitmap.Height - 1) * $other)
++            if ($bitmap.GetPixel($x, $y).ToArgb() -ne $first) { return $false }
++        }
++    }
++    return $true
++}
++
++function Capture-WindowPngBase64([IntPtr]$hwnd, $bounds) {
+@@ -648 +672,11 @@ function Capture-WindowPngBase64($bounds) {
+-        $graphics.CopyFromScreen([int][math]::Round($bounds.x), [int][math]::Round($bounds.y), 0, 0, $bitmap.Size)
++        $hdc = $graphics.GetHdc()
++        try {
++            $rendered = [OCUWin32]::PrintWindow($hwnd, $hdc, 2) # PW_RENDERFULLCONTENT
++        } finally {
++            $graphics.ReleaseHdc($hdc)
++        }
++        if (-not $rendered -or (Test-FlatCapture $bitmap)) {
++            # A screen copy is trustworthy only when the target owns the foreground.
++            if ([OCUWin32]::GetForegroundWindow() -ne $hwnd) { return $null }
++            $graphics.CopyFromScreen([int][math]::Round($bounds.x), [int][math]::Round($bounds.y), 0, 0, $bitmap.Size)
++        }
+@@ -708 +742 @@ function Build-Snapshot([string]$query, $TextLimit = $script:DefaultTextLimit, [
+-        screenshotPngBase64 = Capture-WindowPngBase64 $bounds
++        screenshotPngBase64 = Capture-WindowPngBase64 ([IntPtr]$process.MainWindowHandle) $bounds

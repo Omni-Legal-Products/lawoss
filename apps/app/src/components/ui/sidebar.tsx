@@ -256,8 +256,9 @@ function Sidebar({
 function SidebarTrigger({
   className,
   onClick,
+  onToggleSidebar,
   ...props
-}: React.ComponentProps<typeof Button>) {
+}: React.ComponentProps<typeof Button> & { onToggleSidebar?: () => void }) {
   const { toggleSidebar } = useSidebar()
 
   return (
@@ -269,7 +270,8 @@ function SidebarTrigger({
       className={cn("border-none", className)}
       onClick={(event) => {
         onClick?.(event)
-        toggleSidebar()
+        if (onToggleSidebar) onToggleSidebar()
+        else toggleSidebar()
       }}
       {...props}
     >

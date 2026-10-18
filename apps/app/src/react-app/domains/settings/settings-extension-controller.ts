@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { connectorIsConnected } from "@legalwork/types/connectors";
 
 import type { McpDirectoryInfo } from "../../../app/constants";
 import { evaluateEnablement, type EnablementContext } from "../../../app/enablement";
@@ -14,16 +15,17 @@ type ProviderLike = {
 };
 
 type SettingsExtensionControllerInput = {
+  isRemoteWorkspace: boolean;
   legalworkServerClient: LegalworkServerClient | null;
   hostLegalworkServerClient: LegalworkServerClient | null;
   enablementContext: EnablementContext;
   mcpServers: McpServerEntry[];
   mcpConnectingName: string | null;
-  onComputerUsePermissionsChange: (permissions: { accessibility: boolean; screenRecording: boolean }) => void;
   googleWorkspaceConnected: boolean;
   setGoogleWorkspaceConnected: (connected: boolean) => void;
   restartLocalServer?: () => Promise<boolean>;
-  connectMcp: (entry: McpDirectoryInfo) => void | Promise<void>;
+  connectMcp: (entry: McpDirectoryInfo) => Promise<boolean>;
+  removeMcp: (name: string) => void | Promise<void>;
   refreshMcpServers: () => void | Promise<void>;
   providers: ProviderLike[];
   providerConnectedIds: string[];
@@ -51,29 +53,46 @@ function hasOpenAiEnv(input: Pick<SettingsExtensionControllerInput, "providers" 
 }
 
 export function useSettingsExtensionController(input: SettingsExtensionControllerInput) {
+  const [connectorConnections, setConnectorConnections] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    let active = true;
+    setConnectorConnections({});
+    void input.legalworkServerClient?.connectorSavedStatus().then((status) => {
+      if (active) setConnectorConnections(Object.fromEntries(status.connectors.map((connector) => [connector.id, connectorIsConnected(connector)])));
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [input.legalworkServerClient]);
   const configContextForEntry = useCallback((entry: McpDirectoryInfo): ExtensionConfigContext => ({
     legalworkServerClient: input.legalworkServerClient,
     hostLegalworkServerClient: input.hostLegalworkServerClient,
     restartLocalServer: input.restartLocalServer,
     extensionConnections: {
+      ...connectorConnections,
       "google-workspace": input.googleWorkspaceConnected,
     },
     onExtensionConnectionChange: (extensionId, connected) => {
       if (extensionId === "google-workspace") input.setGoogleWorkspaceConnected(connected);
+      else setConnectorConnections((previous) => previous[extensionId] === connected ? previous : { ...previous, [extensionId]: connected });
     },
-    computerUse: {
-      connected: input.mcpServers.some((server) => server.name === "computer-use"),
-      connecting: input.mcpConnectingName === entry.name,
+    actaport: {
+      connected: input.mcpServers.some((server) => server.name === "actaport" && server.config.enabled !== false),
       onConnect: () => input.connectMcp(entry),
+      onDisconnect: () => input.removeMcp("actaport"),
       onRefresh: input.refreshMcpServers,
-      onPermissionsChange: input.onComputerUsePermissionsChange,
     },
     imageExtension: {
       ...input.imageExtension,
       envKeyDetected: hasOpenAiEnv(input),
     },
+    openComputerUse: {
+      localDesktop: !input.isRemoteWorkspace,
+      connected: input.enablementContext.mcpStatuses?.["open-computer-use"]?.status === "connected",
+      connecting: input.mcpConnectingName === entry.name,
+      onConnect: () => input.connectMcp(entry),
+      onRefresh: input.refreshMcpServers,
+    },
     localProvider: input.localProvider,
-  }), [input]);
+  }), [input, connectorConnections]);
 
   const configSlotForEntry = useCallback(
     (entry: McpDirectoryInfo) => getExtensionConfigSlot(entry, configContextForEntry(entry)),
@@ -87,11 +106,12 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
     const runtimeConnected = getExtensionConnected(entry, {
       legalworkServerClient: input.legalworkServerClient,
       extensionConnections: {
+        ...connectorConnections,
         "google-workspace": input.googleWorkspaceConnected,
       },
     });
     return runtimeConnected ?? false;
-  }, [input]);
+  }, [input, connectorConnections]);
 
   return {
     configContextForEntry,

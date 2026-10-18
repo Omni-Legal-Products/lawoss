@@ -1325,10 +1325,11 @@ var CZ_MATTER_WORDS = [
   "darování",
   "věc"
 ];
-var MATTER_WORDS = new Set([...SK_MATTER_WORDS, ...CZ_MATTER_WORDS]);
+var fold = (word) => word.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase("sk");
+var MATTER_WORDS = new Set([...SK_MATTER_WORDS, ...CZ_MATTER_WORDS].map(fold));
 var startsWithMatterWord = (name) => {
-  const first = name.normalize("NFC").trim().toLocaleLowerCase("sk").split(/[\s,.;:()_-]+/u)[0] ?? "";
-  return MATTER_WORDS.has(first);
+  const first = name.normalize("NFC").trim().split(/[\s,.;:()_-]+/u)[0] ?? "";
+  return MATTER_WORDS.has(fold(first));
 };
 var looksLikeMatterName = (name) => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined || startsWithMatterWord(name));
 
@@ -3426,7 +3427,7 @@ async function clientCard(clientRoot) {
 function buildMatterOperations(input) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !["contentious", "non_contentious"].includes(input.kind))
     throw new Error("Valid date and matter kind are required.");
-  const area = safeSegment(input.area), name = `${input.date.slice(0, 7)} ${safeSegment(input.title)}`, folder = `${MATTERS_DIR}/${name}`;
+  const area = safeSegment(input.area), name = input.folder?.split("/").pop() ?? `${input.date.slice(0, 7)} ${safeSegment(input.title)}`, folder = input.folder ?? `${MATTERS_DIR}/${name}`;
   const generated = planEntity({ type: "spis", dir: folder, title: input.title, language: input.language, jurisdiction: input.jurisdiction, date: input.date, workingProfile: input.workingProfile, matterKind: input.kind === "contentious" ? "dispute" : "other", ...input.clientTitle ? { klient: input.clientTitle } : {}, ...input.clientCardPath ? { clientCardPath: input.clientCardPath } : {}, ...input.extras?.caseNumber ? { spzn: input.extras.caseNumber } : {}, ...input.extras?.counterparty ? { protistrana: input.extras.counterparty } : {}, ...input.extras?.court ? { sud: input.extras.court } : {} }, LOCALIZED_TEMPLATES, () => false);
   const template = templateOperations(folder, generated.entries).filter((operation) => operation.path !== folder);
   const operations = [directory(folder), ...template.map((operation) => operation.path === `${folder}/matter.md` && operation.kind === "file" ? file(operation.path, (operation.content ?? "").replace("type: spis", `type: matter
@@ -4383,14 +4384,45 @@ async function scanTriage(rootInput, options = {}) {
     const caseKey = fields.spisova_znacka ? findCaseNumber(fields.spisova_znacka)?.key : undefined;
     matters.push({ id: `existing-${sha3(dir).slice(0, 12)}`, path: dir, ...fields.title ? { title: fields.title } : {}, ...caseKey ? { caseKey } : {}, roles });
   }
+  const under = (path, folder) => path.startsWith(`${folder}/`);
+  const clientFolders = new Set([...profile.folders, ...Object.values(profile.roles)].map((folder) => folder.split("/")[0].toLocaleLowerCase()));
+  const matterProfile = workingProfile(newMatterProfile?.folders, newMatterProfile?.roles, newMatterProfile?.naming, language);
+  for (const dir of [...directories].filter((dir) => !dir.includes("/") && !hidden(dir)).sort()) {
+    if (["spisy", "memory", "office", "_kancelaria"].includes(dir.toLocaleLowerCase()) || clientFolders.has(dir.toLocaleLowerCase()))
+      continue;
+    if (!looksLikeMatterName(dir) || entityDirs.some((entity) => entity === dir || under(entity, dir)))
+      continue;
+    if (![...files.keys()].some((path) => under(path, dir) && !hidden(path)))
+      continue;
+    const caseNumber = findCaseNumber(dir);
+    let roles = matterProfile.roles;
+    try {
+      const text = await readSmall(clone.root, `${dir}/${PROFILE_FILE}`);
+      if (text)
+        roles = parseWorkingProfile(text).roles;
+    } catch {
+      roles = matterProfile.roles;
+    }
+    matters.push({ id: `existing-${sha3(dir).slice(0, 12)}`, path: dir, title: dir, ...caseNumber ? { caseKey: caseNumber.key } : {}, roles, implicit: caseNumber ? { caseNumber: caseNumber.display } : {} });
+  }
   const inbox = profile.roles.inbox;
   const sortedFolders = Object.entries(profile.roles).filter(([role]) => role !== "inbox").map(([, folder]) => folder);
-  const under = (path, folder) => path.startsWith(`${folder}/`);
+  const implicitHome = (path) => {
+    const matter = matters.find((item) => item.implicit && under(path, item.path));
+    if (!matter)
+      return;
+    const rest = path.slice(matter.path.length + 1);
+    if (rest.split("/").slice(0, -1).some(looksLikeMatterName))
+      return { matter, reason: "in_matter" };
+    const sorted = Object.entries(matter.roles).filter(([role]) => role !== "inbox").map(([, folder]) => folder);
+    return sorted.some((folder) => under(rest, folder)) && !(matter.roles.inbox && under(rest, matter.roles.inbox)) ? { matter, reason: "already_sorted" } : { matter };
+  };
   const documents = [];
   const skipped = [];
   for (const entry of files.values()) {
     const name = entry.path.split("/").pop();
-    const reason = hidden(entry.path) ? "hidden" : entry.path.split("/")[0] === "memory" ? "memory" : !entry.path.includes("/") && (CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name)) ? "system" : CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name) ? "system_name" : matters.some((matter) => under(entry.path, matter.path)) ? "in_matter" : entityDirs.some((dir) => under(entry.path, dir)) ? "inside_entity" : entry.path.split("/").slice(0, -1).some(looksLikeMatterName) ? "in_matter" : sortedFolders.some((folder) => under(entry.path, folder)) && !(inbox && under(entry.path, inbox)) ? "already_sorted" : undefined;
+    const home = implicitHome(entry.path);
+    const reason = hidden(entry.path) ? "hidden" : entry.path.split("/")[0] === "memory" ? "memory" : !entry.path.includes("/") && (CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name)) ? "system" : CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name) ? "system_name" : matters.some((matter) => !matter.implicit && under(entry.path, matter.path)) ? "in_matter" : entityDirs.some((dir) => under(entry.path, dir)) ? "inside_entity" : home ? home.reason : entry.path.split("/").slice(0, -1).some(looksLikeMatterName) ? "in_matter" : sortedFolders.some((folder) => under(entry.path, folder)) && !(inbox && under(entry.path, inbox)) ? "already_sorted" : undefined;
     if (reason) {
       if (reason !== "hidden")
         skipped.push({ path: entry.path, reason });
@@ -4401,7 +4433,7 @@ async function scanTriage(rootInput, options = {}) {
       continue;
     }
     const dot = name.lastIndexOf(".");
-    documents.push({ id: `d${sha3(entry.path).slice(0, 16)}`, path: entry.path, name, ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : "", size: entry.size, sha256: entry.digest });
+    documents.push({ id: `d${sha3(entry.path).slice(0, 16)}`, path: entry.path, name, ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : "", size: entry.size, sha256: entry.digest, ...home ? { matter: home.matter.id } : {} });
   }
   for (const issue of inspection.issues)
     if (issue.code === "locked_file")
@@ -4636,6 +4668,8 @@ function planFingerprint(plan) {
 }
 var MATTER_TITLE = { sk: "Konanie", cs: "Řízení", en: "Proceedings" };
 var MATTER_AREA = { sk: "Súdne konanie", cs: "Soudní řízení", en: "Litigation" };
+var GENERAL_AREA = { sk: "Všeobecné", cs: "Obecné", en: "General" };
+var INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"];
 var RULE_MATTER_MIN_DOCUMENTS = 2;
 function splitName(name) {
   const dot = name.lastIndexOf(".");
@@ -4658,12 +4692,12 @@ function buildTriagePlan(inventory, options) {
   for (const document of inventory.documents) {
     const fromModel = model.get(document.id);
     if (fromModel) {
-      decisions.set(document.id, { role: fromModel.confidence === "low" ? "inbox" : fromModel.role, matter: fromModel.matter, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...fromModel.truncated ? { truncated: true } : {} });
+      decisions.set(document.id, { role: fromModel.confidence === "low" ? "inbox" : fromModel.role, matter: document.matter ?? fromModel.matter, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...fromModel.truncated ? { truncated: true } : {} });
       continue;
     }
     const rule = classifyByRules(document);
-    decisions.set(document.id, { role: rule.role, source: "rules", confidence: rule.confidence, rule: rule.rule, ...rule.matched ? { matched: rule.matched } : {} });
-    if (rule.caseNumber) {
+    decisions.set(document.id, { role: rule.role, source: "rules", confidence: rule.confidence, rule: rule.rule, ...rule.matched ? { matched: rule.matched } : {}, ...document.matter ? { matter: document.matter } : {} });
+    if (rule.caseNumber && !document.matter) {
       const group = caseGroups.get(rule.caseNumber.key) ?? { display: rule.caseNumber.display, ids: [] };
       group.ids.push(document.id);
       caseGroups.set(rule.caseNumber.key, group);
@@ -4703,10 +4737,11 @@ function buildTriagePlan(inventory, options) {
           decision.matter = key;
       }
   }
+  const homes = new Map(inventory.documents.map((document) => [document.id, document.matter]));
   for (const id of keep) {
     const decision = decisions.get(id);
     if (decision)
-      Object.assign(decision, { role: "inbox", matter: undefined, source: "user", confidence: "high" });
+      Object.assign(decision, { role: "inbox", matter: homes.get(id), source: "user", confidence: "high" });
   }
   const destinations = new Map([["", { base: "", roles: inventory.profile.roles }]]);
   for (const matter of inventory.matters)
@@ -4715,7 +4750,27 @@ function buildTriagePlan(inventory, options) {
     destinations.set(matter.key, { base: matter.folder, roles: matter.roles });
   const occupied = new Set(inventory.occupied.map((path) => path.toLocaleLowerCase()));
   const needsMattersDir = planned.length > 0 && !occupied.has("spisy");
-  for (const matter of planned)
+  const adopted = inventory.matters.filter((matter) => matter.implicit).map((matter) => {
+    const caseNumber = matter.implicit?.caseNumber;
+    const kind = caseNumber ? "contentious" : "non_contentious";
+    const area = caseNumber ? MATTER_AREA[language] : GENERAL_AREA[language];
+    const built = buildMatterOperations({ title: matter.title ?? matter.path, date: options.today, kind, area, jurisdiction: inventory.jurisdiction, language, workingProfile: inventory.newMatterProfile, clientTitle: inventory.client.title, clientCardPath: `../${inventory.client.card}`, folder: matter.path, extras: { caseNumber } });
+    const has = (name) => occupied.has(`${matter.path}/${name}`.toLocaleLowerCase());
+    const ownProfile = has(PROFILE_FILE), ownInstructions = INSTRUCTION_FILES.some(has);
+    const operations = built.operations.filter((operation) => {
+      const rest = operation.path.slice(matter.path.length + 1);
+      if (!rest || occupied.has(operation.path.toLocaleLowerCase()))
+        return false;
+      if (ownInstructions && INSTRUCTION_FILES.includes(rest))
+        return false;
+      if (ownProfile && rest.includes("/"))
+        return false;
+      return !(rest.endsWith("/.keep") && occupied.has(operation.path.slice(0, -"/.keep".length).toLocaleLowerCase()));
+    });
+    const entry = { key: matter.id, title: matter.title ?? matter.path, folder: matter.path, date: options.today, dateSource: "today", kind, area, jurisdiction: inventory.jurisdiction, ...caseNumber ? { caseNumber } : {}, source: "folder", documents: 0 };
+    return { entry, operations };
+  });
+  for (const matter of [...planned, ...adopted])
     for (const operation of matter.operations)
       occupied.add(operation.path.toLocaleLowerCase());
   if (needsMattersDir)
@@ -4737,7 +4792,7 @@ function buildTriagePlan(inventory, options) {
     const destination = destinations.get(decision.matter ?? "") ?? destinations.get("");
     const requested = decision.role ?? "inbox";
     const primary = resolveFolder(destination.roles, requested);
-    const target = primary ?? (destination.base ? resolveFolder(inventory.profile.roles, "inbox") : null);
+    const target = primary ?? (destination.base && !document.matter ? resolveFolder(inventory.profile.roles, "inbox") : null);
     if (!target) {
       stays.push({ id: document.id, path: document.path, why: "no_inbox" });
       continue;
@@ -4775,11 +4830,12 @@ function buildTriagePlan(inventory, options) {
     });
   }
   const kept = planned.filter((matter) => used.has(matter.key));
-  for (const matter of kept)
+  for (const matter of [...kept, ...adopted.map((item) => item.entry)])
     matter.documents = moves.filter((move) => move.matter === matter.key).length;
   const create = [
     ...needsMattersDir && kept.length ? [{ path: "Spisy", kind: "directory" }] : [],
     ...kept.flatMap((matter) => matter.operations),
+    ...adopted.flatMap((matter) => matter.operations),
     ...extraDirectories
   ];
   const plan = {
@@ -4790,7 +4846,7 @@ function buildTriagePlan(inventory, options) {
     createdAt: options.createdAt,
     language,
     classification: options.classification ? { used: true, digest: sha256(JSON.stringify(options.classification)), documents: options.classification.documents.length } : { used: false, documents: 0 },
-    matters: kept.map(({ operations: _operations, roles: _roles, ...matter }) => matter),
+    matters: [...kept.map(({ operations: _operations, roles: _roles, ...matter }) => matter), ...adopted.map((matter) => matter.entry)],
     create,
     moves,
     stays
@@ -5745,7 +5801,7 @@ function isNamingSchemaError(error) {
 class NamingConflict extends Error {
 }
 var order = (a, b) => a < b ? -1 : a > b ? 1 : 0;
-var fold = (value) => value.normalize("NFC").toUpperCase().toLowerCase();
+var fold2 = (value) => value.normalize("NFC").toUpperCase().toLowerCase();
 function hash2(value) {
   return createHash9("sha256").update(value).digest("hex");
 }
@@ -5784,7 +5840,7 @@ function parseNamingRequest(value) {
     if (!object3(d))
       return fail3("Invalid document");
     exactKeys(d, ["id", "path", "treatment", "destinationRole", "metadata"]);
-    if (!safeId(d.id) || ids.has(fold(d.id)) || !safeRelativePath(d.path) || paths.has(fold(d.path)) || d.treatment !== "rename-working" && d.treatment !== "copy-original-to-drafts" || typeof d.destinationRole !== "string" || !/^[a-z][a-z_]*$/.test(d.destinationRole) || d.treatment === "copy-original-to-drafts" && d.destinationRole !== "drafts" || !object3(d.metadata))
+    if (!safeId(d.id) || ids.has(fold2(d.id)) || !safeRelativePath(d.path) || paths.has(fold2(d.path)) || d.treatment !== "rename-working" && d.treatment !== "copy-original-to-drafts" || typeof d.destinationRole !== "string" || !/^[a-z][a-z_]*$/.test(d.destinationRole) || d.treatment === "copy-original-to-drafts" && d.destinationRole !== "drafts" || !object3(d.metadata))
       return fail3("Invalid/duplicate document, portable path or original destination");
     exactKeys(d.metadata, ["date", "kind", "client", "description", "version"]);
     if (!validateDate(d.metadata.date))
@@ -5798,15 +5854,15 @@ function parseNamingRequest(value) {
         metadata[key] = field;
       }
     }
-    ids.add(fold(d.id));
-    paths.add(fold(d.path));
+    ids.add(fold2(d.id));
+    paths.add(fold2(d.path));
     return { id: d.id, path: d.path, treatment: d.treatment, destinationRole: d.destinationRole, metadata };
   }).sort((a, b) => order(a.path, b.path));
   const selected = new Set;
   const markdownFiles = value.markdownFiles.map((p) => {
-    if (!safeRelativePath(p) || !/\.md$/i.test(p) || selected.has(fold(p)) || paths.has(fold(p)))
+    if (!safeRelativePath(p) || !/\.md$/i.test(p) || selected.has(fold2(p)) || paths.has(fold2(p)))
       return fail3("Invalid/duplicate Markdown or selected document overlap");
-    selected.add(fold(p));
+    selected.add(fold2(p));
     return p;
   }).sort(order);
   return { schema: "lawoss.document-naming.request/v1", operationId: value.operationId, documents, markdownFiles };
@@ -5842,10 +5898,10 @@ function namingFingerprint(value) {
   return hash2(canonical(value));
 }
 function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
-  const referenceIds = [...content.matchAll(/^ {0,3}\[([^\]\n]+)\]:/gm)].map((m) => fold(m[1].trim().replace(/\s+/g, " ")));
+  const referenceIds = [...content.matchAll(/^ {0,3}\[([^\]\n]+)\]:/gm)].map((m) => fold2(m[1].trim().replace(/\s+/g, " ")));
   if (referenceIds.length > 20000)
     fail3("Selected Markdown exceeds bounded reference count");
-  if (new Set(referenceIds).size !== referenceIds.length && moves.some((move) => fold(content).includes(fold(posix.basename(move.from)))))
+  if (new Set(referenceIds).size !== referenceIds.length && moves.some((move) => fold2(content).includes(fold2(posix.basename(move.from)))))
     fail3("Duplicate reference definitions in affected Markdown");
   const rewrites = [];
   const edits = [];
@@ -5889,9 +5945,9 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
       if (unique.length > 1)
         fail3("Ambiguous affected wikilink");
       if (unique.length === 0) {
-        if (kind === "wikilink" && moves.some((move) => fold(posix.basename(move.from, posix.extname(move.from))) === fold(posix.basename(decoded, posix.extname(decoded)))))
+        if (kind === "wikilink" && moves.some((move) => fold2(posix.basename(move.from, posix.extname(move.from))) === fold2(posix.basename(decoded, posix.extname(decoded)))))
           fail3("Ambiguous affected wikilink; use an exact relative path");
-        if (moves.some((move) => fold(move.from) === fold(resolved)))
+        if (moves.some((move) => fold2(move.from) === fold2(resolved)))
           fail3("Ambiguous affected link case");
         covered.push({ start, end });
         continue;
@@ -5920,7 +5976,7 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
       continue;
     if (m[2] === undefined && /[(:\[]/.test(content[end] ?? ""))
       continue;
-    const id = fold((m[2] || m[1]).trim().replace(/\s+/g, " "));
+    const id = fold2((m[2] || m[1]).trim().replace(/\s+/g, " "));
     if (referenceIds.includes(id)) {
       if (covered.length >= 20000)
         fail3("Selected Markdown exceeds bounded link count");
@@ -5941,8 +5997,8 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
         return fail3("Uncertain URI encoding outside supported links");
       }
     });
-    const candidates = [fold(residual), fold(unescaped), fold(decodedResidual)];
-    if (moves.some((move) => candidates.some((text) => text.includes(fold(posix.basename(move.from))))))
+    const candidates = [fold2(residual), fold2(unescaped), fold2(decodedResidual)];
+    if (moves.some((move) => candidates.some((text) => text.includes(fold2(posix.basename(move.from))))))
       fail3("Affected path in unsupported/ambiguous Markdown syntax");
   }
   let result = content;
@@ -6076,7 +6132,7 @@ function checkCase(path, shouldExist) {
     for (let entry = directory.readSync();entry; entry = directory.readSync()) {
       if (++count > 20000)
         conflict("Destination/path directory exceeds bounded case-check limit (20000 entries)");
-      if (fold(entry.name) === fold(basename9(path))) {
+      if (fold2(entry.name) === fold2(basename9(path))) {
         if (entry.name !== basename9(path) || !shouldExist)
           conflict(`Case-fold collision: ${path}`);
         found = true;
@@ -6089,7 +6145,7 @@ function checkCase(path, shouldExist) {
     conflict(`Missing exact path: ${path}`);
 }
 function contentPath(root, path, mapped) {
-  if (!safeRelativePath(path) || path.split("/").some((p) => reserved4.test(p)) || mapped.has(fold(path)))
+  if (!safeRelativePath(path) || path.split("/").some((p) => reserved4.test(p)) || mapped.has(fold2(path)))
     throw new NamingSchemaError(`Protected or unsafe path: ${path}`);
   const result = resolve14(root, path);
   if (!contained(root, result))
@@ -6111,7 +6167,7 @@ function memoryProtection(root) {
     const location = profile.roots.find((r) => r.id === source.root);
     const full = resolve14(root, location.path, source.path);
     if (contained(root, full))
-      mapped.add(fold(relative10(root, full).split(sep11).join("/")));
+      mapped.add(fold2(relative10(root, full).split(sep11).join("/")));
   }
   return { source: pin(path, read), mapped };
 }
@@ -6127,7 +6183,7 @@ function targetAbsent(root, target) {
 function planDocumentNaming(matterDir, input) {
   const request = parseNamingRequest(input), root = rootDirectory(matterDir);
   const profileRead = readNamingBinary(join16(root.path, PROFILE_FILE), PROFILE_LIMIT), profile = parseWorkingProfile(utf8(profileRead.data));
-  const protection = memoryProtection(root.path), selected = new Set([...request.documents.map((d) => fold(d.path)), ...request.markdownFiles.map(fold)]), targets = new Set, identities = new Set;
+  const protection = memoryProtection(root.path), selected = new Set([...request.documents.map((d) => fold2(d.path)), ...request.markdownFiles.map(fold2)]), targets = new Set, identities = new Set;
   let totalBytes = profileRead.bytes + (protection.source?.bytes ?? 0);
   const documents = request.documents.map((document) => {
     const sourcePath = contentPath(root.path, document.path, protection.mapped);
@@ -6141,9 +6197,9 @@ function planDocumentNaming(matterDir, input) {
       throw new NamingSchemaError(`Missing saved-profile role: ${document.destinationRole}`);
     const targetPath = `${rolePath}/${renderDocumentName(profile, document.metadata, extname(document.path))}`;
     const absoluteTarget = contentPath(root.path, targetPath, protection.mapped);
-    if (selected.has(fold(targetPath)) || targets.has(fold(targetPath)))
+    if (selected.has(fold2(targetPath)) || targets.has(fold2(targetPath)))
       conflict(`Source/target or target overlap: ${targetPath}`);
-    targets.add(fold(targetPath));
+    targets.add(fold2(targetPath));
     const target = { path: targetPath, mustBeAbsent: true, parentPhysical: physical(lstatSync4(dirname11(absoluteTarget), { bigint: true })) };
     targetAbsent(root.path, target);
     totalBytes += sourceRead.bytes;

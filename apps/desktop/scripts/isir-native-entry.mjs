@@ -1,8 +1,10 @@
 // Explicit test-only input provisioning. This entry is never the shipped main.
-// It changes chooser inputs only; production IPC/auth/copy/runtime remain real.
+// It provisions chooser inputs and ordinary quit; production auth/runtime remain real.
 import { app, dialog, ipcMain } from "electron";
 import { readFile, appendFile } from "node:fs/promises";
 import path from "node:path";
+import { publishNativeQuitAcceptance } from "../../../lawoss/testing/isir/native/quit-acceptance.mjs";
+import { observeNativeEngineFetch, ENGINE_FETCH_PREFIX } from "../../../lawoss/testing/isir/native/engine-fetch.mjs";
 
 const root = process.env.LAWOSS_ISIR_NATIVE_ROOT;
 if (!root || !path.isAbsolute(root) || process.env.LEGALWORK_DEV_MODE !== "1" || app.isPackaged) {
@@ -11,6 +13,11 @@ if (!root || !path.isAbsolute(root) || process.env.LEGALWORK_DEV_MODE !== "1" ||
 const profile = process.env.LEGALWORK_ELECTRON_USERDATA;
 const outside = (value) => !value || !path.isAbsolute(value) || path.relative(root,value).startsWith("..") || path.isAbsolute(path.relative(root,value));
 if (outside(profile)) throw new Error("ISIR native entry requires a profile inside the owned test root");
+// Passive test-only phase receipts; production fetch arguments/results stay real.
+globalThis.fetch=observeNativeEngineFetch(globalThis.fetch,record=>console.log(ENGINE_FETCH_PREFIX+JSON.stringify(record)));
+// safeStorage probes during production boot otherwise enter the host login
+// keychain and can block CI's main thread before any renderer exists.
+if (process.platform === "darwin") app.commandLine.appendSwitch("use-mock-keychain");
 app.setPath("appData", path.join(root,"appdata"));
 app.setPath("userData", profile);
 app.setPath("sessionData", profile);
@@ -27,6 +34,18 @@ dialog.showOpenDialog = async (...args) => {
 // handler run unchanged. No result is fabricated or replaced.
 const register = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, handler) => register(channel, channel !== "legalwork:desktop" ? handler : async (event, command, ...args) => {
+  if (command === "isirNativeQuit") {
+    // Reuse the original guarded production read-only handler with the original
+    // event. The raw interception must not bypass its trusted-origin check.
+    await handler(event,"appBuildInfo");
+    // Additional test-only restriction; production origin validation alone
+    // does not distinguish a same-origin subframe from its main frame.
+    if (!event?.senderFrame || event.senderFrame !== event.sender?.mainFrame) throw new Error("ISIR native quit requires the main frame");
+    // Fixed main-owned launch context only; never accept an RPC-provided path.
+    publishNativeQuitAcceptance({root,nonce:process.env.LAWOSS_ISIR_NATIVE_QUIT_NONCE,pid:process.pid});
+    app.quit(); // Actual production before-quit/dispose lifecycle, never app.exit.
+    return { accepted: true }; // Request acknowledgement only, not closure.
+  }
   if (command !== "workspaceCopyFiles") return handler(event,command,...args);
   const receipt={workspaceId:args[0]?.workspaceId,folder:args[0]?.folder,paths:args[0]?.paths};
   try {

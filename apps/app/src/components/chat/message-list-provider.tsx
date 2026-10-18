@@ -1,3 +1,4 @@
+import { ViewHostProvider } from "@/react-app/domains/views/view-host";
 "use memo";
 
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store"
@@ -10,6 +11,8 @@ interface MessageListContextValue {
   legalworkClient: LegalworkServerClient | null
   workspaceId: string
   sessionId: string
+  onOpenSession?: (sessionId: string) => void
+  pendingInteractionSessionIds: string[]
   showThinking: boolean
   developerMode: boolean
   displaySuggestions: boolean
@@ -28,6 +31,8 @@ interface MessageListProviderProps {
   legalworkClient?: LegalworkServerClient | null
   workspaceId: string
   sessionId: string
+  onOpenSession?: (sessionId: string) => void
+  pendingInteractionSessionIds?: string[]
   showThinking: boolean
   developerMode: boolean
   onRevertToUserMessage: (messageId: string) => void
@@ -45,11 +50,15 @@ export interface DispatchAction {
   section: "commands" | "skills" | "mcps" | "plugins" | "providers"
 }
 
+const emptyPendingSessionIds: string[] = [];
+
 export function MessageListProvider({
   children,
   legalworkClient = null,
   workspaceId,
   sessionId,
+  onOpenSession,
+  pendingInteractionSessionIds = emptyPendingSessionIds,
   showThinking,
   developerMode,
   displaySuggestions,
@@ -65,6 +74,8 @@ export function MessageListProvider({
       legalworkClient,
       workspaceId,
       sessionId,
+      onOpenSession,
+      pendingInteractionSessionIds,
       showThinking,
       developerMode,
       displaySuggestions,
@@ -79,6 +90,8 @@ export function MessageListProvider({
       legalworkClient,
       workspaceId,
       sessionId,
+      onOpenSession,
+      pendingInteractionSessionIds,
       showThinking,
       developerMode,
       displaySuggestions,
@@ -93,7 +106,7 @@ export function MessageListProvider({
 
   return (
     <MessageListContext.Provider value={value}>
-      {children}
+      <ViewHostProvider client={legalworkClient} owner={{ kind: "workspace", id: workspaceId }}>{children}</ViewHostProvider>
     </MessageListContext.Provider>
   )
 }

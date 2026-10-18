@@ -35,9 +35,11 @@ function decodeXml(text: string) {
   });
 }
 export function docxEvidence(bytes: Uint8Array): EvidencePage[] {
+  let total = 0;
   const zip = unzipSync(bytes, { filter: entry => {
     if (!/^word\/(document|footnotes|endnotes|comments|header\d+|footer\d+)\.xml$/.test(entry.name)) return false;
-    if (entry.originalSize > 16 * 1024 * 1024) throw new ApiError(413, "review_source_size", "Word content exceeds the extraction limit.");
+    total += entry.originalSize;
+    if (total > 16 * 1024 * 1024) throw new ApiError(413, "review_source_size", "Word content exceeds the extraction limit.");
     return true;
   } });
   if (!zip["word/document.xml"]) throw new Error("The Word document has no readable document body.");

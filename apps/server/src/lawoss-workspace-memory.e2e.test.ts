@@ -8,6 +8,7 @@ import type { ServerConfig } from "./types.js";
 import type { WorkspaceMemoryStatus } from "../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 import { externalAppFilesRoot, externalMemoryProfilePath } from "./lawoss/workspace-app-files.js";
 import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
+import { engineAgentSession } from "./lawoss/test-support/engine-agent.js";
 const priorData = process.env.LEGALWORK_DATA_DIR, priorTokens = process.env.LEGALWORK_TOKEN_STORE;
 const roots: string[] = [], stops: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const stop of stops.splice(0)) await stop(); for (const root of roots.splice(0)) await removeTestDir(root); if (priorData === undefined) delete process.env.LEGALWORK_DATA_DIR; else process.env.LEGALWORK_DATA_DIR = priorData; if (priorTokens === undefined) delete process.env.LEGALWORK_TOKEN_STORE; else process.env.LEGALWORK_TOKEN_STORE = priorTokens; });
@@ -70,23 +71,25 @@ test("mapped production hook checkpoints outside the client and preserves it acr
   if (!profilePath) throw new Error("missing host profile path");
   await mkdir(appRoot, { recursive: true }); await mkdir(join(profilePath, ".."), { recursive: true });
   await writeFile(profilePath, JSON.stringify({ version: 1, matterId: "mapped-hook", roots: [{ id: "client", path: "." }], sources: [{ id: "memory", root: "client", path: "mapped-memory.md", role: "case_memory", required: true, writable: false, anchors: ["MAPPED-HOOK-ANCHOR"] }] }));
-  const before = await workspaceSnapshot(f.root), previous = { url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN };
+  const before = await workspaceSnapshot(f.root), previous = { url: process.env.LEGALWORK_SERVER_URL };
+  const agent = await engineAgentSession(f.config, { sessionID: "mapped", directory: f.root });
   try {
-    process.env.LEGALWORK_SERVER_URL = new URL(f.url).origin; process.env.LEGALWORK_SERVER_TOKEN = "synthetic-client";
+    process.env.LEGALWORK_SERVER_URL = new URL(f.url).origin;
     const { LawossOkfHandoff } = await import("./opencode-plugins/lawoss-okf-handoff.js");
     const first = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, first); expect(first.system[0]).not.toContain("FAILED");
     const checkpoint = join(appRoot, ".lawoss", "handoff", "mapped.md"); expect((await readdir(appRoot, { recursive: true })).map(entry => entry.replaceAll(sep, "/"))).toContain(".lawoss/handoff/mapped.md"); const good = await readFile(checkpoint, "utf8"); expect(good).toContain("MAPPED-HOOK-ANCHOR"); expect(await workspaceSnapshot(f.root)).toEqual(before);
     for (const stop of stops.splice(0)) await stop(); const restarted = await startServer(f.config); stops.push(() => restarted.stop()); process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${restarted.port}`;
     const fresh = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, fresh); expect(fresh.system[0]).not.toContain("FAILED"); const afterRestart = await readFile(checkpoint, "utf8"); expect(afterRestart).toContain("MAPPED-HOOK-ANCHOR");
     await rm(profilePath); const revoked = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, revoked); expect(revoked.system[0]).toContain("FAILED"); expect(await readFile(checkpoint, "utf8")).toBe(afterRestart);
-  } finally { if (previous.url === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previous.url; if (previous.token === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = previous.token; }
+  } finally { if (previous.url === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previous.url; agent.restore(); }
 });
 
 test("production plugin resolves real HTTP grants on each hook and preserves revoked checkpoint", async () => {
   const f = await fixture();
-  const previous = { url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN, grants: process.env.LAWOSS_MEMORY_ALLOWED_ROOTS };
+  const previous = { url: process.env.LEGALWORK_SERVER_URL, grants: process.env.LAWOSS_MEMORY_ALLOWED_ROOTS };
+  const agent = await engineAgentSession(f.config, { sessionID: "host_live", directory: f.root });
   try {
-    process.env.LEGALWORK_SERVER_URL = new URL(f.url).origin; process.env.LEGALWORK_SERVER_TOKEN = "synthetic-client";
+    process.env.LEGALWORK_SERVER_URL = new URL(f.url).origin;
     process.env.LAWOSS_MEMORY_ALLOWED_ROOTS = JSON.stringify([f.vault]);
     const { LawossOkfHandoff } = await import("./opencode-plugins/lawoss-okf-handoff.js");
     const hooks = await LawossOkfHandoff({ directory: f.root });
@@ -97,7 +100,8 @@ test("production plugin resolves real HTTP grants on each hook and preserves rev
     await fetch(`${f.url}/authorized-folders`, { method: "PUT", headers: f.headers, body: JSON.stringify({ folders: [] }) });
     const last = { system: [] as string[] }; await hooks["experimental.chat.system.transform"]!({ sessionID: "host_live" }, last); expect(last.system[0]).toContain("FAILED"); expect(await readFile(checkpoint, "utf8")).toBe(good);
   } finally {
-    for (const [key, value] of Object.entries({ LEGALWORK_SERVER_URL: previous.url, LEGALWORK_SERVER_TOKEN: previous.token, LAWOSS_MEMORY_ALLOWED_ROOTS: previous.grants })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    for (const [key, value] of Object.entries({ LEGALWORK_SERVER_URL: previous.url, LAWOSS_MEMORY_ALLOWED_ROOTS: previous.grants })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    agent.restore();
   }
 });
 

@@ -166,6 +166,8 @@
   --lw-asset-edge: color-mix(in srgb, var(--lw-folder-accent) 82%, var(--lw-surface));
 }
 
+.lw-folder-icon[data-empty] { --lw-folder-accent: var(--muted-foreground); opacity: .6; }
+
 .lw-document-icon {
   --lw-file-accent: var(--lw-text-secondary);
   --lw-asset-back: color-mix(in srgb, var(--lw-file-accent) 22%, var(--lw-surface));
@@ -184,7 +186,7 @@
 
 /* One continuous window frame. Both icon rails stay outside the rounded workspace. */
 .lw-window-frame {
-  --lw-window-chrome: var(--lw-surface-hover);
+  --lw-window-chrome: var(--lw-chrome);
   --lw-window-bar-height: 44px;
   --lw-window-left-rail-width: 48px;
   --lw-window-right-rail-width: 44px;
@@ -197,8 +199,76 @@
   background: var(--lw-window-chrome);
 }
 .lw-window-topbar {
+  --lw-window-panel-rail-width: 1px;
   height: var(--lw-window-bar-height);
   background: var(--lw-window-chrome);
+}
+.lw-window-topbar[data-panel-rail="true"] {
+  --lw-window-panel-rail-width: calc(var(--lw-window-right-rail-width) + 1px);
+}
+/* Expanded documents cover the workspace but leave the macOS drag strip and
+   native window buttons above it. Hide the covered panes' header controls
+   without unmounting their portals or losing chat/file-browser state. */
+.lw-workspace-shell:has([data-document-workspace-expanded="true"], [data-artifact-expanded="true"]) > .lw-window-topbar > * {
+  visibility: hidden;
+}
+
+/* Editor isolation keeps drag targets above toolbars, but an expanded document
+   must join the window stack so the sidebar cannot cover its return controls. */
+[data-viewer-drop-target] .isolate:has([data-artifact-expanded="true"]) {
+  isolation: auto;
+}
+/* An expanded document inside an expanded workspace owns the return action. */
+[data-document-workspace-expanded="true"]:has([data-artifact-expanded="true"]) > [data-expanded-document-bar] {
+  visibility: hidden;
+}
+html.legalwork-electron.legalwork-platform-windows .lw-window-frame {
+  --lw-window-bar-height: env(titlebar-area-height, 44px);
+}
+html.legalwork-electron.legalwork-platform-windows:not([data-theme="dark"]) .lw-window-frame {
+  --lw-window-chrome: #edf4fa;
+}
+/* Electron supplies the available title-bar rectangle, including zoom and DPI.
+   Leave the native minimize, maximize and close controls outside this area. */
+html.legalwork-electron.legalwork-platform-windows .lw-window-topbar {
+  --lw-window-caption-width: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 138px)));
+  left: env(titlebar-area-x, 0px);
+  right: auto;
+  width: env(titlebar-area-width, calc(100% - 138px));
+}
+/* Keep pane boundaries aligned with the full-width workspace. Only the last
+   pane's controls give up the space occupied by native caption buttons. */
+html.legalwork-electron.legalwork-platform-windows .lw-window-topbar:has(.lw-window-panel-header) {
+  left: 0;
+  width: 100%;
+}
+html.legalwork-electron.legalwork-platform-windows .lw-window-panel-header[data-panel-header="files"]:not(:has(+ .lw-window-panel-header)) > *,
+html.legalwork-electron.legalwork-platform-windows .lw-window-panel-header[data-panel-header="viewer"]:not(:has(+ .lw-window-panel-header)) [data-window-caption-controls="true"] {
+  width: max(0px, calc(100% - max(0px, calc(var(--lw-window-caption-width) - var(--lw-window-panel-rail-width)))));
+  overflow: hidden;
+}
+/* A narrow Files/Drive heading keeps its collapse action reachable. */
+@container panel-header (width < 120px) {
+  html.legalwork-electron.legalwork-platform-windows .lw-window-panel-header > * > div {
+    gap: 4px;
+    padding-inline: 4px;
+  }
+  html.legalwork-electron.legalwork-platform-windows .lw-window-panel-header button:not(:last-of-type) {
+    display: none;
+  }
+}
+html.legalwork-electron.legalwork-platform-windows .lw-window-navigation {
+  width: auto !important;
+  border-right: none;
+}
+/* Fullscreen hides the native caption controls and clears the overlay rectangle. */
+html.legalwork-electron.legalwork-platform-windows.legalwork-window-controls-hidden .lw-window-frame {
+  --lw-window-bar-height: 44px;
+}
+html.legalwork-electron.legalwork-platform-windows.legalwork-window-controls-hidden .lw-window-topbar {
+  --lw-window-caption-width: 0px;
+  left: 0;
+  width: 100%;
 }
 /* Header widths follow their resizable panes. The short separators stay above
    the continuous workspace arch; panel controls add no surface or border over it. */
@@ -222,6 +292,10 @@
 }
 .lw-window-navigation {
   transition: width var(--lw-sidebar-transition-duration) var(--lw-ease-out);
+}
+/* Reserve the same physical space for macOS window buttons at every app zoom. */
+html.legalwork-electron.legalwork-platform-mac .lw-window-navigation {
+  padding-left: calc(80px / var(--legalwork-window-zoom, 1));
 }
 .lw-workspace-shell [data-slot="sidebar-gap"],
 .lw-workspace-shell [data-slot="sidebar-container"] {
@@ -276,4 +350,61 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .lw-window-navigation { transition: none; }
+}
+
+[data-theme="dark"] .lw-workspace-shell .lw-chat-sidebar {
+  background: var(--lw-sidebar);
+}
+
+/* Lift whole project blocks without exposing the text underneath. */
+[data-project-dragging] [data-workspace-actions] { visibility: hidden; }
+[data-project-dragging] [data-workspace-drag-handle] { padding-right: 0; }
+
+.lw-panel-tab-list { position: relative; min-height: 2rem; }
+.lw-panel-tab-item[data-tab-drag-preview] {
+  translate: var(--lw-tab-drag-x, 0px) 0;
+  transition: translate 160ms var(--lw-ease-out);
+}
+.lw-panel-tab-item[data-tab-gap-source] { opacity: 0; }
+.lw-tab-drop-placeholder {
+  position: absolute;
+  inset-block: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 9%, transparent);
+  pointer-events: none;
+}
+.lw-native-drag-preview {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 12px;
+  box-shadow: 0 8px 24px -6px rgb(0 0 0 / 0.2);
+  pointer-events: none;
+  overflow: hidden;
+}
+.lw-native-drag-preview svg { width: 16px; height: 16px; flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .lw-panel-tab-item[data-tab-drag-preview] { transition: none; }
+}
+/* Separators only between adjacent inactive tabs; the active tab has its own outline. */
+.lw-panel-tab-item:has(button[aria-pressed="false"]) + .lw-panel-tab-item:has(button[aria-pressed="false"])::before,
+.lw-panel-tab-list > :has(.lw-panel-tab-item button[aria-pressed="false"]) + * .lw-panel-tab-item:has(button[aria-pressed="false"])::before {
+  content: "";
+  position: absolute;
+  left: -2px;
+  top: 8px;
+  height: 16px;
+  width: 1px;
+  background: var(--border);
 }

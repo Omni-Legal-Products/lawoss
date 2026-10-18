@@ -14,10 +14,10 @@ export const DEFAULT_WORKSPACE_RIGHT_SIDEBAR_EXPANDED_WIDTH = 520;
 export const MIN_WORKSPACE_RIGHT_SIDEBAR_WIDTH = 320;
 export const MAX_WORKSPACE_RIGHT_SIDEBAR_WIDTH = 960;
 
-export const SIDE_PANEL_ITEMS = ["panel", "files", "memory", "extensions", "voice"] as const;
+export const SIDE_PANEL_ITEMS = ["panel", "files", "memory", "wiki", "extensions", "voice"] as const;
 export type SidePanelItem = (typeof SIDE_PANEL_ITEMS)[number];
 export type SidePanelState = Record<string, SidePanelItem | null>;
-export type FileSidebarItem = "files" | "memory";
+export type FileSidebarItem = "files" | "memory" | "wiki";
 export type FileSidebarState = Record<string, FileSidebarItem | null>;
 
 const LEGACY_UNIFIED_PANEL_ITEMS = ["browser", "artifacts"] as const;
@@ -163,10 +163,10 @@ export function restorePanelLayout(value: PersistedUiState) {
   const sidePanelState = normalizeSidePanelState(value.sidePanelState);
   const fileSidebarState: FileSidebarState = {};
   for (const [sessionId, panel] of Object.entries(normalizeSidePanelState(value.fileSidebarState))) {
-    if (panel === "files" || panel === "memory" || panel === null) fileSidebarState[sessionId] = panel;
+    if (panel === "files" || panel === "memory" || panel === "wiki" || panel === null) fileSidebarState[sessionId] = panel;
   }
   for (const [sessionId, panel] of Object.entries(sidePanelState)) {
-    if (panel !== "files" && panel !== "memory") continue;
+    if (panel !== "files" && panel !== "memory" && panel !== "wiki") continue;
     if (!(sessionId in fileSidebarState)) fileSidebarState[sessionId] = panel;
     sidePanelState[sessionId] = null;
   }

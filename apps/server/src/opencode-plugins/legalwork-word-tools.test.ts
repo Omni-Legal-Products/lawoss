@@ -1,22 +1,36 @@
 import { isOpenWordFilePipelineCall } from "./legalwork-word-tools-shared.js";
 import * as pluginModule from "./legalwork-word-tools.js";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, test } from "bun:test";
 import {
   LegalWorkWordTools,
 } from "./legalwork-word-tools.js";
 
 const OPEN_DOCUMENT = "/Users/lawyer/Matter/NDA Example.docx";
 
+/** What the model sees: the fixed system text and the reminder on a new user message. */
+async function modelContext(plugin: Awaited<ReturnType<typeof LegalWorkWordTools>>) {
+  const system: { system: string[] } = { system: [] };
+  await plugin["experimental.chat.system.transform"](null, system);
+  const message: { message: { id: string }; parts: object[] } = { message: { id: "msg_test" }, parts: [] };
+  await plugin["chat.message"]({ sessionID: "ses_word" }, message);
+  return {
+    system: system.system.join("\n"),
+    reminder: message.parts.map((part) => String(Reflect.get(part, "text"))).join("\n"),
+  };
+}
+
 describe("LegalWork Word tools", () => {
-  test("enables live mode for any turn while Word is connected", async () => {
+  test("reports live mode as a reminder while Word is connected, keeping the system prompt fixed", async () => {
     const originalFetch = globalThis.fetch;
     const originalUrl = process.env.LEGALWORK_SERVER_URL;
-    const originalToken = process.env.LEGALWORK_SERVER_TOKEN;
+    const originalToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
     process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
-    process.env.LEGALWORK_SERVER_TOKEN = "test-token";
+    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-token";
+    const sent: Headers[] = [];
     globalThis.fetch = Object.assign(
-      async (input: Parameters<typeof fetch>[0]) => {
+      async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
         const url = input instanceof Request ? input.url : input.toString();
+        sent.push(new Headers(init?.headers));
         if (url.endsWith("/workspaces")) {
           return Response.json({
             items: [{ id: "matter", path: "/Users/lawyer/Matter" }],
@@ -35,30 +49,119 @@ describe("LegalWork Word tools", () => {
 
     try {
       const plugin = await LegalWorkWordTools({ directory: "/Users/lawyer/Matter" });
-      const output: { system: string[] } = { system: [] };
-      await plugin["experimental.chat.system.transform"](null, output);
+      const { system, reminder } = await modelContext(plugin);
 
-      expect(output.system.join("\n")).toContain(
-        "You are working inside Microsoft Word right now",
-      );
-      expect(output.system.join("\n")).toContain("NDA Example.docx");
+      expect(reminder).toContain("You are working inside Microsoft Word right now");
+      expect(reminder).toContain("NDA Example.docx");
+      expect(system).toContain("## Microsoft Word document tools");
+      expect(system).not.toContain("NDA Example.docx");
+      // The pane check asks as the chat the reminder is for, never with a server-wide token.
+      expect(sent.length).toBeGreaterThan(0);
+      for (const headers of sent) {
+        expect(headers.get("x-legalwork-wiki-agent-token")).toBe("test-token");
+        expect(headers.get("x-legalwork-wiki-agent-session")).toBe("ses_word");
+        expect(headers.get("x-legalwork-wiki-agent-directory")).toBe(encodeURIComponent("/Users/lawyer/Matter"));
+        expect(headers.get("authorization")).toBeNull();
+      }
     } finally {
       globalThis.fetch = originalFetch;
       if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
       else process.env.LEGALWORK_SERVER_URL = originalUrl;
-      if (originalToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
-      else process.env.LEGALWORK_SERVER_TOKEN = originalToken;
+      if (originalToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+      else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalToken;
+    }
+  });
+
+  test("treats a failed pane check as no change, not as a disconnect", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalUrl = process.env.LEGALWORK_SERVER_URL;
+    const originalToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
+    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-token";
+    let pane: "connected" | "failing" | "closed" = "connected";
+    globalThis.fetch = Object.assign(
+      async (input: Parameters<typeof fetch>[0]) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        if (url.endsWith("/workspaces")) return Response.json({ items: [{ id: "matter", path: "/Users/lawyer/Matter" }] });
+        if (pane === "failing") return new Response("Unavailable", { status: 503 });
+        return Response.json(pane === "connected" ? { connected: true, hosts: [{ host: "word", documentUrl: OPEN_DOCUMENT }] } : { connected: false, hosts: [] });
+      },
+      { preconnect: originalFetch.preconnect },
+    );
+
+    try {
+      const plugin = await LegalWorkWordTools({ directory: "/Users/lawyer/Matter" });
+      expect((await modelContext(plugin)).reminder).toContain("NDA Example.docx");
+      // Past the short cache for a connected pane.
+      setSystemTime(new Date(Date.now() + 10_000));
+      pane = "failing";
+      const failed = { output: "read" };
+      await plugin["tool.execute.after"]({ sessionID: "ses_word" }, failed);
+      expect(failed.output).toBe("read");
+
+      pane = "closed";
+      const closed = { output: "read" };
+      await plugin["tool.execute.after"]({ sessionID: "ses_word" }, closed);
+      expect(closed.output).toContain("no longer connected");
+    } finally {
+      setSystemTime();
+      globalThis.fetch = originalFetch;
+      if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
+      else process.env.LEGALWORK_SERVER_URL = originalUrl;
+      if (originalToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+      else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalToken;
     }
   });
 
   test("blocks the DOCX file pipeline for the document open in Word", () => {
     expect(
       isOpenWordFilePipelineCall(
-        "bash",
+        "legalwork_shell",
         { command: 'node .opencode/skills/docx-edit/assets/docx-agent.mjs inspect "NDA Example.docx"' },
         OPEN_DOCUMENT,
       ),
     ).toBe(true);
+  });
+
+  test("guards the file pipeline with the calling chat's own pane check", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalUrl = process.env.LEGALWORK_SERVER_URL;
+    const originalToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
+    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-token";
+    const sessions: Array<string | null> = [];
+    globalThis.fetch = Object.assign(
+      async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        sessions.push(new Headers(init?.headers).get("x-legalwork-wiki-agent-session"));
+        if (url.endsWith("/workspaces")) return Response.json({ items: [{ id: "matter", path: "/Users/lawyer/Matter" }] });
+        if (url.endsWith("/workspace/matter/office-tools/status")) {
+          return Response.json({ connected: true, hosts: [{ host: "word", documentUrl: OPEN_DOCUMENT }] });
+        }
+        return new Response("Not found", { status: 404 });
+      },
+      { preconnect: originalFetch.preconnect },
+    );
+
+    try {
+      const plugin = await LegalWorkWordTools({ directory: "/Users/lawyer/Matter" });
+      const call = { args: { command: 'node .opencode/skills/docx-edit/assets/docx-agent.mjs inspect "NDA Example.docx"' } };
+      await expect(plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_word_guard" }, call)).rejects.toThrow(
+        "open in Microsoft Word",
+      );
+      expect(sessions.length).toBeGreaterThan(0);
+      expect(sessions.every((session) => session === "ses_word_guard")).toBe(true);
+      // Without its chat the check cannot ask the server, so it finds no pane.
+      sessions.length = 0;
+      await plugin["tool.execute.before"]({ tool: "bash" }, call);
+      expect(sessions).toHaveLength(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
+      else process.env.LEGALWORK_SERVER_URL = originalUrl;
+      if (originalToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+      else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalToken;
+    }
   });
 
   test("blocks a docx-redliner task targeting the open document", () => {
@@ -106,9 +209,9 @@ describe("routing an unqualified edit request to the live document", () => {
   test("live-mode prompt routes an unqualified rename to the open document", async () => {
     const originalFetch = globalThis.fetch;
     const originalUrl = process.env.LEGALWORK_SERVER_URL;
-    const originalToken = process.env.LEGALWORK_SERVER_TOKEN;
+    const originalToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
     process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
-    process.env.LEGALWORK_SERVER_TOKEN = "test-token";
+    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-token";
     globalThis.fetch = Object.assign(
       async (input: Parameters<typeof fetch>[0]) => {
         const url = input instanceof Request ? input.url : input.toString();
@@ -125,21 +228,19 @@ describe("routing an unqualified edit request to the live document", () => {
 
     try {
       const plugin = await LegalWorkWordTools({ directory: "/Users/lawyer/Matter" });
-      const output: { system: string[] } = { system: [] };
-      await plugin["experimental.chat.system.transform"](null, output);
-      const system = output.system.join("\n");
+      const { reminder } = await modelContext(plugin);
 
       // "Rename X to Y" names no file; the model read it as a workspace-wide
       // find and replace. The prompt has to claim it for the open document.
-      expect(system).toContain("An edit request that names no file is about the open document");
-      expect(system).toContain("Do NOT grep the workspace");
-      expect(system).toContain("sidecar");
+      expect(reminder).toContain("An edit request that names no file is about the open document");
+      expect(reminder).toContain("Do NOT grep the workspace");
+      expect(reminder).toContain("sidecar");
     } finally {
       globalThis.fetch = originalFetch;
       if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
       else process.env.LEGALWORK_SERVER_URL = originalUrl;
-      if (originalToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
-      else process.env.LEGALWORK_SERVER_TOKEN = originalToken;
+      if (originalToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+      else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalToken;
     }
   });
 });

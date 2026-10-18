@@ -136,26 +136,43 @@ async function writeWebResponse(webRes: Response, nodeRes: ServerResponse): Prom
     }
   });
 
-  if (!isResponseWritable(nodeRes)) return;
-
-  nodeRes.writeHead(webRes.status, headersObj);
-
   if (!webRes.body) {
+    if (!isResponseWritable(nodeRes)) return;
+    nodeRes.writeHead(webRes.status, headersObj);
     endResponse(nodeRes);
     return;
   }
 
   const reader = webRes.body.getReader();
+  let completed = false;
+  let cancellation: Promise<void> | undefined;
+  const cancel = () => {
+    // Cancel even while read() is idle. A cleanup rejection must not replace
+    // the primary read/write failure or become an unhandled rejection.
+    cancellation ??= reader.cancel().catch(() => undefined);
+    return cancellation;
+  };
+  nodeRes.once("close", cancel);
+  nodeRes.once("error", cancel);
   try {
-    while (true) {
+    if (!isResponseWritable(nodeRes)) return;
+    nodeRes.writeHead(webRes.status, headersObj);
+    while (isResponseWritable(nodeRes)) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        completed = true;
+        break;
+      }
       if (!isResponseWritable(nodeRes)) break;
       if (!nodeRes.write(value)) {
         await waitForDrainOrClose(nodeRes);
       }
     }
   } finally {
+    nodeRes.off("close", cancel);
+    nodeRes.off("error", cancel);
+    if (!completed) await cancel();
+    else await cancellation;
     reader.releaseLock();
     endResponse(nodeRes);
   }
@@ -167,6 +184,40 @@ async function writeWebResponse(webRes: Response, nodeRes: ServerResponse): Prom
  * Interface mirrors Bun.serve() so the caller doesn't need to change.
  */
 export function serve(options: ServeOptions): Promise<ServeResult> {
+  // Bun's node:http shim loses disconnect events after a request body is read.
+  // Its native Request retains the abort signal while approvals are pending.
+  // Electron and ordinary Node continue to use the adapter below.
+  if (typeof Bun !== "undefined") {
+    const start = (port: number) => Bun.serve({
+      hostname: options.hostname, port, idleTimeout: options.idleTimeout,
+      // A permitted 100 MiB wiki asset exceeds Bun's 128 MiB default after
+      // base64 encoding. Individual routes enforce their smaller body limits.
+      maxRequestBodySize: 256 * 1024 * 1024,
+      ...(options.tls ? { tls: options.tls } : {}),
+      fetch: async (request: Request, server) => {
+        // A human approval may outlive the connection's idle timeout. Node's
+        // keepAliveTimeout likewise does not expire an active request handler.
+        server.timeout(request, 0);
+        try { return await options.fetch(request); }
+        catch (error) {
+          if (!isExpectedConnectionAbort(error)) console.error("[serve-node] Unhandled error:", error);
+          return Response.json({ error: "internal_error" }, { status: 500 });
+        }
+      },
+    });
+    try {
+      let server;
+      try { server = start(options.port); }
+      catch (error) {
+        if (!(error instanceof Error) || !("code" in error) || error.code !== "EADDRINUSE") throw error;
+        server = start(0);
+      }
+      const port = server.port;
+      if (port === undefined) throw new Error("The HTTP server did not bind a port");
+      let stopping: Promise<void> | undefined;
+      return Promise.resolve({ port, stop: () => stopping ??= server.stop(true) });
+    } catch (error) { return Promise.reject(error); }
+  }
   const { hostname, port, fetch: fetchHandler } = options;
   const scheme: "http" | "https" = options.tls ? "https" : "http";
 
@@ -176,13 +227,14 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
     const close = () => { if (!nodeRes.writableEnded) abort(); };
     nodeReq.once("aborted", abort);
     nodeRes.once("close", close);
-    nodeRes.on("error", (error) => {
+    const responseError = (error: Error) => {
       if (isWriteAfterEndError(error)) {
         console.warn("[serve-node] Ignored response write after end");
         return;
       }
       console.error("[serve-node] Response stream error:", error);
-    });
+    };
+    nodeRes.on("error", responseError);
 
     try {
       const webReq = toWebRequest(nodeReq, hostname, boundPort, scheme, controller.signal);
@@ -204,6 +256,7 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
     } finally {
       nodeReq.off("aborted", abort);
       nodeRes.off("close", close);
+      nodeRes.off("error", responseError);
     }
   };
 

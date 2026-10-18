@@ -1,7 +1,6 @@
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { eq } from "drizzle-orm";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { initializeSqlite } from "./runtime-db.js";
+import { runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
+import { dirname } from "node:path";
 import type { EigenweltHubKind } from "./eigenwelt-hub.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
@@ -26,13 +25,8 @@ export type HubInstallRecord = {
 
 export type HubInstallMap = Record<string, HubInstallRecord>;
 
-const eigenweltHubInstalls = sqliteTable("eigenwelt_hub_installs", {
-  workspaceId: text("workspace_id").primaryKey(),
-  installsJson: text("installs_json").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
-
 type EigenweltHubInstallsDb = {
+  close: () => void;
   get: (workspaceId: string) => { installsJson: string } | undefined;
   upsert: (value: { workspaceId: string; installsJson: string; updatedAt: number }) => void;
 };
@@ -44,43 +38,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function runtimeDbPath(config: ServerConfig): string {
-  const override = process.env.LEGALWORK_RUNTIME_DB?.trim();
-  if (override) return resolve(override);
-  const configPath = config.configPath?.trim();
-  const configDir = configPath ? dirname(configPath) : join(homedir(), ".config", "legalwork");
-  return join(configDir, "runtime.sqlite");
-}
-
 async function openDb(path: string): Promise<EigenweltHubInstallsDb> {
   await ensureDir(dirname(path));
-  if (typeof process.versions.bun === "string") {
-    const { Database } = await import("bun:sqlite");
-    const { drizzle } = await import("drizzle-orm/bun-sqlite");
-    const sqlite = new Database(path, { create: true });
-    sqlite.run(CREATE_TABLE_SQL);
-    const db = drizzle(sqlite);
-    return {
-      get: (workspaceId) =>
-        db
-          .select()
-          .from(eigenweltHubInstalls)
-          .where(eq(eigenweltHubInstalls.workspaceId, workspaceId))
-          .get(),
-      upsert: ({ workspaceId, installsJson, updatedAt }) => {
-        db
-          .insert(eigenweltHubInstalls)
-          .values({ workspaceId, installsJson, updatedAt })
-          .onConflictDoUpdate({
-            target: eigenweltHubInstalls.workspaceId,
-            set: { installsJson, updatedAt },
-          })
-          .run();
-      },
-    };
-  }
-  const { DatabaseSync } = await import("node:sqlite");
-  const sqlite = new DatabaseSync(path);
+  return initializeSqlite(path, (sqlite) => {
   sqlite.exec(CREATE_TABLE_SQL);
   const get = sqlite.prepare(
     "SELECT installs_json AS installsJson FROM eigenwelt_hub_installs WHERE workspace_id = ?",
@@ -89,6 +49,7 @@ async function openDb(path: string): Promise<EigenweltHubInstallsDb> {
     "INSERT INTO eigenwelt_hub_installs (workspace_id, installs_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET installs_json = excluded.installs_json, updated_at = excluded.updated_at",
   );
   return {
+    close: () => sqlite.close(),
     get: (workspaceId) => {
       const row = get.get(workspaceId);
       if (!isRecord(row) || typeof row.installsJson !== "string") return undefined;
@@ -98,17 +59,13 @@ async function openDb(path: string): Promise<EigenweltHubInstallsDb> {
       upsert.run(workspaceId, installsJson, updatedAt);
     },
   };
+  });
 }
 
-const dbByPath = new Map<string, Promise<EigenweltHubInstallsDb>>();
+const resourceKey = Symbol("eigenwelt-hub-installs-store");
 
 async function installsDb(config: ServerConfig): Promise<EigenweltHubInstallsDb> {
-  const path = runtimeDbPath(config);
-  const existing = dbByPath.get(path);
-  if (existing) return existing;
-  const db = openDb(path);
-  dbByPath.set(path, db);
-  return db;
+  return runtimeDbResource(config, resourceKey, openDb);
 }
 
 function normalizeRecord(value: unknown): HubInstallRecord | null {
@@ -137,6 +94,7 @@ function normalizeMap(value: unknown): HubInstallMap {
 
 /** Read the installed-item map for a workspace ({} when none recorded). */
 export async function readHubInstalls(config: ServerConfig, workspaceId: string): Promise<HubInstallMap> {
+  return withRuntimeDb(config, async () => {
   const db = await installsDb(config);
   const row = db.get(workspaceId);
   if (!row) return {};
@@ -145,6 +103,8 @@ export async function readHubInstalls(config: ServerConfig, workspaceId: string)
   } catch {
     return {};
   }
+
+  });
 }
 
 /** Record (upsert) a single installed item's `{version, kind, name}` for a workspace. */
@@ -154,11 +114,14 @@ export async function recordHubInstall(
   id: string,
   record: HubInstallRecord,
 ): Promise<HubInstallMap> {
+  return withRuntimeDb(config, async () => {
   const db = await installsDb(config);
   const current = await readHubInstalls(config, workspaceId);
   const next: HubInstallMap = { ...current, [id]: record };
   db.upsert({ workspaceId, installsJson: JSON.stringify(next), updatedAt: Date.now() });
   return next;
+
+  });
 }
 
 /** Forget an installed item (e.g. after it's removed locally). */
@@ -167,6 +130,7 @@ export async function forgetHubInstall(
   workspaceId: string,
   id: string,
 ): Promise<HubInstallMap> {
+  return withRuntimeDb(config, async () => {
   const db = await installsDb(config);
   const current = await readHubInstalls(config, workspaceId);
   if (!(id in current)) return current;
@@ -174,4 +138,6 @@ export async function forgetHubInstall(
   delete next[id];
   db.upsert({ workspaceId, installsJson: JSON.stringify(next), updatedAt: Date.now() });
   return next;
+
+  });
 }
