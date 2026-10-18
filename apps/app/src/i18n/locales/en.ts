@@ -6526,6 +6526,7 @@ export default {
   "documents.open_original": "Open original document",
   "documents.visual_host_required": "Visual confirmation requires a host-authenticated connection. Owner or shared access alone cannot record it.",
   "documents.visual_other_content": "Images, annotations or missing text require further preparation and review; decorative-line confirmation cannot resolve them.",
+  "documents.visual_open_required": "Open the original here and wait for its displayed version to be verified before confirming.",
   "documents.visual_confirm": "I inspected every listed page of this exact original. All drawn paths are decorative lines; no handwriting, signature or other evidence is omitted from the extracted text.",
   "documents.visual_review": "Confirm decorative lines reviewed",
   "documents.visual_reviewed": "Visual review recorded by the authenticated host on {date}.",
