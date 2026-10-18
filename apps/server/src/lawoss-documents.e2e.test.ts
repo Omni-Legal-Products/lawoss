@@ -33,6 +33,97 @@ async function settled(service: LawossDocuments, workspace: WorkspaceInfo) {
   throw new Error("Preparation did not finish");
 }
 
+function email(body: string, attachments: Array<{ name: string; type: string; bytes: Uint8Array }> = []) {
+  return new TextEncoder().encode([
+    'From: Synthetic Sender <sender@example.invalid>', 'To: recipient@example.invalid',
+    'Subject: =?UTF-8?B?U3ludGhldGljIMSNZXNreQ==?=', 'MIME-Version: 1.0',
+    'Content-Type: multipart/mixed; boundary="synthetic-mixed"', '',
+    '--synthetic-mixed', body,
+    ...attachments.flatMap(attachment => ['--synthetic-mixed', `Content-Type: ${attachment.type}`, `Content-Disposition: attachment; filename*=utf-8''${encodeURIComponent(attachment.name)}`, 'Content-Transfer-Encoding: base64', '', Buffer.from(attachment.bytes).toString('base64')]),
+    '--synthetic-mixed--', '',
+  ].join('\r\n'));
+}
+
+// Removing MIME extraction/decoded attachment recursion must fail this boundary.
+test("EML decodes plain alternative and attributed PDF portfolio descendants without filename writes", () => fixture(async (service, workspace, root) => {
+  const portfolio = await PDFDocument.load(await pdf("Synthetic attachment cover"));
+  await portfolio.attach(new TextEncoder().encode("Synthetic nested evidence"), "nested.txt");
+  const attached = await portfolio.save();
+  const bytes = email(['Content-Type: multipart/alternative; boundary="synthetic-alt"', '', '--synthetic-alt', 'Content-Type: text/plain; charset=iso-8859-1', 'Content-Transfer-Encoding: quoted-printable', '', 'Synthetic caf=E9 evidence.', '--synthetic-alt', 'Content-Type: text/html; charset=utf-8', '', '<p>Wrong alternative</p><script>do not execute</script>', '--synthetic-alt--'].join('\r\n'), [{ name: "../../důkaz.pdf", type: "application/pdf", bytes: attached }]);
+  await writeFile(join(root, "message.eml"), bytes);
+  const [started] = await service.prepare(workspace, ["message.eml"]);
+  const records = await settled(service, workspace);
+  expect(records).toHaveLength(3); expect(records.every(record => record.complete)).toBe(true);
+  const body = await service.read(workspace, started.id);
+  expect(body.text).toContain("Synthetic café evidence."); expect(body.text).not.toContain("Wrong alternative");
+  const attachment = records.find(record => record.provenance.parentId === started.id)!;
+  expect(attachment.provenance.attachmentName).toBe("../../důkaz.pdf");
+  expect(attachment.provenance.parentHash).toBe(started.hash);
+  const { createHash } = await import("node:crypto");
+  expect(attachment.hash).toBe(createHash("sha256").update(attached).digest("hex"));
+  const cover = await service.read(workspace, attachment.id);
+  expect(cover.pages[0].page).toBe(1); expect(cover.text.trim()).toBe("Synthetic attachment cover");
+  const nested = records.find(record => record.provenance.parentId === attachment.id)!;
+  expect((await service.read(workspace, nested.id)).text).toBe("Synthetic nested evidence");
+  expect(nested.provenance.depth).toBe(2); expect(nested.provenance.sourcePath).toBe("message.eml");
+  const { readdir } = await import("node:fs/promises");
+  expect((await readdir(root)).sort()).toEqual(["message.eml", "workspace-app-files"]);
+}));
+
+test("EML HTML fallback stays inert and unsupported children keep readable body partial", () => fixture(async (service, workspace, root) => {
+  let externalReads = 0;
+  const remote = Bun.serve({ port: 0, fetch() { externalReads++; return new Response("Unexpected external read"); } });
+  try {
+    const bytes = email(`Content-Type: text/html; charset=utf-8\r\n\r\n<p>Readable &amp; synthetic evidence.</p><script>hidden script text</script><style>hidden style</style><img src="${remote.url}never-fetch"><iframe src="${remote.url}never-fetch">hidden frame</iframe>`, [{ name: "do-not-run.exe", type: "application/octet-stream", bytes: new Uint8Array([1, 2, 3]) }]);
+    await writeFile(join(root, "fallback.eml"), bytes);
+    const [started] = await service.prepare(workspace, ["fallback.eml"]); const records = await settled(service, workspace);
+    const result = await service.read(workspace, started.id);
+    expect(result.text).toContain("Readable & synthetic evidence."); expect(result.text).not.toMatch(/hidden|never-fetch|<script|<img/);
+    expect(result.status).toBe("partial"); expect(result.complete).toBe(false); expect(externalReads).toBe(0);
+    expect(records.find(record => record.provenance.parentId)?.status).toBe("failed");
+  } finally { remote.stop(true); }
+}));
+
+test("EML and PDF share attachment count and nesting budgets", () => fixture(async (service, workspace, root) => {
+  const portfolio = await PDFDocument.load(await pdf("Synthetic reserved sibling cover"));
+  for (let i = 0; i < 31; i++) await portfolio.attach(new TextEncoder().encode(`Child ${i}`), `${i}.txt`);
+  const body = 'Content-Type: text/plain; charset=utf-8\r\n\r\nSynthetic email body';
+  await writeFile(join(root, "count.eml"), email(body, [{ name: "portfolio.pdf", type: "application/pdf", bytes: await portfolio.save() }, { name: "sibling.txt", type: "text/plain", bytes: new TextEncoder().encode("Reserved sibling") }]));
+  let deep = email(body);
+  for (let i = 0; i < 4; i++) deep = email(body, [{ name: `nested-${i}.eml`, type: "message/rfc822", bytes: deep }]);
+  await writeFile(join(root, "deep.eml"), deep);
+  await service.prepare(workspace, ["count.eml", "deep.eml"]); const records = await settled(service, workspace);
+  const count = records.filter(record => record.provenance.sourcePath === "count.eml");
+  expect(count).toHaveLength(3); expect(count[0].status).toBe("partial");
+  expect(count[1].issue).toContain("count"); expect((await service.read(workspace, count[2].id)).text).toBe("Reserved sibling");
+  const nested = records.filter(record => record.provenance.sourcePath === "deep.eml");
+  expect(nested).toHaveLength(4); expect(nested.every(record => !record.complete)).toBe(true);
+  expect(nested.at(-1)?.issue).toContain("nesting");
+}));
+
+test("EML reserves decoded sibling bytes before descending into a compressed PDF", () => fixture(async (service, workspace, root) => {
+  const inner = await PDFDocument.load(await pdf("Synthetic compressed attachment cover"));
+  await inner.attach(new Uint8Array(40 * 1024 * 1024), "nested.bin");
+  await writeFile(join(root, "bytes.eml"), email('Content-Type: text/plain\r\n\r\nSynthetic bounded message', [{ name: "inner.pdf", type: "application/pdf", bytes: await inner.save() }, { name: "reserved.bin", type: "application/octet-stream", bytes: new Uint8Array(25 * 1024 * 1024) }]));
+  const [started] = await service.prepare(workspace, ["bytes.eml"]); const records = await settled(service, workspace);
+  expect(records).toHaveLength(3); expect(records[0].status).toBe("partial"); expect(records[0].complete).toBe(false);
+  expect(records.find(record => record.provenance.attachmentName === "inner.pdf")?.issue).toContain("bytes");
+  expect((await service.read(workspace, started.id)).text).toBe("Synthetic bounded message");
+}), 15000);
+
+test("EML parser rejects excessive MIME header nesting and attachment counts without descent", () => fixture(async (service, workspace, root) => {
+  const body = 'Content-Type: text/plain\r\n\r\nSynthetic limited message';
+  await writeFile(join(root, "count.eml"), email(body, Array.from({ length: 33 }, (_, index) => ({ name: `${index}.txt`, type: "text/plain", bytes: new Uint8Array([65]) }))));
+  await writeFile(join(root, "headers.eml"), `X-Synthetic: ${"x".repeat(256 * 1024)}\r\n${body}`);
+  let nested = body;
+  for (let index = 0; index < 34; index++) nested = [`Content-Type: multipart/mixed; boundary="part-${index}"`, '', `--part-${index}`, nested, `--part-${index}--`].join('\r\n');
+  await writeFile(join(root, "mime-depth.eml"), nested);
+  await service.prepare(workspace, ["count.eml", "headers.eml", "mime-depth.eml"]); const records = await settled(service, workspace);
+  expect(records).toHaveLength(3); expect(records.every(record => !record.complete)).toBe(true);
+  expect(records[0].status).toBe("partial"); expect(records[0].issue).toContain("count");
+  expect(records.slice(1).every(record => record.status === "failed" && record.readablePages === 0)).toBe(true);
+}));
+
 test("text PDF preparation persists readable evidence, source hash and bounded reads", () => fixture(async (service, workspace, root) => {
   await writeFile(join(root, "text.pdf"), await pdf("Synthetic legal evidence"));
   const [started] = await service.prepare(workspace, ["text.pdf"]);
@@ -251,6 +342,25 @@ test("actual HTTP and registered agent document tools enforce authorization, pag
     const id = started.documents[0].id;
     for (let i = 0; i < 200; i++) { const list = JSON.parse(await plugin.tool.lawoss_documents_list.execute({ limit: 1 }, context)); if (list.documents[0].status === "readable") break; await new Promise(resolve => setTimeout(resolve, 10)); }
     const read = JSON.parse(await plugin.tool.lawoss_documents_read.execute({ id, limit: 10 }, context)); expect(read.text).toBe("Synthetic "); expect(read.nextOffset).toBe(10); expect(read.untrusted).toBe(true);
+    await writeFile(join(path, "message.eml"), email('Content-Type: text/plain; charset=utf-8\r\n\r\nSynthetic HTTP email', [{ name: "proof.pdf", type: "application/pdf", bytes: await pdf("Synthetic HTTP attachment evidence") }]));
+    const redirected = JSON.parse(await plugin.tool.legalwork_project_read.execute({ kind: "files", id: "message.eml" }, context));
+    expect(redirected.error).toContain("document_tool_required"); expect(redirected.error).toContain("lawoss_documents_prepare");
+    const wrongId = JSON.parse(await plugin.tool.lawoss_documents_read.execute({ id: "message.eml" }, context));
+    expect(wrongId.nextTool).toBe("lawoss_documents_list");
+    const eml = JSON.parse(await plugin.tool.lawoss_documents_prepare.execute({ paths: ["message.eml"] }, context));
+    const emailId = eml.documents[0].id;
+    let emailRecords: import("./lawoss/documents/types.js").DocumentSummary[] = [];
+    for (let i = 0; i < 200; i++) {
+      emailRecords = JSON.parse(await plugin.tool.lawoss_documents_list.execute({}, context)).documents.filter((record: import("./lawoss/documents/types.js").DocumentSummary) => record.provenance.sourcePath === "message.eml");
+      if (emailRecords.length === 2 && emailRecords.every(record => record.status === "readable")) break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    expect(emailRecords).toHaveLength(2); expect(emailRecords.every(record => record.complete)).toBe(true);
+    expect(JSON.parse(await plugin.tool.lawoss_documents_read.execute({ id: emailId }, context)).text).toBe("Synthetic HTTP email");
+    const emailChild = emailRecords.find(record => record.provenance.parentId === emailId)!;
+    const childEvidence = JSON.parse(await plugin.tool.lawoss_documents_read.execute({ id: emailChild.id }, context));
+    expect(childEvidence.text.trim()).toBe("Synthetic HTTP attachment evidence"); expect(childEvidence.pages[0].page).toBe(1);
+    expect(childEvidence.provenance.parentHash).toBe(eml.documents[0].hash);
     const { createHash } = await import("node:crypto");
     await writeFile(join(path,"TEST_ZDROJE_ISIR.json"),JSON.stringify({source:"ISIR",company:"Synthetic",caseNumber:"SYN 2/2026",sourceUrl:"https://isir.justice.cz/isir/synthetic",sampleOnly:true,documents:[{file:"source.txt",documentId:"D2",url:"https://isir.justice.cz/isir/document/D2",sha256:createHash("sha256").update("Synthetic HTTP evidence").digest("hex")}] }));
     const exportBody={path:"registry.csv",kind:"registry",outputLanguage:"cs",documentIds:[id],entries:[{documentId:id,summary:"Synthetic summary"}]};

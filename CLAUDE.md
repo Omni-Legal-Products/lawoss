@@ -159,6 +159,7 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Reserve tree-wide attachment budgets before recursive descent. Capacity admission must count actual new records after deduplication/retry planning; a full registry must still permit reuse of an existing preparation.
 - Persist original-source admission independently from extraction update time. Restoring earlier bytes must select that original and its descendants after reload; legacy records retain a deterministic fallback and every selected read still verifies current bytes.
 - Reuse DocumentPreparation/OCR; missing models or incomplete OCR remain partial. Optional real-model tests use an explicitly selected, pinned/hash-verified isolated cache and must not configure or download into a user profile automatically.
+- MIME corpus reads keep attachment coverage incomplete and retain text only. Request decoded attachment buffers only during document preparation, then reuse the shared attachment budgets, provenance and UUID scratch paths.
 
 - Treat supplied base text as a concurrency precondition independently from mtime. Filesystem timestamps can be equal for different contents; preserve conflicts, clean merges and explicit force semantics with actual fixed-time HTTP regressions.
 
