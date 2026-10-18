@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Whole-agent cache fixture and protected admission (2026-10-18)
+
+| Files | Fixture compatibility boundary |
+| --- | --- |
+| `apps/server/scripts/prompt-cache-engine.test.ts` | Production model proxy must return typed403 with zero actual provider requests. Cache positives and changing-timestamp negative oracle then use the owned synthetic managed engine SDK with exact engine authentication and directory; real app server/runtime builder/plugins/session/personalization/tool APIs remain. All original tools/subagent/app-change/restart/compaction/alternate-model and prefix assertions retained. This separate engine/cache contract grants no protected model support; no production guard/port/config/env exception was added. |
+
 ## Bounded native exact-context review (2026-10-18)
 
 | Files | Downstream behavior |
