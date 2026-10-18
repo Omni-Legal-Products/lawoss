@@ -9,3 +9,5 @@ Do modelového pracovného adresára kopírujte iba vybraný spis z `office/Clie
 Dátumy 2035 sú fiktívne. Táto verzia overuje najmä chýbajúce dôkazy, varianty, saldo a odmietnutie nepodloženého termínu; nedokladá budúce právo ani kladnú kalendárovú cestu. Schválenie českých pravidiel a Google workflow je samostatný návrh [koordinačné PR #100](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/100).
 
 Kontrola podľa vnútorného README: `uv run --with pypdf==6.9.2 python tools/validate_dataset.py` z koreňa sady. Nepotrebuje model ani klientské dáta. Pracujte na disposable kópiách; zmrazené podklady neopravujte. Nové kladné právne prípady patria do novej verzie po právnej kontrole.
+
+Rýchla offline CI kontrola bez závislostí: `node lawoss/testing/fixtures/verify.mjs` z koreňa repozitára. Overí úplný allowlist, zákaz symlinkov, veľkosti a hashe všetkých súborov aj pin manifestu nezávislej kontroly. Beží po skutočnom Git checkoute; úzka `.gitattributes` výnimka zachová MIME/CSV CRLF. Plný Python validátor vyššie navyše rozoberá formáty a voliteľne spustí OKF CLI.
