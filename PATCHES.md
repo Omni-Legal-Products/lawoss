@@ -10,6 +10,8 @@ Bugfix existujúcej prípravy dokumentov podľa používateľom prijatého plán
 | `apps/server/src/project-contents.ts`, `apps/server/src/project-contents.test.ts`, `apps/server/src/opencode-plugins/legalwork-project-tools.ts`, `apps/server/src/opencode-plugins/legalwork-project-tools.test.ts` | Native project-read vracia konkrétnu cestu prepare → list → read. Model dostáva popis UUID a obnoviteľnú typovanú chybu pri použití cesty namiesto ID; wire/execution UUID validácia a existujúca autorizácia ostávajú. Skutočný tool/HTTP test číta EML a priložené PDF cez session-bound prístup. |
 | `apps/server/src/lawoss-documents.e2e.test.ts`, `apps/server/src/lawoss/documents/service.ts` | MIME prílohy vstupujú do existujúcej PDF/OCR rekurzie s rovnakými tree-wide count/decoded-byte/text/depth rozpočtami. Susedia rezervujú kapacitu pred zostupom; mená sú iba proveniencia, scratch používa UUID. Nepodporované deti zachovajú partial; hash zdroja, attachment hash a PDF čísla strán ostávajú overované. Verejný syntetický smoke prečítal 10/10 EML tiel a 10/10 PDF detí bez zmeny hashov; kvôli pôvodnej PDF/OCR coverage všetkých 20 zostalo partial. Toto nie je dôkaz native UI/modelového úspechu ani právnej správnosti. |
 
+Review doplnenie: EML s prázdnym telom a úplne čitateľnými prílohami môže byť `readable/complete` s nulovým počtom vlastných strán. Rekurzia vracia oddelene úplnosť a čitateľnosť vlastného podstromu: čitateľný potomok pri neúplnom pokrytí znamená `partial`, skutočne prázdny dokument zostáva `failed`; susedné vetvy ani iné originály výsledok nemenia.
+
 ## ISIR native Files navigation (2026-10-16)
 
 | Súbory | Downstream doplnenie a dôvod |
