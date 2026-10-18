@@ -32,6 +32,27 @@ test("folder discovery is bounded, refuses truncation and never visits sibling f
   await expect(discoverDocumentSources({ listWorkspaceDirectory: async path => ({ path, entries: [], truncated: true }) } as any, "target", "case")).rejects.toThrow();
 });
 
+test("native folder discovery selects mixed-case EML and refreshes only its attributed descendants", async () => {
+  const paths = await discoverDocumentSources({ listWorkspaceDirectory: async (workspace, path, options) => {
+    expect(workspace).toBe("target"); expect(options).toEqual({ within: "case" });
+    return { path, enforcedWithin: "case", truncated: false, entries: path === "case" ? [{ kind: "file" as const, name: "message.eml", path: "case/message.eml" }, { kind: "dir" as const, name: "nested", path: "case/nested" }] : [{ kind: "file" as const, name: "forward.EML", path: "case/nested/forward.EML" }] };
+  } }, "target", "case");
+  expect(paths).toEqual(["case/message.eml", "case/nested/forward.EML"]);
+  const records = [{ ...source("mail", paths[0]), pageCount: 0, readablePages: 0 }, source("attachment", paths[0], "mail"), source("forward", paths[1]), source("sibling", "other/message.eml")];
+  const reads: string[] = [];
+  const current = await freshDocumentSources({ readLawossDocument: async (workspace, id) => {
+    expect(workspace).toBe("target"); reads.push(id);
+    return { ...records.find(record => record.id === id)!, text: id === "mail" ? "" : "Synthetic evidence", pages: [], offset: 0, nextOffset: null, untrusted: true };
+  } }, "target", paths, records);
+  expect(reads).toEqual(["mail", "attachment", "forward"]);
+  expect(current.find(record => record.id === "attachment")?.provenance.parentId).toBe("mail");
+  expect(documentCoverage(current, paths)).toEqual({ sources: 3, pages: 4, readablePages: 4, complete: true });
+});
+
+test("an EML folder still refuses an unsupported sibling without returning a partial selection", async () => {
+  await expect(discoverDocumentSources({ listWorkspaceDirectory: async (_workspace, path) => ({ path, enforcedWithin: "case", truncated: false, entries: [{ kind: "file" as const, name: "message.eml", path: "case/message.eml" }, { kind: "file" as const, name: "unsupported.exe", path: "case/unsupported.exe" }] }) }, "target", "case")).rejects.toThrow();
+});
+
 test("edited or stale outputs are never format-verified even with persisted verified bit", () => {
   const output = { verified: true, hash: "a", currentHash: "b", sourceHash: "x", currentSourceHash: "x" };
   expect(documentOutputState(output)).toBe("edited");
