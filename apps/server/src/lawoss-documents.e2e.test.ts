@@ -44,6 +44,39 @@ function email(body: string, attachments: Array<{ name: string; type: string; by
   ].join('\r\n'));
 }
 
+test("attachment-only EML is complete when its nested PDF evidence is readable", () => fixture(async (service, workspace, root) => {
+  const nested = email('Content-Type: text/plain\r\n\r\n', [{ name: "proof.pdf", type: "application/pdf", bytes: await pdf("Synthetic attachment-only evidence") }]);
+  await writeFile(join(root, "attachments-only.eml"), email('Content-Type: text/plain\r\n\r\n', [{ name: "forward.eml", type: "message/rfc822", bytes: nested }]));
+  const [started] = await service.prepare(workspace, ["attachments-only.eml"]); const records = await settled(service, workspace);
+  expect(records).toHaveLength(3); expect(records.every(record => record.complete && record.status === "readable")).toBe(true);
+  const result = await service.read(workspace, started.id);
+  expect(result.pages).toEqual([]); expect(result.text).toBe(""); expect(result.complete).toBe(true); expect(result.issue).toBeUndefined();
+  const container = records.find(record => record.provenance.parentId === started.id)!;
+  expect((await service.read(workspace, container.id)).pages).toEqual([]);
+  const evidence = records.find(record => record.provenance.parentId === container.id)!;
+  expect((await service.read(workspace, evidence.id)).text).toContain("Synthetic attachment-only evidence");
+  expect(evidence.provenance.parentHash).toBe(container.hash);
+}));
+
+test("attachment-only EML partial status uses readable descendants without borrowing siblings or other roots", () => fixture(async (service, workspace, root) => {
+  const emptyBody = 'Content-Type: text/plain\r\n\r\n';
+  const broken = email(emptyBody, [{ name: "unsupported.exe", type: "application/octet-stream", bytes: new Uint8Array([1]) }]);
+  const mixed = email(emptyBody, [{ name: "proof.txt", type: "text/plain", bytes: new TextEncoder().encode("Synthetic descendant evidence") }, { name: "broken.eml", type: "message/rfc822", bytes: broken }]);
+  await writeFile(join(root, "nested-partial.eml"), email(emptyBody, [{ name: "mixed.eml", type: "message/rfc822", bytes: mixed }]));
+  await writeFile(join(root, "empty.eml"), email(emptyBody));
+  await writeFile(join(root, "separate.txt"), "Readable unrelated original");
+  await service.prepare(workspace, ["separate.txt", "nested-partial.eml", "empty.eml"]); const records = await settled(service, workspace);
+  const original = records.find(record => record.path === "nested-partial.eml" && !record.provenance.parentId)!;
+  const container = records.find(record => record.provenance.parentId === original.id)!;
+  expect(original.status).toBe("partial"); expect(original.complete).toBe(false); expect(original.pageCount).toBe(0);
+  expect(container.status).toBe("partial"); expect(container.complete).toBe(false); expect(container.pageCount).toBe(0);
+  const brokenContainer = records.find(record => record.provenance.attachmentName === "broken.eml")!;
+  expect(brokenContainer.status).toBe("failed"); expect(brokenContainer.complete).toBe(false);
+  const empty = records.find(record => record.path === "empty.eml")!;
+  expect(empty.status).toBe("failed"); expect(empty.complete).toBe(false); expect(empty.readablePages).toBe(0);
+  expect((await service.read(workspace, container.id)).issue).toContain("attachments");
+}));
+
 // Removing MIME extraction/decoded attachment recursion must fail this boundary.
 test("EML decodes plain alternative and attributed PDF portfolio descendants without filename writes", () => fixture(async (service, workspace, root) => {
   const portfolio = await PDFDocument.load(await pdf("Synthetic attachment cover"));

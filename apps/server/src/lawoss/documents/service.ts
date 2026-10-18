@@ -151,12 +151,11 @@ export class LawossDocuments {
       scratch = join(directory, `scratch-${id}`); await mkdir(scratch, { mode: 0o700 });
       const record = (await this.lock(() => this.records(workspace))).find(record => record.id === id)!;
       const budget = { count: 0, bytes: 0, text: 0 };
-      const complete = await this.extract(workspace, record, source.bytes, source.extension, scratch, signal, budget, new Set());
+      const result = await this.extract(workspace, record, source.bytes, source.extension, scratch, signal, budget, new Set());
       const current = await this.source(workspace, source.path);
       if (current.hash !== source.hash) throw new Error("Source changed during preparation; retry.");
       signal.throwIfAborted();
-      const final = (await this.lock(() => this.records(workspace))).find(item => item.id === id)!;
-      await this.update(workspace, id, { status: complete ? "readable" : final.pages.some(page => page.text.trim()) ? "partial" : "failed", complete });
+      await this.update(workspace, id, { status: result.complete ? "readable" : result.readable ? "partial" : "failed", complete: result.complete });
     } catch (error) {
       await this.lock(async () => {
         const records = await this.records(workspace), descendants = new Set([id]);
@@ -166,20 +165,23 @@ export class LawossDocuments {
       });
     } finally { if (scratch) await rm(scratch, { recursive: true, force: true }); }
   }
-  private async extract(workspace: WorkspaceInfo, record: DocumentRecord, bytes: Uint8Array, extension: string, scratch: string, signal: AbortSignal, budget: { count: number; bytes: number; text: number }, ancestors: Set<string>): Promise<boolean> {
+  private async extract(workspace: WorkspaceInfo, record: DocumentRecord, bytes: Uint8Array, extension: string, scratch: string, signal: AbortSignal, budget: { count: number; bytes: number; text: number }, ancestors: Set<string>): Promise<{ complete: boolean; readable: boolean }> {
     signal.throwIfAborted();
-    if (ancestors.has(record.hash)) { await this.update(workspace, record.id, { status: "failed", issue: "Cyclic attachment content.", complete: false }); return false; }
+    if (ancestors.has(record.hash)) { await this.update(workspace, record.id, { status: "failed", issue: "Cyclic attachment content.", complete: false }); return { complete: false, readable: false }; }
     const seen = new Set(ancestors); seen.add(record.hash);
-    if (!CORPUS_EXTENSIONS.has(extension)) { await this.update(workspace, record.id, { status: "failed", issue: "Unsupported attachment or document format.", complete: false }); return false; }
+    if (!CORPUS_EXTENSIONS.has(extension)) { await this.update(workspace, record.id, { status: "failed", issue: "Unsupported attachment or document format.", complete: false }); return { complete: false, readable: false }; }
     const file = `${record.id}${extension}`; await writeFile(join(scratch, file), bytes, { flag: "wx", mode: 0o600 });
     let result;
     try { result = await extractCorpusText(scratch, file, this.preparation, signal, { retry: true, attachments: true }); }
-    catch (error) { signal.throwIfAborted(); await this.update(workspace, record.id, { status: "failed", issue: error instanceof Error ? error.message : "Extraction failed.", complete: false }); return false; }
+    catch (error) { signal.throwIfAborted(); await this.update(workspace, record.id, { status: "failed", issue: error instanceof Error ? error.message : "Extraction failed.", complete: false }); return { complete: false, readable: false }; }
     budget.text += result.text.length;
     if (budget.text > LIMIT.text) {
-      await this.update(workspace, record.id, { status: "failed", complete: false, issue: "Portfolio text exceeds 2 million characters; narrow the source." }); return false;
+      await this.update(workspace, record.id, { status: "failed", complete: false, issue: "Portfolio text exceeds 2 million characters; narrow the source." }); return { complete: false, readable: false };
     }
-    let complete = result.attachments ? !!result.text.trim() && result.pages.every(page => page.status === "complete") : result.complete;
+    let readable = !!result.text.trim();
+    // Empty MIME bodies are valid containers when attachments supply evidence.
+    // Readability is accumulated only from this node's own recursive children.
+    let complete = result.attachments ? (readable || result.attachments.length > 0) && result.pages.every(page => page.status === "complete") : result.complete;
     let issue = result.attachments?.length && complete ? undefined : result.issue;
     await this.update(workspace, record.id, { pages: result.pages.map(({ page, text, source, status }) => ({ page, text, source, status })), extraction: result.extraction, pdfCoverage: result.pdfCoverage, ownComplete: complete });
     let attachmentCoverageComplete = true;
@@ -198,12 +200,14 @@ export class LawossDocuments {
           if (record.provenance.depth >= LIMIT.depth) throw new Error("Document attachment nesting exceeds 3 levels.");
           const child: DocumentRecord = { id: randomUUID(), workspaceId: workspace.id, path: record.path, hash: hash(attachment.bytes), status: "preparing", pages: [], complete: false, updatedAt: Date.now(), provenance: { sourcePath: record.provenance.sourcePath, parentId: record.id, parentHash: record.hash, attachmentName: attachment.name.slice(0, 4096), depth: record.provenance.depth + 1 } };
           await this.lock(async () => { const records = await this.records(workspace); if (records.length >= LIMIT.records) throw new Error("Document record limit reached."); records.push(child); await this.save(workspace, records); });
-          if (!await this.extract(workspace, child, attachment.bytes, attachment.extension ?? extname(attachment.name).toLowerCase(), scratch, signal, budget, seen)) { complete = false; issue = "Some document attachments are unreadable or incomplete."; }
+          const extracted = await this.extract(workspace, child, attachment.bytes, attachment.extension ?? extname(attachment.name).toLowerCase(), scratch, signal, budget, seen);
+          readable ||= extracted.readable;
+          if (!extracted.complete) { complete = false; issue = "Some document attachments are unreadable or incomplete."; }
         }
       } catch (error) { signal.throwIfAborted(); complete = false; attachmentCoverageComplete = false; issue = error instanceof Error ? error.message : "Portfolio discovery failed."; }
     }
     signal.throwIfAborted();
-    await this.update(workspace, record.id, { status: record.provenance.depth === 0 ? "preparing" : complete ? "readable" : result.text.trim() ? "partial" : "failed", complete: record.provenance.depth === 0 ? false : complete, attachmentCoverageComplete, issue }); return complete;
+    await this.update(workspace, record.id, { status: record.provenance.depth === 0 ? "preparing" : complete ? "readable" : readable ? "partial" : "failed", complete: record.provenance.depth === 0 ? false : complete, attachmentCoverageComplete, issue }); return { complete, readable };
   }
   async read(workspace: WorkspaceInfo, id: string, offset = 0, limit = LIMIT.read): Promise<DocumentRead> {
     z.string().uuid().parse(id); z.number().int().nonnegative().parse(offset); z.number().int().min(1).max(LIMIT.read).parse(limit);
