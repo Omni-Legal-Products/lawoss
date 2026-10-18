@@ -80,13 +80,13 @@ describe("boční panel LAWOSS-lite", () => {
     expect(nav).not.toContain("data-lawoss-lite-nav");
     expect(html(<LawossLayout><p>obsah</p></LawossLayout>)).toContain("lw-experiment-nav");
   });
-  test("přepínač režimu: obě volby jako tlačítka, aktivní aria-pressed", () => {
-    const out = html(<UiModeSwitchView mode="lite" onChange={() => {}} />);
-    expect(out).toContain("Simple");
-    expect(out).toContain("Advanced");
-    expect(out).toMatch(/<button[^>]*aria-pressed="true"[^>]*>Simple<\/button>/);
-    expect(out).toMatch(/<button[^>]*aria-pressed="false"[^>]*>Advanced<\/button>/);
-    expect(out).toContain("Same data in both modes");
+  test("prepínač Pokročilé: jeden spínač, bežná appka bez nálepky Simple/Lite (MČ 16. 10. 2026)", () => {
+    const off = html(<UiModeSwitchView mode="lite" onChange={() => {}} />);
+    expect(off).toContain("Advanced");
+    expect(off).not.toMatch(/Simple|Lite/);
+    expect(off).toMatch(/role="switch"[^>]*aria-checked="false"|aria-checked="false"[^>]*role="switch"/);
+    expect(off).toContain("Your data stay the same");
+    expect(html(<UiModeSwitchView mode="pro" onChange={() => {}} />)).toMatch(/role="switch"[^>]*aria-checked="true"|aria-checked="true"[^>]*role="switch"/);
   });
 });
 
