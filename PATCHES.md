@@ -976,3 +976,10 @@ Zachované obe histórie a celý nezmenený samostatný SDK/dependency helper; r
 | Súbory | Oprava a overenie |
 |---|---|
 | `scripts/test-isir-native.mjs`, `apps/app/tests/chooser-boundary.fixture.tsx`, `lawoss/testing/isir/native/import-boundary.browser.mjs` | Po skutočnom fddcc CI páde pri case1 nový guard číta desktop HashRouter a skutočný committed control snapshot, nie browser pathname. Pôvodné IDs zahŕňajú public openFiles aj odpojených DocumentPane portalov. Mounted regresia používa skutočný SessionPage import event, SidePanel, runtime-env a control provider; pôvodný modeled callback už nie je acceptance oracle. Strict owner/input/new-tab/bytes odmietnutia a pôvodné rozpočty zostávajú. Normálny native CI nového headu ostáva povinný. |
+
+### Session-group synchronization lifetime (2026-10-18)
+
+| Súbory | Oprava a dôkaz |
+|---|---|
+| `apps/app/src/react-app/shell/use-session-group-sync.ts`, `apps/app/src/react-app/shell/session-group-sync-controller.ts` | Jediný životný cyklus vlastní initial sync, polling, cursory a backoff naprieč metadata rendermi. Nedostupný root čaká na existujúcu akciu reconnect alebo zmenu root/capability; žiadny projekt sa nemaže. Generačné kontroly odmietnu oneskorené odpovede; reconnect počas pending čítania sa zopakuje až po uvoľnení vlastníka. |
+| `apps/app/tests/session-group-sync-controller.test.ts`, `apps/app/tests/session-group-sync.fixture.tsx`, `apps/app/tests/fixtures/session-group-sync.html` | Jednotkové interleaving/fake-clock regresie a skutočne mounted React hook s existujúcim HTTP klientom v izolovanom Chromiu. Tridsať minút je simulovaný čas, nie 30-minútový wall-clock Electron test; sedem nedostupných projektov vyvolá sedem vlastných warnings, dostupný ďalej polluje. |
