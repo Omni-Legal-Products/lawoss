@@ -12,14 +12,30 @@ function generateButtonAttributes(html: string) {
   expect(button).toBeDefined();
   return button![1];
 }
-function render(records: FreshDocument[], baseUrl = "http://fixture") {
-  const client = createLegalworkServerClient({ baseUrl });
+function render(records: FreshDocument[], baseUrl = "http://fixture", hostToken?: string) {
+  const client = createLegalworkServerClient({ baseUrl, hostToken });
   const queryClient = new QueryClient();
   const identity = [baseUrl, documentClientIdentity(client), "selected", "/root"];
   queryClient.setQueryData(["lawoss-documents", ...identity, [source.path], "files"], records);
   queryClient.setQueryData(["lawoss-document-outputs", ...identity, ["source"], "files"], [{ path: "report.md", kind: "summary", sourceKind: "workspace", outputLanguage: "en", documentIds: ["source"], hash: "a", currentHash: "b", sourceHash: "x", currentSourceHash: "x", verified: true, legalApproval: false }]);
   return renderToStaticMarkup(<QueryClientProvider client={queryClient}><DocumentProcessingPanel client={client} workspaceId="selected" projectId="app-selected" workspaceRoot="/root" folder="" selectedPaths={[source.path]} onSelectPaths={() => {}} fileVersion="files" active={false} isRemote={false} onGenerate={async () => "session"} /></QueryClientProvider>);
 }
+
+test("native source panel separates text coverage from visual attestation and requires host confirmation", () => {
+  const pending: FreshDocument = { ...source, pdfCoverage: [{ page: 1, nativeTextCoverage: "complete", visualReasons: ["drawn-paths"] }] };
+  const owner = render([pending]);
+  expect(owner).toContain(t("documents.visual_host_required"));
+  expect(owner).not.toContain('type="checkbox"');
+  const host = render([pending], "http://fixture", "synthetic-host");
+  expect(host).toContain(t("documents.visual_confirm")); expect(host).toContain('type="checkbox"');
+  expect(host).toContain(t("documents.visual_review"));
+  const submit = [...host.matchAll(/<button\b([^>]*)>(.*?)<\/button>/gs)].find(button => button[2].includes(t("documents.visual_review")));
+  expect(submit?.[1]).toMatch(/disabled/);
+  const unknown = render([{ ...pending, pdfCoverage: [{ page: 1, nativeTextCoverage: "complete", visualReasons: ["images", "drawn-paths"] }] }], "http://fixture", "synthetic-host");
+  expect(unknown).toContain(t("documents.visual_other_content")); expect(unknown).not.toContain('type="checkbox"');
+  const child = render([{ ...pending, provenance: { ...pending.provenance, parentId: "container", attachmentName: "embedded.pdf" } }], "http://fixture", "synthetic-host");
+  expect(child).toContain(t("documents.visual_attachment_required")); expect(child).not.toContain('type="checkbox"');
+});
 
 test("React source UI escapes original names, shows incomplete OCR and never treats edited output as verified", () => {
   const html = render([source]);
