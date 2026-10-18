@@ -976,3 +976,12 @@ Zachované obe histórie a celý nezmenený samostatný SDK/dependency helper; r
 | Súbory | Oprava a overenie |
 |---|---|
 | `scripts/test-isir-native.mjs`, `apps/app/tests/chooser-boundary.fixture.tsx`, `lawoss/testing/isir/native/import-boundary.browser.mjs` | Po skutočnom fddcc CI páde pri case1 nový guard číta desktop HashRouter a skutočný committed control snapshot, nie browser pathname. Pôvodné IDs zahŕňajú public openFiles aj odpojených DocumentPane portalov. Mounted regresia používa skutočný SessionPage import event, SidePanel, runtime-env a control provider; pôvodný modeled callback už nie je acceptance oracle. Strict owner/input/new-tab/bytes odmietnutia a pôvodné rozpočty zostávajú. Normálny native CI nového headu ostáva povinný. |
+
+## Portable OKF reader / Obsidian (2026-10-18)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/lawoss/okf/read-model.ts`, `view-rules.ts` | Jednokoreňové čítanie, čas a pravidlá pohľadov sa importujú z `lawoss/okf-reader`; serverový adaptér a React hooks ostávajú v appke. Obsidian aj appka používajú tú istú doménovú logiku bez importu write-capable barrelov. Pri upstream synci zachovať tento malý hostiteľský adaptér, nie kopírovať logiku späť. |
+| `.github/workflows/ci-okf-reader.yml` | Prenositeľné reader testy, parita a browser build na Linux/macOS/Windows. |
+
+Pri dopĺňaní lockfile sa rovnakému oficiálnemu tarballu `xlsx@0.20.3` doplnil chýbajúci SHA-512 integrity údaj; pnpm 11 bez neho odmietal nové resolution/full install. Verzia a URL ostávajú rovnaké.

@@ -1,0 +1,6 @@
+{
+  "name": "@lawoss/okf-reader", "version": "0.1.0", "private": true, "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "bun test test/", "typecheck": "tsc -p tsconfig.json --noEmit" },
+  "devDependencies": { "typescript": "^5.9.2" }
+}
