@@ -5120,6 +5120,7 @@ export default {
   "documents.open_original": "Otvoriť pôvodný dokument",
   "documents.visual_host_required": "Vizuálnu kontrolu možno potvrdiť iba v pripojení overenom ako hostiteľ. Samotný prístup vlastníka alebo zdieľaný prístup nestačí.",
   "documents.visual_other_content": "Obrázky, anotácie alebo chýbajúci text vyžadujú ďalšiu prípravu a kontrolu; potvrdenie dekoratívnych čiar ich nevyrieši.",
+  "documents.visual_open_required": "Pred potvrdením tu otvorte originál a počkajte na overenie zhody zobrazenej verzie.",
   "documents.visual_confirm": "Prezrel(a) som každú uvedenú stranu tohto presného originálu. Všetky kreslené prvky sú dekoratívne čiary; v extrahovanom texte nechýba rukopis, podpis ani iný dôkaz.",
   "documents.visual_review": "Potvrdiť kontrolu dekoratívnych čiar",
   "documents.visual_reviewed": "Vizuálnu kontrolu zaznamenal overený hostiteľ dňa {date}.",

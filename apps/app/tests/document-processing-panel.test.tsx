@@ -28,6 +28,8 @@ test("native source panel separates text coverage from visual attestation and re
   expect(owner).not.toContain('type="checkbox"');
   const host = render([pending], "http://fixture", "synthetic-host");
   expect(host).toContain(t("documents.visual_confirm")); expect(host).toContain('type="checkbox"');
+  expect(host).toContain(t("documents.visual_open_required"));
+  expect(host.match(/<input\b[^>]*type="checkbox"[^>]*>/)?.[0]).toMatch(/disabled/);
   expect(host).toContain(t("documents.visual_review"));
   const submit = [...host.matchAll(/<button\b([^>]*)>(.*?)<\/button>/gs)].find(button => button[2].includes(t("documents.visual_review")));
   expect(submit?.[1]).toMatch(/disabled/);

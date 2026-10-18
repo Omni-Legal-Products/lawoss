@@ -133,3 +133,28 @@ test("decorative review preserves native and OCR text and resolves parent covera
     expect(after.pages.some(page => page.source === "ocr" && page.text.includes("recognized evidence"))).toBe(true);
   } finally { await service.stop(); preparation.stop(); ocr.stop(); await rm(root, { recursive: true, force: true }); }
 }, 15000);
+
+test("review of a readable child keeps a bodyless email partial when a sibling remains unsupported", async () => {
+  const { DocumentPreparation } = await import("./document-preparation/service.js");
+  const { LawossDocuments } = await import("./lawoss/documents/service.js");
+  const { OcrManager } = await import("./ocr/manager.js");
+  const root = await mkdtemp(join(tmpdir(), "lawoss-visual-subtree-"));
+  const workspace: import("./types.js").WorkspaceInfo = { id: "visual", path: root, name: "Synthetic", preset: "starter", workspaceType: "local" };
+  const ocr = new OcrManager(join(root, "runtime")), preparation = new DocumentPreparation(ocr);
+  const service = new LawossDocuments({ configPath: join(root, "config.json") }, preparation);
+  try {
+    const pdf = await PDFDocument.create(), page = pdf.addPage();
+    page.drawText("Synthetic child evidence with decorative border."); page.drawRectangle({ x: 10, y: 10, width: 100, height: 100, borderWidth: 1 });
+    await writeFile(join(root, "mail.eml"), ['MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="synthetic"', '', '--synthetic', 'Content-Type: application/pdf', 'Content-Disposition: attachment; filename="evidence.pdf"', 'Content-Transfer-Encoding: base64', '', Buffer.from(await pdf.save()).toString("base64"), '--synthetic', 'Content-Type: application/octet-stream', 'Content-Disposition: attachment; filename="unknown.bin"', 'Content-Transfer-Encoding: base64', '', 'AQID', '--synthetic--', ''].join("\r\n"));
+    await service.prepare(workspace, ["mail.eml"]);
+    let records: DocumentSummary[] = [];
+    for (let i = 0; i < 300; i++) { records = await service.list(workspace); if (records.length === 3 && records.every(record => !["uploaded", "preparing"].includes(record.status))) break; await new Promise(resolve => setTimeout(resolve, 10)); }
+    const parent = records.find(record => !record.provenance.parentId)!, child = records.find(record => record.provenance.attachmentName === "evidence.pdf")!, unsupported = records.find(record => record.provenance.attachmentName === "unknown.bin")!;
+    expect(parent.status).toBe("partial"); expect(unsupported.status).toBe("failed");
+    await service.reviewDecorativePages(workspace, child.id, { expectedHash: child.hash, expectedUpdatedAt: child.updatedAt, pages: [1], confirmation: "decorative-only" });
+    const after = await service.read(workspace, parent.id);
+    expect(after.status).toBe("partial"); expect(after.complete).toBe(false);
+    expect((await service.read(workspace, child.id)).text).toContain("Synthetic child evidence");
+    expect((await service.list(workspace)).find(record => record.id === unsupported.id)?.status).toBe("failed");
+  } finally { await service.stop(); preparation.stop(); ocr.stop(); await rm(root, { recursive: true, force: true }); }
+}, 15000);

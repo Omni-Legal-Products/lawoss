@@ -5119,6 +5119,7 @@ export default {
   "documents.open_original": "Otevřít původní dokument",
   "documents.visual_host_required": "Vizuální kontrolu lze potvrdit pouze v připojení ověřeném jako hostitel. Samotný přístup vlastníka nebo sdílený přístup nestačí.",
   "documents.visual_other_content": "Obrázky, anotace nebo chybějící text vyžadují další přípravu a kontrolu; potvrzení dekorativních čar je nevyřeší.",
+  "documents.visual_open_required": "Před potvrzením zde otevřete originál a vyčkejte na ověření shody zobrazené verze.",
   "documents.visual_confirm": "Prohlédl(a) jsem každou uvedenou stranu tohoto přesného originálu. Všechny kreslené prvky jsou dekorativní čáry; v extrahovaném textu nechybí rukopis, podpis ani jiný důkaz.",
   "documents.visual_review": "Potvrdit kontrolu dekorativních čar",
   "documents.visual_reviewed": "Vizuální kontrolu zaznamenal ověřený hostitel dne {date}.",

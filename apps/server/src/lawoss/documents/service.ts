@@ -22,6 +22,17 @@ function originalRecord(records: DocumentRecord[], record: DocumentRecord): Docu
   }
   return record;
 }
+function readableSubtree(records: DocumentRecord[], record: DocumentRecord): boolean {
+  const pending = [record], seen = new Set<string>();
+  while (pending.length) {
+    const current = pending.pop()!;
+    if (seen.has(current.id)) continue;
+    seen.add(current.id);
+    if (current.pages.some(page => page.text.trim())) return true;
+    pending.push(...records.filter(child => child.provenance.parentId === current.id));
+  }
+  return false;
+}
 /** One serialized worker bounds PDF rendering, OCR and portfolio expansion across workspaces. */
 export class LawossDocuments {
   private pending: Promise<unknown> = Promise.resolve();
@@ -252,7 +263,7 @@ export class LawossDocuments {
       let current: DocumentRecord | undefined = record;
       while (current) {
         current.complete = (current.ownComplete ?? current.complete) && current.attachmentCoverageComplete === true && records.filter(child => child.provenance.parentId === current!.id).every(child => child.complete);
-        current.status = current.complete ? "readable" : current.pages.some(page => page.text.trim()) ? "partial" : "failed";
+        current.status = current.complete ? "readable" : readableSubtree(records, current) ? "partial" : "failed";
         current.issue = current.complete ? undefined : "Some document attachments are unreadable or incomplete.";
         current.updatedAt = Math.max(Date.now(), current.updatedAt + 1);
         current = records.find(parent => parent.id === current!.provenance.parentId);

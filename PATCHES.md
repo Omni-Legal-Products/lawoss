@@ -1027,3 +1027,12 @@ Approved repair scope: scenario repair plan; coordination proposal remains [PR #
 LAWOSS service/types/route additions remain under their existing document workflow. Host-only review cannot clear images, annotations, missing text, failed attachment discovery or unreviewed descendants. No source bytes or raw preparation evidence are edited.
 
 Native embedded-child review controls stay blocked until the viewer opens the exact decoded child bytes; a parent cover/email is not sufficient visual evidence. The source-container open action is labeled separately.
+
+### 2026-10-18 — exact displayed PDF source before attestation
+
+| Upstream files | Focused hook / regression contract |
+|---|---|
+| `apps/app/src/react-app/domains/session/artifacts/{artifact-panel,preview}.tsx` | Existing persistent PDF owner accepts an explicit fresh download into its exact binary query; immutable blob SHA and actual visible iframe load acknowledge the review-open request. Ordinary persistence, ownership and tab identity remain intact. |
+| `apps/app/src/react-app/domains/session/panel/{document-processing-panel,document-visual-review}.tsx`, locale files, `apps/app/tests/document-processing-panel.test.tsx` | Confirmation remains disabled until the matching loaded-viewer receipt; changed/replayed bytes retract/refuse it. Translation reasons use literal audited keys. |
+
+New focused viewer hook/source registry and mounted regression reuse existing native panels and owned browser lifecycle. Public synthetic screenshots and boundary notes: `lawoss/testing/evidence/pdf-visual-review/`. The merged EML subtree-readable contract is also preserved when review recomputes ancestor status; unsupported siblings still prevent completeness.

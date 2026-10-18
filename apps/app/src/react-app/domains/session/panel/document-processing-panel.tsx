@@ -1,5 +1,6 @@
 import { documentExecutionDirectory } from "./native-document-preflight";
 import { DocumentVisualReview } from "./document-visual-review";
+import { openDocumentVisualSource } from "./document-visual-source";
 import { documentGenerationKey, getDocumentGeneration, isDocumentGenerationActive, reconcileDocumentGeneration, readDocumentGenerationSnapshot, isDocumentGenerationSnapshotCurrent, subscribeDocumentGenerations } from "./document-generation-lifecycle";
 /** @jsxImportSource react */
 import * as React from "react";
@@ -205,7 +206,10 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
       <p>{sourceStatusLabel(record)} · {readsCurrent && record.freshness === "current" ? record.readablePages : 0}/{record.pageCount}</p>
       {record.issue ? <p className="break-words text-muted-foreground">{record.issue}</p> : null}
       {record.freshness === "current" ? <DocumentVisualReview key={`${record.id}:${record.hash}:${record.updatedAt}`} record={record} host={props.client.canReviewDocumentVisuals}
-        disabled={busy || !current} onOpen={props.onOpenSource ? () => props.onOpenSource!(record.provenance.sourcePath) : undefined}
+        source={{ client: props.client, workspaceId: props.workspaceId, path: record.provenance.sourcePath }} disabled={busy || !current} onOpen={props.onOpenSource ? () => void action(async () => {
+          if (record.provenance.parentId) { props.onOpenSource!(record.provenance.sourcePath); return; }
+          await openDocumentVisualSource({ client: props.client, workspaceId: props.workspaceId, path: record.provenance.sourcePath }, record.hash, () => props.onOpenSource!(record.provenance.sourcePath));
+        }) : undefined}
         onReview={pages => void action(async () => {
           await props.client.reviewLawossDocumentVisuals(props.workspaceId, record.id, { expectedHash: record.hash, expectedUpdatedAt: record.updatedAt, pages, confirmation: "decorative-only" });
         })} /> : null}

@@ -6899,6 +6899,7 @@ const de = {
   "documents.open_original": "Originaldokument öffnen",
   "documents.visual_host_required": "Die visuelle Bestätigung erfordert eine als Host authentifizierte Verbindung. Eigentümer- oder Freigabezugriff allein genügt nicht.",
   "documents.visual_other_content": "Bilder, Anmerkungen oder fehlender Text erfordern weitere Aufbereitung und Prüfung; die Bestätigung dekorativer Linien kann sie nicht klären.",
+  "documents.visual_open_required": "Öffnen Sie hier das Original und warten Sie vor der Bestätigung auf die Prüfung der angezeigten Version.",
   "documents.visual_confirm": "Ich habe jede aufgeführte Seite dieses exakten Originals geprüft. Alle gezeichneten Elemente sind dekorative Linien; im extrahierten Text fehlen weder Handschrift noch Unterschrift oder andere Belege.",
   "documents.visual_review": "Prüfung dekorativer Linien bestätigen",
   "documents.visual_reviewed": "Visuelle Prüfung durch den authentifizierten Host am {date} erfasst.",

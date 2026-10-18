@@ -7,6 +7,7 @@ import { useDocumentControlSessions } from "../../../shell/control/document-cont
 import { ProjectFilePanel } from "../../workspace/project-file-panel";
 import { keepHandoffCopy } from "./document-handoff-copy";
 import { binaryMatchesStat, retainBinaryContent } from "./binary-content";
+import { usePdfVisualSource } from "./use-pdf-visual-source";
 import { flushSync } from "react-dom";
 /** @jsxImportSource react */
 import { type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -386,6 +387,14 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   }, [access.status, localReadOnly, refetch]);
   const binaryContent = data?.kind === "binary" ? data.data : null;
   const binaryContentType = data?.kind === "binary" ? data.contentType : null;
+  const visualSource = usePdfVisualSource({ client, workspaceId, path: target.value, enabled: target.preview === "pdf", refresh: async accept => {
+    const result = await client.downloadWorkspaceFile(workspaceId, target.value);
+    if (!accept(result.data)) return;
+    queryClient.setQueryData<ArtifactQueryState>(["artifact-panel", workspaceId, target.id, client.baseUrl, runtimeEntry?.generation], {
+      kind: "binary", data: result.data, contentType: result.contentType, downloadedUpdatedAt: result.updatedAt,
+      updatedAt: result.updatedAt ?? null, revision: nextBinaryRevision(result.updatedAt ?? null),
+    });
+  } });
 
   useEffect(() => {
     if (!isBinaryEditor || data?.kind !== "binary") return;
@@ -402,12 +411,14 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
     // Force application/pdf for PDF targets so the browser renders it inline
     // instead of treating an octet-stream blob as a download.
     const blobType = target.preview === "pdf" ? "application/pdf" : binaryContentType ?? "application/octet-stream";
-    const url = URL.createObjectURL(new Blob([binaryContent], { type: blobType }));
+    const blob = new Blob([binaryContent], { type: blobType });
+    const url = URL.createObjectURL(blob);
+    if (target.preview === "pdf") visualSource.prepared(url, blob, binaryContent);
 
     setBinaryObjectUrl(url);
 
-    return () => URL.revokeObjectURL(url);
-  }, [binaryContent, binaryContentType, target.preview]);
+    return () => { visualSource.cleared(url); URL.revokeObjectURL(url); };
+  }, [binaryContent, binaryContentType, target.preview, visualSource.prepared, visualSource.cleared]);
 
   useEffect(() => {
     setEditing(false);
@@ -912,7 +923,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         ) : target.preview === "image" && data?.kind === "binary" && binaryObjectUrl ? (
           <ImagePreview src={binaryObjectUrl} alt={target.name} />
         ) : target.preview === "pdf" && data?.kind === "binary" && binaryObjectUrl ? (
-          <PdfPreview apiRef={pdfApi} url={sourcePage ? `${binaryObjectUrl}#page=${sourcePage}` : binaryObjectUrl} title={target.name} />
+          <PdfPreview apiRef={pdfApi} url={sourcePage ? `${binaryObjectUrl}#page=${sourcePage}` : binaryObjectUrl} title={target.name} onLoad={(url, frame) => visualSource.loaded(url.split("#")[0], frame)} />
         ) : data?.kind === "binary" && binaryObjectUrl && target.preview === "html" ? (
           <HTMLPreview type="binary" title={target.name} url={binaryObjectUrl} />
         ) : data?.kind === "text" ? (
