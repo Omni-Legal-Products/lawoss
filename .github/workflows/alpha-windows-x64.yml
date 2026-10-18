@@ -1,10 +1,11 @@
-name: Alpha Channel (Windows x64)
+name: Alpha Channel (Windows x64 + ARM64)
 
-# 🟡 LAWOSS: ručne spúšťaný (záložka Actions) build alfy LAWOSS pre Windows x64.
+# 🟡 LAWOSS: ručne spúšťaný (záložka Actions) build alfy LAWOSS pre Windows x64 a ARM64.
 #
-# Podľa alpha-macos-aarch64.yml: beh s `publish` vydá vlastný prerelease
-# `alpha-windows-v<základ>-alpha.<beh>-<sha>` s inštalátorom a posunie manifest
-# `latest.yml` na pevnom release `alpha-windows-latest`, z ktorého číta updater.
+# Podľa alpha-macos-aarch64.yml: beh s `publish` vydá pre každú architektúru
+# vlastný prerelease `alpha-windows-<arch>-v<základ>-alpha.<beh>-<sha>` s
+# inštalátorom a posunie manifest na pevnom release `alpha-windows-latest`, z
+# ktorého číta updater (`latest.yml` pre x64, `latest-arm64.yml` pre ARM64).
 # Staršie alfy ostávajú dostupné. Build a podpis cez SignPath zodpovedajú
 # stabilnému kanálu (.github/workflows/release-macos-aarch64.yml).
 #
@@ -30,6 +31,9 @@ name: Alpha Channel (Windows x64)
 # stiahne ktokoľvek prihlásený na GitHube, preto je táto voľba len pre podpísaný
 # build; nepodpísaný beh s `publish: false` hneď na začiatku skončí.
 #
+# Upstream vstup `signing_test` (testovací podpis cez SignPath projekt
+# LegalWorku) sa nepreberá; podpísaný build bez releasu dáva `publish: false`.
+#
 # Pozri:
 #   - .github/workflows/alpha-macos-aarch64.yml (alfa pre macOS)
 #   - .github/workflows/release-macos-aarch64.yml (stabilný kanál)
@@ -39,6 +43,10 @@ on:
   # Len ručne, zo záložky Actions.
   workflow_dispatch:
     inputs:
+      sandbox_tests:
+        description: Run sandbox validation tests (adds build time)
+        type: boolean
+        default: false
       base_version:
         description: "LAWOSS: alpha base X.Y.Z, e.g. 0.2.1 (overrides vars.LAWOSS_ALPHA_BASE_VERSION; empty = next patch after the latest v* tag)"
         required: false
@@ -61,7 +69,8 @@ on:
 
 permissions:
   contents: write
-  # 🟡 LAWOSS: zmazanie nepodpísaného medzistupňa pre SignPath po podpise.
+  # 🟡 LAWOSS: zmazanie nepodpísaného medzistupňa pre SignPath po podpise
+  # (zahŕňa aj upstream `actions: read` pre stiahnutie sandbox runtime).
   actions: write
 
 # 🟡 LAWOSS: všetky behy s `publish` zdieľajú jednu skupinu bez ohľadu na vetvu,
@@ -75,24 +84,20 @@ concurrency:
   cancel-in-progress: ${{ !inputs.publish }}
 
 jobs:
-  publish-alpha-windows-x64:
-    name: Build + Publish alpha (x86_64-pc-windows-msvc)
-    runs-on: windows-2022
-    timeout-minutes: 180
-
+  # 🟡 LAWOSS: rozhodnutie Q06/U6, nepodpísaný build len pre interný tím a s
+  # výslovným varovaním. Samostatný job pred sandbox runtime a buildom, aby beh
+  # bez SignPath skončil skôr, než sa hodinu stavia. Výstupy `signed` a `draft`
+  # čítajú kroky releasu; nepodpísaný build je vždy koncept a nikdy neposunie ukazovateľ.
+  signing:
+    name: Require SignPath or an explicit unsigned internal build
+    runs-on: ubuntu-latest
+    outputs:
+      signed: ${{ steps.signing.outputs.signed }}
+      draft: ${{ steps.signing.outputs.draft }}
     env:
-      ALPHA_RELEASE_TAG: alpha-windows-latest
-      ALPHA_RELEASE_NAME: LAWOSS Alpha (Windows x64)
-      SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID || vars.SIGNPATH_ORGANIZATION_ID }}
       SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG || vars.SIGNPATH_PROJECT_SLUG }}
-      SIGNPATH_SIGNING_POLICY_SLUG: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG || vars.SIGNPATH_SIGNING_POLICY_SLUG }}
       SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ secrets.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG || vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
-
     steps:
-      # 🟡 LAWOSS: rozhodnutie Q06/U6 — nepodpísaný build len pre interný tím a s
-      # výslovným varovaním. Beží pred checkoutom, aby beh bez SignPath skončil
-      # skôr, než sa hodinu stavia. Výstupy `signed` a `draft` čítajú kroky
-      # releasu; nepodpísaný build je vždy koncept a nikdy neposunie ukazovateľ.
       - name: Require SignPath or an explicit unsigned internal build
         id: signing
         shell: bash
@@ -130,6 +135,47 @@ jobs:
           echo "signed=false" >> "$GITHUB_OUTPUT"
           echo "draft=true" >> "$GITHUB_OUTPUT"
 
+  sandbox-runtime:
+    needs: signing
+    uses: ./.github/workflows/sandbox-runtime.yml
+    with:
+      targets: win32-x64,win32-arm64
+      run_tests: ${{ inputs.sandbox_tests }}
+
+  publish-alpha-windows:
+    needs: [signing, sandbox-runtime]
+    name: Build + Publish alpha (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            arch: x64
+            target: x86_64-pc-windows-msvc
+            manifest: latest.yml
+            unpacked: win-unpacked
+          # LAWOSS: ARM64 runner je pre verejné repo bez príplatku.
+          - os: windows-11-arm
+            arch: arm64
+            target: aarch64-pc-windows-msvc
+            manifest: latest-arm64.yml
+            unpacked: win-arm64-unpacked
+    timeout-minutes: 180
+
+    env:
+      ALPHA_RELEASE_TAG: alpha-windows-latest
+      ALPHA_RELEASE_NAME: LAWOSS Alpha (Windows)
+      ALPHA_ARCH: ${{ matrix.arch }}
+      UPDATER_MANIFEST: ${{ matrix.manifest }}
+      SIGNED: ${{ needs.signing.outputs.signed }}
+      DRAFT: ${{ needs.signing.outputs.draft }}
+      SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID || vars.SIGNPATH_ORGANIZATION_ID }}
+      SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG || vars.SIGNPATH_PROJECT_SLUG }}
+      SIGNPATH_SIGNING_POLICY_SLUG: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG || vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+      SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ secrets.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG || vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+
+    steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -137,6 +183,14 @@ jobs:
           # Full history so `git describe` can find the latest v* release tag —
           # alpha versions are derived from it (package.json is a placeholder).
           fetch-depth: 0
+
+      - name: Validate SignPath configuration (Windows)
+        if: (env.SIGNPATH_PROJECT_SLUG != '' || env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG != '')
+        shell: bash
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_TEST: "false"
+        run: node scripts/release/validate-signpath-config.mjs
 
       - name: Enable git long paths (Windows)
         shell: pwsh
@@ -150,7 +204,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 24.21.0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -167,9 +221,9 @@ jobs:
         continue-on-error: true
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-electron-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-electron-pnpm-
+            ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -231,7 +285,7 @@ jobs:
           {
             echo "alpha_version=${alpha_base}-alpha.${run}.g${sha}"
             echo "base_version=${alpha_base}"
-            echo "release_tag=alpha-windows-v${alpha_base}-alpha.${run}-${sha}"
+            echo "release_tag=alpha-windows-${ALPHA_ARCH}-v${alpha_base}-alpha.${run}-${sha}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Stamp alpha version
@@ -245,12 +299,23 @@ jobs:
           node scripts/release/apply-version.mjs --version "$ALPHA_VERSION"
           pnpm install --lockfile-only --no-frozen-lockfile
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: sandbox-runtime-win32-${{ matrix.arch }}
+          path: ${{ runner.temp }}/sandbox-runtime
+      - name: Unpack protected runtime
+        shell: bash
+        run: |
+          mkdir -p apps/server/resources/agent-sandbox/runtime
+          archive="$(cygpath -u "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz")"
+          tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
+
       - name: Build Electron alpha app
         shell: bash
         env:
           # TARGET tells prepare-sidecar.mjs which architecture's sidecars
           # to download.
-          TARGET: x86_64-pc-windows-msvc
+          TARGET: ${{ matrix.target }}
           # The renderer bundle (vite build) peaks above Node's default heap.
           NODE_OPTIONS: --max-old-space-size=6144
         run: pnpm --filter @legalwork/desktop build:electron
@@ -261,54 +326,39 @@ jobs:
           set -euo pipefail
           pnpm --dir apps/desktop exec electron-builder \
             --config electron-builder.yml \
-            --win --x64 \
+            --win --${{ matrix.arch }} \
             --publish never
 
       # 🟡 LAWOSS: electron-build.mjs na win32 kontrolu importov pred zabalením
       # preskakuje (#126), tak ako v ci-desktop-packaging.yml beží nad skutočným
-      # app.asar z win-unpacked, ktorý NSIS inštalátor obsahuje.
+      # app.asar z win-unpacked (ARM64: win-arm64-unpacked), ktorý NSIS inštalátor obsahuje.
       - name: Verify packaged server modules load from app.asar
         shell: bash
         timeout-minutes: 10
-        run: node apps/desktop/scripts/check-packaged-server-imports.mjs "apps/desktop/dist-electron/win-unpacked/resources/app.asar"
-
-      - name: Validate SignPath configuration (Windows)
-        if: env.SIGNPATH_PROJECT_SLUG != ''
-        shell: bash
-        env:
-          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          missing=()
-          for name in \
-            SIGNPATH_API_TOKEN \
-            SIGNPATH_ORGANIZATION_ID \
-            SIGNPATH_PROJECT_SLUG \
-            SIGNPATH_SIGNING_POLICY_SLUG; do
-            if [ -z "${!name:-}" ]; then
-              missing+=("$name")
-            fi
-          done
-
-          if [ "${#missing[@]}" -gt 0 ]; then
-            printf 'Missing Windows SignPath configuration: %s\n' "${missing[*]}" >&2
-            exit 1
-          fi
+        run: node apps/desktop/scripts/check-packaged-server-imports.mjs "apps/desktop/dist-electron/${{ matrix.unpacked }}/resources/app.asar"
 
       - name: Stage unsigned Windows installer for SignPath
+        id: stage-unsigned-windows-installer
         shell: bash
         run: |
           set -euo pipefail
 
           mkdir -p "$RUNNER_TEMP/signpath-unsigned"
           shopt -s nullglob
-          installers=(apps/desktop/dist-electron/lawoss-win-x64-*.exe)
+          installers=(apps/desktop/dist-electron/lawoss-win-${ALPHA_ARCH}-*.exe)
           if [ "${#installers[@]}" -ne 1 ]; then
             printf 'Expected exactly one unsigned Windows installer, found %s.\n' "${#installers[@]}" >&2
             printf '%s\n' "${installers[@]}" >&2
             exit 1
           fi
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          filename="$(basename "${installers[0]}")"
+          case "$filename" in
+            "lawoss-win-x64-${version}.exe") arch=x64 ;;
+            "lawoss-win-arm64-${version}.exe") arch=arm64 ;;
+            *) echo "Installer filename does not match stamped version: $filename" >&2; exit 1 ;;
+          esac
+          printf 'version=%s\narch=%s\n' "$version" "$arch" >> "$GITHUB_OUTPUT"
           cp "${installers[0]}" "$RUNNER_TEMP/signpath-unsigned/"
 
       # 🟡 LAWOSS: bez SignPath by to bola len ďalšia verejná kópia nepodpísaného buildu.
@@ -317,36 +367,27 @@ jobs:
         if: env.SIGNPATH_PROJECT_SLUG != ''
         uses: actions/upload-artifact@v4
         with:
-          name: unsigned-legalwork-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          name: unsigned-lawoss-windows-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/signpath-unsigned/*.exe
           if-no-files-found: error
           retention-days: 1
 
       - name: Submit Windows signing request to SignPath
-        if: env.SIGNPATH_PROJECT_SLUG != '' && env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG == ''
-        uses: signpath/github-action-submit-signing-request@c92b958760219087e01f8d67a1669ed57afe2627 # v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
-          github-artifact-id: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: ${{ runner.temp }}/signpath-signed
-
-      # 🟡 LAWOSS: aj projekt, nielen konfigurácia artefaktu; samotný artifact slug
-      # by spustil podpis bez validácie a výsledok by sa nepoužil.
-      - name: Submit Windows signing request to SignPath (artifact configuration)
         if: env.SIGNPATH_PROJECT_SLUG != '' && env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG != ''
-        uses: signpath/github-action-submit-signing-request@c92b958760219087e01f8d67a1669ed57afe2627 # v2
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
           artifact-configuration-slug: ${{ env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          parameters: |
+            version: "${{ steps.stage-unsigned-windows-installer.outputs.version }}"
+            arch: "${{ steps.stage-unsigned-windows-installer.outputs.arch }}"
           github-artifact-id: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
           wait-for-completion: true
+          # Allow time for the required manual production approval.
+          wait-for-completion-timeout-in-seconds: 3600
           output-artifact-directory: ${{ runner.temp }}/signpath-signed
 
       # 🟡 LAWOSS: nepodpísaný medzistupeň potreboval len SignPath; artefakt behu je
@@ -359,12 +400,31 @@ jobs:
           ARTIFACT_ID: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
         run: gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}"
 
+      - name: Verify signed Windows installer
+        if: env.SIGNPATH_PROJECT_SLUG != ''
+        shell: pwsh
+        env:
+          SIGNPATH_TEST: "false"
+        run: ./scripts/release/verify-windows-signature.ps1 -ArtifactDirectory "$env:RUNNER_TEMP/signpath-signed"
+
       - name: Apply signed Windows installer
         if: env.SIGNPATH_PROJECT_SLUG != ''
         shell: bash
         # Copies the signed installer back into dist-electron and rewrites the
         # sha512/size in latest.yml so the updater accepts the signed binary.
         run: node scripts/release/apply-signpath-windows-artifact.mjs "$RUNNER_TEMP/signpath-signed" apps/desktop/dist-electron
+
+      - name: Verify packaged startup
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.unpacked }}/LAWOSS.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Separate Windows ARM64 updater feed
+        if: matrix.arch == 'arm64'
+        shell: bash
+        run: mv apps/desktop/dist-electron/latest.yml apps/desktop/dist-electron/latest-arm64.yml
 
       # 🟡 LAWOSS: SHA-256 assetov až po podpise, teda presne tých, ktoré sa
       # nahrajú. Idú do súhrnu behu aj do popisu releasu.
@@ -373,17 +433,15 @@ jobs:
         shell: bash
         env:
           ALPHA_VERSION: ${{ steps.alpha-version.outputs.alpha_version }}
-          SIGNED: ${{ steps.signing.outputs.signed }}
-          DRAFT: ${{ steps.signing.outputs.draft }}
         run: |
           set -euo pipefail
           shopt -s nullglob
           assets=(
             apps/desktop/dist-electron/*.exe
             apps/desktop/dist-electron/*.blockmap
-            apps/desktop/dist-electron/latest.yml
+            apps/desktop/dist-electron/"$UPDATER_MANIFEST"
           )
-          hashes="$RUNNER_TEMP/lawoss-alpha-windows-sha256.md"
+          hashes="$RUNNER_TEMP/lawoss-alpha-windows-${ALPHA_ARCH}-sha256.md"
           {
             echo "| Súbor | SHA-256 |"
             echo "| --- | --- |"
@@ -396,7 +454,7 @@ jobs:
             done
           } > "$hashes"
           {
-            echo "## LAWOSS Alpha ${ALPHA_VERSION} (Windows x64)"
+            echo "## LAWOSS Alpha ${ALPHA_VERSION} (Windows ${ALPHA_ARCH})"
             echo
             if [ "$SIGNED" = "true" ]; then
               echo "Inštalátor je podpísaný cez SignPath."
@@ -419,11 +477,11 @@ jobs:
         if: ${{ !inputs.publish }}
         uses: actions/upload-artifact@v4
         with:
-          name: lawoss-alpha-windows-${{ steps.alpha-version.outputs.alpha_version }}${{ steps.signing.outputs.signed != 'true' && '-NEPODPISANE' || '' }}
+          name: lawoss-alpha-windows-${{ matrix.arch }}-${{ steps.alpha-version.outputs.alpha_version }}${{ needs.signing.outputs.signed != 'true' && '-NEPODPISANE' || '' }}
           path: |
             apps/desktop/dist-electron/*.exe
             apps/desktop/dist-electron/*.blockmap
-            apps/desktop/dist-electron/latest.yml
+            apps/desktop/dist-electron/${{ matrix.manifest }}
           if-no-files-found: error
           retention-days: 7
 
@@ -433,9 +491,10 @@ jobs:
       # releasu prepíšu a ukazovateľ musí dostať ich nové sha512. Beží pred
       # vytvorením releasu, aby zamietnutý beh nenechal verejný prerelease.
       # Koncept (aj každý nepodpísaný build) ukazovateľ neposúva, kontrola odpadá.
+      # Každá architektúra porovnáva vlastný manifest ukazovateľa.
       - name: Check alpha pointer version is newer
         id: pointer-guard
-        if: ${{ inputs.publish && steps.signing.outputs.draft != 'true' }}
+        if: ${{ inputs.publish && needs.signing.outputs.draft != 'true' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -447,11 +506,11 @@ jobs:
           mkdir -p "$current_dir"
           CURRENT_MANIFEST=""
           if assets="$(gh release view "$ALPHA_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>&1)"; then
-            if printf '%s\n' "$assets" | grep -qx 'latest.yml'; then
-              gh release download "$ALPHA_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.yml --dir "$current_dir" --clobber
-              CURRENT_MANIFEST="$current_dir/latest.yml"
+            if printf '%s\n' "$assets" | grep -qxF "$UPDATER_MANIFEST"; then
+              gh release download "$ALPHA_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$UPDATER_MANIFEST" --dir "$current_dir" --clobber
+              CURRENT_MANIFEST="$current_dir/$UPDATER_MANIFEST"
             else
-              echo "$ALPHA_RELEASE_TAG has no latest.yml yet; nothing to compare."
+              echo "$ALPHA_RELEASE_TAG has no $UPDATER_MANIFEST yet; nothing to compare."
             fi
           elif printf '%s\n' "$assets" | grep -qi 'release not found'; then
             echo "$ALPHA_RELEASE_TAG does not exist yet; nothing to compare."
@@ -493,7 +552,7 @@ jobs:
           };
           parse(next);
           if (!manifest) {
-            console.log(`No current pointer; ${next} becomes the first Windows alpha.`);
+            console.log(`No current pointer; ${next} becomes the first Windows ${process.env.ALPHA_ARCH} alpha.`);
             process.exit(0);
           }
           const line = fs.readFileSync(manifest, "utf8").split(/\r?\n/).find((entry) => /^version:/.test(entry));
@@ -508,7 +567,7 @@ jobs:
             console.log(`Re-run of ${next}: the pointer is refreshed with the re-uploaded assets.`);
             process.exit(0);
           }
-          console.log(`::error title=Alfa nie je novšia::${next} nie je vyššia verzia než aktuálny ukazovateľ ${process.env.ALPHA_RELEASE_TAG} (${current}). Zvýšte base_version alebo LAWOSS_ALPHA_BASE_VERSION; ukazovateľ ani release sa nemenia.`);
+          console.log(`::error title=Alfa nie je novšia::${next} nie je vyššia verzia než aktuálny ukazovateľ ${process.env.ALPHA_RELEASE_TAG}/${process.env.UPDATER_MANIFEST} (${current}). Zvýšte base_version alebo LAWOSS_ALPHA_BASE_VERSION; ukazovateľ ani release sa nemenia.`);
           process.exit(1);
           NODE
 
@@ -521,12 +580,10 @@ jobs:
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
           # 🟡 LAWOSS: názov a popis podľa podpisu (Q06/U6) a so SHA-256 assetov;
           # nepodpísaný build je vždy koncept (draft), viditeľný len tímu s právom zápisu.
-          SIGNED: ${{ steps.signing.outputs.signed }}
-          DRAFT: ${{ steps.signing.outputs.draft }}
           ASSET_HASHES: ${{ steps.asset-hashes.outputs.file }}
         run: |
           set -euo pipefail
-          title="LAWOSS Alpha ${ALPHA_VERSION} (Windows x64)"
+          title="LAWOSS Alpha ${ALPHA_VERSION} (Windows ${ALPHA_ARCH})"
           notes="$RUNNER_TEMP/alpha-release-notes.md"
           {
             if [ "$SIGNED" != "true" ]; then
@@ -541,7 +598,7 @@ jobs:
 
           EOF
             fi
-            echo "Priebežná alfa LAWOSS ${ALPHA_VERSION} (Windows x64) z commitu ${GITHUB_SHA}."
+            echo "Priebežná alfa LAWOSS ${ALPHA_VERSION} (Windows ${ALPHA_ARCH}) z commitu ${GITHUB_SHA}."
             if [ "$SIGNED" = "true" ]; then
               echo "Inštalátor je podpísaný cez SignPath."
             fi
@@ -598,7 +655,7 @@ jobs:
           assets=(
             apps/desktop/dist-electron/*.exe
             apps/desktop/dist-electron/*.blockmap
-            apps/desktop/dist-electron/latest.yml
+            apps/desktop/dist-electron/"$UPDATER_MANIFEST"
           )
           if [ ${#assets[@]} -eq 0 ]; then
             echo "No Electron alpha assets found in apps/desktop/dist-electron" >&2
@@ -611,13 +668,12 @@ jobs:
       - name: Update alpha updater pointer
         # LAWOSS: koncept nemení ukazovateľ alfa kanála; nepodpísaný build je vždy
         # koncept (Q06/U6), takže verejný ukazovateľ nikdy nemieri na nepodpísaný.
-        if: ${{ inputs.publish && steps.signing.outputs.draft != 'true' }}
+        if: ${{ inputs.publish && needs.signing.outputs.draft != 'true' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           ALPHA_VERSION: ${{ steps.alpha-version.outputs.alpha_version }}
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
-          SIGNED: ${{ steps.signing.outputs.signed }}
         run: |
           set -euo pipefail
           # 🟡 LAWOSS: verejný ukazovateľ len na podpísaný a zverejnený release (Q06/U6),
@@ -627,11 +683,11 @@ jobs:
             echo "::error title=Ukazovateľ sa neposúva::$ALPHA_RUN_RELEASE_TAG má draft=$target_draft, signed=$SIGNED. Verejný alpha-windows-latest smie mieriť len na podpísaný zverejnený release."
             exit 1
           fi
-          POINTER_MANIFEST="$RUNNER_TEMP/latest.yml"
+          POINTER_MANIFEST="$RUNNER_TEMP/$UPDATER_MANIFEST"
           export POINTER_MANIFEST
           node <<'NODE'
           const fs = require("node:fs");
-          const manifestPath = "apps/desktop/dist-electron/latest.yml";
+          const manifestPath = `apps/desktop/dist-electron/${process.env.UPDATER_MANIFEST}`;
           const releaseTag = process.env.ALPHA_RUN_RELEASE_TAG;
           // LAWOSS: the pointer must reference the repository the assets were
           // just uploaded to, and the lawoss- artifactName from electron-builder.yml.
@@ -642,24 +698,26 @@ jobs:
           fs.writeFileSync(process.env.POINTER_MANIFEST, rewritten);
           NODE
 
-          # 🟡 LAWOSS: názov a popis ukazovateľa hovoria, kam práve mieri; ukazovateľ
-          # je verejný a inštalátor má len jeho release (vždy podpísaný, kontrola vyššie).
+          # 🟡 LAWOSS: ukazovateľ je spoločný pre x64 aj ARM64 (oba joby matice),
+          # preto popis vymenúva oba manifesty a odkazuje na zoznam releasov; inštalátor
+          # má len release danej architektúry (vždy podpísaný, kontrola vyššie).
           pointer_title="$ALPHA_RELEASE_NAME"
           pointer_notes="$RUNNER_TEMP/alpha-pointer-notes.md"
           {
-            echo "Ukazovateľ updatera pre najnovšiu alfu LAWOSS (Windows x64). Obsahuje len \`latest.yml\`; podpísaný inštalátor ${ALPHA_VERSION} je v releasi [${ALPHA_RUN_RELEASE_TAG}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${ALPHA_RUN_RELEASE_TAG})."
+            echo "Ukazovateľ updatera pre najnovšie alfy LAWOSS pre Windows. Obsahuje len \`latest.yml\` (x64) a \`latest-arm64.yml\` (ARM64); podpísané inštalátory sú v releasoch \`alpha-windows-x64-…\` a \`alpha-windows-arm64-…\`: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases"
           } > "$pointer_notes"
 
           if ! gh release view "$ALPHA_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Druhý job matice ho mohol práve vytvoriť.
             gh release create "$ALPHA_RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --title "$pointer_title" \
               --notes-file "$pointer_notes" \
               --target "$GITHUB_SHA" \
-              --prerelease
+              --prerelease || gh release view "$ALPHA_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
           fi
 
-          gh release upload "$ALPHA_RELEASE_TAG" "$POINTER_MANIFEST#latest.yml" \
+          gh release upload "$ALPHA_RELEASE_TAG" "$POINTER_MANIFEST#$UPDATER_MANIFEST" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 

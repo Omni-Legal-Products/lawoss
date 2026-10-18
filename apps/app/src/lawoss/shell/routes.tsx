@@ -16,11 +16,19 @@ import { TodayPage } from "../lite/pages/today-page";
 import { ClientsPage } from "../lite/pages/clients-page";
 import { LiteMatterPage } from "../lite/pages/matter-page";
 import { LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, NEW_MATTER_PATH } from "../lite/links";
-import { isExperimentHidden } from "../feature-flags";
+import { isExperimentHidden, isUpstreamRouteHidden } from "../feature-flags";
+import { LawossLanding } from "../lite/landing";
 
 /** Skrytý experiment (alfa) presmeruje na náhradu, inak ukáže svoju obrazovku. Staré odkazy tak nevedú do prázdna. */
 const experiment = (id: string, element: ReactElement, replacement: string): ReactElement =>
   isExperimentHidden(id) ? <Navigate to={replacement} replace /> : element;
+
+/**
+ * Trasa upstreamu, ktorú alfa neprevzala (wiki, kalendár, plánované úlohy, Dashboards; spec 0017 S3),
+ * presmeruje na úvodnú stránku režimu (`/dnes` v Lite, `/home` v Pro). Ostatné ukážu svoju obrazovku.
+ */
+export const upstreamRoute = (path: string, element: ReactElement): ReactElement =>
+  isUpstreamRouteHidden(path) ? <LawossLanding /> : element;
 
 /**
  * LAWOSS routes (fáza B) — mapped directly in the upstream app-root

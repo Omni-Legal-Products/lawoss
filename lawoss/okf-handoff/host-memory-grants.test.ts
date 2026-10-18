@@ -5,10 +5,10 @@ import { join } from "node:path";
 import { resolveHostMemoryContext, resolveHostMemoryGrants } from "./host-memory-grants.mjs";
 import { LawossOkfHandoff } from "../../apps/server/src/opencode-plugins/lawoss-okf-handoff.ts";
 const roots: string[] = [];
-const prior = { url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN, grants: process.env.LAWOSS_MEMORY_ALLOWED_ROOTS };
+const prior = { url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_WIKI_AGENT_TOKEN, grants: process.env.LAWOSS_MEMORY_ALLOWED_ROOTS };
 afterEach(() => {
   roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true }));
-  for (const [key, value] of Object.entries({ LEGALWORK_SERVER_URL: prior.url, LEGALWORK_SERVER_TOKEN: prior.token, LAWOSS_MEMORY_ALLOWED_ROOTS: prior.grants })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  for (const [key, value] of Object.entries({ LEGALWORK_SERVER_URL: prior.url, LEGALWORK_WIKI_AGENT_TOKEN: prior.token, LAWOSS_MEMORY_ALLOWED_ROOTS: prior.grants })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
 });
 function fixture() {
   // Match checkedDirectory's native authority identity (Windows TEMP may contain RUNNER~1).
@@ -17,8 +17,8 @@ function fixture() {
   const workspaces = { items: [{ id: "parent", path: root }, { id: "child", path: child }] };
   const grants = { authority: "runtime", workspaceId: "child", workspaceRoot: child, folders: [vault], hiddenCount: 0 };
   const requests: string[] = [];
-  const fetcher = async (url: string, init: RequestInit) => { requests.push(url); expect(init.headers).toEqual({ authorization: "Bearer synthetic" }); expect(init.redirect).toBe("error"); return Response.json(url.endsWith("/workspaces") ? workspaces : grants); };
-  return { root, child, vault, workspaces, grants, requests, options: { directory: child, serverUrl: "http://localhost:4321", token: "synthetic", fetch: fetcher } };
+  const fetcher = async (url: string, init: RequestInit) => { requests.push(url); expect(init.headers).toEqual({ "x-legalwork-wiki-agent-token": "synthetic" }); expect(init.redirect).toBe("error"); return Response.json(url.endsWith("/workspaces") ? workspaces : grants); };
+  return { root, child, vault, workspaces, grants, requests, options: { directory: child, serverUrl: "http://localhost:4321", headers: { "x-legalwork-wiki-agent-token": "synthetic" }, fetch: fetcher } };
 }
 test("uses longest canonical workspace and authenticated runtime-only endpoint", async () => {
   const f = fixture(); expect(await resolveHostMemoryGrants(f.options)).toEqual([f.vault]);
@@ -47,7 +47,7 @@ test("production entry exports only plugin; missing BOTH native env variables ne
   const f = fixture(); mkdirSync(join(f.child, ".lawoss"));
   writeFileSync(join(f.vault, "memory.md"), "SYNTHETIC-ONLY");
   writeFileSync(join(f.child, ".lawoss/memory-profile.json"), JSON.stringify({ version: 1, matterId: "synthetic", roots: [{ id: "vault", path: f.vault }], sources: [{ id: "memory", root: "vault", path: "memory.md", role: "case_memory", required: true, writable: false, anchors: ["SYNTHETIC-ONLY"] }] }));
-  process.env.LAWOSS_MEMORY_ALLOWED_ROOTS = JSON.stringify([f.vault]); delete process.env.LEGALWORK_SERVER_URL; delete process.env.LEGALWORK_SERVER_TOKEN;
+  process.env.LAWOSS_MEMORY_ALLOWED_ROOTS = JSON.stringify([f.vault]); delete process.env.LEGALWORK_SERVER_URL; delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
   const entry = await import("../../apps/server/src/opencode-plugins/lawoss-okf-handoff.ts"); expect(Object.keys(entry)).toEqual(["LawossOkfHandoff"]);
   const hooks = await LawossOkfHandoff({ directory: f.child }); const output = { context: [] as string[] };
   await hooks["experimental.session.compacting"]!({ sessionID: "native" }, output);

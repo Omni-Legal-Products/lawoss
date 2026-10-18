@@ -1,0 +1,35 @@
+.lw-code-editor {
+  --code-keyword: #7c3aed;
+  --code-string: #19734b;
+  --code-number: #a65012;
+  --code-function: #2563b9;
+  --code-type: #996017;
+}
+.dark .lw-code-editor {
+  --code-keyword: #c4a5ff;
+  --code-string: #8fd5ae;
+  --code-number: #f1b284;
+  --code-function: #91bcff;
+  --code-type: #e1ca87;
+}
+.lw-code-keyword { color: var(--code-keyword); }
+.lw-code-string { color: var(--code-string); }
+.lw-code-number { color: var(--code-number); }
+.lw-code-function { color: var(--code-function); }
+.lw-code-type { color: var(--code-type); }
+.lw-code-comment { color: var(--muted-foreground); font-style: italic; }
+.lw-code-invalid { color: var(--destructive); }
+.lw-code-editor .cm-editor { height: 100%; background: var(--background); color: var(--foreground); }
+.lw-code-editor .cm-scroller { overflow: auto; font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.lw-code-editor .cm-content { padding: 14px 0; caret-color: var(--foreground); }
+.lw-code-editor .cm-line { padding: 0 12px; }
+.lw-code-editor .cm-gutters { background: var(--background); color: var(--muted-foreground); border-right: 1px solid var(--border); }
+.lw-code-editor .cm-lineNumbers .cm-gutterElement { padding: 0 10px; }
+.lw-code-editor .cm-activeLine, .lw-code-editor .cm-activeLineGutter { background: color-mix(in srgb, var(--muted) 55%, transparent); }
+.lw-code-editor .cm-cursor { border-left-color: var(--foreground); }
+.lw-code-editor .cm-selectionBackground, .lw-code-editor .cm-focused .cm-selectionBackground { background: color-mix(in srgb, var(--primary) 20%, transparent); }
+.lw-code-editor .cm-panels, .lw-code-editor .cm-tooltip { background: var(--popover); color: var(--popover-foreground); border-color: var(--border); }
+.lw-code-editor .cm-search { padding: 8px; }
+.lw-code-editor .cm-textfield, .lw-code-editor .cm-button { background: var(--background); color: var(--foreground); border: 1px solid var(--border); border-radius: 4px; }
+.lw-code-editor .cm-diagnostic { padding: 5px 8px; }
+.lw-code-editor .cm-panel.cm-panel-lint ul { max-height: 140px; }

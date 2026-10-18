@@ -5,6 +5,11 @@ import { t } from "../../../../i18n";
 
 export const MAX_SESSIONS_PREVIEW = 6;
 
+// Subagents are reached from their parent chat, including when the parent is
+// absent from a paginated list. Keep the original groups for chat navigation.
+export const sidebarSessionGroups = (groups: WorkspaceSessionGroup[]) =>
+  groups.map(group => ({ ...group, sessions: group.sessions.filter(session => !session.parentID?.trim()) }));
+
 export type SessionListItem = WorkspaceSessionGroup["sessions"][number];
 export type FlattenedSessionRow = { session: SessionListItem; depth: number };
 export type SessionTreeState = {
@@ -40,10 +45,13 @@ export const getRootSessions = (sessions: WorkspaceSessionGroup["sessions"]) => 
   });
 };
 
+export const compareSessionRecency = (a: SessionListItem, b: SessionListItem) =>
+  (b.time?.updated ?? b.time?.created ?? 0) - (a.time?.updated ?? a.time?.created ?? 0);
+
 /** Five latest conversations, independent of pinning or manual ordering. */
 export const getRecentProjectSessions = (sessions: SessionListItem[]) =>
   getRootSessions(sessions.filter((session) => !isSessionArchived(session)))
-    .sort((a, b) => (b.time?.updated ?? b.time?.created ?? 0) - (a.time?.updated ?? a.time?.created ?? 0))
+    .sort(compareSessionRecency)
     .slice(0, 5);
 
 /** Split sessions into active vs. archived. Archived sessions live in their own section. */
@@ -74,7 +82,7 @@ export const orderRootSessions = (
     ordered.push(root);
     used.add(id);
   }
-  for (const root of roots) {
+  for (const root of [...roots].sort(compareSessionRecency)) {
     if (used.has(root.id)) continue;
     ordered.push(root);
     used.add(root.id);

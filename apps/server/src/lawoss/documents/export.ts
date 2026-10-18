@@ -62,7 +62,14 @@ export class DocumentExports {
     const root = await realpath(workspace.path), requested = resolve(root, path);
     if (!within(root, requested) || requested === root)
       throw new ApiError(403, "output_path", "Output must be inside the selected project.");
-    const parent = await realpath(dirname(requested));
+    let parent: string;
+    try {
+      parent = await realpath(dirname(requested));
+    } catch (error) {
+      if (isMissing(error))
+        throw new ApiError(400, "output_parent", "Output parent must already exist; select an existing project folder.");
+      throw error;
+    }
     if (!within(root, parent))
       throw new ApiError(403, "output_path", "Output parent escapes the project.");
     try {
@@ -150,7 +157,7 @@ export class DocumentExports {
     for (const id of new Set(documentIds)) {
       const record = await this.documents.evidence(workspace, id);
       if (record.provenance.parentId)
-        throw new Error("Select original sources; attachment citations remain separate.");
+        throw new ApiError(400, "source_selection", "Select original source IDs only; descendants are included automatically and attachment citations remain separate.");
       const reference = sourceKind === "isir" ? await this.reference(workspace, record, manifest.documents) : { file: record.path, documentId: record.id, url: "", sha256: record.hash };
       const sourceFile = await this.sourceFile(workspace, reference.file);
       if (sha(await readFile(sourceFile)) !== reference.sha256)

@@ -99,6 +99,16 @@ test("kľúče pre priečinok na mieste existujú vo všetkých jazykoch", () =>
   }
 });
 
+test("existujúci priečinok veci bez karty sa v náhľade nehlási ako vec zo spisovej značky (test 16. 10. 2026, N2)", () => {
+  const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, "sk", params);
+  const adopted: TriagePreview = { ...preview, matters: [{ key: "existing-1", title: "Kupa haly Senec", folder: "Kupa haly Senec", date: "2026-10-16", dateSource: "today", kind: "non_contentious", source: "folder", documents: 3 }] };
+  const out = html(<TriagePreviewView preview={adopted} text={text} busy={false} inPlace onKeep={() => {}} onConfirm={() => {}} onModel={() => {}} />);
+  expect(out).toContain("Kupa haly Senec");
+  expect(out).toContain(text("matter_from_folder"));
+  expect(out).not.toContain(text("matter_from_rules"));
+  for (const locale of ["sk", "cs", "en", "de"] as const) expect(t("lawoss.triage.matter_from_folder", locale)).not.toBe("lawoss.triage.matter_from_folder");
+});
+
 test("na mieste sa model neponúka, návrh je len deterministický (spec #92, rozhodnutie MČ 12. 10.)", () => {
   const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, "sk", params);
   const ready: TriagePreview = { ...preview, proposal: { state: "ready", file: ".lawoss/triage/navrh.json", documents: 2, matters: 1 }, classification: { used: true, documents: 2 } };

@@ -69,7 +69,7 @@ export function releaseAssetUrl({ platform, arch, version, prefix }) {
 
 function updaterManifestName(platform, arch) {
   if (platform === "darwin") return "latest-mac.yml";
-  if (platform === "win32") return "latest.yml";
+  if (platform === "win32") return arch === "arm64" ? "latest-arm64.yml" : "latest.yml"; // 🟡 LAWOSS: oddelený ARM64 feed (upstream #221)
   if (platform === "linux" && arch === "arm64") return "latest-linux-arm64.yml";
   if (platform === "linux") return "latest-linux.yml";
   return null;

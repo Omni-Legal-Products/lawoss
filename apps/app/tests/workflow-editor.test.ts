@@ -163,6 +163,7 @@ describe("attached workflow file tabs", () => {
     assert.ok(event instanceof CustomEvent);
     assert.equal(event.detail.type, "workflow-resource");
     assert.equal(event.detail.label, "playbook.md");
+    assert.deepEqual(event.detail.destination, { kind: "workflows", workspaceId: fixture.draft.workspaceId });
     assert.equal(fixture.resourceLive().content, fixture.resourceDisk()?.content);
     assert.equal(resourceDirty(fixture.resourceLive()), false);
     editWorkflowResource(fixture.id, { content: "# Updated playbook\n\nUse the firm's rubric.\n" });

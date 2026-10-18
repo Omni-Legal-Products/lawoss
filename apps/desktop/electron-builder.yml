@@ -28,6 +28,13 @@ extraResources:
     to: LICENSE
   - from: ../../NOTICE
     to: NOTICE
+  - from: resources/engine-dependencies
+    to: engine-dependencies
+  - from: resources/actaport-mcp
+    to: actaport-mcp
+    filter:
+      - index.mjs
+      - auth.mjs
   - from: resources/node
     to: node
     filter:
@@ -43,6 +50,8 @@ extraResources:
     to: lawoss-models
     filter:
       - api.json
+  - from: ../server/resources/agent-sandbox/runtime
+    to: agent-sandbox
   - from: ../app/dist
     to: app-dist
   - from: ../app/dist-word-addin
@@ -100,6 +109,7 @@ publish:
     repo: lawoss
     releaseType: release
 mac:
+  sign: scripts/sign-macos.cjs
   binaries:
     - Contents/Resources/node/node
   icon: resources/icons/icon.icns
@@ -110,6 +120,7 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
+    NSAppleEventsUsageDescription: LAWOSS uses Apple Mail or Microsoft Outlook to open editable email drafts with the recipients and attachments you choose.
     NSMicrophoneUsageDescription: LAWOSS uses the microphone when you start Voice Mode or record a conversation in the Recorder tab.
     NSAudioCaptureUsageDescription: LAWOSS captures system audio when you record calls or meetings in the Recorder tab. Audio is transcribed locally on this device and never uploaded.
     NSInputMonitoringUsageDescription: LAWOSS uses keyboard monitoring to detect your dictation shortcut and support hold-to-talk outside the app.
@@ -129,7 +140,6 @@ mac:
     - from: resources/helpers
       to: helpers
       filter:
-        - "LegalWork Computer Use.app/**"
         - LegalWorkAudioTap
         - LegalWorkKeyMonitor
   target:

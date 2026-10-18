@@ -1,7 +1,6 @@
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { eq } from "drizzle-orm";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { initializeSqlite } from "./runtime-db.js";
+import { runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
+import { dirname } from "node:path";
 import type { ServerConfig } from "./types.js";
 import { ensureDir, shortId } from "./utils.js";
 
@@ -30,14 +29,8 @@ export type SessionGroupEvent = {
 
 const EMPTY_SESSION_GROUP_STATE: SessionGroupState = { groups: [], assignments: {} };
 
-const sessionGroupStates = sqliteTable("session_group_states", {
-  workspaceId: text("workspace_id").primaryKey(),
-  stateJson: text("state_json").notNull(),
-  schemaVersion: integer("schema_version").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
-
 type SessionGroupDb = {
+  close: () => void;
   get: (workspaceId: string) => { stateJson: string; updatedAt: number } | undefined;
   upsert: (value: { workspaceId: string; stateJson: string; updatedAt: number }) => void;
 };
@@ -96,47 +89,14 @@ export function normalizeSessionGroupState(value: unknown): SessionGroupState {
   return { groups, assignments };
 }
 
-function runtimeDbPath(config: ServerConfig): string {
-  const override = process.env.LEGALWORK_RUNTIME_DB?.trim();
-  if (override) return resolve(override);
-  const configPath = config.configPath?.trim();
-  const configDir = configPath ? dirname(configPath) : join(homedir(), ".config", "legalwork");
-  return join(configDir, "runtime.sqlite");
-}
-
 async function openSessionGroupDb(path: string): Promise<SessionGroupDb> {
   await ensureDir(dirname(path));
-  if (typeof process.versions.bun === "string") {
-    const { Database } = await import("bun:sqlite");
-    const { drizzle } = await import("drizzle-orm/bun-sqlite");
-    const sqlite = new Database(path, { create: true });
-    sqlite.run("CREATE TABLE IF NOT EXISTS session_group_states (workspace_id TEXT PRIMARY KEY NOT NULL, state_json TEXT NOT NULL, schema_version INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL)");
-    const db = drizzle(sqlite);
-    return {
-      get: (workspaceId) => db
-        .select()
-        .from(sessionGroupStates)
-        .where(eq(sessionGroupStates.workspaceId, workspaceId))
-        .get(),
-      upsert: ({ workspaceId, stateJson, updatedAt }) => {
-        db
-          .insert(sessionGroupStates)
-          .values({ workspaceId, stateJson, schemaVersion: 1, updatedAt })
-          .onConflictDoUpdate({
-            target: sessionGroupStates.workspaceId,
-            set: { stateJson, schemaVersion: 1, updatedAt },
-          })
-          .run();
-      },
-    };
-  }
-
-  const { DatabaseSync } = await import("node:sqlite");
-  const sqlite = new DatabaseSync(path);
+  return initializeSqlite(path, (sqlite) => {
   sqlite.exec("CREATE TABLE IF NOT EXISTS session_group_states (workspace_id TEXT PRIMARY KEY NOT NULL, state_json TEXT NOT NULL, schema_version INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL)");
   const get = sqlite.prepare("SELECT state_json AS stateJson, updated_at AS updatedAt FROM session_group_states WHERE workspace_id = ?");
   const upsert = sqlite.prepare("INSERT INTO session_group_states (workspace_id, state_json, schema_version, updated_at) VALUES (?, ?, 1, ?) ON CONFLICT(workspace_id) DO UPDATE SET state_json = excluded.state_json, schema_version = excluded.schema_version, updated_at = excluded.updated_at");
   return {
+    close: () => sqlite.close(),
     get: (workspaceId) => {
       const row = get.get(workspaceId);
       if (!isRecord(row) || typeof row.stateJson !== "string" || typeof row.updatedAt !== "number") return undefined;
@@ -146,24 +106,21 @@ async function openSessionGroupDb(path: string): Promise<SessionGroupDb> {
       upsert.run(workspaceId, stateJson, updatedAt);
     },
   };
+  });
 }
 
-const dbByPath = new Map<string, Promise<SessionGroupDb>>();
+const resourceKey = Symbol("session-groups");
 const updateQueueByWorkspace = new Map<string, Promise<void>>();
 
 async function sessionGroupDb(config: ServerConfig): Promise<SessionGroupDb> {
-  const path = runtimeDbPath(config);
-  const existing = dbByPath.get(path);
-  if (existing) return existing;
-  const db = openSessionGroupDb(path);
-  dbByPath.set(path, db);
-  return db;
+  return runtimeDbResource(config, resourceKey, openSessionGroupDb);
 }
 
 export async function readSessionGroupState(
   config: ServerConfig,
   workspaceId: string,
 ): Promise<{ state: SessionGroupState; updatedAt: number | null }> {
+  return withRuntimeDb(config, async () => {
   const db = await sessionGroupDb(config);
   const row = db.get(workspaceId);
   if (!row) return { state: EMPTY_SESSION_GROUP_STATE, updatedAt: null };
@@ -172,6 +129,8 @@ export async function readSessionGroupState(
   } catch {
     return { state: EMPTY_SESSION_GROUP_STATE, updatedAt: row.updatedAt };
   }
+
+  });
 }
 
 export async function writeSessionGroupState(
@@ -179,11 +138,14 @@ export async function writeSessionGroupState(
   workspaceId: string,
   state: SessionGroupState,
 ): Promise<{ state: SessionGroupState; updatedAt: number }> {
+  return withRuntimeDb(config, async () => {
   const db = await sessionGroupDb(config);
   const next = normalizeSessionGroupState(state);
   const updatedAt = Date.now();
   db.upsert({ workspaceId, stateJson: JSON.stringify(next), updatedAt });
   return { state: next, updatedAt };
+
+  });
 }
 
 export async function updateSessionGroupState(
@@ -191,6 +153,7 @@ export async function updateSessionGroupState(
   workspaceId: string,
   updater: (current: SessionGroupState) => SessionGroupState,
 ): Promise<{ state: SessionGroupState; updatedAt: number }> {
+  return withRuntimeDb(config, async () => {
   const key = `${runtimeDbPath(config)}:${workspaceId}`;
   const previous = updateQueueByWorkspace.get(key) ?? Promise.resolve();
   let release = () => {};
@@ -210,6 +173,8 @@ export async function updateSessionGroupState(
       updateQueueByWorkspace.delete(key);
     }
   }
+
+  });
 }
 
 export class SessionGroupEventStore {

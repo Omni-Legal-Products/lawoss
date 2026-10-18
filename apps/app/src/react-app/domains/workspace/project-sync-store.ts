@@ -7,6 +7,7 @@ import { onSyncPoke, useSyncEventsLive } from "@/react-app/kernel/sync-events";
 /** Every synced project's state, for the sidebar; filled by `useProjectSyncPoller`. */
 export const useProjectSyncStore = create<{
   states: Record<string, ProjectSyncState>;
+  roles: Record<string, "owner" | "member">;
   setOverview: (overview: ProjectSyncOverview) => void;
   /** Ask the poller for the overview now, after a change made here. */
   refresh: () => void;
@@ -15,7 +16,8 @@ export const useProjectSyncStore = create<{
   share: (sharing: { workspaceId: string; name: string } | null) => void;
 }>()((set) => ({
   states: {},
-  setOverview: (overview) => set({ states: overview.states }),
+  roles: {},
+  setOverview: (overview) => set({ states: overview.states, roles: overview.roles ?? {} }),
   refresh: () => {},
   sharing: null,
   share: (sharing) => set({ sharing }),
@@ -51,6 +53,10 @@ export function useProjectSyncPoller(
   projectsRemoved.current = onProjectsRemoved;
   const forgotten = useRef(new Set<string>());
   useEffect(() => {
+    useProjectSyncStore.setState({ states: {}, roles: {} });
+    revision.current = null;
+    contents.current = null;
+    forgotten.current = new Set();
     if (!client) return;
     let stopped = false;
     const poll = async () => {

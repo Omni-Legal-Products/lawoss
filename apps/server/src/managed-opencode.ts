@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
 import { randomUUID } from "node:crypto";
 
+import { withoutServerCredentials } from "./lawoss/engine-credentials.js";
 import { lawossEngineEnv } from "./lawoss/engine-network.js";
 import { killProcessTree } from "./lawoss/process-tree.js";
 
@@ -139,16 +140,48 @@ async function waitForHttpReady(child: ChildProcess, url: string, username: stri
     if (child.exitCode !== null || child.signalCode !== null) {
       throw new Error("OpenCode server exited before its HTTP listener was ready");
     }
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    const timer = setTimeout(abort, Math.min(1000, deadline - Date.now()));
+    child.once("exit", abort);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
-      const response = await fetch(new URL("/health", url), {
+      const response = await fetch(new URL("/global/health", url), {
         headers: { Authorization: authorization },
-        signal: AbortSignal.timeout(1000),
+        signal: controller.signal,
       });
-      await response.body?.cancel();
-      return;
+      if (response.status !== 200 || !response.body) {
+        await response.body?.cancel();
+        throw new Error("Invalid OpenCode health status");
+      }
+      reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > 16 * 1024) throw new Error("Oversized OpenCode health response");
+        chunks.push(value);
+      }
+      const health: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (
+        health !== null && typeof health === "object" &&
+        "healthy" in health && health.healthy === true &&
+        "version" in health && typeof health.version === "string" && health.version.trim() &&
+        !controller.signal.aborted && Date.now() < deadline &&
+        child.exitCode === null && child.signalCode === null
+      ) return;
     } catch {
-      await delay(100);
+      // Refused, incomplete, or invalid health responses remain unready.
+    } finally {
+      controller.abort();
+      try { await reader?.cancel(); } catch { /* Preserve the readiness failure. */ }
+      reader?.releaseLock();
+      clearTimeout(timer);
+      child.off("exit", abort);
     }
+    await delay(Math.min(100, Math.max(0, deadline - Date.now())));
   }
   throw new Error(`Timeout waiting for OpenCode HTTP listener after ${timeoutMs}ms`);
 }
@@ -198,21 +231,27 @@ export async function createManagedOpencodeServer(options: {
   const username = randomSecret();
   const password = randomSecret();
   const command = options.bin?.trim() || "opencode";
+  // LegalWork supplies its deduplicated skill catalog explicitly. The engine's
+  // recursive external scan also picks up nested packages for other agent apps.
+  const features = { OPENCODE_DISABLE_EXTERNAL_SKILLS: "true", OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: process.env.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS ?? "true" };
   // LAWOSS: engine bez sťahovania katalógu, zdieľania a aktualizácie (lawoss/engine-network.ts).
   const lawossEnv = lawossEngineEnv();
-  const env = {
+  // LAWOSS: the server's own credentials never reach the engine (lawoss/engine-credentials.ts).
+  const env = withoutServerCredentials({
     ...process.env,
+    ...features,
     ...options.env,
     ...lawossEnv,
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
-  };
-  const injectedEnv = Object.entries({
+  });
+  const injectedEnv = Object.entries(withoutServerCredentials({
+    ...features,
     ...(options.env ?? {}),
     ...lawossEnv,
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
-  })
+  }))
     .filter((entry): entry is [string, string] => typeof entry[1] === "string")
     .map(([name, value]) => ({
       name,
@@ -246,7 +285,7 @@ export async function createManagedOpencodeServer(options: {
       const startedAt = Date.now();
       const timeoutMs = options.timeoutMs ?? 15000;
       const url = await waitForServerReady(child, timeoutMs);
-      await waitForHttpReady(child, url, username, password, Math.max(1, timeoutMs - (Date.now() - startedAt)));
+      await waitForHttpReady(child, url, username, password, Math.max(0, timeoutMs - (Date.now() - startedAt)));
       child.once("exit", (code, signal) => {
         if (!closing) {
           console.error(`[managed-opencode] engine exited after startup (code ${code}, signal ${signal})${lastStderr.trim() ? `: ${lastStderr.trim()}` : ""}`);

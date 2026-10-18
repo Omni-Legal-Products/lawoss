@@ -1,30 +1,29 @@
-import { DocxReviewer } from "@eigenpal/docx-editor-agents";
 import JSZip from "jszip";
 import { t } from "@/i18n";
+import { elements, finalizeWordPackage, parseXml, readWordMetadata, reviewWordPackage, xmlText } from "./docx-word-package";
 
 const reviewMarkup = /<(?:[\w.-]+:)?(?:ins|del|delText|delInstrText|conflictIns|conflictDel|move(?:From|To)(?:Range(?:Start|End))?|customXml(?:Ins|Del|MoveFrom|MoveTo)Range(?:Start|End)|\w+PrChange|tblGridChange|numberingChange|cellIns|cellDel|cellMerge|comment|commentRangeStart|commentRangeEnd|commentReference)\b/;
 
 /** Work on a detached copy. Never accept changes in the user's live editor. */
-export async function createCleanDocx(buffer: ArrayBuffer): Promise<ArrayBuffer> {
-  const reviewer = await DocxReviewer.fromBuffer(buffer.slice(0));
-  reviewer.acceptAll({ includeFootnotes: true, includeEndnotes: true });
-  for (const comment of reviewer.getComments()) reviewer.removeComment(comment.id);
-  const output = await reviewer.toBuffer();
+export async function createCleanDocx(buffer: ArrayBuffer, options = { acceptChanges: true, removeComments: true }): Promise<ArrayBuffer> {
+  const output = options.acceptChanges ? await reviewWordPackage(buffer, "accept") : buffer.slice(0);
   const zip = await JSZip.loadAsync(output);
-  // The pinned serializer keeps original comment parts when the model is empty.
-  // Clear their contents, retaining valid roots and existing relationships.
+  // Retain valid comment-part roots and relationships while clearing content.
   for (const [path, file] of Object.entries(zip.files)) {
-    if (!/^word\/comments[^/]*\.xml$/.test(path)) continue;
+    if (!options.removeComments || !/^word\/comments[^/]*\.xml$/.test(path)) continue;
     const xml = await file.async("string");
     zip.file(path, xml.replace(/(<(?:[\w.-]+:)?(?:comments|commentsEx|commentsIds|commentsExtensible)\b[^>]*>)[\s\S]*(<\/(?:[\w.-]+:)?(?:comments|commentsEx|commentsIds|commentsExtensible)>)/, "$1$2"));
   }
   for (const [path, file] of Object.entries(zip.files)) {
     if (!path.startsWith("word/") || !path.endsWith(".xml")) continue;
-    if (reviewMarkup.test(await file.async("string"))) {
+    const doc = parseXml(await file.async("string"));
+    if (options.removeComments) for (const kind of ["commentRangeStart", "commentRangeEnd", "commentReference"]) for (const node of elements(doc, kind)) node.parentNode?.removeChild(node);
+    zip.file(path, xmlText(doc));
+    if (options.acceptChanges && options.removeComments && reviewMarkup.test(xmlText(doc))) {
       throw new Error(t("artifact.markup_blocked"));
     }
   }
-  return await zip.generateAsync({ type: "arraybuffer" });
+  return finalizeWordPackage(await zip.generateAsync({ type: "arraybuffer" }), await readWordMetadata(buffer));
 }
 
 export function downloadDocx(buffer: ArrayBuffer, name: string) {

@@ -1,11 +1,16 @@
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { eq } from "drizzle-orm";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { initializeSqlite } from "./runtime-db.js";
+import { drainRuntimeDb, runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
+import { dirname } from "node:path";
+import { sandboxSettingsSchema, sandboxSyncSchema, type SandboxSettings } from "./agent-sandbox/settings-schema.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
+import { connectorConfigVariables } from "./connector-config.js";
 
 export type RuntimeOpencodeConfig = {
+  sandbox?: SandboxSettings;
+  sandboxEdit?: string;
+  sandboxSync?: { account: string; revision: number; dirty: boolean };
+  sandboxNetworkMode?: "allow" | "block" | "approve";
   default_agent?: string;
   plugin?: string[];
   disabled_providers?: string[];
@@ -35,27 +40,19 @@ export type Personality = (typeof PERSONALITY_VALUES)[number];
 
 export type PersonalizationSettings = {
   customInstructions: string;
-  localMemoriesEnabled: boolean;
-  allowToolAssistedMemory: boolean;
   personality: Personality;
 };
 
 export const DEFAULT_PERSONALIZATION_SETTINGS: PersonalizationSettings = {
   customInstructions: "",
-  localMemoriesEnabled: false,
-  allowToolAssistedMemory: true,
   personality: "pragmatic",
 };
 
 export const MAX_CUSTOM_INSTRUCTIONS_LENGTH = 12_000;
 
-const runtimeOpencodeConfigs = sqliteTable("runtime_opencode_configs", {
-  workspaceId: text("workspace_id").primaryKey(),
-  configJson: text("config_json").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
 
 type RuntimeOpencodeDb = {
+  close: () => void;
   get: (workspaceId: string) => { configJson: string } | undefined;
   upsert: (value: { workspaceId: string; configJson: string; updatedAt: number }) => void;
 };
@@ -68,6 +65,7 @@ export function isPersonality(value: unknown): value is Personality {
   return typeof value === "string" && PERSONALITY_VALUES.some((item) => item === value);
 }
 
+/** Settings saved while local memories existed also carry localMemoriesEnabled and allowToolAssistedMemory; they are dropped here. */
 export function normalizePersonalizationSettings(value: unknown): PersonalizationSettings {
   if (!isRecord(value)) return { ...DEFAULT_PERSONALIZATION_SETTINGS };
   return {
@@ -75,14 +73,6 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
       typeof value.customInstructions === "string"
         ? value.customInstructions.slice(0, MAX_CUSTOM_INSTRUCTIONS_LENGTH)
         : DEFAULT_PERSONALIZATION_SETTINGS.customInstructions,
-    localMemoriesEnabled:
-      typeof value.localMemoriesEnabled === "boolean"
-        ? value.localMemoriesEnabled
-        : DEFAULT_PERSONALIZATION_SETTINGS.localMemoriesEnabled,
-    allowToolAssistedMemory:
-      typeof value.allowToolAssistedMemory === "boolean"
-        ? value.allowToolAssistedMemory
-        : DEFAULT_PERSONALIZATION_SETTINGS.allowToolAssistedMemory,
     personality: isPersonality(value.personality)
       ? value.personality
       : DEFAULT_PERSONALIZATION_SETTINGS.personality,
@@ -115,6 +105,11 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ? normalizePersonalizationSettings(value.personalization)
     : undefined;
   return {
+    ...(typeof value.sandboxEdit === "string" ? { sandboxEdit: value.sandboxEdit } : {}),
+    ...(value.sandbox !== undefined ? { sandbox: sandboxSettingsSchema.parse(value.sandbox) } : {}),
+    ...(value.sandboxSync !== undefined ? { sandboxSync: sandboxSyncSchema.parse(value.sandboxSync) } : {}),
+    ...(value.sandboxNetworkMode !== undefined ? { sandboxNetworkMode:
+      value.sandboxNetworkMode === "allow" || value.sandboxNetworkMode === "approve" ? value.sandboxNetworkMode : "block" } : {}),
     ...(defaultAgent ? { default_agent: defaultAgent } : {}),
     ...(plugin ? { plugin } : {}),
     ...(disabledProviders ? { disabled_providers: disabledProviders } : {}),
@@ -126,14 +121,6 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ...(instructions ? { instructions } : {}),
     ...(personalization ? { personalization } : {}),
   };
-}
-
-function runtimeDbPath(config: ServerConfig): string {
-  const override = process.env.LEGALWORK_RUNTIME_DB?.trim();
-  if (override) return resolve(override);
-  const configPath = config.configPath?.trim();
-  const configDir = configPath ? dirname(configPath) : join(homedir(), ".config", "legalwork");
-  return join(configDir, "runtime.sqlite");
 }
 
 /** Directory holding runtime state (the SQLite DB and derived files). */
@@ -157,36 +144,12 @@ export function onRuntimeOpencodeConfigWrite(listener: RuntimeOpencodeConfigWrit
 
 async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
   await ensureDir(dirname(path));
-  if (typeof process.versions.bun === "string") {
-    const { Database } = await import("bun:sqlite");
-    const { drizzle } = await import("drizzle-orm/bun-sqlite");
-    const sqlite = new Database(path, { create: true });
-    sqlite.run("CREATE TABLE IF NOT EXISTS runtime_opencode_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
-    const db = drizzle(sqlite);
-    return {
-      get: (workspaceId) => db
-        .select()
-        .from(runtimeOpencodeConfigs)
-        .where(eq(runtimeOpencodeConfigs.workspaceId, workspaceId))
-        .get(),
-      upsert: ({ workspaceId, configJson, updatedAt }) => {
-        db
-          .insert(runtimeOpencodeConfigs)
-          .values({ workspaceId, configJson, updatedAt })
-          .onConflictDoUpdate({
-            target: runtimeOpencodeConfigs.workspaceId,
-            set: { configJson, updatedAt },
-          })
-          .run();
-      },
-    };
-  }
-  const { DatabaseSync } = await import("node:sqlite");
-  const sqlite = new DatabaseSync(path);
+  return initializeSqlite(path, (sqlite) => {
   sqlite.exec("CREATE TABLE IF NOT EXISTS runtime_opencode_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
   const get = sqlite.prepare("SELECT config_json AS configJson FROM runtime_opencode_configs WHERE workspace_id = ?");
   const upsert = sqlite.prepare("INSERT INTO runtime_opencode_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at");
   return {
+    close: () => sqlite.close(),
     get: (workspaceId) => {
       const row = get.get(workspaceId);
       if (!isRecord(row) || typeof row.configJson !== "string") return undefined;
@@ -196,17 +159,18 @@ async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
       upsert.run(workspaceId, configJson, updatedAt);
     },
   };
+  });
 }
 
-const dbByPath = new Map<string, Promise<RuntimeOpencodeDb>>();
+const resourceKey = Symbol("runtime-opencode-config-store");
+
+/** Release a stopped server's config connection before removing its storage. */
+export async function closeRuntimeOpencodeConfig(config: ServerConfig, path = runtimeDbPath(config)): Promise<void> {
+  await drainRuntimeDb(config, path);
+}
 
 async function runtimeDb(config: ServerConfig): Promise<RuntimeOpencodeDb> {
-  const path = runtimeDbPath(config);
-  const existing = dbByPath.get(path);
-  if (existing) return existing;
-  const db = openRuntimeDb(path);
-  dbByPath.set(path, db);
-  return db;
+  return runtimeDbResource(config, resourceKey, openRuntimeDb);
 }
 
 /**
@@ -295,7 +259,9 @@ export function runtimeDisabledProviderList(config: RuntimeOpencodeConfig): stri
 }
 
 export function runtimeMcpMap(config: RuntimeOpencodeConfig): Record<string, Record<string, unknown>> {
-  return isRecord(config.mcp) ? config.mcp as Record<string, Record<string, unknown>> : {};
+  return Object.fromEntries(Object.entries(recordRecordMap(config.mcp) ?? {}).map(([name, entry]): [string, Record<string, unknown>] => [name,
+    connectorConfigVariables(entry).length || entry.url === "https://configure-before-connecting.invalid/mcp" ? { ...entry, enabled: false } : entry,
+  ]));
 }
 
 export function runtimeAgentMap(config: RuntimeOpencodeConfig): Record<string, Record<string, unknown>> {
@@ -309,6 +275,7 @@ export function runtimeExternalDirectory(config: RuntimeOpencodeConfig): Record<
 }
 
 export async function readRuntimeOpencodeConfig(config: ServerConfig, workspaceId: string): Promise<RuntimeOpencodeConfig> {
+  return withRuntimeDb(config, async () => {
   const db = await runtimeDb(config);
   const row = db.get(workspaceId);
   if (!row) return {};
@@ -317,6 +284,8 @@ export async function readRuntimeOpencodeConfig(config: ServerConfig, workspaceI
   } catch {
     return {};
   }
+
+  });
 }
 
 export async function writeRuntimeOpencodeConfig(
@@ -324,13 +293,21 @@ export async function writeRuntimeOpencodeConfig(
   workspaceId: string,
   updater: (current: RuntimeOpencodeConfig) => RuntimeOpencodeConfig,
 ): Promise<RuntimeOpencodeConfig> {
+  return withRuntimeDb(config, async () => {
   const db = await runtimeDb(config);
-  const next = normalizeRuntimeOpencodeConfig(updater(await readRuntimeOpencodeConfig(config, workspaceId)));
-  const now = Date.now();
+  const current = await readRuntimeOpencodeConfig(config, workspaceId);
+  // Snapshot before the updater, which may mutate current in place. Keep key
+  // order: ordered permission rules can change meaning when reordered.
+  const previous = JSON.stringify(current);
+  const next = normalizeRuntimeOpencodeConfig(updater(current));
   const configJson = JSON.stringify(next);
+  if (configJson === previous) return next;
+  const now = Date.now();
   db.upsert({ workspaceId, configJson, updatedAt: now });
   for (const listener of writeListeners) listener(config, workspaceId);
   return next;
+
+  });
 }
 
 /**

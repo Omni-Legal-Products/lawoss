@@ -1,3 +1,6 @@
+import { runtimeDbPath, runtimeDbScopeActive, withRuntimeDb } from "./runtime-db-lifecycle.js";
+import { syncProjectCalendar } from "./calendar/sync.js";
+import { calendarStore } from "./calendar/store.js";
 import { updateProjectRemote } from "./project-store.js";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
@@ -26,6 +29,7 @@ import {
   type RemoteProject,
 } from "./eigenwelt-projects.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
+import { syncCalendarSubscriptions } from "./calendar/subscriptions.js";
 import { ApiError } from "./errors.js";
 import type { StorageAdapter } from "./file-storage/common.js";
 import { fileKey, hashFile, moveToSyncTrash, syncExcluded, syncProjectFiles } from "./project-file-sync.js";
@@ -36,6 +40,7 @@ import {
   readProjectDetails,
   setProjectSyncId,
   updateProjectDetails,
+  updateProjectPersonalization,
 } from "./project-store.js";
 import {
   projectSyncStore,
@@ -93,6 +98,7 @@ const REAL_PLATFORM: ProjectSyncPlatform = {
 };
 
 export const DEFAULT_PROJECT_SCOPE: ProjectSyncScope = {
+  calendar: true,
   documents: true,
   notes: true,
   tasks: true,
@@ -123,10 +129,10 @@ type Host = { onWorkspacesChanged: () => void };
 type RoundState = { offline: boolean; error: string | null; at: number | null };
 
 function keyOf(config: ServerConfig): string {
-  return process.env.LEGALWORK_RUNTIME_DB?.trim() || config.configPath?.trim() || "default";
+  return runtimeDbPath(config);
 }
 
-const hosts = new Map<string, Host>();
+const hosts = new Map<string, Set<Host>>();
 const revisions = new Map<string, number>();
 /** Whether the firm's pokes reach this computer now. */
 const poked = new Map<string, boolean>();
@@ -137,6 +143,9 @@ const removedWorkspaces = new Map<string, Set<string>>();
 const roundStates = new Map<string, RoundState>();
 const rounds = new Map<string, Promise<ProjectSyncResult>>();
 const pendingRounds = new Map<string, ReturnType<typeof setTimeout>>();
+const timerOwners = new Map<string, Map<symbol, ServerConfig>>();
+const configTimers = new WeakMap<ServerConfig, number>();
+const stoppedConfigs = new WeakSet<ServerConfig>();
 const watchers = new Map<string, Map<string, FSWatcher>>();
 
 /** The firm's pokes reach this computer (or stopped reaching it): the timer steps back (or in again). */
@@ -145,15 +154,17 @@ export function setProjectSyncPoked(config: ServerConfig, live: boolean): void {
 }
 
 /** How the server hosting project sync hears that its project list changed. */
-export function configureProjectSync(config: ServerConfig, host: Host): void {
-  hosts.set(keyOf(config), host);
+export function configureProjectSync(config: ServerConfig, host: Host): () => void {
+  const key = keyOf(config), current = hosts.get(key) ?? new Set<Host>();
+  current.add(host); hosts.set(key, current);
+  return () => { current.delete(host); if (!current.size && hosts.get(key) === current) hosts.delete(key); };
 }
 
 /** The project list changed (a project arrived, left or was renamed): the app reloads it. */
 function workspacesChanged(config: ServerConfig): void {
   const key = keyOf(config);
   revisions.set(key, (revisions.get(key) ?? 0) + 1);
-  hosts.get(key)?.onWorkspacesChanged();
+  for (const host of hosts.get(key) ?? []) host.onWorkspacesChanged();
   announceSyncChange(config, "projects");
 }
 
@@ -176,7 +187,8 @@ function roundStopper(error: unknown): boolean {
  * folder. A document also goes with the reviews when they are shared and one
  * of them reviews it (`reviewed`: file keys, see reviewDocumentKeys).
  */
-export function scopeIncludes(scope: ProjectSyncScope, path: string, reviewed?: Set<string>): boolean {
+export function scopeIncludes(scope: ProjectSyncScope, path: string, reviewed?: Set<string>, attached?: Set<string>): boolean {
+  if (scope.calendar !== false && attached?.has(fileKey(path))) return true;
   const top = path.split("/")[0].toLowerCase();
   if (top === "notes") return scope.notes;
   if (top === "recordings") return scope.recordings;
@@ -286,8 +298,9 @@ async function pushOne(
         id: link.projectId,
         name: nameOf(workspace),
         fields: link.settings.scope.metadata ? details.fields : [],
+        ...(link.settings.scope.metadata ? { personalizationPrompt: details.personalizationPrompt ?? "" } : {}),
         ...(details.remote ? { remote: details.remote } : {}),
-        scope: link.settings.scope,
+        scope: { ...link.settings.scope, calendar: link.settings.scope.calendar !== false },
         access: link.settings.access,
         memberIds: link.settings.memberIds,
       });
@@ -296,6 +309,9 @@ async function pushOne(
         if (!repaired.project?.remote) throw new ApiError(503, "project_remote_upgrade_required", "The team service needs an update before folder mappings can sync.");
       }
       if (details.remote && remote.remote === undefined) throw new ApiError(503, "project_remote_upgrade_required", "The team service needs an update before folder mappings can sync.");
+      if (link.settings.scope.metadata && details.personalizationPrompt && remote.personalizationPrompt == null) {
+        await pushPersonalization(platform, client, link.projectId, details.personalizationPrompt);
+      }
       store.updateLink(link.workspaceId, {
         confirmed: true,
         ownerUserId: remote.ownerUserId,
@@ -313,6 +329,9 @@ async function pushOne(
     case "rename":
       await platform.patchProject(client, projectId, { name: op.name, changedAt: op.changedAt });
       return;
+    case "personalization":
+      if (link.settings.scope.metadata) await pushPersonalization(platform, client, projectId, op.prompt, op.changedAt);
+      return;
     case "fields":
       await platform.patchProject(client, projectId, {
         fieldChanges: op.changes,
@@ -327,6 +346,13 @@ async function pushOne(
         scope: op.settings.scope,
       });
       return;
+  }
+}
+
+async function pushPersonalization(platform: ProjectSyncPlatform, client: IntakeClient, projectId: string, prompt: string, changedAt?: string): Promise<void> {
+  const result = await platform.patchProject(client, projectId, { personalizationPrompt: prompt, changedAt });
+  if (result.project && (result.project.personalizationPrompt === undefined || (result.project.scope.metadata && result.project.personalizationPrompt === null))) {
+    throw new ApiError(503, "project_personalization_upgrade_required", "The team service needs an update before project instructions can sync.");
   }
 }
 
@@ -357,7 +383,7 @@ async function unregisteredCopy(config: ServerConfig, root: string, projectId: s
 }
 
 /** Take the firm's details, keeping each one with a change here still on its way up. */
-async function applyRemoteFields(store: ProjectSyncStore, link: ProjectLink, workspace: WorkspaceInfo, remote: RemoteProject): Promise<void> {
+async function applyRemoteDetails(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink, workspace: WorkspaceInfo, remote: RemoteProject): Promise<void> {
   const pending = store.pendingOps(link.projectId);
   const dirty = new Set(pending.flatMap((op) => (op.kind === "fields" ? op.changes.map((change) => change.id) : [])));
   const orderDirty = pending.some((op) => op.kind === "fields" && op.order !== null);
@@ -377,8 +403,15 @@ async function applyRemoteFields(store: ProjectSyncStore, link: ProjectLink, wor
         return indexOf(a.id) - indexOf(b.id);
       })
     : merged;
-  if (JSON.stringify(ordered) === JSON.stringify(current.fields)) return;
-  await updateProjectDetails(workspace.path, { revision: current.revision, fields: ordered });
+  const updated = JSON.stringify(ordered) === JSON.stringify(current.fields) ? current
+    : await updateProjectDetails(workspace.path, { revision: current.revision, fields: ordered });
+  if (pending.some((op) => op.kind === "personalization")) return;
+  if (remote.personalizationPrompt === null && updated.personalizationPrompt) {
+    // Existing shared projects gain instructions without erasing a saved local prompt.
+    await noteProjectPersonalizationSaved(config, workspace.id, "", updated.personalizationPrompt);
+  } else if (typeof remote.personalizationPrompt === "string" && remote.personalizationPrompt !== (updated.personalizationPrompt ?? "")) {
+    await updateProjectPersonalization(workspace.path, { revision: updated.revision, customInstructions: remote.personalizationPrompt });
+  }
 }
 
 /**
@@ -438,7 +471,7 @@ async function arrive(config: ServerConfig, store: ProjectSyncStore, orgId: stri
     report: null,
   };
   store.saveLink(link);
-  if (remote.scope.metadata) await applyRemoteFields(store, link, workspace, remote);
+  if (remote.scope.metadata) await applyRemoteDetails(config, store, link, workspace, remote);
   if (remote.remote) await updateProjectRemote(workspace.path, remote.remote);
   const tasks = await taskStore(config);
   tasks.linkRemoteProjectTasks(remote.id, workspace.id);
@@ -482,14 +515,15 @@ async function applyRemote(config: ServerConfig, store: ProjectSyncStore, link: 
     if (JSON.stringify(current.remote) !== JSON.stringify(remote.remote)) await updateProjectRemote(workspace.path, remote.remote, current.revision);
   }
   if (settings.scope.metadata && (await folderAvailable(workspace.path))) {
-    await applyRemoteFields(store, { ...link, settings }, workspace, remote);
+    await applyRemoteDetails(config, store, { ...link, settings }, workspace, remote);
   }
 }
 
 /** Files here that differ from what both sides last agreed on, without reading their content. */
-async function localChanges(store: ProjectSyncStore, link: ProjectLink, root: string): Promise<number> {
+async function localChanges(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink, root: string): Promise<number> {
   const base = store.fileBase(link.projectId).entries();
   const reviewed = await reviewedDocuments(link.settings.scope, root);
+  const attached = new Set((await calendarStore(config)).list(link.workspaceId).flatMap(item => item.attachmentPaths.map(fileKey)));
   const seen = new Set<string>();
   let changed = 0;
   const folders = [root];
@@ -501,7 +535,7 @@ async function localChanges(store: ProjectSyncStore, link: ProjectLink, root: st
       if (item.isDirectory()) folders.push(abs);
       if (!item.isFile()) continue;
       const path = abs.slice(root.length + 1).split(sep).join("/").normalize("NFC");
-      if (!scopeIncludes(link.settings.scope, path, reviewed)) continue;
+      if (!scopeIncludes(link.settings.scope, path, reviewed, attached)) continue;
       const key = fileKey(path);
       seen.add(key);
       const info = await stat(abs);
@@ -512,13 +546,14 @@ async function localChanges(store: ProjectSyncStore, link: ProjectLink, root: st
   }
   for (const key of base.keys()) if (!seen.has(key)) changed += 1;
   if (link.settings.scope.reviews) changed += await pendingReviewChanges(root, store.reviewBase(link.projectId));
-  return changed + store.pendingOps(link.projectId).length;
+  return changed + store.pendingOps(link.projectId).length + (await calendarStore(config)).pending(link.workspaceId).length;
 }
 
 /** The project stays here as a local project: nothing about it syncs any more. */
 async function keepAsLocal(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink): Promise<void> {
   const workspace = workspaceOf(config, link.workspaceId);
   (await taskStore(config)).keepProjectTasksLocal(link.workspaceId);
+  (await calendarStore(config)).withdraw(link.workspaceId, true);
   // A member's own folder may be the owner's too (a shared drive): its id is not the member's to clear.
   const ownFolder = link.origin === "local" && link.role !== "owner";
   if (workspace && !ownFolder && (await folderAvailable(workspace.path))) await setProjectSyncId(workspace.path, null);
@@ -538,6 +573,7 @@ async function removeCopy(config: ServerConfig, store: ProjectSyncStore, link: P
     return;
   }
   const workspace = workspaceOf(config, link.workspaceId);
+  (await calendarStore(config)).withdraw(link.workspaceId, false);
   store.discardOutbox(link.projectId);
   store.removeLink(link.workspaceId);
   if (workspace) {
@@ -566,7 +602,7 @@ async function onHidden(config: ServerConfig, store: ProjectSyncStore, link: Pro
     return true;
   }
   const workspace = workspaceOf(config, link.workspaceId);
-  if (workspace && (await folderAvailable(workspace.path)) && (await localChanges(store, link, workspace.path)) > 0) {
+  if (workspace && (await folderAvailable(workspace.path)) && (await localChanges(config, store, link, workspace.path)) > 0) {
     store.updateLink(link.workspaceId, { state: "revoked" });
     workspacesChanged(config);
     return false;
@@ -655,7 +691,7 @@ async function syncDocuments(
   const workspace = workspaceOf(config, link.workspaceId);
   if (!workspace || !(await folderAvailable(workspace.path))) return;
   const scope = link.settings.scope;
-  if (!scope.documents && !scope.notes && !scope.recordings && !scope.reviews) {
+  if (!scope.documents && !scope.notes && !scope.recordings && !scope.reviews && scope.calendar === false) {
     store.updateLink(link.workspaceId, { lastSyncAt: Date.now(), lastError: null, report: null });
     return;
   }
@@ -678,11 +714,12 @@ async function syncDocuments(
         })
       : null;
     const reviewed = await reviewedDocuments(scope, workspace.path);
+    const attached = new Set((await calendarStore(config)).list(link.workspaceId).flatMap(item => item.attachmentPaths.map(fileKey)));
     const files = await syncProjectFiles({
       root: resolve(workspace.path),
       remote,
       base: store.fileBase(link.projectId),
-      includes: (path) => scopeIncludes(scope, path, reviewed),
+      includes: (path) => scopeIncludes(scope, path, reviewed, attached),
       reconcile,
       allowDeletions: link.allowDeletions,
       label,
@@ -734,6 +771,10 @@ export function runProjectSync(
   const key = keyOf(config);
   const inFlight = rounds.get(key);
   if (inFlight) return inFlight;
+  // This round handles the pending changes; its old timer must not start another round later.
+  const pending = pendingRounds.get(key);
+  if (pending) clearTimeout(pending);
+  pendingRounds.delete(key);
   const round = runRound(config, options.platform ?? REAL_PLATFORM).finally(() => {
     if (rounds.get(key) === round) rounds.delete(key);
   });
@@ -742,6 +783,7 @@ export function runProjectSync(
 }
 
 async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Promise<ProjectSyncResult> {
+  return withRuntimeDb(config, async () => {
   await ensureFreshPlatformToken(config).catch(() => null);
   const connection = await readEigenweltConnection(config);
   const orgId = connectedTaskOrgId(connection);
@@ -763,7 +805,16 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
     };
     for (const link of store.links(orgId)) {
       if (link.state !== "active" || !link.confirmed) continue;
+      if (platform === REAL_PLATFORM) {
+        try { await syncProjectCalendar(config, client, link); }
+        catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; /* An older platform may not have the calendar API yet. Keep the outbox and continue document sync. */ }
+      }
       await syncDocuments(config, platform, client, store, link, runner);
+      if (platform === REAL_PLATFORM) {
+        const pendingCalendar = (await calendarStore(config)).pending(link.workspaceId).length;
+        const report = store.linkByWorkspace(link.workspaceId)?.report;
+        if (pendingCalendar > 0) store.updateLink(link.workspaceId, { report: { pending: (report?.pending ?? 0) + pendingCalendar, skipped: report?.skipped ?? [], heldDeletions: report?.heldDeletions ?? 0 } });
+      }
     }
     roundStates.set(key, { offline: false, error: null, at: Date.now() });
     // Tasks published this round go up with the task sync (which waits for a
@@ -774,20 +825,29 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
     result.error = messageOf(error);
     roundStates.set(key, { offline: unreachable(error), error: result.error, at: Date.now() });
   }
+  if (platform === REAL_PLATFORM) {
+    try { await syncCalendarSubscriptions(config); }
+    catch (error) { result.error ??= messageOf(error); }
+  }
   refreshWatchers(config, store.links(orgId));
   // What the round changed (states, files, conflicts) shows in the app now.
   announceSyncChange(config, "projects");
   return result;
+
+  });
 }
 
 /** A round soon, coalescing a burst of changes into one. */
 export function scheduleProjectSync(config: ServerConfig, delayMs: number = CHANGE_DEBOUNCE_MS): void {
+  if (stoppedConfigs.has(config) || !runtimeDbScopeActive(config)) return;
   const key = keyOf(config);
   const pending = pendingRounds.get(key);
   if (pending) clearTimeout(pending);
   const timer = setTimeout(() => {
     pendingRounds.delete(key);
-    void runProjectSync(config).catch(() => undefined);
+    if (!runtimeDbScopeActive(config)) return;
+    const liveConfig = stoppedConfigs.has(config) ? timerOwners.get(key)?.values().next().value : config;
+    if (liveConfig) void runProjectSync(liveConfig).catch(() => undefined);
   }, delayMs);
   timer.unref?.();
   pendingRounds.set(key, timer);
@@ -795,7 +855,9 @@ export function scheduleProjectSync(config: ServerConfig, delayMs: number = CHAN
 
 /** Changes in a synced project's folder start a round soon, rather than waiting for the timer. */
 function refreshWatchers(config: ServerConfig, links: ProjectLink[]): void {
+  if (stoppedConfigs.has(config) || !runtimeDbScopeActive(config)) return;
   const key = keyOf(config);
+  if (!timerOwners.get(key)?.size) return;
   const current = watchers.get(key) ?? new Map<string, FSWatcher>();
   watchers.set(key, current);
   const wanted = new Map<string, string>();
@@ -812,10 +874,13 @@ function refreshWatchers(config: ServerConfig, links: ProjectLink[]): void {
     if (current.has(workspaceId)) continue;
     try {
       const watcher = watch(path, { recursive: true }, (_event, name) => {
+        // Shared watchers dispatch through a live owner after their creator stops.
+        const liveConfig = timerOwners.get(key)?.values().next().value;
+        if (!liveConfig) return;
         // Sync's own bookkeeping and hidden files are not changes to carry; reviews are.
         const parts = String(name ?? "").split(/[\\/]/);
-        if (parts[0] && !syncExcluded(parts[0])) scheduleProjectSync(config);
-        else if (parts.slice(0, 3).join("/") === ".opencode/legalwork/reviews") scheduleProjectSync(config, REVIEW_DEBOUNCE_MS);
+        if (parts[0] && !syncExcluded(parts[0])) scheduleProjectSync(liveConfig);
+        else if (parts.slice(0, 3).join("/") === ".opencode/legalwork/reviews") scheduleProjectSync(liveConfig, REVIEW_DEBOUNCE_MS);
       });
       watcher.on("error", () => {
         watcher.close();
@@ -833,7 +898,12 @@ export function startProjectSyncTimer(
   config: ServerConfig,
   intervalMs: number = TIMER_INTERVAL_MS,
   firstRoundDelayMs = 4_000,
-): () => void {
+): () => Promise<void> {
+  const startKey = keyOf(config), owner = Symbol();
+  const owners = timerOwners.get(startKey) ?? new Map<symbol, ServerConfig>();
+  owners.set(owner, config); timerOwners.set(startKey, owners);
+  configTimers.set(config, (configTimers.get(config) ?? 0) + 1);
+  stoppedConfigs.delete(config);
   const key = keyOf(config);
   const timer = setInterval(() => {
     const last = roundStates.get(key)?.at ?? 0;
@@ -842,13 +912,27 @@ export function startProjectSyncTimer(
   }, intervalMs);
   timer.unref?.();
   scheduleProjectSync(config, firstRoundDelayMs);
-  return () => {
-    clearInterval(timer);
+  const disposeShared = () => {
     const pending = pendingRounds.get(key);
     if (pending) clearTimeout(pending);
     pendingRounds.delete(key);
     for (const watcher of watchers.get(key)?.values() ?? []) watcher.close();
     watchers.delete(key);
+  };
+  let stopPromise: Promise<void> | undefined;
+  return () => {
+    if (stopPromise) return stopPromise;
+    clearInterval(timer);
+    const count = (configTimers.get(config) ?? 1) - 1;
+    configTimers.set(config, count);
+    if (!count) stoppedConfigs.add(config);
+    owners.delete(owner);
+    if (!owners.size) disposeShared();
+    stopPromise = (async () => {
+      await rounds.get(key);
+      if (!owners.size) { disposeShared(); timerOwners.delete(key); }
+    })();
+    return stopPromise;
   };
 }
 
@@ -876,6 +960,7 @@ function stateOf(
 }
 
 export async function projectSyncStatus(config: ServerConfig, workspace: WorkspaceInfo): Promise<ProjectSyncStatus> {
+  return withRuntimeDb(config, async () => {
   const store = await projectSyncStore(config);
   const { orgId, userId } = await connectedOrg(config);
   const link = store.linkByWorkspace(workspace.id);
@@ -907,7 +992,7 @@ export async function projectSyncStatus(config: ServerConfig, workspace: Workspa
   // A copy held back no longer syncs, so no round reports on it: count what it is held for.
   const pendingChanges =
     link.state === "revoked" && available
-      ? await localChanges(store, link, workspace.path)
+      ? await localChanges(config, store, link, workspace.path)
       : store.pendingOps(link.projectId).length + (link.report?.pending ?? 0);
   return {
     workspaceId: workspace.id,
@@ -927,16 +1012,21 @@ export async function projectSyncStatus(config: ServerConfig, workspace: Workspa
     ownFolder: link.origin === "local" && link.role === "member",
     offer: null,
   };
+
+  });
 }
 
 export async function projectSyncOverview(config: ServerConfig): Promise<ProjectSyncOverview> {
+  return withRuntimeDb(config, async () => {
   const store = await projectSyncStore(config);
   const { orgId } = await connectedOrg(config);
   const round = roundStates.get(keyOf(config));
   const states: Record<string, ProjectSyncState> = {};
+  const roles: Record<string, "owner" | "member"> = {};
   for (const link of store.links(orgId ?? undefined)) {
     const workspace = workspaceOf(config, link.workspaceId);
     if (!workspace) continue;
+    roles[link.workspaceId] = link.role;
     const pendingChanges = store.pendingOps(link.projectId).length + (link.report?.pending ?? 0);
     states[link.workspaceId] = stateOf(
       link,
@@ -955,9 +1045,12 @@ export async function projectSyncOverview(config: ServerConfig): Promise<Project
     connected: orgId !== null,
     revision: revisions.get(keyOf(config)) ?? 0,
     states,
+    roles,
     contents: Object.fromEntries(contentRevisions.get(keyOf(config)) ?? []),
     removed: [...(removedWorkspaces.get(keyOf(config)) ?? [])],
   };
+
+  });
 }
 
 /** A synced project's settings are its owner's to change; a local one's are whoever has it. */
@@ -966,6 +1059,24 @@ function requireOwner(link: ProjectLink | null): void {
     throw new ApiError(403, "project_sync_not_owner", "Only the project's owner can change who sees it and what it syncs.");
   }
 }
+
+export type ProjectSyncSettingsCheckpoint =
+  | "callback-enter"
+  | "connection-enter"
+  | "connection-done"
+  | "project-store-enter"
+  | "project-store-done"
+  | "task-store-enter"
+  | "task-store-done"
+  | "link-checks-enter"
+  | "link-checks-done"
+  | "metadata-enter"
+  | "metadata-done"
+  | "mutations-enter"
+  | "mutations-done"
+  | "schedule-enter"
+  | "schedule-done"
+  | "status-call";
 
 /**
  * Turn sync on for a project (its owner, on this machine), or change what it
@@ -976,22 +1087,39 @@ export async function saveProjectSyncSettings(
   config: ServerConfig,
   workspace: WorkspaceInfo,
   settings: ProjectSyncSettings,
+  diagnostic?: (checkpoint: ProjectSyncSettingsCheckpoint) => void,
 ): Promise<ProjectSyncStatus> {
+  const checkpoint = diagnostic ? (value: ProjectSyncSettingsCheckpoint) => {
+    try { diagnostic(value); } catch {}
+  } : undefined;
+  return withRuntimeDb(config, async () => {
+  checkpoint?.("callback-enter");
+  checkpoint?.("connection-enter");
   const { orgId, userId } = await connectedOrg(config);
+  checkpoint?.("connection-done");
   if (orgId === null) {
     throw new ApiError(409, "project_sync_not_connected", "Sign in with Eigenwelt to sync this project with your firm.");
   }
+  checkpoint?.("project-store-enter");
   const store = await projectSyncStore(config);
+  checkpoint?.("project-store-done");
+  checkpoint?.("task-store-enter");
   const tasks = await taskStore(config);
+  checkpoint?.("task-store-done");
+  checkpoint?.("link-checks-enter");
   const link = store.linkByWorkspace(workspace.id);
   requireOwner(link);
   if (!link && store.pendingOffers(orgId).some((offer) => offer.workspaceId === workspace.id)) {
     throw new ApiError(409, "project_sync_offer_pending", "This folder is already a project shared with you: decide first whether to use it as your copy.");
   }
+  checkpoint?.("link-checks-done");
   if (!link) {
     // Shared again after its owner stopped: the same project at the firm, not a second one.
+    checkpoint?.("metadata-enter");
     const projectId = store.takeStopped(workspace.id, orgId) ?? randomUUID();
     await setProjectSyncId(workspace.path, projectId);
+    checkpoint?.("metadata-done");
+    checkpoint?.("mutations-enter");
     store.saveLink({
       workspaceId: workspace.id,
       projectId,
@@ -1012,13 +1140,24 @@ export async function saveProjectSyncSettings(
     store.enqueue(projectId, { kind: "create" });
     if (settings.scope.tasks) tasks.publishProjectTasks(workspace.id);
   } else {
+    checkpoint?.("mutations-enter");
     store.updateLink(workspace.id, { settings, lastError: null });
-    store.enqueue(link.projectId, { kind: "settings", settings });
+    store.enqueue(link.projectId, { kind: "settings", settings: { ...settings, scope: { ...settings.scope, calendar: settings.scope.calendar !== false } } });
+    if (!link.settings.scope.metadata && settings.scope.metadata && await folderAvailable(workspace.path)) {
+      const details = await readProjectDetails(workspace.path);
+      store.enqueue(link.projectId, { kind: "personalization", prompt: details.personalizationPrompt ?? "", changedAt: new Date().toISOString() });
+    }
     if (link.settings.scope.tasks && !settings.scope.tasks) tasks.keepProjectTasksLocal(workspace.id);
     if (!link.settings.scope.tasks && settings.scope.tasks) tasks.publishProjectTasks(workspace.id);
   }
+  checkpoint?.("mutations-done");
+  checkpoint?.("schedule-enter");
   scheduleProjectSync(config, 500);
+  checkpoint?.("schedule-done");
+  checkpoint?.("status-call");
   return projectSyncStatus(config, workspace);
+
+  });
 }
 
 /**
@@ -1026,6 +1165,7 @@ export async function saveProjectSyncSettings(
  * everything in it, and leaves the firm and every colleague's computer.
  */
 export async function stopProjectSync(config: ServerConfig, workspace: WorkspaceInfo): Promise<ProjectSyncStatus> {
+  return withRuntimeDb(config, async () => {
   const store = await projectSyncStore(config);
   const link = store.linkByWorkspace(workspace.id);
   if (!link) return projectSyncStatus(config, workspace);
@@ -1038,6 +1178,8 @@ export async function stopProjectSync(config: ServerConfig, workspace: Workspace
   }
   scheduleProjectSync(config, 500);
   return projectSyncStatus(config, workspace);
+
+  });
 }
 
 export const projectSyncActionSchema = z.discriminatedUnion("action", [
@@ -1068,6 +1210,7 @@ export async function resolveProjectSync(
   workspace: WorkspaceInfo,
   input: ProjectSyncAction,
 ): Promise<ProjectSyncStatus> {
+  return withRuntimeDb(config, async () => {
   const store = await projectSyncStore(config);
   if (input.action === "use_folder" || input.action === "keep_apart") {
     const offer = store.pendingOffers().find((entry) => entry.workspaceId === workspace.id);
@@ -1086,7 +1229,7 @@ export async function resolveProjectSync(
       await keepAsLocal(config, store, link);
       break;
     case "remove": {
-      const changes = (await folderAvailable(workspace.path)) ? await localChanges(store, link, workspace.path) : 0;
+      const changes = (await folderAvailable(workspace.path)) ? await localChanges(config, store, link, workspace.path) : 0;
       if (changes > 0 && input.force !== true) {
         throw new ApiError(409, "project_changes_pending", `${changes} change(s) made on this computer have not reached the firm yet.`, {
           pending: changes,
@@ -1140,9 +1283,22 @@ export async function resolveProjectSync(
   }
   scheduleProjectSync(config, 500);
   return projectSyncStatus(config, workspace);
+
+  });
 }
 
 // --- Local edits the firm has to hear about -----------------------------------------------
+
+export async function noteProjectPersonalizationSaved(config: ServerConfig, workspaceId: string, before: string, after: string): Promise<void> {
+  if (before === after) return;
+  return withRuntimeDb(config, async () => {
+  const store = await projectSyncStore(config);
+  const link = store.linkByWorkspace(workspaceId);
+  if (!link || link.state !== "active" || !link.settings.scope.metadata) return;
+  store.enqueue(link.projectId, { kind: "personalization", prompt: after, changedAt: new Date().toISOString() });
+  scheduleProjectSync(config);
+  });
+}
 
 export async function noteProjectDetailsSaved(
   config: ServerConfig,
@@ -1150,6 +1306,7 @@ export async function noteProjectDetailsSaved(
   before: ProjectField[],
   after: ProjectField[],
 ): Promise<void> {
+  return withRuntimeDb(config, async () => {
   const store = await projectSyncStore(config);
   const link = store.linkByWorkspace(workspaceId);
   if (!link || link.state !== "active" || !link.settings.scope.metadata) return;
@@ -1157,25 +1314,33 @@ export async function noteProjectDetailsSaved(
   if (changes.length === 0 && order === null) return;
   store.enqueue(link.projectId, { kind: "fields", changes, order, changedAt: new Date().toISOString() });
   scheduleProjectSync(config);
+
+  });
 }
 
 export async function noteProjectRenamed(config: ServerConfig, workspaceId: string, name: string): Promise<void> {
+  return withRuntimeDb(config, async () => {
   workspacesChanged(config);
   const store = await projectSyncStore(config);
   const link = store.linkByWorkspace(workspaceId);
   if (!link || link.state !== "active") return;
   store.enqueue(link.projectId, { kind: "rename", name, changedAt: new Date().toISOString() });
   scheduleProjectSync(config);
+
+  });
 }
 
 /** Removed from the project list here: it stops syncing here, and a pull does not bring it back. */
 export async function noteProjectRemoved(config: ServerConfig, workspaceId: string): Promise<void> {
+  return withRuntimeDb(config, async () => {
   const store = await projectSyncStore(config);
   const link = store.linkByWorkspace(workspaceId);
   if (!link) return;
   store.markRemoved(link.projectId, link.orgId);
   store.discardOutbox(link.projectId);
   store.removeLink(workspaceId);
+
+  });
 }
 
 // --- Sign-out -------------------------------------------------------------------------------
@@ -1194,6 +1359,7 @@ export async function signOutOfFirmProjects(
   config: ServerConfig,
   options: { force?: boolean; platform?: ProjectSyncPlatform; apply?: boolean } = {},
 ): Promise<ProjectSignOutResult> {
+  return withRuntimeDb(config, async () => {
   const { orgId } = await connectedOrg(config);
   if (orgId === null) return { ok: true, removed: 0 };
   await runProjectSync(config, { platform: options.platform }).catch(() => undefined);
@@ -1202,7 +1368,7 @@ export async function signOutOfFirmProjects(
   let pending = 0;
   for (const link of copies) {
     const workspace = workspaceOf(config, link.workspaceId);
-    if (workspace && (await folderAvailable(workspace.path))) pending += await localChanges(store, link, workspace.path);
+    if (workspace && (await folderAvailable(workspace.path))) pending += await localChanges(config, store, link, workspace.path);
   }
   if (pending > 0 && !options.force) return { ok: false, pending };
   // Checked only: the caller has more to check before anything leaves.
@@ -1211,9 +1377,12 @@ export async function signOutOfFirmProjects(
   store.forgetOrg(orgId);
   workspacesChanged(config);
   return { ok: true, removed: copies.length };
+
+  });
 }
 
 export async function noteProjectFoldersChanged(config: ServerConfig, workspaceId: string): Promise<void> {
+  return withRuntimeDb(config, async () => {
   const store = await projectSyncStore(config);
   const link = store.linkByWorkspace(workspaceId);
   const workspace = workspaceOf(config, workspaceId);
@@ -1222,4 +1391,6 @@ export async function noteProjectFoldersChanged(config: ServerConfig, workspaceI
   if (!details.remote) return;
   store.enqueue(link.projectId, { kind: "remote", remote: details.remote, changedAt: new Date().toISOString() });
   scheduleProjectSync(config);
+
+  });
 }

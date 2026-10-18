@@ -16,6 +16,7 @@ async function makeStore(): Promise<{ store: TaskStore; dir: string }> {
   const dir = await mkdtemp(join(tmpdir(), "legalwork-tasks-"));
   cleanups.push(() => rm(dir, { recursive: true, force: true }));
   const store = await TaskStore.open(join(dir, "runtime.sqlite"), join(dir, "task-attachments"));
+  cleanups.push(() => store.close());
   return { store, dir };
 }
 
@@ -109,6 +110,7 @@ describe("task-store: local tasks", () => {
     raw.run("INSERT INTO task_session_links VALUES (?, ?, ?)", [task.id, "ses_old", "ws-1"]);
     raw.close();
     const reopened = await TaskStore.open(join(dir, "runtime.sqlite"), join(dir, "task-attachments"));
+    cleanups.push(() => reopened.close());
     expect(reopened.getTask(task.id)?.sessions).toEqual([
       { sessionId: "ses_old", workspaceId: "ws-1", kind: "created", workflowName: null, startedAt: "1970-01-01T00:00:01.000Z" },
     ]);
@@ -531,6 +533,7 @@ describe("task-store: project links", () => {
     expect(store.listTasks({ projectId: "project-a" }).tasks.map((task) => task.id)).toEqual([second.id]);
     expect(store.listTasks({ projectId: "project-b" }).tasks.map((task) => task.id)).toEqual([other.id, first.id]);
     const reopened = await TaskStore.open(join(dir, "runtime.sqlite"), join(dir, "task-attachments"));
+    cleanups.push(() => reopened.close());
     expect(reopened.getTask(first.id)?.projectId).toBe("project-b");
     reopened.patchTask(first.id, { projectId: null }, ANON, 5000);
     expect(reopened.getTask(first.id)?.projectId).toBeNull();

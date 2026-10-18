@@ -1,3 +1,4 @@
+import { useProjectItemDrag } from "../session/panel/panel-tab-destination";
 /** @jsxImportSource react */
 /**
  * The queue itself: rows a legal assistant scans, selects and works through.
@@ -129,11 +130,14 @@ export function TaskList(props: TaskListProps) {
       : signedOut
         ? props.emptyHint
         : t(props.filtered ? "tasks.empty_filtered_body" : "tasks.empty_body");
-    if (props.compactEmpty) return <div className="flex min-h-24 flex-wrap items-center gap-3 px-4 py-4">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground">{signedOut ? <CloudOff className="size-4" /> : <Inbox className="size-4" />}</span>
-      <div className="min-w-36 flex-1"><p className="text-sm font-medium">{title}</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">{body}</p></div>
-      {!signedOut && props.onCreate && <Button variant="ghost" size="sm" className="text-xs" onClick={props.onCreate}>{t("tasks.new_task")}</Button>}
-    </div>;
+    if (props.compactEmpty) return <Empty variant="ghost" className="gap-3 rounded-none p-5 sm:p-5">
+      <EmptyHeader className="gap-1.5">
+        <EmptyMedia className="mb-0 text-muted-foreground">{signedOut ? <CloudOff className="size-5" /> : <Inbox className="size-5" />}</EmptyMedia>
+        <EmptyTitle className="text-sm">{title}</EmptyTitle>
+        {signedOut && <EmptyDescription className="text-xs">{body}</EmptyDescription>}
+      </EmptyHeader>
+      {!signedOut && props.onCreate && <Button variant="outline" size="sm" className="text-xs" onClick={props.onCreate}>{t("tasks.new_task")}</Button>}
+    </Empty>;
     return (
       <Empty variant="ghost" className="mx-auto max-w-sm py-14">
         <EmptyHeader>
@@ -386,6 +390,7 @@ function TaskRow(props: {
   busy: boolean;
 }) {
   const { task } = props;
+  const drag = useProjectItemDrag();
   const assignee = !task.assigneeUserId
     ? t("tasks.unassigned")
     : props.accountUserId && task.assigneeUserId === props.accountUserId
@@ -410,6 +415,8 @@ function TaskRow(props: {
         <button
           type="button"
           data-task-row={task.id}
+          draggable={Boolean(drag) && !task.deletedAt}
+          onDragStart={event => drag?.(event.dataTransfer, { type: "task", id: `task:${task.id}`, taskId: task.id, label: task.title })}
           aria-current={props.selected ? "true" : undefined}
           className={cn(
             "lw-sidebar-item flex w-full flex-col gap-1 rounded-lg py-3 pe-3 ps-9 text-start outline-none",
@@ -444,7 +451,7 @@ function TaskRow(props: {
                   className={cn(
                     "inline-flex items-center gap-1 tabular-nums",
                     dueTone === "overdue" && "font-medium text-red-9",
-                    dueTone === "today" && "font-medium text-amber-9",
+                    dueTone === "today" && "font-medium text-amber-11",
                   )}
                   title={t("tasks.due_label", { date: formatTaskDueDate(task.dueDate) })}
                 >

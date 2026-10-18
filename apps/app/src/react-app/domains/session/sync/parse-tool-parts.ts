@@ -1,5 +1,6 @@
 import type { DynamicToolUIPart, TextUIPart } from "ai";
 import type { ToolPart } from "@opencode-ai/sdk/v2/client";
+import { ViewPreviewSchema } from "@legalwork/types/views";
 
 import { safeStringify } from "@/app/utils";
 
@@ -10,6 +11,7 @@ function shouldDeferInProgressTool(part: ToolPart) {
     return false;
   }
 
+  if ((part.tool === "view_create" || part.tool === "view_update") && part.state.status === "pending") return false;
   return Object.keys(part.state.input).length === 0;
 }
 
@@ -37,6 +39,14 @@ export function parseDynamicToolUIPart(part: ToolPart): DynamicToolUIPart | null
     return null;
   }
 
+  const metadata = "metadata" in part.state ? part.state.metadata : undefined;
+  const callProviderMetadata = { opencode: {
+    partId: part.id,
+    ...((part.tool === "view_create" || part.tool === "view_update") && part.state.status === "pending" && part.state.raw ? { rawInput: part.state.raw.slice(0, 200_000) } : {}),
+    ...(part.tool === "task" && typeof metadata?.sessionId === "string" ? { sessionId: metadata.sessionId } : {}),
+    ...(part.tool === "task" && metadata?.background === true ? { background: true } : {}),
+  } };
+
   if (part.state.status === "error") {
     return {
       type: "dynamic-tool",
@@ -45,19 +55,21 @@ export function parseDynamicToolUIPart(part: ToolPart): DynamicToolUIPart | null
       state: "output-error",
       input: part.state.input,
       errorText: part.state.error,
-      callProviderMetadata: { opencode: { partId: part.id } },
+      callProviderMetadata,
     };
   }
 
   if (part.state.status === "completed") {
+    const preview = part.tool === "view_create" || part.tool === "view_update"
+      ? ViewPreviewSchema.safeParse(metadata?.legalworkViewPreview).data : undefined;
     return {
       type: "dynamic-tool",
       toolName: part.tool,
       toolCallId: part.callID,
       state: "output-available",
       input: part.state.input,
-      output: part.state.output,
-      callProviderMetadata: { opencode: { partId: part.id } },
+      output: preview ?? part.state.output,
+      callProviderMetadata,
     };
   }
 
@@ -73,6 +85,6 @@ export function parseDynamicToolUIPart(part: ToolPart): DynamicToolUIPart | null
     toolCallId: part.callID,
     state: "input-streaming",
     input: part.state.input,
-    callProviderMetadata: { opencode: { partId: part.id } },
+    callProviderMetadata,
   };
 }

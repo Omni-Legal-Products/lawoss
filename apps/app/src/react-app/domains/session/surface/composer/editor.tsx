@@ -1,3 +1,4 @@
+import { readAttachmentClipboard } from "./attachment-clipboard";
 import { parseWorkspaceAttachmentMention } from "./workspace-attachment";
 /** @jsxImportSource react */
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, type ForwardedRef } from "react";
@@ -36,10 +37,12 @@ import type { InitialConfigType } from "@lexical/react/LexicalComposer.js";
 import {
   decodeComposerMentionValue,
   encodeComposerMentionValue,
+  parsePluginComposerMention,
   parseLegalMemoryComposerMention,
   parseLegalMemoryFolderComposerMention,
   parseStorageComposerMention,
   parseReviewComposerMention,
+  parseCalendarComposerMention,
   parseTaskComposerMention,
   type ComposerMentionKind,
 } from "./mention-encoding";
@@ -54,12 +57,15 @@ type EditorProps = {
   mentions: Record<string, ComposerMentionKind>;
   pastedText?: Array<{ label: string; lines: number }>;
   disabled: boolean;
+  submitDisabled?: boolean;
   placeholder: string;
+  ariaLabel?: string;
   onChange: (value: string) => void;
   onSubmit: (options: { queue: boolean }) => void | Promise<void>;
   onExpandPastedText?: (label: string) => void;
   onPreviewPastedText?: (label: string) => void;
   onPaste?: React.ClipboardEventHandler<HTMLDivElement>;
+  onPasteMentions?: (mentions: string[]) => void;
   onPasteText?: (text: string) => { label: string; lines: number };
   onDrop?: React.DragEventHandler<HTMLDivElement>;
   onDragOver?: React.DragEventHandler<HTMLDivElement>;
@@ -68,6 +74,7 @@ type EditorProps = {
 
 export type LexicalPromptEditorHandle = {
   insertSkillAtSelection: (skillName: string) => void;
+  insertMentionAtSelection: (value: string, kind: ComposerMentionKind) => void;
   expandPastedText: (label: string, text: string) => void;
 };
 
@@ -108,9 +115,12 @@ const MENTION_PILL_CLASS: Record<ComposerMentionKind, string> = {
   app: "inline-flex items-center rounded-full border border-cyan-6/35 bg-cyan-3/20 px-2.5 py-1 text-xs font-medium text-cyan-11",
   review: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
   task: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
+  calendar: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
+  plugin: "inline-flex items-center rounded-full border border-gray-6 bg-gray-3 px-2.5 py-1 text-xs font-medium text-gray-11",
 };
 
 function mentionPillText(value: string, kind: ComposerMentionKind) {
+  if (kind === "plugin") return t("composer.plugin_pill", { name: parsePluginComposerMention(value)?.label ?? value });
   if (kind === "upload") return parseWorkspaceAttachmentMention(value)?.name ?? value;
   if (kind === "memory") {
     const folder = parseLegalMemoryFolderComposerMention(value);
@@ -123,6 +133,10 @@ function mentionPillText(value: string, kind: ComposerMentionKind) {
     if (storage) return `@${storage.label}`;
   }
   if (kind === "review") return `@${parseReviewComposerMention(value)?.label ?? value}`;
+  if (kind === "calendar") {
+    const label = parseCalendarComposerMention(value)?.label ?? value;
+    return `@${label.length > TASK_PILL_MAX_CHARS ? `${label.slice(0, TASK_PILL_MAX_CHARS).trimEnd()}…` : label}`;
+  }
   if (kind === "task") {
     const task = parseTaskComposerMention(value);
     if (task) {
@@ -173,7 +187,7 @@ class ComposerMentionNode extends TextNode {
     dom.textContent = mentionPillText(this.__value, this.__kind);
     dom.contentEditable = "false";
     dom.setAttribute("spellcheck", "false");
-    dom.title = `@${this.__value}`;
+    dom.title = this.__kind === "plugin" ? mentionPillText(this.__value, this.__kind) : `@${this.__value}`;
     return dom;
   }
 
@@ -181,7 +195,7 @@ class ComposerMentionNode extends TextNode {
     if (prevNode.__value !== this.__value || prevNode.__kind !== this.__kind) {
       dom.className = MENTION_PILL_CLASS[this.__kind];
       dom.textContent = mentionPillText(this.__value, this.__kind);
-      dom.title = `@${this.__value}`;
+      dom.title = this.__kind === "plugin" ? mentionPillText(this.__value, this.__kind) : `@${this.__value}`;
     }
     return false;
   }
@@ -534,7 +548,7 @@ function setPrompt(value: string, mentions: Record<string, ComposerMentionKind>,
     }
     if (segment.startsWith("@")) {
       const token = decodeComposerMentionValue(segment.slice(1));
-      const kind = mentions[token];
+      const kind = mentions[token] ?? (parsePluginComposerMention(token) ? "plugin" : undefined);
       if (kind) {
         paragraph.append($createComposerMentionNode(token, kind));
         continue;
@@ -565,6 +579,20 @@ function insertSkillAtSelection(skillName: string) {
   const spaceNode = $createTextNode(" ");
   selection.insertNodes([skillNode, spaceNode]);
   setSelectionAfterNode(spaceNode);
+}
+
+function insertMentionAtSelection(value: string, kind: ComposerMentionKind) {
+  const selection = $getSelection();
+  const nodes = [$createComposerMentionNode(value, kind), $createTextNode(" ")];
+  if ($isRangeSelection(selection)) selection.insertNodes(nodes);
+  else {
+    const root = $getRoot();
+    const last = root.getLastChild();
+    const paragraph = $isElementNode(last) ? last : $createParagraphNode();
+    if (!$isElementNode(last)) root.append(paragraph);
+    paragraph.append(...nodes);
+  }
+  setSelectionAfterNode(nodes[1]);
 }
 
 // Serialize the current editor state to the external draft string. Lexical's
@@ -670,7 +698,7 @@ function SubmitPlugin(props: { onSubmit: (options: { queue: boolean }) => void |
 const PASTE_CHIP_LINE_THRESHOLD = 10;
 const PASTE_CHIP_CHAR_THRESHOLD = 1000;
 
-function PasteChipPlugin(props: Pick<EditorProps, "onPasteText" | "onExpandPastedText">) {
+function PasteChipPlugin(props: Pick<EditorProps, "onPasteText" | "onExpandPastedText" | "onPasteMentions">) {
   const [editor] = useLexicalComposerContext();
   const propsRef = useRef(props);
   const lastPasteRef = useRef<{ text: string; label: string } | null>(null);
@@ -686,7 +714,7 @@ function PasteChipPlugin(props: Pick<EditorProps, "onPasteText" | "onExpandPaste
         const previousPaste = lastPasteRef.current;
         lastPasteRef.current = null;
         const { onPasteText, onExpandPastedText } = propsRef.current;
-        if (!onPasteText || !editor.isEditable() || event.defaultPrevented) return false;
+        if (!editor.isEditable() || event.defaultPrevented) return false;
         // Only handle plain-text pastes; files are handled in the React onPaste.
         const files = event.clipboardData?.files;
         if (files && files.length > 0) return false;
@@ -695,6 +723,17 @@ function PasteChipPlugin(props: Pick<EditorProps, "onPasteText" | "onExpandPaste
         if (!text.trim()) return false;
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) return false;
+        const attachments = readAttachmentClipboard(text, event.clipboardData?.getData("text/html") ?? "");
+        if (propsRef.current.onPasteMentions && attachments?.some(part => part.mention)) {
+          event.preventDefault();
+          propsRef.current.onPasteMentions?.(attachments.flatMap(part => part.mention ? [part.mention] : []));
+          for (const part of attachments) {
+            if (part.mention) selection.insertNodes([$createComposerMentionNode(part.mention, "upload")]);
+            else if (part.text) selection.insertRawText(part.text);
+          }
+          return true;
+        }
+        if (!onPasteText) return false;
         const anchor = selection.anchor.getNode();
         const previousNode = $isElementNode(anchor)
           ? anchor.getChildAtIndex(selection.anchor.offset - 1)
@@ -855,6 +894,10 @@ function ImperativeHandlePlugin(props: { editorRef: ForwardedRef<LexicalPromptEd
       editor.update(() => insertSkillAtSelection(skillName));
       editor.focus();
     },
+    insertMentionAtSelection(value: string, kind: ComposerMentionKind) {
+      editor.update(() => insertMentionAtSelection(value, kind));
+      editor.focus();
+    },
     expandPastedText(label: string, text: string) {
       editor.update(() => {
         const node = $getRoot().getAllTextNodes().find((item) =>
@@ -944,6 +987,7 @@ export const LexicalPromptEditor = forwardRef<LexicalPromptEditorHandle, EditorP
             <ContentEditable
               className="min-h-[72px] max-h-[280px] w-full resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-dls-text outline-none placeholder:text-dls-secondary [&_p]:min-h-[1.5rem] [&_p]:m-0"
               aria-placeholder={props.placeholder}
+              aria-label={props.ariaLabel}
               placeholder={<span />}
               onPaste={props.onPaste}
               onDrop={props.onDrop}
@@ -961,8 +1005,8 @@ export const LexicalPromptEditor = forwardRef<LexicalPromptEditorHandle, EditorP
         <OnChangePlugin onChange={syncPromptFromEditorState} />
         <HistoryPlugin />
         <SyncPlugin value={props.value} mentions={props.mentions} pastedText={props.pastedText} disabled={props.disabled} />
-        <SubmitPlugin onSubmit={props.onSubmit} disabled={props.disabled} />
-        <PasteChipPlugin onPasteText={props.onPasteText} onExpandPastedText={props.onExpandPastedText} />
+        <SubmitPlugin onSubmit={props.onSubmit} disabled={props.disabled || Boolean(props.submitDisabled)} />
+        <PasteChipPlugin onPasteMentions={props.onPasteMentions} onPasteText={props.onPasteText} onExpandPastedText={props.onExpandPastedText} />
         <MentionChipNavigationPlugin />
         <ImperativeHandlePlugin editorRef={ref} />
       </div>

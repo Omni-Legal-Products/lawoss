@@ -1,5 +1,8 @@
+import { runtimeDbHandles } from "./test-support/runtime-db-handles.js";
+import { closeOrgPolicyRuntime } from "./org-policy.js";
+import { runtimeDbPath } from "./runtime-db-lifecycle.js";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -20,14 +23,24 @@ import {
 import type { ServerConfig } from "./types.js";
 
 const roots: string[] = [];
-const cleanups: Array<() => void> = [];
+const cleanups: Array<() => void | Promise<void>> = [];
 let previousDb: string | undefined;
 
 afterEach(async () => {
-  while (cleanups.length) cleanups.pop()?.();
-  while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
-  if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
-  else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+  const errors: unknown[] = [];
+  try {
+    while (cleanups.length) {
+      try { await cleanups.pop()?.(); } catch (error) { errors.push(error); }
+    }
+    while (roots.length) {
+      try { await rm(roots.pop()!, { recursive: true, force: true }); } catch (error) { errors.push(error); }
+    }
+  } finally {
+    if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
+    else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+  }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length) throw new AggregateError(errors, "Fixture cleanup failed");
 });
 
 async function setup() {
@@ -53,6 +66,11 @@ async function setup() {
     logFormat: "pretty",
     logRequests: false,
   };
+  const path = runtimeDbPath(config);
+  cleanups.push(async () => {
+    await closeOrgPolicyRuntime(config, path);
+    expect(await runtimeDbHandles(path)).toBe(0);
+  });
   return { root, config };
 }
 
@@ -60,6 +78,54 @@ async function readConfigFile(config: ServerConfig): Promise<Record<string, unkn
   const raw = await readFile(legalworkRuntimeConfigFilePath(config), "utf8");
   return JSON.parse(raw) as Record<string, unknown>;
 }
+
+test("protected engine configuration retains installed skill discovery", async () => {
+  const { root, config } = await setup();
+  config.agentSandboxEnabled = true;
+  const folder = join(root, ".opencode", "skills", "protected-helper");
+  const visible = join(root, "Skills", "wiki-setup");
+  await mkdir(visible, { recursive: true });
+  await writeFile(join(visible, "SKILL.md"), "---\nname: wiki-setup\ndescription: Set up this wiki\n---\nRead this wiki's guidance.\n");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "SKILL.md"), "---\nname: protected-helper\ndescription: An installed helper\n---\nUse the protected shell.\n");
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  expect(await readConfigFile(config)).toMatchObject({ skills: { paths: expect.arrayContaining([folder, visible]) }, lsp: false, formatter: false });
+});
+
+test.each([false, true])("the built-in review worker is registered with sandboxing=%s", async (sandboxed) => {
+  const { config } = await setup();
+  config.agentSandboxEnabled = sandboxed;
+  await writeRuntimeOpencodeConfig(config, "ws_1", () => ({
+    agent: { "document-extractor": { disable: true, model: "other/model", prompt: "Stored override", permission: { "*": "allow" } } },
+  }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const parsed = await readConfigFile(config);
+  expect(parsed).toMatchObject({ agent: { "document-extractor": {
+    description: "Internal grounded text inference worker for saved project reviews.",
+    mode: "subagent", hidden: true, temperature: 0.1,
+    prompt: expect.stringContaining("Use only the evidence and column definition provided in this request."),
+    tools: { "*": false }, permission: { "*": "deny" },
+  } } });
+  expect(parsed).not.toHaveProperty("agent.document-extractor.disable");
+  expect(parsed).not.toHaveProperty("agent.document-extractor.model");
+  expect(parsed).not.toHaveProperty("agent.document-extractor.prompt", "Stored override");
+});
+
+test("saved-output access is enabled before user rules and bundled with the runtime", async () => {
+  const { config } = await setup();
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "deny", read: "deny" } }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const denied = await readConfigFile(config);
+  expect(denied).toMatchObject({ permission: { legalwork_tool_output_read: "allow", "*": "deny", read: "deny" } });
+  const rules = Object.keys(Object(denied.permission));
+  expect(rules.indexOf("legalwork_tool_output_read")).toBeLessThan(rules.indexOf("*"));
+  expect(JSON.stringify(denied.plugin)).toContain("legalwork-tool-output");
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "allow", legalwork_tool_output_read: "deny" } }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const explicit = await readConfigFile(config);
+  expect(explicit).toMatchObject({ permission: { legalwork_tool_output_read: "deny" } });
+  expect(Object.keys(Object(explicit.permission)).indexOf("legalwork_tool_output_read")).toBeGreaterThan(Object.keys(Object(explicit.permission)).indexOf("*"));
+});
 
 describe("legalwork runtime config file", () => {
   test("writes runtime-DB MCPs and legalwork defaults into the file", async () => {
@@ -88,6 +154,9 @@ describe("legalwork runtime config file", () => {
     // written into the per-workspace runtime config at connect time.
     expect((parsed.provider as Record<string, unknown> | undefined)?.eigenwelt).toBeUndefined();
     const agents = parsed.agent as Record<string, Record<string, unknown>>;
+    expect(agents["legalwork-scheduled-project"]).toMatchObject({ hidden: true, mode: "primary", permission: { "*": "deny", legalwork_project_read: "allow" } });
+    expect(agents["legalwork-scheduled-all"]).toMatchObject({ hidden: true, mode: "primary", permission: { legalwork_ui_execute_action: "deny", legalwork_ui_list_actions: "deny", legalwork_ui_snapshot: "deny" } });
+    expect(JSON.stringify(parsed.plugin)).toContain("legalwork-scheduled-task-tools");
     expect(agents.legalwork.prompt).toContain("start-tabular-review");
     expect(agents.legalwork.prompt).toContain("at most one short sentence");
     expect(agents.reviewer?.model).toBe("opencode/big-pickle");
@@ -105,6 +174,8 @@ describe("legalwork runtime config file", () => {
     // OpenCode's dynamic import() throw ERR_UNSUPPORTED_ESM_URL_SCHEME and
     // fails the whole config load — no providers, no tasks.
     expect(localPlugins.some((spec) => /legalwork-storage-tools\.(?:js|ts)\?v=/.test(spec))).toBe(true);
+    // LAWOSS: wiki sa v alfe nenačíta (spec 0017 S1, lawoss/hidden-upstream-tools.test.ts).
+    expect(localPlugins.some((spec) => /legalwork-wiki-tools\.(?:js|ts)\?v=/.test(spec))).toBe(false);
     expect(localPlugins.length).toBeGreaterThan(0);
     for (const spec of localPlugins) {
       expect(spec.startsWith("file://")).toBe(true);
@@ -181,14 +252,16 @@ describe("legalwork runtime config file", () => {
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     cleanups.push(keepLegalworkRuntimeConfigFileFresh(config, "ws_1"));
 
+    // Saved while local memories existed: the flags stay in the stored JSON.
+    const saved: { customInstructions: string; localMemoriesEnabled: boolean; allowToolAssistedMemory: boolean; personality: "professional" } = {
+      customInstructions: "Use concise issue-rule-analysis conclusions.",
+      localMemoriesEnabled: true,
+      allowToolAssistedMemory: false,
+      personality: "professional",
+    };
     await writeRuntimeOpencodeConfig(config, GLOBAL_PERSONALIZATION_ID, (current) => ({
       ...current,
-      personalization: {
-        customInstructions: "Use concise issue-rule-analysis conclusions.",
-        localMemoriesEnabled: true,
-        allowToolAssistedMemory: false,
-        personality: "professional",
-      },
+      personalization: saved,
     }));
 
     let prompt = "";
@@ -203,7 +276,26 @@ describe("legalwork runtime config file", () => {
     }
 
     expect(prompt).toContain("Use concise issue-rule-analysis conclusions.");
-    expect(plugins).toContain("opencode-agent-memory@0.2.0");
+    expect(prompt).not.toContain("Local memory policy");
+    expect(plugins.some((plugin) => plugin.includes("agent-memory"))).toBe(false);
+  });
+
+  test("project instruction updates require approval even with broad tool allow rules", async () => {
+    const { config } = await setup();
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({
+      ...current,
+      permission: { legalwork_project_set_instructions: "allow", "*": "allow", bash: "ask" },
+    }));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    const parsed = await readConfigFile(config);
+    if (typeof parsed.permission !== "object" || parsed.permission === null) throw new Error("Permission config missing");
+    expect(parsed.permission).toMatchObject({ "*": "allow", bash: "ask", legalwork_project_set_instructions: "ask" });
+    expect(Object.keys(parsed.permission).at(-1)).toBe("legalwork_project_set_instructions");
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({
+      ...current, permission: { legalwork_project_set_instructions: "deny" },
+    }));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    expect((await readConfigFile(config)).permission).toMatchObject({ legalwork_project_set_instructions: "deny" });
   });
 });
 
@@ -337,4 +429,20 @@ describe("lawoss global custom providers", () => {
     }
     throw new Error("Config file was not refreshed after a global provider write.");
   });
+});
+
+test.each([false, true])("an empty Sync manifest removes stale workspace models (BYO connected: %s)", async (byo) => {
+  const { config } = await setup();
+  await writeCachedEigenweltPaidManifest(config, { baseURL: "https://paid.gateway.test/v1", apiKey: "paid-key", models: [] });
+  await writeEigenweltConnection(config, { platformToken: "access",
+    entitlements: parseEigenweltEntitlements({ plan: "sync", features: ["premium_models"] }) ?? null });
+  await writeRuntimeOpencodeConfig(config, "ws_1", current => ({ ...current, provider: {
+    eigenwelt: { npm: "@ai-sdk/openai-compatible", models: { "Eigenwelt Europe": { name: "Old model" } } },
+    ...(byo ? { openai: { models: { "gpt-test": { name: "My OpenAI model" } } } } : {}),
+  } }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const providers = (await readConfigFile(config)).provider;
+  if (byo) expect(providers).toMatchObject({ openai: { models: { "gpt-test": { name: "My OpenAI model" } } } });
+  else expect(providers).toEqual({});
+  expect(providers).not.toHaveProperty("eigenwelt");
 });

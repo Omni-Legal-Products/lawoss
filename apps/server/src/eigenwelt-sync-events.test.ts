@@ -56,3 +56,18 @@ describe("pokes from the firm", () => {
     expect(requests[0]?.url.endsWith("/api/sync/events")).toBe(true);
   });
 });
+
+test("stopping events waits for an accepted response and never delivers a late poke", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "legalwork-pokes-stop-")); cleanups.push(() => rm(dir, { recursive: true, force: true }));
+  const config = { configPath: join(dir, "server.json"), workspaces: [] } as unknown as ServerConfig;
+  await writeEigenweltConnection(config, { platformToken: "synthetic", account: { userId: "user", orgId: "org", userName: "Fixture", userEmail: "fixture@example.test", orgName: "Fixture" } });
+  let enter!: () => void, resume!: () => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; }); const barrier = new Promise<void>(resolve => { resume = resolve; });
+  const pokes: SyncPoke[] = [];
+  const localFetch = Object.assign(async () => { enter(); await barrier; return new Response('data: {"resync":true}\n\n'); }, { preconnect: fetch.preconnect });
+  const stop = startSyncEvents(config, { fetch: localFetch, onPoke: poke => pokes.push(poke) }); await entered;
+  let stopped = false; const closing = Promise.resolve(stop()).then(() => { stopped = true; });
+  try { await new Promise(resolve => setTimeout(resolve, 10)); expect(stopped).toBe(false); }
+  finally { resume(); await closing; }
+  expect(pokes).toEqual([]);
+});

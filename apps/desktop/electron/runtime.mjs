@@ -669,6 +669,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   const userDataDir = app.getPath("userData");
+  const pluginDiscoveryHome = app.getPath("home");
   const projectsDirectory = desktopProjectsDirectory(app.getPath("documents"), process.env.LEGALWORK_DEV_MODE === "1");
   const sidecarDirs = [
     path.join(desktopRoot, "resources", "sidecars"),
@@ -967,6 +968,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       ...process.env,
       BUN_CONFIG_DNS_RESULT_ORDER: "verbatim",
       ...extra,
+      // Import sources belong to the OS user, even when dev isolates OpenCode's HOME.
+      LEGALWORK_PLUGIN_DISCOVERY_HOME: pluginDiscoveryHome,
     };
     const pathKey =
       Object.prototype.hasOwnProperty.call(env, "PATH") ||
@@ -1188,8 +1191,12 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       };
     }
 
-    const versionResult = spawnSync(resolved.path, ["--version"], { encoding: "utf8" });
-    const helpResult = spawnSync(resolved.path, ["serve", "--help"], { encoding: "utf8" });
+    const versionResult = spawnSync(resolved.path, ["--version"], {
+      encoding: "utf8", timeout: 2000, maxBuffer: 1024 * 1024, windowsHide: true,
+    });
+    const helpResult = spawnSync(resolved.path, ["serve", "--help"], {
+      encoding: "utf8", timeout: 2000, maxBuffer: 1024 * 1024, windowsHide: true,
+    });
     const notes = [`Using ${resolved.source}: ${resolved.path}`];
     if (versionResult.status !== 0) {
       notes.push("OpenCode version probe failed.");
@@ -1462,6 +1469,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // into EADDRINUSE (see apps/server/src/serve-node.ts), so the bound port
     // below is authoritative.
     const handle = await startEmbeddedServer({
+      decryptLegacyConnectorSecrets: async (value) => {
+        const { safeStorage } = await import("electron");
+        return safeStorage.decryptString(Buffer.from(value, "base64"));
+      },
       projectsDirectory,
       host,
       port: portSelection.port,
@@ -1561,9 +1572,11 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
           engineState.hostname = new URL(opencode.baseUrl).hostname;
           engineState.port = Number(new URL(opencode.baseUrl).port) || null;
           engineState.baseUrl = opencode.baseUrl;
-          // LAWOSS: server od #142 prihlasovacie údaje enginu nevracia; ponechať tie, ktoré desktop pozná.
-          engineState.opencodeUsername = opencode.username ?? engineState.opencodeUsername ?? null;
-          engineState.opencodePassword = opencode.password ?? engineState.opencodePassword ?? null;
+          // Engine credentials stay on the private in-process handle; public
+          // workspace responses deliberately omit them, including for owners.
+          const privateWorkspace = handle.config.workspaces.find((workspace) => workspace.id === first.id);
+          engineState.opencodeUsername = privateWorkspace?.opencodeUsername ?? handle.config.opencodeUsername ?? null;
+          engineState.opencodePassword = privateWorkspace?.opencodePassword ?? handle.config.opencodePassword ?? null;
           engineState.execution = handle.managedOpencodeExecution ?? null;
           engineState.child = null;
           engineState.childExited = false;
@@ -2372,7 +2385,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     officeAddinUninstall: (appId) => officeAddinManager.uninstall(appId),
     officeAddinOpenApp: (appId) => officeAddinManager.openApp(appId),
     orchestratorStatus,
-    orchestratorWorkspaceActivate,
+    orchestratorWorkspaceActivate: (input) => withRuntimeLifecycle(() => orchestratorWorkspaceActivate(input)),
     orchestratorInstanceDispose,
     orchestratorStartDetached,
     opencodeMcpAuth,

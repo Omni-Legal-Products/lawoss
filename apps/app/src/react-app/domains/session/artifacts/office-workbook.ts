@@ -10,7 +10,7 @@ const borderTags = { l: "left", r: "right", t: "top", b: "bottom" };
 const NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 type Xml = ReturnType<DOMParser["parseFromString"]>;
 type El = NonNullable<Xml["documentElement"]>;
-const parse = (source: string) => new DOMParser().parseFromString(source, "application/xml");
+const parse = (source: string) => new DOMParser().parseFromString(source.replace(/^\uFEFF/, ""), "application/xml");
 const serialize = (doc: Xml) => new XMLSerializer().serializeToString(doc);
 const children = (el: El, name: string) => Array.from(el.childNodes).filter((node): node is El => node.nodeType === 1 && node.localName === name);
 const first = (el: El, name: string) => children(el, name)[0];

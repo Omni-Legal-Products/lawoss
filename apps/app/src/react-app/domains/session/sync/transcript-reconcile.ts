@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import type { LegalworkSessionSnapshot } from "../../../../app/lib/legalwork-server";
 
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "../../../../app/types";
 import { mergeSnapshotIntoCachedMessages } from "./message-merge";
@@ -47,6 +48,32 @@ export function applyRevertCursor(messages: UIMessage[], revertMessageId: string
   const idx = messages.findIndex((message) => message.id === revertMessageId);
   if (idx < 0) return messages;
   return messages.slice(0, idx);
+}
+
+/** Resolve only aliases proved by this raw snapshot, then respect a known live boundary. */
+export function applySnapshotRevertCursor(
+  messages: UIMessage[],
+  snapshot: LegalworkSessionSnapshot | null | undefined,
+  incoming: UIMessage[],
+  existing: UIMessage[],
+): UIMessage[] {
+  const rawId = snapshot?.session.revert?.messageID;
+  if (!rawId) return messages;
+  let boundary = rawId;
+  if (!incoming.some((message) => message.id === rawId)) {
+    const raw = snapshot.messages.find((message) => message.info.id === rawId);
+    const errorId = `${SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX}${rawId}`;
+    if (raw?.info.role === "assistant" && raw.info.error && incoming.some((message) => message.id === errorId)) {
+      boundary = errorId;
+    }
+  }
+  // A partial page cannot prove a cut. Keep the already known live history;
+  // merging the unbounded page here could resurrect a previously reverted tail.
+  if (!incoming.some((message) => message.id === boundary) && !existing.some((message) => message.id === boundary)) return existing;
+  // A live raw assistant can coexist with its converted error row. Both
+  // identify this proved raw boundary; hide whichever occurs first in the merge.
+  const firstBoundary = messages.find((message) => message.id === rawId || message.id === boundary);
+  return applyRevertCursor(messages, firstBoundary?.id ?? boundary);
 }
 
 function isSyntheticMessageId(id: string) {

@@ -2,6 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createCipheriv, createHash, randomBytes } from "node:crypto";
+import { z } from "zod";
 import { StorageOAuth, tokenBindings } from "./session.js";
 import { oauthProviders, type OAuthProvider } from "./providers.js";
 import { OAuthVault } from "./vault.js";
@@ -23,6 +25,41 @@ test("vault encrypts tokens, rejects tampering and serializes updates", async ()
   tampered[tampered.length - 1] = tampered.at(-1)! ^ 1;
   await writeFile(path, tampered);
   await expect(vault.get("b")).rejects.toThrow("Saved sign-ins could not be opened");
+});
+test("existing OAuth vault format remains readable when Nango entries are added", async () => {
+  const path = await setup();
+  const grant = { accessToken: "existing-access", refreshToken: "existing-refresh", expiresAt: 123 };
+  const key = process.env.LEGALWORK_ENCRYPTION_KEY
+    ? createHash("sha256").update(process.env.LEGALWORK_ENCRYPTION_KEY).digest() : randomBytes(32);
+  if (!process.env.LEGALWORK_ENCRYPTION_KEY) await writeFile(`${path}.key`, key, { mode: 0o600 });
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  cipher.setAAD(Buffer.from("legalwork-storage-oauth-v1"));
+  const data = Buffer.concat([cipher.update(JSON.stringify({ existing: grant })), cipher.final()]);
+  await writeFile(path, Buffer.concat([iv, cipher.getAuthTag(), data]));
+  const vault = new OAuthVault(path);
+  expect(await vault.get("existing")).toEqual(grant);
+  await vault.setEntry("nango", z.array(z.string()), ["private-connection"]);
+  expect(await vault.get("existing")).toEqual(grant);
+  expect(await vault.getEntry("nango", z.array(z.string()))).toEqual(["private-connection"]);
+});
+
+test("configured encryption keys work before the storage directory exists", async () => {
+  const path = join(await setup(), "nested", "oauth.vault");
+  const priorKey = process.env.LEGALWORK_ENCRYPTION_KEY;
+  process.env.LEGALWORK_ENCRYPTION_KEY = "test-only-encryption-key";
+  try {
+    const vault = new OAuthVault(path);
+    await vault.ready();
+    await vault.set("grant", { accessToken: "a", refreshToken: "r", expiresAt: 123 });
+    expect((await vault.get("grant"))?.accessToken).toBe("a");
+    await expect(stat(`${path}.key`)).rejects.toMatchObject({ code: "ENOENT" });
+    process.env.LEGALWORK_ENCRYPTION_KEY = "wrong-key";
+    await expect(vault.get("grant")).rejects.toMatchObject({ code: "storage_signin_unreadable" });
+  } finally {
+    if (priorKey === undefined) delete process.env.LEGALWORK_ENCRYPTION_KEY;
+    else process.env.LEGALWORK_ENCRYPTION_KEY = priorKey;
+  }
 });
 test("PKCE callback validates state, persists locally, and disconnect closes access", async () => {
   let exchanges = 0;

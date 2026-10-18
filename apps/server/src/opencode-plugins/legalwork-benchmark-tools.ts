@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
 import { z } from "zod";
 
-import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, serverConnected, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 import {
   resolveSkillDecision,
   SKILL_TOOL,
@@ -15,7 +15,7 @@ import {
  * benchmark's Tasks table.
  *
  * Persists via the same authenticated legalwork-server relay the Office tools
- * use (LEGALWORK_SERVER_URL + LEGALWORK_SERVER_TOKEN → POST
+ * use (LEGALWORK_SERVER_URL + the session-bound agent credential → POST
  * /workspace/:id/benchmarks/tasks). Mirrors the custom-task schema in
  * apps/server/src/benchmarks/task-schema.ts.
  */
@@ -118,22 +118,22 @@ type SessionAblation = { skills: BenchmarkSkillPolicy } | null;
 
 const ablationCache = new Map<string, { at: number; value: SessionAblation }>();
 
-async function sessionAblation(sessionID: string): Promise<SessionAblation> {
+async function sessionAblation(sessionID: string, directory?: string): Promise<SessionAblation> {
   const cached = ablationCache.get(sessionID);
   if (cached && Date.now() - cached.at < ABLATION_CACHE_MS) return cached.value;
 
   const url = serverUrl();
-  const token = serverToken();
+  const context = { sessionID, directory };
   // Without a server relay there is nothing to enforce; fail open so a
   // misconfigured engine cannot block every skill call in normal chat.
-  if (!url || !token) return null;
+  if (!serverConnected(context)) return null;
 
   let value: SessionAblation = null;
   try {
     const response = await fetch(
       `${url}/benchmarks/session-ablation?session=${encodeURIComponent(sessionID)}`,
       {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: await workspaceToolHeaders(context),
         signal: AbortSignal.timeout(ABLATION_LOOKUP_TIMEOUT_MS),
       },
     );
@@ -149,7 +149,7 @@ async function sessionAblation(sessionID: string): Promise<SessionAblation> {
   return value;
 }
 
-export const LegalWorkBenchmarkTools = async () => ({
+export const LegalWorkBenchmarkTools = async (pluginInput?: { directory?: string }) => ({
   "tool.execute.before": async (
     input: { tool: string; sessionID?: string; callID?: string },
     output: { args: Record<string, unknown> },
@@ -157,7 +157,7 @@ export const LegalWorkBenchmarkTools = async () => ({
     if (input.tool !== SKILL_TOOL) return;
     const sessionID = input.sessionID?.trim();
     if (!sessionID) return;
-    const ablation = await sessionAblation(sessionID);
+    const ablation = await sessionAblation(sessionID, pluginInput?.directory);
     if (!ablation) return;
     const name = typeof output.args?.name === "string" ? output.args.name : "";
     if (!name) return;
@@ -173,8 +173,7 @@ export const LegalWorkBenchmarkTools = async () => ({
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = createTaskArgs.parse(rawArgs);
         const url = serverUrl();
-        const token = serverToken();
-        if (!url || !token) {
+        if (!serverConnected(context)) {
           return JSON.stringify({
             ok: false,
             error: "LegalWork server connection is not configured for this engine.",
@@ -188,7 +187,7 @@ export const LegalWorkBenchmarkTools = async () => ({
           const response = await fetch(`${url}/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tasks`, {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${token}`,
+              ...await workspaceToolHeaders(context),
               "Content-Type": "application/json",
             },
             body: JSON.stringify({

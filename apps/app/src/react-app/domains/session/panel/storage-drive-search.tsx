@@ -1,10 +1,11 @@
+import { useProjectFiles } from "../../workspace/project-file-context";
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { STORAGE_PAGE_SIZE, type StorageEntry, type StorageRoot } from "@legalwork/types/file-storage";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
-import { writeStorageFileDrag } from "@/app/lib/storage-file-drag";
+import { writeStorageEntryDrag } from "@/app/lib/storage-entry-drag";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { StorageEntryMenu } from "./storage-entry-menu";
@@ -38,9 +39,10 @@ function ConnectionSearch({
   refreshKey,
   onOpenFile,
 }: Omit<Props, "roots"> & { root: StorageRoot }) {
+  const projectFiles = useProjectFiles();
   const [visibleLimit, setVisibleLimit] = useState(STORAGE_PAGE_SIZE);
   const search = useInfiniteQuery({
-    queryKey: ["storage-filename-search", workspaceId, root.id, query, refreshKey],
+    queryKey: ["storage-filename-search", workspaceId, root.id, query, refreshKey, client.baseUrl],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam, signal }) =>
       client.storageFilenameSearch(workspaceId, root.id, { query, path: "", cursor: pageParam }, signal),
@@ -53,6 +55,7 @@ function ConnectionSearch({
     ...new Map((search.data?.pages.flatMap((page) => page.entries) ?? []).map((entry) => [entry.path, entry])).values(),
   ];
   const scanned = search.data?.pages.reduce((count, page) => count + page.scanned, 0) ?? 0;
+  const incomplete = search.data?.pages.some((page) => page.truncated);
   const continuing = Boolean(search.hasNextPage && entries.length < visibleLimit && !search.isError);
   // Empty listing pages are progress, not "no matches". Keep scanning until the
   // source is exhausted or a display page is ready; changing the query cancels it.
@@ -70,7 +73,7 @@ function ConnectionSearch({
           type="button"
           draggable
           title={`${root.name} / ${entry.path}`}
-          onDragStart={(event) => writeStorageFileDrag(event.dataTransfer, root, entry)}
+          onDragStart={(event) => { writeStorageEntryDrag(event.dataTransfer, workspaceId, root, entry); projectFiles?.drag(event.dataTransfer, client, workspaceId, { path: entry.path, name: entry.name, connectionId: root.id }); }}
           onClick={() => onOpenFile(root, entry)}
           className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
@@ -101,7 +104,8 @@ function ConnectionSearch({
           </Button>
         </div>
       ) : null}
-      {!loading && !search.isError && entries.length === 0 ? (
+      {!loading && !search.isError && incomplete ? <p role="status" className="px-2 py-2 text-xs text-muted-foreground">{t("storage.results_incomplete")}</p> : null}
+      {!loading && !search.isError && !incomplete && entries.length === 0 ? (
         <p className="px-2 py-2 text-xs text-muted-foreground">{t("legalmemory.no_matches")}</p>
       ) : null}
       {!loading && !search.isError && (search.hasNextPage || entries.length > visibleLimit) ? (

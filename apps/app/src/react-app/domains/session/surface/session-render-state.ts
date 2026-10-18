@@ -2,7 +2,7 @@ import type { UIMessage } from "ai";
 
 import type { LegalworkSessionSnapshot } from "../../../../app/lib/legalwork-server";
 import { mergeSnapshotAndLiveMessages } from "../sync/message-merge";
-import { applyRevertCursor } from "../sync/transcript-reconcile";
+import { applySnapshotRevertCursor } from "../sync/transcript-reconcile";
 import { snapshotToUIMessages } from "../sync/usechat-adapter";
 
 export function resolveRenderedSessionSnapshot(input: {
@@ -26,7 +26,6 @@ export function deriveRenderedSessionMessages(input: {
   transcriptState: UIMessage[] | null | undefined;
   snapshot: LegalworkSessionSnapshot | null | undefined;
 }) {
-  const revertMessageId = (input.snapshot?.session as any)?.revert?.messageID ?? null;
   const liveMessages = input.transcriptState ?? [];
 
   const snapshotMessages = input.snapshot && input.snapshot.messages.length > 0
@@ -42,6 +41,6 @@ export function deriveRenderedSessionMessages(input: {
 
   // Synthetic context (such as live-recording instructions) has no visible
   // parts. Keep it in the underlying history without rendering an empty row.
-  return applyRevertCursor(messages, revertMessageId)
+  return applySnapshotRevertCursor(messages, input.snapshot, snapshotMessages, liveMessages)
     .filter((message) => message.role !== "user" || message.parts.length > 0);
 }

@@ -1,0 +1,143 @@
+import { createHash } from 'node:crypto';
+import { lstat, readFile, readdir, readlink, realpath } from 'node:fs/promises';
+import path from 'node:path';
+
+export const INPUT = Object.freeze({ name: 'lawoss-plugin-sdk-payload', version: '1.0.0', private: true, dependencies: Object.freeze({ '@opencode-ai/plugin': '1.18.29' }) });
+export const REGISTRY = 'https://registry.npmjs.org/';
+export const SDK_INTEGRITY = 'sha512-IhF83EU4I/ASgWwvm0FIh1O3a8ZVuCLqPrCbmSHdSYq7GHxIYe773i6dHqcbrzCzvlG/lP2H+dyTQ+xPAwFpbw==';
+export const DIRECT = { zod: '4.1.8', effect: '4.0.0-beta.83', '@ai-sdk/provider': '3.0.8', '@opencode-ai/sdk': '1.18.29' };
+export const PEERS = { '@opentui/core': '>=0.4.5', '@opentui/solid': '>=0.4.5', '@opentui/keymap': '>=0.4.5' };
+export const fail = code => { throw Object.assign(new Error(code), { code }); };
+export const canonical = value => JSON.stringify(sort(value));
+function sort(value) {
+  if (Array.isArray(value)) return value.map(sort);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, sort(value[key])]));
+  return value;
+}
+export const sha256 = value => createHash('sha256').update(value).digest('hex');
+const equal = (a, b) => canonical(a) === canonical(b);
+const maps = ['dependencies', 'optionalDependencies', 'peerDependencies', 'peerDependenciesMeta', 'engines', 'os', 'cpu', 'libc'];
+export function validateInputs(input, lock) {
+  if (!equal(input, INPUT) || !lock || lock.name !== INPUT.name || lock.version !== INPUT.version || lock.lockfileVersion !== 3 || !lock.packages || Object.keys(lock.packages).length < 6 || Object.keys(lock.packages).length > 256) fail('INPUT_INVALID');
+  const root = lock.packages[''];
+  if (!root || root.name !== INPUT.name || root.version !== INPUT.version || !equal(root.dependencies, INPUT.dependencies) || root.devDependencies || root.optionalDependencies || root.peerDependencies || root.workspaces) fail('INPUT_INVALID');
+  const sdk = lock.packages['node_modules/@opencode-ai/plugin'];
+  if (!sdk || sdk.version !== '1.18.29' || sdk.integrity !== SDK_INTEGRITY || !equal(sdk.dependencies, DIRECT) || !equal(sdk.peerDependencies, PEERS) || !equal(sdk.peerDependenciesMeta, Object.fromEntries(Object.keys(PEERS).map(key => [key, { optional: true }])))) fail('INPUT_INVALID');
+  for (const [location, pkg] of Object.entries(lock.packages)) {
+    if (location === '') continue;
+    if (!/^(?:node_modules\/(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+)(?:\/node_modules\/(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+)*$/.test(location) || location.split('/').some(part => part === '.' || part === '..')) fail('INPUT_INVALID');
+    if (!pkg || pkg.link || pkg.inBundle || !/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(pkg.version) || !/^sha512-[A-Za-z0-9+/]{86}==$/.test(pkg.integrity ?? '')) fail('INPUT_INVALID');
+    let url;
+    try { url = new URL(pkg.resolved); } catch { fail('INPUT_INVALID'); }
+    if (url.origin !== REGISTRY.slice(0, -1) || url.username || url.password || url.search || url.hash || url.href !== pkg.resolved || !/^\/(?:@[\w.-]+\/)?[\w.-]+\/-\/[\w.-]+\.tgz$/.test(url.pathname)) fail('INPUT_INVALID');
+    for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
+      for (const spec of Object.values(pkg[field] ?? {})) if (typeof spec !== 'string' || !spec || /(?:https?:|git|file:|link:|workspace:|npm:|[\\/])/.test(spec)) fail('INPUT_INVALID');
+    }
+  }
+  return lock;
+}
+
+// Copies primitive data, including resolved edges, before Arborist mutates the virtual tree.
+export function snapshot(tree) {
+  return [...tree.inventory.values()].map(node => ({
+    location: node.location, name: node.name, version: node.version,
+    resolved: node.resolved ?? null, integrity: node.integrity ?? null,
+    optional: !!node.optional, dev: !!node.dev, devOptional: !!node.devOptional,
+    peer: !!node.peer, link: !!node.isLink,
+    package: structuredClone(Object.fromEntries(maps.map(key => [key, node.package[key] ?? null]))),
+    edges: [...node.edgesOut.values()].map(edge => ({ name: edge.name, spec: edge.spec, type: edge.type, to: edge.to?.location ?? null, valid: !!edge.valid, optional: !!edge.optional })).sort((a, b) => a.name.localeCompare(b.name, 'en')),
+  })).sort((a, b) => a.location.localeCompare(b.location, 'en'));
+}
+export function validateGraph(tree, lock) {
+  const records = snapshot(tree);
+  if (records.length !== Object.keys(lock.packages).length) fail('GRAPH_INVALID');
+  for (const node of records) {
+    const accepted = lock.packages[node.location];
+    if (!accepted || node.link || node.version !== accepted.version || (node.location && (node.integrity !== accepted.integrity || node.resolved !== accepted.resolved))) fail('GRAPH_INVALID');
+    for (const key of maps) if (!equal(node.package[key] ?? null, accepted[key] ?? null)) fail('GRAPH_INVALID');
+    for (const edge of node.edges) if ((!edge.valid || edge.to === null) && !edge.optional) fail('GRAPH_INVALID');
+  }
+  return records;
+}
+export function unchangedGraph(before, tree) {
+  if (!equal(before, snapshot(tree))) fail('GRAPH_DRIFT');
+}
+
+export async function inventory(root) {
+  const records = [];
+  let bytes = 0;
+  let entries = 0;
+  const identities = new Set();
+  const canonicalRoot = await realpath(root);
+  async function visit(relative) {
+    const full = path.join(root, relative);
+    const stat = await lstat(full);
+    if (++entries > 30000 || relative.split('/').length > 64 || bytes > 256 * 1024 * 1024) fail('TREE_LIMIT');
+    if (stat.isDirectory()) {
+      for (const name of (await readdir(full)).sort()) await visit(relative ? `${relative}/${name}` : name);
+    } else if (stat.isSymbolicLink()) {
+      const target = await readlink(full);
+      const resolved = await realpath(full);
+      if (!relative.includes('/.bin/') || path.isAbsolute(target) || !resolved.startsWith(`${canonicalRoot}${path.sep}`)) fail('TREE_UNSAFE');
+      records.push({ path: relative, link: target });
+    } else if (stat.isFile()) {
+      if (stat.nlink !== 1 || identities.has(`${stat.dev}:${stat.ino}`)) fail('TREE_UNSAFE');
+      identities.add(`${stat.dev}:${stat.ino}`);
+      bytes += stat.size;
+      if (bytes > 256 * 1024 * 1024 || stat.size > 32 * 1024 * 1024) fail('TREE_LIMIT');
+      records.push({ path: relative, bytes: stat.size, executable: !!(stat.mode & 0o111), sha256: sha256(await readFile(full)) });
+    } else fail('TREE_UNSAFE');
+  }
+  await visit('');
+  return records;
+}
+
+export async function validatePhysical(root, lock, applicable, Arborist) {
+  const tree = await new Arborist({ path: root, packageLock: false, cache: path.join(root, '.validation-cache'), offline: true, ignoreScripts: true, audit: false }).loadActual();
+  const locations = [...tree.inventory.keys()].sort();
+  if (!equal(locations, [...applicable].sort())) fail('PHYSICAL_INVALID');
+  const licenses = [];
+  for (const node of tree.inventory.values()) {
+    const expected = lock.packages[node.location];
+    if (!expected || node.isLink || node.extraneous || node.version !== expected.version) fail('PHYSICAL_INVALID');
+    if (!node.location) continue;
+    const manifest = JSON.parse(await readFile(path.join(root, node.location, 'package.json'), 'utf8'));
+    if (manifest.name !== node.name || manifest.version !== expected.version) fail('PHYSICAL_INVALID');
+    for (const field of maps) if (!equal(manifest[field] ?? null, expected[field] ?? null)) fail('PHYSICAL_INVALID');
+    for (const edge of node.edgesOut.values()) if (!edge.valid && !edge.optional) fail('PHYSICAL_INVALID');
+    const names = await readdir(path.join(root, node.location));
+    const files = names.filter(name => /^(?:licen[sc]e|copying|notice)(?:[.-].*)?$/i.test(name)).sort();
+    licenses.push({ location: node.location, license: manifest.license ?? null, files: files.map(name => `${node.location}/${name}`) });
+  }
+  return licenses.sort((a, b) => a.location.localeCompare(b.location, 'en'));
+}
+
+export const IMPORTS = [
+  '@opencode-ai/plugin', '@opencode-ai/plugin/tool',
+  '@opencode-ai/plugin/v2/effect', '@opencode-ai/plugin/v2/promise',
+  '@opencode-ai/plugin/v2/effect/plugin', '@opencode-ai/plugin/v2/effect/integration',
+  'zod', 'effect', '@ai-sdk/provider', '@opencode-ai/sdk',
+];
+export async function verifyPayload(root, Arborist) {
+  try {
+    const stat = await lstat(path.join(root, 'payload-manifest.json'));
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > 8 * 1024 * 1024) fail('PAYLOAD_INVALID');
+    const manifest = JSON.parse(await readFile(path.join(root, 'payload-manifest.json')));
+    const inputBytes = await readFile(path.join(root, 'package.json'));
+    const lockBytes = await readFile(path.join(root, 'package-lock.json'));
+    const acceptedBytes = await readFile(new URL('./sdk/package-lock.json', import.meta.url));
+    const lock = validateInputs(JSON.parse(inputBytes), JSON.parse(lockBytes));
+    if (manifest.schema !== 1 || manifest.sdk.name !== '@opencode-ai/plugin' || manifest.sdk.version !== '1.18.29' || manifest.sdk.integrity !== SDK_INTEGRITY || manifest.node !== process.version || manifest.arborist !== '9.4.0' || manifest.scripts !== false || manifest.target.platform !== process.platform || manifest.target.arch !== process.arch || manifest.lockSha256 !== sha256(lockBytes) || manifest.lockSha256 !== sha256(acceptedBytes) || manifest.inputSha256 !== sha256(inputBytes) || manifest.inputSha256 !== sha256(await readFile(new URL('./sdk/package.json', import.meta.url)))) fail('PAYLOAD_INVALID');
+    if (process.platform === 'linux' && manifest.target.libc !== (process.report.getReport().header.glibcVersionRuntime ? 'glibc' : 'musl')) fail('PAYLOAD_INVALID');
+    if (!equal(manifest.imports?.imports, IMPORTS) || !['loaded', 'fallback', 'absent'].includes(manifest.imports?.native)) fail('PAYLOAD_INVALID');
+    if (!Array.isArray(manifest.closure) || !Array.isArray(manifest.inertOptional) || new Set([...manifest.closure, ...manifest.inertOptional]).size !== Object.keys(lock.packages).length || !equal([...manifest.closure, ...manifest.inertOptional].sort(), Object.keys(lock.packages).sort())) fail('PAYLOAD_INVALID');
+    for (const location of manifest.inertOptional) if (!lock.packages[location]?.optional) fail('PAYLOAD_INVALID');
+    const files = (await inventory(root)).filter(record => record.path !== 'payload-manifest.json');
+    if (!equal(files, manifest.files)) fail('PAYLOAD_INVALID');
+    if (Arborist) {
+      const licenses = await validatePhysical(root, lock, manifest.closure, Arborist);
+      if (!equal(licenses, manifest.licenses)) fail('PAYLOAD_INVALID');
+    }
+    return manifest;
+  } catch { fail('PAYLOAD_INVALID'); }
+}

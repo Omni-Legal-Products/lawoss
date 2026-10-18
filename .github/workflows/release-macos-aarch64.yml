@@ -71,6 +71,12 @@ env:
   RELEASE_REPOSITORY: ${{ github.repository }}
 
 jobs:
+  sandbox-runtime:
+    uses: ./.github/workflows/sandbox-runtime.yml
+    needs: resolve-release
+    with:
+      ref: ${{ needs.resolve-release.outputs.release_tag }}
+      run_tests: false
   resolve-release:
     name: Resolve Release Metadata
     # SignPath trusted builds require every job leading to the Windows signing
@@ -148,11 +154,14 @@ jobs:
           # point at this release's own assets (artifactName lawoss-${os}-${arch}-${version};
           # electron-builder names the x64 AppImage linux-x86_64), not at the upstream site.
           printf -v RELEASE_BODY '%s\n\n%s' \
-            "**Download the latest version:** [macOS (Apple Silicon)](${RELEASE_DOWNLOAD_BASE}/lawoss-mac-arm64-${VERSION}.dmg) · [macOS (Intel)](${RELEASE_DOWNLOAD_BASE}/lawoss-mac-x64-${VERSION}.dmg) · [Windows](${RELEASE_DOWNLOAD_BASE}/lawoss-win-x64-${VERSION}.exe) · [Linux x64](${RELEASE_DOWNLOAD_BASE}/lawoss-linux-x86_64-${VERSION}.AppImage) · [Linux arm64](${RELEASE_DOWNLOAD_BASE}/lawoss-linux-arm64-${VERSION}.AppImage)" \
+            "**Download the latest version:** [macOS (Apple Silicon)](${RELEASE_DOWNLOAD_BASE}/lawoss-mac-arm64-${VERSION}.dmg) · [macOS (Intel)](${RELEASE_DOWNLOAD_BASE}/lawoss-mac-x64-${VERSION}.dmg) · [Windows x64](${RELEASE_DOWNLOAD_BASE}/lawoss-win-x64-${VERSION}.exe) · [Windows ARM64](${RELEASE_DOWNLOAD_BASE}/lawoss-win-arm64-${VERSION}.exe) · [Linux x64](${RELEASE_DOWNLOAD_BASE}/lawoss-linux-x86_64-${VERSION}.AppImage) · [Linux arm64](${RELEASE_DOWNLOAD_BASE}/lawoss-linux-arm64-${VERSION}.AppImage)" \
             "$RELEASE_BODY"
 
           printf -v RELEASE_BODY '%s\n\n%s' "$RELEASE_BODY" \
             "**Verify downloads:** [SHA256SUMS](${RELEASE_DOWNLOAD_BASE}/SHA256SUMS) · [Verification instructions](https://github.com/$GITHUB_REPOSITORY/blob/$TAG/docs/verify-downloads.md)"
+
+          # LAWOSS: odkaz na upstream CODE_SIGNING_POLICY.md (správcovia a SignPath
+          # projekt LegalWorku) sa do releasov forku nedáva, kým nemá vlastnú verziu.
 
           draft="${INPUT_DRAFT:-}"
           if [ -z "$draft" ]; then
@@ -267,7 +276,7 @@ jobs:
 
   publish-electron:
     name: Build + publish Electron (${{ matrix.artifact }})
-    needs: [resolve-release, verify-release]
+    needs: [resolve-release, verify-release, sandbox-runtime]
     if: needs.resolve-release.outputs.build_electron == 'true'
     runs-on: ${{ matrix.platform }}
     # Apple notarization routes first-time/new-account submissions to "in-depth
@@ -292,26 +301,37 @@ jobs:
             artifact: electron-macos-arm64
             electron_args: "--mac --arm64"
             target_triple: aarch64-apple-darwin
-          - platform: macos-14
+            executable: mac-arm64/LAWOSS.app/Contents/MacOS/LAWOSS
+          - platform: macos-15-intel
             os_type: macos
             artifact: electron-macos-x64
             electron_args: "--mac --x64"
             target_triple: x86_64-apple-darwin
+            executable: mac/LAWOSS.app/Contents/MacOS/LAWOSS
           - platform: ubuntu-24.04
             os_type: linux
             artifact: electron-linux-x64
             electron_args: "--linux --x64"
             target_triple: x86_64-unknown-linux-gnu
+            executable: linux-unpacked/legalwork
           - platform: ubuntu-24.04-arm
             os_type: linux
             artifact: electron-linux-arm64
             electron_args: "--linux --arm64"
             target_triple: aarch64-unknown-linux-gnu
+            executable: linux-arm64-unpacked/legalwork
           - platform: windows-2022
             os_type: windows
             artifact: electron-windows-x64
             electron_args: "--win --x64"
             target_triple: x86_64-pc-windows-msvc
+            executable: win-unpacked/LAWOSS.exe
+          - platform: windows-11-arm
+            os_type: windows
+            artifact: electron-windows-arm64
+            electron_args: "--win --arm64"
+            target_triple: aarch64-pc-windows-msvc
+            executable: win-arm64-unpacked/LAWOSS.exe
 
     steps:
       - name: Checkout
@@ -325,6 +345,13 @@ jobs:
         shell: pwsh
         run: git config --global core.longpaths true
 
+      - name: Validate SignPath configuration (Windows)
+        if: matrix.os_type == 'windows' && (env.SIGNPATH_PROJECT_SLUG != '' || env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG != '')
+        shell: bash
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: node scripts/release/validate-signpath-config.mjs
+
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
@@ -333,7 +360,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 24.21.0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -350,9 +377,9 @@ jobs:
         continue-on-error: true
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-electron-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-electron-pnpm-
+            ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -400,6 +427,18 @@ jobs:
           chmod 600 "$NOTARY_KEY_PATH"
 
           echo "NOTARY_KEY_PATH=$NOTARY_KEY_PATH" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sandbox-runtime-${{ matrix.os_type == 'macos' && 'darwin' || matrix.os_type == 'windows' && 'win32' || 'linux' }}-${{ startsWith(matrix.target_triple, 'aarch64') && 'arm64' || 'x64' }}
+          path: ${{ runner.temp }}/sandbox-runtime
+      - name: Unpack protected runtime
+        shell: bash
+        run: |
+          mkdir -p apps/server/resources/agent-sandbox/runtime
+          archive="$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz"
+          if [ "$RUNNER_OS" = Windows ]; then archive="$(cygpath -u "$archive")"; fi
+          tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
 
       - name: Build Electron app
         shell: bash
@@ -497,31 +536,8 @@ jobs:
             ${{ matrix.electron_args }} \
             --publish never
 
-      - name: Validate SignPath configuration (Windows)
-        if: matrix.os_type == 'windows' && env.SIGNPATH_PROJECT_SLUG != ''
-        shell: bash
-        env:
-          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          missing=()
-          for name in \
-            SIGNPATH_API_TOKEN \
-            SIGNPATH_ORGANIZATION_ID \
-            SIGNPATH_PROJECT_SLUG \
-            SIGNPATH_SIGNING_POLICY_SLUG; do
-            if [ -z "${!name:-}" ]; then
-              missing+=("$name")
-            fi
-          done
-
-          if [ "${#missing[@]}" -gt 0 ]; then
-            printf 'Missing Windows SignPath configuration: %s\n' "${missing[*]}" >&2
-            exit 1
-          fi
-
       - name: Stage unsigned Windows installer for SignPath
+        id: stage-unsigned-windows-installer
         if: matrix.os_type == 'windows'
         shell: bash
         run: |
@@ -529,12 +545,20 @@ jobs:
 
           mkdir -p "$RUNNER_TEMP/signpath-unsigned"
           shopt -s nullglob
-          installers=(apps/desktop/dist-electron/lawoss-win-x64-*.exe)
+          installers=(apps/desktop/dist-electron/lawoss-win-*.exe)
           if [ "${#installers[@]}" -ne 1 ]; then
             printf 'Expected exactly one unsigned Windows installer, found %s.\n' "${#installers[@]}" >&2
             printf '%s\n' "${installers[@]}" >&2
             exit 1
           fi
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          filename="$(basename "${installers[0]}")"
+          case "$filename" in
+            "lawoss-win-x64-${version}.exe") arch=x64 ;;
+            "lawoss-win-arm64-${version}.exe") arch=arm64 ;;
+            *) echo "Installer filename does not match stamped version: $filename" >&2; exit 1 ;;
+          esac
+          printf 'version=%s\narch=%s\n' "$version" "$arch" >> "$GITHUB_OUTPUT"
           cp "${installers[0]}" "$RUNNER_TEMP/signpath-unsigned/"
 
       - name: Upload unsigned Windows installer for SignPath
@@ -542,40 +566,56 @@ jobs:
         id: upload-unsigned-windows-installer
         uses: actions/upload-artifact@v4
         with:
-          name: unsigned-legalwork-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          name: unsigned-lawoss-${{ matrix.artifact }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/signpath-unsigned/*.exe
           if-no-files-found: error
           retention-days: 1
 
       - name: Submit Windows signing request to SignPath
-        if: matrix.os_type == 'windows' && env.SIGNPATH_PROJECT_SLUG != '' && env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG == ''
-        uses: signpath/github-action-submit-signing-request@c92b958760219087e01f8d67a1669ed57afe2627 # v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
-          github-artifact-id: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: ${{ runner.temp }}/signpath-signed
-
-      - name: Submit Windows signing request to SignPath (artifact configuration)
-        if: matrix.os_type == 'windows' && env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG != ''
-        uses: signpath/github-action-submit-signing-request@c92b958760219087e01f8d67a1669ed57afe2627 # v2
+        if: matrix.os_type == 'windows' && env.SIGNPATH_PROJECT_SLUG != '' && env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG != ''
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
           artifact-configuration-slug: ${{ env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          parameters: |
+            version: "${{ steps.stage-unsigned-windows-installer.outputs.version }}"
+            arch: "${{ steps.stage-unsigned-windows-installer.outputs.arch }}"
           github-artifact-id: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
           wait-for-completion: true
+          # Allow time for the required manual production approval.
+          wait-for-completion-timeout-in-seconds: 3600
           output-artifact-directory: ${{ runner.temp }}/signpath-signed
+
+      - name: Verify signed Windows installer
+        if: matrix.os_type == 'windows' && env.SIGNPATH_PROJECT_SLUG != ''
+        shell: pwsh
+        run: ./scripts/release/verify-windows-signature.ps1 -ArtifactDirectory "$env:RUNNER_TEMP/signpath-signed"
 
       - name: Apply signed Windows installer
         if: matrix.os_type == 'windows' && env.SIGNPATH_PROJECT_SLUG != ''
         shell: bash
         run: node scripts/release/apply-signpath-windows-artifact.mjs "$RUNNER_TEMP/signpath-signed" apps/desktop/dist-electron
+
+      - name: Separate Windows ARM64 updater feed
+        if: matrix.artifact == 'electron-windows-arm64'
+        shell: bash
+        run: mv apps/desktop/dist-electron/latest.yml apps/desktop/dist-electron/latest-arm64.yml
+
+      - name: Verify packaged startup
+        timeout-minutes: 3
+        shell: bash
+        env:
+          PACKAGED_EXECUTABLE: apps/desktop/dist-electron/${{ matrix.executable }}
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a node apps/desktop/scripts/packaged-startup-regression.mjs "$PACKAGED_EXECUTABLE"
+          else
+            node apps/desktop/scripts/packaged-startup-regression.mjs "$PACKAGED_EXECUTABLE"
+          fi
 
       - name: Upload Electron release assets
         env:
@@ -620,9 +660,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # Dispatch-based release recovery uses the workflow ref so fixes to
-          # release asset publishing can run without moving an already-shipped tag.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || env.RELEASE_TAG }}
+          # Pin recovery scripts to the workflow commit so deleting or advancing
+          # its branch cannot break publication or change the code being run.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Setup Node
@@ -769,9 +809,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # Dispatch-based release recovery uses the workflow ref so fixes to
-          # npm release automation can run without moving an already-shipped tag.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || env.RELEASE_TAG }}
+          # Pin recovery scripts to the workflow commit so deleting or advancing
+          # its branch cannot break publication or change the code being run.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Setup Node

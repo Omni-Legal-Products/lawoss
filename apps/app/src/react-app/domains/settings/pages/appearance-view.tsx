@@ -6,12 +6,11 @@ export type AppearanceViewProps = {
   busy: boolean;
 };
 
-// The theme is fixed to Light (see app/theme.ts) and the window/frame controls
-// are hidden, so this tab now surfaces only the language picker. The same
-// picker also lives in Settings -> Customization, which is the reachable tab.
+// Keep older Appearance routes working; these controls also live in Customization.
 export function AppearanceView(props: AppearanceViewProps) {
   return (
     <LayoutStack>
+      {/* 🟡 LAWOSS: alfa je len tmavá (enforceTheme), výber témy upstreamu sa nevykresľuje. */}
       <LanguageSection busy={props.busy} />
     </LayoutStack>
   );
