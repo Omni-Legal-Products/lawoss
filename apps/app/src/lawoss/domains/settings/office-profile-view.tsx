@@ -3,11 +3,13 @@ import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { useEffect, useState } from "react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { LayoutSection, LayoutSectionDescription, LayoutSectionHeader, LayoutSectionTitle } from "@/react-app/domains/settings/settings-layout";
 import { EnableOkfAction, OnboardingEntryActions } from "../onboarding/entry-actions";
+import { RESUME_ONBOARDING_PATH } from "../onboarding/resume-card";
 import { isOfficeConfigEncodingError, loadOfficeProfile, saveOfficeProfile, type OfficeProfileSnapshot } from "../../okf/office-profile";
 import { message } from "../../okf/read-model";
 
@@ -19,6 +21,7 @@ type Props = { client: LegalworkServerClient | null; workspaceId: string | null;
 
 export function OfficeProfileView({ client, workspaceId, workspacePath, workspaceName, remote }: Props) {
   const locale = useLocale();
+  const navigate = useNavigate();
   const [loaded, setLoaded] = useState<{ snapshot: OfficeProfileSnapshot; writable: boolean } | null>(null);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
@@ -37,7 +40,11 @@ export function OfficeProfileView({ client, workspaceId, workspacePath, workspac
       <LayoutSectionDescription>
         {t("lawoss.integrations.office.description", locale)}
       </LayoutSectionDescription>
-      {client && workspaceId ? <OnboardingEntryActions /> : <EnableOkfAction />}
+      <div className="flex flex-wrap gap-2">
+        {client && workspaceId ? <OnboardingEntryActions /> : <EnableOkfAction />}
+        {/* Sprievodca nastavením ostáva dostupný aj po dokončení (#96); otvorí posledný uložený krok, pri dokončenom prvý. */}
+        <Button variant="outline" size="sm" onClick={() => navigate(RESUME_ONBOARDING_PATH)} data-lawoss-setup-wizard>{t("lawoss.integrations.office.wizard", locale)}</Button>
+      </div>
     </LayoutSectionHeader>
     {!client || !workspaceId || !workspacePath || remote ? <p>{t("lawoss.integrations.office.select_local", locale)}</p>
       : <>

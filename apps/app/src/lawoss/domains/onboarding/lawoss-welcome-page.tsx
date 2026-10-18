@@ -38,6 +38,7 @@ import {
   writeOnboardingProgress,
 } from "./onboarding-state";
 import { OnboardingAiPanel } from "./ai-step";
+import { markOnboardingCompleted, openingStep } from "./resume";
 import { visibleExistingClientModes } from "../../feature-flags";
 import { clientTitleOf, resolveOpenClient, type OpenClientReader } from "../../okf/open-client";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -650,7 +651,7 @@ export function LawossWelcomePage({
             : readOnboardingProgress(window.localStorage);
         setStep(
           visibleOnboardingStep(
-            initialStep ?? status.profile?.step ?? saved.step,
+            openingStep(initialStep, status.profile, saved.step, hasCompletedOnboarding),
             status.profile !== null,
           ),
         );
@@ -659,7 +660,13 @@ export function LawossWelcomePage({
         setOpenClientPending(false);
         setError(tr("error"));
       });
-  }, [api, initialStep, initialRoot]);
+  }, [api, initialStep, initialRoot, hasCompletedOnboarding]);
+  /** Každé dokončenie zapíše do profilu značku `completedAt` (#96), až potom pokračuje volajúci. */
+  const finish = async (current: OnboardingProfile | null, result?: OnboardingApplyResult, completion?: OnboardingCompletion) => {
+    const marked = await markOnboardingCompleted(api, current);
+    if (marked) setProfile(marked);
+    await onComplete(result, completion);
+  };
   const savedClientRoot = profile?.clientRoot;
   useEffect(() => {
     let cancelled = false;
@@ -692,7 +699,7 @@ export function LawossWelcomePage({
       const saved = await api.updateOnboardingProfile({ ...patch, step: next });
       setProfile(saved);
       setStep(next);
-      if (next === "done") await onComplete(completedResult);
+      if (next === "done") await finish(saved, completedResult);
     } catch (reason) {
       setError(onboardingErrorMessage(reason, locale));
     } finally {
@@ -759,11 +766,12 @@ export function LawossWelcomePage({
             ? "done"
             : "matter";
       setCompletedResult(result);
-      setProfile(await api.updateOnboardingProfile({ ...roots, step: next }));
+      const updated = await api.updateOnboardingProfile({ ...roots, step: next });
+      setProfile(updated);
       setStep(next);
       setPreview(null);
       writePendingOnboarding(window.localStorage, null);
-      if (next === "done") await onComplete(result);
+      if (next === "done") await finish(updated, result);
     } catch (reason) {
       setError(onboardingErrorMessage(reason, locale));
     } finally {
@@ -796,7 +804,7 @@ export function LawossWelcomePage({
     setBusy(true);
     setError(null);
     try {
-      await onComplete(result);
+      await finish(profile, result);
     } catch (reason) {
       setError(onboardingErrorMessage(reason, locale));
     } finally {
@@ -911,7 +919,7 @@ export function LawossWelcomePage({
                 onAcknowledge={() => acknowledgeOkf({ step: "found" })}
                 onDone={async (result, completion) => {
                   setCompletedResult(result);
-                  await onComplete(result, completion);
+                  await finish(profile, result, completion);
                 }}
                 onChangeFolder={() => setFoundRoot(null)}
                 onError={reportError}

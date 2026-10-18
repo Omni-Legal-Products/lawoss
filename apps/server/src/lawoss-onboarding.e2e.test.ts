@@ -275,3 +275,13 @@ test("suggest navrhne prax z mien priečinkov a nič nezapíše", async () => {
   expect((await f.call("suggest", { root: "relatívna/cesta" })).status).toBe(400);
   expect((await f.call("suggest", { root }, {} as { "X-LegalWork-Host-Token": string; "Content-Type": string })).status).toBe(401);
 });
+
+test("značka dokončenia nastavenia (#96) sa uloží, prežije reštart a ďalší krok ju neprepíše", async () => {
+  const f = await fixture();
+  await f.success("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", step: "found" });
+  expect((await f.call("profile", { completedAt: "včera" })).status).toBe(400);
+  expect(await f.success("profile", { completedAt: "2026-10-18T10:00:00.000Z" })).toMatchObject({ step: "found", completedAt: "2026-10-18T10:00:00.000Z" });
+  await f.success("profile", { step: "matter" });
+  await f.restartFromDisk();
+  expect((await f.success("status")).profile).toMatchObject({ step: "matter", completedAt: "2026-10-18T10:00:00.000Z" });
+});

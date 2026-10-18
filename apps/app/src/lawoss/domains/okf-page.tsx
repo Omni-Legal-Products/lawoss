@@ -31,10 +31,10 @@ export type OkfPageMeta = { checkedAt: number; changedAt: number; failed?: boole
 /** Kedy má stránka čo ukázať; predvolene keď sú veci (Klienti ukážu aj klientov bez vecí). */
 type HasContent = (data: OkfReadResult) => boolean;
 const hasMatters: HasContent = (data) => data.matters.length > 0;
-type PageProps = { title?: string; children: (data: OkfReadResult, meta: OkfPageMeta, scope: OkfScope | null) => ReactNode; stateText?: StateText; pickWorkspace?: PickWorkspace; rawProblems?: boolean; hasContent?: HasContent };
+type PageProps = { title?: string; notice?: ReactNode; children: (data: OkfReadResult, meta: OkfPageMeta, scope: OkfScope | null) => ReactNode; stateText?: StateText; pickWorkspace?: PickWorkspace; rawProblems?: boolean; hasContent?: HasContent };
 
 /** Retry also reloads the desktop connection, which may be absent during startup. */
-export function OkfPage({ title, children, stateText, pickWorkspace, rawProblems, hasContent }: PageProps) {
+export function OkfPage({ title, notice, children, stateText, pickWorkspace, rawProblems, hasContent }: PageProps) {
   const text = useMatterText().text;
   const label = stateText ?? text;
   const [attempt, setAttempt] = useState(0);
@@ -42,7 +42,7 @@ export function OkfPage({ title, children, stateText, pickWorkspace, rawProblems
   return (
     <LawossLayout>
       {title ? <h1 className="lw-h1">{title}</h1> : null}
-      <OkfPageQuery key={attempt} stateText={stateText} pickWorkspace={pickWorkspace} rawProblems={rawProblems} hasContent={hasContent} retry={<button type="button" className="lw-btn" onClick={() => {
+      <OkfPageQuery key={attempt} notice={notice} stateText={stateText} pickWorkspace={pickWorkspace} rawProblems={rawProblems} hasContent={hasContent} retry={<button type="button" className="lw-btn" onClick={() => {
         void cache.invalidateQueries({ queryKey: ["okf-overview"], refetchType: "none" });
         setAttempt((value) => value + 1);
       }}>{label("retry")}</button>}>{children}</OkfPageQuery>
@@ -50,7 +50,7 @@ export function OkfPage({ title, children, stateText, pickWorkspace, rawProblems
   );
 }
 
-function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace, rawProblems, hasContent, retry }: Pick<PageProps, "children" | "stateText" | "pickWorkspace" | "rawProblems" | "hasContent"> & { retry: ReactNode }) {
+function OkfPageQuery({ children, notice, stateText, pickWorkspace = activeWorkspace, rawProblems, hasContent, retry }: Pick<PageProps, "children" | "notice" | "stateText" | "pickWorkspace" | "rawProblems" | "hasContent"> & { retry: ReactNode }) {
   const { connection, error } = useOkfConnection();
   const workspace = pickWorkspace(connection);
   const { scope, pending } = useOkfScope(connection, workspace);
@@ -80,6 +80,7 @@ function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace, ra
     rawProblems={rawProblems}
     hasContent={hasContent}
     retry={retry}
+    notice={notice}
   >{children}</OkfPageState>;
 }
 
@@ -103,9 +104,11 @@ export function OkfPageState(props: {
   /** OKF nie je zapnuté: prázdna pamäť je očakávaná, stránka ponúkne zapnutie. */
   okfOff?: boolean;
   hasContent?: HasContent;
+  /** Neblokujúce upozornenie nad každým stavom okrem presmerovania (napr. nedokončené nastavenie, #96). */
+  notice?: ReactNode;
 }) {
   const matterText = useMatterText().text;
-  const node = okfStateNode(props, props.stateText ?? matterText);
+  const node = <>{props.workspace === null && props.firstRun ? null : props.notice}{okfStateNode(props, props.stateText ?? matterText)}</>;
   // „Skúsiť znova“ len tam, kde sa čaká alebo zlyhalo; pri načítaných veciach, prázdnej pamäti a bez priečinka nie je čo opakovať.
   const settled = !props.error && props.connection === "ready" && (props.workspace === null || Boolean(props.data && ((props.hasContent ?? hasMatters)(props.data) || !(props.data.problems.length || props.data.truncated))));
   return settled ? node : <>{node}{props.retry}</>;
