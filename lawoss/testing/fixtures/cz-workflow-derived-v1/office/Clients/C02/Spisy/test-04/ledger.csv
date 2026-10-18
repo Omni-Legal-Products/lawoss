@@ -1,0 +1,4 @@
+entry_id,date,amount_test_units,status
+TEST-ENTRY-04-1,2035-04-16,181671,model_only
+TEST-ENTRY-04-2,2035-04-17,-8253,model_only
+TEST-ENTRY-04-3,2035-04-18,-2511,model_only
