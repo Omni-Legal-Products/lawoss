@@ -20,8 +20,11 @@ TDD first observed the missing managed hook and endpoint (undefined hook; HTTP 4
 The optional native test executes synthetic fixtures against the actual pinned binary, checks the streamed tool round trip, disposes/reloads the native instance and checks replay, then injects a real HTTP 400 response and verifies the native assistant correlation. Run it with:
 
 ```sh
+pnpm --filter legalwork-server build
 LEGALWORK_TEST_OPENCODE_BIN=/absolute/path/to/opencode bun test apps/server/src/opencode-plugins/lawoss-gemini-reasoning.integration.test.ts
 ```
+
+The native fixture stages the actual built capabilities JavaScript outside `node_modules`. The observer helper is also an explicit build entry: all flat non-test plugin-directory files are shipped, including helpers. The postbuild Node regression copies the built helper to an isolated directory, applies the unchanged production packaging scanner and imports it there; source execution alone cannot establish this packaging boundary.
 
 Two separate authorized live checks used fresh disposable backends/profiles and copies of the frozen public office, with ground truth excluded. Both reused the ten original agentic prompts, tool whitelist and high reasoning effort.
 
