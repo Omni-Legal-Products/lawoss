@@ -103,12 +103,14 @@ export const LegalWorkCapabilitiesKnowledge = async (input: SavedConversations =
     input,
   );
   const stopRetries = boundedProviderRetries(input.directory);
+  const providerFailures = providerFailureObserver(input);
   return {
     "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
       output.system.push(LEGALWORK_CAPABILITIES_KNOWLEDGE);
     },
     "chat.message": projectPrompt.userMessage,
-    "chat.headers": providerFailureObserver(input),
+    "chat.headers": providerFailures.headers,
+    dispose: providerFailures.dispose,
     "tool.execute.after": projectPrompt.toolResult,
     event: async (event: Parameters<typeof stopRetries>[0]) => { projectPrompt.event(event); await stopRetries(event); },
   };

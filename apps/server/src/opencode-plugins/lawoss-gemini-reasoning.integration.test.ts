@@ -14,11 +14,13 @@ for (const rejection of [false, true]) test.skipIf(!binary)(`pinned engine Gemin
   await writeFile(join(project, "fixture.txt"), "synthetic fixture");
   const wires: Record<string, unknown>[] = [];
   const witnesses: Record<string, unknown>[] = [];
+  let witnessArrived!: () => void;
+  const witnessReceived = new Promise<void>(resolve => { witnessArrived = resolve; });
   const detail = { type: "reasoning.encrypted", data: "synthetic-opaque-signature", id: "call_fixture", format: "google-gemini-v1", index: 0 };
   const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/workspaces") return Response.json({ items: [{ id: "fixture", path: project }] });
-    if (url.pathname.endsWith("/provider-failure")) { witnesses.push(await request.json()); return Response.json({ ok: true }); }
+    if (url.pathname.endsWith("/provider-failure")) { witnesses.push(await request.json()); witnessArrived(); return Response.json({ ok: true }); }
     if (request.method !== "POST" || url.pathname !== "/v1/chat/completions") return Response.json({}, { status: 404 });
     const body = z.object({ messages: z.array(z.object({ role: z.string() }).passthrough()) }).passthrough().parse(await request.json()); wires.push(body);
     const hasTool = body.messages.some(message => message.role === "tool");
@@ -72,6 +74,11 @@ for (const rejection of [false, true]) test.skipIf(!binary)(`pinned engine Gemin
     }
     const messages = await (await fetch(`${base}/session/${session.id}/message`)).json();
     if (rejection) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        // Independent publication may arrive after the provider body and native turn finish.
+        await Promise.race([witnessReceived, new Promise<void>((_, reject) => { timer = setTimeout(() => reject(new Error("Missing native provider witness.")), 5000); })]);
+      } finally { if (timer) clearTimeout(timer); }
       expect(witnesses.length).toBeGreaterThan(0);
       expect(witnesses.every(witness => witness.messageId === messages.at(-1).info.id && witness.userMessageId === messages.at(-1).info.parentID)).toBe(true);
     } else expect(witnesses).toEqual([]);
