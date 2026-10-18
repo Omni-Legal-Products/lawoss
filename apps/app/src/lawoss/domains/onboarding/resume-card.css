@@ -1,0 +1,4 @@
+/* Návrat k nedokončenému nastaveniu praxe (#96): výrazná, ale neblokujúca karta nad obsahom Dnes. */
+.lw-onb-resume { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; border-color: var(--lw-gold); }
+.lw-onb-resume h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; color: var(--lw-text-primary); }
+.lw-onb-resume p { margin: 0; color: var(--lw-text-secondary); }
