@@ -976,3 +976,10 @@ Zachované obe histórie a celý nezmenený samostatný SDK/dependency helper; r
 | Súbory | Oprava a overenie |
 |---|---|
 | `scripts/test-isir-native.mjs`, `apps/app/tests/chooser-boundary.fixture.tsx`, `lawoss/testing/isir/native/import-boundary.browser.mjs` | Po skutočnom fddcc CI páde pri case1 nový guard číta desktop HashRouter a skutočný committed control snapshot, nie browser pathname. Pôvodné IDs zahŕňajú public openFiles aj odpojených DocumentPane portalov. Mounted regresia používa skutočný SessionPage import event, SidePanel, runtime-env a control provider; pôvodný modeled callback už nie je acceptance oracle. Strict owner/input/new-tab/bytes odmietnutia a pôvodné rozpočty zostávajú. Normálny native CI nového headu ostáva povinný. |
+
+### Frozen public CZ fixture bytes (2026-10-18)
+
+| Súbory | Dôvod a overenie |
+|---|---|
+| `.gitattributes` | Úzka `-text whitespace=cr-at-eol` výnimka pre `lawoss/testing/fixtures/cz-workflow-derived-v1/**` zachová pôvodné MIME/CSV CRLF viazané nezávisle overeným manifestom. RED20zmienhashovpoGitadd; GREEN všetkých299payloads zGitobjektov, fresharchive aj checkout-index s core.autocrlf=true. Ostatné textové súbory si ponechávajú LF. |
+| `.github/workflows/ci-public-fixtures.yml` | Samostatná offline Node24 kontrola presného allowlistu/hashov/symlinkov po skutočnom Git checkoute, bez providerov/modelov/secrets a bez inštalácie závislostí. |
