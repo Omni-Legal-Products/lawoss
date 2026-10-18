@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Native managed environment source guard (2026-10-18)
+
+| Files | Verification-only compatibility repair |
+| --- | --- |
+| `lawoss/testing/isir/native/engine-empty-auth-probe.test.mjs` | Source guard matches exact supported conditional environment inheritance for the network helper and spawned engine. Credential wrapping, features/options/LAWOSS precedence, fresh engine auth and spawn env remain strict; twelve negative mutations reject inverted/unconditional inheritance, missing wrappers and reordered/unfiltered environments. No production behavior changed. |
+
 ## Whole-agent cache fixture and protected admission (2026-10-18)
 
 | Files | Fixture compatibility boundary |
