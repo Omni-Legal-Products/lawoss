@@ -106,6 +106,15 @@ describe("new matter under the right client", () => {
     expect(skip).toBeLessThan(html.indexOf("Prípad vznikne pod klientom"));
   });
 
+  test("after an error the folded client chooser opens, so the „Vybrať priečinok“ button from the message is visible", () => {
+    const html = renderToStaticMarkup(
+      <Matter title="Nový prípad" clientTitle="" base={profile({ clientRoot: OPEN })} locale="sk" tr={welcomeText("sk")} busy={false} chooserOpen
+        onPlan={async () => {}} onClientChange={async () => {}} onSubjectChange={async () => {}} />,
+    );
+    expect(html).toMatch(/<details[^>]*open=""[^>]*data-lawoss-other-client=""|<details[^>]*data-lawoss-other-client=""[^>]*open=""/);
+    expect(html.slice(html.indexOf("data-lawoss-other-client"))).toContain("Použiť tohto klienta");
+  });
+
   test("without a client context the form asks for the client right away", () => {
     const html = renderToStaticMarkup(
       <Matter title="Nový prípad" clientTitle="" base={profile({ clientRoot: undefined })} locale="sk" tr={welcomeText("sk")} busy={false}

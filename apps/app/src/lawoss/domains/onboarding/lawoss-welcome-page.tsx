@@ -924,6 +924,7 @@ export function LawossWelcomePage({
             <Matter
               title={initialStep === "matter" ? tr("newMatter") : tr("matter")}
               nav={<>{backNav}<Button variant="ghost" disabled={busy} onClick={() => void move("done")}>{tr("skip")}</Button></>}
+              chooserOpen={error !== null}
               clientTitle={clientTitle}
               base={base}
               locale={locale}
@@ -1368,11 +1369,14 @@ export function Matter({
   onClientChange,
   onSubjectChange,
   nav,
+  chooserOpen = false,
 }: {
   title: string;
   clientTitle: string;
   /** Zrušiť / Späť a Teraz preskočiť pri nadpise: v päte dlhého formulára boli až pod okrajom okna (test 19. 10. 2026). */
   nav?: ReactNode;
+  /** Po chybe sa zbalená voľba klienta otvorí: veta chyby odkazuje na tlačidlo „Vybrať priečinok“ v nej. */
+  chooserOpen?: boolean;
   base: OnboardingProfile;
   locale: Language;
   tr: (key: string) => string;
@@ -1473,7 +1477,7 @@ export function Matter({
       {/* Klient z kontextu (karta klienta, bočný strom, otvorený klient) je vybraný; iného klienta treba rozbaliť.
           Bez klienta sa formulár pýta hneď (test 19. 10. 2026). */}
       {root ? (
-        <details className="grid gap-2 text-sm" data-lawoss-other-client="">
+        <details className="grid gap-2 text-sm" data-lawoss-other-client="" open={chooserOpen}>
           <summary className="cursor-pointer font-medium">{tr("otherClient")}</summary>
           <div className="mt-2">{clientChooser}</div>
         </details>
