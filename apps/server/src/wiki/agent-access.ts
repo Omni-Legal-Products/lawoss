@@ -172,7 +172,7 @@ const WORKSPACE_TOOL_ROUTES: readonly ToolRule[] = [
   { methods: ["GET", "POST"], route: /^files\/content$/ },
   { methods: ["GET", "PUT"], route: /^personalization$/ },
   { methods: WRITE, route: /^benchmarks\/tasks$/ },
-  { methods: WRITE, route: /^sessions\/([^/]+)\/(?:retry-stop|review-recovery)$/, ownSession: true },
+  { methods: WRITE, route: /^sessions\/([^/]+)\/(?:retry-stop|review-recovery|provider-failure)$/, ownSession: true },
 ];
 
 /** Server-wide routes the plugins call. None returns another project's files. */
