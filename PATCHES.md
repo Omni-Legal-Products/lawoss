@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Word add-in watch build heap (2026-10-19)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/package.json` | Skript `dev:word-addin` spúšťa `vite build --watch` s `NODE_OPTIONS=--max-old-space-size=6144`, rovnako ako upstream CI pre Electron build ([upstream #115](https://github.com/eigenweltlabs/legalwork/pull/115)). Taskpane montuje celý `SessionRoute`, takže build prechádza celý graf aplikácie (10 727 modulov, 81 MB kódu vrátane lazy Office editorov a shiki gramatík); watch build na čistom `dev` pri predvolenom heape ~4 GB padá na „JavaScript heap out of memory“. Ide o stopgap; štrukturálne zmenšenie grafu taskpane patrí upstreamu. `build:word-addin` sa nemení, CI ho pokrýva job-level `NODE_OPTIONS`. Pri syncu zachovať prefix, kým upstream graf nezmenší. |
+
 ## Synthetic scenario benchmark completion and grading (2026-10-18)
 
 | Súbory | Downstream doplnenie a dôvod |
