@@ -10,7 +10,8 @@ export const PLAN_SCHEMA = "lawoss.triage.plan/v1";
 
 /** `matter`: dokument leží vo veci bez karty (`ExistingMatter.implicit`); zaraďuje sa len v rámci nej. */
 export type TriageDocument = { id: string; path: string; name: string; ext: string; size: number; sha256: string; matter?: string };
-export type SkipReason = "system" | "hidden" | "memory" | "in_matter" | "inside_entity" | "already_sorted" | "system_name" | "locked";
+/** `in_folder`: podpriečinok, ktorý usporiadanie nemení (pracovný priečinok advokáta, priečinok s kartou vnútri). */
+export type SkipReason = "system" | "hidden" | "memory" | "in_matter" | "inside_entity" | "already_sorted" | "in_folder" | "system_name" | "locked";
 /**
  * Existujúca vec. `implicit`: priamy podpriečinok klienta pomenovaný ako vec, zatiaľ bez karty
  * (`Kupa haly Senec`, `Spor BETA 18Cb-47-2026`). Ostáva na mieste, plán mu doplní kartu a pracovné priečinky.
@@ -52,6 +53,8 @@ export type TriageNewMatter = {
   kind: MatterKind; area: string; jurisdiction: "sk" | "cz"; caseNumber?: string; counterparty?: string; court?: string;
   /** `folder`: existujúci priečinok veci bez karty; kartu dostane na mieste, nič sa z neho nevyberie. */
   source: "rules" | "model" | "folder"; documents: number;
+  /** Existujúci priečinok, ktorý advokát v náhľade odškrtol: ostane úplne nedotknutý (bez karty a presunov). */
+  left?: true;
 };
 export type TriagePlan = {
   schema: typeof PLAN_SCHEMA;

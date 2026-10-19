@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
-import { applyTriagePlan, grantInPlaceReorganize, IN_PLACE_MARKER, prepareTriage, replanTriage, scanTriage, TriageConflictError, TrialCloneError, undoTriage, verifyTriageTarget } from "../src/triage/index.ts";
+import { applyTriagePlan, folderHintRole, grantInPlaceReorganize, IN_PLACE_MARKER, prepareTriage, replanTriage, scanTriage, TriageConflictError, TrialCloneError, undoTriage, verifyTriageTarget } from "../src/triage/index.ts";
 import { HRON_FIXTURE, HRON_MATTERS, TRIAGE_FIXTURE, writeTriageFixture } from "./fixtures/triage-client.ts";
 import { holdWindowsFileLock } from "./windows-file-lock.ts";
 
@@ -257,11 +257,88 @@ test("podpriečinky s dokumentmi pomenované kódom veci (`M004 …`) ostanú pr
   expect(await documentsHash(root)).toBe(before);
 });
 
-test("podpriečinky podľa druhu dokumentu (`Emaily`, `Drafty`) a archív (`Stare`, `Fotky`) prípadmi nie sú", async () => {
+test("pracovný je len priečinok, ktorého celý názov je rola (aj s rokom); ostatné podpriečinky sú návrhy prípadov", async () => {
   const root = await convertedClient();
   await grantInPlaceReorganize(root, NOW);
   const inventory = await scanTriage(root, HOST);
-  expect(inventory.matters.map(matter => matter.path)).toEqual([]);
+  expect(inventory.matters.map(matter => matter.path)).toEqual(["Fotky", "Stare"]);
+  for (const path of ["Emaily/potvrdenie.pdf", "Drafty/memo.docx", "Podania/odpor.pdf", "Korespondencia 2024/priloha.pdf"]) expect(inventory.skipped).toContainEqual({ path, reason: "in_folder" });
+  expect(folderHintRole("Korešpondencia")).toBe("correspondence");
+  expect(folderHintRole("Podania 2024")).toBe("outputs");
+  expect(folderHintRole("Faktúry 2023-03")).toBe("client_documents");
+  for (const name of ["Pracovné verzie", "Zmluvy s dodávateľom XY", "Podklady k M004", "Emaily Novák", "2024"]) expect(folderHintRole(name)).toBeUndefined();
+});
+
+/** Prípady od recenzenta 19. 10. 2026: žiadny z nich sa nesmie rozpustiť do priečinkov klienta. */
+const REVIEW_FOLDERS: Readonly<Record<string, string>> = {
+  "Plnomocenstvo.pdf": "%PDF-1.4 synthetic poa",
+  "Zmluvy s dodávateľom XY/zmluva.pdf": "%PDF-1.4 synthetic supplier contract",
+  "Nová žaloba Kováč/zaloba.pdf": "%PDF-1.4 synthetic claim",
+  "Dokumenty k prevodu podielu/navrh zmluvy.docx": "synthetic transfer draft",
+  "Podklady k M004/podklad.pdf": "%PDF-1.4 synthetic basis",
+  "Pracovné verzie/stanovisko v1.docx": "synthetic opinion draft",
+  "Archív/poznamka.txt": "synteticka poznamka",
+  "Archív/M001 Spor X/Zmluva.pdf": "%PDF-1.4 synthetic archived contract",
+  "Archív/M001 Spor X/Žaloba.pdf": "%PDF-1.4 synthetic archived claim",
+  "M004 Vyúčtovanie/01-zmluva.docx": "synthetic lease",
+  "M004 Vyúčtovanie/Strana A/zmluva.pdf": "%PDF-1.4 synthetic party A",
+  "M004 Vyúčtovanie/Strana B/zmluva.pdf": "%PDF-1.4 synthetic party B",
+  "Korešpondencia/list.pdf": "%PDF-1.4 synthetic letter",
+  "Podania 2024/odpor.pdf": "%PDF-1.4 synthetic objection",
+};
+const REVIEW_MATTERS = ["Archív", "Dokumenty k prevodu podielu", "M004 Vyúčtovanie", "Nová žaloba Kováč", "Podklady k M004", "Pracovné verzie", "Zmluvy s dodávateľom XY"];
+async function reviewClient(): Promise<string> {
+  const base = await directory("okf-in-place-review-");
+  const root = join(base, "Revízia s. r. o.");
+  await mkdir(root);
+  await writeTriageFixture(root, REVIEW_FOLDERS);
+  const preview = await planOnboarding(parseOnboardingRequest({ action: "existing", root, mode: "convert", title: "Revízia s. r. o.", clientType: "po", language: "sk", jurisdiction: "sk", date: "2026-10-19", confirmUnknownClient: true }));
+  await applyOnboarding(preview, { journalDirectory: await directory("okf-journal-"), externalProfileDirectory: await directory("okf-external-") });
+  await grantInPlaceReorganize(root, NOW);
+  return root;
+}
+const top = (path: string) => path.split("/")[0];
+
+test("usporiadanie triedi len voľné súbory; podpriečinky ostanú na mieste ako prípady a vnorené sa nedotknú", async () => {
+  const root = await reviewClient();
+  const before = await documentsHash(root);
+  const { inventory, plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  expect(inventory.matters.map(matter => matter.path).sort()).toEqual(REVIEW_MATTERS);
+  expect(plan.matters.filter(matter => matter.source === "folder").map(matter => matter.folder).sort()).toEqual(REVIEW_MATTERS);
+  // Voľný súbor v koreni klienta ide do priečinka klienta; voľný súbor v koreni prípadu ostane v prípade.
+  expect(plan.moves.find(move => move.from === "Plnomocenstvo.pdf")?.to).toBe("01_Podklady/Plnomocenstvo.pdf");
+  for (const move of plan.moves.filter(move => move.from.includes("/"))) {
+    expect(move.from.split("/")).toHaveLength(2);
+    expect(top(move.to)).toBe(top(move.from));
+  }
+  // Vnorené priečinky (`Archív/M001 Spor X`, `M004/Strana A`, `Strana B`) ani pracovné priečinky advokáta sa nehýbu.
+  const untouched = ["Archív/M001 Spor X/", "M004 Vyúčtovanie/Strana A/", "M004 Vyúčtovanie/Strana B/", "Korešpondencia/", "Podania 2024/"];
+  expect(plan.moves.filter(move => untouched.some(prefix => move.from.startsWith(prefix)))).toEqual([]);
+  expect(plan.moves.filter(move => move.renamed)).toEqual([]);
+  expect(plan.create.filter(operation => !REVIEW_MATTERS.some(matter => operation.path.startsWith(`${matter}/`)) && !["00_Na_zatriedenie", "01_Podklady"].includes(top(operation.path)))).toEqual([]);
+
+  await applyTriagePlan(plan, HOST);
+  for (const path of ["M004 Vyúčtovanie/Strana A/zmluva.pdf", "M004 Vyúčtovanie/Strana B/zmluva.pdf", "Archív/M001 Spor X/Žaloba.pdf", "Korešpondencia/list.pdf"]) expect(await readFile(join(root, path), "utf8")).toBe(REVIEW_FOLDERS[path]);
+  // Opakované usporiadanie nič nepresúva: prípady majú kartu, voľné súbory sú zaradené.
+  await rm(join(root, IN_PLACE_MARKER));
+  await grantInPlaceReorganize(root, NOW);
+  expect((await prepareTriage(root, { now: NOW, ...HOST })).plan.moves).toEqual([]);
+  expect((await undoTriage(root, plan.runId, HOST)).status).toBe("undone");
+  expect(await documentsHash(root)).toBe(before);
+});
+
+test("odškrtnutý priečinok ostane úplne nedotknutý: bez karty, bez priečinkov a bez presunov", async () => {
+  const root = await reviewClient();
+  const { inventory, plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  const m004 = plan.matters.find(matter => matter.folder === "M004 Vyúčtovanie")!;
+  const left = replanTriage(inventory, undefined, [], NOW, [m004.key]);
+  expect(left.matters.find(matter => matter.key === m004.key)).toMatchObject({ left: true, documents: 0 });
+  expect(left.moves.filter(move => move.from.startsWith("M004 Vyúčtovanie/"))).toEqual([]);
+  expect(left.create.filter(operation => operation.path.startsWith("M004 Vyúčtovanie/"))).toEqual([]);
+  expect(left.fingerprint).not.toBe(plan.fingerprint);
+  expect(left.moves.some(move => move.from === "Pracovné verzie/stanovisko v1.docx")).toBe(true);
+  await applyTriagePlan(left, HOST);
+  expect((await readdir(join(root, "M004 Vyúčtovanie"))).sort()).toEqual(["01-zmluva.docx", "Strana A", "Strana B"]);
 });
 
 test("prípad so slovom druhu dokumentu uprostred názvu (`M008 Reklamácia faktúry`) ostane prípadom", async () => {
@@ -274,7 +351,7 @@ test("prípad so slovom druhu dokumentu uprostred názvu (`M008 Reklamácia fakt
   }
   await grantInPlaceReorganize(root, NOW);
   const inventory = await scanTriage(root, HOST);
-  expect(inventory.matters.map(matter => matter.path).sort()).toEqual([...matters].sort());
+  for (const folder of matters) expect(inventory.matters.some(matter => matter.path === folder)).toBe(true);
   for (const folder of ["Emaily", "Korespondencia 2024", ...buckets]) expect(inventory.matters.some(matter => matter.path === folder)).toBe(false);
 });
 

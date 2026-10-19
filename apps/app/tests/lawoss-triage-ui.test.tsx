@@ -212,3 +212,37 @@ test("náhľad je čitateľný: odkiaľ ako meno priečinka, riadky zoskupené p
   // Kam: pracovný priečinok prípadu menom, plná cesta v tooltipe.
   expect(out).toContain(`title="${m4}/01_Podklady">01_Podklady</small>`);
 });
+
+test("existujúci priečinok sa dá odškrtnúť; v skupine je „existujúci priečinok“, nie „nový prípad“ (rozhodnutie 19. 10. 2026)", () => {
+  const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, "sk", params);
+  const m4 = "M004 Vyúčtovanie", m5 = "M005 Modul";
+  const folders: TriagePreview = {
+    ...preview, keepInInbox: [], leaveInPlace: ["existing-1"], documents: 2,
+    matters: [
+      { key: "existing-0", title: m4, folder: m4, date: "2026-10-19", dateSource: "today", kind: "non_contentious", source: "folder", documents: 1 },
+      { key: "existing-1", title: m5, folder: m5, date: "2026-10-19", dateSource: "today", kind: "non_contentious", source: "folder", documents: 0, left: true },
+    ],
+    moves: [{ id: "d1", from: `${m4}/01-zmluva.docx`, to: `${m4}/01_Podklady/01-zmluva.docx`, size: 1, role: "client_documents", matter: "existing-0", source: "rules", confidence: "medium", rule: "contract", matched: "zmluva" }],
+  };
+  const calls: [string, boolean][] = [];
+  const out = html(<TriagePreviewView preview={folders} text={text} busy={false} inPlace onKeep={() => {}} onLeave={(key, leave) => calls.push([key, leave])} onConfirm={() => {}} onModel={() => {}} />);
+  expect(out).toContain(`data-lawoss-triage-group="existing-0"`);
+  expect(out).toContain("existujúci priečinok");
+  expect(out).not.toContain("nový prípad");
+  expect(out).toMatch(/<input type="checkbox"[^>]*aria-label="Založiť ako prípad: M004 Vyúčtovanie" checked=""/);
+  expect(out).toMatch(/<input type="checkbox"[^>]*aria-label="Založiť ako prípad: M005 Modul"(?![^>]*checked)/);
+  expect(out).toContain("Priečinok ostane presne tak, ako je.");
+  // Odškrtnutý priečinok sa nepočíta medzi nové prípady.
+  expect(out).toMatch(/<dd>1<\/dd><dt>Nové prípady<\/dt>/);
+  for (const locale of ["sk", "cs", "en", "de"] as const) for (const key of ["existing_folder_badge", "matter_keep_folder", "matter_left"]) {
+    expect(t(`lawoss.triage.${key}`, locale)).not.toBe(`lawoss.triage.${key}`);
+    expect(t(`lawoss.triage.${key}`, locale)).not.toContain("—");
+  }
+});
+
+test("replan posiela odškrtnuté priečinky", async () => {
+  const calls: [string, unknown][] = [];
+  const client: TriageClient = { lawossTriage: async <T,>(path: string, body: unknown) => { calls.push([path, body]); return {} as T; } };
+  await triageReplan(client, preview.id, [], ["existing-1"]);
+  expect(calls).toEqual([["replan", { id: preview.id, keepInInbox: [], leaveInPlace: ["existing-1"] }]]);
+});

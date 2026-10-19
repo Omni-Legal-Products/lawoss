@@ -243,3 +243,21 @@ test("nový súhlas ruší vrátenie predošlého usporiadania na mieste a statu
   expect(after.undoRunId).toBeUndefined();
   expect((await f.call("triage/undo", { root: f.client, runId: applied.runId, confirm: true })).status).toBe(403);
 }, transactionTimeout);
+
+test("odškrtnutý existujúci priečinok ostane po zápise nedotknutý (rozhodnutie 19. 10. 2026)", async () => {
+  const f = await convertedFixture();
+  await mkdir(join(f.client, "M004 Vyúčtovanie"));
+  await writeFile(join(f.client, "M004 Vyúčtovanie", "zmluva.pdf"), "m");
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  const preview = await f.success("triage/plan", { root: f.client });
+  const folder = preview.matters.find((matter: { folder: string }) => matter.folder === "M004 Vyúčtovanie");
+  expect(folder).toMatchObject({ source: "folder", documents: 1 });
+  const left = await f.success("triage/replan", { id: preview.id, keepInInbox: [], leaveInPlace: [folder.key, "existing-000000000000"] });
+  expect(left.leaveInPlace).toEqual([folder.key]);
+  expect(left.matters.find((matter: { key: string }) => matter.key === folder.key)).toMatchObject({ left: true, documents: 0 });
+  expect(left.moves.some((move: { from: string }) => move.from.startsWith("M004 Vyúčtovanie/"))).toBe(false);
+  // Zmena inej voľby bez `leaveInPlace` odškrtnutie zachová.
+  expect((await f.success("triage/replan", { id: left.id, keepInInbox: [] })).leaveInPlace).toEqual([folder.key]);
+  await f.success("triage/apply", { id: left.id, fingerprint: left.fingerprint, confirm: true });
+  expect(await readdir(join(f.client, "M004 Vyúčtovanie"))).toEqual(["zmluva.pdf"]);
+}, transactionTimeout);

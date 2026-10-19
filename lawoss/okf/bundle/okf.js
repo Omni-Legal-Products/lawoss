@@ -1205,8 +1205,8 @@ function findCaseNumber(text) {
   return { key, display: `${senate}${register} ${Number(number)}/${year}` };
 }
 function folderHintRole(folder) {
-  const name = normalizeText(folder);
-  return FOLDER_HINTS.find((hint) => hint.words.some((word) => name === word || name.startsWith(`${word} `)))?.role;
+  const name = normalizeText(folder).replace(/ (?:19|20)\d{2}(?: \d{1,2}){0,2}$/, "");
+  return FOLDER_HINTS.find((hint) => hint.words.includes(name))?.role;
 }
 function classifyByRules(input) {
   const ext = input.ext.toLowerCase();
@@ -1333,43 +1333,6 @@ var fold = (word) => word.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerC
 var MATTER_WORDS = new Set([...SK_MATTER_WORDS, ...CZ_MATTER_WORDS].map(fold));
 var firstWord = (name) => fold(name.normalize("NFC").trim().split(/[\s,.;:()_-]+/u)[0] ?? "");
 var startsWithMatterWord = (name) => MATTER_WORDS.has(firstWord(name));
-var BUCKET_WORDS = [
-  "stare",
-  "stary",
-  "stara",
-  "archiv",
-  "archive",
-  "old",
-  "fotky",
-  "foto",
-  "fotografie",
-  "fotografia",
-  "photos",
-  "obrazky",
-  "ostatne",
-  "ostatni",
-  "rozne",
-  "ruzne",
-  "misc",
-  "temp",
-  "tmp",
-  "nove",
-  "nova",
-  "new",
-  "skeny",
-  "scany",
-  "scans",
-  "scan",
-  "downloads",
-  "stiahnute",
-  "stazene",
-  "prilohy",
-  "attachments",
-  "dokumenty",
-  "documents"
-];
-var BUCKETS = new Set(BUCKET_WORDS.map(fold));
-var looksLikeBucketName = (name) => BUCKETS.has(firstWord(name));
 var looksLikeMatterName = (name) => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined || startsWithMatterWord(name));
 
 // src/onboarding/suggest.ts
@@ -4426,13 +4389,13 @@ async function scanTriage(rootInput, options = {}) {
     matters.push({ id: `existing-${sha3(dir).slice(0, 12)}`, path: dir, ...fields.title ? { title: fields.title } : {}, ...caseKey ? { caseKey } : {}, roles });
   }
   const under = (path, folder) => path.startsWith(`${folder}/`);
-  const matterFolder = (dir) => looksLikeMatterName(dir) || !(isBareDate(dir) || folderHintRole(dir) || looksLikeBucketName(dir) || /^\d{2}_/.test(dir) || dir.startsWith("_"));
+  const roleFolder = (dir) => clientFolders.has(dir.toLocaleLowerCase()) || /^\d{2}_/.test(dir) || dir.startsWith("_") || folderHintRole(dir) !== undefined;
   const clientFolders = new Set([...profile.folders, ...Object.values(profile.roles)].map((folder) => folder.split("/")[0].toLocaleLowerCase()));
   const matterProfile = workingProfile(newMatterProfile?.folders, newMatterProfile?.roles, newMatterProfile?.naming, language);
   for (const dir of [...directories].filter((dir) => !dir.includes("/") && !hidden(dir)).sort()) {
-    if (["spisy", "memory", "office", "_kancelaria"].includes(dir.toLocaleLowerCase()) || clientFolders.has(dir.toLocaleLowerCase()))
+    if (["spisy", "memory", "office", "_kancelaria"].includes(dir.toLocaleLowerCase()) || roleFolder(dir))
       continue;
-    if (!matterFolder(dir) || entityDirs.some((entity) => entity === dir || under(entity, dir)))
+    if (entityDirs.some((entity) => entity === dir || under(entity, dir)))
       continue;
     if (![...files.keys()].some((path) => under(path, dir) && !hidden(path)))
       continue;
@@ -4454,17 +4417,17 @@ async function scanTriage(rootInput, options = {}) {
     if (!matter)
       return;
     const rest = path.slice(matter.path.length + 1);
-    if (rest.split("/").slice(0, -1).some(looksLikeMatterName))
-      return { matter, reason: "in_matter" };
+    if (!rest.includes("/") || matter.roles.inbox && under(rest, matter.roles.inbox))
+      return { matter };
     const sorted = Object.entries(matter.roles).filter(([role]) => role !== "inbox").map(([, folder]) => folder);
-    return sorted.some((folder) => under(rest, folder)) && !(matter.roles.inbox && under(rest, matter.roles.inbox)) ? { matter, reason: "already_sorted" } : { matter };
+    return { matter, reason: sorted.some((folder) => under(rest, folder)) ? "already_sorted" : "in_matter" };
   };
   const documents = [];
   const skipped = [];
   for (const entry of files.values()) {
     const name = entry.path.split("/").pop();
     const home = implicitHome(entry.path);
-    const reason = hidden(entry.path) ? "hidden" : entry.path.split("/")[0] === "memory" ? "memory" : !entry.path.includes("/") && (CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name)) ? "system" : CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name) ? "system_name" : matters.some((matter) => !matter.implicit && under(entry.path, matter.path)) ? "in_matter" : entityDirs.some((dir) => under(entry.path, dir)) ? "inside_entity" : home ? home.reason : entry.path.split("/").slice(0, -1).some(looksLikeMatterName) ? "in_matter" : sortedFolders.some((folder) => under(entry.path, folder)) && !(inbox && under(entry.path, inbox)) ? "already_sorted" : undefined;
+    const reason = hidden(entry.path) ? "hidden" : entry.path.split("/")[0] === "memory" ? "memory" : !entry.path.includes("/") && (CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name)) ? "system" : CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name) ? "system_name" : matters.some((matter) => !matter.implicit && under(entry.path, matter.path)) ? "in_matter" : entityDirs.some((dir) => under(entry.path, dir)) ? "inside_entity" : home ? home.reason : !entry.path.includes("/") || inbox && under(entry.path, inbox) ? undefined : sortedFolders.some((folder) => under(entry.path, folder)) ? "already_sorted" : "in_folder";
     if (reason) {
       if (reason !== "hidden")
         skipped.push({ path: entry.path, reason });
@@ -4728,6 +4691,7 @@ function resolveFolder(roles, role) {
 function buildTriagePlan(inventory, options) {
   const language = inventory.language;
   const keep = new Set(options.keepInInbox ?? []);
+  const leave = new Set((options.leaveInPlace ?? []).filter((key) => inventory.matters.some((matter) => matter.implicit && matter.id === key)));
   const model = new Map((options.classification?.documents ?? []).map((decision) => [decision.id, decision]));
   const decisions = new Map;
   const caseGroups = new Map;
@@ -4793,6 +4757,9 @@ function buildTriagePlan(inventory, options) {
   const occupied = new Set(inventory.occupied.map((path) => path.toLocaleLowerCase()));
   const needsMattersDir = planned.length > 0 && !occupied.has("spisy");
   const adopted = inventory.matters.filter((matter) => matter.implicit).map((matter) => {
+    const title = matter.title ?? matter.path;
+    if (leave.has(matter.id))
+      return { entry: { key: matter.id, title, folder: matter.path, date: options.today, dateSource: "today", kind: "non_contentious", area: GENERAL_AREA[language], jurisdiction: inventory.jurisdiction, source: "folder", documents: 0, left: true }, operations: [] };
     const caseNumber = matter.implicit?.caseNumber;
     const kind = caseNumber ? "contentious" : "non_contentious";
     const area = caseNumber ? MATTER_AREA[language] : GENERAL_AREA[language];
@@ -4830,6 +4797,8 @@ function buildTriagePlan(inventory, options) {
   const stays = [];
   const used = new Set;
   for (const document of inventory.documents) {
+    if (document.matter && leave.has(document.matter))
+      continue;
     const decision = decisions.get(document.id);
     const destination = destinations.get(decision.matter ?? "") ?? destinations.get("");
     const requested = decision.role ?? "inbox";
@@ -4873,7 +4842,8 @@ function buildTriagePlan(inventory, options) {
   }
   const kept = planned.filter((matter) => used.has(matter.key));
   for (const matter of [...kept, ...adopted.map((item) => item.entry)])
-    matter.documents = moves.filter((move) => move.matter === matter.key).length;
+    if (!("left" in matter))
+      matter.documents = moves.filter((move) => move.matter === matter.key).length;
   const create = [
     ...needsMattersDir && kept.length ? [{ path: "Spisy", kind: "directory" }] : [],
     ...kept.flatMap((matter) => matter.operations),
@@ -5373,7 +5343,7 @@ async function listTriageRuns(rootInput) {
     try {
       const { plan, events } = await readRun(root, name);
       const state = events.some((event) => event.t === "undone") ? "undone" : events.some((event) => event.t === "undo_started") ? "undoing" : events.some((event) => event.t === "completed") ? "applied" : events.length ? "interrupted" : "planned";
-      result.push({ runId: name, createdAt: plan.createdAt, state, moves: plan.moves.length, matters: plan.matters.length, fingerprint: plan.fingerprint });
+      result.push({ runId: name, createdAt: plan.createdAt, state, moves: plan.moves.length, matters: plan.matters.filter((matter) => !matter.left).length, fingerprint: plan.fingerprint });
     } catch {}
   }
   return result.sort((a, b) => b.runId.localeCompare(a.runId));

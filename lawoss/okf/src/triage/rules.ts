@@ -83,12 +83,13 @@ export function findCaseNumber(text: string): CaseNumber | undefined {
 }
 
 /**
- * Rola, ktorú advokát dal priečinku menom („Emaily“, „Korešpondencia 2024“, „Drafty“); priečinok podľa druhu
- * dokumentu nie je vec. Slovo musí názov začínať: „M008 Reklamácia faktúry“ je vec, nie priečinok faktúr.
+ * Rola, ktorú advokát dal priečinku menom; platí len pre **celý** názov, voliteľne s rokom alebo dátumom
+ * („Korešpondencia“, „Podania 2024“, „Faktúry 2023-03“). „Pracovné verzie“ či „Zmluvy s dodávateľom XY“
+ * pracovnými priečinkami nie sú: usporiadanie ich nechá na mieste ako prípad (rozhodnutie 19. 10. 2026).
  */
 export function folderHintRole(folder: string): TriageRole | undefined {
-  const name = normalizeText(folder);
-  return FOLDER_HINTS.find(hint => hint.words.some(word => name === word || name.startsWith(`${word} `)))?.role;
+  const name = normalizeText(folder).replace(/ (?:19|20)\d{2}(?: \d{1,2}){0,2}$/, "");
+  return FOLDER_HINTS.find(hint => hint.words.includes(name))?.role;
 }
 
 export type RuleInput = { path: string; name: string; ext: string };

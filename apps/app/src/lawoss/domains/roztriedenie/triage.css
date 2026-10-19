@@ -100,6 +100,8 @@
 .lw-triage-matter::after { content: ""; position: absolute; inset: 0 20% auto; height: 1px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--td-gold) 55%, transparent), transparent); }
 .lw-triage-matter strong { font-size: 14px; }
 .lw-triage-matter small { font-size: 12px; color: var(--lw-text-secondary); }
+.lw-triage-leave { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; cursor: pointer; }
+.lw-triage-leave input { accent-color: var(--td-gold); width: 16px; height: 16px; }
 
 .lw-triage-table-wrap { padding: 4px 0; overflow-x: auto; }
 .lw-triage-table { width: 100%; border-collapse: collapse; font-size: 13px; }

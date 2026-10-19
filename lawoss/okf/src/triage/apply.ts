@@ -352,7 +352,7 @@ export async function listTriageRuns(rootInput: string): Promise<TriageRunStatus
     try {
       const { plan, events } = await readRun(root, name);
       const state = events.some(event => event.t === "undone") ? "undone" : events.some(event => event.t === "undo_started") ? "undoing" : events.some(event => event.t === "completed") ? "applied" : events.length ? "interrupted" : "planned";
-      result.push({ runId: name, createdAt: plan.createdAt, state, moves: plan.moves.length, matters: plan.matters.length, fingerprint: plan.fingerprint });
+      result.push({ runId: name, createdAt: plan.createdAt, state, moves: plan.moves.length, matters: plan.matters.filter(matter => !matter.left).length, fingerprint: plan.fingerprint });
     } catch { /* Poškodený alebo cudzí záznam sa v zozname neukáže; ostáva na disku na posúdenie. */ }
   }
   return result.sort((a, b) => b.runId.localeCompare(a.runId));

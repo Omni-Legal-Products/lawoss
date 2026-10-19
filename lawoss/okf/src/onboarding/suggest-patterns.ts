@@ -43,16 +43,4 @@ const MATTER_WORDS = new Set([...SK_MATTER_WORDS, ...CZ_MATTER_WORDS].map(fold))
 const firstWord = (name: string): string => fold(name.normalize("NFC").trim().split(/[\s,.;:()_-]+/u)[0] ?? "");
 /** Prvé slovo názvu je slovo veci zo zoznamu SK alebo CZ, s diakritikou aj bez nej (test 16. 10. 2026, N2). */
 export const startsWithMatterWord = (name: string): boolean => MATTER_WORDS.has(firstWord(name));
-/**
- * Priečinky na odloženie bez vlastnej veci („Staré“, „Archív 2023“, „Fotky“, „Rôzne“). V priečinku klienta nimi
- * advokát triedi podľa času či druhu, nie podľa veci; roztriedenie ich nepokladá za prípad (test 19. 10. 2026).
- */
-export const BUCKET_WORDS: readonly string[] = [
-  "stare", "stary", "stara", "archiv", "archive", "old", "fotky", "foto", "fotografie", "fotografia", "photos",
-  "obrazky", "ostatne", "ostatni", "rozne", "ruzne", "misc", "temp", "tmp", "nove", "nova", "new",
-  "skeny", "scany", "scans", "scan", "downloads", "stiahnute", "stazene", "prilohy", "attachments", "dokumenty", "documents",
-];
-const BUCKETS = new Set(BUCKET_WORDS.map(fold));
-/** Prvé slovo názvu je slovo archívu či odkladacieho priečinka, s diakritikou aj bez nej. */
-export const looksLikeBucketName = (name: string): boolean => BUCKETS.has(firstWord(name));
 export const looksLikeMatterName = (name: string): boolean => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined || startsWithMatterWord(name));

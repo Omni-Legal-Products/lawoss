@@ -26,7 +26,8 @@ const RULE_MATTER_MIN_DOCUMENTS = 2;
 type Decision = { role: TriageRole | null; matter?: string; source: MoveSource; confidence: Confidence; rule?: RuleResult["rule"]; matched?: string; reason?: string; truncated?: boolean };
 type Destination = { base: string; roles: Record<string, string> };
 
-export type BuildOptions = { classification?: TriageClassification; keepInInbox?: readonly string[]; today: string; runId: string; createdAt: string };
+/** `leaveInPlace`: kľúče existujúcich priečinkov (prípadov bez karty), ktoré advokát v náhľade odškrtol; ostanú nedotknuté. */
+export type BuildOptions = { classification?: TriageClassification; keepInInbox?: readonly string[]; leaveInPlace?: readonly string[]; today: string; runId: string; createdAt: string };
 
 function splitName(name: string): { stem: string; ext: string } {
   const dot = name.lastIndexOf(".");
@@ -45,6 +46,7 @@ function resolveFolder(roles: Record<string, string>, role: TriageRole): { role:
 export function buildTriagePlan(inventory: TriageInventory, options: BuildOptions): TriagePlan {
   const language = inventory.language;
   const keep = new Set(options.keepInInbox ?? []);
+  const leave = new Set((options.leaveInPlace ?? []).filter(key => inventory.matters.some(matter => matter.implicit && matter.id === key)));
   const model = new Map((options.classification?.documents ?? []).map(decision => [decision.id, decision]));
   const decisions = new Map<string, Decision>();
   const caseGroups = new Map<string, { display: string; ids: string[] }>();
@@ -107,6 +109,9 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
   // Vec bez karty dostane kartu a pracovné priečinky na mieste. Existujúce sa nikdy neprepíše: chýba len to,
   // čo v priečinku ešte nie je. Pri vlastných inštrukciách alebo pracovnom profile veci sa doplní len karta.
   const adopted = inventory.matters.filter(matter => matter.implicit).map(matter => {
+    const title = matter.title ?? matter.path;
+    // Odškrtnutý priečinok: v náhľade ostane (aby sa dal znova zaškrtnúť), ale nedostane kartu, priečinky ani presuny.
+    if (leave.has(matter.id)) return { entry: { key: matter.id, title, folder: matter.path, date: options.today, dateSource: "today" as const, kind: "non_contentious" as const, area: GENERAL_AREA[language], jurisdiction: inventory.jurisdiction, source: "folder" as const, documents: 0, left: true as const }, operations: [] };
     const caseNumber = matter.implicit?.caseNumber;
     const kind: TriageNewMatter["kind"] = caseNumber ? "contentious" : "non_contentious";
     const area = caseNumber ? MATTER_AREA[language] : GENERAL_AREA[language];
@@ -139,6 +144,7 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
   const stays: TriageStay[] = [];
   const used = new Set<string>();
   for (const document of inventory.documents) {
+    if (document.matter && leave.has(document.matter)) continue;
     const decision = decisions.get(document.id)!;
     const destination = destinations.get(decision.matter ?? "") ?? destinations.get("")!;
     const requested: TriageRole = decision.role ?? "inbox";
@@ -167,7 +173,7 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
   }
   // Vec bez jediného dokumentu sa nezakladá; nevznikne prázdna karta, ktorú by advokát musel mazať.
   const kept = planned.filter(matter => used.has(matter.key));
-  for (const matter of [...kept, ...adopted.map(item => item.entry)]) matter.documents = moves.filter(move => move.matter === matter.key).length;
+  for (const matter of [...kept, ...adopted.map(item => item.entry)]) if (!("left" in matter)) matter.documents = moves.filter(move => move.matter === matter.key).length;
   const create: CreateOperation[] = [
     ...(needsMattersDir && kept.length ? [{ path: "Spisy", kind: "directory" as const }] : []),
     ...kept.flatMap(matter => matter.operations),

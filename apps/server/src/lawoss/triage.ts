@@ -13,7 +13,8 @@ import { applyTriagePlan, grantInPlaceReorganize, listTriageRuns, parseClassific
  * Roztriedenie dokumentov v skúšobnom klone (host-only). Klient potvrdzuje uložený náhľad podľa
  * jeho odtlačku; operácie nikdy neposiela. Každý zápis overí klon aj záznamom appky o jeho vytvorení.
  */
-type Ticket = { version: 1; id: string; root: string; inventory: TriageInventory; classification?: TriageClassification; keepInInbox: string[]; plan: TriagePlan };
+/** `leaveInPlace`: existujúce priečinky, ktoré advokát v náhľade odškrtol (ostanú nedotknuté). */
+type Ticket = { version: 1; id: string; root: string; inventory: TriageInventory; classification?: TriageClassification; keepInInbox: string[]; leaveInPlace?: string[]; plan: TriagePlan };
 const rootSchema = z.string().min(1).max(4096).refine(isAbsolute, "Absolute path required.");
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
 const UNAVAILABLE_ROOT = new Set(["ENOTDIR", "EACCES", "ENOENT"]);
@@ -28,7 +29,7 @@ function view(ticket: Ticket, proposal?: unknown) {
   const { plan, inventory } = ticket;
   return {
     id: ticket.id, fingerprint: plan.fingerprint, runId: plan.runId, root: plan.root, language: plan.language,
-    documents: inventory.documents.length, keepInInbox: ticket.keepInInbox, classification: plan.classification,
+    documents: inventory.documents.length, keepInInbox: ticket.keepInInbox, leaveInPlace: ticket.leaveInPlace ?? [], classification: plan.classification,
     matters: plan.matters, moves: plan.moves.map(({ sha256: _sha, ...move }) => move), stays: plan.stays,
     newFolders: plan.create.filter(operation => operation.kind === "directory").length,
     ...(proposal ? { proposal } : {}),
@@ -101,9 +102,9 @@ export function registerTriageRoutes(options: {
     // Uložil ho tento server; plán sa pred zápisom aj tak overí celý vrátane odtlačku.
     return raw as Ticket;
   };
-  const store = async (root: string, inventory: TriageInventory, classification: TriageClassification | undefined, keepInInbox: string[], plan: TriagePlan): Promise<Ticket> => {
+  const store = async (root: string, inventory: TriageInventory, classification: TriageClassification | undefined, keepInInbox: string[], plan: TriagePlan, leaveInPlace: string[] = []): Promise<Ticket> => {
     await ensureTickets();
-    const ticket: Ticket = { version: 1, id: randomUUID(), root, inventory, ...(classification ? { classification } : {}), keepInInbox, plan };
+    const ticket: Ticket = { version: 1, id: randomUUID(), root, inventory, ...(classification ? { classification } : {}), keepInInbox, ...(leaveInPlace.length ? { leaveInPlace } : {}), plan };
     await writeNew(join(tickets, `${ticket.id}.json`), ticket);
     return ticket;
   };
@@ -161,13 +162,16 @@ export function registerTriageRoutes(options: {
   });
   route("replan", async ctx => {
     options.ensureWritable(config);
-    const input = z.strictObject({ id: z.uuid(), keepInInbox: z.array(z.string().regex(/^d[a-f0-9]{16}$/)).max(5000) }).parse(await body(ctx));
+    const input = z.strictObject({ id: z.uuid(), keepInInbox: z.array(z.string().regex(/^d[a-f0-9]{16}$/)).max(5000), leaveInPlace: z.array(z.string().regex(/^existing-[a-f0-9]{12}$/)).max(5000).optional() }).parse(await body(ctx));
     const previous = await readTicket(input.id);
     const known = new Set(previous.inventory.documents.map(document => document.id));
     const keep = [...new Set(input.keepInInbox)].filter(id => known.has(id));
+    // Odškrtnuté existujúce priečinky (rozhodnutie 19. 10. 2026); neznámy kľúč sa zahodí ako pri `keepInInbox`.
+    const folders = new Set(previous.plan.matters.filter(matter => matter.source === "folder").map(matter => matter.key));
+    const leave = [...new Set(input.leaveInPlace ?? previous.leaveInPlace ?? [])].filter(key => folders.has(key));
     const classification = previous.classification ? parseClassification(previous.classification, previous.inventory) : undefined;
-    const plan = replanTriage(previous.inventory, classification, keep);
-    return view(await store(previous.root, previous.inventory, classification, keep, plan));
+    const plan = replanTriage(previous.inventory, classification, keep, undefined, leave);
+    return view(await store(previous.root, previous.inventory, classification, keep, plan, leave));
   });
   route("apply", async ctx => {
     options.ensureWritable(config);

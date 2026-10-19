@@ -15,7 +15,7 @@ import { installMissingOnboardingSkills } from "../onboarding/install-pack";
 import { ensureSkillAvailable, workspaceSkillEngine } from "../../okf/skill-availability";
 
 const ROZTRIED_SPIS_SKILL = "roztried-spis";
-import { plansPreview, undoableRun, triageApply, triagePlan, triageReplan, triageStatus, triageTargetRoot, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus, type TriageUndoResult } from "./api";
+import { plansPreview, toggledLeave, undoableRun, triageApply, triagePlan, triageReplan, triageStatus, triageTargetRoot, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus, type TriageUndoResult } from "./api";
 import { OFFICE_CONFIG_ENCODING_CODE } from "../../../../../../lawoss/okf/src/profile";
 import "../../lite/pages/okf-glass.css";
 import "./triage.css";
@@ -150,6 +150,11 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
     const next = await run(text("updating"), () => triageReplan(client, preview.id, [...ids]));
     if (next && alive.current) setPreview(next);
   }
+  async function toggleLeave(key: string, leave: boolean) {
+    if (!client || !preview) return;
+    const next = await run(text("updating"), () => triageReplan(client, preview.id, preview.keepInInbox, toggledLeave(preview, key, leave)));
+    if (next && alive.current) setPreview(next);
+  }
   async function confirm() {
     if (!client || !preview) return;
     const result = await run(text("applying"), () => triageApply(client, preview));
@@ -214,7 +219,7 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
       ) : null}
 
       {busy ? <p className="lw-triage-quiet" aria-live="polite">{phase.label}</p> : null}
-      {phase.kind !== "applied" && !askUndo && preview ? <TriagePreviewView preview={preview} text={text} busy={busy} inPlace={inPlace} onKeep={toggleKeep} onConfirm={confirm} onModel={(useModel) => void load(useModel)}
+      {phase.kind !== "applied" && !askUndo && preview ? <TriagePreviewView preview={preview} text={text} busy={busy} inPlace={inPlace} onKeep={toggleKeep} onLeave={toggleLeave} onConfirm={confirm} onModel={(useModel) => void load(useModel)}
         model={<ModelPanel root={root} connection={connection} locale={locale} preview={preview} busy={busy} inPlace={inPlace} onOpen={(path) => navigate(path)} onError={(message) => setError(message)} />} /> : null}
     </>
   );
@@ -272,7 +277,8 @@ function reasonOf(move: TriageMoveView, text: Text): string {
   return move.rule && RULE_KEYS.has(move.rule) ? text(`reason_${move.rule}`, { matched: move.matched ?? "" }) : "";
 }
 
-type MoveGroup = { key: string; title: string; isNew: boolean; moves: TriageMoveView[] };
+/** `badge`: nový prípad (pravidlá, model), existujúci priečinok advokáta, alebo nič (priečinky klienta). */
+type MoveGroup = { key: string; title: string; badge?: "new_matter_badge" | "existing_folder_badge"; moves: TriageMoveView[] };
 /**
  * Riadky zoskupené podľa cieľového prípadu (test 19. 10. 2026): najprv hlavný priečinok klienta, potom prípady
  * podľa názvu. V skupine najprv zaradené podľa roly, nakoniec to, čo čaká na zatriedenie.
@@ -284,7 +290,8 @@ export function groupMoves(moves: readonly TriageMoveView[], matters: ReadonlyMa
     const key = move.matter ?? "";
     const matter = move.matter ? matters.get(move.matter) : undefined;
     // Existujúci prípad mimo náhľadu nesie meno svojho priečinka (`<prípad>/<rola>/dokument`).
-    const group = byKey.get(key) ?? { key, title: matter?.title ?? (move.matter ? lastSegment(folderOf(folderOf(move.to))) : ""), isNew: matter !== undefined, moves: [] };
+    const badge = !matter ? undefined : matter.source === "folder" ? "existing_folder_badge" as const : "new_matter_badge" as const;
+    const group = byKey.get(key) ?? { key, title: matter?.title ?? (move.matter ? lastSegment(folderOf(folderOf(move.to))) : ""), badge, moves: [] };
     group.moves.push(move);
     byKey.set(key, group);
   }
@@ -296,11 +303,13 @@ export function groupMoves(moves: readonly TriageMoveView[], matters: ReadonlyMa
  * Náhľad ako tabuľka: dokument, odkiaľ, kam, prečo, istota, nová vec; riadok sa dá nechať na zatriedenie.
  * `inPlace`: priečinok klienta na mieste (nie skúšobný klon), texty potom o klone nehovoria a model sa neponúka.
  */
-export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep, onConfirm, onModel, model }: { preview: TriagePreview; text: Text; busy: boolean; inPlace?: boolean; onKeep: (id: string, keep: boolean) => void; onConfirm: () => void; onModel: (useModel: boolean) => void; model?: ReactNode }) {
+export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep, onLeave, onConfirm, onModel, model }: { preview: TriagePreview; text: Text; busy: boolean; inPlace?: boolean; onKeep: (id: string, keep: boolean) => void; onLeave?: (key: string, leave: boolean) => void; onConfirm: () => void; onModel: (useModel: boolean) => void; model?: ReactNode }) {
   const matters = new Map(preview.matters.map((matter) => [matter.key, matter]));
   const inbox = preview.moves.filter((move) => move.role === "inbox").length;
   const keep = new Set(preview.keepInInbox);
   const groups = groupMoves(preview.moves, matters);
+  // Odškrtnutý existujúci priečinok ostane nedotknutý a medzi nové prípady sa nepočíta.
+  const proposed = preview.matters.filter((matter) => !matter.left).length;
   if (preview.documents === 0) return <p className="lw-triage-quiet">{text(inPlace ? "nothing_in_place" : "nothing")}</p>;
   return (
     <>
@@ -308,7 +317,7 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
         <div><dd>{preview.documents}</dd><dt>{text("stat_documents")}</dt></div>
         <div><dd>{preview.moves.length - inbox}</dd><dt>{text("stat_sorted")}</dt></div>
         <div data-tone={inbox ? "calm" : undefined}><dd>{inbox}</dd><dt>{text("stat_inbox")}</dt></div>
-        <div data-tone={preview.matters.length ? "gold" : undefined}><dd>{preview.matters.length}</dd><dt>{text("stat_matters")}</dt></div>
+        <div data-tone={proposed ? "gold" : undefined}><dd>{proposed}</dd><dt>{text("stat_matters")}</dt></div>
       </dl>
 
       {/* Na mieste je návrh len deterministický (spec #92): server model odmietne, panel ani prepínač sa neukážu. */}
@@ -329,7 +338,14 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
               <li key={matter.key} className="lw-triage-panel lw-triage-matter">
                 <strong>{matter.title}</strong>
                 <small>{[matter.caseNumber ? text("matter_case", { case: matter.caseNumber }) : "", matter.counterparty ? text("matter_counterparty", { name: matter.counterparty }) : "", text("matter_documents", { count: matter.documents })].filter(Boolean).join(" · ")}</small>
-                <small className="lw-triage-muted">{text(MATTER_SOURCE_KEYS[matter.source])}{matter.dateSource === "today" ? ` · ${text("matter_date_today")}` : ""}</small>
+                <small className="lw-triage-muted">{matter.left ? text("matter_left") : `${text(MATTER_SOURCE_KEYS[matter.source])}${matter.dateSource === "today" ? ` · ${text("matter_date_today")}` : ""}`}</small>
+                {/* Existujúci priečinok advokáta je len návrh: odškrtnutý ostane presne tak, ako je (rozhodnutie 19. 10. 2026). */}
+                {matter.source === "folder" && onLeave ? (
+                  <label className="lw-triage-leave">
+                    <input type="checkbox" aria-label={`${text("matter_keep_folder")}: ${matter.title}`} checked={!matter.left} disabled={busy} onChange={(event) => onLeave(matter.key, !event.target.checked)} />
+                    {text("matter_keep_folder")}
+                  </label>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -345,7 +361,7 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
                 <tr className="lw-triage-group" data-lawoss-triage-group={group.key}>
                   <th colSpan={6} scope="colgroup">
                     <span>{group.title || text("root_folder")}</span>
-                    {group.isNew ? <em className="lw-triage-matter-chip">{text("new_matter_badge")}</em> : null}
+                    {group.badge ? <em className="lw-triage-matter-chip">{text(group.badge)}</em> : null}
                   </th>
                 </tr>
                 {group.moves.map((move) => {

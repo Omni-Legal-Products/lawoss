@@ -10,7 +10,7 @@ import type { TriageClassification, TriageInventory, TriagePlan } from "./types.
 export { applyTriagePlan, listTriageRuns, newRunId, parseTriagePlan, undoTriage, TriageConflictError, type TriageApplyResult, type TriageRunStatus, type TriageUndoResult } from "./apply.ts";
 export { ClassificationError, parseClassification } from "./classification.ts";
 export { buildTriagePlan, planFingerprint } from "./plan.ts";
-export { classifyByRules, findCaseNumber, TRIAGE_ROLES, type RuleCode, type TriageRole } from "./rules.ts";
+export { classifyByRules, findCaseNumber, folderHintRole, TRIAGE_ROLES, type RuleCode, type TriageRole } from "./rules.ts";
 export { grantInPlaceReorganize, IN_PLACE_MARKER, looksLikeTrialName, scanTriage, TrialCloneError, TRIAL_MARKER, verifyTrialClone, verifyTriageTarget, type TriageTarget, type TriageTargetOptions } from "./scan.ts";
 export * from "./types.ts";
 
@@ -59,6 +59,6 @@ export async function prepareTriage(root: string, options: PrepareOptions = {}):
 }
 
 /** Ten istý inventár s inými voľbami (napr. ponechať dokument na zatriedenie) bez nového čítania disku. */
-export function replanTriage(inventory: TriageInventory, classification: TriageClassification | undefined, keepInInbox: readonly string[], now: Date = new Date()): TriagePlan {
-  return buildTriagePlan(inventory, { classification, keepInInbox, today: now.toISOString().slice(0, 10), runId: newRunId(now), createdAt: now.toISOString() });
+export function replanTriage(inventory: TriageInventory, classification: TriageClassification | undefined, keepInInbox: readonly string[], now: Date = new Date(), leaveInPlace: readonly string[] = []): TriagePlan {
+  return buildTriagePlan(inventory, { classification, keepInInbox, leaveInPlace, today: now.toISOString().slice(0, 10), runId: newRunId(now), createdAt: now.toISOString() });
 }
