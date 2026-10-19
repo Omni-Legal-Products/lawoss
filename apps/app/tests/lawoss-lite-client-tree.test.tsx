@@ -350,15 +350,17 @@ describe("Posledné veci ani starý strom v navigácii LAWOSS; texty", () => {
     for (const dict of [shellEn, shellCs, shellSk, shellDe]) expect(dict).not.toHaveProperty(["lawoss.lite.recent_matters"]);
   });
 
-  test("texty stromu vo všetkých jazykoch; SK hovorí „rozhovor“ aj na detaile veci; nemčina bez dlhej pomlčky", () => {
+  test("texty stromu vo všetkých jazykoch; SK aj CS hovoria „chat“ aj na detaile veci (MČ 19. 10.); nemčina bez dlhej pomlčky", () => {
     for (const dict of [shellEn, shellCs, shellSk, shellDe]) {
       for (const key of ["tree_title", "tree_new_conversation", "tree_show_all", "tree_conversation_on", "tree_expand", "tree_collapse", "clients_all", "tree_load_error", "client_conversations_title", "conversations_partial"]) {
         expect(dict).toHaveProperty([`lawoss.lite.${key}`]);
       }
     }
-    expect(shellSk["lawoss.lite.tree_load_error"]).toBe("Rozhovory sa nepodarilo načítať");
-    expect(shellSk["lawoss.lite.conversations_title"]).toBe("Rozpracované rozhovory");
-    expect(shellSk["lawoss.lite.conversation_untitled"]).toBe("Rozhovor bez názvu");
+    expect(shellSk["lawoss.lite.tree_load_error"]).toBe("Chaty sa nepodarilo načítať");
+    expect(shellSk["lawoss.lite.conversations_title"]).toBe("Rozpracované chaty");
+    expect(shellSk["lawoss.lite.conversation_untitled"]).toBe("Chat bez názvu");
+    expect(shellCs["lawoss.lite.conversations_title"]).toBe("Rozpracované chaty");
+    expect(shellCs["lawoss.lite.conversation_untitled"]).toBe("Chat bez názvu");
     expect(Object.values(shellDe).some((value) => value.includes("—"))).toBe(false);
   });
 });
