@@ -71,6 +71,9 @@ const labels = {
   de: { client: "Mandant hinzufügen", folder: "Ordner hinzufügen", organize: "Nach OKF ordnen", matter: "Neue Angelegenheit", okf: "OKF einschalten" },
 };
 
+/** Popisky akcií v jazyku rozhrania (pre test terminológie). */
+export const entryActionLabels = (locale: keyof typeof labels): Readonly<Record<string, string>> => labels[locale];
+
 /** "Zapnúť OKF": shown only while OKF is not on. */
 export function EnableOkfAction({ compact = false, okfOffered }: { compact?: boolean; okfOffered?: boolean }) {
   const navigate = useNavigate();

@@ -170,8 +170,8 @@ const text: Record<Language, Record<string, string>> = {
     existingSubject: "Existujúci subjekt",
     newSubject: "Vytvoriť subjekt",
     kind: "Druh prípadu",
-    contentious: "Spis (konanie)",
-    non_contentious: "Prípad (nesporová agenda)",
+    contentious: "Spor (konanie)",
+    non_contentious: "Nesporová agenda",
     mapHelp:
       "Mapovanie je iba na čítanie. Oba údaje sú povinné a musia odkazovať na existujúcu pamäť klienta.",
     trial: "Ide o kópiu priečinka klienta. Pred vytvorením práce ju potvrďte.",
@@ -219,8 +219,8 @@ const text: Record<Language, Record<string, string>> = {
     existingSubject: "Existující subjekt",
     newSubject: "Vytvořit subjekt",
     kind: "Druh případu",
-    contentious: "Spis (řízení)",
-    non_contentious: "Případ",
+    contentious: "Spor (řízení)",
+    non_contentious: "Nesporná agenda",
     mapHelp:
       "Mapování je pouze pro čtení. Oba údaje jsou povinné a musí odkazovat na existující paměť klienta.",
     trial: "Jde o kopii složky klienta. Před vytvořením práce ji potvrďte.",
@@ -428,6 +428,8 @@ const extraText: Record<Language, Record<string, string>> = {
     finish: "Abschließen",
   },
 };
+/** Kľúče textov onboardingu (pre test terminológie). */
+export const welcomeTextKeys = (locale: Language): string[] => [...new Set([...Object.keys(text[locale]), ...Object.keys(extraText[locale])])];
 /** Texty krokov onboardingu v jazyku rozhrania. */
 export const welcomeText = (locale: Language) => (key: string): string =>
   key === "cancel"
