@@ -48,7 +48,7 @@ import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import "./onboarding.css";
 import { TriageEntry } from "../roztriedenie/triage-entry";
 import type { TriageClient } from "../roztriedenie/api";
-import { FolderStep } from "./folder-step";
+import { FolderStep, ScreenHead } from "./folder-step";
 import { FoundScreen, OkfNotice } from "./found-screen";
 import { freshOfficeCompletion } from "./found-flow";
 import { foundText } from "./found-text";
@@ -923,6 +923,7 @@ export function LawossWelcomePage({
           {step === "matter" && !openClientPending ? (
             <Matter
               title={initialStep === "matter" ? tr("newMatter") : tr("matter")}
+              nav={<>{backNav}<Button variant="ghost" disabled={busy} onClick={() => void move("done")}>{tr("skip")}</Button></>}
               clientTitle={clientTitle}
               base={base}
               locale={locale}
@@ -1051,13 +1052,14 @@ export function LawossWelcomePage({
         {/* Počas obrazovky „Toto som našiel“ päta nie je: bežiaci zápis by sa dal potichu opustiť;
             obrazovka má vlastné „Vybrať iný priečinok“, vypnuté počas zápisu. Krok Priečinok má Späť
             pri nadpise (pod veľkými voľbami by bolo až po rolovaní). */}
-        {step !== "identity" && step !== "done" && !foundRoot && !folderScreen ? (
+        {/* Formulár prípadu má Zrušiť a Teraz preskočiť pri nadpise (test 19. 10. 2026); kým sa hľadá klient, ostáva päta. */}
+        {step !== "identity" && step !== "done" && !(step === "matter" && !openClientPending) && !foundRoot && !folderScreen ? (
           <footer className="mt-8 flex justify-between">
             {backNav}
-            {step === "client" || step === "matter" ? (
+            {step === "client" ? (
               <Button
                 variant="ghost"
-                onClick={() => void move(step === "client" ? "matter" : "done")}
+                onClick={() => void move("matter")}
               >
                 {tr("skip")}
               </Button>
@@ -1365,9 +1367,12 @@ export function Matter({
   onPlan,
   onClientChange,
   onSubjectChange,
+  nav,
 }: {
   title: string;
   clientTitle: string;
+  /** Zrušiť / Späť a Teraz preskočiť pri nadpise: v päte dlhého formulára boli až pod okrajom okna (test 19. 10. 2026). */
+  nav?: ReactNode;
   base: OnboardingProfile;
   locale: Language;
   tr: (key: string) => string;
@@ -1425,9 +1430,35 @@ export function Matter({
       void onSubjectChange(null);
     }
   };
+  const clientChooser = (
+    <div className="grid gap-2">
+      <PathInput
+        value={selectedClientPath}
+        onChange={setSelectedClientPath}
+      />
+      <Button
+        type="button"
+        variant="outline"
+        disabled={
+          busy || !selectedClientPath.trim() || selectedClientPath === root
+        }
+        onClick={() => {
+          setSubject("");
+          setSubjectMode("none");
+          setSelectedSubjectRoot("");
+          setSubjectTouched(true);
+          setTitle("");
+          setConfirmed(false);
+          void onClientChange(selectedClientPath);
+        }}
+      >
+        {tr("useClient")}
+      </Button>
+    </div>
+  );
   return (
     <>
-      <h2 className="text-xl font-semibold">{heading}</h2>
+      <ScreenHead title={heading}>{nav ? <div className="flex flex-wrap gap-2">{nav}</div> : null}</ScreenHead>
       <div className="lw-onb-inset grid gap-1" data-lawoss-matter-client>
         {root ? (
           <>
@@ -1439,32 +1470,15 @@ export function Matter({
           <p className="text-sm">{tr("noClientYet")}</p>
         )}
       </div>
-      {field(
-        root ? tr("otherClient") : tr("client"),
-        <div className="grid gap-2">
-          <PathInput
-            value={selectedClientPath}
-            onChange={setSelectedClientPath}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            disabled={
-              busy || !selectedClientPath.trim() || selectedClientPath === root
-            }
-            onClick={() => {
-              setSubject("");
-              setSubjectMode("none");
-              setSelectedSubjectRoot("");
-              setSubjectTouched(true);
-              setTitle("");
-              setConfirmed(false);
-              void onClientChange(selectedClientPath);
-            }}
-          >
-            {tr("useClient")}
-          </Button>
-        </div>,
+      {/* Klient z kontextu (karta klienta, bočný strom, otvorený klient) je vybraný; iného klienta treba rozbaliť.
+          Bez klienta sa formulár pýta hneď (test 19. 10. 2026). */}
+      {root ? (
+        <details className="grid gap-2 text-sm" data-lawoss-other-client="">
+          <summary className="cursor-pointer font-medium">{tr("otherClient")}</summary>
+          <div className="mt-2">{clientChooser}</div>
+        </details>
+      ) : (
+        field(tr("client"), clientChooser)
       )}
       {trial ? (
         <div className="lw-status warn">

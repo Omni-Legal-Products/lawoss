@@ -52,6 +52,11 @@ describe("výber klienta v praxi", () => {
     expect(clientRootOf(practice, "Horak")).toBe(`${ROOT}/Horak`);
     expect(clientRootOf(practice, "Horak/Spisy")).toBeUndefined();
     expect(clientRootOf(okfScope([alfa], alfa, null), "")).toBeUndefined();
+    // Klient v priečinku kancelárie (Klienti/…): jeho priečinok pod otvoreným priečinkom (test 19. 10. 2026).
+    const office = ws("office", "/AK");
+    expect(clientRootOf(okfScope([office], office, null), "Klienti/ACME")).toBe("/AK/Klienti/ACME");
+    const windows = ws("win", "C:\\AK");
+    expect(clientRootOf(okfScope([windows], windows, null), "Klienti/ACME")).toBe("C:\\AK\\Klienti\\ACME");
     expect(newMatterLink()).toBe(NEW_MATTER_PATH);
     expect(newMatterLink(`${ROOT}/Horak`)).toBe(`${NEW_MATTER_PATH}&root=${encodeURIComponent(`${ROOT}/Horak`)}`);
   });
@@ -76,6 +81,14 @@ describe("„+ Nová vec“ v Dnes a v Klientoch", () => {
     expect(out).toContain(`root=${encodeURIComponent(`${ROOT}/Horak`)}`);
     // Hlavné „+ Nová vec“ na stránke Klienti sa pýta.
     expect(out).toMatch(/<button[^>]*data-lawoss-new-matter-pick/);
+  });
+
+  test("prehľad jedného klienta (bočný strom, ?klient=) ide rovno do neho aj z hlavného tlačidla (test 19. 10. 2026)", () => {
+    const out = html(<ClientsView locale="sk" choices={choices} activeId="alfa" focus="client:Horak"
+      groups={[{ key: "client:Horak", client: "Horák s.r.o.", matters: [{ path: "Horak/Spisy/2026-10 Spor", title: "Spor", deadlines: [] } as never] }, { key: "client:ALFA", client: "ALFA STAV s.r.o.", matters: [] }]}
+      clientRoot={(key) => key === "client:Horak" ? `${ROOT}/Horak` : undefined} />);
+    expect(out).not.toContain("data-lawoss-new-matter-pick");
+    expect(out).toContain(`root=${encodeURIComponent(`${ROOT}/Horak`)}`);
   });
 });
 

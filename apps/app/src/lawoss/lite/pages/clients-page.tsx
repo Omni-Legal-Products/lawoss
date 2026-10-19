@@ -92,7 +92,8 @@ export function ClientsView({ groups: all, meta, locale: forced, actions, choice
           {actions}
           <Link className="lw-btn" to={NEW_CLIENT_PATH}>{text("add_client")}</Link>
           <Link className="lw-btn" to={ATTACH_EXISTING_CLIENT_PATH}>{text("attach_existing_client")}</Link>
-          <NewMatterAction className="lw-today-primary" locale={locale} choices={choices} activeId={activeId}>+ {text("new_matter")}</NewMatterAction>
+          {/* Prehľad jedného klienta (bočný strom): nový prípad rovno u neho, bez výberu klienta (test 19. 10. 2026). */}
+          <NewMatterAction className="lw-today-primary" locale={locale} choices={choices} activeId={activeId} clientRoot={focused[0] ? clientRoot?.(focused[0].key) : undefined}>+ {text("new_matter")}</NewMatterAction>
         </div>
       </header>
 
