@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { onboardingErrorMessage } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
 
 // Tvar chyby z planShallowClientConversion (C1, review VŘ k #137, bod 2).
@@ -20,7 +20,10 @@ describe("chyby identity pri pripojení priečinka", () => {
     expect(onboardingErrorMessage(incomplete, "en")).toContain("smaller folder");
     expect(onboardingErrorMessage(incomplete, "de")).toContain("kleineren Ordner");
   });
-  test("iné chyby ostávajú bez zmeny", () => {
-    expect(onboardingErrorMessage(new Error("The client root changed."), "sk")).toBe("The client root changed.");
+  test("iné chyby sa zmenia na všeobecnú vetu a surová správa ide do konzoly", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+    expect(onboardingErrorMessage(new Error("The client root changed."), "sk")).toBe("Niečo sa nepodarilo. Skúste to znova, alebo vyberte iný priečinok.");
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 });

@@ -5,12 +5,15 @@ type Text = (key: FoundTextKey, params?: Record<string, string | number>) => str
 
 export const OKF_FILES = ["AGENTS.md", "CLAUDE.md", "client.md", "memory/", "_STATUS.md"];
 
-/** Musí byť viditeľné pri každej odpovedi, ktorá oznámenie berie na vedomie. */
+/** Veta oznámenia musí byť viditeľná pri každej odpovedi, ktorá ho berie na vedomie; zoznam súborov je zbalený. */
 export function OkfNotice({ text }: { text: Text }) {
   return (
     <>
       <p className="text-muted-foreground">{text("okfNotice")}</p>
-      <p className="text-sm"><strong>{text("filesTitle")}:</strong> {OKF_FILES.join(", ")}</p>
+      <details className="text-sm">
+        <summary className="cursor-pointer font-medium">{text("filesTitle")}</summary>
+        <p className="mt-1">{OKF_FILES.join(", ")}</p>
+      </details>
     </>
   );
 }

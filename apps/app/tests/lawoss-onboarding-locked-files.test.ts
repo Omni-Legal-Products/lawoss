@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { onboardingErrorMessage } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
 import { incompleteInspectionMessage } from "../../../lawoss/okf/src/onboarding/messages";
 
@@ -22,7 +22,11 @@ test("a locked file from an incomplete inspection is explained in the UI languag
   const many = new Error(incompleteInspectionMessage("x", ["a", "b", "c", "d", "e", "f"].map((path) => ({ path, code: "locked_file" }))));
   expect(onboardingErrorMessage(many, "en")).toBe("Files are open in another application (for example Word) or cannot be accessed: a, b, c, d, e. Close them and try again.");
   expect(onboardingErrorMessage(many, "de")).toStartWith("Dateien sind in einer anderen Anwendung geöffnet");
-  // Bez zamknutého súboru ostáva správa servera so zoznamom problémov.
+  // Bez zamknutého súboru advokát dostane všeobecnú vetu, zoznam problémov ide do konzoly.
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
   const other = new Error(incompleteInspectionMessage("Source client could not be inspected completely.", [{ path: "a.pdf", code: "EIO" }]));
-  expect(onboardingErrorMessage(other, "sk")).toBe("Source client could not be inspected completely: a.pdf: EIO");
+  expect(onboardingErrorMessage(other, "sk")).toBe("Niečo sa nepodarilo. Skúste to znova, alebo vyberte iný priečinok.");
+  expect(onboardingErrorMessage(other, "en")).toBe("Something went wrong. Try again, or choose a different folder.");
+  expect(warn).toHaveBeenCalledTimes(2);
+  warn.mockRestore();
 });

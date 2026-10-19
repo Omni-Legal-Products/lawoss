@@ -13,7 +13,7 @@ import { Check, FileWarning, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocale } from "@/i18n/use-locale";
-import { LANGUAGE_OPTIONS, setLanguagePreference, type Language } from "@/i18n";
+import { LANGUAGE_OPTIONS, setLanguagePreference, t, type Language } from "@/i18n";
 import type {
   ClientType,
   DocumentLanguage,
@@ -63,23 +63,28 @@ import { canonicalPathRejection, unquotedTypedPath } from "./typed-paths";
 const UI_LANGUAGE_ORDER: readonly Language[] = ["sk", "cs", "en", "de"];
 const UI_LANGUAGES = UI_LANGUAGE_ORDER.flatMap((code) => LANGUAGE_OPTIONS.filter((option) => option.value === code));
 
+/** Názvy priečinka kancelárie, ktorého `Klienti` ležia vedľa neho (nie vo vnútri). */
+const OFFICE_FOLDER_NAMES: ReadonlySet<string> = new Set(["office", "_kancelaria"]);
+
 /**
- * Priečinok klientov vedľa kancelárie: založenie kancelárie vytvorí `<rodič>/Office` a `<rodič>/Klienti`
- * (`client_path: "Klienti/*"`), takže krok klienta ho len predvyplní. Bez kancelárie ostane prázdny.
+ * Priečinok klientov, ktorý krok klienta predvyplní. Pre koreň kancelárie (`Office`, `_kancelaria`)
+ * je to `<rodič>/Klienti` (založenie kancelárie vytvorí `Office` aj `Klienti` vedľa seba,
+ * `client_path: "Klienti/*"`), pre koreň praxe `<koreň>/Klienti`. Oddeľovač ostáva podľa vstupu.
+ * Bez kancelárie alebo bez oddeľovača ostane prázdny.
  */
 export function clientsFolderOf(officeRoot: string | undefined): string {
   const root = officeRoot?.trim().replace(/[\\/]+$/, "");
   if (!root) return "";
   const cut = Math.max(root.lastIndexOf("/"), root.lastIndexOf("\\"));
   if (cut < 0) return "";
-  return `${root.slice(0, cut)}${root[cut]}Klienti`;
+  const separator = root[cut];
+  const isOffice = OFFICE_FOLDER_NAMES.has(root.slice(cut + 1).toLowerCase());
+  return `${isOffice ? root.slice(0, cut) : root}${separator}Klienti`;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
 const documentLanguage = (language: Language): DocumentLanguage =>
   language === "de" ? "en" : language;
-const errorMessage = (error: unknown, fallback: string) =>
-  error instanceof Error && error.message.trim() ? error.message : fallback;
 const text: Record<Language, Record<string, string>> = {
   en: {
     title: "Set up your practice",
@@ -107,10 +112,10 @@ const text: Record<Language, Record<string, string>> = {
     jurisdictionSk: "Slovakia",
     jurisdictionCz: "Czech Republic",
     person: "Person",
-    mode: "Connection mode",
-    convert: "Convert safely",
+    mode: "How to connect the folder",
+    convert: "Add helper files to the folder",
     map: "Map without writing",
-    trial_clone: "Trial clone",
+    trial_clone: "Try on a copy (recommended)",
     memory: "Relative existing memory path",
     anchor: "Identity text found in that file",
     area: "Area",
@@ -123,9 +128,9 @@ const text: Record<Language, Record<string, string>> = {
     non_contentious: "Matter (non-contentious)",
     mapHelp:
       "Mapping stays read-only. Both fields are required and must refer to existing client memory.",
-    trial: "This is a trial clone. Confirm before creating work in it.",
+    trial: "This is a copy of the client folder. Confirm before creating work in it.",
     trialConfirm:
-      "I understand this trial clone is not the original client folder.",
+      "I understand this copy is not the original client folder.",
     changes: "Planned changes",
     done: "Your practice is ready. Add clients and matters later from the sidebar or Settings.",
     error: "This step could not be completed.",
@@ -156,10 +161,10 @@ const text: Record<Language, Record<string, string>> = {
     jurisdictionSk: "Slovensko",
     jurisdictionCz: "Česko",
     person: "Fyzická osoba",
-    mode: "Režim pripojenia",
-    convert: "Bezpečne doplniť",
+    mode: "Ako pripojiť priečinok",
+    convert: "Pridať pomocné súbory do priečinka",
     map: "Mapovať bez zápisu",
-    trial_clone: "Skúšobný klon",
+    trial_clone: "Vyskúšať na kópii (odporúčané)",
     memory: "Relatívna cesta k existujúcej pamäti",
     anchor: "Text identity nájdený v tomto súbore",
     area: "Oblasť",
@@ -172,9 +177,9 @@ const text: Record<Language, Record<string, string>> = {
     non_contentious: "Vec (nesporová agenda)",
     mapHelp:
       "Mapovanie je iba na čítanie. Oba údaje sú povinné a musia odkazovať na existujúcu pamäť klienta.",
-    trial: "Ide o skúšobný klon. Pred vytvorením práce ho potvrďte.",
+    trial: "Ide o kópiu priečinka klienta. Pred vytvorením práce ju potvrďte.",
     trialConfirm:
-      "Rozumiem, že skúšobný klon nie je pôvodný priečinok klienta.",
+      "Rozumiem, že kópia nie je pôvodný priečinok klienta.",
     changes: "Plánované zmeny",
     done: "Prax je pripravená. Klientov a veci pridáte neskôr z bočného panela alebo Nastavení.",
     error: "Tento krok sa nepodarilo dokončiť.",
@@ -205,10 +210,10 @@ const text: Record<Language, Record<string, string>> = {
     jurisdictionSk: "Slovensko",
     jurisdictionCz: "Česko",
     person: "Fyzická osoba",
-    mode: "Režim připojení",
-    convert: "Bezpečně doplnit",
+    mode: "Jak připojit složku",
+    convert: "Přidat pomocné soubory do složky",
     map: "Mapovat bez zápisu",
-    trial_clone: "Zkušební klon",
+    trial_clone: "Vyzkoušet na kopii (doporučeno)",
     memory: "Relativní cesta k existující paměti",
     anchor: "Text identity nalezený v souboru",
     area: "Oblast",
@@ -221,8 +226,8 @@ const text: Record<Language, Record<string, string>> = {
     non_contentious: "Věc",
     mapHelp:
       "Mapování je pouze pro čtení. Oba údaje jsou povinné a musí odkazovat na existující paměť klienta.",
-    trial: "Jde o zkušební klon. Před vytvořením práce jej potvrďte.",
-    trialConfirm: "Rozumím, že zkušební klon není původní složka klienta.",
+    trial: "Jde o kopii složky klienta. Před vytvořením práce ji potvrďte.",
+    trialConfirm: "Rozumím, že kopie není původní složka klienta.",
     changes: "Plánované změny",
     done: "Praxe je připravena. Klienty a věci přidáte později z postranního panelu nebo Nastavení.",
     error: "Tento krok se nepodařilo dokončit.",
@@ -253,10 +258,10 @@ const text: Record<Language, Record<string, string>> = {
     jurisdictionSk: "Slowakei",
     jurisdictionCz: "Tschechien",
     person: "Person",
-    mode: "Verbindungsmodus",
-    convert: "Sicher ergänzen",
+    mode: "So verbinden Sie den Ordner",
+    convert: "Hilfsdateien zum Ordner hinzufügen",
     map: "Ohne Schreiben abbilden",
-    trial_clone: "Testkopie",
+    trial_clone: "Auf einer Kopie ausprobieren (empfohlen)",
     memory: "Relativer bestehender Speicherpfad",
     anchor: "In der Datei gefundener Identitätstext",
     area: "Bereich",
@@ -270,9 +275,9 @@ const text: Record<Language, Record<string, string>> = {
     mapHelp:
       "Die Abbildung bleibt schreibgeschützt. Beide Felder sind erforderlich und müssen auf den vorhandenen Mandantenspeicher verweisen.",
     trial:
-      "Dies ist eine Testkopie. Bestätigen Sie sie vor dem Erstellen von Arbeit.",
+      "Dies ist eine Kopie des Mandantenordners. Bestätigen Sie sie vor dem Erstellen von Arbeit.",
     trialConfirm:
-      "Ich verstehe, dass die Testkopie nicht der ursprüngliche Mandantenordner ist.",
+      "Ich verstehe, dass die Kopie nicht der ursprüngliche Mandantenordner ist.",
     changes: "Geplante Änderungen",
     done: "Ihre Kanzlei ist bereit. Mandanten und Angelegenheiten können Sie später über die Seitenleiste oder Einstellungen hinzufügen.",
     error: "Dieser Schritt konnte nicht abgeschlossen werden.",
@@ -344,7 +349,12 @@ const identityMessage = (error: unknown, locale: Language) => {
   const paths = [...error.message.matchAll(/(?:: |; )([^;]+?): conflicting_identity(?=; |$| \()/g)].map((match) => match[1] ?? "");
   return paths.length ? nestedIdentity[locale](paths.join(", ")) : undefined;
 };
-/** Server errors in the UI language where the app knows them; other messages stay as sent. */
+/** Neznáma chyba: advokát dostane všeobecnú vetu, surová správa (cesty, interné kódy) ide len do konzoly. */
+const genericOnboardingError = (error: unknown, locale: Language) => {
+  console.warn("LAWOSS onboarding:", error);
+  return t("lawoss.onboarding.error_generic", locale);
+};
+/** Server errors in the UI language where the app knows them; other messages become a general sentence. */
 export const onboardingErrorMessage = (error: unknown, locale: Language) =>
   error instanceof Error && error.message === UNSAFE_FOLDER_NAME_MESSAGE
     ? unsafeFolderName[locale]
@@ -352,7 +362,7 @@ export const onboardingErrorMessage = (error: unknown, locale: Language) =>
       identityMessage(error, locale) ??
       officeConfigEncodingMessage(error, locale) ??
       canonicalPathRejection(error, locale) ??
-      errorMessage(error, text[locale].error));
+      genericOnboardingError(error, locale));
 const field = (label: string, child: ReactNode) => (
   <label className="grid gap-1.5 text-sm font-medium">
     <span>{label}</span>

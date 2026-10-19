@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, win32 } from "node:path";
 import type { Language } from "../src/i18n";
@@ -194,7 +194,8 @@ describe("canonical path rejections in the UI language", () => {
     for (const label of ["Choose folder", "Vybrať priečinok", "Vybrat složku", "Ordner wählen"]) expect(picker).toContain(`"${label}"`);
   });
 
-  test("application folders, the memory path and other errors stay as sent", () => {
+  test("application folders, the memory path and other errors are not mapped and become a general sentence", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
     for (const message of [
       "Journal directory must be a canonical directory.",
       "External profile directory must use a canonical directory path.",
@@ -202,8 +203,10 @@ describe("canonical path rejections in the UI language", () => {
       "ENOENT: no such file or directory, open 'C:\\Klienti\\profile.json'",
     ]) {
       expect(canonicalPathRejection(new Error(message), "sk")).toBeUndefined();
-      expect(onboardingErrorMessage(new Error(message), "sk")).toBe(message);
+      expect(onboardingErrorMessage(new Error(message), "sk")).toBe("Niečo sa nepodarilo. Skúste to znova, alebo vyberte iný priečinok.");
     }
+    expect(warn).toHaveBeenCalledTimes(4);
+    warn.mockRestore();
     expect(canonicalPathRejection("Choose an existing canonical directory.", "sk")).toBeUndefined();
   });
 

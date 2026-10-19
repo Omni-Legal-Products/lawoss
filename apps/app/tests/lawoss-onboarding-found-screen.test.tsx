@@ -10,11 +10,11 @@ const base = (patch: Partial<OnboardingSuggestion>): OnboardingSuggestion => ({ 
 const props = { text: foundText("sk"), busy: false, selected: [] as string[], scope: "client" as const, onLevel: () => undefined, onScope: () => undefined, onToggle: () => undefined, onAll: () => undefined, onAnswer: () => undefined, onChangeFolder: () => undefined };
 
 describe("Toto som našiel", () => {
-  test("klient: návrh, oznámenie OKF a obe odpovede", () => {
+  test("klient: návrh, oznámenie o pomocných súboroch a obe odpovede", () => {
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({})} level="client" />);
     expect(html).toContain("Vyzerá to ako klient Novák.");
     expect(html).toContain("AGENTS.md");
-    expect(html).toContain("Nie, len pridaj OKF súbory");
+    expect(html).toContain("Nie, nechaj ho tak, ako je");
     expect(html).toContain("Áno, usporiadaj");
   });
   test("prax: počet, rozsah a zaškrtnutí klienti", () => {
@@ -45,14 +45,14 @@ describe("Toto som našiel", () => {
   test("prax po klientoch bez označeného klienta: obe odpovede sú vypnuté", () => {
     const clients = [{ path: "Alfa s. r. o.", name: "Alfa s. r. o." }];
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ level: "practice", clients, clientPattern: "*" })} level="practice" selected={[]} />);
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Nie, len pridaj OKF súbory/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Nie, nechaj ho tak, ako je/);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Áno, usporiadaj/);
   });
   test("oprava návrhu prepne voľby bez nového výberu priečinka", () => {
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ level: "practice" })} level="client" />);
     expect(html).toContain("Vyzerá to ako celá prax");
     expect(html).not.toContain("Každý klient zvlášť");
-    expect(html).toContain("Nie, len pridaj OKF súbory");
+    expect(html).toContain("Nie, nechaj ho tak, ako je");
   });
   test("súhrn hromadného spracovania so zlyhaním", () => {
     const html = renderToStaticMarkup(<BatchView text={foundText("sk")} busy={false} items={[{ root: "/a", name: "Alfa", status: "done" }, { root: "/z", name: "Zamknutý", status: "failed", error: "locked_file" }]} onRetry={() => undefined} onContinue={() => undefined} />);
@@ -97,7 +97,7 @@ describe("slabý návrh praxe (review VŘ k #135, bod 5)", () => {
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={weak} level={initialFoundLevel(weak)} />);
     expect(html).toContain("Môže to byť jeden klient Novák s vecami, alebo celá prax s 2 klientmi");
     expect(html).not.toContain("Vyzerá to ako celá prax");
-    expect(html).toContain("Nie, len pridaj OKF súbory");
+    expect(html).toContain("Nie, nechaj ho tak, ako je");
   });
   test("istá prax a označená prax ostávajú praxou", async () => {
     const { initialFoundLevel } = await import("../src/lawoss/domains/onboarding/found-screen");
