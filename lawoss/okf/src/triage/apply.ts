@@ -17,7 +17,7 @@ import { inspectOnboardingRoot, VOLATILE_ENTRY } from "../onboarding/classify.ts
 import { syncFile, unlinkFile } from "../onboarding/file-durability.ts";
 import { planFingerprint, sha256 } from "./plan.ts";
 import { TRIAGE_ROLES } from "./rules.ts";
-import { lockedForWrite, onlyLockedIssues, TRIAGE_DIR, triageTreeDigest, verifyTriageTarget, type TriageHooks, type TriageTargetOptions } from "./scan.ts";
+import { lockedForWrite, onlyLockedIssues, TRIAGE_DIR, TRIAGE_INSPECTION_LIMITS, triageTreeDigest, verifyTriageTarget, type TriageHooks, type TriageTargetOptions } from "./scan.ts";
 import { PLAN_SCHEMA, type TriageMove, type TriagePlan } from "./types.ts";
 
 export class TriageConflictError extends Error { readonly code = "triage_conflict"; }
@@ -196,7 +196,7 @@ export async function applyTriagePlan(input: unknown, options: TriageTargetOptio
       }
     } else {
       // Prvý zápis: strom klona musí byť presne ten, z ktorého vznikol náhľad.
-      const inspection = await inspectOnboardingRoot(root, {}, options.hooks);
+      const inspection = await inspectOnboardingRoot(root, TRIAGE_INSPECTION_LIMITS, options.hooks);
       if ((!inspection.complete && !onlyLockedIssues(inspection)) || triageTreeDigest(inspection.entries) !== plan.treeDigest) throw new TriageConflictError("Priečinok sa od náhľadu zmenil. Pripravte nový náhľad.");
       const paths = new Map(inspection.entries.map(entry => [entry.path.toLocaleLowerCase(), entry]));
       const plannedDirectories = new Set(plan.create.filter(operation => operation.kind === "directory").map(operation => operation.path.toLocaleLowerCase()));
