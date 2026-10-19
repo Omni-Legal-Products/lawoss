@@ -7,6 +7,9 @@ import type { Confidence, RuleCode, TriageRole } from "./rules.ts";
 export const INVENTORY_SCHEMA = "lawoss.triage.inventory/v1";
 export const CLASSIFICATION_SCHEMA = "lawoss.triage.classification/v1";
 export const PLAN_SCHEMA = "lawoss.triage.plan/v1";
+/** Najviac zaškrtnutých prípadov v jednom usporiadaní; odškrtnuté priečinky sa nepočítajú. Bez fs, číta ho aj appka. */
+export const MAX_TRIAGE_MATTERS = 100;
+export const TOO_MANY_MATTERS_CODE = "triage_too_many_matters";
 
 /** `matter`: dokument leží vo veci bez karty (`ExistingMatter.implicit`); zaraďuje sa len v rámci nej. */
 export type TriageDocument = { id: string; path: string; name: string; ext: string; size: number; sha256: string; matter?: string };

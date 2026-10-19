@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { buildMatterOperations } from "../onboarding/entities.ts";
 import type { CreateOperation } from "../onboarding/transaction.ts";
 import { parseWorkingProfile, PROFILE_FILE } from "../profile.ts";
-import { classifyByRules, findCaseNumber, type Confidence, type RuleResult, type TriageRole } from "./rules.ts";
+import { classifyByRules, findCaseNumber, looksLikeArchiveFolder, type Confidence, type RuleResult, type TriageRole } from "./rules.ts";
 import { PLAN_SCHEMA, type MoveSource, type TriageClassification, type TriageDocument, type TriageInventory, type TriageMove, type TriageNewMatter, type TriagePlan, type TriageStay } from "./types.ts";
 
 export const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -43,6 +43,11 @@ function resolveFolder(roles: Record<string, string>, role: TriageRole): { role:
   return null;
 }
 
+/** Predvolene odškrtnuté priečinky: archív, záloha, fotky, rôzne a holý rok (rozhodnutie 19. 10. 2026). */
+export function defaultLeaveInPlace(inventory: Pick<TriageInventory, "matters">): string[] {
+  return inventory.matters.filter(matter => matter.implicit && looksLikeArchiveFolder(matter.path)).map(matter => matter.id);
+}
+
 export function buildTriagePlan(inventory: TriageInventory, options: BuildOptions): TriagePlan {
   const language = inventory.language;
   const keep = new Set(options.keepInInbox ?? []);
@@ -55,7 +60,9 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
     const fromModel = model.get(document.id);
     if (fromModel) {
       // Nejasné od modelu ide na zatriedenie aj s jeho dôvodom, aby advokát videl, čo model zvažoval.
-      decisions.set(document.id, { role: fromModel.confidence === "low" ? "inbox" : fromModel.role, matter: document.matter ?? fromModel.matter, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...(fromModel.truncated ? { truncated: true } : {}) });
+      // Odškrtnutý priečinok sa berie, akoby nebol: model doň nič nepošle (rozhodnutie 19. 10. 2026).
+      const target = fromModel.matter && !leave.has(fromModel.matter) ? fromModel.matter : undefined;
+      decisions.set(document.id, { role: fromModel.confidence === "low" ? "inbox" : fromModel.role, matter: document.matter ?? target, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...(fromModel.truncated ? { truncated: true } : {}) });
       continue;
     }
     const rule = classifyByRules(document);
@@ -88,7 +95,8 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
   };
   for (const matter of options.classification?.matters ?? []) addMatter({ ...matter, source: "model" });
   for (const [caseKey, group] of [...caseGroups].sort(([a], [b]) => a.localeCompare(b))) {
-    const existing = inventory.matters.find(matter => matter.caseKey === caseKey);
+    // Odškrtnutý priečinok so značkou sa nepoužije; značka môže založiť nový prípad v Spisy/.
+    const existing = inventory.matters.find(matter => matter.caseKey === caseKey && !leave.has(matter.id));
     const fromModel = planned.find(matter => matter.caseNumber && findCaseNumber(matter.caseNumber)?.key === caseKey);
     let key = existing?.id ?? fromModel?.key;
     if (!key && group.ids.length >= RULE_MATTER_MIN_DOCUMENTS) {
@@ -146,6 +154,8 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
   for (const document of inventory.documents) {
     if (document.matter && leave.has(document.matter)) continue;
     const decision = decisions.get(document.id)!;
+    // Poistka: nič nesmeruje do odškrtnutého priečinka, dokument ostane na úrovni klienta.
+    if (decision.matter && leave.has(decision.matter)) delete decision.matter;
     const destination = destinations.get(decision.matter ?? "") ?? destinations.get("")!;
     const requested: TriageRole = decision.role ?? "inbox";
     const primary = resolveFolder(destination.roles, requested);

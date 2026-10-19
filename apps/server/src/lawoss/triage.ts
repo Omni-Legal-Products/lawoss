@@ -16,6 +16,7 @@ import { applyTriagePlan, grantInPlaceReorganize, listTriageRuns, parseClassific
 /** `leaveInPlace`: existujúce priečinky, ktoré advokát v náhľade odškrtol (ostanú nedotknuté). */
 type Ticket = { version: 1; id: string; root: string; inventory: TriageInventory; classification?: TriageClassification; keepInInbox: string[]; leaveInPlace?: string[]; plan: TriagePlan };
 const rootSchema = z.string().min(1).max(4096).refine(isAbsolute, "Absolute path required.");
+const LEAVE_SCHEMA = z.array(z.string().regex(/^existing-[a-f0-9]{12}$/)).max(5000);
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
 const UNAVAILABLE_ROOT = new Set(["ENOTDIR", "EACCES", "ENOENT"]);
 
@@ -152,17 +153,18 @@ export function registerTriageRoutes(options: {
   });
   route("plan", async ctx => {
     options.ensureWritable(config);
-    const input = z.strictObject({ root: rootSchema, useModel: z.boolean().optional() }).parse(await body(ctx));
+    // `leaveInPlace`: odškrtnuté priečinky z predošlého náhľadu (prepínač modelu ich nestratí); bez neho predvoľba okf.
+    const input = z.strictObject({ root: rootSchema, useModel: z.boolean().optional(), leaveInPlace: LEAVE_SCHEMA.optional() }).parse(await body(ctx));
     const consent = await hostConsent(input.root, { plan: true });
     // Usporiadanie na mieste stojí na pravidlách bez modelu (spec lawOSS-like-SK-CZ#92); návrh modelu len v skúšobnom klone.
     if (input.useModel === true && (await verifyTriageTarget(input.root, trialJournalDirectory, consent)).mode === "in_place") throw new ApiError(400, "triage_model_in_place", "A model proposal is not used when reorganising a client folder in place.");
-    const { inventory, plan, proposal, classification } = await prepareTriage(input.root, { trialJournalDirectory, useModelProposal: input.useModel === true, jurisdiction: await options.jurisdiction(), ...consent });
+    const { inventory, plan, proposal, classification } = await prepareTriage(input.root, { trialJournalDirectory, useModelProposal: input.useModel === true, jurisdiction: await options.jurisdiction(), ...(input.leaveInPlace ? { leaveInPlace: input.leaveInPlace } : {}), ...consent });
     if (input.useModel === true && !classification) throw new ApiError(409, "triage_no_model_proposal", "No current model proposal for this folder.");
-    return view(await store(inventory.root, inventory, classification, [], plan), proposal);
+    return view(await store(inventory.root, inventory, classification, [], plan, plan.matters.filter(matter => matter.left).map(matter => matter.key)), proposal);
   });
   route("replan", async ctx => {
     options.ensureWritable(config);
-    const input = z.strictObject({ id: z.uuid(), keepInInbox: z.array(z.string().regex(/^d[a-f0-9]{16}$/)).max(5000), leaveInPlace: z.array(z.string().regex(/^existing-[a-f0-9]{12}$/)).max(5000).optional() }).parse(await body(ctx));
+    const input = z.strictObject({ id: z.uuid(), keepInInbox: z.array(z.string().regex(/^d[a-f0-9]{16}$/)).max(5000), leaveInPlace: LEAVE_SCHEMA.optional() }).parse(await body(ctx));
     const previous = await readTicket(input.id);
     const known = new Set(previous.inventory.documents.map(document => document.id));
     const keep = [...new Set(input.keepInInbox)].filter(id => known.has(id));

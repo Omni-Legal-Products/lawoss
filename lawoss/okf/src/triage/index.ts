@@ -2,15 +2,15 @@
 import { basename } from "node:path";
 import { parseClassification } from "./classification.ts";
 import { listClassificationFiles, readJsonFile } from "./files.ts";
-import { buildTriagePlan } from "./plan.ts";
+import { buildTriagePlan, defaultLeaveInPlace } from "./plan.ts";
 import { newRunId } from "./apply.ts";
 import { scanTriage, type TriageTargetOptions } from "./scan.ts";
 import type { TriageClassification, TriageInventory, TriagePlan } from "./types.ts";
 
-export { applyTriagePlan, listTriageRuns, newRunId, parseTriagePlan, undoTriage, TriageConflictError, type TriageApplyResult, type TriageRunStatus, type TriageUndoResult } from "./apply.ts";
+export { applyTriagePlan, listTriageRuns, newRunId, parseTriagePlan, undoTriage, TooManyMattersError, TriageConflictError, type TriageApplyResult, type TriageRunStatus, type TriageUndoResult } from "./apply.ts";
 export { ClassificationError, parseClassification } from "./classification.ts";
-export { buildTriagePlan, planFingerprint } from "./plan.ts";
-export { classifyByRules, findCaseNumber, folderHintRole, TRIAGE_ROLES, type RuleCode, type TriageRole } from "./rules.ts";
+export { buildTriagePlan, defaultLeaveInPlace, planFingerprint } from "./plan.ts";
+export { classifyByRules, findCaseNumber, folderHintRole, looksLikeArchiveFolder, TRIAGE_ROLES, type RuleCode, type TriageRole } from "./rules.ts";
 export { grantInPlaceReorganize, IN_PLACE_MARKER, looksLikeTrialName, scanTriage, TrialCloneError, TRIAL_MARKER, verifyTrialClone, verifyTriageTarget, type TriageTarget, type TriageTargetOptions } from "./scan.ts";
 export * from "./types.ts";
 
@@ -37,6 +37,8 @@ export type PrepareOptions = TriageTargetOptions & {
   /** Najnovšia platná klasifikácia z `.lawoss/triage/classifications/` (appka). */
   useModelProposal?: boolean;
   keepInInbox?: readonly string[];
+  /** Odškrtnuté existujúce priečinky; bez neho predvoľba `defaultLeaveInPlace` (archív, holý rok). */
+  leaveInPlace?: readonly string[];
   today?: string;
   now?: Date;
   /** Jurisdikcia z profilu onboardingu; karta klienta ju nenesie. */
@@ -54,7 +56,7 @@ export async function prepareTriage(root: string, options: PrepareOptions = {}):
     if (options.useModelProposal) classification = latest.classification;
   }
   const now = options.now ?? new Date();
-  const plan = buildTriagePlan(inventory, { classification, keepInInbox: options.keepInInbox, today: options.today ?? now.toISOString().slice(0, 10), runId: newRunId(now), createdAt: now.toISOString() });
+  const plan = buildTriagePlan(inventory, { classification, keepInInbox: options.keepInInbox, leaveInPlace: options.leaveInPlace ?? defaultLeaveInPlace(inventory), today: options.today ?? now.toISOString().slice(0, 10), runId: newRunId(now), createdAt: now.toISOString() });
   return { inventory, plan, proposal, ...(classification ? { classification } : {}) };
 }
 

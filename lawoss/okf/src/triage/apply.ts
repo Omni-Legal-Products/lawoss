@@ -18,9 +18,11 @@ import { syncFile, unlinkFile } from "../onboarding/file-durability.ts";
 import { planFingerprint, sha256 } from "./plan.ts";
 import { TRIAGE_ROLES } from "./rules.ts";
 import { lockedForWrite, onlyLockedIssues, TRIAGE_DIR, triageTreeDigest, verifyTriageTarget, type TriageHooks, type TriageTargetOptions } from "./scan.ts";
-import { PLAN_SCHEMA, type TriageMove, type TriagePlan } from "./types.ts";
+import { MAX_TRIAGE_MATTERS, PLAN_SCHEMA, TOO_MANY_MATTERS_CODE, type TriageMove, type TriagePlan } from "./types.ts";
 
 export class TriageConflictError extends Error { readonly code = "triage_conflict"; }
+/** Plán zakladá viac prípadov, než sa dá naraz; appka povie, že treba odškrtnúť niektoré priečinky. */
+export class TooManyMattersError extends Error { readonly code = TOO_MANY_MATTERS_CODE; }
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
 const errorCode = (error: unknown) => error instanceof Error && "code" in error ? String(error.code) : "";
@@ -50,7 +52,10 @@ export function parseTriagePlan(value: unknown): TriagePlan {
   if (typeof value.treeDigest !== "string" || !/^[a-f0-9]{64}$/.test(value.treeDigest)) invalid("treeDigest");
   if (typeof value.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(value.fingerprint)) invalid("fingerprint");
   if (!Array.isArray(value.create) || !Array.isArray(value.moves) || !Array.isArray(value.stays) || !Array.isArray(value.matters)) invalid("zoznamy");
-  if (value.moves.length > 5000 || value.matters.length > 100) invalid("príliš veľa položiek");
+  if (value.moves.length > 5000 || value.matters.length > 1000) invalid("príliš veľa položiek");
+  // Odškrtnuté priečinky ostávajú v pláne len pre náhľad; limit platí pre prípady, ktoré sa naozaj založia.
+  const proposed = value.matters.filter(matter => !(record(matter) && matter.left === true)).length;
+  if (proposed > MAX_TRIAGE_MATTERS) throw new TooManyMattersError(`Plán zakladá ${proposed} prípadov; naraz najviac ${MAX_TRIAGE_MATTERS}. Odškrtnite niektoré priečinky.`);
   // Rovnaké pravidlá ciest, poradia rodičov a limitov obsahu ako pri zakladaní klienta a veci.
   const create = parseOnboardingPlan({ version: 1, root: value.root, treeDigest: value.treeDigest, operations: value.create }).operations;
   for (const operation of create) safeRelative(operation.path, "create.path", operation.kind === "file");

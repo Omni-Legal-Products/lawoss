@@ -1208,6 +1208,11 @@ function folderHintRole(folder) {
   const name = normalizeText(folder).replace(/ (?:19|20)\d{2}(?: \d{1,2}){0,2}$/, "");
   return FOLDER_HINTS.find((hint) => hint.words.includes(name))?.role;
 }
+var ARCHIVE_WORDS = new Set(["archiv", "archive", "archivy", "stare", "stary", "stara", "old", "fotky", "foto", "fotografie", "photos", "rozne", "ruzne", "misc", "backup", "backups", "zaloha", "zalohy", "ostatne", "ostatni", "temp", "tmp"]);
+function looksLikeArchiveFolder(folder) {
+  const name = normalizeText(folder);
+  return /^(?:19|20)\d{2}(?: \d{1,2}){0,2}$/.test(name) || ARCHIVE_WORDS.has(name.split(" ")[0] ?? "");
+}
 function classifyByRules(input) {
   const ext = input.ext.toLowerCase();
   const stem = input.ext ? input.name.slice(0, -(input.ext.length + 1)) : input.name;
@@ -4198,6 +4203,8 @@ import { basename as basename6, isAbsolute as isAbsolute8, join as join11, relat
 var INVENTORY_SCHEMA = "lawoss.triage.inventory/v1";
 var CLASSIFICATION_SCHEMA = "lawoss.triage.classification/v1";
 var PLAN_SCHEMA = "lawoss.triage.plan/v1";
+var MAX_TRIAGE_MATTERS = 100;
+var TOO_MANY_MATTERS_CODE = "triage_too_many_matters";
 
 // src/triage/scan.ts
 var TRIAL_MARKER = ".lawoss-trial.json";
@@ -4688,6 +4695,9 @@ function resolveFolder(roles, role) {
   }
   return null;
 }
+function defaultLeaveInPlace(inventory) {
+  return inventory.matters.filter((matter) => matter.implicit && looksLikeArchiveFolder(matter.path)).map((matter) => matter.id);
+}
 function buildTriagePlan(inventory, options) {
   const language = inventory.language;
   const keep = new Set(options.keepInInbox ?? []);
@@ -4698,7 +4708,8 @@ function buildTriagePlan(inventory, options) {
   for (const document of inventory.documents) {
     const fromModel = model.get(document.id);
     if (fromModel) {
-      decisions.set(document.id, { role: fromModel.confidence === "low" ? "inbox" : fromModel.role, matter: document.matter ?? fromModel.matter, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...fromModel.truncated ? { truncated: true } : {} });
+      const target = fromModel.matter && !leave.has(fromModel.matter) ? fromModel.matter : undefined;
+      decisions.set(document.id, { role: fromModel.confidence === "low" ? "inbox" : fromModel.role, matter: document.matter ?? target, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...fromModel.truncated ? { truncated: true } : {} });
       continue;
     }
     const rule = classifyByRules(document);
@@ -4729,7 +4740,7 @@ function buildTriagePlan(inventory, options) {
   for (const matter of options.classification?.matters ?? [])
     addMatter({ ...matter, source: "model" });
   for (const [caseKey, group] of [...caseGroups].sort(([a], [b]) => a.localeCompare(b))) {
-    const existing = inventory.matters.find((matter) => matter.caseKey === caseKey);
+    const existing = inventory.matters.find((matter) => matter.caseKey === caseKey && !leave.has(matter.id));
     const fromModel = planned.find((matter) => matter.caseNumber && findCaseNumber(matter.caseNumber)?.key === caseKey);
     let key = existing?.id ?? fromModel?.key;
     if (!key && group.ids.length >= RULE_MATTER_MIN_DOCUMENTS) {
@@ -4800,6 +4811,8 @@ function buildTriagePlan(inventory, options) {
     if (document.matter && leave.has(document.matter))
       continue;
     const decision = decisions.get(document.id);
+    if (decision.matter && leave.has(decision.matter))
+      delete decision.matter;
     const destination = destinations.get(decision.matter ?? "") ?? destinations.get("");
     const requested = decision.role ?? "inbox";
     const primary = resolveFolder(destination.roles, requested);
@@ -4874,6 +4887,10 @@ import { dirname as dirname8, isAbsolute as isAbsolute9, join as join13, resolve
 class TriageConflictError extends Error {
   code = "triage_conflict";
 }
+
+class TooManyMattersError extends Error {
+  code = TOO_MANY_MATTERS_CODE;
+}
 var record4 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 var missing4 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
 var errorCode5 = (error) => error instanceof Error && ("code" in error) ? String(error.code) : "";
@@ -4909,8 +4926,11 @@ function parseTriagePlan(value) {
     invalid("fingerprint");
   if (!Array.isArray(value.create) || !Array.isArray(value.moves) || !Array.isArray(value.stays) || !Array.isArray(value.matters))
     invalid("zoznamy");
-  if (value.moves.length > 5000 || value.matters.length > 100)
+  if (value.moves.length > 5000 || value.matters.length > 1000)
     invalid("príliš veľa položiek");
+  const proposed = value.matters.filter((matter) => !(record4(matter) && matter.left === true)).length;
+  if (proposed > MAX_TRIAGE_MATTERS)
+    throw new TooManyMattersError(`Plán zakladá ${proposed} prípadov; naraz najviac ${MAX_TRIAGE_MATTERS}. Odškrtnite niektoré priečinky.`);
   const create = parseOnboardingPlan({ version: 1, root: value.root, treeDigest: value.treeDigest, operations: value.create }).operations;
   for (const operation of create)
     safeRelative(operation.path, "create.path", operation.kind === "file");
@@ -5386,7 +5406,7 @@ async function prepareTriage(root, options = {}) {
       classification = latest.classification;
   }
   const now = options.now ?? new Date;
-  const plan = buildTriagePlan(inventory, { classification, keepInInbox: options.keepInInbox, today: options.today ?? now.toISOString().slice(0, 10), runId: newRunId(now), createdAt: now.toISOString() });
+  const plan = buildTriagePlan(inventory, { classification, keepInInbox: options.keepInInbox, leaveInPlace: options.leaveInPlace ?? defaultLeaveInPlace(inventory), today: options.today ?? now.toISOString().slice(0, 10), runId: newRunId(now), createdAt: now.toISOString() });
   return { inventory, plan, proposal, ...classification ? { classification } : {} };
 }
 

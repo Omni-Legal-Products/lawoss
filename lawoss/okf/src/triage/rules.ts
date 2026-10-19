@@ -92,6 +92,17 @@ export function folderHintRole(folder: string): TriageRole | undefined {
   return FOLDER_HINTS.find(hint => hint.words.includes(name))?.role;
 }
 
+/** Archív, záloha či odkladací priečinok (celý názov alebo prvé slovo, SK/CS/EN/DE bez diakritiky). */
+const ARCHIVE_WORDS = new Set(["archiv", "archive", "archivy", "stare", "stary", "stara", "old", "fotky", "foto", "fotografie", "photos", "rozne", "ruzne", "misc", "backup", "backups", "zaloha", "zalohy", "ostatne", "ostatni", "temp", "tmp"]);
+/**
+ * Priečinok, ktorý usporiadanie predvolene nechá nedotknutý (rozhodnutie 19. 10. 2026): archív, záloha, fotky,
+ * rôzne alebo holý rok či dátum („2024“, „2024-03“). Advokát ho v náhľade môže zaškrtnúť ako prípad.
+ */
+export function looksLikeArchiveFolder(folder: string): boolean {
+  const name = normalizeText(folder);
+  return /^(?:19|20)\d{2}(?: \d{1,2}){0,2}$/.test(name) || ARCHIVE_WORDS.has(name.split(" ")[0] ?? "");
+}
+
 export type RuleInput = { path: string; name: string; ext: string };
 
 /** Prvé zhodné pravidlo vyhráva; poradie je zámerné (e-mail pred obsahom, návrh vo Worde pred podaním). */

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
-import { applyTriagePlan, folderHintRole, grantInPlaceReorganize, IN_PLACE_MARKER, prepareTriage, replanTriage, scanTriage, TriageConflictError, TrialCloneError, undoTriage, verifyTriageTarget } from "../src/triage/index.ts";
+import { applyTriagePlan, buildTriagePlan, folderHintRole, looksLikeArchiveFolder, MAX_TRIAGE_MATTERS, parseClassification, parseTriagePlan, grantInPlaceReorganize, IN_PLACE_MARKER, prepareTriage, replanTriage, scanTriage, TriageConflictError, TrialCloneError, undoTriage, verifyTriageTarget } from "../src/triage/index.ts";
 import { HRON_FIXTURE, HRON_MATTERS, TRIAGE_FIXTURE, writeTriageFixture } from "./fixtures/triage-client.ts";
 import { holdWindowsFileLock } from "./windows-file-lock.ts";
 
@@ -115,7 +115,9 @@ test("priečinok veci bez karty (`2025-01 Spor`) sa nerozpustí, ostatné podpri
   // Dokument veci sa zaradí v rámci veci, nie na úroveň klienta (test 16. 10. 2026, N2).
   expect(plan.moves.find(move => move.from === "2025-01 Spor/Žaloba.pdf")?.to).toBe("2025-01 Spor/04_Vystupy/Žaloba.pdf");
   expect(plan.create).toContainEqual(expect.objectContaining({ path: "2025-01 Spor/matter.md", kind: "file" }));
-  expect(plan.moves.some(move => move.from === "Stare/priloha.pdf")).toBe(true);
+  // Archív `Stare` je predvolene odškrtnutý a ostane nedotknutý (rozhodnutie 19. 10. 2026).
+  expect(plan.matters.find(matter => matter.folder === "Stare")).toMatchObject({ left: true });
+  expect(plan.moves.some(move => move.from === "Stare/priloha.pdf")).toBe(false);
 });
 
 /**
@@ -353,6 +355,86 @@ test("prípad so slovom druhu dokumentu uprostred názvu (`M008 Reklamácia fakt
   const inventory = await scanTriage(root, HOST);
   for (const folder of matters) expect(inventory.matters.some(matter => matter.path === folder)).toBe(true);
   for (const folder of ["Emaily", "Korespondencia 2024", ...buckets]) expect(inventory.matters.some(matter => matter.path === folder)).toBe(false);
+});
+
+/** Recenzia 19. 10. 2026 (fix round 2): voľné súbory v koreni klienta smerujú spisovou značkou do odškrtnutého priečinka. */
+async function sporClient(): Promise<{ root: string; spor: string }> {
+  const base = await directory("okf-in-place-left-");
+  const root = join(base, "BETA s. r. o.");
+  await mkdir(root);
+  await writeTriageFixture(root, { "Spor BETA 18Cb-47-2026/zaloba.pdf": "%PDF-1.4 synthetic claim", "Uznesenie 18Cb 47 2026.pdf": "%PDF-1.4 synthetic resolution", "Vyzva 18Cb_47_2026.pdf": "%PDF-1.4 synthetic call" });
+  const preview = await planOnboarding(parseOnboardingRequest({ action: "existing", root, mode: "convert", title: "BETA s. r. o.", clientType: "po", language: "sk", jurisdiction: "sk", date: "2026-10-19", confirmUnknownClient: true }));
+  await applyOnboarding(preview, { journalDirectory: await directory("okf-journal-"), externalProfileDirectory: await directory("okf-external-") });
+  await grantInPlaceReorganize(root, NOW);
+  return { root, spor: "Spor BETA 18Cb-47-2026" };
+}
+async function folderSnapshot(path: string): Promise<string> {
+  const inspection = await inspectOnboardingRoot(path);
+  return createHash("sha256").update(JSON.stringify(inspection.entries)).digest("hex");
+}
+
+test("odškrtnutý priečinok neprijme ani dokumenty zo spisovej značky z koreňa klienta; zápis a vrátenie ho nezmenia", async () => {
+  const { root, spor } = await sporClient();
+  const { inventory, plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  const key = inventory.matters.find(matter => matter.path === spor)!.id;
+  // Zaškrtnutý: voľné súbory s rovnakou značkou idú do prípadu.
+  expect(plan.moves.filter(move => move.to.startsWith(`${spor}/`)).map(move => move.from).sort()).toEqual(["Uznesenie 18Cb 47 2026.pdf", "Vyzva 18Cb_47_2026.pdf", `${spor}/zaloba.pdf`].sort());
+  const left = replanTriage(inventory, undefined, [], NOW, [key]);
+  expect(left.moves.filter(move => move.to.startsWith(`${spor}/`) || move.from.startsWith(`${spor}/`))).toEqual([]);
+  expect(left.create.filter(operation => operation.path.startsWith(`${spor}/`))).toEqual([]);
+  // Odškrtnutý priečinok sa berie, akoby nebol: značka založí nový prípad v Spisy/.
+  expect(left.matters.filter(matter => !matter.left).map(matter => matter.folder)).toEqual(["Spisy/2026-10 Konanie 18Cb 47-2026"]);
+  const before = await folderSnapshot(join(root, spor));
+  await applyTriagePlan(left, HOST);
+  expect(await folderSnapshot(join(root, spor))).toBe(before);
+  expect((await undoTriage(root, left.runId, HOST)).status).toBe("undone");
+  expect(await folderSnapshot(join(root, spor))).toBe(before);
+});
+
+test("ani rozhodnutie modelu neposunie dokument do odškrtnutého priečinka", async () => {
+  const { root, spor } = await sporClient();
+  const inventory = await scanTriage(root, HOST);
+  const key = inventory.matters.find(matter => matter.path === spor)!.id;
+  const loose = inventory.documents.filter(document => !document.path.includes("/"));
+  const classification = parseClassification({ schema: "lawoss.triage.classification/v1", treeDigest: inventory.treeDigest, matters: [], documents: loose.map(document => ({ id: document.id, role: "important_mail", matter: key, confidence: "high", reason: "patrí k sporu" })) }, inventory);
+  const plan = buildTriagePlan(inventory, { classification, leaveInPlace: [key], today: "2026-10-19", runId: "triage-20261019-100000-abcdef", createdAt: NOW.toISOString() });
+  expect(plan.moves.filter(move => move.to.startsWith(`${spor}/`) || move.from.startsWith(`${spor}/`))).toEqual([]);
+  expect(plan.create.filter(operation => operation.path.startsWith(`${spor}/`))).toEqual([]);
+  expect(plan.moves.map(move => move.to).sort()).toEqual(["05_Komunikacia/Dolezita_posta/Uznesenie 18Cb 47 2026.pdf", "05_Komunikacia/Dolezita_posta/Vyzva 18Cb_47_2026.pdf"]);
+});
+
+test("archív a holý rok sú predvolene odškrtnuté, ostatné priečinky zaškrtnuté", async () => {
+  const root = await convertedClient();
+  for (const folder of ["Archív 2023", "Záloha", "2024", "Old stuff", "M004 Vyúčtovanie"]) {
+    await mkdir(join(root, folder));
+    await writeFile(join(root, folder, "dokument.pdf"), `%PDF-1.4 synthetic ${folder}`);
+  }
+  await grantInPlaceReorganize(root, NOW);
+  const { plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  const state = Object.fromEntries(plan.matters.filter(matter => matter.source === "folder").map(matter => [matter.folder, matter.left === true]));
+  expect(state).toEqual({ "2024": true, "Archív 2023": true, "Fotky": true, "M004 Vyúčtovanie": false, "Old stuff": true, "Stare": true, "Záloha": true });
+  for (const name of ["Archív", "Archiv", "Staré", "Old", "Fotky", "Foto 2022", "Rôzne", "Rozne", "Misc", "Backup", "Záloha", "2024-03"]) expect(looksLikeArchiveFolder(name)).toBe(true);
+  for (const name of ["M004 Vyúčtovanie", "Spor BETA", "Stavebné povolenie", "Fotovoltika Senec"]) expect(looksLikeArchiveFolder(name)).toBe(false);
+  // Explicitný zoznam (advokát niečo prepol) má prednosť pred predvoľbou.
+  const { plan: explicit } = await prepareTriage(root, { now: NOW, ...HOST, leaveInPlace: [] });
+  expect(explicit.matters.some(matter => matter.left)).toBe(false);
+});
+
+test("limit prípadov počíta len zaškrtnuté; nad limit konkrétna chyba", async () => {
+  const root = await convertedClient();
+  for (let index = 0; index <= MAX_TRIAGE_MATTERS + 4; index++) {
+    const folder = `Vec ${String(index).padStart(3, "0")}`;
+    await mkdir(join(root, folder));
+    await writeFile(join(root, folder, "dokument.pdf"), `%PDF-1.4 synthetic ${index}`);
+  }
+  await grantInPlaceReorganize(root, NOW);
+  const { inventory, plan } = await prepareTriage(root, { now: NOW, ...HOST, leaveInPlace: [] });
+  expect(() => parseTriagePlan(plan)).toThrow(expect.objectContaining({ code: "triage_too_many_matters" }));
+  const all = inventory.matters.filter(matter => matter.implicit).map(matter => matter.id);
+  const unchecked = replanTriage(inventory, undefined, [], NOW, all);
+  expect(unchecked.matters.length).toBeGreaterThan(MAX_TRIAGE_MATTERS);
+  expect(() => parseTriagePlan(unchecked)).not.toThrow();
+  expect((await applyTriagePlan(unchecked, HOST)).status).toBe("applied");
 });
 
 /** Zámok simulovaný chybou EBUSY pri otvorení súboru (Word na Windows). */

@@ -111,12 +111,14 @@ describe("plán a zápis", () => {
     expect(plan.matters.find(matter => matter.source === "rules")).toMatchObject({ folder: "Spisy/2026-10 Konanie 8C 123-2023", caseNumber: "8C 123/2023", source: "rules", dateSource: "today", documents: 2 });
     expect(move(plan, "Rozsudok 8C_123_2023.pdf")?.to).toBe("Spisy/2026-10 Konanie 8C 123-2023/05_Komunikacia/Dolezita_posta/Rozsudok 8C_123_2023.pdf");
     // Súbory z rôznych podpriečinkov sa nikdy nezlejú do jedného priečinka klienta (žiadne premenovanie zo zlúčenia).
-    expect(move(plan, "Stare/priloha.pdf")?.to).toBe("Stare/00_Na_zatriedenie/priloha.pdf");
+    // Archív `Stare` a `Fotky` sú predvolene odškrtnuté: ostanú nedotknuté (rozhodnutie 19. 10. 2026).
+    expect(plan.matters.filter(matter => matter.left).map(matter => matter.folder)).toEqual(["Fotky", "Stare"]);
+    expect(move(plan, "Stare/priloha.pdf")).toBeUndefined();
     expect(plan.moves.filter(item => item.renamed)).toEqual([]);
 
     const result = await applyTriagePlan(plan, { trialJournalDirectory: clone.journal });
     expect(result).toMatchObject({ status: "applied", moved: plan.moves.length });
-    expect(await readFile(join(clone.root, "Stare/00_Na_zatriedenie/priloha.pdf"), "utf8")).toContain("synthetic attachment B");
+    expect(await readFile(join(clone.root, "Stare/priloha.pdf"), "utf8")).toContain("synthetic attachment B");
     const card = await readFile(join(clone.root, "Spisy/2026-10 Konanie 8C 123-2023/matter.md"), "utf8");
     expect(card).toContain('spisova_znacka: "8C 123/2023"');
     expect(card).toContain("kind: contentious");
