@@ -1008,3 +1008,9 @@ Rozhodnutie MČ 19. 10. 2026: klient = natívny projekt (registrovaný priečino
 | `apps/app/src/react-app/domains/workspace/project-home.tsx` | Voliteľný slot `extra?: ReactNode`, vykreslený nad úlohami. Dôvod: Domov klienta ukáže prehľad z OKF (prípady, súčty, najbližšie lehoty) bez kópie natívnej stránky. |
 | `apps/app/src/react-app/domains/session/chat/session-page.tsx` | `ProjectHome` dostane `extra={<ClientOverview workspaceId={props.selectedWorkspaceId} />}` (projekt, ktorý nie je klient OKF, nedostane nič). `onOpenProject` stránky Projekty pošle `projectDeadlines` na `clientDeadlinesLink(id)`; `projectMatters` zámerne padne na Domov, kde je prehľad prípadov. |
 | `apps/app/src/react-app/domains/workspace/projects-page.tsx` | Stránka Projekty ponúkne Prípady a Lehoty len pri projektoch, ktoré sú klienti OKF (`useClientProjectItem` z `lawoss/lite/client-nav.tsx`, +2 riadky). |
+
+### Návrat po „Začať nanovo“ (2026-10-19, fix/test-kolo-2)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/welcome-route.tsx` | Po dokončení onboardingu naviguje na `completion.landing`, ak ho dokončenie nesie, inak ako doteraz na domov priečinka (+1 komentár, 1 riadok zmenený). LAWOSS `FRESH_OFFICE_COMPLETION` (`lawoss/domains/onboarding/found-flow.ts`) ho nastaví pri „Začať nanovo“ na Klienti a prípady: nová kancelária sa ako pracovný priečinok neregistruje (každý klient je samostatný priečinok), advokát pristane pri „Pridať klienta“. Vetva `fix/test-kolo-2`, test vlastníka 19. 10. 2026. |

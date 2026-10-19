@@ -81,7 +81,44 @@ const CANONICAL_PATH_REJECTIONS = new Set([
   "Trial cloning requires existing canonical directories.",
 ]);
 // Chýbajúci priečinok niektoré kontroly neodchytia a ostane chyba `realpath` z Node.js (server beží v procese Electronu).
-const MISSING_DIRECTORY = /^(?:ENOENT: no such file or directory|ENOTDIR: not a directory), realpath /;
+const MISSING_DIRECTORY = /^(?:ENOENT: no such file or directory|ENOTDIR: not a directory), realpath '(.+)'$/;
+/** Server: vybraný priečinok profilu neexistuje (`folder_missing`, detail `{ key, name }`). */
+export const FOLDER_MISSING_CODE = "folder_missing";
+/**
+ * Priečinok, ktorý zmizol (presunutý, premenovaný, zmazaný), sa volá menom; veta o odkaze (junction) by advokáta
+ * poslala hľadať problém, ktorý nemá (test 19. 10. 2026). Kancelária má vlastnú vetu, ostatné priečinky spoločnú.
+ */
+const folderNotFound: Record<Language, { office: (name: string) => string; folder: (name: string) => string }> = {
+  sk: {
+    office: (name) => `Priečinok kancelárie ${name} sa nenašiel. Možno bol presunutý alebo premenovaný. Vyberte ho znova tlačidlom „Vybrať priečinok“.`,
+    folder: (name) => `Priečinok ${name} sa nenašiel. Možno bol presunutý alebo premenovaný. Vyberte ho znova tlačidlom „Vybrať priečinok“.`,
+  },
+  cs: {
+    office: (name) => `Složka kanceláře ${name} nebyla nalezena. Možná byla přesunuta nebo přejmenována. Vyberte ji znovu tlačítkem „Vybrat složku“.`,
+    folder: (name) => `Složka ${name} nebyla nalezena. Možná byla přesunuta nebo přejmenována. Vyberte ji znovu tlačítkem „Vybrat složku“.`,
+  },
+  en: {
+    office: (name) => `The office folder ${name} was not found. It may have been moved or renamed. Choose it again with the "Choose folder" button.`,
+    folder: (name) => `The folder ${name} was not found. It may have been moved or renamed. Choose it again with the "Choose folder" button.`,
+  },
+  de: {
+    office: (name) => `Der Kanzleiordner ${name} wurde nicht gefunden. Möglicherweise wurde er verschoben oder umbenannt. Wählen Sie ihn erneut mit der Schaltfläche „Ordner wählen“.`,
+    folder: (name) => `Der Ordner ${name} wurde nicht gefunden. Möglicherweise wurde er verschoben oder umbenannt. Wählen Sie ihn erneut mit der Schaltfläche „Ordner wählen“.`,
+  },
+};
+const lastPathSegment = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+
+/** Priečinok, ktorý neexistuje: kód servera `folder_missing` alebo surová chyba `realpath`; iné chyby `undefined`. */
+export function folderNotFoundMessage(error: unknown, locale: Language): string | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const details = "details" in error && record(error.details) ? error.details : undefined;
+  if ("code" in error && error.code === FOLDER_MISSING_CODE && typeof details?.name === "string") {
+    return folderNotFound[locale][details.key === "officeRoot" ? "office" : "folder"](details.name);
+  }
+  const raw = MISSING_DIRECTORY.exec(error.message)?.[1];
+  return raw ? folderNotFound[locale].folder(lastPathSegment(raw)) : undefined;
+}
 const canonicalPathRejected: Record<Language, string> = {
   sk: "Priečinok neexistuje alebo cesta k nemu vedie cez odkaz (junction). Vyberte ho tlačidlom „Vybrať priečinok“.",
   cs: "Složka neexistuje nebo cesta k ní vede přes odkaz (junction). Vyberte ji tlačítkem „Vybrat složku“.",
@@ -92,5 +129,5 @@ const canonicalPathRejected: Record<Language, string> = {
 /** Zrozumiteľná náhrada odmietnutej cesty v jazyku rozhrania; iné chyby vráti ako `undefined`. */
 export function canonicalPathRejection(error: unknown, locale: Language): string | undefined {
   if (!(error instanceof Error)) return undefined;
-  return CANONICAL_PATH_REJECTIONS.has(error.message) || MISSING_DIRECTORY.test(error.message) ? canonicalPathRejected[locale] : undefined;
+  return CANONICAL_PATH_REJECTIONS.has(error.message) ? canonicalPathRejected[locale] : undefined;
 }

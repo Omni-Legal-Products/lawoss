@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, win32 } from "node:path";
 import type { Language } from "../src/i18n";
+import { LegalworkServerError } from "../src/app/lib/legalwork-server";
 import type { OnboardingApi, OnboardingPlanRequest } from "../src/lawoss/domains/onboarding/api";
 import { cloneTargetOf, existingClientTitle, onboardingErrorMessage, parentFolderOf, trialCloneName } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
 import { canonicalPathOf, canonicalPathRejection, unquotedTypedPath, withCanonicalPaths } from "../src/lawoss/domains/onboarding/typed-paths";
@@ -175,8 +176,6 @@ describe("canonical path rejections in the UI language", () => {
     "Plan root must be a canonical directory.",
     "Plan root must be canonical.",
     "Trial cloning requires existing canonical directories.",
-    "ENOENT: no such file or directory, realpath 'C:\\Klienti\\Neexistuje'",
-    "ENOTDIR: not a directory, realpath 'C:\\spis.pdf\\Klienti'",
   ];
   const expected: Record<Language, string> = {
     sk: "Priečinok neexistuje alebo cesta k nemu vedie cez odkaz (junction). Vyberte ho tlačidlom „Vybrať priečinok“.",
@@ -191,6 +190,24 @@ describe("canonical path rejections in the UI language", () => {
         expect(onboardingErrorMessage(new Error(message), locale)).toBe(expected[locale]);
       }
     }
+  });
+
+  test("a folder that no longer exists is named, not blamed on a junction (test 19. 10. 2026)", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+    const office = new LegalworkServerError(400, "folder_missing", "Selected officeRoot folder does not exist.", { key: "officeRoot", name: "Kancelária Nová" });
+    expect(onboardingErrorMessage(office, "sk")).toBe("Priečinok kancelárie Kancelária Nová sa nenašiel. Možno bol presunutý alebo premenovaný. Vyberte ho znova tlačidlom „Vybrať priečinok“.");
+    expect(onboardingErrorMessage(office, "cs")).toBe("Složka kanceláře Kancelária Nová nebyla nalezena. Možná byla přesunuta nebo přejmenována. Vyberte ji znovu tlačítkem „Vybrat složku“.");
+    expect(onboardingErrorMessage(office, "en")).toBe("The office folder Kancelária Nová was not found. It may have been moved or renamed. Choose it again with the \"Choose folder\" button.");
+    expect(onboardingErrorMessage(office, "de")).toBe("Der Kanzleiordner Kancelária Nová wurde nicht gefunden. Möglicherweise wurde er verschoben oder umbenannt. Wählen Sie ihn erneut mit der Schaltfläche „Ordner wählen“.");
+    const client = new LegalworkServerError(400, "folder_missing", "Selected clientRoot folder does not exist.", { key: "clientRoot", name: "ACME" });
+    expect(onboardingErrorMessage(client, "sk")).toBe("Priečinok ACME sa nenašiel. Možno bol presunutý alebo premenovaný. Vyberte ho znova tlačidlom „Vybrať priečinok“.");
+    for (const [message, name] of [["ENOENT: no such file or directory, realpath 'C:\\Klienti\\Neexistuje'", "Neexistuje"], ["ENOTDIR: not a directory, realpath '/Users/a/spis.pdf/Klienti'", "Klienti"]] as const) {
+      expect(onboardingErrorMessage(new Error(message), "sk")).toBe(`Priečinok ${name} sa nenašiel. Možno bol presunutý alebo premenovaný. Vyberte ho znova tlačidlom „Vybrať priečinok“.`);
+      expect(onboardingErrorMessage(new Error(message), "de")).toBe(`Der Ordner ${name} wurde nicht gefunden. Möglicherweise wurde er verschoben oder umbenannt. Wählen Sie ihn erneut mit der Schaltfläche „Ordner wählen“.`);
+      expect(onboardingErrorMessage(new Error(message), "sk")).not.toContain("junction");
+    }
+    for (const locale of ["sk", "cs", "en", "de"] as const) expect(onboardingErrorMessage(office, locale)).not.toContain("—");
+    warn.mockRestore();
   });
 
   test("the folder button label in the message matches the path field", () => {

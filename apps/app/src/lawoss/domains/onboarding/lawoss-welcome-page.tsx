@@ -48,8 +48,9 @@ import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import "./onboarding.css";
 import { TriageEntry } from "../roztriedenie/triage-entry";
 import type { TriageClient } from "../roztriedenie/api";
-import { FolderStep } from "./folder-step";
+import { FolderStep, ScreenHead } from "./folder-step";
 import { FoundScreen, OkfNotice } from "./found-screen";
+import { FRESH_OFFICE_COMPLETION } from "./found-flow";
 import { foundText } from "./found-text";
 import { unquotedTypedPath } from "./typed-paths";
 import { onboardingErrorMessage } from "./onboarding-errors";
@@ -501,6 +502,8 @@ export type OnboardingCompletion = {
   workingFolder?: string;
   /** Všetci klienti dávky praxe s pracovným priečinkom (aj prvý); volajúci každého zaregistruje. */
   clients?: OnboardingApplyResult[];
+  /** Kam appka po dokončení prejde; bez neho domov vybraného priečinka. */
+  landing?: string;
 };
 type Props = {
   api: WelcomeApi;
@@ -551,6 +554,8 @@ export function LawossWelcomePage({
   >();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Chyba pri voľbe priečinka klienta pre nový prípad: zbalená voľba iného klienta sa otvorí (veta chyby odkazuje na ňu).
+  const [clientFolderError, setClientFolderError] = useState(false);
   // Vybraný priečinok kroku Priečinok; kým je prázdny, krok ponúka pripojiť existujúci alebo začať nanovo.
   const [foundRoot, setFoundRoot] = useState<string | null>(initialRoot ?? null);
   const found = foundText(locale);
@@ -576,7 +581,7 @@ export function LawossWelcomePage({
           // Klient vybraný v prehľade praxe (`?root=`, MČ 16. 10. 2026) má prednosť pred otvoreným klientom.
           // Ak ho nastaviť nejde, formulár to povie; nová vec nesmie potichu vzniknúť u iného klienta.
           const preferred = initialRoot
-            ? await chooseClient(api, status.profile, initialRoot).catch((reason: unknown) => { setError(onboardingErrorMessage(reason, locale)); return null; })
+            ? await chooseClient(api, status.profile, initialRoot).catch((reason: unknown) => { setError(onboardingErrorMessage(reason, locale)); setClientFolderError(true); return null; })
             : await preferOpenClient(api, status.profile, readActiveWorkspaceId());
           if (preferred) setProfile(preferred);
           setOpenClientPending(false);
@@ -740,11 +745,11 @@ export function LawossWelcomePage({
       setBusy(false);
     }
   };
-  const complete = async (result: OnboardingApplyResult | undefined) => {
+  const complete = async (result: OnboardingApplyResult | undefined, completion?: OnboardingCompletion) => {
     setBusy(true);
     setError(null);
     try {
-      await finish(profile, result);
+      await finish(profile, result, completion);
     } catch (reason) {
       setError(onboardingErrorMessage(reason, locale));
     } finally {
@@ -897,8 +902,9 @@ export function LawossWelcomePage({
                   setFoundRoot(root);
                 }}
                 onAcknowledge={() => acknowledgeOkf()}
-                // R7: „Začať nanovo“ nezaregistruje pracovný priečinok; appka ide na domov s interným priestorom.
-                onFreshDone={() => complete(undefined)}
+                // R7: „Začať nanovo“ nezaregistruje koreň kancelárie ako pracovný priečinok (rozhodnutie 19. 10. 2026);
+                // advokát pristane na Klienti a prípady pri „Pridať klienta“.
+                onFreshDone={(result) => complete(result, FRESH_OFFICE_COMPLETION)}
                 onError={reportError}
               />
             )
@@ -919,6 +925,8 @@ export function LawossWelcomePage({
           {step === "matter" && !openClientPending ? (
             <Matter
               title={initialStep === "matter" ? tr("newMatter") : tr("matter")}
+              nav={<>{backNav}<Button variant="ghost" disabled={busy} onClick={() => void move("done")}>{tr("skip")}</Button></>}
+              chooserOpen={clientFolderError}
               clientTitle={clientTitle}
               base={base}
               locale={locale}
@@ -928,6 +936,7 @@ export function LawossWelcomePage({
               onClientChange={async (clientRoot) => {
                 setBusy(true);
                 setError(null);
+                setClientFolderError(false);
                 try {
                   setProfile(
                     await api.updateOnboardingProfile({
@@ -937,6 +946,7 @@ export function LawossWelcomePage({
                   );
                 } catch (reason) {
                   setError(onboardingErrorMessage(reason, locale));
+                  setClientFolderError(true);
                 } finally {
                   setBusy(false);
                 }
@@ -1047,7 +1057,8 @@ export function LawossWelcomePage({
         {/* Počas obrazovky „Toto som našiel“ päta nie je: bežiaci zápis by sa dal potichu opustiť;
             obrazovka má vlastné „Vybrať iný priečinok“, vypnuté počas zápisu. Krok Priečinok má Späť
             pri nadpise (pod veľkými voľbami by bolo až po rolovaní). */}
-        {step !== "identity" && step !== "done" && !foundRoot && !folderScreen ? (
+        {/* Formulár prípadu má Zrušiť a Teraz preskočiť pri nadpise (test 19. 10. 2026); kým sa hľadá klient, ostáva päta. */}
+        {step !== "identity" && step !== "done" && !(step === "matter" && !openClientPending) && !foundRoot && !folderScreen ? (
           <footer className="mt-8 flex justify-between">
             {backNav}
             {step === "client" || step === "matter" ? (
@@ -1361,9 +1372,15 @@ export function Matter({
   onPlan,
   onClientChange,
   onSubjectChange,
+  nav,
+  chooserOpen = false,
 }: {
   title: string;
   clientTitle: string;
+  /** Zrušiť / Späť a Teraz preskočiť pri nadpise: v päte dlhého formulára boli až pod okrajom okna (test 19. 10. 2026). */
+  nav?: ReactNode;
+  /** Po chybe sa zbalená voľba klienta otvorí: veta chyby odkazuje na tlačidlo „Vybrať priečinok“ v nej. */
+  chooserOpen?: boolean;
   base: OnboardingProfile;
   locale: Language;
   tr: (key: string) => string;
@@ -1421,9 +1438,35 @@ export function Matter({
       void onSubjectChange(null);
     }
   };
+  const clientChooser = (
+    <div className="grid gap-2">
+      <PathInput
+        value={selectedClientPath}
+        onChange={setSelectedClientPath}
+      />
+      <Button
+        type="button"
+        variant="outline"
+        disabled={
+          busy || !selectedClientPath.trim() || selectedClientPath === root
+        }
+        onClick={() => {
+          setSubject("");
+          setSubjectMode("none");
+          setSelectedSubjectRoot("");
+          setSubjectTouched(true);
+          setTitle("");
+          setConfirmed(false);
+          void onClientChange(selectedClientPath);
+        }}
+      >
+        {tr("useClient")}
+      </Button>
+    </div>
+  );
   return (
     <>
-      <h2 className="text-xl font-semibold">{heading}</h2>
+      <ScreenHead title={heading}>{nav ? <div className="flex flex-wrap gap-2">{nav}</div> : null}</ScreenHead>
       <div className="lw-onb-inset grid gap-1" data-lawoss-matter-client>
         {root ? (
           <>
@@ -1435,32 +1478,15 @@ export function Matter({
           <p className="text-sm">{tr("noClientYet")}</p>
         )}
       </div>
-      {field(
-        root ? tr("otherClient") : tr("client"),
-        <div className="grid gap-2">
-          <PathInput
-            value={selectedClientPath}
-            onChange={setSelectedClientPath}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            disabled={
-              busy || !selectedClientPath.trim() || selectedClientPath === root
-            }
-            onClick={() => {
-              setSubject("");
-              setSubjectMode("none");
-              setSelectedSubjectRoot("");
-              setSubjectTouched(true);
-              setTitle("");
-              setConfirmed(false);
-              void onClientChange(selectedClientPath);
-            }}
-          >
-            {tr("useClient")}
-          </Button>
-        </div>,
+      {/* Klient z kontextu (karta klienta, bočný strom, otvorený klient) je vybraný; iného klienta treba rozbaliť.
+          Bez klienta sa formulár pýta hneď (test 19. 10. 2026). */}
+      {root ? (
+        <details className="grid gap-2 text-sm" data-lawoss-other-client="" open={chooserOpen}>
+          <summary className="cursor-pointer font-medium">{tr("otherClient")}</summary>
+          <div className="mt-2">{clientChooser}</div>
+        </details>
+      ) : (
+        field(tr("client"), clientChooser)
       )}
       {trial ? (
         <div className="lw-status warn">

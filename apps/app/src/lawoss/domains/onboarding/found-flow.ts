@@ -5,6 +5,8 @@
 import type { Language } from "@/i18n";
 import { hasLegalForm } from "../../../../../../lawoss/okf/src/onboarding/suggest-patterns";
 import { triageGrant, triagePlan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
+import { LITE_CLIENTS_PATH } from "../../lite/links";
+import type { OnboardingCompletion } from "./lawoss-welcome-page";
 import type { DocumentLanguage, ExistingPlanRequest, Jurisdiction, OfficePlanRequest, OnboardingApi, OnboardingApplyResult, OnboardingSuggestion, PracticePlanRequest } from "./api";
 
 export type FoundIdentity = { lawyerName: string; jurisdiction: Jurisdiction; language: Language };
@@ -142,6 +144,13 @@ export async function startFreshFolder(api: FlowApi & Pick<OnboardingApi, "sugge
   await api.updateOnboardingProfile({ officeRoot: parent });
   return result;
 }
+
+/**
+ * Dokončenie „Začať nanovo“ (rozhodnutie 19. 10. 2026): koreň kancelárie sa ako pracovný priečinok neregistruje
+ * (každý klient je samostatný priečinok, kancelária nie je klient v bočnom paneli); profil drží `officeRoot`.
+ * Advokát pristane na Klienti a prípady pri „Pridať klienta“; každý pridaný klient sa zaregistruje sám.
+ */
+export const FRESH_OFFICE_COMPLETION: OnboardingCompletion = { landing: LITE_CLIENTS_PATH };
 
 /** „Áno, usporiadaj“: výslovný súhlas, potom náhľad presunov; zápis až po potvrdení náhľadu. */
 export async function startReorganize(client: TriageClient, root: string): Promise<TriagePreview> {

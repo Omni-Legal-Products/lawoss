@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { OnboardingApplyResult } from "../src/lawoss/domains/onboarding/api";
 import { registerOnboardedWorkspace, registerOtherClients, type RegisterWorkspaceDeps } from "../src/lawoss/domains/onboarding/register-clients";
+import { FRESH_OFFICE_COMPLETION } from "../src/lawoss/domains/onboarding/found-flow";
+import { LITE_CLIENTS_PATH } from "../src/lawoss/lite/links";
 
 const client = (id: string, path: string): OnboardingApplyResult => ({ result: "applied", clientRoot: path, workspace: { id, path } });
 
@@ -70,6 +72,13 @@ describe("registrácia a výber pripojeného priečinka (MČ 19. 10.: odolné vo
     const { calls, deps } = fakeDeps(false);
     expect((await registerOnboardedWorkspace(deps, undefined, { workingFolder: "/p" }))?.id).toBe("ws-folder");
     expect(calls).toContain("folder:/p");
+  });
+  test("Začať nanovo: koreň kancelárie sa nezaregistruje ani nevyberie, len sa pristane na Klienti (rozhodnutie 19. 10. 2026)", async () => {
+    const { calls, deps } = fakeDeps(true);
+    const office: OnboardingApplyResult = { result: "applied", root: "/p/Nová kancelária/Office" };
+    expect(FRESH_OFFICE_COMPLETION).toEqual({ landing: LITE_CLIENTS_PATH });
+    expect(await registerOnboardedWorkspace(deps, office, FRESH_OFFICE_COMPLETION)).toBeUndefined();
+    expect(calls).toEqual(["list"]);
   });
 });
 

@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { buildMatterOperations } from "../onboarding/entities.ts";
 import type { CreateOperation } from "../onboarding/transaction.ts";
 import { parseWorkingProfile, PROFILE_FILE } from "../profile.ts";
-import { classifyByRules, findCaseNumber, type Confidence, type RuleResult, type TriageRole } from "./rules.ts";
+import { classifyByRules, findCaseNumber, looksLikeArchiveFolder, type Confidence, type RuleResult, type TriageRole } from "./rules.ts";
 import { PLAN_SCHEMA, type MoveSource, type TriageClassification, type TriageDocument, type TriageInventory, type TriageMove, type TriageNewMatter, type TriagePlan, type TriageStay } from "./types.ts";
 
 export const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -23,10 +23,12 @@ const INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"];
 /** Pravidlá zakladajú vec zo spisovej značky len vtedy, keď ju nesú aspoň dva dokumenty. */
 const RULE_MATTER_MIN_DOCUMENTS = 2;
 
-type Decision = { role: TriageRole | null; matter?: string; source: MoveSource; confidence: Confidence; rule?: RuleResult["rule"]; matched?: string; reason?: string; truncated?: boolean };
+/** `leftFolder`: dokument patrí k odškrtnutému priečinku; ide na zatriedenie u klienta a náhľad to povie. */
+type Decision = { leftFolder?: string; role: TriageRole | null; matter?: string; source: MoveSource; confidence: Confidence; rule?: RuleResult["rule"]; matched?: string; reason?: string; truncated?: boolean };
 type Destination = { base: string; roles: Record<string, string> };
 
-export type BuildOptions = { classification?: TriageClassification; keepInInbox?: readonly string[]; today: string; runId: string; createdAt: string };
+/** `leaveInPlace`: kľúče existujúcich priečinkov (prípadov bez karty), ktoré advokát v náhľade odškrtol; ostanú nedotknuté. */
+export type BuildOptions = { classification?: TriageClassification; keepInInbox?: readonly string[]; leaveInPlace?: readonly string[]; today: string; runId: string; createdAt: string };
 
 function splitName(name: string): { stem: string; ext: string } {
   const dot = name.lastIndexOf(".");
@@ -42,9 +44,16 @@ function resolveFolder(roles: Record<string, string>, role: TriageRole): { role:
   return null;
 }
 
+/** Predvolene odškrtnuté priečinky: archív, záloha, fotky, rôzne a holý rok (rozhodnutie 19. 10. 2026). */
+export function defaultLeaveInPlace(inventory: Pick<TriageInventory, "matters">): string[] {
+  return inventory.matters.filter(matter => matter.implicit && looksLikeArchiveFolder(matter.path)).map(matter => matter.id);
+}
+
 export function buildTriagePlan(inventory: TriageInventory, options: BuildOptions): TriagePlan {
   const language = inventory.language;
   const keep = new Set(options.keepInInbox ?? []);
+  const leave = new Set((options.leaveInPlace ?? []).filter(key => inventory.matters.some(matter => matter.implicit && matter.id === key)));
+  const leftPath = (key: string) => inventory.matters.find(matter => matter.id === key)?.path ?? key;
   const model = new Map((options.classification?.documents ?? []).map(decision => [decision.id, decision]));
   const decisions = new Map<string, Decision>();
   const caseGroups = new Map<string, { display: string; ids: string[] }>();
@@ -53,7 +62,10 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
     const fromModel = model.get(document.id);
     if (fromModel) {
       // Nejasné od modelu ide na zatriedenie aj s jeho dôvodom, aby advokát videl, čo model zvažoval.
-      decisions.set(document.id, { role: fromModel.confidence === "low" ? "inbox" : fromModel.role, matter: document.matter ?? fromModel.matter, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...(fromModel.truncated ? { truncated: true } : {}) });
+      // Odškrtnutý priečinok: model doň nič nepošle, dokument počká na zatriedenie u klienta (rozhodnutie 19. 10. 2026).
+      const leftFolder = fromModel.matter && leave.has(fromModel.matter) ? leftPath(fromModel.matter) : undefined;
+      const target = leftFolder ? undefined : fromModel.matter;
+      decisions.set(document.id, { ...(leftFolder ? { leftFolder } : {}), role: fromModel.confidence === "low" || leftFolder ? "inbox" : fromModel.role, matter: document.matter ?? target, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...(fromModel.truncated ? { truncated: true } : {}) });
       continue;
     }
     const rule = classifyByRules(document);
@@ -86,7 +98,14 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
   };
   for (const matter of options.classification?.matters ?? []) addMatter({ ...matter, source: "model" });
   for (const [caseKey, group] of [...caseGroups].sort(([a], [b]) => a.localeCompare(b))) {
-    const existing = inventory.matters.find(matter => matter.caseKey === caseKey);
+    const existing = inventory.matters.find(matter => matter.caseKey === caseKey && !leave.has(matter.id));
+    // Značka odškrtnutého priečinka (fix round 3): nový prípad v Spisy/ by na disku zdvojil ten istý spor.
+    // Voľné súbory s ňou počkajú na zatriedenie u klienta a náhľad povie, ku ktorému priečinku patria.
+    const left = existing ? undefined : inventory.matters.find(matter => matter.caseKey === caseKey && leave.has(matter.id));
+    if (left) {
+      for (const id of group.ids) { const decision = decisions.get(id); if (decision) Object.assign(decision, { role: "inbox", leftFolder: left.path }); }
+      continue;
+    }
     const fromModel = planned.find(matter => matter.caseNumber && findCaseNumber(matter.caseNumber)?.key === caseKey);
     let key = existing?.id ?? fromModel?.key;
     if (!key && group.ids.length >= RULE_MATTER_MIN_DOCUMENTS) {
@@ -107,6 +126,9 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
   // Vec bez karty dostane kartu a pracovné priečinky na mieste. Existujúce sa nikdy neprepíše: chýba len to,
   // čo v priečinku ešte nie je. Pri vlastných inštrukciách alebo pracovnom profile veci sa doplní len karta.
   const adopted = inventory.matters.filter(matter => matter.implicit).map(matter => {
+    const title = matter.title ?? matter.path;
+    // Odškrtnutý priečinok: v náhľade ostane (aby sa dal znova zaškrtnúť), ale nedostane kartu, priečinky ani presuny.
+    if (leave.has(matter.id)) return { entry: { key: matter.id, title, folder: matter.path, date: options.today, dateSource: "today" as const, kind: "non_contentious" as const, area: GENERAL_AREA[language], jurisdiction: inventory.jurisdiction, source: "folder" as const, documents: 0, left: true as const }, operations: [] };
     const caseNumber = matter.implicit?.caseNumber;
     const kind: TriageNewMatter["kind"] = caseNumber ? "contentious" : "non_contentious";
     const area = caseNumber ? MATTER_AREA[language] : GENERAL_AREA[language];
@@ -139,7 +161,10 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
   const stays: TriageStay[] = [];
   const used = new Set<string>();
   for (const document of inventory.documents) {
+    if (document.matter && leave.has(document.matter)) continue;
     const decision = decisions.get(document.id)!;
+    // Poistka: nič nesmeruje do odškrtnutého priečinka, dokument ostane na úrovni klienta.
+    if (decision.matter && leave.has(decision.matter)) delete decision.matter;
     const destination = destinations.get(decision.matter ?? "") ?? destinations.get("")!;
     const requested: TriageRole = decision.role ?? "inbox";
     const primary = resolveFolder(destination.roles, requested);
@@ -162,12 +187,13 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
       source: fallback ? "fallback" : decision.source, confidence: decision.confidence,
       ...(decision.rule ? { rule: decision.rule } : {}), ...(decision.matched ? { matched: decision.matched } : {}),
       ...(decision.reason ? { reason: decision.reason } : {}), ...(decision.truncated ? { truncated: true } : {}),
+      ...(decision.leftFolder && decision.source !== "user" ? { leftFolder: decision.leftFolder } : {}),
       ...(to !== `${folder}/${document.name}` ? { renamed: true } : {}),
     });
   }
   // Vec bez jediného dokumentu sa nezakladá; nevznikne prázdna karta, ktorú by advokát musel mazať.
   const kept = planned.filter(matter => used.has(matter.key));
-  for (const matter of [...kept, ...adopted.map(item => item.entry)]) matter.documents = moves.filter(move => move.matter === matter.key).length;
+  for (const matter of [...kept, ...adopted.map(item => item.entry)]) if (!("left" in matter)) matter.documents = moves.filter(move => move.matter === matter.key).length;
   const create: CreateOperation[] = [
     ...(needsMattersDir && kept.length ? [{ path: "Spisy", kind: "directory" as const }] : []),
     ...kept.flatMap(matter => matter.operations),

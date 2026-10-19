@@ -89,4 +89,38 @@ describe("new matter under the right client", () => {
     );
     expect(html).toContain("Vyberte složku klienta, pod kterým případ vznikne.");
   });
+
+  test("from a client the client is preselected and the chooser folded away; Zrušiť and Teraz preskočiť sit by the title (test 19. 10. 2026)", () => {
+    const nav = <><button type="button">Zrušiť</button><button type="button">Teraz preskočiť</button></>;
+    const html = renderToStaticMarkup(
+      <Matter title="Nový prípad" clientTitle="Otvorený klient s. r. o." base={profile({ clientRoot: OPEN })} locale="sk" tr={welcomeText("sk")} busy={false} nav={nav}
+        onPlan={async () => {}} onClientChange={async () => {}} onSubjectChange={async () => {}} />,
+    );
+    expect(html).not.toContain("Prvý klient");
+    // Iný klient sa dá vybrať, ale zbalený; formulár začína prípadom.
+    expect(html).toMatch(/<details[^>]*data-lawoss-other-client=""[^>]*><summary[^>]*>Iný klient \(priečinok\)<\/summary>/);
+    expect(html).not.toMatch(/<details[^>]*open/);
+    const cancel = html.indexOf(">Zrušiť<"), skip = html.indexOf(">Teraz preskočiť<");
+    expect(cancel).toBeGreaterThan(html.indexOf("Nový prípad"));
+    expect(skip).toBeGreaterThan(cancel);
+    expect(skip).toBeLessThan(html.indexOf("Prípad vznikne pod klientom"));
+  });
+
+  test("after an error the folded client chooser opens, so the „Vybrať priečinok“ button from the message is visible", () => {
+    const html = renderToStaticMarkup(
+      <Matter title="Nový prípad" clientTitle="" base={profile({ clientRoot: OPEN })} locale="sk" tr={welcomeText("sk")} busy={false} chooserOpen
+        onPlan={async () => {}} onClientChange={async () => {}} onSubjectChange={async () => {}} />,
+    );
+    expect(html).toMatch(/<details[^>]*open=""[^>]*data-lawoss-other-client=""|<details[^>]*data-lawoss-other-client=""[^>]*open=""/);
+    expect(html.slice(html.indexOf("data-lawoss-other-client"))).toContain("Použiť tohto klienta");
+  });
+
+  test("without a client context the form asks for the client right away", () => {
+    const html = renderToStaticMarkup(
+      <Matter title="Nový prípad" clientTitle="" base={profile({ clientRoot: undefined })} locale="sk" tr={welcomeText("sk")} busy={false}
+        onPlan={async () => {}} onClientChange={async () => {}} onSubjectChange={async () => {}} />,
+    );
+    expect(html).toContain("Prvý klient");
+    expect(html).not.toContain("data-lawoss-other-client");
+  });
 });

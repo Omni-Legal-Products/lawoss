@@ -40,9 +40,7 @@ export const CZ_MATTER_WORDS: readonly string[] = [
 /** Malé písmená bez diakritiky: priečinky z e-mailu, skenera či starého systému ju často nemajú („Kupa haly“). */
 const fold = (word: string): string => word.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase("sk");
 const MATTER_WORDS = new Set([...SK_MATTER_WORDS, ...CZ_MATTER_WORDS].map(fold));
+const firstWord = (name: string): string => fold(name.normalize("NFC").trim().split(/[\s,.;:()_-]+/u)[0] ?? "");
 /** Prvé slovo názvu je slovo veci zo zoznamu SK alebo CZ, s diakritikou aj bez nej (test 16. 10. 2026, N2). */
-export const startsWithMatterWord = (name: string): boolean => {
-  const first = name.normalize("NFC").trim().split(/[\s,.;:()_-]+/u)[0] ?? "";
-  return MATTER_WORDS.has(fold(first));
-};
+export const startsWithMatterWord = (name: string): boolean => MATTER_WORDS.has(firstWord(name));
 export const looksLikeMatterName = (name: string): boolean => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined || startsWithMatterWord(name));

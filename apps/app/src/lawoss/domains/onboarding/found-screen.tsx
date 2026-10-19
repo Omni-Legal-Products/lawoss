@@ -4,7 +4,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useLocale } from "@/i18n/use-locale";
-import { triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
+import { toggledLeave, triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { friendlyError, TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
 import { addOkfFiles, childPath, cloudFolderKind, connectPractice, firstWorkspaceResult, folderName, matterClientPath, createReorganizeFlow, retryFailed, workspaceResults, type BatchItem, type FoundIdentity } from "./found-flow";
@@ -186,18 +186,18 @@ export function BatchView({ text, busy, items, answer, onRetry, onContinue, onCh
 type ReorganizeProps = {
   text: Text; triageText: (key: string, params?: Record<string, string | number>) => string; busy: boolean;
   name: string; preview: TriagePreview; more: boolean;
-  onKeep: (id: string, keep: boolean) => void; onConfirm: () => void; onSkip: () => void;
+  onKeep: (id: string, keep: boolean) => void; onLeave: (key: string, leave: boolean) => void; onConfirm: () => void; onSkip: () => void;
 };
 
 /**
  * Náhľad presunov jedného klienta (priečinok na mieste). Obal `lw-triage` nesie premenné a panely
  * roztriedenia; bez neho je tlačidlo potvrdenia v onboardingu takmer neviditeľné.
  */
-export function ReorganizeView({ text, triageText, busy, name, preview, more, onKeep, onConfirm, onSkip }: ReorganizeProps) {
+export function ReorganizeView({ text, triageText, busy, name, preview, more, onKeep, onLeave, onConfirm, onSkip }: ReorganizeProps) {
   return (
     <div className="lw-triage lw-triage-embedded" data-lawoss-reorganize>
       <h2 className="text-xl font-semibold">{text("reorganizeFor", { name })}</h2>
-      <TriagePreviewView preview={preview} text={triageText} busy={busy} inPlace onKeep={onKeep} onConfirm={onConfirm} onModel={() => undefined} />
+      <TriagePreviewView preview={preview} text={triageText} busy={busy} inPlace onKeep={onKeep} onLeave={onLeave} onConfirm={onConfirm} onModel={() => undefined} />
       <div><button type="button" className="lw-btn" disabled={busy} onClick={onSkip}>{more ? text("skipClient") : text("finish")}</button></div>
     </div>
   );
@@ -373,6 +373,9 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
       onKeep={(id, keep) => void run(async () => {
         const keepInInbox = keep ? [...phase.preview.keepInInbox, id] : phase.preview.keepInInbox.filter(item => item !== id);
         setPhase({ ...phase, preview: await triageReplan(triageClient.current, phase.preview.id, keepInInbox) });
+      })}
+      onLeave={(key, leave) => void run(async () => {
+        setPhase({ ...phase, preview: await triageReplan(triageClient.current, phase.preview.id, phase.preview.keepInInbox, toggledLeave(phase.preview, key, leave)) });
       })}
       onConfirm={() => void run(async () => { await triageApply(triageClient.current, phase.preview); await reorganize.show(rest, phase.result); })}
       onSkip={() => void run(() => reorganize.show(rest, phase.result))}
