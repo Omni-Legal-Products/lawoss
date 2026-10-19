@@ -87,6 +87,8 @@ describe("connecting an existing client folder", () => {
     expect(route).toContain("navigate(completion?.landing ?? (activeId ? homeRoute(activeId) : \"/home\"), { replace: true });");
     const page = readFileSync(join(import.meta.dir, "../src/lawoss/domains/onboarding/lawoss-welcome-page.tsx"), "utf8");
     expect(page).toContain("onFreshDone={(result) => complete(result, FRESH_OFFICE_COMPLETION)}");
+    // Zbalená voľba klienta sa otvorí len pri chybe priečinka klienta, nie pri inej chybe stránky.
+    expect(page).toContain("chooserOpen={clientFolderError}");
   });
 
   test("Klienti without any client folder yet (fresh office) offer Pridať klienta instead of opening a folder", () => {

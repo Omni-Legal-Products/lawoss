@@ -80,6 +80,13 @@ describe("LAWOSS welcome flow", () => {
     }
   });
 
+  test("kým sa hľadá klient pre nový prípad, ostáva Zrušiť aj Teraz preskočiť (19. 10. 2026)", () => {
+    const html = page("matter", { completed: true });
+    expect(html).toContain("Finding the open client");
+    expect(html).toMatch(/>Cancel<\/button>/);
+    expect(html).toMatch(/>Skip for now<\/button>/);
+  });
+
   test("prvý onboarding nemá Zrušiť a krok Priečinok má Späť", () => {
     const html = page("folder");
     expect(html).not.toMatch(/>Cancel</);

@@ -554,6 +554,8 @@ export function LawossWelcomePage({
   >();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Chyba pri voľbe priečinka klienta pre nový prípad: zbalená voľba iného klienta sa otvorí (veta chyby odkazuje na ňu).
+  const [clientFolderError, setClientFolderError] = useState(false);
   // Vybraný priečinok kroku Priečinok; kým je prázdny, krok ponúka pripojiť existujúci alebo začať nanovo.
   const [foundRoot, setFoundRoot] = useState<string | null>(initialRoot ?? null);
   const found = foundText(locale);
@@ -579,7 +581,7 @@ export function LawossWelcomePage({
           // Klient vybraný v prehľade praxe (`?root=`, MČ 16. 10. 2026) má prednosť pred otvoreným klientom.
           // Ak ho nastaviť nejde, formulár to povie; nová vec nesmie potichu vzniknúť u iného klienta.
           const preferred = initialRoot
-            ? await chooseClient(api, status.profile, initialRoot).catch((reason: unknown) => { setError(onboardingErrorMessage(reason, locale)); return null; })
+            ? await chooseClient(api, status.profile, initialRoot).catch((reason: unknown) => { setError(onboardingErrorMessage(reason, locale)); setClientFolderError(true); return null; })
             : await preferOpenClient(api, status.profile, readActiveWorkspaceId());
           if (preferred) setProfile(preferred);
           setOpenClientPending(false);
@@ -924,7 +926,7 @@ export function LawossWelcomePage({
             <Matter
               title={initialStep === "matter" ? tr("newMatter") : tr("matter")}
               nav={<>{backNav}<Button variant="ghost" disabled={busy} onClick={() => void move("done")}>{tr("skip")}</Button></>}
-              chooserOpen={error !== null}
+              chooserOpen={clientFolderError}
               clientTitle={clientTitle}
               base={base}
               locale={locale}
@@ -934,6 +936,7 @@ export function LawossWelcomePage({
               onClientChange={async (clientRoot) => {
                 setBusy(true);
                 setError(null);
+                setClientFolderError(false);
                 try {
                   setProfile(
                     await api.updateOnboardingProfile({
@@ -943,6 +946,7 @@ export function LawossWelcomePage({
                   );
                 } catch (reason) {
                   setError(onboardingErrorMessage(reason, locale));
+                  setClientFolderError(true);
                 } finally {
                   setBusy(false);
                 }
@@ -1057,10 +1061,10 @@ export function LawossWelcomePage({
         {step !== "identity" && step !== "done" && !(step === "matter" && !openClientPending) && !foundRoot && !folderScreen ? (
           <footer className="mt-8 flex justify-between">
             {backNav}
-            {step === "client" ? (
+            {step === "client" || step === "matter" ? (
               <Button
                 variant="ghost"
-                onClick={() => void move("matter")}
+                onClick={() => void move(step === "client" ? "matter" : "done")}
               >
                 {tr("skip")}
               </Button>
