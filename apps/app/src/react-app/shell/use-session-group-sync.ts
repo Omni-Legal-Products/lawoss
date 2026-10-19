@@ -1,5 +1,8 @@
 import { useEffect, useRef } from "react";
 
+import { LegalworkServerError } from "@/app/lib/legalwork-server";
+import { PROJECT_FOLDER_RECONNECTED_EVENT } from "@/react-app/domains/workspace/project-folder-recovery";
+import { SessionGroupSyncController } from "./session-group-sync-controller";
 import type { LegalworkSessionGroupState } from "@/app/lib/legalwork-server";
 import type { ResolvedWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import {
@@ -68,19 +71,16 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
   const { workspaces, endpointForWorkspace } = input;
   const workspacesRef = useRef(workspaces);
   const endpointForWorkspaceRef = useRef(endpointForWorkspace);
-  const eventCursorByWorkspaceRef = useRef<Record<string, number | null>>({});
-  const pollInFlightRef = useRef(false);
-  // Per-endpoint backoff so a down/restarting local server doesn't get hit on
-  // every 3s tick — that turns a transient outage into an endless stream of
-  // net::ERR_CONNECTION_REFUSED in the console. Cleared on the first success.
-  const pollBackoffRef = useRef<Record<string, { failures: number; nextAttemptAt: number }>>({});
+  const refreshRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     workspacesRef.current = workspaces;
+    refreshRef.current();
   }, [workspaces]);
 
   useEffect(() => {
     endpointForWorkspaceRef.current = endpointForWorkspace;
+    refreshRef.current();
   }, [endpointForWorkspace]);
 
   useEffect(() => {
@@ -122,90 +122,45 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const syncWorkspace = async (workspace: RouteWorkspace, migrateLocal: boolean) => {
-      const endpoint = endpointForWorkspace(workspace);
-      if (!endpoint) return;
-      const version = beginSessionGroupServerSync(workspace.id);
-
-      const response = await endpoint.client.getSessionGroups(endpoint.workspaceId);
-      if (cancelled) return;
-
-      let nextState = response.state;
-      const localState = localGroupStateForWorkspace(workspace, endpoint);
-      if (
-        migrateLocal &&
-        !readMigrationComplete(endpoint) &&
-        !hasGroupData(response.state) &&
-        localState !== undefined
-      ) {
-        const migrated = await endpoint.client.putSessionGroups(
-          endpoint.workspaceId,
-          serverStateFromWorkspaceState(localState),
-        );
-        if (cancelled) return;
-        nextState = migrated.state;
-      }
-
-      writeMigrationComplete(endpoint);
-      applySessionGroupServerState(workspace.id, nextState, version);
-    };
-
-    for (const workspace of workspaces) {
-      void syncWorkspace(workspace, true).catch((error) => {
-        console.warn("[session-groups] initial sync failed", error);
-      });
-    }
-
-    const pollEvents = async () => {
-      if (pollInFlightRef.current) return;
-      pollInFlightRef.current = true;
-      try {
-        const now = Date.now();
-        for (const workspace of workspacesRef.current) {
-          const endpoint = endpointForWorkspaceRef.current(workspace);
-          if (!endpoint) continue;
-          const key = `${endpoint.baseUrl}:${endpoint.workspaceId}`;
-          // Skip endpoints we're currently backing off from (server down /
-          // restarting) so we don't hammer a refused port every tick.
-          const backoff = pollBackoffRef.current[key];
-          if (backoff && now < backoff.nextAttemptAt) continue;
-          const currentCursor = eventCursorByWorkspaceRef.current[key];
-          try {
-            const response = await endpoint.client.listSessionGroupEvents(
-              endpoint.workspaceId,
-              typeof currentCursor === "number" ? { since: currentCursor } : undefined,
-            );
-            if (cancelled) return;
-            // Recovered: drop any backoff so polling returns to the 3s cadence.
-            if (pollBackoffRef.current[key]) delete pollBackoffRef.current[key];
-            eventCursorByWorkspaceRef.current[key] =
-              typeof response.cursor === "number"
-                ? response.cursor
-                : Math.max(currentCursor ?? 0, ...((response.items ?? []).map((item) => Number(item.seq) || 0)));
-            if (currentCursor === undefined || currentCursor === null) continue;
-            if ((response.items ?? []).length === 0) continue;
-            await syncWorkspace(workspace, false);
-          } catch {
-            // Best effort: normal workspace/session loading still surfaces
-            // connection issues. Grow the backoff (3s → up to ~48s) so a
-            // persistently-down endpoint stops flooding the console.
-            const failures = (pollBackoffRef.current[key]?.failures ?? 0) + 1;
-            const delayMs = Math.min(48_000, 3_000 * 2 ** Math.min(failures, 4));
-            pollBackoffRef.current[key] = { failures, nextAttemptAt: Date.now() + delayMs };
-          }
+    type SyncTarget = { key: string; workspace: RouteWorkspace; endpoint: ResolvedWorkspaceEndpoint };
+    const controller = new SessionGroupSyncController<SyncTarget>({
+      targets: () => workspacesRef.current.flatMap(workspace => {
+        const endpoint = endpointForWorkspaceRef.current(workspace);
+        if (!endpoint) return [];
+        // Root and capability changes start a new generation; label-only
+        // metadata changes retain backoff and initialization. This key stays local.
+        const key = JSON.stringify([workspace.id, workspace.path, endpoint.baseUrl, endpoint.workspaceId, endpoint.token, endpoint.hostToken]);
+        return [{ key, workspace, endpoint }];
+      }),
+      sync: async ({ workspace, endpoint }, migrateLocal, isCurrent) => {
+        const version = beginSessionGroupServerSync(workspace.id);
+        const response = await endpoint.client.getSessionGroups(endpoint.workspaceId);
+        if (!isCurrent()) return;
+        let nextState = response.state;
+        const localState = localGroupStateForWorkspace(workspace, endpoint);
+        if (migrateLocal && !readMigrationComplete(endpoint) && !hasGroupData(response.state) && localState !== undefined) {
+          const migrated = await endpoint.client.putSessionGroups(endpoint.workspaceId, serverStateFromWorkspaceState(localState));
+          if (!isCurrent()) return;
+          nextState = migrated.state;
         }
-      } finally {
-        pollInFlightRef.current = false;
-      }
-    };
-
-    void pollEvents();
-    const interval = window.setInterval(() => void pollEvents(), 3000);
+        writeMigrationComplete(endpoint);
+        applySessionGroupServerState(workspace.id, nextState, version);
+      },
+      events: ({ endpoint }, since) => endpoint.client.listSessionGroupEvents(endpoint.workspaceId, since === undefined ? undefined : { since }),
+      isUnavailable: error => error instanceof LegalworkServerError && error.code === "project_folder_unavailable",
+      onError: (_target, error) => { console.warn("[session-groups] synchronization paused or backing off", error); },
+    });
+    const refresh = () => { void controller.refresh(); };
+    const reconnect = () => { void controller.reconnect(); };
+    refreshRef.current = refresh;
+    refresh();
+    window.addEventListener(PROJECT_FOLDER_RECONNECTED_EVENT, reconnect);
+    const interval = window.setInterval(refresh, 3000);
     return () => {
-      cancelled = true;
+      refreshRef.current = () => {};
+      controller.dispose();
+      window.removeEventListener(PROJECT_FOLDER_RECONNECTED_EVENT, reconnect);
       window.clearInterval(interval);
     };
-  }, [endpointForWorkspace, workspaces]);
+  }, []);
 }
