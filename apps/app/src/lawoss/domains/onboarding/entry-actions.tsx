@@ -7,7 +7,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 import { isLawossHomeWorkspace } from "../../home-workspace";
-import { ADD_FOLDER_PATH, NEW_MATTER_PATH, organizeFolderLink } from "../../lite/links";
+import { ADD_FOLDER_PATH, NEW_CLIENT_PATH, NEW_MATTER_PATH, organizeFolderLink } from "../../lite/links";
 import { activeWorkspace, officeWorkspace, useOkfConnection, useOkfScope } from "../../okf/read-model";
 import { newMatterLink, practiceClientChoices } from "../../lite/client-choice";
 import { ClientPickerDialog } from "../../lite/client-picker";
@@ -113,7 +113,7 @@ export function OnboardingEntryActions({
       <Button
         variant="outline"
         size={compact ? "icon-xs" : "sm"}
-        onClick={() => navigate("/welcome?continue=client")}
+        onClick={() => navigate(NEW_CLIENT_PATH)}
         aria-label={text.client}
         title={text.client}
       >

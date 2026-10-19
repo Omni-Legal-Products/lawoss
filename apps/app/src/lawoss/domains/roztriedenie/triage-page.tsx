@@ -10,7 +10,7 @@ import { LawossLayout } from "../../shell/layout";
 import { activeWorkspace, useOkfConnection } from "../../okf/read-model";
 import { openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
 import { AI_SETTINGS_PATH, useMatterModelGap } from "../../lite/matter-model";
-import { LITE_CLIENTS_PATH, organizeFolderLink } from "../../lite/links";
+import { LITE_CLIENTS_PATH, NEW_CLIENT_PATH, organizeFolderLink } from "../../lite/links";
 import { installMissingOnboardingSkills } from "../onboarding/install-pack";
 import { ensureSkillAvailable, workspaceSkillEngine } from "../../okf/skill-availability";
 
@@ -78,7 +78,7 @@ function TriageEmpty({ text, message, create = false, organizeRoot }: { text: Te
       <FolderTree aria-hidden size={28} />
       <p>{message}</p>
       <div className="lw-triage-row">
-        {create ? <Link className="lw-today-primary" to="/welcome?continue=client">{text("create_trial")}</Link> : null}
+        {create ? <Link className="lw-today-primary" to={NEW_CLIENT_PATH}>{text("create_trial")}</Link> : null}
         {organizeRoot ? <Link className="lw-btn gold" to={organizeFolderLink(organizeRoot)}>{text("organize_okf")}</Link> : null}
         <Link className="lw-triage-ghost" to={LITE_CLIENTS_PATH}>{text("back")}</Link>
       </div>

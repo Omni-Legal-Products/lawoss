@@ -4,6 +4,8 @@ export const LITE_CLIENTS_PATH = "/klienti";
 export const LITE_MATTER_PATH = "/vec";
 /** Nová vec cez ten istý formulár s náhľadom a potvrdením ako bočný panel (nie technický Nový spis). */
 export const NEW_MATTER_PATH = "/welcome?continue=matter";
+/** Nový klient cez ten istý tok ako úvodná obrazovka; viditeľné tlačidlo „Pridať klienta“ na stránke Klienti. */
+export const NEW_CLIENT_PATH = "/welcome?continue=client";
 /** Pripojiť priečinok (klient, prax, vec) cez obrazovku „Toto som našiel“ (spec 2026-10-08). */
 export const ADD_FOLDER_PATH = "/welcome?continue=folder";
 /** Staré meno pre tlačidlá „Pripojiť existujúci priečinok klienta“; vedie na ten istý tok. */
