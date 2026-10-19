@@ -5,7 +5,7 @@
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import type { ClientChoice } from "./client-choice";
 import type { ClientNavModel } from "./client-projects";
-import { clientToggle, type TreeClient, type TreeFocus } from "./client-tree";
+import { clientToggle, focusedClientKey, type TreeClient, type TreeFocus } from "./client-tree";
 import type { ClientGroup } from "./today-model";
 
 /** Uzly stromu (klienti z prehľadu), ktoré patria projektu; `null` = projekt nie je klient OKF. */
@@ -32,7 +32,7 @@ export function mattersOpen(nodes: readonly Pick<TreeClient, "key" | "expanded">
 
 /** Projekt, v ktorého klientovi alebo veci je trasa (prehľad klienta, detail veci, chat vo veci). */
 export function focusedProject(focus: Pick<TreeFocus, "client" | "matter">, groups: readonly Pick<ClientGroup, "key" | "matters">[], ownerOf: ReadonlyMap<string, string>): string | null {
-  const key = focus.client ?? groups.find((g) => g.matters.some((m) => m.path === focus.matter))?.key;
+  const key = focusedClientKey(focus, groups);
   return key ? ownerOf.get(key) ?? null : null;
 }
 
@@ -52,16 +52,28 @@ export function closedGroups(groups: readonly Pick<ClientGroup, "key">[], ownerO
   return closed;
 }
 
+/** Kam „Nový chat“ založí chat: priečinok klienta (registrovaný projekt) alebo priečinok klienta v koreni praxe. */
+export type NewChatTarget = ClientChoice & { workspaceId: string; folder?: string };
+
 /**
- * Natívny „Nový chat“ v bežnom režime bez otvoreného projektu (rozhodnutie MČ 19. 10. 2026): klienti praxe
- * na výber, nikdy koreň praxe, keď sú aj iní klienti. Prázdny zoznam = natívne správanie.
+ * Natívny „Nový chat“ v bežnom režime bez otvoreného projektu (rozhodnutia MČ 19. 10. 2026): klienti praxe na výber
+ * a nikdy chat nad celým koreňom praxe. Registrovaní klienti sú ich projekty; klienti, ktorých vlastní koreň praxe
+ * (jeden priečinok pre všetko, neregistrovaný klient), dostanú chat v koreni s priečinkom klienta. Bez praxe sú
+ * na výber všetky projekty klientov. Prázdny zoznam = natívne správanie.
  */
-export function newChatChoices(workspaces: readonly Pick<RouteWorkspace, "id" | "path" | "name" | "displayNameResolved">[], model: Pick<ClientNavModel, "clients" | "hidden" | "practiceRootId">): ClientChoice[] {
-  const clients = workspaces.filter((w) => model.clients.has(w.id) && !model.hidden.has(w.id));
-  const withoutRoot = clients.filter((w) => w.id !== model.practiceRootId);
-  return (withoutRoot.length > 0 ? withoutRoot : clients)
-    .map((w) => ({ id: w.id, root: w.path, title: w.displayNameResolved || w.name || w.path }))
-    .sort((a, b) => a.title.localeCompare(b.title, "cs") || a.id.localeCompare(b.id));
+export function newChatChoices(
+  workspaces: readonly Pick<RouteWorkspace, "id" | "path" | "name" | "displayNameResolved">[],
+  model: Pick<ClientNavModel, "clients" | "hidden" | "practiceRootId">,
+  rootClients: readonly { key: string; title: string; folder: string }[] = [],
+): NewChatTarget[] {
+  const rootId = model.practiceRootId;
+  const projects: NewChatTarget[] = workspaces
+    .filter((w) => model.clients.has(w.id) && !model.hidden.has(w.id) && w.id !== rootId)
+    .map((w) => ({ id: w.id, workspaceId: w.id, root: w.path, title: w.displayNameResolved || w.name || w.path }));
+  const folders: NewChatTarget[] = rootId && !model.hidden.has(rootId)
+    ? rootClients.map((c) => ({ id: `${rootId}\u0000${c.key}`, workspaceId: rootId, folder: c.folder, root: c.folder, title: c.title }))
+    : [];
+  return [...projects, ...folders].sort((a, b) => a.title.localeCompare(b.title, "cs") || a.id.localeCompare(b.id));
 }
 
 /** Trasa prešla do projektu: jeho zatvorenie Prípadov používateľom sa zabudne (ako prepnutie uzla pri jednom klientovi). */
@@ -71,8 +83,8 @@ export function forgetProjectOverride(overrides: Readonly<Record<string, boolean
 }
 
 /** Čo urobí „Nový chat“ bez otvoreného projektu: natívne správanie (Pokročilý, žiadny klient), rovno jediný klient, alebo výber. */
-export type NewChatAction = { kind: "native" } | { kind: "create"; workspaceId: string } | { kind: "pick" };
-export function newChatAction(mode: "lite" | "pro", choices: readonly Pick<ClientChoice, "id">[]): NewChatAction {
+export type NewChatAction = { kind: "native" } | { kind: "create"; target: NewChatTarget } | { kind: "pick" };
+export function newChatAction(mode: "lite" | "pro", choices: readonly NewChatTarget[]): NewChatAction {
   if (mode !== "lite" || choices.length === 0) return { kind: "native" };
-  return choices.length === 1 ? { kind: "create", workspaceId: choices[0].id } : { kind: "pick" };
+  return choices.length === 1 ? { kind: "create", target: choices[0] } : { kind: "pick" };
 }

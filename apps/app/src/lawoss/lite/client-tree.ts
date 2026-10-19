@@ -8,7 +8,7 @@ import { matchPath } from "react-router-dom";
 import type { MatterOverview } from "../../../../../lawoss/okf/read";
 import type { ClientGroup } from "./today-model";
 import { LITE_CLIENTS_PATH, LITE_MATTER_PATH } from "./links";
-import { comparable, covers, type Assignment, type Folder, type FolderListing, type MatterConversation } from "./matter-conversations";
+import { comparable, covers, within, type Assignment, type Folder, type FolderListing, type MatterConversation, type Owners } from "./matter-conversations";
 
 /** Rozhovory pod klientom aj vecou; viac ukáže prehľad klienta alebo detail veci („Zobraziť všetky“). */
 export const TREE_CONVERSATION_LIMIT = 5;
@@ -54,9 +54,25 @@ export function clientFolderFor(key: string, matterPath: string): string | null 
   return null;
 }
 
+/** Kľúč klienta, v ktorom je trasa: priamo klient, alebo klient veci. */
+export function focusedClientKey(focus: Pick<TreeFocus, "client" | "matter">, groups: readonly Pick<ClientGroup, "key" | "matters">[]): string | undefined {
+  return focus.client ?? groups.find((g) => g.matters.some((m) => m.path === focus.matter))?.key;
+}
+
+/**
+ * Otvorený chat podľa jeho priečinka (v tvare appky): najhlbšia vec, ktorej priečinok ho obsahuje.
+ * Chat priamo v priečinku klienta alebo mimo vecí nič nerozbaľuje (je v natívnych Chatoch); neznámy priečinok tiež nie.
+ */
+export function directoryFocus(directory: string | null | undefined, owners: Pick<Owners, "matters">): Pick<TreeFocus, "client" | "matter"> {
+  if (!directory) return {};
+  const dir = comparable(directory);
+  const matter = owners.matters.filter((m) => m.folder && within(m.folder, dir)).sort((a, b) => (b.folder?.length ?? 0) - (a.folder?.length ?? 0))[0];
+  return matter ? { matter: matter.path } : {};
+}
+
 /** Trasa sa presunula na uzol: jeho prepnutie (aj prepnutie jeho klienta) sa zabudne, aby ho trasa rozbalila. */
 export function clearFocusOverrides(overrides: Readonly<Record<string, boolean>>, focus: Pick<TreeFocus, "client" | "matter">, groups: readonly ClientGroup[]): Readonly<Record<string, boolean>> {
-  const client = focus.client ?? groups.find((g) => g.matters.some((m) => m.path === focus.matter))?.key;
+  const client = focusedClientKey(focus, groups);
   const drop = [client ? clientToggle(client) : null, focus.matter ? matterToggle(focus.matter) : null].filter((k): k is string => k !== null && k in overrides);
   if (drop.length === 0) return overrides;
   return Object.fromEntries(Object.entries(overrides).filter(([key]) => !drop.includes(key)));
@@ -81,7 +97,7 @@ export function buildClientTree({ groups, focus, overrides, lists, canStart }: {
   /** Dá sa vo veci založiť rozhovor (tá istá kontrola ako akcia); pýta sa len na rozbalené veci. */
   canStart: (matterPath: string) => boolean;
 }): TreeClient[] {
-  const focusClient = focus.client ?? groups.find((g) => g.matters.some((m) => m.path === focus.matter))?.key;
+  const focusClient = focusedClientKey(focus, groups);
   return groups.map((group) => {
     const current = group.key === focusClient;
     const expanded = overrides[clientToggle(group.key)] ?? current;

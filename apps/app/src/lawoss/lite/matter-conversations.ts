@@ -130,6 +130,14 @@ export function folderEngine(connection: Pick<OkfConnection, "baseUrl" | "token"
   };
 }
 
+/** Priečinok jedného chatu (tvar servera/enginu) cez read model priečinka; `null` = chat ho nemá. */
+export async function readSessionDirectory(connection: Pick<OkfConnection, "baseUrl" | "token">, workspace: RouteWorkspace, sessionId: string, signal?: AbortSignal): Promise<string | null> {
+  const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
+  if (!endpoint) throw new Error("no connection");
+  const session = unwrap(await createClient(endpoint.opencodeBaseUrl, workspace.path, { token: endpoint.token, mode: "legalwork" }).session.get({ sessionID: sessionId }, { signal }));
+  return session.directory || null;
+}
+
 export function folderSessionsQuery(connection: Pick<OkfConnection, "baseUrl" | "token" | "client"> | null, folder: Folder) {
   return {
     queryKey: [FOLDER_SESSIONS_KEY, folder.workspace.id, comparable(folder.abs), connection?.baseUrl ?? "", connection?.token ?? ""] as const,

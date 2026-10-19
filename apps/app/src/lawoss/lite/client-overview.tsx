@@ -5,6 +5,7 @@
  * Projekt, ktorý nie je klient OKF, nedostane nič.
  */
 import { ArrowUpRight } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
@@ -24,8 +25,12 @@ const DEADLINE_LIMIT = 5;
 
 export function ClientOverview({ workspaceId }: { workspaceId: string }) {
   const nav = usePublishedClientNav();
+  // Panel zverejní dáta v efekte toho istého vykreslenia: prvé vykreslenie počká, samostatné čítanie len bez panela.
+  const [settled, setSettled] = useState(false);
+  useEffect(() => { setSettled(true); }, []);
+  if (nav) return <ClientOverviewFrom nav={nav} workspaceId={workspaceId} />;
   // Bočný panel už prehľad číta; samostatné okno projektu (bez panela) si ho prečíta samo.
-  return nav ? <ClientOverviewFrom nav={nav} workspaceId={workspaceId} /> : <StandaloneClientOverview workspaceId={workspaceId} />;
+  return settled ? <StandaloneClientOverview workspaceId={workspaceId} /> : null;
 }
 
 function StandaloneClientOverview({ workspaceId }: { workspaceId: string }) {

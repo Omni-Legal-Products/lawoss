@@ -36,6 +36,13 @@ const isLocal = (w: Workspace): boolean => w.workspaceType !== "remote" && Boole
 const strictlyWithin = (outer: string, inner: string): boolean => outer !== inner && within(outer, inner);
 
 /** Absolútny priečinok cesty z prehľadu (voči koreňu rozsahu); mimo rozsahu `null`. */
+/** Priečinok klienta z prehľadu na disku (karta, tvar cesty, inak jeho vec), v pôvodnom tvare pre engine; mimo rozsahu `null`. */
+export function clientGroupDirectory(scope: OkfScope, group: Group): string | null {
+  const folder = groupFolder(group);
+  const at = folder === null ? null : locateInScope(scope, folder);
+  return at?.workspace.path ? folderPath(at.workspace, at.path) : null;
+}
+
 export function overviewFolder(scope: OkfScope, relative: string): string | null {
   const at = locateInScope(scope, relative);
   return at?.workspace.path ? comparable(folderPath(at.workspace, at.path)) : null;
@@ -58,8 +65,8 @@ export function ownerOfFolder(visible: readonly Workspace[], folder: string): st
 /**
  * Čo sekcia klientov ukáže a kto koho vlastní (oprava po review 19. 10. 2026):
  * - bez praxe sa neskrýva nič;
- * - kým sa koreň praxe číta, skryjú sa len kandidáti (priečinok s iným registrovaným v sebe alebo v inom),
- *   aby sa nič neukázalo a hneď nezmizlo;
+ * - kým sa spojenie, koreň praxe alebo prehľad praxe číta, skryjú sa kandidáti (priečinok s iným
+ *   registrovaným v sebe alebo v inom), aby sa nič neukázalo a hneď nezmizlo (radšej neskôr než bliknúť);
  * - registrovaná staršia vec (priečinok veci z prehľadu) nie je klient; skryje sa, keď ju pokrýva iný
  *   viditeľný projekt (jej klient alebo koreň), a ani nevlastní klientov;
  * - registrovaný podpriečinok iného klienta sa skryje;
@@ -74,8 +81,8 @@ export function clientNavModel(workspaces: readonly Workspace[], practiceRoot: s
     return ready && folder !== null ? overviewFolder(ready.scope, folder) : null;
   };
   const hidden = new Set<string>();
-  let practiceRootId: string | null = null;
-  if (practiceRoot === undefined) {
+  const practiceRootId = practiceRoot ? local.find((w) => comparable(w.path) === comparable(practiceRoot))?.id ?? null : null;
+  if (practiceRoot === undefined || (practiceRoot && overview.status === "pending")) {
     for (const w of local) {
       const dir = comparable(w.path);
       if (local.some((o) => o.id !== w.id && (strictlyWithin(comparable(o.path), dir) || strictlyWithin(dir, comparable(o.path))))) hidden.add(w.id);
@@ -84,7 +91,6 @@ export function clientNavModel(workspaces: readonly Workspace[], practiceRoot: s
     const root = comparable(practiceRoot);
     const inside = local.filter((w) => within(root, comparable(w.path)));
     const roots = inside.filter((w) => comparable(w.path) === root);
-    practiceRootId = roots[0]?.id ?? null;
     const others = inside.filter((w) => comparable(w.path) !== root);
     const matterDirs = ready ? ready.matters.flatMap((m) => overviewFolder(ready.scope, m.path) ?? []) : [];
     const isMatter = (w: Workspace) => matterDirs.some((dir) => within(dir, comparable(w.path)));
@@ -94,12 +100,13 @@ export function clientNavModel(workspaces: readonly Workspace[], practiceRoot: s
     }
     const visibleClients = clients.filter((w) => !hidden.has(w.id));
     if (visibleClients.length > 0) {
-      const allOwned = ready !== null && ready.groups.every((g) => {
+      // Prázdny prehľad (žiadny klient) koreň neskryje: nie je čím doložiť, že ho nikto nepotrebuje.
+      const allOwned = ready !== null && ready.groups.length > 0 && ready.groups.every((g) => {
         const dir = groupDir(g);
         return dir !== null && ownerOfFolder(visibleClients, dir) !== null;
       });
-      // Prehľad sa ešte číta: koreň sa (zatiaľ) neukáže; nedá sa prečítať: ostane, nikto nezmizne.
-      if (overview.status === "pending" || allOwned) for (const w of roots) hidden.add(w.id);
+      // Prehľad sa nedá prečítať: koreň ostane, nikto nezmizne.
+      if (allOwned) for (const w of roots) hidden.add(w.id);
     }
     const containers = [...visibleClients, ...roots.filter((w) => !hidden.has(w.id))];
     for (const w of others.filter(isMatter)) {

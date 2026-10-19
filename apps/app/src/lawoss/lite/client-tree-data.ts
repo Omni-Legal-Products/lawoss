@@ -4,7 +4,7 @@
  * Model je v `client-tree.ts` a `matter-conversations.ts`; tu je len napojenie na React Query a trasu.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import type { Language } from "@/i18n";
 import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
@@ -12,10 +12,10 @@ import type { MatterOverview } from "../../../../../lawoss/okf/read";
 import type { OkfConnection } from "../okf/connection";
 import { openMatterSession } from "../okf/matter-session";
 import { localMatter, locateInScope, type OkfReadResult, type OkfScope } from "../okf/read-model";
-import { buildClientTree, clearFocusOverrides, clientFolderFor, clientToggle, fetchPlan, matterSource, routeFocus, sessionFocus, type ConversationList, type TreeFocus } from "./client-tree";
+import { buildClientTree, clearFocusOverrides, clientFolderFor, clientToggle, directoryFocus, fetchPlan, matterSource, routeFocus, sessionFocus, type ConversationList, type TreeFocus } from "./client-tree";
 import { liteMatterLink } from "./links";
 import {
-  assignConversations, comparable, FOLDER_SESSIONS_KEY, folderPath, openMatterConversation, useFolderListings, within,
+  assignConversations, comparable, FOLDER_SESSIONS_KEY, folderEngine, folderPath, openMatterConversation, readSessionDirectory, rebaseDirectory, useFolderListings, within,
   type Folder, type FolderListing, type FolderState, type MatterConversation, type Owners,
 } from "./matter-conversations";
 import { composeQuickAction } from "./quick-actions";
@@ -59,14 +59,52 @@ function matterList(states: ReadonlyMap<string, FolderState>, root: Folder | nul
 }
 
 /**
- * Voľby stromu v natívnom bočnom paneli: `isRootSession` = chat je natívny chat priamo v priečinku projektu
- * (nerozbaľuje Prípady, nečíta podstrom); `closedFor` = klienti, ktorí sú pri danom zameraní zbalení
- * (zatvorené Prípady projektu s viacerými klientmi), takže sa nečítajú.
+ * Voľby stromu v natívnom bočnom paneli. `sessionDirectory`: priečinok otvoreného chatu zo živého zoznamu panela
+ * (`undefined` = neznámy, prečíta sa jeden chat); s ním sa vec otvoreného chatu určí podľa jeho priečinka,
+ * bez výpisu podstromu, a chat priamo v priečinku projektu (natívne Chaty) nič nerozbalí. `closedFor`: klienti,
+ * ktorí sú pri danom zameraní zbalení (zatvorené Prípady projektu s viacerými klientmi), takže sa nečítajú.
  */
 export type ClientTreeOptions = {
-  isRootSession?: (workspaceId: string, sessionId: string) => boolean;
+  sessionDirectory?: (workspaceId: string, sessionId: string) => string | null | undefined;
   closedFor?: (focus: Pick<TreeFocus, "client" | "matter">) => ReadonlySet<string>;
 };
+
+export const SESSION_DIRECTORY_KEY = "lite-session-directory";
+export const FOLDER_LOCATE_KEY = "lite-folder-locate";
+
+/**
+ * Priečinok otvoreného chatu v tvare appky. Známy zo živého zoznamu, inak jedno čítanie chatu. Priečinok mimo
+ * projektu v tvare appky (symbolický odkaz, diakritika z disku) sa prevedie cez tvar enginu (`GET /path`),
+ * ako výpis priečinka. `undefined` = ešte sa číta.
+ */
+function useSessionDirectory(connection: OkfConnection | null, session: TreeFocus["session"], known: string | null | undefined, enabled: boolean): string | null | undefined {
+  const workspace = session ? connection?.workspaces.find((w) => w.id === session.workspaceId) : undefined;
+  const local = Boolean(workspace?.path && workspace.workspaceType !== "remote");
+  const fetched = useQuery({
+    queryKey: [SESSION_DIRECTORY_KEY, workspace?.id ?? "", session?.sessionId ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
+    enabled: enabled && local && known === undefined && Boolean(connection?.client && session),
+    staleTime: 60_000,
+    queryFn: ({ signal }) => connection && workspace && session ? readSessionDirectory(connection, workspace, session.sessionId, signal) : null,
+  });
+  const raw = known !== undefined ? known : fetched.data;
+  const direct = Boolean(raw && workspace?.path && within(comparable(workspace.path), comparable(raw)));
+  const where = useQuery({
+    queryKey: [FOLDER_LOCATE_KEY, workspace?.id ?? "", workspace?.path ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
+    enabled: enabled && local && Boolean(raw) && !direct && Boolean(connection?.client),
+    staleTime: 60_000,
+    queryFn: async ({ signal }) => {
+      const engine = connection && workspace ? folderEngine(connection, workspace) : null;
+      if (!engine || !workspace) throw new Error("no connection");
+      return engine.locate(workspace.path, signal);
+    },
+  });
+  if (!enabled || !session) return null;
+  if (!local || !workspace) return null;
+  if (raw === undefined) return fetched.isError ? null : undefined;
+  if (raw === null || direct) return raw;
+  if (where.isError) return null;
+  return where.data ? rebaseDirectory(raw, where.data.directory, workspace.path) : undefined;
+}
 
 /** Bočný strom: klienti a veci z prehľadu, rozhovory len pre rozbalených klientov a otvorenú konverzáciu. */
 export function useClientTree(connection: OkfConnection | null, scope: OkfScope | null, data: OkfReadResult | undefined, pathname: string, search: string, locale: Language, options: ClientTreeOptions = {}) {
@@ -79,18 +117,21 @@ export function useClientTree(connection: OkfConnection | null, scope: OkfScope 
   const clientFolders = useMemo(() => new Map(groups.map((g) => [g.key, clientFolderOfGroup(scope, g)])), [groups, scope]);
   const owners = useMemo(() => ownersOf(scope, groups), [scope, groups]);
   const folders = useMemo(() => ({ client: (key: string) => clientFolders.get(key) ?? null, matter: (path: string) => scopeFolder(scope, path) }), [clientFolders, scope]);
-  // Otvorená konverzácia: priečinok jej klienta (najhlbší, ktorý obsahuje jej registrovaný priečinok), inak ten priečinok.
-  const rootSession = route.session ? options.isRootSession?.(route.session.workspaceId, route.session.sessionId) ?? false : false;
+  // Panel pozná priečinok chatu: vec podľa priečinka, žiadny výpis podstromu (chat v koreni projektu nič nerozbalí).
+  const byDirectory = Boolean(options.sessionDirectory);
+  const liveDirectory = route.session && options.sessionDirectory ? options.sessionDirectory(route.session.workspaceId, route.session.sessionId) : undefined;
+  const sessionDirectory = useSessionDirectory(connection, route.session, liveDirectory, byDirectory);
+  // Inak: priečinok jej klienta (najhlbší, ktorý obsahuje jej registrovaný priečinok), inak ten priečinok.
   const sessionFolder = useMemo((): Folder | null => {
-    if (rootSession) return null;
+    if (byDirectory) return null;
     const workspace = route.session ? connection?.workspaces.find((w) => w.id === route.session?.workspaceId) : undefined;
     if (!workspace?.path || workspace.workspaceType === "remote") return null;
     const dir = comparable(workspace.path);
     const owner = [...clientFolders.values()].filter((f): f is Folder => f !== null && within(comparable(f.abs), dir)).sort((a, b) => b.abs.length - a.abs.length)[0];
     return owner ?? { workspace, abs: workspace.path };
-  }, [route, connection, clientFolders, rootSession]);
+  }, [route, connection, clientFolders, byDirectory]);
   const sessionStates = useFolderListings(connection, sessionFolder ? [sessionFolder] : []);
-  const focus = route.session ? (rootSession ? {} : sessionFocus(route, assignConversations(loaded(sessionStates), owners))) : route;
+  const focus = route.session ? (byDirectory ? directoryFocus(sessionDirectory, owners) : sessionFocus(route, assignConversations(loaded(sessionStates), owners))) : route;
   const closed = options.closedFor?.(focus);
   const effective = closed?.size ? { ...overrides, ...Object.fromEntries([...closed].map((key) => [clientToggle(key), false])) } : overrides;
   // Trasa sa presunula na uzol: jeho prepnutie sa zabudne (inak by ho navždy prebilo).

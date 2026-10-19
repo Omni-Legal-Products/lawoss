@@ -12,7 +12,7 @@
  */
 import { Briefcase, CalendarClock, ChevronRight, Plus, RotateCw } from "lucide-react";
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { Button } from "@/components/ui/button";
@@ -23,9 +23,10 @@ import { mapDesktopWorkspace, type RouteWorkspace } from "@/react-app/shell/rout
 import type { OkfConnection } from "../okf/connection";
 import { officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope, usePracticeRoot } from "../okf/read-model";
 import type { ClientChoice } from "./client-choice";
-import { closedGroups, focusedProject, forgetProjectOverride, mattersOpen, newChatAction, newChatChoices, projectNodes } from "./client-nav-model";
+import { closedGroups, focusedProject, forgetProjectOverride, mattersOpen, newChatAction, newChatChoices, projectNodes, type NewChatTarget } from "./client-nav-model";
+import { openClientFolderChat } from "./office-scope";
 import { ClientPickerDialog } from "./client-picker";
-import { clientNavAnchor, clientNavModel, type ClientOverviewState } from "./client-projects";
+import { clientGroupDirectory, clientNavAnchor, clientNavModel, type ClientOverviewState } from "./client-projects";
 import { clientToggle, matterToggle, routeFocus, type TreeClient, type TreeMatter } from "./client-tree";
 import { useClientTree } from "./client-tree-data";
 import { clientDeadlinesLink, clientOverviewLink, LEHOTY_PATH, liteMatterLink } from "./links";
@@ -34,6 +35,23 @@ import type { MatterConversation } from "./matter-conversations";
 import { groupByClient } from "./today-model";
 import { useUiMode } from "./ui-mode";
 
+/**
+ * Skupiny panela pre LAWOSS: režim wiki (session-route odovzdá len priečinok wiki) zoznam projektov nemení,
+ * ostane posledný zoznam bez wiki. `undefined` = panel zoznam neodovzdal.
+ */
+export function liveProjectGroups(groups: readonly WorkspaceSessionGroup[] | undefined, previous: readonly WorkspaceSessionGroup[] | undefined): readonly WorkspaceSessionGroup[] | undefined {
+  if (!groups) return previous;
+  const projects = groups.filter((g) => g.workspace.preset !== "wiki");
+  return projects.length === 0 && groups.length > 0 ? previous : projects;
+}
+
+function useLiveGroups(groups: readonly WorkspaceSessionGroup[] | undefined): readonly WorkspaceSessionGroup[] | undefined {
+  const last = useRef<readonly WorkspaceSessionGroup[] | undefined>(undefined);
+  const next = liveProjectGroups(groups, last.current);
+  last.current = next;
+  return next;
+}
+
 /** Projekty panela ako ich pozná LAWOSS; kľúč sa mení len pri zmene id, cesty alebo názvu (nie pri novom chate). */
 function useLiveWorkspaces(groups: readonly WorkspaceSessionGroup[] | undefined): RouteWorkspace[] | undefined {
   const key = groups?.map((g) => [g.workspace.id, g.workspace.path, g.workspace.name, g.workspace.displayName, g.workspace.workspaceType].join("\u0000")).join("\u0001");
@@ -41,6 +59,16 @@ function useLiveWorkspaces(groups: readonly WorkspaceSessionGroup[] | undefined)
   latest.current = groups;
   // Kľúč nesie všetko, čo mapovanie číta; nový chat v projekte zoznam nemení.
   return useMemo(() => latest.current?.map((g) => mapDesktopWorkspace(g.workspace)), [key]);
+}
+
+/**
+ * Priečinok chatu zo živého zoznamu panela: chat v skupine svojho projektu s priečinkom → ten priečinok; chat,
+ * ktorý v zozname nie je (filtrovaný, za limitom) alebo nemá priečinok → `undefined` (prečíta sa jeden chat).
+ */
+export function liveSessionDirectories(groups: readonly WorkspaceSessionGroup[] | undefined): (workspaceId: string, sessionId: string) => string | undefined {
+  const map = new Map<string, string>();
+  for (const group of groups ?? []) for (const s of group.sessions) if (s.directory) map.set(`${group.workspace.id}\u0000${s.id}`, s.directory);
+  return (workspaceId, sessionId) => map.get(`${workspaceId}\u0000${sessionId}`);
 }
 
 /** Spojenie s aktuálnym zoznamom projektov: registrácia alebo odobratie klienta sa prejaví hneď (review 19. 10.). */
@@ -58,7 +86,9 @@ export function useClientNavData(live?: { groups?: readonly WorkspaceSessionGrou
   const { connection: loaded } = useOkfConnection();
   const workspaces = useLiveWorkspaces(live?.groups);
   const connection = useMemo(() => liveConnection(loaded, workspaces, live?.selectedWorkspaceId), [loaded, workspaces, live?.selectedWorkspaceId]);
-  const practiceRoot = usePracticeRoot(connection);
+  // Kým sa spojenie číta, prax je neznáma: kandidáti na skrytie sa zatiaľ neukážu (radšej neskôr než bliknúť).
+  const root = usePracticeRoot(connection);
+  const practiceRoot = loaded === null ? undefined : root;
   const fallback = officeWorkspace(connection);
   const all = connection?.workspaces;
   const anchor = useMemo(() => clientNavAnchor(all ?? [], practiceRoot, fallback), [all, practiceRoot, fallback]);
@@ -69,8 +99,8 @@ export function useClientNavData(live?: { groups?: readonly WorkspaceSessionGrou
   const failed = Boolean(scope && !data && query.isError) || (connection !== null && !connection.client);
   const model = useMemo(() => {
     const overview: ClientOverviewState = scope && data ? { status: "ready", scope, groups, matters: data.matters } : failed ? { status: "unavailable" } : { status: "pending" };
-    return clientNavModel(all ?? [], practiceRoot, overview);
-  }, [all, practiceRoot, scope, data, groups, failed]);
+    return clientNavModel(all ?? workspaces ?? [], practiceRoot, overview);
+  }, [all, workspaces, practiceRoot, scope, data, groups, failed]);
   return { connection, scope, data, groups, model };
 }
 
@@ -113,40 +143,61 @@ export function ClientNavProvider(props: { groups?: readonly WorkspaceSessionGro
   return use(ClientNavContext) ? <>{props.children}</> : <ClientNavRoot {...props} />;
 }
 
-function ClientNavRoot({ groups: live, selectedWorkspaceId, children }: { groups?: readonly WorkspaceSessionGroup[]; selectedWorkspaceId?: string; children: ReactNode }) {
+function ClientNavRoot({ groups, selectedWorkspaceId, children }: { groups?: readonly WorkspaceSessionGroup[]; selectedWorkspaceId?: string; children: ReactNode }) {
   useMinuteTick(); // body naliehavosti sa o polnoci prepočítajú aj bez nového čítania
+  const live = useLiveGroups(groups);
   const nav = useClientNavData({ groups: live, selectedWorkspaceId });
+  const navigate = useNavigate();
   const { pathname, search } = useLocation();
   const locale = useLocale();
   const mode = useUiMode();
   const [open, setOpenState] = useState<Readonly<Record<string, boolean>>>({});
   const setOpen = useCallback((workspaceId: string, value: boolean) => setOpenState((prev) => ({ ...prev, [workspaceId]: value })), []);
-  // Natívny chat priamo v priečinku projektu nepatrí žiadnej veci: Prípady nerozbalí a nič nečíta.
-  const rootSessions = useMemo(() => new Set((live ?? []).flatMap((g) => g.sessions.map((s) => `${g.workspace.id}\u0000${s.id}`))), [live]);
+  // Vec otvoreného chatu podľa jeho priečinka (chat v koreni projektu nič nerozbalí ani nečíta).
+  const sessionDirectory = useMemo(() => liveSessionDirectories(live), [live]);
   const tree = useClientTree(nav.connection, nav.scope, nav.data, pathname, search, locale, {
-    isRootSession: (workspaceId, sessionId) => rootSessions.has(`${workspaceId}\u0000${sessionId}`),
+    sessionDirectory,
     closedFor: (focus) => closedGroups(nav.groups, nav.model.ownerOf, open, focusedProject(focus, nav.groups, nav.model.ownerOf)),
   });
   const focused = focusedProject(tree.focus, nav.groups, nav.model.ownerOf);
-  // Trasa prešla do projektu: jeho zatvorenie používateľom sa zabudne (ako pri jednom klientovi).
+  // Trasa prešla do projektu alebo na inú jeho vec: zatvorenie používateľom sa zabudne (ako pri jednom klientovi).
   useEffect(() => {
     setOpenState((prev) => forgetProjectOverride(prev, focused));
-  }, [focused]);
+  }, [focused, tree.focus.client, tree.focus.matter]);
   const snapshot = useMemo<PublishedClientNav>(() => ({ connection: nav.connection, scope: nav.scope, data: nav.data, groups: nav.groups, model: nav.model }), [nav.connection, nav.scope, nav.data, nav.groups, nav.model]);
   useEffect(() => { publish(snapshot); }, [snapshot]);
   useEffect(() => () => publish(null), []);
-  const choices = useMemo(() => newChatChoices(nav.connection?.workspaces ?? [], nav.model), [nav.connection, nav.model]);
+  // Klienti, ktorých vlastní koreň praxe: chat v koreni s priečinkom klienta, nikdy nad celou praxou.
+  const rootClients = useMemo(() => {
+    const rootId = nav.model.practiceRootId;
+    if (!rootId || !nav.scope) return [];
+    const scope = nav.scope;
+    return nav.groups.flatMap((g) => {
+      const folder = nav.model.ownerOf.get(g.key) === rootId ? clientGroupDirectory(scope, g) : null;
+      return folder ? [{ key: g.key, title: g.client || t("lawoss.lite.client_unnamed", locale), folder }] : [];
+    });
+  }, [nav.model, nav.scope, nav.groups, locale]);
+  const choices = useMemo(() => newChatChoices(nav.connection?.workspaces ?? [], nav.model, rootClients), [nav.connection, nav.model, rootClients]);
   const [picking, setPicking] = useState(false);
   const pending = useRef<((workspaceId: string) => void) | null>(null);
+  const start = useCallback((target: NewChatTarget, create: (workspaceId: string) => void) => {
+    if (!target.folder) { create(target.workspaceId); return; }
+    openClientFolderChat(target.workspaceId, target.folder).then((to) => navigate(to)).catch((failure: unknown) => console.warn("LAWOSS: new chat in client folder", failure));
+  }, [navigate]);
   const startNewChat = useCallback((create: (workspaceId: string) => void) => {
     const action = newChatAction(mode, choices);
     if (action.kind === "native") return false;
-    if (action.kind === "create") { create(action.workspaceId); return true; }
+    if (action.kind === "create") { start(action.target, create); return true; }
     pending.current = create;
     setPicking(true);
     return true;
-  }, [mode, choices]);
-  const pick = (choice: ClientChoice) => { setPicking(false); pending.current?.(choice.id); pending.current = null; };
+  }, [mode, choices, start]);
+  const pick = (choice: ClientChoice) => {
+    setPicking(false);
+    const target = choices.find((c) => c.id === choice.id);
+    if (target && pending.current) start(target, pending.current);
+    pending.current = null;
+  };
   return <ClientNavContext.Provider value={{ ...snapshot, tree, open, setOpen, focused, startNewChat }}>
     {children}
     <ClientPickerDialog open={picking} purpose="ask" choices={choices} activeId={nav.connection?.activeWorkspaceId} locale={locale}
