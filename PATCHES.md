@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Limit štartu enginu na Windows (2026-10-19)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/managed-opencode.ts` | +1 import `engineStartTimeoutMs` z nového `apps/server/src/lawoss/engine-start-timeout.ts`; predvolený limit `options.timeoutMs ?? 15000` nahrádza `options.timeoutMs ?? engineStartTimeoutMs()` (+1 riadok komentára). Na Windows 90 s, inde ostáva 15 s; `LAWOSS_ENGINE_START_TIMEOUT_MS` (1000 až 600000) limit prepíše. Explicitný `timeoutMs` volajúceho má naďalej prednosť. Dôvod: na Windows s antivírusom sidecar štartoval 28 až 46 s a alfa skončila na „Timeout waiting for OpenCode server after 15000ms“ (lawoss#185). |
+
 ## Synthetic scenario benchmark completion and grading (2026-10-18)
 
 | Súbory | Downstream doplnenie a dôvod |
