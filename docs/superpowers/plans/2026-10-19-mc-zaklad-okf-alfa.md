@@ -46,7 +46,7 @@ Každé rozhodnutie má odporúčanú voľbu. Ak MČ plán schváli bez zmeny, p
 | `apps/app/src/lawoss/domains/onboarding/entry-actions.tsx` | #168 | Úlohy 5 a 8 |
 | `apps/app/src/lawoss/lite/lite-nav.tsx` | #168 | Úloha 5 (len pri voľbe R1 v Bráne G2) |
 | `apps/app/src/lawoss/i18n/shell.ts` | #168 | Úlohy 6 a 7 |
-| `apps/app/src/i18n/locales/sk.ts` | #168, #177 | Úloha 3, až po zlúčení #177 |
+| `apps/app/src/i18n/locales/sk.ts` | #168, #177 | Úloha 3 (jeden riadok, zelená zóna; ak #177 ešte nie je zlúčený, zosúladí ho VŘ) |
 | `apps/app/src/react-app/shell/session-route.tsx` | #168, #174 | Úloha 3, až po zlúčení #174 |
 | `docs/lawoss-build-pre-testerov.md`, `README.md` | #168 | Úloha 10 |
 | `PATCHES.md` | všetky | iba pridanie riadkov na koniec tabuľky, nikdy nie úprava cudzích riadkov |
@@ -65,7 +65,7 @@ Autonómny beh sa pri každej bráne zastaví a pokračuje až po výslovnom pok
 
 | Brána | Kedy | Čo MČ rozhodne |
 |---|---|---|
-| G0 | pred prvou úlohou | schváli plán a rozhodnutia R1 až R8 a odošle správu pre VŘ |
+| G0 | pred prvou úlohou | schváli plán a rozhodnutia R1 až R8. Plán sa pushne ako draft PR do `lawoss`, aby naň správa pre VŘ mohla odkázať a VŘ mohol komentovať prekryvy. Potom MČ odošle správu pre VŘ. |
 | G1 | po review #170, #171, #173, #174 | schváli review a merge (memory: najprv zhodnotiť a odpovedať, potom merge, len merge commit) |
 | G1b | po review #177 na `dev` | schváli merge #177 |
 | G2 | po screenshotoch sidebaru (Úloha 4) | vyberie variant sidebaru |
@@ -73,6 +73,13 @@ Autonómny beh sa pri každej bráne zastaví a pokračuje až po výslovnom pok
 | G4 | po overení alfy (VŘ na čistom Macu, Windows tester) | schváli oznámenie testerom |
 
 Každý PR MČ ide na review VŘ (R8). Merge PR MČ bez schválenia VŘ len po pokyne MČ pri danom PR.
+
+**Čo robiť počas čakania.** VŘ má tento týždeň pojednávanie, review nemusí prísť v ten istý deň. Beh preto nečaká na celé reťaze:
+- Úlohy 2, 4, 6, 9 a 10 idú hneď, každá vo vlastnej vetve z `dev`.
+- Úloha 3 čaká len na zlúčenie #174 (`session-route.tsx`). Všetko ostatné v nej môže ísť skôr.
+- Úlohy 7 a 8 menia `lawoss/okf/src/triage/scan.ts`, preto idú za sebou: najprv 7, Úloha 8 sa vetví z vetvy 7 alebo z `dev` po jej zlúčení.
+- Úloha 5 čaká na G2 a Úloha 11 na zlúčenie všetkého.
+- Ak PR čaká na review dlhšie ako jeden pracovný deň, pripomeň ho VŘ komentárom v PR a nahlás to MČ. Nemerguj.
 
 ---
 
@@ -111,6 +118,8 @@ MČ je od 25. 10. do 13. 11. preč a dostupný len sporadicky.
 - Len syntetické dáta. Dataset sa sťahuje podľa `SYNTHETIC_DATA.md` do ignorovaného `.work/synthetic-sk/`. Zápisové testy bež na jeho kópii a `ground-truth/` nikdy nedávaj modelu.
 - Nemeň súbory zo zoznamu „MČ nemení“. Súbory z tabuľky prekryvu meň až po splnení podmienky v stĺpci „Kedy“.
 - Pred každým PR spusti testy dotknutej časti a do popisu PR napíš presné príkazy a výsledky.
+- PR MČ sa nesmú biť navzájom. Po každom merge do `dev` zlúč `origin/dev` do každej otvorenej vetvy MČ pred ďalším pushom (`git merge`, nie rebase ani force-push). V `apps/app/src/lawoss/i18n/shell.ts` pridáva každá úloha kľúče do bloku svojej domény (`lawoss.onboarding.*`, `lawoss.triage.*`, `lawoss.alpha.*`, `lawoss.lite.*`), nie na koniec súboru. Riadky `PATCHES.md` sa pridávajú na koniec tabuľky. Pri konflikte ponechaj oba riadky.
+- `apps/app/src/i18n/locales/sk.ts` a `cs.ts` sú zelená zóna a nepotrebujú riadok v `PATCHES.md`.
 
 ## Review Focus
 
@@ -132,11 +141,11 @@ MČ je od 25. 10. do 13. 11. preč a dostupný len sporadicky.
 **Súbory:** žiadne zmeny kódu. Výstup je review komentár ku každému PR (zatiaľ ako koncept v `.work/review/<číslo>.md`).
 
 - [ ] **Krok 1:** Pre každé z #170, #171, #173 a #174: `git fetch origin pull/<n>/head:refs/vr/<n>`, worktree na `refs/vr/<n>`, `pnpm install --frozen-lockfile`. Spusti testy, ktoré PR uvádza v popise, a k nim `pnpm --filter @legalwork/app test` a pre serverové PR `cd apps/server && bun test <dotknuté súbory testov>`. Očakávaný výsledok: 0 FAIL.
-- [ ] **Krok 2:** #171 over na SK datasete. Na kópii `02_OKF_kancelaria` vyber dve veci a nechaj pripraviť dokumenty z `01_Podklady/IN-006/Re podklady.eml`. Očakáva sa telo e-mailu a jeho príloha PDF so zachovaným hashom.
+- [ ] **Krok 2:** #171 over na SK e-maile. Spusti zamerané testy, ktoré PR uvádza (príprava dokumentov a EML na serveri). Potom v rovnakom teste, aký PR pridáva pre EML, nahraď vstup kópiou `02_OKF_kancelaria/Klienti/C001-…/Spisy/M001-…/01_Podklady/IN-006/Re podklady.eml` (len lokálne, necommitovať). Očakáva sa neprázdne telo a práve jedna príloha PDF, ktorej SHA-256 sa rovná hashu `01_Podklady/IN-003/Podklady.pdf` tej istej veci (dataset to garantuje).
 - [ ] **Krok 3:** Prečítaj diff každého PR so zreteľom na Z2 a Z3 a na slovenské dáta. Do konceptu review napíš výsledok testov, nálezy (blokujúce a neblokujúce) a odporúčanie.
 - [ ] **Krok 4 — Brána G1:** Ukáž MČ koncepty review. Po pokyne ich zverejni (`gh pr review <n> --approve|--comment --body-file …`) a zlúč v poradí #170, #173, #174, #171 cez `gh pr merge <n> --merge`.
 - [ ] **Krok 4b:** #172 (česká testovacia sada, B2): spusti `node lawoss/testing/fixtures/verify.mjs` podľa popisu PR a prezri tri náhodné dokumenty. Do review napíš otázku na nezávislú kontrolu súkromia. Merge až po odpovedi VŘ a pokyne MČ (Brána G1).
-- [ ] **Krok 5:** Po zlúčení #171 preretarguj #177 (`gh pr edit 177 --base dev`). Počkaj na celé CI a zopakuj kroky 1 a 3. **Brána G1b**, potom merge.
+- [ ] **Krok 5:** Po zlúčení #171 preretarguj #177 (`gh pr edit 177 --base dev`). Pozor: po zmene základne sa workflowy samy znova nespustia. Požiadaj VŘ, aby do vetvy #177 zlúčil `dev` (spustí CI), alebo chýbajúce joby spusti lokálne nad preretargetovanou hlavou a uveď to v review. Potom zopakuj kroky 1 a 3. **Brána G1b**, potom merge.
 
 ### Úloha 2: `okf validate` hlási viac kariet v jednom priečinku
 
@@ -177,7 +186,7 @@ Nemeniť: `eigenwelt-account-menu.tsx:31` (jediné koliesko), ikony vnútri Nast
 
 - [ ] **Krok 1: Test, ktorý zlyhá.** `lawoss-single-settings-icon.test.ts` načíta zdrojový text súborov z tabuľky a overí, že žiadny z nich neimportuje z `lucide-react` `Settings`, `Settings2` ani `Cog`. Zároveň overí, že `eigenwelt-account-menu.tsx` `Settings` importuje a že `session-route.tsx` obsahuje `showSettingsButton: false`.
 - [ ] **Krok 2:** `cd apps/app && bun test tests/lawoss-single-settings-icon.test.ts`. Očakáva sa FAIL.
-- [ ] **Krok 3:** Zmeny podľa tabuľky a riadok v `PATCHES.md` so zoznamom súborov a dôvodom „jedno ozubené koliesko = nastavenia appky (zápis 19. 10., D1)“.
+- [ ] **Krok 3:** Zmeny podľa tabuľky a riadok v `PATCHES.md` so zoznamom upstream súborov (bez `sk.ts`, ten je zelená zóna) a dôvodom „jedno ozubené koliesko = nastavenia appky (zápis 19. 10., D1)“.
 - [ ] **Krok 4:** `pnpm --filter @legalwork/app test`, `pnpm --filter @legalwork/app test:i18n`, `pnpm typecheck` a `node lawoss/scripts/check-branding.mjs`. Očakáva sa PASS. Pozor: `tests/lawoss-hidden-upstream-surfaces.test.tsx:117-118` kontroluje presné riadky v `app-sidebar.tsx`, nepreformátuj ich.
 - [ ] **Krok 5:** Commit `fix: ozubené koliesko len pre nastavenia appky` a PR `fix/jedno-koliesko`.
 
@@ -257,7 +266,7 @@ V `triage-page.tsx:34` sa kód `not_trial_clone` mapuje na nový kľúč `lawoss
 
 - [ ] **Krok 1: Testy, ktoré zlyhajú.** V `triage-in-place.test.ts`:
   - `scanTriage(root, { limits: { maxBytes: 10 } })` nad klientom s 1 KB súborom zlyhá chybou s `code === "triage_too_large"`.
-  - Bez limitov sa použijú `TRIAGE_INSPECTION_LIMITS`: over cez háčik `hooks`, že sa prečíta súbor väčší ako 1 GiB, alebo nad hodnotou konštanty, ak je reálny súbor nepraktický.
+  - Bez limitov sa použijú `TRIAGE_INSPECTION_LIMITS`: vytvor riedky súbor `fs.truncate(path, 2 * 1024 ** 3)` (vznikne okamžite, hash 2 GB núl trvá sekundy). `scanTriage` bez zadaných limitov ho prečíta bez chyby, kým so starým limitom `{ maxBytes: 1024 ** 3 }` zlyhá s `triage_too_large`.
   - Review Focus 4: zamknutý súbor (cez existujúci háčik `lockedForWrite`) sa aj s novými limitmi preskočí s dôvodom `locked`.
   - V `lawoss-triage.e2e.test.ts`: odpoveď 413 s kódom `triage_too_large`.
 - [ ] **Krok 2:** `cd lawoss/okf && bun test test/triage-in-place.test.ts` a `cd apps/server && bun test src/lawoss-triage.e2e.test.ts`. Očakáva sa FAIL.
@@ -320,7 +329,7 @@ V `triage-page.tsx:34` sa kód `not_trial_clone` mapuje na nový kľúč `lawoss
   - Existujúci `--dest` skončí exit 2.
   - Text `SYN-M001/2026` ostane nezmenený.
 - [ ] **Krok 2:** `python -m unittest lawoss/testing/synthetic-sk/test_shift_dates.py`. Očakáva sa FAIL.
-- [ ] **Krok 3:** Implementácia. Na skutočnej kópii `02_OKF_kancelaria` potom over `node lawoss/okf-pamat/bundle/okf-memory.js validate` na troch veciach. Očakáva sa exit 0 len so zámernými varovaniami.
+- [ ] **Krok 3:** Implementácia. Ak záznam pamäte nesie `truth_digest` (návrh VŘ, validátor ho kontroluje v `lawoss/okf-pamat/src/validate.ts:742`), posuň len dátumy vo frontmatteri a v časti `## History`, telo `## Truth` nechaj. Inak by validácia zlyhala na nezhode odtlačku. Doplň na to test so záznamom s `truth_digest`. Dataset v1 `truth_digest` nemá (overené 19. 10.), posunie sa celý text. Na skutočnej kópii `02_OKF_kancelaria` potom over `node lawoss/okf-pamat/bundle/okf-memory.js validate` na troch veciach. Očakáva sa exit 0 len so zámernými varovaniami.
 - [ ] **Krok 4:** Prepíš `docs/lawoss-build-pre-testerov.md` na tieto časti:
   1. Upozornenie, že ide o alfu (text z Úlohy 9).
   2. Stiahnutie z releasov forku (macOS, Windows nepodpísaný len pre interný tím).
