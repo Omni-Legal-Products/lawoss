@@ -80,6 +80,7 @@ Rules:
 ## TypeScript and package management
 
 - Use strict TypeScript.
+- For synchronous Word LCS alignment, materialize immutable XML-derived keys once after the size admission check. Keep revision/formatting assertions at the real DOCX comparison boundary and preserve the existing size and test-time limits.
 - Static network guards must distinguish typed method declarations from calls while still scanning the complete method body. Preserve mutation regressions for real network calls when refining a classifier.
 - Never use `any`, typecasts, or `as` unless necessary and justified.
 - Prefer functional patterns, short focused functions, DRY, KISS, and YAGNI.
