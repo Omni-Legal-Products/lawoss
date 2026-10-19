@@ -19,24 +19,35 @@ describe("složka věci", () => {
 });
 
 describe("seznam konverzací", () => {
-  const sessions = [
-    { id: "s-old", title: "Shrnutí spisu", time: { created: 1, updated: 100 } },
-    { id: "s-new", title: "New session - 2026-09-24T10:00:00Z", time: { created: 2, updated: 300 } },
-    { id: "s-mid", title: "Odpověď protistraně", time: { created: 3, updated: 200 } },
-  ];
+  // Starší věc s vlastní registrovanou složkou (před 3. 10. 2026) i nová konverzace ve složce věci
+  // u kanceláře (openMatterSession od 0ede3fac): obě patří věci podle složky konverzace.
+  const dir = "/k/Kancelar/AK/B/Barakat Jalal/2026-09-16_Stepanska";
+  const byWorkspace: Record<string, unknown[]> = {
+    m1: [
+      { id: "s-old", title: "Shrnutí spisu", directory: dir, time: { created: 1, updated: 100 } },
+      { id: "s-new", title: "New session - 2026-09-24T10:00:00Z", directory: dir, time: { created: 2, updated: 300 } },
+    ],
+    office: [
+      { id: "s-mid", title: "Odpověď protistraně", directory: dir, time: { created: 3, updated: 200 } },
+      { id: "s-new", title: "New session - 2026-09-24T10:00:00Z", directory: dir, time: { created: 2, updated: 300 } },
+      { id: "s-office", title: "Otázka kanceláře", directory: "/k/Kancelar", time: { created: 4, updated: 400 } },
+      { id: "s-other", title: "Jiná věc", directory: "/k/Kancelar/AK/X/nikdy", time: { created: 5, updated: 500 } },
+    ],
+  };
   const calls: unknown[] = [];
-  const client = { listSessions: async (id: string, options: unknown) => { calls.push([id, options]); return { items: sessions }; } };
+  const client = { listSessions: async (id: string, options: unknown) => { calls.push([id, options]); return { items: byWorkspace[id] ?? [] }; } };
   const connection = { client, baseUrl: "", token: "", workspaces: [office, matter], activeWorkspaceId: "office" };
 
-  test("nejnovější první, jen hlavní konverzace, výchozí název upstreamu = bez názvu", async () => {
+  test("nejnovější první, jen hlavní konverzace této věci, výchozí název upstreamu = bez názvu", async () => {
     const list = await listMatterConversations(connection as never, "AK/B/Barakat Jalal/2026-09-16_Stepanska", 5);
     expect(list.map((c) => [c.id, c.title])).toEqual([["s-new", null], ["s-mid", "Odpověď protistraně"], ["s-old", "Shrnutí spisu"]]);
-    expect(calls[0]).toEqual(["m1", { roots: true, limit: 5 }]);
+    expect(calls).toEqual([["office", { roots: true, limit: 200 }], ["m1", { roots: true, limit: 200 }]]);
   });
-  test("věc bez registrované složky (žádná akce) → prázdný seznam, žádný dotaz", async () => {
-    const before = calls.length;
-    expect(await listMatterConversations(connection as never, "AK/X/nikdy", 5)).toEqual([]);
-    expect(calls.length).toBe(before);
+  test("věc bez registrované složky: konverzace ze složky věci u kanceláře, jeden dotaz", async () => {
+    calls.length = 0;
+    const list = await listMatterConversations(connection as never, "AK/X/nikdy", 5);
+    expect(list.map((c) => [c.id, c.workspaceId])).toEqual([["s-other", "office"]]);
+    expect(calls).toEqual([["office", { roots: true, limit: 200 }]]);
   });
 });
 

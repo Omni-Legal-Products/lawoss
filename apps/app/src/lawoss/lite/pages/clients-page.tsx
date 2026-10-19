@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useMemo, type CSSProperties, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ArrowUpRight, FolderOpen } from "lucide-react";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
@@ -10,7 +10,7 @@ import { formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope }
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { urgencyOf } from "../../okf/view-rules";
 import { groupByClient, nextDeadline, type ClientGroup } from "../today-model";
-import { ATTACH_EXISTING_CLIENT_PATH, liteMatterLink, NEW_CLIENT_PATH } from "../links";
+import { ATTACH_EXISTING_CLIENT_PATH, LITE_CLIENTS_PATH, liteMatterLink, NEW_CLIENT_PATH } from "../links";
 import { clientRootOf, practiceClientChoices, type ClientChoice } from "../client-choice";
 import { NewMatterAction } from "../client-picker";
 import { TriageEntry } from "../../domains/roztriedenie/triage-entry";
@@ -27,11 +27,13 @@ function ClientsLive({ data, meta, scope, locale }: { data: OkfReadResult; meta:
   useMinuteTick();
   useHotTitle(hotDeadlineCount(data, today()));
   const { connection } = useOkfConnection();
+  // Klik na klienta v bočnom strome: `?klient=` ukáže len jeho kartu (prehľad klienta).
+  const [params] = useSearchParams();
   const choices = useMemo(() => practiceClientChoices(scope, data.clients), [scope, data.clients]);
   // Karta klienta ide rovno do svojho klienta, bez výberu.
   const clientRoot = (key: string) => key.startsWith("client:") ? clientRootOf(scope, key.slice("client:".length)) : undefined;
   return <ClientsView groups={groupByClient(data.matters, data.inputs, data.clients)} meta={meta} locale={locale} actions={<TriageEntry />}
-    choices={choices} activeId={connection?.activeWorkspaceId} clientRoot={clientRoot} />;
+    choices={choices} activeId={connection?.activeWorkspaceId} clientRoot={clientRoot} focus={params.get("klient")} />;
 }
 
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });
@@ -39,21 +41,26 @@ const initials = (name: string) => name.split(/\s+/).filter((part) => /\p{L}/u.t
 
 /** Klienti ako karty s ich vecami; najbližšia lehota a jej naliehavosť z tej istej pamäte ako Dnes. */
 /** `actions`: ďalšie vstupy vedľa novej veci (roztriedenie skúšobného klona). */
-export function ClientsView({ groups, meta, locale: forced, actions, choices, activeId, clientRoot }: {
+export function ClientsView({ groups: all, meta, locale: forced, actions, choices, activeId, clientRoot, focus }: {
   groups: readonly ClientGroup[]; meta?: OkfPageMeta; locale?: Language; actions?: ReactNode;
   /** Prax: klienti na krátky výber pri „+ Nová vec“ a priečinok klienta z karty (MČ 16. 10. 2026). */
   choices?: readonly ClientChoice[]; activeId?: string | null; clientRoot?: (groupKey: string) => string | undefined;
+  /** Kľúč klienta z bočného stromu: len jeho karta; neznámy kľúč (premenovaný priečinok) = všetci. */
+  focus?: string | null;
 }) {
   const current = useLocale();
   const locale = forced ?? current;
   const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.lite.${key}`, locale, params);
   const now = today();
+  const focused = focus ? all.filter((group) => group.key === focus) : [];
+  const groups = focused.length > 0 ? focused : all;
   return (
     <div className="lw-clients" data-lawoss-lite="clients">
       <header className="lw-clients-hero" style={reveal(0)}>
         <div>
           {meta ? <p className="lw-clients-topline"><LiveStamp meta={meta} locale={locale} /></p> : null}
           <h1 className="lw-h1">{text("clients_title")}</h1>
+          {focused.length > 0 ? <p className="lw-clients-back"><Link to={LITE_CLIENTS_PATH}>{t("lawoss.lite.clients_all", locale)}</Link></p> : null}
         </div>
         <div className="lw-clients-actions">
           {actions}

@@ -69,13 +69,13 @@ describe("boční panel LAWOSS-lite", () => {
     }
     expect(out).not.toContain("EXP");
   });
-  test("Poslední věci: nejvýš 5 odkazů na věc", () => {
-    const many = Array.from({ length: 7 }, (_, i) => ({ path: `Klienti/K${i}/Spisy/V${i}`, title: `Věc ${i}` }));
-    const out = html(<LiteNavView recent={many} />);
-    expect(out).toContain("Recent matters");
-    expect(out.match(/data-lawoss-lite-recent/g)?.length).toBe(5);
-    expect(html(<LiteNavView recent={recent} />)).toContain(`href="${liteMatterLink(recent[0].path).replace(/&/g, "&amp;")}"`);
-    expect(html(<LiteNavView recent={[]} />)).not.toContain("Recent matters");
+  test("strom klientov nahradil Posledné veci (variant A, 19. 10. 2026); bez klientov oddiel chýba", () => {
+    const tree = [{ key: "client:Novák", title: "Novák", expanded: true, current: true, matters: recent.map((m) => ({ ...m, deadlines: [], expanded: false, current: false, conversations: [], more: false, canStart: true })) }];
+    const out = html(<LiteNavView tree={tree} />);
+    expect(out).not.toContain("Recent matters");
+    expect(out).toContain("data-lawoss-lite-tree");
+    expect(out).toContain(`href="${liteMatterLink(recent[0].path).replace(/&/g, "&amp;")}"`);
+    expect(html(<LiteNavView tree={[]} />)).not.toContain("data-lawoss-lite-tree");
   });
   test("jedna navigácia v oboch režimoch: Dnes · Klienti a veci · Opýtať sa · Pridať priečinok (G2, 19. 10. 2026)", () => {
     // SSR snapshot režimu je vždy "pro" (getServerSnapshot). LawossNav sa už podľa režimu nevetví,
@@ -90,7 +90,7 @@ describe("boční panel LAWOSS-lite", () => {
   test("Pridať priečinok: aria-current len na presnej adrese, nie na inom kroku /welcome", () => {
     const at = (entry: string) => renderToStaticMarkup(
       <QueryClientProvider client={new QueryClient()}>
-        <MemoryRouter initialEntries={[entry]}><SidebarProvider><LiteNavView recent={[]} /></SidebarProvider></MemoryRouter>
+        <MemoryRouter initialEntries={[entry]}><SidebarProvider><LiteNavView /></SidebarProvider></MemoryRouter>
       </QueryClientProvider>,
     );
     const anchor = (out: string) => out.match(/<a[^>]*data-lawoss-lite-nav="add_folder"[^>]*>/)?.[0] ?? "";

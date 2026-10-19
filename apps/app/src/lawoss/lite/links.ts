@@ -15,6 +15,9 @@ export const organizeFolderLink = (root: string): string => `${ADD_FOLDER_PATH}&
 
 export const liteMatterLink = (path: string): string => `${LITE_MATTER_PATH}?vec=${encodeURIComponent(path)}`;
 
+/** Prehľad jedného klienta na stránke Klienti a veci (`?klient=<kľúč skupiny>`, kľúč z `groupByClient`). */
+export const clientOverviewLink = (key: string): string => `${LITE_CLIENTS_PATH}?klient=${encodeURIComponent(key)}`;
+
 /** Odkaz na konkrétnu lehotu v detaile veci: otvorí vec, posunie sa na lehotu a krátko ju zvýrazní. */
 export const liteDeadlineLink = (path: string, recordId: string, date: string): string =>
   `${liteMatterLink(path)}&lehota=${encodeURIComponent(`${recordId}@${date}`)}`;
