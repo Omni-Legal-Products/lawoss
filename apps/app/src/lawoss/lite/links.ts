@@ -21,3 +21,7 @@ export const clientOverviewLink = (key: string): string => `${LITE_CLIENTS_PATH}
 /** Odkaz na konkrétnu lehotu v detaile veci: otvorí vec, posunie sa na lehotu a krátko ju zvýrazní. */
 export const liteDeadlineLink = (path: string, recordId: string, date: string): string =>
   `${liteMatterLink(path)}&lehota=${encodeURIComponent(`${recordId}@${date}`)}`;
+
+/** Register lehôt (`/lehoty`); `?klient=<id priečinka>` ho obmedzí na veci jedného klienta (bočný panel, Domov klienta). */
+export const LEHOTY_PATH = "/lehoty";
+export const clientDeadlinesLink = (workspaceId: string): string => `${LEHOTY_PATH}?klient=${encodeURIComponent(workspaceId)}`;

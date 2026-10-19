@@ -6,8 +6,7 @@ import { readWorkspaceMemory, type OkfReadClient } from "../src/lawoss/okf/read-
 import { missingFolderAlternatives, switchToWorkspace, unavailableWorkspace } from "../src/lawoss/okf/missing-folder";
 import { MissingFolderView } from "../src/lawoss/domains/missing-folder";
 import { OkfPageState } from "../src/lawoss/domains/okf-page";
-import { askFailurePath } from "../src/lawoss/lite/lite-nav";
-import { ADD_FOLDER_PATH, LITE_TODAY_PATH } from "../src/lawoss/lite/links";
+import { ADD_FOLDER_PATH } from "../src/lawoss/lite/links";
 import { buildOverview } from "../../../lawoss/okf/read";
 
 const PARTIAL_EN = "Some memory files could not be read";
@@ -70,11 +69,6 @@ describe("chýbajúci priečinok aktívneho pracovného priestoru (MČ 19. 10.)"
     expect(html).toContain("dashboard");
     // Upozornenie na neúplné čítanie ostáva aj vedľa chýbajúceho klienta (review 6d).
     expect(html).toContain(PARTIAL_EN);
-  });
-
-  test("Opýtať sa pri chýbajúcom priečinku vedie na Dnes s vysvetlením, inak na konverzácie", () => {
-    expect(askFailurePath(gone())).toBe(LITE_TODAY_PATH);
-    expect(askFailurePath(new Error("iné"))).toBe("/session");
   });
 });
 

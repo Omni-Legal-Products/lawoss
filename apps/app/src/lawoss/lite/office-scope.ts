@@ -4,7 +4,7 @@
  * běžely nad věcí. Tady se rozsah vrací na kancelář (review PR #100).
  */
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
-import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../okf/connection";
+import { loadOkfConnection, type OkfConnection } from "../okf/connection";
 import { activateLocalWorkspace } from "../okf/matter-session";
 import { activeWorkspace, officeOf, officeWorkspace, OFFICE_SCOPE_RESTORED } from "../okf/read-model";
 import { currentUiMode } from "./ui-mode";
@@ -27,24 +27,6 @@ export function restoreOfficeScope(): Promise<OkfConnection> {
     return restored;
   })().finally(() => { pending = null; });
   return pending;
-}
-
-/** „Zeptat se“: nová konverzace v kanceláři, bez věci - ne poslední konverzace naposledy otevřené věci. */
-export async function openOfficeChat(): Promise<string> {
-  const connection = await restoreOfficeScope();
-  const office = officeWorkspace(connection);
-  if (!office) throw new Error("no office workspace");
-  return openSessionWithPrompt(connection, office, "");
-}
-
-/** „Opýtať sa“ v praxi: nová konverzácia v priečinku vybraného klienta, nikdy nad celou praxou (MČ 16. 10. 2026). */
-export async function openClientChat(workspaceId: string): Promise<string> {
-  const connection = await loadOkfConnection();
-  const workspace = connection.workspaces.find((w) => w.id === workspaceId);
-  if (!connection.client || !workspace) throw new Error("client workspace unavailable");
-  // Ako restoreOfficeScope: už otvoreného klienta netreba znova aktivovať.
-  const active = connection.activeWorkspaceId === workspace.id ? connection : await activateLocalWorkspace({ ...connection, client: connection.client }, workspace, connection.workspaces);
-  return openSessionWithPrompt(active, workspace, "");
 }
 
 /** Nastavení v lite: složka věci → kancelář (Personalizace je profil kanceláře). `null` = nic neměnit. */

@@ -22,6 +22,13 @@ export type SidebarItem = (typeof LITE_HIDDEN_SIDEBAR)[number];
 export const isSidebarItemVisible = (item: SidebarItem, mode: UiMode): boolean =>
   mode === "pro" || !LITE_HIDDEN_SIDEBAR.includes(item);
 
+/** Sekcie chatu, ktoré bežný režim nezobrazí: pripnuté a nedávne chaty (ostávajú v Pokročilom a v prispôsobení). */
+const LITE_HIDDEN_CHAT_SECTIONS: ReadonlySet<string> = new Set(["sectionPinned", "sectionRecent"]);
+
+/** Bežný režim ukáže natívnu sekciu klientov (projekty) bez zoznamov chatov (MČ 19. 10. 2026). */
+export const isChatSectionVisible = (key: string, mode: UiMode): boolean =>
+  mode === "pro" || !LITE_HIDDEN_CHAT_SECTIONS.has(key);
+
 /** Always identify the workspace whose settings and permissions are being edited. */
 export const isWorkspaceSwitcherVisible = (_mode: UiMode): boolean => true;
 

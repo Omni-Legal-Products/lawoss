@@ -47,6 +47,8 @@ export function ProjectHome(props: {
   tasksView: ReactNode;
   onViewAllDeadlines?: () => void;
   onRename?: (name: string) => Promise<boolean>;
+  /** LAWOSS: prehľad klienta z OKF nad úlohami (lawoss/lite/client-overview.tsx). */
+  extra?: ReactNode;
 }) {
   const { client, workspaceId } = props;
   const openPersonalisation = useProjectPersonalisation();
@@ -199,6 +201,7 @@ export function ProjectHome(props: {
           }}>{t("workspace_files.try_again")}</Button>
         </Surface> : null}
 
+        {props.extra}
         <div className="grid grid-cols-1 items-stretch gap-4 @min-[640px]/project-page:grid-cols-2">
           <div className="min-w-0">{props.tasksView}</div>
           {isProjectViewHidden("calendar") ? null : <UpcomingDeadlines onViewAll={props.onViewAllDeadlines} client={client} workspaceId={workspaceId} projectId={props.projectId} projectName={props.name} />}

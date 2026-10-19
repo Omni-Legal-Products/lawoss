@@ -454,11 +454,8 @@ export async function readScopeMemory(client: OkfScopeClient, scope: OkfScope, t
   return { ...buildOverview(inputs, todayIso), problems, truncated, inputs, clients };
 }
 
-/**
- * Rozsah pohľadu: koreň praxe z profilu onboardingu, kým sa nenačíta `pending` (žiadne čítanie jedného
- * klienta, ktoré by o chvíľu nahradila celá prax). Bez profilu alebo pri chybe ostane jeden priečinok.
- */
-export function useOkfScope(connection: OkfConnection | null, anchor: RouteWorkspace | null): { scope: OkfScope | null; pending: boolean } {
+/** Koreň praxe z profilu onboardingu; `undefined`, kým sa číta, `null` bez praxe alebo pri chybe. */
+export function usePracticeRoot(connection: OkfConnection | null): string | null | undefined {
   const client = connection?.client ?? null;
   const root = useQuery({
     queryKey: ["okf-practice-root", connection?.baseUrl ?? "", connection?.token ?? ""],
@@ -467,7 +464,15 @@ export function useOkfScope(connection: OkfConnection | null, anchor: RouteWorks
     // Bez staleTime: po onboardingu praxe nová stránka hneď číta celú prax, nie len otvoreného klienta.
     retry: false,
   });
-  const practiceRoot = !client || root.isError ? null : root.data;
+  return !client || root.isError ? null : root.data;
+}
+
+/**
+ * Rozsah pohľadu: koreň praxe z profilu onboardingu, kým sa nenačíta `pending` (žiadne čítanie jedného
+ * klienta, ktoré by o chvíľu nahradila celá prax). Bez profilu alebo pri chybe ostane jeden priečinok.
+ */
+export function useOkfScope(connection: OkfConnection | null, anchor: RouteWorkspace | null): { scope: OkfScope | null; pending: boolean } {
+  const practiceRoot = usePracticeRoot(connection);
   const workspaces = connection?.workspaces;
   const scope = useMemo(
     () => practiceRoot === undefined ? null : okfScope(workspaces ?? [], anchor, practiceRoot),

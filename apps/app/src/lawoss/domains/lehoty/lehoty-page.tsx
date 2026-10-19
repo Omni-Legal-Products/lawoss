@@ -1,18 +1,47 @@
 /** @jsxImportSource react */
 import { deadlineText } from "../../okf/view-rules";
 import { OkfPage, useMatterText } from "../okf-page";
+import { Link, useSearchParams } from "react-router-dom";
+import { t } from "@/i18n";
 import {
+  activeWorkspace,
   dayClass,
   formatDay,
   today,
   type OkfReadResult,
+  type OkfScope,
 } from "../../okf/read-model";
+import type { OkfConnection } from "../../okf/connection";
+import { clientDeadlines } from "../../lite/client-projects";
+import { LEHOTY_PATH } from "../../lite/links";
 import type { UpcomingDeadline } from "../../../../../../lawoss/okf/read";
 
-/** Iba skutočné údaje zo spisov; chýbajúce údaje nenahrádza ukážka. */
+/**
+ * Iba skutočné údaje zo spisov; chýbajúce údaje nenahrádza ukážka. `?klient=<id priečinka>` (položka
+ * Lehoty klienta v bočnom paneli, MČ 19. 10. 2026): prax sa číta od klienta a register ukáže len jeho veci.
+ */
 export function LehotyPage() {
   const { text } = useMatterText();
-  return <OkfPage title={text("deadlinesTitle")}>{(data) => <RealRegister data={data} />}</OkfPage>;
+  const client = useSearchParams()[0].get("klient");
+  const pick = client ? (connection: OkfConnection | null) => connection?.workspaces.find((w) => w.id === client) ?? activeWorkspace(connection) : undefined;
+  return <OkfPage title={text("deadlinesTitle")} pickWorkspace={pick}>{(data, _meta, scope) => client
+    ? <ClientRegister data={data} scope={scope} workspaceId={client} />
+    : <RealRegister data={data} />}</OkfPage>;
+}
+
+/** Register jedného klienta; neznámy priečinok (napr. odpojený) ukáže celý register. */
+function ClientRegister({ data, scope, workspaceId }: { data: OkfReadResult; scope: OkfScope | null; workspaceId: string }) {
+  const { locale } = useMatterText();
+  if (!scope || scope.anchor.id !== workspaceId) return <RealRegister data={data} />;
+  const workspace = scope.anchor;
+  const name = workspace.displayNameResolved || workspace.name || workspace.path;
+  return <>
+    <p className="lw-lead">
+      <strong>{t("lawoss.lite.client_deadlines_title", locale, { name })}</strong>{" · "}
+      <Link to={LEHOTY_PATH}>{t("lawoss.lite.client_deadlines_back", locale)}</Link>
+    </p>
+    <RealRegister data={clientDeadlines(data, scope, workspace, today())} />
+  </>;
 }
 
 export function RealRegister({ data }: { data: OkfReadResult }) {

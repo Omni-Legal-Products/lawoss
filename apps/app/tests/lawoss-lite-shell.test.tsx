@@ -10,12 +10,10 @@ import { liteSettingsTabs, isMainRailItemVisible, isSidebarItemVisible, isWorksp
 import { SettingsSidebar } from "../src/react-app/domains/settings/shell/settings-page";
 import { t } from "@/i18n";
 import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
-import { askTarget, LiteNav, LiteNavView, restoresOfficeScope } from "../src/lawoss/lite/lite-nav";
+import { LiteNav, LiteNavView, restoresOfficeScope } from "../src/lawoss/lite/lite-nav";
 import { UiModeSwitchView } from "../src/lawoss/lite/ui-mode-switch";
 import { LawossNav, LawossLayout } from "../src/lawoss/shell/layout";
-import { ADD_FOLDER_PATH, LITE_MATTER_PATH, liteMatterLink } from "../src/lawoss/lite/links";
-import type { OkfScope } from "../src/lawoss/okf/read-model";
-import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
+import { LITE_MATTER_PATH, NEW_CLIENT_PATH } from "../src/lawoss/lite/links";
 import { GeneralSettingsView } from "../src/react-app/domains/settings/pages/general-view";
 import { currentUiMode, setUiMode } from "../src/lawoss/lite/ui-mode";
 
@@ -57,45 +55,33 @@ describe("napojení LAWOSS-lite", () => {
 });
 
 describe("boční panel LAWOSS-lite", () => {
-  const recent = [
-    { path: "Klienti/Novák/Spisy/Odvolání", title: "Novák - 14 C 101/2025" },
-    { path: "Klienti/ACME/Spisy/Převod", title: "ACME s.r.o. - převod podílu" },
-  ];
-  test("LiteNav: Dnes · Klienti a věci · Zeptat se jako odkazy", () => {
+  test("LiteNav: Dnes a Pridať klienta ako odkazy (MČ 19. 10. 2026)", () => {
     const out = html(<LiteNav />);
-    for (const [item, to] of [["today", "/dnes"], ["clients", "/klienti"], ["ask", "/session"]] as const) {
+    for (const [item, to] of [["today", "/dnes"], ["add_client", NEW_CLIENT_PATH]] as const) {
       // odkaz (<a href>) nesoucí značku položky
-      expect(out).toMatch(new RegExp(`<a(?=[^>]*href="${to}")(?=[^>]*data-lawoss-lite-nav="${item}")[^>]*>`));
+      expect(out).toMatch(new RegExp(`<a(?=[^>]*href="${to.replace(/[?]/g, "\\?")}")(?=[^>]*data-lawoss-lite-nav="${item}")[^>]*>`));
     }
     expect(out).not.toContain("EXP");
   });
-  test("strom klientov nahradil Posledné veci (variant A, 19. 10. 2026); bez klientov oddiel chýba", () => {
-    const tree = [{ key: "client:Novák", title: "Novák", expanded: true, current: true, conversations: [], more: false, status: "ready" as const, matters: recent.map((m) => ({ ...m, deadlines: [], expanded: false, current: false, conversations: [], more: false, status: "ready" as const, canStart: true })) }];
-    const out = html(<LiteNavView tree={tree} />);
-    expect(out).not.toContain("Recent matters");
-    expect(out).toContain("data-lawoss-lite-tree");
-    expect(out).toContain(`href="${liteMatterLink(recent[0].path).replace(/&/g, "&amp;")}"`);
-    expect(html(<LiteNavView tree={[]} />)).not.toContain("data-lawoss-lite-tree");
-  });
-  test("jedna navigácia v oboch režimoch: Dnes · Klienti a veci · Opýtať sa · Pridať priečinok (G2, 19. 10. 2026)", () => {
-    // SSR snapshot režimu je vždy "pro" (getServerSnapshot). LawossNav sa už podľa režimu nevetví,
+  test("jedna navigácia v oboch režimoch: Dnes · (natívny Nový chat) · Pridať klienta", () => {
+    // SSR snapshot režimu je vždy "pro" (getServerSnapshot). LawossNav sa podľa režimu nevetví,
     // takže jedno vykreslenie pokrýva bežný aj Pokročilý režim.
     const nav = html(<LawossNav />);
-    for (const [item, to] of [["today", "/dnes"], ["clients", "/klienti"], ["ask", "/session"], ["add_folder", ADD_FOLDER_PATH]] as const) {
-      const href = to.replace(/[?]/g, "\\?");
-      expect(nav).toMatch(new RegExp(`<a(?=[^>]*href="${href}")(?=[^>]*data-lawoss-lite-nav="${item}")[^>]*>`));
-    }
-    expect(nav).toContain("Add folder");
+    expect(nav).toContain('data-lawoss-lite-nav="today"');
+    expect(nav).toContain('data-lawoss-lite-nav="add_client"');
+    expect(nav).toContain("Add client");
+    // Klienti a ich prípady sú v natívnej sekcii projektov, nie v navigácii LAWOSS.
+    for (const gone of ['data-lawoss-lite-nav="clients"', 'data-lawoss-lite-nav="ask"', 'data-lawoss-lite-nav="add_folder"', "data-lawoss-lite-tree"]) expect(nav).not.toContain(gone);
   });
-  test("Pridať priečinok: aria-current len na presnej adrese, nie na inom kroku /welcome", () => {
+  test("Pridať klienta: aria-current len na presnej adrese, nie na inom kroku /welcome", () => {
     const at = (entry: string) => renderToStaticMarkup(
       <QueryClientProvider client={new QueryClient()}>
         <MemoryRouter initialEntries={[entry]}><SidebarProvider><LiteNavView /></SidebarProvider></MemoryRouter>
       </QueryClientProvider>,
     );
-    const anchor = (out: string) => out.match(/<a[^>]*data-lawoss-lite-nav="add_folder"[^>]*>/)?.[0] ?? "";
+    const anchor = (out: string) => out.match(/<a[^>]*data-lawoss-lite-nav="add_client"[^>]*>/)?.[0] ?? "";
     expect(anchor(at("/welcome?continue=matter"))).not.toContain("aria-current");
-    expect(anchor(at(ADD_FOLDER_PATH))).toContain('aria-current="page"');
+    expect(anchor(at(NEW_CLIENT_PATH))).toContain('aria-current="page"');
   });
   test("Pokročilý režim drží vybraný priečinok: návrat na Dnes/Klienti/Vec rozsah nemení, bežný režim áno", () => {
     for (const path of ["/dnes", "/klienti", LITE_MATTER_PATH]) {
@@ -104,34 +90,19 @@ describe("boční panel LAWOSS-lite", () => {
     }
     expect(restoresOfficeScope("/session", "lite")).toBe(false);
   });
-  test("Opýtať sa: v Pokročilom režime konverzácia v aktívnom priečinku, bežný režim beze zmeny", () => {
-    const ws = (id: string): RouteWorkspace => ({ id, path: `/k/${id}`, name: id, displayNameResolved: id, workspaceType: "local" });
-    const acme = ws("acme");
-    const scope: OkfScope = { anchor: ws("prax"), members: [{ workspace: acme, prefix: "ACME" }] };
-    const matter = `?vec=${encodeURIComponent("ACME/Spisy/Prevod")}`;
-    // Pro: nikdy kancelária ani klient (tie aktivujú iný priečinok), vždy aktívny priečinok.
-    for (const [count, sc, path, search] of [[0, null, "/dnes", ""], [1, scope, "/dnes", ""], [3, scope, "/dnes", ""], [3, scope, LITE_MATTER_PATH, matter]] as const) {
-      expect(askTarget("pro", sc, count, path, search)).toEqual({ kind: "active" });
-    }
-    // Lite: ako doteraz.
-    expect(askTarget("lite", scope, 1, "/dnes", "")).toEqual({ kind: "office" });
-    expect(askTarget("lite", null, 3, "/dnes", "")).toEqual({ kind: "office" });
-    expect(askTarget("lite", scope, 3, "/dnes", "")).toEqual({ kind: "pick" });
-    expect(askTarget("lite", scope, 3, LITE_MATTER_PATH, matter)).toEqual({ kind: "client", workspaceId: "acme" });
-  });
   test("panel Experimenty nie je v žiadnom režime, ani lišta experimentov nad stránkou (G2 V2)", () => {
     const nav = html(<LawossNav />);
     expect(nav).not.toContain('data-lawoss-nav="experiments"');
     expect(nav).not.toContain("EXP");
     expect(html(<LawossLayout><p>obsah</p></LawossLayout>)).not.toContain("lw-experiment-nav");
   });
-  test("sidebar: bez riadku ikon onboardingu; Pokročilé pridá Nový chat a sekcie upstreamu", () => {
+  test("sidebar: bez riadku ikon onboardingu; natívny Nový chat a sekcia klientov v oboch režimoch", () => {
     const sidebar = readFileSync(join(import.meta.dir, "../src/react-app/domains/session/sidebar/app-sidebar.tsx"), "utf8");
     expect(sidebar).not.toContain("OnboardingEntryActions");
     expect(sidebar).toContain("<OkfWorkspaceSkillSync");
-    // Projekty a Nedávne sesie (chatSectionOrder) a Nový chat len v Pokročilom režime, ako doteraz.
-    expect(sidebar).toContain("{!lite && newChatSection && ");
-    expect(sidebar).toContain("{!lite && hideCommercialSidebarItems(shellConfig.chatSectionOrder)");
+    // MČ 19. 10. 2026: Nový chat ide do navigácie LAWOSS, sekcie filtruje režim (Lite bez pripnutých a nedávnych chatov).
+    expect(sidebar).toContain("<LawossNav activePane={Boolean(props.activeNav)} newChat={newChatSection} />");
+    expect(sidebar).toContain("isChatSectionVisible(key, uiMode)");
   });
   test("prepínač Pokročilé: jeden spínač, bežná appka bez nálepky Simple/Lite (MČ 16. 10. 2026)", () => {
     const off = html(<UiModeSwitchView mode="lite" onChange={() => {}} />);

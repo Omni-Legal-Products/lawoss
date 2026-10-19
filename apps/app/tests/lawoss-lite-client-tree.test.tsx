@@ -6,7 +6,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { shellCs, shellDe, shellEn, shellSk } from "../src/lawoss/i18n/shell";
-import { LiteNav, LiteNavView } from "../src/lawoss/lite/lite-nav";
+import { LiteNav } from "../src/lawoss/lite/lite-nav";
+import { ClientMattersView } from "../src/lawoss/lite/client-nav";
 import {
   buildClientTree, clearFocusOverrides, clientFolderFor, clientToggle, fetchPlan, matterSource, matterToggle, routeFocus, sessionFocus,
   TREE_CONVERSATION_LIMIT, type ConversationList,
@@ -192,14 +193,20 @@ describe("výpis priečinka cez engine", () => {
   });
 });
 
+// Strom sa od 19. 10. 2026 vykresľuje v natívnej sekcii klientov ako položka „Prípady“ (`ClientMattersView`):
+// pri projekte s viacerými klientmi (jeden priečinok pre všetko) s medzistupňom klienta, chaty klienta sú natívne „Chaty“.
+const view = (nodes: ReturnType<typeof tree>) => <ClientMattersView nodes={nodes} open locale="en" />;
+
 describe("strom klientov: rozbalenie", () => {
   test("bez aktuálneho klienta sú všetci klienti zbalení a veci nie sú vidieť", () => {
-    const out = render(<LiteNavView tree={tree()} />);
+    const out = render(view(tree()));
     expect(out).toContain("SYN Tatran Automatika");
     expect(out).toContain(`href="${clientOverviewLink("client:Tatran").replace(/&/g, "&amp;")}"`);
     expect(out).not.toContain("Úhrada dodávok");
     expect(out).not.toContain("Otázka ku klientovi");
-    expect(out.match(/aria-expanded="false"/g)).toHaveLength(2);
+    const toggles = out.match(/<button[^>]*data-lawoss-tree-toggle[^>]*>/g) ?? [];
+    expect(toggles).toHaveLength(2);
+    for (const toggle of toggles) expect(toggle).toContain('aria-expanded="false"');
   });
 
   test("detail veci rozbalí jej klienta aj vec; ostatní ostanú zbalení", () => {
@@ -207,19 +214,19 @@ describe("strom klientov: rozbalenie", () => {
     const built = tree(focus);
     expect(built.map((c) => [c.key, c.expanded])).toEqual([["client:Tatran", true], ["client:Hron", false]]);
     expect(built[0].matters.map((m) => [m.path, m.expanded])).toEqual([[UHRADA.path, true], [VADY.path, false]]);
-    const out = render(<LiteNavView tree={built} />, liteMatterLink(UHRADA.path));
+    const out = render(view(built), liteMatterLink(UHRADA.path));
     expect(out).toMatch(/<a(?=[^>]*aria-current="page")[^>]*href="\/vec\?vec=Tatran%2FSpisy%2FUhrada"/);
   });
 
-  test("otvorený rozhovor v koreni klienta rozbalí klienta a je označený; vo veci rozbalí vec", () => {
+  test("otvorený chat v koreni klienta rozbalí klienta; chat vo veci rozbalí vec a je označený", () => {
     const route = routeFocus("/workspace/ws-tatran/session/s-klient", "");
     expect(sessionFocus(route, assigned)).toEqual({ client: "client:Tatran" });
     expect(sessionFocus(routeFocus("/workspace/ws-tatran/session/s-podanie", ""), assigned)).toEqual({ matter: UHRADA.path });
     expect(sessionFocus(routeFocus("/workspace/ws-x/session/neznamy", ""), assigned)).toEqual({});
-    const built = tree(sessionFocus(route, assigned));
-    expect(built[0].expanded).toBe(true);
-    const out = render(<LiteNavView tree={built} />, "/workspace/ws-tatran/session/s-klient");
-    expect(out).toMatch(/<button(?=[^>]*aria-current="page")(?=[^>]*data-lawoss-tree-conversation="s-klient")[^>]*>/);
+    expect(tree(sessionFocus(route, assigned))[0].expanded).toBe(true);
+    const inMatter = tree(sessionFocus(routeFocus("/workspace/ws-tatran/session/s-podanie", ""), assigned));
+    const out = render(view(inMatter), "/workspace/ws-tatran/session/s-podanie");
+    expect(out).toMatch(/<button(?=[^>]*aria-current="page")(?=[^>]*data-lawoss-tree-conversation="s-podanie")[^>]*>/);
   });
 
   test("prepnutie používateľa platí, kým sa trasa nepresunie na ten uzol", () => {
@@ -234,34 +241,33 @@ describe("strom klientov: rozbalenie", () => {
   });
 
   test("šípka je samostatné tlačidlo s aria-expanded, nie odkaz", () => {
-    const out = render(<LiteNavView tree={tree({ matter: UHRADA.path }, { [clientToggle("client:Hron")]: true })} />);
+    const out = render(view(tree({ matter: UHRADA.path }, { [clientToggle("client:Hron")]: true })));
     const toggles = out.match(/<button[^>]*data-lawoss-tree-toggle[^>]*>/g) ?? [];
     expect(toggles).toHaveLength(5);
     for (const toggle of toggles) expect(toggle).toMatch(/aria-expanded="(true|false)"/);
   });
 });
 
-describe("strom klientov: rozhovory", () => {
-  test("rozhovory klienta sú nad jeho vecami; vec ukáže svoje vrátane podpriečinka a + Nový rozhovor", () => {
-    const out = render(<LiteNavView tree={tree({ matter: UHRADA.path })} />);
-    expect(out.indexOf("Otázka ku klientovi")).toBeGreaterThan(-1);
-    expect(out.indexOf("Otázka ku klientovi")).toBeLessThan(out.indexOf("Úhrada dodávok"));
+describe("strom klientov: chaty vecí", () => {
+  test("vec ukáže svoje chaty vrátane podpriečinka a + Nový chat; chaty klienta tu nie sú (natívne Chaty)", () => {
+    const out = render(view(tree({ matter: UHRADA.path })));
+    expect(out).not.toContain("Otázka ku klientovi");
+    expect(out).toContain("Úhrada dodávok");
     expect(out).toContain("Podanie na súd");
     expect(out).toContain(`Conversation ${new Intl.DateTimeFormat("en", { day: "numeric", month: "numeric" }).format(new Date(at(17)))}`);
     expect(out).not.toContain("Vady - posudok");
     expect(out.match(/data-lawoss-tree-new/g)).toHaveLength(1);
   });
 
-  test(`najviac ${TREE_CONVERSATION_LIMIT} pod klientom aj vecou; Zobraziť všetky vedie na prehľad klienta a detail veci`, () => {
+  test(`najviac ${TREE_CONVERSATION_LIMIT} pod vecou; Zobraziť všetky vedie na detail veci`, () => {
     const many = Array.from({ length: 7 }, (_, i) => ({ workspaceId: "ws-tatran", id: `s${i}`, title: `Rozhovor ${i}`, updated: 100 - i }));
     const built = buildClientTree({ groups, focus: { matter: UHRADA.path }, overrides: {}, canStart: () => true,
       lists: { client: (key) => ready(key === "client:Tatran" ? many.map((c) => ({ ...c, id: `k${c.id}` })) : []), matter: (path) => ready(path === UHRADA.path ? many : []) } });
     expect(built[0].conversations).toHaveLength(TREE_CONVERSATION_LIMIT);
     expect(built[0].more).toBe(true);
     expect(built[0].matters[0].more).toBe(true);
-    const out = render(<LiteNavView tree={built} />);
-    expect(out.match(/data-lawoss-tree-conversation=/g)).toHaveLength(2 * TREE_CONVERSATION_LIMIT);
-    expect(out).toMatch(new RegExp(`<a(?=[^>]*href="${clientOverviewLink("client:Tatran").replace(/[?]/g, "\\?").replace(/&/g, "&amp;")}")(?=[^>]*data-lawoss-tree-all)[^>]*>`));
+    const out = render(view(built));
+    expect(out.match(/data-lawoss-tree-conversation=/g)).toHaveLength(TREE_CONVERSATION_LIMIT);
     expect(out).toMatch(new RegExp(`<a(?=[^>]*href="${liteMatterLink(UHRADA.path).replace(/[?]/g, "\\?")}")(?=[^>]*data-lawoss-tree-all)[^>]*>`));
   });
 
@@ -276,19 +282,19 @@ describe("strom klientov: rozhovory", () => {
     const failing: ConversationList = { items: [], status: "error", complete: false, retry: () => { retried += 1; } };
     const built = buildClientTree({ groups, focus: { matter: UHRADA.path }, overrides: {}, canStart: () => true, lists: { client: () => failing, matter: () => failing } });
     expect(built[0].status).toBe("error");
-    const out = render(<LiteNavView tree={built} />);
-    expect(out.match(/data-lawoss-tree-error/g)).toHaveLength(2);
+    const out = render(view(built));
+    expect(out.match(/data-lawoss-tree-error/g)).toHaveLength(1);
     expect(out).toContain("Conversations could not be loaded");
     expect(out).toContain("Try again");
-    built[0].retry?.();
+    built[0].matters[0].retry?.();
     expect(retried).toBe(1);
   });
 
-  test("Nový rozhovor sa overuje len pri rozbalených veciach a rovnakou funkciou ako akcia", () => {
+  test("Nový chat sa overuje len pri rozbalených veciach a rovnakou funkciou ako akcia", () => {
     const asked: string[] = [];
     const built = buildClientTree({ groups, focus: { matter: UHRADA.path }, overrides: {}, lists, canStart: (path) => { asked.push(path); return path !== UHRADA.path; } });
     expect(asked).toEqual([UHRADA.path]);
-    expect(render(<LiteNavView tree={built} />)).not.toContain("data-lawoss-tree-new");
+    expect(render(view(built))).not.toContain("data-lawoss-tree-new");
   });
 });
 
@@ -336,10 +342,11 @@ describe("strom klientov: čo sa číta (24 klientov, 72 vecí)", () => {
   });
 });
 
-describe("Posledné veci nahradil strom; texty", () => {
-  test("bočný panel už nemá Posledné veci", () => {
+describe("Posledné veci ani starý strom v navigácii LAWOSS; texty", () => {
+  test("navigácia LAWOSS nemá Posledné veci ani strom klientov (sú v natívnej sekcii klientov)", () => {
     const out = render(<LiteNav />);
     expect(out).not.toContain("Recent matters");
+    expect(out).not.toContain("data-lawoss-lite-tree");
     for (const dict of [shellEn, shellCs, shellSk, shellDe]) expect(dict).not.toHaveProperty(["lawoss.lite.recent_matters"]);
   });
 

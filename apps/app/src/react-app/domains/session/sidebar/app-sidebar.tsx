@@ -10,6 +10,9 @@ import * as React from "react";
 import legalworkMarkDark from "../../../../../../../lawoss/brand/lawoss-mark.svg";
 import { LawossWordmark } from "../../../../lawoss/shell/wordmark";
 import { LawossNav } from "../../../../lawoss/shell/layout";
+import { ClientDeadlinesNavItem, ClientMattersNavItem, ClientNavProvider, useHiddenClientProjects } from "@/lawoss/lite/client-nav";
+import { LITE_CLIENTS_PATH, NEW_CLIENT_PATH } from "@/lawoss/lite/links";
+import { isChatSectionVisible } from "@/lawoss/lite/visibility";
 import { OkfWorkspaceSkillSync } from "@/lawoss/okf/workspace-skill-sync";
 import {
   Search,
@@ -614,7 +617,7 @@ function isSessionActivityStatus(status: string | undefined): status is SessionA
 
 export function AppSidebar(props: AppSidebarProps) {
   const groups = React.useMemo(() => sidebarSessionGroups(props.workspaceSessionGroups), [props.workspaceSessionGroups]);
-  return <AppSidebarContent {...props} workspaceSessionGroups={groups} />;
+  return <ClientNavProvider><AppSidebarContent {...props} workspaceSessionGroups={groups} /></ClientNavProvider>;
 }
 
 function AppSidebarContent(props: AppSidebarProps) {
@@ -632,7 +635,8 @@ function AppSidebarContent(props: AppSidebarProps) {
   const { workspaceId: routeWorkspaceId } = useParams();
   const openProjectId = routeWorkspaceId || (props.selectedSessionId ? props.selectedWorkspaceId : null);
   const unreadTasks = useUnreadTaskCount();
-  const lite = useUiMode() === "lite";
+  const uiMode = useUiMode();
+  const hiddenProjects = useHiddenClientProjects();
   const goSettings = React.useCallback(
     (tab: string) => {
       const ws = props.selectedWorkspaceId.trim();
@@ -870,13 +874,12 @@ function AppSidebarContent(props: AppSidebarProps) {
             </Button>
           </div>
         </div>
-        <LawossNav activePane={Boolean(props.activeNav)} />
+        <LawossNav activePane={Boolean(props.activeNav)} newChat={newChatSection} />
         <OkfWorkspaceSkillSync workspaceId={props.selectedWorkspaceId} />
         <SidebarWorkflowGenerationBadge onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))} />
-        {!lite && newChatSection && <SidebarMenu className="px-2.5 pb-3 pt-1">{newChatSection}</SidebarMenu>}
         </div>
         <LazyMotion features={domMax}><m.div layoutScroll data-slot="sidebar-content" data-sidebar="content" className="no-scrollbar min-h-0 flex-1 overflow-y-auto pt-1 mac:titlebar-no-drag">
-          {!lite && hideCommercialSidebarItems(shellConfig.chatSectionOrder).filter(key => key !== "navNewChat").filter(key => shellConfig[key]).map(key => {
+          {hideCommercialSidebarItems(shellConfig.chatSectionOrder).filter(key => key !== "navNewChat").filter(key => shellConfig[key] && isChatSectionVisible(key, uiMode)).map(key => {
             if (key === "sectionPinnedProjects") return pinnedProjects.length ? <section key={key} className="px-2 pb-3">
               <button className="flex h-9 w-full items-center gap-1.5 px-2 text-xs text-muted-foreground" onClick={() => toggleSection(key)} aria-expanded={!closedSections.has(key)}>
                 {t("sidebar.pinned_projects")}<ChevronRight className={cn("size-3 transition-transform", !closedSections.has(key) && "rotate-90")} /><UnreadDot unread={closedSections.has(key) && pinnedProjects.some(group => group.sessions.some(session => !isSessionArchived(session) && unreadSession(inbox, session.id)))} />
@@ -885,12 +888,12 @@ function AppSidebarContent(props: AppSidebarProps) {
             </section> : null;
             if (key !== "sectionProjects" && key !== "sectionSharedProjects") return sessionSection(key);
             const shared = key === "sectionSharedProjects";
-            const groups = projectSectionGroups(props.workspaceSessionGroups, projectRoles, shared);
+            const groups = projectSectionGroups(props.workspaceSessionGroups, projectRoles, shared).filter(group => !hiddenProjects.has(group.workspace.id));
             return <section key={key} className="pb-3">
               <div className="flex h-9 items-center gap-1 px-4">
                 <button className="flex flex-1 items-center gap-1.5 text-xs text-muted-foreground" aria-expanded={!closedSections.has(key)} onClick={() => toggleSection(key)}>{t(SIDEBAR_ITEMS[key].label)}<ChevronRight className={cn("size-3 transition-transform", !closedSections.has(key) && "rotate-90")} /><UnreadDot unread={closedSections.has(key) && groups.some(group => group.sessions.some(session => !isSessionArchived(session) && unreadSession(inbox, session.id)))} /></button>
-                <Button variant="ghost" size="icon-xs" aria-label={t("sidebar.all_projects")} title={t("sidebar.all_projects")} onClick={() => props.onShowProjects?.()}><LayoutGrid className="size-3.5" /></Button>
-                {!shared && <Button variant="ghost" size="icon-xs" aria-label={t("projects.create")} onClick={props.onOpenCreateWorkspace}><Plus className="size-3.5" /></Button>}
+                <Button variant="ghost" size="icon-xs" aria-label={t("sidebar.all_projects")} title={t("sidebar.all_projects")} onClick={() => navigate(LITE_CLIENTS_PATH)}><LayoutGrid className="size-3.5" /></Button>
+                {!shared && <Button variant="ghost" size="icon-xs" aria-label={t("projects.create")} onClick={() => navigate(NEW_CLIENT_PATH)}><Plus className="size-3.5" /></Button>}
               </div>
               {!closedSections.has(key) && <Reorder.Group as="div" axis="y" values={groups.map(group => group.workspace.id)} onReorder={ids => props.onReorderWorkspaces?.(reorderProjectSection(props.workspaceSessionGroups.map(group => group.workspace.id), ids))} className="flex flex-col gap-px">
                 {groups.map(group => <WorkspaceReorderItem key={group.workspace.id} group={group} showInitialLoading={props.showInitialLoading} canReorder={Boolean(props.onReorderWorkspaces)} />)}
@@ -1130,6 +1133,8 @@ function WorkspaceSidebarGroup({
                       <span>{t("workspace.overview")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>,
+                  projectMatters: <ClientMattersNavItem key="projectMatters" workspaceId={workspace.id} className={PROJECT_FEATURE_CLASS} />,
+                  projectDeadlines: <ClientDeadlinesNavItem key="projectDeadlines" workspaceId={workspace.id} className={PROJECT_FEATURE_CLASS} />,
                   projectReviews: <SidebarMenuSubItem key="projectReviews">
                     <SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "reviews")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "reviews"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "reviews")} onClick={() => { void ctx.onOpenProjectPage(workspace.id, "reviews"); }}>
                       <TableProperties className="size-4" strokeWidth={1.5} />

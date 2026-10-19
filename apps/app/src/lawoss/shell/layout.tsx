@@ -29,15 +29,16 @@ export function experimentyNavItems(): { to: string; label: string }[] {
 
 /**
  * The single LAWOSS entry in the upstream session sidebar (1-line 🟡 insert).
- * One navigation in both UI modes (G2, 19. 10. 2026): Advanced only adds the
- * upstream sections below it, it never swaps this navigation out.
+ * One navigation in both UI modes (G2, 19. 10. 2026): Dnes, the native „Nový chat“
+ * row handed over as `newChat`, Pridať klienta. Clients and their matters live in
+ * the native project section below (`lite/client-nav.tsx`, MČ 19. 10. 2026).
  */
-export function LawossNav(props: { activePane?: boolean } = {}) {
+export function LawossNav(props: { activePane?: boolean; newChat?: ReactNode } = {}) {
   return (
     <>
       <LiteControlActions />
       <MarketplaceUpdateNotifier />
-      <LiteNav activePane={props.activePane} />
+      <LiteNav activePane={props.activePane} newChat={props.newChat} />
     </>
   );
 }
