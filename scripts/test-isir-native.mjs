@@ -779,6 +779,7 @@ try {
   primaryError = error;
   for(const failure of relaunchCleanupErrors)console.error('Relaunch owned cleanup failure',JSON.stringify(errorMetadata(failure)));
   const failure = diagnostics.failure(error);
+  try { diagnostics.captureGenerationHostErrors(children); } catch { /* Diagnostics cannot replace the primary failure. */ }
   console.error('Primary native failure before cleanup', JSON.stringify(failure));
   await diagnostics.captureEngineLog({error,selectedDirectory:workspaces[0].path,launchWallMs:engineLogLaunchWallMs,deadlineWallMs:engineLogDeadlineWallMs}).catch(()=>undefined);
   const fetchPhases=children.filter(owner=>['electron','electron-relaunch'].includes(owner.label)).flatMap(owner=>nativeEngineFetchRecords(owner.output()).map(record=>({process:owner.label,...record}))).slice(-64);

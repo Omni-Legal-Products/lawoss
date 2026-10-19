@@ -465,6 +465,36 @@ function generationErrorShape(result) {
   return unknown('unknown');
 }
 
+function generationHostError(lines,index) {
+  const first=lines[index],names=['Error','TypeError','RangeError','SyntaxError','TimeoutError','AbortError','ZodError'];
+  const name=/^(\w+)(?::| \[)/.exec(first)?.[1];
+  const dom=/^DOMException \[(TimeoutError|AbortError)\]:/.exec(first)?.[1];
+  const result={category:'unknown',name:dom??(names.includes(name)?name:'Error'),code:null,phase:null,frames:[]};
+  if(first==='Error: Too many protected engine requests.')result.category='engine-capacity';
+  else if(first==='Error: Private protected engine request failed')result.category='guest-rpc-failed';
+  else if(first==='Error: Protected engine command queue is full.')result.category='command-queue-full';
+  else {
+    const worker=/^Error: Protected engine worker exited \(-?\d{1,3}, phase (bundle|copy-executable|restore-checkpoint|start-engine|engine-health|engine-initialization|publish-ready|serve|unknown), health (?:unobserved|http-refused|invalid-health|version-mismatch|accepted|unreachable|unknown), initialization (?:unobserved|pending|provider-invalid|agent-invalid|tool-schema-invalid|http-refused|invalid-json|timeout|aborted|ready|unknown)\)\.$/.exec(first);
+    const code=/^Error: (ENOENT|EACCES|EPERM|EIO|ENOSPC|EBUSY|EMFILE|ENFILE|EROFS):/.exec(first)?.[1];
+    if(worker){result.category='worker-exited';result.phase=worker[1];}
+    else if(code){result.category='filesystem';result.code=code;}
+    else if(result.name==='ZodError')result.category='schema-invalid';
+    else if(result.name==='SyntaxError')result.category='syntax-error';
+    else if(result.name==='TimeoutError')result.category='timeout';
+    else if(result.name==='AbortError')result.category='aborted';
+  }
+  if(!names.includes(name)&&!dom)return result;
+  for(let i=index+1;i<lines.length&&/^\s+at /.test(lines[i]);i++) {
+    const frame=/(?:^|[/\\])(embedded\.js|lawoss[/\\]protected-ai[/\\](?:runtime|vm-engine|bundle|transport|persisted-state|document-tools)\.js|apps[/\\]server[/\\]src[/\\]lawoss[/\\]protected-ai[/\\](?:runtime|vm-engine|bundle|transport|persisted-state|document-tools)\.ts):(\d{1,7}):(\d{1,7})\)?$/.exec(lines[i]);
+    if(!frame)continue;
+    const line=Number(frame[2]),column=Number(frame[3]);
+    if(line<1||line>1_000_000||column<1||column>1_000_000)continue;
+    result.frames.push({module:frame[1].replaceAll('\\','/'),line,column});
+    if(result.frames.length===6)break;
+  }
+  return result;
+}
+
 export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,ownedRoot,engineLogFs=fs,readGenerationResponseBody}) {
   if(enabled&&(!ci||mode!=='synthetic'||!outputFile))throw new Error('Published native diagnostics require explicit CI synthetic mode and output file');
   let phase='setup',caseIndex=null;
@@ -478,7 +508,8 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
   const promptRuns={attachment:null,recovery:null};
   // Pin only the first exact owning submission for each generation. General
   // network history is a rolling ring; polling must not erase this evidence.
-  const generationPrompts=[];
+  const generationPrompts=[],generationRuns=[];
+  let generationHostErrors=[],hostErrorsCaptured=false;
   let generationRun=null;
   const readGenerationError=run=>{
     if(!enabled||!ci||mode!=='synthetic'||recoveryFrozen||typeof readGenerationResponseBody!=='function'||run.receipt.status<500||run.receipt.status>599)return;
@@ -504,7 +535,7 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
         const url=new URL(params.request.url);
         if(url.origin!==run.origin||url.username||url.password)return;
         const route=run.paths.get(url.pathname);if(!route)return;
-        row.issued=true;row.route=route;row.state='pending';run.requestId=params.requestId;run.started=Number.isFinite(params.timestamp)?params.timestamp:null;
+        row.issued=true;row.route=route;row.state='pending';run.requestId=params.requestId;run.path=url.pathname;run.started=Number.isFinite(params.timestamp)?params.timestamp:null;
       } else if(params?.requestId===run.requestId){
         if(event.method==='Network.responseReceived'){
           const status=params.response?.status;
@@ -565,6 +596,7 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
         // starts before its Generate click, including a prompt already emitted
         // before the provisioning response and persisted binding were inspected.
         generationRun={receipt,origin:origin.origin,paths:new Map(['prompt_async','message'].map(route=>[`${prefix}/${route}`,route])),requestId:null};
+        generationRuns.push(generationRun);
         for(let i=start;i<events.length&&generationRun;i++)observeNetworkEvent(events[i]);
       } catch { /* Invalid diagnostic ownership cannot fabricate a receipt. */ }
     },
@@ -622,9 +654,36 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
       try{engineLog=await readOwnedEngineLog(engineLogFs,ownedRoot,clockContext);}
       catch(error){engineLog=failedEngineLog(error);}
     },
+    captureGenerationHostErrors(owners){
+      if(!enabled||!ci||mode!=='synthetic'||!recoveryFrozen||hostErrorsCaptured)return;
+      hostErrorsCaptured=true;
+      const runs=generationRuns.filter(run=>run.receipt.issued&&run.receipt.status>=500&&run.receipt.status<=599);
+      if(!runs.length)return;
+      // Owned console envelopes are structural evidence, not authenticated
+      // causes: a guest or arbitrary message can imitate text. Never publish
+      // output, paths, functions, messages or arbitrary error properties.
+      const buffers=[];let inspected=0;
+      try{for(const owner of Array.isArray(owners)?owners:[]){
+        if(inspected===2)break;
+        if(!['electron','electron-relaunch'].includes(owner?.label)||typeof owner.output!=='function')continue;
+        inspected++;
+        try{const text=owner.output();if(typeof text==='string'){
+          const tail=Buffer.from(text.slice(-256*1024),'utf8');
+          buffers.push(tail.subarray(Math.max(0,tail.length-256*1024)).toString('utf8').split(/\r?\n/));
+        }}catch{}
+      }}catch{}
+      generationHostErrors=runs.map(run=>{
+        const matches=[],prefix=`[legalwork-server] Unhandled error: POST ${run.path} `;
+        for(const lines of buffers)for(let i=0;i<lines.length;i++)if(lines[i].startsWith(prefix)){
+          const block=[lines[i].slice(prefix.length),...lines.slice(i+1,i+33)];
+          matches.push(generationHostError(block,0));
+        }
+        return {caseIndex:run.receipt.caseIndex,...(matches.length===1?matches[0]:{category:'unknown',name:'Error',code:null,phase:null,frames:[]})};
+      });
+    },
     async write({events=[],error=null,cleanupErrors=[]}={}){
       if(!enabled)return;
-      const data={schema:6,generationPrompts,promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
+      const data={schema:6,generationPrompts,...(hostErrorsCaptured?{generationHostErrors}:{}),promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
       await writeFile(outputFile,JSON.stringify(data,null,2),{mode:0o600});
     },
     failure(error){

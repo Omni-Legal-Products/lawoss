@@ -907,6 +907,129 @@ test('owned completed 503 retains only the verified unavailable envelope discrim
   });
 });
 
+test('frozen owning generation 500 retains only closed metadata from actual owned Node console formatting',async()=>{
+  const {spawnSync}=await import('node:child_process');
+  const route='/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async';
+  const child=spawnSync(process.execPath,['-e',`
+    const error=new Error('Too many protected engine requests.');
+    error.stack+='\\n    at owned (file:///PRIVATE-ROOT/apps/server/dist/lawoss/protected-ai/vm-engine.js:167:55)';
+    console.error('[legalwork-server] Unhandled error:','POST',${JSON.stringify(route)},error);
+  `],{encoding:'utf8'});
+  assert.equal(child.status,0);
+  await generationResponseFixture(async f=>{
+    f.bodies.set('PRIVATE-HOST',{body:'{}',base64Encoded:false});
+    f.diagnostics.generationStart(1,f.events,f.events.length,f.context);
+    f.emit(promptRequest('PRIVATE-HOST'));f.emit(promptResponse('PRIVATE-HOST',500));
+    f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE-HOST'}});await f.flush();await f.flush();
+    const before=(await f.receipt()).generationPrompts;
+    const primary=new Error('PRIVATE-PRIMARY');f.diagnostics.failure(primary);
+    f.diagnostics.captureGenerationHostErrors([{label:'electron',output:()=>child.stderr}]);
+    const result=await f.receipt();
+    assert.deepEqual(result.generationHostErrors,[{caseIndex:1,category:'engine-capacity',name:'Error',code:null,phase:null,frames:[{module:'lawoss/protected-ai/vm-engine.js',line:167,column:55}]}]);
+    assert.deepEqual(result.generationPrompts,before);
+    assert.doesNotMatch(JSON.stringify(result),/PRIVATE|private-host|Unhandled error|Too many|file:\/\/|stack/);
+  });
+});
+
+test('host console projection has finite closed categories and allowlisted bounded stack locations',async()=>{
+  await generationResponseFixture(async f=>{
+    const cases=[
+      ['Error: Private protected engine request failed','guest-rpc-failed','Error',null,null],
+      ['Error: Protected engine command queue is full.','command-queue-full','Error',null,null],
+      ['Error: Protected engine worker exited (1, phase serve, health accepted, initialization ready).','worker-exited','Error',null,'serve'],
+      ["Error: ENOENT: PRIVATE missing '/PRIVATE-PATH'",'filesystem','Error','ENOENT',null],
+      ['SyntaxError: PRIVATE-SYNTAX','syntax-error','SyntaxError',null,null],
+      ['ZodError: PRIVATE-SCHEMA','schema-invalid','ZodError',null,null],
+      ['DOMException [TimeoutError]: PRIVATE-TIMEOUT','timeout','TimeoutError',null,null],
+      ['TypeError: PRIVATE-TYPE','unknown','TypeError',null,null],
+      ['Error: PRIVATE-UNKNOWN','unknown','Error',null,null],
+      ['PRIVATE-MALFORMED','unknown','Error',null,null],
+    ];
+    const frames=[
+      '    at PRIVATE (file:///PRIVATE/embedded.js:1260:19)',
+      '    at PRIVATE (/PRIVATE/lawoss/protected-ai/runtime.js:510:5)',
+      '    at PRIVATE (C:\\PRIVATE\\apps\\server\\src\\lawoss\\protected-ai\\transport.ts:12:34)',
+      '    at PRIVATE (/PRIVATE/client-secret.js:1:2)',
+      '    at PRIVATE (/PRIVATE/lawoss/protected-ai/runtime.js:0:1)',
+      '    at PRIVATE (/PRIVATE/lawoss/protected-ai/runtime.js:1000001:1)',
+      '    at PRIVATE (/PRIVATE/lawoss/protected-ai/runtime.js:1:1000001)',
+      ...Array.from({length:9},()=> '    at PRIVATE (/PRIVATE/lawoss/protected-ai/bundle.js:77:88)'),
+    ];
+    let output='';
+    for(let i=0;i<cases.length;i++){
+      const id='PRIVATE-'+i;f.bodies.set(id,{body:'{}',base64Encoded:false});
+      f.diagnostics.generationStart(i+1,f.events,f.events.length,{...f.context,sessionId:'PRIVATE-'+i});
+      const route='/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-'+i+'/prompt_async';
+      f.emit(promptRequest(id,route));f.emit(promptResponse(id,500));f.emit({method:'Network.loadingFinished',params:{requestId:id}});await f.flush();await f.flush();
+      output+='[legalwork-server] Unhandled error: POST '+route+' '+cases[i][0]+'\n'+frames.join('\n')+'\n';
+    }
+    f.diagnostics.generationStart(11,f.events,f.events.length,f.context);
+    const before=(await f.receipt()).generationPrompts;f.diagnostics.failure(new Error('PRIVATE-PRIMARY'));
+    f.diagnostics.captureGenerationHostErrors([{label:'electron',output:()=>output}]);
+    const result=await f.receipt();assert.equal(result.generationHostErrors.length,10);
+    for(let i=0;i<cases.length;i++){
+      const [,category,name,code,phase]=cases[i],row=result.generationHostErrors[i];
+      assert.deepEqual({...row,frames:[]},{caseIndex:i+1,category,name,code,phase,frames:[]});
+      if(i===9)assert.deepEqual(row.frames,[]);
+      else {assert.equal(row.frames.length,6);assert.deepEqual(row.frames.slice(0,3),[{module:'embedded.js',line:1260,column:19},{module:'lawoss/protected-ai/runtime.js',line:510,column:5},{module:'apps/server/src/lawoss/protected-ai/transport.ts',line:12,column:34}]);}
+    }
+    assert.deepEqual(result.generationPrompts,before);
+    assert.doesNotMatch(JSON.stringify(result),/PRIVATE|file:\/\/|client-secret|Unhandled error/);
+  });
+});
+
+test('host console capture ignores foreign owners and routes and remains unknown when ambiguous or outside its bounded tail',async()=>{
+  await generationResponseFixture(async f=>{
+    f.bodies.set('PRIVATE',{body:'{}',base64Encoded:false});
+    f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(promptRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();await f.flush();
+    f.diagnostics.failure(new Error('PRIVATE-PRIMARY'));
+    let inspected=0;
+    f.diagnostics.captureGenerationHostErrors([
+      {label:'provider',output:()=>{throw new Error('Foreign owner inspected');}},
+      {label:'electron',output:()=>{inspected++;throw new Error('PRIVATE-OUTPUT-FAILURE');}},
+      {label:'electron-relaunch',output:()=>{inspected++;return '[legalwork-server] Unhandled error: POST /workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async Error: Too many protected engine requests.\n'+'x'.repeat(256*1024);}},
+      {label:'electron',output:()=>{inspected++;return 'UNBOUNDED-THIRD-OWNER';}},
+    ]);
+    const result=await f.receipt();assert.equal(inspected,2);
+    assert.deepEqual(result.generationHostErrors,[{caseIndex:1,category:'unknown',name:'Error',code:null,phase:null,frames:[]}]);
+    assert.doesNotMatch(JSON.stringify(result),/PRIVATE|UNBOUNDED|OUTPUT|xxxx/);
+  });
+  for(const text of [
+    '[legalwork-server] Unhandled error: GET /workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async Error: Too many protected engine requests.',
+    '[legalwork-server] Unhandled error: POST /workspace/FOREIGN/opencode/session/PRIVATE-SESSION/prompt_async Error: Too many protected engine requests.',
+    '[legalwork-server] Unhandled error: POST /workspace/PRIVATE-WORKSPACE/opencode/session/FOREIGN/prompt_async Error: Too many protected engine requests.',
+    Array(2).fill('[legalwork-server] Unhandled error: POST /workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async Error: Too many protected engine requests.').join('\n'),
+  ])await generationResponseFixture(async f=>{
+    f.bodies.set('PRIVATE',{body:'{}',base64Encoded:false});f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(promptRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();await f.flush();
+    f.diagnostics.failure(new Error('PRIVATE'));f.diagnostics.captureGenerationHostErrors([{label:'electron',output:()=>text}]);
+    assert.deepEqual((await f.receipt()).generationHostErrors,[{caseIndex:1,category:'unknown',name:'Error',code:null,phase:null,frames:[]}]);
+  });
+});
+
+test('host console capture performs no inspection before primary freeze, without owning5xx or when disabled and cannot replace frozen evidence',async()=>{
+  let inspected=0;const owners=[{label:'electron',output:()=>{inspected++;return 'PRIVATE';}}];
+  await generationResponseFixture(async f=>{
+    f.diagnostics.captureGenerationHostErrors(owners);assert.equal(inspected,0);
+    f.diagnostics.failure(new Error('PRIVATE'));f.diagnostics.captureGenerationHostErrors(owners);assert.equal(inspected,0);
+  });
+  await generationResponseFixture(async f=>{
+    f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(promptRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',204));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();
+    f.diagnostics.failure(new Error('PRIVATE'));f.diagnostics.captureGenerationHostErrors(owners);assert.equal(inspected,0);
+  });
+  await generationResponseFixture(async f=>{
+    f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(promptRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();
+    f.diagnostics.failure(new Error('PRIVATE'));f.diagnostics.captureGenerationHostErrors(owners);assert.equal(inspected,0);
+  },{enabled:false});
+  await generationResponseFixture(async f=>{
+    f.bodies.set('PRIVATE',{body:'{}',base64Encoded:false});f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(promptRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();await f.flush();
+    const primary=new TypeError('PRIVATE-PRIMARY'),failure=f.diagnostics.failure(primary);
+    f.diagnostics.captureGenerationHostErrors(owners);const before=await f.receipt();
+    f.diagnostics.captureGenerationHostErrors([{label:'electron',output:()=>{throw new Error('Must not re-inspect');}}]);
+    f.emit(promptResponse('PRIVATE',200));await f.flush();
+    assert.deepEqual(await f.receipt(),before);assert.deepEqual(failure.error,{name:'TypeError'});
+  });
+});
+
 test('generation error bodies stay bounded and closed against malformed, hostile or unknown metadata',async()=>{
   const samples=[
     ['{"code":','unknown'],
