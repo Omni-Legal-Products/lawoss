@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { missingScopeLevels, scopeLevels, type MatterOverview } from "../../../../../../lawoss/okf/read";
@@ -17,7 +17,7 @@ import { POSTPROCESS_RESOURCE_NAME, postprocessSource, VYSTUP_SKILL_NAME, vystup
 import { clientOf, nextDeadline } from "../today-model";
 import { LITE_CLIENTS_PATH } from "../links";
 import { openMatterConversation, type MatterConversation } from "../matter-conversations";
-import { useMatterConversations } from "../client-tree-data";
+import { isTreeFailure, useMatterConversations } from "../client-tree-data";
 import { saveDocumentsToMatter } from "../matter-intake";
 import { AI_SETTINGS_PATH, useMatterModelGap, type MatterModelGap } from "../matter-model";
 import "./lite.css";
@@ -60,6 +60,9 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const [busy, setBusy] = useState<ActionId | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // „+ Nový rozhovor“ v bočnom strome zlyhal a priviedol sem: povedať to (pod tým aj medzera v modeli, ak je).
+  const location = useLocation();
+  useEffect(() => { if (isTreeFailure(location.state)) setError("tree"); }, [location.key, location.state]);
   const [saved, setSaved] = useState<string | null>(null);
   const queries = useQueryClient();
   const matter = matterFromParams(data.matters, params);

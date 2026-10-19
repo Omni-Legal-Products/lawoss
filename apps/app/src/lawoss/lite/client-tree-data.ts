@@ -12,14 +12,18 @@ import type { MatterOverview } from "../../../../../lawoss/okf/read";
 import type { OkfConnection } from "../okf/connection";
 import { openMatterSession } from "../okf/matter-session";
 import { localMatter, locateInScope, type OkfReadResult, type OkfScope } from "../okf/read-model";
-import { buildClientTree, clearFocusOverrides, clientFolderFor, fetchPlan, routeFocus, sessionFocus, type ConversationList } from "./client-tree";
+import { buildClientTree, clearFocusOverrides, clientFolderFor, fetchPlan, matterSource, routeFocus, sessionFocus, type ConversationList } from "./client-tree";
 import { liteMatterLink } from "./links";
 import {
-  assignConversations, comparable, covers, FOLDER_SESSIONS_KEY, folderPath, openMatterConversation, useFolderListings, within,
+  assignConversations, comparable, FOLDER_SESSIONS_KEY, folderPath, openMatterConversation, useFolderListings, within,
   type Folder, type FolderListing, type FolderState, type MatterConversation, type Owners,
 } from "./matter-conversations";
 import { composeQuickAction } from "./quick-actions";
 import { clientOf, groupByClient, type ClientGroup } from "./today-model";
+
+/** Stav navigácie: „+ Nový rozhovor“ zo stromu zlyhal; detail veci to povie jednou vetou. */
+export const TREE_FAILURE_STATE = { lawossTreeFailure: true } as const;
+export const isTreeFailure = (state: unknown): boolean => typeof state === "object" && state !== null && "lawossTreeFailure" in state;
 
 /** Cesta z prehľadu → priečinok na čítanie (registrovaný priečinok a absolútna cesta). */
 export function scopeFolder(scope: OkfScope | null, relative: string | null): Folder | null {
@@ -47,13 +51,11 @@ export function listFrom(state: FolderState | undefined, items: readonly MatterC
   return { items: [], status: "loading", complete: false };
 }
 
-/** Rozhovory veci: z podstromu klienta, alebo (engine bez podstromu, vec bez klienta) z priečinka veci. */
+/** Rozhovory veci z toho výpisu, ktorý ich naozaj pokrýva (`matterSource`, rovnako ako plán čítania). */
 function matterList(states: ReadonlyMap<string, FolderState>, root: Folder | null, folder: Folder | null, items: readonly MatterConversation[] | undefined): ConversationList {
   if (!folder) return { items: [], status: "ready", complete: true };
   const rootState = root ? states.get(comparable(root.abs)) : undefined;
-  if (rootState?.listing && covers(rootState.listing, comparable(folder.abs))) return listFrom(rootState, items);
-  if (rootState && !rootState.listing) return listFrom(rootState, items);
-  return listFrom(states.get(comparable(folder.abs)), items);
+  return matterSource(root, rootState?.listing, folder) === "client" ? listFrom(rootState, items) : listFrom(states.get(comparable(folder.abs)), items);
 }
 
 /** Bočný strom: klienti a veci z prehľadu, rozhovory len pre rozbalených klientov a otvorenú konverzáciu. */
@@ -116,13 +118,13 @@ export function useClientTree(connection: OkfConnection | null, scope: OkfScope 
     },
   });
   const toggle = useCallback((key: string, expanded: boolean) => setOverrides((prev) => ({ ...prev, [key]: !expanded })), []);
-  const run = (work: () => Promise<string>, fallback: string) => {
+  const run = (work: () => Promise<string>, fallback: string, explain = false) => {
     if (running.current) return;
     running.current = true;
-    work().then(navigate).catch((failure: unknown) => {
+    work().then((to) => navigate(to)).catch((failure: unknown) => {
       console.warn("LAWOSS-lite: tree conversation", failure);
-      // Záloha: konverzácia bez aktivácie, alebo detail veci, ktorý ukáže, čo chýba (napr. model).
-      navigate(fallback);
+      // Záloha: konverzácia bez aktivácie, alebo detail veci, ktorý povie, že sa rozhovor neotvoril (a čo chýba, napr. model).
+      navigate(fallback, explain ? { state: TREE_FAILURE_STATE } : undefined);
     }).finally(() => { running.current = false; });
   };
   const openConversation = (conversation: MatterConversation) => {
@@ -134,10 +136,10 @@ export function useClientTree(connection: OkfConnection | null, scope: OkfScope 
   /** Ako rýchla akcia na detaile veci: nová konverzácia v priečinku veci u jej klienta, s konceptom (nič sa neodošle). */
   const newConversation = (path: string) => {
     const found = target(path);
-    if (!connection || !found) { navigate(liteMatterLink(path)); return; }
+    if (!connection || !found) { navigate(liteMatterLink(path), { state: TREE_FAILURE_STATE }); return; }
     const { matter, local } = found;
     const prompt = composeQuickAction("open", { title: matter.title, matterRef: matter.matterRef, path: local.selected.path }, locale);
-    run(() => openMatterSession(connection, local.workspace, local.selected, local.discovered, prompt), liteMatterLink(path));
+    run(() => openMatterSession(connection, local.workspace, local.selected, local.discovered, prompt), liteMatterLink(path), true);
   };
   return { nodes, toggle, openConversation, newConversation };
 }
@@ -150,7 +152,7 @@ export function useMatterConversations(connection: OkfConnection | null, scope: 
   const folder = matter ? scopeFolder(scope, matter.path) : null;
   const rootStates = useFolderListings(connection, root ? [root] : []);
   const rootListing = root ? rootStates.get(comparable(root.abs))?.listing : undefined;
-  const needOwn = folder && (!root || (rootListing && !covers(rootListing, comparable(folder.abs))));
+  const needOwn = folder !== null && matterSource(root, rootListing, folder) === "own";
   const states = new Map([...rootStates, ...useFolderListings(connection, needOwn && folder ? [folder] : [])]);
   if (!matter) return { items: [], status: "ready", complete: true };
   const groups = groupByClient(data.matters, data.inputs, data.clients);

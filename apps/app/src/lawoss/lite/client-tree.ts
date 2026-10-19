@@ -8,7 +8,7 @@ import { matchPath } from "react-router-dom";
 import type { MatterOverview } from "../../../../../lawoss/okf/read";
 import type { ClientGroup } from "./today-model";
 import { LITE_CLIENTS_PATH, LITE_MATTER_PATH } from "./links";
-import { comparable, type Assignment, type Folder, type FolderListing, type MatterConversation } from "./matter-conversations";
+import { comparable, covers, type Assignment, type Folder, type FolderListing, type MatterConversation } from "./matter-conversations";
 
 /** Rozhovory pod klientom aj vecou; viac ukáže prehľad klienta alebo detail veci („Zobraziť všetky“). */
 export const TREE_CONVERSATION_LIMIT = 5;
@@ -96,14 +96,25 @@ export function buildClientTree({ groups, focus, overrides, lists, canStart }: {
 }
 
 /**
+ * Odkiaľ sú rozhovory veci: z výpisu klienta („client“), alebo z vlastného výpisu veci („own“), keď klient
+ * priečinok nemá, jeho výpis vec nepokrýva (engine bez podstromu) alebo narazil na limit (engine uplatní
+ * limit až po filtri `path`, takže vlastný výpis veci ukáže aj staršiu vec). Kým sa výpis klienta číta, „client“.
+ */
+export function matterSource(root: Folder | null, rootListing: Pick<FolderListing, "subtree" | "folder" | "complete"> | undefined, matter: Folder | null): "client" | "own" {
+  if (!matter || !root) return "own";
+  if (!rootListing) return "client";
+  return covers(rootListing, comparable(matter.abs)) && rootListing.complete ? "client" : "own";
+}
+
+/**
  * Čo čítať: podstrom priečinka každého rozbaleného klienta (jeden výpis na klienta, veci v ňom),
- * priečinok otvorenej konverzácie a — len ak engine podstrom nevie — presne priečinok rozbalenej veci.
- * 24 zbalených klientov = žiadne čítanie.
+ * priečinok otvorenej konverzácie a vlastný podstrom rozbalenej veci, keď ju výpis klienta nepokrýva
+ * (`matterSource`). 24 zbalených klientov = žiadne čítanie.
  */
 export function fetchPlan(
   tree: readonly TreeClient[],
   folders: { client: (key: string) => Folder | null; matter: (path: string) => Folder | null },
-  listingOf: (folder: string) => Pick<FolderListing, "subtree" | "folder"> | undefined,
+  listingOf: (folder: string) => Pick<FolderListing, "subtree" | "folder" | "complete"> | undefined,
   sessionFolder?: Folder | null,
 ): Folder[] {
   const plan = new Map<string, Folder>();
@@ -116,8 +127,8 @@ export function fetchPlan(
     const listing = root ? listingOf(comparable(root.abs)) : undefined;
     for (const m of client.matters) {
       if (!m.expanded) continue;
-      // Klient bez priečinka (vec je sama sebe klientom) alebo engine bez podstromu: priečinok veci zvlášť.
-      if (!root || (listing && !listing.subtree)) add(folders.matter(m.path));
+      const own = folders.matter(m.path);
+      if (matterSource(root, listing, own) === "own") add(own);
     }
   }
   return [...plan.values()];

@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useMemo, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowUpRight, FolderOpen, MessageSquare } from "lucide-react";
 import { t, type Language } from "@/i18n";
@@ -41,13 +41,17 @@ function ClientsLive({ data, meta, scope, locale }: { data: OkfReadResult; meta:
   // Rozhovory nad celým klientom (koreň jeho priečinka): „Zobraziť všetky“ zo stromu vedie sem.
   const conversations = useClientConversations(connection, scope, groups, focus);
   const navigate = useNavigate();
+  const opening = useRef(false);
   const onOpen = (conversation: MatterConversation) => {
     const fallback = workspaceSessionRoute(conversation.workspaceId, conversation.id);
     if (!connection) { navigate(fallback); return; }
-    openMatterConversation(connection, conversation).then(navigate).catch((failure: unknown) => {
+    // Ako strom: druhý klik počas aktivácie priečinka nič nespustí.
+    if (opening.current) return;
+    opening.current = true;
+    openMatterConversation(connection, conversation).then((to) => navigate(to)).catch((failure: unknown) => {
       console.warn("LAWOSS-lite: client conversation", failure);
       navigate(fallback);
-    });
+    }).finally(() => { opening.current = false; });
   };
   return <ClientsView groups={groups} meta={meta} locale={locale} actions={<TriageEntry />}
     choices={choices} activeId={connection?.activeWorkspaceId} clientRoot={clientRoot} focus={focus}

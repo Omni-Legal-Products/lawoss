@@ -8,16 +8,17 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { shellCs, shellDe, shellEn, shellSk } from "../src/lawoss/i18n/shell";
 import { LiteNav, LiteNavView } from "../src/lawoss/lite/lite-nav";
 import {
-  buildClientTree, clearFocusOverrides, clientFolderFor, clientToggle, fetchPlan, matterToggle, routeFocus, sessionFocus,
+  buildClientTree, clearFocusOverrides, clientFolderFor, clientToggle, fetchPlan, matterSource, matterToggle, routeFocus, sessionFocus,
   TREE_CONVERSATION_LIMIT, type ConversationList,
 } from "../src/lawoss/lite/client-tree";
 import {
-  assignConversations, comparable, FOLDER_SESSION_LIMIT, folderSessionsQuery, listFolderSessions, projectRelative,
+  assignConversations, comparable, FOLDER_SESSION_LIMIT, FOLDER_SESSIONS_KEY, folderSessionsQuery, listFolderSessions, projectRelative,
   type FolderEngine, type FolderListing, type MatterConversation,
 } from "../src/lawoss/lite/matter-conversations";
 import { clientOverviewLink, LITE_CLIENTS_PATH, liteMatterLink } from "../src/lawoss/lite/links";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
 import { LiteMatterView } from "../src/lawoss/lite/pages/matter-page";
+import { useClientTree, useMatterConversations } from "../src/lawoss/lite/client-tree-data";
 import type { ClientGroup } from "../src/lawoss/lite/today-model";
 import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 
@@ -92,10 +93,12 @@ describe("výpis priečinka cez engine", () => {
     expect(projectRelative("/", "C:\\prax\\Tatran")).toBeNull();
   });
 
-  const fake = (worktree: string | null, items: ReturnType<typeof session>[], id = "global") => {
+  type Listed = ReturnType<typeof session> & { metadata?: unknown; time: { created: number; updated: number; archived?: number } };
+  /** `engineDir`: tvar priečinka v engine (`GET /path`); `projectId: null` = projekt sa nepodarilo zistiť. */
+  const fake = (worktree: string | null, items: Listed[], projectId: string | null = "global", engineDir?: (folder: string) => string) => {
     const calls: unknown[] = [];
     const engine: FolderEngine = {
-      project: async (folder) => { calls.push(["worktree", folder]); if (worktree === null) throw new Error("no project"); return { worktree, id }; },
+      locate: async (folder) => { calls.push(["locate", folder]); if (worktree === null) throw new Error("no path"); return { directory: engineDir?.(folder) ?? folder, worktree, projectId }; },
       list: async (folder, query, signal) => { calls.push(["list", folder, query, signal instanceof AbortSignal]); return items; },
     };
     return { engine, calls };
@@ -104,19 +107,53 @@ describe("výpis priečinka cez engine", () => {
   test("podstrom klienta cez `path` (limit platí po filtri enginu), cudzie položky sa zahodia, signal sa odovzdá", async () => {
     const { engine, calls } = fake("/", [...TATRAN.items, session("cudzi", "Beta", "/prax/Beta/Spisy/Najom", 20)]);
     const listing = await listFolderSessions(engine, "ws-tatran", "/prax/Tatran", new AbortController().signal);
-    expect(calls).toEqual([["worktree", "/prax/Tatran"], ["list", "/prax/Tatran", { path: "prax/Tatran", roots: true, limit: FOLDER_SESSION_LIMIT }, true]]);
+    expect(calls).toEqual([["locate", "/prax/Tatran"], ["list", "/prax/Tatran", { path: "prax/Tatran", roots: true, limit: FOLDER_SESSION_LIMIT }, true]]);
     expect(listing.subtree).toBe(true);
     expect(listing.complete).toBe(true);
     expect(listing.items.map((s) => s.id)).not.toContain("cudzi");
     expect(listing.items).toHaveLength(TATRAN.items.length);
   });
 
-  test("bez koreňa projektu: presný výpis priečinka (bez `path`), podpriečinky nepredstiera", async () => {
-    const { engine, calls } = fake(null, TATRAN.items);
+  test("tvar priečinka v engine nezistený: chyba, nie tichý prázdny zoznam", async () => {
+    await expect(listFolderSessions(fake(null, TATRAN.items).engine, "ws-tatran", "/prax/Tatran")).rejects.toThrow("no path");
+  });
+
+  test("priečinok mimo koreňa projektu: presný výpis (bez `path`), podpriečinky nepredstiera", async () => {
+    const { engine, calls } = fake("/ine", TATRAN.items);
     const listing = await listFolderSessions(engine, "ws-tatran", "/prax/Tatran");
     expect(calls[1]).toEqual(["list", "/prax/Tatran", { roots: true, limit: FOLDER_SESSION_LIMIT }, false]);
     expect(listing.subtree).toBe(false);
     expect(listing.items.map((s) => s.id)).toEqual(["s-klient"]);
+  });
+
+  test("symbolický odkaz: `path` z tvaru enginu a priečinky prevedené späť do tvaru appky", async () => {
+    const real = (dir: string) => dir.replace("/prax/", "/Volumes/Data/prax/");
+    const items = TATRAN.items.map((s) => ({ ...s, directory: real(s.directory) }));
+    const { engine, calls } = fake("/", items, "global", real);
+    const listing = await listFolderSessions(engine, "ws-tatran", "/prax/Tatran");
+    expect(calls[1]).toEqual(["list", "/prax/Tatran", { path: "Volumes/Data/prax/Tatran", roots: true, limit: FOLDER_SESSION_LIMIT }, false]);
+    expect(assignConversations([listing], owners).byMatter.get(UHRADA.path)?.map((c) => c.id)).toEqual(["s-zhrnutie", "s-navrh", "s-bez", "s-podanie"]);
+  });
+
+  test("diakritika na disku rozložená (NFD „Šimková“): `path` v tvare enginu, priradenie v tvare appky", async () => {
+    const disk = "/prax/Šimková Ľupták".normalize("NFD");
+    const app = "/prax/Šimková Ľupták".normalize("NFC");
+    const { engine, calls } = fake("/", [session("n1", "Dedičstvo", `${disk}/Spisy/Dedičstvo`, 3), session("n2", "Otázka", disk, 2)], "global", () => disk);
+    const listing = await listFolderSessions(engine, "ws-simkova", app);
+    expect((calls[1] as [string, string, { path: string }])[2].path).toBe(disk.slice(1));
+    const result = assignConversations([listing], { clients: [{ key: "simkova", folder: comparable(app) }], matters: [{ path: "D", folder: comparable(`${app}/Spisy/Dedičstvo`) }] });
+    expect([result.byClient.get("simkova")?.map((c) => c.id), result.byMatter.get("D")?.map((c) => c.id)]).toEqual([["n2"], ["n1"]]);
+  });
+
+  test("interné konverzácie posudkov a archivované sa neukazujú (ako upstream)", async () => {
+    const items: Listed[] = [
+      session("ok", "Otázka", "/prax/Tatran", 3),
+      { ...session("review", "Review: zmluva", "/prax/Tatran", 2), metadata: { legalworkReviewWorker: true } },
+      { ...session("archiv", "Starý", "/prax/Tatran", 1), time: { created: 1, updated: 1, archived: 5 } },
+      { ...session("obnoveny", "Obnovený", "/prax/Tatran", 1), time: { created: 1, updated: 1, archived: 0 } },
+    ];
+    const listing = await listFolderSessions(fake("/", items).engine, "ws-tatran", "/prax/Tatran");
+    expect(listing.items.map((s) => s.id)).toEqual(["ok", "obnoveny"]);
   });
 
   test("koreň vlastného projektu (git) = priečinok: `path` = \"\" vypíše len ten projekt", async () => {
@@ -126,12 +163,14 @@ describe("výpis priečinka cez engine", () => {
     expect(listing.subtree).toBe(true);
   });
 
-  test("globálny projekt s koreňom v priečinku (git bez commitu): nie celý engine, ale presný výpis", async () => {
+  test("globálny alebo neznámy projekt s koreňom v priečinku (git bez commitu): presný výpis, nie celý engine", async () => {
     // Skutočný engine 1.18.29: `path=` by vypísal všetky konverzácie všetkých klientov a limit by ich orezal.
-    const { engine, calls } = fake("/prax/Tatran", TATRAN.items, "global");
-    const listing = await listFolderSessions(engine, "ws-tatran", "/prax/Tatran");
-    expect(calls[1]).toEqual(["list", "/prax/Tatran", { roots: true, limit: FOLDER_SESSION_LIMIT }, false]);
-    expect(listing.subtree).toBe(false);
+    for (const id of ["global", null]) {
+      const { engine, calls } = fake("/prax/Tatran", TATRAN.items, id);
+      const listing = await listFolderSessions(engine, "ws-tatran", "/prax/Tatran");
+      expect(calls[1]).toEqual(["list", "/prax/Tatran", { roots: true, limit: FOLDER_SESSION_LIMIT }, false]);
+      expect(listing.subtree).toBe(false);
+    }
   });
 
   test(`plný výpis (${FOLDER_SESSION_LIMIT}) nie je úplný`, async () => {
@@ -263,12 +302,27 @@ describe("strom klientov: čo sa číta (24 klientov, 72 vecí)", () => {
   test("zbalené nič; rozbalený klient = jeden výpis jeho podstromu; vec ďalší nepridá", () => {
     expect(fetchPlan(build({}), folders, () => undefined)).toEqual([]);
     expect(abs(fetchPlan(build({ client: "client:K3" }), folders, () => undefined))).toEqual(["/prax/K3"]);
-    expect(abs(fetchPlan(build({ matter: "K3/Spisy/V1" }, { [matterToggle("K3/Spisy/V2")]: true }), folders, () => ({ subtree: true, folder: comparable("/prax/K3") })))).toEqual(["/prax/K3"]);
+    expect(abs(fetchPlan(build({ matter: "K3/Spisy/V1" }, { [matterToggle("K3/Spisy/V2")]: true }), folders, () => ({ subtree: true, folder: comparable("/prax/K3"), complete: true })))).toEqual(["/prax/K3"]);
   });
 
   test("ak engine nevie podstrom, dočíta sa presne priečinok rozbalenej veci", () => {
-    const plan = fetchPlan(build({ matter: "K3/Spisy/V1" }), folders, (folder) => folder === comparable("/prax/K3") ? { subtree: false, folder } : undefined);
+    const plan = fetchPlan(build({ matter: "K3/Spisy/V1" }), folders, (folder) => folder === comparable("/prax/K3") ? { subtree: false, folder, complete: true } : undefined);
     expect(abs(plan)).toEqual(["/prax/K3", "/prax/K3/Spisy/V1"]);
+  });
+
+  test("výpis klienta narazil na limit: rozbalená vec sa dočíta vlastným podstromom (limit až po filtri `path`)", () => {
+    const plan = fetchPlan(build({ matter: "K3/Spisy/V1" }), folders, (folder) => folder === comparable("/prax/K3") ? { subtree: true, folder, complete: false } : undefined);
+    expect(abs(plan)).toEqual(["/prax/K3", "/prax/K3/Spisy/V1"]);
+  });
+
+  test("zdroj rozhovorov veci: rovnaké pravidlo pre plán, strom aj detail veci", () => {
+    const root = folderOf("K3"), own = folderOf("K3/Spisy/V1");
+    const listing = (subtree: boolean, complete: boolean) => ({ subtree, complete, folder: comparable(root.abs) });
+    expect(matterSource(root, undefined, own)).toBe("client");
+    expect(matterSource(root, listing(true, true), own)).toBe("client");
+    expect(matterSource(root, listing(true, false), own)).toBe("own");
+    expect(matterSource(root, listing(false, true), own)).toBe("own");
+    expect(matterSource(null, undefined, own)).toBe("own");
   });
 
   test("otvorená konverzácia: priečinok jej klienta, aj keď je strom zbalený", () => {
@@ -344,5 +398,84 @@ describe("výpis priečinka ide do enginu, nie na výpis koreňa priečinka (PAT
     expect(urls[0]).toContain("path=prax%2FTatran");
     expect(urls[1]).toContain("/workspace/ws-tatran/opencode/session?directory=%2Fprax%2FTatran%2FSpisy%2FUhrada");
     expect(urls[2]).toContain("/workspace/ws-tatran/sessions?roots=true&limit=5");
+  });
+});
+
+describe("háky stromu a detailu veci (server-side render nad naplnenou cache)", () => {
+  // Bez DOM knižnice: React Query pri vykreslení na serveri nič nečíta, ale vráti dáta z cache
+  // a zaregistruje dotazy, ktoré hák chce. Počet dotazov v cache = plán čítania.
+  const office = ws("office", "/prax");
+  const scope = { anchor: office, members: [{ workspace: office, prefix: "" }] };
+  const m1 = matter("AK/T/Tatran/Uhrada", "Úhrada dodávok");
+  const m2 = matter("AK/T/Tatran/Vady", "Vady");
+  const m3 = matter("AK/H/Hron/Zmluva", "Zmluva");
+  const data = { matters: [m1, m2, m3], inputs: [], clients: [], upcomingDeadlines: [], overdue: [], problems: [], truncated: false };
+  const connection = { client: {} as never, baseUrl: "http://x", token: "t", workspaces: [office], activeWorkspaceId: office.id };
+  const tatranListing: FolderListing = {
+    workspaceId: office.id, folder: comparable("/prax/AK/T/Tatran"), subtree: true, complete: true, items: [
+      session("u1", "Zhrnutie spisu", "/prax/AK/T/Tatran/Uhrada", 19),
+      session("u2", "Podanie", "/prax/AK/T/Tatran/Uhrada/Podania", 18),
+      session("k1", "Otázka ku klientovi", "/prax/AK/T/Tatran", 17),
+    ],
+  };
+  const filled = () => {
+    const queries = new QueryClient();
+    queries.setQueryData(folderSessionsQuery(connection, { workspace: office, abs: "/prax/AK/T/Tatran" }).queryKey, tatranListing);
+    return queries;
+  };
+  const folderQueries = (queries: QueryClient) => queries.getQueryCache().findAll({ queryKey: [FOLDER_SESSIONS_KEY] }).map((q) => q.queryKey[2]);
+  const renderWith = (queries: QueryClient, entry: string, node: ReactElement) => renderToStaticMarkup(
+    <QueryClientProvider client={queries}><MemoryRouter initialEntries={[entry]}>{node}</MemoryRouter></QueryClientProvider>);
+
+  test("useClientTree: detail veci = jeden výpis klienta, rozhovory klienta aj veci z neho; ostatní klienti nič", () => {
+    function Probe() {
+      const tree = useClientTree(connection, scope, data as never, "/vec", `?vec=${encodeURIComponent(m1.path)}`, "en");
+      return <pre>{JSON.stringify(tree.nodes.map((c) => ({ key: c.key, expanded: c.expanded, client: c.conversations.map((x) => x.id), matters: c.matters.map((m) => [m.path, m.expanded, m.status, m.conversations.map((x) => x.id)]) })))}</pre>;
+    }
+    const queries = filled();
+    const out = renderWith(queries, "/dnes", <Probe />).replace(/&quot;/g, '"');
+    expect(out).toContain('{"key":"path:Tatran","expanded":true,"client":["k1"],"matters":[["AK/T/Tatran/Uhrada",true,"ready",["u1","u2"]],["AK/T/Tatran/Vady",false,"ready",[]]]}');
+    expect(out).toContain('{"key":"path:Hron","expanded":false,"client":[],"matters":[["AK/H/Hron/Zmluva",false,"ready",[]]]}');
+    expect(folderQueries(queries)).toEqual([comparable("/prax/AK/T/Tatran")]);
+  });
+
+  test("useClientTree: neúplný výpis klienta → strom číta aj vlastný podstrom rozbalenej veci (žiadne večné čakanie)", () => {
+    function Probe() {
+      const tree = useClientTree(connection, scope, data as never, "/vec", `?vec=${encodeURIComponent(m1.path)}`, "en");
+      return <pre>{JSON.stringify(tree.nodes[1]?.matters[0]?.status)}</pre>;
+    }
+    const queries = new QueryClient();
+    queries.setQueryData(folderSessionsQuery(connection, { workspace: office, abs: "/prax/AK/T/Tatran" }).queryKey, { ...tatranListing, complete: false });
+    queries.setQueryData(folderSessionsQuery(connection, { workspace: office, abs: "/prax/AK/T/Tatran/Uhrada" }).queryKey, { ...tatranListing, folder: comparable("/prax/AK/T/Tatran/Uhrada"), items: tatranListing.items.slice(0, 2) });
+    expect(renderWith(queries, "/dnes", <Probe />).replace(/&quot;/g, '"')).toContain('"ready"');
+    expect(folderQueries(queries).sort()).toEqual([comparable("/prax/AK/T/Tatran"), comparable("/prax/AK/T/Tatran/Uhrada")]);
+  });
+
+  test("useClientTree: zbalený strom nečíta nič", () => {
+    function Probe() { useClientTree(connection, scope, data as never, "/dnes", "", "en"); return null; }
+    const queries = new QueryClient();
+    renderWith(queries, "/dnes", <Probe />);
+    expect(folderQueries(queries)).toEqual([]);
+  });
+
+  test("useMatterConversations: všetky rozhovory veci z toho istého výpisu ako strom", () => {
+    function Probe() {
+      const list = useMatterConversations(connection, scope, data as never, m1);
+      return <pre>{JSON.stringify([list.status, list.complete, list.items.map((x) => x.id)])}</pre>;
+    }
+    const queries = filled();
+    expect(renderWith(queries, "/vec", <Probe />).replace(/&quot;/g, '"')).toContain('["ready",true,["u1","u2"]]');
+    expect(folderQueries(queries)).toEqual([comparable("/prax/AK/T/Tatran")]);
+  });
+
+  test("useMatterConversations: neúplný výpis klienta → vlastný podstrom veci (čaká sa naň, nie prázdno)", () => {
+    function Probe() {
+      const list = useMatterConversations(connection, scope, data as never, m1);
+      return <pre>{JSON.stringify([list.status, list.items.length])}</pre>;
+    }
+    const queries = new QueryClient();
+    queries.setQueryData(folderSessionsQuery(connection, { workspace: office, abs: "/prax/AK/T/Tatran" }).queryKey, { ...tatranListing, complete: false });
+    expect(renderWith(queries, "/vec", <Probe />).replace(/&quot;/g, '"')).toContain('["loading",0]');
+    expect(folderQueries(queries)).toEqual([comparable("/prax/AK/T/Tatran"), comparable("/prax/AK/T/Tatran/Uhrada")]);
   });
 });

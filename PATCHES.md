@@ -1,11 +1,5 @@
 # LAWOSS downstream patches
 
-## Strom klientov v bočnom paneli (2026-10-19)
-
-| Súbory | Downstream doplnenie a dôvod |
-| --- | --- |
-| `apps/app/src/app/lib/opencode.ts` | Prepis `session.list` v režime LegalWork pošle výpis s `directory` alebo `path` priamo enginu cez proxy priečinka (`/workspace/:id/opencode/session`); bez nich ostáva pôvodný výpis `/workspace/:id/sessions`. Typ parametrov dostal `path`, voľby `signal`. Dôvod: skutočný engine 1.18.29 vypíše cez `/workspace/:id/sessions` len konverzácie presne v koreni priečinka, rozhovory vecí (podpriečinky) chýbali; podstrom vie len engine (`path` voči koreňu projektu). Nikto iný v appke `session.list` s `directory`/`path` nevolá. Test: `apps/app/tests/lawoss-lite-client-tree.test.tsx` („výpis priečinka ide do enginu“). |
-
 ## ISIR native Files navigation (2026-10-16)
 
 | Súbory | Downstream doplnenie a dôvod |
@@ -995,3 +989,9 @@ Zachované obe histórie a celý nezmenený samostatný SDK/dependency helper; r
 | Súbory | Zmena a dôvod |
 |---|---|
 | `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Riadok ikon onboardingu (`OnboardingEntryActions compact`) pod značkou odstránený, neviditeľný `OkfWorkspaceSkillSync` ostáva bez obaľujúceho `div` (+1 / −2 riadky). Rozhodnutie MČ G2 V1: namiesto ikon je v navigácii LAWOSS položka „Pridať priečinok“. Pridať klienta a Usporiadať podľa OKF ostávajú v Nastaveniach (profil kancelárie), Usporiadať podľa OKF aj v Roztriedení. Nový chat a sekcie upstreamu sa naďalej zobrazia len v Pokročilom režime. |
+
+### Strom klientov v bočnom paneli (2026-10-19)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/app/lib/opencode.ts` | Prepis `session.list` v režime LegalWork pošle výpis s `directory` alebo `path` priamo enginu cez proxy priečinka (`/workspace/:id/opencode/session`); bez nich ostáva pôvodný výpis `/workspace/:id/sessions`. Typ parametrov dostal `path`, voľby `signal`. Dôvod: skutočný engine 1.18.29 vypíše cez `/workspace/:id/sessions` len konverzácie presne v koreni priečinka, rozhovory vecí (podpriečinky) chýbali; podstrom vie len engine (`path` voči koreňu projektu). Táto cesta **obchádza read model servera** (filter vlastníctva `workspaceOwnsSession`, filter interných posudkov `isReviewWorkerSession`, validácia schémy); jediný volajúci (`apps/app/src/lawoss/lite/matter-conversations.ts`) preto vlastníctvo (podstrom priečinka v tvare enginu z `GET /path`), interné posudky a archivované konverzácie filtruje sám. Nikto iný v appke `session.list` s `directory`/`path` nevolá. Test: `apps/app/tests/lawoss-lite-client-tree.test.tsx` („výpis priečinka ide do enginu“); sonda so skutočným enginom `apps/app/scripts/lite-tree-engine-probe.ts`. |

@@ -10,6 +10,7 @@
  * presný výpis priečinka a veci sa dočítajú zvlášť.
  */
 import { useQueries } from "@tanstack/react-query";
+import { isReviewWorkerSession } from "@legalwork/types/reviews";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { normalizeDirectoryPath, normalizeDirectoryQueryPath } from "@/app/utils";
@@ -20,7 +21,7 @@ import { activateLocalWorkspace } from "../okf/matter-session";
 
 export type MatterConversation = { workspaceId: string; id: string; title: string | null; updated: number };
 /** Položka výpisu konverzácií enginu; `directory` určuje klienta alebo vec. */
-export type ListedSession = { id: string; title?: string; directory?: string; time?: { created?: number; updated?: number } };
+export type ListedSession = { id: string; title?: string; directory?: string; time?: { created?: number; updated?: number; archived?: number }; metadata?: unknown };
 /**
  * Výpis jedného priečinka. `subtree`: obsahuje aj podpriečinky (veci); inak len presne priečinok.
  * `complete`: engine vrátil menej ako limit, nič staršie nechýba.
@@ -30,8 +31,11 @@ export type FolderListing = { workspaceId: string; folder: string; items: readon
 export type Folder = { workspace: RouteWorkspace; abs: string };
 /** To, čo výpis potrebuje od enginu; v appke `folderEngine`, v testoch náhrada. */
 export type FolderEngine = {
-  /** Projekt enginu pre priečinok: koreň (`worktree`) a `id` („global“ = priečinky bez vlastného git projektu). */
-  project: (folder: string, signal?: AbortSignal) => Promise<{ worktree: string; id: string } | null>;
+  /**
+   * Priečinok v tvare enginu (`GET /path`: skutočná cesta za symbolickými odkazmi, diakritika ako na disku),
+   * koreň jeho projektu a `projectId` („global“ = priečinky bez vlastného git projektu).
+   */
+  locate: (folder: string, signal?: AbortSignal) => Promise<{ directory: string; worktree: string; projectId: string | null }>;
   list: (folder: string, query: { path?: string; roots: true; limit: number }, signal?: AbortSignal) => Promise<readonly ListedSession[]>;
 };
 
@@ -72,19 +76,40 @@ export function projectRelative(worktree: string, folder: string): string | null
   return dir.startsWith(`${root}/`) ? original.slice(root.length + 1) : null;
 }
 
-/** Výpis priečinka: podstrom cez `path`, ak ho vieme vyjadriť, inak presne priečinok. Cudzie položky sa zahodia. */
+/** Ako upstream zoznamy: interné konverzácie posudkov a archivované konverzácie sa neukazujú. */
+export const isListedConversation = (s: ListedSession): boolean => !s.time?.archived && !isReviewWorkerSession(s);
+
+/** Tvar na porovnanie aj na skladanie: lomky, bez koncovej lomky, diakritika NFC (veľkosť písmen ostáva). */
+const nfcPath = (path: string): string => normalizeDirectoryQueryPath(path.normalize("NFC"));
+
+/** Priečinok konverzácie v tvare enginu → ten istý priečinok v tvare appky (`engineRoot` ↔ `appRoot`); mimo `null`. */
+export function rebaseDirectory(directory: string, engineRoot: string, appRoot: string): string | null {
+  if (!within(comparable(engineRoot), comparable(directory))) return null;
+  const rest = nfcPath(directory).slice(nfcPath(engineRoot).length);
+  return `${nfcPath(appRoot)}${rest}`;
+}
+
+/**
+ * Výpis priečinka. Cestu `path` počíta z tvaru enginu (`GET /path`), nie z cesty v appke: engine ukladá
+ * skutočnú cestu (symbolické odkazy, diakritika z disku) a jeho filter porovnáva presne. Položky sa potom
+ * prevedú do tvaru appky, aby ich vedel priradiť klientovi a veci. Bez podstromu presne priečinok.
+ */
 export async function listFolderSessions(engine: FolderEngine, workspaceId: string, folderAbs: string, signal?: AbortSignal): Promise<FolderListing> {
-  const project = await engine.project(folderAbs, signal).catch(() => null);
-  const relative = project ? projectRelative(project.worktree, folderAbs) : null;
+  // Bez tvaru enginu by sa výpis nedal spárovať: radšej chyba (UI ponúkne „Skúsiť znova“) než tichý prázdny zoznam.
+  const where = await engine.locate(folderAbs, signal);
+  const relative = projectRelative(where.worktree, where.directory);
   // Globálny projekt s koreňom v priečinku (git bez commitu): `path=` by vypísal všetkých klientov a limit by ich orezal.
-  const path = relative === "" && project?.id === "global" ? null : relative;
-  // Bez `path` engine vypíše len presne priečinok. `path` = "" (priečinok je koreň projektu) vypíše celý projekt,
-  // preto sa výsledok aj tak filtruje na tento priečinok.
+  // Nevedno, či je projekt globálny: radšej presný výpis.
+  const path = relative === "" && where.projectId !== null && where.projectId !== "global" ? "" : relative === "" ? null : relative;
   const items = await engine.list(folderAbs, { ...(path === null ? {} : { path }), roots: true, limit: FOLDER_SESSION_LIMIT }, signal);
-  const folder = comparable(folderAbs);
   const subtree = path !== null;
-  const own = items.filter((s) => s.directory && (subtree ? within(folder, comparable(s.directory)) : comparable(s.directory) === folder));
-  return { workspaceId, folder, items: own, subtree, complete: items.length < FOLDER_SESSION_LIMIT };
+  const own = items.flatMap((s): ListedSession[] => {
+    const directory = s.directory ? rebaseDirectory(s.directory, where.directory, folderAbs) : null;
+    if (!directory || !isListedConversation(s)) return [];
+    if (!subtree && comparable(directory) !== comparable(folderAbs)) return [];
+    return [{ ...s, directory }];
+  });
+  return { workspaceId, folder: comparable(folderAbs), items: own, subtree, complete: items.length < FOLDER_SESSION_LIMIT };
 }
 
 /** Engine priečinka cez proxy servera (ako `openSessionWithPrompt`); bez spojenia `null`. */
@@ -93,9 +118,13 @@ export function folderEngine(connection: Pick<OkfConnection, "baseUrl" | "token"
   if (!endpoint) return null;
   const client = (directory: string) => createClient(endpoint.opencodeBaseUrl, directory, { token: endpoint.token, mode: "legalwork" });
   return {
-    project: async (folder, signal) => {
-      const project = unwrap(await client(folder).project.current({ directory: folder }, { signal }));
-      return project.worktree ? { worktree: project.worktree, id: project.id } : null;
+    locate: async (folder, signal) => {
+      const opencode = client(folder);
+      const [where, project] = await Promise.all([
+        opencode.path.get({ directory: folder }, { signal }).then(unwrap),
+        opencode.project.current({ directory: folder }, { signal }).then(unwrap).catch(() => null),
+      ]);
+      return { directory: where.directory, worktree: where.worktree, projectId: project?.id ?? null };
     },
     list: async (folder, query, signal) => unwrap(await client(folder).session.list({ directory: folder, ...query }, { signal })),
   };
