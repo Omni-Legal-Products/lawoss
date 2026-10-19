@@ -429,3 +429,22 @@ test("the protected document panel shows stored matter options without preselect
   expect(markup).toContain("Choose a profile explicitly");
   expect(markup).toMatch(new RegExp(`<button[^>]*disabled=""[^>]*>${t("documents.generate")}</button>`));
 });
+
+test("the actual protected panel immediately explains a saved cross-project directory and disables generation without waiting for a profile lookup", () => {
+  const descriptor=Object.getOwnPropertyDescriptor(globalThis,"localStorage"), saved=new Map<string,string>();
+  Object.defineProperty(globalThis,"localStorage",{configurable:true,value:{getItem:(key:string)=>saved.get(key)??null,setItem:(key:string,value:string)=>saved.set(key,value)}});
+  try {
+    const {persistDocumentWorkingDirectory}=require("../src/react-app/domains/session/panel/document-processing");
+    const client=createLegalworkServerClient({baseUrl:"http://invalid-directory-panel.invalid",token:"owner",hostToken:"native"});
+    persistDocumentWorkingDirectory(JSON.stringify([client.baseUrl,"invalid-owner","/selected-project"]),"../case-01");
+    const cache=new QueryClient(),identity=[client.baseUrl,documentClientIdentity(client),"invalid-owner","/selected-project"];
+    cache.setQueryData(["lawoss-documents",...identity,[root.path],"files"],[{...root,freshness:"current",pages:[]}]);
+    const onGenerate=Object.assign(async()=>"unused",{transport:"protected-documents-v1" as const,model:{providerID:"provider",modelID:"model"}});
+    const panel=createElement(DocumentProcessingPanel,{client,workspaceId:"invalid-owner",projectId:"invalid-project",workspaceRoot:"/selected-project",folder:"",selectedPaths:[root.path],onSelectPaths:()=>{},fileVersion:"files",active:false,isRemote:false,onGenerate});
+    const markup=renderToStaticMarkup(createElement(QueryClientProvider,{client:cache},panel));
+    expect(markup).toContain('value="../case-01"');
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain(t("documents.invalid_directory"));
+    expect(markup).toMatch(new RegExp(`<button[^>]*disabled=""[^>]*>${t("documents.generate")}</button>`));
+  } finally {if(descriptor)Object.defineProperty(globalThis,"localStorage",descriptor);else Reflect.deleteProperty(globalThis,"localStorage");}
+});

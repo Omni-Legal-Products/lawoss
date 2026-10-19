@@ -113,14 +113,16 @@ jobs:
         run: |
           echo "LAWOSS_ISIR_NATIVE_DIAGNOSTICS=1" >> "$GITHUB_ENV"
           echo "LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE=$RUNNER_TEMP/isir-native-diagnostics.json" >> "$GITHUB_ENV"
+      # Ten separate cold VMs plus native reviews, restore and relaunch form one
+      # batch. Per-case 240s provisioning and 90s inference checks stay in the harness.
       - name: Native ISIR renderer, tools and application relaunch (Linux)
         if: runner.os == 'Linux'
-        timeout-minutes: 12
+        timeout-minutes: 40
         run: xvfb-run -a pnpm test:isir:native
       - name: Native ISIR renderer, tools and application relaunch (Windows and macOS)
         id: native-isir-non-linux
         if: runner.os != 'Linux'
-        timeout-minutes: 12
+        timeout-minutes: 40
         run: pnpm test:isir:native
       - name: Probe bundled engine runtime after Windows native failure
         if: runner.os == 'Windows' && failure() && steps.native-isir-non-linux.outcome == 'failure'

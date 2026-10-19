@@ -39,12 +39,18 @@ export async function startProvider() {
       const previous = (name, matches = () => true) => calls.filter(c => c.function.name === name && matches(JSON.parse(c.function.arguments))).at(-1);
       const originalIds = sources.filter(s => !s.parentId).map(s => s.id);
       let call;
+      const readCalls = [];
       if (recoveryTurn && sources.length) {
         const freshCalls = messages.slice(lastUser + 1).flatMap(m => m.tool_calls ?? []);
         const freshRead = freshCalls.filter(c => c.function.name === "lawoss_documents_read").at(-1);
         if (!freshRead) call = {name:"lawoss_documents_read",args:{id:sources[0].id,limit:16000}};
         else if (decoded(freshRead)?.nextOffset != null) call = {name:"lawoss_documents_read",args:{id:sources[0].id,limit:16000,offset:decoded(freshRead).nextOffset}};
       } else if (sources.length && !toolResults.some(r => String(r.content).includes('"error"'))) {
+        // A completion may batch independent reads, but it cannot advance past
+        // any issued call without that exact call's actual tool result.
+        for (const issued of calls) if (["lawoss_documents_list", "lawoss_documents_read", "lawoss_documents_export", "lawoss_documents_validate"].includes(issued.function.name)) {
+          if (toolResults.filter(result => result.tool_call_id === issued.id).length !== 1) throw new Error("A matching tool result is required before advancing the native protocol");
+        }
         const listCall = previous("lawoss_documents_list");
         if (!listCall) call = {name:"lawoss_documents_list",args:{limit:50}};
         else if (decoded(listCall)?.nextOffset != null) call = {name:"lawoss_documents_list",args:{limit:50,offset:decoded(listCall).nextOffset}};
@@ -52,15 +58,18 @@ export async function startProvider() {
           for (const source of sources) {
             const last = previous("lawoss_documents_read", args => args.id === source.id);
             const result = last ? decoded(last) : null;
-            if (!result || result.nextOffset != null) { call = {name:"lawoss_documents_read",args:{id:source.id,limit:16000,...(result?.nextOffset == null ? {} : {offset:result.nextOffset})}}; break; }
+            if (last && (!result || result.id !== source.id || result.hash !== source.hash || result.offset !== (JSON.parse(last.function.arguments).offset ?? 0) || typeof result.text !== "string")) throw new Error("The actual source read identity, hash, offset and text must match its selected request");
+            if (last && (!result || !Object.hasOwn(result, "nextOffset") || (result.nextOffset !== null && (!Number.isSafeInteger(result.nextOffset) || result.nextOffset <= (JSON.parse(last.function.arguments).offset ?? 0))))) throw new Error("The actual source read must supply its complete next cursor");
+            if (readCalls.length < 8 && (!last || result.nextOffset !== null)) readCalls.push({name:"lawoss_documents_read",args:{id:source.id,limit:16000,...(result?.nextOffset == null ? {} : {offset:result.nextOffset})}});
           }
-          if (!call && !previous("lawoss_documents_export", args => args.kind === "registry")) call = {name:"lawoss_documents_export",args:{path:"native-registry.csv",expectedHash:"",kind:"registry",outputLanguage:language,documentIds:originalIds,entries:originalIds.map(documentId=>({documentId,summary:'Synthetic; "quoted" protocol evidence\nsecond line'}))}};
-          if (!call && !previous("lawoss_documents_export", args => args.kind === "summary")) call = {name:"lawoss_documents_export",args:{path:"native-summary.md",kind:"summary",outputLanguage:language,documentIds:originalIds,entries:[]}};
-          if (!call && !previous("lawoss_documents_validate")) call = {name:"lawoss_documents_validate",args:{paths:["native-registry.csv","native-summary.md"],outputLanguage:language,documentIds:originalIds}};
+          if (!readCalls.length && !call && !previous("lawoss_documents_export", args => args.kind === "registry")) call = {name:"lawoss_documents_export",args:{path:"native-registry.csv",expectedHash:"",kind:"registry",outputLanguage:language,documentIds:originalIds,entries:originalIds.map(documentId=>({documentId,summary:'Synthetic; "quoted" protocol evidence\nsecond line'}))}};
+          if (!readCalls.length && !call && !previous("lawoss_documents_export", args => args.kind === "summary")) call = {name:"lawoss_documents_export",args:{path:"native-summary.md",kind:"summary",outputLanguage:language,documentIds:originalIds,entries:[]}};
+          if (!readCalls.length && !call && !previous("lawoss_documents_validate")) call = {name:"lawoss_documents_validate",args:{paths:["native-registry.csv","native-summary.md"],outputLanguage:language,documentIds:originalIds}};
         }
       }
       const names = (body.tools ?? []).map(t => t.function?.name);
-      if (call && !names.includes(call.name)) throw new Error(`Real engine did not advertise ${call.name}`);
+      const plannedCalls = readCalls.length ? readCalls : call ? [call] : [];
+      for (const planned of plannedCalls) if (!names.includes(planned.name)) throw new Error(`Real engine did not advertise ${planned.name}`);
       let exportSchemaVerified, exportWireAcceptance;
       if (call?.name === "lawoss_documents_export") {
         // Validate the real engine-advertised JSON schema, independently of its
@@ -96,14 +105,14 @@ export async function startProvider() {
         if (!receipts.some(receipt => receipt.exportSchemaVerified)) console.log("Native export wire acceptance", JSON.stringify(exportWireAcceptance));
         exportSchemaVerified = true;
       }
-      receipts.push({ ordinal, receivedAtMs, model: body.model, path: req.url, sources: sources.map(s => ({ id: s.id, hash: s.hash })), call, toolResults, ...(exportSchemaVerified ? { exportSchemaVerified, exportWireAcceptance } : {}) });
+      receipts.push({ ordinal, receivedAtMs, model: body.model, path: req.url, sources: sources.map(s => ({ id: s.id, hash: s.hash })), call: plannedCalls[0], calls: plannedCalls, toolResults, ...(exportSchemaVerified ? { exportSchemaVerified, exportWireAcceptance } : {}) });
       const id = `chatcmpl-native-${receipts.length}`;
       const base = { id, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: body.model };
       await new Promise(resolve=>setTimeout(resolve,sources.length&&toolResults.length===0?250:25));
       res.writeHead(200, { "Content-Type": "text/event-stream" });
       const emit = value => res.write(`data: ${JSON.stringify(value)}\n\n`);
-      emit({ ...base, choices: [{ index: 0, delta: { role: "assistant", ...(call ? { tool_calls: [{ index: 0, id: `call_native_${receipts.length}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.args) } }] } : { content: "Synthetic transport finished. Saved-file validation determines status." }) }, finish_reason: null }] });
-      emit({ ...base, choices: [{ index: 0, delta: {}, finish_reason: call ? "tool_calls" : "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } });
+      emit({ ...base, choices: [{ index: 0, delta: { role: "assistant", ...(plannedCalls.length ? { tool_calls: plannedCalls.map((planned,index) => ({ index, id: `call_native_${ordinal}_${index}`, type: "function", function: { name: planned.name, arguments: JSON.stringify(planned.args) } })) } : { content: "Synthetic transport finished. Saved-file validation determines status." }) }, finish_reason: null }] });
+      emit({ ...base, choices: [{ index: 0, delta: {}, finish_reason: plannedCalls.length ? "tool_calls" : "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } });
       res.end("data: [DONE]\n\n");
     } catch (e) { errors.push({path:req.url,error:String(e)}); res.writeHead(500); res.end(JSON.stringify({ error: { message: String(e) } })); }
   });

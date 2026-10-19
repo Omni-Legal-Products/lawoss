@@ -127,7 +127,9 @@ export function createNativeProtectedApprover({mode, root, profile, cdpOrigin, p
       } finally {connection.close(); connections.delete(connection);}
     }
   };
-  const timer = setInterval(() => {if (stopped || active || failure) return; active = poll().catch(error => {failure = error;}).finally(() => {active = undefined;});}, 100);
+  // Discovery belongs to a registered synthetic operation. Startup has no
+  // eligible review and must not inherit an unrelated CDP discovery failure.
+  const timer = setInterval(() => {if (stopped || active || failure || expected.size === 0) return; active = poll().catch(error => {failure = error;}).finally(() => {active = undefined;});}, 100);
   timer.unref?.();
   return {receipts,
     expectOperation(input) {

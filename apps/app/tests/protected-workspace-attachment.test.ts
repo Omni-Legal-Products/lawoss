@@ -1,5 +1,4 @@
 import {expect, test} from "bun:test";
-import {fileURLToPath} from "node:url";
 import * as composer from "../src/react-app/domains/session/surface/composer/composer-draft";
 import {createWorkspaceAttachmentMention, uploadWorkspaceAttachment, workspaceAttachmentDisplayText} from "../src/react-app/domains/session/surface/composer/workspace-attachment";
 import {encodeComposerMentionValue} from "../src/react-app/domains/session/surface/composer/mention-encoding";
@@ -19,7 +18,7 @@ test("the actual upload draft keeps ordinary JSON unchanged while protected send
   expect(converted.size).toBe(1);
   const file = converted.get(draft.parts[0])!;
   expect(file.type).toBe("file"); expect(file.filename).toBe("Příloha #1.pdf");
-  expect(fileURLToPath(file.url)).toBe(`/physical workspace/%literal#root/${uploaded}`);
+  expect(file.url).toBe(`file:///physical%20workspace/%25literal%23root/${uploaded}`);
   expect(file.url).not.toContain("selected-subcase");
   expect(JSON.stringify(draft)).toBe(before);
   expect(Object.keys(draft)).not.toContain("workspaceUploads");
@@ -52,8 +51,19 @@ test("altered registered text, pending project references and unsafe upload loca
   expect(() => composer.protectedWorkspaceUploadParts(make(createWorkspaceAttachmentMention("source.pdf", path)), "relative/subcase")).toThrow();
 });
 
-test("protected upload URLs preserve the registered Windows drive and escaped path without selecting a subcase root", () => {
-  const draft = make(createWorkspaceAttachmentMention("source.pdf", path));
-  const file = composer.protectedWorkspaceUploadParts(draft, "C:\\Physical workspace\\Český spis").get(draft.parts[0])!;
-  expect(file.url).toBe("file:///C:/Physical%20workspace/%C4%8Cesk%C3%BD%20spis/"+path);
+test("protected upload URLs preserve registered POSIX and Windows roots independently of the test host", () => {
+  // Compare URL bytes directly: a Windows host cannot decode a POSIX fixture
+  // with fileURLToPath, and a POSIX host does not apply Windows drive rules.
+  for (const [root, expected] of [
+    ["/Physical workspace/Český %literal#root", "file:///Physical%20workspace/%C4%8Cesk%C3%BD%20%25literal%23root/"],
+    ["C:\\Physical workspace\\Český spis", "file:///C:/Physical%20workspace/%C4%8Cesk%C3%BD%20spis/"],
+    ["C:\\Physical workspace\\Český %literal#root", "file:///C:/Physical%20workspace/%C4%8Cesk%C3%BD%20%25literal%23root/"],
+    ["D:/Physical workspace/%literal#root/", "file:///D:/Physical%20workspace/%25literal%23root/"],
+  ]) {
+    const draft = make(createWorkspaceAttachmentMention("source.pdf", path));
+    const file = composer.protectedWorkspaceUploadParts(draft, root).get(draft.parts[0])!;
+    expect(file.url).toBe(expected+path);
+    const url = new URL(file.url);
+    expect([url.protocol, url.hostname, url.hash, url.search]).toEqual(["file:", "", "", ""]);
+  }
 });

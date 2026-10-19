@@ -46,13 +46,13 @@ test("external corpora, unrelated profiles and nonliteral provider targets canno
   for (const mutation of [{mode: "external"}, {profile: "/another/profile"}, {providerEndpoint: "https://external.example/v1"}, {providerEndpoint: "http://localhost:12346/v1"}]) assert.throws(() => createNativeProtectedApprover({...base,...mutation}));
 });
 
-async function nativeInputFixture(mode, run) {
+async function nativeInputFixture(mode, run, {register = true} = {}) {
   const {createServer} = await import("node:http");
   const {createRequire} = await import("node:module");
   const require = createRequire(new URL("../../../../apps/desktop/package.json", import.meta.url));
   const {WebSocketServer} = require("ws");
-  let present = true, captures = 0; const inputs = [];
-  const server = createServer((_request, response) => {response.setHeader("content-type", "application/json"); response.end(JSON.stringify(present ? [{id: "owned-review", type: "page", url: "data:text/html;charset=utf-8,owned", webSocketDebuggerUrl: `ws://127.0.0.1:${server.address().port}/owned-review`}] : []));});
+  let present = true, captures = 0, discoveries = 0; const inputs = [];
+  const server = createServer((_request, response) => {discoveries++; response.setHeader("content-type", "application/json"); response.end(JSON.stringify(present ? [{id: "owned-review", type: "page", url: "data:text/html;charset=utf-8,owned", webSocketDebuggerUrl: `ws://127.0.0.1:${server.address().port}/owned-review`}] : []));});
   const sockets = new WebSocketServer({server});
   const body = JSON.stringify({model: "synthetic", messages: [{role: "user", content: `Prepare a source registry CSV and factual summary Markdown in English.\nSelected sources (JSON): ${JSON.stringify([{id: source.id, hash: source.hash}])}`}], tools: [{type: "function", function: {name: "lawoss_documents_read", parameters: {}}}]});
   const binding = {scope, bodyHash: hash(body), target: hash(JSON.stringify({endpoint: expected.endpoint, providerId: expected.providerId, modelId: expected.modelId, account: hash(expected.apiKey)})), profiles: [], synthetic: true};
@@ -76,10 +76,24 @@ async function nativeInputFixture(mode, run) {
   }));
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const driver = createNativeProtectedApprover({mode: "synthetic", root: "/owned", profile: "/owned/profile", cdpOrigin: `http://127.0.0.1:${server.address().port}`, providerEndpoint: expected.endpoint.replace("/chat/completions", "")});
-  driver.expectOperation(expected);
-  try {await run({driver, inputs, wire});}
+  if (register) driver.expectOperation(expected);
+  try {await run({driver, inputs, wire, discoveries: () => discoveries});}
   finally {await driver.close(); for (const socket of sockets.clients) socket.terminate(); await new Promise(resolve => sockets.close(resolve)); await new Promise(resolve => server.close(resolve));}
 }
+
+test("native target discovery waits for a registered operation, then reviews the full real protocol", async () => {
+  await nativeInputFixture("release-closes", async ({driver, inputs, discoveries}) => {
+    await new Promise(resolve => setTimeout(resolve, 250));
+    assert.equal(discoveries(), 0, "An unrelated renderer startup has no protected review to discover");
+    assert.deepEqual(inputs, []);
+    driver.check(); driver.expectOperation(expected);
+    const deadline = Date.now()+1500;
+    while (!driver.receipts.length && Date.now()<deadline) {await new Promise(resolve => setTimeout(resolve, 20)); driver.check();}
+    assert.equal(driver.receipts.length, 1);
+    assert.ok(discoveries()>0);
+    assert.deepEqual(inputs.map(input => [input.type,input.x]), [["mousePressed",50],["mouseReleased",50]]);
+  }, {register: false});
+});
 
 test("validated native input survives the exact reviewed target closing on mouse release without fabricating a model result", async () => {
   await nativeInputFixture("release-closes", async ({driver, inputs, wire}) => {

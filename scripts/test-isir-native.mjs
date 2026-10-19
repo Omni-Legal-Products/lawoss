@@ -131,6 +131,13 @@ const cleanup = () => cleanupPromise ??= (async () => {
     () => provider.close(),
     () => preparedEngine.cleanup(),
   ]);
+  if(corpus.mode==='synthetic'&&result.failures.length){
+    try {
+      const seen=new Set();
+      const describe=(error,depth=0)=>{if(depth>8)return {truncated:true};if(error&&typeof error==='object'){if(seen.has(error))return {circular:true};seen.add(error);return {name:error.name,message:error.message,stack:error.stack,...('cause' in error?{cause:describe(error.cause,depth+1)}:{}),...(error instanceof AggregateError?{errors:[...error.errors].map(item=>describe(item,depth+1))}:{})}}return {value:String(error)}};
+      await writeFile(path.join(root,'native-cleanup-errors.private.json'),JSON.stringify({failures:result.failures.map(error=>describe(error))},null,2),{mode:0o600});
+    } catch { /* Supplemental private evidence never changes cleanup decisions. */ }
+  }
   for (const error of result.failures) console.error('Owned native cleanup failure', JSON.stringify(errorMetadata(error)));
   if(primaryError&&engineTraces)console.error('Owned completed engine bootstrap spans',JSON.stringify(engineTraces.snapshot()));
   const processes=children.map(({child,label})=>({label,pid:child.pid,exitCode:child.exitCode,signal:child.signalCode}));
@@ -406,6 +413,16 @@ try {
       return request&&events.find(event=>event.method==='Network.responseReceived'&&event.params.requestId===request.params.requestId);
     },'actual confined VM ready response before inference',240000);
     console.log('Native provisioning response',JSON.stringify({status:provisionResponse.params.response.status,elapsedMs:Date.now()-provisionStartedAtMs}));
+    if(provisionResponse.params.response.status!==200){
+      let code='unclassified';
+      try {
+        const raw=(await cdp.send('Network.getResponseBody',{requestId:provisionResponse.params.requestId})).body,value=JSON.parse(raw);
+        const known=['protected_runtime_capacity','protected_checkpoint_busy','protected_checkpoint_failed','protected_checkpoint_invalid','protected_runtime_unavailable','protected_session_busy','host_decision_stale','protected_directory_denied','protected_source_scope','protected_source_denied','protected_prompt_invalid','protected_ai_denied','protected_ai_profile_missing','protected_runtime_closed'];
+        if(known.includes(value?.code))code=value.code;
+        if(corpus.mode==='synthetic')await writeFile(path.join(root,'protected-provision-refusal.private.json'),raw,{mode:0o600});
+      } catch { /* Preserve the real status failure even if supplemental evidence is unavailable. */ }
+      console.log('Native provisioning refusal',JSON.stringify({status:provisionResponse.params.response.status,code}));
+    }
     assert.equal(provisionResponse.params.response.status,200,'Protected document provisioning must return HTTP200');
     const provision = await until(async()=>{try {return JSON.parse((await cdp.send('Network.getResponseBody',{requestId:provisionResponse.params.requestId})).body);} catch {return false;}},'actual host-to-guest directory mapping');
     assert.equal(provision.directoryMapping.hostDirectory,workspace.path);
@@ -600,12 +617,13 @@ try {
     // Source selection returns to the supported Dokumenty scope; extra
     // negative inputs remain on disk and are never manually deselected there.
     await openFiles(last);await click('Dokumenty');await click('Prepare this folder');
+    const currentGeneration=await until(()=>cdp.evaluate(`(()=>{const panel=document.querySelector('[aria-label="Document processing"]');const controls=[...panel.querySelectorAll('button')].filter(e=>['Generate through chat','Start a new generation','Retry in created chat'].includes(e.textContent.trim())&&e.getBoundingClientRect().width>0);return controls.length===1&&!controls[0].disabled?{enabled:true}:false})()`),'current enabled native generation control');
+    assert.equal(currentGeneration.enabled,true);
     const before=cdp.events.length;
     await cdp.evaluate(`(()=>{const e=document.querySelector('[aria-label="Document processing"] label input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'../case-01');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
     await until(()=>cdp.evaluate(`document.querySelector('[aria-label="Document processing"] label input').value==='../case-01'`),'actual cross-project working-directory input');
-    await click('Generate through chat');
-    await until(()=>cdp.evaluate(`!!document.querySelector('[aria-label="Document processing"] [role="alert"]')`),'cross-project working directory is refused');
-    const crossRequests=cdp.events.slice(before).filter(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&(e.params.request.url.endsWith('/prompt_async')||/\/opencode\/session(?:\?|$)/.test(e.params.request.url)));
+    await until(()=>cdp.evaluate(`(()=>{const panel=document.querySelector('[aria-label="Document processing"]');const alert=[...panel.querySelectorAll('[role="alert"]')].some(e=>e.textContent.includes('Enter an existing subdirectory of the selected project.'));const controls=[...panel.querySelectorAll('button')].filter(e=>['Generate through chat','Start a new generation','Retry in created chat'].includes(e.textContent.trim())&&e.getBoundingClientRect().width>0);return alert&&controls.length===1&&controls[0].disabled})()`),'cross-project working directory has an immediate visible refusal and disabled generation control');
+    const crossRequests=cdp.events.slice(before).filter(e=>{if(e.method!=='Network.requestWillBeSent'||e.params.request.method!=='POST')return false;const pathname=new URL(e.params.request.url).pathname;return pathname.endsWith('/lawoss/documents/generation')||pathname.endsWith('/prompt_async')||/\/opencode\/session(?:\/|$)/.test(pathname)||/\/sessions\/[^/]+\/queue$/.test(pathname)});
     assert.equal(crossRequests.length,0,'Invalid working scope cannot create or submit an engine session');
     await cdp.evaluate(`(()=>{const e=document.querySelector('[aria-label="Document processing"] label input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
     console.log('PASS native pending/partial states, collision bytes, edited and wrong-identity invalidation, cross-project no writes');

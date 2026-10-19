@@ -61,10 +61,12 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
   // source check before invoking onGenerate; cached data never authorizes send.
   const canGenerate = missingPaths.length === 0 && sourcesAvailable;
   let generationDirectory: string;
+  let directoryError: string | null = null;
   try {
     generationDirectory = documentExecutionDirectory(props.workspaceRoot, caseDirectory, props.isRemote).directory;
   } catch {
     generationDirectory = "";
+    directoryError = t("documents.invalid_directory");
   }
   const protectedFlow = props.onGenerate?.transport === PROTECTED_DOCUMENT_GENERATION_TRANSPORT;
   const model = props.onGenerate?.model;
@@ -72,15 +74,15 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
   const profiles = useQuery({
     queryKey: ["lawoss-document-profiles", ...identity, model?.providerID, model?.modelID, caseDirectory],
     queryFn: () => props.client.listLawossDocumentProfiles(props.workspaceId, {providerId: model!.providerID, modelId: model!.modelID, caseDirectory: documentExecutionDirectory(props.workspaceRoot, caseDirectory, props.isRemote).relative}),
-    enabled: props.active && protectedFlow && Boolean(model),
+    enabled: props.active && protectedFlow && Boolean(model) && !directoryError,
     staleTime: 0, refetchInterval: props.active ? 5000 : false, refetchOnWindowFocus: "always",
   });
   const profileOwner = JSON.stringify([...identity, model?.providerID, model?.modelID, caseDirectory, profiles.data?.targetFingerprint]);
   const [profileChoice, setProfileChoice] = React.useState<{owner: string; id: string} | null>(null);
   const profileId = profileChoice?.owner === profileOwner ? profileChoice.id : "";
   let selectedProfile: NonNullable<typeof profiles.data>["profiles"][number] | undefined;
-  let profileReady = !protectedFlow;
-  if (protectedFlow && profiles.data && !profiles.isError) {
+  let profileReady = !protectedFlow && !directoryError;
+  if (protectedFlow && profiles.data && !profiles.isError && !directoryError) {
     try {selectedProfile = selectDocumentGenerationProfile(profiles.data, profileId); profileReady = true;} catch { /* Explicit selection is required. */ }
   }
   const protectedTarget = protectedFlow && model && profiles.data ? {providerId: model.providerID, modelId: model.modelID, targetFingerprint: profiles.data.targetFingerprint, ...(selectedProfile ? {profileId: selectedProfile.id, profileRevision: selectedProfile.revision} : {})} : undefined;
@@ -238,6 +240,7 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
       setCaseDirectory(event.target.value);
       persistDocumentWorkingDirectory(projectKey, event.target.value);
     }} placeholder={t("documents.root_directory")} /></label> : null}
+    {directoryError ? <p role="alert" className="text-destructive">{directoryError}</p> : null}
     {protectedFlow ? <div className="my-2">
       <label className="block">{profileText.label}<select className="my-1 w-full rounded border border-border bg-background p-1" value={profileId} disabled={busy || generationActive || !profiles.data} onChange={event => setProfileChoice({owner: profileOwner, id: event.target.value})}>
         <option value="">{profiles.data?.syntheticReviewAvailable ? profileText.synthetic : profileText.choose}</option>
@@ -247,7 +250,7 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
       {!profileReady ? <p role="status">{profileText.unavailable}</p> : null}
       {profiles.isError ? <p role="alert">{String(profiles.error)}</p> : null}
     </div> : null}
-    <Button size="sm" disabled={busy || !canGenerate || !profileReady || generationActive || lifecycle.isError || !props.onGenerate} onClick={() => void generate(binding?.phase === "completed")}>
+    <Button size="sm" disabled={busy || Boolean(directoryError) || !canGenerate || !profileReady || generationActive || lifecycle.isError || !props.onGenerate} onClick={() => void generate(binding?.phase === "completed")}>
       {binding?.phase === "error" ? t("documents.retry_generation") : binding?.phase === "completed" ? t("documents.new_generation") : t("documents.generate")}
     </Button>
     {generationActive ? <p role="status">{t("documents.run_active")}</p> : null}

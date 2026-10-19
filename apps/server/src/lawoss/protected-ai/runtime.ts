@@ -54,7 +54,7 @@ const promptSchema = z.strictObject({
 });
 type Entry = { workspaceId: string; sessionId: string; directory: string; hostDirectory: string; operationId: string;
   workspaceRoot: string; sources: Array<{ id: string; hash: string }>;
-  turnUploads: Map<string, string>; submitting?: boolean; busy?: boolean; worker: WorkerSlot;
+  turnUploads: Map<string, string>; submitting?: boolean; busy?: boolean; evicting?: boolean; activityRevision: number; worker: WorkerSlot;
   input: z.output<typeof protectedGenerationInputSchema>; initialSourceSetSha256: string; rootIdentity: string; egress: AbortController; snapshotting?: Promise<void>;
   providerId: string; modelId: string;
   engine: Engine; bundle: ProtectedGuestBundle; controller: AbortController; timer: ReturnType<typeof setTimeout>;
@@ -172,7 +172,7 @@ export class ProtectedDocumentRuntime {
       signal.throwIfAborted();
       if (this.ownership.workers.size >= 2) {
         for (const worker of this.ownership.workers) {
-          if (worker.entry && await worker.owner.evictIdle(worker.entry)) break;
+          if (worker.entry && await worker.owner.evictIdle(worker.entry, signal)) break;
         }
       }
       signal.throwIfAborted();
@@ -182,10 +182,26 @@ export class ProtectedDocumentRuntime {
     });
     this.ownership.admission = work.then(() => {}, () => {}); return work;
   }
-  private async evictIdle(entry: Entry): Promise<boolean> {
-    if (entry.closing || entry.submitting || entry.busy || entry.tools.size) return false;
+  private async evictIdle(entry: Entry, signal: AbortSignal): Promise<boolean> {
+    if (entry.closing || entry.evicting || entry.submitting || entry.busy) return false;
+    const revision = entry.activityRevision;
+    const budget = AbortSignal.any([signal, entry.controller.signal, AbortSignal.timeout(15000)]);
+    let retiring = false;
+    entry.evicting = true;
+    try {
+    // Freeze new SDK admissions, but let every accepted read finish naturally.
+    // Guest callbacks remain owned and admissible; their arrival invalidates
+    // this probe rather than denying work to manufacture idle capacity.
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => { budget.removeEventListener("abort", abort); reject(budget.reason); };
+      budget.addEventListener("abort", abort, { once: true });
+      void Promise.allSettled([...entry.tools]).then(() => { budget.removeEventListener("abort", abort); resolve(); });
+      if (budget.aborted) abort();
+    });
+    const blocked = () => entry.closing || entry.submitting || entry.busy || entry.tools.size || entry.activityRevision !== revision;
+    if (blocked()) return false;
     const read = (async () => {
-      const response = await entry.engine.fetch(new Request("http://protected/session/status", { signal: AbortSignal.timeout(15000) }));
+      const response = await entry.engine.fetch(new Request("http://protected/session/status", { signal: budget }));
       if (!response.ok) { await response.body?.cancel(); return undefined; }
       return z.record(z.string(), z.unknown()).parse(await response.json());
     })();
@@ -193,8 +209,16 @@ export class ProtectedDocumentRuntime {
     let statuses: Awaited<typeof read>; try { statuses = await read; } finally { entry.tools.delete(read); }
     if (!statuses) return false;
     const status = statuses[entry.sessionId];
-    if ((status !== undefined && (!record(status) || status.type !== "idle")) || entry.closing || entry.submitting || entry.busy || entry.tools.size) return false;
+    if ((status !== undefined && (!record(status) || status.type !== "idle")) || blocked()) return false;
+    budget.throwIfAborted();
+    retiring = true;
     await this.closeEntry(entry.sessionId); return true;
+    } catch (error) {
+      if (retiring) throw error;
+      signal.throwIfAborted();
+      if (budget.aborted) return false;
+      throw error;
+    } finally { entry.evicting = false; }
   }
 
   open(raw: GenerationInput, signal: AbortSignal) {
@@ -295,6 +319,8 @@ export class ProtectedDocumentRuntime {
       const pendingTools = new Set<Promise<unknown>>();
       let issuedSessionId: string | undefined;
       const retain = <T>(work: Promise<T>): Promise<T> => {
+        const entry = issuedSessionId ? this.entries.get(issuedSessionId) : undefined;
+        if (entry) entry.activityRevision++;
         pendingTools.add(work); void work.finally(() => pendingTools.delete(work)).catch(() => {}); return work;
       };
       worker = await this.reserveWorker(controller.signal);
@@ -324,7 +350,7 @@ export class ProtectedDocumentRuntime {
       if (!recovery) { this.claim(workspace.id, session.id); createdSessionId = session.id; }
       issuedSessionId = session.id;
       const timer = setTimeout(() => { void this.closeEntry(session.id).catch(() => {}); }, 600_000); timer.unref?.();
-      const entry: Entry = { workspaceId: workspace.id, sessionId: session.id, directory: session.directory, hostDirectory, workspaceRoot: rootDirectory, sources: input.sources, turnUploads, providerId: input.providerId, modelId: input.modelId, operationId, engine, bundle, controller, egress, timer, assertCurrent, tools: pendingTools, input, initialSourceSetSha256: initial.sourceSetSha256, rootIdentity: initial.rootIdentity, worker };
+      const entry: Entry = { workspaceId: workspace.id, sessionId: session.id, directory: session.directory, hostDirectory, workspaceRoot: rootDirectory, sources: input.sources, turnUploads, providerId: input.providerId, modelId: input.modelId, operationId, engine, bundle, controller, egress, timer, assertCurrent, tools: pendingTools, input, initialSourceSetSha256: initial.sourceSetSha256, rootIdentity: initial.rootIdentity, activityRevision: 0, worker };
       worker.entry = entry;
       this.entries.set(session.id, entry);
       entry.events = this.pumpEvents(entry);
@@ -345,6 +371,7 @@ export class ProtectedDocumentRuntime {
   private entry(workspaceId: string, sessionId: string) {
     const entry = this.entries.get(sessionId);
     if (!entry || entry.closing || entry.workspaceId !== workspaceId) throw new ApiError(404, "protected_session_missing", "This project does not own that protected session.");
+    if (entry.evicting) throw new ApiError(409, "protected_session_busy", "The protected worker is draining accepted reads before an idle checkpoint.");
     return entry;
   }
 
@@ -473,6 +500,12 @@ export class ProtectedDocumentRuntime {
       if (session.id !== sessionId || session.directory !== entry.directory) throw new ApiError(409, "protected_session_stale", "The confined session directory changed.");
       return Response.json({ ...session, directory: entry.hostDirectory });
     }
+    if (request.method === "GET") {
+      // SDK reads are finite JSON under the VM bridge's existing 16 MiB bound.
+      // Keep ownership through EOF so eviction cannot abort an accepted body.
+      const bytes = await response.arrayBuffer();
+      return new Response([204, 205, 304].includes(response.status) ? null : bytes, { status: response.status, headers: response.headers });
+    }
     return response;
   }
 
@@ -528,7 +561,11 @@ export class ProtectedDocumentRuntime {
           }
           if (!entry.closing) {
             const text = new TextDecoder().decode(frame), match = /^data: (.+)$/m.exec(text);
-            if (match) { try { const event: unknown = JSON.parse(match[1]); if (record(event) && record(event.properties) && event.properties.sessionID === entry.sessionId && (event.type === "session.idle" || (event.type === "session.status" && record(event.properties.status) && event.properties.status.type === "idle"))) { entry.busy = false; void this.persistEntry(entry).catch(() => {}); } } catch {} }
+            if (match) { try {
+              const value: unknown = JSON.parse(match[1]);
+              const event = record(value) && record(value.payload) ? value.payload : value;
+              if (record(event) && record(event.properties) && event.properties.sessionID === entry.sessionId && (event.type === "session.idle" || (event.type === "session.status" && record(event.properties.status) && event.properties.status.type === "idle"))) { entry.busy = false; void this.persistEntry(entry).catch(() => {}); }
+            } catch {} }
           }
         }
       }
