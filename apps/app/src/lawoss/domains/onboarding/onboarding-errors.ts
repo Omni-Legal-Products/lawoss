@@ -10,7 +10,7 @@ import {
 } from "../../../../../../lawoss/okf/src/onboarding/messages";
 import { OFFICE_CONFIG_ENCODING_MESSAGE } from "../../../../../../lawoss/okf/src/profile";
 import { foundText } from "./found-text";
-import { canonicalPathRejection } from "./typed-paths";
+import { canonicalPathRejection, folderNotFoundMessage } from "./typed-paths";
 
 /** „Začať nanovo“ do neprázdneho priečinka (folder-step.tsx); appka ho vysvetlí vetou kroku Priečinok. */
 export const FRESH_NOT_EMPTY = "fresh_not_empty";
@@ -97,6 +97,7 @@ export function onboardingErrorMessage(error: unknown, locale: Language): string
     identityMessage(error, locale) ??
     folderTooLargeMessage(error, locale) ??
     officeConfigEncodingMessage(error, locale) ??
+    folderNotFoundMessage(error, locale) ??
     canonicalPathRejection(error, locale) ??
     t("lawoss.onboarding.error_generic", locale);
 }

@@ -285,3 +285,22 @@ test("značka dokončenia nastavenia (#96) sa uloží, prežije reštart a ďal�
   await f.restartFromDisk();
   expect((await f.success("status")).profile).toMatchObject({ step: "matter", completedAt: "2026-10-18T10:00:00.000Z" });
 });
+
+test("zmazaný priečinok kancelárie neblokuje výber klienta; vybraný chýbajúci priečinok má vlastný kód (test 19. 10. 2026)", async () => {
+  const f = await fixture(), office = join(f.base, "kancelaria");
+  await mkdir(office);
+  await f.apply({ action: "office", parent: office, title: "LAWOSS", jurisdiction: "sk", language: "sk", lawyerName: "Synthetic lawyer" });
+  await f.success("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", officeRoot: office });
+  const created = await f.apply({ action: "client", parent: f.parent, name: "Klient", title: "Klient", ...common });
+  await rm(office, { recursive: true, force: true });
+  // Uložená kancelária, ktorá zmizla, nesmie zablokovať každú ďalšiu zmenu profilu (opakované 400 pri „Nový prípad“).
+  expect(await f.success("profile", { clientRoot: created.clientRoot, step: "matter" })).toMatchObject({ clientRoot: created.clientRoot, step: "matter" });
+  const missing = await f.call("profile", { officeRoot: office });
+  expect(missing.status).toBe(400);
+  expect(await missing.json()).toMatchObject({ code: "folder_missing", details: { key: "officeRoot", name: "kancelaria" } });
+  const link = join(f.base, "odkaz-na-klienta");
+  await symlink(created.clientRoot, link);
+  const junction = await f.call("profile", { clientRoot: link });
+  expect(junction.status).toBe(400);
+  expect((await junction.json()).code).toBe("invalid_path");
+});
