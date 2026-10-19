@@ -17,6 +17,7 @@ import { allProjectSessions, SessionProjectHover } from "../session/sidebar/sess
 import { workspaceLabel } from "../session/sidebar/utils";
 import { useProjectFavoritesStore } from "./project-favorites-store";
 import { useShellConfig, type ProjectNavKey } from "../../shell/shell-config";
+import { useClientProjectItem } from "@/lawoss/lite/client-nav";
 import { SIDEBAR_ITEMS } from "../session/sidebar/sidebar-customization";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
@@ -138,7 +139,8 @@ function ProjectRow({ group, updated, ...props }: Props & { group: WorkspaceSess
   const sessions = allProjectSessions([group]);
   const pages = Math.max(1, Math.ceil(sessions.length / PAGE_SIZE));
   const current = Math.min(page, pages - 1);
-  const projectPages = hideCommercialSidebarItems(config.projectNavOrder).filter((key): key is ProjectPage => key !== "projectSessions" && config[key]);
+  const clientItem = useClientProjectItem();
+  const projectPages = hideCommercialSidebarItems(config.projectNavOrder).filter((key): key is ProjectPage => key !== "projectSessions" && config[key] && clientItem(key, id));
   return <section className="border-b border-border/70 py-1.5">
     <div className={cn(rowGrid, "relative min-h-12 rounded-lg px-2")}>
       <button type="button" className="absolute inset-0 cursor-pointer rounded-lg transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={name} aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(value => !value)} />

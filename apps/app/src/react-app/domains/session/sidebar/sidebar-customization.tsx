@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import lawossMark from "../../../../../../../lawoss/brand/lawoss-mark.svg";
 import { t } from "@/i18n";
 import { hideCommercialSidebarItems } from "@/lawoss/feature-flags";
+import { useChatSectionVisibility } from "@/lawoss/lite/chat-sections";
+import { useUiMode } from "@/lawoss/lite/ui-mode";
 import { cn } from "@/lib/utils";
 import { DEFAULT_SHELL_CONFIG, useShellConfig, type ShellNavKey, type ChatSectionKey, type ProjectNavKey } from "../../../shell/shell-config";
 import { readSidebarBrandLogo } from "../../../shell/sidebar-branding";
@@ -40,11 +42,13 @@ export const SIDEBAR_ITEMS = {
 
 export function SidebarCustomization({ onDone }: { onDone: () => void }) {
   const { config, update } = useShellConfig();
+  // LAWOSS: pripnuté a nedávne chaty majú v bežnom režime vlastnú voľbu (predvolene vypnuté).
+  const chatSections = useChatSectionVisibility(useUiMode());
   const options = <K extends ShellNavKey | ChatSectionKey | ProjectNavKey>(keys: K[], change: (keys: K[]) => void, label: string) => (
     <div className="mt-3">
       <h3 className="px-2 pb-1 text-xs text-muted-foreground">{label}</h3>
       <Reorder.Group axis="y" values={keys} onReorder={change} aria-label={label}>
-        {keys.map(key => <NavigationOption key={key} navKey={key} checked={key === "projectSessions" ? config.collapseProjectSessions : config[key]} onCheckedChange={checked => update(key === "projectSessions" ? { collapseProjectSessions: checked } : { [key]: checked })} onMove={direction => {
+        {keys.map(key => <NavigationOption key={key} navKey={key} checked={key === "projectSessions" ? config.collapseProjectSessions : chatSections.handles(key) ? chatSections.shown(key, config[key]) : config[key]} onCheckedChange={checked => chatSections.handles(key) ? chatSections.set(key, checked) : update(key === "projectSessions" ? { collapseProjectSessions: checked } : { [key]: checked })} onMove={direction => {
           const next = [...keys], index = next.indexOf(key), target = index + direction;
           if (target < 0 || target >= next.length) return;
           next.splice(index, 1); next.splice(target, 0, key); change(next);

@@ -1,5 +1,5 @@
-// Natívny bočný panel s klientmi a prípadmi (rozhodnutie MČ 19. 10. 2026): klient = natívny projekt
-// (registrovaný priečinok), pod ním Domov, Prípady, Lehoty, Úlohy, Súbory, Chaty.
+// Natívny bočný panel s klientmi a prípadmi (rozhodnutie MČ 19. 10. 2026, oprava po review): klient = natívny
+// projekt (registrovaný priečinok), pod ním Domov, Prípady, Lehoty, Úlohy, Súbory, Chaty.
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -8,14 +8,19 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { t, type Language } from "@/i18n";
-import { isChatSectionVisible } from "../src/lawoss/lite/visibility";
+import type { WorkspaceSessionGroup } from "@/app/types";
+import { chatSectionShown, LITE_CHAT_SECTIONS_KEY, reloadLiteChatSections, setLiteChatSection } from "../src/lawoss/lite/chat-sections";
 import { LawossNav } from "../src/lawoss/shell/layout";
 import { NEW_CLIENT_PATH, clientDeadlinesLink, liteMatterLink } from "../src/lawoss/lite/links";
-import { clientDeadlines, clientGroupsOf, clientNavAnchor, hiddenClientProjects, isClientProject } from "../src/lawoss/lite/client-projects";
-import { ClientMattersView } from "../src/lawoss/lite/client-nav";
+import { clientDeadlines, clientNavAnchor, clientNavModel, ownerOfFolder, type ClientOverviewState } from "../src/lawoss/lite/client-projects";
+import { closedGroups, focusedProject, forgetProjectOverride, mattersOpen, newChatAction, newChatChoices, projectNodes } from "../src/lawoss/lite/client-nav-model";
+import { ClientDeadlinesNavItem, ClientMattersNavItem, ClientMattersView, ClientNavTestProvider, liveConnection } from "../src/lawoss/lite/client-nav";
 import { ClientOverviewView } from "../src/lawoss/lite/client-overview";
-import { buildClientTree, type ConversationList } from "../src/lawoss/lite/client-tree";
+import { buildClientTree, clientToggle, type ConversationList, type TreeClient } from "../src/lawoss/lite/client-tree";
+import { useClientTree } from "../src/lawoss/lite/client-tree-data";
+import { comparable, FOLDER_SESSIONS_KEY } from "../src/lawoss/lite/matter-conversations";
 import type { ClientGroup } from "../src/lawoss/lite/today-model";
 import type { OkfReadResult, OkfScope } from "../src/lawoss/okf/read-model";
 import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
@@ -32,6 +37,8 @@ const html = (node: ReactElement, entry = "/dnes") => renderToStaticMarkup(
 const ws = (id: string, path: string): RouteWorkspace => ({ id, path, name: id, displayNameResolved: id, workspaceType: "local" });
 const deadline = (date: string) => ({ recordId: `r-${date}`, date, title: `Lehota ${date}`, file: "memory/r.md" });
 const matter = (path: string, title: string, dates: string[] = []) => ({ path, title, deadlines: dates.map(deadline), openTasks: [], counts: { records: 1, evidence: 2, subjects: 0 } });
+const ready = (items: ConversationList["items"] = []): ConversationList => ({ items, status: "ready", complete: true });
+const readyOverview = (scope: OkfScope, groups: readonly ClientGroup[]): ClientOverviewState => ({ status: "ready", scope, groups, matters: groups.flatMap((g) => g.matters) });
 
 function readConfig(saved: object | null): ShellConfig {
   const original = Object.getOwnPropertyDescriptor(globalThis, "window");
@@ -48,43 +55,294 @@ function readConfig(saved: object | null): ShellConfig {
   return config;
 }
 
-describe("Lite ukáže natívnu sekciu klientov (projekty) a natívny Nový chat", () => {
-  test("Lite: sekcia projektov áno, pripnuté a nedávne chaty nie; Pro ich ukáže", () => {
-    expect(isChatSectionVisible("sectionProjects", "lite")).toBe(true);
-    expect(isChatSectionVisible("sectionPinnedProjects", "lite")).toBe(true);
-    for (const key of ["sectionPinned", "sectionRecent"]) {
-      expect(isChatSectionVisible(key, "lite")).toBe(false);
-      expect(isChatSectionVisible(key, "pro")).toBe(true);
-    }
+// Prax s registrovaným koreňom, jedným registrovaným klientom, dvoma neregistrovanými a staršou vecou registrovanou zvlášť.
+const root = ws("root", "/prax");
+const tatranWs = ws("tatran", "/prax/Klienti/Tatran");
+const legacy = ws("legacy", "/prax/Klienti/Hron/Spisy/Stara");
+const T_UHRADA = matter("Klienti/Tatran/Spisy/Uhrada", "Úhrada dodávok", ["2026-10-21"]);
+const H_STARA = matter("Klienti/Hron/Spisy/Stara", "Stará vec");
+const N_DEDIC = matter("Klienti/Novak/Spisy/Dedic", "Dedičstvo", ["2026-11-30"]);
+const mixedGroups: ClientGroup[] = [
+  { key: "client:Klienti/Hron", client: "Hron", matters: [H_STARA] },
+  { key: "client:Klienti/Novak", client: "Novák", matters: [N_DEDIC] },
+  { key: "client:Klienti/Tatran", client: "Tatran", matters: [T_UHRADA] },
+];
+const rootScope: OkfScope = { anchor: root, members: [{ workspace: root, prefix: "" }] };
+const mixed = clientNavModel([root, tatranWs, legacy], "/prax", readyOverview(rootScope, mixedGroups));
+
+type TestValue = Parameters<typeof ClientNavTestProvider>[0]["value"];
+function navValue(model: TestValue["model"], nodes: TreeClient[], extra: Partial<TestValue> = {}): TestValue {
+  return {
+    connection: null, scope: rootScope, data: undefined, groups: mixedGroups, model,
+    tree: { nodes, toggle: () => {}, openConversation: () => {}, newConversation: () => {} },
+    open: {}, setOpen: () => {}, focused: null, startNewChat: () => false, ...extra,
+  };
+}
+const mixedTree = (focus = {}, overrides = {}) => buildClientTree({ groups: mixedGroups, focus, overrides, canStart: () => true, lists: { client: () => ready(), matter: () => ready() } });
+
+describe("koreň praxe a staršia vec (oprava po review)", () => {
+  test("koreň s registrovaným klientom a dvoma neregistrovanými ostane; Prípady koreňa len pre neregistrovaných, klient svoje; staršia vec skrytá", () => {
+    expect([...mixed.hidden]).toEqual(["legacy"]);
+    expect(mixed.ownerOf.get("client:Klienti/Tatran")).toBe("tatran");
+    expect(mixed.ownerOf.get("client:Klienti/Hron")).toBe("root");
+    expect(mixed.ownerOf.get("client:Klienti/Novak")).toBe("root");
+    expect(projectNodes(mixedTree(), mixed, "root")?.map((n) => n.key)).toEqual(["client:Klienti/Hron", "client:Klienti/Novak"]);
+    expect(projectNodes(mixedTree(), mixed, "tatran")?.map((n) => n.key)).toEqual(["client:Klienti/Tatran"]);
+    expect(projectNodes(mixedTree(), mixed, "legacy")).toBeNull();
   });
 
-  test("bočný panel: sekcie a Nový chat už nie sú len v Pokročilom režime; Nový chat je v navigácii LAWOSS", () => {
-    const sidebar = source("react-app/domains/session/sidebar/app-sidebar.tsx");
-    expect(sidebar).not.toContain("{!lite && newChatSection");
-    expect(sidebar).not.toContain("{!lite && hideCommercialSidebarItems(shellConfig.chatSectionOrder)");
-    expect(sidebar).toContain("isChatSectionVisible(key, uiMode)");
-    expect(sidebar).toContain("newChat={newChatSection}");
+  test("koreň sa skryje, len keď všetkých klientov vlastnia registrovaní klienti", () => {
+    const hronWs = ws("hron", "/prax/Klienti/Hron");
+    const novakWs = ws("novak", "/prax/Klienti/Novak");
+    const all = clientNavModel([root, tatranWs, hronWs, novakWs, legacy], "/prax", readyOverview(rootScope, mixedGroups));
+    expect([...all.hidden].sort()).toEqual(["legacy", "root"]);
+    expect(all.ownerOf.get("client:Klienti/Hron")).toBe("hron");
   });
 
-  test("hore: Dnes · Nový chat · Pridať klienta (v tomto poradí); strom ani Opýtať sa už nie sú", () => {
-    const nav = html(<LawossNav newChat={<li data-native-new-chat="" />} />);
-    const today = nav.indexOf('data-lawoss-lite-nav="today"');
-    const chat = nav.indexOf("data-native-new-chat");
-    const add = nav.indexOf('data-lawoss-lite-nav="add_client"');
+  test("jeden priečinok pre všetko: koreň je jediný a vlastní všetkých; bez praxe sa nič neskrýva", () => {
+    const one = clientNavModel([root], "/prax", readyOverview(rootScope, mixedGroups));
+    expect([...one.hidden]).toEqual([]);
+    expect(projectNodes(mixedTree(), one, "root")).toHaveLength(3);
+    expect([...clientNavModel([root, tatranWs, legacy], null, { status: "unavailable" }).hidden]).toEqual([]);
+  });
+
+  test("čítanie: kým sa koreň praxe nepozná, kandidáti sa neukážu; prehľad sa číta = koreň zatiaľ nie; chyba = koreň ostane", () => {
+    expect([...clientNavModel([root, tatranWs, ws("ine", "/ine")], undefined, { status: "pending" }).hidden].sort()).toEqual(["root", "tatran"]);
+    expect([...clientNavModel([root, tatranWs], "/prax", { status: "pending" }).hidden]).toEqual(["root"]);
+    expect([...clientNavModel([root, tatranWs], "/prax", { status: "unavailable" }).hidden]).toEqual([]);
+  });
+
+  test("registrovaný podpriečinok klienta (nie vec) sa skryje", () => {
+    const sub = ws("sub", "/prax/Klienti/Tatran/Korešpondencia");
+    expect([...clientNavModel([tatranWs, sub], "/prax", { status: "unavailable" }).hidden]).toEqual(["sub"]);
+  });
+
+  test("vlastník priečinka je najhlbší viditeľný projekt; prax sa číta od priečinka praxe", () => {
+    expect(ownerOfFolder(mixed.visible, comparable("/prax/Klienti/Tatran/Spisy/Uhrada"))).toBe("tatran");
+    expect(ownerOfFolder(mixed.visible, comparable("/prax/Klienti/Hron/Spisy/Stara"))).toBe("root");
+    expect(ownerOfFolder(mixed.visible, comparable("/ine"))).toBeNull();
+    const outside = ws("ine", "/ine/Projekt");
+    expect(clientNavAnchor([outside, tatranWs], "/prax", outside)?.id).toBe("tatran");
+    expect(clientNavAnchor([outside, tatranWs], null, outside)?.id).toBe("ine");
+  });
+});
+
+describe("Prípady projektu: model a položka v paneli", () => {
+  test("cudzí projekt nič; člen praxe bez klientov = prázdne Prípady", () => {
+    const tatran = ws("tatran", "/p/Tatran");
+    const practice: OkfScope = { anchor: tatran, members: [{ workspace: tatran, prefix: "Tatran" }], practiceRoot: "/p" };
+    const model = clientNavModel([tatran, ws("ine", "/ine")], "/p", readyOverview(practice, []));
+    expect(projectNodes([], model, "ine")).toBeNull();
+    expect(projectNodes([], model, "tatran")).toEqual([]);
+    const value = navValue(model, [], { open: { tatran: true } });
+    expect(html(<ClientNavTestProvider value={value}><ul><ClientMattersNavItem workspaceId="ine" /><ClientDeadlinesNavItem workspaceId="ine" /></ul></ClientNavTestProvider>)).toContain("<ul></ul>");
+    expect(html(<ClientNavTestProvider value={value}><ul><ClientMattersNavItem workspaceId="tatran" /></ul></ClientNavTestProvider>)).toContain("No matters yet");
+  });
+
+  test("jeden klient: Prípady = jeho uzol; klik prepne jeho uzol (zbalený nič nečíta)", () => {
+    const [node] = mixedTree().filter((n) => n.key === "client:Klienti/Tatran");
+    expect(mattersOpen([node], true, true)).toEqual({ open: false, toggle: { kind: "client", key: clientToggle(node.key), expanded: false } });
+    const open = { ...node, expanded: true };
+    expect(mattersOpen([open], false, false).open).toBe(true);
+    const out = html(<ClientNavTestProvider value={navValue(mixed, [open])}><ul><ClientMattersNavItem workspaceId="tatran" /></ul></ClientNavTestProvider>);
+    expect(out).toMatch(/<button(?=[^>]*data-lawoss-project-matters="")(?=[^>]*aria-expanded="true")[^>]*>/);
+    expect(out).toContain("Úhrada dodávok");
+  });
+
+  test("viac klientov: voľba používateľa, inak otvorené pri trase v projekte; trasa zabudne zatvorenie", () => {
+    const nodes = projectNodes(mixedTree(), mixed, "root") ?? [];
+    expect(mattersOpen(nodes, undefined, false)).toEqual({ open: false, toggle: { kind: "project", open: true } });
+    expect(mattersOpen(nodes, undefined, true).open).toBe(true);
+    expect(mattersOpen(nodes, false, true).open).toBe(false);
+    expect(forgetProjectOverride({ root: false, tatran: true }, "root")).toEqual({ tatran: true });
+    const same = { tatran: true };
+    expect(forgetProjectOverride(same, "root")).toBe(same);
+    expect(focusedProject({ matter: N_DEDIC.path }, mixedGroups, mixed.ownerOf)).toBe("root");
+    expect(focusedProject({ client: "client:Klienti/Tatran" }, mixedGroups, mixed.ownerOf)).toBe("tatran");
+    expect(focusedProject({}, mixedGroups, mixed.ownerOf)).toBeNull();
+  });
+
+  test("zatvorené Prípady projektu s viacerými klientmi: jeho klienti sa nečítajú; jeden klient tým nie je dotknutý", () => {
+    expect([...closedGroups(mixedGroups, mixed.ownerOf, {}, null)].sort()).toEqual(["client:Klienti/Hron", "client:Klienti/Novak"]);
+    expect([...closedGroups(mixedGroups, mixed.ownerOf, {}, "root")]).toEqual([]);
+    expect([...closedGroups(mixedGroups, mixed.ownerOf, { root: true }, null)]).toEqual([]);
+    expect([...closedGroups(mixedGroups, mixed.ownerOf, { root: false }, "root")].sort()).toEqual(["client:Klienti/Hron", "client:Klienti/Novak"]);
+  });
+
+  test("koreň a registrovaný klient: každá položka ukáže len svojich klientov", () => {
+    const nodes = mixedTree({ matter: N_DEDIC.path }, { [clientToggle("client:Klienti/Tatran")]: true });
+    const value = navValue(mixed, nodes, { open: { root: true } });
+    const rootOut = html(<ClientNavTestProvider value={value}><ul><ClientMattersNavItem workspaceId="root" /></ul></ClientNavTestProvider>);
+    expect(rootOut).toContain("Novák");
+    expect(rootOut).toContain("Hron");
+    expect(rootOut).not.toContain("Úhrada dodávok");
+    const tatranOut = html(<ClientNavTestProvider value={value}><ul><ClientMattersNavItem workspaceId="tatran" /></ul></ClientNavTestProvider>);
+    expect(tatranOut).toContain("Úhrada dodávok");
+    expect(tatranOut).not.toContain("Dedičstvo");
+  });
+});
+
+describe("strom v paneli: natívny chat v priečinku a zatvorené Prípady nič nečítajú", () => {
+  const office = ws("office", "/prax");
+  const scope: OkfScope = { anchor: office, members: [{ workspace: office, prefix: "" }] };
+  const m1 = matter("AK/T/Tatran/Uhrada", "Úhrada dodávok");
+  const data = { matters: [m1], inputs: [], clients: [], upcomingDeadlines: [], overdue: [], problems: [], truncated: false };
+  const connection = { client: {} as never, baseUrl: "http://x", token: "t", workspaces: [office], activeWorkspaceId: office.id };
+  const probe = (pathname: string, search: string, options: Parameters<typeof useClientTree>[6]) => {
+    const queries = new QueryClient();
+    let expanded: boolean | undefined;
+    function Probe() { expanded = useClientTree(connection, scope, data as never, pathname, search, "en", options).nodes[0]?.expanded; return null; }
+    renderToStaticMarkup(<QueryClientProvider client={queries}><MemoryRouter><Probe /></MemoryRouter></QueryClientProvider>);
+    return { expanded, reads: queries.getQueryCache().findAll({ queryKey: [FOLDER_SESSIONS_KEY] }).length };
+  };
+
+  test("chat priamo v priečinku projektu (natívne Chaty) nerozbalí Prípady a nespustí výpis podstromu", () => {
+    expect(probe("/workspace/office/session/s-root", "", {}).reads).toBe(1);
+    expect(probe("/workspace/office/session/s-root", "", { isRootSession: (w, s) => w === "office" && s === "s-root" })).toEqual({ expanded: false, reads: 0 });
+  });
+
+  test("zatvorené Prípady: klient sa nečíta ani pri detaile jeho veci", () => {
+    const search = `?vec=${encodeURIComponent(m1.path)}`;
+    expect(probe("/vec", search, {})).toEqual({ expanded: true, reads: 1 });
+    expect(probe("/vec", search, { closedFor: () => new Set(["path:Tatran"]) })).toEqual({ expanded: false, reads: 0 });
+  });
+
+  test("zoznam projektov panela nahradí zoznam z načítania (registrácia a odobratie hneď)", () => {
+    const loaded = { ...connection, workspaces: [office] };
+    const fresh = [office, ws("novy", "/prax/Novy")];
+    expect(liveConnection(loaded, fresh, "novy")).toEqual({ ...loaded, workspaces: fresh, activeWorkspaceId: "novy" });
+    expect(liveConnection(loaded, fresh, "zmazany")?.activeWorkspaceId).toBe("office");
+    expect(liveConnection(loaded, undefined)).toBe(loaded);
+    expect(liveConnection(null, fresh)).toBeNull();
+  });
+});
+
+/**
+ * AppSidebar načíta trvalé obchody (zustand persist), ktoré si úložisko zachytia pri prvom importe. Ostatné
+ * testy v tom istom procese (napr. session-inbox) si úložisko inštalujú neskôr: obchody preto dostanú úložisko,
+ * ktoré vždy siahne po práve nainštalovanom `localStorage` (inak drží vlastnú mapu), a deskriptor sa vráti.
+ */
+async function importSidebar() {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const own = new Map<string, string>();
+  const forwarding: Storage = {
+    get length() { return own.size; },
+    key: (index) => [...own.keys()][index] ?? null,
+    clear: () => own.clear(),
+    getItem: (key) => { const live = current(); return live ? live.getItem(key) : own.get(key) ?? null; },
+    setItem: (key, value) => { const live = current(); if (live) live.setItem(key, value); else own.set(key, value); },
+    removeItem: (key) => { const live = current(); if (live) live.removeItem(key); else own.delete(key); },
+  };
+  const isStorage = (value: unknown): value is Storage => typeof value === "object" && value !== null && value !== forwarding && "getItem" in value && "setItem" in value;
+  function current(): Storage | null {
+    const value: unknown = Object.getOwnPropertyDescriptor(globalThis, "localStorage")?.value;
+    return isStorage(value) ? value : null;
+  }
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: forwarding });
+  try {
+    const [{ AppSidebar }, { ProjectPersonalisationProvider }, { useProjectFavoritesStore }] = await Promise.all([
+      import("../src/react-app/domains/session/sidebar/app-sidebar"),
+      import("../src/react-app/domains/workspace/project-personalisation-modal"),
+      import("../src/react-app/domains/workspace/project-favorites-store"),
+    ]);
+    return { AppSidebar, ProjectPersonalisationProvider, useProjectFavoritesStore };
+  } finally {
+    if (previous) Object.defineProperty(globalThis, "localStorage", previous);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  }
+}
+const { AppSidebar, ProjectPersonalisationProvider, useProjectFavoritesStore } = await importSidebar();
+
+describe("bočný panel (natívny AppSidebar, vykreslený)", () => {
+  const noop = () => {};
+  const group = (w: RouteWorkspace): WorkspaceSessionGroup => ({ workspace: w, sessions: [], status: "ready" });
+  const sidebar = (value: TestValue, groups: WorkspaceSessionGroup[]) => renderToStaticMarkup(
+    <QueryClientProvider client={new QueryClient()}><TooltipProvider><ShellConfigProvider><MemoryRouter>
+      <ProjectPersonalisationProvider groups={groups} client={null}><SidebarProvider><ClientNavTestProvider value={value}>
+        <AppSidebar accountClient={null} workspaceSessionGroups={groups} selectedWorkspaceId="" selectedSessionId={null}
+          developerMode={false} connectingWorkspaceId={null} workspaceConnectionStateById={{}} newChatDisabled={false}
+          onOpenProjectFiles={noop} onSelectWorkspace={noop} onOpenSession={noop}
+          onCreateChatInWorkspace={noop} onOpenRenameWorkspace={noop} onRevealWorkspace={noop} onForgetWorkspace={noop}
+          onOpenCreateWorkspace={noop} onCreateChatInNewWorkspace={noop} />
+      </ClientNavTestProvider></SidebarProvider></ProjectPersonalisationProvider>
+    </MemoryRouter></ShellConfigProvider></TooltipProvider></QueryClientProvider>,
+  );
+
+  test("hore Dnes · natívny Nový chat · Pridať klienta; starý strom, Opýtať sa ani Klienti a prípady v navigácii nie sú", () => {
+    const out = sidebar(navValue(mixed, []), [group(tatranWs)]);
+    const today = out.indexOf('data-lawoss-lite-nav="today"');
+    const chat = out.indexOf(`<span>${t("projects.new_chat", "en")}</span>`);
+    const add = out.indexOf('data-lawoss-lite-nav="add_client"');
     expect(today).toBeGreaterThan(-1);
     expect(chat).toBeGreaterThan(today);
     expect(add).toBeGreaterThan(chat);
-    expect(nav).toMatch(new RegExp(`<a(?=[^>]*href="${NEW_CLIENT_PATH.replace(/[?]/g, "\\?")}")(?=[^>]*data-lawoss-lite-nav="add_client")[^>]*>`));
-    expect(nav).toContain("Add client");
-    expect(nav).not.toContain("data-lawoss-lite-tree");
-    expect(nav).not.toContain('data-lawoss-lite-nav="ask"');
-    expect(nav).not.toContain('data-lawoss-lite-nav="clients"');
+    expect(out).toMatch(new RegExp(`<a(?=[^>]*href="${NEW_CLIENT_PATH.replace(/[?]/g, "\\?")}")(?=[^>]*data-lawoss-lite-nav="add_client")[^>]*>`));
+    for (const gone of ["data-lawoss-lite-tree", 'data-lawoss-lite-nav="ask"', 'data-lawoss-lite-nav="clients"']) expect(out).not.toContain(gone);
   });
 
-  test("hlavička sekcie: mriežka vedie na všetkých klientov, + na pridanie klienta", () => {
-    const sidebar = source("react-app/domains/session/sidebar/app-sidebar.tsx");
-    expect(sidebar).toContain("navigate(LITE_CLIENTS_PATH)");
-    expect(sidebar).toContain("navigate(NEW_CLIENT_PATH)");
+  test("sekcia klientov: skrytý koreň nie je v zozname ani medzi pripnutými; hlavička má texty LAWOSS, + v Pokročilom ostáva natívny", () => {
+    useProjectFavoritesStore.setState({ favoriteIds: ["root"] });
+    try {
+      const hidden = { ...mixed, hidden: new Set(["root", "legacy"]) };
+      const out = sidebar(navValue(hidden, []), [group(root), group(tatranWs), group(legacy)]);
+      expect(out).toContain(">tatran<");
+      expect(out).not.toContain(">root<");
+      expect(out).not.toContain(">legacy<");
+      expect(out).not.toContain("Pinned Projects");
+      expect(out).toContain('aria-label="Clients and matters"');
+      // SSR je vždy Pokročilý režim: „+“ ostáva natívne vytvorenie projektu (bežný režim vedie na Pridať klienta).
+      expect(out).toContain('aria-label="Create project"');
+    } finally { useProjectFavoritesStore.setState({ favoriteIds: [] }); }
+  });
+
+  test("bežný režim: + vedie na Pridať klienta (vetva podľa režimu)", () => {
+    // SSR nevie vykresliť bežný režim (snapshot režimu je vždy Pokročilý); vetva je v zdrojovom kóde.
+    const sidebarSource = source("react-app/domains/session/sidebar/app-sidebar.tsx");
+    expect(sidebarSource).toContain('uiMode === "lite"\n                  ? <Button variant="ghost" size="icon-xs" aria-label={t("lawoss.lite.add_client")}');
+  });
+});
+
+describe("pripnuté a nedávne chaty v bežnom režime: predvolene vypnuté, prepínač funguje", () => {
+  test("bežný režim: vypnuté, kým ich používateľ nezapne; Pokročilý a ostatné sekcie podľa natívnej voľby", () => {
+    for (const key of ["sectionPinned", "sectionRecent"]) {
+      expect(chatSectionShown(key, "lite", true, {})).toBe(false);
+      expect(chatSectionShown(key, "lite", false, { [key]: true })).toBe(true);
+      expect(chatSectionShown(key, "pro", true, { [key]: false })).toBe(true);
+    }
+    expect(chatSectionShown("sectionProjects", "lite", true, {})).toBe(true);
+    expect(chatSectionShown("sectionProjects", "lite", false, {})).toBe(false);
+  });
+
+  test("voľba bežného režimu sa uloží zvlášť a prežije znovunačítanie", () => {
+    const store = new Map<string, string>();
+    const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) } });
+    try {
+      setLiteChatSection("sectionRecent", true);
+      expect(JSON.parse(store.get(LITE_CHAT_SECTIONS_KEY) ?? "{}")).toMatchObject({ sectionRecent: true });
+      reloadLiteChatSections();
+    } finally {
+      if (original) Object.defineProperty(globalThis, "localStorage", original);
+      else Reflect.deleteProperty(globalThis, "localStorage");
+      reloadLiteChatSections();
+    }
+    // Prispôsobenie panela pri týchto sekciách v bežnom režime číta a zapisuje túto voľbu.
+    expect(source("react-app/domains/session/sidebar/sidebar-customization.tsx")).toContain("chatSections.handles(key) ? chatSections.set(key, checked)");
+  });
+});
+
+describe("Nový chat v bežnom režime bez otvoreného projektu", () => {
+  const a = { ...ws("a", "/prax/A"), displayNameResolved: "ALFA" };
+  const b = { ...ws("b", "/prax/B"), displayNameResolved: "BETA" };
+  test("viac klientov = výber, jeden = rovno on, nikdy koreň praxe; Pokročilý a bez klientov natívne", () => {
+    const model = { clients: new Set(["root", "a", "b"]), hidden: new Set<string>(), practiceRootId: "root" };
+    expect(newChatChoices([root, b, a], model).map((c) => c.id)).toEqual(["a", "b"]);
+    expect(newChatAction("lite", newChatChoices([root, b, a], model))).toEqual({ kind: "pick" });
+    expect(newChatAction("lite", newChatChoices([root, a], { ...model, clients: new Set(["root", "a"]) }))).toEqual({ kind: "create", workspaceId: "a" });
+    expect(newChatAction("pro", newChatChoices([a, b], model))).toEqual({ kind: "native" });
+    expect(newChatAction("lite", [])).toEqual({ kind: "native" });
+    // Jeden priečinok pre všetko: koreň je jediný klient.
+    expect(newChatChoices([root], { ...model, clients: new Set(["root"]) }).map((c) => c.id)).toEqual(["root"]);
   });
 });
 
@@ -114,46 +372,10 @@ describe("Prípady a Lehoty v natívnom prispôsobení panela", () => {
     }
     expect(t(SIDEBAR_ITEMS.projectMatters.label, "sk")).toBe("Prípady");
     expect(t(SIDEBAR_ITEMS.projectDeadlines.label, "sk")).toBe("Lehoty");
-    const sidebar = source("react-app/domains/session/sidebar/app-sidebar.tsx");
-    expect(sidebar).toContain("projectMatters: <ClientMattersNavItem");
-    expect(sidebar).toContain("projectDeadlines: <ClientDeadlinesNavItem");
   });
 });
 
-describe("klienti v natívnom zozname: koreň kancelárie nie je klient", () => {
-  const root = ws("root", "/prax");
-  const tatran = ws("tatran", "/prax/Tatran");
-  const hron = ws("hron", "/prax/Hron");
-  const nested = ws("uhrada", "/prax/Tatran/Spisy/Uhrada");
-  const outside = ws("ine", "/ine/Projekt");
-
-  test("registrovaný koreň praxe s klientmi pod ním sa skryje; staršia vec registrovaná zvlášť tiež", () => {
-    expect([...hiddenClientProjects([root, tatran, hron, nested, outside], "/prax")].sort()).toEqual(["root", "uhrada"]);
-    expect([...hiddenClientProjects([tatran, hron, outside], "/prax/")]).toEqual([]);
-  });
-
-  test("jeden priečinok pre všetko: koreň je jediný záznam a ostane; bez praxe sa nič neskrýva", () => {
-    expect([...hiddenClientProjects([root, outside], "/prax")]).toEqual([]);
-    expect([...hiddenClientProjects([root, tatran, nested], null)]).toEqual([]);
-  });
-
-  test("bočný panel filtruje sekciu klientov podľa skrytých priečinkov", () => {
-    const sidebar = source("react-app/domains/session/sidebar/app-sidebar.tsx");
-    expect(sidebar).toContain("const hiddenProjects = useHiddenClientProjects();");
-    expect(sidebar).toContain(".filter(group => !hiddenProjects.has(group.workspace.id))");
-    expect(sidebar).toContain("<ClientNavProvider>");
-  });
-
-  test("prax sa číta od klienta praxe, nie od nesúvisiaceho otvoreného priečinka", () => {
-    expect(clientNavAnchor([outside, tatran, hron], "/prax", outside)?.id).toBe("tatran");
-    expect(clientNavAnchor([outside, tatran], null, outside)?.id).toBe("ine");
-    expect(clientNavAnchor([root, tatran], "/prax", tatran)?.id).toBe("tatran");
-  });
-});
-
-describe("Prípady klienta: veci z OKF podľa priečinka klienta", () => {
-  const tatran = ws("tatran", "/prax/Tatran");
-  const hron = ws("hron", "/prax/Hron");
+describe("Prípady klienta: zobrazenie", () => {
   const UHRADA = matter("Tatran/Spisy/Uhrada", "Úhrada dodávok", ["2026-10-21"]);
   const VADY = matter("Tatran/Spisy/Vady", "Vady rekonštrukcie");
   const ZMLUVA = matter("Hron/Spisy/Zmluva", "Zmluva o dielo", ["2026-11-30"]);
@@ -161,28 +383,6 @@ describe("Prípady klienta: veci z OKF podľa priečinka klienta", () => {
     { key: "client:Hron", client: "SYN Hron Technológie", matters: [ZMLUVA] },
     { key: "client:Tatran", client: "SYN Tatran Automatika", matters: [UHRADA, VADY] },
   ];
-  const practice: OkfScope = { anchor: tatran, members: [{ workspace: hron, prefix: "Hron" }, { workspace: tatran, prefix: "Tatran" }], practiceRoot: "/prax" };
-
-  test("každý klient = svoj priečinok; cudzie veci nevidí; neznámy priečinok nie je klient", () => {
-    expect(clientGroupsOf(practice, tatran, groups).map((g) => g.key)).toEqual(["client:Tatran"]);
-    expect(clientGroupsOf(practice, hron, groups).map((g) => g.key)).toEqual(["client:Hron"]);
-    expect(isClientProject(practice, tatran, groups)).toBe(true);
-    expect(isClientProject(practice, ws("ine", "/ine/Projekt"), groups)).toBe(false);
-    // Klient praxe zatiaľ bez vecí je stále klient (prázdne Prípady), nie cudzí projekt.
-    expect(isClientProject(practice, hron, [])).toBe(true);
-  });
-
-  test("registrovaný koreň a klienti pod ním: veci patria klientovi podľa cesty, nie koreňu", () => {
-    const root = ws("root", "/prax");
-    const klient = ws("tatran2", "/prax/Klienti/Tatran");
-    const scope: OkfScope = { anchor: root, members: [{ workspace: root, prefix: "" }] };
-    const g: ClientGroup[] = [{ key: "client:Klienti/Tatran", client: "Tatran", matters: [matter("Klienti/Tatran/Spisy/A", "A")] }, { key: "client:Klienti/Hron", client: "Hron", matters: [] }];
-    expect(clientGroupsOf(scope, klient, g).map((x) => x.key)).toEqual(["client:Klienti/Tatran"]);
-    // Jeden priečinok pre všetko: koreň ukáže prípady zoskupené podľa klientov.
-    expect(clientGroupsOf(scope, root, g).map((x) => x.key)).toEqual(["client:Klienti/Tatran", "client:Klienti/Hron"]);
-  });
-
-  const ready = (items: ConversationList["items"] = []): ConversationList => ({ items, status: "ready", complete: true });
   const chats = [{ workspaceId: "tatran", id: "s-1", title: "Zhrnutie spisu", updated: 2 }, { workspaceId: "tatran", id: "s-2", title: "Návrh odpovede", updated: 1 }];
   const tree = (focus = {}, overrides = {}) => buildClientTree({ groups: [groups[1]], focus, overrides, canStart: () => true,
     lists: { client: () => ready(), matter: (path) => ready(path === UHRADA.path ? chats : []) } });
@@ -192,7 +392,7 @@ describe("Prípady klienta: veci z OKF podľa priečinka klienta", () => {
     expect(closed).toContain("Matters");
     expect(closed).toMatch(/<button(?=[^>]*data-lawoss-project-matters="")(?=[^>]*aria-expanded="false")[^>]*>/);
     expect(closed).not.toContain("Úhrada dodávok");
-    const open = html(<ClientMattersView nodes={tree({}, { "c\u0000client:Tatran": true })} open locale="en" />);
+    const open = html(<ClientMattersView nodes={tree({}, { [clientToggle("client:Tatran")]: true })} open locale="en" />);
     expect(open).toContain("Úhrada dodávok");
     expect(open).toContain("Vady rekonštrukcie");
     expect(open).toContain(`href="${liteMatterLink(UHRADA.path)}"`);
@@ -200,19 +400,12 @@ describe("Prípady klienta: veci z OKF podľa priečinka klienta", () => {
   });
 
   test("vec rozbalí svoje chaty a + Nový chat; otvorená vec je označená", () => {
-    const built = tree({ matter: UHRADA.path });
-    const out = html(<ClientMattersView nodes={built} open locale="en" />, liteMatterLink(UHRADA.path));
+    const out = html(<ClientMattersView nodes={tree({ matter: UHRADA.path })} open locale="en" />, liteMatterLink(UHRADA.path));
     expect(out).toContain("Zhrnutie spisu");
     expect(out).toContain("Návrh odpovede");
     expect(out.match(/data-lawoss-tree-new/g)).toHaveLength(1);
     expect(out).toContain("New chat");
     expect(out).toMatch(/<a(?=[^>]*aria-current="page")[^>]*href="\/vec\?vec=Tatran%2FSpisy%2FUhrada"/);
-  });
-
-  test("klient bez vecí: prázdne Prípady to povedia", () => {
-    const empty = buildClientTree({ groups: [{ key: "client:Hron", client: "Hron", matters: [] }], focus: {}, overrides: { "c\u0000client:Hron": true }, canStart: () => true, lists: { client: () => ready(), matter: () => ready() } });
-    expect(html(<ClientMattersView nodes={empty} open locale="en" />)).toContain("No matters yet");
-    expect(html(<ClientMattersView nodes={[]} open locale="en" />)).toContain("No matters yet");
   });
 
   test("jeden priečinok pre všetko: viac klientov pod jedným projektom, každý so svojím menom", () => {
@@ -224,16 +417,21 @@ describe("Prípady klienta: veci z OKF podľa priečinka klienta", () => {
     expect(out).not.toContain("Zmluva o dielo");
   });
 
-  test("Lehoty klienta: len lehoty jeho vecí, odkaz z bočného panela s priečinkom klienta", () => {
+  test("Lehoty klienta: len lehoty vecí, ktoré projekt vlastní; súčty znova", () => {
+    const tatran = ws("tatran", "/prax/Tatran");
+    const hron = ws("hron", "/prax/Hron");
+    const practice: OkfScope = { anchor: tatran, members: [{ workspace: hron, prefix: "Hron" }, { workspace: tatran, prefix: "Tatran" }], practiceRoot: "/prax" };
     const data = { matters: [UHRADA, VADY, ZMLUVA], inputs: [], clients: [], problems: [], truncated: false,
       upcomingDeadlines: [UHRADA, ZMLUVA].flatMap((m) => m.deadlines.map((d) => ({ ...d, matter: { path: m.path, title: m.title } }))),
       overdue: [], totals: { matters: 3, deadlinesWithin7Days: 1, openTasks: 0, overdue: 0, records: 3 } } satisfies OkfReadResult;
-    const own = clientDeadlines(data, practice, tatran, "2026-10-19");
+    const model = clientNavModel([tatran, hron], "/prax", readyOverview(practice, groups));
+    const owns = (id: string) => (folder: string) => ownerOfFolder(model.visible, folder) === id;
+    const own = clientDeadlines(data, practice, owns("tatran"), "2026-10-19");
     expect(own.matters.map((m) => m.path)).toEqual([UHRADA.path, VADY.path]);
     expect(own.upcomingDeadlines.map((d) => d.matter.path)).toEqual([UHRADA.path]);
     expect(own.totals.matters).toBe(2);
     expect(own.totals.deadlinesWithin7Days).toBe(1);
-    expect(clientDeadlines(data, practice, hron, "2026-10-19").totals.deadlinesWithin7Days).toBe(0);
+    expect(clientDeadlines(data, practice, owns("hron"), "2026-10-19").totals.deadlinesWithin7Days).toBe(0);
     expect(clientDeadlinesLink("ws tatran")).toBe("/lehoty?klient=ws%20tatran");
   });
 });
@@ -243,13 +441,12 @@ describe("Domov klienta: natívny ProjectHome s prehľadom OKF", () => {
     const home = source("react-app/domains/workspace/project-home.tsx");
     expect(home).toContain("extra?: ReactNode;");
     expect(home).toContain("{props.extra}");
-    const page = source("react-app/domains/session/chat/session-page.tsx");
-    expect(page).toContain("extra={<ClientOverview workspaceId={props.selectedWorkspaceId} />}");
+    expect(source("react-app/domains/session/chat/session-page.tsx")).toContain("extra={<ClientOverview workspaceId={props.selectedWorkspaceId} />}");
   });
 
-  test("prehľad ukáže prípady klienta, najbližšie lehoty a odkaz na všetky lehoty klienta", () => {
+  test("prehľad ukáže prípady, súčet lehôt do 7 dní z registra, najbližšie lehoty a odkaz na všetky lehoty klienta", () => {
     const UHRADA = matter("Tatran/Spisy/Uhrada", "Úhrada dodávok", ["2026-10-21"]);
-    const out = renderToStaticMarkup(<MemoryRouter><ClientOverviewView workspaceId="tatran" locale="en" todayIso="2026-10-19"
+    const out = renderToStaticMarkup(<MemoryRouter><ClientOverviewView workspaceId="tatran" locale="en" todayIso="2026-10-19" soon={7}
       matters={[UHRADA, matter("Tatran/Spisy/Vady", "Vady rekonštrukcie")]}
       deadlines={UHRADA.deadlines.map((d) => ({ ...d, matter: { path: UHRADA.path, title: UHRADA.title } }))} /></MemoryRouter>);
     expect(out).toContain("data-lawoss-client-overview");
@@ -257,16 +454,18 @@ describe("Domov klienta: natívny ProjectHome s prehľadom OKF", () => {
     expect(out).toContain("Vady rekonštrukcie");
     expect(out).toContain(`href="${liteMatterLink(UHRADA.path)}"`);
     expect(out).toContain("Lehota 2026-10-21");
+    expect(out).toMatch(/Deadlines within 7 days<\/dt><dd[^>]*>7</);
     expect(out).toContain(`href="${clientDeadlinesLink("tatran")}"`);
   });
 
-  test("nové texty vo všetkých jazykoch, nemčina bez dlhej pomlčky", () => {
+  test("texty: nové kľúče vo všetkých jazykoch, žiadne skladanie kľúča za behu, nemčina bez dlhej pomlčky", () => {
     for (const dict of [shellEn, shellCs, shellSk, shellDe]) {
       for (const key of ["project_matters", "project_matters_empty", "matter_new_chat", "client_overview_title", "client_overview_deadlines", "client_overview_no_deadlines", "client_deadlines_all", "client_deadlines_title"]) {
         expect(dict).toHaveProperty([`lawoss.lite.${key}`]);
       }
     }
     expect(shellSk["lawoss.lite.matter_new_chat"]).toBe("Nový chat");
+    expect(source("lawoss/lite/client-overview.tsx")).not.toContain("`lawoss.lite.${");
     expect(Object.values(shellDe).some((value) => value.includes("—"))).toBe(false);
   });
 });

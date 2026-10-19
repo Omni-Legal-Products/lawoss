@@ -5,96 +5,181 @@
  * upstream mapa položiek projektu len vykreslí: **Prípady** (veci klienta z OKF, pod vecou jej
  * chaty a „+ Nový chat“) a **Lehoty** (register lehôt obmedzený na klienta).
  *
- * Dáta sa čítajú raz pre celý panel (`ClientNavProvider`); strom vecí a chatov je model
- * z `client-tree.ts` / `client-tree-data.ts` (rozbalenie podľa trasy, čítanie len rozbalených).
+ * Dáta sa čítajú raz pre celý panel (`ClientNavProvider`) zo živého zoznamu projektov panela; strom
+ * vecí a chatov je model z `client-tree.ts` / `client-tree-data.ts`, vlastníctvo a skrytie
+ * z `client-projects.ts`, Prípady projektu z `client-nav-model.ts`. Domov klienta, stránka Lehoty
+ * a stránka Projekty čítajú to isté cez `usePublishedClientNav` (bez druhého načítania).
  */
 import { Briefcase, CalendarClock, ChevronRight, Plus, RotateCw } from "lucide-react";
-import { createContext, use, useCallback, useMemo, useState, type ReactNode } from "react";
+import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { Button } from "@/components/ui/button";
 import { SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
+import type { WorkspaceSessionGroup } from "@/app/types";
+import { mapDesktopWorkspace, type RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import type { OkfConnection } from "../okf/connection";
-import { officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope, usePracticeRoot, type OkfReadResult, type OkfScope } from "../okf/read-model";
-import { clientGroupsOf, clientNavAnchor, hiddenClientProjects, isClientProject } from "./client-projects";
+import { officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope, usePracticeRoot } from "../okf/read-model";
+import type { ClientChoice } from "./client-choice";
+import { closedGroups, focusedProject, forgetProjectOverride, mattersOpen, newChatAction, newChatChoices, projectNodes } from "./client-nav-model";
+import { ClientPickerDialog } from "./client-picker";
+import { clientNavAnchor, clientNavModel, type ClientOverviewState } from "./client-projects";
 import { clientToggle, matterToggle, routeFocus, type TreeClient, type TreeMatter } from "./client-tree";
 import { useClientTree } from "./client-tree-data";
 import { clientDeadlinesLink, clientOverviewLink, LEHOTY_PATH, liteMatterLink } from "./links";
 import { matterUrgency, useMinuteTick } from "./live";
 import type { MatterConversation } from "./matter-conversations";
-import { groupByClient, type ClientGroup } from "./today-model";
+import { groupByClient } from "./today-model";
+import { useUiMode } from "./ui-mode";
+
+/** Projekty panela ako ich pozná LAWOSS; kľúč sa mení len pri zmene id, cesty alebo názvu (nie pri novom chate). */
+function useLiveWorkspaces(groups: readonly WorkspaceSessionGroup[] | undefined): RouteWorkspace[] | undefined {
+  const key = groups?.map((g) => [g.workspace.id, g.workspace.path, g.workspace.name, g.workspace.displayName, g.workspace.workspaceType].join("\u0000")).join("\u0001");
+  const latest = useRef(groups);
+  latest.current = groups;
+  // Kľúč nesie všetko, čo mapovanie číta; nový chat v projekte zoznam nemení.
+  return useMemo(() => latest.current?.map((g) => mapDesktopWorkspace(g.workspace)), [key]);
+}
+
+/** Spojenie s aktuálnym zoznamom projektov: registrácia alebo odobratie klienta sa prejaví hneď (review 19. 10.). */
+export function liveConnection(connection: OkfConnection | null, workspaces: readonly RouteWorkspace[] | undefined, selectedId?: string): OkfConnection | null {
+  if (!connection || !workspaces) return connection;
+  const active = selectedId && workspaces.some((w) => w.id === selectedId) ? selectedId : connection.activeWorkspaceId;
+  return { ...connection, workspaces: [...workspaces], activeWorkspaceId: active };
+}
 
 /**
- * Prehľad OKF pre klientov v natívnom zozname: spojenie, prax (od klienta praxe, nie od nesúvisiaceho
- * otvoreného priečinka), skryté priečinky (koreň praxe, staršia vec registrovaná zvlášť) a skupiny klientov.
+ * Prehľad OKF pre klientov: spojenie (so živým zoznamom projektov, ak ho panel odovzdá), prax (od priečinka
+ * praxe, nie od nesúvisiaceho otvoreného), prehľad, skupiny klientov a model vlastníctva a skrytia.
  */
-export function useClientNavData() {
-  const { connection } = useOkfConnection();
+export function useClientNavData(live?: { groups?: readonly WorkspaceSessionGroup[]; selectedWorkspaceId?: string }) {
+  const { connection: loaded } = useOkfConnection();
+  const workspaces = useLiveWorkspaces(live?.groups);
+  const connection = useMemo(() => liveConnection(loaded, workspaces, live?.selectedWorkspaceId), [loaded, workspaces, live?.selectedWorkspaceId]);
   const practiceRoot = usePracticeRoot(connection);
-  const workspaces = connection?.workspaces;
-  const hidden = useMemo(() => hiddenClientProjects(workspaces ?? [], practiceRoot), [workspaces, practiceRoot]);
   const fallback = officeWorkspace(connection);
-  const anchor = useMemo(() => clientNavAnchor(workspaces ?? [], practiceRoot, fallback), [workspaces, practiceRoot, fallback]);
+  const all = connection?.workspaces;
+  const anchor = useMemo(() => clientNavAnchor(all ?? [], practiceRoot, fallback), [all, practiceRoot, fallback]);
   const { scope } = useOkfScope(connection, anchor);
   const query = useOkfOverview(connection, scope);
   const data = scope ? query.data : undefined;
   const groups = useMemo(() => data ? groupByClient(data.matters, data.inputs, data.clients) : [], [data]);
-  return { connection, hidden, scope, data, groups };
+  const failed = Boolean(scope && !data && query.isError) || (connection !== null && !connection.client);
+  const model = useMemo(() => {
+    const overview: ClientOverviewState = scope && data ? { status: "ready", scope, groups, matters: data.matters } : failed ? { status: "unavailable" } : { status: "pending" };
+    return clientNavModel(all ?? [], practiceRoot, overview);
+  }, [all, practiceRoot, scope, data, groups, failed]);
+  return { connection, scope, data, groups, model };
 }
 
-type ClientNavValue = {
-  connection: OkfConnection | null;
-  scope: OkfScope | null;
-  data: OkfReadResult | undefined;
-  groups: readonly ClientGroup[];
-  hidden: ReadonlySet<string>;
-  tree: ReturnType<typeof useClientTree>;
-  /** Prípady otvorené pri projekte s viacerými klientmi (jeden priečinok pre všetko). */
+export type PublishedClientNav = Pick<ReturnType<typeof useClientNavData>, "connection" | "scope" | "data" | "groups" | "model">;
+
+let published: PublishedClientNav | null = null;
+const publishedListeners = new Set<() => void>();
+function publish(next: PublishedClientNav | null) {
+  published = next;
+  for (const listener of publishedListeners) listener();
+}
+const subscribePublished = (listener: () => void) => { publishedListeners.add(listener); return () => { publishedListeners.delete(listener); }; };
+
+/** To, čo bočný panel práve vie o klientoch; mimo panela (samostatné okno) `null`. */
+export function usePublishedClientNav(): PublishedClientNav | null {
+  return useSyncExternalStore(subscribePublished, () => published, () => null);
+}
+
+type ClientNavValue = PublishedClientNav & {
+  tree: Pick<ReturnType<typeof useClientTree>, "nodes" | "toggle" | "openConversation" | "newConversation">;
+  /** Otvorené Prípady projektu s viacerými klientmi; `undefined` = podľa trasy. */
   open: Readonly<Record<string, boolean>>;
   setOpen: (workspaceId: string, open: boolean) => void;
+  /** Projekt, v ktorého veci alebo klientovi je trasa. */
+  focused: string | null;
+  /** Bežný režim bez otvoreného projektu: „Nový chat“ vyberie klienta; `false` = natívne správanie. */
+  startNewChat: (create: (workspaceId: string) => void) => boolean;
 };
 
 const ClientNavContext = createContext<ClientNavValue | null>(null);
 const NOTHING_HIDDEN: ReadonlySet<string> = new Set();
 
+/** Test seam: pevné dáta namiesto čítania; vnútorný `ClientNavProvider` ich použije. */
+export function ClientNavTestProvider({ value, children }: { value: ClientNavValue; children: ReactNode }) {
+  return <ClientNavContext.Provider value={value}>{children}</ClientNavContext.Provider>;
+}
+
 /** Jedno čítanie pre celý bočný panel; bez neho sa položky LAWOSS nevykreslia (napr. stránka Projekty). */
-export function ClientNavProvider({ children }: { children: ReactNode }) {
+export function ClientNavProvider(props: { groups?: readonly WorkspaceSessionGroup[]; selectedWorkspaceId?: string; children: ReactNode }) {
+  return use(ClientNavContext) ? <>{props.children}</> : <ClientNavRoot {...props} />;
+}
+
+function ClientNavRoot({ groups: live, selectedWorkspaceId, children }: { groups?: readonly WorkspaceSessionGroup[]; selectedWorkspaceId?: string; children: ReactNode }) {
   useMinuteTick(); // body naliehavosti sa o polnoci prepočítajú aj bez nového čítania
-  const nav = useClientNavData();
+  const nav = useClientNavData({ groups: live, selectedWorkspaceId });
   const { pathname, search } = useLocation();
   const locale = useLocale();
-  const tree = useClientTree(nav.connection, nav.scope, nav.data, pathname, search, locale);
+  const mode = useUiMode();
   const [open, setOpenState] = useState<Readonly<Record<string, boolean>>>({});
   const setOpen = useCallback((workspaceId: string, value: boolean) => setOpenState((prev) => ({ ...prev, [workspaceId]: value })), []);
-  return <ClientNavContext.Provider value={{ ...nav, tree, open, setOpen }}>{children}</ClientNavContext.Provider>;
+  // Natívny chat priamo v priečinku projektu nepatrí žiadnej veci: Prípady nerozbalí a nič nečíta.
+  const rootSessions = useMemo(() => new Set((live ?? []).flatMap((g) => g.sessions.map((s) => `${g.workspace.id}\u0000${s.id}`))), [live]);
+  const tree = useClientTree(nav.connection, nav.scope, nav.data, pathname, search, locale, {
+    isRootSession: (workspaceId, sessionId) => rootSessions.has(`${workspaceId}\u0000${sessionId}`),
+    closedFor: (focus) => closedGroups(nav.groups, nav.model.ownerOf, open, focusedProject(focus, nav.groups, nav.model.ownerOf)),
+  });
+  const focused = focusedProject(tree.focus, nav.groups, nav.model.ownerOf);
+  // Trasa prešla do projektu: jeho zatvorenie používateľom sa zabudne (ako pri jednom klientovi).
+  useEffect(() => {
+    setOpenState((prev) => forgetProjectOverride(prev, focused));
+  }, [focused]);
+  const snapshot = useMemo<PublishedClientNav>(() => ({ connection: nav.connection, scope: nav.scope, data: nav.data, groups: nav.groups, model: nav.model }), [nav.connection, nav.scope, nav.data, nav.groups, nav.model]);
+  useEffect(() => { publish(snapshot); }, [snapshot]);
+  useEffect(() => () => publish(null), []);
+  const choices = useMemo(() => newChatChoices(nav.connection?.workspaces ?? [], nav.model), [nav.connection, nav.model]);
+  const [picking, setPicking] = useState(false);
+  const pending = useRef<((workspaceId: string) => void) | null>(null);
+  const startNewChat = useCallback((create: (workspaceId: string) => void) => {
+    const action = newChatAction(mode, choices);
+    if (action.kind === "native") return false;
+    if (action.kind === "create") { create(action.workspaceId); return true; }
+    pending.current = create;
+    setPicking(true);
+    return true;
+  }, [mode, choices]);
+  const pick = (choice: ClientChoice) => { setPicking(false); pending.current?.(choice.id); pending.current = null; };
+  return <ClientNavContext.Provider value={{ ...snapshot, tree, open, setOpen, focused, startNewChat }}>
+    {children}
+    <ClientPickerDialog open={picking} purpose="ask" choices={choices} activeId={nav.connection?.activeWorkspaceId} locale={locale}
+      onClose={() => { setPicking(false); pending.current = null; }} onPick={pick} />
+  </ClientNavContext.Provider>;
 }
 
-/** Priečinky, ktoré sekcia klientov neukáže (koreň praxe s klientmi pod ním, staršia vec registrovaná zvlášť). */
+/** Priečinky, ktoré sekcia klientov neukáže (koreň praxe, ktorého klientov majú registrovaní klienti, staršia vec). */
 export function useHiddenClientProjects(): ReadonlySet<string> {
-  return use(ClientNavContext)?.hidden ?? NOTHING_HIDDEN;
+  return use(ClientNavContext)?.model.hidden ?? NOTHING_HIDDEN;
 }
 
-/** Uzly stromu (klienti z prehľadu), ktoré patria projektu; `null` = projekt nie je klient OKF. */
-function projectNodes(nav: ClientNavValue, workspaceId: string): TreeClient[] | null {
-  const workspace = nav.connection?.workspaces.find((w) => w.id === workspaceId);
-  if (!nav.scope || !workspace || !isClientProject(nav.scope, workspace, nav.groups)) return null;
-  const keys = new Set(clientGroupsOf(nav.scope, workspace, nav.groups).map((g) => g.key));
-  return nav.tree.nodes.filter((node) => keys.has(node.key));
+/** „Nový chat“ bez otvoreného projektu v bežnom režime: výber klienta praxe; `false` = natívne správanie. */
+export function useLawossNewChat(): (create: (workspaceId: string) => void) => boolean {
+  const nav = use(ClientNavContext);
+  return nav?.startNewChat ?? (() => false);
+}
+
+/** Stránka Projekty: Prípady a Lehoty len pri projektoch, ktoré sú klienti OKF. */
+export function useClientProjectItem(): (key: string, workspaceId: string) => boolean {
+  const nav = usePublishedClientNav();
+  return (key, workspaceId) => (key !== "projectMatters" && key !== "projectDeadlines") || Boolean(nav?.model.clients.has(workspaceId));
 }
 
 /** Položka „Prípady“ v natívnej mape položiek projektu. */
 export function ClientMattersNavItem({ workspaceId, className }: { workspaceId: string; className?: string }) {
   const nav = use(ClientNavContext);
   const locale = useLocale();
-  const nodes = nav ? projectNodes(nav, workspaceId) : null;
+  const nodes = nav ? projectNodes(nav.tree.nodes, nav.model, workspaceId) : null;
   if (!nav || !nodes) return null;
-  // Jeden klient: Prípady = jeho uzol (zbalený nič nečíta). Viac klientov: Prípady zvlášť, klienti pod nimi.
-  const single = nodes.length === 1 ? nodes[0] : null;
-  const open = single ? single.expanded : nav.open[workspaceId] ?? nodes.some((node) => node.expanded);
-  const toggleOpen = () => single ? nav.tree.toggle(clientToggle(single.key), single.expanded) : nav.setOpen(workspaceId, !open);
-  return <ClientMattersView nodes={nodes} open={open} className={className} locale={locale} onToggleOpen={toggleOpen}
+  const { open, toggle } = mattersOpen(nodes, nav.open[workspaceId], nav.focused === workspaceId);
+  const onToggleOpen = () => toggle.kind === "client" ? nav.tree.toggle(toggle.key, toggle.expanded) : nav.setOpen(workspaceId, toggle.open);
+  return <ClientMattersView nodes={nodes} open={open} className={className} locale={locale} onToggleOpen={onToggleOpen}
     onToggle={nav.tree.toggle} onOpenConversation={nav.tree.openConversation} onNewConversation={nav.tree.newConversation} />;
 }
 
@@ -103,7 +188,7 @@ export function ClientDeadlinesNavItem({ workspaceId, className }: { workspaceId
   const nav = use(ClientNavContext);
   const locale = useLocale();
   const { pathname, search } = useLocation();
-  const nodes = nav ? projectNodes(nav, workspaceId) : null;
+  const nodes = nav ? projectNodes(nav.tree.nodes, nav.model, workspaceId) : null;
   if (!nodes) return null;
   const active = pathname === LEHOTY_PATH && new URLSearchParams(search).get("klient") === workspaceId;
   const now = today();

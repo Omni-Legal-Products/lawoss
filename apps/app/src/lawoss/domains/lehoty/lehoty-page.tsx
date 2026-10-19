@@ -12,7 +12,9 @@ import {
   type OkfScope,
 } from "../../okf/read-model";
 import type { OkfConnection } from "../../okf/connection";
-import { clientDeadlines } from "../../lite/client-projects";
+import { clientDeadlines, ownerOfFolder } from "../../lite/client-projects";
+import { usePublishedClientNav } from "../../lite/client-nav";
+import { comparable, within } from "../../lite/matter-conversations";
 import { LEHOTY_PATH } from "../../lite/links";
 import type { UpcomingDeadline } from "../../../../../../lawoss/okf/read";
 
@@ -32,15 +34,18 @@ export function LehotyPage() {
 /** Register jedného klienta; neznámy priečinok (napr. odpojený) ukáže celý register. */
 function ClientRegister({ data, scope, workspaceId }: { data: OkfReadResult; scope: OkfScope | null; workspaceId: string }) {
   const { locale } = useMatterText();
+  const nav = usePublishedClientNav();
   if (!scope || scope.anchor.id !== workspaceId) return <RealRegister data={data} />;
   const workspace = scope.anchor;
+  // Vlastník veci ako v bočnom paneli (koreň praxe nevidí veci registrovaných klientov); bez panela priečinok klienta.
+  const owns = (folder: string) => nav ? ownerOfFolder(nav.model.visible, folder) === workspaceId : within(comparable(workspace.path), folder);
   const name = workspace.displayNameResolved || workspace.name || workspace.path;
   return <>
     <p className="lw-lead">
       <strong>{t("lawoss.lite.client_deadlines_title", locale, { name })}</strong>{" · "}
       <Link to={LEHOTY_PATH}>{t("lawoss.lite.client_deadlines_back", locale)}</Link>
     </p>
-    <RealRegister data={clientDeadlines(data, scope, workspace, today())} />
+    <RealRegister data={clientDeadlines(data, scope, owns, today())} />
   </>;
 }
 

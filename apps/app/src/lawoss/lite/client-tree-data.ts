@@ -12,7 +12,7 @@ import type { MatterOverview } from "../../../../../lawoss/okf/read";
 import type { OkfConnection } from "../okf/connection";
 import { openMatterSession } from "../okf/matter-session";
 import { localMatter, locateInScope, type OkfReadResult, type OkfScope } from "../okf/read-model";
-import { buildClientTree, clearFocusOverrides, clientFolderFor, fetchPlan, matterSource, routeFocus, sessionFocus, type ConversationList } from "./client-tree";
+import { buildClientTree, clearFocusOverrides, clientFolderFor, clientToggle, fetchPlan, matterSource, routeFocus, sessionFocus, type ConversationList, type TreeFocus } from "./client-tree";
 import { liteMatterLink } from "./links";
 import {
   assignConversations, comparable, FOLDER_SESSIONS_KEY, folderPath, openMatterConversation, useFolderListings, within,
@@ -58,8 +58,18 @@ function matterList(states: ReadonlyMap<string, FolderState>, root: Folder | nul
   return matterSource(root, rootState?.listing, folder) === "client" ? listFrom(rootState, items) : listFrom(states.get(comparable(folder.abs)), items);
 }
 
+/**
+ * Voľby stromu v natívnom bočnom paneli: `isRootSession` = chat je natívny chat priamo v priečinku projektu
+ * (nerozbaľuje Prípady, nečíta podstrom); `closedFor` = klienti, ktorí sú pri danom zameraní zbalení
+ * (zatvorené Prípady projektu s viacerými klientmi), takže sa nečítajú.
+ */
+export type ClientTreeOptions = {
+  isRootSession?: (workspaceId: string, sessionId: string) => boolean;
+  closedFor?: (focus: Pick<TreeFocus, "client" | "matter">) => ReadonlySet<string>;
+};
+
 /** Bočný strom: klienti a veci z prehľadu, rozhovory len pre rozbalených klientov a otvorenú konverzáciu. */
-export function useClientTree(connection: OkfConnection | null, scope: OkfScope | null, data: OkfReadResult | undefined, pathname: string, search: string, locale: Language) {
+export function useClientTree(connection: OkfConnection | null, scope: OkfScope | null, data: OkfReadResult | undefined, pathname: string, search: string, locale: Language, options: ClientTreeOptions = {}) {
   const navigate = useNavigate();
   const queries = useQueryClient();
   const running = useRef(false);
@@ -70,22 +80,26 @@ export function useClientTree(connection: OkfConnection | null, scope: OkfScope 
   const owners = useMemo(() => ownersOf(scope, groups), [scope, groups]);
   const folders = useMemo(() => ({ client: (key: string) => clientFolders.get(key) ?? null, matter: (path: string) => scopeFolder(scope, path) }), [clientFolders, scope]);
   // Otvorená konverzácia: priečinok jej klienta (najhlbší, ktorý obsahuje jej registrovaný priečinok), inak ten priečinok.
+  const rootSession = route.session ? options.isRootSession?.(route.session.workspaceId, route.session.sessionId) ?? false : false;
   const sessionFolder = useMemo((): Folder | null => {
+    if (rootSession) return null;
     const workspace = route.session ? connection?.workspaces.find((w) => w.id === route.session?.workspaceId) : undefined;
     if (!workspace?.path || workspace.workspaceType === "remote") return null;
     const dir = comparable(workspace.path);
     const owner = [...clientFolders.values()].filter((f): f is Folder => f !== null && within(comparable(f.abs), dir)).sort((a, b) => b.abs.length - a.abs.length)[0];
     return owner ?? { workspace, abs: workspace.path };
-  }, [route, connection, clientFolders]);
+  }, [route, connection, clientFolders, rootSession]);
   const sessionStates = useFolderListings(connection, sessionFolder ? [sessionFolder] : []);
-  const focus = route.session ? sessionFocus(route, assignConversations(loaded(sessionStates), owners)) : route;
+  const focus = route.session ? (rootSession ? {} : sessionFocus(route, assignConversations(loaded(sessionStates), owners))) : route;
+  const closed = options.closedFor?.(focus);
+  const effective = closed?.size ? { ...overrides, ...Object.fromEntries([...closed].map((key) => [clientToggle(key), false])) } : overrides;
   // Trasa sa presunula na uzol: jeho prepnutie sa zabudne (inak by ho navždy prebilo).
   const groupsRef = useRef(groups);
   groupsRef.current = groups;
   useEffect(() => {
     setOverrides((prev) => clearFocusOverrides(prev, { client: focus.client, matter: focus.matter }, groupsRef.current));
   }, [focus.client, focus.matter]);
-  const shape = buildClientTree({ groups, focus, overrides, lists: { client: () => undefined, matter: () => undefined }, canStart: () => false });
+  const shape = buildClientTree({ groups, focus, overrides: effective, lists: { client: () => undefined, matter: () => undefined }, canStart: () => false });
   const rootStates = useFolderListings(connection, fetchPlan(shape, folders, () => undefined, sessionFolder));
   const known = new Map([...sessionStates, ...rootStates]);
   const extra = fetchPlan(shape, folders, (folder) => known.get(folder)?.listing, sessionFolder).filter((f) => !known.has(comparable(f.abs)));
@@ -104,7 +118,7 @@ export function useClientTree(connection: OkfConnection | null, scope: OkfScope 
     return matter && local ? { matter, local } : null;
   }, [data, scope]);
   const nodes = buildClientTree({
-    groups, focus, overrides,
+    groups, focus, overrides: effective,
     canStart: (path) => target(path) !== null,
     lists: {
       client: (key) => {
@@ -141,7 +155,7 @@ export function useClientTree(connection: OkfConnection | null, scope: OkfScope 
     const prompt = composeQuickAction("open", { title: matter.title, matterRef: matter.matterRef, path: local.selected.path }, locale);
     run(() => openMatterSession(connection, local.workspace, local.selected, local.discovered, prompt), liteMatterLink(path), true);
   };
-  return { nodes, toggle, openConversation, newConversation };
+  return { nodes, focus, toggle, openConversation, newConversation };
 }
 
 /** Všetky rozhovory veci pre jej detail, z toho istého výpisu ako strom. */

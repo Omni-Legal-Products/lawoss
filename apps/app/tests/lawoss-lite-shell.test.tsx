@@ -100,9 +100,10 @@ describe("boční panel LAWOSS-lite", () => {
     const sidebar = readFileSync(join(import.meta.dir, "../src/react-app/domains/session/sidebar/app-sidebar.tsx"), "utf8");
     expect(sidebar).not.toContain("OnboardingEntryActions");
     expect(sidebar).toContain("<OkfWorkspaceSkillSync");
-    // MČ 19. 10. 2026: Nový chat ide do navigácie LAWOSS, sekcie filtruje režim (Lite bez pripnutých a nedávnych chatov).
+    // MČ 19. 10. 2026: Nový chat ide do navigácie LAWOSS; sekcie filtruje režim (Lite: pripnuté a nedávne predvolene vypnuté,
+    // vykreslenie overuje lawoss-native-sidebar.test.tsx).
     expect(sidebar).toContain("<LawossNav activePane={Boolean(props.activeNav)} newChat={newChatSection} />");
-    expect(sidebar).toContain("isChatSectionVisible(key, uiMode)");
+    expect(sidebar).toContain("chatSections.shown(key, shellConfig[key])");
   });
   test("prepínač Pokročilé: jeden spínač, bežná appka bez nálepky Simple/Lite (MČ 16. 10. 2026)", () => {
     const off = html(<UiModeSwitchView mode="lite" onChange={() => {}} />);
