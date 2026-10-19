@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
-import { useMemo, type CSSProperties, type ReactNode } from "react";
-import { Link } from "react-router-dom";
-import { ArrowUpRight, FolderOpen } from "lucide-react";
+import { useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { ArrowUpRight, FolderOpen, MessageSquare } from "lucide-react";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
@@ -10,9 +10,13 @@ import { formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope }
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { urgencyOf } from "../../okf/view-rules";
 import { groupByClient, nextDeadline, type ClientGroup } from "../today-model";
-import { ATTACH_EXISTING_CLIENT_PATH, liteMatterLink, NEW_CLIENT_PATH } from "../links";
+import { ATTACH_EXISTING_CLIENT_PATH, LITE_CLIENTS_PATH, liteMatterLink, NEW_CLIENT_PATH } from "../links";
 import { clientRootOf, practiceClientChoices, type ClientChoice } from "../client-choice";
 import { NewMatterAction } from "../client-picker";
+import { useClientConversations } from "../client-tree-data";
+import type { ConversationList } from "../client-tree";
+import { openMatterConversation, type MatterConversation } from "../matter-conversations";
+import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import { TriageEntry } from "../../domains/roztriedenie/triage-entry";
 import { hotDeadlineCount, LiveStamp, matterUrgency, useHotTitle, useMinuteTick } from "../live";
 import "./okf-glass.css";
@@ -27,11 +31,31 @@ function ClientsLive({ data, meta, scope, locale }: { data: OkfReadResult; meta:
   useMinuteTick();
   useHotTitle(hotDeadlineCount(data, today()));
   const { connection } = useOkfConnection();
+  // Klik na klienta v bočnom strome: `?klient=` ukáže len jeho kartu (prehľad klienta).
+  const [params] = useSearchParams();
   const choices = useMemo(() => practiceClientChoices(scope, data.clients), [scope, data.clients]);
   // Karta klienta ide rovno do svojho klienta, bez výberu.
   const clientRoot = (key: string) => key.startsWith("client:") ? clientRootOf(scope, key.slice("client:".length)) : undefined;
-  return <ClientsView groups={groupByClient(data.matters, data.inputs, data.clients)} meta={meta} locale={locale} actions={<TriageEntry />}
-    choices={choices} activeId={connection?.activeWorkspaceId} clientRoot={clientRoot} />;
+  const groups = useMemo(() => groupByClient(data.matters, data.inputs, data.clients), [data]);
+  const focus = params.get("klient");
+  // Rozhovory nad celým klientom (koreň jeho priečinka): „Zobraziť všetky“ zo stromu vedie sem.
+  const conversations = useClientConversations(connection, scope, groups, focus);
+  const navigate = useNavigate();
+  const opening = useRef(false);
+  const onOpen = (conversation: MatterConversation) => {
+    const fallback = workspaceSessionRoute(conversation.workspaceId, conversation.id);
+    if (!connection) { navigate(fallback); return; }
+    // Ako strom: druhý klik počas aktivácie priečinka nič nespustí.
+    if (opening.current) return;
+    opening.current = true;
+    openMatterConversation(connection, conversation).then((to) => navigate(to)).catch((failure: unknown) => {
+      console.warn("LAWOSS-lite: client conversation", failure);
+      navigate(fallback);
+    }).finally(() => { opening.current = false; });
+  };
+  return <ClientsView groups={groups} meta={meta} locale={locale} actions={<TriageEntry />}
+    choices={choices} activeId={connection?.activeWorkspaceId} clientRoot={clientRoot} focus={focus}
+    clientConversations={conversations} onOpenConversation={onOpen} />;
 }
 
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });
@@ -39,21 +63,29 @@ const initials = (name: string) => name.split(/\s+/).filter((part) => /\p{L}/u.t
 
 /** Klienti ako karty s ich vecami; najbližšia lehota a jej naliehavosť z tej istej pamäte ako Dnes. */
 /** `actions`: ďalšie vstupy vedľa novej veci (roztriedenie skúšobného klona). */
-export function ClientsView({ groups, meta, locale: forced, actions, choices, activeId, clientRoot }: {
+export function ClientsView({ groups: all, meta, locale: forced, actions, choices, activeId, clientRoot, focus, clientConversations, onOpenConversation }: {
   groups: readonly ClientGroup[]; meta?: OkfPageMeta; locale?: Language; actions?: ReactNode;
   /** Prax: klienti na krátky výber pri „+ Nová vec“ a priečinok klienta z karty (MČ 16. 10. 2026). */
   choices?: readonly ClientChoice[]; activeId?: string | null; clientRoot?: (groupKey: string) => string | undefined;
+  /** Kľúč klienta z bočného stromu: len jeho karta; neznámy kľúč (premenovaný priečinok) = všetci. */
+  focus?: string | null;
+  /** Rozhovory vybraného klienta (prehľad klienta). */
+  clientConversations?: ConversationList;
+  onOpenConversation?: (conversation: MatterConversation) => void;
 }) {
   const current = useLocale();
   const locale = forced ?? current;
   const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.lite.${key}`, locale, params);
   const now = today();
+  const focused = focus ? all.filter((group) => group.key === focus) : [];
+  const groups = focused.length > 0 ? focused : all;
   return (
     <div className="lw-clients" data-lawoss-lite="clients">
       <header className="lw-clients-hero" style={reveal(0)}>
         <div>
           {meta ? <p className="lw-clients-topline"><LiveStamp meta={meta} locale={locale} /></p> : null}
           <h1 className="lw-h1">{text("clients_title")}</h1>
+          {focused.length > 0 ? <p className="lw-clients-back"><Link to={LITE_CLIENTS_PATH}>{t("lawoss.lite.clients_all", locale)}</Link></p> : null}
         </div>
         <div className="lw-clients-actions">
           {actions}
@@ -62,6 +94,8 @@ export function ClientsView({ groups, meta, locale: forced, actions, choices, ac
           <NewMatterAction className="lw-today-primary" locale={locale} choices={choices} activeId={activeId}>+ {text("new_matter")}</NewMatterAction>
         </div>
       </header>
+
+      {focused.length > 0 && clientConversations ? <ClientConversations list={clientConversations} locale={locale} onOpen={onOpenConversation} /> : null}
 
       {groups.length === 0 ? <div className="lw-clients-empty" style={reveal(1)}>
         <FolderOpen aria-hidden size={28} />
@@ -107,4 +141,31 @@ export function ClientsView({ groups, meta, locale: forced, actions, choices, ac
       </div>}
     </div>
   );
+}
+
+/** Rozhovory nad celým klientom; pri chybe hláška a „Skúsiť znova“, pri limite poznámka. */
+function ClientConversations({ list, locale, onOpen }: { list: ConversationList; locale: Language; onOpen?: (conversation: MatterConversation) => void }) {
+  if (list.status === "loading" || (list.status === "ready" && list.items.length === 0)) return null;
+  return <section className="lw-clients-card lw-clients-conversations" style={reveal(1)} data-lawoss-lite="client-conversations">
+    <header className="lw-clients-card-head">
+      <MessageSquare aria-hidden size={18} />
+      <h2>{t("lawoss.lite.client_conversations_title", locale)}</h2>
+      {list.status === "ready" ? <span className="lw-matter-count">{list.items.length}</span> : null}
+    </header>
+    {list.status === "error" ? <p className="lw-clients-none" role="status">
+      {t("lawoss.lite.tree_load_error", locale)} {list.retry ? <button type="button" className="lw-btn" onClick={() => list.retry?.()}>{t("lawoss.lite.state_retry", locale)}</button> : null}
+    </p> : null}
+    {list.status === "ready" && !list.complete ? <p className="lw-clients-none">{t("lawoss.lite.conversations_partial", locale)}</p> : null}
+    <ul className="lw-clients-matters">
+      {list.items.map((c) => <li key={c.id}>
+        <button type="button" className="lw-clients-matter" onClick={() => onOpen?.(c)} data-lawoss-client-conversation={c.id}>
+          <span className="lw-clients-matter-main">
+            <span className="lw-clients-matter-title">{c.title ?? t("lawoss.lite.conversation_untitled", locale)}</span>
+            {c.updated ? <small>{new Intl.DateTimeFormat(locale, { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(c.updated))}</small> : null}
+          </span>
+          <span className="lw-today-chip">{t("lawoss.lite.conversation_continue", locale)}</span>
+        </button>
+      </li>)}
+    </ul>
+  </section>;
 }

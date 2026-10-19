@@ -156,6 +156,8 @@ export type OnboardingSuggestion = {
   clientPattern?: string;
   clients: readonly { path: string; name: string }[];
   complete: boolean;
+  /** Priame podpriečinky s kanceláriou OKF (`<meno>/Office/okf.config`); advokát má zrejme pripojiť ten podpriečinok. */
+  childOffices?: readonly string[];
 };
 
 export type OnboardingApi = {

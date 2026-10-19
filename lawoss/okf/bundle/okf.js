@@ -1407,9 +1407,11 @@ function matchPattern(index, pattern) {
 }
 async function suggestOnboardingLevel(root) {
   const survey = await surveyFolder(root);
-  const base = { root: survey.root, complete: survey.complete, clients: [] };
   const index = indexChildren(survey.entries);
   const top = childrenOf(index, "");
+  const files = new Set(survey.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));
+  const childOffices = top.filter((entry) => entry.kind === "directory" && OFFICE_DIRS.some((office) => files.has(`${entry.path}/${office}/okf.config`))).map((entry) => nameOf(entry.path));
+  const base = { root: survey.root, complete: survey.complete, clients: [], ...childOffices.length ? { childOffices } : {} };
   const topFiles = top.filter((entry) => entry.kind === "file").map((entry) => nameOf(entry.path).toLowerCase());
   if (topFiles.some((name) => CLIENT_CARDS.has(name)))
     return { ...base, level: "client", marked: true, score: 1, signals: ["client_card"] };

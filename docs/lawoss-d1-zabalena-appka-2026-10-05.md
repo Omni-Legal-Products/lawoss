@@ -102,9 +102,9 @@ Nastavenia → AI Providers → Add provider. Model sa potom vyberá dole v okne
 
 Platí pri zapnutom OKF. V alfe len vymyslené alebo verejné údaje.
 
-### Nová vec
+### Nový prípad
 
-1. Klienti → „+ Nová vec“ (alebo ikona „Nová vec“ v bočnom paneli).
+1. Klienti → „+ Nový prípad“ (alebo ikona „Nový prípad“ v bočnom paneli).
 2. Formulár ukáže, pod ktorým klientom vec vznikne. Predvolený je klient práve otvoreného pracovného priestoru, inak naposledy použitý. Iného klienta vyberiete v poli „Iný klient (priečinok)“ a tlačidlom „Použiť tohto klienta“.
 3. Vyplňte názov, oblasť a druh veci → „Náhľad zmien“ → skontrolujte zoznam → „Potvrdiť a vykonať“. Vec vznikne v `Spisy/` u klienta.
 

@@ -169,3 +169,12 @@ test("prax s klientmi s právnou formou ostáva praxou aj vedľa priečinka veci
   const root = await tree(["Alfa s.r.o./", "Beta a.s./", "Gama k.s./", "Delta s.r.o./", "Epsilon s.r.o./", "Spor s Omega s.r.o./"]);
   expect((await suggestOnboardingLevel(root)).level).toBe("practice");
 });
+
+test("kancelária OKF v priamom podpriečinku sa ohlási (MČ 19. 10.: Neusporiadany-klient a Usporiadana-kancelaria vedľa seba)", async () => {
+  const root = await tree(["Neusporiadany-klient/zmluva.docx", "Usporiadana-kancelaria/Klienti/", "Usporiadana-kancelaria/Office/okf.config", "Iná/_kancelaria/okf.config"]);
+  const suggestion = await suggestOnboardingLevel(root);
+  expect(suggestion).toMatchObject({ level: "client", signals: ["plain_directories"] });
+  expect(suggestion.childOffices).toEqual(["Iná", "Usporiadana-kancelaria"]);
+  // Bez kancelárie v podpriečinku pole nie je (staré tvary návrhu ostávajú rovnaké).
+  expect(await suggestOnboardingLevel(await tree(["A/", "B/"]))).not.toHaveProperty("childOffices");
+});

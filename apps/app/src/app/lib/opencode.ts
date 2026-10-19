@@ -38,6 +38,8 @@ type CommandParameters = {
 
 type SessionListParameters = {
   directory?: string;
+  /** LAWOSS: engine subtree filter (path relative to the project root); see PATCHES.md. */
+  path?: string;
   roots?: boolean;
   start?: number;
   search?: string;
@@ -429,7 +431,7 @@ export function createClient(baseUrl: string, directory?: string, auth?: Opencod
   // TODO(2026-04-12): remove the old-server compatibility path here once all
   // LegalWork servers expose the workspace-scoped session read APIs.
   const sessionOverrides = session as any as {
-    list: (parameters?: SessionListParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Session[]>>;
+    list: (parameters?: SessionListParameters, options?: { throwOnError?: boolean; signal?: AbortSignal }) => Promise<FieldsResult<Session[]>>;
     get: (parameters: SessionLookupParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Session>>;
     messages: (parameters: SessionMessagesParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Array<{ info: Message; parts: Part[] }>>>;
     todo: (parameters: SessionLookupParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Todo[]>>;
@@ -438,8 +440,10 @@ export function createClient(baseUrl: string, directory?: string, auth?: Opencod
   };
 
   const listOriginal = sessionOverrides.list.bind(session);
-  sessionOverrides.list = (parameters?: SessionListParameters, options?: { throwOnError?: boolean }) => {
-    if (!legalworkMount || !legalworkSessionClient) {
+  sessionOverrides.list = (parameters?: SessionListParameters, options?: { throwOnError?: boolean; signal?: AbortSignal }) => {
+    // LAWOSS: a folder-scoped list (directory or subtree path) must reach the engine; the
+    // workspace read API only lists the workspace root and ignores both.
+    if (!legalworkMount || !legalworkSessionClient || parameters?.directory !== undefined || parameters?.path !== undefined) {
       return listOriginal(parameters, options);
     }
     const query = new URLSearchParams();

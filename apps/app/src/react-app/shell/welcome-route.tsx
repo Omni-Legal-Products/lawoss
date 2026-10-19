@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -13,12 +13,13 @@ import { homeRoute } from "./workspace-routes";
 import { writeActiveWorkspaceId } from "./session-memory";
 import { useLocal } from "../kernel/local-provider";
 import { LawossWelcomePage } from "@/lawoss/domains/onboarding/lawoss-welcome-page";
-import type { OnboardingStep } from "@/lawoss/domains/onboarding/api";
+import type { OnboardingApplyResult, OnboardingStep } from "@/lawoss/domains/onboarding/api";
+import type { OnboardingCompletion } from "@/lawoss/domains/onboarding/lawoss-welcome-page";
 import { authorAfterOnboarding } from "@/lawoss/okf/lawyer-name";
 import { markAllWhatsNewSeen } from "./whats-new";
 import { canonicalPathOf, withCanonicalPaths } from "@/lawoss/domains/onboarding/typed-paths";
 import { watchLegalworkConnection } from "@/lawoss/domains/onboarding/server-connection";
-import { registerOtherClients } from "@/lawoss/domains/onboarding/register-clients";
+import { registerOnboardedWorkspace } from "@/lawoss/domains/onboarding/register-clients";
 
 // 🟡 LAWOSS: napísané a vložené cesty idú na server v tvare ako vybrané v dialógu (Windows, typed-paths.ts); v prehliadači bez zmeny.
 const typedPaths = (client: LegalworkServerClient) => isDesktopRuntime() ? withCanonicalPaths(client, canonicalDirectoryPath) : client;
@@ -42,6 +43,8 @@ export function WelcomeRoute() {
   const local = useLocal();
   const [client, setClient] = useState<LegalworkServerClient | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 🟡 LAWOSS: klient po registrácii pripojeného priečinka (server mohol zmeniť token či port).
+  const registeredClient = useRef<LegalworkServerClient | null>(null);
   const continuation = new URLSearchParams(location.search).get("continue");
   const initialStep = continuationStep(continuation);
   // LAWOSS: ako upstream pri štarte onboardingu; novému používateľovi je nové všetko, „What's new“ nie.
@@ -56,35 +59,40 @@ export function WelcomeRoute() {
 
   if (error) return <main className="mx-auto max-w-xl p-10"><p role="alert">{error}</p><Button className="mt-4" onClick={() => navigate("/settings/advanced")}>Open Settings</Button></main>;
   if (!client) return <main className="mx-auto max-w-xl p-10" role="status">Connecting LAWOSS…</main>;
+  // 🟡 LAWOSS: registrácia, výber a aktivácia pripojeného priečinka (register-clients.ts); volá sa už pred
+  // usporiadaním (onRegister), aby prerušené usporiadanie priečinok nestratilo, a znova pri dokončení.
+  const register = async (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => {
+    const current = registeredClient.current ?? client;
+    const status = await current.onboardingStatus();
+    const registered = await registerOnboardedWorkspace({
+      desktop: isDesktopRuntime(),
+      profileClientRoot: status.profile?.clientRoot,
+      listWorkspaces: () => current.listWorkspaces(),
+      registerWorkingFolder: async (path) => registerWorkingFolder(current, await workingFolderPath(path)),
+      createNative: (input) => workspaceCreate({ ...input, preset: "starter", registerExisting: true }),
+      selectNative: workspaceSetSelected,
+      runtimeActive: workspaceSetRuntimeActive,
+      ensureConnection: (native, all) => ensureDesktopLocalLegalworkConnection({ route: "session", workspace: native, allWorkspaces: [...all] }),
+      activate: async (id) => {
+        const connection = await resolveLegalworkConnection();
+        const activeClient = createLegalworkServerClient({ baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken, hostToken: connection.resolvedHostToken });
+        await activeClient.activateWorkspace(id, { persist: true });
+        return activeClient;
+      },
+      remember: writeActiveWorkspaceId,
+    }, result, completion);
+    if (registered) registeredClient.current = registered.client;
+    return { status, registered };
+  };
   // LAWOSS: tok z bočného panela po dokončenom onboardingu má „Zrušiť“ späť (prvá stránka histórie: domov).
-  return <LawossWelcomePage api={client} initialStep={initialStep} initialRoot={new URLSearchParams(location.search).get("root") ?? undefined} hasCompletedOnboarding={local.prefs.hasCompletedOnboarding} onCancel={() => location.key === "default" ? navigate("/home") : navigate(-1)} pickDirectory={async () => { const result = await pickDirectory({ title: "Select LAWOSS folder", canonical: true }); return typeof result === "string" ? result : null; }} onOpenAiSettings={() => navigate("/settings/ai")} onComplete={async (result, completion) => {
-    const status = await client.onboardingStatus();
+  return <LawossWelcomePage api={client} initialStep={initialStep} initialRoot={new URLSearchParams(location.search).get("root") ?? undefined} hasCompletedOnboarding={local.prefs.hasCompletedOnboarding} onCancel={() => location.key === "default" ? navigate("/home") : navigate(-1)} pickDirectory={async () => { const result = await pickDirectory({ title: "Select LAWOSS folder", canonical: true }); return typeof result === "string" ? result : null; }} onOpenAiSettings={() => navigate("/settings/ai")} onRegister={async (result, completion) => (await register(result, completion)).registered?.client} onComplete={async (result, completion) => {
+    const { status, registered } = await register(result, completion);
     const okf = status.profile?.okf?.enabled === true;
-    const list = await client.listWorkspaces();
-    // LAWOSS: pracovný priečinok bez výsledku klienta (celá prax ako jeden priečinok, voliteľný priečinok bez OKF) sa zaregistruje tak, ako je.
-    const plain = !result?.workspace && completion?.workingFolder ? await registerWorkingFolder(client, await workingFolderPath(completion.workingFolder)) : undefined;
-    const workspace = result?.workspace ?? plain ?? list.items.find(item => item.path === status.profile?.clientRoot);
-    let activeId = workspace?.id;
-    if (workspace && isDesktopRuntime()) {
-      const existing = list.items.find(item => item.id === workspace.id);
-      const nativeList = await workspaceCreate({ folderPath: workspace.path, name: workspace.displayName ?? existing?.name ?? workspace.path.split(/[\\/]/).pop() ?? "Client", preset: "starter", registerExisting: true, appFiles: result?.appFiles ?? existing?.appFiles });
-      const native = nativeList.workspaces.find(item => item.path === workspace.path);
-      if (!native || native.id !== workspace.id) throw new Error("Client registration did not preserve workspace identity.");
-      await workspaceSetSelected(native.id);
-      await workspaceSetRuntimeActive(native.id);
-      // 🟡 LAWOSS: ostatní klienti dávky praxe sú samostatné pracovné priečinky (register-clients.ts).
-      const others = await registerOtherClients(completion?.clients ?? [], native.id, (other, client) => workspaceCreate({ folderPath: other.path, name: other.displayName ?? other.path.split(/[\\/]/).pop() ?? "Client", preset: "starter", registerExisting: true, appFiles: client.appFiles }));
-      await ensureDesktopLocalLegalworkConnection({ route: "session", workspace: native, allWorkspaces: (others ?? nativeList).workspaces });
-      activeId = native.id;
-    }
-    if (activeId) {
-      const connection = await resolveLegalworkConnection();
-      const activeClient = createLegalworkServerClient({ baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken, hostToken: connection.resolvedHostToken });
-      await activeClient.activateWorkspace(activeId, { persist: true });
-      if (okf) await installMissingOnboardingSkills(activeClient, activeId, status.profile?.language ?? "sk");
+    const activeId = registered?.id;
+    if (registered && okf) {
+      await installMissingOnboardingSkills(registered.client, registered.id, status.profile?.language ?? "sk");
       // Skilly ostatným klientom dávky; zlyhanie neprekazí dokončenie, pri otvorení klienta sa doplnia.
-      if (okf) for (const other of completion?.clients ?? []) if (other.workspace && other.workspace.id !== activeId) await installMissingOnboardingSkills(activeClient, other.workspace.id, status.profile?.language ?? "sk").catch((reason: unknown) => console.warn("[lawoss] OKF skills for another practice client", reason));
-      writeActiveWorkspaceId(activeId);
+      for (const other of completion?.clients ?? []) if (other.workspace && other.workspace.id !== registered.id) await installMissingOnboardingSkills(registered.client, other.workspace.id, status.profile?.language ?? "sk").catch((reason: unknown) => console.warn("[lawoss] OKF skills for another practice client", reason));
     }
     local.setPrefs((previous) => ({ ...previous, documentAuthor: authorAfterOnboarding(previous.documentAuthor, status.profile?.lawyerName), hasCompletedOnboarding: true }));
     navigate(activeId ? homeRoute(activeId) : "/home", { replace: true });

@@ -8,6 +8,7 @@ import { triageGrant, triagePlan, type TriageClient, type TriagePreview } from "
 import type { DocumentLanguage, ExistingPlanRequest, Jurisdiction, OfficePlanRequest, OnboardingApi, OnboardingApplyResult, OnboardingSuggestion, PracticePlanRequest } from "./api";
 
 export type FoundIdentity = { lawyerName: string; jurisdiction: Jurisdiction; language: Language };
+/** `error` je už veta pre advokáta (DescribeError), nie surová správa servera. */
 export type BatchItem = { root: string; name: string; status: "pending" | "done" | "failed"; error?: string; result?: OnboardingApplyResult };
 type FlowApi = Pick<OnboardingApi, "planOnboarding" | "applyOnboarding" | "updateOnboardingProfile">;
 
@@ -75,15 +76,16 @@ export function practiceRequest(root: string, identity: FoundIdentity, suggestio
   };
 }
 
-const errorText = (reason: unknown) => (reason instanceof Error ? reason.message : String(reason));
+/** Chyba klienta ako veta pre advokáta v jazyku rozhrania (volajúci zapíše surovú správu do konzoly). */
+export type DescribeError = (reason: unknown) => string;
 
-async function convertOne(api: FlowApi, item: { root: string; name: string }, identity: FoundIdentity, today: Date): Promise<BatchItem> {
+async function convertOne(api: FlowApi, item: { root: string; name: string }, identity: FoundIdentity, today: Date, describe: DescribeError): Promise<BatchItem> {
   try {
     const preview = await api.planOnboarding(convertRequest(item.root, identity, today));
     const result = await api.applyOnboarding({ id: preview.id, fingerprint: preview.fingerprint, confirm: true });
     return { ...item, status: "done", result };
   } catch (reason) {
-    return { ...item, status: "failed", error: errorText(reason) };
+    return { ...item, status: "failed", error: describe(reason) };
   }
 }
 
@@ -91,22 +93,22 @@ async function convertOne(api: FlowApi, item: { root: string; name: string }, id
  * Pridá OKF súbory klientom po jednom (R4: zoznam potvrdil advokát raz). Chyba u jedného klienta
  * nezastaví ostatných; priebeh hlási po každom klientovi.
  */
-export async function addOkfFiles(api: FlowApi, items: readonly { root: string; name: string }[], identity: FoundIdentity, today: Date, onProgress: (items: BatchItem[]) => void): Promise<BatchItem[]> {
+export async function addOkfFiles(api: FlowApi, items: readonly { root: string; name: string }[], identity: FoundIdentity, today: Date, onProgress: (items: BatchItem[]) => void, describe: DescribeError): Promise<BatchItem[]> {
   const state: BatchItem[] = items.map(item => ({ ...item, status: "pending" }));
   onProgress([...state]);
   for (const [index, item] of items.entries()) {
-    state[index] = await convertOne(api, item, identity, today);
+    state[index] = await convertOne(api, item, identity, today, describe);
     onProgress([...state]);
   }
   return state;
 }
 
 /** Zopakuje len neúspešných; hotových nechá tak. */
-export async function retryFailed(api: FlowApi, items: readonly BatchItem[], identity: FoundIdentity, today: Date, onProgress: (items: BatchItem[]) => void): Promise<BatchItem[]> {
+export async function retryFailed(api: FlowApi, items: readonly BatchItem[], identity: FoundIdentity, today: Date, onProgress: (items: BatchItem[]) => void, describe: DescribeError): Promise<BatchItem[]> {
   const state = [...items];
   for (const [index, item] of items.entries()) {
     if (item.status !== "failed") continue;
-    state[index] = await convertOne(api, { root: item.root, name: item.name }, identity, today);
+    state[index] = await convertOne(api, { root: item.root, name: item.name }, identity, today, describe);
     onProgress([...state]);
   }
   return state;
@@ -145,6 +147,72 @@ export async function startFreshFolder(api: FlowApi & Pick<OnboardingApi, "sugge
 export async function startReorganize(client: TriageClient, root: string): Promise<TriagePreview> {
   await triageGrant(client, root);
   return triagePlan(client, root);
+}
+
+/** Náhľad usporiadania jedného klienta, alebo dôvod zlyhania (advokát dostane Skúsiť znova, nie tichý preskok). */
+export type ReorganizeOutcome = { preview: TriagePreview } | { failure: unknown };
+
+export async function reorganizePreview(client: TriageClient, item: BatchItem): Promise<ReorganizeOutcome> {
+  try { return { preview: await startReorganize(client, reorganizeTarget(item)) }; }
+  catch (failure) { return { failure }; }
+}
+
+/** Čo má obrazovka ukázať: náhľad presunov klienta, alebo zlyhanie so Skúsiť znova. */
+export type ReorganizeView =
+  | { name: "reorganize"; queue: BatchItem[]; preview: TriagePreview; result?: OnboardingApplyResult }
+  | { name: "reorganizeFailed"; queue: BatchItem[]; failure: unknown; result?: OnboardingApplyResult };
+
+/**
+ * Usporiadanie po pripojení (MČ 19. 10. 2026). `begin` najprv zaregistruje a vyberie pripojený priečinok,
+ * až potom začne usporiadanie: prerušený alebo zlyhaný /triage/plan (napr. obnovenie stránky) ho už nestratí.
+ * Registrácia môže vrátiť nového klienta servera (server po aktivácii s iným tokenom či portom); `client`
+ * ho drží pre ďalších klientov, potvrdenie aj zmenu náhľadu (review 6d).
+ */
+export function createReorganizeFlow(deps: {
+  client: { current: TriageClient };
+  register: (result?: OnboardingApplyResult) => Promise<TriageClient | undefined>;
+  done: (result?: OnboardingApplyResult) => Promise<void> | void;
+  show: (view: ReorganizeView) => void;
+}) {
+  const show = async (queue: BatchItem[], result?: OnboardingApplyResult): Promise<void> => {
+    const [current] = queue;
+    if (!current) { await deps.done(result); return; }
+    const outcome = await reorganizePreview(deps.client.current, current);
+    deps.show("preview" in outcome ? { name: "reorganize", queue, preview: outcome.preview, result } : { name: "reorganizeFailed", queue, failure: outcome.failure, result });
+  };
+  const begin = async (queue: BatchItem[], result?: OnboardingApplyResult): Promise<void> => {
+    if (!queue.length) { await deps.done(result); return; }
+    const fresh = await deps.register(result);
+    if (fresh) deps.client.current = fresh;
+    await show(queue, result);
+  };
+  return { begin, show };
+}
+
+/**
+ * „Začať nanovo“: výber priečinka, pri zdieľanom alebo cloudovom disku najprv upozornenie
+ * (Pokračovať / Zrušiť), až potom zápis (review 6d). `null` = advokát nič nevybral alebo zrušil.
+ */
+export async function freshFolderFlow<R>(deps: { pick: () => Promise<string | null>; confirm: (kind: "shared" | "cloud") => Promise<boolean>; start: (parent: string) => Promise<R> }): Promise<R | null> {
+  const parent = await deps.pick();
+  if (!parent) return null;
+  const kind = cloudFolderKind(parent);
+  if (kind && !(await deps.confirm(kind))) return null;
+  return deps.start(parent);
+}
+
+/** Zdieľané disky Google Drive v jazykoch rozhrania Disku (SK, CS, EN, DE) a knižnice SharePointu z OneDrive na macOS. */
+const SHARED_DRIVE = /(?:^|[\\/])(?:Shared drives|Zdieľané disky|Sdílené disky|Geteilte Ablagen|OneDrive-SharedLibraries-[^\\/]+)(?:[\\/]|$)/i;
+/** Synchronizované priečinky: macOS File Provider (`~/Library/CloudStorage`), OneDrive, Dropbox, Disk Google, iCloud. */
+const CLOUD_FOLDER = /[\\/]Library[\\/]CloudStorage[\\/]|[\\/]Mobile Documents[\\/]com~apple~CloudDocs(?:[\\/]|$)|(?:^|[\\/])(?:OneDrive(?: - [^\\/]+|-[^\\/]+)?|Dropbox(?: \([^\\/]+\))?|Google Drive|My Drive|Môj disk|Můj disk|Meine Ablage|iCloud Drive)(?:[\\/]|$)/i;
+
+/**
+ * Priečinok, do ktorého sa zapisuje, je na zdieľanom disku (vidia ho kolegovia) alebo v cloude
+ * (zapísané súbory sa synchronizujú). MČ 19. 10. 2026: upozorniť pred zápisom, neblokovať.
+ */
+export function cloudFolderKind(path: string): "shared" | "cloud" | null {
+  if (SHARED_DRIVE.test(path)) return "shared";
+  return CLOUD_FOLDER.test(path) ? "cloud" : null;
 }
 
 export function firstWorkspaceResult(items: readonly BatchItem[]): OnboardingApplyResult | undefined {

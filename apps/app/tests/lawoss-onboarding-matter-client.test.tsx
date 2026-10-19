@@ -71,11 +71,11 @@ describe("new matter under the right client", () => {
 
   test("the form names the client the matter is created under", () => {
     const html = renderToStaticMarkup(
-      <Matter title="Nová vec" clientTitle="Otvorený klient s. r. o." base={profile({ clientRoot: OPEN })} locale="sk" tr={welcomeText("sk")} busy={false}
+      <Matter title="Nový prípad" clientTitle="Otvorený klient s. r. o." base={profile({ clientRoot: OPEN })} locale="sk" tr={welcomeText("sk")} busy={false}
         onPlan={async () => {}} onClientChange={async () => {}} onSubjectChange={async () => {}} />,
     );
-    expect(html).toContain("Nová vec");
-    expect(html).toContain("Vec vznikne pod klientom");
+    expect(html).toContain("Nový prípad");
+    expect(html).toContain("Prípad vznikne pod klientom");
     expect(html).toContain("Otvorený klient s. r. o.</p>");
     expect(html).toContain(OPEN);
     expect(html).toContain("Iný klient (priečinok)");
@@ -84,9 +84,9 @@ describe("new matter under the right client", () => {
 
   test("without a client the form asks for one", () => {
     const html = renderToStaticMarkup(
-      <Matter title="Nová vec" clientTitle="" base={profile({ clientRoot: undefined })} locale="cs" tr={welcomeText("cs")} busy={false}
+      <Matter title="Nový případ" clientTitle="" base={profile({ clientRoot: undefined })} locale="cs" tr={welcomeText("cs")} busy={false}
         onPlan={async () => {}} onClientChange={async () => {}} onSubjectChange={async () => {}} />,
     );
-    expect(html).toContain("Vyberte složku klienta, pod kterým věc vznikne.");
+    expect(html).toContain("Vyberte složku klienta, pod kterým případ vznikne.");
   });
 });

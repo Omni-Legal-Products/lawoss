@@ -92,6 +92,6 @@ describe("connecting an existing client folder", () => {
     const html = renderToStaticMarkup(<MemoryRouter><ClientsView groups={[]} locale="sk" /></MemoryRouter>);
     expect(html).toContain('href="/welcome?continue=folder"');
     expect(html).toContain("Pripojiť existujúci priečinok klienta");
-    expect(html).toContain("+ Nová vec");
+    expect(html).toContain("+ Nový prípad");
   });
 });
