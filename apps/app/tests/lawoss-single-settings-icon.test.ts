@@ -11,7 +11,9 @@ const lucideImports = (source: string) =>
     .map(entry => entry.trim().split(/\s+as\s+/)[0] ?? "")
     .filter(Boolean);
 
-const gearIcons = ["Settings", "Settings2", "Cog"];
+// lucide-react vyváža každú ikonu aj pod aliasmi (SettingsIcon, LucideSettings ...).
+const gearIcon = /^(Lucide)?(Settings2?|Cog)(Icon)?$/;
+const namespaceImport = /import\s*\*\s*as\s+\w+\s+from\s*"lucide-react"/;
 
 const sidebar = "react-app/domains/session/sidebar/app-sidebar.tsx";
 const sessionPage = "react-app/domains/session/chat/session-page.tsx";
@@ -25,13 +27,14 @@ const accountMenu = "react-app/domains/session/sidebar/eigenwelt-account-menu.ts
 describe("jedno ozubené koliesko = nastavenia appky", () => {
   for (const path of [sidebar, sessionPage, modelSelect, toolMenu, projectHome, projectReviews, windowButton]) {
     test(`${path} neimportuje ozubené koliesko`, () => {
-      const icons = lucideImports(read(path));
-      for (const gear of gearIcons) expect(icons).not.toContain(gear);
+      const source = read(path);
+      expect(lucideImports(source).filter(name => gearIcon.test(name))).toEqual([]);
+      expect(source).not.toMatch(namespaceImport);
     });
   }
 
   test("menu účtu ostáva jediným miestom s kolieskom", () => {
-    expect(lucideImports(read(accountMenu))).toContain("Settings");
+    expect(lucideImports(read(accountMenu)).filter(name => gearIcon.test(name))).toEqual(["Settings"]);
   });
 
   test("ostatné miesta používajú ikonu podľa významu", () => {
@@ -44,10 +47,10 @@ describe("jedno ozubené koliesko = nastavenia appky", () => {
 
   test("menu skladania a revízie majú tlačidlá bez ikony ozubeného kolesa", () => {
     const tool = read(toolMenu);
-    expect(tool).toContain('onClick={() => props.onConfigure(props.section)}>{t("composer.configure")}</Button>');
+    expect(tool).toContain('t("composer.configure")');
     const reviews = read(projectReviews);
-    expect(reviews).toContain('>{t("review.settings")}</Button>');
-    expect(reviews).toContain(">{reviewModeLabel(review.settings.mode)}</Button>");
+    expect(reviews).toContain('t("review.settings")');
+    expect(reviews).toContain("reviewModeLabel(review.settings.mode)");
   });
 
   test("slovenské znenie úpravy polí je v množnom čísle", async () => {

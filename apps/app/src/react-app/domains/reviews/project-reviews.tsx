@@ -5,7 +5,7 @@ import { useDeferredValue, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { workspaceSettingsRoute } from "../../shell/workspace-routes";
-import { ArrowLeft, ArrowUpRight, PanelsTopLeft, BookOpen, Download, FileText, MessageSquare, MoreHorizontal, Play, Plus, RotateCcw, Square, TableProperties, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, ChevronDown, PanelsTopLeft, BookOpen, Download, FileText, MessageSquare, MoreHorizontal, Play, Plus, RotateCcw, Square, TableProperties, Trash2, X } from "lucide-react";
 import type { ReviewCell, ReviewColumn, RunReview, SavedReview } from "@legalwork/types/reviews";
 import { incompatibleJevQuestion, reviewRunAction, reviewRunningElsewhere } from "@legalwork/types/reviews";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -157,7 +157,7 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
           <ReviewFilePicker disabled={busy} onFiles={sources => void intake.add(sources)} />
           <Button variant="outline" disabled={intake.busy} onClick={() => setDialog({ type: "library" })}><BookOpen className="size-4" />{t("review.library")}</Button><Button variant="ghost" disabled={intake.busy} onClick={() => navigate(workspaceSettingsRoute(workspaceId, "tabular-review"))}>{t("review.settings")}</Button><Button disabled={intake.busy} onClick={() => setDialog({ type: "name" })}><Plus className="size-4" />{t("review.new")}</Button>
         </> : review && <>
-          <Button variant="ghost" size="sm" disabled={busy} aria-label={t("review.settings")} onClick={() => setDialog({ type: "settings" })}>{reviewModeLabel(review.settings.mode)}</Button>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => setDialog({ type: "settings" })}>{reviewModeLabel(review.settings.mode)}<ChevronDown className="size-3.5" aria-hidden="true" /></Button>
           <Button variant="outline" disabled={discussion.isPending} onClick={() => discussion.mutate()}><MessageSquare className="size-4" />{t(linkedSession.data?.sessionId ? "review.continue_session" : "review.discuss_session")}</Button>
           {elsewhere ? <span role="status" className="text-xs text-muted-foreground">{review.runner?.name ? t("review.running_elsewhere", { name: review.runner.name }) : t("review.running_elsewhere_unnamed")}</span> : running ? <Button size="sm" variant="outline" disabled={change.isPending} onClick={() => change.mutate({ type: "stop" })}><Square className="size-3.5" />{t("review.stop")}</Button> : <Button size="sm" disabled={!runnable || !review.documents.length || busy} onClick={() => change.mutate({ type: "run", options: { rerun: runAction === "rerun_all", retryFailed: runAction === "retry_failed" } })}>{runAction === "rerun_all" ? <RotateCcw className="size-3.5" /> : <Play className="size-3.5" />}{reviewActionLabel(runAction)}</Button>}
           <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("review.actions")} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger><DropdownMenuContent align="end">
