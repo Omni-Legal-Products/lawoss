@@ -1,80 +1,177 @@
 /**
- * „Pokračovat, kde jsem skončil“: konverzace nad věcí. Od 3. 10. 2026 (0ede3fac) ji
- * `openMatterSession` zakládá v priečinku klienta (alebo kancelárie) s priečinkom
- * konverzácie = priečinok veci; server ju vráti v zozname klienta (`workspaceOwnsSession`
- * berie aj podpriečinky). Staršie veci mali vlastný registrovaný priečinok - ten sa číta tiež.
+ * Rozhovory nad klientom a vecou. `openMatterSession` zakladá konverzáciu v priečinku klienta
+ * (alebo kancelárie) s priečinkom konverzácie = priečinok veci (od 0ede3fac, 3. 10. 2026).
+ *
+ * Overené so skutočným enginom 1.18.29 (review 19. 10. 2026): `GET /workspace/:id/sessions`
+ * vráti len konverzácie presne v koreni priečinka, nie v podpriečinkoch vecí. Engine však vie
+ * vypísať podstrom: `GET /session?path=<cesta voči koreňu projektu>` (celé segmenty, `limit`
+ * až po filtri, iní klienti ho neorežú). Čítame cez existujúci proxy priečinka (`/opencode`),
+ * ktorý `directory` overí v koreni priečinka. Bez cesty projektu (iný tvar cesty) ostáva
+ * presný výpis priečinka a veci sa dočítajú zvlášť.
  */
-import { normalizeDirectoryPath } from "@/app/utils";
+import { useQueries } from "@tanstack/react-query";
+import { createClient, unwrap } from "@/app/lib/opencode";
+import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
+import { normalizeDirectoryPath, normalizeDirectoryQueryPath } from "@/app/utils";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import type { OkfConnection } from "../okf/connection";
 import { activateLocalWorkspace } from "../okf/matter-session";
-import { officeWorkspace } from "../okf/read-model";
 
 export type MatterConversation = { workspaceId: string; id: string; title: string | null; updated: number };
-/** Položka zo zoznamu konverzácií priečinka (`GET /workspace/:id/sessions`); `directory` určuje vec. */
+/** Položka výpisu konverzácií enginu; `directory` určuje klienta alebo vec. */
 export type ListedSession = { id: string; title?: string; directory?: string; time?: { created?: number; updated?: number } };
-export type WorkspaceSessions = { workspaceId: string; items: readonly ListedSession[] };
-type SessionLister = { listSessions: (workspaceId: string, options: { roots: boolean; limit: number }) => Promise<{ items: readonly ListedSession[] }> };
+/**
+ * Výpis jedného priečinka. `subtree`: obsahuje aj podpriečinky (veci); inak len presne priečinok.
+ * `complete`: engine vrátil menej ako limit, nič staršie nechýba.
+ */
+export type FolderListing = { workspaceId: string; folder: string; items: readonly ListedSession[]; subtree: boolean; complete: boolean };
+/** Priečinok na čítanie: registrovaný priečinok (proxy) a absolútna cesta v ňom. */
+export type Folder = { workspace: RouteWorkspace; abs: string };
+/** To, čo výpis potrebuje od enginu; v appke `folderEngine`, v testoch náhrada. */
+export type FolderEngine = {
+  /** Projekt enginu pre priečinok: koreň (`worktree`) a `id` („global“ = priečinky bez vlastného git projektu). */
+  project: (folder: string, signal?: AbortSignal) => Promise<{ worktree: string; id: string } | null>;
+  list: (folder: string, query: { path?: string; roots: true; limit: number }, signal?: AbortSignal) => Promise<readonly ListedSession[]>;
+};
 
-/** Najnovšie konverzácie priečinka; server ich zoradí podľa zmeny a oreže. Staršie veci veľkého klienta môžu vypadnúť. */
-export const WORKSPACE_SESSION_LIMIT = 200;
-
-/** Registrovaná složka věci: kancelář + relativní cesta věci. Bez registrace (žádná akce) = `null`. */
-export function matterWorkspace(workspaces: readonly RouteWorkspace[], office: RouteWorkspace | null, matterPath: string): RouteWorkspace | null {
-  if (!office?.path || office.workspaceType === "remote") return null;
-  const target = matterDirectory(office, matterPath);
-  return workspaces.find((w) => w.workspaceType !== "remote" && w.path && comparable(w.path) === target) ?? null;
-}
+/** Najnovšie konverzácie priečinka; pri plnom výpise UI nepredstiera, že má všetky. */
+export const FOLDER_SESSION_LIMIT = 200;
+/** Spoločný kľúč pre strom, detail veci aj prehľad klienta: ten istý priečinok = jedno čítanie. */
+export const FOLDER_SESSIONS_KEY = "lite-folder-sessions";
 
 /** Priečinok na porovnanie: veľkosť písmen podľa platformy, diakritika v jednom tvare (NFC; „Ú“ z disku môže prísť rozložené). */
-const comparable = (path: string): string => normalizeDirectoryPath(path.normalize("NFC"));
+export const comparable = (path: string): string => normalizeDirectoryPath(path.normalize("NFC"));
+
+/** `inner` je `outer` alebo leží v ňom, po celých segmentoch („Spisy/Uhrada2“ nie je v „Spisy/Uhrada“). */
+export function within(outer: string, inner: string): boolean {
+  if (!outer || !inner) return false;
+  return inner === outer || inner.startsWith(outer.endsWith("/") ? outer : `${outer}/`);
+}
+
+/** Absolútny priečinok v registrovanom priečinku (`relative` voči nemu, `""` = koreň). */
+export function folderPath(workspace: Pick<RouteWorkspace, "path">, relative: string): string {
+  const rest = relative.split("/").filter((part) => part && part !== ".").join("/");
+  return rest ? `${workspace.path.replace(/[\\/]+$/, "")}/${rest}` : workspace.path;
+}
 
 /** Priečinok veci na porovnanie s priečinkom konverzácie. */
 export function matterDirectory(workspace: Pick<RouteWorkspace, "path">, matterPath: string): string {
-  const relative = matterPath.split("/").filter((part) => part && part !== ".").join("/");
-  return comparable(relative ? `${workspace.path.replace(/[\\/]+$/, "")}/${relative}` : workspace.path);
+  return comparable(folderPath(workspace, matterPath));
 }
 
-/** Výchozí název upstreamu („New session - …“) není název - UI ukáže „Konverzace bez názvu“. */
+/** Cesta priečinka voči koreňu projektu enginu (pole `path` konverzácie); `null`, ak v ňom neleží. */
+export function projectRelative(worktree: string, folder: string): string | null {
+  // Porovnať podľa platformy (veľkosť písmen), ale vrátiť pôvodný tvar: filter `path` enginu rozlišuje veľkosť písmen.
+  const root = normalizeDirectoryPath(worktree);
+  const dir = normalizeDirectoryPath(folder);
+  const original = normalizeDirectoryQueryPath(folder);
+  if (!root || !dir) return null;
+  if (root === "/") return dir.startsWith("/") ? original.slice(1) : null;
+  if (dir === root) return "";
+  return dir.startsWith(`${root}/`) ? original.slice(root.length + 1) : null;
+}
+
+/** Výpis priečinka: podstrom cez `path`, ak ho vieme vyjadriť, inak presne priečinok. Cudzie položky sa zahodia. */
+export async function listFolderSessions(engine: FolderEngine, workspaceId: string, folderAbs: string, signal?: AbortSignal): Promise<FolderListing> {
+  const project = await engine.project(folderAbs, signal).catch(() => null);
+  const relative = project ? projectRelative(project.worktree, folderAbs) : null;
+  // Globálny projekt s koreňom v priečinku (git bez commitu): `path=` by vypísal všetkých klientov a limit by ich orezal.
+  const path = relative === "" && project?.id === "global" ? null : relative;
+  // Bez `path` engine vypíše len presne priečinok. `path` = "" (priečinok je koreň projektu) vypíše celý projekt,
+  // preto sa výsledok aj tak filtruje na tento priečinok.
+  const items = await engine.list(folderAbs, { ...(path === null ? {} : { path }), roots: true, limit: FOLDER_SESSION_LIMIT }, signal);
+  const folder = comparable(folderAbs);
+  const subtree = path !== null;
+  const own = items.filter((s) => s.directory && (subtree ? within(folder, comparable(s.directory)) : comparable(s.directory) === folder));
+  return { workspaceId, folder, items: own, subtree, complete: items.length < FOLDER_SESSION_LIMIT };
+}
+
+/** Engine priečinka cez proxy servera (ako `openSessionWithPrompt`); bez spojenia `null`. */
+export function folderEngine(connection: Pick<OkfConnection, "baseUrl" | "token">, workspace: RouteWorkspace): FolderEngine | null {
+  const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
+  if (!endpoint) return null;
+  const client = (directory: string) => createClient(endpoint.opencodeBaseUrl, directory, { token: endpoint.token, mode: "legalwork" });
+  return {
+    project: async (folder, signal) => {
+      const project = unwrap(await client(folder).project.current({ directory: folder }, { signal }));
+      return project.worktree ? { worktree: project.worktree, id: project.id } : null;
+    },
+    list: async (folder, query, signal) => unwrap(await client(folder).session.list({ directory: folder, ...query }, { signal })),
+  };
+}
+
+export function folderSessionsQuery(connection: Pick<OkfConnection, "baseUrl" | "token" | "client"> | null, folder: Folder) {
+  return {
+    queryKey: [FOLDER_SESSIONS_KEY, folder.workspace.id, comparable(folder.abs), connection?.baseUrl ?? "", connection?.token ?? ""] as const,
+    enabled: Boolean(connection?.client),
+    staleTime: 10_000,
+    queryFn: ({ signal }: { signal?: AbortSignal }) => {
+      const engine = connection ? folderEngine(connection, folder.workspace) : null;
+      if (!engine) throw new Error("no connection");
+      return listFolderSessions(engine, folder.workspace.id, folder.abs, signal);
+    },
+  };
+}
+
+export type FolderState = { listing?: FolderListing; error: boolean; retry: () => void };
+
+/** Výpisy priečinkov (zdieľaná cache); kľúč mapy = `comparable(abs)`. */
+export function useFolderListings(connection: Pick<OkfConnection, "baseUrl" | "token" | "client"> | null, folders: readonly Folder[]): Map<string, FolderState> {
+  const results = useQueries({ queries: folders.map((folder) => folderSessionsQuery(connection, folder)) });
+  return new Map(folders.map((folder, i) => {
+    const result = results[i];
+    return [comparable(folder.abs), { listing: result?.data, error: Boolean(result?.isError), retry: () => { void result?.refetch(); } }];
+  }));
+}
+
+/** Výpis podstromu `folder` pokrýva aj `inner`; presný výpis len sám seba. */
+export const covers = (listing: Pick<FolderListing, "folder" | "subtree">, inner: string): boolean =>
+  listing.subtree ? within(listing.folder, inner) : listing.folder === inner;
+
+/** Výchozí název upstreamu („New session - …“) není název - UI ukáže „Rozhovor bez názvu“. */
 const untitled = (title: string | undefined): boolean => !title?.trim() || /^new session\b/i.test(title.trim());
 
-/** Konverzácie, ktorých priečinok je presne priečinok veci; najnovšia prvá, každá raz. */
-export function conversationsInDirectory(lists: readonly WorkspaceSessions[], directory: string): MatterConversation[] {
-  const byId = new Map<string, MatterConversation>();
-  for (const list of lists) {
-    for (const s of list.items) {
-      if (byId.has(s.id) || !s.directory || comparable(s.directory) !== directory) continue;
-      byId.set(s.id, { workspaceId: list.workspaceId, id: s.id, title: untitled(s.title) ? null : s.title ?? null, updated: s.time?.updated ?? s.time?.created ?? 0 });
+export type Owners = { clients: readonly { key: string; folder: string | null }[]; matters: readonly { path: string; folder: string | null }[] };
+export type Assignment = {
+  byClient: ReadonlyMap<string, MatterConversation[]>;
+  byMatter: ReadonlyMap<string, MatterConversation[]>;
+  /** Kam patrí konverzácia (pre rozbalenie podľa otvorenej konverzácie). */
+  owner: ReadonlyMap<string, { client?: string; matter?: string }>;
+};
+
+/**
+ * Každá konverzácia patrí najhlbšej veci, ktorej priečinok ju obsahuje (aj `…/Uhrada/Podania`);
+ * inak najhlbšiemu klientovi (koreň alebo jeho iný podpriečinok). Najnovšia prvá, každá raz.
+ */
+export function assignConversations(listings: readonly FolderListing[], owners: Owners): Assignment {
+  const byClient = new Map<string, MatterConversation[]>();
+  const byMatter = new Map<string, MatterConversation[]>();
+  const owner = new Map<string, { client?: string; matter?: string }>();
+  const deepest = <T extends { folder: string | null }>(list: readonly T[], dir: string) =>
+    list.filter((o) => o.folder && within(o.folder, dir)).sort((a, b) => (b.folder?.length ?? 0) - (a.folder?.length ?? 0))[0];
+  for (const listing of listings) {
+    for (const s of listing.items) {
+      if (owner.has(s.id) || !s.directory) continue;
+      const dir = comparable(s.directory);
+      const conversation = { workspaceId: listing.workspaceId, id: s.id, title: untitled(s.title) ? null : s.title ?? null, updated: s.time?.updated ?? s.time?.created ?? 0 };
+      const matter = deepest(owners.matters, dir);
+      if (matter) { push(byMatter, matter.path, conversation); owner.set(s.id, { matter: matter.path }); continue; }
+      const client = deepest(owners.clients, dir);
+      if (client) { push(byClient, client.key, conversation); owner.set(s.id, { client: client.key }); }
     }
   }
-  return [...byId.values()].sort((a, b) => b.updated - a.updated);
+  for (const list of [...byClient.values(), ...byMatter.values()]) list.sort((a, b) => b.updated - a.updated);
+  return { byClient, byMatter, owner };
 }
 
-/** Hlavné konverzácie priečinka (bez podúloh agenta). */
-export async function listWorkspaceSessions(client: SessionLister, workspaceId: string): Promise<WorkspaceSessions> {
-  const { items } = await client.listSessions(workspaceId, { roots: true, limit: WORKSPACE_SESSION_LIMIT });
-  return { workspaceId, items };
+function push<K>(map: Map<K, MatterConversation[]>, key: K, value: MatterConversation) {
+  const list = map.get(key);
+  if (list) list.push(value); else map.set(key, [value]);
 }
 
-/** Priečinky, v ktorých môžu byť konverzácie veci: jej klient (kancelária) a starší registrovaný priečinok veci. */
-export function matterSessionSources(workspaces: readonly RouteWorkspace[], base: RouteWorkspace | null, matterPath: string): RouteWorkspace[] {
-  if (!base?.path || base.workspaceType === "remote") return [];
-  const legacy = matterWorkspace(workspaces, base, matterPath);
-  return legacy && legacy.id !== base.id ? [base, legacy] : [base];
-}
-
-/** `base`: priečinok, voči ktorému je `matterPath`; v praxi priečinok klienta veci (N1), inak kancelária. */
-export async function listMatterConversations(connection: OkfConnection, matterPath: string, limit = 5, base: RouteWorkspace | null = officeWorkspace(connection)): Promise<MatterConversation[]> {
-  const client = connection.client;
-  const sources = matterSessionSources(connection.workspaces, base, matterPath);
-  if (!client || !base || sources.length === 0) return [];
-  const lists = await Promise.all(sources.map((w) => listWorkspaceSessions(client, w.id)));
-  return conversationsInDirectory(lists, matterDirectory(base, matterPath)).slice(0, limit);
-}
-
-/** Aktivuje složku věci (engine, výběr) a vrátí trasu konverzace. */
-export async function openMatterConversation(connection: OkfConnection, conversation: MatterConversation): Promise<string> {
+/** Aktivuje priečinok konverzácie (engine, výber) a vráti jej trasu. */
+export async function openMatterConversation(connection: OkfConnection, conversation: Pick<MatterConversation, "workspaceId" | "id">): Promise<string> {
   const workspace = connection.workspaces.find((w) => w.id === conversation.workspaceId);
   if (!workspace || !connection.client) throw new Error("conversation workspace unavailable");
   await activateLocalWorkspace({ ...connection, client: connection.client }, workspace, connection.workspaces);

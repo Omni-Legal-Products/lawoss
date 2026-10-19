@@ -119,8 +119,8 @@ describe("dynamické pohľady z OKF", () => {
     expect(matterUrgency([{ date: addDays(NOW, -1) }], NOW)).toBe("hot");
     expect(matterUrgency([{ date: addDays(NOW, 2) }], NOW)).toBe("near");
     expect(matterUrgency([{ date: addDays(NOW, 10) }], NOW)).toBeUndefined();
-    const node = (path: string, title: string, deadlines: { date: string }[]) => ({ path, title, deadlines, expanded: false, current: false, conversations: [], more: false, canStart: false });
-    const nav = html(<SidebarProvider><LiteNavView tree={[{ key: "client:A", title: "Klient A", expanded: true, current: false, matters: [node("a", "Vec A", [{ date: addDays(NOW, 1) }]), node("b", "Vec B", [])] }]} /></SidebarProvider>);
+    const node = (path: string, title: string, deadlines: { date: string }[]) => ({ path, title, deadlines, expanded: false, current: false, conversations: [], more: false, status: "ready" as const, canStart: false });
+    const nav = html(<SidebarProvider><LiteNavView tree={[{ key: "client:A", title: "Klient A", expanded: true, current: false, conversations: [], more: false, status: "ready", matters: [node("a", "Vec A", [{ date: addDays(NOW, 1) }]), node("b", "Vec B", [])] }]} /></SidebarProvider>);
     expect(nav.match(/lw-nav-urgency/g) ?? []).toHaveLength(1);
     const clients = html(<ClientsView locale="en" groups={[{ key: "client:Novák", client: "Novák", matters: [{ ...matter, deadlines: [{ date: addDays(NOW, 3), title: "x", recordId: "M-1" }] }] }]} />);
     // Klient bez vecí má kartu s výzvou na novú vec, nie prázdny zoznam.

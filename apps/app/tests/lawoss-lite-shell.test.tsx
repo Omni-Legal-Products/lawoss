@@ -70,7 +70,7 @@ describe("boční panel LAWOSS-lite", () => {
     expect(out).not.toContain("EXP");
   });
   test("strom klientov nahradil Posledné veci (variant A, 19. 10. 2026); bez klientov oddiel chýba", () => {
-    const tree = [{ key: "client:Novák", title: "Novák", expanded: true, current: true, matters: recent.map((m) => ({ ...m, deadlines: [], expanded: false, current: false, conversations: [], more: false, canStart: true })) }];
+    const tree = [{ key: "client:Novák", title: "Novák", expanded: true, current: true, conversations: [], more: false, status: "ready" as const, matters: recent.map((m) => ({ ...m, deadlines: [], expanded: false, current: false, conversations: [], more: false, status: "ready" as const, canStart: true })) }];
     const out = html(<LiteNavView tree={tree} />);
     expect(out).not.toContain("Recent matters");
     expect(out).toContain("data-lawoss-lite-tree");

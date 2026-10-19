@@ -88,3 +88,7 @@
 @media (prefers-reduced-motion: reduce) {
   .lw-clients-hero, .lw-clients-card, .lw-clients-empty, .lw-clients-matter[data-urgency="hot"] .lw-clients-dot { animation: none; }
 }
+
+/* Prehľad klienta: rozhovory nad celým klientom (nad kartou jeho vecí). */
+.lw-clients-conversations { margin: 0 0 18px; }
+.lw-clients-conversations .lw-clients-matter { width: 100%; grid-template-columns: minmax(0, 1fr) auto; border: 0; background: none; font: inherit; color: inherit; text-align: start; cursor: pointer; }

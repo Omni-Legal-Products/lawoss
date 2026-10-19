@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Strom klientov v bočnom paneli (2026-10-19)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/app/lib/opencode.ts` | Prepis `session.list` v režime LegalWork pošle výpis s `directory` alebo `path` priamo enginu cez proxy priečinka (`/workspace/:id/opencode/session`); bez nich ostáva pôvodný výpis `/workspace/:id/sessions`. Typ parametrov dostal `path`, voľby `signal`. Dôvod: skutočný engine 1.18.29 vypíše cez `/workspace/:id/sessions` len konverzácie presne v koreni priečinka, rozhovory vecí (podpriečinky) chýbali; podstrom vie len engine (`path` voči koreňu projektu). Nikto iný v appke `session.list` s `directory`/`path` nevolá. Test: `apps/app/tests/lawoss-lite-client-tree.test.tsx` („výpis priečinka ide do enginu“). |
+
 ## ISIR native Files navigation (2026-10-16)
 
 | Súbory | Downstream doplnenie a dôvod |

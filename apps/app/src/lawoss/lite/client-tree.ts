@@ -1,27 +1,25 @@
 /**
- * Strom v bočnom paneli (variant A, MČ 19. 10. 2026): klient → vec → rozhovory veci.
- * Klienti a veci sú z už načítaného prehľadu (ako Klienti a veci), rozhovory z priečinka
- * veci (`matter-conversations.ts`). Rozbalený je len klient a vec, kde práve som (podľa trasy);
+ * Strom v bočnom paneli (variant A, MČ 19. 10. 2026): klient → (jeho rozhovory) → vec → rozhovory veci.
+ * Klienti a veci sú z už načítaného prehľadu (ako Klienti a veci), rozhovory z výpisu priečinka
+ * klienta (`matter-conversations.ts`). Rozbalený je len klient a vec, kde práve som (podľa trasy);
  * šípkou sa dá rozbaliť alebo zbaliť ktorýkoľvek. Čistý model bez Reactu.
  */
 import { matchPath } from "react-router-dom";
 import type { MatterOverview } from "../../../../../lawoss/okf/read";
-import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import type { ClientGroup } from "./today-model";
 import { LITE_CLIENTS_PATH, LITE_MATTER_PATH } from "./links";
-import { conversationsInDirectory, matterDirectory, type MatterConversation, type WorkspaceSessions } from "./matter-conversations";
+import { comparable, type Assignment, type Folder, type FolderListing, type MatterConversation } from "./matter-conversations";
 
-/** Rozhovory pod vecou; viac ukáže detail veci („Zobraziť všetky“). */
+/** Rozhovory pod klientom aj vecou; viac ukáže prehľad klienta alebo detail veci („Zobraziť všetky“). */
 export const TREE_CONVERSATION_LIMIT = 5;
 
-/** Kde práve som: vec, klient alebo konverzácia (tú treba ešte priradiť k veci cez jej priečinok). */
+/** Kde práve som: vec, klient alebo konverzácia (tú treba priradiť cez jej priečinok). */
 export type TreeFocus = { client?: string; matter?: string; session?: { workspaceId: string; sessionId: string } };
-export type TreeMatter = Pick<MatterOverview, "path" | "title" | "deadlines"> & {
-  expanded: boolean; current: boolean; conversations: readonly MatterConversation[]; more: boolean; canStart: boolean;
-};
-export type TreeClient = { key: string; title: string; expanded: boolean; current: boolean; matters: readonly TreeMatter[] };
-/** Vec z prehľadu → priečinok (klient alebo kancelária), v ktorom leží, a cesta v ňom (`locateInScope`). */
-export type Locate = (matterPath: string) => { workspace: RouteWorkspace; path: string } | null;
+/** Rozhovory jedného uzla: `complete` = nič staršie nechýba; `error` sa nesmie tváriť ako prázdny zoznam. */
+export type ConversationList = { items: readonly MatterConversation[]; status: "loading" | "error" | "ready"; complete: boolean; retry?: () => void };
+type Listed = { conversations: readonly MatterConversation[]; more: boolean; status: ConversationList["status"]; retry?: () => void };
+export type TreeMatter = Pick<MatterOverview, "path" | "title" | "deadlines"> & Listed & { expanded: boolean; current: boolean; canStart: boolean };
+export type TreeClient = Listed & { key: string; title: string; expanded: boolean; current: boolean; matters: readonly TreeMatter[] };
 
 /** Kľúče používateľských prepnutí; kľúče skupín (`client:`, `path:`, `matter:`) sa s cestami vecí nesmú zraziť. */
 export const clientToggle = (key: string): string => `c\u0000${key}`;
@@ -37,33 +35,50 @@ export function routeFocus(pathname: string, search: string): TreeFocus {
   return session?.workspaceId && session.sessionId ? { session: { workspaceId: session.workspaceId, sessionId: session.sessionId } } : {};
 }
 
-/**
- * Konverzácia → vec podľa jej priečinka; konverzácia nad celým klientom (praxou) rozbalí
- * len klienta, ak sú všetky veci toho priečinka u jedného klienta. Nenačítaný zoznam = nič.
- */
-export function sessionFocus(
-  session: NonNullable<TreeFocus["session"]>,
-  lists: readonly WorkspaceSessions[],
-  matters: readonly { path: string; at: ReturnType<Locate> }[],
-  groups: readonly ClientGroup[] = [],
-): Pick<TreeFocus, "client" | "matter"> {
-  const found = lists.find((l) => l.workspaceId === session.workspaceId)?.items.find((s) => s.id === session.sessionId);
-  if (!found?.directory) return {};
-  const own = matters.filter((m) => m.at?.workspace.id === session.workspaceId);
-  const hit = own.find((m) => m.at && conversationsInDirectory([{ workspaceId: session.workspaceId, items: [found] }], matterDirectory(m.at.workspace, m.at.path)).length > 0);
-  if (hit) return { matter: hit.path };
-  const owners = new Set(own.map((m) => groups.find((g) => g.matters.some((x) => x.path === m.path))?.key));
-  const [client] = [...owners];
-  return owners.size === 1 && client ? { client } : {};
+/** Otvorená konverzácia → jej vec alebo klient podľa priečinka (aj staršia vec s vlastným priečinkom). Nenačítané = nič. */
+export function sessionFocus(route: TreeFocus, assignment: Pick<Assignment, "owner">): Pick<TreeFocus, "client" | "matter"> {
+  const owner = route.session ? assignment.owner.get(route.session.sessionId) : undefined;
+  return owner ? { ...owner } : {};
 }
 
-export function buildClientTree({ groups, focus, overrides, conversations, canStart }: {
+/**
+ * Priečinok klienta (cesta v prehľade) podľa kľúča skupiny z `clientOf`: karta klienta (`client:`),
+ * tvar `AK/<písmeno>/<klient>` (`path:`); vec bez klienta (`matter:`) žiadny nemá.
+ */
+export function clientFolderFor(key: string, matterPath: string): string | null {
+  if (key.startsWith("client:")) return key.slice("client:".length);
+  if (key.startsWith("path:")) {
+    const parts = matterPath.split("/");
+    return parts[0] === "AK" && parts[2] === key.slice("path:".length) ? parts.slice(0, 3).join("/") : null;
+  }
+  return null;
+}
+
+/** Trasa sa presunula na uzol: jeho prepnutie (aj prepnutie jeho klienta) sa zabudne, aby ho trasa rozbalila. */
+export function clearFocusOverrides(overrides: Readonly<Record<string, boolean>>, focus: Pick<TreeFocus, "client" | "matter">, groups: readonly ClientGroup[]): Readonly<Record<string, boolean>> {
+  const client = focus.client ?? groups.find((g) => g.matters.some((m) => m.path === focus.matter))?.key;
+  const drop = [client ? clientToggle(client) : null, focus.matter ? matterToggle(focus.matter) : null].filter((k): k is string => k !== null && k in overrides);
+  if (drop.length === 0) return overrides;
+  return Object.fromEntries(Object.entries(overrides).filter(([key]) => !drop.includes(key)));
+}
+
+const listed = (list: ConversationList | undefined, open: boolean): Listed => {
+  if (!open || !list) return { conversations: [], more: false, status: "ready" };
+  return {
+    conversations: list.items.slice(0, TREE_CONVERSATION_LIMIT),
+    more: list.items.length > TREE_CONVERSATION_LIMIT || (list.status === "ready" && !list.complete && list.items.length > 0),
+    status: list.status,
+    retry: list.retry,
+  };
+};
+
+export function buildClientTree({ groups, focus, overrides, lists, canStart }: {
   groups: readonly ClientGroup[];
   focus: Pick<TreeFocus, "client" | "matter">;
   overrides: Readonly<Record<string, boolean>>;
-  /** Všetky rozhovory veci, najnovší prvý; `undefined`, kým sa nenačítali. */
-  conversations: (matterPath: string) => readonly MatterConversation[] | undefined;
-  /** Vec leží v priečinku, v ktorom sa dá založiť rozhovor (ako rýchla akcia na detaile veci). */
+  /** Rozhovory klienta (jeho koreň a podpriečinky mimo vecí) a veci; pýta sa len na rozbalené uzly. */
+  lists: { client: (key: string) => ConversationList | undefined; matter: (path: string) => ConversationList | undefined };
+  /** Dá sa vo veci založiť rozhovor (tá istá kontrola ako akcia); pýta sa len na rozbalené veci. */
   canStart: (matterPath: string) => boolean;
 }): TreeClient[] {
   const focusClient = focus.client ?? groups.find((g) => g.matters.some((m) => m.path === focus.matter))?.key;
@@ -73,32 +88,37 @@ export function buildClientTree({ groups, focus, overrides, conversations, canSt
     const matters = group.matters.map((m): TreeMatter => {
       const here = m.path === focus.matter;
       const open = overrides[matterToggle(m.path)] ?? here;
-      // Rozhovory len pre rozbalenú vec rozbaleného klienta: zbalené sa nečítajú.
-      const all = expanded && open ? conversations(m.path) ?? [] : [];
-      return {
-        path: m.path, title: m.title, deadlines: m.deadlines, expanded: open, current: here,
-        conversations: all.slice(0, TREE_CONVERSATION_LIMIT), more: all.length > TREE_CONVERSATION_LIMIT, canStart: canStart(m.path),
-      };
+      const visible = expanded && open;
+      return { path: m.path, title: m.title, deadlines: m.deadlines, expanded: open, current: here, canStart: visible && canStart(m.path), ...listed(visible ? lists.matter(m.path) : undefined, visible) };
     });
-    return { key: group.key, title: group.client, expanded, current, matters };
+    return { key: group.key, title: group.client, expanded, current, matters, ...listed(expanded ? lists.client(group.key) : undefined, expanded) };
   });
 }
 
 /**
- * Priečinky, ktorých zoznam konverzácií treba čítať: len pre viditeľné rozbalené veci
- * a pre priečinok práve otvorenej konverzácie. 24 zbalených klientov = žiadne čítanie.
+ * Čo čítať: podstrom priečinka každého rozbaleného klienta (jeden výpis na klienta, veci v ňom),
+ * priečinok otvorenej konverzácie a — len ak engine podstrom nevie — presne priečinok rozbalenej veci.
+ * 24 zbalených klientov = žiadne čítanie.
  */
-export function workspacesToFetch(tree: readonly TreeClient[], locate: Locate, sessionWorkspaceId?: string, extra: (matterPath: string) => readonly string[] = () => []): string[] {
-  const ids = new Set<string>();
-  if (sessionWorkspaceId) ids.add(sessionWorkspaceId);
+export function fetchPlan(
+  tree: readonly TreeClient[],
+  folders: { client: (key: string) => Folder | null; matter: (path: string) => Folder | null },
+  listingOf: (folder: string) => Pick<FolderListing, "subtree" | "folder"> | undefined,
+  sessionFolder?: Folder | null,
+): Folder[] {
+  const plan = new Map<string, Folder>();
+  const add = (folder: Folder | null | undefined) => { if (folder) plan.set(comparable(folder.abs), folder); };
+  add(sessionFolder);
   for (const client of tree) {
     if (!client.expanded) continue;
+    const root = folders.client(client.key);
+    add(root);
+    const listing = root ? listingOf(comparable(root.abs)) : undefined;
     for (const m of client.matters) {
       if (!m.expanded) continue;
-      const at = locate(m.path);
-      if (at) ids.add(at.workspace.id);
-      for (const id of extra(m.path)) ids.add(id);
+      // Klient bez priečinka (vec je sama sebe klientom) alebo engine bez podstromu: priečinok veci zvlášť.
+      if (!root || (listing && !listing.subtree)) add(folders.matter(m.path));
     }
   }
-  return [...ids];
+  return [...plan.values()];
 }

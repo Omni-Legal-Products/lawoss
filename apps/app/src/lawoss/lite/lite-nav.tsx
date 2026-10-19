@@ -1,7 +1,6 @@
 /** @jsxImportSource react */
-import { CalendarDays, ChevronRight, FolderOpen, FolderPlus, MessageSquare, Plus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { CalendarDays, ChevronRight, FolderOpen, FolderPlus, MessageSquare, Plus, RotateCw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
@@ -18,26 +17,20 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
-import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
-import { locateInScope, localMatter, officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope, type OkfReadResult, type OkfScope } from "../okf/read-model";
-import type { OkfConnection } from "../okf/connection";
-import { openMatterSession } from "../okf/matter-session";
-import { groupByClient } from "./today-model";
+import { locateInScope, officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope, type OkfScope } from "../okf/read-model";
 import { matterUrgency, useMinuteTick } from "./live";
 import { ADD_FOLDER_PATH, clientOverviewLink, LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, liteMatterLink } from "./links";
 import { openClientChat, openOfficeChat, restoreOfficeScope } from "./office-scope";
 import { practiceClientChoices } from "./client-choice";
 import { ClientPickerDialog } from "./client-picker";
 import { currentUiMode, useUiMode, type UiMode } from "./ui-mode";
-import { buildClientTree, clientToggle, matterToggle, routeFocus, sessionFocus, workspacesToFetch, type Locate, type TreeClient, type TreeMatter } from "./client-tree";
-import { conversationsInDirectory, listWorkspaceSessions, matterDirectory, matterSessionSources, openMatterConversation, type MatterConversation } from "./matter-conversations";
-import { composeQuickAction } from "./quick-actions";
+import { clientToggle, matterToggle, routeFocus, type TreeClient, type TreeMatter } from "./client-tree";
+import { useClientTree } from "./client-tree-data";
+import type { MatterConversation } from "./matter-conversations";
 
 /** „Zeptat se“ = nová konverzace v kanceláři (`openOfficeChat`); `/session` v Pokročilom režime (aktívny priečinok) a ako záloha při chybě. */
 const ASK_PATH = "/session";
 const OFFICE_PAGES = new Set([LITE_TODAY_PATH, LITE_CLIENTS_PATH, LITE_MATTER_PATH]);
-/** Zoznamy rozhovorov stromu; po každej navigácii sa obnovia len tie práve čítané (rozbalené). */
-const TREE_SESSIONS_KEY = "lite-tree-sessions";
 
 /**
  * Rozsah kancelárie len v bežnom režime. Pokročilý drží výber priečinka v sidebare
@@ -97,82 +90,6 @@ export function LiteNav(props: { activePane?: boolean }) {
     <ClientPickerDialog open={picking} purpose="ask" choices={choices} activeId={connection?.activeWorkspaceId} locale={locale}
       onClose={() => setPicking(false)} onPick={(choice) => { setPicking(false); open(openClientChat(choice.id)); }} />
   </>;
-}
-
-/**
- * Dáta stromu: klienti a veci z prehľadu (žiadne ďalšie čítanie), rozhovory len pre priečinky
- * rozbalených vecí a práve otvorenej konverzácie (`workspacesToFetch`), v cache React Query.
- */
-function useClientTree(connection: OkfConnection | null, scope: OkfScope | null, data: OkfReadResult | undefined, pathname: string, search: string, locale: Language) {
-  const navigate = useNavigate();
-  const queries = useQueryClient();
-  const running = useRef(false);
-  const [overrides, setOverrides] = useState<Readonly<Record<string, boolean>>>({});
-  const groups = useMemo(() => data ? groupByClient(data.matters, data.inputs, data.clients) : [], [data]);
-  const locate = useCallback<Locate>((path) => scope ? locateInScope(scope, path) : null, [scope]);
-  const route = useMemo(() => routeFocus(pathname, search), [pathname, search]);
-  const legacy = useCallback((path: string) => {
-    const at = locate(path);
-    return at && connection ? matterSessionSources(connection.workspaces, at.workspace, at.path).slice(1).map((w) => w.id) : [];
-  }, [locate, connection]);
-  const canStart = useCallback((path: string) => locate(path) !== null, [locate]);
-  // Ktoré priečinky čítať: z trasy a prepnutí, ešte bez rozhovorov (vec z konverzácie je v jej priečinku).
-  const ids = useMemo(() => workspacesToFetch(
-    buildClientTree({ groups, focus: route, overrides, conversations: () => undefined, canStart }),
-    locate, route.session?.workspaceId, legacy,
-  ), [groups, route, overrides, canStart, locate, legacy]);
-  const client = connection?.client ?? null;
-  const results = useQueries({
-    queries: ids.map((id) => ({
-      queryKey: [TREE_SESSIONS_KEY, id, connection?.baseUrl ?? "", connection?.token ?? ""],
-      enabled: Boolean(client),
-      staleTime: 10_000,
-      queryFn: () => {
-        if (!client) throw new Error("no connection");
-        return listWorkspaceSessions(client, id);
-      },
-    })),
-  });
-  // Nová konverzácia alebo jej názov (dá ho agent po prvej správe): po navigácii čítať znova.
-  useEffect(() => { void queries.invalidateQueries({ queryKey: [TREE_SESSIONS_KEY] }); }, [pathname, queries]);
-  const lists = results.flatMap((r) => r.data ? [r.data] : []);
-  const focus = route.session
-    ? sessionFocus(route.session, lists, groups.flatMap((g) => g.matters).map((m) => ({ path: m.path, at: locate(m.path) })), groups)
-    : route;
-  const nodes = buildClientTree({
-    groups, focus, overrides, canStart,
-    conversations: (path) => {
-      const at = locate(path);
-      return at ? conversationsInDirectory(lists, matterDirectory(at.workspace, at.path)) : undefined;
-    },
-  });
-  const toggle = useCallback((key: string, expanded: boolean) => setOverrides((prev) => ({ ...prev, [key]: !expanded })), []);
-  const run = (work: () => Promise<string>, fallback?: string) => {
-    if (running.current) return;
-    running.current = true;
-    work().then((to) => {
-      void queries.invalidateQueries({ queryKey: [TREE_SESSIONS_KEY] });
-      navigate(to);
-    }).catch((failure: unknown) => {
-      console.warn("LAWOSS-lite: tree conversation", failure);
-      // Záloha: konverzácia bez aktivácie, alebo detail veci, ktorý ukáže, čo chýba (napr. model).
-      if (fallback) navigate(fallback);
-    }).finally(() => { running.current = false; });
-  };
-  const openConversation = (conversation: MatterConversation) => {
-    if (!connection) return;
-    // Bez aktivácie (napr. mimo desktopu) aspoň otvoriť konverzáciu; priečinok vyberie trasa konverzácie.
-    run(() => openMatterConversation(connection, conversation), workspaceSessionRoute(conversation.workspaceId, conversation.id));
-  };
-  /** Ako rýchla akcia na detaile veci: nová konverzácia v priečinku veci u jej klienta, s konceptom (nič sa neodošle). */
-  const newConversation = (path: string) => {
-    const matter = data?.matters.find((m) => m.path === path);
-    const target = matter && scope && data ? localMatter(scope, matter, data.matters) : null;
-    if (!connection || !matter || !target) return;
-    const prompt = composeQuickAction("open", { title: matter.title, matterRef: matter.matterRef, path: target.selected.path }, locale);
-    run(() => openMatterSession(connection, target.workspace, target.selected, target.discovered, prompt), liteMatterLink(path));
-  };
-  return { nodes, toggle, openConversation, newConversation };
 }
 
 type TreeActions = {
@@ -236,6 +153,8 @@ export function LiteNavView(props: { tree?: readonly TreeClient[]; activePane?: 
                     </SidebarMenuButton>
                   </div>
                   {client.expanded ? <SidebarMenuSub className="ms-3 gap-0.5 border-s border-sidebar-border/70 ps-1">
+                    {/* Rozhovory nad celým klientom (napr. „Opýtať sa“ z detailu veci) sú nad jeho vecami. */}
+                    <ConversationRows node={client} page={page} locale={locale} allLink={clientOverviewLink(client.key)} onOpen={props.onOpenConversation} />
                     {client.matters.map((matter) => <MatterNode key={matter.path} matter={matter} page={page} locale={locale} {...props} />)}
                   </SidebarMenuSub> : null}
                 </SidebarMenuItem>;
@@ -263,21 +182,7 @@ function MatterNode({ matter, page, locale, onToggle, onOpenConversation, onNewC
       </SidebarMenuSubButton>
     </div>
     {matter.expanded ? <SidebarMenuSub className="ms-3 gap-0.5 border-s border-sidebar-border/70 ps-1">
-      {matter.conversations.map((conversation) => {
-        const label = conversationLabel(conversation, locale);
-        const current = page.session?.sessionId === conversation.id;
-        return <SidebarMenuSubItem key={conversation.id}>
-          <SidebarMenuSubButton size="sm" isActive={current} aria-current={current ? "page" : undefined} className="h-7 ps-2 pe-2" title={label}
-            data-lawoss-tree-conversation={conversation.id} onClick={() => onOpenConversation?.(conversation)}>
-            <span className="truncate">{label}</span>
-          </SidebarMenuSubButton>
-        </SidebarMenuSubItem>;
-      })}
-      {matter.more ? <SidebarMenuSubItem>
-        <SidebarMenuSubButton size="sm" className="h-7 ps-2 pe-2" render={<Link to={liteMatterLink(matter.path)} data-lawoss-tree-all="" />}>
-          <span className="truncate">{t("lawoss.lite.tree_show_all", locale)}</span>
-        </SidebarMenuSubButton>
-      </SidebarMenuSubItem> : null}
+      <ConversationRows node={matter} page={page} locale={locale} allLink={liteMatterLink(matter.path)} onOpen={onOpenConversation} />
       {matter.canStart ? <SidebarMenuSubItem>
         <SidebarMenuSubButton size="sm" className="h-7 ps-2 pe-2" data-lawoss-tree-new="" onClick={() => onNewConversation?.(matter.path)}>
           <Plus strokeWidth={1.5} aria-hidden />
@@ -286,6 +191,36 @@ function MatterNode({ matter, page, locale, onToggle, onOpenConversation, onNewC
       </SidebarMenuSubItem> : null}
     </SidebarMenuSub> : null}
   </li>;
+}
+
+/** Rozhovory uzla (najviac 5), „Zobraziť všetky“ a pri chybe čítania hláška s „Skúsiť znova“ (nie prázdny zoznam). */
+function ConversationRows({ node, page, locale, allLink, onOpen }: {
+  node: Pick<TreeClient, "conversations" | "more" | "status" | "retry">; page: ReturnType<typeof routeFocus>; locale: Language; allLink: string;
+  onOpen?: (conversation: MatterConversation) => void;
+}) {
+  return <>
+    {node.conversations.map((conversation) => {
+      const label = conversationLabel(conversation, locale);
+      const current = page.session?.sessionId === conversation.id;
+      return <SidebarMenuSubItem key={conversation.id}>
+        <SidebarMenuSubButton size="sm" isActive={current} aria-current={current ? "page" : undefined} className="h-7 ps-2 pe-2" title={label}
+          data-lawoss-tree-conversation={conversation.id} onClick={() => onOpen?.(conversation)}>
+          <span className="truncate">{label}</span>
+        </SidebarMenuSubButton>
+      </SidebarMenuSubItem>;
+    })}
+    {node.more ? <SidebarMenuSubItem>
+      <SidebarMenuSubButton size="sm" className="h-7 ps-2 pe-2" render={<Link to={allLink} data-lawoss-tree-all="" />}>
+        <span className="truncate">{t("lawoss.lite.tree_show_all", locale)}</span>
+      </SidebarMenuSubButton>
+    </SidebarMenuSubItem> : null}
+    {node.status === "error" ? <SidebarMenuSubItem data-lawoss-tree-error="" className="flex items-center gap-1 ps-2 pe-1 text-xs text-muted-foreground">
+      <span className="min-w-0 flex-1 truncate" role="status">{t("lawoss.lite.tree_load_error", locale)}</span>
+      {node.retry ? <Button type="button" variant="ghost" size="xs" className="shrink-0" onClick={() => node.retry?.()}>
+        <RotateCw aria-hidden className="size-3" />{t("lawoss.lite.state_retry", locale)}
+      </Button> : null}
+    </SidebarMenuSubItem> : null}
+  </>;
 }
 
 /** Šípka rozbalí alebo zbalí bez navigácie; názov vedľa nej je odkaz. */
