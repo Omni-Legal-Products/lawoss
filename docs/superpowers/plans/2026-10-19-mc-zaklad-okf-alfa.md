@@ -208,18 +208,29 @@ Nemeniť: `eigenwelt-account-menu.tsx:31` (jediné koliesko), ikony vnútri Nast
 
 ### Úloha 5: Sidebar podľa rozhodnutia G2
 
-**Súbory** (podľa zvolených variantov):
-- V1: `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx:875` (odstrániť `OnboardingEntryActions compact` z riadku, `OkfWorkspaceSkillSync` ponechať), `apps/app/src/lawoss/lite/lite-nav.tsx` (položka „Pridať priečinok“ s odkazom `ADD_FOLDER_PATH`), `apps/app/src/lawoss/domains/onboarding/entry-actions.tsx` (ak treba export samostatnej akcie)
-- V2: `apps/app/src/lawoss/feature-flags.ts` (`ALPHA_HIDDEN_EXPERIMENTS` alebo nový príznak pre položku Experimenty) a `apps/app/src/lawoss/shell/layout.tsx:127`
-- V3: `app-sidebar.tsx:877,880` (podmienky `!lite`)
-- Test: `apps/app/tests/lawoss-lite-shell.test.tsx`
+**Rozhodnutie MČ (G2, 19. 10.):**
+- **V1:** riadok ikon onboardingu zo sidebaru preč, namiesto neho položka „Pridať priečinok“.
+- **V2:** panel Experimenty preč úplne, nielen v Pokročilom režime.
+- **Jedna appka** (R3, #163): bežný režim aj Pokročilé majú tú istú navigáciu LAWOSS (Dnes, Klienti a veci, Opýtať sa, Posledné veci). Pokročilé len pridá sekcie z upstreamu (Nový chat, Projekty, Nedávne sesie).
+- **Dnes je to zle:** Pokročilý režim ukazuje namiesto navigácie LAWOSS len Experimenty (overené na screenshote 19. 10.).
+- **Odložené:** V3 aj vnorený strom klient → veci → prehľad, lehoty a rozhovory (návrh „Domov veci nad OKF“, R5) až po tom, čo MČ prejde appku so syntetickými dátami.
+
+**Súbory:**
+- Upraviť: `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx:875` (odstrániť `OnboardingEntryActions compact` z riadku, `OkfWorkspaceSkillSync` ponechať)
+- Upraviť: `apps/app/src/lawoss/shell/layout.tsx` (`LawossNav`: vždy `LiteNav`, `ExperimentsNav` odstrániť z navigácie; experimentálne trasy ostávajú v kóde, len bez vstupu v sidebare)
+- Upraviť: `apps/app/src/lawoss/lite/lite-nav.tsx` (položka „Pridať priečinok“ s odkazom `ADD_FOLDER_PATH` z `onboarding/links.ts`)
+- Upraviť podľa potreby: `apps/app/src/lawoss/feature-flags.ts`, `apps/app/src/lawoss/i18n/shell.ts` (`lawoss.lite.add_folder`)
+- Test: `apps/app/tests/lawoss-lite-shell.test.tsx` a súvisiace testy shellu
 - `PATCHES.md` pri `app-sidebar.tsx`
 
-- [ ] **Krok 1:** Do `lawoss-lite-shell.test.tsx` doplň tvrdenia pre zvolené varianty. V1: sidebar v Lite nemá štyri ikonové tlačidlá onboardingu a LiteNav obsahuje odkaz na `ADD_FOLDER_PATH` s textom kľúča `lawoss.lite.add_folder` („Pridať priečinok“). V2: v Pro sa nevykreslí „Experimenty“. V3: v Lite sa vykreslia sekcie Projekty a Nedávne.
+- [ ] **Krok 1: Testy, ktoré zlyhajú.**
+  - (a) V bežnom aj Pokročilom režime sidebar vykreslí položky Dnes, Klienti a veci, Opýtať sa a „Pridať priečinok“ s odkazom na `ADD_FOLDER_PATH`.
+  - (b) V žiadnom režime sa nevykreslí „Experimenty“ (`data-lawoss-nav="experiments"`) ani štyri ikonové tlačidlá onboardingu v riadku pod značkou.
+  - (c) Pokročilý režim navyše vykreslí sekcie Projekty a Nedávne. V bežnom režime ostávajú skryté ako dnes.
 - [ ] **Krok 2:** `cd apps/app && bun test tests/lawoss-lite-shell.test.tsx`. Očakáva sa FAIL.
-- [ ] **Krok 3:** Implementácia a nový kľúč `lawoss.lite.add_folder` v `sk/cs/en/de`.
-- [ ] **Krok 4:** Celé testy appky, i18n, typecheck a nové screenshoty do PR.
-- [ ] **Krok 5:** Commit `feat: sidebar bližšie k LegalWorku` a PR `feat/sidebar-alfa`.
+- [ ] **Krok 3:** Implementácia a kľúč `lawoss.lite.add_folder` („Pridať priečinok“) v `sk/cs/en/de`.
+- [ ] **Krok 4:** Celé testy appky, i18n, typecheck. Nové screenshoty bežného aj Pokročilého režimu cez náhľad z Úlohy 4 (`?locale=sk`) do PR.
+- [ ] **Krok 5:** Commit `feat: jedna navigácia LAWOSS v oboch režimoch, bez Experimentov` a PR `feat/sidebar-alfa`. Vetva už obsahuje commit Úlohy 4.
 
 ### Úloha 6: Onboarding: cesta ku klientom a texty bez technických slov
 
