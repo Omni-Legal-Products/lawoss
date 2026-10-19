@@ -82,6 +82,12 @@ export function findCaseNumber(text: string): CaseNumber | undefined {
   return { key, display: `${senate}${register} ${Number(number)}/${year}` };
 }
 
+/** Rola, ktorú advokát dal priečinku menom („Emaily“, „Korešpondencia 2024“, „Drafty“); priečinok podľa druhu dokumentu nie je vec. */
+export function folderHintRole(folder: string): TriageRole | undefined {
+  const name = normalizeText(folder);
+  return FOLDER_HINTS.find(hint => findWord(name, hint.words))?.role;
+}
+
 export type RuleInput = { path: string; name: string; ext: string };
 
 /** Prvé zhodné pravidlo vyhráva; poradie je zámerné (e-mail pred obsahom, návrh vo Worde pred podaním). */

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
 import { applyTriagePlan, grantInPlaceReorganize, IN_PLACE_MARKER, prepareTriage, replanTriage, scanTriage, TriageConflictError, TrialCloneError, undoTriage, verifyTriageTarget } from "../src/triage/index.ts";
-import { TRIAGE_FIXTURE, writeTriageFixture } from "./fixtures/triage-client.ts";
+import { HRON_FIXTURE, HRON_MATTERS, TRIAGE_FIXTURE, writeTriageFixture } from "./fixtures/triage-client.ts";
 import { holdWindowsFileLock } from "./windows-file-lock.ts";
 
 setDefaultTimeout(30_000);
@@ -220,6 +220,48 @@ test("vec bez karty s vlastnými inštrukciami a podpriečinkami: nič existujú
   expect(plan.moves.find(move => move.from === `${KUPA}/Kupna zmluva - navrh v3.docx`)?.to).toBe(`${KUPA}/03_Drafty/Kupna zmluva - navrh v3.docx`);
   await applyTriagePlan(plan, HOST);
   expect(await readFile(join(root, KUPA, "AGENTS.md"), "utf8")).toBe("vlastne instrukcie");
+});
+
+/**
+ * Test 19. 10. 2026 (klient „C002 SYN Hron Technológie, a. s.“): podpriečinky `M004 …` až `M006 …` sú veci
+ * pomenované kódom veci. Usporiadanie ich rozpustilo do priečinkov klienta a rovnaké mená premenovalo.
+ */
+test("podpriečinky s dokumentmi pomenované kódom veci (`M004 …`) ostanú prípadmi, nič sa medzi nimi nezmieša", async () => {
+  const base = await directory("okf-in-place-hron-");
+  const root = join(base, "C002 SYN Hron Technológie, a. s.");
+  await mkdir(root);
+  await writeTriageFixture(root, HRON_FIXTURE);
+  const preview = await planOnboarding(parseOnboardingRequest({ action: "existing", root, mode: "convert", title: "C002 SYN Hron Technológie, a. s.", clientType: "po", language: "sk", jurisdiction: "sk", date: "2026-10-19", confirmUnknownClient: true }));
+  await applyOnboarding(preview, { journalDirectory: await directory("okf-journal-"), externalProfileDirectory: await directory("okf-external-") });
+  await grantInPlaceReorganize(root, NOW);
+  const before = await documentsHash(root);
+  const { inventory, plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  expect(inventory.documents).toHaveLength(48);
+  expect(plan.matters.map(matter => matter.folder).sort()).toEqual([...HRON_MATTERS]);
+  for (const matter of plan.matters) expect(matter).toMatchObject({ source: "folder", documents: 16, kind: "non_contentious" });
+  // Každý dokument ostane vo svojej veci; žiadny sa nepresunie na úroveň klienta ani do inej veci.
+  for (const move of plan.moves) expect(move.to.split("/")[0]).toBe(move.from.split("/")[0]);
+  expect(plan.moves.filter(move => move.renamed)).toEqual([]);
+  expect(plan.create.filter(operation => !HRON_MATTERS.some(matter => operation.path.startsWith(`${matter}/`)))).toEqual([]);
+  for (const matter of HRON_MATTERS) expect(plan.create).toContainEqual(expect.objectContaining({ path: `${matter}/matter.md`, kind: "file" }));
+  expect(plan.moves.find(move => move.from === `${HRON_MATTERS[0]}/01-zmluva.docx`)?.to).toBe(`${HRON_MATTERS[0]}/01_Podklady/01-zmluva.docx`);
+
+  await applyTriagePlan(plan, HOST);
+  for (const matter of HRON_MATTERS) expect(await readFile(join(root, matter, "matter.md"), "utf8")).toContain("kind: non_contentious");
+  // Ďalšie usporiadanie vidí tri veci s kartou a nič z nich nepresúva.
+  await rm(join(root, IN_PLACE_MARKER));
+  await grantInPlaceReorganize(root, NOW);
+  const again = await prepareTriage(root, { now: NOW, ...HOST });
+  expect(again.plan.moves.filter(move => HRON_MATTERS.some(matter => move.from.startsWith(`${matter}/`)))).toHaveLength(0);
+  expect((await undoTriage(root, plan.runId, HOST)).status).toBe("undone");
+  expect(await documentsHash(root)).toBe(before);
+});
+
+test("podpriečinky podľa druhu dokumentu (`Emaily`, `Drafty`) a archív (`Stare`, `Fotky`) prípadmi nie sú", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  const inventory = await scanTriage(root, HOST);
+  expect(inventory.matters.map(matter => matter.path)).toEqual([]);
 });
 
 /** Zámok simulovaný chybou EBUSY pri otvorení súboru (Word na Windows). */

@@ -1204,6 +1204,10 @@ function findCaseNumber(text) {
   const key = `${senate}${register.toUpperCase()}-${Number(number)}-${year}`;
   return { key, display: `${senate}${register} ${Number(number)}/${year}` };
 }
+function folderHintRole(folder) {
+  const name = normalizeText(folder);
+  return FOLDER_HINTS.find((hint) => findWord(name, hint.words))?.role;
+}
 function classifyByRules(input) {
   const ext = input.ext.toLowerCase();
   const stem = input.ext ? input.name.slice(0, -(input.ext.length + 1)) : input.name;
@@ -1327,10 +1331,45 @@ var CZ_MATTER_WORDS = [
 ];
 var fold = (word) => word.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase("sk");
 var MATTER_WORDS = new Set([...SK_MATTER_WORDS, ...CZ_MATTER_WORDS].map(fold));
-var startsWithMatterWord = (name) => {
-  const first = name.normalize("NFC").trim().split(/[\s,.;:()_-]+/u)[0] ?? "";
-  return MATTER_WORDS.has(fold(first));
-};
+var firstWord = (name) => fold(name.normalize("NFC").trim().split(/[\s,.;:()_-]+/u)[0] ?? "");
+var startsWithMatterWord = (name) => MATTER_WORDS.has(firstWord(name));
+var BUCKET_WORDS = [
+  "stare",
+  "stary",
+  "stara",
+  "archiv",
+  "archive",
+  "old",
+  "fotky",
+  "foto",
+  "fotografie",
+  "fotografia",
+  "photos",
+  "obrazky",
+  "ostatne",
+  "ostatni",
+  "rozne",
+  "ruzne",
+  "misc",
+  "temp",
+  "tmp",
+  "nove",
+  "nova",
+  "new",
+  "skeny",
+  "scany",
+  "scans",
+  "scan",
+  "downloads",
+  "stiahnute",
+  "stazene",
+  "prilohy",
+  "attachments",
+  "dokumenty",
+  "documents"
+];
+var BUCKETS = new Set(BUCKET_WORDS.map(fold));
+var looksLikeBucketName = (name) => BUCKETS.has(firstWord(name));
 var looksLikeMatterName = (name) => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined || startsWithMatterWord(name));
 
 // src/onboarding/suggest.ts
@@ -4387,12 +4426,13 @@ async function scanTriage(rootInput, options = {}) {
     matters.push({ id: `existing-${sha3(dir).slice(0, 12)}`, path: dir, ...fields.title ? { title: fields.title } : {}, ...caseKey ? { caseKey } : {}, roles });
   }
   const under = (path, folder) => path.startsWith(`${folder}/`);
+  const matterFolder = (dir) => looksLikeMatterName(dir) || !(isBareDate(dir) || folderHintRole(dir) || looksLikeBucketName(dir) || /^\d{2}_/.test(dir) || dir.startsWith("_"));
   const clientFolders = new Set([...profile.folders, ...Object.values(profile.roles)].map((folder) => folder.split("/")[0].toLocaleLowerCase()));
   const matterProfile = workingProfile(newMatterProfile?.folders, newMatterProfile?.roles, newMatterProfile?.naming, language);
   for (const dir of [...directories].filter((dir) => !dir.includes("/") && !hidden(dir)).sort()) {
     if (["spisy", "memory", "office", "_kancelaria"].includes(dir.toLocaleLowerCase()) || clientFolders.has(dir.toLocaleLowerCase()))
       continue;
-    if (!looksLikeMatterName(dir) || entityDirs.some((entity) => entity === dir || under(entity, dir)))
+    if (!matterFolder(dir) || entityDirs.some((entity) => entity === dir || under(entity, dir)))
       continue;
     if (![...files.keys()].some((path) => under(path, dir) && !hidden(path)))
       continue;

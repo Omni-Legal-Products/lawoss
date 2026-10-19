@@ -17,8 +17,8 @@ import { parseFrontmatter } from "../frontmatter.ts";
 import { resolveDocumentLanguage } from "../language.ts";
 import { parseOfficeWorkingProfile, parseWorkingProfile, PROFILE_FILE, workingProfile } from "../profile.ts";
 import { inspectCardLevel, inspectOnboardingRoot, type InspectionHooks, type InspectionLimits, type OnboardingInspection, type TreeEntry } from "../onboarding/classify.ts";
-import { looksLikeMatterName } from "../onboarding/suggest-patterns.ts";
-import { findCaseNumber } from "./rules.ts";
+import { isBareDate, looksLikeBucketName, looksLikeMatterName } from "../onboarding/suggest-patterns.ts";
+import { findCaseNumber, folderHintRole } from "./rules.ts";
 import { INVENTORY_SCHEMA, type ExistingMatter, type SkipReason, type TriageDocument, type TriageInventory } from "./types.ts";
 
 export const TRIAL_MARKER = ".lawoss-trial.json";
@@ -236,11 +236,15 @@ export async function scanTriage(rootInput: string, options: TriageTargetOptions
   // Priamy podpriečinok klienta pomenovaný ako vec (`Kupa haly Senec`, `Spor BETA 18Cb-47-2026`) je vec aj bez
   // karty. Ostáva na mieste: jeho dokumenty sa zaraďujú len v rámci neho a plán mu doplní kartu (test 16. 10. 2026, N2, N5).
   // Pracovné priečinky klienta, `Spisy`, pamäť a kancelária vecami nie sú; priečinok s kartou vnútri rieši karta.
+  // Vecou je aj iný podpriečinok s dokumentmi (`M004 Vyúčtovanie nájmu`, test 19. 10. 2026): rozpustený do priečinkov
+  // klienta by stratil súvislosť veci. Výnimkou je priečinok podľa druhu dokumentu (`Emaily`, `Drafty`), archív
+  // či odkladací priečinok (`Staré`, `Fotky`) a holý rok; tie sa triedia ako doteraz.
+  const matterFolder = (dir: string) => looksLikeMatterName(dir) || !(isBareDate(dir) || folderHintRole(dir) || looksLikeBucketName(dir) || /^\d{2}_/.test(dir) || dir.startsWith("_"));
   const clientFolders = new Set([...profile.folders, ...Object.values(profile.roles)].map(folder => folder.split("/")[0]!.toLocaleLowerCase()));
   const matterProfile = workingProfile(newMatterProfile?.folders, newMatterProfile?.roles, newMatterProfile?.naming, language);
   for (const dir of [...directories].filter(dir => !dir.includes("/") && !hidden(dir)).sort()) {
     if (["spisy", "memory", "office", "_kancelaria"].includes(dir.toLocaleLowerCase()) || clientFolders.has(dir.toLocaleLowerCase())) continue;
-    if (!looksLikeMatterName(dir) || entityDirs.some(entity => entity === dir || under(entity, dir))) continue;
+    if (!matterFolder(dir) || entityDirs.some(entity => entity === dir || under(entity, dir))) continue;
     if (![...files.keys()].some(path => under(path, dir) && !hidden(path))) continue;
     const caseNumber = findCaseNumber(dir);
     let roles = matterProfile.roles;
