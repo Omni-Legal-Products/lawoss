@@ -264,6 +264,20 @@ test("podpriečinky podľa druhu dokumentu (`Emaily`, `Drafty`) a archív (`Star
   expect(inventory.matters.map(matter => matter.path)).toEqual([]);
 });
 
+test("prípad so slovom druhu dokumentu uprostred názvu (`M008 Reklamácia faktúry`) ostane prípadom", async () => {
+  const root = await convertedClient();
+  const matters = ["M008 Reklamácia faktúry", "M011 Výpoveď zmluvy", "M010 Nájom skladu komunikácia"];
+  const buckets = ["Faktúry 2023", "Od klienta"];
+  for (const folder of [...matters, ...buckets]) {
+    await mkdir(join(root, folder));
+    await writeFile(join(root, folder, "dokument.pdf"), `%PDF-1.4 synthetic ${folder}`);
+  }
+  await grantInPlaceReorganize(root, NOW);
+  const inventory = await scanTriage(root, HOST);
+  expect(inventory.matters.map(matter => matter.path).sort()).toEqual([...matters].sort());
+  for (const folder of ["Emaily", "Korespondencia 2024", ...buckets]) expect(inventory.matters.some(matter => matter.path === folder)).toBe(false);
+});
+
 /** Zámok simulovaný chybou EBUSY pri otvorení súboru (Word na Windows). */
 function lockHooks(locked: string) {
   return {

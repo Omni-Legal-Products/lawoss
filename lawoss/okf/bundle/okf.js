@@ -1206,7 +1206,7 @@ function findCaseNumber(text) {
 }
 function folderHintRole(folder) {
   const name = normalizeText(folder);
-  return FOLDER_HINTS.find((hint) => findWord(name, hint.words))?.role;
+  return FOLDER_HINTS.find((hint) => hint.words.some((word) => name === word || name.startsWith(`${word} `)))?.role;
 }
 function classifyByRules(input) {
   const ext = input.ext.toLowerCase();

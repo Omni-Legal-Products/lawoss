@@ -82,10 +82,13 @@ export function findCaseNumber(text: string): CaseNumber | undefined {
   return { key, display: `${senate}${register} ${Number(number)}/${year}` };
 }
 
-/** Rola, ktorú advokát dal priečinku menom („Emaily“, „Korešpondencia 2024“, „Drafty“); priečinok podľa druhu dokumentu nie je vec. */
+/**
+ * Rola, ktorú advokát dal priečinku menom („Emaily“, „Korešpondencia 2024“, „Drafty“); priečinok podľa druhu
+ * dokumentu nie je vec. Slovo musí názov začínať: „M008 Reklamácia faktúry“ je vec, nie priečinok faktúr.
+ */
 export function folderHintRole(folder: string): TriageRole | undefined {
   const name = normalizeText(folder);
-  return FOLDER_HINTS.find(hint => findWord(name, hint.words))?.role;
+  return FOLDER_HINTS.find(hint => hint.words.some(word => name === word || name.startsWith(`${word} `)))?.role;
 }
 
 export type RuleInput = { path: string; name: string; ext: string };
