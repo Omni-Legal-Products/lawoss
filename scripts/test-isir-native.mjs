@@ -43,7 +43,8 @@ assert.ok(!requestedEndpointRefresh || (process.env.CI && corpus.mode==='synthet
 // Ordinary complete synthetic native runs always cover metadata refresh. An
 // external corpus and the explicitly partial debug mode keep their own scope.
 const endpointRefresh=corpus.mode==='synthetic' && !debugPair;
-const diagnostics = createNativeDiagnostics({ enabled: process.env.LAWOSS_ISIR_NATIVE_DIAGNOSTICS === '1', ci: Boolean(process.env.CI), mode: corpus.mode, outputFile: process.env.LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE });
+let cdp;
+const diagnostics = createNativeDiagnostics({ enabled: process.env.LAWOSS_ISIR_NATIVE_DIAGNOSTICS === '1', ci: Boolean(process.env.CI), mode: corpus.mode, outputFile: process.env.LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE, readGenerationResponseBody: requestId => cdp.send('Network.getResponseBody',{requestId}) });
 const nativeFetch = diagnostics.fetch;
 const stop = child => stopNativeChild(child,3000,{observe:diagnostics.ownedProcess});
 // An explicit fixture is preflighted, but never substitutes for a prepared
@@ -60,7 +61,6 @@ const profile = path.join(root, "profile");
 diagnostics.bindOwnedRoot(root);
 let engineLogLaunchWallMs=null,engineLogDeadlineWallMs=null;
 const children = [];
-let cdp;
 let protectedApprovals;
 const approvalScopes = new Map();
 const approvalReceipts = [];

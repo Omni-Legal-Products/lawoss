@@ -433,7 +433,39 @@ async function readOwnedEngineLog(io,root,context){
   }
   return result;
 }
-export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,ownedRoot,engineLogFs=fs}) {
+function generationErrorShape(result) {
+  const unknown=category=>({category,shape:'unknown',name:null,code:null});
+  const record=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
+  const fields=(value,required,optional=[])=>record(value)&&Object.keys(value).every(key=>[...required,...optional].includes(key))&&required.every(key=>Object.hasOwn(value,key));
+  const strings=(value,required,optional=[])=>fields(value,required,optional)&&[...required,...optional.filter(key=>Object.hasOwn(value,key))].every(key=>typeof value[key]==='string');
+  if(!fields(result,['body','base64Encoded'])||typeof result.body!=='string'||typeof result.base64Encoded!=='boolean')return unknown('unknown');
+  const maximum=64*1024;
+  if(result.body.length>(result.base64Encoded?Math.ceil(maximum/3)*4:maximum))return unknown('oversized');
+  let text=result.body;
+  if(result.base64Encoded){
+    const bytes=Buffer.from(text,'base64');
+    if(bytes.length>maximum)return unknown('oversized');
+    if(bytes.toString('base64')!==text)return unknown('unknown');
+    try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{return unknown('unknown');}
+  }else if(Buffer.byteLength(text)>maximum)return unknown('oversized');
+  let value;try{value=JSON.parse(text);}catch{return unknown('unknown');}
+  // Structural labels only: a guest can emit a host-shaped envelope. These
+  // discriminators identify no authenticated origin and establish no cause.
+  if(strings(value,['code','message'])&&value.code==='internal_error')
+    return {category:'recognized',shape:'host-error-envelope',name:null,code:'internal_error'};
+  // Pinned HTTP error middleware/SDK shapes, not arbitrary assistant errors.
+  if(fields(value,['name','data'])&&value.name==='UnknownError'&&strings(value.data,['message'],['ref']))
+    return {category:'recognized',shape:'engine-error-envelope',name:'UnknownError',code:null};
+  if(fields(value,['_tag'])&&value._tag==='InternalServerError')
+    return {category:'recognized',shape:'engine-error-envelope',name:'InternalServerError',code:null};
+  if(strings(value,['_tag','message'],['ref'])&&value._tag==='UnknownError')
+    return {category:'recognized',shape:'engine-error-envelope',name:'UnknownError',code:null};
+  if(strings(value,['_tag','message'],['service'])&&value._tag==='ServiceUnavailableError')
+    return {category:'recognized',shape:'engine-error-envelope',name:'ServiceUnavailableError',code:null};
+  return unknown('unknown');
+}
+
+export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,ownedRoot,engineLogFs=fs,readGenerationResponseBody}) {
   if(enabled&&(!ci||mode!=='synthetic'||!outputFile))throw new Error('Published native diagnostics require explicit CI synthetic mode and output file');
   let phase='setup',caseIndex=null;
   let recoveryStage=null,recoveryFrozen=false;
@@ -448,24 +480,42 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
   // network history is a rolling ring; polling must not erase this evidence.
   const generationPrompts=[];
   let generationRun=null;
+  const readGenerationError=run=>{
+    if(!enabled||!ci||mode!=='synthetic'||recoveryFrozen||typeof readGenerationResponseBody!=='function'||run.receipt.status<500||run.receipt.status>599)return;
+    const row=run.receipt;
+    row.responseError={category:'unknown',shape:'unknown',name:null,code:null};
+    let reading;
+    // Invoke now, while this event's owning CDP connection is current. No
+    // deferred target lookup, retry, additional wait or prompt is introduced.
+    try{reading=readGenerationResponseBody(run.requestId);}
+    catch{if(!recoveryFrozen)row.responseError={category:'read-failed',shape:'unknown',name:null,code:null};return;}
+    void Promise.resolve(reading).then(value=>{
+      if(recoveryFrozen)return;
+      try{row.responseError=generationErrorShape(value);}catch{row.responseError={category:'unknown',shape:'unknown',name:null,code:null};}
+    },()=>{if(!recoveryFrozen)row.responseError={category:'read-failed',shape:'unknown',name:null,code:null};});
+  };
   const observeNetworkEvent=event=>{
     if(recoveryFrozen||!generationRun)return;
     try {
       const run=generationRun,row=run.receipt,params=event?.params;
+      const elapsed=timestamp=>Number.isFinite(run.started)&&Number.isFinite(timestamp)&&timestamp>=run.started&&timestamp-run.started<=300?Math.round((timestamp-run.started)*1000):null;
       if(!row.issued){
         if(event?.method!=='Network.requestWillBeSent'||params?.request?.method!=='POST'||typeof params.requestId!=='string')return;
         const url=new URL(params.request.url);
         if(url.origin!==run.origin||url.username||url.password)return;
         const route=run.paths.get(url.pathname);if(!route)return;
-        row.issued=true;row.route=route;row.state='pending';run.requestId=params.requestId;
+        row.issued=true;row.route=route;row.state='pending';run.requestId=params.requestId;run.started=Number.isFinite(params.timestamp)?params.timestamp:null;
       } else if(params?.requestId===run.requestId){
         if(event.method==='Network.responseReceived'){
           const status=params.response?.status;
           row.status=Number.isInteger(status)&&status>=100&&status<=599?status:null;
+          const duration=elapsed(params.timestamp);if(duration!==null)row.headersElapsedMs=duration;
           row.state='headers';
         } else if(event.method==='Network.loadingFinished'){
-          row.state='finished';generationRun=null;
+          const duration=elapsed(params.timestamp);if(duration!==null)row.completedElapsedMs=duration;
+          row.state='finished';generationRun=null;readGenerationError(run);
         } else if(event.method==='Network.loadingFailed'){
+          const duration=elapsed(params.timestamp);if(duration!==null)row.completedElapsedMs=duration;
           const codes={'net::ERR_ABORTED':'aborted','net::ERR_CONNECTION_REFUSED':'connection-refused','net::ERR_CONNECTION_RESET':'connection-reset','net::ERR_TIMED_OUT':'timed-out'};
           row.failure=Object.hasOwn(codes,params.errorText)?codes[params.errorText]:params.canceled===true?'aborted':params.blockedReason?'blocked':'unknown';
           row.state='failed';generationRun=null;

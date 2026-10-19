@@ -832,3 +832,179 @@ test('critical generation receipt capacity is ten cases and pending/header state
     assert.equal(result.generationPrompts[9].state,'headers');assert.equal(result.generationPrompts[9].status,204);
   } finally {await rm(root,{recursive:true,force:true});}
 });
+
+// A real owned CDP socket exercises the same event observer and read command as
+// the native harness. These protocol fixtures never issue an application prompt.
+async function generationResponseFixture(run, {enabled=true,readFailure=false}={}) {
+  const {createServer}=await import('node:http');
+  const {createRequire}=await import('node:module');
+  const {connectRenderer}=await import('./cdp.mjs');
+  const {WebSocketServer}=createRequire(new URL('../../../../apps/desktop/package.json',import.meta.url))('ws');
+  const root=await mkdtemp(path.join(tmpdir(),'native-generation-response-'));
+  const outputFile=path.join(root,'safe.json'),reads=[],held=new Map();let renderer,socket;
+  const bodies=new Map();
+  const server=createServer((_request,response)=>{
+    response.setHeader('content-type','application/json');
+    response.end(JSON.stringify([{type:'page',url:`http://127.0.0.1:${server.address().port}/synthetic`,webSocketDebuggerUrl:`ws://127.0.0.1:${server.address().port}/synthetic`} ]));
+  });
+  const sockets=new WebSocketServer({server});
+  sockets.on('connection',connected=>{socket=connected;connected.on('message',bytes=>{
+    const command=JSON.parse(String(bytes));
+    if(command.method==='Network.getResponseBody'){
+      reads.push(command.params.requestId);
+      const respond=()=>connected.send(JSON.stringify({id:command.id,...(readFailure?{error:{code:-32000,message:'PRIVATE-CDP-FAILURE'}}:{result:bodies.get(command.params.requestId)})}));
+      if(held.has(command.params.requestId))held.set(command.params.requestId,respond);else respond();
+    }else connected.send(JSON.stringify({id:command.id,result:{}}));
+  });});
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const diagnostics=createNativeDiagnostics({enabled,ci:true,mode:'synthetic',outputFile,readGenerationResponseBody:id=>renderer.send('Network.getResponseBody',{requestId:id})});
+  try {
+    renderer=await connectRenderer(`http://127.0.0.1:${server.address().port}`,fetch,diagnostics.observeNetworkEvent);
+    const context={origin:'http://private-host',workspaceId:'PRIVATE-WORKSPACE',sessionId:'PRIVATE-SESSION'};
+    const flush=()=>renderer.send('Runtime.evaluate',{expression:'0'});
+    const emit=event=>socket.send(JSON.stringify(event));
+    const receipt=async()=>{await diagnostics.write();return JSON.parse(await readFile(outputFile,'utf8'));};
+    await run({diagnostics,context,reads,bodies,held,emit,flush,receipt,events:renderer.events});
+  } finally {renderer?.close();for(const connection of sockets.clients)connection.terminate();await new Promise(resolve=>sockets.close(resolve));await new Promise(resolve=>server.close(resolve));await rm(root,{recursive:true,force:true});}
+}
+
+test('owned completed generation5xx reads the actual CDP response once and retains only recognized envelope metadata',async()=>{
+  await generationResponseFixture(async f=>{
+    for(const [index,body,shape,name,code] of [
+      [1,{code:'internal_error',message:'PRIVATE-HOST-MESSAGE'},'host-error-envelope',null,'internal_error'],
+      [2,{name:'UnknownError',data:{message:'PRIVATE-ENGINE-MESSAGE',ref:'PRIVATE-REFERENCE'}},'engine-error-envelope','UnknownError',null],
+      [3,{_tag:'InternalServerError'},'engine-error-envelope','InternalServerError',null],
+      [4,{_tag:'UnknownError',message:'PRIVATE-ENGINE-MESSAGE',ref:'PRIVATE-REFERENCE'},'engine-error-envelope','UnknownError',null],
+    ]){
+      const id='PRIVATE-'+index;
+      f.bodies.set(id,{body:JSON.stringify(body),base64Encoded:false});
+      f.diagnostics.generationStart(index,f.events,f.events.length,f.context);
+      f.emit(promptRequest(id));f.emit(promptResponse(id,500));await f.flush();
+      assert.equal(f.reads.length,index-1,'No body read before its actual completion');
+      f.emit({method:'Network.loadingFinished',params:{requestId:id}});await f.flush();await f.flush();
+      const result=await f.receipt(),row=result.generationPrompts.at(-1);
+      assert.equal(row.status,500);assert.equal(row.state,'finished');
+      assert.deepEqual(row.responseError,{category:'recognized',shape,name,code});
+      assert.doesNotMatch(JSON.stringify(result),/PRIVATE|private-host|message|data|ref|body|header/i);
+      f.emit({method:'Network.loadingFinished',params:{requestId:id}});await f.flush();
+    }
+    assert.deepEqual(f.reads,['PRIVATE-1','PRIVATE-2','PRIVATE-3','PRIVATE-4']);
+  });
+});
+
+test('owned completed 503 retains only the verified unavailable envelope discriminator',async()=>{
+  await generationResponseFixture(async f=>{
+    const id='PRIVATE-UNAVAILABLE';
+    f.bodies.set(id,{body:JSON.stringify({_tag:'ServiceUnavailableError',message:'PRIVATE-UNAVAILABLE-MESSAGE',service:'PRIVATE-SERVICE'}),base64Encoded:false});
+    f.diagnostics.generationStart(1,f.events,f.events.length,f.context);
+    f.emit(promptRequest(id));f.emit(promptResponse(id,503));
+    f.emit({method:'Network.loadingFinished',params:{requestId:id}});await f.flush();await f.flush();
+    const result=await f.receipt(),row=result.generationPrompts[0];
+    assert.equal(row.status,503);assert.equal(row.state,'finished');
+    assert.deepEqual(row.responseError,{category:'recognized',shape:'engine-error-envelope',name:'ServiceUnavailableError',code:null});
+    assert.deepEqual(f.reads,[id]);
+    assert.doesNotMatch(JSON.stringify(result),/PRIVATE|private-host|message|service"|body|header/i);
+  });
+});
+
+test('generation error bodies stay bounded and closed against malformed, hostile or unknown metadata',async()=>{
+  const samples=[
+    ['{"code":','unknown'],
+    [JSON.stringify({code:'PRIVATE-CODE',message:'PRIVATE-MESSAGE'}),'unknown'],
+    [JSON.stringify({code:'internal_error',message:'PRIVATE-MESSAGE',extra:'PRIVATE-PATH'}),'unknown'],
+    [JSON.stringify({name:'PRIVATE-NAME',data:{message:'PRIVATE-MESSAGE'}}),'unknown'],
+    ['{"name":"UnknownError","data":{"message":"PRIVATE-MESSAGE","__proto__":{"secret":"PRIVATE"}}}','unknown'],
+    [JSON.stringify({name:'UnknownError',data:{message:'PRIVATE-MESSAGE'},raw:'PRIVATE-SOURCE'}),'unknown'],
+    ['PRIVATE'.repeat(10000),'oversized'],
+    [JSON.stringify({name:'UnknownError',data:{message:42}}),'unknown'],
+    [JSON.stringify({code:'internal_error',message:'PRIVATE-MESSAGE',details:{source:'PRIVATE'}}),'unknown'],
+    [JSON.stringify({_tag:'PRIVATE-TAG',message:'PRIVATE-MESSAGE'}),'unknown'],
+  ];
+  await generationResponseFixture(async f=>{
+    for(const [offset,[body,category]] of samples.entries()){
+      const index=offset+1,id='PRIVATE-'+index;
+      f.bodies.set(id,{body,base64Encoded:false});
+      f.diagnostics.generationStart(index,f.events,f.events.length,f.context);
+      f.emit(promptRequest(id));f.emit(promptResponse(id,503));f.emit({method:'Network.loadingFinished',params:{requestId:id}});
+      await f.flush();await f.flush();
+      const result=await f.receipt();
+      assert.deepEqual(result.generationPrompts.at(-1).responseError,{category,shape:'unknown',name:null,code:null});
+      assert.equal(result.generationPrompts.at(-1).status,503);
+      assert.doesNotMatch(JSON.stringify(result),/PRIVATE|private-host|raw|secret|message|body/i);
+    }
+    f.diagnostics.generationStart(11,f.events,f.events.length,f.context);
+    f.emit(promptRequest('PRIVATE-EXCESS'));f.emit(promptResponse('PRIVATE-EXCESS',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE-EXCESS'}});await f.flush();
+    assert.equal(f.reads.length,10);assert.equal((await f.receipt()).generationPrompts.length,10);
+  });
+});
+
+test('generation response reader ignores foreign scope, success, cancellation and disabled diagnostics',async()=>{
+  for(const enabled of [true,false])await generationResponseFixture(async f=>{
+    f.diagnostics.generationStart(1,f.events,0,f.context);
+    for(const [id,url] of [['origin','http://foreign-host/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async'],['workspace','/workspace/OTHER/opencode/session/PRIVATE-SESSION/prompt_async'],['session','/workspace/PRIVATE-WORKSPACE/opencode/session/OTHER/prompt_async']]){
+      f.emit(promptRequest(id,url));f.emit(promptResponse(id,500));f.emit({method:'Network.loadingFinished',params:{requestId:id}});
+    }
+    f.emit(promptRequest('cancelled'));f.emit(promptResponse('cancelled',500));f.emit({method:'Network.loadingFailed',params:{requestId:'cancelled',canceled:true}});
+    await f.flush();
+    f.diagnostics.generationStart(2,f.events,f.events.length,f.context);
+    f.emit(promptRequest('accepted'));f.emit(promptResponse('accepted',204));f.emit({method:'Network.loadingFinished',params:{requestId:'accepted'}});await f.flush();
+    if(!enabled){
+      f.diagnostics.generationStart(3,f.events,f.events.length,f.context);
+      f.emit(promptRequest('disabled'));f.emit(promptResponse('disabled',500));f.emit({method:'Network.loadingFinished',params:{requestId:'disabled'}});await f.flush();
+    }
+    assert.deepEqual(f.reads,[]);
+  },{enabled});
+});
+
+test('a pending generation body cannot change primary failure evidence and read failures cannot mask it',async()=>{
+  await generationResponseFixture(async f=>{
+    const id='PRIVATE-HELD';f.held.set(id,null);f.bodies.set(id,{body:JSON.stringify({code:'internal_error',message:'PRIVATE-MESSAGE'}),base64Encoded:false});
+    f.diagnostics.generationStart(1,[],0,f.context);
+    f.emit(promptRequest(id));f.emit(promptResponse(id,500));f.emit({method:'Network.loadingFinished',params:{requestId:id}});await f.flush();await f.flush();
+    assert.deepEqual(f.reads,[id]);
+    const before=await f.receipt(),primary=new Error('PRIVATE-PRIMARY');f.diagnostics.failure(primary);
+    f.held.get(id)();await f.flush();
+    f.diagnostics.generationStart(2,[],0,f.context);f.emit(promptRequest('late'));f.emit(promptResponse('late',500));f.emit({method:'Network.loadingFinished',params:{requestId:'late'}});await f.flush();
+    assert.deepEqual((await f.receipt()).generationPrompts,before.generationPrompts);assert.deepEqual(f.reads,[id]);
+  });
+  await generationResponseFixture(async f=>{
+    f.diagnostics.generationStart(1,[],0,f.context);
+    f.emit(promptRequest('failed-read'));f.emit(promptResponse('failed-read',500));f.emit({method:'Network.loadingFinished',params:{requestId:'failed-read'}});await f.flush();await f.flush();
+    const value=await f.receipt();assert.deepEqual(value.generationPrompts[0].responseError,{category:'read-failed',shape:'unknown',name:null,code:null});
+    assert.doesNotMatch(JSON.stringify(value),/PRIVATE|CDP|message|body/);
+  },{readFailure:true});
+});
+
+test('generation error reader decodes only complete canonical bounded CDP base64 bodies',async()=>{
+  await generationResponseFixture(async f=>{
+    for(const [index,packet,expected] of [
+      [1,{body:Buffer.from(JSON.stringify({_tag:'InternalServerError'})).toString('base64'),base64Encoded:true},{category:'recognized',shape:'engine-error-envelope',name:'InternalServerError',code:null}],
+      [2,{body:'%%%%PRIVATE',base64Encoded:true},{category:'unknown',shape:'unknown',name:null,code:null}],
+      [3,{body:Buffer.alloc(65537).toString('base64'),base64Encoded:true},{category:'oversized',shape:'unknown',name:null,code:null}],
+      [4,{body:'{}',base64Encoded:false,extra:'PRIVATE'},{category:'unknown',shape:'unknown',name:null,code:null}],
+    ]){
+      const id='PRIVATE-'+index;f.bodies.set(id,packet);f.diagnostics.generationStart(index,[],0,f.context);
+      f.emit(promptRequest(id));f.emit(promptResponse(id,502));f.emit({method:'Network.loadingFinished',params:{requestId:id}});await f.flush();await f.flush();
+      assert.deepEqual((await f.receipt()).generationPrompts.at(-1).responseError,expected);
+    }
+  });
+});
+
+test('generation receipts retain only bounded relative network timing, never absolute timestamps',async()=>{
+  await generationResponseFixture(async f=>{
+    for(const [index,started,headers,finished,expected] of [
+      [1,123456,123456.075,123456.125,{headersElapsedMs:75,completedElapsedMs:125}],
+      [2,5,4,306,{}],
+      [3,undefined,9,10,{}],
+      [4,0,0,0,{headersElapsedMs:0,completedElapsedMs:0}],
+    ]){
+      const id='PRIVATE-'+index;f.bodies.set(id,{body:JSON.stringify({code:'internal_error',message:'PRIVATE'}),base64Encoded:false});
+      f.diagnostics.generationStart(index,[],0,f.context);
+      const request=promptRequest(id),response=promptResponse(id,500);request.params.timestamp=started;response.params.timestamp=headers;
+      f.emit(request);f.emit(response);f.emit({method:'Network.loadingFinished',params:{requestId:id,timestamp:finished}});await f.flush();await f.flush();
+      const row=(await f.receipt()).generationPrompts.at(-1),{headersElapsedMs,completedElapsedMs}=row;
+      assert.deepEqual({...('headersElapsedMs'in row?{headersElapsedMs}:{}),...('completedElapsedMs'in row?{completedElapsedMs}:{})},expected);
+      assert.doesNotMatch(JSON.stringify(row),/123456|timestamp|PRIVATE/);
+    }
+  });
+});
