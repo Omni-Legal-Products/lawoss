@@ -10,6 +10,8 @@ import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from 
 import { addOkfFiles, childPath, connectPractice, firstWorkspaceResult, folderName, matterClientPath, reorganizeTarget, retryFailed, startReorganize, workspaceResults, type BatchItem, type FoundIdentity } from "./found-flow";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
+import { ScreenHead } from "./folder-step";
+import { onboardingErrorMessage } from "./onboarding-errors";
 export { OkfNotice } from "./okf-notice";
 import type { OnboardingCompletion } from "./lawoss-welcome-page";
 
@@ -29,18 +31,24 @@ export function isUncertainPractice(suggestion: OnboardingSuggestion): boolean {
   return suggestion.level === "practice" && !suggestion.marked && suggestion.signals.length === 1 && suggestion.signals[0] === "matter_named_children";
 }
 
-export function initialFoundLevel(suggestion: OnboardingSuggestion): FoundLevel {
-  if (isUncertainPractice(suggestion)) return "client";
-  return suggestion.level === "practice" || suggestion.level === "matter" ? suggestion.level : "client";
+type ProposalKey = "practiceUncertain" | "practiceFound" | "clientFound" | "matterFound" | "unknownFound";
+
+/**
+ * Veta návrhu a predvolená voľba „Toto je“ z jedného rozhodnutia, aby si nemohli protirečiť
+ * (MČ 19. 10. 2026). Slabá prax hovorí „Predvolený je klient“, preto predvolí klienta.
+ */
+export function foundProposal(suggestion: OnboardingSuggestion): { key: ProposalKey; level: FoundLevel } {
+  if (isUncertainPractice(suggestion)) return { key: "practiceUncertain", level: "client" };
+  if (suggestion.level === "practice") return { key: "practiceFound", level: "practice" };
+  if (suggestion.level === "matter") return { key: "matterFound", level: "matter" };
+  if (suggestion.level === "client") return { key: "clientFound", level: "client" };
+  return { key: "unknownFound", level: "client" };
 }
 
-function headline(text: Text, suggestion: OnboardingSuggestion): string {
-  if (isUncertainPractice(suggestion)) return text("practiceUncertain", { count: suggestion.clients.length, name: folderName(suggestion.root) });
-  if (suggestion.level === "practice") return text("practiceFound", { count: suggestion.clients.length });
-  if (suggestion.level === "client") return text("clientFound", { name: folderName(suggestion.root) });
-  if (suggestion.level === "matter") return text("matterFound", { name: folderName(suggestion.root) });
-  return text("unknownFound");
-}
+export const initialFoundLevel = (suggestion: OnboardingSuggestion): FoundLevel => foundProposal(suggestion).level;
+
+const headline = (text: Text, suggestion: OnboardingSuggestion): string =>
+  text(foundProposal(suggestion).key, { count: suggestion.clients.length, name: folderName(suggestion.root) });
 
 type ViewProps = {
   text: Text; busy: boolean; suggestion: OnboardingSuggestion; level: FoundLevel;
@@ -57,7 +65,10 @@ export function FoundView({ text, busy, suggestion, level, scope, selected, onLe
   const parentName = folderName(matterClientPath(suggestion.root));
   return (
     <div className="grid gap-5" data-lawoss-found>
-      <h2 className="text-xl font-semibold">{text("foundTitle")}</h2>
+      {/* Návrat na výber priečinka je pri nadpise: pod návrhom a odpoveďami by bol až po rolovaní (MČ 19. 10.). */}
+      <ScreenHead title={text("foundTitle")}>
+        <button type="button" className="lw-btn" disabled={busy} onClick={onChangeFolder}>{text("changeFolder")}</button>
+      </ScreenHead>
       <p>{headline(text, suggestion)}</p>
       {!suggestion.complete ? <p className="lw-status warn">{text("incomplete")}</p> : null}
       <label className="grid gap-1.5 text-sm font-medium">
@@ -119,7 +130,6 @@ export function FoundView({ text, busy, suggestion, level, scope, selected, onLe
           <p className="text-xs text-muted-foreground">{text("acknowledge")}</p>
         </section>
       ) : null}
-      <div><button type="button" className="lw-btn" disabled={busy} onClick={onChangeFolder}>{text("changeFolder")}</button></div>
     </div>
   );
 }
@@ -193,6 +203,8 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
   const [busy, setBusy] = useState(false);
   // Klienti dávky praxe: koniec toku (aj po usporiadaní po jednom) ich odovzdá všetkých, nie len prvého.
   const batchClients = useRef<OnboardingApplyResult[]>([]);
+  // Chyba klienta v dávke: veta v jazyku rozhrania ako vo vrchnom pruhu, surová správa do konzoly.
+  const describe = (reason: unknown) => onboardingErrorMessage(reason, locale);
   const today = new Date();
 
   // Závislosti sú zámerne len [api, root]: onError od volajúceho je pri každom vykreslení nová
@@ -249,13 +261,13 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
         return;
       }
       const items = suggestion.clients.filter(client => selected.includes(client.path)).map(client => ({ root: childPath(suggestion.root, client.path), name: client.name }));
-      const batch = await addOkfFiles(api, items, identity, today, (next) => setPhase({ name: "batch", items: next, answer: choice }));
+      const batch = await addOkfFiles(api, items, identity, today, (next) => setPhase({ name: "batch", items: next, answer: choice }), describe);
       setPhase({ name: "batch", items: batch, answer: choice });
       return;
     }
     // Vec (R9): pripojí sa nadradený priečinok ako klient, nie samotná vec.
     const target = level === "matter" ? matterClientPath(suggestion.root) : suggestion.root;
-    const batch = await addOkfFiles(api, [{ root: target, name: folderName(target) }], identity, today, (next) => setPhase({ name: "batch", items: next, answer: choice }));
+    const batch = await addOkfFiles(api, [{ root: target, name: folderName(target) }], identity, today, (next) => setPhase({ name: "batch", items: next, answer: choice }), describe);
     if (batch[0]?.status === "done" && choice === "no") { await onDone(batch[0].result); return; }
     if (batch[0]?.status === "done" && choice === "yes") { await nextReorganize(batch, batch[0].result); return; }
     setPhase({ name: "batch", items: batch, answer: choice });
@@ -291,7 +303,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     });
     const retry = () => run(async () => {
       const progress = (next: BatchItem[]) => setPhase({ name: "batch", items: next, answer: phase.answer });
-      progress(await retryFailed(api, phase.items, identity, today, progress));
+      progress(await retryFailed(api, phase.items, identity, today, progress, describe));
     });
     return <BatchView text={text} busy={busy} items={phase.items} answer={phase.answer} onRetry={() => void retry()} onContinue={() => void continueBatch()} onChangeFolder={onChangeFolder} />;
   }

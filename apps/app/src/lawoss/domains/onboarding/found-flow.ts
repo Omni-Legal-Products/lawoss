@@ -8,6 +8,7 @@ import { triageGrant, triagePlan, type TriageClient, type TriagePreview } from "
 import type { DocumentLanguage, ExistingPlanRequest, Jurisdiction, OfficePlanRequest, OnboardingApi, OnboardingApplyResult, OnboardingSuggestion, PracticePlanRequest } from "./api";
 
 export type FoundIdentity = { lawyerName: string; jurisdiction: Jurisdiction; language: Language };
+/** `error` je už veta pre advokáta (DescribeError), nie surová správa servera. */
 export type BatchItem = { root: string; name: string; status: "pending" | "done" | "failed"; error?: string; result?: OnboardingApplyResult };
 type FlowApi = Pick<OnboardingApi, "planOnboarding" | "applyOnboarding" | "updateOnboardingProfile">;
 
@@ -75,15 +76,16 @@ export function practiceRequest(root: string, identity: FoundIdentity, suggestio
   };
 }
 
-const errorText = (reason: unknown) => (reason instanceof Error ? reason.message : String(reason));
+/** Chyba klienta ako veta pre advokáta v jazyku rozhrania (volajúci zapíše surovú správu do konzoly). */
+export type DescribeError = (reason: unknown) => string;
 
-async function convertOne(api: FlowApi, item: { root: string; name: string }, identity: FoundIdentity, today: Date): Promise<BatchItem> {
+async function convertOne(api: FlowApi, item: { root: string; name: string }, identity: FoundIdentity, today: Date, describe: DescribeError): Promise<BatchItem> {
   try {
     const preview = await api.planOnboarding(convertRequest(item.root, identity, today));
     const result = await api.applyOnboarding({ id: preview.id, fingerprint: preview.fingerprint, confirm: true });
     return { ...item, status: "done", result };
   } catch (reason) {
-    return { ...item, status: "failed", error: errorText(reason) };
+    return { ...item, status: "failed", error: describe(reason) };
   }
 }
 
@@ -91,22 +93,22 @@ async function convertOne(api: FlowApi, item: { root: string; name: string }, id
  * Pridá OKF súbory klientom po jednom (R4: zoznam potvrdil advokát raz). Chyba u jedného klienta
  * nezastaví ostatných; priebeh hlási po každom klientovi.
  */
-export async function addOkfFiles(api: FlowApi, items: readonly { root: string; name: string }[], identity: FoundIdentity, today: Date, onProgress: (items: BatchItem[]) => void): Promise<BatchItem[]> {
+export async function addOkfFiles(api: FlowApi, items: readonly { root: string; name: string }[], identity: FoundIdentity, today: Date, onProgress: (items: BatchItem[]) => void, describe: DescribeError): Promise<BatchItem[]> {
   const state: BatchItem[] = items.map(item => ({ ...item, status: "pending" }));
   onProgress([...state]);
   for (const [index, item] of items.entries()) {
-    state[index] = await convertOne(api, item, identity, today);
+    state[index] = await convertOne(api, item, identity, today, describe);
     onProgress([...state]);
   }
   return state;
 }
 
 /** Zopakuje len neúspešných; hotových nechá tak. */
-export async function retryFailed(api: FlowApi, items: readonly BatchItem[], identity: FoundIdentity, today: Date, onProgress: (items: BatchItem[]) => void): Promise<BatchItem[]> {
+export async function retryFailed(api: FlowApi, items: readonly BatchItem[], identity: FoundIdentity, today: Date, onProgress: (items: BatchItem[]) => void, describe: DescribeError): Promise<BatchItem[]> {
   const state = [...items];
   for (const [index, item] of items.entries()) {
     if (item.status !== "failed") continue;
-    state[index] = await convertOne(api, { root: item.root, name: item.name }, identity, today);
+    state[index] = await convertOne(api, { root: item.root, name: item.name }, identity, today, describe);
     onProgress([...state]);
   }
   return state;

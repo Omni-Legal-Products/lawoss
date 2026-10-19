@@ -1,5 +1,5 @@
 /** Krok Priečinok (spec P1, P7): pripojiť existujúci priečinok alebo začať nanovo. */
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { FolderOpen, FolderPlus } from "lucide-react";
 import type { OnboardingApi, OnboardingApplyResult } from "./api";
 import { startFreshFolder, type FoundIdentity } from "./found-flow";
@@ -8,10 +8,23 @@ import { OkfNotice } from "./okf-notice";
 
 type Text = (key: FoundTextKey, params?: Record<string, string | number>) => string;
 
-export function FolderChoiceView({ text, busy, onConnect, onFresh }: { text: Text; busy: boolean; onConnect: () => void; onFresh: () => void }) {
+/**
+ * Nadpis obrazovky s vedľajšou navigáciou (Späť, Zrušiť, Vybrať iný priečinok) vpravo. Veľké voľby pod ním
+ * sú vysoké; navigácia v päte by bola dosiahnuteľná až po rolovaní (MČ 19. 10. 2026).
+ */
+export function ScreenHead({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h2 className="text-xl font-semibold">{title}</h2>
+      {children}
+    </div>
+  );
+}
+
+export function FolderChoiceView({ text, busy, onConnect, onFresh, nav }: { text: Text; busy: boolean; onConnect: () => void; onFresh: () => void; nav?: ReactNode }) {
   return (
     <div className="grid gap-4">
-      <h2 className="text-xl font-semibold">{text("folderTitle")}</h2>
+      <ScreenHead title={text("folderTitle")}>{nav}</ScreenHead>
       <p className="text-muted-foreground">{text("folderLead")}</p>
       <div className="lw-onb-choices">
         <section className="lw-onb-choice">
@@ -34,9 +47,10 @@ export function FolderChoiceView({ text, busy, onConnect, onFresh }: { text: Tex
   );
 }
 
-export function FreshDoneView({ text, busy = false, onFinish }: { text: Text; busy?: boolean; onFinish: () => void }) {
+export function FreshDoneView({ text, busy = false, onFinish, nav }: { text: Text; busy?: boolean; onFinish: () => void; nav?: ReactNode }) {
   return (
     <div className="grid gap-3">
+      {nav ? <ScreenHead title={text("folderTitle")}>{nav}</ScreenHead> : null}
       <p>{text("freshDone")}</p>
       <p className="text-muted-foreground">{text("freshHowTo")}</p>
       <div><button type="button" className="lw-btn gold" disabled={busy} onClick={onFinish}>{text("finish")}</button></div>
@@ -54,10 +68,12 @@ type Props = {
   onAcknowledge: () => Promise<void>;
   onFreshDone: (result: OnboardingApplyResult) => Promise<void> | void;
   onError: (reason: unknown) => void;
+  /** Späť alebo Zrušiť od volajúceho, zobrazené pri nadpise. */
+  nav?: ReactNode;
 };
 
 /** „Začať nanovo“: prázdny vybraný priečinok dostane kanceláriu, `AGENTS.md` praxe a `Klienti/`. */
-export function FolderStep({ api, identity, text, pickDirectory, onFound, onAcknowledge, onFreshDone, onError }: Props) {
+export function FolderStep({ api, identity, text, pickDirectory, onFound, onAcknowledge, onFreshDone, onError, nav }: Props) {
   const [busy, setBusy] = useState(false);
   const [fresh, setFresh] = useState<OnboardingApplyResult | null>(null);
   // Dvojklik na „Dokončiť“ nesmie dokončiť onboarding dvakrát; ref platí ešte pred novým vykreslením.
@@ -95,6 +111,6 @@ export function FolderStep({ api, identity, text, pickDirectory, onFound, onAckn
       setBusy(false);
     }
   };
-  if (fresh) return <FreshDoneView text={text} busy={busy} onFinish={() => void finish(fresh)} />;
-  return <FolderChoiceView text={text} busy={busy} onConnect={() => void connect()} onFresh={() => void startFresh()} />;
+  if (fresh) return <FreshDoneView text={text} busy={busy} onFinish={() => void finish(fresh)} nav={nav} />;
+  return <FolderChoiceView text={text} busy={busy} onConnect={() => void connect()} onFresh={() => void startFresh()} nav={nav} />;
 }

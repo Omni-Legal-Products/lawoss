@@ -31,3 +31,9 @@ test("po založení nového priečinka návod na migráciu", () => {
   expect(html).toContain("Klientov sem skopírujte");
   expect(html).toContain("Dokončiť");
 });
+test("Späť je v hlavičke pri nadpise, nie až pod veľkými voľbami (MČ 19. 10.)", () => {
+  const html = renderToStaticMarkup(<FolderChoiceView text={foundText("sk")} busy={false} onConnect={() => undefined} onFresh={() => undefined} nav={<button type="button">Späť</button>} />);
+  const back = html.indexOf(">Späť<");
+  expect(back).toBeGreaterThan(html.indexOf("Priečinok"));
+  expect(back).toBeLessThan(html.indexOf("lw-onb-choices"));
+});

@@ -43,12 +43,6 @@ import { visibleExistingClientModes } from "../../feature-flags";
 import { clientTitleOf, resolveOpenClient, type OpenClientReader } from "../../okf/open-client";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { readActiveWorkspaceId } from "@/react-app/shell/session-memory";
-import {
-  LOCKED_FILE_CODE,
-  LOCKED_FILES_MESSAGE_PREFIX,
-  UNSAFE_FOLDER_NAME_MESSAGE,
-} from "../../../../../../lawoss/okf/src/onboarding/messages";
-import { OFFICE_CONFIG_ENCODING_MESSAGE } from "../../../../../../lawoss/okf/src/profile";
 import { LawossWordmark } from "../../shell/wordmark";
 import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import "./onboarding.css";
@@ -57,7 +51,10 @@ import type { TriageClient } from "../roztriedenie/api";
 import { FolderStep } from "./folder-step";
 import { FoundScreen, OkfNotice } from "./found-screen";
 import { foundText } from "./found-text";
-import { canonicalPathRejection, unquotedTypedPath } from "./typed-paths";
+import { unquotedTypedPath } from "./typed-paths";
+import { onboardingErrorMessage } from "./onboarding-errors";
+
+export { onboardingErrorMessage };
 
 /** Jazyky rozhrania v poradí LAWOSS (SK, CS, EN, DE) s pôvodnými názvami namiesto kódov. */
 const UI_LANGUAGE_ORDER: readonly Language[] = ["sk", "cs", "en", "de"];
@@ -283,86 +280,6 @@ const text: Record<Language, Record<string, string>> = {
     error: "Dieser Schritt konnte nicht abgeschlossen werden.",
   },
 };
-const unsafeFolderName: Record<Language, string> = {
-  sk: "Názov priečinka nesmie byť prázdny, začínať bodkou, obsahovať znaky / \\ : < > \" | ? * ani mať viac ako 120 znakov. Bodky vnútri názvu, napríklad „s. r. o.“, sú v poriadku.",
-  cs: "Název složky nesmí být prázdný, začínat tečkou, obsahovat znaky / \\ : < > \" | ? * ani mít více než 120 znaků. Tečky uvnitř názvu, například „s. r. o.“, jsou v pořádku.",
-  en: "The folder name must not be empty, start with a dot, contain / \\ : < > \" | ? * or be longer than 120 characters. Dots inside the name, such as \"s. r. o.\", are fine.",
-  de: "Der Ordnername darf nicht leer sein, nicht mit einem Punkt beginnen, keine Zeichen / \\ : < > \" | ? * enthalten und nicht länger als 120 Zeichen sein. Punkte im Namen, etwa „s. r. o.“, sind zulässig.",
-};
-/** Zamknutý súbor z neúplnej inšpekcie (Windows: dokument otvorený vo Worde); cesty sú zo správy servera. */
-const lockedFiles: Record<Language, (paths: string, many: boolean) => string> = {
-  sk: (paths, many) =>
-    many
-      ? `Súbory sú otvorené v inej aplikácii (napríklad vo Worde) alebo k nim nie je prístup: ${paths}. Zatvorte ich a skúste to znova.`
-      : `Súbor je otvorený v inej aplikácii (napríklad vo Worde) alebo k nemu nie je prístup: ${paths}. Zatvorte ho a skúste to znova.`,
-  cs: (paths, many) =>
-    many
-      ? `Soubory jsou otevřené v jiné aplikaci (například ve Wordu) nebo k nim není přístup: ${paths}. Zavřete je a zkuste to znovu.`
-      : `Soubor je otevřený v jiné aplikaci (například ve Wordu) nebo k němu není přístup: ${paths}. Zavřete ho a zkuste to znovu.`,
-  en: (paths, many) =>
-    many
-      ? `Files are open in another application (for example Word) or cannot be accessed: ${paths}. Close them and try again.`
-      : `A file is open in another application (for example Word) or cannot be accessed: ${paths}. Close it and try again.`,
-  de: (paths, many) =>
-    many
-      ? `Dateien sind in einer anderen Anwendung geöffnet (zum Beispiel in Word) oder nicht zugänglich: ${paths}. Schließen Sie sie und versuchen Sie es erneut.`
-      : `Eine Datei ist in einer anderen Anwendung geöffnet (zum Beispiel in Word) oder nicht zugänglich: ${paths}. Schließen Sie sie und versuchen Sie es erneut.`,
-};
-const lockedFilesMessage = (error: unknown, locale: Language) => {
-  if (!(error instanceof Error) || !error.message.startsWith(LOCKED_FILES_MESSAGE_PREFIX)) return undefined;
-  // Zamknuté súbory sú v zozname vpredu; „; “ môže byť aj v názve súboru, preto rozhoduje kód za cestou.
-  const list = error.message
-    .slice(LOCKED_FILES_MESSAGE_PREFIX.length)
-    .trim()
-    .replace(/ \(\+\d+ more\)$/, "");
-  const paths = [...list.matchAll(new RegExp(`(?:^|; )(.+?): ${LOCKED_FILE_CODE}(?=; |$)`, "g"))].map((match) => match[1] ?? "");
-  return paths.length ? lockedFiles[locale](paths.join(", "), paths.length > 1) : undefined;
-};
-/** okf.config kancelárie v ANSI (PowerShell 5.1 `Set-Content`): názvy priečinkov z neho by boli poškodené. */
-const officeConfigEncoding: Record<Language, string> = {
-  sk: "Súbor okf.config kancelárie nie je uložený v UTF-8 (napríklad v ANSI z PowerShellu), takže priečinky z neho by mali poškodené názvy. Otvorte ho v Poznámkovom bloku, uložte ho s kódovaním UTF-8 a skúste to znova.",
-  cs: "Soubor okf.config kanceláře není uložený v UTF-8 (například v ANSI z PowerShellu), takže složky z něj by měly poškozené názvy. Otevřete ho v Poznámkovém bloku, uložte ho s kódováním UTF-8 a zkuste to znovu.",
-  en: "The office okf.config is not saved as UTF-8 (for example ANSI from PowerShell), so folders from it would get damaged names. Open it in Notepad, save it with UTF-8 encoding and try again.",
-  de: "Die okf.config der Kanzlei ist nicht als UTF-8 gespeichert (zum Beispiel ANSI aus PowerShell), daher hätten Ordner daraus beschädigte Namen. Öffnen Sie sie im Editor, speichern Sie sie mit der Codierung UTF-8 und versuchen Sie es erneut.",
-};
-const officeConfigEncodingMessage = (error: unknown, locale: Language) =>
-  error instanceof Error && error.message.startsWith(OFFICE_CONFIG_ENCODING_MESSAGE) ? officeConfigEncoding[locale] : undefined;
-/**
- * Vo vybranom priečinku je iná kancelária alebo karta (`conflicting_identity`), prípadne sa kancelária
- * nedala spoľahlivo vyhľadať (`office_search_incomplete`). Spec #92: stop s vysvetlením.
- */
-const nestedIdentity: Record<Language, (paths: string) => string> = {
-  sk: (paths) => `Vo vybranom priečinku už je iná kancelária alebo iný klient: ${paths}. Taký priečinok sa nedá pripojiť ako jeden klient. Pripojte priamo priečinok tej kancelárie alebo vyberte iný priečinok.`,
-  cs: (paths) => `Ve vybrané složce už je jiná kancelář nebo jiný klient: ${paths}. Takovou složku nelze připojit jako jednoho klienta. Připojte přímo složku té kanceláře nebo vyberte jinou složku.`,
-  en: (paths) => `The selected folder already contains another office or another client: ${paths}. Such a folder cannot be added as a single client. Add that office folder directly or choose a different folder.`,
-  de: (paths) => `Der gewählte Ordner enthält bereits eine andere Kanzlei oder einen anderen Mandanten: ${paths}. Ein solcher Ordner kann nicht als ein Mandant hinzugefügt werden. Fügen Sie direkt den Ordner dieser Kanzlei hinzu oder wählen Sie einen anderen Ordner.`,
-};
-const officeSearchIncomplete: Record<Language, string> = {
-  sk: "Priečinok sa nepodarilo prehľadať celý (je veľmi veľký alebo sa niektorý podpriečinok nedá čítať), takže nie je isté, že v ňom nie je iná kancelária. Vyberte menší priečinok, napríklad priečinok jedného klienta.",
-  cs: "Složku se nepodařilo prohledat celou (je velmi velká nebo některou podsložku nelze číst), takže není jisté, že v ní není jiná kancelář. Vyberte menší složku, například složku jednoho klienta.",
-  en: "The folder could not be searched completely (it is very large or a subfolder cannot be read), so it is not certain that it contains no other office. Choose a smaller folder, for example the folder of one client.",
-  de: "Der Ordner konnte nicht vollständig durchsucht werden (er ist sehr groß oder ein Unterordner ist nicht lesbar), daher ist nicht sicher, dass er keine andere Kanzlei enthält. Wählen Sie einen kleineren Ordner, zum Beispiel den Ordner eines Mandanten.",
-};
-const identityMessage = (error: unknown, locale: Language) => {
-  if (!(error instanceof Error)) return undefined;
-  if (/(?:^|: |; )\.: office_search_incomplete(?=; |$| \()/.test(error.message)) return officeSearchIncomplete[locale];
-  const paths = [...error.message.matchAll(/(?:: |; )([^;]+?): conflicting_identity(?=; |$| \()/g)].map((match) => match[1] ?? "");
-  return paths.length ? nestedIdentity[locale](paths.join(", ")) : undefined;
-};
-/** Neznáma chyba: advokát dostane všeobecnú vetu, surová správa (cesty, interné kódy) ide len do konzoly. */
-const genericOnboardingError = (error: unknown, locale: Language) => {
-  console.warn("LAWOSS onboarding:", error);
-  return t("lawoss.onboarding.error_generic", locale);
-};
-/** Server errors in the UI language where the app knows them; other messages become a general sentence. */
-export const onboardingErrorMessage = (error: unknown, locale: Language) =>
-  error instanceof Error && error.message === UNSAFE_FOLDER_NAME_MESSAGE
-    ? unsafeFolderName[locale]
-    : (lockedFilesMessage(error, locale) ??
-      identityMessage(error, locale) ??
-      officeConfigEncodingMessage(error, locale) ??
-      canonicalPathRejection(error, locale) ??
-      genericOnboardingError(error, locale));
 const field = (label: string, child: ReactNode) => (
   <label className="grid gap-1.5 text-sm font-medium">
     <span>{label}</span>
@@ -836,6 +753,20 @@ export function LawossWelcomePage({
     language: locale,
   };
   const identity = { lawyerName: base.lawyerName, jurisdiction: base.jurisdiction, language: base.language };
+  // Krok Priečinok a „Toto som našiel“ vykresľujú vlastné obrazovky s navigáciou pri nadpise.
+  const folderScreen = (step === "folder" || step === "found") && triage !== null;
+  const backNav = sidebarFlow ? (
+    <button type="button" className="lw-btn" disabled={busy} onClick={onCancel}>
+      {tr("cancel")}
+    </button>
+  ) : (
+    <Button
+      variant="ghost"
+      onClick={() => void move(steps[Math.max(0, idx - 1)])}
+    >
+      {tr("back")}
+    </Button>
+  );
   return (
     <DirectoryPickerContext.Provider value={pickDirectory}>
       {/* Koreň appky má overflow: hidden; bez vlastnej posúvateľnej oblasti by náhľad zmien a jeho
@@ -918,7 +849,7 @@ export function LawossWelcomePage({
               />
             </>
           ) : null}
-          {(step === "folder" || step === "found") && triage ? (
+          {folderScreen && triage ? (
             foundRoot ? (
               <FoundScreen
                 api={api}
@@ -939,6 +870,7 @@ export function LawossWelcomePage({
                 api={api}
                 identity={identity}
                 text={found}
+                nav={backNav}
                 pickDirectory={pickDirectory}
                 onFound={(root) => {
                   setError(null);
@@ -1093,21 +1025,11 @@ export function LawossWelcomePage({
           </section>
         ) : null}
         {/* Počas obrazovky „Toto som našiel“ päta nie je: bežiaci zápis by sa dal potichu opustiť;
-            obrazovka má vlastné „Vybrať iný priečinok“, vypnuté počas zápisu. */}
-        {step !== "identity" && step !== "done" && !foundRoot ? (
+            obrazovka má vlastné „Vybrať iný priečinok“, vypnuté počas zápisu. Krok Priečinok má Späť
+            pri nadpise (pod veľkými voľbami by bolo až po rolovaní). */}
+        {step !== "identity" && step !== "done" && !foundRoot && !folderScreen ? (
           <footer className="mt-8 flex justify-between">
-            {sidebarFlow ? (
-              <button type="button" className="lw-btn" disabled={busy} onClick={onCancel}>
-                {tr("cancel")}
-              </button>
-            ) : (
-              <Button
-                variant="ghost"
-                onClick={() => void move(steps[Math.max(0, idx - 1)])}
-              >
-                {tr("back")}
-              </Button>
-            )}
+            {backNav}
             {step === "client" || step === "matter" ? (
               <Button
                 variant="ghost"

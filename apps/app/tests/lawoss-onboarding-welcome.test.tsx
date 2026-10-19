@@ -79,6 +79,15 @@ describe("LAWOSS welcome flow", () => {
     expect(html).toMatch(/>Back</);
   });
 
+  test("Späť a Zrušiť na kroku Priečinok sú v hlavičke, bez rolovania pod voľby (MČ 19. 10.)", () => {
+    for (const [html, label] of [[page("folder"), ">Back<"], [page("folder", { completed: true }), ">Cancel<"]] as const) {
+      expect(html.indexOf(label)).toBeGreaterThan(-1);
+      expect(html.indexOf(label)).toBeLessThan(html.indexOf("Connect an existing folder"));
+      expect(html.split(label)).toHaveLength(2);
+      expect(html).not.toContain("<footer");
+    }
+  });
+
   test("počas obrazovky Toto som našiel nie je Späť (zápis sa nedá potichu opustiť)", () => {
     expect(page("folder", { initialRoot: "/Users/a/Klienti/Novák" })).not.toMatch(/>Back</);
     const sidebar = page("folder", { initialRoot: "/Users/a/Klienti/Novák", completed: true });

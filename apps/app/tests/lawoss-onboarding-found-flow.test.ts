@@ -55,16 +55,19 @@ describe("hromadné pridanie OKF súborov", () => {
   test("zlyhanie jedného klienta nezastaví ostatných; súhrn a opakovanie len neúspešných", async () => {
     const { api, applied } = fakeApi();
     const progress: BatchItem[][] = [];
-    const items = await addOkfFiles(api, [{ root: "/p/Alfa", name: "Alfa" }, { root: "/p/Zamknutý", name: "Zamknutý" }, { root: "/p/Gama", name: "Gama" }], identity, today, next => progress.push(next));
+    // Chybu pre advokáta skladá volajúci v jazyku rozhrania; tok surovú správu nezobrazuje.
+    const describe = (reason: unknown) => `Veta pre advokáta (${reason instanceof Error ? reason.message : "?"})`;
+    const items = await addOkfFiles(api, [{ root: "/p/Alfa", name: "Alfa" }, { root: "/p/Zamknutý", name: "Zamknutý" }, { root: "/p/Gama", name: "Gama" }], identity, today, next => progress.push(next), describe);
     expect(items.map(item => item.status)).toEqual(["done", "failed", "done"]);
-    expect(items[1]?.error).toBe("locked_file");
+    expect(items[1]?.error).toBe("Veta pre advokáta (locked_file)");
     expect(applied).toHaveLength(2);
     expect(progress.at(-1)).toEqual(items);
     expect(firstWorkspaceResult(items)?.workspace?.path).toBe("/p/Alfa");
     // Spec: každý potvrdený klient je samostatný pracovný priečinok, nie len prvý.
     expect(workspaceResults(items).map(result => result.workspace?.path)).toEqual(["/p/Alfa", "/p/Gama"]);
-    const again = await retryFailed(api, items, identity, today, () => undefined);
+    const again = await retryFailed(api, items, identity, today, () => undefined, describe);
     expect(again.map(item => item.status)).toEqual(["done", "failed", "done"]);
+    expect(again[1]?.error).toBe("Veta pre advokáta (locked_file)");
     expect(applied).toHaveLength(2);
   });
 });

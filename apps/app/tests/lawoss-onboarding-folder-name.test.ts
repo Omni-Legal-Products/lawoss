@@ -11,7 +11,7 @@ test("an unsafe folder name is explained in the UI language, other errors become
   expect(onboardingErrorMessage(unsafe, "de")).toContain("Der Ordnername darf nicht leer sein");
   expect(onboardingErrorMessage(new Error("Matter must be within the selected client."), "sk")).toBe("Niečo sa nepodarilo. Skúste to znova, alebo vyberte iný priečinok.");
   expect(onboardingErrorMessage("x", "sk")).toBe("Niečo sa nepodarilo. Skúste to znova, alebo vyberte iný priečinok.");
-  // Surová správa ide do konzoly, nie k advokátovi.
-  expect(warn).toHaveBeenCalledTimes(2);
+  // Surová správa ide do konzoly, nie k advokátovi; aj pri známej chybe (MČ 19. 10.).
+  expect(warn).toHaveBeenCalledTimes(6);
   warn.mockRestore();
 });
