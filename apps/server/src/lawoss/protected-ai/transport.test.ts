@@ -173,6 +173,54 @@ test("the DNS-pinned broker rechecks current authorization after asynchronous re
   expect(sent).toBe(0);
 });
 
+test("waiting for native review does not repeatedly inspect sources, but acceptance still rejects changed evidence", async () => fixture(async f => {
+  let entered!: () => void, release!: () => void, inspections = 0;
+  const reviewing = new Promise<void>(resolve => {entered = resolve;});
+  const held = new Promise<void>(resolve => {release = resolve;});
+  f.review(async () => {entered(); await held;});
+  const readCurrentBinding = async () => {inspections++; return f.options.readCurrentBinding();};
+  const pending = new ProtectedAiTransport({...f.options, readCurrentBinding, syntheticPilot: {endpoint: f.endpoint}}).dispatch(outbound(), AbortSignal.timeout(3000));
+  try {
+    await reviewing;
+    await Bun.sleep(120);
+    expect(inspections).toBe(1);
+    f.mutate(); release();
+    await expect(pending).rejects.toMatchObject({code: "host_decision_stale"});
+    expect(f.received).toHaveLength(0);
+  } finally {release(); await pending.catch(() => {});}
+}));
+
+test("a buffered provider response waits for its outstanding inspection and cannot publish after that inspection revokes it", async () => fixture(async f => {
+  let entered!: () => void, finishResponse!: () => void, inspecting!: () => void, finishInspection!: () => void, observedFinalRead!: () => void;
+  const receiverReady = new Promise<void>(resolve => {entered = resolve;});
+  const responseHeld = new Promise<void>(resolve => {finishResponse = resolve;});
+  const inspectionReady = new Promise<void>(resolve => {inspecting = resolve;});
+  const inspectionHeld = new Promise<void>(resolve => {finishInspection = resolve;});
+  const finalRead = new Promise<void>(resolve => {observedFinalRead = resolve;});
+  let holdInspection = false, capturedInspection = false, inspectionReleased = false;
+  f.respond(async () => {entered(); await responseHeld; return new Response("BUFFERED_PROTECTED_RESPONSE");});
+  const readCurrentBinding = async () => {
+    if (holdInspection && !capturedInspection) {
+      capturedInspection = true; inspecting(); await inspectionHeld; f.mutate();
+    }
+    const value = await f.options.readCurrentBinding();
+    if (holdInspection && capturedInspection && !inspectionReleased) observedFinalRead();
+    return value;
+  };
+  const pending = new ProtectedAiTransport({...f.options, readCurrentBinding, syntheticPilot: {endpoint: f.endpoint}}).dispatch(outbound(), AbortSignal.timeout(3000));
+  try {
+    await receiverReady; holdInspection = true;
+    await inspectionReady; finishResponse();
+    // Let the real HTTP body finish while its earlier source inspection stays
+    // deliberately unresolved; the returned bytes must still remain private.
+    await Promise.race([finalRead, Bun.sleep(500)]);
+    await Bun.sleep(0);
+    inspectionReleased = true; finishInspection();
+    await expect(pending).rejects.toMatchObject({code: "host_decision_stale"});
+    expect(f.received).toHaveLength(1);
+  } finally {finishResponse(); inspectionReleased = true; finishInspection(); await pending.catch(() => {});}
+}));
+
  test("an unmeasured guest launcher is refused before native approval and network access", async () => fixture(async f => {
   const readCurrentBinding = async () => {const binding = await f.options.readCurrentBinding(); return {...binding, launcherSha256: ""};};
   await expect(new ProtectedAiTransport({...f.options, readCurrentBinding, syntheticPilot: {endpoint: f.endpoint}}).dispatch(outbound(), AbortSignal.timeout(3000))).rejects.toMatchObject({code: "protected_ai_measurement_missing"});

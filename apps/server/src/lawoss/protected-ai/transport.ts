@@ -126,20 +126,29 @@ export class ProtectedAiTransport {
       return current.bindingHash;
     };
     let checking: Promise<void> | undefined;
-    const timer = setInterval(() => {
-      if (checking || active.aborted) return;
-      checking = requireCurrent().then(() => {}, error => {controller.abort(error);}).finally(() => {checking = undefined;});
-    }, 50);
-    timer.unref?.();
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const monitorResponse = () => {
+      timer = setInterval(() => {
+        if (checking || active.aborted) return;
+        checking = requireCurrent().then(() => {}, error => {controller.abort(error);}).finally(() => {checking = undefined;});
+      }, 50);
+      timer.unref?.();
+    };
     try {
       const receipt = await createHostDecisionPort(o.approvals, o.config).requestDecision({workspaceId: o.scope.workspaceId ?? "__synthetic_protected__", action: o.syntheticPilot ? "ai.protected.synthetic" : "ai.protected.document", operationId,
         bindingHash: initial.bindingHash, summary: `${o.syntheticPilot ? "Synthetic experiment; legal approval: false" : "Protected document processing"} → ${initial.target.endpoint} — ${o.providerId}/${o.modelId}`,
         description: `Current scope, model account identity, policy, protected runtime and legal-profile evidence (synthetic experiments provide no legal approval):\n${JSON.stringify(initial.reviewBinding, null, 2)}\n\nComplete serialized provider context (including system instructions and tool results):\n${body}`,
         readCurrentBindingHash: requireCurrent}, active);
       if (receipt.decision !== "allow") throw new ApiError(403, "protected_ai_denied", "The native host declined the complete model transmission.");
-      await requireCurrent();
       const request = prepareOutboundRequest({url: initial.target.endpoint, method: "POST", headers: {"content-type": "application/json", ...(initial.target.apiKey ? {authorization: `Bearer ${initial.target.apiKey}`} : {})}, bodyBase64: bytes.toString("base64")}, {allowPrivate: !!o.syntheticPilot});
-      const response = await brokerRequest(request, async () => {await requireCurrent(); return true;}, active, undefined, {allowPrivate: !!o.syntheticPilot, beforeConnect: async () => {await requireCurrent();}});
+      const response = await brokerRequest(request, async () => {await requireCurrent(); return true;}, active, undefined, {allowPrivate: !!o.syntheticPilot, beforeConnect: async () => {
+        await requireCurrent();
+        // Review and DNS have their own fresh gates. Periodic source inspection
+        // is needed only while a socket can receive provider data.
+        monitorResponse();
+      }});
+      clearInterval(timer); timer = undefined;
+      await checking;
       await requireCurrent();
       if (response.status >= 300 && response.status < 400) throw new ApiError(502, "protected_ai_redirect_denied", "The provider attempted an unapproved redirect.");
       return response;
