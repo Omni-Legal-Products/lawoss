@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, win32 } from "node:path";
 import type { Language } from "../src/i18n";
@@ -6,6 +6,11 @@ import type { OnboardingApi, OnboardingPlanRequest } from "../src/lawoss/domains
 import { cloneTargetOf, existingClientTitle, onboardingErrorMessage, parentFolderOf, trialCloneName } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
 import { canonicalPathOf, canonicalPathRejection, unquotedTypedPath, withCanonicalPaths } from "../src/lawoss/domains/onboarding/typed-paths";
 import { canonicalTypedDirectory } from "../../desktop/electron/lawoss-picked-path.mjs";
+
+// Chyby onboardingu zapisujú surovú správu do konzoly; v teste je to len šum (review 6c).
+let quiet: ReturnType<typeof spyOn>;
+beforeEach(() => { quiet = spyOn(console, "warn").mockImplementation(() => undefined); });
+afterEach(() => { quiet.mockRestore(); });
 
 const repo = join(import.meta.dir, "../../..");
 const source = (path: string) => readFileSync(join(repo, path), "utf8");
@@ -89,7 +94,7 @@ describe("typed and pasted onboarding paths", () => {
     expect(route).toContain("isDesktopRuntime() ? withCanonicalPaths(client, canonicalDirectoryPath) : client");
     expect(route).toContain("setClient(typedPaths(createLegalworkServerClient(");
     expect(route).toContain("isDesktopRuntime() ? canonicalPathOf(value, canonicalDirectoryPath) : Promise.resolve(value)");
-    expect(route).toContain("registerWorkingFolder(client, await workingFolderPath(completion.workingFolder))");
+    expect(route).toContain("registerWorkingFolder: async (path) => registerWorkingFolder(current, await workingFolderPath(path))");
     // Výber v dialógu ostáva cez pickDirectory s voľbou canonical.
     expect(route).toContain('pickDirectory({ title: "Select LAWOSS folder", canonical: true })');
     const bridge = source("apps/app/src/app/lib/desktop.ts");
@@ -194,7 +199,8 @@ describe("canonical path rejections in the UI language", () => {
     for (const label of ["Choose folder", "Vybrať priečinok", "Vybrat složku", "Ordner wählen"]) expect(picker).toContain(`"${label}"`);
   });
 
-  test("application folders, the memory path and other errors stay as sent", () => {
+  test("application folders, the memory path and other errors are not mapped and become a general sentence", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
     for (const message of [
       "Journal directory must be a canonical directory.",
       "External profile directory must use a canonical directory path.",
@@ -202,8 +208,10 @@ describe("canonical path rejections in the UI language", () => {
       "ENOENT: no such file or directory, open 'C:\\Klienti\\profile.json'",
     ]) {
       expect(canonicalPathRejection(new Error(message), "sk")).toBeUndefined();
-      expect(onboardingErrorMessage(new Error(message), "sk")).toBe(message);
+      expect(onboardingErrorMessage(new Error(message), "sk")).toBe("Niečo sa nepodarilo. Skúste to znova, alebo vyberte iný priečinok.");
     }
+    expect(warn).toHaveBeenCalledTimes(4);
+    warn.mockRestore();
     expect(canonicalPathRejection("Choose an existing canonical directory.", "sk")).toBeUndefined();
   });
 

@@ -10,7 +10,7 @@ import { readManualStatus } from "../../../../../lawoss/okf-pamat/src/manual-sta
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
-import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { normalizeDirectoryPath, normalizeDirectoryQueryPath } from "@/app/utils";
 
@@ -24,7 +24,12 @@ import { loadOkfConnection, type OkfConnection } from "./connection";
 import type { OfficeMemoryRead } from "./office-memory";
 
 export type OkfReadClient = Pick<LegalworkServerClient, "listWorkspaceDirectory" | "readWorkspaceFile">;
-type ReadProblem = { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office" };
+/** `folderUnavailable`: id pracovného priestoru, ktorého priečinok na disku chýba (presunutý, premenovaný, odpojený disk). */
+type ReadProblem = { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office"; folderUnavailable?: string };
+
+/** Server: priečinok pracovného priestoru na disku nie je (`resolveWorkspace`, 404). */
+export const FOLDER_UNAVAILABLE = "project_folder_unavailable";
+export const isFolderUnavailable = (error: unknown): boolean => error instanceof LegalworkServerError && error.code === FOLDER_UNAVAILABLE;
 export type OkfReadResult = Overview & {
   problems: ReadProblem[];
   /** Workspace má viac vecí než `MAX_MATTERS`; prehľad je čiastočný. */
@@ -89,7 +94,8 @@ export async function readWorkspaceMemory(
         }
         return result.entries;
       }).catch((e: unknown) => {
-        if (!optional || !missing(e)) problems.push({ path, message: message(e) });
+        if (isFolderUnavailable(e)) problems.push({ path, message: message(e), folderUnavailable: workspaceId });
+        else if (!optional || !missing(e)) problems.push({ path, message: message(e) });
         return [];
       });
       cache.set(path, pending);

@@ -11,6 +11,8 @@ import { activeWorkspace, useOkfConnection, useOkfOverview, useOkfScope, type Ok
 import type { CockpitParty } from "../../../../../lawoss/okf/cockpit";
 import { ENABLE_OKF_ROUTE, useOkfChoice } from "./onboarding/entry-actions";
 import { NEW_MATTER_PATH } from "../lite/links";
+import { unavailableWorkspace } from "../okf/missing-folder";
+import { MissingFolder } from "./missing-folder";
 import "../lite/pages/okf-glass.css";
 
 /** Subscribe each UI island; translating never changes the underlying matter data. */
@@ -64,7 +66,10 @@ function OkfPageQuery({ children, notice, stateText, pickWorkspace = activeWorks
   // Bez OKF nie je z čoho skladať prehľady: prázdna stránka to povie a ponúkne zapnutie, nie „žiadne veci“.
   // Len skutočne prečítaný stav: nečitateľný stav pri štarte nesmie tvrdiť, že OKF je vypnuté.
   const okfChoice = useOkfChoice(false);
+  // Priečinok priestoru na disku chýba (404 `project_folder_unavailable`): veta s menom priečinka a cesta ďalej.
+  const missing = connection ? unavailableWorkspace(connection.workspaces, query.data, query.error, workspace) : null;
   return <OkfPageState
+    missingFolder={connection && missing ? <MissingFolder connection={connection} missing={missing} /> : null}
     okfOff={okfChoice.known && okfChoice.offered === true}
     meta={{ checkedAt: query.dataUpdatedAt, changedAt, failed: query.isRefetchError }}
     firstRun={firstRun}
@@ -106,6 +111,8 @@ export function OkfPageState(props: {
   hasContent?: HasContent;
   /** Neblokujúce upozornenie nad každým stavom okrem presmerovania (napr. nedokončené nastavenie, #96). */
   notice?: ReactNode;
+  /** Priečinok priestoru chýba: nahradí všeobecnú chybu čítania; pri čiastočne načítanej praxi stojí nad obsahom spolu s upozornením na neúplné čítanie. */
+  missingFolder?: ReactNode;
 }) {
   const matterText = useMatterText().text;
   const node = <>{props.workspace === null && props.firstRun ? null : props.notice}{okfStateNode(props, props.stateText ?? matterText)}</>;
@@ -115,6 +122,8 @@ export function OkfPageState(props: {
 }
 
 function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText): ReactNode {
+  const missingOnly = props.missingFolder && !(props.data && (props.hasContent ?? hasMatters)(props.data));
+  if (missingOnly) return props.missingFolder;
   if (props.error) return <div className="lw-status err" role="alert">{text("memoryError", { error: props.error instanceof Error ? props.error.message : String(props.error) })}</div>;
   if (props.connection === "loading") return <OkfSkeleton label={text("connectionLoading")} />;
   if (props.connection === "unavailable") return <div className="lw-status warn" role="alert">{text("serverUnavailable")}</div>;
@@ -125,6 +134,7 @@ function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText
   const partial = props.rawProblems === false && (props.data.problems.length > 0 || props.data.truncated);
   if ((props.hasContent ?? hasMatters)(props.data)) return <>
     {props.loading ? <p role="status">{text("refreshing")}</p> : null}
+    {props.missingFolder}
     {partial ? <div className="lw-status warn" role="alert">{text("partialRead")}</div> : null}
     {props.children(props.data, props.meta ?? { checkedAt: 0, changedAt: 0 }, props.scope ?? null)}
   </>;

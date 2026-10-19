@@ -17,7 +17,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
-import { locateInScope, officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope, type OkfScope } from "../okf/read-model";
+import { isFolderUnavailable, locateInScope, officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope, type OkfScope } from "../okf/read-model";
 import { matterUrgency, useMinuteTick } from "./live";
 import { ADD_FOLDER_PATH, clientOverviewLink, LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, liteMatterLink } from "./links";
 import { openClientChat, openOfficeChat, restoreOfficeScope } from "./office-scope";
@@ -39,6 +39,9 @@ const OFFICE_PAGES = new Set([LITE_TODAY_PATH, LITE_CLIENTS_PATH, LITE_MATTER_PA
 export function restoresOfficeScope(pathname: string, mode: UiMode): boolean {
   return mode === "lite" && OFFICE_PAGES.has(pathname);
 }
+
+/** Kam po zlyhanom „Opýtať sa“: chýbajúci priečinok vysvetlí Dnes (s voľbou iného priečinka), inak konverzácie. */
+export const askFailurePath = (failure: unknown): string => isFolderUnavailable(failure) ? LITE_TODAY_PATH : ASK_PATH;
 
 /** Kam vedie „Opýtať sa“. `active`: Pokročilý režim, konverzácia v práve vybranom priečinku bez zmeny rozsahu. */
 export type AskTarget = { kind: "active" } | { kind: "office" } | { kind: "client"; workspaceId: string } | { kind: "pick" };
@@ -73,7 +76,7 @@ export function LiteNav(props: { activePane?: boolean }) {
   const open = (chat: Promise<string>) => {
     chat.then(navigate).catch((failure: unknown) => {
       console.warn("LAWOSS-lite: ask", failure);
-      navigate(ASK_PATH);
+      navigate(askFailurePath(failure));
     });
   };
   const onAsk = () => {
