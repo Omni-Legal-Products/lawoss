@@ -308,6 +308,7 @@ jobs:
           ./src/task-sync.test.ts
           ./src/workspace-reconnect.e2e.test.ts
           ./src/test-support/project-sync-first-failure-timing.test.ts
+          ./src/test-support/onboarding-first-failure-timing.test.ts
 
       - name: Diagnose pending task handoff in a fresh Bun process
         if: ${{ failure() && steps.windows_server_source.outcome == 'failure' }}

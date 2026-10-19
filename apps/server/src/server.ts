@@ -160,7 +160,7 @@ import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
-import { registerOnboardingRoutes } from "./lawoss/onboarding.js";
+import { registerOnboardingRoutes, type OnboardingApplyCheckpoint } from "./lawoss/onboarding.js";
 import { LawossOcrManager, registerLawossOcrRoutes } from "./lawoss/ocr-opt-in.js";
 import { registerLawossMarketplaceRoutes } from "./lawoss/marketplace-routes.js";
 import { startWeeklyMarketplaceCheck } from "./lawoss/marketplace-updates.js";
@@ -829,7 +829,7 @@ export type StartedServer = ServeResult & {
 const orgPolicyResource = Symbol("server-org-policy");
 const firmHubResource = Symbol("server-firm-hub");
 
-export async function startServer(config: ServerConfig, runtimeOptions: { scheduledTaskSend?: ScheduledExecutor["send"]; publicEngineBinary?: () => string | undefined; documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void> } = {}): Promise<StartedServer> {
+export async function startServer(config: ServerConfig, runtimeOptions: { scheduledTaskSend?: ScheduledExecutor["send"]; publicEngineBinary?: () => string | undefined; documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void>; onboardingApplyCheckpoint?: (checkpoint: OnboardingApplyCheckpoint) => void } = {}): Promise<StartedServer> {
   const lifetime = acquireRuntimeDbLifetime(config);
   const cleanups: Array<() => void | Promise<unknown>> = [];
   const producerStops: Array<() => void | Promise<unknown>> = [];
@@ -1007,7 +1007,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
       if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
     }, true)),
   });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents, scheduledTasks, wikiStore, wikiSync, protectedDocuments, runtimeOptions.publicEngineBinary);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents, scheduledTasks, wikiStore, wikiSync, protectedDocuments, runtimeOptions.publicEngineBinary, runtimeOptions.onboardingApplyCheckpoint);
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) =>
     unwrapOpencodeResult(await createDirectoryOpencodeClient(config, workspace, directory).session.get({ sessionID }, { signal }), "/session"));
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
@@ -1962,6 +1962,7 @@ function createRoutes(
   wikiSync: WikiSync,
   protectedDocuments: ProtectedDocumentRuntime,
   publicEngineBinary?: () => string | undefined,
+  onboardingApplyCheckpoint?: (checkpoint: OnboardingApplyCheckpoint) => void,
 ): Route[] {
   const routes: Route[] = [];
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
@@ -2099,7 +2100,7 @@ function createRoutes(
     createOpenAiRealtimeVoiceCall,
   });
 
-  registerOnboardingRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, onWorkspacesChanged, serializeWorkspace: (workspace) => serializeWorkspace(workspace, "owner") });
+  registerOnboardingRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, onWorkspacesChanged, applyCheckpoint: onboardingApplyCheckpoint, serializeWorkspace: (workspace) => serializeWorkspace(workspace, "owner") });
   // LAWOSS: LAWOSS Marketplace pre všetkých klientov a aktualizácie (lawoss/marketplace-routes.ts).
   // Po zmene globálnych pluginov sa nečinné inštancie enginu obnovia (nové skilly a MCP), pri bežiacej úlohe len MCP a výzva na obnovu.
   registerLawossMarketplaceRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, resolveWorkspace: (id) => resolveWorkspace(config, id), afterChange: async (ctx) => {

@@ -7,34 +7,56 @@ import { resolveServerConfig } from "./config.js";
 import { readRuntimeOpencodeConfig, runtimeExternalDirectory, runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
+import { createOnboardingFirstFailureTiming, type OnboardingFirstFailureTiming } from "./test-support/onboarding-first-failure-timing.js";
 import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 
+const timings: OnboardingFirstFailureTiming[] = [];
 const roots: string[] = [], stops: (() => void | Promise<void>)[] = [];
 const originalData = process.env.LEGALWORK_DATA_DIR, originalTokens = process.env.LEGALWORK_TOKEN_STORE;
 afterEach(async () => {
+  // Freeze before stop can abort pending HTTP or cleanup removes its files.
+  for (const timing of timings.splice(0)) timing.freeze();
   for (const stop of stops.splice(0)) await stop();
   for (const root of roots.splice(0)) await removeTestDir(root);
   if (originalData === undefined) delete process.env.LEGALWORK_DATA_DIR; else process.env.LEGALWORK_DATA_DIR = originalData;
   if (originalTokens === undefined) delete process.env.LEGALWORK_TOKEN_STORE; else process.env.LEGALWORK_TOKEN_STORE = originalTokens;
 });
-async function fixture() {
+async function fixture(onboardingApplyCheckpoint?: (checkpoint: string) => void) {
+  const timing = createOnboardingFirstFailureTiming({ env: process.env, now: () => performance.now(), write: frame => { process.stderr.write(frame); } });
+  timings.push(timing);
+  const runtimeOptions = { onboardingApplyCheckpoint: timing.checkpoint || onboardingApplyCheckpoint
+    ? (checkpoint: import("./lawoss/onboarding.js").OnboardingApplyCheckpoint) => { timing.checkpoint?.(checkpoint); onboardingApplyCheckpoint?.(checkpoint); }
+    : undefined };
   const base = await realpath(await mkdtemp(join(tmpdir(), "lawoss-onboarding-api-"))); roots.push(base);
   const parent = join(base, "practice"), data = join(base, "data"); await mkdir(parent); await mkdir(data);
   process.env.LEGALWORK_DATA_DIR = data; process.env.LEGALWORK_TOKEN_STORE = join(data, "tokens.json");
   const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(data, "server.json"), token: "synthetic-client", hostToken: "synthetic-host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [], authorizedRoots: [], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
-  let server = await startServer(config); stops.push(() => server.stop());
+  let server = await startServer(config, runtimeOptions); stops.push(() => server.stop());
   const headers = { "X-LegalWork-Host-Token": "synthetic-host", "Content-Type": "application/json" };
   const call = (path: string, body?: unknown, auth: Record<string, string> = headers) => fetch(`http://127.0.0.1:${server.port}/lawoss/onboarding/${path}`, { headers: auth, ...(body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }) });
-  const success = async (path: string, body?: unknown) => { const response = await call(path, body), result = await response.json(); expect({ status: response.status, error: result.error }).toEqual({ status: 200, error: undefined }); return result; };
-  const apply = async (request: unknown) => { const preview = await success("plan", request); return success("apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true }); };
+  const success = async (path: string, body?: unknown, action?: unknown) => {
+    const endpoint = path === "plan" || path === "apply" ? path : null;
+    if (endpoint) timing.request(endpoint, "enter", action);
+    try {
+      const response = await call(path, body), result = await response.json();
+      expect({ status: response.status, error: result.error }).toEqual({ status: 200, error: undefined });
+      if (endpoint) timing.request(endpoint, "done");
+      return result;
+    } catch (error) { if (endpoint) timing.request(endpoint, "failed"); throw error; }
+  };
+  const apply = async (request: unknown) => {
+    const action = typeof request === "object" && request !== null && "action" in request ? request.action : undefined;
+    const preview = await success("plan", request, action);
+    return success("apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
+  };
   return {
     base, parent, config, call, success, apply,
-    restart: async () => { await server.stop(); server = await startServer(config); },
+    restart: async () => { await server.stop(); server = await startServer(config, runtimeOptions); },
     restartFromDisk: async () => {
       await server.stop();
       const restored = await resolveServerConfig({ configPath: config.configPath, workspaces: [], token: "synthetic-client", hostToken: "synthetic-host" });
       Object.assign(config, restored);
-      server = await startServer(config);
+      server = await startServer(config, runtimeOptions);
     },
   };
 }
@@ -303,4 +325,28 @@ test("značka dokončenia nastavenia (#96) sa uloží, prežije reštart a ďal�
   await f.success("profile", { step: "matter" });
   await f.restartFromDisk();
   expect((await f.success("status")).profile).toMatchObject({ step: "matter", completedAt: "2026-10-18T10:00:00.000Z" });
+});
+
+
+test("public onboarding apply reports closed durability and registration checkpoints without changing its result", async () => {
+  const checkpoints: string[] = [];
+  const f = await fixture(checkpoint => { checkpoints.push(checkpoint); });
+  const client = await f.apply({ action: "client", parent: f.parent, name: "Observed", title: "Observed", ...common });
+  expect(client.result).toBe("applied");
+  expect(f.config.workspaces[0]?.path).toBe(client.root);
+  expect(await readFile(join(client.root, "AGENTS.md"), "utf8")).toBe(await readFile(join(client.root, "CLAUDE.md"), "utf8"));
+  expect(checkpoints).toEqual([
+    "ticket-enter", "ticket-done", "directories-enter", "directories-done", "execute-enter", "execute-done",
+    "receipt-enter", "receipt-done", "register-enter", "register-done", "watchers-enter", "watchers-done",
+  ]);
+});
+
+
+test("throwing embedding observers cannot alter actual onboarding durability or matter results", async () => {
+  const f = await fixture(() => { throw new Error("private observer failure"); });
+  const client = await f.apply({ action: "client", parent: f.parent, name: "Inert", title: "Inert", ...common });
+  const matter = await f.apply({ action: "matter", clientRoot: client.root, parent: client.root, title: "Matter", date: common.date, kind: "contentious", area: "IP", jurisdiction: "sk", language: "sk" });
+  expect(matter.result).toBe("applied"); expect(matter.workspace.id).toBe(client.workspace.id);
+  expect(await readFile(join(matter.matterRoot, "matter.md"), "utf8")).toContain("kind: contentious");
+  expect(await readFile(join(matter.matterRoot, "AGENTS.md"), "utf8")).toBe(await readFile(join(matter.matterRoot, "CLAUDE.md"), "utf8"));
 });
