@@ -1,4 +1,9 @@
 import { registerAiGovernanceRoutes } from "./lawoss/ai-governance-routes.js";
+import { ProtectedDocumentRuntime } from "./lawoss/protected-ai/runtime.js";
+import { protectedGuestBundleFactory } from "./lawoss/protected-ai/bundle.js";
+import { registerProtectedDocumentProfileRoutes } from "./lawoss/protected-ai/profiles.js";
+import { registerProtectedDocumentRoutes } from "./lawoss/protected-ai/routes.js";
+import { protectedEngineFetch, protectedSessionResponse, registerProtectedRuntime } from "./lawoss/protected-ai/dispatch.js";
 import { retainWikiAgentRuntime } from "./wiki/agent-access.js";
 import { createGovernedEngineFetch, requireGovernedEngineDispatch, requireUnsupportedProtectedTransport } from "./lawoss/ai-governance-engine.js";
 import { registerDeadlineRoutes } from "./lawoss/deadlines/routes.js";
@@ -929,6 +934,15 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
   cleanups.push(() => preparation.stop());
   const documents = new LawossDocuments(config, preparation);
   cleanups.push(() => documents.stop());
+  const protectedDocuments = new ProtectedDocumentRuntime({config, approvals, documents, getGuestBundle: protectedGuestBundleFactory(config)});
+  await protectedDocuments.initialize().catch(() => {
+    // Keep local Files/manual work available. This runtime retains its failed
+    // initialization and refuses generation until protected history is repaired.
+    console.warn("Protected document history is unavailable; protected execution remains disabled.");
+  });
+  cleanups.push(registerProtectedRuntime(config, protectedDocuments));
+  cleanups.push(() => protectedDocuments.close());
+  producerStops.push(() => protectedDocuments.close());
   const corpus = new CorpusService({
     selection: async () => {
       const settings = await readSystemOneSettings(config);
@@ -993,7 +1007,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
       if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
     }, true)),
   });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents, scheduledTasks, wikiStore, wikiSync, runtimeOptions.publicEngineBinary);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents, scheduledTasks, wikiStore, wikiSync, protectedDocuments, runtimeOptions.publicEngineBinary);
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) =>
     unwrapOpencodeResult(await createDirectoryOpencodeClient(config, workspace, directory).session.get({ sessionID }, { signal }), "/session"));
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
@@ -1365,7 +1379,7 @@ async function resolveProxyOpencodeDirectory(workspace: WorkspaceInfo, headers: 
 }
 
 function createOpencodeDirectoryFetch(directory: string, config: ServerConfig, workspaceId: string): typeof fetch {
-  const governedFetch = createGovernedEngineFetch(config, workspaceId);
+  const governedFetch = protectedEngineFetch(config, workspaceId, createGovernedEngineFetch(config, workspaceId));
   return Object.assign(
     (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const request = input instanceof Request ? input : new Request(input, init);
@@ -1384,7 +1398,7 @@ type OpencodeClientResult<T, E> =
 function createWorkspaceOpencodeClient(config: ServerConfig, workspace: WorkspaceInfo) {
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const directory = resolveOpencodeDirectory(workspace);
-  const directoryFetch = directory ? createOpencodeDirectoryFetch(directory, config, workspace.id) : createGovernedEngineFetch(config, workspace.id);
+  const directoryFetch = directory ? createOpencodeDirectoryFetch(directory, config, workspace.id) : protectedEngineFetch(config, workspace.id, createGovernedEngineFetch(config, workspace.id));
 
   return createOpencodeClient({
     baseUrl: connection.baseUrl?.trim(),
@@ -1446,6 +1460,12 @@ async function proxyOpencodeRequest(input: {
 
 async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequest>[0]) {
   const workspace = input.workspace;
+  if (workspace) {
+    const url = new URL(input.request.url);
+    url.pathname = normalizeOpencodeProxyPath(input.proxyPath ?? input.url.pathname);
+    const protectedResponse = await protectedSessionResponse(input.config, workspace.id, new Request(url, input.request));
+    if (protectedResponse) return protectedResponse;
+  }
   await requireGovernedEngineDispatch(input.config, workspace?.id ?? null, input.request.method, normalizeOpencodeProxyPath(input.proxyPath ?? input.url.pathname));
   const baseUrl = workspace ? resolveWorkspaceOpencodeConnection(input.config, workspace).baseUrl?.trim() ?? "" : "";
   if (!baseUrl) {
@@ -1533,7 +1553,7 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     });
     return jsonResponse({ ok: true, accepted: true });
   }
-  const response = await fetch(targetUrl, {
+  const response = await protectedEngineFetch(input.config, workspace?.id ?? "", fetch)(targetUrl, {
     method,
     headers,
     body,
@@ -1940,6 +1960,7 @@ function createRoutes(
   scheduledTasks: ScheduledTaskStore,
   wikiStore: WikiStore,
   wikiSync: WikiSync,
+  protectedDocuments: ProtectedDocumentRuntime,
   publicEngineBinary?: () => string | undefined,
 ): Route[] {
   const routes: Route[] = [];
@@ -1995,6 +2016,8 @@ function createRoutes(
   });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerAiGovernanceRoutes({routes, config, jsonResponse, readJsonBodyLimited, getPublicEngineBinary: publicEngineBinary, pinnedEngineVersion: OPENCODE_VERSION});
+  registerProtectedDocumentRoutes({routes, runtime: protectedDocuments, jsonResponse, readJsonBodyLimited});
+  registerProtectedDocumentProfileRoutes({config, routes, jsonResponse});
   registerLawossDocumentRoutes({ routes, config, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerDeadlineRoutes({ routes, config, approvals, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });

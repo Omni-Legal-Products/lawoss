@@ -1,4 +1,4 @@
-import type { AiGovernanceView, PublicAiResult } from "@legalwork/types/ai-governance";
+import type { AiGovernanceView, PublicAiResult, ProtectedDocumentProfiles } from "@legalwork/types/ai-governance";
 import type { OnboardingApi, OnboardingSuggestion } from "../../lawoss/domains/onboarding/api";
 import type { TriageApiPath } from "../../lawoss/domains/roztriedenie/api";
 import type { OfficeMemoryRead } from "../../lawoss/okf/office-memory";
@@ -962,6 +962,19 @@ export type LawossDocumentSummary = {
 export type LawossDocumentRead = LawossDocumentSummary & {
   text: string; pages: Array<{ page: number | null; text: string; source?: "native" | "ocr"; status?: "complete" | "needs-review" | "error" }>;
   offset: number; nextOffset: number | null; untrusted: true;
+};
+export type LawossDocumentGenerationInput = {
+  sources: Array<{id: string; hash: string}>;
+  providerId: string;
+  modelId: string;
+  profileId?: string;
+  caseDirectory?: string;
+};
+export type LawossDocumentGenerationSession = {
+  session: Session;
+  directoryMapping: {guestDirectory: string; hostDirectory: string; rootIdentity: string};
+  operationId: string;
+  legalApproval: false;
 };
 export type LawossOutputLanguage = "cs" | "sk" | "en";
 export type LawossExportInput = {
@@ -3436,6 +3449,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, signal: options?.signal },
       ),
 
+    // Provision the confined VM before issuing the single normal SDK prompt_async.
+    listLawossDocumentProfiles: (workspaceId: string, input: {providerId: string; modelId: string; caseDirectory: string}) => requestJson<ProtectedDocumentProfiles>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/profiles?${new URLSearchParams(input)}`, {token, hostToken, timeoutMs: timeouts.config}),
+    createLawossDocumentGeneration: (workspaceId: string, input: LawossDocumentGenerationInput, options?: {signal?: AbortSignal}) => requestJson<LawossDocumentGenerationSession>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/generation`, {token, hostToken, method: "POST", body: input, signal: options?.signal, timeoutMs: 240_000}),
     prepareLawossDocuments: (workspaceId: string, paths: string[], options?: { signal?: AbortSignal }) => requestJson<{ documents: LawossDocumentSummary[]; untrusted: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/prepare`, { token, hostToken, method: "POST", body: { paths }, signal: options?.signal }),
     listLawossDocuments: (workspaceId: string, offset = 0, limit = 50, options?: { signal?: AbortSignal }) => requestJson<{ documents: LawossDocumentSummary[]; nextOffset: number | null; untrusted: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents?offset=${offset}&limit=${limit}`, { token, hostToken, signal: options?.signal }),
     readLawossDocument: (workspaceId: string, id: string, offset = 0, limit = 16000, options?: { signal?: AbortSignal }) => requestJson<LawossDocumentRead>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/${encodeURIComponent(id)}/read?offset=${offset}&limit=${limit}`, { token, hostToken, signal: options?.signal }),

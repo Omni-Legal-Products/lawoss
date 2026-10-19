@@ -1,3 +1,4 @@
+import { protectedRuntimeForSession } from "../lawoss/protected-ai/dispatch.js";
 import { requireGovernedEngineDispatch } from "../lawoss/ai-governance-engine.js";
 import { workspaceOwnsSession } from "../lawoss/workspace-history.js";
 import type { SessionViewPreview } from "@legalwork/types/views";
@@ -92,6 +93,9 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   async function queueClient(workspace: WorkspaceInfo, sessionID: string) {
     const client = createWorkspaceOpencodeClient(config, workspace);
     const session = unwrapOpencodeResult(await client.session.get({ sessionID }), "session");
+    // The protected owner already validates this registered workspace, selected
+    // case and source binding. A child-case chat need not equal the project root.
+    if (protectedRuntimeForSession(config, workspace.id, sessionID)) return client;
     const directory = workspace.directory?.trim() || (workspace.workspaceType === "local" ? workspace.path : unwrapOpencodeResult(await client.path.get(), "path").directory);
     const normalize = async (path: string) => {
       const clean = path.replace(/^\\\\\?\\/, "").replace(/^\/\/\?\//, "");
@@ -113,12 +117,35 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     idle: async (workspaceId, sessionId) => {
       if (config.readOnly) return false;
       const workspace = await resolveWorkspace(config, workspaceId);
+      const protectedRuntime = protectedRuntimeForSession(config, workspaceId, sessionId);
+      if (protectedRuntime) {
+        const statuses = await (await protectedRuntime.workspaceStatus(workspaceId, new Request("http://protected/session/status"))).json();
+        return !statuses[sessionId] || statuses[sessionId].type === "idle";
+      }
       const client = createWorkspaceOpencodeClient(config, workspace);
       const statuses = unwrapOpencodeResult(await client.session.status(), "session/status");
       return !statuses[sessionId] || statuses[sessionId].type === "idle";
     },
     send: (workspaceId, sessionID, entry) => withSessionExecution(config, sessionID, async () => {
       ensureWritable(config);
+      const protectedRuntime = protectedRuntimeForSession(config, workspaceId, sessionID);
+      if (protectedRuntime) {
+        // Admission is repeated at delivery: restored queues cannot carry old
+        // policy decisions or unverified uploaded bytes into a later turn.
+        try {await protectedRuntime.preflightQueued({workspaceId, sessionId: sessionID, execution: entry.execution});}
+        catch (error) {throw new QueuePreparationError(error instanceof Error ? error.message : "Protected message preparation failed.");}
+        const response = await protectedRuntime.submitQueued({workspaceId, sessionId: sessionID, id: entry.id, execution: entry.execution});
+        if (!response.ok) throw new ApiError(502, "protected_queue_delivery", "Protected message delivery was not confirmed.");
+        const result: unknown = await response.json();
+        if (!isRecord(result) || !isRecord(result.info) || result.info.role !== "assistant" || result.info.sessionID !== sessionID || result.info.parentID !== `msg_${entry.id.replaceAll("-", "")}`)
+          throw new ApiError(502, "protected_queue_delivery", "The protected engine did not return this chat's terminal assistant result.");
+        const error = result.info.error;
+        const terminalError = isRecord(error) && typeof error.name === "string";
+        const terminalFinish = typeof result.info.finish === "string" && result.info.finish !== "tool-calls"
+          && isRecord(result.info.time) && typeof result.info.time.completed === "number" && Number.isFinite(result.info.time.completed);
+        if (!terminalError && !terminalFinish) throw new ApiError(502, "protected_queue_delivery", "The protected assistant response is not terminal.");
+        return {pause: Boolean(error), reason: isRecord(error) && error.name === "MessageAbortedError" ? "stop" as const : "error" as const};
+      }
       await requireGovernedEngineDispatch(config, workspaceId, "POST", `/session/${sessionID}/message`);
       const client = await (async () => {
         try {
@@ -155,11 +182,17 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       if (!parsed.success) throw new ApiError(400, "invalid_queue_action", "Invalid message queue action.");
       // Reject stale/deleted or cross-workspace sessions before storing executable work.
       const client = await queueClient(workspace, ctx.params.sessionId);
-      if (parsed.data.type === "enqueue") await requireGovernedEngineDispatch(config, workspace.id, "POST", `/session/${ctx.params.sessionId}/message`);
-      if (parsed.data.type === "enqueue") await validateQueuedExecution(client, parsed.data.execution);
+      const protectedRuntime = protectedRuntimeForSession(config, workspace.id, ctx.params.sessionId);
+      if (parsed.data.type === "enqueue") {
+        if (protectedRuntime) await protectedRuntime.preflightQueued({workspaceId: workspace.id, sessionId: ctx.params.sessionId, execution: parsed.data.execution});
+        else {
+          await requireGovernedEngineDispatch(config, workspace.id, "POST", `/session/${ctx.params.sessionId}/message`);
+          await validateQueuedExecution(client, parsed.data.execution);
+        }
+      }
       // Queued prompts bypass the public engine proxy. Refresh their authenticated
       // origin here too, including an existing chat resumed after server restart.
-      await grantWikiAgentSession(config, {
+      if (!protectedRuntime) await grantWikiAgentSession(config, {
         sessionId: ctx.params.sessionId,
         directory: workspace.directory?.trim() || workspace.path,
         scope: ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer",

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { brokerRequest, prepareOutboundRequest, type OutboundRequest, networkModeSchema, type NetworkMode } from "./network.js";
+import { brokerRequest, prepareOutboundRequest, type OutboundRequest, type OutboundResponse, networkModeSchema, type NetworkMode } from "./network.js";
 import { validateMounts, type SandboxMount } from "./files.js";
 import { SandboxFilesystem, filesystemError, filesystemRequestSchema } from "./filesystem.js";
 import { SharedVmRuntime } from "./runtime.js";
@@ -23,6 +23,9 @@ const manifestSchema = z.object({ version: z.literal(1), architecture: z.enum(["
 export type SandboxResult = { output: string; exitCode: number; truncated: boolean };
 export type SandboxRun = { command: string; cwd: string; mounts: SandboxMount[]; timeoutMs: number; beforeCommit?: () => Promise<void>;
   signal: AbortSignal; networkMode?: NetworkMode; authorizeNetwork: (request: OutboundRequest) => Promise<boolean> };
+/** Constructor-owned capability, never supplied by HTTP, model arguments or persisted settings. */
+export type SandboxRequestBroker = (request: OutboundRequest, signal: AbortSignal) => Promise<OutboundResponse>;
+export type SandboxBrokerOptions = Readonly<{ request: SandboxRequestBroker; maxRequests: number }>;
 const eventSchema = z.discriminatedUnion("event", [
   z.object({ event: z.literal("output"), stream: z.enum(["stdout", "stderr"]), data: z.string().max(16384) }),
   z.object({ event: z.literal("exit"), code: z.number().int() }),
@@ -49,7 +52,10 @@ export class VmSandbox {
     await Promise.all(runtimes.map(async (runtime) => (await runtime).close()));
   }
   private prepared: Promise<z.infer<typeof manifestSchema>> | undefined;
-  constructor(readonly resources = sandboxResources(), private readonly acceleration: "auto" | "software" = "auto") {}
+  constructor(readonly resources = sandboxResources(), private readonly acceleration: "auto" | "software" = "auto",
+    private readonly broker?: SandboxBrokerOptions) {
+    if (broker && (!Number.isInteger(broker.maxRequests) || broker.maxRequests < 1 || broker.maxRequests > 4096)) throw new Error("Invalid sandbox broker request bound.");
+  }
   private executable(architecture: string) { return join(this.resources, `qemu-system-${architecture}${process.platform === "win32" ? ".exe" : ""}`); }
 
   async status(): Promise<{ available: boolean; reason?: string }> {
@@ -134,6 +140,7 @@ export class VmSandbox {
   async run(input: SandboxRun): Promise<SandboxResult> {
     input.signal.throwIfAborted();
     const networkMode = networkModeSchema.parse(input.networkMode ?? "approve");
+    if (this.broker && networkMode !== "approve") throw new Error("A capability-brokered sandbox cannot enable a network interface.");
     if (!Number.isInteger(input.timeoutMs) || input.timeoutMs < 1 || input.timeoutMs > 600000) throw new Error("Invalid sandbox timeout.");
     if (!input.command || input.command.length > 128000) throw new Error("Invalid sandbox command.");
     const mounts = await validateMounts(input.mounts);
@@ -143,6 +150,7 @@ export class VmSandbox {
     const filesystem = await SandboxFilesystem.create(mounts, signal);
     let output = "", truncated = false, requests = 0, exitCode: number | undefined;
     const active = new Set<string>(), activeFilesystem = new Set<string>();
+    const networkWork = new Set<Promise<void>>();
     let filesystemWork = Promise.resolve();
     try {
       const runtime = await new Promise<SharedVmRuntime>((resolve, reject) => {
@@ -182,17 +190,20 @@ export class VmSandbox {
             }).catch((error: unknown) => controller.abort(error));
           }
           if (event.event === "request") {
-            if (++requests > 200 || active.size >= 16 || active.has(event.id) || activeFilesystem.has(event.id)) throw new Error("Sandbox network request limit exceeded.");
+            if (++requests > (this.broker?.maxRequests ?? 200) || active.size >= 16 || active.has(event.id) || activeFilesystem.has(event.id)) throw new Error("Sandbox network request limit exceeded.");
             active.add(event.id);
-            void (async () => {
+            const work = (async () => {
               try {
                 if (networkMode !== "approve") throw new Error("Network request broker is disabled by the sandbox network policy.");
-                const response = await brokerRequest(prepareOutboundRequest(event.request), input.authorizeNetwork, signal);
+                const request = prepareOutboundRequest(event.request);
+                const response = this.broker ? await this.broker.request(request, signal) : await brokerRequest(request, input.authorizeNetwork, signal);
                 await send({ id: event.id, response });
               } catch (error) {
                 if (!signal.aborted) await send({ id: event.id, error: error instanceof Error ? error.message : "Request denied" });
               } finally { active.delete(event.id); }
             })().catch((error: unknown) => controller.abort(error));
+            networkWork.add(work);
+            void work.finally(() => networkWork.delete(work));
           }
         } catch (error) { controller.abort(error); }
       });
@@ -207,6 +218,7 @@ export class VmSandbox {
       controller.abort();
       filesystem.cancel();
       await filesystemWork;
+      await Promise.allSettled(networkWork);
       await filesystem.dispose();
     }
   }

@@ -1,7 +1,7 @@
 import { currentTemplateLocale } from "@/lawoss/i18n/template-locale";
-import { allDocumentGenerations, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, reconcileDocumentGeneration, readDocumentGenerationSnapshot, isDocumentGenerationSnapshotCurrent, observeDocumentGeneration, subscribeDocumentGenerations, documentGenerationsRevision, submitBoundDocumentGeneration } from "../domains/session/panel/document-generation-lifecycle";
+import { allDocumentGenerations, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, hasProtectedDocumentSession, reconcileDocumentGeneration, readDocumentGenerationSnapshot, isDocumentGenerationSnapshotCurrent, observeDocumentGeneration, subscribeDocumentGenerations, documentGenerationsRevision, submitBoundDocumentGeneration, PROTECTED_DOCUMENT_GENERATION_TRANSPORT } from "../domains/session/panel/document-generation-lifecycle";
 import { ensureWorkspaceSessionSync, trackWorkspaceSessionSync } from "../domains/session/sync/session-sync";
-import { generationPrompt, type DocumentGenerationRequest } from "../domains/session/panel/document-processing";
+import { generationPrompt, selectDocumentGenerationProfile, type DocumentGenerationRequest, type DocumentGenerationCallback } from "../domains/session/panel/document-processing";
 import { documentExecutionDirectory, preflightDocumentGeneration } from "../domains/session/panel/native-document-preflight";
 import { PROJECT_FOLDER_RECONNECTED_EVENT } from "../domains/workspace/project-folder-recovery";
 import { SessionViewDeleteDialog, type SessionViewDeleteRequest } from "@/react-app/domains/views/session-view-delete-dialog";
@@ -163,7 +163,7 @@ import { useHostApprovalSync } from "./use-host-approval-sync";
 import { seedInteractionSessions } from "@/react-app/domains/session/sync/interaction-state";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
 import { runFusionSend, buildFusionTraceSystemPrompt } from "@/react-app/domains/session/fusion/fusion-controller";
-import { getFusionSelectedModels, isFusionEnabled, useFusionStore } from "@/react-app/domains/session/fusion/fusion-store";
+import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { NovySpisPanel } from "@/lawoss/domains/novy-spis/novy-spis-page";
@@ -1431,7 +1431,7 @@ export function SessionRoute() {
   // LAWOSS: telo upstream `onSendDraft` (fronta, model pri odoslaní, kontext pluginov) nad explicitným rozsahom,
   // aby natívne generovanie dokumentov poslalo prompt do vybranej veci cez rovnaký kód ako composer.
   const sendNativeDraft = useCallback(async (draft: ComposerDraft, sessionId: string, options: { waitForCompletion?: boolean; waitForFusion?: boolean; messageID?: string; queue?: Omit<QueueInput, "execution">; modelSelection?: { model: ModelRef; variant: string | null } } | undefined, scope: {
-    opencode: NonNullable<typeof sessionOpencodeClient>; legalwork: LegalworkServerClient; directory: string; projectId: string; runtimeKey?: string; preflighted?: boolean;
+    opencode: NonNullable<typeof sessionOpencodeClient>; legalwork: LegalworkServerClient; directory: string; projectId: string; runtimeKey?: string; preflighted?: boolean; protectedDocument?: boolean;
   }) => {
     const sendModel = options?.modelSelection?.model ?? local.prefs.defaultModel;
     const sendVariant = options?.modelSelection ? options.modelSelection.variant : modelVariantValue;
@@ -1447,24 +1447,56 @@ export function SessionRoute() {
     if (!sendModel) throw new Error(t("session_route.no_model"));
     if (!scope.preflighted && scope.projectId === selectedWorkspaceId && modelReadiness({ defaultModel: sendModel, providerList: providerListQuery.data }).modelUnavailable) throw new Error(t("session_route.model_unavailable"));
 
-    const fusionModels = getFusionSelectedModels(targetSessionId);
+    const protectedSession = scope.protectedDocument || hasProtectedDocumentSession(scope.projectId,targetSessionId);
+    const fusionModels = protectedSession ? [] : getFusionSelectedModels(targetSessionId);
     captureAnalyticsEvent("task_message_sent", {
       session_id: targetSessionId,
       is_command: Boolean(draft.command),
       provider_id: sendModel?.providerID ?? null,
       model_id: sendModel?.modelID ?? null,
       surface: analyticsSurface(),
-      fusion_enabled: isFusionEnabled(targetSessionId),
+      fusion_enabled: !protectedSession && isFusionEnabled(targetSessionId),
       fusion_model_count: fusionModels.length,
       fusion_models: fusionModels.map((m) => `${m.providerID}/${m.modelID}`),
     });
     markTaskRunStart(targetSessionId);
 
     const enqueue = async (execution: QueueInput["execution"]) => {
-      // LAWOSS: fronta patrí serveru vybraného priečinka; odoslanie do inej veci sa nezaradí.
+      // Queue ownership is still the current selected native server/workspace.
       if (!options?.queue || !selectedWorkspaceEndpoint || scope.projectId !== selectedWorkspaceId) throw new Error(t("session.loading_detail"));
       await selectedWorkspaceEndpoint.client.updateSessionMessageQueue(selectedWorkspaceEndpoint.workspaceId, targetSessionId, { type: "enqueue", ...options.queue, execution });
     };
+
+    if (scope.protectedDocument) {
+      // This session has an isolated engine and four host document capabilities.
+      // Do not import composer plugins, ambient state, shell/commands or Fusion.
+      if (draft.mode !== "prompt" || draft.command || draft.attachments.length || options?.queue || !options?.messageID)
+        throw new Error("This document session accepts only the selected document task.");
+      const result = await scope.opencode.session.promptAsync({
+        ...buildSessionPromptRequest({sessionID: targetSessionId, parts: [{type: "text", text}], model: sendModel, agent: "legalwork", ...(sendVariant ? {variant: sendVariant} : {})}),
+        messageID: options.messageID,
+      });
+      if (result.error) throw new Error(serializeSDKError(result.error));
+      return;
+    }
+
+    if (protectedSession) {
+      if (draft.mode !== "prompt" || draft.command || draft.parts.some(part => !["text", "paste", "file"].includes(part.type)))
+        throw new Error("This document session accepts text and copies of its selected documents only.");
+      // Uploaded copies retain the ordinary native upload/queue path. The host
+      // resolves only original-hash matches and never forwards file URLs to the VM.
+      const parts = await draftToParts(draft,scope.directory);
+      if (options?.queue) {await enqueue({kind: "prompt", parts, model: sendModel, agent: "legalwork", variant: sendVariant ?? undefined}); return;}
+      const request = {...buildSessionPromptRequest({sessionID: targetSessionId, parts, model: sendModel, agent: "legalwork", variant: sendVariant ?? undefined}), ...(options?.messageID ? {messageID: options.messageID} : {})};
+      if (options?.waitForCompletion) {
+        const result = unwrap(await scope.opencode.session.prompt(request));
+        if (result.info.error) throw new Error(serializeSDKError(result.info.error));
+      } else {
+        const result = await scope.opencode.session.promptAsync(request);
+        if (result.error) throw new Error(serializeSDKError(result.error));
+      }
+      return;
+    }
     if (draft.mode === "shell") {
       if (options?.queue) { await enqueue({ kind: "shell", command: text }); return; }
       await shellInSession(scope.opencode, targetSessionId, text);
@@ -1888,7 +1920,7 @@ export function SessionRoute() {
     for (const [key, binding] of allDocumentGenerations()) {
       if (binding.phase === "completed" || binding.phase === "error") continue;
       const workspace = workspaces.find(item => item.id === binding.projectId);
-      const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
+      const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken });
       if (!workspace || !endpoint || endpoint.baseUrl !== binding.baseUrl || endpoint.workspaceId !== binding.workspaceId || workspace.path !== binding.root) continue;
       const sync = {
         workspaceId: workspace.id,
@@ -1902,16 +1934,22 @@ export function SessionRoute() {
       releases.push(ensureWorkspaceSessionSync(sync), trackWorkspaceSessionSync(sync, binding.sessionId), observeDocumentGeneration(key, workspace.id));
     }
     return () => { for (const release of releases) release(); };
-  }, [documentGenerationRevision, workspaces, baseUrl, token]);
-  const handleGenerateDocuments = async (request: DocumentGenerationRequest): Promise<string> => {
+  }, [documentGenerationRevision, workspaces, baseUrl, token, hostToken]);
+  const handleGenerateDocuments: DocumentGenerationCallback = Object.defineProperties(async (request: DocumentGenerationRequest): Promise<string> => {
     const workspace = workspaces.find(item => item.id === request.projectId);
     if (!workspace || isLawossHomeWorkspace(workspace)) throw new Error(t("workspace.not_found"));
-    const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
+    const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken });
     if (!endpoint) throw new Error(t("session_route.create_server_unavailable"));
     const root = workspace.path?.trim() || "";
     const { relative, directory } = documentExecutionDirectory(root, request.caseDirectory, endpoint.isRemote);
-    const scopedClient = createClient(endpoint.opencodeBaseUrl, directory, { token: endpoint.token, mode: "legalwork" });
-    const metadata = { projectId: workspace.id, baseUrl: endpoint.baseUrl, workspaceId: endpoint.workspaceId, root, directory };
+    const scopedClient = createClient(endpoint.opencodeBaseUrl, directory, { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" });
+    const generationModel = local.prefs.defaultModel;
+    const generationVariant = modelVariantValue;
+    if (!generationModel) throw new Error(t("session_route.no_model"));
+    const profiles = await endpoint.client.listLawossDocumentProfiles(endpoint.workspaceId, {providerId: generationModel.providerID, modelId: generationModel.modelID, caseDirectory: relative});
+    const profile = selectDocumentGenerationProfile(profiles, request.profileId ?? "");
+    const protectedTarget = {providerId: generationModel.providerID, modelId: generationModel.modelID, targetFingerprint: profiles.targetFingerprint, ...(profile ? {profileId: profile.id, profileRevision: profile.revision} : {})};
+    const metadata = { projectId: workspace.id, baseUrl: endpoint.baseUrl, workspaceId: endpoint.workspaceId, root, directory, transport: PROTECTED_DOCUMENT_GENERATION_TRANSPORT, protectedTarget };
     const key = documentGenerationKey(metadata, request.outputLanguage, request.sources);
     const existing = getDocumentGeneration(key);
     if (existing) {
@@ -1927,17 +1965,17 @@ export function SessionRoute() {
         preflight: async () => {
           try {
             await preflightDocumentGeneration({ queryClient: getReactQueryClient(), sdk: scopedClient, baseUrl: endpoint.opencodeBaseUrl,
-              directory, relative, legalwork: endpoint.client, workspaceId: endpoint.workspaceId, model: local.prefs.defaultModel, request });
+              directory, relative, legalwork: endpoint.client, workspaceId: endpoint.workspaceId, model: generationModel, request });
           } catch (cause) { throw new Error(t("documents.preflight_failed", { message: describeRouteError(cause) })); }
         },
         create: async () => {
-          const session = unwrap(await scopedClient.session.create({ directory }));
+          if (!generationModel) throw new Error(t("session_route.no_model"));
+          const provisioned = await endpoint.client.createLawossDocumentGeneration(endpoint.workspaceId, {
+            sources: request.sources.map(source => ({id: source.id, hash: source.hash})),
+            providerId: generationModel.providerID, modelId: generationModel.modelID, caseDirectory: relative, ...(profile ? {profileId: profile.id} : {}),
+          });
+          const session = provisioned.session;
           rememberPendingCreatedSession(workspace.id, session.id);
-          if (selectedSessionId && selectedWorkspaceId === workspace.id) {
-            const fusion = useFusionStore.getState();
-            fusion.setEnabled(session.id, isFusionEnabled(selectedSessionId));
-            fusion.setSelectedModels(session.id, getFusionSelectedModels(selectedSessionId));
-          }
           setSessionsByWorkspaceId(current => {
             const next = { ...current, [workspace.id]: [session, ...(current[workspace.id] ?? [])] };
             sessionsByWorkspaceIdRef.current = next; return next;
@@ -1952,9 +1990,9 @@ export function SessionRoute() {
           void refreshRouteState();
           const text = generationPrompt(request.outputLanguage, request.sources);
           try {
-            await sendNativeDraft({ mode: "prompt", text, parts: [{ type: "text", text }], attachments: [],
-              modelContext: `Selected project root: ${JSON.stringify(root)}. Working directory: ${JSON.stringify(directory)}. Source and export paths are relative to the selected project ROOT, not the working subfolder. The working subfolder does not change legal identity; do not infer another case.` }, sessionId, { waitForFusion: true, messageID },
-              { opencode: scopedClient, legalwork: endpoint.client, directory, projectId: workspace.id, preflighted: true });
+            if (!generationModel) throw new Error(t("session_route.no_model"));
+            await sendNativeDraft({ mode: "prompt", text, parts: [{ type: "text", text }], attachments: [] }, sessionId, {messageID, modelSelection: {model: generationModel, variant: generationVariant}},
+              { opencode: scopedClient, legalwork: endpoint.client, directory, projectId: workspace.id, preflighted: true, protectedDocument: true });
           } catch (cause) {
             throw Object.assign(new Error(t("documents.send_failed", { message: describeRouteError(cause) })), { sessionId });
           }
@@ -1965,7 +2003,7 @@ export function SessionRoute() {
       if (binding && cause instanceof Error) Object.assign(cause, { sessionId: binding.sessionId });
       throw cause;
     }
-  };
+  }, {transport: {value: PROTECTED_DOCUMENT_GENERATION_TRANSPORT, enumerable: true}, model: {value: local.prefs.defaultModel ?? undefined, enumerable: true}});
 
   const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId?: string; paneId?: string }) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);

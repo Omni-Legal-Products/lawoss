@@ -15,7 +15,9 @@ export function decodeNativeToolOutput(content) {
 export async function startProvider() {
   const receipts = [];
   const errors = [];
+  let requestOrdinal = 0;
   const server = http.createServer(async (req, res) => {
+    const ordinal = ++requestOrdinal, receivedAtMs = Date.now();
     try {
       const chunks = []; for await (const chunk of req) chunks.push(chunk);
       const body = JSON.parse(Buffer.concat(chunks).toString());
@@ -39,8 +41,9 @@ export async function startProvider() {
       let call;
       if (recoveryTurn && sources.length) {
         const freshCalls = messages.slice(lastUser + 1).flatMap(m => m.tool_calls ?? []);
-        if (!freshCalls.some(c => c.function.name === "lawoss_documents_read")) call = {name:"lawoss_documents_read",args:{id:sources[0].id,limit:16000}};
-        else if (!freshCalls.some(c => c.function.name === "legalwork_shell")) call = {name:"legalwork_shell",args:{command:process.platform === "win32" ? 'node -p "process.cwd()"' : "pwd",description:"Report the recovered session current working directory",write:false}};
+        const freshRead = freshCalls.filter(c => c.function.name === "lawoss_documents_read").at(-1);
+        if (!freshRead) call = {name:"lawoss_documents_read",args:{id:sources[0].id,limit:16000}};
+        else if (decoded(freshRead)?.nextOffset != null) call = {name:"lawoss_documents_read",args:{id:sources[0].id,limit:16000,offset:decoded(freshRead).nextOffset}};
       } else if (sources.length && !toolResults.some(r => String(r.content).includes('"error"'))) {
         const listCall = previous("lawoss_documents_list");
         if (!listCall) call = {name:"lawoss_documents_list",args:{limit:50}};
@@ -93,7 +96,7 @@ export async function startProvider() {
         if (!receipts.some(receipt => receipt.exportSchemaVerified)) console.log("Native export wire acceptance", JSON.stringify(exportWireAcceptance));
         exportSchemaVerified = true;
       }
-      receipts.push({ model: body.model, path: req.url, sources: sources.map(s => ({ id: s.id, hash: s.hash })), call, toolResults, ...(exportSchemaVerified ? { exportSchemaVerified, exportWireAcceptance } : {}) });
+      receipts.push({ ordinal, receivedAtMs, model: body.model, path: req.url, sources: sources.map(s => ({ id: s.id, hash: s.hash })), call, toolResults, ...(exportSchemaVerified ? { exportSchemaVerified, exportWireAcceptance } : {}) });
       const id = `chatcmpl-native-${receipts.length}`;
       const base = { id, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: body.model };
       await new Promise(resolve=>setTimeout(resolve,sources.length&&toolResults.length===0?250:25));

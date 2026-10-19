@@ -1,5 +1,6 @@
 /** Present manual HTTP approvals only in the host's native main window. */
 export function createHostApprovalHandler({ getWindow, showMessageBox, showContextReview = undefined }) {
+  const contextActions = new Set(["ai.public.synthetic", "ai.documents.synthetic", "ai.protected.synthetic", "ai.documents.protected", "ai.protected.document"]);
   let queue = Promise.resolve();
   return (request, signal) => {
     const present = async () => {
@@ -33,7 +34,7 @@ export function createHostApprovalHandler({ getWindow, showMessageBox, showConte
           noLink: true,
           signal: controller.signal,
         };
-        const review = request.action === "ai.public.synthetic" || options.detail.length > 2000;
+        const review = contextActions.has(request.action) || options.detail.length > 2000;
         if (review && !showContextReview) return "deny";
         const result = await (review ? showContextReview : showMessageBox)(window, options);
         return !controller.signal.aborted && !window.isDestroyed() && result.response === 1 ? "allow" : "deny";

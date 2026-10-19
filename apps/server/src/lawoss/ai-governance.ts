@@ -1,9 +1,10 @@
-import { TRANSFER_KINDS, TransferIntentSchema, type GovernanceScope, type TransferDecision, type TransferIntent } from "../ai-governance-schema.js";
+import { TRANSFER_KINDS, TransferIntentSchema, type GovernanceProfile, type GovernanceScope, type TransferDecision, type TransferIntent } from "../ai-governance-schema.js";
 import { readGovernanceProfiles } from "./ai-governance-store.js";
 import type { ServerConfig } from "../types.js";
 import { ApiError } from "../errors.js";
 
-export async function evaluateTransfer(config: ServerConfig, intent: TransferIntent): Promise<TransferDecision> {
+/** Eligibility is not dispatch authority: only the confined final-wire transport uses this result. */
+export async function eligibleGovernanceProfiles(config: ServerConfig, intent: TransferIntent): Promise<{profiles: GovernanceProfile[]} | Extract<TransferDecision, {allowed: false}>> {
   const parsed = TransferIntentSchema.safeParse(intent);
   if (!parsed.success || !parsed.data.scope.workspaceId || !parsed.data.scope.matterId)
     return {allowed: false, reason: "unknown-context"};
@@ -20,6 +21,12 @@ export async function evaluateTransfer(config: ServerConfig, intent: TransferInt
       || (profile.expiresAt !== null && Date.parse(profile.expiresAt) <= Date.now())))
       return {allowed: false, reason: "reassessment-required"};
   }
+  return {profiles};
+}
+
+export async function evaluateTransfer(config: ServerConfig, intent: TransferIntent): Promise<TransferDecision> {
+  const eligibility = await eligibleGovernanceProfiles(config, intent);
+  if ("allowed" in eligibility) return eligibility;
   // No ai.governance wire key is published without its external mirror. An approved
   // host metadata fixture is not the firm's enforced policy or proof of engine egress.
   return {allowed: false, reason: "unsupported-transport"};

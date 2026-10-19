@@ -6,8 +6,9 @@ import type { Language } from "@/i18n";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resolveLegalworkConnection, type ResolvedLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 
-const copy: Record<Language, {title: string; remote: string; reading: string; profile: string; action: string; blocked: string; acknowledge: string; saved: string; failed: string; jurisdiction: string}> = {
+const copy: Record<Language, {title: string; remote: string; reading: string; profile: string; action: string; blocked: string; bounded: string; acknowledge: string; saved: string; failed: string; jurisdiction: string}> = {
   cs: {
+    bounded: "Zpracování vybraných dokumentů má samostatný podmíněný režim: výslovně vyberete existující posouzený profil věci pro nastavený účet a model. Hostitel zkontroluje konkrétní složku, zdroje a každý úplný přenos. Nové právní schválení zde vytvořit nelze; bez profilu pokračujte ručně. Syntetický test na doslovné loopback adrese vyžaduje samostatné potvrzení hostitele a nevytváří klientské oprávnění.",
     title: "AI a chráněné údaje",
     remote: "Vzdálená AI předává obsah i odvozené údaje mimo zařízení. Označení místního modelu nebo adresa localhost samy nedokládají místní zpracování.",
     reading: "Potvrzení přečtení zaznamená pouze tuto informaci. Nenahrazuje souhlas klienta, DPA ani posouzení konkrétní služby.",
@@ -17,6 +18,7 @@ const copy: Record<Language, {title: string; remote: string; reading: string; pr
     jurisdiction: "Jurisdikce informace", acknowledge: "Přečetl/a jsem informaci", saved: "Přečtení zaznamenáno. Povolení AI tím nevzniká.", failed: "Přečtení se nepodařilo zaznamenat na tomto zařízení.",
   },
   sk: {
+    bounded: "Spracovanie vybraných dokumentov má samostatný podmienený režim: výslovne vyberiete existujúci posúdený profil veci pre nastavený účet a model. Hostiteľ skontroluje konkrétny priečinok, zdroje a každý úplný prenos. Nové právne schválenie tu vytvoriť nemožno; bez profilu pokračujte ručne. Syntetický test na doslovnej loopback adrese vyžaduje samostatné potvrdenie hostiteľa a nevytvára klientské oprávnenie.",
     title: "AI a chránené údaje",
     remote: "Vzdialená AI odovzdáva obsah aj odvodené údaje mimo zariadenia. Označenie miestneho modelu alebo adresa localhost samy nedokladajú miestne spracovanie.",
     reading: "Potvrdenie prečítania zaznamená iba túto informáciu. Nenahrádza súhlas klienta, DPA ani posúdenie konkrétnej služby.",
@@ -26,6 +28,7 @@ const copy: Record<Language, {title: string; remote: string; reading: string; pr
     jurisdiction: "Jurisdikcia informácie", acknowledge: "Prečítal/a som informáciu", saved: "Prečítanie zaznamenané. Povolenie AI tým nevzniká.", failed: "Prečítanie sa nepodarilo zaznamenať na tomto zariadení.",
   },
   en: {
+    bounded: "Selected document processing has a separate conditional mode: explicitly choose an existing reviewed matter profile for the configured account and model. The host reviews the exact directory, sources and every complete transmission. New legal approvals cannot be created here; without a profile continue manually. A synthetic test on a literal loopback address requires separate native review and creates no client grant.",
     title: "AI and protected information",
     remote: "Remote AI sends content and derived information outside this device. A local label or localhost address alone does not verify local processing.",
     reading: "A reading acknowledgment records this information only. It does not replace client consent, a DPA or a review of the particular service.",
@@ -35,6 +38,7 @@ const copy: Record<Language, {title: string; remote: string; reading: string; pr
     jurisdiction: "Information jurisdiction", acknowledge: "I have read this information", saved: "Reading recorded. This does not grant AI permission.", failed: "Reading could not be recorded on this device.",
   },
   de: {
+    bounded: "Für ausgewählte Dokumente besteht ein gesonderter bedingter Modus: Wählen Sie ausdrücklich ein bestehendes geprüftes Mandatsprofil für das konfigurierte Konto und Modell. Der Host prüft Verzeichnis, Quellen und jede vollständige Übertragung. Neue rechtliche Freigaben können hier nicht erstellt werden; ohne Profil arbeiten Sie manuell weiter. Ein synthetischer Test an einer wörtlichen Loopback-Adresse erfordert eine separate Hostprüfung und erzeugt keine Mandantenfreigabe.",
     title: "KI und geschützte Informationen",
     remote: "Remote-KI überträgt Inhalte und abgeleitete Informationen außerhalb dieses Geräts. Eine lokale Bezeichnung oder localhost-Adresse belegt keine lokale Verarbeitung.",
     reading: "Die Lesebestätigung dokumentiert nur diese Information. Sie ersetzt weder Mandanteneinwilligung, DPA noch die Prüfung des konkreten Dienstes.",
@@ -95,6 +99,7 @@ export function AiGuidance({locale}: {locale: Language}) {
     <h3 id={id} className="font-semibold">{text.title}</h3>
     <p>{text.remote}</p><p>{text.reading}</p><p>{text.profile}</p><p>{text.action}</p>
     <p role="status" className="font-medium">{text.blocked}</p>
+    {view?.boundedDocuments?.state === "conditional" ? <p>{text.bounded}</p> : null}
     {saved ? <p>{text.saved}</p> : <>
       <label className="flex items-center gap-2">{text.jurisdiction}
         <select aria-label={text.jurisdiction} value={jurisdiction ?? ""} onChange={event => {

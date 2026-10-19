@@ -106,7 +106,7 @@ export async function brokerRequest(
   authorize: (request: OutboundRequest) => Promise<boolean>,
   signal: AbortSignal,
   dependencies: NetworkDependencies = { resolve: (host) => lookup(host, { all: true }), send: sendPinned },
-  options: { allowPrivate?: boolean } = {},
+  options: { allowPrivate?: boolean; beforeConnect?: () => Promise<void> } = {},
 ): Promise<OutboundResponse> {
   signal.throwIfAborted();
   if (!await authorize(request)) throw new Error("Internet access denied by LegalWork permissions.");
@@ -119,6 +119,8 @@ export async function brokerRequest(
   if (!addresses.length || (!options.allowPrivate && addresses.some(({ address }) => !publicAddress(address)))) {
     throw new Error("The destination resolves to a local, private or reserved address.");
   }
+  await options.beforeConnect?.();
+  signal.throwIfAborted();
   // The validated IP is dialled directly. TLS still verifies the original host.
   return dependencies.send(request, addresses[0], signal);
 }

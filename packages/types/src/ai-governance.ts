@@ -31,6 +31,16 @@ export type GuidanceAck = {textVersion: string; jurisdiction: "CZ" | "SK"; actor
 export const AI_GUIDANCE_VERSION = "2026-10-17-technical-alpha";
 export const GuidanceAckSchema = z.strictObject({textVersion: z.string().min(1).max(80), jurisdiction: z.enum(["CZ", "SK"]), actorRef: z.literal("native-host"), readAt: z.number().int().nonnegative()});
 export type AiGovernanceView = {publicContext?: {available: boolean; targets: Array<{id: string; models: string[]}>}; guidanceVersion: string; guidanceAck: GuidanceAck | null;
+  boundedDocuments?: {state: "conditional"; requiresApprovedMatterProfile: true; requiresNativeCaseReview: true; requiresFinalWireReview: true; approvalCreation: "unavailable"};
   protectedProcessing: "unsupported"; blockers: string[]; capabilities: Array<{kind: TransferKind; state: "unsupported"; reason: "unsupported-transport"}>};
 
 export type PublicAiResult = {reply: string; operationId: string; scope: "public-text-scratch"; legalApproval: false};
+
+/** Host-owned profile metadata only; discovery never grants processing authority. */
+export type ProtectedDocumentProfiles = {
+  profiles: Array<Pick<GovernanceProfile, "id" | "revision" | "scope" | "legalProfileId" | "legalProfileVersion" | "evidenceRefs" | "expiresAt">>;
+  targetFingerprint: string;
+  syntheticReviewAvailable: boolean;
+  requiresNativeCaseReview: true;
+  legalApproval: false;
+};

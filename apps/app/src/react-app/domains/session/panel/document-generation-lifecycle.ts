@@ -3,12 +3,16 @@ import type { LegalworkSessionSnapshot, LawossDocumentSummary } from "@/app/lib/
 import { useSessionActivityStore } from "../status/session-activity-store";
 import { t } from "@/i18n";
 
+export const PROTECTED_DOCUMENT_GENERATION_TRANSPORT: "protected-documents-v1" = "protected-documents-v1";
 export type DocumentGenerationMetadata = {
   projectId: string;
   baseUrl: string;
   workspaceId: string;
   root: string;
   directory: string;
+  /** A distinct native transport must never retry an old general-engine session. */
+  transport?: typeof PROTECTED_DOCUMENT_GENERATION_TRANSPORT;
+  protectedTarget?: {providerId: string; modelId: string; targetFingerprint: string; profileId?: string; profileRevision?: number};
 };
 export type DocumentGenerationBinding = DocumentGenerationMetadata & {
   sessionId: string;
@@ -55,6 +59,7 @@ function loadBindings() {
       if (!value || typeof value !== "object") continue;
       if (!["projectId", "baseUrl", "workspaceId", "root", "directory", "sessionId"].every(key => typeof value[key] === "string")) continue;
       if (!Number.isFinite(value.startedAt) || !["accepted", "running", "completed", "error"].includes(value.phase)) continue;
+      if (value.transport !== undefined && value.transport !== PROTECTED_DOCUMENT_GENERATION_TRANSPORT) continue;
       bindings.set(item[0], { ...value, error: typeof value.error === "string" ? value.error : null });
     }
   } catch { /* Storage is optional; current native session remains retained in memory. */ }
@@ -73,13 +78,17 @@ export function allDocumentGenerations() {
   loadBindings();
   return [...bindings];
 }
+/** UI restriction only; the host's private runtime registry owns actual authority. */
+export function hasProtectedDocumentSession(projectId: string, sessionId: string): boolean {
+  return allDocumentGenerations().some(([, binding]) => binding.projectId === projectId && binding.sessionId === sessionId && binding.transport === PROTECTED_DOCUMENT_GENERATION_TRANSPORT);
+}
 export const documentGenerationsRevision = () => revision;
 export function subscribeDocumentGenerations(listener: () => void) {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }
 export function documentGenerationKey(metadata: DocumentGenerationMetadata, language: string, sources: LawossDocumentSummary[]) {
-  return JSON.stringify([metadata.projectId, metadata.baseUrl, metadata.workspaceId, metadata.root, metadata.directory, language, sources.filter(source => !source.provenance.parentId).map(source => [source.id, source.hash]).sort((a, b) => a[0].localeCompare(b[0]))]);
+  return JSON.stringify([metadata.projectId, metadata.baseUrl, metadata.workspaceId, metadata.root, metadata.directory, language, sources.filter(source => !source.provenance.parentId).map(source => [source.id, source.hash]).sort((a, b) => a[0].localeCompare(b[0])), ...(metadata.transport ? [metadata.transport, ...(metadata.protectedTarget ? [metadata.protectedTarget] : [])] : [])]);
 }
 export function isDocumentGenerationActive(binding: DocumentGenerationBinding | null) {
   return binding?.phase === "accepted" || binding?.phase === "running";

@@ -12,6 +12,7 @@ export const GLOBAL_AI_GUIDANCE_ID = "__global_ai_guidance__";
 export async function readAiGovernanceView(config: ServerConfig, publicEngineAvailable = false): Promise<AiGovernanceView> {
   return {publicContext: {available: publicEngineAvailable, targets: await listPublicAiTargets(config)}, guidanceVersion: AI_GUIDANCE_VERSION,
     guidanceAck: (await readRuntimeOpencodeConfig(config, GLOBAL_AI_GUIDANCE_ID)).guidanceAck ?? null,
+    boundedDocuments: {state: "conditional", requiresApprovedMatterProfile: true, requiresNativeCaseReview: true, requiresFinalWireReview: true, approvalCreation: "unavailable"},
     protectedProcessing: "unsupported", blockers: ["enforced-policy-wire-unavailable", "engine-egress-unproven"],
     capabilities: await readGovernedCapabilities(config, {workspaceId: null, matterId: null, jurisdictions: []})};
 }

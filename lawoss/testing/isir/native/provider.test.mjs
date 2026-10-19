@@ -4,7 +4,7 @@ import { startProvider, decodeNativeToolOutput } from "./provider.mjs";
 
 const source={id:"00000000-0000-4000-8000-000000000001",hash:"a".repeat(64),path:"Dokumenty/Synthetic source.pdf",parentId:null};
 const prompt=`outputLanguage="cs".\nSelected sources (JSON): ${JSON.stringify([source])}`;
-const tools=['lawoss_documents_list','lawoss_documents_read','lawoss_documents_export','lawoss_documents_validate','legalwork_shell'].map(name=>({type:'function',function:{name,parameters:{type:'object'}}}));
+const tools=['lawoss_documents_list','lawoss_documents_read','lawoss_documents_export','lawoss_documents_validate'].map(name=>({type:'function',function:{name,parameters:{type:'object'}}}));
 async function complete(provider,messages,advertised=tools){
  const response=await fetch(`${provider.url}/chat/completions`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:'synthetic',stream:true,messages,tools:advertised})});
  assert.equal(response.status,200);
@@ -54,11 +54,11 @@ test('recovered native turn requests a fresh read instead of reusing an earlier 
  const messages=[{role:'user',content:prompt},{role:'assistant',tool_calls:[old]},{role:'tool',tool_call_id:old.id,content:JSON.stringify({pages:[],nextOffset:null})},{role:'user',content:'NATIVE_RECOVERED_CWD_PROOF'}];
  try{
   const fresh=await complete(provider,messages);assert.equal(fresh.function.name,'lawoss_documents_read');assert.equal(JSON.parse(fresh.function.arguments).id,source.id);
-  messages.push({role:'assistant',tool_calls:[fresh]},{role:'tool',tool_call_id:fresh.id,content:JSON.stringify({pages:[],nextOffset:null})});
-  const cwd=await complete(provider,messages);assert.equal(cwd.function.name,"legalwork_shell");assert.equal(JSON.parse(cwd.function.arguments).command,process.platform === "win32" ? 'node -p "process.cwd()"' : "pwd");
-  assert.equal(JSON.parse(cwd.function.arguments).write,false);assert.equal(JSON.parse(cwd.function.arguments).workdir,undefined);
-  messages.push({role:"assistant",tool_calls:[cwd]},{role:"tool",tool_call_id:cwd.id,content:"/synthetic/moved"});
+  messages.push({role:'assistant',tool_calls:[fresh]},{role:'tool',tool_call_id:fresh.id,content:JSON.stringify({pages:[],nextOffset:16000})});
+  const continuation=await complete(provider,messages);assert.equal(continuation.function.name,"lawoss_documents_read");assert.equal(JSON.parse(continuation.function.arguments).offset,16000);
+  messages.push({role:"assistant",tool_calls:[continuation]},{role:"tool",tool_call_id:continuation.id,content:JSON.stringify({pages:[],nextOffset:null})});
   assert.equal(await complete(provider,messages),undefined);assert.equal(provider.errors.length,0);
+  assert.ok(provider.receipts.every(receipt=>!receipt.call||tools.some(tool=>tool.function.name===receipt.call.name)),"Recovery never advertises or requests general host execution");
  }finally{await provider.close();}
 });
 
@@ -92,4 +92,20 @@ test('native export protocol validates advertised JSON schema then sends empty r
   assert.match(diagnostic,/"variant":"empty"/);assert.match(diagnostic,/"expectedAccepted":true/);assert.match(diagnostic,/"actualAccepted":false/);assert.match(diagnostic,/"required":false/);
   assert.doesNotMatch(diagnostic,/Synthetic evidence|native-registry|synthetic-token/);
  }finally{await provider.close();}
+});
+
+
+test("synthetic provider receipts record only ordinal and arrival timing alongside the existing protocol evidence", async () => {
+  const provider = await startProvider();
+  const started = Date.now();
+  try {
+    for (let index = 0; index < 2; index++) {
+      const response = await fetch(provider.url+"/chat/completions", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({model: "synthetic", messages: [{role: "user", content: "SYNTHETIC timing probe"}]})});
+      assert.equal(response.status, 200); await response.text();
+    }
+    assert.deepEqual(provider.receipts.map(receipt => receipt.ordinal), [1, 2]);
+    for (const receipt of provider.receipts) assert.ok(Number.isInteger(receipt.receivedAtMs) && receipt.receivedAtMs >= started && receipt.receivedAtMs <= Date.now());
+    assert.ok(provider.receipts[1].receivedAtMs >= provider.receipts[0].receivedAtMs);
+    assert.deepEqual(provider.errors, []);
+  } finally {await provider.close();}
 });
