@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppWindowMac, Copy, PanelsTopLeft, Settings2 } from "lucide-react";
+import { AppWindowMac, Copy, PanelsTopLeft, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
@@ -52,7 +52,7 @@ export function WorkspaceWindowButton({ workspaceId, openWindow = openWorkspaceW
         <ContextMenuItem disabled={busy} onClick={() => void launch("empty")}><PanelsTopLeft />{t("workspace.window_empty")}</ContextMenuItem>
         <ContextMenuItem disabled={busy} onClick={() => void launch("copy")}><Copy />{t("workspace.window_copy")}</ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem disabled={busy} onClick={choose}><Settings2 />{t("workspace.window_change_choice")}</ContextMenuItem>
+        <ContextMenuItem disabled={busy} onClick={choose}><RotateCcw />{t("workspace.window_change_choice")}</ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>}
     <Dialog open={open} onOpenChange={value => { if (!busy) setOpen(value); }}><DialogContent>

@@ -29,7 +29,7 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Columns2, Folder, MessageSquare, PanelsTopLeft, Plus, Settings2, X, Zap } from "lucide-react";
+import { ArrowLeft, ArrowRight, Columns2, Folder, MessageSquare, PanelsTopLeft, Plug, Plus, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import {
@@ -1466,7 +1466,7 @@ export function SessionPage(props: SessionPageProps) {
                         onSelect={(prompt) => props.sidebar.onCreateChatWithPrompt?.(props.selectedWorkspaceId, prompt)}
                       />
                       <Button variant="ghost" size="sm" className="mt-4 gap-2" onClick={props.onOpenSettings}>
-                        <Settings2 size={14} aria-hidden="true" />
+                        <Plug size={14} aria-hidden="true" />
                         {t("session.connect_extension")}
                       </Button>
                     </WelcomeSurface>

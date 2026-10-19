@@ -4344,7 +4344,7 @@ export default {
   "review.models_missing": "Před přidáním otázek vyberte modely kontroly.",
   "projects.add_favorite": "Přidat projekt k oblíbeným",
   "projects.remove_favorite": "Odebrat projekt z oblíbených",
-  "projects.configure_fields": "Nakonfigurujte pole",
+  "projects.configure_fields": "Upravit pole",
   "projects.edit_value": "Upravit {name}",
   "projects.save_to_defaults": "Uložit do výchozího nastavení",
   "projects.saved_to_defaults": "{name} uloženo do výchozího nastavení. Nové projekty začnou s prázdnou hodnotou.",

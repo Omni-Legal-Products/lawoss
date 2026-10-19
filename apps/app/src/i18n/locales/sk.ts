@@ -4345,7 +4345,7 @@ export default {
    "review.models_missing": "Pred pridaním otázok vyberte modely kontroly.",
    "projects.add_favorite": "Pridať projekt medzi obľúbené",
    "projects.remove_favorite": "Odstrániť projekt z obľúbených",
-   "projects.configure_fields": "Konfigurovať pole",
+   "projects.configure_fields": "Upraviť polia",
    "projects.edit_value": "Upraviť {name}",
    "projects.save_to_defaults": "Uložiť na predvolené",
    "projects.saved_to_defaults": "{name} uložený do predvoleného nastavenia. Nové projekty sa začnú s prázdnou hodnotou.",

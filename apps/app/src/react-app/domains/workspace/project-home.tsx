@@ -3,7 +3,7 @@ import { ProjectRemoteFolders } from "./project-remote-folders";
 import { useProjectPersonalisation } from "./project-personalisation-modal";
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, MessageSquare, Mic, Plus, RefreshCw, Settings2, Square, Pin, StickyNote, SquareCheck, WandSparkles } from "lucide-react";
+import { ChevronDown, ChevronRight, MessageSquare, Mic, Plus, PencilLine, RefreshCw, Square, Pin, StickyNote, SquareCheck, WandSparkles } from "lucide-react";
 import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -161,7 +161,7 @@ export function ProjectHome(props: {
               <ChevronRight className={cn("size-3.5 transition-transform", detailsOpen && "rotate-90")} />
               {t("projects.metadata")}
             </CollapsibleTrigger>
-            <Button size="icon-xs" variant="ghost" disabled={!details.data} aria-label={t("projects.configure_fields")} title={t("projects.configure_fields")} onClick={() => setEditMetadata(true)}><Settings2 className="size-3.5" /></Button>
+            <Button size="icon-xs" variant="ghost" disabled={!details.data} aria-label={t("projects.configure_fields")} title={t("projects.configure_fields")} onClick={() => setEditMetadata(true)}><PencilLine className="size-3.5" /></Button>
           </div>
           <CollapsibleContent>
             <div className="pb-3 pt-2">
@@ -182,7 +182,7 @@ export function ProjectHome(props: {
         </Collapsible>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <ContextMenuItem disabled={!details.data} onClick={() => setEditMetadata(true)}><Settings2 />{t("projects.configure_fields")}</ContextMenuItem>
+          <ContextMenuItem disabled={!details.data} onClick={() => setEditMetadata(true)}><PencilLine />{t("projects.configure_fields")}</ContextMenuItem>
           <ContextMenuItem onClick={() => setDetailsOpen(!detailsOpen)}><ChevronDown />{t(detailsOpen ? "projects.collapse_details" : "projects.expand_details")}</ContextMenuItem>
           <ContextMenuItem disabled={details.isFetching} onClick={() => { void details.refetch(); }}><RefreshCw />{t("common.refresh")}</ContextMenuItem>
         </ContextMenuContent>
