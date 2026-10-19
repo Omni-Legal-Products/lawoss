@@ -1123,7 +1123,7 @@ export function LawossWelcomePage({
     </DirectoryPickerContext.Provider>
   );
 }
-function Identity({
+export function Identity({
   base,
   locale,
   tr,
@@ -1163,7 +1163,12 @@ function Identity({
         <select
           className="lw-onb-select"
           value={language}
-          onChange={(e) => setLanguage(e.target.value as Language)}
+          onChange={(e) => {
+            const next = e.target.value as Language;
+            setLanguage(next);
+            // Rozhranie sa prepne hneď (rodič číta useLocale), nie až po uložení.
+            setLanguagePreference(next);
+          }}
         >
           {UI_LANGUAGES.map((x) => (
             <option key={x.value} value={x.value}>{x.nativeName}</option>
