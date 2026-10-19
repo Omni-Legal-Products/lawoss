@@ -1,4 +1,5 @@
 import { workspaceOwnsSession } from "../lawoss/workspace-history.js";
+import { sessionOwnershipChecked, workspaceReadsSession } from "../lawoss/session-ownership.js";
 import type { SessionViewPreview } from "@legalwork/types/views";
 import { beginSessionDeletion, withSessionExecution } from "../session-execution-gate.js";
 import { REVIEW_RECOVERY_PROMPT } from "../reviews/recover-empty-review-response.js";
@@ -203,7 +204,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
       const session = buildSession(unwrapOpencodeResult(await opencode.session.get({ sessionID: sessionId }), `/session/${encodeURIComponent(sessionId)}`));
-      if ((workspace.previousPaths?.length || workspace.appFilesStorageKey) && !workspaceOwnsSession(workspace, session)) throw new ApiError(404, "session_not_found", "Session does not belong to this project");
+      if (sessionOwnershipChecked(workspace) && !(await workspaceReadsSession(workspace, session))) throw new ApiError(404, "session_not_found", "Session does not belong to this project");
       return session;
     } catch (error) {
       remapSessionReadError(error);
@@ -217,7 +218,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   ) {
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
-      if (workspace.previousPaths?.length || workspace.appFilesStorageKey) await readWorkspaceSession(workspace, sessionId);
+      if (sessionOwnershipChecked(workspace)) await readWorkspaceSession(workspace, sessionId);
       return buildSessionMessages(
         await applySessionUsageLimits(config, workspace.id, sessionId, unwrapOpencodeResult(
           await opencode.session.messages({ sessionID: sessionId, limit: input.limit }),
@@ -236,7 +237,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   ) {
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
-      if (workspace.previousPaths?.length || workspace.appFilesStorageKey) await readWorkspaceSession(workspace, sessionId);
+      if (sessionOwnershipChecked(workspace)) await readWorkspaceSession(workspace, sessionId);
       const [session, messages, todos, statuses] = await Promise.all([
         opencode.session
           .get({ sessionID: sessionId })
@@ -572,7 +573,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       throw new ApiError(400, "invalid_payload", "sessionId is required");
     }
 
-    if (workspace.previousPaths?.length || workspace.appFilesStorageKey) await readWorkspaceSession(workspace, sessionId);
+    if (sessionOwnershipChecked(workspace)) await readWorkspaceSession(workspace, sessionId);
     const locks = new Map<string, () => void>();
     const lock = (id: string) => { if (!locks.has(id)) locks.set(id, beginSessionDeletion(config, id)); };
     try {

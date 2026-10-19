@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, parse, relative } from "node:path";
 import { z } from "zod";
@@ -44,14 +44,29 @@ function like(value: string, pattern: string) {
   return new RegExp(`^${source}$`, "is").test(value);
 }
 
-/** Engine na skúšku: výber riadkov ako `listByProject` v 1.18.29; zapamätá si dotazy. */
+/**
+ * Engine na skúšku: výber riadkov ako `listByProject` v 1.18.29; zapamätá si dotazy.
+ * Čítanie podľa ID (`/session/:id/...`) ako v 1.18.29 nekontroluje priečinok ani projekt.
+ */
 function fakeEngine(folders: Office) {
   const rows: Row[] = titles.map(([title, key]) => ({ title, directory: folders[key], path: relativePath(folders.worktree, folders[key]) }));
+  const ids = Object.fromEntries(titles.map(([title], index) => [title, `ses_${index}`]));
+  const info = (row: Row) => ({ id: ids[row.title], title: row.title, directory: row.directory, path: row.path, time: { created: 1, updated: 100 - rows.indexOf(row) } });
   const queries: URLSearchParams[] = [];
+  const requests: string[] = [];
   const project = { id: "global", worktree: folders.worktree };
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     const url = new URL(request.url);
+    requests.push(`${request.method} ${url.pathname}`);
     if (url.pathname === "/project/current") return Response.json(project);
+    const byId = /^\/session\/([^/]+)(\/.*)?$/.exec(url.pathname);
+    const row = byId && rows.find((candidate) => ids[candidate.title] === byId[1]);
+    if (byId && byId[1] !== "status") {
+      if (!row) return Response.json({ name: "NotFoundError" }, { status: 404 });
+      if (!byId[2]) return Response.json(info(row));
+      if (byId[2] === "/message") return Response.json([{ info: { id: `msg_${byId[1]}`, sessionID: byId[1], role: "user" }, parts: [{ type: "text", text: `${row.title}: obsah` }] }]);
+      return Response.json([]);
+    }
     if (url.pathname !== "/session") return Response.json({});
     queries.push(url.searchParams);
     const header = request.headers.get("x-opencode-directory");
@@ -61,10 +76,10 @@ function fakeEngine(folders: Office) {
       if (path !== null) return !path || row.path === path || like(row.path, `${path}/%`);
       return scope === "project" || !directory || row.directory === directory;
     });
-    return Response.json(selected.map((row, index) => ({ id: `ses_${index}`, title: row.title, directory: row.directory, path: row.path, time: { created: 1, updated: 100 - index } })));
+    return Response.json(selected.map(info));
   } });
   cleanups.push(() => engine.stop(true));
-  return { url: `http://127.0.0.1:${engine.port}`, queries, project };
+  return { url: `http://127.0.0.1:${engine.port}`, queries, requests, project, ids };
 }
 
 /** Skutočný engine v izolovanom HOME/XDG; rozhovory založí cez jeho API v priečinkoch klientov. */
@@ -90,19 +105,22 @@ async function realEngine(bin: string, folders: Office) {
   }
   reader.releaseLock();
   const url = /listening on (http:\/\/\S+)/.exec(output)?.[1] ?? "";
+  const ids: Record<string, string> = {};
   for (const [title, key] of titles) {
     const response = await fetch(`${url}/session`, { method: "POST", headers: { "x-opencode-directory": encodeURIComponent(folders[key]), "content-type": "application/json" }, body: JSON.stringify({ title }) });
     expect(response.status).toBe(200);
+    ids[title] = sessionSchema.parse(await response.json()).id;
   }
-  return { url, queries: undefined, project: undefined };
+  return { url, queries: undefined, requests: undefined, project: undefined, ids };
 }
 
-async function serve(folders: Office, engineUrl: string) {
+async function serve(folders: Office, engineUrl: string, extra: Record<string, string> = {}) {
   const workspace = (id: string, path: string) => ({ id, name: id, preset: "starter", path, workspaceType: "local" as const, baseUrl: engineUrl });
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, configPath: join(folders.base, "server.json"), token: "client", hostToken: "host",
-    approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [workspace("klient-a", folders.clientA), workspace("klient-b", folders.clientB)],
-    authorizedRoots: [folders.clientA, folders.clientB], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
+    approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [],
+    workspaces: [workspace("klient-a", folders.clientA), workspace("klient-b", folders.clientB), ...Object.entries(extra).map(([id, path]) => workspace(id, path))],
+    authorizedRoots: [folders.clientA, folders.clientB, ...Object.values(extra)], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
   };
   const previous = { data: process.env.LEGALWORK_DATA_DIR, tokens: process.env.LEGALWORK_TOKEN_STORE };
   process.env.LEGALWORK_DATA_DIR = join(folders.base, "data"); process.env.LEGALWORK_TOKEN_STORE = join(folders.base, "tokens.json");
@@ -112,12 +130,17 @@ async function serve(folders: Office, engineUrl: string) {
   });
   const server = await startServer(config);
   cleanups.push(() => server.stop());
-  return async (query: Record<string, string>) => {
-    const response = await fetch(`http://127.0.0.1:${server.port}/workspace/klient-a/opencode/session?${new URLSearchParams(query)}`, { headers: { authorization: "Bearer client" } });
-    const body: unknown = await response.json();
-    const listed = response.ok ? z.array(sessionSchema).parse(body).map((session) => session.title).sort() : [];
-    return { status: response.status, listed };
+  const get = async (path: string, init: RequestInit = {}) => {
+    const response = await fetch(`http://127.0.0.1:${server.port}${path}`, { ...init, headers: { authorization: "Bearer client", ...(init.body ? { "content-type": "application/json" } : {}) } });
+    const body: unknown = await response.json().catch(() => null);
+    return { status: response.status, body };
   };
+  const list = async (query: Record<string, string>) => {
+    const { status, body } = await get(`/workspace/klient-a/opencode/session?${new URLSearchParams(query)}`);
+    const listed = status === 200 ? z.array(sessionSchema).parse(body).map((session) => session.title).sort() : [];
+    return { status, listed };
+  };
+  return Object.assign(list, { get });
 }
 
 const engines = [["engine na skúšku (výber 1.18.29)", undefined], ...(binary ? [["skutočný engine", binary] as const] : [])] as const;
@@ -140,6 +163,8 @@ for (const [name, bin] of engines) {
     for (const path of [rel(folders.clientA).replace("Klient_A", "Klient-_"), ...lowercase, `${rel(folders.clientA)}/../Klient-A`, `${rel(folders.clientA)}/`, `/${rel(folders.clientA)}`])
       expect({ path, ...(await list({ path })) }).toEqual({ path, status: 400, listed: [] });
     expect((await list({ directory: folders.clientB })).status).toBe(400);
+    // Zoznam v2 `/api/session` engine 1.18.29 nefiltruje podľa priečinka.
+    expect((await list.get("/workspace/klient-a/opencode/api/session")).status).toBe(403);
 
     // Strom v bočnom paneli: klient s vecami, vec sama; `Klient_A/%` v LIKE zachytí aj `Klient-A/Spis`.
     expect(await list({ directory: folders.clientA, path: rel(folders.clientA), roots: "true", limit: "5" })).toEqual({ status: 200, listed: ["A koreň", "A vec"] });
@@ -158,5 +183,53 @@ for (const [name, bin] of engines) {
       expect(query.has("scope")).toBe(false);
       expect(query.get("directory")).toBeTruthy();
     }
+  }, 60_000);
+}
+
+for (const [name, bin] of engines) {
+  test(`${name}: klient A cez proxy neprečíta rozhovor klienta B podľa ID`, async () => {
+    const folders = await office();
+    const engine = bin ? await realEngine(bin, folders) : fakeEngine(folders);
+    // Ten istý priečinok zapísaný cez odkaz (symlink, na Windows junction) a na macOS v NFD.
+    const alias = join(folders.base, "odkaz-A");
+    await symlink(folders.clientA, alias, "junction");
+    const nfd: Record<string, string> = process.platform === "darwin" ? { "vec-a-nfd": folders.matterA.normalize("NFD") } : {};
+    const { get } = await serve(folders, engine.url, { "klient-a-odkaz": alias, ...nfd });
+    const id = engine.ids;
+    const own = id["A koreň"]!, foreign = id["B tajné"]!, foreignMatter = id["B spis tajný"]!;
+    const proxy = async (workspace: string, path: string, init?: RequestInit) => {
+      const { status, body } = await get(`/workspace/${workspace}/opencode/session/${path}`, init);
+      return { path, status, title: status === 200 && !path.includes("/") ? sessionSchema.parse(body).title : undefined };
+    };
+
+    // Vlastné rozhovory priečinka a jeho vecí sa čítajú ďalej, aj cez odkaz na ten istý priečinok.
+    expect(await proxy("klient-a", own)).toEqual({ path: own, status: 200, title: "A koreň" });
+    expect(await proxy("klient-a", id["A vec"]!)).toEqual({ path: id["A vec"]!, status: 200, title: "A vec" });
+    expect((await proxy("klient-a", `${own}/message`)).status).toBe(200);
+    expect(await proxy("klient-a-odkaz", own)).toEqual({ path: own, status: 200, title: "A koreň" });
+    if (nfd["vec-a-nfd"]) expect(await proxy("vec-a-nfd", id["A vec"]!)).toEqual({ path: id["A vec"]!, status: 200, title: "A vec" });
+
+    // Engine 1.18.29 vráti rozhovor podľa ID bez ohľadu na priečinok; proxy klienta A nie.
+    for (const session of [foreign, foreignMatter])
+      for (const suffix of ["", "/message", "/todo", "/children", "/diff"])
+        expect(await proxy("klient-a", `${session}${suffix}`)).toEqual({ path: `${session}${suffix}`, status: 404, title: undefined });
+    expect((await proxy("klient-b", own)).status).toBe(404);
+    // Engine 1.18.29 číta rozhovor podľa ID aj cez v2 `/api/session/:id`.
+    expect((await get(`/workspace/klient-a/opencode/api/session/${foreign}`)).status).toBe(404);
+    expect((await get(`/workspace/klient-a/opencode/api/session/${foreign}/message`)).status).toBe(404);
+    expect((await get(`/workspace/klient-a/opencode/api/session/${own}`)).status).toBe(200);
+    // Priečinok veci nevidí rozhovor nadradeného priečinka klienta.
+    if (nfd["vec-a-nfd"]) expect((await proxy("vec-a-nfd", own)).status).toBe(404);
+    expect((await get(`/workspace/klient-a/sessions/${foreign}`)).status).toBe(404);
+    expect((await get(`/workspace/klient-a/sessions/${foreign}/messages`)).status).toBe(404);
+    expect((await get(`/workspace/klient-a/sessions/${foreign}`, { method: "DELETE" })).status).toBe(404);
+    expect((await get(`/workspace/klient-a/sessions/${own}`)).status).toBe(200);
+    if (engine.requests) {
+      expect((await proxy("klient-a", `${foreign}/prompt_async`, { method: "POST", body: JSON.stringify({ parts: [{ type: "text", text: "x" }] }) })).status).toBe(404);
+      // Proxy si pýta len metadáta rozhovoru; obsah ani príkaz cudzieho rozhovoru do enginu nejde.
+      expect(engine.requests.filter((request) => request.includes(`/session/${foreign}/`))).toEqual([]);
+    }
+    // Rozhovor B ostal nedotknutý a jeho priečinok ho číta.
+    expect(await proxy("klient-b", foreign)).toEqual({ path: foreign, status: 200, title: "B tajné" });
   }, 60_000);
 }
