@@ -658,9 +658,9 @@ async function createOpenAiRealtimeVoiceCall(env: EnvService, input: unknown) {
 }
 
 const workspaceBootstrapPromises = new WeakMap<ServerConfig, Map<string, Promise<void>>>();
-const reloadBaselineRefreshers = new WeakMap<
+const workspaceBootstrapScopes = new WeakMap<
   ServerConfig,
-  (workspaceId: string, reasons?: ReloadReason[]) => Promise<void>
+  (workspaceId: string, bootstrap: () => Promise<void>) => Promise<void>
 >();
 
 type LogLevel = "info" | "warn" | "error";
@@ -872,10 +872,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
   cleanups.push(() => wikiStore.close());
   await wikiStore.list();
   let watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
-  cleanups.push(() => { watcherHandle.close(); workspaceBootstrapPromises.delete(config); reloadBaselineRefreshers.delete(config); });
-  reloadBaselineRefreshers.set(
+  cleanups.push(() => { watcherHandle.close(); workspaceBootstrapPromises.delete(config); workspaceBootstrapScopes.delete(config); });
+  workspaceBootstrapScopes.set(
     config,
-    (workspaceId, reasons) => watcherHandle.refreshWorkspace(workspaceId, reasons),
+    (workspaceId, bootstrap) => watcherHandle.withWorkspaceBootstrap(workspaceId, bootstrap),
   );
   const restartReloadWatchers = () => {
     if (stopping) return;
@@ -5424,32 +5424,23 @@ async function resolveWorkspace(config: ServerConfig, id: string, options: { boo
     const bootstrapKey = `${workspace.id}:${resolvedWorkspace}:${usesExternalWorkspaceAppFiles(workspace) ? "outside" : "inside"}`;
     let bootstrap = bootstraps.get(bootstrapKey);
     if (!bootstrap) {
-      bootstrap = (async () => {
+      const bootstrapFiles = async () => {
         const bootstrapWorkspace = { ...workspace, path: resolvedWorkspace };
         const appFilesRoot = workspaceAppFilesRoot(config, bootstrapWorkspace);
-        const ensured = usesExternalWorkspaceAppFiles(bootstrapWorkspace)
-          ? await ensureDir(appFilesRoot).then(() => ensureWorkspaceFiles(appFilesRoot, bootstrapWorkspace.preset, {
+        if (usesExternalWorkspaceAppFiles(bootstrapWorkspace)) {
+          await ensureDir(appFilesRoot);
+          await ensureWorkspaceFiles(appFilesRoot, bootstrapWorkspace.preset, {
             root: resolvedWorkspace,
             name: bootstrapWorkspace.displayName ?? bootstrapWorkspace.name,
-          }))
-          : await ensureWorkspaceFilesForBootstrap(bootstrapWorkspace);
-        const bootstrapReloadReasons = new Set<ReloadReason>(ensured.reloadReasons);
-        if (await repairCommands(appFilesRoot)) {
-          bootstrapReloadReasons.add("commands");
+          });
+        } else {
+          await ensureWorkspaceFilesForBootstrap(bootstrapWorkspace);
         }
-        if (bootstrapReloadReasons.size > 0) {
-          // The managed OpenCode process starts alongside this server and
-          // reads the freshly seeded files when its first instance is made.
-          // Suppress watcher noise here, but never dispose the engine from a
-          // request path: doing that can abort a prompt submitted at the same
-          // moment. Later user-authored changes still flow through the normal
-          // reload event/coordinator gate.
-          await reloadBaselineRefreshers.get(config)?.(
-            workspace.id,
-            Array.from(bootstrapReloadReasons),
-          );
-        }
-      })();
+        await repairCommands(appFilesRoot);
+      };
+      // Scope before the first bundled write; Windows may deliver notifications
+      // while bootstrap is still running. Never dispose an engine from here.
+      bootstrap = workspaceBootstrapScopes.get(config)?.(workspace.id, bootstrapFiles) ?? bootstrapFiles();
       bootstraps.set(bootstrapKey, bootstrap);
     }
 

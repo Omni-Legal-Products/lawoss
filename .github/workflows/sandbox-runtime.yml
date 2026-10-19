@@ -98,6 +98,8 @@ jobs:
           msystem: ${{ matrix.msystem }}
           path-type: inherit
           update: true
+          # setup-msys2 prunes its package cache with paccache after installation.
+          install: pacman-contrib
       - name: Download QEMU packages with retries (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
