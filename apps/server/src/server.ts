@@ -2,7 +2,8 @@ import { acquireRuntimeDbLifetime, runtimeDbResource, withRuntimeDb } from "./ru
 import { resolveWorkspaceFilePath, recheckWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { LawossDocuments } from "./lawoss/documents/service.js";
 import { registerLawossDocumentRoutes } from "./routes/lawoss-documents.js";
-import { engineProjectWorktree, scopeSessionListQuery, workspaceListsSession } from "./lawoss/session-list-scope.js";
+import { engineCurrentProject, engineProjectWorktree, scopeSessionListQuery, workspaceListsSession } from "./lawoss/session-list-scope.js";
+import { assertEngineRouteScoped, scopeProjectList } from "./lawoss/engine-route-scope.js";
 import { sessionOwnershipChecked, workspaceReadsSession } from "./lawoss/session-ownership.js";
 import { sessionInfoSchema } from "./session-read-model.js";
 import { historicalWorkspaceSessions } from "./lawoss/workspace-history-sessions.js";
@@ -1441,6 +1442,12 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
 
   const proxyPath = input.proxyPath ?? input.url.pathname;
   const scopedProxyPath = normalizeOpencodeProxyPath(proxyPath);
+  // Refuse locally before the session ownership lookup reaches the engine.
+  const method = input.request.method.toUpperCase();
+  const protectedExecution = input.config.agentSandboxEnabled || (await new WikiStore(input.config).list()).length > 0;
+  if (protectedExecution) assertSandboxProxyAllowed(method, proxyPath);
+  // LAWOSS: refuse engine routes and overrides that leave the folder; see engine-route-scope.ts.
+  assertEngineRouteScoped(method, scopedProxyPath, input.url.searchParams, input.request.headers);
   let targetUrl = buildOpencodeProxyUrl(baseUrl, proxyPath, input.url.search);
   const headers = new Headers(input.request.headers);
   headers.delete("authorization");
@@ -1480,10 +1487,6 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
   if (scopedProxyPath === "/api/session" && input.request.method.toUpperCase() === "GET") {
     throw new ApiError(403, "session_list_unscoped", "Use the folder session list");
   }
-  // Refuse locally before the session ownership lookup reaches the engine.
-  const method = input.request.method.toUpperCase();
-  const protectedExecution = input.config.agentSandboxEnabled || (await new WikiStore(input.config).list()).length > 0;
-  if (protectedExecution) assertSandboxProxyAllowed(method, proxyPath);
   const sessionMatch = scopedProxyPath.match(/^(?:\/api)?\/session\/([^/]+)(?:\/|$)/);
   if (workspace && sessionOwnershipChecked(workspace) && sessionMatch && !["status", "list"].includes(sessionMatch[1]!)) {
     const sessionId = decodeURIComponent(sessionMatch[1]!);
@@ -1553,6 +1556,12 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     const ordered = [...merged.values()].sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0));
     const limit = parseOptionalPositiveInteger(input.url.searchParams.get("limit"), "limit");
     return jsonResponse(limit ? ordered.slice(0, limit) : ordered);
+  }
+
+  if (workspace && directory && method === "GET" && scopedProxyPath === "/project" && response.ok) {
+    const root = resolveOpencodeDirectory(workspace) ?? directory;
+    const roots = [root, workspace.workspaceType === "local" ? await realpath(root).catch(() => root) : root];
+    return jsonResponse(scopeProjectList(await response.json(), await engineCurrentProject(buildOpencodeProxyUrl(baseUrl, "/project/current", ""), headers, input.request.signal), roots));
   }
 
   if (method === "POST" && response.ok && (normalizedPath === "/session" || normalizedPath.endsWith("/fork")) && sessionDirectory && input.actor?.scope && await realpath(sessionDirectory).catch(() => null)) {

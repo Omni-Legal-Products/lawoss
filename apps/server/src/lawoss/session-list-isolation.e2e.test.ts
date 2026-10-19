@@ -55,10 +55,31 @@ function fakeEngine(folders: Office) {
   const queries: URLSearchParams[] = [];
   const requests: string[] = [];
   const project = { id: "global", worktree: folders.worktree };
+  const projectB = { id: "git-b", worktree: folders.clientB, sandboxes: [folders.matterB] };
+  // `/event` posiela udalosti svojho priečinka; `/global/event` a v2 `/api/event` všetkých.
+  const subscribers = new Set<{ directory: string | null; controller: ReadableStreamDefaultController<Uint8Array> }>();
+  const stream = (directory: string | null) => {
+    let subscriber: { directory: string | null; controller: ReadableStreamDefaultController<Uint8Array> } | undefined;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { subscriber = { directory, controller }; subscribers.add(subscriber); controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: "server.connected" })}\n\n`)); },
+      cancel() { if (subscriber) subscribers.delete(subscriber); },
+    });
+    return new Response(body, { headers: { "content-type": "text/event-stream" } });
+  };
+  const create = async (directory: string, title: string) => {
+    for (const subscriber of subscribers)
+      if (subscriber.directory === null || subscriber.directory === directory)
+        subscriber.controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ directory, payload: { type: "session.created", properties: { info: { title, directory } } } })}\n\n`));
+  };
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     const url = new URL(request.url);
     requests.push(`${request.method} ${url.pathname}`);
-    if (url.pathname === "/project/current") return Response.json(project);
+    const header = decodeURIComponent(request.headers.get("x-opencode-directory") ?? "");
+    if (url.pathname === "/project/current") return Response.json(header.startsWith(folders.clientB) ? projectB : project);
+    if (url.pathname === "/project") return Response.json([project, projectB]);
+    if (url.pathname === "/event") return stream(header);
+    if (url.pathname === "/global/event" || url.pathname === "/api/event") return stream(null);
+    if (url.pathname === "/api/fs/list") return Response.json({ location: { directory: url.searchParams.get("location[directory]") || header }, data: [] });
     const byId = /^\/session\/([^/]+)(\/.*)?$/.exec(url.pathname);
     const row = byId && rows.find((candidate) => ids[candidate.title] === byId[1]);
     if (byId && byId[1] !== "status") {
@@ -69,8 +90,7 @@ function fakeEngine(folders: Office) {
     }
     if (url.pathname !== "/session") return Response.json({});
     queries.push(url.searchParams);
-    const header = request.headers.get("x-opencode-directory");
-    const directory = url.searchParams.get("directory") && header ? decodeURIComponent(header) : undefined;
+    const directory = url.searchParams.get("directory") && header ? header : undefined;
     const scope = url.searchParams.get("scope"), path = url.searchParams.get("path");
     const selected = rows.filter((row) => {
       if (path !== null) return !path || row.path === path || like(row.path, `${path}/%`);
@@ -79,7 +99,7 @@ function fakeEngine(folders: Office) {
     return Response.json(selected.map(info));
   } });
   cleanups.push(() => engine.stop(true));
-  return { url: `http://127.0.0.1:${engine.port}`, queries, requests, project, ids };
+  return { url: `http://127.0.0.1:${engine.port}`, queries, requests, project, ids, create };
 }
 
 /** Skutočný engine v izolovanom HOME/XDG; rozhovory založí cez jeho API v priečinkoch klientov. */
@@ -105,13 +125,14 @@ async function realEngine(bin: string, folders: Office) {
   }
   reader.releaseLock();
   const url = /listening on (http:\/\/\S+)/.exec(output)?.[1] ?? "";
-  const ids: Record<string, string> = {};
-  for (const [title, key] of titles) {
-    const response = await fetch(`${url}/session`, { method: "POST", headers: { "x-opencode-directory": encodeURIComponent(folders[key]), "content-type": "application/json" }, body: JSON.stringify({ title }) });
+  const create = async (directory: string, title: string) => {
+    const response = await fetch(`${url}/session`, { method: "POST", headers: { "x-opencode-directory": encodeURIComponent(directory), "content-type": "application/json" }, body: JSON.stringify({ title }) });
     expect(response.status).toBe(200);
-    ids[title] = sessionSchema.parse(await response.json()).id;
-  }
-  return { url, queries: undefined, requests: undefined, project: undefined, ids };
+    return sessionSchema.parse(await response.json()).id;
+  };
+  const ids: Record<string, string> = {};
+  for (const [title, key] of titles) ids[title] = await create(folders[key], title);
+  return { url, queries: undefined, requests: undefined, project: undefined, ids, create };
 }
 
 async function serve(folders: Office, engineUrl: string, extra: Record<string, string> = {}) {
@@ -131,16 +152,36 @@ async function serve(folders: Office, engineUrl: string, extra: Record<string, s
   const server = await startServer(config);
   cleanups.push(() => server.stop());
   const get = async (path: string, init: RequestInit = {}) => {
-    const response = await fetch(`http://127.0.0.1:${server.port}${path}`, { ...init, headers: { authorization: "Bearer client", ...(init.body ? { "content-type": "application/json" } : {}) } });
+    const response = await fetch(`http://127.0.0.1:${server.port}${path}`, { ...init, headers: { authorization: "Bearer client", ...(init.body ? { "content-type": "application/json" } : {}), ...Object.fromEntries(new Headers(init.headers)) } });
     const body: unknown = await response.json().catch(() => null);
     return { status: response.status, body };
+  };
+  /** Otvorí SSE cez proxy, po prvej udalosti spustí `trigger` a číta, kým nepríde `until` (najviac 5 s). */
+  const sse = async (path: string, trigger: () => Promise<unknown>, until: string) => {
+    const abort = new AbortController();
+    cleanups.push(() => abort.abort());
+    const response = await fetch(`http://127.0.0.1:${server.port}${path}`, { headers: { authorization: "Bearer client" }, signal: abort.signal });
+    if (response.status !== 200 || !response.body) { abort.abort(); return { status: response.status, text: "" }; }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let text = decoder.decode((await reader.read()).value);
+    await trigger();
+    const deadline = setTimeout(() => abort.abort(), 5_000);
+    try {
+      while (!text.includes(until)) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        text += decoder.decode(chunk.value);
+      }
+    } catch { /* uplynul čas */ } finally { clearTimeout(deadline); abort.abort(); }
+    return { status: response.status, text };
   };
   const list = async (query: Record<string, string>) => {
     const { status, body } = await get(`/workspace/klient-a/opencode/session?${new URLSearchParams(query)}`);
     const listed = status === 200 ? z.array(sessionSchema).parse(body).map((session) => session.title).sort() : [];
     return { status, listed };
   };
-  return Object.assign(list, { get });
+  return Object.assign(list, { get, sse });
 }
 
 const engines = [["engine na skúšku (výber 1.18.29)", undefined], ...(binary ? [["skutočný engine", binary] as const] : [])] as const;
@@ -231,5 +272,69 @@ for (const [name, bin] of engines) {
     }
     // Rozhovor B ostal nedotknutý a jeho priečinok ho číta.
     expect(await proxy("klient-b", foreign)).toEqual({ path: foreign, status: 200, title: "B tajné" });
+  }, 60_000);
+}
+
+for (const [name, bin] of engines) {
+  test(`${name}: klient A cez proxy nevidí klienta B cez prepínače, udalosti ani projekty`, async () => {
+    const folders = await office();
+    // Klient B má vlastný git projekt: engine ho vedie v globálnom zozname projektov.
+    const git = (...args: string[]) => Bun.spawnSync(["git", "-C", folders.clientB, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", ...args]);
+    expect(git("init", "-q").exitCode).toBe(0);
+    expect(git("commit", "-q", "--allow-empty", "-m", "start").exitCode).toBe(0);
+    const engine = bin ? await realEngine(bin, folders) : fakeEngine(folders);
+    const { get, sse } = await serve(folders, engine.url);
+    const a = "/workspace/klient-a/opencode";
+    const projectB = z.object({ id: z.string(), worktree: z.string() }).parse(await (await fetch(`${engine.url}/project/current`, { headers: { "x-opencode-directory": encodeURIComponent(folders.clientB) } })).json());
+    expect(projectB.worktree).toBe(folders.clientB);
+    // Všetky pozorovania sa porovnajú naraz, aby červený beh ukázal každý únik.
+    const observed: Record<string, unknown> = {}, expected: Record<string, unknown> = {};
+    const check = (key: string, actual: unknown, wanted: unknown) => { observed[key] = actual; expected[key] = wanted; };
+
+    // 1. Prepínače priečinka: v2 `location[...]`, `?workspace=` a hlavička `x-opencode-workspace`
+    //    by engine presmerovali do iného priečinka. `directory` proxy rieši vnútri koreňa.
+    const location = z.object({ location: z.object({ directory: z.string() }) });
+    const where = async (path: string, init?: RequestInit) => {
+      const { status, body } = await get(path, init);
+      return { status, directory: status === 200 ? location.parse(body).location.directory : undefined };
+    };
+    check("vlastný /api/fs/list", await where(`${a}/api/fs/list`), { status: 200, directory: folders.clientA });
+    check("location[directory]=B", await where(`${a}/api/fs/list?${new URLSearchParams({ "location[directory]": folders.clientB })}`), { status: 400, directory: undefined });
+    check("location[workspace]", (await get(`${a}/api/fs/list?${new URLSearchParams({ "location[workspace]": "wrk_cudzi" })}`)).status, 400);
+    check("?workspace= v2", (await get(`${a}/api/fs/list?workspace=wrk_cudzi`)).status, 400);
+    check("?workspace= v1", (await get(`${a}/session?workspace=wrk_cudzi`)).status, 400);
+    check("x-opencode-workspace", (await get(`${a}/api/fs/list`, { headers: { "x-opencode-workspace": "wrk_cudzi" } })).status, 400);
+
+    // 2. Udalosti: `/event` (používa appka) posiela len udalosti priečinka; `/global/event`
+    //    a v2 `/api/event` posielajú udalosti všetkých priečinkov vrátane obsahu.
+    const folderEvents = await sse(`${a}/event`, async () => { await engine.create(folders.clientB, "B nové tajné"); await engine.create(folders.clientA, "A nové"); }, "A nové");
+    check("/event", { status: folderEvents.status, own: folderEvents.text.includes("A nové"), foreign: folderEvents.text.includes("B nové tajné") }, { status: 200, own: true, foreign: false });
+    for (const path of ["/global/event", "/api/event"]) {
+      const events = await sse(`${a}${path}`, () => engine.create(folders.clientB, `B tajné ${path}`), `B tajné ${path}`);
+      check(path, { status: events.status, foreign: events.text.includes(`B tajné ${path}`) }, { status: 403, foreign: false });
+    }
+
+    // 3. Projekty: zoznam len s projektom priečinka; cudzie priečinky projektu ani úprava cudzieho projektu nie.
+    const projects = await get(`${a}/project`);
+    const listed = projects.status === 200 ? z.array(z.object({ id: z.string(), worktree: z.string() }).passthrough()).parse(projects.body) : [];
+    check("/project", { status: projects.status, foreign: listed.filter((project) => project.id === projectB.id || project.worktree.startsWith(folders.clientB)).length, own: listed.length }, { status: 200, foreign: 0, own: 1 });
+    check("/project/B/directories", (await get(`${a}/project/${projectB.id}/directories`)).status, 403);
+    check("PATCH /project/B", (await get(`${a}/project/${projectB.id}`, { method: "PATCH", body: JSON.stringify({ name: "prepísané" }) })).status, 403);
+
+    // 4. Celá história udalostí, presuny rozhovorov, pracovné priestory, terminály: appka ich nepoužíva.
+    for (const [method, path] of [
+      ["POST", "/sync/history"], ["POST", "/sync/replay"], ["POST", "/sync/steal"], ["POST", "/sync/start"],
+      ["POST", "/experimental/control-plane/move-session"], ["GET", "/experimental/workspace"], ["GET", "/experimental/workspace/adapters"],
+      ["GET", `/experimental/session/${engine.ids["B tajné"]}/background`], ["GET", `/experimental/project/${projectB.id}/copy`],
+      ["GET", "/pty"], ["GET", "/api/pty"],
+      // Zakódované písmená a zdvojené lomky vedú na tie isté trasy.
+      ["POST", "/%73ync/history"], ["POST", "//sync/history"], ["GET", "/glob%61l/event"], ["GET", "/project/x%2F..%2F..%2Fpty"],
+    ] as const)
+      check(`${method} ${path}`, (await get(`${a}${path}`, { method, ...(method === "POST" ? { body: "{}" } : {}) })).status, 403);
+
+    // Priečinok klienta A funguje ďalej.
+    check("/project/current", (await get(`${a}/project/current`)).status, 200);
+    check("vlastný rozhovor", (await get(`${a}/session/${engine.ids["A koreň"]}`)).status, 200);
+    expect(observed).toEqual(expected);
   }, 60_000);
 }
