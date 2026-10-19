@@ -10,10 +10,12 @@ import { liteSettingsTabs, isMainRailItemVisible, isSidebarItemVisible, isWorksp
 import { SettingsSidebar } from "../src/react-app/domains/settings/shell/settings-page";
 import { t } from "@/i18n";
 import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
-import { LiteNav, LiteNavView } from "../src/lawoss/lite/lite-nav";
+import { askTarget, LiteNav, LiteNavView, restoresOfficeScope } from "../src/lawoss/lite/lite-nav";
 import { UiModeSwitchView } from "../src/lawoss/lite/ui-mode-switch";
 import { LawossNav, LawossLayout } from "../src/lawoss/shell/layout";
-import { ADD_FOLDER_PATH, liteMatterLink } from "../src/lawoss/lite/links";
+import { ADD_FOLDER_PATH, LITE_MATTER_PATH, liteMatterLink } from "../src/lawoss/lite/links";
+import type { OkfScope } from "../src/lawoss/okf/read-model";
+import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 import { GeneralSettingsView } from "../src/react-app/domains/settings/pages/general-view";
 import { currentUiMode, setUiMode } from "../src/lawoss/lite/ui-mode";
 
@@ -84,6 +86,38 @@ describe("boční panel LAWOSS-lite", () => {
       expect(nav).toMatch(new RegExp(`<a(?=[^>]*href="${href}")(?=[^>]*data-lawoss-lite-nav="${item}")[^>]*>`));
     }
     expect(nav).toContain("Add folder");
+  });
+  test("Pridať priečinok: aria-current len na presnej adrese, nie na inom kroku /welcome", () => {
+    const at = (entry: string) => renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={[entry]}><SidebarProvider><LiteNavView recent={[]} /></SidebarProvider></MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const anchor = (out: string) => out.match(/<a[^>]*data-lawoss-lite-nav="add_folder"[^>]*>/)?.[0] ?? "";
+    expect(anchor(at("/welcome?continue=matter"))).not.toContain("aria-current");
+    expect(anchor(at(ADD_FOLDER_PATH))).toContain('aria-current="page"');
+  });
+  test("Pokročilý režim drží vybraný priečinok: návrat na Dnes/Klienti/Vec rozsah nemení, bežný režim áno", () => {
+    for (const path of ["/dnes", "/klienti", LITE_MATTER_PATH]) {
+      expect(restoresOfficeScope(path, "pro")).toBe(false);
+      expect(restoresOfficeScope(path, "lite")).toBe(true);
+    }
+    expect(restoresOfficeScope("/session", "lite")).toBe(false);
+  });
+  test("Opýtať sa: v Pokročilom režime konverzácia v aktívnom priečinku, bežný režim beze zmeny", () => {
+    const ws = (id: string): RouteWorkspace => ({ id, path: `/k/${id}`, name: id, displayNameResolved: id, workspaceType: "local" });
+    const acme = ws("acme");
+    const scope: OkfScope = { anchor: ws("prax"), members: [{ workspace: acme, prefix: "ACME" }] };
+    const matter = `?vec=${encodeURIComponent("ACME/Spisy/Prevod")}`;
+    // Pro: nikdy kancelária ani klient (tie aktivujú iný priečinok), vždy aktívny priečinok.
+    for (const [count, sc, path, search] of [[0, null, "/dnes", ""], [1, scope, "/dnes", ""], [3, scope, "/dnes", ""], [3, scope, LITE_MATTER_PATH, matter]] as const) {
+      expect(askTarget("pro", sc, count, path, search)).toEqual({ kind: "active" });
+    }
+    // Lite: ako doteraz.
+    expect(askTarget("lite", scope, 1, "/dnes", "")).toEqual({ kind: "office" });
+    expect(askTarget("lite", null, 3, "/dnes", "")).toEqual({ kind: "office" });
+    expect(askTarget("lite", scope, 3, "/dnes", "")).toEqual({ kind: "pick" });
+    expect(askTarget("lite", scope, 3, LITE_MATTER_PATH, matter)).toEqual({ kind: "client", workspaceId: "acme" });
   });
   test("panel Experimenty nie je v žiadnom režime, ani lišta experimentov nad stránkou (G2 V2)", () => {
     const nav = html(<LawossNav />);

@@ -12,18 +12,39 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { locateInScope, officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope } from "../okf/read-model";
+import { locateInScope, officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope, type OkfScope } from "../okf/read-model";
 import { buildToday } from "./today-model";
 import { matterUrgency, useMinuteTick } from "./live";
 import { ADD_FOLDER_PATH, LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, liteMatterLink } from "./links";
 import { openClientChat, openOfficeChat, restoreOfficeScope } from "./office-scope";
 import { practiceClientChoices } from "./client-choice";
 import { ClientPickerDialog } from "./client-picker";
+import { currentUiMode, useUiMode, type UiMode } from "./ui-mode";
 
 const RECENT_LIMIT = 5;
-/** „Zeptat se“ = nová konverzace v kanceláři (`openOfficeChat`); `/session` jen jako záloha při chybě. */
+/** „Zeptat se“ = nová konverzace v kanceláři (`openOfficeChat`); `/session` v Pokročilom režime (aktívny priečinok) a ako záloha při chybě. */
 const ASK_PATH = "/session";
 const OFFICE_PAGES = new Set([LITE_TODAY_PATH, LITE_CLIENTS_PATH, LITE_MATTER_PATH]);
+
+/**
+ * Rozsah kancelárie len v bežnom režime. Pokročilý drží výber priečinka v sidebare
+ * (`officeWorkspace` v okf/read-model.ts, G2 19. 10. 2026: navigácia je v oboch režimoch).
+ */
+export function restoresOfficeScope(pathname: string, mode: UiMode): boolean {
+  return mode === "lite" && OFFICE_PAGES.has(pathname);
+}
+
+/** Kam vedie „Opýtať sa“. `active`: Pokročilý režim, konverzácia v práve vybranom priečinku bez zmeny rozsahu. */
+export type AskTarget = { kind: "active" } | { kind: "office" } | { kind: "client"; workspaceId: string } | { kind: "pick" };
+
+/** Prax (MČ 16. 10. 2026): z detailu veci rovno do jej klienta, inak krátky výber klienta. */
+export function askTarget(mode: UiMode, scope: OkfScope | null, choiceCount: number, pathname: string, search: string): AskTarget {
+  if (mode !== "lite") return { kind: "active" };
+  if (choiceCount < 2 || !scope) return { kind: "office" };
+  const matter = pathname === LITE_MATTER_PATH ? new URLSearchParams(search).get("vec") : null;
+  const owner = matter === null ? null : locateInScope(scope, matter)?.workspace.id;
+  return owner ? { kind: "client", workspaceId: owner } : { kind: "pick" };
+}
 
 /** `deadlines` z pamäte OKF: bod pri veci ukáže naliehavosť jej najbližšej lehoty. */
 type RecentMatter = { path: string; title: string; deadlines?: readonly { date: string; invalid?: true; file?: string }[] };
@@ -42,23 +63,23 @@ export function LiteNav(props: { activePane?: boolean }) {
   const locale = useLocale();
   const choices = useMemo(() => practiceClientChoices(scope, query.data?.clients), [scope, query.data?.clients]);
   const [picking, setPicking] = useState(false);
-  // Návrat z konverzace na stránku kanceláře vrátí rozsah na kancelář (nová věc, nastavení, Zeptat se).
+  const mode = useUiMode();
+  // Návrat z konverzace na stránku kanceláře vrátí rozsah na kancelář (nová věc, nastavení, Zeptat se); len v bežnom režime.
   useEffect(() => {
-    if (!OFFICE_PAGES.has(pathname)) return;
+    if (!restoresOfficeScope(pathname, mode)) return;
     restoreOfficeScope().catch((failure: unknown) => console.warn("LAWOSS-lite: office scope", failure));
-  }, [pathname]);
+  }, [pathname, mode]);
   const open = (chat: Promise<string>) => {
     chat.then(navigate).catch((failure: unknown) => {
       console.warn("LAWOSS-lite: ask", failure);
       navigate(ASK_PATH);
     });
   };
-  // Prax (MČ 16. 10. 2026): z detailu veci rovno do jej klienta, inak krátky výber klienta.
   const onAsk = () => {
-    if (choices.length < 2 || !scope) { open(openOfficeChat()); return; }
-    const matter = pathname === LITE_MATTER_PATH ? new URLSearchParams(search).get("vec") : null;
-    const owner = matter === null ? null : locateInScope(scope, matter)?.workspace.id;
-    if (owner) open(openClientChat(owner));
+    const target = askTarget(currentUiMode(), scope, choices.length, pathname, search);
+    if (target.kind === "active") navigate(ASK_PATH);
+    else if (target.kind === "office") open(openOfficeChat());
+    else if (target.kind === "client") open(openClientChat(target.workspaceId));
     else setPicking(true);
   };
   return <>
@@ -91,7 +112,10 @@ export function LiteNavView(props: { recent: readonly RecentMatter[]; activePane
                 <SidebarMenuButton
                   isActive={!props.activePane && item.active}
                   className="gap-3 text-sidebar-foreground/80 [&_svg]:size-[18px]"
-                  render={<NavLink to={item.to} end data-lawoss-lite-nav={item.key} onClick={item.key === "ask" && props.onAsk ? (event) => { event.preventDefault(); props.onAsk?.(); } : undefined} />}
+                  // Pridať priečinok: Link s aria-current z presnej adresy; NavLink porovnáva len cestu /welcome.
+                  render={item.key === "add_folder"
+                    ? <Link to={item.to} aria-current={item.active ? "page" : undefined} data-lawoss-lite-nav={item.key} />
+                    : <NavLink to={item.to} end data-lawoss-lite-nav={item.key} onClick={item.key === "ask" && props.onAsk ? (event) => { event.preventDefault(); props.onAsk?.(); } : undefined} />}
                 >
                   <item.icon strokeWidth={1.5} />
                   <span>{t(item.label, locale)}</span>
