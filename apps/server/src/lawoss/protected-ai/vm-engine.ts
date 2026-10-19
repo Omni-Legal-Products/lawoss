@@ -7,6 +7,7 @@ import { MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, type OutboundRequest, type Outbo
 const ORIGIN = "http://protected-lawoss.invalid";
 const CHUNK_BYTES = 32 * 1024;
 const MAX_IN_FLIGHT = 12;
+const MAX_WAITING = 64;
 const TOOL_NAMES = ["lawoss_documents_list", "lawoss_documents_read", "lawoss_documents_export", "lawoss_documents_validate"] as const;
 const idSchema = z.string().uuid();
 const headersSchema = z.record(z.string().max(128), z.string().max(8192)).refine((headers) => Object.keys(headers).length <= 64);
@@ -15,6 +16,7 @@ const resultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("chunk"), id: idSchema, data: z.string().max(Math.ceil(CHUNK_BYTES / 3) * 4).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/) }).strict(),
   z.object({ kind: z.literal("end"), id: idSchema }).strict(),
   z.object({ kind: z.literal("error"), id: idSchema, message: z.string().max(1024) }).strict(),
+  z.object({ kind: z.literal("retired"), id: idSchema }).strict(),
 ]);
 const toolSchema = z.object({ name: z.enum(TOOL_NAMES), arguments: z.unknown(), sessionId: z.string().min(1).max(256).optional() }).strict();
 export type ProtectedVmToolCall = z.infer<typeof toolSchema>;
@@ -44,6 +46,7 @@ type Pending = {
   signal: AbortSignal;
   abort: () => void;
 };
+type Admission = { signal: AbortSignal; resolve: () => void; reject: (error: Error) => void; abort: () => void };
 
 function failure(error: unknown): Error { return error instanceof Error ? error : new Error("Protected VM request failed."); }
 function jsonResponse(value: unknown): OutboundResponse {
@@ -75,6 +78,11 @@ function enginePath(request: Request): string {
 export class ProtectedVmEngine {
   private readonly controller = new AbortController();
   private readonly pending = new Map<string, Pending>();
+  // A public response can finish or be cancelled before the guest has cleaned
+  // its task. Only the measured guest's retirement receipt frees that credit.
+  private readonly leases = new Map<string, "active" | "terminal" | "cancelled">();
+  private readonly admissions: Admission[] = [];
+  private readonly fetching = new Set<Promise<Response>>();
   private reading = 0;
   private readonly commands: Command[] = [];
   private wake?: () => void;
@@ -142,13 +150,18 @@ export class ProtectedVmEngine {
     this.ended = error;
     this.readyReject(error);
     for (const [id, pending] of this.pending) this.release(id, pending, error);
+    this.leases.clear();
+    for (const admission of this.admissions.splice(0)) {
+      admission.signal.removeEventListener("abort", admission.abort); admission.reject(error);
+    }
     this.commands.length = 0;
     this.wake?.();
     this.controller.abort(error);
   }
 
-  private release(id: string, pending: Pending, error?: Error): void {
+  private release(id: string, pending: Pending, error?: Error, cancelled = false): void {
     this.pending.delete(id);
+    if (this.leases.has(id)) this.leases.set(id, cancelled ? "cancelled" : "terminal");
     pending.signal.removeEventListener("abort", pending.abort);
     if (error) { pending.reject(error); pending.body?.error(error); }
     pending.resume?.();
@@ -161,55 +174,99 @@ export class ProtectedVmEngine {
     this.wake?.();
   }
 
+  private admit(signal: AbortSignal): Promise<void> {
+    this.signal.throwIfAborted(); signal.throwIfAborted();
+    if (!this.admissions.length && this.leases.size + this.reading < MAX_IN_FLIGHT) { this.reading++; return Promise.resolve(); }
+    if (this.admissions.length >= MAX_WAITING) return Promise.reject(new Error("Protected engine admission queue is full."));
+    return new Promise<void>((resolve, reject) => {
+      const admission: Admission = { signal, resolve, reject, abort: () => {
+        const index = this.admissions.indexOf(admission); if (index < 0) return;
+        this.admissions.splice(index, 1); signal.removeEventListener("abort", admission.abort);
+        reject(failure(signal.reason));
+      } };
+      this.admissions.push(admission); signal.addEventListener("abort", admission.abort, { once: true });
+      if (signal.aborted) admission.abort();
+    });
+  }
+
+  private admitWaiting(): void {
+    while (!this.ended && this.admissions.length && this.leases.size + this.reading < MAX_IN_FLIGHT) {
+      const admission = this.admissions.shift()!;
+      admission.signal.removeEventListener("abort", admission.abort);
+      if (admission.signal.aborted) { admission.reject(failure(admission.signal.reason)); continue; }
+      this.reading++; admission.resolve();
+    }
+  }
+
   async fetch(request: Request): Promise<Response> {
+    const work = this.dispatch(request); this.fetching.add(work);
+    try { return await work; } finally { this.fetching.delete(work); }
+  }
+
+  private async dispatch(request: Request): Promise<Response> {
     this.signal.throwIfAborted(); request.signal.throwIfAborted();
     const path = enginePath(request);
-    if (this.pending.size + this.reading >= MAX_IN_FLIGHT) throw new Error("Too many protected engine requests.");
     const declared = Number(request.headers.get("content-length") ?? 0);
     if (declared > MAX_REQUEST_BYTES) throw new Error("Protected engine request is too large.");
+    await this.admit(request.signal);
     const chunks: Uint8Array[] = []; let size = 0;
-    this.reading++;
-    try { if (request.body) {
-      const reader = request.body.getReader();
-      const readingSignal = AbortSignal.any([request.signal, this.signal]);
-      const cancel = () => { void reader.cancel(readingSignal.reason).catch(() => {}); };
-      readingSignal.addEventListener("abort", cancel, { once: true });
-      try {
-        while (true) {
-          readingSignal.throwIfAborted();
-          const chunk = await reader.read();
-          readingSignal.throwIfAborted();
-          if (chunk.done) break;
-          size += chunk.value.byteLength;
-          if (size > MAX_REQUEST_BYTES) throw new Error("Protected engine request is too large.");
-          chunks.push(chunk.value);
-        }
-      } catch (error) { await reader.cancel(error).catch(() => {}); throw error; }
-      finally { readingSignal.removeEventListener("abort", cancel); reader.releaseLock(); }
-    } } finally { this.reading--; }
-    this.signal.throwIfAborted(); request.signal.throwIfAborted();
-    const headers: Record<string, string> = {};
-    for (const name of ["content-type", "accept"]) { const value = request.headers.get(name); if (value) headers[name] = value; }
-    const id = randomUUID();
-    return new Promise<Response>((resolve, reject) => {
-      const pending: Pending = { resolve, reject, bytes: 0, head: false, checkpoint: path === "/_protected/checkpoint", signal: request.signal,
-        abort: () => {
-          if (!this.pending.has(id)) return;
-          this.release(id, pending, failure(request.signal.reason));
-          this.enqueue({ kind: "cancel", id });
-        } };
-      this.pending.set(id, pending);
-      request.signal.addEventListener("abort", pending.abort, { once: true });
-      this.enqueue({ kind: "request", id, method: request.method, path, headers, bodyBase64: Buffer.concat(chunks).toString("base64") });
-      if (request.signal.aborted) pending.abort();
-    });
+    let reserved = true;
+    try {
+      this.signal.throwIfAborted(); request.signal.throwIfAborted();
+      if (request.body) {
+        const reader = request.body.getReader();
+        const readingSignal = AbortSignal.any([request.signal, this.signal]);
+        let cancelling: Promise<void> | undefined;
+        const cancel = (reason: unknown) => cancelling ??= reader.cancel(reason).catch(() => {});
+        const aborted = () => { void cancel(readingSignal.reason); };
+        readingSignal.addEventListener("abort", aborted, { once: true });
+        try {
+          while (true) {
+            readingSignal.throwIfAborted();
+            const chunk = await reader.read();
+            readingSignal.throwIfAborted();
+            if (chunk.done) break;
+            size += chunk.value.byteLength;
+            if (size > MAX_REQUEST_BYTES) throw new Error("Protected engine request is too large.");
+            chunks.push(chunk.value);
+          }
+        } catch (error) { await cancel(error); throw error; }
+        finally { readingSignal.removeEventListener("abort", aborted); reader.releaseLock(); }
+      }
+      this.signal.throwIfAborted(); request.signal.throwIfAborted();
+      const headers: Record<string, string> = {};
+      for (const name of ["content-type", "accept"]) { const value = request.headers.get(name); if (value) headers[name] = value; }
+      const id = randomUUID();
+      const response = new Promise<Response>((resolve, reject) => {
+        const pending: Pending = { resolve, reject, bytes: 0, head: false, checkpoint: path === "/_protected/checkpoint", signal: request.signal,
+          abort: () => {
+            if (!this.pending.has(id)) return;
+            this.release(id, pending, failure(request.signal.reason), true);
+            this.enqueue({ kind: "cancel", id });
+          } };
+        this.pending.set(id, pending);
+        this.leases.set(id, "active"); this.reading--; reserved = false;
+        request.signal.addEventListener("abort", pending.abort, { once: true });
+        this.enqueue({ kind: "request", id, method: request.method, path, headers, bodyBase64: Buffer.concat(chunks).toString("base64") });
+        if (request.signal.aborted) pending.abort();
+      });
+      return response;
+    } finally { if (reserved) { this.reading--; this.admitWaiting(); } }
   }
 
   private async result(raw: unknown): Promise<OutboundResponse> {
     const result = resultSchema.parse(raw);
+    if (result.kind === "retired") {
+      if (!this.leases.has(result.id) || this.leases.get(result.id) === "active" || this.pending.has(result.id)) throw new Error("Invalid protected engine retirement identity.");
+      this.leases.delete(result.id); this.admitWaiting(); return jsonResponse({ ok: true });
+    }
     const pending = this.pending.get(result.id);
-    // A cancelled request may have one already-in-flight terminal frame. Never resurrect it.
-    if (!pending) throw new Error("Unknown protected engine request identity.");
+    // Cancelled issued work can still have bounded frames in flight.
+    // Acknowledge without recreating a response or freeing its guest lease.
+    if (!pending) {
+      if (this.leases.get(result.id) === "cancelled") return jsonResponse({ ok: true });
+      throw new Error("Unknown protected engine request identity.");
+    }
     if (result.kind === "error") { this.release(result.id, pending, new Error(result.message)); return jsonResponse({ ok: true }); }
     if (result.kind === "head") {
       if (pending.head) throw new Error("Duplicate protected engine response headers.");
@@ -219,7 +276,7 @@ export class ProtectedVmEngine {
       const body = new ReadableStream<Uint8Array>({
         start: (controller) => { pending.body = controller; },
         pull: () => { pending.resume?.(); pending.resume = undefined; },
-        cancel: () => { this.release(result.id, pending); this.enqueue({ kind: "cancel", id: result.id }); },
+        cancel: () => { this.release(result.id, pending, undefined, true); this.enqueue({ kind: "cancel", id: result.id }); },
       }, { highWaterMark: CHUNK_BYTES, size: (chunk) => chunk?.byteLength ?? 0 });
       const headers = new Headers();
       for (const [name, value] of Object.entries(result.headers)) {
@@ -236,7 +293,7 @@ export class ProtectedVmEngine {
     pending.bytes += data.length;
     if (data.length > CHUNK_BYTES || pending.bytes > MAX_RESPONSE_BYTES) {
       const error = new Error("Protected engine response is too large.");
-      this.release(result.id, pending, error); this.enqueue({ kind: "cancel", id: result.id }); throw error;
+      this.release(result.id, pending, error, true); this.enqueue({ kind: "cancel", id: result.id }); throw error;
     }
     while ((pending.body.desiredSize ?? 0) <= 0 && this.pending.has(result.id)) {
       await new Promise<void>((resolve) => { pending.resume = resolve; });
@@ -287,6 +344,7 @@ export class ProtectedVmEngine {
   stop(): Promise<void> {
     this.stopping ??= (async () => {
       this.fail(new Error("Protected engine stopped."));
+      await Promise.allSettled([...this.fetching]);
       await this.run;
     })();
     return this.stopping;

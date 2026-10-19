@@ -42,6 +42,15 @@ async function harness(options: { manualReady?: boolean; drain?: Promise<void>; 
   return { opening, started, send, cancel: () => controller.abort(), stopped: () => stopped, close: async () => { try { await (await opening).stop(); } finally { await rm(root, { recursive: true }); } } };
 }
 function decoded(response: OutboundResponse): unknown { return JSON.parse(Buffer.from(response.bodyBase64, "base64").toString()); }
+async function holdReads(engine: ProtectedVmEngine, h: Awaited<ReturnType<typeof harness>>, count = 12) {
+  const reads: Array<Promise<Response>> = [], commands: Array<{id:string}> = [];
+  for (let i = 0; i < count; i++) {
+    const reading = engine.fetch(new Request(`http://private-engine/session/ses_fixture/message?offset=${i}`));
+    void reading.catch(() => {}); reads.push(reading);
+    commands.push(decoded(await h.send("/rpc/next")) as {id:string});
+  }
+  return {reads,commands};
+}
 
 function startupClock() {
   let now = 0;
@@ -159,6 +168,176 @@ describe("protected VM bridge protocol (stub worker, no VM confinement claim)", 
       await expect(engine.fetch(new Request("http://private-engine/config", { method: "PATCH", body: "{}" }))).rejects.toThrow("route");
       expect(decoded(await h.send("/tools", { name: "lawoss_documents_list", arguments: {} }))).toEqual({ name: "lawoss_documents_list" });
     } finally { await h.close(); }
+  });
+
+  test("an original prompt waits behind twelve owned reads and is dispatched once after EOF and guest retirement", async () => {
+    const h = await harness(), engine = await h.opening;
+    const reads: Array<Promise<Response>> = [], commands: Array<{id: string}> = [];
+    let consumed = 0, promptError: unknown;
+    try {
+      for (let i = 0; i < 12; i++) {
+        const reading = engine.fetch(new Request(`http://private-engine/session/ses_fixture/message?offset=${i}`));
+        void reading.catch(() => {}); reads.push(reading);
+        commands.push(decoded(await h.send("/rpc/next")) as {id: string});
+      }
+      const body = new ReadableStream<Uint8Array>({ pull(controller) {
+        consumed++; controller.enqueue(new TextEncoder().encode('{"messageID":"msg_original","parts":[]}')); controller.close();
+      } }, { highWaterMark: 0 });
+      const prompt = engine.fetch(new Request("http://private-engine/session/ses_fixture/prompt_async", { method: "POST", body }));
+      void prompt.catch(error => { promptError = error; });
+      await new Promise<void>(resolve => { queueMicrotask(resolve); });
+      expect(promptError).toBeUndefined(); expect(consumed).toBe(0);
+      const first = commands[0];
+      await h.send("/rpc/result", { kind: "head", id: first.id, status: 200, headers: {} });
+      const reading = (await reads[0]).text();
+      await h.send("/rpc/result", { kind: "chunk", id: first.id, data: Buffer.from("[]").toString("base64") });
+      expect(consumed).toBe(0); // Headers and a partial body do not retire an RPC.
+      await h.send("/rpc/result", { kind: "end", id: first.id });
+      expect(await reading).toBe("[]");
+      expect(consumed).toBe(0); // EOF is not proof that guest task cleanup finished.
+      await h.send("/rpc/result", { kind: "retired", id: first.id });
+      const command = decoded(await h.send("/rpc/next"));
+      expect(command).toMatchObject({ kind: "request", method: "POST", path: "/session/ses_fixture/prompt_async", bodyBase64: Buffer.from('{"messageID":"msg_original","parts":[]}').toString("base64") });
+      expect(consumed).toBe(1);
+      if (!command || typeof command !== "object" || !("id" in command) || typeof command.id !== "string") throw new Error("Missing original prompt command");
+      await h.send("/rpc/result", { kind: "head", id: command.id, status: 204, headers: {} });
+      await h.send("/rpc/result", { kind: "end", id: command.id });
+      expect((await prompt).status).toBe(204); expect(promptError).toBeUndefined();
+      await h.send("/rpc/result", { kind: "retired", id: command.id });
+      const probe = engine.fetch(new Request("http://private-engine/session/ses_fixture/todo"));void probe.catch(()=>{});
+      const next = decoded(await h.send("/rpc/next")) as {id:string};
+      expect(next).toMatchObject({kind:"request",method:"GET",path:"/session/ses_fixture/todo"});
+      await h.send("/rpc/result",{kind:"head",id:next.id,status:204,headers:{}});await h.send("/rpc/result",{kind:"end",id:next.id});await probe;
+    } finally { await h.close(); await Promise.allSettled(reads); }
+  });
+
+  test("retirement cannot release an active response and completed duplicate frames remain refused", async () => {
+    const h = await harness(), engine = await h.opening;
+    try {
+      const reading = engine.fetch(new Request("http://private-engine/session"));
+      const command = decoded(await h.send("/rpc/next")) as {id:string};
+      await expect(h.send("/rpc/result", {kind:"retired",id:command.id})).rejects.toThrow("retirement");
+      await h.send("/rpc/result", {kind:"head",id:command.id,status:200,headers:{}});
+      const text = (await reading).text();
+      await h.send("/rpc/result", {kind:"end",id:command.id}); expect(await text).toBe("");
+      await expect(h.send("/rpc/result", {kind:"end",id:command.id})).rejects.toThrow();
+      await h.send("/rpc/result", {kind:"retired",id:command.id});
+      await expect(h.send("/rpc/result", {kind:"retired",id:command.id})).rejects.toThrow("retirement");
+      await expect(h.send("/rpc/result", {kind:"retired",id:"23d6e5c0-dfca-4388-bc3e-0ccabfcedde1"})).rejects.toThrow("retirement");
+    } finally { await h.close(); }
+  });
+
+  test("bounded FIFO admission never consumes queued bodies and removes only the cancelled waiter", async () => {
+    const h = await harness(), engine = await h.opening;
+    const held = await holdReads(engine,h), waiting: Array<Promise<Response>> = [];
+    let consumed = 0;
+    try {
+      const controllers = Array.from({length:64}, () => new AbortController());
+      for (const [i,controller] of controllers.entries()) {
+        const body = new ReadableStream<Uint8Array>({pull(stream) {consumed++;stream.enqueue(new TextEncoder().encode(String(i)));stream.close();}}, {highWaterMark:0});
+        const work = engine.fetch(new Request(`http://private-engine/session/ses_fixture/prompt_async?offset=${i}`, {method:"POST",body,signal:controller.signal}));
+        void work.catch(() => {}); waiting.push(work);
+      }
+      await expect(engine.fetch(new Request("http://private-engine/config",{method:"PATCH",body:"{}"}))).rejects.toThrow("route");
+      await expect(engine.fetch(new Request("http://private-engine/session",{method:"POST",headers:{"content-length":"4194305"}}))).rejects.toThrow("too large");
+      await expect(engine.fetch(new Request("http://private-engine/session"))).rejects.toThrow("admission queue is full");
+      expect(consumed).toBe(0);
+      const cancelled = new Error("Cancel the first waiting caller only");controllers[0].abort(cancelled);
+      await expect(waiting[0]).rejects.toBe(cancelled);
+      const replacement = engine.fetch(new Request("http://private-engine/session/ses_fixture/todo"));void replacement.catch(()=>{});waiting.push(replacement);
+      const id = held.commands[0].id;
+      await h.send("/rpc/result",{kind:"error",id,message:"Controlled metadata failure"});
+      await expect(held.reads[0]).rejects.toThrow("Controlled metadata failure");
+      expect(consumed).toBe(0);
+      await h.send("/rpc/result",{kind:"retired",id});
+      const first = decoded(await h.send("/rpc/next")) as {id:string};
+      expect(first).toMatchObject({method:"POST",path:"/session/ses_fixture/prompt_async?offset=1",bodyBase64:Buffer.from("1").toString("base64")});
+      expect(consumed).toBe(1);
+      await h.send("/rpc/result",{kind:"head",id:first.id,status:204,headers:{}});
+      await h.send("/rpc/result",{kind:"end",id:first.id});expect((await waiting[1]).status).toBe(204);
+      expect(consumed).toBe(1);
+      await h.send("/rpc/result",{kind:"retired",id:first.id});
+      expect(decoded(await h.send("/rpc/next"))).toMatchObject({path:"/session/ses_fixture/prompt_async?offset=2"});
+      expect(consumed).toBe(2);
+    } finally { await engine.stop(); await Promise.allSettled([...held.reads,...waiting]);await h.close(); }
+  });
+
+  test.each(["caller", "body"])("%s cancellation retains dispatched credit until confirmed guest retirement", async mode => {
+    const h = await harness(), engine = await h.opening, held = await holdReads(engine,h);
+    let consumed = 0;
+    try {
+      const id = held.commands[0].id;
+      await h.send("/rpc/result",{kind:"head",id,status:200,headers:{}});
+      const response = await held.reads[0];
+      // Both public cancellation paths send the same issued UUID to the guest.
+      if (mode === "body") await response.body!.cancel();
+      else {
+        // Admit a caller-controlled request by retiring one finite original read.
+        await h.send("/rpc/result",{kind:"end",id});await response.text();await h.send("/rpc/result",{kind:"retired",id});
+      }
+      const controller = new AbortController();
+      let cancelledId = id;
+      let controlled: Promise<Response> | undefined;
+      if (mode === "caller") {
+        controlled = engine.fetch(new Request("http://private-engine/session/ses_fixture/todo",{signal:controller.signal}));void controlled.catch(()=>{});
+        cancelledId = (decoded(await h.send("/rpc/next")) as {id:string}).id;
+        controller.abort(new Error("Caller disconnected"));await expect(controlled).rejects.toThrow("Caller disconnected");
+      }
+      expect(decoded(await h.send("/rpc/next"))).toMatchObject({kind:"cancel",id:cancelledId});
+      const body = new ReadableStream<Uint8Array>({pull(stream){consumed++;stream.enqueue(new Uint8Array());stream.close();}},{highWaterMark:0});
+      const queued = engine.fetch(new Request("http://private-engine/session/ses_fixture/prompt_async",{method:"POST",body}));void queued.catch(()=>{});
+      await h.send("/rpc/result",{kind:"head",id:cancelledId,status:200,headers:{}});
+      await h.send("/rpc/result",{kind:"chunk",id:cancelledId,data:Buffer.from("discarded").toString("base64")});
+      await h.send("/rpc/result",{kind:"end",id:cancelledId});
+      expect(consumed).toBe(0);
+      await h.send("/rpc/result",{kind:"retired",id:cancelledId});
+      const command = decoded(await h.send("/rpc/next")) as {id:string};expect(command).toMatchObject({method:"POST",path:"/session/ses_fixture/prompt_async"});expect(consumed).toBe(1);
+      await h.send("/rpc/result",{kind:"head",id:command.id,status:204,headers:{}});await h.send("/rpc/result",{kind:"end",id:command.id});expect((await queued).status).toBe(204);
+    } finally {await engine.stop();await Promise.allSettled(held.reads);await h.close();}
+  });
+
+  test("a cancelled predispatch reader returns its permit only after cancellation and lock release", async () => {
+    const h = await harness(), engine = await h.opening, controller = new AbortController();
+    let releaseCancel!:()=>void, enteredCancel!:()=>void, consumed = 0, previousLocked: boolean | undefined;
+    const cancelEntered = new Promise<void>(resolve=>{enteredCancel=resolve;});
+    const cancellation = new Promise<void>(resolve=>{releaseCancel=resolve;});
+    const request = new Request("http://private-engine/session",{method:"POST",signal:controller.signal,
+      body:new ReadableStream<Uint8Array>({cancel(){enteredCancel();return cancellation;}},{highWaterMark:0})});
+    const reading = engine.fetch(request);void reading.catch(()=>{});
+    const held = await holdReads(engine,h,11);
+    const body = new ReadableStream<Uint8Array>({pull(stream){consumed++;previousLocked=request.body!.locked;stream.close();}},{highWaterMark:0});
+    const queued = engine.fetch(new Request("http://private-engine/session/ses_fixture/prompt_async",{method:"POST",body}));void queued.catch(()=>{});
+    try {
+      const reason = new Error("Cancel before private dispatch");controller.abort(reason);await cancelEntered;
+      await new Promise<void>(resolve=>{setImmediate(resolve);});expect(consumed).toBe(0);
+      releaseCancel();await expect(reading).rejects.toBe(reason);
+      const command = decoded(await h.send("/rpc/next")) as {id:string};
+      expect(command).toMatchObject({method:"POST",path:"/session/ses_fixture/prompt_async"});expect(consumed).toBe(1);expect(previousLocked).toBe(false);
+      await h.send("/rpc/result",{kind:"head",id:command.id,status:204,headers:{}});await h.send("/rpc/result",{kind:"end",id:command.id});expect((await queued).status).toBe(204);
+    } finally {releaseCancel();await engine.stop();await Promise.allSettled([reading,queued,...held.reads]);await h.close();}
+  });
+
+  test.each(["stop", "engine-abort"])("%s drains an admitted body reader and rejects bounded waiters without reading their bodies", async mode => {
+    const h = await harness(), engine = await h.opening;
+    let releaseCancel!:()=>void, enteredCancel!:()=>void;
+    const cancelEntered = new Promise<void>(resolve=>{enteredCancel=resolve;});
+    const cancellation = new Promise<void>(resolve=>{releaseCancel=resolve;});
+    const body = new ReadableStream<Uint8Array>({cancel(){enteredCancel();return cancellation;}},{highWaterMark:0});
+    const reading = engine.fetch(new Request("http://private-engine/session",{method:"POST",body}));void reading.catch(()=>{});
+    const held = await holdReads(engine,h,11);
+    let consumed = 0, stopped = false;
+    const queuedBody = new ReadableStream<Uint8Array>({pull(stream){consumed++;stream.close();}},{highWaterMark:0});
+    const queued = engine.fetch(new Request("http://private-engine/session",{method:"POST",body:queuedBody}));void queued.catch(()=>{});
+    if (mode === "engine-abort") h.cancel();
+    const stopping = engine.stop().then(()=>{stopped=true;});
+    try {
+      await cancelEntered;
+      await new Promise<void>(resolve => { setImmediate(resolve); });
+      expect(stopped).toBe(false);expect(consumed).toBe(0);
+      await expect(queued).rejects.toBeInstanceOf(Error);
+      releaseCancel();await stopping;expect(stopped).toBe(true);
+      await expect(reading).rejects.toBeInstanceOf(Error);expect(consumed).toBe(0);
+    } finally {releaseCancel();await stopping;await Promise.allSettled([reading,queued,...held.reads]);await h.close();}
   });
 
   test("caller cancellation reaches the guest and stop rejects owned requests before returning", async () => {

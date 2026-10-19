@@ -48,11 +48,30 @@ function capability(path, body, signal = lifetime.signal) {
   });
 }
 
+const privateResponses = new WeakMap();
 function privateRequest(port, path, method, headers, body, signal) {
   return new Promise((resolve, reject) => {
-    const req = request({ agent: privateAgent, hostname: "127.0.0.1", port, path, method, headers, signal }, resolve);
-    req.on("error", reject); req.end(body);
+    const req = request({ agent: privateAgent, hostname: "127.0.0.1", port, path, method, headers, signal }, (response) => {
+      // Own both close lifetimes before publishing headers. Abort can happen
+      // while a host ACK is pending, before a body iterator is attached.
+      const responseClosed = new Promise(done => response.once("close", done));
+      response.on("error", () => {});
+      privateResponses.set(response, { req, requestClosed, responseClosed });
+      resolve(response);
+    });
+    const requestClosed = new Promise(done => req.once("close", done));
+    req.on("error", error => { void requestClosed.then(() => reject(error)); });
+    req.end(body);
   });
+}
+
+async function closePrivateResponse(response) {
+  const owned = privateResponses.get(response);
+  response.destroy();
+  if (!owned) throw new Error("Unowned private engine response");
+  owned.req.destroy();
+  await Promise.all([owned.requestClosed, owned.responseClosed]);
+  privateResponses.delete(response);
 }
 
 async function privateJson(port, path, authorization, signal) {
@@ -73,7 +92,7 @@ async function privateJson(port, path, authorization, signal) {
     }
     try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); }
     catch (error) { if (initializationState === "pending") initializationState = "invalid-json"; throw error; }
-  } finally { response.destroy(); }
+  } finally { await closePrivateResponse(response); }
 }
 
 function isRecord(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
@@ -143,12 +162,12 @@ async function checkpoint(command, enginePort, authorization, signal) {
   if (checkpointing) throw new Error("Checkpoint is already in progress");
   checkpointing = true;
   const file = `${ROOT}/tmp/checkpoint.sqlite`;
-  let backup;
+  let backup, backupClosed;
   try {
     const status = await privateRequest(enginePort, "/session/status", "GET", { authorization }, undefined, signal);
     let statusBytes = 0; const parts = [];
     try { for await (const part of status) { statusBytes += part.length; if (statusBytes > 65536) throw new Error("Session status exceeds its bound"); parts.push(part); } }
-    finally { status.destroy(); }
+    finally { await closePrivateResponse(status); }
     const sessions = JSON.parse(Buffer.concat(parts).toString("utf8"));
     if (status.statusCode !== 200 || !sessions || typeof sessions !== "object" || Array.isArray(sessions) ||
         Object.values(sessions).some(value => !value || value.type !== "idle")) throw new Error("Protected engine is not idle");
@@ -169,20 +188,25 @@ finally:
 `;
     backup = spawn("/usr/local/bin/python3", ["-I", "-c", python], { stdio: "ignore", shell: false,
       signal: AbortSignal.any([signal, lifetime.signal, AbortSignal.timeout(10_000)]) });
+    backupClosed = new Promise(resolve => backup.once("close", resolve));
     const [code] = await once(backup, "exit");
     if (code !== 0) throw new Error("Consistent checkpoint failed");
     const info = await lstat(file);
     if (!info.isFile() || info.isSymbolicLink() || info.size < 16 || info.size > MAX_RESPONSE) throw new Error("Invalid checkpoint file");
     const digest = await fileDigest(file);
     await capability("/rpc/result", { kind: "head", id: command.id, status: 200, headers: { "content-type": "application/octet-stream", "x-protected-sha256": digest } }, signal);
-    for await (const part of createReadStream(file, { highWaterMark: CHUNK })) {
-      await capability("/rpc/result", { kind: "chunk", id: command.id, data: part.toString("base64") }, signal);
-    }
-    await capability("/rpc/result", { kind: "end", id: command.id }, signal);
+    const stream = createReadStream(file, { highWaterMark: CHUNK });
+    const streamClosed = new Promise(resolve => stream.once("close", resolve));
+    try {
+      for await (const part of stream) {
+        await capability("/rpc/result", { kind: "chunk", id: command.id, data: part.toString("base64") }, signal);
+      }
+    } finally { stream.destroy(); await streamClosed; }
   } finally {
-    if (backup && backup.exitCode === null && backup.signalCode === null) { backup.kill("SIGKILL"); await once(backup, "close").catch(() => {}); }
-    await rm(file, { force: true });
-    checkpointing = false;
+    if (backup && backup.exitCode === null && backup.signalCode === null) backup.kill("SIGKILL");
+    if (backupClosed) await backupClosed;
+    try { await rm(file, { force: true }); }
+    finally { checkpointing = false; }
   }
 }
 
@@ -197,10 +221,13 @@ async function execute(command, enginePort, authorization) {
   if (target.origin !== `http://127.0.0.1:${enginePort}`) throw new Error("Invalid private engine origin");
   const controller = new AbortController();
   tasks.set(command.id, controller);
+  let terminalAttempted = false;
   try {
     if (target.pathname === "/_protected/checkpoint") {
       if (command.method !== "GET" || target.search || target.hash || command.bodyBase64 !== "") throw new Error("Invalid checkpoint capability");
       await checkpoint(command, enginePort, authorization, AbortSignal.any([lifetime.signal, controller.signal]));
+      terminalAttempted = true;
+      await capability("/rpc/result", { kind: "end", id: command.id });
       return;
     }
     if (checkpointing && command.method !== "GET") throw new Error("Protected engine checkpoint is in progress");
@@ -210,10 +237,10 @@ async function execute(command, enginePort, authorization) {
     if (body.length > MAX_BODY) throw new Error("Host request exceeds bound");
     const response = await privateRequest(enginePort, target.pathname + target.search, command.method, headers, body,
       AbortSignal.any([lifetime.signal, controller.signal]));
-    await capability("/rpc/result", { kind: "head", id: command.id, status: response.statusCode ?? 502,
-      headers: Object.fromEntries(Object.entries(response.headers).filter(([name, value]) => ["content-type", "cache-control"].includes(name) && typeof value === "string")) });
     let size = 0;
     try {
+      await capability("/rpc/result", { kind: "head", id: command.id, status: response.statusCode ?? 502,
+        headers: Object.fromEntries(Object.entries(response.headers).filter(([name, value]) => ["content-type", "cache-control"].includes(name) && typeof value === "string")) });
       for await (const part of response) {
         size += part.byteLength; if (size > MAX_RESPONSE) throw new Error("Private engine response exceeds bound");
         for (let offset = 0; offset < part.byteLength; offset += CHUNK) {
@@ -221,11 +248,22 @@ async function execute(command, enginePort, authorization) {
           await capability("/rpc/result", { kind: "chunk", id: command.id, data: Buffer.from(part.subarray(offset, offset + CHUNK)).toString("base64") }, AbortSignal.any([lifetime.signal, controller.signal]));
         }
       }
-    } finally { response.destroy(); }
+    } finally { await closePrivateResponse(response); }
+    terminalAttempted = true;
     await capability("/rpc/result", { kind: "end", id: command.id });
-  } catch {
-    if (!controller.signal.aborted && !lifetime.signal.aborted) await capability("/rpc/result", { kind: "error", id: command.id, message: "Private protected engine request failed" }).catch(() => {});
-  } finally { tasks.delete(command.id); }
+  } catch (error) {
+    // A failed terminal ACK is ambiguous; never emit a second terminal frame.
+    if (terminalAttempted) throw error;
+    if (!controller.signal.aborted && !lifetime.signal.aborted) {
+      await capability("/rpc/result", { kind: "error", id: command.id, message: "Private protected engine request failed" });
+    }
+  } finally {
+    tasks.delete(command.id);
+    // The host retains the issued credit through END/error/caller cancellation.
+    // A caller abort must not cancel this cleanup receipt. Failure propagates to
+    // the worker lifetime so no credit can silently remain occupied forever.
+    if (!lifetime.signal.aborted) await capability("/rpc/result", { kind: "retired", id: command.id });
+  }
 }
 
 async function start() {
@@ -294,7 +332,7 @@ async function start() {
       const health = await privateRequest(port, "/global/health", "GET", { authorization }, undefined, AbortSignal.any([lifetime.signal, AbortSignal.timeout(1000)]));
       const chunks = []; let size = 0;
       try { for await (const chunk of health) { size += chunk.length; if (size > 8192) throw new Error("Health body exceeds bound"); chunks.push(chunk); } }
-      finally { health.destroy(); }
+      finally { await closePrivateResponse(health); }
       const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       healthState = health.statusCode !== 200 ? "http-refused" : value.healthy !== true ? "invalid-health" : value.version !== "1.18.29" ? "version-mismatch" : "accepted";
       if (healthState === "accepted") break;

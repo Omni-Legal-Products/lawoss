@@ -19,7 +19,7 @@ import { LawossDocuments } from "../documents/service.js";
 import { syntheticHostConfig } from "../test-support/host-config.js";
 import { ProtectedDocumentTools } from "./document-tools.js";
 import { ProtectedAiTransport } from "./transport.js";
-import { ProtectedVmEngine } from "./vm-engine.js";
+import { ProtectedVmEngine, type ProtectedVmBroker } from "./vm-engine.js";
 
 const enabled = process.env.LAWOSS_PROTECTED_VM_TEST === "1";
 async function sha256(file: string): Promise<string> {
@@ -34,6 +34,98 @@ async function fileIdentity(file: string): Promise<string> {
 }
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
 const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
+
+// This observes only constructor-owned public RPC traffic and real response bodies.
+// Holding an ACK proves retirement ordering without a scheduler-delay oracle.
+function retirementProbe() {
+  let mode: "off" | "health" | "cancel" = "off";
+  const health = new Set<string>(), events = new Set<string>(), retired = new Set<string>();
+  const ends = new Set<string>();
+  let cancelHeld = false, pulls = 0, replacements = 0;
+  let releaseEnd!: () => void, releaseCancel!: () => void;
+  const endGate = new Promise<void>(resolve => { releaseEnd = resolve; });
+  const cancelGate = new Promise<void>(resolve => { releaseCancel = resolve; });
+  const changes = new Set<() => void>();
+  const notify = () => { for (const callback of [...changes]) callback(); };
+  const wait = (predicate: () => boolean, signal: AbortSignal, description: string) => new Promise<void>((resolve, reject) => {
+    const cleanup = () => { changes.delete(check); signal.removeEventListener("abort", aborted); };
+    const check = () => { if (predicate()) { cleanup(); resolve(); } };
+    const aborted = () => { cleanup(); reject(new Error(`Guest retirement probe timed out: ${description}`)); };
+    changes.add(check); signal.addEventListener("abort", aborted, { once: true });
+    if (signal.aborted) aborted(); else check();
+  });
+  const hold = (gate: Promise<void>, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
+    const aborted = () => { signal.removeEventListener("abort", aborted); reject(signal.reason); };
+    signal.addEventListener("abort", aborted, { once: true });
+    if (signal.aborted) aborted();
+    void gate.then(() => { signal.removeEventListener("abort", aborted); resolve(); });
+  });
+  const wrap = (broker: ProtectedVmBroker): ProtectedVmBroker => async (request, signal) => {
+    const path = new URL(request.url).pathname;
+    const frame = path === "/rpc/result" ? object(JSON.parse(Buffer.from(request.bodyBase64, "base64").toString("utf8"))) : {};
+    // The replacement body must stay unread until the host has actually accepted
+    // the first retirement frame, even after END/cancel acknowledgements resume.
+    if (frame.kind === "retired" && health.has(String(frame.id)) && ![...health].some(id => retired.has(id))) expect(pulls).toBe(0);
+    if (frame.kind === "retired" && events.has(String(frame.id)) && ![...events].some(id => retired.has(id))) expect(pulls).toBe(1);
+    const response = await broker(request, signal);
+    if (path === "/rpc/next") {
+      const command = object(JSON.parse(Buffer.from(response.bodyBase64, "base64").toString("utf8")));
+      if (command.kind === "request" && typeof command.id === "string") {
+        if (String(command.path).includes("retirement-health")) health.add(command.id);
+        if (String(command.path).includes("retirement-event")) events.add(command.id);
+        if (String(command.path).includes("retirement-replacement")) replacements++;
+      }
+      if (mode === "cancel" && command.kind === "cancel" && events.has(String(command.id)) && !cancelHeld) {
+        cancelHeld = true; notify(); await hold(cancelGate, signal);
+      }
+    }
+    if (frame.kind === "retired") retired.add(String(frame.id));
+    if (mode === "health" && frame.kind === "end" && health.has(String(frame.id))) {
+      ends.add(String(frame.id)); notify(); await hold(endGate, signal);
+    }
+    notify(); return response;
+  };
+  return { wrap, async run(engine: ProtectedVmEngine, sessionId: string) {
+    const signal = AbortSignal.timeout(30_000);
+    const replacement = () => engine.fetch(new Request(`http://private-engine/session/${sessionId}/abort?retirement-replacement=1`, {
+      method: "POST", signal, body: new ReadableStream<Uint8Array>({ pull(controller) { pulls++; controller.close(); } }, { highWaterMark: 0 }), duplex: "half",
+    } as RequestInit));
+    try {
+      mode = "health";
+      const bodies = Array.from({ length: 12 }, (_, index) => engine.fetch(new Request(`http://private-engine/global/health?retirement-health=${index}`, { signal })).then(async response => {
+        expect(response.ok).toBe(true); expect(object(await response.json()).healthy).toBe(true);
+      }));
+      // Old guests can finish public bodies but never retire their issued leases.
+      await Promise.all(bodies);
+      await wait(() => ends.size === 12, signal, "12 END acknowledgements held");
+      const next = replacement();
+      expect(pulls).toBe(0); expect(replacements).toBe(0);
+      releaseEnd();
+      const response = await next; expect(response.ok).toBe(true); await response.arrayBuffer();
+      await wait(() => [...health].every(id => retired.has(id)), signal, "all health tasks retired");
+      expect(health.size).toBe(12); expect(pulls).toBe(1); expect(replacements).toBe(1);
+      mode = "cancel";
+      const callers = Array.from({ length: 12 }, () => new AbortController());
+      const streams = await Promise.all(callers.map((controller, index) => engine.fetch(new Request(`http://private-engine/event?retirement-event=${index}`, { signal: AbortSignal.any([signal, controller.signal]) }))));
+      expect(events.size).toBe(12);
+      for (let index = 0; index < 6; index++) callers[index].abort();
+      await Promise.all(streams.slice(6).map(response => response.body!.cancel()));
+      await wait(() => cancelHeld, signal, "first actual cancel delivery held");
+      const afterCancel = replacement();
+      expect(pulls).toBe(1); expect(replacements).toBe(1);
+      releaseCancel();
+      const after = await afterCancel; expect(after.ok).toBe(true); await after.arrayBuffer();
+      await wait(() => [...events].every(id => retired.has(id)), signal, "all caller/body-cancelled guest tasks retired");
+      expect(pulls).toBe(2); expect(replacements).toBe(2);
+      console.info("ACTUAL_VM_RETIREMENT_PROOF", JSON.stringify({ healthRequests: health.size, heldEnds: ends.size,
+        cancelledStreams: events.size, actualRetirements: [...health, ...events].filter(id => retired.has(id)).length, replacements, bodyPulls: pulls }));
+    } finally {
+      console.info("ACTUAL_VM_RETIREMENT_COUNTS", JSON.stringify({ healthRequests: health.size, heldEnds: ends.size,
+        cancelledStreams: events.size, actualRetirements: [...health, ...events].filter(id => retired.has(id)).length, replacements, bodyPulls: pulls }));
+      mode = "off"; releaseEnd(); releaseCancel();
+    }
+  } };
+}
 
 // Explicit opt-in is required because this test boots an actual measured VM.
 // The completion protocol is synthetic; the engine, tool execution, saved bytes,
@@ -186,10 +278,11 @@ const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
         return { ...(await tools.currentBinding()), operationId: operationId + "-continuation", ...measured, checkpointSha256 };
       },
     });
+    const retirement = retirementProbe();
     engine = await ProtectedVmEngine.open({ bundleDirectory, emptyDirectory, signal: AbortSignal.timeout(300_000),
       handleOutbound: (request, signal) => restoredTransport.dispatch(request, signal),
       handleTool: async (call, signal) => { toolCalls.push(call.name); return tools.invoke(call.name, call.arguments, signal); },
-    }, { createSandbox: broker => new VmSandbox(runtimeDirectory, "auto", { request: broker, maxRequests: 4096 }) });
+    }, { createSandbox: broker => new VmSandbox(runtimeDirectory, "auto", { request: retirement.wrap(broker), maxRequests: 4096 }) });
     const continuationBudget = AbortSignal.timeout(90_000);
     const restoredSessionResponse = await engine.fetch(new Request(`http://private-engine/session/${session.id}`, { signal: continuationBudget }));
     const restoredSession = object(await restoredSessionResponse.json());
@@ -215,6 +308,9 @@ const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
       coldVmRestore: true, sameSessionId: restoredSession.id === session.id, preservedMessageCount: restoredMessages.length,
       preservedCompletedToolCount: completedTools.length, freshCompletedToolCount: continuedTools.length - completedTools.length,
       freshNativeReviews: nativeReviews.length - beforeContinuationReviews, actualSourceHash: prepared.hash, outputHashes: await Promise.all(saved.map(path => sha256(join(sourceRoot, path)))), legalApproval: false }));
+    const beforeProbe = { requests, reviews: nativeReviews.length, tools: toolCalls.length };
+    await retirement.run(engine, String(session.id));
+    expect({ requests, reviews: nativeReviews.length, tools: toolCalls.length }).toEqual(beforeProbe);
   } finally {
     console.info("ACTUAL_VM_FINAL_COUNTS", JSON.stringify({ requests, nativeReviews: nativeReviews.length, toolCalls, elapsedMs: Date.now() - proofStarted }));
     await engine?.stop();
