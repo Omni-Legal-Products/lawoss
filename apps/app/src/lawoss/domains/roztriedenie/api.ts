@@ -25,6 +25,8 @@ export type TriageMoveView = {
   id: string; from: string; to: string; size: number; role: TriageRole; matter?: string;
   source: "rules" | "model" | "user" | "fallback"; confidence: "high" | "medium" | "low";
   rule?: string; matched?: string; reason?: string; truncated?: boolean; renamed?: boolean;
+  /** Patrí k odškrtnutému priečinku, preto ide na zatriedenie (fix round 3). */
+  leftFolder?: string;
 };
 export type TriageMatterView = { key: string; title: string; folder: string; date: string; dateSource: "model" | "today"; kind: string; caseNumber?: string; counterparty?: string; court?: string; source: "rules" | "model" | "folder"; documents: number; left?: boolean };
 export type TriageProposal = { state: "none" } | { state: "ready"; file: string; documents: number; matters: number } | { state: "stale"; file: string } | { state: "invalid"; file: string; message: string };

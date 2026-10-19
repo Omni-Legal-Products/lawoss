@@ -49,6 +49,8 @@ export type TriageMove = {
   id: string; from: string; to: string; size: number; sha256: string;
   role: TriageRole; matter?: string; source: MoveSource; confidence: Confidence;
   rule?: RuleCode; matched?: string; reason?: string; truncated?: boolean; renamed?: boolean;
+  /** Patrí k existujúcemu priečinku, ktorý advokát odškrtol; preto ide na zatriedenie (fix round 3). */
+  leftFolder?: string;
 };
 export type TriageStay = { id: string; path: string; why: "already_in_place" | "unclear" | "no_inbox" };
 export type TriageNewMatter = {

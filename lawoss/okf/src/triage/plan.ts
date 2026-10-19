@@ -23,7 +23,8 @@ const INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"];
 /** Pravidlá zakladajú vec zo spisovej značky len vtedy, keď ju nesú aspoň dva dokumenty. */
 const RULE_MATTER_MIN_DOCUMENTS = 2;
 
-type Decision = { role: TriageRole | null; matter?: string; source: MoveSource; confidence: Confidence; rule?: RuleResult["rule"]; matched?: string; reason?: string; truncated?: boolean };
+/** `leftFolder`: dokument patrí k odškrtnutému priečinku; ide na zatriedenie u klienta a náhľad to povie. */
+type Decision = { leftFolder?: string; role: TriageRole | null; matter?: string; source: MoveSource; confidence: Confidence; rule?: RuleResult["rule"]; matched?: string; reason?: string; truncated?: boolean };
 type Destination = { base: string; roles: Record<string, string> };
 
 /** `leaveInPlace`: kľúče existujúcich priečinkov (prípadov bez karty), ktoré advokát v náhľade odškrtol; ostanú nedotknuté. */
@@ -52,6 +53,7 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
   const language = inventory.language;
   const keep = new Set(options.keepInInbox ?? []);
   const leave = new Set((options.leaveInPlace ?? []).filter(key => inventory.matters.some(matter => matter.implicit && matter.id === key)));
+  const leftPath = (key: string) => inventory.matters.find(matter => matter.id === key)?.path ?? key;
   const model = new Map((options.classification?.documents ?? []).map(decision => [decision.id, decision]));
   const decisions = new Map<string, Decision>();
   const caseGroups = new Map<string, { display: string; ids: string[] }>();
@@ -60,9 +62,10 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
     const fromModel = model.get(document.id);
     if (fromModel) {
       // Nejasné od modelu ide na zatriedenie aj s jeho dôvodom, aby advokát videl, čo model zvažoval.
-      // Odškrtnutý priečinok sa berie, akoby nebol: model doň nič nepošle (rozhodnutie 19. 10. 2026).
-      const target = fromModel.matter && !leave.has(fromModel.matter) ? fromModel.matter : undefined;
-      decisions.set(document.id, { role: fromModel.confidence === "low" ? "inbox" : fromModel.role, matter: document.matter ?? target, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...(fromModel.truncated ? { truncated: true } : {}) });
+      // Odškrtnutý priečinok: model doň nič nepošle, dokument počká na zatriedenie u klienta (rozhodnutie 19. 10. 2026).
+      const leftFolder = fromModel.matter && leave.has(fromModel.matter) ? leftPath(fromModel.matter) : undefined;
+      const target = leftFolder ? undefined : fromModel.matter;
+      decisions.set(document.id, { ...(leftFolder ? { leftFolder } : {}), role: fromModel.confidence === "low" || leftFolder ? "inbox" : fromModel.role, matter: document.matter ?? target, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...(fromModel.truncated ? { truncated: true } : {}) });
       continue;
     }
     const rule = classifyByRules(document);
@@ -95,8 +98,14 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
   };
   for (const matter of options.classification?.matters ?? []) addMatter({ ...matter, source: "model" });
   for (const [caseKey, group] of [...caseGroups].sort(([a], [b]) => a.localeCompare(b))) {
-    // Odškrtnutý priečinok so značkou sa nepoužije; značka môže založiť nový prípad v Spisy/.
     const existing = inventory.matters.find(matter => matter.caseKey === caseKey && !leave.has(matter.id));
+    // Značka odškrtnutého priečinka (fix round 3): nový prípad v Spisy/ by na disku zdvojil ten istý spor.
+    // Voľné súbory s ňou počkajú na zatriedenie u klienta a náhľad povie, ku ktorému priečinku patria.
+    const left = existing ? undefined : inventory.matters.find(matter => matter.caseKey === caseKey && leave.has(matter.id));
+    if (left) {
+      for (const id of group.ids) { const decision = decisions.get(id); if (decision) Object.assign(decision, { role: "inbox", leftFolder: left.path }); }
+      continue;
+    }
     const fromModel = planned.find(matter => matter.caseNumber && findCaseNumber(matter.caseNumber)?.key === caseKey);
     let key = existing?.id ?? fromModel?.key;
     if (!key && group.ids.length >= RULE_MATTER_MIN_DOCUMENTS) {
@@ -178,6 +187,7 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
       source: fallback ? "fallback" : decision.source, confidence: decision.confidence,
       ...(decision.rule ? { rule: decision.rule } : {}), ...(decision.matched ? { matched: decision.matched } : {}),
       ...(decision.reason ? { reason: decision.reason } : {}), ...(decision.truncated ? { truncated: true } : {}),
+      ...(decision.leftFolder && decision.source !== "user" ? { leftFolder: decision.leftFolder } : {}),
       ...(to !== `${folder}/${document.name}` ? { renamed: true } : {}),
     });
   }

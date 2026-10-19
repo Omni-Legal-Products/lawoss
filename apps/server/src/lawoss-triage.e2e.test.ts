@@ -274,9 +274,14 @@ test("odškrtnutý priečinok neprijme dokumenty so spisovou značkou z koreňa;
   const left = await f.success("triage/replan", { id: preview.id, keepInInbox: [], leaveInPlace: [folder.key] });
   const touches = (path: string) => path.startsWith("Spor BETA 18Cb-47-2026/");
   expect(left.moves.filter((move: { from: string; to: string }) => touches(move.from) || touches(move.to))).toEqual([]);
+  // Fix round 3: žiadny nový prípad v Spisy/ pre tú istú značku; voľné súbory idú na zatriedenie s poznámkou.
+  expect(left.matters.filter((matter: { left?: boolean; caseNumber?: string }) => !matter.left && matter.caseNumber?.startsWith("18Cb"))).toEqual([]);
+  const noted = left.moves.filter((move: { leftFolder?: string }) => move.leftFolder === "Spor BETA 18Cb-47-2026").map((move: { to: string }) => move.to).sort();
+  expect(noted).toEqual(["00_Na_zatriedenie/Uznesenie 18Cb 47 2026.pdf", "00_Na_zatriedenie/Vyzva 18Cb_47_2026.pdf"]);
   const before = await tree(spor);
   const applied = await f.success("triage/apply", { id: left.id, fingerprint: left.fingerprint, confirm: true });
   expect(await tree(spor)).toBe(before);
+  expect(await exists(join(f.client, "Spisy")) ? (await readdir(join(f.client, "Spisy"))).filter(name => name.includes("18Cb")) : []).toEqual([]);
   expect((await f.success("triage/undo", { root: f.client, runId: applied.runId, confirm: true })).status).toBe("undone");
   expect(await tree(spor)).toBe(before);
   // Prepínač modelu (nový /triage/plan) nesie odškrtnutie ďalej.

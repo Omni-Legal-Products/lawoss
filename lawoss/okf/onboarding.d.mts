@@ -67,7 +67,7 @@ export interface TriageClassification { schema: "lawoss.triage.classification/v1
 export interface TriageMove {
   id: string; from: string; to: string; size: number; sha256: string; role: TriageRole; matter?: string;
   source: "rules" | "model" | "user" | "fallback"; confidence: "high" | "medium" | "low";
-  rule?: string; matched?: string; reason?: string; truncated?: boolean; renamed?: boolean;
+  rule?: string; matched?: string; reason?: string; truncated?: boolean; renamed?: boolean; leftFolder?: string;
 }
 export interface TriagePlan {
   schema: "lawoss.triage.plan/v1";

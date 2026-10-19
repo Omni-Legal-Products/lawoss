@@ -273,3 +273,15 @@ test("fix round 2: prepínač modelu nesie odškrtnuté priečinky", async () =>
   await triagePlan(client, "/x/klient", true, ["existing-1"]);
   expect(calls).toEqual([["plan", { root: "/x/klient", useModel: true, leaveInPlace: ["existing-1"] }]]);
 });
+
+test("fix round 3: súbor so značkou odškrtnutého priečinka má v náhľade poznámku", () => {
+  const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, "sk", params);
+  const noted: TriagePreview = { ...preview, keepInInbox: [], matters: [], moves: [{ id: "d1", from: "Uznesenie 18Cb 47 2026.pdf", to: "00_Na_zatriedenie/Uznesenie 18Cb 47 2026.pdf", size: 1, role: "inbox", source: "rules", confidence: "medium", rule: "court_decision", matched: "uznesenie", leftFolder: "Spor BETA 18Cb-47-2026" }] };
+  const out = html(<TriagePreviewView preview={noted} text={text} busy={false} inPlace onKeep={() => {}} onConfirm={() => {}} onModel={() => {}} />);
+  expect(out).toContain("Patrí k priečinku Spor BETA 18Cb-47-2026, ktorý ste nechali bez zmeny");
+  for (const locale of ["sk", "cs", "en", "de"] as const) {
+    const note = t("lawoss.triage.reason_left_folder", locale, { name: "X" });
+    expect(note).toContain("X");
+    expect(note).not.toContain("—");
+  }
+});

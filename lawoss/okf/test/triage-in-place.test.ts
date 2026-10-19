@@ -382,8 +382,13 @@ test("odškrtnutý priečinok neprijme ani dokumenty zo spisovej značky z kore�
   const left = replanTriage(inventory, undefined, [], NOW, [key]);
   expect(left.moves.filter(move => move.to.startsWith(`${spor}/`) || move.from.startsWith(`${spor}/`))).toEqual([]);
   expect(left.create.filter(operation => operation.path.startsWith(`${spor}/`))).toEqual([]);
-  // Odškrtnutý priečinok sa berie, akoby nebol: značka založí nový prípad v Spisy/.
-  expect(left.matters.filter(matter => !matter.left).map(matter => matter.folder)).toEqual(["Spisy/2026-10 Konanie 18Cb 47-2026"]);
+  // Rovnaký spor sa na disku nezdvojí (fix round 3): žiadny nový prípad v Spisy/, voľné súbory idú na zatriedenie s poznámkou.
+  expect(left.matters.filter(matter => !matter.left)).toEqual([]);
+  expect(left.create.some(operation => operation.path.startsWith("Spisy"))).toBe(false);
+  expect(left.moves.map(move => [move.to, move.role, move.leftFolder])).toEqual([
+    ["00_Na_zatriedenie/Uznesenie 18Cb 47 2026.pdf", "inbox", spor],
+    ["00_Na_zatriedenie/Vyzva 18Cb_47_2026.pdf", "inbox", spor],
+  ]);
   const before = await folderSnapshot(join(root, spor));
   await applyTriagePlan(left, HOST);
   expect(await folderSnapshot(join(root, spor))).toBe(before);
@@ -400,7 +405,8 @@ test("ani rozhodnutie modelu neposunie dokument do odškrtnutého priečinka", a
   const plan = buildTriagePlan(inventory, { classification, leaveInPlace: [key], today: "2026-10-19", runId: "triage-20261019-100000-abcdef", createdAt: NOW.toISOString() });
   expect(plan.moves.filter(move => move.to.startsWith(`${spor}/`) || move.from.startsWith(`${spor}/`))).toEqual([]);
   expect(plan.create.filter(operation => operation.path.startsWith(`${spor}/`))).toEqual([]);
-  expect(plan.moves.map(move => move.to).sort()).toEqual(["05_Komunikacia/Dolezita_posta/Uznesenie 18Cb 47 2026.pdf", "05_Komunikacia/Dolezita_posta/Vyzva 18Cb_47_2026.pdf"]);
+  expect(plan.moves.map(move => [move.to, move.leftFolder]).sort()).toEqual([["00_Na_zatriedenie/Uznesenie 18Cb 47 2026.pdf", spor], ["00_Na_zatriedenie/Vyzva 18Cb_47_2026.pdf", spor]]);
+  expect(plan.matters.filter(matter => !matter.left)).toEqual([]);
 });
 
 test("archív a holý rok sú predvolene odškrtnuté, ostatné priečinky zaškrtnuté", async () => {

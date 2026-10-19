@@ -4702,14 +4702,16 @@ function buildTriagePlan(inventory, options) {
   const language = inventory.language;
   const keep = new Set(options.keepInInbox ?? []);
   const leave = new Set((options.leaveInPlace ?? []).filter((key) => inventory.matters.some((matter) => matter.implicit && matter.id === key)));
+  const leftPath = (key) => inventory.matters.find((matter) => matter.id === key)?.path ?? key;
   const model = new Map((options.classification?.documents ?? []).map((decision) => [decision.id, decision]));
   const decisions = new Map;
   const caseGroups = new Map;
   for (const document of inventory.documents) {
     const fromModel = model.get(document.id);
     if (fromModel) {
-      const target = fromModel.matter && !leave.has(fromModel.matter) ? fromModel.matter : undefined;
-      decisions.set(document.id, { role: fromModel.confidence === "low" ? "inbox" : fromModel.role, matter: document.matter ?? target, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...fromModel.truncated ? { truncated: true } : {} });
+      const leftFolder = fromModel.matter && leave.has(fromModel.matter) ? leftPath(fromModel.matter) : undefined;
+      const target = leftFolder ? undefined : fromModel.matter;
+      decisions.set(document.id, { ...leftFolder ? { leftFolder } : {}, role: fromModel.confidence === "low" || leftFolder ? "inbox" : fromModel.role, matter: document.matter ?? target, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...fromModel.truncated ? { truncated: true } : {} });
       continue;
     }
     const rule = classifyByRules(document);
@@ -4741,6 +4743,15 @@ function buildTriagePlan(inventory, options) {
     addMatter({ ...matter, source: "model" });
   for (const [caseKey, group] of [...caseGroups].sort(([a], [b]) => a.localeCompare(b))) {
     const existing = inventory.matters.find((matter) => matter.caseKey === caseKey && !leave.has(matter.id));
+    const left = existing ? undefined : inventory.matters.find((matter) => matter.caseKey === caseKey && leave.has(matter.id));
+    if (left) {
+      for (const id of group.ids) {
+        const decision = decisions.get(id);
+        if (decision)
+          Object.assign(decision, { role: "inbox", leftFolder: left.path });
+      }
+      continue;
+    }
     const fromModel = planned.find((matter) => matter.caseNumber && findCaseNumber(matter.caseNumber)?.key === caseKey);
     let key = existing?.id ?? fromModel?.key;
     if (!key && group.ids.length >= RULE_MATTER_MIN_DOCUMENTS) {
@@ -4850,6 +4861,7 @@ function buildTriagePlan(inventory, options) {
       ...decision.matched ? { matched: decision.matched } : {},
       ...decision.reason ? { reason: decision.reason } : {},
       ...decision.truncated ? { truncated: true } : {},
+      ...decision.leftFolder && decision.source !== "user" ? { leftFolder: decision.leftFolder } : {},
       ...to !== `${folder}/${document.name}` ? { renamed: true } : {}
     });
   }

@@ -275,6 +275,7 @@ const RULE_KEYS = new Set(["email_file", "data_box", "power_of_attorney", "court
 
 function reasonOf(move: TriageMoveView, text: Text): string {
   if (move.source === "user") return text("reason_user");
+  if (move.leftFolder) return text("reason_left_folder", { name: move.leftFolder });
   if (move.source === "fallback") return text("reason_fallback");
   if (move.source === "model") return move.reason || text("source_model");
   return move.rule && RULE_KEYS.has(move.rule) ? text(`reason_${move.rule}`, { matched: move.matched ?? "" }) : "";
