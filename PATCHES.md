@@ -995,3 +995,9 @@ Zachované obe histórie a celý nezmenený samostatný SDK/dependency helper; r
 | Súbory | Oprava a dôkaz |
 |---|---|
 | `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx`, `apps/app/src/react-app/domains/session/chat/session-page.tsx`, `apps/app/src/components/model-select.tsx`, `apps/app/src/react-app/domains/session/surface/composer/tool-menu.tsx`, `apps/app/src/react-app/domains/workspace/project-home.tsx`, `apps/app/src/react-app/domains/reviews/project-reviews.tsx`, `apps/app/src/react-app/domains/session/panel/workspace-window-button.tsx` | Ozubené koliesko ostáva len v menu účtu (`eigenwelt-account-menu.tsx`) a znamená nastavenia appky: Prispôsobiť navigáciu, Pripojiť rozšírenie, Všetky modely, úprava polí a Zmeniť zapamätanú voľbu dostali ikonu podľa významu (`PencilLine`, `Plug`, `List`, `RotateCcw`), Nastaviť v menu skladania a nastavenia revízie sú tlačidlá s textom bez ikony. Stavový riadok (`showSettingsButton: false` v `session-route.tsx`) sa doplní po zlúčení #174. Dôvod: jedno ozubené koliesko = nastavenia appky (zápis 19. 10., D1). Vlastník: MČ. Tlačidlo režimu v revízii nesie viditeľný text a malú šípku `ChevronDown`. Test: `apps/app/tests/lawoss-single-settings-icon.test.ts`. |
+
+### Jedna navigácia LAWOSS v oboch režimoch, bez Experimentov (2026-10-19)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Riadok ikon onboardingu (`OnboardingEntryActions compact`) pod značkou odstránený, neviditeľný `OkfWorkspaceSkillSync` ostáva bez obaľujúceho `div` (+1 / −2 riadky). Rozhodnutie MČ G2 V1: namiesto ikon je v navigácii LAWOSS položka „Pridať priečinok“. Pridať klienta a Usporiadať podľa OKF ostávajú v Nastaveniach (profil kancelárie), Usporiadať podľa OKF aj v Roztriedení. Nový chat a sekcie upstreamu sa naďalej zobrazia len v Pokročilom režime. |

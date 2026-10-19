@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { CalendarDays, FolderOpen, MessageSquare } from "lucide-react";
+import { CalendarDays, FolderOpen, FolderPlus, MessageSquare } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { t, type Language } from "@/i18n";
@@ -15,7 +15,7 @@ import {
 import { locateInScope, officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope } from "../okf/read-model";
 import { buildToday } from "./today-model";
 import { matterUrgency, useMinuteTick } from "./live";
-import { LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, liteMatterLink } from "./links";
+import { ADD_FOLDER_PATH, LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, liteMatterLink } from "./links";
 import { openClientChat, openOfficeChat, restoreOfficeScope } from "./office-scope";
 import { practiceClientChoices } from "./client-choice";
 import { ClientPickerDialog } from "./client-picker";
@@ -28,7 +28,7 @@ const OFFICE_PAGES = new Set([LITE_TODAY_PATH, LITE_CLIENTS_PATH, LITE_MATTER_PA
 /** `deadlines` z pamäte OKF: bod pri veci ukáže naliehavosť jej najbližšej lehoty. */
 type RecentMatter = { path: string; title: string; deadlines?: readonly { date: string; invalid?: true; file?: string }[] };
 
-/** Boční panel v lite: Dnes · Klienti a věci · Zeptat se + „Poslední věci“. */
+/** Boční panel v oboch režimoch: Dnes · Klienti a věci · Zeptat se · Pridať priečinok + „Poslední věci“. */
 export function LiteNav(props: { activePane?: boolean }) {
   useMinuteTick(); // body naliehavosti sa o polnoci prepočítajú aj bez nového čítania
   const { connection } = useOkfConnection();
@@ -72,9 +72,11 @@ export function LiteNavView(props: { recent: readonly RecentMatter[]; activePane
   const locale = useLocale();
   const { pathname, search } = useLocation();
   const items = [
-    { key: "today", to: LITE_TODAY_PATH, icon: CalendarDays, active: pathname === LITE_TODAY_PATH },
-    { key: "clients", to: LITE_CLIENTS_PATH, icon: FolderOpen, active: pathname === LITE_CLIENTS_PATH || pathname === LITE_MATTER_PATH },
-    { key: "ask", to: ASK_PATH, icon: MessageSquare, active: pathname === ASK_PATH },
+    { key: "today", label: "lawoss.lite.nav_today", to: LITE_TODAY_PATH, icon: CalendarDays, active: pathname === LITE_TODAY_PATH },
+    { key: "clients", label: "lawoss.lite.nav_clients", to: LITE_CLIENTS_PATH, icon: FolderOpen, active: pathname === LITE_CLIENTS_PATH || pathname === LITE_MATTER_PATH },
+    { key: "ask", label: "lawoss.lite.nav_ask", to: ASK_PATH, icon: MessageSquare, active: pathname === ASK_PATH },
+    // Namiesto riadku ikon onboardingu (G2 V1, 19. 10. 2026).
+    { key: "add_folder", label: "lawoss.lite.add_folder", to: ADD_FOLDER_PATH, icon: FolderPlus, active: `${pathname}${search}` === ADD_FOLDER_PATH },
   ] as const;
   const recent = props.recent.slice(0, RECENT_LIMIT);
   const currentMatter = pathname === LITE_MATTER_PATH ? new URLSearchParams(search).get("vec") : null;
@@ -92,7 +94,7 @@ export function LiteNavView(props: { recent: readonly RecentMatter[]; activePane
                   render={<NavLink to={item.to} end data-lawoss-lite-nav={item.key} onClick={item.key === "ask" && props.onAsk ? (event) => { event.preventDefault(); props.onAsk?.(); } : undefined} />}
                 >
                   <item.icon strokeWidth={1.5} />
-                  <span>{t(`lawoss.lite.nav_${item.key}`, locale)}</span>
+                  <span>{t(item.label, locale)}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             ))}
