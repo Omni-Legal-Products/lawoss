@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, CheckCircle2, FolderTree, Inbox, RotateCcw, Sparkles, TriangleAlert } from "lucide-react";
 import { t, type Language } from "@/i18n";
@@ -272,6 +272,26 @@ function reasonOf(move: TriageMoveView, text: Text): string {
   return move.rule && RULE_KEYS.has(move.rule) ? text(`reason_${move.rule}`, { matched: move.matched ?? "" }) : "";
 }
 
+type MoveGroup = { key: string; title: string; isNew: boolean; moves: TriageMoveView[] };
+/**
+ * Riadky zoskupené podľa cieľového prípadu (test 19. 10. 2026): najprv hlavný priečinok klienta, potom prípady
+ * podľa názvu. V skupine najprv zaradené podľa roly, nakoniec to, čo čaká na zatriedenie.
+ */
+export function groupMoves(moves: readonly TriageMoveView[], matters: ReadonlyMap<string, TriagePreview["matters"][number]>): MoveGroup[] {
+  const order = (move: TriageMoveView) => move.role === "inbox" ? ROLE_KEYS.length : ROLE_KEYS.indexOf(move.role);
+  const byKey = new Map<string, MoveGroup>();
+  for (const move of moves) {
+    const key = move.matter ?? "";
+    const matter = move.matter ? matters.get(move.matter) : undefined;
+    // Existujúci prípad mimo náhľadu nesie meno svojho priečinka (`<prípad>/<rola>/dokument`).
+    const group = byKey.get(key) ?? { key, title: matter?.title ?? (move.matter ? lastSegment(folderOf(folderOf(move.to))) : ""), isNew: matter !== undefined, moves: [] };
+    group.moves.push(move);
+    byKey.set(key, group);
+  }
+  for (const group of byKey.values()) group.moves.sort((a, b) => order(a) - order(b) || a.from.localeCompare(b.from));
+  return [...byKey.values()].sort((a, b) => Number(a.key !== "") - Number(b.key !== "") || a.title.localeCompare(b.title));
+}
+
 /**
  * Náhľad ako tabuľka: dokument, odkiaľ, kam, prečo, istota, nová vec; riadok sa dá nechať na zatriedenie.
  * `inPlace`: priečinok klienta na mieste (nie skúšobný klon), texty potom o klone nehovoria a model sa neponúka.
@@ -280,9 +300,7 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
   const matters = new Map(preview.matters.map((matter) => [matter.key, matter]));
   const inbox = preview.moves.filter((move) => move.role === "inbox").length;
   const keep = new Set(preview.keepInInbox);
-  // Najprv zaradené u klienta, potom veci, nakoniec to, čo čaká na zatriedenie.
-  const order = (move: TriageMoveView) => move.role === "inbox" ? ROLE_KEYS.length : ROLE_KEYS.indexOf(move.role);
-  const rows = [...preview.moves].sort((a, b) => Number(a.role === "inbox") - Number(b.role === "inbox") || (a.matter ?? "").localeCompare(b.matter ?? "") || order(a) - order(b) || a.from.localeCompare(b.from));
+  const groups = groupMoves(preview.moves, matters);
   if (preview.documents === 0) return <p className="lw-triage-quiet">{text(inPlace ? "nothing_in_place" : "nothing")}</p>;
   return (
     <>
@@ -322,24 +340,33 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
         <table className="lw-triage-table">
           <thead><tr><th>{text("col_document")}</th><th>{text("col_from")}</th><th>{text("col_to")}</th><th>{text("col_reason")}</th><th>{text("col_confidence")}</th><th>{text("col_keep")}</th></tr></thead>
           <tbody>
-            {rows.map((move) => {
-              const matter = move.matter ? matters.get(move.matter) : undefined;
-              const from = folderOf(move.from);
-              return (
-                <tr key={move.id} data-role={move.role}>
-                  <td className="lw-triage-name" title={move.from}>{lastSegment(move.from)}</td>
-                  <td className={from ? "lw-triage-path" : "lw-triage-from-root"}>{from || text("root_folder")}</td>
-                  <td>
-                    <span className="lw-triage-role">{move.role === "inbox" ? <Inbox aria-hidden size={13} /> : null}{text(`role_${move.role}`)}</span>
-                    {matter ? <span className="lw-triage-matter-chip">{matter.title} <em>{text("new_matter_badge")}</em></span> : move.matter ? <span className="lw-triage-matter-chip">{folderOf(folderOf(move.to)).split("/").pop()}</span> : null}
-                    <small className="lw-triage-path" title={move.to}>{folderOf(move.to)}{move.renamed ? ` · ${text("renamed")}` : ""}</small>
-                  </td>
-                  <td className="lw-triage-reason">{reasonOf(move, text)}{move.truncated ? <small> · {text("truncated")}</small> : null}</td>
-                  <td><span className="lw-triage-confidence" data-level={move.confidence}>{text(`confidence_${move.confidence}`)}</span></td>
-                  <td className="lw-triage-keep"><input type="checkbox" aria-label={`${text("col_keep")}: ${lastSegment(move.from)}`} checked={keep.has(move.id)} disabled={busy || (move.role === "inbox" && !keep.has(move.id) && !move.matter)} onChange={(event) => onKeep(move.id, event.target.checked)} /></td>
+            {groups.map((group) => (
+              <Fragment key={group.key}>
+                <tr className="lw-triage-group" data-lawoss-triage-group={group.key}>
+                  <th colSpan={6} scope="colgroup">
+                    <span>{group.title || text("root_folder")}</span>
+                    {group.isNew ? <em className="lw-triage-matter-chip">{text("new_matter_badge")}</em> : null}
+                  </th>
                 </tr>
-              );
-            })}
+                {group.moves.map((move) => {
+                  const from = folderOf(move.from);
+                  const to = folderOf(move.to);
+                  return (
+                    <tr key={move.id} data-role={move.role}>
+                      <td className="lw-triage-name" title={move.from}>{lastSegment(move.from)}</td>
+                      <td className={from ? "lw-triage-from" : "lw-triage-from-root"} title={from || undefined}>{from ? lastSegment(from) : text("root_folder")}</td>
+                      <td>
+                        <span className="lw-triage-role">{move.role === "inbox" ? <Inbox aria-hidden size={13} /> : null}{text(`role_${move.role}`)}</span>
+                        <small className="lw-triage-target" title={to}>{lastSegment(to)}{move.renamed ? ` · ${text("renamed")}` : ""}</small>
+                      </td>
+                      <td className="lw-triage-reason">{reasonOf(move, text)}{move.truncated ? <small> · {text("truncated")}</small> : null}</td>
+                      <td><span className="lw-triage-confidence" data-level={move.confidence}>{text(`confidence_${move.confidence}`)}</span></td>
+                      <td className="lw-triage-keep"><input type="checkbox" aria-label={`${text("col_keep")}: ${lastSegment(move.from)}`} checked={keep.has(move.id)} disabled={busy || (move.role === "inbox" && !keep.has(move.id) && !move.matter)} onChange={(event) => onKeep(move.id, event.target.checked)} /></td>
+                    </tr>
+                  );
+                })}
+              </Fragment>
+            ))}
           </tbody>
         </table>
       </section>

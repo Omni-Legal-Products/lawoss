@@ -185,3 +185,30 @@ describe("vrátenie po novom súhlase (rozhodnutie MČ 13. 10. 2026)", () => {
     expect(undoableRun(null)).toBeUndefined();
   });
 });
+
+test("náhľad je čitateľný: odkiaľ ako meno priečinka, riadky zoskupené podľa prípadu (test 19. 10. 2026)", () => {
+  const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, "sk", params);
+  const m4 = "M004 Vyúčtovanie nájmu logistického skladu", m5 = "M005 Neakceptovaný modul informačného systému";
+  const grouped: TriagePreview = {
+    ...preview, keepInInbox: [], documents: 4,
+    matters: [m4, m5].map((title, index) => ({ key: `existing-${index}`, title, folder: title, date: "2026-10-19", dateSource: "today" as const, kind: "non_contentious" as const, source: "folder" as const, documents: 2 })),
+    moves: [
+      { id: "d1", from: `${m5}/01-zmluva.docx`, to: `${m5}/01_Podklady/01-zmluva.docx`, size: 1, role: "client_documents", matter: "existing-1", source: "rules", confidence: "medium", rule: "contract", matched: "zmluva" },
+      { id: "d2", from: `${m4}/01-zmluva.docx`, to: `${m4}/01_Podklady/01-zmluva.docx`, size: 1, role: "client_documents", matter: "existing-0", source: "rules", confidence: "medium", rule: "contract", matched: "zmluva" },
+      { id: "d3", from: `${m4}/poznamky.txt`, to: `${m4}/00_Na_zatriedenie/poznamky.txt`, size: 1, role: "inbox", matter: "existing-0", source: "rules", confidence: "low", rule: "unknown" },
+      { id: "d4", from: "odpoved.eml", to: "05_Komunikacia/odpoved.eml", size: 1, role: "correspondence", source: "rules", confidence: "high", rule: "email_file", matched: ".eml" },
+    ],
+  };
+  const out = html(<TriagePreviewView preview={grouped} text={text} busy={false} inPlace onKeep={() => {}} onConfirm={() => {}} onModel={() => {}} />);
+  // Skupina na prípad: hlavička skupiny, pod ňou jeho dokumenty; najprv klient, potom prípady podľa názvu.
+  const groups = [...out.matchAll(/data-lawoss-triage-group="([^"]*)"[^>]*>(?:<[^>]+>)*([^<]+)/g)].map((match) => [match[1], match[2]]);
+  expect(groups).toEqual([["", text("root_folder")], ["existing-0", m4], ["existing-1", m5]]);
+  const body = out.slice(out.indexOf("<tbody"));
+  expect(body.indexOf(`title="${m4}/poznamky.txt"`)).toBeGreaterThan(body.indexOf(`data-lawoss-triage-group="existing-0"`));
+  expect(body.indexOf(`title="${m4}/poznamky.txt"`)).toBeLessThan(body.indexOf(`data-lawoss-triage-group="existing-1"`));
+  // Odkiaľ: meno priečinka s plnou cestou v tooltipe, nie celá cesta písaná po znakoch.
+  expect(out).toContain(`<td class="lw-triage-from" title="${m4}">${m4}</td>`);
+  expect(out).not.toMatch(/<td class="lw-triage-path/);
+  // Kam: pracovný priečinok prípadu menom, plná cesta v tooltipe.
+  expect(out).toContain(`title="${m4}/01_Podklady">01_Podklady</small>`);
+});
