@@ -12,7 +12,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { locateInScope, officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope } from "../okf/read-model";
+import { isFolderUnavailable, locateInScope, officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope } from "../okf/read-model";
 import { buildToday } from "./today-model";
 import { matterUrgency, useMinuteTick } from "./live";
 import { LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, liteMatterLink } from "./links";
@@ -24,6 +24,9 @@ const RECENT_LIMIT = 5;
 /** „Zeptat se“ = nová konverzace v kanceláři (`openOfficeChat`); `/session` jen jako záloha při chybě. */
 const ASK_PATH = "/session";
 const OFFICE_PAGES = new Set([LITE_TODAY_PATH, LITE_CLIENTS_PATH, LITE_MATTER_PATH]);
+
+/** Kam po zlyhanom „Opýtať sa“: chýbajúci priečinok vysvetlí Dnes (s voľbou iného priečinka), inak konverzácie. */
+export const askFailurePath = (failure: unknown): string => isFolderUnavailable(failure) ? LITE_TODAY_PATH : ASK_PATH;
 
 /** `deadlines` z pamäte OKF: bod pri veci ukáže naliehavosť jej najbližšej lehoty. */
 type RecentMatter = { path: string; title: string; deadlines?: readonly { date: string; invalid?: true; file?: string }[] };
@@ -50,7 +53,7 @@ export function LiteNav(props: { activePane?: boolean }) {
   const open = (chat: Promise<string>) => {
     chat.then(navigate).catch((failure: unknown) => {
       console.warn("LAWOSS-lite: ask", failure);
-      navigate(ASK_PATH);
+      navigate(askFailurePath(failure));
     });
   };
   // Prax (MČ 16. 10. 2026): z detailu veci rovno do jej klienta, inak krátky výber klienta.

@@ -182,3 +182,17 @@ describe("navigácia bez rolovania (MČ 19. 10.)", () => {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Vybrať iný priečinok/);
   });
 });
+
+describe("zlyhané usporiadanie po pripojení (MČ 19. 10.)", () => {
+  test("veta, uistenie, že priečinok je pripojený, Skúsiť znova a pokračovanie", async () => {
+    const { ReorganizeFailedView } = await import("../src/lawoss/domains/onboarding/found-screen");
+    const html = renderToStaticMarkup(<ReorganizeFailedView text={foundText("sk")} busy={false} name="Novák" message="Roztriedenie sa nepodarilo. Skúste to znova." more={false} onRetry={() => undefined} onSkip={() => undefined} />);
+    expect(html).toContain("Usporiadanie: Novák");
+    expect(html).toContain("Roztriedenie sa nepodarilo. Skúste to znova.");
+    expect(html).toContain("Priečinok je pripojený a pomocné súbory sú pridané. Usporiadanie môžete skúsiť znova teraz alebo neskôr.");
+    expect(html).toMatch(/class="lw-btn gold"[^>]*>Skúsiť znova</);
+    expect(html).toContain("Dokončiť");
+    const more = renderToStaticMarkup(<ReorganizeFailedView text={foundText("sk")} busy={false} name="Novák" message="x" more onRetry={() => undefined} onSkip={() => undefined} />);
+    expect(more).toContain("Tohto klienta preskočiť");
+  });
+});

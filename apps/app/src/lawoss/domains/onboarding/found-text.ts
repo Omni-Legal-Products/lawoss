@@ -54,6 +54,8 @@ const sk = {
   nextClient: "Ďalší klient",
   reorganized: "Usporiadané. Presun sa dá vrátiť na stránke Roztriedenie.",
   open: "Otvoriť v LAWOSS",
+  retryReorganize: "Skúsiť znova",
+  reorganizeFailedHint: "Priečinok je pripojený a pomocné súbory sú pridané. Usporiadanie môžete skúsiť znova teraz alebo neskôr.",
   back: "Späť",
   changeFolder: "Vybrať iný priečinok",
 };
@@ -113,6 +115,8 @@ const cs: Dictionary = {
   nextClient: "Další klient",
   reorganized: "Uspořádáno. Přesun jde vrátit na stránce Roztřídění.",
   open: "Otevřít v LAWOSS",
+  retryReorganize: "Zkusit znovu",
+  reorganizeFailedHint: "Složka je připojená a pomocné soubory jsou přidané. Uspořádání můžete zkusit znovu teď nebo později.",
   back: "Zpět",
   changeFolder: "Vybrat jinou složku",
 };
@@ -170,6 +174,8 @@ const en: Dictionary = {
   nextClient: "Next client",
   reorganized: "Organised. The move can be undone on the Sorting page.",
   open: "Open in LAWOSS",
+  retryReorganize: "Try again",
+  reorganizeFailedHint: "The folder is connected and the helper files are added. You can try organising again now or later.",
   back: "Back",
   changeFolder: "Choose another folder",
 };
@@ -227,6 +233,8 @@ const de: Dictionary = {
   nextClient: "Nächster Mandant",
   reorganized: "Geordnet. Das Verschieben lässt sich auf der Seite Sortierung rückgängig machen.",
   open: "In LAWOSS öffnen",
+  retryReorganize: "Erneut versuchen",
+  reorganizeFailedHint: "Der Ordner ist verbunden und die Hilfsdateien sind hinzugefügt. Sie können das Ordnen jetzt oder später erneut versuchen.",
   back: "Zurück",
   changeFolder: "Anderen Ordner wählen",
 };

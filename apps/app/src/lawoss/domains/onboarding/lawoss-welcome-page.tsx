@@ -515,6 +515,8 @@ type Props = {
   hasCompletedOnboarding?: boolean;
   /** „Zrušiť“ v toku z bočného panela: návrat tam, odkiaľ advokát prišiel. */
   onCancel?: () => void;
+  /** Registrácia a výber pripojeného priečinka ešte pred usporiadaním (welcome-route); bez nej sa len pokračuje. */
+  onRegister?: (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => Promise<void>;
 };
 export function LawossWelcomePage({
   api,
@@ -524,6 +526,7 @@ export function LawossWelcomePage({
   hasCompletedOnboarding = false,
   onCancel,
   onComplete,
+  onRegister,
   onOpenAiSettings,
   pickDirectory,
 }: Props) {
@@ -862,6 +865,7 @@ export function LawossWelcomePage({
                   setCompletedResult(result);
                   await finish(profile, result, completion);
                 }}
+                onRegister={async (result, completion) => { await onRegister?.(result, completion); }}
                 onChangeFolder={() => setFoundRoot(null)}
                 onError={reportError}
               />

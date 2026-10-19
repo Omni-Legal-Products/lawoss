@@ -149,6 +149,23 @@ export async function startReorganize(client: TriageClient, root: string): Promi
   return triagePlan(client, root);
 }
 
+/** Náhľad usporiadania jedného klienta, alebo dôvod zlyhania (advokát dostane Skúsiť znova, nie tichý preskok). */
+export type ReorganizeOutcome = { preview: TriagePreview } | { failure: unknown };
+
+export async function reorganizePreview(client: TriageClient, item: BatchItem): Promise<ReorganizeOutcome> {
+  try { return { preview: await startReorganize(client, reorganizeTarget(item)) }; }
+  catch (failure) { return { failure }; }
+}
+
+/**
+ * Najprv zaregistruje a vyberie pripojený priečinok, až potom začne usporiadanie (MČ 19. 10. 2026):
+ * prerušený alebo zlyhaný /triage/plan (napr. obnovenie stránky) už priečinok nestratí.
+ */
+export async function registerThenReorganize(register: () => Promise<void>, client: TriageClient, item: BatchItem): Promise<ReorganizeOutcome> {
+  await register();
+  return reorganizePreview(client, item);
+}
+
 export function firstWorkspaceResult(items: readonly BatchItem[]): OnboardingApplyResult | undefined {
   return items.find(item => item.status === "done" && item.result?.workspace)?.result;
 }
