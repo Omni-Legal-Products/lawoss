@@ -50,7 +50,7 @@ source_archive glib-2.90.1 https://download.gnome.org/sources/glib/2.90/glib-2.9
 meson setup "$work/glib-build" "$work/sandbox-source/glib-2.90.1" --prefix="$work/qemu-deps" --libdir=lib --buildtype=release --wrap-mode=nofallback -Dtests=false -Dinstalled_tests=false -Dnls=disabled -Dintrospection=disabled -Dlibmount=disabled -Dselinux=disabled -Dxattr=false
 meson compile -C "$work/glib-build" -j3
 meson install -C "$work/glib-build"
-source_archive libslirp-v4.9.5 https://gitlab.freedesktop.org/slirp/libslirp/-/archive/v4.9.5/libslirp-v4.9.5.tar.gz f43e68b60b580647574ec4a0e2b6c600a56281e6c39f79426510832dc810f483
+source_archive libslirp-v4.9.5 https://gitlab.freedesktop.org/slirp/libslirp/-/archive/v4.9.5/libslirp-v4.9.5.tar.gz f43e68b60b580647574ec4a0e2b6c600a56281e6c39f79426510832dc810f483 https://gitlab.com/qemu-project/libslirp/-/archive/v4.9.5/libslirp-v4.9.5.tar.gz
 meson setup "$work/slirp-build" "$work/sandbox-source/libslirp-v4.9.5" --prefix="$work/qemu-deps" --libdir=lib --buildtype=release --wrap-mode=nofallback
 meson compile -C "$work/slirp-build" -j3
 meson install -C "$work/slirp-build"
