@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -43,6 +43,8 @@ export function WelcomeRoute() {
   const local = useLocal();
   const [client, setClient] = useState<LegalworkServerClient | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 🟡 LAWOSS: klient po registrácii pripojeného priečinka (server mohol zmeniť token či port).
+  const registeredClient = useRef<LegalworkServerClient | null>(null);
   const continuation = new URLSearchParams(location.search).get("continue");
   const initialStep = continuationStep(continuation);
   // LAWOSS: ako upstream pri štarte onboardingu; novému používateľovi je nové všetko, „What's new“ nie.
@@ -60,12 +62,13 @@ export function WelcomeRoute() {
   // 🟡 LAWOSS: registrácia, výber a aktivácia pripojeného priečinka (register-clients.ts); volá sa už pred
   // usporiadaním (onRegister), aby prerušené usporiadanie priečinok nestratilo, a znova pri dokončení.
   const register = async (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => {
-    const status = await client.onboardingStatus();
+    const current = registeredClient.current ?? client;
+    const status = await current.onboardingStatus();
     const registered = await registerOnboardedWorkspace({
       desktop: isDesktopRuntime(),
       profileClientRoot: status.profile?.clientRoot,
-      listWorkspaces: () => client.listWorkspaces(),
-      registerWorkingFolder: async (path) => registerWorkingFolder(client, await workingFolderPath(path)),
+      listWorkspaces: () => current.listWorkspaces(),
+      registerWorkingFolder: async (path) => registerWorkingFolder(current, await workingFolderPath(path)),
       createNative: (input) => workspaceCreate({ ...input, preset: "starter", registerExisting: true }),
       selectNative: workspaceSetSelected,
       runtimeActive: workspaceSetRuntimeActive,
@@ -78,10 +81,11 @@ export function WelcomeRoute() {
       },
       remember: writeActiveWorkspaceId,
     }, result, completion);
+    if (registered) registeredClient.current = registered.client;
     return { status, registered };
   };
   // LAWOSS: tok z bočného panela po dokončenom onboardingu má „Zrušiť“ späť (prvá stránka histórie: domov).
-  return <LawossWelcomePage api={client} initialStep={initialStep} initialRoot={new URLSearchParams(location.search).get("root") ?? undefined} hasCompletedOnboarding={local.prefs.hasCompletedOnboarding} onCancel={() => location.key === "default" ? navigate("/home") : navigate(-1)} pickDirectory={async () => { const result = await pickDirectory({ title: "Select LAWOSS folder", canonical: true }); return typeof result === "string" ? result : null; }} onOpenAiSettings={() => navigate("/settings/ai")} onRegister={async (result, completion) => { await register(result, completion); }} onComplete={async (result, completion) => {
+  return <LawossWelcomePage api={client} initialStep={initialStep} initialRoot={new URLSearchParams(location.search).get("root") ?? undefined} hasCompletedOnboarding={local.prefs.hasCompletedOnboarding} onCancel={() => location.key === "default" ? navigate("/home") : navigate(-1)} pickDirectory={async () => { const result = await pickDirectory({ title: "Select LAWOSS folder", canonical: true }); return typeof result === "string" ? result : null; }} onOpenAiSettings={() => navigate("/settings/ai")} onRegister={async (result, completion) => (await register(result, completion)).registered?.client} onComplete={async (result, completion) => {
     const { status, registered } = await register(result, completion);
     const okf = status.profile?.okf?.enabled === true;
     const activeId = registered?.id;

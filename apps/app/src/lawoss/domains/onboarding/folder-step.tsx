@@ -2,7 +2,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { FolderOpen, FolderPlus } from "lucide-react";
 import type { OnboardingApi, OnboardingApplyResult } from "./api";
-import { startFreshFolder, type FoundIdentity } from "./found-flow";
+import { freshFolderFlow, startFreshFolder, type FoundIdentity } from "./found-flow";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
 import { FRESH_NOT_EMPTY } from "./onboarding-errors";
@@ -59,6 +59,20 @@ export function FreshDoneView({ text, busy = false, onFinish, nav }: { text: Tex
   );
 }
 
+/** „Začať nanovo“ do zdieľaného alebo cloudového priečinka: upozornenie pred zápisom (review 6d). */
+export function FreshCloudNoticeView({ text, kind, onContinue, onCancel }: { text: Text; kind: "shared" | "cloud"; onContinue: () => void; onCancel: () => void }) {
+  return (
+    <div className="grid gap-3" data-lawoss-fresh-cloud>
+      <ScreenHead title={text("startFresh")} />
+      <p className="lw-status warn">{text(kind === "shared" ? "cloudShared" : "cloudSynced")}</p>
+      <div className="flex gap-2">
+        <button type="button" className="lw-btn gold" onClick={onContinue}>{text("proceed")}</button>
+        <button type="button" className="lw-btn" onClick={onCancel}>{text("cancel")}</button>
+      </div>
+    </div>
+  );
+}
+
 type Props = {
   api: Pick<OnboardingApi, "planOnboarding" | "applyOnboarding" | "updateOnboardingProfile" | "suggestOnboarding">;
   identity: FoundIdentity;
@@ -77,6 +91,8 @@ type Props = {
 export function FolderStep({ api, identity, text, pickDirectory, onFound, onAcknowledge, onFreshDone, onError, nav }: Props) {
   const [busy, setBusy] = useState(false);
   const [fresh, setFresh] = useState<OnboardingApplyResult | null>(null);
+  // Otázka pred zápisom do zdieľaného alebo cloudového priečinka; odpoveď dokončí čakajúci `confirm`.
+  const [cloudAsk, setCloudAsk] = useState<{ kind: "shared" | "cloud"; answer: (proceed: boolean) => void } | null>(null);
   // Dvojklik na „Dokončiť“ nesmie dokončiť onboarding dvakrát; ref platí ešte pred novým vykreslením.
   const finishing = useRef(false);
   const connect = async () => {
@@ -90,11 +106,13 @@ export function FolderStep({ api, identity, text, pickDirectory, onFound, onAckn
   const startFresh = async () => {
     setBusy(true);
     try {
-      const parent = await pickDirectory();
-      if (!parent) return;
-      const result = await startFreshFolder(api, parent, identity, onAcknowledge);
+      const result = await freshFolderFlow({
+        pick: pickDirectory,
+        confirm: (kind) => new Promise<boolean>((resolve) => setCloudAsk({ kind, answer: (proceed) => { setCloudAsk(null); resolve(proceed); } })),
+        start: (parent) => startFreshFolder(api, parent, identity, onAcknowledge),
+      });
       if (result === "not_empty") onError(new Error(FRESH_NOT_EMPTY));
-      else setFresh(result);
+      else if (result) setFresh(result);
     } catch (reason) {
       onError(reason);
     } finally {
@@ -112,6 +130,7 @@ export function FolderStep({ api, identity, text, pickDirectory, onFound, onAckn
       setBusy(false);
     }
   };
+  if (cloudAsk) return <FreshCloudNoticeView text={text} kind={cloudAsk.kind} onContinue={() => cloudAsk.answer(true)} onCancel={() => cloudAsk.answer(false)} />;
   if (fresh) return <FreshDoneView text={text} busy={busy} onFinish={() => void finish(fresh)} nav={nav} />;
   return <FolderChoiceView text={text} busy={busy} onConnect={() => void connect()} onFresh={() => void startFresh()} nav={nav} />;
 }

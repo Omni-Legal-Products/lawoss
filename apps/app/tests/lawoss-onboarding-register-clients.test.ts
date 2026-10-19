@@ -72,3 +72,30 @@ describe("registrácia a výber pripojeného priečinka (MČ 19. 10.: odolné vo
     expect(calls).toContain("folder:/p");
   });
 });
+
+test("prax s viacerými klientmi: na konci je vybraný a aktívny hlavný klient, nie posledný z dávky (review 6d)", async () => {
+  // Ako workspace-store.mjs: každé natívne vytvorenie nastaví selectedId, activeId a watchedId na nový priečinok.
+  const store = { selected: "", runtime: "", workspaces: [] as { id: string; path: string }[] };
+  const clients: OnboardingApplyResult[] = [client("ws-alfa", "/p/Alfa"), client("ws-beta", "/p/Beta"), client("ws-gama", "/p/Gama")];
+  const idOf = (path: string) => clients.find(item => item.workspace?.path === path)?.workspace?.id ?? path;
+  const deps: RegisterWorkspaceDeps<{ id: string; path: string }, string> = {
+    desktop: true,
+    listWorkspaces: async () => ({ items: [] }),
+    registerWorkingFolder: async (path) => ({ id: path, path }),
+    createNative: async (input) => {
+      const id = idOf(input.folderPath);
+      if (!store.workspaces.some(item => item.id === id)) store.workspaces.push({ id, path: input.folderPath });
+      store.selected = id; store.runtime = id;
+      return { workspaces: [...store.workspaces] };
+    },
+    selectNative: async (id) => { store.selected = id; },
+    runtimeActive: async (id) => { store.runtime = id; },
+    ensureConnection: async () => undefined,
+    activate: async (id) => id,
+    remember: () => undefined,
+  };
+  await registerOnboardedWorkspace(deps, clients[0], { clients });
+  expect(store.workspaces.map(item => item.id)).toEqual(["ws-alfa", "ws-beta", "ws-gama"]);
+  expect(store.selected).toBe("ws-alfa");
+  expect(store.runtime).toBe("ws-alfa");
+});

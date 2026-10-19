@@ -10,8 +10,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { ADD_FOLDER_PATH } from "../lite/links";
 import type { OkfConnection } from "../okf/connection";
 import { activateLocalWorkspace } from "../okf/matter-session";
-import { missingFolderAlternatives } from "../okf/missing-folder";
-import { OFFICE_SCOPE_RESTORED } from "../okf/read-model";
+import { missingFolderAlternatives, switchToWorkspace } from "../okf/missing-folder";
 
 type Choice = { id: string; name: string };
 type Workspace = OkfConnection["workspaces"][number];
@@ -39,19 +38,16 @@ export function MissingFolder({ connection, missing }: { connection: OkfConnecti
   const locale = useLocale();
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
-  const alternatives = missingFolderAlternatives(connection.workspaces, missing).slice(0, MAX_ALTERNATIVES);
+  const alternatives = missingFolderAlternatives(connection.workspaces, missing, connection.activeWorkspaceId).slice(0, MAX_ALTERNATIVES);
   const onSwitch = async (id: string) => {
     const target = alternatives.find(workspace => workspace.id === id);
     if (!target || !connection.client) return;
+    const client = connection.client;
     setBusy(true); setFailed(false);
-    try {
-      await activateLocalWorkspace({ ...connection, client: connection.client }, target, connection.workspaces);
-      // Stránky načítajú spojenie a pamäť znova, už pre nový priečinok.
-      window.dispatchEvent(new CustomEvent(OFFICE_SCOPE_RESTORED));
-    } catch (failure) {
-      console.warn("LAWOSS: prepnutie na iný priečinok", failure);
-      setFailed(true);
-    } finally { setBusy(false); }
+    // Stránky načítajú spojenie a pamäť znova, už pre nový priečinok.
+    const switched = await switchToWorkspace((workspace) => activateLocalWorkspace({ ...connection, client }, workspace, connection.workspaces), target);
+    setFailed(!switched);
+    setBusy(false);
   };
   return <MissingFolderView locale={locale} name={nameOf(missing)} alternatives={alternatives.map(workspace => ({ id: workspace.id, name: nameOf(workspace) }))} busy={busy} failed={failed} onSwitch={(id) => void onSwitch(id)} />;
 }

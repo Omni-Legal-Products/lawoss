@@ -214,7 +214,11 @@ describe("Toto som našiel: veta podľa voľby, kancelária v podpriečinku, pra
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ level: "client", signals: ["plain_directories"] })} level="practice" selected={[]} />);
     expect(html).toContain("V priečinku som nenašiel priečinky klientov.");
     expect(html).not.toContain("0 klientov");
-    expect(html).toContain("Bez priečinkov klientov nie je komu pridať pomocné súbory. Zvoľte Jeden priečinok pre všetko, alebo vyberte iný priečinok.");
+    expect(html).toContain("Bez priečinkov klientov nie je komu pridať pomocné súbory. Zvoľte „Jeden priečinok pre všetko“, alebo vyberte iný priečinok.");
+    // Názov voľby v úvodzovkách vo všetkých jazykoch; nemčina gramaticky (review 6d).
+    expect(foundText("cs")("noClientsHint")).toContain("„Jedna složka pro všechno“");
+    expect(foundText("en")("noClientsHint")).toContain("“One folder for everything”");
+    expect(foundText("de")("noClientsHint")).toBe("Ohne Mandantenordner kann ich keine Hilfsdateien hinzufügen. Wählen Sie „Ein Ordner für alles“ oder einen anderen Ordner.");
     const one = renderToStaticMarkup(<FoundView {...props} suggestion={base({ level: "client" })} level="practice" scope="practice" selected={[]} />);
     expect(one).not.toContain("Bez priečinkov klientov");
     expect(one).not.toMatch(/<button[^>]*disabled=""[^>]*>Nie, nechaj ho tak, ako je/);
@@ -236,6 +240,7 @@ describe("priečinok na zdieľanom alebo cloudovom disku (MČ 19. 10.)", () => {
       "/Users/a/Library/CloudStorage/GoogleDrive-a@b.cz/Sdílené disky/Kancelář",
       "/Users/a/Library/CloudStorage/GoogleDrive-a@b.de/Geteilte Ablagen/Kanzlei",
       "G:\\Shared drives\\Kancelária",
+      "/Users/a/Library/CloudStorage/OneDrive-SharedLibraries-Firma/Klienti - Dokumenty",
     ]) expect(cloudFolderKind(path)).toBe("shared");
     for (const path of [
       "/Users/a/Library/CloudStorage/OneDrive-Firma/Klienti",
@@ -244,6 +249,8 @@ describe("priečinok na zdieľanom alebo cloudovom disku (MČ 19. 10.)", () => {
       "C:\\Users\\a\\OneDrive - Firma s.r.o\\Klienti",
       "G:\\My Drive\\Klienti",
       "/Users/a/Dropbox/Klienti",
+      "/Users/a/Dropbox (Firma)/Klienti",
+      "C:\\Users\\a\\Dropbox (Firma s.r.o.)\\Klienti",
     ]) expect(cloudFolderKind(path)).toBe("cloud");
     for (const path of ["/Users/a/Klienti", "C:\\Klienti\\Novák", "/Users/a/Documents/OneDrive návod"]) expect(cloudFolderKind(path)).toBeNull();
   });
@@ -253,7 +260,7 @@ describe("priečinok na zdieľanom alebo cloudovom disku (MČ 19. 10.)", () => {
     expect(shared.split(notice)).toHaveLength(2);
     expect(shared.indexOf(notice)).toBeLessThan(shared.indexOf("Nie, nechaj ho tak, ako je"));
     const cloud = renderToStaticMarkup(<FoundView {...props} suggestion={base({ root: "/Users/a/Library/CloudStorage/OneDrive-Firma/Novák" })} level="client" />);
-    expect(cloud).toContain("Priečinok je v cloudovom úložisku. LAWOSS doň zapíše nové súbory (karty klienta, priečinky), ktoré sa zosynchronizujú aj do cloudu.");
+    expect(cloud).toContain("Priečinok je v cloudovom úložisku. LAWOSS doň zapíše nové súbory (karty klienta, priečinky), ktoré sa zosynchronizujú do cloudovej služby, v ktorej je priečinok uložený.");
     expect(renderToStaticMarkup(<FoundView {...props} suggestion={base({})} level="client" />)).not.toContain("LAWOSS doň zapíše nové súbory");
   });
 });

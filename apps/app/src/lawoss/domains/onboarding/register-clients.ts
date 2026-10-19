@@ -65,10 +65,11 @@ export async function registerOnboardedWorkspace<N extends { id: string; path: s
     const nativeList = await deps.createNative({ folderPath: workspace.path, name: workspace.displayName ?? existing?.name ?? lastSegment(workspace.path) ?? "Client", appFiles: result?.appFiles ?? existing?.appFiles });
     const native = nativeList.workspaces.find(item => item.path === workspace.path);
     if (!native || native.id !== workspace.id) throw new Error("Client registration did not preserve workspace identity.");
+    // Ostatní klienti dávky praxe sú samostatné pracovné priečinky. Natívne vytvorenie každý vyberie,
+    // preto sa hlavný klient vyberie a aktivuje až po nich (review 6d), inak by ostal vybraný posledný.
+    const others = await registerOtherClients(completion?.clients ?? [], native.id, (other, client) => deps.createNative({ folderPath: other.path, name: other.displayName ?? lastSegment(other.path) ?? "Client", appFiles: client.appFiles }));
     await deps.selectNative(native.id);
     await deps.runtimeActive(native.id);
-    // Ostatní klienti dávky praxe sú samostatné pracovné priečinky.
-    const others = await registerOtherClients(completion?.clients ?? [], native.id, (other, client) => deps.createNative({ folderPath: other.path, name: other.displayName ?? lastSegment(other.path) ?? "Client", appFiles: client.appFiles }));
     await deps.ensureConnection(native, (others ?? nativeList).workspaces);
   }
   const client = await deps.activate(workspace.id);

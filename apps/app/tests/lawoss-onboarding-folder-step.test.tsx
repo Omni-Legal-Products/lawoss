@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { FolderChoiceView, FreshDoneView } from "../src/lawoss/domains/onboarding/folder-step";
+import { FolderChoiceView, FreshCloudNoticeView, FreshDoneView } from "../src/lawoss/domains/onboarding/folder-step";
 import { foundText } from "../src/lawoss/domains/onboarding/found-text";
 
 test("dve veľké voľby so zlatým tlačidlom pre pripojenie", () => {
@@ -36,4 +36,12 @@ test("Späť je v hlavičke pri nadpise, nie až pod veľkými voľbami (MČ 19.
   const back = html.indexOf(">Späť<");
   expect(back).toBeGreaterThan(html.indexOf("Priečinok"));
   expect(back).toBeLessThan(html.indexOf("lw-onb-choices"));
+});
+
+test("Začať nanovo na zdieľanom disku: upozornenie s Pokračovať a Zrušiť (review 6d)", () => {
+  const html = renderToStaticMarkup(<FreshCloudNoticeView text={foundText("sk")} kind="shared" onContinue={() => undefined} onCancel={() => undefined} />);
+  expect(html).toContain("Priečinok je na zdieľanom disku. LAWOSS doň zapíše nové súbory (karty klienta, priečinky), ktoré uvidia aj kolegovia s prístupom.");
+  expect(html).toMatch(/class="lw-btn gold"[^>]*>Pokračovať</);
+  expect(html).toMatch(/class="lw-btn"[^>]*>Zrušiť</);
+  expect(renderToStaticMarkup(<FreshCloudNoticeView text={foundText("sk")} kind="cloud" onContinue={() => undefined} onCancel={() => undefined} />)).toContain("Priečinok je v cloudovom úložisku.");
 });

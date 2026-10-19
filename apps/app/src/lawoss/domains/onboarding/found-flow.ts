@@ -157,19 +157,54 @@ export async function reorganizePreview(client: TriageClient, item: BatchItem): 
   catch (failure) { return { failure }; }
 }
 
+/** Čo má obrazovka ukázať: náhľad presunov klienta, alebo zlyhanie so Skúsiť znova. */
+export type ReorganizeView =
+  | { name: "reorganize"; queue: BatchItem[]; preview: TriagePreview; result?: OnboardingApplyResult }
+  | { name: "reorganizeFailed"; queue: BatchItem[]; failure: unknown; result?: OnboardingApplyResult };
+
 /**
- * Najprv zaregistruje a vyberie pripojený priečinok, až potom začne usporiadanie (MČ 19. 10. 2026):
- * prerušený alebo zlyhaný /triage/plan (napr. obnovenie stránky) už priečinok nestratí.
+ * Usporiadanie po pripojení (MČ 19. 10. 2026). `begin` najprv zaregistruje a vyberie pripojený priečinok,
+ * až potom začne usporiadanie: prerušený alebo zlyhaný /triage/plan (napr. obnovenie stránky) ho už nestratí.
+ * Registrácia môže vrátiť nového klienta servera (server po aktivácii s iným tokenom či portom); `client`
+ * ho drží pre ďalších klientov, potvrdenie aj zmenu náhľadu (review 6d).
  */
-export async function registerThenReorganize(register: () => Promise<void>, client: TriageClient, item: BatchItem): Promise<ReorganizeOutcome> {
-  await register();
-  return reorganizePreview(client, item);
+export function createReorganizeFlow(deps: {
+  client: { current: TriageClient };
+  register: (result?: OnboardingApplyResult) => Promise<TriageClient | undefined>;
+  done: (result?: OnboardingApplyResult) => Promise<void> | void;
+  show: (view: ReorganizeView) => void;
+}) {
+  const show = async (queue: BatchItem[], result?: OnboardingApplyResult): Promise<void> => {
+    const [current] = queue;
+    if (!current) { await deps.done(result); return; }
+    const outcome = await reorganizePreview(deps.client.current, current);
+    deps.show("preview" in outcome ? { name: "reorganize", queue, preview: outcome.preview, result } : { name: "reorganizeFailed", queue, failure: outcome.failure, result });
+  };
+  const begin = async (queue: BatchItem[], result?: OnboardingApplyResult): Promise<void> => {
+    if (!queue.length) { await deps.done(result); return; }
+    const fresh = await deps.register(result);
+    if (fresh) deps.client.current = fresh;
+    await show(queue, result);
+  };
+  return { begin, show };
 }
 
-/** Zdieľané disky Google Drive v jazykoch rozhrania Disku (SK, CS, EN, DE). */
-const SHARED_DRIVE = /(?:^|[\\/])(?:Shared drives|Zdieľané disky|Sdílené disky|Geteilte Ablagen)(?:[\\/]|$)/i;
+/**
+ * „Začať nanovo“: výber priečinka, pri zdieľanom alebo cloudovom disku najprv upozornenie
+ * (Pokračovať / Zrušiť), až potom zápis (review 6d). `null` = advokát nič nevybral alebo zrušil.
+ */
+export async function freshFolderFlow<R>(deps: { pick: () => Promise<string | null>; confirm: (kind: "shared" | "cloud") => Promise<boolean>; start: (parent: string) => Promise<R> }): Promise<R | null> {
+  const parent = await deps.pick();
+  if (!parent) return null;
+  const kind = cloudFolderKind(parent);
+  if (kind && !(await deps.confirm(kind))) return null;
+  return deps.start(parent);
+}
+
+/** Zdieľané disky Google Drive v jazykoch rozhrania Disku (SK, CS, EN, DE) a knižnice SharePointu z OneDrive na macOS. */
+const SHARED_DRIVE = /(?:^|[\\/])(?:Shared drives|Zdieľané disky|Sdílené disky|Geteilte Ablagen|OneDrive-SharedLibraries-[^\\/]+)(?:[\\/]|$)/i;
 /** Synchronizované priečinky: macOS File Provider (`~/Library/CloudStorage`), OneDrive, Dropbox, Disk Google, iCloud. */
-const CLOUD_FOLDER = /[\\/]Library[\\/]CloudStorage[\\/]|[\\/]Mobile Documents[\\/]com~apple~CloudDocs(?:[\\/]|$)|(?:^|[\\/])(?:OneDrive(?: - [^\\/]+|-[^\\/]+)?|Dropbox|Google Drive|My Drive|Môj disk|Můj disk|Meine Ablage|iCloud Drive)(?:[\\/]|$)/i;
+const CLOUD_FOLDER = /[\\/]Library[\\/]CloudStorage[\\/]|[\\/]Mobile Documents[\\/]com~apple~CloudDocs(?:[\\/]|$)|(?:^|[\\/])(?:OneDrive(?: - [^\\/]+|-[^\\/]+)?|Dropbox(?: \([^\\/]+\))?|Google Drive|My Drive|Môj disk|Můj disk|Meine Ablage|iCloud Drive)(?:[\\/]|$)/i;
 
 /**
  * Priečinok, do ktorého sa zapisuje, je na zdieľanom disku (vidia ho kolegovia) alebo v cloude

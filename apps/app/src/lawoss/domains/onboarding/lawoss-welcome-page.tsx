@@ -492,6 +492,8 @@ async function clientTitleFor(api: WelcomeApi, root: string): Promise<string> {
   const reader: OpenClientReader = { listWorkspaceDirectory: api.listWorkspaceDirectory, readWorkspaceFile: api.readWorkspaceFile };
   return api.listWorkspaces().then((list) => clientTitleOf(reader, list.items, root)).catch(() => fallback);
 }
+/** Klient servera po registrácii pripojeného priečinka (môže mať nový token či port). */
+export type RegisteredApi = TriageClient & Pick<OnboardingApi, "updateOnboardingProfile">;
 /** Completion details that are not an onboarding apply result. */
 export type OnboardingCompletion = {
   workingFolder?: string;
@@ -515,8 +517,11 @@ type Props = {
   hasCompletedOnboarding?: boolean;
   /** „Zrušiť“ v toku z bočného panela: návrat tam, odkiaľ advokát prišiel. */
   onCancel?: () => void;
-  /** Registrácia a výber pripojeného priečinka ešte pred usporiadaním (welcome-route); bez nej sa len pokračuje. */
-  onRegister?: (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => Promise<void>;
+  /**
+   * Registrácia a výber pripojeného priečinka ešte pred usporiadaním (welcome-route); bez nej sa len pokračuje.
+   * Vráti klienta servera po aktivácii: usporiadanie aj značka dokončenia potom idú cez neho (review 6d).
+   */
+  onRegister?: (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => Promise<RegisteredApi | undefined>;
 };
 export function LawossWelcomePage({
   api,
@@ -593,8 +598,10 @@ export function LawossWelcomePage({
       });
   }, [api, initialStep, initialRoot, hasCompletedOnboarding]);
   /** Každé dokončenie zapíše do profilu značku `completedAt` (#96), až potom pokračuje volajúci. */
+  // Klient po registrácii pred usporiadaním; server mohol po aktivácii zmeniť token či port.
+  const registeredApi = useRef<RegisteredApi | undefined>(undefined);
   const finish = async (current: OnboardingProfile | null, result?: OnboardingApplyResult, completion?: OnboardingCompletion) => {
-    const marked = await markOnboardingCompleted(api, current);
+    const marked = await markOnboardingCompleted(registeredApi.current ?? api, current);
     if (marked) setProfile(marked);
     await onComplete(result, completion);
   };
@@ -866,8 +873,12 @@ export function LawossWelcomePage({
                   setCompletedResult(result);
                   await finish(profile, result, completion);
                 }}
-                onRegister={async (result, completion) => { await onRegister?.(result, completion); }}
-                onChangeFolder={() => setFoundRoot(null)}
+                onRegister={async (result, completion) => {
+                  const registered = await onRegister?.(result, completion);
+                  if (registered) registeredApi.current = registered;
+                  return registered;
+                }}
+                onChangeFolder={() => { setError(null); setFoundRoot(null); }}
                 onPickRoot={(path) => { setError(null); setFoundRoot(path); }}
                 onError={reportError}
                 onClearError={clearError}

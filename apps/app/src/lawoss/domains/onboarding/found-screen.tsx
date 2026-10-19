@@ -7,7 +7,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { friendlyError, TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
-import { addOkfFiles, childPath, cloudFolderKind, connectPractice, firstWorkspaceResult, folderName, matterClientPath, registerThenReorganize, reorganizePreview, retryFailed, workspaceResults, type BatchItem, type FoundIdentity, type ReorganizeOutcome } from "./found-flow";
+import { addOkfFiles, childPath, cloudFolderKind, connectPractice, firstWorkspaceResult, folderName, matterClientPath, createReorganizeFlow, retryFailed, workspaceResults, type BatchItem, type FoundIdentity } from "./found-flow";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
 import { ScreenHead } from "./folder-step";
@@ -226,8 +226,11 @@ type Props = {
   root: string;
   onAcknowledge: () => Promise<void>;
   onDone: (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => Promise<void> | void;
-  /** Zaregistruje a vyberie pripojený priečinok; volá sa pred usporiadaním (MČ 19. 10. 2026). */
-  onRegister: (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => Promise<void>;
+  /**
+   * Zaregistruje a vyberie pripojený priečinok; volá sa pred usporiadaním (MČ 19. 10. 2026).
+   * Môže vrátiť nového klienta servera (iný token či port po aktivácii), usporiadanie potom ide cez neho.
+   */
+  onRegister: (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => Promise<TriageClient | undefined>;
   onChangeFolder: () => void;
   /** Iný koreň (kancelária v podpriečinku) bez nového dialógu výberu. */
   onPickRoot: (root: string) => void;
@@ -253,6 +256,8 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
   const [busy, setBusy] = useState(false);
   // Klienti dávky praxe: koniec toku (aj po usporiadaní po jednom) ich odovzdá všetkých, nie len prvého.
   const batchClients = useRef<OnboardingApplyResult[]>([]);
+  // Klient roztriedenia; po registrácii ho môže nahradiť nový (review 6d).
+  const triageClient = useRef<TriageClient>(triage);
   // Chyba klienta v dávke: veta v jazyku rozhrania ako vo vrchnom pruhu, surová správa do konzoly.
   const describe = (reason: unknown) => onboardingErrorMessage(reason, locale);
   const today = new Date();
@@ -283,23 +288,15 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
   const completion = (): OnboardingCompletion | undefined => batchClients.current.length ? { clients: batchClients.current } : undefined;
 
   /**
-   * Náhľad prvého klienta vo fronte, alebo koniec toku. Zlyhaný náhľad (napr. odmietnutý súhlas,
-   * prerušené spojenie) ukáže vetu so Skúsiť znova; klient sa potichu nepreskočí.
+   * Usporiadanie po pripojení: registrácia pred prvým klientom, zlyhaný náhľad ukáže vetu so Skúsiť znova
+   * (klient sa potichu nepreskočí). Logika je v `createReorganizeFlow` (found-flow.ts).
    */
-  const showReorganize = async (queue: BatchItem[], result?: OnboardingApplyResult, ready?: ReorganizeOutcome): Promise<void> => {
-    const [current] = queue;
-    if (!current) { await onDone(result, completion()); return; }
-    const outcome = ready ?? await reorganizePreview(triage, current);
-    if ("preview" in outcome) setPhase({ name: "reorganize", queue, preview: outcome.preview, result });
-    else setPhase({ name: "reorganizeFailed", queue, result, message: friendlyError(outcome.failure, triageText) });
-  };
-
-  /** Pred prvým usporiadaním sa priečinok zaregistruje a vyberie; prerušenie ho potom nestratí (B). */
-  const beginReorganize = async (queue: BatchItem[], result?: OnboardingApplyResult): Promise<void> => {
-    const [first] = queue;
-    if (!first) { await onDone(result, completion()); return; }
-    await showReorganize(queue, result, await registerThenReorganize(() => onRegister(result, completion()), triage, first));
-  };
+  const reorganize = createReorganizeFlow({
+    client: triageClient,
+    register: (result) => onRegister(result, completion()),
+    done: (result) => onDone(result, completion()),
+    show: (view) => setPhase(view.name === "reorganize" ? view : { name: "reorganizeFailed", queue: view.queue, result: view.result, message: friendlyError(view.failure, triageText) }),
+  });
 
   const answer = (suggestion: OnboardingSuggestion, choice: Answer) => run(async () => {
     await onAcknowledge();
@@ -319,7 +316,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     const target = level === "matter" ? matterClientPath(suggestion.root) : suggestion.root;
     const batch = await addOkfFiles(api, [{ root: target, name: folderName(target) }], identity, today, (next) => setPhase({ name: "batch", items: next, answer: choice }), describe);
     if (batch[0]?.status === "done" && choice === "no") { await onDone(batch[0].result); return; }
-    if (batch[0]?.status === "done" && choice === "yes") { await beginReorganize(batch, batch[0].result); return; }
+    if (batch[0]?.status === "done" && choice === "yes") { await reorganize.begin(batch, batch[0].result); return; }
     setPhase({ name: "batch", items: batch, answer: choice });
   });
 
@@ -351,7 +348,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     const continueBatch = () => run(async () => {
       const done = phase.items.filter(item => item.status === "done");
       batchClients.current = workspaceResults(phase.items);
-      if (phase.answer === "yes") await beginReorganize(done, firstWorkspaceResult(phase.items));
+      if (phase.answer === "yes") await reorganize.begin(done, firstWorkspaceResult(phase.items));
       else await onDone(firstWorkspaceResult(phase.items), { clients: batchClients.current });
     });
     const retry = () => run(async () => {
@@ -365,8 +362,8 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     return (
       <ReorganizeFailedView
         text={text} busy={busy} name={current?.name ?? ""} message={phase.message} more={rest.length > 0}
-        onRetry={() => void run(() => showReorganize(phase.queue, phase.result))}
-        onSkip={() => void run(() => showReorganize(rest, phase.result))}
+        onRetry={() => void run(() => reorganize.show(phase.queue, phase.result))}
+        onSkip={() => void run(() => reorganize.show(rest, phase.result))}
       />
     );
   }
@@ -375,10 +372,10 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
       text={text} triageText={triageText} busy={busy} name={current?.name ?? ""} preview={phase.preview} more={rest.length > 0}
       onKeep={(id, keep) => void run(async () => {
         const keepInInbox = keep ? [...phase.preview.keepInInbox, id] : phase.preview.keepInInbox.filter(item => item !== id);
-        setPhase({ ...phase, preview: await triageReplan(triage, phase.preview.id, keepInInbox) });
+        setPhase({ ...phase, preview: await triageReplan(triageClient.current, phase.preview.id, keepInInbox) });
       })}
-      onConfirm={() => void run(async () => { await triageApply(triage, phase.preview); await showReorganize(rest, phase.result); })}
-      onSkip={() => void run(() => showReorganize(rest, phase.result))}
+      onConfirm={() => void run(async () => { await triageApply(triageClient.current, phase.preview); await reorganize.show(rest, phase.result); })}
+      onSkip={() => void run(() => reorganize.show(rest, phase.result))}
     />
   );
 }

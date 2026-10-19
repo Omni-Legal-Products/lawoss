@@ -111,7 +111,7 @@ export function OkfPageState(props: {
   hasContent?: HasContent;
   /** Neblokujúce upozornenie nad každým stavom okrem presmerovania (napr. nedokončené nastavenie, #96). */
   notice?: ReactNode;
-  /** Priečinok priestoru chýba: nahradí všeobecnú chybu čítania; pri čiastočne načítanej praxi stojí nad obsahom. */
+  /** Priečinok priestoru chýba: nahradí všeobecnú chybu čítania; pri čiastočne načítanej praxi stojí nad obsahom spolu s upozornením na neúplné čítanie. */
   missingFolder?: ReactNode;
 }) {
   const matterText = useMatterText().text;
@@ -134,7 +134,8 @@ function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText
   const partial = props.rawProblems === false && (props.data.problems.length > 0 || props.data.truncated);
   if ((props.hasContent ?? hasMatters)(props.data)) return <>
     {props.loading ? <p role="status">{text("refreshing")}</p> : null}
-    {props.missingFolder ?? (partial ? <div className="lw-status warn" role="alert">{text("partialRead")}</div> : null)}
+    {props.missingFolder}
+    {partial ? <div className="lw-status warn" role="alert">{text("partialRead")}</div> : null}
     {props.children(props.data, props.meta ?? { checkedAt: 0, changedAt: 0 }, props.scope ?? null)}
   </>;
   if (props.data.problems.length || props.data.truncated) return <div className="lw-status err" role="alert">

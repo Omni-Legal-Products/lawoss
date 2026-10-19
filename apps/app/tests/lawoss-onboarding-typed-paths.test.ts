@@ -94,7 +94,7 @@ describe("typed and pasted onboarding paths", () => {
     expect(route).toContain("isDesktopRuntime() ? withCanonicalPaths(client, canonicalDirectoryPath) : client");
     expect(route).toContain("setClient(typedPaths(createLegalworkServerClient(");
     expect(route).toContain("isDesktopRuntime() ? canonicalPathOf(value, canonicalDirectoryPath) : Promise.resolve(value)");
-    expect(route).toContain("registerWorkingFolder: async (path) => registerWorkingFolder(client, await workingFolderPath(path))");
+    expect(route).toContain("registerWorkingFolder: async (path) => registerWorkingFolder(current, await workingFolderPath(path))");
     // Výber v dialógu ostáva cez pickDirectory s voľbou canonical.
     expect(route).toContain('pickDirectory({ title: "Select LAWOSS folder", canonical: true })');
     const bridge = source("apps/app/src/app/lib/desktop.ts");
