@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Výpis rozhovorov cez proxy priečinka (2026-10-19)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/server.ts` | +1 import a +9 riadkov vo `forwardOpencodeRequest`: `GET /session` cez proxy priečinka (`/workspace/:id/opencode/session` aj `/opencode/session`) odmietne `scope` (400 `invalid_scope`), vždy pošle enginu `directory` vyriešený vnútri priečinka a `path` prijme len v kanonickom tvare voči koreňu projektu enginu (`/project/current`), ktorý menuje koreň priečinka alebo podpriečinok (inak 400 `path_escape`). Pôvodná vetva pre históriu priečinka teraz filtruje každý výpis (`workspaceListsSession`), nielen pri `previousPaths`/`appFilesStorageKey`; história sa pridá len vtedy. Logika v `apps/server/src/lawoss/session-list-scope.ts`, regresia `apps/server/src/lawoss/session-list-isolation.e2e.test.ts` (engine na skúšku s výberom 1.18.29 a voliteľne skutočný engine cez `LEGALWORK_TEST_OPENCODE_BIN`). Dôvod: engine 1.18.29 vypisuje rozhovory po projektoch a priečinky bez gitu zdieľajú globálny projekt; bez `directory`, so `scope=project` alebo s cudzou/prázdnou `path` proxy vrátil názvy a priečinky rozhovorov všetkých klientov. `path` engine porovnáva cez LIKE (`_`, `%`, ASCII veľkosť), preto sa výsledok filtruje aj pri platnej ceste. Pri syncu zachovať. |
+
 ## Synthetic scenario benchmark completion and grading (2026-10-18)
 
 | Súbory | Downstream doplnenie a dôvod |

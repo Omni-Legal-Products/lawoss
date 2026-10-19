@@ -3,6 +3,7 @@ import { resolveWorkspaceFilePath, recheckWorkspaceFilePath } from "./lawoss/fil
 import { LawossDocuments } from "./lawoss/documents/service.js";
 import { registerLawossDocumentRoutes } from "./routes/lawoss-documents.js";
 import { workspaceOwnsSession } from "./lawoss/workspace-history.js";
+import { engineProjectWorktree, scopeSessionListQuery, workspaceListsSession } from "./lawoss/session-list-scope.js";
 import { sessionInfoSchema } from "./session-read-model.js";
 import { historicalWorkspaceSessions } from "./lawoss/workspace-history-sessions.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
@@ -1463,6 +1464,15 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     headers.set("Authorization", auth);
   }
 
+  // LAWOSS: a folder's session list stays inside the folder; see session-list-scope.ts.
+  const listRoot = workspace && directory && input.request.method.toUpperCase() === "GET" && scopedProxyPath === "/session" ? resolveOpencodeDirectory(workspace) : null;
+  const listRoots = listRoot ? [listRoot, workspace?.workspaceType === "local" ? await realpath(listRoot).catch(() => listRoot) : listRoot] : null;
+  if (listRoots && directory) {
+    const scopedUrl = new URL(targetUrl);
+    await scopeSessionListQuery({ query: scopedUrl.searchParams, directory, roots: listRoots, worktree: () => engineProjectWorktree(buildOpencodeProxyUrl(baseUrl, "/project/current", ""), headers, input.request.signal) });
+    targetUrl = scopedUrl.toString();
+  }
+
   if (scopedProxyPath === "/experimental/session") {
     throw new ApiError(403, "workspace_history_internal", "Global session history is host-internal");
   }
@@ -1526,15 +1536,15 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     signal: input.request.signal,
   });
 
-  if (workspace && method === "GET" && scopedProxyPath === "/session" && response.ok && (workspace.previousPaths?.length || workspace.appFilesStorageKey)) {
+  if (workspace && listRoots && response.ok) {
     const current = sessionInfoSchema.array().safeParse(await response.json());
     if (!current.success) throw new ApiError(502, "opencode_invalid_response", "Invalid session list");
-    const historical = await historicalWorkspaceSessions(input.config, workspace, {
+    const historical = workspace.previousPaths?.length || workspace.appFilesStorageKey ? await historicalWorkspaceSessions(input.config, workspace, {
       roots: parseOptionalBoolean(input.url.searchParams.get("roots"), "roots"),
       start: parseOptionalNonNegativeInteger(input.url.searchParams.get("start"), "start"),
       search: input.url.searchParams.get("search") ?? undefined,
-    });
-    const merged = new Map([...historical, ...current.data].filter(session => workspaceOwnsSession(workspace, session)).map(session => [session.id, session]));
+    }) : [];
+    const merged = new Map([...historical, ...current.data].filter(session => workspaceListsSession(workspace, listRoots, session)).map(session => [session.id, session]));
     const ordered = [...merged.values()].sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0));
     const limit = parseOptionalPositiveInteger(input.url.searchParams.get("limit"), "limit");
     return jsonResponse(limit ? ordered.slice(0, limit) : ordered);
