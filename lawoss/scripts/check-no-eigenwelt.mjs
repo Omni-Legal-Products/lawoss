@@ -378,6 +378,12 @@ export const MARKETPLACE_CHECK_URLS = [
 const GITHUB_HOSTS = /api\.github\.com|raw\.githubusercontent\.com/;
 const SCHEDULED = /\bset(?:Interval|Timeout)\s*\(/;
 const NETWORK_CALL = /(?<![\w.])fetch\s*\(|\bfetchImpl\s*\(/;
+// This exact typed async adapter signature declares an RPC method, not a
+// global fetch call. Mask only its name: scan its entire body and the rest
+// of the file normally, including any real unqualified fetch/fetchImpl.
+const TYPED_RPC_FETCH_DECLARATION = /^([ \t]*async[ \t]+)fetch(?=[ \t]*\([ \t]*request[ \t]*:[ \t]*Request[ \t]*\)[ \t]*:[ \t]*Promise<Response>[ \t]*\{)/gm;
+const hasNetworkCall = text => NETWORK_CALL.test(text.replace(TYPED_RPC_FETCH_DECLARATION, "$1     "));
+
 
 STRUCTURE.push(
   {
@@ -494,7 +500,7 @@ export function checkSources(root, files) {
     }
     if (/^apps\/(?:server|app)\/src\/lawoss\//.test(path) && path !== MARKETPLACE_CHECK_FILE) {
       if (GITHUB_HOSTS.test(text)) problems.push(`${path}: adresa GitHub API alebo raw obsahu mimo ${MARKETPLACE_CHECK_FILE}. Jediná automatická sieť je týždenná kontrola LAWOSS Marketplace.`);
-      if (SCHEDULED.test(text) && NETWORK_CALL.test(text)) problems.push(`${path}: plánované sieťové volanie (časovač a fetch). Jediná automatická sieť je týždenná kontrola LAWOSS Marketplace.`);
+      if (SCHEDULED.test(text) && hasNetworkCall(text)) problems.push(`${path}: plánované sieťové volanie (časovač a fetch). Jediná automatická sieť je týždenná kontrola LAWOSS Marketplace.`);
     }
     if (/^apps\/(?:server|app)\/src\//.test(path)) {
       for (const { pattern, files: allowed } of MODEL_DOWNLOAD_CALLS) {

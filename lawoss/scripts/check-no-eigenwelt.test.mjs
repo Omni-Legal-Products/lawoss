@@ -215,6 +215,32 @@ describe("LAWOSS stráž Eigenweltu a analytiky", () => {
     assert.ok(!problems.some((line) => line.startsWith("apps/server/src/lawoss/fine.ts")));
   });
 
+  test("typovaná async metóda fetch s RPC časovačom nie je globálne sieťové volanie", () => {
+    const file = "apps/server/src/lawoss/protected-ai/vm-engine.ts";
+    const method = `class ProtectedVmEngine {
+  async fetch(request: Request): Promise<Response> {
+    const timer = setTimeout(() => undefined, 1000);
+    return this.rpc(request);
+  }
+}`;
+    const other = "apps/server/src/lawoss/another-adapter.ts";
+    assert.deepEqual(checkSources(fixture({[file]: method, [other]: method}), [file, other]), []);
+    // Exercise the exact production adapter as well as the minimal contract.
+    const actual = readFileSync(join(repo, file), "utf8");
+    assert.deepEqual(checkSources(fixture({[file]: actual}), [file]), []);
+    for (const source of [
+      method + "\nvoid fetch(url);",
+      method.replace("return this.rpc(request);", "await fetch(request.url); return this.rpc(request);"),
+      method + "\nvoid fetchImpl(url);",
+    ]) {
+      const problems = checkSources(fixture({[file]: source, [other]: source}), [file, other]);
+      assert.equal(problems.length, 2, problems.join("\n"));
+      assert.ok(problems.some(line => line.startsWith(file)));
+      assert.ok(problems.some(line => line.startsWith(other)));
+    }
+    assert.equal(checkSources(fixture({[file]: method + '\nconst endpoint = "https://api.github.com/repos/a/b";'}), [file]).length, 1);
+  });
+
   test("buildnutý výstup s kľúčom analytiky zlyhá", () => {
     const root = fixture({
       "apps/app/dist/assets/index.js": 'fetch("https://eu.i.posthog.com/batch/",{body:JSON.stringify({api_key:"phc_abcdefghijklmnopqrstuvwxyz123"})})',

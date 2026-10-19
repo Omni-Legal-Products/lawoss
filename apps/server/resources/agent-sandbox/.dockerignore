@@ -8,3 +8,9 @@
 !test_relay.py
 !init
 !requirements.txt
+# BuildKit verifies only these measured engine inputs through a read-only mount.
+# Keep QEMU, prior kernels/initrds and every other runtime asset out of context.
+!runtime/
+runtime/*
+!runtime/protected-opencode
+!runtime/protected-opencode-manifest.json
