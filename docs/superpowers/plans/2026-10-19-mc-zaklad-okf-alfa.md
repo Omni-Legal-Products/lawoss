@@ -91,7 +91,7 @@ Každý PR MČ ide na review VŘ (R8). Merge PR MČ bez schválenia VŘ len po p
 | Ut 20. 10. | G1 a merge, Úloha 3 (koliesko), Úloha 4 (screenshoty), G2 |
 | St 21. 10. | Úloha 5 (sidebar), Úloha 6 (onboarding) |
 | Št 22. 10. | Úlohy 7 a 8 (triedenie), Úloha 9 (upozornenie na alfu), Úloha 10 (návod) |
-| Pi 23. 10. | review PR MČ s VŘ, Úloha 11 (testy na `dev`), G3, build, overenie VŘ |
+| Pi 23. 10. | Úloha 12 (sync v0.2.10), review PR MČ s VŘ, Úloha 11 (testy na `dev`), G3, build, overenie VŘ |
 | So 24. 10. | opravy po overení, G4, oznámenie testerom |
 
 MČ je od 25. 10. do 13. 11. preč a dostupný len sporadicky.
@@ -340,11 +340,25 @@ V `triage-page.tsx:34` sa kód `not_trial_clone` mapuje na nový kľúč `lawoss
   7. Kam hlásiť chyby.
 - [ ] **Krok 5:** Commit `chore: návod pre testerov alfy a posun dátumov syntetických dát` a PR `chore/navod-alfa`.
 
+### Úloha 12: Sync na upstream LegalWork v0.2.10 (doplnené 19. 10. na pokyn MČ)
+
+Dôvod: v0.2.10 (vydané 19. 10.) opravuje obídenie autorizácie osobných konektorov pri ID s medzerami ([#296](https://github.com/eigenweltlabs/legalwork/pull/296)), obnovu vzdialených MCP po výpadku siete a timeout OAuth ([#293](https://github.com/eigenweltlabs/legalwork/pull/293)), prístup k zdieľaným skill resources, pozíciu Word dokumentu a Markdown na celú obrazovku vo Windows. Rozsah je 3 commity a 20 súborov. Upstream PR #303 (MCP OAuth cez lokálnu bránu) a #304 (jednotný import pluginov) nie sú vydané a sync sa ich netýka.
+
+Závisí od zlúčenia #173, #174 a #171 (Úloha 1). v0.2.10 mení `apps/app/src/app/lib/legalwork-server.ts`, ktorý mení aj #177, a `apps/server/src/agent-sandbox/*`, ktorý mení #168. Sync ide pred retarget #177 alebo hneď po jeho zlúčení, nikdy nie súbežne.
+
+**Súbory:** podľa `git diff v0.2.9 v0.2.10 --stat` v upstreame. Konflikty rieš podľa `PATCHES.md`.
+
+- [ ] **Krok 1:** `git fetch upstream --tags` a over, že tag `v0.2.10` ukazuje na commit z release. Z aktuálneho `origin/dev` založ vetvu `sync/upstream-v0.2.10` a spusti `git merge v0.2.10` (bežný merge, žiadny rebase).
+- [ ] **Krok 2:** Vyrieš konflikty. Každý dotknutý súbor zo zoznamu `PATCHES.md` musí po merge zachovať LAWOSS úpravu. Prejdi `docs/upstream-sync-checklist.md`: stráž Eigenweltu a analytiky (`node lawoss/scripts/check-no-eigenwelt.mjs`), katalóg modelov, značka (`node lawoss/scripts/check-branding.mjs`).
+- [ ] **Krok 3:** Testy: `pnpm --filter @legalwork/app test`, `test:i18n`, `node scripts/i18n-audit.mjs --ci`, `pnpm typecheck`, `cd apps/server && bun test src/connectors src/mcp-recovery.test.ts src/agent-sandbox`, `cd lawoss/okf && bun test test/`. Očakáva sa 0 FAIL.
+- [ ] **Krok 4:** Desktopový smoke na izolovanom profile: appka sa spustí, pripojí sa priečinok, otvorí sa rozhovor a MCP konektor (ak je nastavený) sa po vypnutí a zapnutí siete obnoví bez nového prihlásenia.
+- [ ] **Krok 5:** Commit merge `sync: upstream LegalWork v0.2.10` a PR `sync/upstream-v0.2.10` s review od VŘ. Do popisu daj zoznam zmien z release notes a výsledky testov. Vydanie `v0.2.10-lawoss.N` sa nerobí, alfa sa stavia v Úlohe 11.
+
 ### Úloha 11: Overenie `dev` a vydanie alfy (Brány G3 a G4)
 
 **Súbory:** žiadne zmeny kódu, ak testy nenájdu chybu.
 
-- [ ] **Krok 1:** Po zlúčení PR z úloh 2 až 10 (merge po review VŘ alebo po pokyne MČ, R8) aktualizuj worktree na `origin/dev` a spusti:
+- [ ] **Krok 1:** Po zlúčení PR z úloh 2 až 10 a 12 (merge po review VŘ alebo po pokyne MČ, R8) aktualizuj worktree na `origin/dev` a spusti:
   - `pnpm --filter @legalwork/app test`
   - `pnpm --filter @legalwork/app test:i18n`
   - `node scripts/i18n-audit.mjs --ci`
