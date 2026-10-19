@@ -438,12 +438,41 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
   let phase='setup',caseIndex=null;
   let recoveryStage=null,recoveryFrozen=false;
   const recoveryStages=['snapshot-request','snapshot-body','snapshot-save','snapshot-check',
-    'session-open','composer-wait','prompt-insert','prompt-click','prompt-observe',
+    'session-open','composer-wait','prompt-insert','prompt-click','prompt-observe','runtime-readiness',
     'fresh-poll','fresh-check','retained-files','verification-open','verification-folder',
     'verification-prepare','verification-wait','engine-info','engine-health','engine-identity','receipt-write'];
   let engineLog=emptyEngineLog(),engineLogCaptured=false;
   const requests=[],startup=[],ownedProcesses=[];
   const promptRuns={attachment:null,recovery:null};
+  // Pin only the first exact owning submission for each generation. General
+  // network history is a rolling ring; polling must not erase this evidence.
+  const generationPrompts=[];
+  let generationRun=null;
+  const observeNetworkEvent=event=>{
+    if(recoveryFrozen||!generationRun)return;
+    try {
+      const run=generationRun,row=run.receipt,params=event?.params;
+      if(!row.issued){
+        if(event?.method!=='Network.requestWillBeSent'||params?.request?.method!=='POST'||typeof params.requestId!=='string')return;
+        const url=new URL(params.request.url);
+        if(url.origin!==run.origin||url.username||url.password)return;
+        const route=run.paths.get(url.pathname);if(!route)return;
+        row.issued=true;row.route=route;row.state='pending';run.requestId=params.requestId;
+      } else if(params?.requestId===run.requestId){
+        if(event.method==='Network.responseReceived'){
+          const status=params.response?.status;
+          row.status=Number.isInteger(status)&&status>=100&&status<=599?status:null;
+          row.state='headers';
+        } else if(event.method==='Network.loadingFinished'){
+          row.state='finished';generationRun=null;
+        } else if(event.method==='Network.loadingFailed'){
+          const codes={'net::ERR_ABORTED':'aborted','net::ERR_CONNECTION_REFUSED':'connection-refused','net::ERR_CONNECTION_RESET':'connection-reset','net::ERR_TIMED_OUT':'timed-out'};
+          row.failure=Object.hasOwn(codes,params.errorText)?codes[params.errorText]:params.canceled===true?'aborted':params.blockedReason?'blocked':'unknown';
+          row.state='failed';generationRun=null;
+        }
+      }
+    } catch { /* Diagnostic projection never changes the observed protocol. */ }
+  };
   const endPrompt=role=>{
     const run=promptRuns[role];
     if(run&&!run.ended){
@@ -471,6 +500,24 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
     finally {record.elapsedMs=Math.round(performance.now()-started);}
   };
   return {
+    observeNetworkEvent,
+    generationStart(index,events,start,context){
+      if(recoveryFrozen||!Number.isInteger(index)||index<1||index>10||generationPrompts.some(row=>row.caseIndex===index))return;
+      try {
+        const origin=new URL(context.origin);
+        if(!['http:','https:'].includes(origin.protocol)||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash||
+          ![context.workspaceId,context.sessionId].every(value=>typeof value==='string'&&value.length>0&&value.length<=512)||
+          !Array.isArray(events)||!Number.isSafeInteger(start)||start<0||start>events.length)return;
+        const prefix=`/workspace/${encodeURIComponent(context.workspaceId)}/opencode/session/${encodeURIComponent(context.sessionId)}`;
+        const receipt={caseIndex:index,issued:false,route:null,state:'unissued',status:null,failure:null};
+        generationPrompts.push(receipt);
+        // Entering the next case ends observation of the previous case. Replay
+        // starts before its Generate click, including a prompt already emitted
+        // before the provisioning response and persisted binding were inspected.
+        generationRun={receipt,origin:origin.origin,paths:new Map(['prompt_async','message'].map(route=>[`${prefix}/${route}`,route])),requestId:null};
+        for(let i=start;i<events.length&&generationRun;i++)observeNetworkEvent(events[i]);
+      } catch { /* Invalid diagnostic ownership cannot fabricate a receipt. */ }
+    },
     promptStart(role,events,start,context){
       if(recoveryFrozen||!['attachment','recovery'].includes(role)||promptRuns[role])return;
       promptRuns[role]={events,start,context,click:null,network:null,ended:false};
@@ -527,12 +574,12 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
     },
     async write({events=[],error=null,cleanupErrors=[]}={}){
       if(!enabled)return;
-      const data={schema:6,promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
+      const data={schema:6,generationPrompts,promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
       await writeFile(outputFile,JSON.stringify(data,null,2),{mode:0o600});
     },
     failure(error){
       // Called first at the primary catch, before probes or cleanup can run.
-      if(!recoveryFrozen){recoveryStage=phase==='recovery'?recoveryStage??'unknown':null;recoveryFrozen=true;for(const role of ['attachment','recovery'])endPrompt(role);}
+      if(!recoveryFrozen){recoveryStage=phase==='recovery'?recoveryStage??'unknown':null;recoveryFrozen=true;generationRun=null;for(const role of ['attachment','recovery'])endPrompt(role);}
       return {phase,caseIndex,recoveryStage,error:errorMetadata(error)};
     },
   };

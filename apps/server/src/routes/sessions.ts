@@ -184,7 +184,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       const client = await queueClient(workspace, ctx.params.sessionId);
       const protectedRuntime = protectedRuntimeForSession(config, workspace.id, ctx.params.sessionId);
       if (parsed.data.type === "enqueue") {
-        if (protectedRuntime) await protectedRuntime.preflightQueued({workspaceId: workspace.id, sessionId: ctx.params.sessionId, execution: parsed.data.execution});
+        if (protectedRuntime) await protectedRuntime.admitQueued({workspaceId: workspace.id, sessionId: ctx.params.sessionId, execution: parsed.data.execution});
         else {
           await requireGovernedEngineDispatch(config, workspace.id, "POST", `/session/${ctx.params.sessionId}/message`);
           await validateQueuedExecution(client, parsed.data.execution);

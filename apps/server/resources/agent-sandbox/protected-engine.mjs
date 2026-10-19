@@ -23,6 +23,7 @@ let child;
 let server;
 let phase = "bundle";
 let healthState = "unobserved";
+let initializationState = "unobserved";
 let checkpointing = false;
 // Defense in depth; private engine HTTP below uses direct node:http regardless.
 process.env.NO_PROXY = process.env.no_proxy = "127.0.0.1,localhost";
@@ -52,6 +53,79 @@ function privateRequest(port, path, method, headers, body, signal) {
     const req = request({ agent: privateAgent, hostname: "127.0.0.1", port, path, method, headers, signal }, resolve);
     req.on("error", reject); req.end(body);
   });
+}
+
+async function privateJson(port, path, authorization, signal) {
+  const response = await privateRequest(port, path, "GET", { authorization }, undefined, signal);
+  const chunks = []; let size = 0;
+  try {
+    if (response.statusCode !== 200) {
+      if (initializationState === "pending") initializationState = "http-refused";
+      throw new Error("Private initialization request refused");
+    }
+    for await (const chunk of response) {
+      size += chunk.length;
+      if (size > MAX_RESPONSE) {
+        if (initializationState === "pending") initializationState = "invalid-json";
+        throw new Error("Private initialization response exceeds bound");
+      }
+      chunks.push(chunk);
+    }
+    try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+    catch (error) { if (initializationState === "pending") initializationState = "invalid-json"; throw error; }
+  } finally { response.destroy(); }
+}
+
+function isRecord(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
+
+async function initializeEngine(port, authorization, modelId) {
+  initializationState = "pending";
+  const controller = new AbortController();
+  const signal = AbortSignal.any([lifetime.signal, controller.signal]);
+  const directory = encodeURIComponent(`${ROOT}/workspace`);
+  // These pinned metadata APIs materialize the confined instance, plugin,
+  // provider and tool schemas. They neither request a model nor execute tools.
+  try {
+    const [providers, agents, definitions] = await Promise.all([
+      privateJson(port, `/provider?directory=${directory}`, authorization, signal),
+      privateJson(port, `/agent?directory=${directory}`, authorization, signal),
+      privateJson(port, `/experimental/tool?directory=${directory}&provider=protected-documents&model=${encodeURIComponent(modelId)}`, authorization, signal),
+    ]);
+    const matches = isRecord(providers) && Array.isArray(providers.all) ? providers.all.filter(value => value?.id === "protected-documents") : [];
+    const model = matches.length === 1 && isRecord(matches[0].models) ? matches[0].models[modelId] : undefined;
+    if (!isRecord(model) || model.id !== modelId || model.providerID !== "protected-documents" ||
+        !isRecord(providers.default) || providers.default["protected-documents"] !== modelId ||
+        !Array.isArray(providers.connected) || !providers.connected.includes("protected-documents")) {
+      initializationState = "provider-invalid";
+      throw new Error("Fixed protected provider is not initialized");
+    }
+    const legalwork = Array.isArray(agents) ? agents.filter(value => value?.name === "legalwork") : [];
+    if (legalwork.length !== 1 || legalwork[0].mode !== "primary" || legalwork[0].hidden === true) {
+      initializationState = "agent-invalid";
+      throw new Error("Fixed protected agent is not initialized");
+    }
+    const argumentsByTool = {
+      lawoss_documents_list: ["offset", "limit"],
+      lawoss_documents_read: ["id", "offset", "limit"],
+      lawoss_documents_export: ["path", "kind", "outputLanguage", "documentIds", "expectedHash", "entries"],
+      lawoss_documents_validate: ["paths", "documentIds", "outputLanguage"],
+    };
+    for (const [id, names] of Object.entries(argumentsByTool)) {
+      const found = Array.isArray(definitions) ? definitions.filter(value => value?.id === id) : [];
+      const tool = found.length === 1 ? found[0] : undefined;
+      if (!tool || typeof tool.description !== "string" || !tool.description.trim() || !isRecord(tool.parameters) ||
+          tool.parameters.type !== "object" || !isRecord(tool.parameters.properties) ||
+          names.some(name => !Object.hasOwn(tool.parameters.properties, name) || !isRecord(tool.parameters.properties[name]))) {
+        initializationState = "tool-schema-invalid";
+        throw new Error("Fixed protected tool schema is not initialized");
+      }
+    }
+    initializationState = "ready";
+  } catch (error) {
+    if (signal.aborted) initializationState = "aborted";
+    else if (initializationState === "pending") initializationState = "http-refused";
+    throw error;
+  } finally { controller.abort(); }
 }
 
 
@@ -228,6 +302,8 @@ async function start() {
     if (Date.now() >= deadline) throw new Error("Private pinned engine did not become healthy");
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
+  phase = "engine-initialization";
+  await initializeEngine(port, authorization, model.id);
   phase = "publish-ready";
   await capability("/rpc/ready", { version: 1 });
   phase = "serve";
@@ -240,7 +316,7 @@ async function start() {
 }
 process.once("SIGTERM", () => lifetime.abort(new Error("Worker stopped")));
 process.once("SIGINT", () => lifetime.abort(new Error("Worker stopped")));
-try { await start(); } catch { console.error(`Protected engine failed at ${phase}`); console.error(`Protected engine health state ${healthState}`); process.exitCode = 1; }
+try { await start(); } catch { console.error(`Protected engine failed at ${phase}`); console.error(`Protected engine health state ${healthState}`); console.error(`Protected engine initialization state ${initializationState}`); process.exitCode = 1; }
 finally {
   lifetime.abort(); for (const controller of tasks.values()) controller.abort();
   if (child && child.exitCode === null && child.signalCode === null) { child.kill("SIGKILL"); await once(child, "close").catch(() => {}); }

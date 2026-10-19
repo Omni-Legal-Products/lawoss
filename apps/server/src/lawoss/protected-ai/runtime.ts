@@ -67,6 +67,7 @@ const queueExecutionSchema = z.strictObject({ kind: z.literal("prompt"), model: 
     z.strictObject({ type: z.literal("file"), url: z.string().max(8192), mime: z.string().max(256), filename: z.string().max(4096).optional() }),
   ])).min(1).max(24) });
 type QueuedInput = { workspaceId: string; sessionId: string; execution: unknown };
+type QueuedContext = Pick<Entry, "workspaceId" | "workspaceRoot" | "sources" | "providerId" | "modelId" | "assertCurrent">;
 function decodeDirectory(value: string | null) { if (!value) return null; try { return decodeURIComponent(value); } catch { return value; } }
 async function uploadedCopyHash(workspaceRoot: string, url: string): Promise<{ path: string; sha256: string }> {
   let path: string;
@@ -229,6 +230,17 @@ export class ProtectedDocumentRuntime {
     return pending;
   }
 
+  private async currentProfile(input: z.output<typeof protectedGenerationInputSchema>, targetFingerprint: string, operationId: string) {
+    const profile = input.profileId ? (await readGovernanceProfiles(this.options.config)).find(item => item.id === input.profileId) : undefined;
+    if (input.profileId && (!profile || profile.scope.workspaceId !== input.workspaceId || profile.targetFingerprint !== targetFingerprint || !profile.scope.matterId))
+      throw new ApiError(403, "protected_ai_profile_missing", "Select a current host-owned legal profile for this matter and model target.");
+    if (profile) {
+      const eligibility = await eligibleGovernanceProfiles(this.options.config, { operationId, kind: "chat", scope: profile.scope, targetFingerprint, dataClasses: ["protected"], purpose: "confined-document-processing" });
+      if ("allowed" in eligibility) throw new ApiError(403, "ai_transfer_denied", "The legal profile does not admit this protected transmission.", { reason: eligibility.reason });
+    }
+    return profile;
+  }
+
   private async openOperation(raw: GenerationInput, signal: AbortSignal, recovery?: StoredProtectedSession) {
     const input = protectedGenerationInputSchema.parse(raw), o = this.options;
     signal.throwIfAborted();
@@ -250,16 +262,7 @@ export class ProtectedDocumentRuntime {
     await requireCase();
     const target = await protectedAiTarget(o.config, input.providerId, input.modelId);
     const operationId = randomUUID();
-    const readProfile = async () => {
-      const profile = input.profileId ? (await readGovernanceProfiles(o.config)).find(item => item.id === input.profileId) : undefined;
-      if (input.profileId && (!profile || profile.scope.workspaceId !== workspace.id || profile.targetFingerprint !== target.fingerprint || !profile.scope.matterId))
-        throw new ApiError(403, "protected_ai_profile_missing", "Select a current host-owned legal profile for this matter and model target.");
-      if (profile) {
-        const eligibility = await eligibleGovernanceProfiles(o.config, { operationId, kind: "chat", scope: profile.scope, targetFingerprint: target.fingerprint, dataClasses: ["protected"], purpose: "confined-document-processing" });
-        if ("allowed" in eligibility) throw new ApiError(403, "ai_transfer_denied", "The legal profile does not admit this protected transmission.", { reason: eligibility.reason });
-      }
-      return profile;
-    };
+    const readProfile = () => this.currentProfile(input, target.fingerprint, operationId);
     const profile = await readProfile();
     const synthetic = !profile;
     if (synthetic && !["127.0.0.1", "[::1]"].includes(new URL(target.endpoint).hostname))
@@ -375,13 +378,55 @@ export class ProtectedDocumentRuntime {
     return entry;
   }
 
+  /** Validate a durable intent on the host; this grants no model transfer or VM. */
+  admitQueued(input: QueuedInput): Promise<z.infer<typeof promptSchema>> {
+    const work = this.admitQueuedOwned(input); this.opening.add(work);
+    void work.finally(() => this.opening.delete(work)).catch(() => {}); return work;
+  }
+  private async admitQueuedOwned(input: QueuedInput): Promise<z.infer<typeof promptSchema>> {
+    if (this.closed) throw new ApiError(409, "protected_runtime_closed", "The protected runtime is stopping.");
+    if (this.options.config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
+    await this.initialize();
+    const owner = activeProtectedRuntime(this.options.config, input.workspaceId, input.sessionId);
+    if (owner && owner !== this) throw new ApiError(409, "protected_session_busy", "Another protected operation owns this session.");
+    if (this.entries.has(input.sessionId)) {
+      const entry = this.entry(input.workspaceId, input.sessionId);
+      const work = this.normalizeQueued(entry, input.execution); entry.tools.add(work);
+      try { return (await work).payload; } finally { entry.tools.delete(work); }
+    }
+    const saved = await this.currentHistory(input.workspaceId, input.sessionId);
+    if (!saved) throw new ApiError(404, "protected_session_missing", "The captured protected session is unavailable.");
+    const captured = hash(saved);
+    const binding = async () => {
+      if (this.closed) throw new ApiError(409, "protected_runtime_closed", "The protected runtime is stopping.");
+      if (this.options.config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
+      const currentOwner = activeProtectedRuntime(this.options.config, input.workspaceId, input.sessionId);
+      if (currentOwner && currentOwner !== this) throw new ApiError(409, "protected_session_busy", "Another protected operation owns this session.");
+      const current = await this.currentHistory(input.workspaceId, input.sessionId);
+      if (!current || hash(current) !== captured) throw new ApiError(409, "protected_source_stale", "The captured protected operation changed.");
+      const mapping = await this.validateHistorical(current);
+      if (mapping.sourceSetSha256 !== current.sourceSetSha256) throw new ApiError(409, "protected_source_stale", "The captured prepared evidence changed.");
+      const target = await protectedAiTarget(this.options.config, current.input.providerId, current.input.modelId);
+      const profile = await this.currentProfile(current.input, target.fingerprint, current.operationId);
+      if (!profile && !["127.0.0.1", "[::1]"].includes(new URL(target.endpoint).hostname))
+        throw new ApiError(403, "protected_ai_profile_missing", "Protected client processing requires a current host-owned matter profile.");
+      return {...mapping, target: target.fingerprint, profile: profile ?? null};
+    };
+    const initial = await binding(), initialHash = hash(initial);
+    const context: QueuedContext = {workspaceId: saved.workspaceId, workspaceRoot: initial.workspaceRoot, sources: saved.input.sources,
+      providerId: saved.input.providerId, modelId: saved.input.modelId,
+      assertCurrent: async () => {if (hash(await binding()) !== initialHash) throw new ApiError(409, "host_decision_stale", "The queued operation changed during host admission.");}};
+    return (await this.normalizeQueued(context, input.execution)).payload;
+  }
+
+  /** Background delivery alone reauthorizes and provisions a captured worker. */
   async preflightQueued(input: QueuedInput): Promise<z.infer<typeof promptSchema>> {
     await this.reactivate(input.workspaceId, input.sessionId, AbortSignal.timeout(600_000));
     const entry = this.entry(input.workspaceId, input.sessionId);
     const work = this.normalizeQueued(entry, input.execution); entry.tools.add(work);
     try { return (await work).payload; } finally { entry.tools.delete(work); }
   }
-  private async normalizeQueued(entry: Entry, execution: unknown): Promise<{ payload: z.infer<typeof promptSchema>; uploads: Array<{ path: string; sha256: string }> }> {
+  private async normalizeQueued(entry: QueuedContext, execution: unknown): Promise<{ payload: z.infer<typeof promptSchema>; uploads: Array<{ path: string; sha256: string }> }> {
     await entry.assertCurrent();
     const parsed = queueExecutionSchema.safeParse(execution);
     if (!parsed.success || parsed.data.model.providerID !== entry.providerId || parsed.data.model.modelID !== entry.modelId) throw new ApiError(403, "protected_prompt_invalid", "This document session accepts only the selected model, text and copies of its selected originals.");
@@ -475,7 +520,7 @@ export class ProtectedDocumentRuntime {
     }
     url.pathname = suffix;
     url.searchParams.set("directory", entry.directory);
-    if (request.method === "GET" && suffix.endsWith("/protected-transport")) return Response.json({ sessionId: entry.sessionId, operationId: entry.operationId, directoryMapping: { guestDirectory: entry.directory, hostDirectory: entry.hostDirectory, rootIdentity: entry.rootIdentity }, transport: "protected-documents-v1", legalApproval: false });
+    if (request.method === "GET" && suffix.endsWith("/protected-transport")) return Response.json({ sessionId: entry.sessionId, operationId: entry.operationId, directoryMapping: { guestDirectory: entry.directory, hostDirectory: entry.hostDirectory, rootIdentity: entry.rootIdentity }, runtimeState: "ready", transport: "protected-documents-v1", legalApproval: false });
     let body: string | undefined;
     if (request.method === "PATCH" && suffix === `/session/${sessionId}`) {
       let value: unknown; try { value = JSON.parse(await boundedBody(request, 1024, AbortSignal.any([entry.controller.signal, entry.egress.signal]))); } catch (error) { if (error instanceof ApiError) throw error; throw new ApiError(400, "protected_prompt_invalid", "Provide valid bounded metadata JSON."); }
@@ -583,7 +628,7 @@ export class ProtectedDocumentRuntime {
     const tools = await ProtectedDocumentTools.open({ documents: this.options.documents, workspace, sources: saved.input.sources, directory: hostDirectory });
     const binding = await tools.currentBinding();
     if (!moved && binding.rootIdentity !== saved.rootIdentity) throw new ApiError(409, "protected_source_stale", "The historical project root was replaced.");
-    return { workspaceRoot, hostDirectory, rootIdentity: binding.rootIdentity };
+    return { workspaceRoot, hostDirectory, rootIdentity: binding.rootIdentity, sourceSetSha256: binding.sourceSetSha256 };
   }
 
   private async historicalResponse(saved: StoredProtectedSession, request: Request): Promise<Response> {
@@ -599,7 +644,7 @@ export class ProtectedDocumentRuntime {
     }
     if (request.method !== "GET") throw new ApiError(403, "protected_route_denied", "Historical data grants no new model operation.");
     if (suffix === "") return Response.json({ ...saved.session, directory: mapping.hostDirectory });
-    if (suffix === "/protected-transport") return Response.json({ sessionId: saved.sessionId, operationId: saved.operationId, directoryMapping: { guestDirectory: saved.guestDirectory, hostDirectory: mapping.hostDirectory, rootIdentity: mapping.rootIdentity }, transport: "protected-documents-v1", legalApproval: false });
+    if (suffix === "/protected-transport") return Response.json({ sessionId: saved.sessionId, operationId: saved.operationId, directoryMapping: { guestDirectory: saved.guestDirectory, hostDirectory: mapping.hostDirectory, rootIdentity: mapping.rootIdentity }, runtimeState: this.restoring.has(saved.sessionId) ? "restoring" : "captured", transport: "protected-documents-v1", legalApproval: false });
     if (suffix === "/children") return Response.json(saved.children);
     if (suffix === "/todo") return Response.json(saved.todo);
     if (suffix === "/message") {

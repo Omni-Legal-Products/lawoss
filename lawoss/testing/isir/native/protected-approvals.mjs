@@ -89,6 +89,19 @@ export function createNativeProtectedApprover({mode, root, profile, cdpOrigin, p
   if (origin.protocol !== "http:" || origin.hostname !== "127.0.0.1" || !origin.port || provider.protocol !== "http:" || !["127.0.0.1", "[::1]"].includes(provider.hostname) || !provider.port) refuse();
   const expected = new Map(), completed = new Set(), connections = new Set(), receipts = [];
   let failure, active, stopped = false;
+  const discover = async () => {
+    // The actual CDP discovery contract is a complete HTTP200 JSON response
+    // from this exact owned endpoint, without following a redirect.
+    const response = await request(cdpOrigin + "/json/list", {signal: AbortSignal.timeout(5000),redirect:"error"});
+    if (response.status !== 200) {
+      await response.body?.cancel().catch(() => {});
+      throw new Error("Native review discovery HTTP response was not successful");
+    }
+    const targets = await response.json();
+    if (!Array.isArray(targets) || targets.some(target => !target || typeof target.id !== "string" || typeof target.type !== "string" || typeof target.url !== "string"))
+      throw new Error("Native review discovery metadata was invalid");
+    return targets;
+  };
   const click = async (connection, point, targetId, allowReleasedClosure = false) => {
     await connection.send("Input.dispatchMouseEvent", {type: "mousePressed", button: "left", clickCount: 1, ...point});
     try {await connection.send("Input.dispatchMouseEvent", {type: "mouseReleased", button: "left", clickCount: 1, ...point});}
@@ -98,12 +111,22 @@ export function createNativeProtectedApprover({mode, root, profile, cdpOrigin, p
       // can therefore lose its CDP acknowledgement. This records input only;
       // actual protected receiver/tool/output results remain the acceptance oracle.
       if (!allowReleasedClosure || error?.code !== "NATIVE_REVIEW_TARGET_CLOSED") throw error;
-      const current = await (await request(cdpOrigin + "/json/list", {signal: AbortSignal.timeout(5000)})).json();
+      const current = await discover();
       if (!Array.isArray(current) || current.some(target => target.id === targetId)) throw new Error("Native review release failed while the exact reviewed target remains open");
     }
   };
   const poll = async () => {
-    const targets = await (await request(cdpOrigin + "/json/list", {signal: AbortSignal.timeout(5000)})).json();
+    let targets;
+    try {targets = await discover();}
+    catch (error) {
+      // Only this first read-only discovery can be retried. No target has been
+      // captured and no input issued by this poll. The original outer deadline
+      // still applies; incomplete metadata produces no decision or receipt.
+      const transient = ["AbortError", "TimeoutError"].includes(error?.name) || error?.name === "TypeError" &&
+        ["ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT", "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"].includes(error?.cause?.code);
+      if (transient) return;
+      throw error;
+    }
     for (const target of targets.filter(target => target.type === "page" && target.url?.startsWith("data:text/html;charset=utf-8,") && !completed.has(target.id))) {
       const reviewStartedAtMs = Date.now(), reviewStarted = performance.now();
       const connection = await connectTarget(target, cdpOrigin); connections.add(connection);

@@ -156,7 +156,7 @@ jobs:
       - name: Verify actual confined document tools, cold restore and raw egress denial
         if: inputs.run_tests
         timeout-minutes: 15
-        run: bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts apps/server/src/lawoss/protected-ai/vm-engine.integration.test.ts
+        run: bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts apps/server/src/lawoss/protected-ai/vm-engine.integration.test.ts apps/server/src/lawoss/protected-ai/readiness.integration.test.ts
       - name: Preserve executable modes in runtime artifact
         shell: bash
         run: tar -czf sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime .

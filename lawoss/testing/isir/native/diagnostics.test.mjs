@@ -527,7 +527,7 @@ test('late root binding performs no filesystem operation and cannot replace the 
 // primary failure ambiguous or disclose operands in the published projection.
 test('primary recovery failure publishes only the fixed operation stages',()=>{
   const stages=['snapshot-request','snapshot-body','snapshot-save','snapshot-check',
-    'session-open','composer-wait','prompt-insert','prompt-click','prompt-observe',
+    'session-open','composer-wait','prompt-insert','prompt-click','prompt-observe','runtime-readiness',
     'fresh-poll','fresh-check','retained-files','verification-open','verification-folder',
     'verification-prepare','verification-wait','engine-info','engine-health','engine-identity','receipt-write'];
   for(const stage of stages){
@@ -773,4 +773,62 @@ test('queue prompt observations retain marker and owner correlation at current d
   assert.equal(result.prompt.sessionMatch,1);assert.equal(result.prompt.workspaceMatch,1);
   assert.equal(result.prompt.jsonTextMarker,1);assert.equal(result.prompt.responses.success,1);
   assert.doesNotMatch(JSON.stringify(result),/private|localhost|parts|enqueue/);
+});
+
+test('critical generation receipts retain exact owned first submissions beyond network ring eviction and freeze primary failure',async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'native-critical-prompt-'));
+  try {
+    const outputFile=path.join(root,'safe.json');
+    const d=createNativeDiagnostics({enabled:true,ci:true,mode:'synthetic',outputFile});
+    const context={origin:'http://private-host',workspaceId:'PRIVATE-WORKSPACE',sessionId:'PRIVATE-SESSION'};
+    const events=[promptRequest('outside-boundary')];
+    const emit=event=>{events.push(event);d.observeNetworkEvent(event);};
+    const poll=n=>{for(let i=0;i<n;i++){emit(promptRequest('poll-'+i,'/workspace/PRIVATE-WORKSPACE/sessions',null,'GET'));emit(promptResponse('poll-'+i,200));}};
+    // Registration must replay an already emitted primary prompt, without
+    // reading its payload or headers. The first request precedes many polls.
+    events.push(promptRequest('accepted'),promptResponse('accepted',204),{method:'Network.loadingFinished',params:{requestId:'accepted'}});
+    poll(300);
+    d.generationStart(1,events,1,context);
+    d.generationStart(1,[],0,context);
+    d.generationStart(2,events,events.length,context);
+    emit(promptRequest('wrong-origin','http://foreign-host/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async'));
+    emit(promptRequest('wrong-workspace','/workspace/OTHER/opencode/session/PRIVATE-SESSION/prompt_async'));
+    emit(promptRequest('wrong-session','/workspace/PRIVATE-WORKSPACE/opencode/session/OTHER/prompt_async'));
+    emit(promptResponse('wrong-origin',204));emit(promptResponse('wrong-workspace',204));emit(promptResponse('wrong-session',204));
+    const denied=promptRequest('denied','/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/message?directory=PRIVATE-PATH',null);
+    Object.defineProperties(denied.params.request,{postData:{get(){throw new Error('PRIVATE-BODY-MUST-NOT-BE-READ');}},headers:{get(){throw new Error('PRIVATE-HEADERS-MUST-NOT-BE-READ');}}});
+    emit(denied);emit(promptResponse('denied',403));emit({method:'Network.loadingFinished',params:{requestId:'denied'}});
+    d.generationStart(3,events,events.length,context);
+    poll(300);
+    d.generationStart(4,events,events.length,context);
+    emit(promptRequest('failed'));emit({method:'Network.loadingFailed',params:{requestId:'failed',errorText:'net::ERR_CONNECTION_RESET',private:'PRIVATE-FAILURE'}});
+    d.phase('generation',4);const primary=new Error('PRIVATE-PRIMARY');d.failure(primary);
+    emit(promptRequest('too-late'));emit(promptResponse('too-late',500));emit(promptResponse('failed',200));
+    d.generationStart(5,events,0,context);
+    await d.write({events,error:primary});
+    const result=JSON.parse(await readFile(outputFile,'utf8'));
+    assert.deepEqual(result.generationPrompts,[
+      {caseIndex:1,issued:true,route:'prompt_async',state:'finished',status:204,failure:null},
+      {caseIndex:2,issued:true,route:'message',state:'finished',status:403,failure:null},
+      {caseIndex:3,issued:false,route:null,state:'unissued',status:null,failure:null},
+      {caseIndex:4,issued:true,route:'prompt_async',state:'failed',status:null,failure:'connection-reset'},
+    ]);
+    assert.equal(result.network.requests.some(row=>row.endpoint==='prompt'&&row.status===204),false,'Rolling network history has evicted the accepted primary prompt');
+    assert.doesNotMatch(JSON.stringify(result),/PRIVATE|private-host|foreign-host|net::|postData|authorization/);
+  } finally {await rm(root,{recursive:true,force:true});}
+});
+
+test('critical generation receipt capacity is ten cases and pending/header states remain explicit',async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'native-critical-bounds-'));
+  try {
+    const outputFile=path.join(root,'safe.json'),d=createNativeDiagnostics({enabled:true,ci:true,mode:'synthetic',outputFile});
+    const context={origin:'http://private-host',workspaceId:'PRIVATE-WORKSPACE',sessionId:'PRIVATE-SESSION'};
+    for(let i=1;i<=12;i++)d.generationStart(i,[],0,context);
+    d.observeNetworkEvent(promptRequest('pending'));
+    await d.write();let result=JSON.parse(await readFile(outputFile,'utf8'));
+    assert.equal(result.generationPrompts.length,10);assert.ok(result.generationPrompts.slice(0,9).every(row=>row.state==='unissued'));
+    assert.equal(result.generationPrompts[9].state,'pending');assert.equal(result.generationPrompts[9].status,null);
+    d.observeNetworkEvent(promptResponse('pending',204));await d.write();result=JSON.parse(await readFile(outputFile,'utf8'));
+    assert.equal(result.generationPrompts[9].state,'headers');assert.equal(result.generationPrompts[9].status,204);
+  } finally {await rm(root,{recursive:true,force:true});}
 });

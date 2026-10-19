@@ -158,7 +158,7 @@ try {
   await until(async () => (await nativeFetch(env.LEGALWORK_ELECTRON_START_URL)).ok, "owned Vite");
   engineLogLaunchWallMs=Date.now();
   let appChild = launch(electron, [...(process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : []), path.join(repo, "apps/desktop/scripts/isir-native-entry.mjs")], path.join(repo, "apps/desktop"), "electron");
-  cdp = await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch);
+  cdp = await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch, diagnostics.observeNetworkEvent);
   if (corpus.mode === "synthetic") protectedApprovals = createNativeProtectedApprover({mode: corpus.mode, root, profile, cdpOrigin: `http://127.0.0.1:${cdpPort}`, providerEndpoint: provider.url, request: nativeFetch});
   await cdp.send('Page.enable');
   assert.deepEqual(await cdp.evaluate('({visibility:document.visibilityState,focused:document.hasFocus()})'),{visibility:'visible',focused:true},'Owned native page is active for production UI polling');
@@ -429,6 +429,7 @@ try {
     assert.equal(provision.directoryMapping.guestDirectory,'/tmp/home/protected-engine/workspace');
     assert.match(provision.directoryMapping.rootIdentity,/^[a-f0-9]{64}$/);
     assert.equal(provision.legalApproval,false);
+    diagnostics.generationStart(index+1,cdp.events,eventStart,{origin:serverInfo.baseUrl,workspaceId:workspace.id,sessionId:provision.session.id});
     const binding=await until(()=>cdp.evaluate(`JSON.parse(localStorage.getItem('lawoss.document-generations.v1')??'[]').map(x=>x[1]).find(b=>b.workspaceId===${JSON.stringify(workspace.id)}&&b.transport==='protected-documents-v1')`),'persisted native protected generation binding');
     assert.equal(provision.session.id,binding.sessionId,"Actual provisioned VM session owns the native prompt");
     assert.match(binding.messageId,/^msg_[a-f0-9]{12}[A-Za-z0-9]{14}$/);
@@ -641,7 +642,7 @@ try {
   await rename(oldPath,moved);
   await writeFile(path.join(root,'chooser.json'),JSON.stringify({paths:[moved]}));
   appChild=launch(electron,[...(process.platform==='linux'?['--no-sandbox','--disable-gpu']:[]),path.join(repo,'apps/desktop/scripts/isir-native-entry.mjs')],path.join(repo,'apps/desktop'),'electron-relaunch');
-  cdp=await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch);
+  cdp=await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch, diagnostics.observeNetworkEvent);
   await cdp.send('Page.enable');
   assert.deepEqual(await cdp.evaluate('({visibility:document.visibilityState,focused:document.hasFocus()})'),{visibility:'visible',focused:true},'Relaunched owned page is active for production UI polling');
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1800,height:1400,deviceScaleFactor:1,mobile:false});
@@ -697,6 +698,20 @@ try {
   const recoveryRequest=await until(()=>cdp.events.slice(recoveryPromptStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&new URL(e.params.request.url).pathname===recoveryQueuePath&&JSON.parse(e.params.request.postData??'{}').type==='enqueue'&&e.params.request.postData.includes('NATIVE_RECOVERED_CWD_PROOF')),'actual recovered-session native queue submission');
   await until(()=>cdp.events.slice(recoveryPromptStart).some(e=>e.method==='Network.responseReceived'&&e.params.requestId===recoveryRequest.params.requestId&&e.params.response.status===200),'recovered-session queue admission returned200');
   diagnostics.promptEnd('recovery');
+  diagnostics.recoveryStage('runtime-readiness');
+  // Queue admission stores intent; a restored operation must independently
+  // finish its fresh native admission and cold provision before inference.
+  await until(async()=>{
+    const response=await engineRequest(`/session/${encodeURIComponent(evidence[0].sessionId)}/protected-transport`);
+    assert.equal(response.status,200);
+    const state=await response.json();
+    assert.equal(state.sessionId,evidence[0].sessionId);
+    assert.equal(state.directoryMapping.hostDirectory,moved);
+    assert.equal(state.directoryMapping.guestDirectory,'/tmp/home/protected-engine/workspace');
+    assert.equal(state.directoryMapping.rootIdentity,recoveredTransport.directoryMapping.rootIdentity);
+    assert.equal(state.legalApproval,false);
+    return state.runtimeState==='ready';
+  },'recovered protected runtime is ready after fresh native admission and cold provision',240000);
   diagnostics.recoveryStage('fresh-poll');
   const freshRead=await until(async()=>{
     const {body}=await api(first,`sessions/${evidence[0].sessionId}/snapshot?limit=20`),item=body.item;

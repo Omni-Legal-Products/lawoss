@@ -20,6 +20,11 @@ const toolSchema = z.object({ name: z.enum(TOOL_NAMES), arguments: z.unknown(), 
 export type ProtectedVmToolCall = z.infer<typeof toolSchema>;
 export type ProtectedVmBroker = SandboxRequestBroker;
 export type ProtectedVmSandbox = { run(input: SandboxRun): Promise<SandboxResult> };
+type StartupClock = { now(): number; schedule(callback: () => void, delay: number): () => void };
+const startupClock: StartupClock = {
+  now: () => performance.now(),
+  schedule(callback, delay) { const timer = setTimeout(callback, delay); return () => clearTimeout(timer); },
+};
 export type ProtectedVmOpen = {
   bundleDirectory: string;
   emptyDirectory: string;
@@ -77,41 +82,57 @@ export class ProtectedVmEngine {
   private readyResolve!: () => void;
   private readyReject!: (error: Error) => void;
   private readonly readiness: Promise<void>;
-  private run!: Promise<void>;
+  private run: Promise<void> = Promise.resolve();
   private stopping?: Promise<void>;
   private ended?: Error;
   private readonly signal: AbortSignal;
 
-  private constructor(private readonly input: ProtectedVmOpen) {
-    this.signal = AbortSignal.any([input.signal, this.controller.signal, AbortSignal.timeout(780_000)]);
+  private constructor(private readonly input: ProtectedVmOpen, startupSignal: AbortSignal, private readonly confirmReady: () => void) {
+    this.signal = AbortSignal.any([input.signal, startupSignal, this.controller.signal, AbortSignal.timeout(780_000)]);
     this.readiness = new Promise<void>((resolve, reject) => { this.readyResolve = resolve; this.readyReject = reject; });
     void this.readiness.catch(() => {});
     this.signal.addEventListener("abort", () => this.fail(failure(this.signal.reason)), { once: true });
   }
 
-  static async open(input: ProtectedVmOpen, dependencies?: { createSandbox: (broker: ProtectedVmBroker) => ProtectedVmSandbox }): Promise<ProtectedVmEngine> {
-    input.signal.throwIfAborted();
-    const scratch = await lstat(input.emptyDirectory);
-    if (!scratch.isDirectory() || scratch.isSymbolicLink() || (await readdir(input.emptyDirectory)).length) throw new Error("Protected workspace mount must be an empty owned directory.");
-    input.signal.throwIfAborted();
-    const engine = new ProtectedVmEngine(input);
-    const broker: ProtectedVmBroker = (request, signal) => engine.broker(request, signal);
-    const sandbox = dependencies?.createSandbox(broker) ?? new VmSandbox(undefined, "auto", { request: broker, maxRequests: 4096 });
-    engine.run = sandbox.run({
-      command: "exec /usr/local/bin/node /authorized/0/protected-engine.mjs",
-      cwd: "/workspace", timeoutMs: 600_000, networkMode: "approve", signal: engine.signal,
-      mounts: [{ source: input.emptyDirectory, target: "/workspace", writable: false },
-        { source: input.bundleDirectory, target: "/authorized/0", writable: false }],
-      authorizeNetwork: async () => false,
-    }).then((result) => {
-      const phase = /^Protected engine failed at (bundle|copy-executable|restore-checkpoint|start-engine|engine-health|publish-ready|serve)$/m.exec(result.output)?.[1];
-      const health = /^Protected engine health state (unobserved|http-refused|invalid-health|version-mismatch|accepted|unreachable)$/m.exec(result.output)?.[1];
-      if (!engine.stopping) engine.fail(new Error(`Protected engine worker exited (${result.exitCode}, phase ${phase ?? "unknown"}, health ${health ?? "unknown"}).`));
-    },
-      (error: unknown) => { engine.fail(failure(error)); if (!engine.stopping) throw error; });
-    void engine.run.catch(() => {});
-    try { await engine.ready(); return engine; }
-    catch (error) { await engine.stop().catch(() => {}); throw error; }
+  static async open(input: ProtectedVmOpen, dependencies?: { createSandbox: (broker: ProtectedVmBroker) => ProtectedVmSandbox; startupClock?: StartupClock }): Promise<ProtectedVmEngine> {
+    const clock = dependencies?.startupClock ?? startupClock, deadline = clock.now() + 240_000;
+    const startup = new AbortController();
+    const expire = () => startup.abort(new DOMException("Protected VM startup deadline exceeded.", "TimeoutError"));
+    const cancelStartup = clock.schedule(expire, 240_000);
+    const signal = AbortSignal.any([input.signal, startup.signal]);
+    const checkStartup = () => { if (clock.now() >= deadline) expire(); signal.throwIfAborted(); };
+    let onAbort!: () => void;
+    const cancelled = new Promise<never>((_resolve, reject) => { onAbort = () => reject(failure(signal.reason)); signal.addEventListener("abort", onAbort, { once: true }); });
+    void cancelled.catch(() => {});
+    let engine: ProtectedVmEngine | undefined;
+    let confirmed = false;
+    try {
+      checkStartup();
+      const scratch = await Promise.race([lstat(input.emptyDirectory), cancelled]);
+      if (!scratch.isDirectory() || scratch.isSymbolicLink() || (await Promise.race([readdir(input.emptyDirectory), cancelled])).length) throw new Error("Protected workspace mount must be an empty owned directory.");
+      checkStartup();
+      engine = new ProtectedVmEngine(input, signal, () => { if (!confirmed) { checkStartup(); cancelStartup(); confirmed = true; } });
+      const owned = engine;
+      const broker: ProtectedVmBroker = (request, signal) => owned.broker(request, signal);
+      const sandbox = dependencies?.createSandbox(broker) ?? new VmSandbox(undefined, "auto", { request: broker, maxRequests: 4096 });
+      checkStartup();
+      engine.run = sandbox.run({
+        command: "exec /usr/local/bin/node /authorized/0/protected-engine.mjs",
+        cwd: "/workspace", timeoutMs: 600_000, networkMode: "approve", signal: engine.signal,
+        mounts: [{ source: input.emptyDirectory, target: "/workspace", writable: false },
+          { source: input.bundleDirectory, target: "/authorized/0", writable: false }],
+        authorizeNetwork: async () => false,
+      }).then((result) => {
+        const phase = /^Protected engine failed at (bundle|copy-executable|restore-checkpoint|start-engine|engine-health|engine-initialization|publish-ready|serve)$/m.exec(result.output)?.[1];
+        const health = /^Protected engine health state (unobserved|http-refused|invalid-health|version-mismatch|accepted|unreachable)$/m.exec(result.output)?.[1];
+        const initialization = /^Protected engine initialization state (unobserved|pending|provider-invalid|agent-invalid|tool-schema-invalid|http-refused|invalid-json|timeout|aborted|ready)$/m.exec(result.output)?.[1];
+        if (!owned.stopping) owned.fail(new Error(`Protected engine worker exited (${result.exitCode}, phase ${phase ?? "unknown"}, health ${health ?? "unknown"}, initialization ${initialization ?? "unknown"}).`));
+      },
+        (error: unknown) => { owned.fail(failure(error)); if (!owned.stopping) throw error; });
+      void engine.run.catch(() => {});
+      await engine.ready(); return engine;
+    } catch (error) { await engine?.stop().catch(() => {}); throw error; }
+    finally { cancelStartup(); signal.removeEventListener("abort", onAbort); }
   }
 
   ready(): Promise<void> { return this.readiness; }
@@ -240,6 +261,7 @@ export class ProtectedVmEngine {
     }
     if (url.pathname === "/rpc/ready" && request.method === "POST") {
       z.object({ version: z.literal(1) }).strict().parse(parsedBody(request));
+      this.confirmReady();
       this.readyResolve(); return jsonResponse({ ok: true });
     }
     if (url.pathname === "/rpc/result" && request.method === "POST") return this.result(parsedBody(request));

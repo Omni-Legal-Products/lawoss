@@ -51,8 +51,20 @@ async function nativeInputFixture(mode, run, {register = true} = {}) {
   const {createRequire} = await import("node:module");
   const require = createRequire(new URL("../../../../apps/desktop/package.json", import.meta.url));
   const {WebSocketServer} = require("ws");
-  let present = true, captures = 0, discoveries = 0; const inputs = [];
-  const server = createServer((_request, response) => {discoveries++; response.setHeader("content-type", "application/json"); response.end(JSON.stringify(present ? [{id: "owned-review", type: "page", url: "data:text/html;charset=utf-8,owned", webSocketDebuggerUrl: `ws://127.0.0.1:${server.address().port}/owned-review`}] : []));});
+  let present = true, captures = 0, discoveries = 0, releaseDiscovery; const inputs = [];
+  const server = createServer((_request, response) => {
+    discoveries++;response.setHeader("content-type", "application/json");
+    if(mode==='interrupted-discovery'&&discoveries===1||mode==='interrupted-release-verification'&&discoveries===2){
+      response.write('[');response.flushHeaders();setImmediate(()=>response.destroy());return;
+    }
+    if(mode==='malformed-discovery'){response.end('{');return;}
+    if(mode==='refused-discovery')response.statusCode=403;
+    if(mode==='accepted-discovery')response.statusCode=202;
+    if(mode==='redirected-discovery'&&discoveries===1){response.statusCode=302;response.setHeader('location','/redirected-targets');response.end();return;}
+    const complete=()=>response.end(JSON.stringify(present ? [{id: "owned-review", type: "page", url: "data:text/html;charset=utf-8,owned", webSocketDebuggerUrl: `ws://127.0.0.1:${server.address().port}/owned-review`}] : []));
+    if(mode==='interrupted-discovery'&&discoveries===2){releaseDiscovery=complete;return;}
+    complete();
+  });
   const sockets = new WebSocketServer({server});
   const body = JSON.stringify({model: "synthetic", messages: [{role: "user", content: `Prepare a source registry CSV and factual summary Markdown in English.\nSelected sources (JSON): ${JSON.stringify([{id: source.id, hash: source.hash}])}`}], tools: [{type: "function", function: {name: "lawoss_documents_read", parameters: {}}}]});
   const binding = {scope, bodyHash: hash(body), target: hash(JSON.stringify({endpoint: expected.endpoint, providerId: expected.providerId, modelId: expected.modelId, account: hash(expected.apiKey)})), profiles: [], synthetic: true};
@@ -77,7 +89,7 @@ async function nativeInputFixture(mode, run, {register = true} = {}) {
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const driver = createNativeProtectedApprover({mode: "synthetic", root: "/owned", profile: "/owned/profile", cdpOrigin: `http://127.0.0.1:${server.address().port}`, providerEndpoint: expected.endpoint.replace("/chat/completions", "")});
   if (register) driver.expectOperation(expected);
-  try {await run({driver, inputs, wire, discoveries: () => discoveries});}
+  try {await run({driver, inputs, wire, discoveries: () => discoveries,releaseDiscovery:()=>releaseDiscovery?.()});}
   finally {await driver.close(); for (const socket of sockets.clients) socket.terminate(); await new Promise(resolve => sockets.close(resolve)); await new Promise(resolve => server.close(resolve));}
 }
 
@@ -93,6 +105,30 @@ test("native target discovery waits for a registered operation, then reviews the
     assert.ok(discoveries()>0);
     assert.deepEqual(inputs.map(input => [input.type,input.x]), [["mousePressed",50],["mouseReleased",50]]);
   }, {register: false});
+});
+
+test('an interrupted initial discovery body retries a fresh complete read without input or receipts from partial metadata',async()=>{
+  await nativeInputFixture('interrupted-discovery',async({driver,inputs,discoveries,releaseDiscovery})=>{
+    const deadline=Date.now()+2000;
+    while(discoveries()<2&&Date.now()<deadline){await new Promise(resolve=>setTimeout(resolve,20));driver.check();}
+    assert.equal(discoveries(),2);assert.deepEqual(inputs,[]);assert.deepEqual(driver.receipts,[]);
+    releaseDiscovery();
+    while(!driver.receipts.length&&Date.now()<deadline){await new Promise(resolve=>setTimeout(resolve,20));driver.check();}
+    assert.equal(driver.receipts.length,1);assert.deepEqual(inputs.map(input=>[input.type,input.x]),[['mousePressed',50],['mouseReleased',50]]);
+  });
+});
+
+test('post-release discovery failure, malformed discovery and refused discovery remain sticky and create no receipt',async()=>{
+  for(const mode of ['interrupted-release-verification','malformed-discovery','refused-discovery','accepted-discovery','redirected-discovery']){
+    await nativeInputFixture(mode,async({driver,inputs,discoveries})=>{
+      let failure;const deadline=Date.now()+2000;
+      while(!failure&&Date.now()<deadline){await new Promise(resolve=>setTimeout(resolve,20));try{driver.check();}catch(error){failure=error;}}
+      assert.ok(failure,mode);assert.deepEqual(driver.receipts,[]);
+      const count=discoveries();await new Promise(resolve=>setTimeout(resolve,150));
+      assert.throws(()=>driver.check(),error=>error===failure);assert.equal(discoveries(),count,'Failure must not rediscover after an uncertain input or invalid metadata');
+      if(mode!=='interrupted-release-verification')assert.deepEqual(inputs,[]);
+    });
+  }
 });
 
 test("validated native input survives the exact reviewed target closing on mouse release without fabricating a model result", async () => {

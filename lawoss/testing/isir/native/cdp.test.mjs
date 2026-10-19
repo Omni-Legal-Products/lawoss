@@ -69,7 +69,8 @@ import { connectRenderer } from './cdp.mjs';
 const { WebSocketServer } = createRequire(new URL('../../../../apps/desktop/package.json', import.meta.url))('ws');
 
 test('owned renderer connection keeps the page active for foreground-only UI polling', async () => {
-  const commands = [];
+  const commands = [],observed=[];
+  const networkEvent={method:'Network.loadingFinished',params:{requestId:'synthetic-observer'}};
   const server = createServer((_request, response) => {
     response.setHeader('content-type', 'application/json');
     response.end(JSON.stringify([{ type: 'page', url: `http://127.0.0.1:${server.address().port}/synthetic`, webSocketDebuggerUrl: `ws://127.0.0.1:${server.address().port}/devtools/page/synthetic` }]));
@@ -77,13 +78,15 @@ test('owned renderer connection keeps the page active for foreground-only UI pol
   const sockets = new WebSocketServer({ server });
   sockets.on('connection', socket => socket.on('message', data => {
     const command = JSON.parse(String(data)); commands.push(command);
+    if(command.method==='Network.enable')socket.send(JSON.stringify(networkEvent));
     socket.send(JSON.stringify({ id: command.id, result: {} }));
   }));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   let renderer;
   try {
-    renderer = await connectRenderer(`http://127.0.0.1:${server.address().port}`);
+    renderer = await connectRenderer(`http://127.0.0.1:${server.address().port}`,fetch,event=>observed.push(event));
     assert.ok(commands.some(command => command.method === 'Emulation.setFocusEmulationEnabled' && command.params.enabled === true), 'Native connection must activate its owned page before returning');
+    assert.deepEqual(observed,[networkEvent]);assert.deepEqual(renderer.events,[networkEvent]);
   } finally {
     renderer?.close();
     await new Promise(resolve => sockets.close(resolve));
