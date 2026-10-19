@@ -10,7 +10,6 @@ import * as React from "react";
 import legalworkMarkDark from "../../../../../../../lawoss/brand/lawoss-mark.svg";
 import { LawossWordmark } from "../../../../lawoss/shell/wordmark";
 import { LawossNav } from "../../../../lawoss/shell/layout";
-import { OnboardingEntryActions } from "@/lawoss/domains/onboarding/entry-actions";
 import { OkfWorkspaceSkillSync } from "@/lawoss/okf/workspace-skill-sync";
 import {
   Search,
@@ -872,7 +871,7 @@ function AppSidebarContent(props: AppSidebarProps) {
           </div>
         </div>
         <LawossNav activePane={Boolean(props.activeNav)} />
-        <div className="flex justify-end px-2 pb-2"><OkfWorkspaceSkillSync workspaceId={props.selectedWorkspaceId} /><OnboardingEntryActions compact /></div>
+        <OkfWorkspaceSkillSync workspaceId={props.selectedWorkspaceId} />
         <SidebarWorkflowGenerationBadge onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))} />
         {!lite && newChatSection && <SidebarMenu className="px-2.5 pb-3 pt-1">{newChatSection}</SidebarMenu>}
         </div>

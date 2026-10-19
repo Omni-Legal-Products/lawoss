@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -11,7 +13,7 @@ import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
 import { LiteNav, LiteNavView } from "../src/lawoss/lite/lite-nav";
 import { UiModeSwitchView } from "../src/lawoss/lite/ui-mode-switch";
 import { LawossNav, LawossLayout } from "../src/lawoss/shell/layout";
-import { liteMatterLink } from "../src/lawoss/lite/links";
+import { ADD_FOLDER_PATH, liteMatterLink } from "../src/lawoss/lite/links";
 import { GeneralSettingsView } from "../src/react-app/domains/settings/pages/general-view";
 import { currentUiMode, setUiMode } from "../src/lawoss/lite/ui-mode";
 
@@ -73,12 +75,29 @@ describe("boční panel LAWOSS-lite", () => {
     expect(html(<LiteNavView recent={recent} />)).toContain(`href="${liteMatterLink(recent[0].path).replace(/&/g, "&amp;")}"`);
     expect(html(<LiteNavView recent={[]} />)).not.toContain("Recent matters");
   });
-  test("pro: LawossNav a LawossLayout beze změny (Experiments, lišta odkazů)", () => {
-    // SSR snapshot režimu je "pro" - tedy dnešní chování.
+  test("jedna navigácia v oboch režimoch: Dnes · Klienti a veci · Opýtať sa · Pridať priečinok (G2, 19. 10. 2026)", () => {
+    // SSR snapshot režimu je vždy "pro" (getServerSnapshot). LawossNav sa už podľa režimu nevetví,
+    // takže jedno vykreslenie pokrýva bežný aj Pokročilý režim.
     const nav = html(<LawossNav />);
-    expect(nav).toContain("EXP");
-    expect(nav).not.toContain("data-lawoss-lite-nav");
-    expect(html(<LawossLayout><p>obsah</p></LawossLayout>)).toContain("lw-experiment-nav");
+    for (const [item, to] of [["today", "/dnes"], ["clients", "/klienti"], ["ask", "/session"], ["add_folder", ADD_FOLDER_PATH]] as const) {
+      const href = to.replace(/[?]/g, "\\?");
+      expect(nav).toMatch(new RegExp(`<a(?=[^>]*href="${href}")(?=[^>]*data-lawoss-lite-nav="${item}")[^>]*>`));
+    }
+    expect(nav).toContain("Add folder");
+  });
+  test("panel Experimenty nie je v žiadnom režime, ani lišta experimentov nad stránkou (G2 V2)", () => {
+    const nav = html(<LawossNav />);
+    expect(nav).not.toContain('data-lawoss-nav="experiments"');
+    expect(nav).not.toContain("EXP");
+    expect(html(<LawossLayout><p>obsah</p></LawossLayout>)).not.toContain("lw-experiment-nav");
+  });
+  test("sidebar: bez riadku ikon onboardingu; Pokročilé pridá Nový chat a sekcie upstreamu", () => {
+    const sidebar = readFileSync(join(import.meta.dir, "../src/react-app/domains/session/sidebar/app-sidebar.tsx"), "utf8");
+    expect(sidebar).not.toContain("OnboardingEntryActions");
+    expect(sidebar).toContain("<OkfWorkspaceSkillSync");
+    // Projekty a Nedávne sesie (chatSectionOrder) a Nový chat len v Pokročilom režime, ako doteraz.
+    expect(sidebar).toContain("{!lite && newChatSection && ");
+    expect(sidebar).toContain("{!lite && hideCommercialSidebarItems(shellConfig.chatSectionOrder)");
   });
   test("prepínač Pokročilé: jeden spínač, bežná appka bez nálepky Simple/Lite (MČ 16. 10. 2026)", () => {
     const off = html(<UiModeSwitchView mode="lite" onChange={() => {}} />);

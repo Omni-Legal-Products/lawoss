@@ -1,38 +1,24 @@
 /** @jsxImportSource react */
 import { useMemo, type ReactNode } from "react";
 import { t } from "@/i18n";
-import { useLocale } from "@/i18n/use-locale";
-import { ChevronRight, FlaskConical } from "lucide-react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar";
 import { useControlActions, type LegalworkControlAction } from "@/react-app/shell/control/control-provider";
 
 import { MarketplaceUpdateNotifier } from "../domains/marketplace/update-notifier";
 import { VISIBLE_EXPERIMENT_VIEWS } from "../experiments/registry";
 import { LiteNav } from "../lite/lite-nav";
 import { LITE_CLIENTS_PATH, LITE_TODAY_PATH } from "../lite/links";
-import { currentUiMode, setUiMode, useUiMode } from "../lite/ui-mode";
+import { currentUiMode, setUiMode } from "../lite/ui-mode";
 import "./lawoss.css";
 
 export const EXPERIMENTY_PATH = "/experimenty";
 
 /**
- * Everything reachable under the Experimenty item: the switch/status page
- * first, then each unfinished screen. Driven by the registry so adding an
- * experiment is still one row.
+ * Everything reachable on the Experimenty page: the switch/status page first,
+ * then each unfinished screen. Driven by the registry so adding an experiment
+ * is still one row. Since G2 (19. 10. 2026) neither the sidebar nor a toolbar
+ * links here; the routes stay reachable by address.
  */
 export function experimentyNavItems(): { to: string; label: string }[] {
   return [
@@ -43,22 +29,15 @@ export function experimentyNavItems(): { to: string; label: string }[] {
 
 /**
  * The single LAWOSS entry in the upstream session sidebar (1-line 🟡 insert).
- * Everything else in that sidebar stays upstream — this only adds a collapsible
- * group holding the unfinished screens, never hides working navigation.
- */
-/**
- * The single LAWOSS entry in the upstream session sidebar (1-line 🟡 insert).
- * Sub-items open in a menu, not inline: the upstream sidebar's top pane has a
- * fixed flex ratio, and an inline list overflowed into the folders pane at
- * small window heights. A menu takes no vertical space regardless of count.
+ * One navigation in both UI modes (G2, 19. 10. 2026): Advanced only adds the
+ * upstream sections below it, it never swaps this navigation out.
  */
 export function LawossNav(props: { activePane?: boolean } = {}) {
-  const lite = useUiMode() === "lite";
   return (
     <>
       <LiteControlActions />
       <MarketplaceUpdateNotifier />
-      {lite ? <LiteNav activePane={props.activePane} /> : <ExperimentsNav {...props} />}
+      <LiteNav activePane={props.activePane} />
     </>
   );
 }
@@ -124,60 +103,10 @@ function LiteControlActions() {
   return null;
 }
 
-function ExperimentsNav(props: { activePane?: boolean }) {
-  const locale = useLocale();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const items = experimentyNavItems();
-
-  return (
-    <SidebarGroup className="p-0 mac:titlebar-no-drag">
-      <SidebarGroupContent>
-        <SidebarMenu className="gap-0.5 px-2">
-          <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <SidebarMenuButton
-                    type="button"
-                    isActive={!props.activePane && items.some((item) => item.to === location.pathname)}
-                    className="gap-3 text-sidebar-foreground/80 [&_svg]:size-[18px]"
-                    data-lawoss-nav="experiments"
-                  >
-                    <FlaskConical strokeWidth={1.5} />
-                    <span>{t("lawoss.shell.experiments", locale)}</span>
-                    <span className="lw-badge">EXP</span>
-                    <ChevronRight className="ms-auto" />
-                  </SidebarMenuButton>
-                }
-              />
-              <DropdownMenuContent align="start" side="right" className="min-w-52">
-                {items.map((item) => (
-                  <DropdownMenuItem key={item.to} onClick={() => navigate(item.to)}>
-                    {item.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarGroupContent>
-    </SidebarGroup>
-  );
-}
-
-/** Experiment content shares the persistent session shell and its sidebar. */
+/** LAWOSS content shares the persistent session shell and its sidebar. */
 export function LawossLayout(props: { children: ReactNode }) {
-  const locale = useLocale();
-  // Lite: jen list - experimentální lišta (i „Nový spis (OKF)“) patří do pro.
-  const lite = useUiMode() === "lite";
   return (
     <div className="lw-experiment-content">
-      {lite ? null : <nav className="lw-experiment-nav" aria-label={t("lawoss.shell.experiments", locale)}>
-        {experimentyNavItems().map((item) => (
-          <NavLink key={item.to} to={item.to} end>{item.label}</NavLink>
-        ))}
-      </nav>}
       <section className="lw-sheet">{props.children}</section>
     </div>
   );

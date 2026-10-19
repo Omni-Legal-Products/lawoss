@@ -121,11 +121,12 @@ async function main() {
 
     await step("lawoss.lite.mode.set → pro", () => setMode(activeClient, "pro"));
 
-    await step("sidebar reflects pro mode (experiments marker present, lite nav absent)", async () => {
-      await waitFor(activeClient, 'Boolean(document.querySelector(\'[data-lawoss-nav="experiments"]\'))', WAIT_TIMEOUT_MS);
+    // G2 (19. 10. 2026): one LAWOSS navigation in both modes, no Experiments entry anywhere.
+    await step("sidebar keeps the same navigation in pro mode (today nav present, experiments marker absent)", async () => {
+      await waitFor(activeClient, 'Boolean(document.querySelector(\'[data-lawoss-lite-nav="today"]\'))', WAIT_TIMEOUT_MS);
       const probe = await evaluate(activeClient, sidebarProbeExpression());
-      assertTrue(probe.hasExperiments, 'sidebar does not show [data-lawoss-nav="experiments"] in pro mode');
-      assertTrue(!probe.hasLiteNavAny, "sidebar still shows a [data-lawoss-lite-nav] item in pro mode");
+      assertTrue(probe.hasLiteToday, 'sidebar does not show [data-lawoss-lite-nav="today"] in pro mode');
+      assertTrue(!probe.hasExperiments, 'sidebar still shows [data-lawoss-nav="experiments"] in pro mode');
     });
   } catch {
     // Already recorded by step(); fall through to restore + report.
@@ -204,11 +205,10 @@ async function executeAction(client, actionId, actionArgs = undefined) {
 function sidebarProbeExpression() {
   return `(() => {
     const sidebar = document.querySelector('[data-slot="sidebar"]');
-    if (!sidebar) return { present: false, hasLiteToday: false, hasLiteNavAny: false, hasExperiments: false };
+    if (!sidebar) return { present: false, hasLiteToday: false, hasExperiments: false };
     return {
       present: true,
       hasLiteToday: Boolean(sidebar.querySelector('[data-lawoss-lite-nav="today"]')),
-      hasLiteNavAny: Boolean(sidebar.querySelector('[data-lawoss-lite-nav]')),
       hasExperiments: Boolean(sidebar.querySelector('[data-lawoss-nav="experiments"]')),
     };
   })()`;
