@@ -99,7 +99,7 @@ describe("slabý návrh praxe (review VŘ k #135, bod 5)", () => {
     const weak = base({ level: "practice", score: 0.5, signals: ["matter_named_children"], clients, clientPattern: "*" });
     expect(initialFoundLevel(weak)).toBe("client");
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={weak} level={initialFoundLevel(weak)} />);
-    expect(html).toContain("Môže to byť jeden klient Novák s vecami, alebo celá prax s 2 klientmi");
+    expect(html).toContain("Môže to byť jeden klient Novák s prípadmi, alebo celá prax s 2 klientmi");
     expect(html).not.toContain("Vyzerá to ako celá prax");
     expect(html).toContain("Nie, nechaj ho tak, ako je");
   });
@@ -155,7 +155,7 @@ describe("veta návrhu a predvolená úroveň sa zhodujú (MČ 19. 10.)", () => 
     ["istá prax", base({ level: "practice", score: 0.83, signals: ["legal_form_children"], clients }), "Vyzerá to ako celá prax: 2 klientov.", "practice"],
     ["označená prax", base({ level: "practice", marked: true, score: 1, signals: ["office_config"], clients }), "Vyzerá to ako celá prax: 2 klientov.", "practice"],
     ["slabá prax", base({ level: "practice", score: 0.5, signals: ["matter_named_children"], clients }), "Predvolený je klient.", "client"],
-    ["vec", base({ root: "/p/Novák/2024-03 Zmluva", level: "matter", score: 0.8, signals: ["matter_named_root"] }), "Vyzerá to ako jedna vec: 2024-03 Zmluva.", "matter"],
+    ["vec", base({ root: "/p/Novák/2024-03 Zmluva", level: "matter", score: 0.8, signals: ["matter_named_root"] }), "Vyzerá to ako jeden prípad: 2024-03 Zmluva.", "matter"],
     ["neznámy", base({ level: "unknown", score: 0, signals: ["empty"] }), "Neviem s istotou, čo tento priečinok je.", "client"],
   ];
   for (const [name, suggestion, sentence, selected] of shapes) {
@@ -208,7 +208,7 @@ describe("Toto som našiel: veta podľa voľby, kancelária v podpriečinku, pra
   });
   test("vec zvolená ručne hovorí o veci", () => {
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ level: "client" })} level="matter" />);
-    expect(html).toContain("Vyzerá to ako jedna vec: Novák.");
+    expect(html).toContain("Vyzerá to ako jeden prípad: Novák.");
   });
   test("celá prax bez nájdených klientov: vysvetlenie namiesto dvoch vypnutých odpovedí bez slova", () => {
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ level: "client", signals: ["plain_directories"] })} level="practice" selected={[]} />);

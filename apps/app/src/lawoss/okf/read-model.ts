@@ -188,7 +188,7 @@ export async function readWorkspaceMemory(
     const input: MatterInput = { path, records: [], recordFiles, scopePaths };
     const entries = await list(path);
     const cards = CARD_FILES.filter((name) => entries.some((e) => e.kind === "file" && e.name === name));
-    if (cards.length > 1) problems.push({ path, message: `Viac kariet veci: ${cards.join(", ")}. Zosúlaď ich obsah; prehľad používa ${cards[0]}.` });
+    if (cards.length > 1) problems.push({ path, message: `Viac kariet prípadu: ${cards.join(", ")}. Zosúlaď ich obsah; prehľad používa ${cards[0]}.` });
     const card = cards[0];
     if (card) {
       input.cardPath = childPath(path, card);
@@ -243,7 +243,7 @@ export async function readWorkspaceMemory(
     for (const dir of scopePaths) {
       const bundle = await readBundle(dir);
       for (const record of bundle.records) {
-        if (recordFiles[record.id]) problems.push({ path: bundle.files[record.id], message: `Duplicitné ID ${record.id} v rozsahu veci ${path}.` });
+        if (recordFiles[record.id]) problems.push({ path: bundle.files[record.id], message: `Duplicitné ID ${record.id} v rozsahu prípadu ${path}.` });
         recordFiles[record.id] ??= bundle.files[record.id];
         input.records.push(record);
       }
@@ -424,7 +424,7 @@ function withOffice(input: MatterInput, office: OfficeBundle | null, problems: R
   const recordFiles = { ...input.recordFiles };
   const records = [...input.records];
   for (const record of office.records) {
-    if (recordFiles[record.id]) { problems.push({ path: office.files[record.id], message: `Duplicitné ID ${record.id} v rozsahu veci ${input.path}.`, scope: "office" }); continue; }
+    if (recordFiles[record.id]) { problems.push({ path: office.files[record.id], message: `Duplicitné ID ${record.id} v rozsahu prípadu ${input.path}.`, scope: "office" }); continue; }
     recordFiles[record.id] = office.files[record.id];
     records.push(record);
   }

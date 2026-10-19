@@ -4638,7 +4638,7 @@ export default {
   "projects.files_truncated": "Zobrazuje sa iba časť tohto priečinka. Ak chcete pokračovať v prehliadaní, otvorte Súbory.",
   "projects.metadata": "Detaily projektu",
   "projects.edit": "Upraviť",
-  "projects.no_metadata": "Pridajte vlastné pole, napríklad číslo veci, klienta alebo termín.",
+  "projects.no_metadata": "Pridajte vlastné pole, napríklad číslo prípadu, klienta alebo termín.",
   "projects.metadata_hint": "Nakonfigurujte polia tohto projektu: text, číslo, dátum alebo výber.",
   "projects.sessions": "Relácie",
   "projects.new_chat": "Nový chat",

@@ -32,7 +32,7 @@ describe("roztriedenie v appke", () => {
     for (const label of ["Dokument", "Odkiaľ", "Kam", "Prečo", "Istota", "Nechať na zatriedenie"]) expect(out).toContain(label);
     expect(out).toContain("Komunikácia");
     expect(out).toContain("Dôležitá pošta");
-    expect(out).toContain("nová vec");
+    expect(out).toContain("nový prípad");
     expect(out).toContain("Spisová značka 8C 123/2023");
     expect(out).toContain("E-mailová správa (.eml)");
     expect(out).toContain("Rozhodnutie alebo písomnosť súdu podľa názvu („rozsudok“)");

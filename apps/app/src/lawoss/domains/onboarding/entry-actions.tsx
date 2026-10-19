@@ -66,8 +66,8 @@ export function useOkfOffered(skip: boolean): boolean | undefined {
 
 const labels = {
   en: { client: "Add client", folder: "Add folder", organize: "Organise by OKF", matter: "New matter", okf: "Turn on OKF" },
-  sk: { client: "Pridať klienta", folder: "Pridať priečinok", organize: "Usporiadať podľa OKF", matter: "Nová vec", okf: "Zapnúť OKF" },
-  cs: { client: "Přidat klienta", folder: "Přidat složku", organize: "Uspořádat podle OKF", matter: "Nová věc", okf: "Zapnout OKF" },
+  sk: { client: "Pridať klienta", folder: "Pridať priečinok", organize: "Usporiadať podľa OKF", matter: "Nový prípad", okf: "Zapnúť OKF" },
+  cs: { client: "Přidat klienta", folder: "Přidat složku", organize: "Uspořádat podle OKF", matter: "Nový případ", okf: "Zapnout OKF" },
   de: { client: "Mandant hinzufügen", folder: "Ordner hinzufügen", organize: "Nach OKF ordnen", matter: "Neue Angelegenheit", okf: "OKF einschalten" },
 };
 
