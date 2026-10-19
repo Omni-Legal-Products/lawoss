@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, Settings2 } from "lucide-react";
+import { ChevronDown, List } from "lucide-react";
 
 import type { ModelOption, ModelRef } from "@/app/types";
 import { modelDisplayName } from "@/app/utils/models";
@@ -303,7 +303,7 @@ export function ModelSelect({
                     window.dispatchEvent(new CustomEvent(openModelPickerEvent));
                   }}
                 >
-                  <Settings2 className="size-3.5" />
+                  <List className="size-3.5" />
                   {t("model_picker.all_models")}
                 </button>
               </div>

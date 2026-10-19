@@ -19,7 +19,7 @@ import {
   MessageSquare,
   Files,
   ListTodo,
-  Settings,
+  PencilLine,
   WandSparkles,
   TableProperties,
   Archive,
@@ -867,7 +867,7 @@ function AppSidebarContent(props: AppSidebarProps) {
               </div>
             ) : null}
             <Button ref={customizationButtonRef} variant="ghost" size="icon" className="pointer-events-none ml-auto size-6 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/project-sidebar:opacity-100 group-hover/project-sidebar:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto [@media(hover:none)]:opacity-100 [@media(hover:none)]:pointer-events-auto" aria-label={t("projects.customize_nav")} title={t("projects.customize_nav")} aria-expanded={customizingNavigation} onClick={() => setCustomizingNavigation(true)}>
-              <Settings className="size-3.5" />
+              <PencilLine className="size-3.5" />
             </Button>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { Fragment, useState } from "react";
-import { ArrowLeft, Blocks, ChevronRight, Package, Plug, Settings, Workflow } from "lucide-react";
+import { ArrowLeft, Blocks, ChevronRight, Package, Plug, Workflow } from "lucide-react";
 import type { ImportedPlugin } from "@/app/lib/extension-imports";
 import { mcpAuthEntryFromServer } from "@/app/mcp-connect-state";
 import type { McpServerEntry, McpStatusMap, SkillCard } from "@/app/types";
@@ -88,7 +88,7 @@ export function ComposerToolMenu(props: {
       <div className="flex max-h-72 min-h-0 min-w-0 flex-col overflow-hidden p-2">
         <div className="mb-2 flex shrink-0 items-center justify-between gap-2 border-b border-dls-border px-1 pb-2">
           {activePlugin ? <Button variant="ghost" size="sm" className="min-w-0 shrink overflow-hidden" onClick={() => setPluginId(null)}><ArrowLeft className="size-3.5 shrink-0" /><span className="truncate">{pluginImportName(activePlugin)}</span></Button> : <span />}
-          <Button variant="outline" size="sm" className="shrink-0" onClick={() => props.onConfigure(props.section)}><Settings className="size-3.5" />{t("composer.configure")}</Button>
+          <Button variant="outline" size="sm" className="shrink-0" onClick={() => props.onConfigure(props.section)}>{t("composer.configure")}</Button>
         </div>
         <div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain">
           {props.section === "workflows" || props.section === "skills" ? skills.length ? <div className="grid min-w-0 grid-cols-1 gap-1">{skills.map(renderSkill)}</div> : empty(props.skillsLoading, props.section === "workflows" ? "composer.no_workflows" : "context_panel.no_skills") : null}
