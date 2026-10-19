@@ -422,7 +422,7 @@ export const mattersSk: Record<keyof typeof mattersEn, string> = {
   "lawoss.matters.matterNotFound": "Prípad „{path}“ sa v pamäti pracovného priečinka nenašiel.",
   "lawoss.matters.noMatters": "Pracovný priečinok nemá žiadny prípad s pamäťou.",
   "lawoss.matters.mattersInMemory": "Prípady v pamäti",
-  "lawoss.matters.chooseOne": "{count} · vyber jednu",
+  "lawoss.matters.chooseOne": "{count} · vyberte jeden",
   "lawoss.matters.open": "otvoriť",
   "lawoss.matters.client": "Klient",
   "lawoss.matters.noMatterReference": "bez spisovej značky",
