@@ -1,10 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 import { t } from "../src/i18n";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
-import { TriagePreviewView, TriageTopline, TriageUndoSummary } from "../src/lawoss/domains/roztriedenie/triage-page";
+import { friendlyError, TriagePreviewView, TriageTopline, TriageUndoSummary } from "../src/lawoss/domains/roztriedenie/triage-page";
+import { LegalworkServerError } from "../src/app/lib/legalwork-server";
+import { MAX_TRIAGE_MATTERS } from "../../../lawoss/okf/src/triage/types";
 import { offersTriageEntry, plansPreview, triageApply, triageGrant, triageLink, triageTargetRoot, triagePlan, triageReplan, triageUndo, type TriageApiPath, type TriageClient, type TriagePreview } from "../src/lawoss/domains/roztriedenie/api";
 import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
 
@@ -233,7 +235,7 @@ test("existujúci priečinok sa dá odškrtnúť; v skupine je „existujúci pr
   expect(out).toMatch(/<input type="checkbox"[^>]*aria-label="Založiť ako prípad: M005 Modul"(?![^>]*checked)/);
   expect(out).toContain("Priečinok ostane presne tak, ako je.");
   // Odškrtnutý priečinok sa nepočíta medzi nové prípady.
-  expect(out).toMatch(/<dd>1<\/dd><dt>Nové prípady<\/dt>/);
+  expect(out).toMatch(/<dd>1<\/dd><dt>Prípady<small>z toho nové: 0<\/small><\/dt>/);
   for (const locale of ["sk", "cs", "en", "de"] as const) for (const key of ["existing_folder_badge", "matter_keep_folder", "matter_left"]) {
     expect(t(`lawoss.triage.${key}`, locale)).not.toBe(`lawoss.triage.${key}`);
     expect(t(`lawoss.triage.${key}`, locale)).not.toContain("—");
@@ -245,4 +247,29 @@ test("replan posiela odškrtnuté priečinky", async () => {
   const client: TriageClient = { lawossTriage: async <T,>(path: string, body: unknown) => { calls.push([path, body]); return {} as T; } };
   await triageReplan(client, preview.id, [], ["existing-1"]);
   expect(calls).toEqual([["replan", { id: preview.id, keepInInbox: [], leaveInPlace: ["existing-1"] }]]);
+});
+
+test("fix round 2: nad limit prípadov náhľad vopred povie, čo odškrtnúť, a nedovolí potvrdiť; chyba servera tiež", () => {
+  const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, "sk", params);
+  const many: TriagePreview = { ...preview, keepInInbox: [], matters: Array.from({ length: MAX_TRIAGE_MATTERS + 1 }, (_, index) => ({ key: `existing-${index}`, title: `Vec ${index}`, folder: `Vec ${index}`, date: "2026-10-19", dateSource: "today" as const, kind: "non_contentious", source: "folder" as const, documents: 1 })) };
+  const out = html(<TriagePreviewView preview={many} text={text} busy={false} inPlace onKeep={() => {}} onLeave={() => {}} onConfirm={() => {}} onModel={() => {}} />);
+  expect(out).toContain(`Naraz sa dá založiť najviac ${MAX_TRIAGE_MATTERS} prípadov.`);
+  expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Potvrdiť a roztriediť/);
+  const quiet = spyOn(console, "warn").mockImplementation(() => undefined);
+  expect(friendlyError(new LegalworkServerError(400, "triage_too_many_matters", "x"), text)).toBe(text("error_too_many_matters", { max: MAX_TRIAGE_MATTERS }));
+  quiet.mockRestore();
+  for (const locale of ["sk", "cs", "en", "de"] as const) {
+    expect(t("lawoss.triage.error_too_many_matters", locale, { max: 100 })).toContain("100");
+    expect(t("lawoss.triage.stat_matters_new", locale, { count: 2 })).toContain("2");
+    expect(t("lawoss.triage.error_too_many_matters", locale, { max: 100 })).not.toContain("—");
+  }
+  expect(t("lawoss.triage.matter_keep_folder", "de")).toBe("Als Akte anlegen");
+  expect(t("lawoss.triage.stat_matters", "sk")).toBe("Prípady");
+});
+
+test("fix round 2: prepínač modelu nesie odškrtnuté priečinky", async () => {
+  const calls: [string, unknown][] = [];
+  const client: TriageClient = { lawossTriage: async <T,>(path: string, body: unknown) => { calls.push([path, body]); return {} as T; } };
+  await triagePlan(client, "/x/klient", true, ["existing-1"]);
+  expect(calls).toEqual([["plan", { root: "/x/klient", useModel: true, leaveInPlace: ["existing-1"] }]]);
 });

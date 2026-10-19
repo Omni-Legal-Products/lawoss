@@ -39,7 +39,9 @@ export type TriageApplyResult = { status: "applied" | "already_applied"; runId: 
 export type TriageUndoResult = { status: "undone" | "already_undone"; runId: string; restored: number; removed: number; kept: string[] };
 
 export const triageStatus = (client: TriageClient, root: string) => client.lawossTriage<TriageStatus>("status", { root });
-export const triagePlan = (client: TriageClient, root: string, useModel = false) => client.lawossTriage<TriagePreview>("plan", { root, ...(useModel ? { useModel: true } : {}) });
+/** `leaveInPlace`: odškrtnuté priečinky z predošlého náhľadu; bez neho predvoľba servera (archív, holý rok). */
+export const triagePlan = (client: TriageClient, root: string, useModel = false, leaveInPlace?: readonly string[]) =>
+  client.lawossTriage<TriagePreview>("plan", { root, ...(useModel ? { useModel: true } : {}), ...(leaveInPlace ? { leaveInPlace } : {}) });
 export const triageReplan = (client: TriageClient, id: string, keepInInbox: readonly string[], leaveInPlace?: readonly string[]) =>
   client.lawossTriage<TriagePreview>("replan", { id, keepInInbox, ...(leaveInPlace ? { leaveInPlace } : {}) });
 /** Nový zoznam odškrtnutých priečinkov po prepnutí jedného (rozhodnutie 19. 10. 2026). */

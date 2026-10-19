@@ -17,6 +17,7 @@ import { ensureSkillAvailable, workspaceSkillEngine } from "../../okf/skill-avai
 const ROZTRIED_SPIS_SKILL = "roztried-spis";
 import { plansPreview, toggledLeave, undoableRun, triageApply, triagePlan, triageReplan, triageStatus, triageTargetRoot, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus, type TriageUndoResult } from "./api";
 import { OFFICE_CONFIG_ENCODING_CODE } from "../../../../../../lawoss/okf/src/profile";
+import { MAX_TRIAGE_MATTERS, TOO_MANY_MATTERS_CODE } from "../../../../../../lawoss/okf/src/triage/types";
 import "../../lite/pages/okf-glass.css";
 import "./triage.css";
 
@@ -33,6 +34,7 @@ export function friendlyError(error: unknown, text: Text): string {
   if (error instanceof LegalworkServerError) {
     if (error.code === "not_trial_clone") return text("not_client_folder");
     if (error.code === OFFICE_CONFIG_ENCODING_CODE) return text("error_office_config");
+    if (error.code === TOO_MANY_MATTERS_CODE) return text("error_too_many_matters", { max: MAX_TRIAGE_MATTERS });
     if (error.code === "stale_preview" || (error.code === "triage_conflict" && /zmenil/.test(error.message))) return text("error_changed");
     if (error.code === "triage_conflict" && error.message.includes(": ")) return text("error_undo", { paths: error.message.slice(error.message.indexOf(": ") + 2) });
   }
@@ -128,13 +130,14 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
     finally { if (alive.current) setPhase((current) => current.kind === "busy" ? { kind: "idle" } : current); }
   }, [text]);
 
-  const load = useCallback(async (useModel = false) => {
+  // `leaveInPlace`: odškrtnuté priečinky prenesie aj prepínač modelu (nový náhľad), inak by sa stratili.
+  const load = useCallback(async (useModel = false, leaveInPlace?: readonly string[]) => {
     if (!client) return;
     const next = await run(text("loading"), async () => {
       const state = await triageStatus(client, root);
       if (alive.current) setStatus(state);
       // Server pri usporiadaní na mieste model odmietne (400 triage_model_in_place).
-      return state.trial && plansPreview(state) ? triagePlan(client, root, useModel && state.mode !== "in_place") : null;
+      return state.trial && plansPreview(state) ? triagePlan(client, root, useModel && state.mode !== "in_place", leaveInPlace) : null;
     });
     if (alive.current && next !== undefined) setPreview(next);
   }, [client, root, run, text]);
@@ -219,7 +222,7 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
       ) : null}
 
       {busy ? <p className="lw-triage-quiet" aria-live="polite">{phase.label}</p> : null}
-      {phase.kind !== "applied" && !askUndo && preview ? <TriagePreviewView preview={preview} text={text} busy={busy} inPlace={inPlace} onKeep={toggleKeep} onLeave={toggleLeave} onConfirm={confirm} onModel={(useModel) => void load(useModel)}
+      {phase.kind !== "applied" && !askUndo && preview ? <TriagePreviewView preview={preview} text={text} busy={busy} inPlace={inPlace} onKeep={toggleKeep} onLeave={toggleLeave} onConfirm={confirm} onModel={(useModel) => void load(useModel, preview.leaveInPlace)}
         model={<ModelPanel root={root} connection={connection} locale={locale} preview={preview} busy={busy} inPlace={inPlace} onOpen={(path) => navigate(path)} onError={(message) => setError(message)} />} /> : null}
     </>
   );
@@ -310,6 +313,9 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
   const groups = groupMoves(preview.moves, matters);
   // Odškrtnutý existujúci priečinok ostane nedotknutý a medzi nové prípady sa nepočíta.
   const proposed = preview.matters.filter((matter) => !matter.left).length;
+  const created = preview.matters.filter((matter) => !matter.left && matter.source !== "folder").length;
+  // Nad limit sa zápis odmietne; advokát to vidí vopred a vie, že má odškrtnúť niektoré priečinky.
+  const tooMany = proposed > MAX_TRIAGE_MATTERS;
   if (preview.documents === 0) return <p className="lw-triage-quiet">{text(inPlace ? "nothing_in_place" : "nothing")}</p>;
   return (
     <>
@@ -317,7 +323,7 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
         <div><dd>{preview.documents}</dd><dt>{text("stat_documents")}</dt></div>
         <div><dd>{preview.moves.length - inbox}</dd><dt>{text("stat_sorted")}</dt></div>
         <div data-tone={inbox ? "calm" : undefined}><dd>{inbox}</dd><dt>{text("stat_inbox")}</dt></div>
-        <div data-tone={proposed ? "gold" : undefined}><dd>{proposed}</dd><dt>{text("stat_matters")}</dt></div>
+        <div data-tone={proposed ? "gold" : undefined}><dd>{proposed}</dd><dt>{text("stat_matters")}<small>{text("stat_matters_new", { count: created })}</small></dt></div>
       </dl>
 
       {/* Na mieste je návrh len deterministický (spec #92): server model odmietne, panel ani prepínač sa neukážu. */}
@@ -330,6 +336,7 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
         </div>
       ) : null}
 
+      {tooMany ? <div className="lw-status warn lw-triage-alert" role="alert"><TriangleAlert aria-hidden size={18} /><span>{text("error_too_many_matters", { max: MAX_TRIAGE_MATTERS })}</span></div> : null}
       {preview.matters.length ? (
         <section className="lw-triage-matters" style={reveal(3)}>
           <h2>{text("matters_title")}</h2>
@@ -396,7 +403,7 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
 
       <footer className="lw-triage-bar" style={reveal(6)}>
         <p>{inPlace ? text("confirm_note_in_place") : text("confirm_note", { count: preview.moves.length })}</p>
-        <button type="button" className="lw-today-primary" disabled={busy || preview.moves.length === 0} onClick={onConfirm}>{text("confirm")}</button>
+        <button type="button" className="lw-today-primary" disabled={busy || tooMany || preview.moves.length === 0} onClick={onConfirm}>{text("confirm")}</button>
       </footer>
     </>
   );

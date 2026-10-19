@@ -81,6 +81,7 @@
 .lw-triage-stats > div { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border: 1px solid var(--td-line); border-radius: var(--td-radius); background: var(--td-glass), var(--lw-surface); }
 .lw-triage-stats dd { order: 1; margin: 0; font-family: var(--lw-font-mono); font-size: 24px; font-weight: 600; }
 .lw-triage-stats dt { order: 2; font-size: 12px; color: var(--lw-text-secondary); }
+.lw-triage-stats dt small { display: block; margin-top: 2px; font-size: 11px; color: var(--lw-text-tertiary); }
 .lw-triage-stats [data-tone="gold"] dd { color: var(--td-gold-hi); }
 .lw-triage-stats [data-tone="calm"] dd { color: var(--lw-text-secondary); }
 
