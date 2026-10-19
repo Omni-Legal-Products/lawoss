@@ -65,7 +65,10 @@ export class ProtectedDocumentTools {
         || protectedMetadataPath(relative(this.workspace.path, physical))
         || (current.provenance.attachmentName !== undefined && protectedMetadataPath(current.provenance.attachmentName)))
         throw new ApiError(403, "protected_source_denied", "Select case evidence without credentials or application instructions.");
-      evidence.push(current);
+      // Re-admitting identical prepared evidence updates list ordering only.
+      // Keep every extraction revision, hash, page and provenance field bound.
+      const { admittedAt: _admittedAt, ...semanticEvidence } = current;
+      evidence.push(semanticEvidence);
     }
     const selected = new Set(this.sources.map(source => source.id));
     const all = await this.documents.list(this.workspace);

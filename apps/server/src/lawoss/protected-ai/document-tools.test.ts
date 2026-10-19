@@ -87,3 +87,36 @@ test("credential, application instructions and their innocently named aliases ar
     for (const source of selected) await expect(ProtectedDocumentTools.open({documents, workspace, sources: [{id: source.id, hash: source.hash}]})).rejects.toMatchObject({code: "protected_source_denied"});
   } finally {await documents.stop(); preparation.stop(); ocr.stop(); await rm(root, {recursive: true, force: true});}
 });
+
+test("readmitting unchanged prepared evidence preserves its binding while preparation revisions and source changes remain binding", async () => {
+  const root = await mkdtemp(join(tmpdir(), "protected-document-readmission-"));
+  const workspace: WorkspaceInfo = { id: "synthetic", name: "Synthetic", path: root, preset: "", workspaceType: "local" };
+  const ocr = new OcrManager(join(root, "ocr")), preparation = new DocumentPreparation(ocr);
+  const documents = new LawossDocuments({ configPath: join(root, "config.json") }, preparation);
+  try {
+    await writeFile(join(root, "selected.txt"), "SELECTED-SYNTHETIC-EVIDENCE");
+    const [selected] = await documents.prepare(workspace, ["selected.txt"]);
+    for (let attempt = 0; attempt < 200; attempt++) { if ((await documents.list(workspace))[0]?.status === "readable") break; await Bun.sleep(10); }
+    const tools = await ProtectedDocumentTools.open({ documents, workspace, sources: [{ id: selected.id, hash: selected.hash }] });
+    const before = await tools.currentBinding(), original = await documents.evidence(workspace, selected.id);
+    const [readmitted] = await documents.prepare(workspace, ["selected.txt"]);
+    expect(readmitted.id).toBe(selected.id); expect(readmitted.admittedAt!).toBeGreaterThan(original.admittedAt!);
+    expect(await tools.currentBinding()).toEqual(before);
+    expect(await tools.invoke("lawoss_documents_list", {}, new AbortController().signal)).toMatchObject({ documents: [{ id: selected.id, admittedAt: readmitted.admittedAt }] });
+    // Controlled host-store fixture changes: none is a new approval. Every
+    // semantic preparation field must still change the operation fingerprint.
+    const path = join(root, ".legalwork", "lawoss-documents", "records.json"), bytes = await readFile(path, "utf8");
+    for (const revise of [
+      (record: Record<string, unknown>) => { record.updatedAt = Number(record.updatedAt) + 1; },
+      (record: Record<string, unknown>) => { record.extraction = "ocr"; },
+      (record: Record<string, unknown>) => { record.pages = [{ page: null, text: "SELECTED-SYNTHETIC-EVIDENCE", source: "ocr", status: "needs-review" }]; },
+      (record: Record<string, unknown>) => { record.provenance = { sourcePath: "selected.txt", depth: 1 }; },
+    ]) {
+      const records: Array<Record<string, unknown>> = JSON.parse(bytes); revise(records[0]); await writeFile(path, JSON.stringify(records));
+      expect((await tools.currentBinding()).sourceSetSha256).not.toBe(before.sourceSetSha256);
+    }
+    await writeFile(path, bytes);
+    await writeFile(join(root, "selected.txt"), "CHANGED-SYNTHETIC-SOURCE");
+    await expect(tools.currentBinding()).rejects.toMatchObject({ code: "document_stale" });
+  } finally { await documents.stop(); preparation.stop(); ocr.stop(); await rm(root, { recursive: true, force: true }); }
+});

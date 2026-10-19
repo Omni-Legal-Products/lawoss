@@ -155,10 +155,17 @@ test("protocol-only VM seam preserves session identity, rewrites only owned dire
     const attachment = join(attachmentFolder, "selected-copy.txt");
     await writeFile(attachment, "SELECTED-CASE-CANARY");
     const queued = { kind: "prompt", ...prompt, parts: [...prompt.parts, { type: "file", mime: "text/plain", url: pathToFileURL(attachment).href, filename: "selected-copy.txt" }] };
+    const beforeReadmission = await documents.evidence(workspace, selected.id);
+    const [readmitted] = await documents.prepare(workspace, ["case/selected.txt"]);
+    expect(readmitted.id).toBe(selected.id);
+    expect(readmitted.admittedAt!).toBeGreaterThan(beforeReadmission.admittedAt!);
+    expect(readmitted.updatedAt).toBe(beforeReadmission.updatedAt);
     const normalized = await runtime.preflightQueued({ workspaceId: workspace.id, sessionId: opened.session.id, execution: queued });
     expect(normalized.parts.every(part => part.type === "text")).toBe(true);
     expect(JSON.stringify(normalized)).toContain("SELECTED-CASE-CANARY");
     expect(JSON.stringify(normalized)).not.toContain("file://");
+    const continued = await runtime.submitQueued({ workspaceId: workspace.id, sessionId: opened.session.id, id: "5668c42e-65e9-438b-9384-ea9940398ab5", execution: queued });
+    expect(continued.status).toBe(204); await continued.arrayBuffer();
     const beforeInvalid = calls.filter(call => call.path.startsWith("/session/ses_fixture/message")).length;
     await writeFile(attachment, "NOT-SELECTED-PRIVATE-CANARY");
     await expect(runtime.submitQueued({ workspaceId: workspace.id, sessionId: opened.session.id, id: "114edff9-437d-45f1-85f0-66edab760a53", execution: queued })).rejects.toMatchObject({ code: "protected_attachment_unselected" });

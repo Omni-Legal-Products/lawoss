@@ -1,3 +1,4 @@
+import { protectedWorkspaceUploadParts } from "../domains/session/surface/composer/composer-draft";
 import { currentTemplateLocale } from "@/lawoss/i18n/template-locale";
 import { allDocumentGenerations, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, hasProtectedDocumentSession, reconcileDocumentGeneration, readDocumentGenerationSnapshot, isDocumentGenerationSnapshotCurrent, observeDocumentGeneration, subscribeDocumentGenerations, documentGenerationsRevision, submitBoundDocumentGeneration, PROTECTED_DOCUMENT_GENERATION_TRANSPORT } from "../domains/session/panel/document-generation-lifecycle";
 import { ensureWorkspaceSessionSync, trackWorkspaceSessionSync } from "../domains/session/sync/session-sync";
@@ -322,7 +323,7 @@ function attachmentMime(attachment: ComposerAttachment) {
   return "text/plain";
 }
 
-async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
+async function draftToParts(draft: ComposerDraft, workspaceRoot: string, uploads?: ReadonlyMap<ComposerPart, FilePartInput>) {
   const parts: Array<TextPartInput | FilePartInput | AgentPartInput> = [];
   const root = workspaceRoot.trim();
 
@@ -342,6 +343,8 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
   };
 
   for (const part of draft.parts) {
+    const uploaded = uploads?.get(part);
+    if (uploaded) {parts.push(uploaded); continue;}
     if (part.type === "text") {
       parts.push({ type: "text", text: part.text });
       continue;
@@ -1485,7 +1488,9 @@ export function SessionRoute() {
         throw new Error("This document session accepts text and copies of its selected documents only.");
       // Uploaded copies retain the ordinary native upload/queue path. The host
       // resolves only original-hash matches and never forwards file URLs to the VM.
-      const parts = await draftToParts(draft,scope.directory);
+      const registeredRoot = workspaces.find(workspace => workspace.id === scope.projectId)?.path ?? "";
+      const uploads = protectedWorkspaceUploadParts(draft, registeredRoot);
+      const parts = await draftToParts(draft,scope.directory, uploads);
       if (options?.queue) {await enqueue({kind: "prompt", parts, model: sendModel, agent: "legalwork", variant: sendVariant ?? undefined}); return;}
       const request = {...buildSessionPromptRequest({sessionID: targetSessionId, parts, model: sendModel, agent: "legalwork", variant: sendVariant ?? undefined}), ...(options?.messageID ? {messageID: options.messageID} : {})};
       if (options?.waitForCompletion) {
@@ -1598,7 +1603,7 @@ export function SessionRoute() {
       const result = await scope.opencode.session.promptAsync(request);
       if (result.error) throw new Error(serializeSDKError(result.error));
     }
-  }, [local, selectedSessionId, selectedWorkspaceId, selectedWorkspaceEndpoint, providerListQuery.data, selectedAgent, modelVariantValue]);
+  }, [local, workspaces, selectedSessionId, selectedWorkspaceId, selectedWorkspaceEndpoint, providerListQuery.data, selectedAgent, modelVariantValue]);
 
   const surfaceProps = useMemo(() => {
     if (!client || !selectedWorkspaceId || !opencodeBaseUrl || !token || !sessionOpencodeClient) {

@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, access, symlink, realpath, ren
 import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadNativeCorpus } from "../lawoss/testing/isir/native/corpus.mjs";
 import { startProvider, decodeNativeToolOutput } from "../lawoss/testing/isir/native/provider.mjs";
 import { partialPdf } from "../lawoss/testing/isir/native/partial-pdf.mjs";
@@ -396,10 +396,17 @@ try {
       const expectation = {workspaceId: workspace.id, hostDirectory: workspace.path, sources: selected};
       approvalScopes.set(workspace.id, expectation); protectedApprovals.expectOperation(expectation);
     }
+    const provisionStartedAtMs=Date.now(), nativeReviewStart=protectedApprovals?.receipts.length??0;
     await click('Generate through chat');
     // Cold VM provisioning and the initial complete-source native review precede
     // inference. Preserve the separate existing 90-second generation oracle.
-    const provisionResponse = await until(()=>cdp.events.slice(eventStart).find(event=>event.method==='Network.responseReceived'&&event.params.response.url.endsWith('/lawoss/documents/generation')&&event.params.response.status===200),'actual confined VM ready response before inference',240000);
+    const provisionResponse = await until(()=>{
+      const events=cdp.events.slice(eventStart);
+      const request=events.find(event=>event.method==='Network.requestWillBeSent'&&event.params.request.method==='POST'&&new URL(event.params.request.url).pathname===`/workspace/${workspace.id}/lawoss/documents/generation`);
+      return request&&events.find(event=>event.method==='Network.responseReceived'&&event.params.requestId===request.params.requestId);
+    },'actual confined VM ready response before inference',240000);
+    console.log('Native provisioning response',JSON.stringify({status:provisionResponse.params.response.status,elapsedMs:Date.now()-provisionStartedAtMs}));
+    assert.equal(provisionResponse.params.response.status,200,'Protected document provisioning must return HTTP200');
     const provision = await until(async()=>{try {return JSON.parse((await cdp.send('Network.getResponseBody',{requestId:provisionResponse.params.requestId})).body);} catch {return false;}},'actual host-to-guest directory mapping');
     assert.equal(provision.directoryMapping.hostDirectory,workspace.path);
     assert.equal(provision.directoryMapping.guestDirectory,'/tmp/home/protected-engine/workspace');
@@ -409,6 +416,8 @@ try {
     assert.equal(provision.session.id,binding.sessionId,"Actual provisioned VM session owns the native prompt");
     assert.match(binding.messageId,/^msg_[a-f0-9]{12}[A-Za-z0-9]{14}$/);
     assert.ok(['accepted','running'].includes(binding.phase),'Immediate acknowledgment stays active');
+    const inferenceStartedAtMs=Date.now();
+    console.log('Native generation ready',JSON.stringify({elapsedMs:Date.now()-provisionStartedAtMs,providerReceiptCount:provider.receipts.length-receiptStart,sourceRequestCount:provider.receipts.slice(receiptStart).filter(receipt=>receipt.sources.length).length,latestOrdinal:Math.max(0,...provider.receipts.slice(receiptStart).map(receipt=>receipt.ordinal??0)),nativeReviewCount:(protectedApprovals?.receipts.length??0)-nativeReviewStart,initialReviewCount:protectedApprovals?.receipts.slice(nativeReviewStart).filter(receipt=>receipt.action==='ai.documents.synthetic').length??0,wireReviewCount:protectedApprovals?.receipts.slice(nativeReviewStart).filter(receipt=>receipt.action==='ai.protected.synthetic').length??0}));
     const generation=await until(()=>{
       const receipts=provider.receipts.slice(receiptStart).filter(r=>r.sources.length);
       const last=receipts.at(-1);
@@ -417,6 +426,7 @@ try {
       const result=last?.toolResults.map(r=>{try{return decodeNativeToolOutput(r.content)}catch{return null}}).find(r=>r&&typeof r.valid==='boolean');
       return result?{result,receipts}:false;
     },'actual engine tool validation result',90000).catch(async error => {
+      console.log('Native generation incomplete',JSON.stringify({elapsedMs:Date.now()-inferenceStartedAtMs,providerReceiptCount:provider.receipts.length-receiptStart,sourceRequestCount:provider.receipts.slice(receiptStart).filter(receipt=>receipt.sources.length).length,latestOrdinal:Math.max(0,...provider.receipts.slice(receiptStart).map(receipt=>receipt.ordinal??0)),nativeReviewCount:(protectedApprovals?.receipts.length??0)-nativeReviewStart,initialReviewCount:protectedApprovals?.receipts.slice(nativeReviewStart).filter(receipt=>receipt.action==='ai.documents.synthetic').length??0,wireReviewCount:protectedApprovals?.receipts.slice(nativeReviewStart).filter(receipt=>receipt.action==='ai.protected.synthetic').length??0}));
       // Private, wholly synthetic failure evidence only. Preserve the original
       // oracle and error; a diagnostic read never counts as tool completion.
       if (corpus.mode === 'synthetic') {
@@ -497,6 +507,10 @@ try {
   const chatRequest=await until(()=>cdp.events.slice(chatStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&new URL(e.params.request.url).pathname===chatQueuePath&&JSON.parse(e.params.request.postData??'{}').type==='enqueue'),'ordinary native chat queue submission');
   const queuedChat=JSON.parse(chatRequest.params.request.postData);
   assert.equal(queuedChat.execution.kind,'prompt');assert.deepEqual(queuedChat.execution.model,{providerID:'isir-native',modelID:'synthetic'});assert.equal(queuedChat.execution.agent,'legalwork');assert.equal(queuedChat.execution.variant,'high');
+  const queuedAttachmentFiles=queuedChat.execution.parts.filter(part=>part.type==='file');
+  assert.equal(queuedAttachmentFiles.length,1,'The structured upload mention becomes one actual typed file capability');
+  assert.equal(queuedAttachmentFiles[0].url,pathToFileURL(attachment).href,'Protected upload uses the registered physical workspace root, not a subcase or Markdown inference');
+
   await until(()=>cdp.events.slice(chatStart).some(e=>e.method==='Network.responseReceived'&&e.params.requestId===chatRequest.params.requestId&&e.params.response.status===200),'ordinary native queue admission returned200');
   diagnostics.promptEnd('attachment');
   const attachmentPath=path.relative(chatWorkspace.path,attachment).replaceAll('\\','/');
@@ -505,7 +519,21 @@ try {
   const uploaded=cdp.events.slice(attachStart).find(e=>e.method==='Network.responseReceived'&&e.params.response.url.endsWith(`/workspace/${chatWorkspace.id}/files/raw`)&&e.params.response.status===200);
   assert.ok(uploaded,'Actual authenticated binary upload returned200');
   extraEvidence.chat={path:attachmentPath,hash:sha256(await readFile(attachment)),uploadStatus:200,promptRequestId:chatRequest.params.requestId};
-  await until(async()=>{const {body}=await api(chatWorkspace,`sessions/${chatEvidence.sessionId}/snapshot?limit=20`);const user=body.item?.messages.find(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('Native attachment submission fixture.')));return body.item?.status.type==='idle'&&user&&body.item.messages.some(m=>m.info.parentID===user.info.id&&m.info.finish==='stop')},'real engine stores and completes native attachment turn');
+  const attachmentSnapshot=await until(async()=>{const {body}=await api(chatWorkspace,`sessions/${chatEvidence.sessionId}/snapshot?limit=20`);const user=body.item?.messages.find(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('Native attachment submission fixture.')));return body.item?.status.type==='idle'&&user&&body.item.messages.some(m=>m.info.parentID===user.info.id&&m.info.finish==='stop')?body.item:false},'real engine stores and completes native attachment turn');
+  const attachmentUser=attachmentSnapshot.messages.find(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('Native attachment submission fixture.')));
+  assert.ok(attachmentUser.parts.every(part=>part.type!=='file'),'The guest never receives a host file URL');
+  const normalizedAttachments=attachmentUser.parts.flatMap(part=>{if(part.type!=='text')return [];try{const value=JSON.parse(part.text);return value?.untrustedSelectedDocument===true?[value]:[]}catch{return []}});
+  assert.equal(normalizedAttachments.length,1,'Actual engine history contains one host-normalized selected source, not only an uploaded path');
+  const normalizedAttachment=normalizedAttachments[0];
+  assert.ok(chatEvidence.documentIds.includes(normalizedAttachment.documentId),'Normalized evidence belongs to this exact protected selection');
+  assert.equal(normalizedAttachment.sha256,sha256(chatSource.bytes));
+  assert.equal(normalizedAttachment.uploadedCopyPath,attachmentPath);
+  let normalizedSourceText='',normalizedSourcePath,normalizedOffset=0;
+  while(normalizedOffset!==null){const {body}=await api(chatWorkspace,`lawoss/documents/${normalizedAttachment.documentId}/read?offset=${normalizedOffset}&limit=16000`);assert.equal(body.hash,normalizedAttachment.sha256);normalizedSourceText+=body.text;normalizedSourcePath=body.provenance.sourcePath;normalizedOffset=body.nextOffset;}
+  assert.ok(normalizedSourceText.length>0,'The normalized attachment contains actual prepared evidence text');
+  assert.equal(normalizedAttachment.text,normalizedSourceText);
+  assert.equal(normalizedAttachment.originalPath,normalizedSourcePath);
+  extraEvidence.chat.normalizedSource={documentId:normalizedAttachment.documentId,sha256:normalizedAttachment.sha256,uploadedCopyPath:normalizedAttachment.uploadedCopyPath,textHash:sha256(Buffer.from(normalizedSourceText))};
   assert.equal(sha256(await readFile(attachment)),sha256(chatSource.bytes));
   console.log('PASS native composer attachment upload, actual saved bytes and real engine submission');
   // Actual saved bytes are the input for invalidation tests, never generated

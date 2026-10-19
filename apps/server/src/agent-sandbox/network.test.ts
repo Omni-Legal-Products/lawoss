@@ -57,6 +57,25 @@ describe("sandbox network boundary", () => {
     })).rejects.toThrow();
   });
 
+  test.each([true, false])("cancellation settles a held approval before its late %s decision without DNS or IO", async decision => {
+    const controller = new AbortController();
+    let reviewing: () => void = () => {}, release: (value: boolean) => void = () => {};
+    const entered = new Promise<void>(resolve => { reviewing = resolve; });
+    const held = new Promise<boolean>(resolve => { release = resolve; });
+    let resolved = false, sent = false;
+    const cancelled = new Error("Cancel this worker's pending review");
+    const result = brokerRequest(prepareOutboundRequest(input), async () => { reviewing(); return held; }, controller.signal, {
+      resolve: async () => { resolved = true; return [{ address: "93.184.216.34", family: 4 }]; },
+      send: async () => { sent = true; return { status: 200, headers: {}, bodyBase64: "" }; },
+    }).catch(error => error);
+    try {
+      await entered; controller.abort(cancelled);
+      expect(await Promise.race([result, Bun.sleep(100).then(() => "still waiting for the external decision")])).toBe(cancelled);
+      release(decision); await result; await Bun.sleep(0);
+      expect({ resolved, sent }).toEqual({ resolved: false, sent: false });
+    } finally { release(decision); await result; }
+  });
+
   test.each(["pending headers", "streaming body"])("cancellation settles the real HTTP broker with %s", async phase => {
     let connected: () => void = () => {};
     const connection = new Promise<void>(resolve => { connected = resolve; });
