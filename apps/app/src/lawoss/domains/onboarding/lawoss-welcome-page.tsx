@@ -559,6 +559,7 @@ export function LawossWelcomePage({
     (reason: unknown) => setError(onboardingErrorMessage(reason, locale)),
     [locale],
   );
+  const clearError = useCallback(() => setError(null), []);
   useEffect(() => {
     void api
       .onboardingStatus()
@@ -867,7 +868,9 @@ export function LawossWelcomePage({
                 }}
                 onRegister={async (result, completion) => { await onRegister?.(result, completion); }}
                 onChangeFolder={() => setFoundRoot(null)}
+                onPickRoot={(path) => { setError(null); setFoundRoot(path); }}
                 onError={reportError}
+                onClearError={clearError}
               />
             ) : (
               <FolderStep

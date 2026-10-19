@@ -1,5 +1,10 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { onboardingErrorMessage } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
+
+// Chyby onboardingu zapisujú surovú správu do konzoly; v teste je to len šum (review 6c).
+let quiet: ReturnType<typeof spyOn>;
+beforeEach(() => { quiet = spyOn(console, "warn").mockImplementation(() => undefined); });
+afterEach(() => { quiet.mockRestore(); });
 
 // Tvar chyby z planShallowClientConversion (C1, review VŘ k #137, bod 2).
 const nested = new Error("The directory could not be inspected completely and unambiguously: Prax/Office/okf.config: conflicting_identity; Archiv/_kancelaria/okf.config: conflicting_identity");
@@ -44,4 +49,13 @@ describe("chyby identity pri pripojení priečinka", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });
+});
+
+test("neprázdny priečinok pri Začať nanovo dostane vlastnú vetu, nie všeobecnú (review 6c)", async () => {
+  const { FRESH_NOT_EMPTY } = await import("../src/lawoss/domains/onboarding/onboarding-errors");
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+  try {
+    expect(onboardingErrorMessage(new Error(FRESH_NOT_EMPTY), "sk")).toBe("Vyberte prázdny priečinok. V okne výberu môžete vytvoriť nový.");
+    expect(onboardingErrorMessage(new Error(FRESH_NOT_EMPTY), "de")).toBe("Wählen Sie einen leeren Ordner. Im Auswahlfenster können Sie einen neuen anlegen.");
+  } finally { warn.mockRestore(); }
 });

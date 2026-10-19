@@ -1,4 +1,4 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, win32 } from "node:path";
 import type { Language } from "../src/i18n";
@@ -6,6 +6,11 @@ import type { OnboardingApi, OnboardingPlanRequest } from "../src/lawoss/domains
 import { cloneTargetOf, existingClientTitle, onboardingErrorMessage, parentFolderOf, trialCloneName } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
 import { canonicalPathOf, canonicalPathRejection, unquotedTypedPath, withCanonicalPaths } from "../src/lawoss/domains/onboarding/typed-paths";
 import { canonicalTypedDirectory } from "../../desktop/electron/lawoss-picked-path.mjs";
+
+// Chyby onboardingu zapisujú surovú správu do konzoly; v teste je to len šum (review 6c).
+let quiet: ReturnType<typeof spyOn>;
+beforeEach(() => { quiet = spyOn(console, "warn").mockImplementation(() => undefined); });
+afterEach(() => { quiet.mockRestore(); });
 
 const repo = join(import.meta.dir, "../../..");
 const source = (path: string) => readFileSync(join(repo, path), "utf8");

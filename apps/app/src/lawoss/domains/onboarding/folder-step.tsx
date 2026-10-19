@@ -5,6 +5,7 @@ import type { OnboardingApi, OnboardingApplyResult } from "./api";
 import { startFreshFolder, type FoundIdentity } from "./found-flow";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
+import { FRESH_NOT_EMPTY } from "./onboarding-errors";
 
 type Text = (key: FoundTextKey, params?: Record<string, string | number>) => string;
 
@@ -92,7 +93,7 @@ export function FolderStep({ api, identity, text, pickDirectory, onFound, onAckn
       const parent = await pickDirectory();
       if (!parent) return;
       const result = await startFreshFolder(api, parent, identity, onAcknowledge);
-      if (result === "not_empty") onError(new Error(text("freshNotEmpty")));
+      if (result === "not_empty") onError(new Error(FRESH_NOT_EMPTY));
       else setFresh(result);
     } catch (reason) {
       onError(reason);

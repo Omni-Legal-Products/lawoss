@@ -9,7 +9,11 @@ import {
   UNSAFE_FOLDER_NAME_MESSAGE,
 } from "../../../../../../lawoss/okf/src/onboarding/messages";
 import { OFFICE_CONFIG_ENCODING_MESSAGE } from "../../../../../../lawoss/okf/src/profile";
+import { foundText } from "./found-text";
 import { canonicalPathRejection } from "./typed-paths";
+
+/** „Začať nanovo“ do neprázdneho priečinka (folder-step.tsx); appka ho vysvetlí vetou kroku Priečinok. */
+export const FRESH_NOT_EMPTY = "fresh_not_empty";
 
 const unsafeFolderName: Record<Language, string> = {
   sk: "Názov priečinka nesmie byť prázdny, začínať bodkou, obsahovať znaky / \\ : < > \" | ? * ani mať viac ako 120 znakov. Bodky vnútri názvu, napríklad „s. r. o.“, sú v poriadku.",
@@ -88,6 +92,7 @@ const folderTooLargeMessage = (error: unknown, locale: Language) =>
 export function onboardingErrorMessage(error: unknown, locale: Language): string {
   console.warn("LAWOSS onboarding:", error);
   if (error instanceof Error && error.message === UNSAFE_FOLDER_NAME_MESSAGE) return unsafeFolderName[locale];
+  if (error instanceof Error && error.message === FRESH_NOT_EMPTY) return foundText(locale)("freshNotEmpty");
   return lockedFilesMessage(error, locale) ??
     identityMessage(error, locale) ??
     folderTooLargeMessage(error, locale) ??

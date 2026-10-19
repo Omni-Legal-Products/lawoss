@@ -166,6 +166,20 @@ export async function registerThenReorganize(register: () => Promise<void>, clie
   return reorganizePreview(client, item);
 }
 
+/** Zdieľané disky Google Drive v jazykoch rozhrania Disku (SK, CS, EN, DE). */
+const SHARED_DRIVE = /(?:^|[\\/])(?:Shared drives|Zdieľané disky|Sdílené disky|Geteilte Ablagen)(?:[\\/]|$)/i;
+/** Synchronizované priečinky: macOS File Provider (`~/Library/CloudStorage`), OneDrive, Dropbox, Disk Google, iCloud. */
+const CLOUD_FOLDER = /[\\/]Library[\\/]CloudStorage[\\/]|[\\/]Mobile Documents[\\/]com~apple~CloudDocs(?:[\\/]|$)|(?:^|[\\/])(?:OneDrive(?: - [^\\/]+|-[^\\/]+)?|Dropbox|Google Drive|My Drive|Môj disk|Můj disk|Meine Ablage|iCloud Drive)(?:[\\/]|$)/i;
+
+/**
+ * Priečinok, do ktorého sa zapisuje, je na zdieľanom disku (vidia ho kolegovia) alebo v cloude
+ * (zapísané súbory sa synchronizujú). MČ 19. 10. 2026: upozorniť pred zápisom, neblokovať.
+ */
+export function cloudFolderKind(path: string): "shared" | "cloud" | null {
+  if (SHARED_DRIVE.test(path)) return "shared";
+  return CLOUD_FOLDER.test(path) ? "cloud" : null;
+}
+
 export function firstWorkspaceResult(items: readonly BatchItem[]): OnboardingApplyResult | undefined {
   return items.find(item => item.status === "done" && item.result?.workspace)?.result;
 }

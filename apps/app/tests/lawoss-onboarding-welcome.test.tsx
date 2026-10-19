@@ -59,6 +59,13 @@ describe("LAWOSS welcome flow", () => {
     expect(html).not.toContain("Start fresh");
   });
 
+  test("Vybrať iný priečinok je dostupné už počas prezerania priečinka (MČ 19. 10.)", () => {
+    const html = page("folder", { initialRoot: "/Users/a/Klienti/Novák" });
+    expect(html).toContain("Looking at the folder…");
+    expect(html).toMatch(/<button[^>]*>Choose another folder<\/button>/);
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Choose another folder/);
+  });
+
   test("obrazovka Toto som našiel nahradí krok Priečinok aj po obnovení na kroku found", () => {
     const html = page("found", { initialRoot: "/x" });
     expect(html).toContain("Looking at the folder…");
