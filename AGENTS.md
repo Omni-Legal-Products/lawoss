@@ -136,6 +136,8 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 ## Workspace persistence and recovery
 
+- Initial and periodic background synchronization share generation-scoped admission/backoff across metadata rerenders. Pause unavailable roots until explicit reconnect or root/capability change, retain unrelated workspaces, and reject late responses from retired generations.
+
 - Treat stable workspace identity, current filesystem root, and app-owned storage key as separate persisted values. Reusing an old filesystem path must not reuse another workspace's identity or outside storage.
 - Historical paths and captured session IDs are lookup metadata, never additional filesystem permission. Revalidate mappings against the current canonical root before reading a recovered project's memory or artifacts.
 - Use supported engine APIs for changing session execution directories; request headers alone do not prove that tools run in the new directory. Verify with an actual tool invocation and preserve original session/message IDs. Do not edit the engine's internal database.
