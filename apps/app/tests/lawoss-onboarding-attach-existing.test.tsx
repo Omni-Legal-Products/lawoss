@@ -81,6 +81,18 @@ describe("connecting an existing client folder", () => {
     expect(novySpis).not.toContain("canonical: true");
   });
 
+  test("a fresh office lands on Klienti a prípady after registration (test 19. 10. 2026)", () => {
+    const route = readFileSync(join(import.meta.dir, "../src/react-app/shell/welcome-route.tsx"), "utf8");
+    expect(route).toContain("navigate(completion?.landing ?? (activeId ? homeRoute(activeId) : \"/home\"), { replace: true });");
+    const page = readFileSync(join(import.meta.dir, "../src/lawoss/domains/onboarding/lawoss-welcome-page.tsx"), "utf8");
+    expect(page).toContain("onFreshDone={(result, parent) => complete(result, freshOfficeCompletion(parent))}");
+  });
+
+  test("an empty office shows Klienti with Pridať klienta as the next step", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><ClientsView groups={[]} locale="sk" /></MemoryRouter>);
+    expect(html).toMatch(/lw-clients-empty[\s\S]*class="lw-today-primary" href="\/welcome\?continue=client"[^>]*>Pridať klienta/);
+  });
+
   test("the sidebar icon and the settings button carry the full name", () => {
     const html = renderToStaticMarkup(<MemoryRouter>{withQuery(<OnboardingEntryActions compact />)}</MemoryRouter>);
     expect(html).toContain('aria-label="Add folder"');

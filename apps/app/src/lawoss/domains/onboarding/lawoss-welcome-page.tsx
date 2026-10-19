@@ -50,6 +50,7 @@ import { TriageEntry } from "../roztriedenie/triage-entry";
 import type { TriageClient } from "../roztriedenie/api";
 import { FolderStep } from "./folder-step";
 import { FoundScreen, OkfNotice } from "./found-screen";
+import { freshOfficeCompletion } from "./found-flow";
 import { foundText } from "./found-text";
 import { unquotedTypedPath } from "./typed-paths";
 import { onboardingErrorMessage } from "./onboarding-errors";
@@ -501,6 +502,8 @@ export type OnboardingCompletion = {
   workingFolder?: string;
   /** Všetci klienti dávky praxe s pracovným priečinkom (aj prvý); volajúci každého zaregistruje. */
   clients?: OnboardingApplyResult[];
+  /** Kam appka po dokončení prejde; bez neho domov vybraného priečinka. */
+  landing?: string;
 };
 type Props = {
   api: WelcomeApi;
@@ -740,11 +743,11 @@ export function LawossWelcomePage({
       setBusy(false);
     }
   };
-  const complete = async (result: OnboardingApplyResult | undefined) => {
+  const complete = async (result: OnboardingApplyResult | undefined, completion?: OnboardingCompletion) => {
     setBusy(true);
     setError(null);
     try {
-      await finish(profile, result);
+      await finish(profile, result, completion);
     } catch (reason) {
       setError(onboardingErrorMessage(reason, locale));
     } finally {
@@ -897,8 +900,9 @@ export function LawossWelcomePage({
                   setFoundRoot(root);
                 }}
                 onAcknowledge={() => acknowledgeOkf()}
-                // R7: „Začať nanovo“ nezaregistruje pracovný priečinok; appka ide na domov s interným priestorom.
-                onFreshDone={() => complete(undefined)}
+                // „Začať nanovo“: nová kancelária sa zaregistruje a vyberie ako pracovný priečinok (test 19. 10. 2026,
+                // pôvodne R7 bez registrácie) a advokát pristane na Klienti a prípady pri „Pridať klienta“.
+                onFreshDone={(result, parent) => complete(result, freshOfficeCompletion(parent))}
                 onError={reportError}
               />
             )

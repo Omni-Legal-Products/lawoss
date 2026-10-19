@@ -24,7 +24,8 @@ import "./clients.css";
 
 export function ClientsPage() {
   const locale = useLocale();
-  return <OkfPage {...litePageProps(locale)} hasContent={(data) => data.matters.length > 0 || (data.clients?.length ?? 0) > 0}>{(data, meta, scope) => <ClientsLive data={data} meta={meta} scope={scope} locale={locale} />}</OkfPage>;
+  // Úplne prečítaná prázdna kancelária („Začať nanovo“) ukáže Klientov s „Pridať klienta“, nie prázdny stav prípadov.
+  return <OkfPage {...litePageProps(locale)} hasContent={(data) => data.matters.length > 0 || (data.clients?.length ?? 0) > 0 || !(data.problems.length || data.truncated)}>{(data, meta, scope) => <ClientsLive data={data} meta={meta} scope={scope} locale={locale} />}</OkfPage>;
 }
 
 function ClientsLive({ data, meta, scope, locale }: { data: OkfReadResult; meta: OkfPageMeta; scope: OkfScope | null; locale: Language }) {
@@ -100,6 +101,7 @@ export function ClientsView({ groups: all, meta, locale: forced, actions, choice
       {groups.length === 0 ? <div className="lw-clients-empty" style={reveal(1)}>
         <FolderOpen aria-hidden size={28} />
         <p>{text("clients_empty")}</p>
+        <Link className="lw-today-primary" to={NEW_CLIENT_PATH}>{text("add_client")}</Link>
       </div> : <div className="lw-clients-grid">
         {groups.map((group, index) => {
           const hot = group.matters.some((m) => matterUrgency(m.deadlines, now) === "hot");

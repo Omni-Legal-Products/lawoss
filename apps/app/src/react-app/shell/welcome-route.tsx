@@ -95,6 +95,7 @@ export function WelcomeRoute() {
       for (const other of completion?.clients ?? []) if (other.workspace && other.workspace.id !== registered.id) await installMissingOnboardingSkills(registered.client, other.workspace.id, status.profile?.language ?? "sk").catch((reason: unknown) => console.warn("[lawoss] OKF skills for another practice client", reason));
     }
     local.setPrefs((previous) => ({ ...previous, documentAuthor: authorAfterOnboarding(previous.documentAuthor, status.profile?.lawyerName), hasCompletedOnboarding: true }));
-    navigate(activeId ? homeRoute(activeId) : "/home", { replace: true });
+    // 🟡 LAWOSS: „Začať nanovo“ pristane na Klienti a prípady (`completion.landing`, test 19. 10. 2026).
+    navigate(completion?.landing ?? (activeId ? homeRoute(activeId) : "/home"), { replace: true });
   }} />;
 }
