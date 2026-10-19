@@ -65,7 +65,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.targets.outputs.runtime) }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
         with:
@@ -155,7 +155,8 @@ jobs:
         run: node scripts/sandbox/prepare-protected-test.mjs
       - name: Verify actual confined document tools, cold restore and raw egress denial
         if: inputs.run_tests
-        timeout-minutes: 15
+        # Serial test ceilings total 23 minutes; individual 240s/90s limits stay unchanged.
+        timeout-minutes: 25
         run: bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts apps/server/src/lawoss/protected-ai/vm-engine.integration.test.ts apps/server/src/lawoss/protected-ai/readiness.integration.test.ts
       - name: Preserve executable modes in runtime artifact
         shell: bash

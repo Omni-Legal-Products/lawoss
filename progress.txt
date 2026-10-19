@@ -1,5 +1,6 @@
 ## Codebase Patterns
 
+- Size outer CI batches from all serial test ceilings, including metadata readiness cases; allow measured setup/build and prior suites at job level without altering individual provisioning, inference or positive oracles.
 - Scope missing-browser API adapters to the owning test fixture, drain their real callbacks, then restore exact global descriptors; leaked animation scheduling can activate browser work in later SSR imports.
 - Protected readiness uses an absolute monotonic host deadline through completed instance metadata; cancel startup expiry only after valid readiness, and keep health and inference budgets separate.
 - Queue admission stores a fully host-validated intent without cold execution; delivery repeats current authority and source checks. Read-only runtime state must describe provisioning independently of model completion.
@@ -614,3 +615,8 @@ Added the independent two-snapshot/two-receipt reproduction as a failing owner-l
 - Root cause: sonner-toast-dismiss.test.ts installed a process-global RAF→timer adapter without restoration. A private two-import driver reproduces actual CI import order with real sonner/SessionSurface/Motion: RED3PASS1FAIL; after scoped beforeEach/afterEach own-callback drain and exact descriptor restoration, SAME-order GREEN4PASS36assertions. Whole ordered covering gate166PASS2391assertions49.77s.
 - Root full current app2646PASS2existingplatformSKIP0FAIL119515assertions374files103.45s; strict app typecheck PASS. Independent lifecycle/oracle review: no material finding. Production sources, SSR fixture, animation implementation, SSE logic and budgets/oracles unchanged.
 - Changed files: apps/app/tests/sonner-toast-dismiss.test.ts; consolidated PATCHES.md row; identical AGENTS.md/CLAUDE.md guidance; progress.txt. Original failure and public RED/GREEN logs retained privately. Fresh GitHub/source/platform/package acceptance still required; no merge armed.
+
+## 2026-10-19T19:24:08.588738+00:00 — Complete serial runtime CI budget
+- Current runtime acceptance now invokes five serial tests with unchanged ceilings600s+240s+3x180s=1380s/23min. Existing outer15min step cannot cover this already allowed workload. Existing job60min leaves only5min after first30min and new25min windows; observed Intel setup3m36s+QEMUbuild17m31s independently exceed that allowance. No failure cause inferred from the still-running Intel job.
+- Private published-YAML arithmetic preflight RED: both outer step/job insufficient; GREEN after only outer step25min/job90min. Both original test files still invoked, no continue-on-error. YAML parsed normally; production/test sources, commands, per-test600/240/180, host provisioning240s and inference90s unchanged. No permanent config-mirror test added.
+- Changed .github/workflows/sandbox-runtime.yml; consolidated PATCHES.md; identical AGENTS.md/CLAUDE.md; progress.txt. Independent read-only budget arithmetic review agrees. Original current9c CI remains retained:5/6actualplatforms accepted and full Linux package/native/security/ASAR/VMprobe/startup PASS. Other jobs remain unverified until completion.
