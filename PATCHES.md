@@ -1121,3 +1121,10 @@ The green-zone engine guard inventories installed SDK v2 prompt/compact, legacy 
 | Green-zone file | Change and validation |
 | --- | --- |
 | `lawoss/okf/test/deadline-trust.test.ts` | Build the synthetic managed-record input with the existing portable envelope writer instead of importing server calculation/codec fixtures. Preserve all host-evidence, forged human attribution, cockpit and external-edit assertions. The actual standalone CI filtered install now passes strict typecheck, all OKF tests and unchanged reproducible bundle; server deadline codec/receipt regressions stay separate and unchanged. No production authority, package dependencies or workflow changes. |
+
+### Session-group synchronization lifetime (2026-10-18)
+
+| Súbory | Oprava a dôkaz |
+|---|---|
+| `apps/app/src/react-app/shell/use-session-group-sync.ts`, `apps/app/src/react-app/shell/session-group-sync-controller.ts` | Jediný životný cyklus vlastní initial sync, polling, cursory a backoff naprieč metadata rendermi. Nedostupný root čaká na existujúcu akciu reconnect alebo zmenu root/capability; žiadny projekt sa nemaže. Generačné kontroly odmietnu oneskorené odpovede; reconnect počas pending čítania sa zopakuje až po uvoľnení vlastníka. |
+| `apps/app/tests/session-group-sync-controller.test.ts`, `apps/app/tests/session-group-sync.fixture.tsx`, `apps/app/tests/fixtures/session-group-sync.html` | Jednotkové interleaving/fake-clock regresie a skutočne mounted React hook s existujúcim HTTP klientom v izolovanom Chromiu. Tridsať minút je simulovaný čas, nie 30-minútový wall-clock Electron test; sedem nedostupných projektov vyvolá sedem vlastných warnings, dostupný ďalej polluje. |
