@@ -32,6 +32,7 @@ export function friendlyError(error: unknown, text: Text): string {
   console.warn("LAWOSS triage:", error);
   if (error instanceof LegalworkServerError) {
     if (error.code === "not_trial_clone") return text("not_client_folder");
+    if (error.code === "triage_too_large") return text("error_too_large");
     if (error.code === OFFICE_CONFIG_ENCODING_CODE) return text("error_office_config");
     if (error.code === "stale_preview" || (error.code === "triage_conflict" && /zmenil/.test(error.message))) return text("error_changed");
     if (error.code === "triage_conflict" && error.message.includes(": ")) return text("error_undo", { paths: error.message.slice(error.message.indexOf(": ") + 2) });

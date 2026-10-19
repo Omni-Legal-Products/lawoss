@@ -25,8 +25,13 @@ export const TRIAL_MARKER = ".lawoss-trial.json";
 export const TRIAGE_DIR = ".lawoss/triage";
 /** Najviac dokumentov v jednom behu; väčší klient sa roztriedi po častiach (najprv jeden priečinok). */
 export const MAX_TRIAGE_DOCUMENTS = 2000;
+/** Limity čítania priečinka klienta pri usporiadaní (náhľad aj zápis); onboarding má vlastné, nižšie (R7). */
+export const TRIAGE_INSPECTION_LIMITS: InspectionLimits = { maxBytes: 4 * 1024 ** 3, maxEntries: 20_000 };
 
 export class TrialCloneError extends Error { readonly code = "not_trial_clone"; }
+/** Klient prekročil `TRIAGE_INSPECTION_LIMITS`; appka ukáže vetu pre advokáta podľa kódu. */
+export class TriageTooLargeError extends Error { readonly code = "triage_too_large"; }
+const TOO_LARGE = "Priečinok klienta je príliš veľký na usporiadanie naraz (viac ako 4 GB alebo 20 000 súborov). Zvoľte „Nie, nechaj ho tak, ako je“ alebo usporiadajte menší podpriečinok.";
 const NOT_TRIAL_CLONE = "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli.";
 
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -194,7 +199,9 @@ export const onlyLockedIssues = (inspection: OnboardingInspection): boolean =>
  */
 export async function scanTriage(rootInput: string, options: TriageTargetOptions & { trialJournalDirectory?: string; limits?: InspectionLimits; jurisdiction?: "sk" | "cz"; hooks?: TriageHooks } = {}): Promise<TriageInventory> {
   const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory, options);
-  const inspection = await inspectOnboardingRoot(clone.root, options.limits, options.hooks);
+  const inspection = await inspectOnboardingRoot(clone.root, options.limits ?? TRIAGE_INSPECTION_LIMITS, options.hooks);
+  // Limit hľadať medzi všetkými problémami: zamknutý súbor pred ním by ho inak zakryl.
+  if (inspection.issues.some(issue => issue.code === "byte_limit" || issue.code === "entry_limit")) throw new TriageTooLargeError(TOO_LARGE);
   if (!inspection.complete && !onlyLockedIssues(inspection)) {
     const issue = inspection.issues[0];
     throw new Error(issue?.code === "symlink_not_followed" ? `Priečinok obsahuje symbolický odkaz (${issue.path}); roztriedenie ho nesleduje. Odstráňte ho z priečinka.` : `Priečinok sa nepodarilo prečítať celý (${issue?.code ?? "neznámy dôvod"}${issue?.path ? `: ${issue.path}` : ""}).`);
