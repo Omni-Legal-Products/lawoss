@@ -52,11 +52,6 @@ describe("výber klienta v praxi", () => {
     expect(clientRootOf(practice, "Horak")).toBe(`${ROOT}/Horak`);
     expect(clientRootOf(practice, "Horak/Spisy")).toBeUndefined();
     expect(clientRootOf(okfScope([alfa], alfa, null), "")).toBeUndefined();
-    // Klient v priečinku kancelárie (Klienti/…): jeho priečinok pod otvoreným priečinkom (test 19. 10. 2026).
-    const office = ws("office", "/AK");
-    expect(clientRootOf(okfScope([office], office, null), "Klienti/ACME")).toBe("/AK/Klienti/ACME");
-    const windows = ws("win", "C:\\AK");
-    expect(clientRootOf(okfScope([windows], windows, null), "Klienti/ACME")).toBe("C:\\AK\\Klienti\\ACME");
     expect(newMatterLink()).toBe(NEW_MATTER_PATH);
     expect(newMatterLink(`${ROOT}/Horak`)).toBe(`${NEW_MATTER_PATH}&root=${encodeURIComponent(`${ROOT}/Horak`)}`);
   });

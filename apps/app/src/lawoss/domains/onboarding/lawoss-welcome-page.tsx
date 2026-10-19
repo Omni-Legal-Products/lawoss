@@ -50,7 +50,7 @@ import { TriageEntry } from "../roztriedenie/triage-entry";
 import type { TriageClient } from "../roztriedenie/api";
 import { FolderStep, ScreenHead } from "./folder-step";
 import { FoundScreen, OkfNotice } from "./found-screen";
-import { freshOfficeCompletion } from "./found-flow";
+import { FRESH_OFFICE_COMPLETION } from "./found-flow";
 import { foundText } from "./found-text";
 import { unquotedTypedPath } from "./typed-paths";
 import { onboardingErrorMessage } from "./onboarding-errors";
@@ -900,9 +900,9 @@ export function LawossWelcomePage({
                   setFoundRoot(root);
                 }}
                 onAcknowledge={() => acknowledgeOkf()}
-                // „Začať nanovo“: nová kancelária sa zaregistruje a vyberie ako pracovný priečinok (test 19. 10. 2026,
-                // pôvodne R7 bez registrácie) a advokát pristane na Klienti a prípady pri „Pridať klienta“.
-                onFreshDone={(result, parent) => complete(result, freshOfficeCompletion(parent))}
+                // R7: „Začať nanovo“ nezaregistruje koreň kancelárie ako pracovný priečinok (rozhodnutie 19. 10. 2026);
+                // advokát pristane na Klienti a prípady pri „Pridať klienta“.
+                onFreshDone={(result) => complete(result, FRESH_OFFICE_COMPLETION)}
                 onError={reportError}
               />
             )

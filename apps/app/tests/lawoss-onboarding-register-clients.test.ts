@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { OnboardingApplyResult } from "../src/lawoss/domains/onboarding/api";
 import { registerOnboardedWorkspace, registerOtherClients, type RegisterWorkspaceDeps } from "../src/lawoss/domains/onboarding/register-clients";
-import { freshOfficeCompletion } from "../src/lawoss/domains/onboarding/found-flow";
+import { FRESH_OFFICE_COMPLETION } from "../src/lawoss/domains/onboarding/found-flow";
 import { LITE_CLIENTS_PATH } from "../src/lawoss/lite/links";
 
 const client = (id: string, path: string): OnboardingApplyResult => ({ result: "applied", clientRoot: path, workspace: { id, path } });
@@ -40,7 +40,7 @@ describe("registrácia a výber pripojeného priečinka (MČ 19. 10.: odolné vo
       registerWorkingFolder: async (path) => { calls.push(`folder:${path}`); return { id: "ws-folder", path }; },
       createNative: async (input) => {
         calls.push(`create:${input.folderPath}`);
-        if (!natives.some(item => item.path === input.folderPath)) natives.push({ id: input.folderPath === "/k/Novák" ? "ws-novak" : input.folderPath === "/p/Nová kancelária" ? "ws-folder" : `ws:${input.folderPath}`, path: input.folderPath });
+        if (!natives.some(item => item.path === input.folderPath)) natives.push({ id: input.folderPath === "/k/Novák" ? "ws-novak" : `ws:${input.folderPath}`, path: input.folderPath });
         return { workspaces: [...natives] };
       },
       selectNative: async (id) => { calls.push(`select:${id}`); },
@@ -73,13 +73,12 @@ describe("registrácia a výber pripojeného priečinka (MČ 19. 10.: odolné vo
     expect((await registerOnboardedWorkspace(deps, undefined, { workingFolder: "/p" }))?.id).toBe("ws-folder");
     expect(calls).toContain("folder:/p");
   });
-  test("Začať nanovo: nová kancelária sa zaregistruje a vyberie skôr, než sa ukáže (test 19. 10. 2026)", async () => {
+  test("Začať nanovo: koreň kancelárie sa nezaregistruje ani nevyberie, len sa pristane na Klienti (rozhodnutie 19. 10. 2026)", async () => {
     const { calls, deps } = fakeDeps(true);
     const office: OnboardingApplyResult = { result: "applied", root: "/p/Nová kancelária/Office" };
-    const completion = freshOfficeCompletion("/p/Nová kancelária");
-    expect(completion).toEqual({ workingFolder: "/p/Nová kancelária", landing: LITE_CLIENTS_PATH });
-    expect((await registerOnboardedWorkspace(deps, office, completion))?.id).toBe("ws-folder");
-    expect(calls).toEqual(["list", "folder:/p/Nová kancelária", "create:/p/Nová kancelária", "select:ws-folder", "runtime:ws-folder", "ensure:ws-folder", "activate:ws-folder", "remember:ws-folder"]);
+    expect(FRESH_OFFICE_COMPLETION).toEqual({ landing: LITE_CLIENTS_PATH });
+    expect(await registerOnboardedWorkspace(deps, office, FRESH_OFFICE_COMPLETION)).toBeUndefined();
+    expect(calls).toEqual(["list"]);
   });
 });
 

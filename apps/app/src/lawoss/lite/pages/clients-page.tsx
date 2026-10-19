@@ -25,7 +25,8 @@ import "./clients.css";
 export function ClientsPage() {
   const locale = useLocale();
   // Úplne prečítaná prázdna kancelária („Začať nanovo“) ukáže Klientov s „Pridať klienta“, nie prázdny stav prípadov.
-  return <OkfPage {...litePageProps(locale)} hasContent={(data) => data.matters.length > 0 || (data.clients?.length ?? 0) > 0 || !(data.problems.length || data.truncated)}>{(data, meta, scope) => <ClientsLive data={data} meta={meta} scope={scope} locale={locale} />}</OkfPage>;
+  // Bez pripojeného priečinka (nová kancelária zo „Začať nanovo“ sa neregistruje) Klienti ponúknu „Pridať klienta“.
+  return <OkfPage {...litePageProps(locale)} noWorkspace={<ClientsView groups={[]} locale={locale} />} hasContent={(data) => data.matters.length > 0 || (data.clients?.length ?? 0) > 0 || !(data.problems.length || data.truncated)}>{(data, meta, scope) => <ClientsLive data={data} meta={meta} scope={scope} locale={locale} />}</OkfPage>;
 }
 
 function ClientsLive({ data, meta, scope, locale }: { data: OkfReadResult; meta: OkfPageMeta; scope: OkfScope | null; locale: Language }) {

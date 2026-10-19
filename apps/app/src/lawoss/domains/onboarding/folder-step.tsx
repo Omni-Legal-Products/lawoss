@@ -81,8 +81,7 @@ type Props = {
   onFound: (root: string) => void;
   /** Vzatie oznámenia OKF na vedomie (zapíše sa len raz za verziu oznámenia). */
   onAcknowledge: () => Promise<void>;
-  /** `parent`: vybraný priečinok, v ktorom vznikla kancelária; volajúci ho zaregistruje ako pracovný priečinok. */
-  onFreshDone: (result: OnboardingApplyResult, parent: string) => Promise<void> | void;
+  onFreshDone: (result: OnboardingApplyResult) => Promise<void> | void;
   onError: (reason: unknown) => void;
   /** Späť alebo Zrušiť od volajúceho, zobrazené pri nadpise. */
   nav?: ReactNode;
@@ -91,7 +90,7 @@ type Props = {
 /** „Začať nanovo“: prázdny vybraný priečinok dostane kanceláriu, `AGENTS.md` praxe a `Klienti/`. */
 export function FolderStep({ api, identity, text, pickDirectory, onFound, onAcknowledge, onFreshDone, onError, nav }: Props) {
   const [busy, setBusy] = useState(false);
-  const [fresh, setFresh] = useState<{ result: OnboardingApplyResult; parent: string } | null>(null);
+  const [fresh, setFresh] = useState<OnboardingApplyResult | null>(null);
   // Otázka pred zápisom do zdieľaného alebo cloudového priečinka; odpoveď dokončí čakajúci `confirm`.
   const [cloudAsk, setCloudAsk] = useState<{ kind: "shared" | "cloud"; answer: (proceed: boolean) => void } | null>(null);
   // Dvojklik na „Dokončiť“ nesmie dokončiť onboarding dvakrát; ref platí ešte pred novým vykreslením.
@@ -110,10 +109,7 @@ export function FolderStep({ api, identity, text, pickDirectory, onFound, onAckn
       const result = await freshFolderFlow({
         pick: pickDirectory,
         confirm: (kind) => new Promise<boolean>((resolve) => setCloudAsk({ kind, answer: (proceed) => { setCloudAsk(null); resolve(proceed); } })),
-        start: async (parent) => {
-          const created = await startFreshFolder(api, parent, identity, onAcknowledge);
-          return created === "not_empty" ? created : { result: created, parent };
-        },
+        start: (parent) => startFreshFolder(api, parent, identity, onAcknowledge),
       });
       if (result === "not_empty") onError(new Error(FRESH_NOT_EMPTY));
       else if (result) setFresh(result);
@@ -123,12 +119,12 @@ export function FolderStep({ api, identity, text, pickDirectory, onFound, onAckn
       setBusy(false);
     }
   };
-  const finish = async (done: { result: OnboardingApplyResult; parent: string }) => {
+  const finish = async (result: OnboardingApplyResult) => {
     if (finishing.current) return;
     finishing.current = true;
     setBusy(true);
     try {
-      await onFreshDone(done.result, done.parent);
+      await onFreshDone(result);
     } finally {
       finishing.current = false;
       setBusy(false);

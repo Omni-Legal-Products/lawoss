@@ -146,12 +146,11 @@ export async function startFreshFolder(api: FlowApi & Pick<OnboardingApi, "sugge
 }
 
 /**
- * Dokončenie „Začať nanovo“ (test 19. 10. 2026): vybraný priečinok s novou kanceláriou sa zaregistruje ako
- * pracovný priečinok (inak ho bočný panel nevidí) a advokát pristane na Klienti a prípady pri „Pridať klienta“.
+ * Dokončenie „Začať nanovo“ (rozhodnutie 19. 10. 2026): koreň kancelárie sa ako pracovný priečinok neregistruje
+ * (každý klient je samostatný priečinok, kancelária nie je klient v bočnom paneli); profil drží `officeRoot`.
+ * Advokát pristane na Klienti a prípady pri „Pridať klienta“; každý pridaný klient sa zaregistruje sám.
  */
-export function freshOfficeCompletion(parent: string): OnboardingCompletion {
-  return { workingFolder: parent, landing: LITE_CLIENTS_PATH };
-}
+export const FRESH_OFFICE_COMPLETION: OnboardingCompletion = { landing: LITE_CLIENTS_PATH };
 
 /** „Áno, usporiadaj“: výslovný súhlas, potom náhľad presunov; zápis až po potvrdení náhľadu. */
 export async function startReorganize(client: TriageClient, root: string): Promise<TriagePreview> {

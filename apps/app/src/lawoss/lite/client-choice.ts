@@ -40,16 +40,8 @@ export function defaultClientChoice(choices: readonly ClientChoice[], activeId?:
 /** Formulár novej veci rovno pre klienta (`root` odovzdá `welcome-route` ako `initialRoot`). */
 export const newMatterLink = (clientRoot?: string): string => clientRoot ? `${NEW_MATTER_PATH}&root=${encodeURIComponent(clientRoot)}` : NEW_MATTER_PATH;
 
-/**
- * Klient z karty v prehľade (cesta voči koreňu praxe) → jeho priečinok, ak je to registrovaný klient.
- * Mimo praxe je klient podpriečinkom otvoreného priečinka (`Klienti/ACME` v kancelárii, test 19. 10. 2026);
- * klient, ktorý je celým otvoreným priečinkom (`""`), ostáva na otvorenom klientovi formulára.
- */
+/** Klient z karty v prehľade (cesta voči koreňu praxe) → jeho priečinok, ak je to registrovaný klient. */
 export function clientRootOf(scope: OkfScope | null, clientPath: string): string | undefined {
-  if (!scope) return undefined;
-  if (scope.practiceRoot) return scope.members.find((m) => m.prefix === clientPath)?.workspace.path;
-  if (!clientPath) return undefined;
-  const base = scope.anchor.path.replace(/[\\/]+$/, "");
-  const separator = base.includes("\\") && !base.includes("/") ? "\\" : "/";
-  return [base, ...clientPath.split("/").filter(Boolean)].join(separator);
+  if (!scope?.practiceRoot) return undefined;
+  return scope.members.find((m) => m.prefix === clientPath)?.workspace.path;
 }
