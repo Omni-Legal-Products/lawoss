@@ -40,7 +40,7 @@ describe("roztriedenie v appke", () => {
     expect(out).toContain("Podpísaná zmluva o dielo.");
     expect(out).toContain("Model čítal skrátený text");
     expect(out).toContain("Hlavný priečinok klienta");
-    expect(out).toContain("Dokumenty na presun v skúšobnom klone: 4.");
+    expect(out).toContain("Dokumenty na presun v kópii: 4.");
     expect(out).toContain("Potvrdiť a roztriediť");
     expect(out).toContain("Už je na správnom mieste");
     expect(out).toMatch(/aria-label="Nechať na zatriedenie: Plnomocenstvo.pdf" checked=""/);
@@ -156,8 +156,8 @@ describe("štítok stránky roztriedenia podľa režimu (D1 9. 10.)", () => {
     expect(markup).not.toContain("klon");
     expect(markup).toContain("Samostatný klient");
   });
-  test("skúšobný klon ostáva označený ako klon", () => {
-    expect(html(<TriageTopline text={text} root="/x/Klient (trial 2026-10-05)" inPlace={false} />)).toContain("Skúšobný klon");
+  test("skúšobná kópia ostáva označená ako kópia", () => {
+    expect(html(<TriageTopline text={text} root="/x/Klient (trial 2026-10-05)" inPlace={false} />)).toContain("Kópia");
   });
 });
 

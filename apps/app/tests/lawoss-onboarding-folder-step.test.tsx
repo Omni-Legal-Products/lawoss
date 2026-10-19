@@ -12,7 +12,7 @@ test("dve veľké voľby so zlatým tlačidlom pre pripojenie", () => {
 });
 test("Začať nanovo ukáže oznámenie OKF, ktoré advokát voľbou berie na vedomie", () => {
   const html = renderToStaticMarkup(<FolderChoiceView text={foundText("sk")} busy={false} onConnect={() => undefined} onFresh={() => undefined} />);
-  expect(html).toContain("Do priečinka pribudnú súbory OKF");
+  expect(html).toContain("Do priečinka pridám niekoľko pomocných súborov");
   expect(html).toContain("AGENTS.md, CLAUDE.md, client.md, memory/, _STATUS.md");
   expect(html).toContain("Beriem na vedomie a pokračujem");
 });
