@@ -11,20 +11,43 @@ menia len v hlavičke a v časti `## History`. Telo `## Truth` ostane, inak by
 odtlačok prestal sedieť.
 """
 
-import argparse
-import os
-import re
-import shutil
+from __future__ import annotations
+
 import sys
-import unicodedata
-from datetime import date, timedelta
-from pathlib import Path
+
+MIN_PYTHON = (3, 11)
+
+
+def python_is_supported(version_info: tuple = tuple(sys.version_info)) -> bool:
+    """Skontroluje verziu Pythonu a pri starej verzii vypíše zrozumiteľnú správu."""
+    if tuple(version_info[:2]) >= MIN_PYTHON:
+        return True
+    found = ".".join(str(part) for part in version_info[:3])
+    print(
+        f"Tento skript potrebuje Python 3.11 alebo novší, vy máte {found}. "
+        "Nainštalujte novší Python z python.org a spustite skript znova.",
+        file=sys.stderr,
+    )
+    return False
+
+
+if not python_is_supported():
+    sys.exit(2)
+
+import argparse  # noqa: E402
+import os  # noqa: E402
+import re  # noqa: E402
+import shutil  # noqa: E402
+import unicodedata  # noqa: E402
+from datetime import date, timedelta  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 DATASET_AS_OF = "2026-10-17"
 BOM = "﻿"
 
 # Dátum nesmie byť súčasťou dlhšieho tokenu: číslo spisu, názov súboru, cesta.
-DATE_RE = re.compile(r"(?<![\w./-])(\d{4})-(\d{2})-(\d{2})(?!\w|[-/]\w)")
+# Čas za dátumom (`2026-10-17T09:00:00Z`) je povolený; posúva sa len dátum.
+DATE_RE = re.compile(r"(?<![\w./-])(\d{4})-(\d{2})-(\d{2})(?!(?!T\d)\w|[-/]\w)")
 LINE_RE = re.compile(r"[^\n]*\n|[^\n]+")
 HEADING_RE = re.compile(r"#{1,2} ")
 DIGEST_KEY_RE = re.compile(r"""^["']?(truth_digest|otisk pravdy|odtlačok pravdy)["']?\s*:""")
@@ -46,7 +69,7 @@ def shift_text(text: str, days: int) -> str:
 
 def _frontmatter_end(lines: list[str]) -> int:
     """Index riadku, na ktorom hlavička končí (0, ak hlavička nie je)."""
-    if not lines or lines[0].lstrip(BOM).rstrip() != "---":
+    if not lines or lines[0].removeprefix(BOM).rstrip() != "---":
         return 0
     for index in range(1, len(lines)):
         if lines[index].rstrip() == "---":
@@ -110,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     source: Path = args.source.resolve()
-    dest: Path = Path(os.path.abspath(args.dest))
+    dest: Path = args.dest.parent.resolve() / args.dest.name
     today: date = args.today or date.today()
     days = (today - args.as_of).days
 

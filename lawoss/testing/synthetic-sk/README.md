@@ -4,7 +4,7 @@ Syntetická slovenská kancelária ([SYNTHETIC_DATA.md](../../../SYNTHETIC_DATA.
 
 ## Použitie
 
-Z koreňa repozitára, s Pythonom 3.11 alebo novším. Dataset musí byť už stiahnutý a rozbalený podľa [SYNTHETIC_DATA.md](../../../SYNTHETIC_DATA.md).
+Z koreňa repozitára, s Pythonom 3.11 alebo novším. Dataset musí byť už stiahnutý a rozbalený podľa [SYNTHETIC_DATA.md](../../../SYNTHETIC_DATA.md). Skript pri starom Pythone skončí s kódom 2 a vypíše, čo treba.
 
 ```sh
 python3 lawoss/testing/synthetic-sk/shift_dates.py \
@@ -12,7 +12,7 @@ python3 lawoss/testing/synthetic-sk/shift_dates.py \
   --dest .work/synthetic-sk/dnes/02_OKF_kancelaria
 ```
 
-Cieľový priečinok nesmie existovať. Ak existuje, skript skončí s kódom 2 a nič nezmení. Pôvodný dataset ostane nedotknutý.
+Vždy zadajte jeden priečinok kancelárie (`01_Neusporiadana_kancelaria` alebo `02_OKF_kancelaria`), nikdy koreň balíka. Cieľový priečinok nesmie existovať. Ak existuje, skript skončí s kódom 2 a nič nezmení. Pôvodný dataset ostane nedotknutý.
 
 | Voľba | Význam |
 | --- | --- |
@@ -25,7 +25,7 @@ Posun sa rovná počtu dní medzi `--today` a `--as-of`. Pri `--as-of 2026-10-17
 
 ## Čo sa mení a čo nie
 
-- V súboroch `.md` sa posunie každý dátum tvaru `RRRR-MM-DD`: hlavička, riadky histórie aj text. Kódovanie UTF-8, BOM a konce riadkov (LF alebo CRLF) ostanú.
+- V súboroch `.md` sa posunie každý dátum tvaru `RRRR-MM-DD`: hlavička, riadky histórie aj text. Pri dátume s časom (`2026-10-17T09:00:00Z`, `2026-10-17T09:00:00.123+02:00`) sa posunie len dátum, čas a pásmo ostanú. Kódovanie UTF-8, BOM a konce riadkov (LF alebo CRLF) ostanú.
 - Čísla spisov ako `SYN-M001/2026`, názvy súborov a neplatné dátumy (napríklad `2026-02-30`) sa nemenia.
 - Všetky ostatné súbory (PDF, DOCX, XLSX, EML, CSV, JSON a ďalšie) sa skopírujú bajtovo rovnaké. Dátumy vo vnútri nich ostanú pôvodné, takže otázka nad dokumentom môže spomenúť starší dátum než karta veci.
 - Súbor `.md`, ktorý nie je UTF-8, sa skopíruje bez posunu a skript na to upozorní.

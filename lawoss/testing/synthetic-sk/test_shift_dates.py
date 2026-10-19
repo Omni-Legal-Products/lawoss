@@ -4,6 +4,8 @@ Spustenie z koreňa repozitára:
     python3 -m unittest lawoss/testing/synthetic-sk/test_shift_dates.py
 """
 
+import contextlib
+import io
 import subprocess
 import sys
 import tempfile
@@ -143,6 +145,70 @@ class ShiftDatesTest(unittest.TestCase):
         result = run_cli("--source", str(self.src), "--dest", str(self.dest), "--today", "2026-10-18")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.dest / "a.md").read_text(encoding="utf-8"), "due: 2026-10-21\n")
+
+
+    def test_iso_datetime_with_z_keeps_time_and_suffix(self) -> None:
+        (self.src / "cas.md").write_text("vytvorené: 2026-10-17T09:00:00Z\n", encoding="utf-8")
+        out = self.shift()
+        self.assertEqual((out / "cas.md").read_text(encoding="utf-8"), "vytvorené: 2026-10-24T09:00:00Z\n")
+
+    def test_iso_datetime_with_fraction_and_offset_keeps_time(self) -> None:
+        (self.src / "cas.md").write_text('at: "2026-10-17T09:00:00.123+02:00"\n', encoding="utf-8")
+        out = self.shift()
+        self.assertEqual((out / "cas.md").read_text(encoding="utf-8"), 'at: "2026-10-24T09:00:00.123+02:00"\n')
+
+    def test_letter_t_without_digit_is_not_a_time(self) -> None:
+        text = "kód 2026-10-17Tabc a 2026-10-17T\n"
+        (self.src / "t.md").write_text(text, encoding="utf-8")
+        out = self.shift()
+        self.assertEqual((out / "t.md").read_text(encoding="utf-8"), "kód 2026-10-17Tabc a 2026-10-17T\n")
+
+    def test_month_and_year_rollover(self) -> None:
+        (self.src / "a.md").write_text("due: 2026-12-30\n", encoding="utf-8")
+        out = self.shift()
+        self.assertEqual((out / "a.md").read_text(encoding="utf-8"), "due: 2027-01-06\n")
+
+    def test_leap_day_when_shifting_backwards(self) -> None:
+        (self.src / "a.md").write_text("due: 2028-03-01\n", encoding="utf-8")
+        out = self.shift(today="2028-03-01", as_of="2028-03-02")
+        self.assertEqual((out / "a.md").read_text(encoding="utf-8"), "due: 2028-02-29\n")
+
+    def test_dest_inside_source_is_refused_with_exit_2(self) -> None:
+        (self.src / "a.md").write_text("due: 2026-10-20\n", encoding="utf-8")
+        inside = self.src / "podpriecinok" / "kopia"
+        result = run_cli("--source", str(self.src), "--dest", str(inside))
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse(inside.exists())
+
+    def test_dest_inside_source_is_refused_even_through_dotdot(self) -> None:
+        (self.src / "a.md").write_text("due: 2026-10-20\n", encoding="utf-8")
+        (self.src / "sub").mkdir()
+        sneaky = self.src / "sub" / ".." / "kopia"
+        result = run_cli("--source", str(self.src), "--dest", str(sneaky))
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse((self.src / "kopia").exists())
+
+    def test_bom_constant_is_u_feff(self) -> None:
+        self.assertEqual(shift_dates.BOM, chr(0xFEFF))
+
+
+class PythonVersionCheckTest(unittest.TestCase):
+    def check(self, version: tuple) -> tuple[bool, str]:
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            ok = shift_dates.python_is_supported(version)
+        return ok, stderr.getvalue()
+
+    def test_old_python_gets_a_clear_slovak_message(self) -> None:
+        ok, message = self.check((3, 10, 9))
+        self.assertFalse(ok)
+        self.assertIn("Python 3.11 alebo novší", message)
+        self.assertIn("3.10.9", message)
+
+    def test_supported_python_prints_nothing(self) -> None:
+        for version in ((3, 11, 0), (3, 14, 7), (4, 0, 0)):
+            with self.subTest(version=version):
+                self.assertEqual(self.check(version), (True, ""))
 
 
 class TruthDigestTest(unittest.TestCase):
