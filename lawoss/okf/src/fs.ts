@@ -147,13 +147,23 @@ export function validate(root: string): ValidationError[] {
       for (const folder of storedProfile(scope)?.folders ?? []) workingPaths.push(relative(root, join(scope, folder)).split("\\").join("/") + "/");
     } catch (error) { errors.push({ path: rel, message: error instanceof Error ? error.message : String(error) }); }
   }
+  const cardNames = new Set<string>(ENTITY_TYPES.flatMap((type) => CARD_ALIASES[type]));
+  const cardsByFolder = new Map<string, string[]>();
   for (const rel of documents) {
     // Source documents and the generated agent entry point are not memory concepts.
     if (workingPaths.some((path) => rel.startsWith(path)) || rel.split("/").some((part) => WORKING_FOLDERS.some((folder) => folder === part)) || rel.split("/").pop() === "BRAIN.md") continue;
+    const name = basename(rel);
+    if (cardNames.has(name)) {
+      const folder = dirname(rel) === "." ? "" : dirname(rel);
+      cardsByFolder.set(folder, [...(cardsByFolder.get(folder) ?? []), name]);
+    }
     const parent = dirname(join(root, rel));
     const bundleRoot = !rel.includes("/") || basename(parent) === "memory" || ENTITY_TYPES.some((type) => CARD_ALIASES[type].some((name) => existsSync(join(parent, name))));
     const error = validateMarkdown(rel, readText(join(root, rel)), bundleRoot);
     if (error) errors.push(error);
+  }
+  for (const [folder, cards] of cardsByFolder) {
+    if (cards.length > 1) errors.push({ path: folder, message: `Viac kariet entity: ${cards.sort().join(", ")}. Najprv zosúlaď ich obsah.` });
   }
   return errors;
 }

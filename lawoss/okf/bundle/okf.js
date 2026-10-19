@@ -5633,14 +5633,25 @@ function validate(root) {
       errors.push({ path: rel, message: error instanceof Error ? error.message : String(error) });
     }
   }
+  const cardNames = new Set(ENTITY_TYPES.flatMap((type) => CARD_ALIASES[type]));
+  const cardsByFolder = new Map;
   for (const rel of documents) {
     if (workingPaths.some((path) => rel.startsWith(path)) || rel.split("/").some((part) => WORKING_FOLDERS.some((folder) => folder === part)) || rel.split("/").pop() === "BRAIN.md")
       continue;
+    const name = basename8(rel);
+    if (cardNames.has(name)) {
+      const folder = dirname10(rel) === "." ? "" : dirname10(rel);
+      cardsByFolder.set(folder, [...cardsByFolder.get(folder) ?? [], name]);
+    }
     const parent = dirname10(join15(root, rel));
     const bundleRoot = !rel.includes("/") || basename8(parent) === "memory" || ENTITY_TYPES.some((type) => CARD_ALIASES[type].some((name) => existsSync4(join15(parent, name))));
     const error = validateMarkdown(rel, readText(join15(root, rel)), bundleRoot);
     if (error)
       errors.push(error);
+  }
+  for (const [folder, cards] of cardsByFolder) {
+    if (cards.length > 1)
+      errors.push({ path: folder, message: `Viac kariet entity: ${cards.sort().join(", ")}. Najprv zosúlaď ich obsah.` });
   }
   return errors;
 }

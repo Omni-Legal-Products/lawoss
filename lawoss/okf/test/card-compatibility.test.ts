@@ -51,6 +51,36 @@ for (const { type, canonical, legacy } of cases) {
     expect(() => plan({ type, dir: root, title: "Synthetic" })).toThrow();
   });
 }
+for (const { type, canonical, legacy } of cases) {
+  test(`${type}: validate reports ${canonical} together with ${legacy} as one error`, () => {
+    mkdirSync(join(root, "entity"));
+    writeFileSync(join(root, "entity", legacy), `---\ntype: ${type}\n---\n`);
+    writeFileSync(join(root, "entity", canonical), `---\ntype: ${type}\n---\n`);
+    const errors = validate(root);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.path).toBe("entity");
+    expect(errors[0]?.message).toBe(`Viac kariet entity: ${[canonical, legacy].sort().join(", ")}. Najprv zosúlaď ich obsah.`);
+  });
+}
+test("validate reports cards of different types in one folder (R6)", () => {
+  writeFileSync(join(root, "client.md"), "---\ntype: klient\n---\n");
+  writeFileSync(join(root, "matter.md"), "---\ntype: spis\n---\n");
+  expect(validate(root)).toEqual([{ path: "", message: "Viac kariet entity: client.md, matter.md. Najprv zosúlaď ich obsah." }]);
+});
+for (const card of ["spis.md", "klient.md"]) {
+  test(`validate accepts a folder with only the legacy ${card}`, () => {
+    writeFileSync(join(root, card), "---\ntype: legacy\n---\n");
+    expect(validate(root)).toEqual([]);
+  });
+}
+test("validate ignores card-named documents inside working folders", () => {
+  mkdirSync(join(root, "01_Podklady"));
+  writeFileSync(join(root, "matter.md"), "---\ntype: spis\n---\n");
+  writeFileSync(join(root, "01_Podklady", "client.md"), "plain source text");
+  writeFileSync(join(root, "01_Podklady", "matter.md"), "plain source text");
+  expect(validate(root)).toEqual([]);
+});
+
 for (const clientCard of ["client.md", "klient.md"]) {
   test(`new matter links to actual ${clientCard} across extra nesting`, () => {
     writeFileSync(join(root, clientCard), "---\ntype: client\n---\n");

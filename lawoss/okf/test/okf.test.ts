@@ -118,6 +118,11 @@ describe("cli", () => {
     writeFileSync(join(root, "zle.md"), "x");
     expect(run(["validate", root], () => {})).toBe(1);
   });
+  test("validate returns 1 for a folder with matter.md and spis.md", () => {
+    writeFileSync(join(root, "matter.md"), "---\ntype: spis\n---\n");
+    writeFileSync(join(root, "spis.md"), "---\ntype: spis\n---\n");
+    expect(run(["validate", root], () => {})).toBe(1);
+  });
   test("bad type is a usage error (exit 2)", () => {
     expect(run(["plan", "kauza", root], () => {})).toBe(2);
   });
