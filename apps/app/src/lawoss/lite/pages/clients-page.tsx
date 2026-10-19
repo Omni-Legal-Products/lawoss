@@ -10,7 +10,7 @@ import { formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope }
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { urgencyOf } from "../../okf/view-rules";
 import { groupByClient, nextDeadline, type ClientGroup } from "../today-model";
-import { ATTACH_EXISTING_CLIENT_PATH, liteMatterLink } from "../links";
+import { ATTACH_EXISTING_CLIENT_PATH, liteMatterLink, NEW_CLIENT_PATH } from "../links";
 import { clientRootOf, practiceClientChoices, type ClientChoice } from "../client-choice";
 import { NewMatterAction } from "../client-picker";
 import { TriageEntry } from "../../domains/roztriedenie/triage-entry";
@@ -57,6 +57,7 @@ export function ClientsView({ groups, meta, locale: forced, actions, choices, ac
         </div>
         <div className="lw-clients-actions">
           {actions}
+          <Link className="lw-btn" to={NEW_CLIENT_PATH}>{text("add_client")}</Link>
           <Link className="lw-btn" to={ATTACH_EXISTING_CLIENT_PATH}>{text("attach_existing_client")}</Link>
           <NewMatterAction className="lw-today-primary" locale={locale} choices={choices} activeId={activeId}>+ {text("new_matter")}</NewMatterAction>
         </div>

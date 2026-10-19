@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import { TodayView } from "../src/lawoss/lite/pages/today-page";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
 import { LiteMatterView, matterFromParams } from "../src/lawoss/lite/pages/matter-page";
-import { liteMatterLink, NEW_MATTER_PATH } from "../src/lawoss/lite/links";
+import { liteMatterLink, NEW_CLIENT_PATH, NEW_MATTER_PATH } from "../src/lawoss/lite/links";
 import type { TodayModel } from "../src/lawoss/lite/today-model";
 import type { Cockpit } from "../../../lawoss/okf/cockpit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -96,6 +96,13 @@ describe("stránky LAWOSS-lite", () => {
     expect(out).toContain(matter.title);
     expect(out).toContain(href(liteMatterLink(matter.path)));
     expect(html(<ClientsView groups={[]} />)).toContain("No clients yet. Create the first one.");
+  });
+  test("Klienti: viditelné tlačítko Pridať klienta vede na tok nového klienta", () => {
+    expect(NEW_CLIENT_PATH).toBe("/welcome?continue=client");
+    const out = html(<ClientsView groups={[]} locale="sk" />);
+    expect(out).toContain(href("/welcome?continue=client"));
+    expect(out).toContain(">Pridať klienta</a>");
+    expect(out.indexOf("Pridať klienta")).toBeLessThan(out.indexOf("Pripojiť existujúci priečinok klienta"));
   });
   test("Věc: hlavička, pět rychlých akcí, žádný technický pojem", () => {
     const out = html(<LiteMatterView matter={matter} cockpit={null} busy={null} error={null} onAction={() => {}} />);
