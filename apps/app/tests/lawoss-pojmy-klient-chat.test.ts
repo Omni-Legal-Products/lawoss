@@ -7,10 +7,13 @@ import { shellCs, shellSk } from "../src/lawoss/i18n/shell";
 // a „sesia/relácia“ (SK) / „relace“ (CS) je „chat“. Kľúče (`projects.*`, `sidebar.*_sessions`) ostávajú.
 // Strážca pokrýva navigáciu: bočný panel, hľadanie a navigačné kľúče LAWOSS lite. Prefixy sú zámerné,
 // aby zachytili aj nové kľúče v bočnom paneli.
-const OLD = /projekt|sesi|relác|relac/iu;
+const OLD = /projekt|sesi|relác|relac|session/iu;
 
-const NAV_PREFIXES = ["sidebar.", "content_search.", "lawoss.lite.nav_", "lawoss.lite.tree_"];
-const NAV_KEYS = ["projects.plural", "projects.sessions", "projects.recent_sessions", "projects.session_name", "project_chat.untitled_session"];
+const NAV_PREFIXES = ["sidebar.", "content_search.", "session_management.", "workspace_list.", "session_search.", "lawoss.lite.nav_", "lawoss.lite.tree_"];
+const NAV_KEYS = [
+  "projects.plural", "projects.sessions", "projects.recent_sessions", "projects.session_name", "project_chat.untitled_session",
+  "session.rename_title", "word_addin.sessions_title", "tasks.open_session",
+];
 
 const isNav = (key: string): boolean => NAV_KEYS.includes(key) || NAV_PREFIXES.some((prefix) => key.startsWith(prefix));
 
@@ -83,5 +86,44 @@ describe("Klient a Chat namiesto projektu a sesie (SK, CS)", () => {
     expect(shellCs["lawoss.lite.tree_new_conversation"]).toBe("Nový chat");
     expect(shellSk["lawoss.lite.client_conversations_title"]).toBe("Chaty klienta");
     expect(shellCs["lawoss.lite.client_conversations_title"]).toBe("Chaty klienta");
+  });
+
+  test("anglické „session“ nie je v žiadnom SK ani CS texte", () => {
+    for (const dict of [skDict, csDict, shellSk, shellCs]) {
+      expect(Object.entries(dict).filter(([, value]) => /session/iu.test(value)).map(([key]) => key)).toEqual([]);
+    }
+    expect(sk["session.rename_title"]).toBe("Premenovať chat");
+    expect(cs["session.rename_title"]).toBe("Přejmenovat chat");
+    expect(sk["word_addin.sessions_title"]).toBe("Chaty");
+    expect(cs["word_addin.sessions_title"]).toBe("Chaty");
+    expect(sk["tasks.open_session"]).toBe("Otvoriť chat");
+    expect(cs["tasks.open_session"]).toBe("Otevřít chat");
+    expect(sk["session_management.pin_session"]).toBe("Pripnúť chat");
+    expect(cs["session_management.pin_session"]).toBe("Připnout chat");
+    expect(sk["session_search.recent"]).toBe("Nedávne chaty");
+    expect(cs["session_search.recent"]).toBe("Nedávné chaty");
+  });
+
+  test("súbory a zdieľanie: priečinok klienta, nie osoba klienta", () => {
+    expect(sk["project_files.origin"]).toBe("Z priečinka klienta {project}");
+    expect(cs["project_files.origin"]).toBe("Ze složky klienta {project}");
+    expect(sk["project_files.copy"]).toBe("Kopírovať do priečinka klienta");
+    expect(cs["project_files.copy"]).toBe("Kopírovat do složky klienta");
+    expect(sk["projects.shared"]).toBe("Zdieľaní klienti");
+    expect(cs["projects.shared"]).toBe("Sdílení klienti");
+    expect(sk["projects.shared_empty"]).toBe("Tu sa zobrazia priečinky klientov, ktoré s vami niekto zdieľa.");
+    expect(cs["projects.shared_empty"]).toBe("Zde se zobrazí složky klientů, které s vámi někdo sdílí.");
+    for (const dict of [skDict, csDict]) {
+      expect(Object.entries(dict).filter(([key, value]) => key.startsWith("project_files.") && /(ku|ke) klientovi/u.test(value)).map(([key]) => key)).toEqual([]);
+    }
+  });
+
+  test("SK výzvy hovoria o chate ako CS", () => {
+    expect(sk["home.start_chat"]).toBe("Začať nový chat");
+    expect(sk["calendar.link_session"]).toBe("Prepojiť chat");
+    expect(sk["calendar.no_sessions"]).toBe("U tohto klienta nie sú žiadne zodpovedajúce chaty.");
+    expect(sk["projects.setup.session_failed"]).toBe("Klient bol pridaný. Spustite chat a dokončite nastavenie z priečinkov.");
+    expect(sk["projects.refresh"]).toBe("Znova načítať");
+    expect(sk["projects.add_favorite"]).toBe("Pridať klienta medzi obľúbené");
   });
 });

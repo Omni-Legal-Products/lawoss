@@ -143,7 +143,7 @@ export const shellEn = {
   "lawoss.lite.nav_clients": "Clients and matters",
   "lawoss.lite.nav_ask": "Ask",
   "lawoss.lite.add_folder": "Add folder",
-  // Strom v bočnom paneli: klient → vec → rozhovory (variant A, MČ 19. 10. 2026).
+  // Strom v bočnom paneli: klient → prípad → chaty (variant A, MČ 19. 10. 2026).
   "lawoss.lite.tree_title": "Clients",
   "lawoss.lite.tree_new_conversation": "New conversation",
   "lawoss.lite.tree_show_all": "Show all",
@@ -427,7 +427,7 @@ export const shellCs = {
   "lawoss.lite.nav_clients": "Klienti a případy",
   "lawoss.lite.nav_ask": "Zeptat se",
   "lawoss.lite.add_folder": "Přidat složku",
-  // Strom v bočnom paneli: klient → vec → rozhovory (variant A, MČ 19. 10. 2026).
+  // Strom v bočnom paneli: klient → prípad → chaty (variant A, MČ 19. 10. 2026).
   "lawoss.lite.tree_title": "Klienti",
   "lawoss.lite.tree_new_conversation": "Nový chat",
   "lawoss.lite.tree_show_all": "Zobrazit vše",
@@ -710,7 +710,7 @@ export const shellSk = {
   "lawoss.lite.nav_clients": "Klienti a prípady",
   "lawoss.lite.nav_ask": "Opýtať sa",
   "lawoss.lite.add_folder": "Pridať priečinok",
-  // Strom v bočnom paneli: klient → vec → rozhovory (variant A, MČ 19. 10. 2026).
+  // Strom v bočnom paneli: klient → prípad → chaty (variant A, MČ 19. 10. 2026).
   "lawoss.lite.tree_title": "Klienti",
   "lawoss.lite.tree_new_conversation": "Nový chat",
   "lawoss.lite.tree_show_all": "Zobraziť všetky",
@@ -993,7 +993,7 @@ export const shellDe = {
   "lawoss.lite.nav_clients": "Mandanten und Akten",
   "lawoss.lite.nav_ask": "Fragen",
   "lawoss.lite.add_folder": "Ordner hinzufügen",
-  // Strom v bočnom paneli: klient → vec → rozhovory (variant A, MČ 19. 10. 2026).
+  // Strom v bočnom paneli: klient → prípad → chaty (variant A, MČ 19. 10. 2026).
   "lawoss.lite.tree_title": "Mandanten",
   "lawoss.lite.tree_new_conversation": "Neues Gespräch",
   "lawoss.lite.tree_show_all": "Alle anzeigen",
