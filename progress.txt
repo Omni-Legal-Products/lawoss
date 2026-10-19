@@ -1,5 +1,7 @@
 ## Codebase Patterns
 
+- Concurrent receipt tests must mark first observation before any await and track accepted receipts separately; delayed bookkeeping cannot classify a later frame as the first.
+
 - A bounded VM bridge must retain dispatched credits until confirmed guest task cleanup, including cancelled requests; FIFO admission precedes body consumption, and stop awaits the original reader-cancellation promise.
 
 - Diagnose generic HTTP failures with exact owned request correlation and closed exception categories/code locations; preserve primary failure and publish no raw process content.
@@ -639,3 +641,5 @@ Added the independent two-snapshot/two-receipt reproduction as a failing owner-l
 - Changed: vm-engine.ts/.test.ts/.integration.test.ts, guest protected-engine.mjs, PATCHES.md, identical AGENTS.md/CLAUDE.md and progress.txt. Learning: EOF is public response completion, not guest resource retirement; maintain that ownership distinction across cancellation and queue admission.
 
 2026-10-19T22:05:16.569895+00:00 — Repaired native15 EXIT0: all10 native picker/drop→confinedtools→saved/validatedhashes→native204/terminal; actualattachment bytes, partial/collision/edited/wrongidentity/outofroot denials; actualquit/relaunch/nativefolderreconnect/sameIDs/freshread/all exercised original-outputSHA. Diagnosticphasecomplete/noerrorfield/cleanupErrors[]. Privateevidence lawoss-isir-native-r6XPlG; protected-native-full-fifteenth.log anddiagnostics-fifteenth.json. Frozen4production/testsourcehashes stillmatch covering/build/server/actualVM runs. FreshrepairedheadGitHub6VM/4packageacceptance stillrequired; no merge armed.
+
+2026-10-19T22:08:54.608430+00:00 — Prepublication fixture observer correction: independent finalreview found post-await accepted-receipt bookkeeping could misclassify a concurrent second frame asfirst. Controlled actualVM public witness holds first accepted callback bookkeeping; RED arrival2/bodyPull1/recordedHealthRetirements0 triggers old observer refusal after original coldrestore/freshread/hash positives (serve-exit cascade retained). Synchronous first-health/first-event observation flags beforeawait fix onlyfixture; acceptedreceiptSet remains postbroker. SAMEwitness GREEN2PASS70assert21.74s preserves24actualretirements/2replacements/noadditionalmodel-tool-review calls and all original tools/hash/cold/raw controls. Finalindependentreviewclear. Changedonlyintegrationfixture, mirroredAGENTS/CLAUDE andprogress; productionhost/guest hashes unchanged from completed server2920/fullnative15/strictbuild/realVMreadiness checks. Local82582146 notpublished beforethis follow-up; no historyrewrite or CIfailure replaced.

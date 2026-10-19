@@ -41,7 +41,10 @@ function retirementProbe() {
   let mode: "off" | "health" | "cancel" = "off";
   const health = new Set<string>(), events = new Set<string>(), retired = new Set<string>();
   const ends = new Set<string>();
-  let cancelHeld = false, pulls = 0, replacements = 0;
+  let cancelHeld = false, pulls = 0, replacements = 0, healthRetirementArrivals = 0;
+  let firstHealthObserved = false, firstEventObserved = false;
+  let releaseFirstRetired!: () => void;
+  const firstRetiredGate = new Promise<void>(resolve => { releaseFirstRetired = resolve; });
   let releaseEnd!: () => void, releaseCancel!: () => void;
   const endGate = new Promise<void>(resolve => { releaseEnd = resolve; });
   const cancelGate = new Promise<void>(resolve => { releaseCancel = resolve; });
@@ -63,11 +66,25 @@ function retirementProbe() {
   const wrap = (broker: ProtectedVmBroker): ProtectedVmBroker => async (request, signal) => {
     const path = new URL(request.url).pathname;
     const frame = path === "/rpc/result" ? object(JSON.parse(Buffer.from(request.bodyBase64, "base64").toString("utf8"))) : {};
+    const healthRetirementNumber = frame.kind === "retired" && health.has(String(frame.id)) ? ++healthRetirementArrivals : 0;
+    if (healthRetirementNumber > 2) await hold(firstRetiredGate, signal);
+    if (healthRetirementNumber === 2) {
+      await wait(() => pulls === 1, signal, "replacement body pulled after first accepted retirement");
+      console.info("ACTUAL_VM_RETIREMENT_OBSERVER_WITNESS", JSON.stringify({ arrival: healthRetirementNumber, bodyPulls: pulls, recordedHealthRetirements: [...health].filter(id => retired.has(id)).length }));
+    }
     // The replacement body must stay unread until the host has actually accepted
     // the first retirement frame, even after END/cancel acknowledgements resume.
-    if (frame.kind === "retired" && health.has(String(frame.id)) && ![...health].some(id => retired.has(id))) expect(pulls).toBe(0);
-    if (frame.kind === "retired" && events.has(String(frame.id)) && ![...events].some(id => retired.has(id))) expect(pulls).toBe(1);
+    if (frame.kind === "retired" && health.has(String(frame.id)) && !firstHealthObserved) {
+      firstHealthObserved = true; expect(pulls).toBe(0);
+    }
+    if (frame.kind === "retired" && events.has(String(frame.id)) && !firstEventObserved) {
+      firstEventObserved = true; expect(pulls).toBe(1);
+    }
     const response = await broker(request, signal);
+    // Delay first wrapper bookkeeping after real host acceptance to exercise a
+    // second concurrent callback while its credit has already been granted.
+    if (healthRetirementNumber === 1) await hold(firstRetiredGate, signal);
+    if (healthRetirementNumber === 2) releaseFirstRetired();
     if (path === "/rpc/next") {
       const command = object(JSON.parse(Buffer.from(response.bodyBase64, "base64").toString("utf8")));
       if (command.kind === "request" && typeof command.id === "string") {
@@ -88,7 +105,7 @@ function retirementProbe() {
   return { wrap, async run(engine: ProtectedVmEngine, sessionId: string) {
     const signal = AbortSignal.timeout(30_000);
     const replacement = () => engine.fetch(new Request(`http://private-engine/session/${sessionId}/abort?retirement-replacement=1`, {
-      method: "POST", signal, body: new ReadableStream<Uint8Array>({ pull(controller) { pulls++; controller.close(); } }, { highWaterMark: 0 }), duplex: "half",
+      method: "POST", signal, body: new ReadableStream<Uint8Array>({ pull(controller) { pulls++; notify(); controller.close(); } }, { highWaterMark: 0 }), duplex: "half",
     } as RequestInit));
     try {
       mode = "health";
@@ -122,7 +139,7 @@ function retirementProbe() {
     } finally {
       console.info("ACTUAL_VM_RETIREMENT_COUNTS", JSON.stringify({ healthRequests: health.size, heldEnds: ends.size,
         cancelledStreams: events.size, actualRetirements: [...health, ...events].filter(id => retired.has(id)).length, replacements, bodyPulls: pulls }));
-      mode = "off"; releaseEnd(); releaseCancel();
+      mode = "off"; releaseEnd(); releaseCancel(); releaseFirstRetired();
     }
   } };
 }
