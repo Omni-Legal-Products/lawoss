@@ -1048,6 +1048,8 @@ describe("project sync between computers", () => {
     expect((await projectSyncStatus(member.config, own)).state).toBe("local");
   });
 
+  // Windows portable spent 3767ms in one disabled sync round (job 118309230267,
+  // 2026-10-19) and the 5000ms default expired as the next save started.
   test("recordings linked to the project reach colleagues when recordings are in the scope", async () => {
     const { platform } = fakeFirm();
     const owner = await machine("user_anna", "Anna");
@@ -1089,7 +1091,7 @@ describe("project sync between computers", () => {
     await runProjectSync(member.config, { platform });
     const [copy] = projectsOf(member.config);
     expect(await read(copy, "recordings/2026-09-25-mandantengesprach/transcript.md")).toBe("# Mandantengespräch");
-  });
+  }, { timeout: 20_000 });
 
   test("tasks of a local project stay on this computer; turning sync on sends them", async () => {
     const { platform } = fakeFirm();
