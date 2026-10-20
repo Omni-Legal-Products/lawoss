@@ -1,4 +1,4 @@
-import { isProjectTemplateLocale } from "@legalwork/types/workspace";
+import { isProjectTemplateLocale } from "../project-schema.js";
 import { rebaseWorkspaceMemoryAuthority } from "../lawoss/workspace-reconnect-memory.js";
 import { rebindWorkspaceSessions } from "../lawoss/workspace-session-rebind.js";
 import { serializeWorkspaceMutation } from "../lawoss/workspace-registry-lock.js";

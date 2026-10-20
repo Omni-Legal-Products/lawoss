@@ -4,6 +4,9 @@ import type { ImportedPlugin } from "../src/app/lib/extension-imports";
 import { ComposerToolMenu } from "../src/react-app/domains/session/surface/composer/tool-menu";
 import { composerSettingsPath, sessionMainPage, type ComposerToolSection } from "../src/react-app/shell/workspace-routes";
 
+import { currentLanguagePreference, setLanguagePreference, setLocale } from "../src/i18n";
+import { toWorkflowOptions } from "../src/react-app/domains/tasks/start-workflow-dialog";
+
 const connectorName = "github-12345678-plugin-global-github-abcdef";
 const plugin: ImportedPlugin = {
   name: "github", pluginId: "github", description: "Manage repositories", marketplaceId: null, importedAt: null, updatedAt: null,
@@ -90,4 +93,26 @@ describe("chat library menu", () => {
     expect(html).toContain('aria-label="Use Github plugin"');
     expect(html).toContain('aria-label="View Github contents"');
   });
+});
+
+
+test("all execution pickers localize verified bundled originals on each language change and keep custom text and IDs", () => {
+  const preference = currentLanguagePreference();
+  const original = { name: "workflow-assistant-due-diligence", path: "global/due", description: "Original agent description", bundledDisplayId: "workflow-assistant-due-diligence" };
+  const custom = { ...original, name: "workflow-custom-review", bundledDisplayId: undefined, description: "Můj vlastní popis" };
+  const firm = { ...original, firm: "automatic" as const, description: "Firemní pokyny" };
+  try {
+    for (const [locale, label] of [["cs", "Právní prověrka"], ["sk", "Právna previerka"], ["cs", "Právní prověrka"]] as const) {
+      setLocale(locale);
+      const out = render("workflows", { skills: [original, custom] });
+      expect(out).toContain(label);
+      expect(out).not.toContain("Original agent description");
+      expect(out).toContain(custom.description);
+      expect(render("workflows", { skills: [firm] })).toContain(firm.description);
+      expect(toWorkflowOptions([original], locale)).toEqual([{ value: original.name, label }]);
+      expect(toWorkflowOptions([custom], locale)).toEqual([{ value: custom.name, label: "Custom Review" }]);
+      expect(toWorkflowOptions([firm], locale)).toEqual([{ value: original.name, label: "Due Diligence" }]);
+    }
+    expect(original.description).toBe("Original agent description");
+  } finally { setLanguagePreference(preference); }
 });

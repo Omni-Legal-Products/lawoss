@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { isProjectTemplateLocale, type ProjectTemplateLocale } from "@legalwork/types/workspace";
+import type { ProjectTemplateLocale } from "@legalwork/types/workspace";
 import type { ProjectTemplateCatalog } from "@legalwork/types/workspace";
-import { defaultProjectTemplates, localizedTemplateFields, projectTemplateCatalogSchema, projectTemplateName } from "./project-schema.js";
+import { isProjectTemplateLocale, defaultProjectTemplates, localizedTemplateFields, projectTemplateCatalogSchema, projectTemplateName } from "./project-schema.js";
 import { ApiError } from "./errors.js";
 import type { ServerConfig } from "./types.js";
 

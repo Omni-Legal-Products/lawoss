@@ -1,3 +1,4 @@
+import { nativeBundledDisplayId } from "./bundled-workflow-presentation.mjs";
 import { acceptUiLocaleReport, createNativeLocaleState, nativeCopy } from "./native-locale.mjs";
 import { getAppBuildInfo } from './build-info.mjs';
 import { execFileSync, spawn } from "node:child_process";
@@ -1531,6 +1532,7 @@ function extractTrigger(raw) {
 }
 
 async function listLocalSkills(projectDir) {
+  const globalRoots = new Set(await collectGlobalSkillRoots());
   // Empty projectDir → global skills only (workspace-independent). With a projectDir,
   // includes both project and global roots (collectSkillRoots handles the empty case).
   const seen = new Set();
@@ -1567,6 +1569,7 @@ async function listLocalSkills(projectDir) {
         path: skillDir,
         description,
         trigger: extractTrigger(raw) ?? undefined,
+        bundledDisplayId: nativeBundledDisplayId(name, raw, globalRoots.has(root)),
         // Saved corrections belong in Workflows, including older unprefixed packages.
         kind: await pathExists(path.join(skillDir, "legalwork-extension.json")) ? "workflow" : extractFrontmatterValue(raw, ["kind"]) ?? undefined,
         workflowType: extractFrontmatterValue(raw, ["workflow_type", "workflow-type", "workflowtype"]) ?? undefined,

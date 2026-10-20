@@ -89,4 +89,3 @@ export const diagnosticsDe = {
   "lawoss.diagnostics.inbox_missing": "Das Arbeitsprofil {path} hat keine Inbox-Rolle.",
   "lawoss.diagnostics.file_too_large": "Die Datei {path} ist für den Import zu groß.",
 } satisfies Record<keyof typeof diagnosticsEn, string>;
-

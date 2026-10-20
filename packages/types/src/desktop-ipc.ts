@@ -281,6 +281,9 @@ export type ExecResult = {
 };
 
 export type LocalSkillCard = {
+  bundledDisplayId?: string;
+  kind?: string;
+  workflowType?: string;
   name: string;
   path: string;
   description?: string;
