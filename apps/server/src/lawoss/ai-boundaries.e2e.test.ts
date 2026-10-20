@@ -28,7 +28,7 @@ async function fixture(receiver?: {url: URL}) {
   const base = `http://127.0.0.1:${server.port}`;
   const host = {"x-legalwork-host-token": config.hostToken, "content-type": "application/json"};
   const setEnforced = (enforced: unknown) => fetch(`${base}/lawoss/ai-governance/boundaries`, {method: "PUT", headers: host, body: JSON.stringify({enforced})});
-  return {base, host, setEnforced, client: {authorization: `Bearer ${config.token}`, "content-type": "application/json"}};
+  return {base, host, setEnforced, workspace: config.workspaces[0]?.path ?? "", client: {authorization: `Bearer ${config.token}`, "content-type": "application/json"}};
 }
 
 test("native AI settings read and change the boundaries; only the host may write a strict boolean", async () => {
@@ -56,12 +56,16 @@ test("a lock from this computer shows as locked and refuses switching boundaries
 
 test("off: an ordinary chat prompt passes the engine proxy; on: it is refused before the receiver without a restart", async () => {
   const received: string[] = [];
+  let directory = "";
   const receiver = Bun.serve({hostname: "127.0.0.1", port: 0, async fetch(request) {
     if (request.method === "POST") received.push(await request.text());
+    // #190: the proxy checks that the chat belongs to this client folder before forwarding.
+    if (request.method === "GET" && new URL(request.url).pathname === "/session/fixture") return Response.json({id: "fixture", directory});
     return Response.json({ok: true});
   }});
   cleanups.push(() => receiver.stop(true));
-  const {base, client, setEnforced} = await fixture(receiver);
+  const {base, client, setEnforced, workspace} = await fixture(receiver);
+  directory = workspace;
   const send = () => fetch(`${base}/workspace/fixture/opencode/session/fixture/prompt_async`, {method: "POST", headers: client,
     body: JSON.stringify({parts: [{type: "text", text: "SYNTHETIC-CHAT"}]})});
   const passed = await send();

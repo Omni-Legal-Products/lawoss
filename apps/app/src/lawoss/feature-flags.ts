@@ -191,3 +191,10 @@ export const ALPHA_HIDE_MAP_WITHOUT_WRITING = true;
 /** Režimy pripojenia existujúceho priečinka v poradí ponuky; predvolený je prvý (skúšobný klon). */
 export const visibleExistingClientModes = <T extends string>(modes: readonly T[]): T[] =>
   modes.filter((mode) => !(ALPHA_HIDE_MAP_WITHOUT_WRITING && mode === "map"));
+
+/**
+ * Alfa: viditeľné upozornenie, že ide o testovaciu verziu (MČ 19. 10. 2026). Pruh nad obsahom LAWOSS
+ * sa skryje tlačidlom „Rozumiem“ do najbližšieho spustenia; v kroku Priečinok onboardingu ostáva vždy.
+ * Návrat: `false`.
+ */
+export const ALPHA_NOTICE = true;

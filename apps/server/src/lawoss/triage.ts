@@ -113,7 +113,9 @@ export function registerTriageRoutes(options: {
       if (error instanceof ApiError) throw error;
       if (error instanceof z.ZodError) throw new ApiError(400, "invalid_request", "Invalid triage request.");
       const code = error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : "";
-      throw new ApiError(code === "not_trial_clone" ? 403 : code === "triage_conflict" ? 409 : 400, code || "triage_failed", error instanceof Error ? error.message : "Triage failed.");
+      // `triage_too_large`: klient nad limitmi usporiadania (4 GB, 20 000 súborov); appka ukáže vetu pre advokáta.
+      const status = code === "not_trial_clone" ? 403 : code === "triage_conflict" ? 409 : code === "triage_too_large" ? 413 : 400;
+      throw new ApiError(status, code || "triage_failed", error instanceof Error ? error.message : "Triage failed.");
     }
   });
 
