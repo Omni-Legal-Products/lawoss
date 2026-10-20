@@ -1240,3 +1240,15 @@ Rozhodnutie MČ 19. 10. 2026: klient má jeden hlavný priečinok (OKF) a k nemu
 | `apps/app/src/react-app/shell/shell-config.tsx` | `ProjectNavKey` + `projectLinkedFolders`, v `DEFAULT_PROJECT_ORDER` hneď za `projectDeadlines`, boolean v `ShellConfig` predvolene `true`. `LAWOSS_PROJECT_ITEMS` ho obsahuje a `readProjectOrder` dopĺňa chýbajúci kľúč za jeho predchodcu (Domov → Prípady → Lehoty → Pripojené priečinky) namiesto všetkých naraz za Domov. Dôvod: položka pod klientom sa dá vypnúť v natívnom prispôsobení panela ako Prípady a Lehoty. |
 | `apps/app/src/react-app/domains/session/sidebar/sidebar-customization.tsx` | Položka `SIDEBAR_ITEMS.projectLinkedFolders` (`lawoss.lite.linked_folders_title`, ikona `FolderSymlink`) pre prispôsobenie panela (+1 riadok, +1 import). |
 | `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Mapa položiek projektu vykreslí `ClientLinkedFoldersNavItem` (počet pripojených priečinkov klienta, klik otvorí Domov); projekt, ktorý nie je klient, alebo klient bez pripojených priečinkov nedostane nič (+1 riadok, +1 import). |
+
+#### Pripojené priečinky klienta, oprava 1 (2026-10-20, feat/pripojene-priecinky)
+
+Engine číta jeden spoločný `OPENCODE_CONFIG` pre všetkých klientov, takže povolenia priečinkov jedného klienta platili v chatoch všetkých. Priečinky klientov preto do spoločného súboru nejdú; plugin `apps/server/src/opencode-plugins/lawoss-linked-folders.ts` (mimo `extensions/`) odpovie na otázku `external_directory` len v chatoch toho klienta podľa mapy, ktorú server zapisuje vedľa súboru enginu (`apps/server/src/lawoss/linked-folders.ts`, pravidlá `linked-folders-rules.ts`).
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/legalwork-runtime-config.ts` | +1 import; `withoutClientFolderGrants(...)` okolo členských oprávnení pred `orgPolicyPermissions` (bez `<priečinok>/*: allow` riadku klienta; iné položky ostanú); plugin `lawoss-linked-folders` v zozname pluginov; `writeLegalworkRuntimeConfigFile` zapíše aj mapu pripojených priečinkov; `keepLegalworkRuntimeConfigFileFresh` pri zápise iného klienta obnoví len mapu (súbor nie). Dôvod: únik medzi klientmi cez spoločný súbor. |
+| `apps/server/src/server.ts` | +1 import, +2 riadky v `PUT /workspace/:id/authorized-folders`: `requireLinkableFolders` odmietne nový priečinok, ktorý (po `realpath`, NFC) leží v inom registrovanom lokálnom klientovi alebo ho obsahuje, alebo leží v koreni praxe z profilu či ho obsahuje (pamäť kancelárie `Office/`/`_kancelaria/` smie). Platí pre natívne Nastavenia aj priame API. |
+| `apps/server/package.json` | Do `build` pribudol `src/opencode-plugins/lawoss-linked-folders.ts` (zabalený plugin ako ostatné). |
+| `apps/server/src/legalwork-runtime-config.test.ts` | Očakávanie: spoločný súbor po zápise globálnych oprávnení už nenesie `external_directory` riadku pracovného priestoru (ide po chatoch). |
+| `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Položka `projectLinkedFolders` dostane `active` (otvorený Domov klienta), aby sa zvýraznila, keď Domov otvorila ona. |

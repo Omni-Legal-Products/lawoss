@@ -7,8 +7,10 @@
  * Čistý model bez Reactu: čo sa smie pripojiť (porovnanie bez rozdielu NFC/NFD z macOS), ktoré položky
  * spravuje LAWOSS (pamäť kancelárie z onboardingu) a kedy nastavenie zamkla firma.
  * Natívny mechanizmus má jedinú úroveň („allow“): agent priečinok číta a súbory v ňom upravuje podľa
- * globálnych oprávnení nástrojov. Úroveň „len čítanie“ v ňom nie je.
+ * globálnych oprávnení nástrojov. Úroveň „len čítanie“ v ňom nie je. Engine ich dostane len v chatoch
+ * tohto klienta (plugin `lawoss-linked-folders` na serveri); server zápis kontroluje znova kanonicky.
  */
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { normalizeAuthorizedFolderPath } from "@/react-app/domains/settings/panels/authorized-folders-panel-state";
 import { comparable, within } from "./matter-conversations";
 
@@ -23,6 +25,12 @@ export const LINK_REFUSAL_TEXT = {
   missing: "lawoss.lite.linked_folders_refuse_missing",
   duplicate: "lawoss.lite.linked_folders_refuse_duplicate",
 } as const satisfies Record<LinkRefusal, string>;
+
+/** Odmietnutie servera (natívny zápis, kanonické cesty) ako dôvod pre ten istý text. */
+export function serverRefusal(error: unknown): LinkRefusal | null {
+  const code = error && typeof error === "object" && "code" in error ? error.code : null;
+  return code === "linked_folder_other_client" ? "other_client" : code === "linked_folder_practice" ? "practice_root" : null;
+}
 
 export type LinkScope = {
   /** Hlavný priečinok klienta (registrovaný projekt). */
@@ -58,6 +66,8 @@ export function linkRefusal(candidate: string | null | undefined, scope: LinkSco
     return Boolean(dir) && (within(dir, folder) || within(folder, dir));
   })) return "other_client";
   if (own && within(folder, own)) return "contains_client";
+  // Priečinky praxe sa nepripájajú (okrem pamäte kancelárie); server to isté overí s vyriešenými cestami.
+  if (practice && within(practice, folder) && !isOfficeGrant(raw, scope.practiceRoot)) return "practice_root";
   if (scope.linked.some((entry) => comparableFolder(entry) === folder)) return "duplicate";
   return null;
 }
@@ -93,7 +103,7 @@ export function isOfficeGrant(folder: string, practiceRoot: string | null): bool
   const name = dir.slice(dir.lastIndexOf("/") + 1).toLowerCase();
   if (!OFFICE_FOLDERS.has(name)) return false;
   const parent = dir.slice(0, dir.lastIndexOf("/")) || "/";
-  return dir === root || parent === root;
+  return parent === root;
 }
 
 export type LinkedFolderRow = { path: string; name: string; managed: boolean };
@@ -104,6 +114,11 @@ export function linkedFolderRows(folders: readonly string[], practiceRoot: strin
   return folders.map((path) => ({ path, name: folderName(path), managed: isOfficeGrant(path, practiceRoot) }));
 }
 
+/** Počet pod klientom v paneli: priečinky, ktoré pripojil človek (bez pamäte kancelárie). */
+export function linkedFolderCount(folders: readonly string[], practiceRoot: string | null): number {
+  return linkedFolderRows(folders, practiceRoot).filter((row) => !row.managed).length;
+}
+
 type FirmEntry = { locked?: boolean; value: Record<string, unknown> } | null | undefined;
 
 /** Ako natívny panel: firma spravuje priečinky, ak jej oprávnenia určujú `external_directory`; zamknuté len so zámkom. */
@@ -112,26 +127,51 @@ export function linkedFoldersPolicy(entry: FirmEntry): { managed: boolean; locke
   return { managed, locked: managed && entry?.locked === true };
 }
 
-export type LinkResult = { kind: "cancelled" } | { kind: "refused"; reason: LinkRefusal } | { kind: "saved" };
+export type SaveResult = "saved" | "declined";
+export type LinkResult = { kind: "cancelled" } | { kind: "refused"; reason: LinkRefusal } | { kind: SaveResult };
 
 /**
- * Pripojenie: výber priečinka, kontrola a uloženie celého natívneho zoznamu s novou položkou.
- * Cesta ide v tvare z disku (natívna normalizácia, bez NFC), engine porovnáva skutočné cesty.
+ * Pripojenie: výber priečinka, čerstvý natívny zoznam (súbežná zmena inde sa nestratí), kontrola a uloženie
+ * celého zoznamu s novou položkou. Cesta ide v tvare z disku (natívna normalizácia, bez NFC).
  */
 export async function linkFolder(deps: {
   pick: () => Promise<string | null>;
-  scope: LinkScope;
-  save: (folders: string[]) => Promise<unknown>;
+  scope: Omit<LinkScope, "linked">;
+  current: () => Promise<readonly string[]>;
+  save: (folders: string[]) => Promise<SaveResult>;
 }): Promise<LinkResult> {
   const picked = await deps.pick();
   if (picked === null) return { kind: "cancelled" };
-  const reason = linkRefusal(picked, deps.scope);
+  const linked = await deps.current();
+  const reason = linkRefusal(picked, { ...deps.scope, linked });
   if (reason) return { kind: "refused", reason };
-  await deps.save([...deps.scope.linked, normalizeAuthorizedFolderPath(picked)]);
-  return { kind: "saved" };
+  return { kind: await deps.save([...linked, normalizeAuthorizedFolderPath(picked)]) };
 }
 
-/** Odpojenie: natívny zoznam bez priečinka; ostatné položky ostanú v pôvodnom tvare. */
-export async function unlinkFolder(linked: readonly string[], folder: string, save: (folders: string[]) => Promise<unknown>): Promise<void> {
-  await save(linked.filter((entry) => entry !== folder));
+/** Odpojenie: čerstvý natívny zoznam bez priečinka; ostatné položky ostanú v pôvodnom tvare. */
+export async function unlinkFolder(current: () => Promise<readonly string[]>, folder: string, save: (folders: string[]) => Promise<SaveResult>): Promise<SaveResult> {
+  return save((await current()).filter((entry) => entry !== folder));
+}
+
+/**
+ * Zápis cez natívny zoznam projektu klienta. Keď priečinky mimo projektu spravuje firma, ide cez natívne
+ * prevzatie nastavenia (ako panel v Nastaveniach); zamknuté alebo odmietnuté = „declined“, nič sa nezapíše.
+ */
+export function linkedFoldersWriter(deps: {
+  client: Pick<LegalworkServerClient, "listAuthorizedFolders" | "setAuthorizedFolders">;
+  workspaceId: string;
+  managed: boolean;
+  changePolicy: (write: () => Promise<void>) => Promise<boolean>;
+}) {
+  return {
+    current: async (): Promise<readonly string[]> => (await deps.client.listAuthorizedFolders(deps.workspaceId)).folders,
+    save: async (folders: string[]): Promise<SaveResult> => {
+      const write = async () => { await deps.client.setAuthorizedFolders(deps.workspaceId, folders); };
+      if (!deps.managed) {
+        await write();
+        return "saved";
+      }
+      return (await deps.changePolicy(write)) ? "saved" : "declined";
+    },
+  };
 }

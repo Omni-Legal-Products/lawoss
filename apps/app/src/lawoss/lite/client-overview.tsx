@@ -40,7 +40,8 @@ function StandaloneClientOverview({ workspaceId }: { workspaceId: string }) {
   return <ClientOverviewFrom nav={useClientNavData()} workspaceId={workspaceId} />;
 }
 
-function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientNav; workspaceId: string }) {
+/** Prehľad z dát panela (export pre testy správania). */
+export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientNav; workspaceId: string }) {
   useMinuteTick();
   const locale = useLocale();
   const { scope, data, model } = nav;

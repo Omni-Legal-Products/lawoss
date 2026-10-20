@@ -3,6 +3,7 @@ import { ProtectedDocumentRuntime } from "./lawoss/protected-ai/runtime.js";
 import { protectedGuestBundleFactory } from "./lawoss/protected-ai/bundle.js";
 import { registerProtectedDocumentProfileRoutes } from "./lawoss/protected-ai/profiles.js";
 import { registerProtectedDocumentRoutes } from "./lawoss/protected-ai/routes.js";
+import { requireLinkableFolders } from "./lawoss/linked-folders.js";
 import { protectedEngineFetch, protectedSessionResponse, registerProtectedRuntime } from "./lawoss/protected-ai/dispatch.js";
 import { retainWikiAgentRuntime } from "./wiki/agent-access.js";
 import { createGovernedEngineFetch, governedOcrTransport, requireGovernedEngineDispatch, requireAiBoundariesAdmission } from "./lawoss/ai-governance-engine.js";
@@ -2645,6 +2646,8 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const folders = parseAuthorizedFoldersPayload(body.folders, workspaceAppFilesRoot(config, workspace));
+    // LAWOSS: nový priečinok nesmie zasahovať do iného klienta ani do praxe (lawoss/linked-folders.ts).
+    await requireLinkableFolders(config, workspace, folders, readAuthorizedFoldersFromOpencodeConfig(mergeOpencodeConfigs(await readOpencodeConfig(workspaceAppFilesRoot(config, workspace)), await readRuntimeOpencodeConfig(config, workspace.id)), workspaceAppFilesRoot(config, workspace)).folders);
     const configPath = legalworkConfigPath(workspaceAppFilesRoot(config, workspace));
 
     await requireApproval(ctx, {

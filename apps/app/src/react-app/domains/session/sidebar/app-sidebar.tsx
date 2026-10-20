@@ -1140,7 +1140,7 @@ function WorkspaceSidebarGroup({
                   </SidebarMenuSubItem>,
                   projectMatters: <ClientMattersNavItem key="projectMatters" workspaceId={workspace.id} className={PROJECT_FEATURE_CLASS} />,
                   projectDeadlines: <ClientDeadlinesNavItem key="projectDeadlines" workspaceId={workspace.id} className={PROJECT_FEATURE_CLASS} />,
-                  projectLinkedFolders: <ClientLinkedFoldersNavItem key="projectLinkedFolders" workspaceId={workspace.id} className={PROJECT_FEATURE_CLASS} onOpen={() => { void ctx.onOpenProjectPage(workspace.id, "home"); }} />,
+                  projectLinkedFolders: <ClientLinkedFoldersNavItem key="projectLinkedFolders" workspaceId={workspace.id} className={PROJECT_FEATURE_CLASS} active={isSelected && ctx.activeProjectFeature === "home"} onOpen={() => { void ctx.onOpenProjectPage(workspace.id, "home"); }} />,
                   projectReviews: <SidebarMenuSubItem key="projectReviews">
                     <SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "reviews")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "reviews"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "reviews")} onClick={() => { void ctx.onOpenProjectPage(workspace.id, "reviews"); }}>
                       <TableProperties className="size-4" strokeWidth={1.5} />
