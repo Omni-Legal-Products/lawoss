@@ -15,6 +15,20 @@ import { bootWithFallback, canUseMacHypervisor, type Accelerator } from "./accel
 import { vmResources } from "./resources.js";
 export { validateMounts, within, type SandboxMount } from "./files.js";
 
+/** Close VMs that are already constructed before waiting on a boot promise.
+ * A caller can abort while QEMU is still starting; shutdown must not sit on
+ * that 180s startup timer. */
+export async function shutdownSandboxRuntimes(pending: Promise<SharedVmRuntime>[], booting: SharedVmRuntime[]): Promise<void> {
+  // Attach handlers before close(). Killing a VM rejects its boot promise;
+  // a rejection with no listener fails the test runner.
+  const closing = pending.map(async (runtime) => {
+    try { await (await runtime).close(); }
+    catch { /* Boot rejected because shutdown already stopped the process. */ }
+  });
+  await Promise.all(booting.map((runtime) => runtime.close().catch(() => {})));
+  await Promise.all(closing);
+}
+
 const exec = promisify(execFile);
 const OUTPUT_LIMIT = 1024 * 1024;
 const manifestSchema = z.object({ version: z.literal(1), architecture: z.enum(["aarch64", "x86_64"]),
@@ -46,10 +60,13 @@ export function sandboxResources(): string {
  * has a NIC. Neither has host mounts; each command has its own folder broker. */
 export class VmSandbox {
   private static runtimes = new Map<string, Promise<SharedVmRuntime>>();
+  private static booting = new Set<SharedVmRuntime>();
   static async shutdown(): Promise<void> {
     const runtimes = [...this.runtimes.values()];
+    const booting = [...this.booting];
     this.runtimes.clear();
-    await Promise.all(runtimes.map(async (runtime) => (await runtime).close()));
+    this.booting.clear();
+    await shutdownSandboxRuntimes(runtimes, booting);
   }
   private prepared: Promise<z.infer<typeof manifestSchema>> | undefined;
   constructor(readonly resources = sandboxResources(), private readonly acceleration: "auto" | "software" = "auto",
@@ -129,8 +146,13 @@ export class VmSandbox {
         "-append", `rdinit=/init panic=1 quiet console=${arm ? "ttyAMA0" : "ttyS0"}${directNetwork ? " legalwork.network=allow" : ""}`,
         "-chardev", pipeName ? `pipe,id=rpc,path=${pipeName}` : "stdio,id=rpc", "-device", arm ? "virtio-serial-device" : "virtio-serial-pci",
         "-device", "virtserialport,chardev=rpc,name=org.legalwork.rpc"];
-      return new SharedVmRuntime(executable, args, diagnostics, consolePath, () => { if (published) onClose(); }, pipeName,
-        undefined, accelerator === "tcg" ? 180000 : 30000);
+      let vm!: SharedVmRuntime;
+      vm = new SharedVmRuntime(executable, args, diagnostics, consolePath, () => {
+        VmSandbox.booting.delete(vm);
+        if (published) onClose();
+      }, pipeName, undefined, accelerator === "tcg" ? 180000 : 30000);
+      VmSandbox.booting.add(vm);
+      return vm;
     });
     console.info(`[sandbox] ${accelerator}, ${resources.cpus} CPUs, ${resources.memoryMiB} MiB ceiling, ${directNetwork ? "unrestricted" : "restricted"} network`);
     published = true;

@@ -1182,6 +1182,8 @@ describe("project sync between computers", () => {
     finally { observer.settled(); }
   });
 
+  // Windows portable spent 3767ms in one disabled sync round (job 118309230267,
+  // 2026-10-19) and the 5000ms default expired as the next save started.
   test("recordings linked to the project reach colleagues when recordings are in the scope", async () => {
     const observer = observeSyncFixture("recordings");
     try {
@@ -1228,7 +1230,7 @@ describe("project sync between computers", () => {
       observer.complete();
     } catch (error) { observer.failed(); throw error; }
     finally { observer.settled(); }
-  });
+  }, { timeout: 20_000 });
 
   test("tasks of a local project stay on this computer; turning sync on sends them", async () => {
     const { platform } = fakeFirm();

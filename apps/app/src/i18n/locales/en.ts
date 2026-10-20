@@ -5894,6 +5894,7 @@ export default {
   "boot.ready": "Ready",
   "boot.error": "Something went wrong",
   "boot.reload": "Reload",
+  "boot.retry": "Try again",
   "boot.collecting_logs": "Collecting logs...",
   "boot.collect_logs": "Collect logs for support",
   "reload.verb_removed": "was removed",

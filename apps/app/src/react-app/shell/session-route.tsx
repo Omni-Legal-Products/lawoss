@@ -239,7 +239,7 @@ import { useShellShortcuts } from "./use-shell-shortcuts";
 import { useEngineReload } from "./use-engine-reload";
 import { useSessionGroupSync } from "./use-session-group-sync";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
-import { getReactQueryClient } from "@/react-app/infra/query-client";
+import { getReactQueryClient, refreshSessionSnapshotsOnSync } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
 import { wikiWorkspaceRoute, composerSettingsPath, homeRoute, homeProjectIdFromSearch, isSessionIndexRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute, type ComposerSettingsSection } from "./workspace-routes";
 import { SettingsSurface } from "./settings-route";
@@ -615,6 +615,7 @@ export function SessionRoute() {
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [client?.baseUrl, detached, platform, navigate]);
   useEffect(() => onSyncPoke((poke) => {
+    void refreshSessionSnapshotsOnSync(getReactQueryClient(), poke);
     if (poke.projects || poke.resync) void getReactQueryClient().invalidateQueries({ queryKey: ["project-sync"] });
     if (poke.tasks || poke.resync) refreshTaskQueries(getReactQueryClient());
     // The firm's policy may have changed the engine's providers.
