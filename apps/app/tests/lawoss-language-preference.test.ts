@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { bootstrapLawoss } from "../../../lawoss/theme/bootstrap";
-import { currentLanguagePreference, currentLocale, initLocale, LANGUAGE_PREF_KEY, setLanguagePreference, setLocale, subscribeLocale } from "../src/i18n";
+import { currentLanguagePreference, currentLocale, initLocale, LANGUAGE_PREF_KEY, setFirmLanguage, setLanguagePreference, setLocale, subscribeLocale } from "../src/i18n";
 import { EXPERIMENT_VIEWS } from "../src/lawoss/experiments/registry";
 
 const originalDescriptors = new Map(["window", "document", "navigator"].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -28,11 +28,43 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setFirmLanguage(null);
   for (const [key, descriptor] of originalDescriptors) {
     if (descriptor) Object.defineProperty(globalThis, key, descriptor);
     else Reflect.deleteProperty(globalThis, key);
   }
   setLocale("en");
+});
+
+test("firm Czech survives reinitialization and other-window changes without overwriting the member preference", () => {
+  setLocale("sk");
+  setFirmLanguage("cs");
+  expect(initLocale()).toBe("cs");
+  expect(currentLocale()).toBe("cs");
+  expect(storage.get(LANGUAGE_PREF_KEY)).toBe("sk");
+  storage.set(LANGUAGE_PREF_KEY, "de");
+  const before = writes;
+  browser.dispatchEvent(Object.assign(new Event("storage"), { key: LANGUAGE_PREF_KEY, storageArea: browser.localStorage }));
+  expect(currentLocale()).toBe("cs");
+  expect(currentLanguagePreference()).toBe("de");
+  expect(writes).toBe(before);
+  setFirmLanguage(null);
+  expect(currentLocale()).toBe("de");
+});
+
+test("system language changes respect firm override and resume after it is cleared", () => {
+  setLanguagePreference("system");
+  setFirmLanguage("cs");
+  languages = ["sk-SK"];
+  browser.dispatchEvent(new Event("languagechange"));
+  expect(currentLocale()).toBe("cs");
+  expect(htmlLanguage).toBe("cs");
+  setFirmLanguage(null);
+  expect(currentLocale()).toBe("sk");
+  setLocale("de");
+  languages = ["en-US"];
+  browser.dispatchEvent(new Event("languagechange"));
+  expect(currentLocale()).toBe("de");
 });
 
 test("first launch follows system Czech without persisting an explicit language or touching matter settings", () => {

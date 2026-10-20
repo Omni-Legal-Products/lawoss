@@ -162,10 +162,12 @@ const applyLocale = (next: Language) => {
  * choice, which applies again once this is null.
  */
 let firmLanguage: Language | null = null;
+const resolvedLocale = (): Language =>
+  firmLanguage ?? (preferenceValue === SYSTEM_LANGUAGE ? detectSystemLanguage() : preferenceValue);
 export const setFirmLanguage = (language: Language | null) => {
   if (firmLanguage === language) return;
   firmLanguage = language;
-  applyLocale(language ?? (preferenceValue === SYSTEM_LANGUAGE ? detectSystemLanguage() : preferenceValue));
+  applyLocale(resolvedLocale());
 };
 
 /**
@@ -201,7 +203,7 @@ export const setLanguagePreference = (preference: LanguagePreference) => {
     }
   }
 
-  applyLocale(firmLanguage ?? (preference === SYSTEM_LANGUAGE ? detectSystemLanguage() : preference));
+  applyLocale(resolvedLocale());
   // The resolved locale can be unchanged (picking "German" while the system is
   // already German), but the Settings row still has to redraw.
   if (previousPreference !== preference) notify();
@@ -331,14 +333,14 @@ export const initLocale = (): Language => {
 
   const previousPreference = preferenceValue;
   preferenceValue = isLanguagePreference(stored) ? stored : SYSTEM_LANGUAGE;
-  const resolved = preferenceValue === SYSTEM_LANGUAGE ? detectSystemLanguage() : preferenceValue;
+  const resolved = resolvedLocale();
   applyLocale(resolved);
   if (previousPreference !== preferenceValue) notify();
 
   if (!listeningWindows.has(window)) {
     listeningWindows.add(window);
     window.addEventListener("languagechange", () => {
-      if (preferenceValue === SYSTEM_LANGUAGE) applyLocale(detectSystemLanguage());
+      if (preferenceValue === SYSTEM_LANGUAGE) applyLocale(resolvedLocale());
     });
     window.addEventListener("storage", (event) => {
       if (event.key !== null && event.key !== LANGUAGE_PREF_KEY) return;
