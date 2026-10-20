@@ -22,10 +22,11 @@ import type { WorkspaceSessionGroup } from "@/app/types";
 import { mapDesktopWorkspace, type RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import type { OkfConnection } from "../okf/connection";
 import { officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope, usePracticeRoot } from "../okf/read-model";
-import type { ClientChoice } from "./client-choice";
+import { clientPreferenceScope, type ClientChoice } from "./client-choice";
 import { closedGroups, focusedProject, forgetProjectOverride, mattersOpen, newChatAction, newChatChoices, projectNewChatAction, projectNodes, type NewChatTarget } from "./client-nav-model";
 import { toast } from "@/components/ui/sonner";
 import { isClientFolderOf, openClientFolderChat } from "./office-scope";
+import { revalidateScopeTarget } from "../okf/scope-target";
 import type { OkfScope } from "../okf/read-model";
 import type { ClientGroup } from "./today-model";
 import { ClientPickerDialog } from "./client-picker";
@@ -34,7 +35,7 @@ import { clientToggle, focusedClientKey, matterToggle, routeFocus, type TreeClie
 import { useClientTree } from "./client-tree-data";
 import { clientDeadlinesLink, clientOverviewLink, LEHOTY_PATH, liteMatterLink } from "./links";
 import { matterUrgency, useMinuteTick } from "./live";
-import type { MatterConversation } from "./matter-conversations";
+import { comparable, within, type MatterConversation } from "./matter-conversations";
 import { groupByClient } from "./today-model";
 import { useUiMode } from "./ui-mode";
 
@@ -104,20 +105,25 @@ export function useClientNavData(live?: { groups?: readonly WorkspaceSessionGrou
   const fallback = officeWorkspace(connection);
   const all = connection?.workspaces;
   const anchor = useMemo(() => clientNavAnchor(all ?? [], practiceRoot, fallback), [all, practiceRoot, fallback]);
-  const { scope } = useOkfScope(connection, anchor);
+  const resolution = useOkfScope(connection, anchor);
+  const { scope } = resolution;
+  // #168 vracia nové pole pri každom vykreslení; stabilný odkaz, inak by sa zverejnený stav panela menil stále.
+  const excludedKey = resolution.excludedWorkspaceIds.join("\u0000");
+  const excludedWorkspaceIds = useMemo(() => resolution.excludedWorkspaceIds, [excludedKey]);
   const query = useOkfOverview(connection, scope);
   const data = scope ? query.data : undefined;
   const groups = useMemo(() => data ? groupByClient(data.matters, data.inputs, data.clients) : [], [data]);
-  const failed = Boolean(scope && !data && query.isError) || (connection !== null && !connection.client) || (loaded === null && connectionError !== null);
+  // #168: neoverená prax (chyba profilu, nebezpečná cesta) je nedostupná, nie „ešte sa číta“.
+  const failed = resolution.state === "unavailable" || Boolean(scope && !data && query.isError) || (connection !== null && !connection.client) || (loaded === null && connectionError !== null);
   const pending = !(scope && data) && !failed;
   const model = useMemo(() => {
     const overview: ClientOverviewState = scope && data ? { status: "ready", scope, groups, matters: data.matters } : failed ? { status: "unavailable" } : { status: "pending" };
     return clientNavModel(all ?? workspaces ?? [], practiceRoot, overview);
   }, [all, workspaces, practiceRoot, scope, data, groups, failed]);
-  return { connection, scope, data, groups, model, pending };
+  return { connection, scope, data, groups, model, pending, excludedWorkspaceIds };
 }
 
-export type PublishedClientNav = Pick<ReturnType<typeof useClientNavData>, "connection" | "scope" | "data" | "groups" | "model">;
+export type PublishedClientNav = Pick<ReturnType<typeof useClientNavData>, "connection" | "scope" | "data" | "groups" | "model" | "excludedWorkspaceIds">;
 
 let published: PublishedClientNav | null = null;
 const publishedListeners = new Set<() => void>();
@@ -177,7 +183,7 @@ function ClientNavRoot({ groups, selectedWorkspaceId, children }: { groups?: rea
   useEffect(() => {
     setOpenState((prev) => forgetProjectOverride(prev, focused));
   }, [focused, tree.focus.client, tree.focus.matter]);
-  const snapshot = useMemo<PublishedClientNav>(() => ({ connection: nav.connection, scope: nav.scope, data: nav.data, groups: nav.groups, model: nav.model }), [nav.connection, nav.scope, nav.data, nav.groups, nav.model]);
+  const snapshot = useMemo<PublishedClientNav>(() => ({ connection: nav.connection, scope: nav.scope, data: nav.data, groups: nav.groups, model: nav.model, excludedWorkspaceIds: nav.excludedWorkspaceIds }), [nav.connection, nav.scope, nav.data, nav.groups, nav.model, nav.excludedWorkspaceIds]);
   useEffect(() => { publish(snapshot); }, [snapshot]);
   useEffect(() => () => publish(null), []);
   // Klienti, ktorých vlastní koreň praxe: chat v koreni s priečinkom klienta, nikdy nad celou praxou.
@@ -190,19 +196,25 @@ function ClientNavRoot({ groups, selectedWorkspaceId, children }: { groups?: rea
       return folder ? [{ key: g.key, title: g.client || t("lawoss.lite.client_unnamed", locale), folder }] : [];
     });
   }, [nav.model, nav.scope, nav.groups, locale]);
-  const choices = useMemo(() => newChatChoices(nav.connection?.workspaces ?? [], nav.model, rootClients), [nav.connection, nav.model, rootClients]);
+  // #168: priečinky mimo rozsahu praxe (`excludedWorkspaceIds`) sa na výber neponúknu.
+  const choices = useMemo(() => {
+    const excluded = new Set(nav.excludedWorkspaceIds);
+    return newChatChoices((nav.connection?.workspaces ?? []).filter((w) => !excluded.has(w.id)), nav.model, rootClients);
+  }, [nav.connection, nav.model, nav.excludedWorkspaceIds, rootClients]);
   const rootTargets = useMemo(() => choices.filter((c) => c.folder !== undefined), [choices]);
   // Výber: všetci klienti (bez otvoreného projektu) alebo klienti koreňa kancelárie (otvorený koreň praxe).
   const [picking, setPicking] = useState<"all" | "root" | null>(null);
   const pickerChoices = picking === "root" ? rootTargets : choices;
   const createRef = useRef<((workspaceId: string) => void) | null>(null);
   const start = useCallback((target: NewChatTarget, create: (workspaceId: string) => void) => {
-    if (!target.folder) { create(target.workspaceId); return; }
-    openClientFolderChat(target.workspaceId, target.folder).then((to) => navigate(to)).catch((failure: unknown) => {
-      console.warn("LAWOSS: new chat in client folder", failure);
+    const failed = (failure: unknown) => {
+      console.warn("LAWOSS: new chat for client", failure);
       toast.error(t("lawoss.lite.action_error_generic", locale));
-    });
-  }, [navigate, locale]);
+    };
+    // #168 (ako `openClientChat`): pred chatom sa znova overí prax, členstvo priečinka a čerstvé čítanie jeho zdroja.
+    if (!target.folder) { revalidateClientProject(nav.scope, nav.connection, target.workspaceId).then(() => create(target.workspaceId)).catch(failed); return; }
+    openClientFolderChat(target.workspaceId, target.folder, nav.scope, nav.connection).then((to) => navigate(to)).catch(failed);
+  }, [navigate, locale, nav.scope, nav.connection]);
   // Kontext trasy: vec, prehľad klienta alebo chat v priečinku klienta → jeho klient.
   const contextKey = focusedClientKey(tree.focus, nav.groups) ?? routeFocus(pathname, search).client;
   const startNewChat = useCallback((openProjectId: string | null, create: (workspaceId: string) => void) => {
@@ -234,9 +246,25 @@ function ClientNavRoot({ groups, selectedWorkspaceId, children }: { groups?: rea
   };
   return <ClientNavContext.Provider value={{ ...snapshot, tree, open, setOpen, focused, startNewChat }}>
     {children}
-    <ClientPickerDialog open={picking !== null} purpose="ask" choices={pickerChoices} loading={picking === "all" && nav.pending} activeId={nav.connection?.activeWorkspaceId} locale={locale}
+    <ClientPickerDialog open={picking !== null} purpose="ask" choices={pickerChoices} loading={picking === "all" && nav.pending} activeId={nav.connection?.activeWorkspaceId}
+      preferenceScope={clientPreferenceScope(nav.scope, nav.connection?.baseUrl)} locale={locale}
       onClose={() => { setPicking(null); createRef.current = null; }} onPick={pick} />
   </ClientNavContext.Provider>;
+}
+
+/**
+ * Chat u registrovaného klienta praxe (#168, ako `openClientChat`): prax je tá istá, priečinok rozsahu, v ktorom
+ * klient leží (on sám alebo koreň praxe), sa práve čerstvo prečítal a klient je stále registrovaný. Bez praxe
+ * (jeden priečinok, žiadny koreň) natívne správanie ako v #168 („Opýtať sa“ bez praxe neoveruje).
+ */
+export async function revalidateClientProject(scope: OkfScope | null, connection: OkfConnection | null, workspaceId: string): Promise<void> {
+  if (!scope?.practiceRoot) return;
+  if (!connection) throw new Error("client_workspace_unavailable");
+  const project = connection.workspaces.find((w) => w.id === workspaceId);
+  const member = project?.path ? scope.members.find((m) => m.workspace.id === workspaceId || (m.workspace.path && within(comparable(m.workspace.path), comparable(project.path)))) : undefined;
+  if (!member) throw new Error("client_workspace_unavailable");
+  const current = await revalidateScopeTarget(scope, connection, member.workspace.id);
+  if (!current.connection.workspaces.some((w) => w.id === workspaceId)) throw new Error("client_workspace_unavailable");
 }
 
 /** Priečinky, ktoré sekcia klientov neukáže (koreň praxe, ktorého klientov majú registrovaní klienti, staršia vec). */

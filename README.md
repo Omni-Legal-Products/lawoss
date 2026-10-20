@@ -20,15 +20,24 @@
 </div>
 
 > [!IMPORTANT]
-> LAWOSS je v aktívnom vývoji a zatiaľ nemá vlastné produkčné binárky. Nepoužívajte testovacie buildy s klientskymi, privilegovanými ani spisovými dátami bez vlastného bezpečnostného posúdenia.
+> LAWOSS je v aktívnom vývoji. Stav zdrojového kandidáta nižšie nepreukazuje dostupnosť ani akceptáciu verejného inštalátora. Testovacie scenáre vykonávajte so syntetickými alebo verejnými údajmi.
 
-## Aktuálne odovzdanie
+## Dostupnosť v zdrojovom kandidátovi — 18. 10. 2026
 
-[Logo B a jednotný sidebar — technický zápis, testy a preview z 10. 9. 2026](docs/2026-09-10-logo-b-sidebar-handoff.md).
+Táto tabuľka opisuje lokálny implementačný kandidát nad základom `fdd10927d92aaf4c25217430cc316ef38e4e8057`. Nie je zoznamom schopností už nainštalovaného alebo verejne vydaného balíčka. Aktívny postup overovania je v [akceptačnom protokole](docs/lawoss-alpha-acceptance.md).
+
+| Oblasť | Implementované a aktuálne obmedzenia |
+|---|---|
+| **Prehľad praxe** | Agreguje klientov vo vybranom rozsahu praxe vrátane samostatne pripojených klientov. Ukazuje pokrytie a čerstvosť jednotlivých zdrojov; nedostupný zdroj sa nesmie zobraziť ako nula lehôt. Klienti mimo zvoleného rozsahu nie sú súčasťou prehľadu. |
+| **Dokument → lehota → OKF → kalendár** | Technická cesta obsahuje zdroj alebo presný ručný výňatok, dôkaz doručenia, výpočet, natívne potvrdenie hostiteľom, zápis OKF a lokálny ICS. Predvolene je vypnutá: hostiteľ musí štartovať s `LAWOSS_DEADLINE_WORKFLOW=1`, potom sa otvára cez **Settings → Pokročilý → Experimenty → Lhůty**. Pribalené CZ/SK RulePacky sú `synthetic_only`; potvrdenie a export reálnych lehôt zostávajú blokované do samostatného schválenia presného pravidla zodpovedným právnikom. Podrobnosti: [workflow lehôt](lawoss/deadlines/README.md). |
+| **Poučenie a AI** | Onboarding a nastavenia používajú jednotné poučenie; jeho prečítanie ani pripojenie poskytovateľa nie je povolenie prenosu. Samostatný verejný/syntetický text možno spracovať v prázdnom oddelenom prostredí spravovaného enginu po natívnej kontrole úplnej skutočnej požiadavky. Chránený alebo neznámy kontext v chate, prílohách, queue/Fusion, vzdialenom OCR, SystemOne a živom hlasovom režime zostáva blokovaný: test H1 nepreukázal izoláciu pri priamom shell prístupe. Platí to aj pre localhost. Ručná práca so súbormi a postup bez modelu zostávajú dostupné. |
+| **Identita buildu a distribúcia** | Kód rozlišuje vloženú identitu buildu, finálne inštalačné bytes, podpis, natívnu akceptáciu a publikáciu. Zdrojové testy tieto stavy nenahrádzajú. Vyžaduje sa overenie presného balíčka na deklarovanej platforme a čistom aj migrovanom profile; pozri [release evidence](docs/release-evidence.md). Lokálna implementácia neznamená push, merge ani verejné vydanie. |
+
+[Odovzdanie Logo B a sidebar z 10. 9. 2026](docs/2026-09-10-logo-b-sidebar-handoff.md) je historický technický zápis.
 
 ## Čo je LAWOSS
 
-Voice Mode po spustení prenáša mikrofónový zvuk a výňatok aktuálneho chatu do OpenAI Realtime cez pripojený OpenAI API kľúč. Recorder a systémové diktovanie transkribujú lokálne. Podrobnosti o prenose dát a voliteľnej telemetrii sú v [TERMS.md](TERMS.md).
+Živý Voice Mode je v tomto kandidátovi blokovaný. Vstavaný lokálny recorder a lokálna transkripcia sú samostatné cesty. Technické odlišnosti LAWOSS a zachované upstream podmienky sú oddelené v [TERMS.md](TERMS.md).
 
 LAWOSS je česká a slovenská open-source vrstva nad projektom [LegalWork](https://github.com/eigenweltlabs/legalwork). Spája lokálne agentické pracovné prostredie s právnymi workflowmi, otvorenými promptmi, skills a MCP konektormi pre naše jurisdikcie.
 
@@ -52,9 +61,9 @@ Základom zostáva upstream LegalWork. Všeobecne použiteľné opravy a lokaliz
 | 🔓 **Otvorený prompt layer** | Žiadny black box, verzované prompty a skills |
 | 🔒 **Lokálne dáta a bezpečnostné brány** | Advokát zostáva rozhodujúcim človekom v procese |
 
-## Čo staviame ako prvé
+## Čo staviame ako prvé — produktové ciele
 
-LegalWork už poskytuje chat, lokálneho agenta, Office add-iny, transkripciu a správu MCP serverov. LAWOSS sa preto sústreďuje na to, čo z neho robí nástroj pre českého a slovenského advokáta.
+LegalWork poskytuje základ pre chat, lokálneho agenta, Office add-iny, transkripciu a správu MCP serverov. Nasledujúca tabuľka vyjadruje zamýšľané ciele LAWOSS; dostupnosť v aktuálnom kandidátovi určuje tabuľka vyššie a akceptácia konkrétneho buildu.
 
 | Oblasť | Cieľ |
 |---|---|
@@ -138,7 +147,7 @@ Pracujeme v troch zónach:
 
 ## Vývoj
 
-Základné požiadavky upstreamu: Node.js, `pnpm@11.4.0`, Bun 1.3.9+ a OpenCode CLI. Platformové požiadavky a aktuálny onboarding sledujte podľa upstream dokumentácie a build workflowov.
+Použite Node.js 24, `pnpm@11.4.0` a Bun `1.4.2`, ktorý je pripnutý v aktuálnych hlavných CI workflowoch. Požiadavky konkrétnej platformy a spravovaného OpenCode enginu overte podľa príslušného build workflowu a [návodu pre testerov](docs/lawoss-build-pre-testerov.md).
 
 ```bash
 pnpm install
@@ -161,9 +170,9 @@ Prečítajte si [`AGENTS.md`](AGENTS.md). Každá zmena ide cez krátku vetvu, p
 
 ## Bezpečnosť a modely
 
-- Free modely poskytované upstreamom logujú používanie. Sú určené iba na testovanie bez klientskych a spisových dát.
-- Produkčné používanie musí mať vlastný schválený model alebo vlastný API kľúč.
-- Telemetria upstream buildov je opísaná v [`TERMS.md`](TERMS.md) a dá sa vypnúť.
+- Chránené a neznáme modelové požiadavky sú v tomto kandidátovi blokované; uložený API kľúč ani lokálna adresa túto bránu neotvoria.
+- Oddelený test verejného textu vyžaduje spravovaný engine, nakonfigurovaný kompatibilný model a natívne potvrdenie každej skutočnej požiadavky. Poskytovateľ ju dostane podľa vlastných podmienok; toto potvrdenie nie je právne schválenie poskytovateľa.
+- Telemetria aplikácie je v LAWOSS trvalo vypnutá. Zachovaný upstream text v [`TERMS.md`](TERMS.md) opisuje upstream produkt a nemení tento technický stav; prenos výslovne potvrdeného verejného textu poskytovateľovi je samostatný tok.
 - LAWOSS neposkytuje právne poradenstvo a nenahrádza odborné rozhodnutie advokáta.
 
 ## Pôvod a licencia

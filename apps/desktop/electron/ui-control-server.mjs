@@ -117,6 +117,17 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
           sendJsonResponse(response, 401, { ok: false, error: "Unauthorized" });
           return;
         }
+        if (request.method === "GET" && url.pathname === "/build-info") {
+          const win = await getWindow();
+          const build = await win.webContents.executeJavaScript(
+            '(async () => window.__LEGALWORK_ELECTRON__.invokeDesktop("appBuildInfo"))()',
+          );
+          sendJsonResponse(response, 200, {ok: true, build,
+            process: {pid: process.pid, userData: getUserDataDir(), executable: process.execPath},
+            rendererUrl: win.webContents.getURL(),
+            windowSourceId: typeof win.getMediaSourceId === "function" ? win.getMediaSourceId() : null});
+          return;
+        }
         if (request.method === "GET" && url.pathname === "/snapshot") {
           sendJsonResponse(response, 200, await runLegalworkControlCommand("snapshot"));
           return;

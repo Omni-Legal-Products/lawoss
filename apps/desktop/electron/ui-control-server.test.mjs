@@ -174,3 +174,13 @@ test("agent commands execute in a minimized window without stealing focus", asyn
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('build identity reads the live renderer IPC behind the existing bearer gate', async t => {
+ const root=await mkdtemp(path.join(tmpdir(),'lawoss-build-bridge-'));const build={provenance:'embedded',version:'1.2.3',gitSha:'a'.repeat(40)};let expression='';
+ const win={...stubWindow(),webContents:{executeJavaScript:async code=>{expression=code;return build;},getURL:()=> 'file:///fixture/app-dist/index.html'}};
+ const bridge=createUiControlServer({appName:'test',appIdentifier:'test',getUserDataDir:()=>root,getWindow:async()=>win});
+ t.after(async()=>{await bridge.stop();await rm(root,{recursive:true,force:true});});await bridge.start();
+ const {baseUrl,token}=JSON.parse(await readFile(path.join(root,'legalwork-ui-control.json'),'utf8'));
+ assert.equal((await fetch(`${baseUrl}/build-info`)).status,401);
+ const response=await fetch(`${baseUrl}/build-info`,{headers:{authorization:`Bearer ${token}`}});assert.equal(response.status,200);const result=await response.json();assert.deepEqual(result.build,build);assert.equal(result.process.pid,process.pid);assert.equal(result.process.userData,root);assert.match(expression,/invokeDesktop\("appBuildInfo"\)/);assert.equal(result.rendererUrl,'file:///fixture/app-dist/index.html');
+});

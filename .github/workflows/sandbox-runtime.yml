@@ -52,6 +52,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
+      - name: Test protected engine asset admission
+        run: node --test scripts/sandbox/protected-engine-assets.test.mjs
       - run: node scripts/sandbox/build-guest.mjs ${{ matrix.arch }}
       - uses: actions/upload-artifact@v4
         with:
@@ -63,7 +65,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.targets.outputs.runtime) }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
         with:
@@ -96,6 +98,8 @@ jobs:
           msystem: ${{ matrix.msystem }}
           path-type: inherit
           update: true
+          # setup-msys2 prunes its package cache with paccache after installation.
+          install: pacman-contrib
       - name: Download QEMU packages with retries (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
@@ -133,6 +137,8 @@ jobs:
       - name: Test macOS compatibility audit
         if: inputs.run_tests
         run: node --test scripts/sandbox/macos-compatibility.test.mjs
+      - name: Verify complete measured runtime and guest engine proof
+        run: node scripts/sandbox/verify-runtime.mjs
       - name: Exercise real isolation and permission enforcement
         if: inputs.run_tests
         timeout-minutes: 30
@@ -144,6 +150,14 @@ jobs:
             sysctl -i kern.hv_support kern.hv_vmm_present hw.optional.arm64
           fi
           bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts --timeout 180000 apps/server/src/agent-sandbox apps/server/src/calculations/calculations.test.ts apps/server/src/approvals.test.ts apps/server/src/skill-package.test.ts
+      - name: Prepare measured protected-engine acceptance
+        if: inputs.run_tests
+        run: node scripts/sandbox/prepare-protected-test.mjs
+      - name: Verify actual confined document tools, cold restore and raw egress denial
+        if: inputs.run_tests
+        # Serial test ceilings total 23 minutes; individual 240s/90s limits stay unchanged.
+        timeout-minutes: 25
+        run: bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts apps/server/src/lawoss/protected-ai/vm-engine.integration.test.ts apps/server/src/lawoss/protected-ai/readiness.integration.test.ts
       - name: Preserve executable modes in runtime artifact
         shell: bash
         run: tar -czf sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime .

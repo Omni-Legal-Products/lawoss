@@ -11,7 +11,8 @@ import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import type { MatterOverview } from "../../../../../lawoss/okf/read";
 import type { OkfConnection } from "../okf/connection";
 import { openMatterSession } from "../okf/matter-session";
-import { localMatter, locateInScope, type OkfReadResult, type OkfScope } from "../okf/read-model";
+import { canActOnSource, localMatter, locateInScope, type OkfReadResult, type OkfScope } from "../okf/read-model";
+import { revalidateScopeTarget } from "../okf/scope-target";
 import { buildClientTree, clearFocusOverrides, clientFolderFor, clientToggle, directoryFocus, fetchPlan, matterSource, routeFocus, sessionFocus, type ConversationList, type TreeFocus } from "./client-tree";
 import { liteMatterLink } from "./links";
 import {
@@ -161,7 +162,11 @@ export function useClientTree(connection: OkfConnection | null, scope: OkfScope 
   }, [data, scope]);
   const nodes = buildClientTree({
     groups, focus, overrides: effective,
-    canStart: (path) => target(path) !== null,
+    // #168: „+ Nový chat“ len nad čerstvo prečítaným zdrojom klienta (ako rýchle akcie na detaile prípadu).
+    canStart: (path) => {
+      const found = target(path);
+      return found !== null && data !== undefined && canActOnSource(data, found.local.workspace.id);
+    },
     lists: {
       client: (key) => {
         const root = clientFolders.get(key);
@@ -187,7 +192,8 @@ export function useClientTree(connection: OkfConnection | null, scope: OkfScope 
     const route = workspaceSessionRoute(conversation.workspaceId, conversation.id);
     // Bez spojenia alebo aktivácie (napr. mimo desktopu) aspoň otvoriť konverzáciu; priečinok vyberie jej trasa.
     if (!connection) { navigate(route); return; }
-    run(() => openMatterConversation(connection, conversation), route);
+    // #168: priečinok sa aktivuje len po overení praxe a čerstvého zdroja; inak záloha bez aktivácie.
+    run(async () => openMatterConversation((await revalidateScopeTarget(scope, connection, conversation.workspaceId)).connection, conversation), route);
   };
   /** Ako rýchla akcia na detaile veci: nová konverzácia v priečinku veci u jej klienta, s konceptom (nič sa neodošle). */
   const newConversation = (path: string) => {
@@ -195,7 +201,11 @@ export function useClientTree(connection: OkfConnection | null, scope: OkfScope 
     if (!connection || !found) { navigate(liteMatterLink(path), { state: TREE_FAILURE_STATE }); return; }
     const { matter, local } = found;
     const prompt = composeQuickAction("open", { title: matter.title, matterRef: matter.matterRef, path: local.selected.path }, locale);
-    run(() => openMatterSession(connection, local.workspace, local.selected, local.discovered, prompt), liteMatterLink(path), true);
+    // #168: pred založením overiť prax a čerstvý zdroj klienta (ako rýchla akcia na detaile prípadu).
+    run(async () => {
+      const current = await revalidateScopeTarget(scope, connection, local.workspace.id);
+      return openMatterSession(current.connection, current.workspace, local.selected, local.discovered, prompt);
+    }, liteMatterLink(path), true);
   };
   return { nodes, focus, toggle, openConversation, newConversation };
 }

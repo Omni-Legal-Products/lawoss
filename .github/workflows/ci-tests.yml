@@ -187,6 +187,11 @@ jobs:
         if: runner.os == 'macOS'
         run: pnpm --filter @legalwork/desktop test:preview-security
 
+      - name: Verify bounded native host context review in Electron
+        if: runner.os == 'macOS'
+        timeout-minutes: 2
+        run: pnpm --filter @legalwork/desktop test:host-review
+
       - name: Verify browser batches and project downloads in Electron
         if: runner.os == 'macOS'
         env:

@@ -11,12 +11,13 @@ import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { urgencyOf } from "../../okf/view-rules";
 import { groupByClient, nextDeadline, type ClientGroup } from "../today-model";
 import { ATTACH_EXISTING_CLIENT_PATH, LITE_CLIENTS_PATH, liteMatterLink, NEW_CLIENT_PATH } from "../links";
-import { clientRootOf, practiceClientChoices, type ClientChoice } from "../client-choice";
+import { clientPreferenceScope, clientRootOf, practiceClientChoices, type ClientChoice } from "../client-choice";
 import { NewMatterAction } from "../client-picker";
 import { useClientConversations } from "../client-tree-data";
 import type { ConversationList } from "../client-tree";
 import { openMatterConversation, type MatterConversation } from "../matter-conversations";
 import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
+import { revalidateScopeTarget } from "../../okf/scope-target";
 import { TriageEntry } from "../../domains/roztriedenie/triage-entry";
 import { hotDeadlineCount, LiveStamp, matterUrgency, useHotTitle, useMinuteTick } from "../live";
 import "./okf-glass.css";
@@ -50,13 +51,16 @@ function ClientsLive({ data, meta, scope, locale }: { data: OkfReadResult; meta:
     // Ako strom: druhý klik počas aktivácie priečinka nič nespustí.
     if (opening.current) return;
     opening.current = true;
-    openMatterConversation(connection, conversation).then((to) => navigate(to)).catch((failure: unknown) => {
-      console.warn("LAWOSS-lite: client conversation", failure);
-      navigate(fallback);
-    }).finally(() => { opening.current = false; });
+    // #168: priečinok sa aktivuje len po overení praxe a čerstvého zdroja; inak natívna trasa chatu bez aktivácie.
+    revalidateScopeTarget(scope, connection, conversation.workspaceId)
+      .then((current) => openMatterConversation(current.connection, conversation))
+      .then((to) => navigate(to)).catch((failure: unknown) => {
+        console.warn("LAWOSS-lite: client conversation", failure);
+        navigate(fallback);
+      }).finally(() => { opening.current = false; });
   };
   return <ClientsView groups={groups} meta={meta} locale={locale} actions={<TriageEntry />}
-    choices={choices} activeId={connection?.activeWorkspaceId} clientRoot={clientRoot} focus={focus}
+    choices={choices} preferenceScope={clientPreferenceScope(scope, connection?.baseUrl)} activeId={connection?.activeWorkspaceId} clientRoot={clientRoot} focus={focus}
     clientConversations={conversations} onOpenConversation={onOpen} />;
 }
 
@@ -65,10 +69,10 @@ const initials = (name: string) => name.split(/\s+/).filter((part) => /\p{L}/u.t
 
 /** Klienti ako karty s ich vecami; najbližšia lehota a jej naliehavosť z tej istej pamäte ako Dnes. */
 /** `actions`: ďalšie vstupy vedľa novej veci (roztriedenie skúšobného klona). */
-export function ClientsView({ groups: all, meta, locale: forced, actions, choices, activeId, clientRoot, focus, clientConversations, onOpenConversation }: {
+export function ClientsView({ groups: all, meta, locale: forced, actions, choices, activeId, clientRoot, preferenceScope, focus, clientConversations, onOpenConversation }: {
   groups: readonly ClientGroup[]; meta?: OkfPageMeta; locale?: Language; actions?: ReactNode;
-  /** Prax: klienti na krátky výber pri „+ Nová vec“ a priečinok klienta z karty (MČ 16. 10. 2026). */
-  choices?: readonly ClientChoice[]; activeId?: string | null; clientRoot?: (groupKey: string) => string | undefined;
+  /** Prax: klienti na krátky výber pri „+ Nový prípad“ a priečinok klienta z karty (prehľad praxe). */
+  choices?: readonly ClientChoice[]; activeId?: string | null; preferenceScope?: string; clientRoot?: (groupKey: string) => string | undefined;
   /** Kľúč klienta z bočného stromu: len jeho karta; neznámy kľúč (premenovaný priečinok) = všetci. */
   focus?: string | null;
   /** Rozhovory vybraného klienta (prehľad klienta). */
@@ -94,7 +98,7 @@ export function ClientsView({ groups: all, meta, locale: forced, actions, choice
           <Link className="lw-btn" to={NEW_CLIENT_PATH}>{text("add_client")}</Link>
           <Link className="lw-btn" to={ATTACH_EXISTING_CLIENT_PATH}>{text("attach_existing_client")}</Link>
           {/* Prehľad jedného klienta (bočný strom): nový prípad rovno u neho, bez výberu klienta (test 19. 10. 2026). */}
-          <NewMatterAction className="lw-today-primary" locale={locale} choices={choices} activeId={activeId} clientRoot={focused[0] ? clientRoot?.(focused[0].key) : undefined}>+ {text("new_matter")}</NewMatterAction>
+          <NewMatterAction className="lw-today-primary" locale={locale} choices={choices} activeId={activeId} preferenceScope={preferenceScope} clientRoot={focused[0] ? clientRoot?.(focused[0].key) : undefined}>+ {text("new_matter")}</NewMatterAction>
         </div>
       </header>
 

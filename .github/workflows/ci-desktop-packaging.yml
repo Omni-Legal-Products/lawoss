@@ -31,7 +31,7 @@ jobs:
     needs: sandbox-runtime
     if: ${{ !cancelled() && (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 100
     strategy:
       fail-fast: false
       matrix:
@@ -113,14 +113,17 @@ jobs:
         run: |
           echo "LAWOSS_ISIR_NATIVE_DIAGNOSTICS=1" >> "$GITHUB_ENV"
           echo "LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE=$RUNNER_TEMP/isir-native-diagnostics.json" >> "$GITHUB_ENV"
+      # Ten independent 240s provision + 90s inference windows can consume 55min.
+      # Allow the complete batch plus fixtures, attachment and cold recovery;
+      # every individual deadline and positive oracle stays in the harness.
       - name: Native ISIR renderer, tools and application relaunch (Linux)
         if: runner.os == 'Linux'
-        timeout-minutes: 12
+        timeout-minutes: 75
         run: xvfb-run -a pnpm test:isir:native
       - name: Native ISIR renderer, tools and application relaunch (Windows and macOS)
         id: native-isir-non-linux
         if: runner.os != 'Linux'
-        timeout-minutes: 12
+        timeout-minutes: 75
         run: pnpm test:isir:native
       - name: Probe bundled engine runtime after Windows native failure
         if: runner.os == 'Windows' && failure() && steps.native-isir-non-linux.outcome == 'failure'

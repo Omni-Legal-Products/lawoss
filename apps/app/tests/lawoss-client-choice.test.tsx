@@ -43,9 +43,19 @@ describe("výber klienta v praxi", () => {
   });
 
   test("posledného klienta si zapamätá zariadenie, nie súbor ani server", () => {
-    if (!globalThis.localStorage) return;
-    rememberClient("horak");
-    expect(readLastClient()).toBe("horak");
+    const original = Object.getOwnPropertyDescriptor(globalThis,"localStorage");
+    const values = new Map<string,string>();
+    const storage: Storage = { get length() { return values.size; }, clear: () => values.clear(), getItem: key => values.get(key) ?? null, key: index => [...values.keys()][index] ?? null, removeItem: key => { values.delete(key); }, setItem: (key,value) => { values.set(key,value); } };
+    Object.defineProperty(globalThis,"localStorage",{ configurable: true, value: storage });
+    try {
+      rememberClient("server-a/practice-a", "horak");
+      expect(readLastClient("server-a/practice-a")).toBe("horak");
+      expect(readLastClient("server-b/practice-a")).toBeNull();
+      expect(readLastClient("server-a/practice-b")).toBeNull();
+    } finally {
+      if (original) Object.defineProperty(globalThis,"localStorage",original);
+      else Reflect.deleteProperty(globalThis,"localStorage");
+    }
   });
 
   test("karta klienta vedie rovno do jeho priečinka; odkaz na formulár nesie klienta", () => {
@@ -92,7 +102,7 @@ describe("formulár novej veci s vybraným klientom", () => {
 
   test("vybraný klient sa zapíše do profilu; ten istý klient nič nemení", async () => {
     const calls: unknown[] = [];
-    const api = { updateOnboardingProfile: async (patch: Partial<OnboardingProfile>) => { calls.push(patch); return { ...profile(), ...patch }; } };
+    const api = { listWorkspaces: async () => ({ items: [alfa,horak], activeId: alfa.id }), updateOnboardingProfile: async (patch: Partial<OnboardingProfile>) => { calls.push(patch); return { ...profile(), ...patch }; } };
     expect((await chooseClient(api, profile(`${ROOT}/ALFA`), `${ROOT}/Horak`))?.clientRoot).toBe(`${ROOT}/Horak`);
     expect(calls).toEqual([{ clientRoot: `${ROOT}/Horak`, step: "matter" }]);
     expect(await chooseClient(api, profile(`${ROOT}/Horak/`), `${ROOT}/Horak`)).toBeNull();
@@ -100,7 +110,17 @@ describe("formulár novej veci s vybraným klientom", () => {
   });
 
   test("odmietnutý klient sa ohlási, nie potichu prepne", async () => {
-    const api = { updateOnboardingProfile: async () => { throw new Error("invalid_scope"); } };
-    await expect(chooseClient(api, profile(`${ROOT}/ALFA`), `${ROOT}/Iny`)).rejects.toThrow("invalid_scope");
+    const api = { listWorkspaces: async () => ({ items: [alfa,horak], activeId: alfa.id }), updateOnboardingProfile: async () => { throw new Error("invalid_scope"); } };
+    await expect(chooseClient(api, profile(`${ROOT}/ALFA`), `${ROOT}/Horak`)).rejects.toThrow("invalid_scope");
   });
+});
+
+test("removed selected client is refused before changing the profile", async () => {
+  let writes = 0;
+  const api = {
+    updateOnboardingProfile: async () => { writes++; return { version: 1 as const, lawyerName: "Synthetic", jurisdiction: "sk" as const, language: "sk" as const }; },
+    listWorkspaces: async () => ({ items: [], activeId: null }),
+  };
+  await expect(chooseClient(api,null,`${ROOT}/Removed`)).rejects.toThrow();
+  expect(writes).toBe(0);
 });

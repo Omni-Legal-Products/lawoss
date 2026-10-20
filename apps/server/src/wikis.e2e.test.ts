@@ -253,7 +253,7 @@ describe("Wiki HTTP API", () => {
     expect((await request(`/workspace/${wiki.workspaceId}/project`, "owner")).status).toBe(200);
   });
 
-  test("a scheduled run replaces a prior owner origin with collaborator scope before prompting", async () => {
+  test("a denied scheduled run cannot reuse the prior runtime owner credential after restart", async () => {
     const { request, config, root, base } = await fixture();
     const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Private scheduled knowledge" })).json());
     expect((await request(`/wikis/${wiki.id}`, "owner", "PATCH", { allowInProjects: true })).status).toBe(200);
@@ -290,9 +290,17 @@ describe("Wiki HTTP API", () => {
       stops.push(() => server.stop());
       restartedBase = `http://127.0.0.1:${server.port}`;
       ready();
-      for (let attempt = 0; attempt < 200 && store.runs(task.id)[0]?.status !== "sent"; attempt++) await Bun.sleep(10);
-      expect(store.runs(task.id)[0]?.status).toBe("sent");
-      expect(privateReadStatus).toBe(404);
+      try {
+        for (let attempt = 0; attempt < 200 && store.runs(task.id)[0]?.status !== "failed"; attempt++) await Bun.sleep(10);
+        expect(store.runs(task.id)[0]?.status).toBe("failed");
+        expect(store.runs(task.id)[0]?.error).toContain("Protected AI processing is unavailable");
+        expect(privateReadStatus).toBeUndefined();
+        expect((await fetch(`${restartedBase}/wikis/${wiki.id}/page?path=Instructions.md`, { headers })).status).toBe(403);
+        const freshToken = await ensureWikiAgentToken(config);
+        expect(freshToken).not.toBe(token);
+        await grantWikiAgentSession(config, { sessionId, directory: project.path, scope: "collaborator" });
+        expect((await fetch(`${restartedBase}/wikis/${wiki.id}/page?path=Instructions.md`, { headers: { ...headers, "x-legalwork-wiki-agent-token": freshToken } })).status).toBe(404);
+      } finally { store.close(); }
     } finally { ready(); engine.stop(true); }
   });
 

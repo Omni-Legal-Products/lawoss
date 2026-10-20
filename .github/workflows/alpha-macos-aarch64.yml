@@ -170,6 +170,7 @@ jobs:
         # orchestrator dependency pins so later pnpm invocations don't reject
         # the workspace (installs stay explicit + frozen before this step).
         run: |
+          node scripts/release/build-info.mjs --assert-clean
           node scripts/release/apply-version.mjs --version "$ALPHA_VERSION"
           pnpm install --lockfile-only --no-frozen-lockfile
 
@@ -244,6 +245,31 @@ jobs:
         timeout-minutes: 3
         run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/mac-arm64/LAWOSS.app/Contents/MacOS/LAWOSS"
 
+      - name: Record final target evidence after signing and startup
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          node scripts/release/checksums.mjs apps/desktop/dist-electron
+          node scripts/release/release-evidence.mjs create --build apps/desktop/resources/build-info.json --assets-dir apps/desktop/dist-electron --release-tag "$RELEASE_TAG"
+
+      - name: Stage exact final artifact for native acceptance
+        shell: bash
+        run: node scripts/release/acceptance-handoff.mjs stage --assets-dir apps/desktop/dist-electron --out "$RUNNER_TEMP/release-candidate"
+
+      - name: Preserve final installer and target evidence before the public gate
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-${{ github.run_id }}-${{ github.run_attempt }}-darwin-arm64
+          path: ${{ runner.temp }}/release-candidate/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Require exact native acceptance before public publication
+        if: ${{ !inputs.draft }}
+        run: node scripts/release/release-evidence.mjs verify --evidence apps/desktop/dist-electron/release-evidence-darwin-arm64.json --assets-dir apps/desktop/dist-electron --require-tested
+
       - name: Create immutable alpha prerelease
         shell: bash
         env:
@@ -270,20 +296,7 @@ jobs:
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          assets=(
-            apps/desktop/dist-electron/*.dmg
-            apps/desktop/dist-electron/*.zip
-            apps/desktop/dist-electron/*.blockmap
-            apps/desktop/dist-electron/latest-mac.yml
-          )
-          if [ ${#assets[@]} -eq 0 ]; then
-            echo "No Electron alpha assets found in apps/desktop/dist-electron" >&2
-            exit 1
-          fi
-          gh release upload "$ALPHA_RUN_RELEASE_TAG" "${assets[@]}" \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber
+          node scripts/release/publish-electron-assets.mjs --payload-only ${{ inputs.draft && '--draft-payload' || '' }} apps/desktop/dist-electron "$ALPHA_RUN_RELEASE_TAG"
 
       - name: Update alpha updater pointer
         # LAWOSS: koncept nemení ukazovateľ alfa kanála.
@@ -294,6 +307,7 @@ jobs:
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
         run: |
           set -euo pipefail
+          node scripts/release/channel-evidence.mjs --evidence apps/desktop/dist-electron/release-evidence-darwin-arm64.json --pointer-tag "$ALPHA_RELEASE_TAG" --manifest latest-mac.yml
           POINTER_MANIFEST="$RUNNER_TEMP/latest-mac.yml"
           export POINTER_MANIFEST
           node <<'NODE'

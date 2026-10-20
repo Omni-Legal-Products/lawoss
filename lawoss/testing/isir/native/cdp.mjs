@@ -10,7 +10,7 @@ export async function until(read, description, timeout = 30_000) {
   throw Object.assign(new Error(`Timed out: ${description}; last=${String(last)}`), { code: "ISIR_NATIVE_WAIT_EXPIRED" });
 }
 
-export async function connectRenderer(url, request = fetch) {
+export async function connectRenderer(url, request = fetch, observeEvent) {
   const parsed = new URL(url);
   if (parsed.hostname !== "127.0.0.1" || parsed.protocol !== "http:" || !parsed.port) throw new Error("Explicit loopback CDP URL required");
   const target = await until(async () => {
@@ -24,7 +24,7 @@ export async function connectRenderer(url, request = fetch) {
   const events = [];
   ws.addEventListener("message", event => {
     const value = JSON.parse(String(event.data));
-    if (!value.id) { events.push(value); return; }
+    if (!value.id) { events.push(value); observeEvent?.(value); return; }
     const item = pending.get(value.id);
     if (!item) return;
     pending.delete(value.id); clearTimeout(item.timer);

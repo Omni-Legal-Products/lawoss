@@ -1,3 +1,4 @@
+import { scopedWikiRuntime } from "./scoped-runtime.test-helper.js";
 import { WikiSuggestionSchema } from "@legalwork/types/wiki-suggestions";
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
@@ -142,17 +143,23 @@ test("a wiki's own session follows ordinary approval mode even when project acce
   const f = await fixture();
   expect((await f.host(f.base, "PATCH", { allowInProjects: false })).status).toBe(200);
   await grantWikiAgentSession(f.config, { sessionId: "own-wiki-chat", directory: f.wiki.root, scope: "owner" });
-  const ownWrite = (revision: string, content: string) => fetch(`${f.url}${f.base}/page`, { method: "PUT",
-    headers: f.headers("own-wiki-chat", f.wiki.root), body: JSON.stringify({ path: f.page.path, content, baseRevision: revision }) });
+  const refused = await fetch(`${f.url}${f.base}/page`, { method: "PUT", headers: f.headers("own-wiki-chat",f.wiki.root), body: JSON.stringify({ path: f.page.path, content: "# Shared credential must not write", baseRevision: f.page.revision }) });
+  expect(refused.status).toBe(403);
+  expect(await refused.json()).toMatchObject({ code: "wiki_agent_client_runtime_required" });
+  await f.unchanged();
+  const own = await scopedWikiRuntime(f.config,"own-wiki-chat",f.wiki.root);
+  stops.push(() => own.close());
+  const ownWrite = (revision: string, content: string) => fetch(`${own.url}${f.base}/page`, { method: "PUT",
+    headers: own.headers(), body: JSON.stringify({ path: f.page.path, content, baseRevision: revision }) });
   const auto = await ownWrite(f.page.revision, "# Own wiki edit\n");
   expect(auto.status).toBe(200);
   const page = documentSchema.parse(await auto.json());
-  expect(await listApprovals(f.url, f.config.hostToken)).toEqual([]);
-  f.config.approval.mode = "manual";
+  expect(await listApprovals(own.url, own.config.hostToken)).toEqual([]);
+  own.config.approval.mode = "manual";
   const manual = ownWrite(page.revision, "# Manual own wiki edit\n");
-  const [approval] = await waitForApprovals(f.url, f.config.hostToken);
+  const [approval] = await waitForApprovals(own.url, own.config.hostToken);
   expect(approval).toMatchObject({ action: "wiki.write", workspaceId: f.wiki.workspaceId });
-  await f.reply(approval, "deny");
+  await respondApproval(own.url,own.config.hostToken,approval,"deny");
   expect((await manual).status).toBe(403);
   expect(await readFile(join(f.wiki.root, f.page.path), "utf8")).toBe(page.content);
 });

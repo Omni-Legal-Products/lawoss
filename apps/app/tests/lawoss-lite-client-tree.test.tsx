@@ -467,6 +467,21 @@ describe("háky stromu a detailu veci (server-side render nad naplnenou cache)",
     expect(folderQueries(queries)).toEqual([]);
   });
 
+  test("useClientTree: „+ Nový chat“ len nad čerstvo prečítaným zdrojom klienta (#168 canActOnSource)", () => {
+    const coverage = (state: "fresh" | "stale") => ({ status: state === "fresh" ? "complete" : "partial", scopeKey: "k", sources: [{ source: "workspace", workspaceId: office.id, checkedAt: 1, lastSuccessAt: 1, state }] });
+    const canStart = (withCoverage: object) => {
+      function Probe() {
+        const tree = useClientTree(connection, scope, { ...data, ...withCoverage } as never, "/vec", `?vec=${encodeURIComponent(m1.path)}`, "en");
+        return <pre>{JSON.stringify(tree.nodes.flatMap((n) => n.matters).find((m) => m.path === m1.path)?.canStart)}</pre>;
+      }
+      return renderWith(filled(), "/dnes", <Probe />);
+    };
+    expect(canStart({ coverage: coverage("fresh") })).toContain("true");
+    expect(canStart({ coverage: coverage("stale") })).toContain("false");
+    // Bez pokrytia (neznámy zdroj) sa nový chat neponúkne.
+    expect(canStart({})).toContain("false");
+  });
+
   test("useMatterConversations: všetky rozhovory veci z toho istého výpisu ako strom", () => {
     function Probe() {
       const list = useMatterConversations(connection, scope, data as never, m1);

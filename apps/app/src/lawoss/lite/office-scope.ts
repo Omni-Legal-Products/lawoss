@@ -7,7 +7,8 @@ import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { toSessionTransportDirectory } from "@/app/lib/session-scope";
 import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../okf/connection";
 import { activateLocalWorkspace } from "../okf/matter-session";
-import { activeWorkspace, officeOf, officeWorkspace, OFFICE_SCOPE_RESTORED } from "../okf/read-model";
+import { revalidateScopeTarget } from "../okf/scope-target";
+import { activeWorkspace, officeOf, officeWorkspace, type OkfScope, OFFICE_SCOPE_RESTORED } from "../okf/read-model";
 import { currentUiMode } from "./ui-mode";
 import { comparable, within } from "./matter-conversations";
 
@@ -38,12 +39,12 @@ export const isClientFolderOf = (workspacePath: string | null | undefined, folde
 /**
  * „Nový chat“ v priečinku klienta, ktorý leží v registrovanom koreni praxe (jeden priečinok pre všetko,
  * MČ 19. 10. 2026): aktivuje koreň a založí chat s priečinkom konverzácie = priečinok klienta, nikdy nad
- * celou praxou. Server priečinok overí v koreni (ako pri chate vo veci).
+ * celou praxou. Server priečinok overí v koreni (ako pri chate vo veci). Pred aktiváciou sa ako v #168
+ * (`openClientChat`) znova overí prax, členstvo priečinka v nej a čerstvé čítanie jeho zdroja.
  */
-export async function openClientFolderChat(workspaceId: string, folder: string): Promise<string> {
-  const connection = await loadOkfConnection();
-  const workspace = connection.workspaces.find((w) => w.id === workspaceId);
-  if (!connection.client || !workspace) throw new Error("client workspace unavailable");
+export async function openClientFolderChat(workspaceId: string, folder: string, expectedScope: OkfScope | null, expectedConnection: OkfConnection | null): Promise<string> {
+  if (!expectedConnection) throw new Error("client_workspace_unavailable");
+  const { connection, workspace } = await revalidateScopeTarget(expectedScope, expectedConnection, workspaceId);
   if (!isClientFolderOf(workspace.path, folder)) throw new Error("not a client folder inside the workspace");
   const active = connection.activeWorkspaceId === workspace.id ? connection : await activateLocalWorkspace({ ...connection, client: connection.client }, workspace, connection.workspaces);
   return openSessionWithPrompt(active, workspace, "", toSessionTransportDirectory(folder));

@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-test("authenticated HTTP lifecycle, local scope, restart delivery and engine integration", async () => {
+test("authenticated HTTP lifecycle, local scope and owned non-model delivery survive restart", async () => {
   const root = await mkdtemp(join(tmpdir(), "scheduled-http-")), script = join(root, "check.mjs");
   await writeFile(script, `
     import { mkdir, rename } from "node:fs/promises";
@@ -50,7 +50,11 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
     const store = await ScheduledTaskStore.open(process.env.LEGALWORK_RUNTIME_DB);
     const missedDueAt = Date.now() - 5 * 60000;
     const seed = store.create("project", { title: "Catch up", prompt: "Review the matter", sessionId: null, model: null, schedule: { kind: "once", startAt: new Date(missedDueAt).toISOString(), timeZone: "Europe/Berlin" } }, missedDueAt - 60000);
-    let server = await startServer(config);
+    const sendOwned = async (task, sessionId) => {
+      deliveries.push(task);
+      inboxDb.query("INSERT INTO message VALUES (?, ?, ?, ?)").run("owned-reply-" + deliveries.length, sessionId, 300, JSON.stringify({ role: "assistant", time: { completed: 400 } }));
+    };
+    let server = await startServer(config, { scheduledTaskSend: sendOwned });
     let base = "http://127.0.0.1:" + server.port;
     const call = (path, method="GET", body, token="test") => fetch(base + path, { method, headers: { authorization: "Bearer " + token, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const path = "/workspace/project/scheduled-tasks";
@@ -67,9 +71,9 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       assert.equal(store.runs(seed.id)[0].status, "sent");
       assert.equal(store.runs(seed.id)[0].dueAt, new Date(missedDueAt).toISOString());
       assert.ok(Date.parse(store.runs(seed.id)[0].startedAt) >= missedDueAt + 5 * 60000);
-      assert.equal(deliveries[0].parts[0].text, "[Scheduled task: Catch up]\\n\\nReview the matter");
-      assert.equal(deliveries[0].permission, undefined);
-      assert.equal(deliveries[0].agent, "legalwork-scheduled-project");
+      assert.equal(deliveries[0].prompt, "Review the matter");
+      assert.equal(deliveries[0].projectAccess, "project");
+      assert.equal(deliveries[0].wikiScope, "collaborator");
       assert.equal(store.get("project", seed.id).projectAccess, "project");
       assert.equal(store.get("project", seed.id).reuseChat, false);
       assert.equal(store.runs(seed.id)[0].projectAccess, "project");
@@ -106,7 +110,7 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       assert.equal((await call(path+"/"+task.id, "PATCH", { revision: 1, title: "Stale" })).status, 409);
       const resumed = (await (await call(path+"/"+task.id, "PATCH", { revision: 2, status: "active", projectAccess: "all" })).json()).task; assert.equal(resumed.status, "active");
       config.readOnly = true; assert.equal((await call(path+"/"+task.id, "DELETE", { revision: 3 })).status, 403); config.readOnly = false;
-      await server.stop(); server = await startServer(config); base = "http://127.0.0.1:" + server.port;
+      await server.stop(); server = await startServer(config, { scheduledTaskSend: sendOwned }); base = "http://127.0.0.1:" + server.port;
       assert.equal((await (await call(path+"/"+task.id)).json()).task.title, "Daily review");
       assert.equal(store.get("project", task.id).projectAccess, "all");
       assert.equal(store.get("project", task.id).reuseChat, true);
@@ -127,15 +131,15 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       for (let i=0; i<100 && store.get("project", rejected.id).status !== "paused"; i++) await Bun.sleep(20);
       assert.equal(deliveries.length, 1);
       assert.equal(store.get("project", rejected.id).status, "paused");
-      assert.match(store.runs(rejected.id)[0].error, /permissions/);
+      assert.match(store.runs(rejected.id)[0].error, /Protected AI processing is unavailable/);
       await server.stop();
       const broad = store.create("project", { ...draft, projectAccess: "all", schedule: { kind: "once", startAt: new Date(Date.now()-1000).toISOString(), timeZone: "Europe/Berlin" } }, Date.now()-2000);
       const chosenModel = { providerID: "selected-provider", modelID: "selected-model" };
       store.update("project", broad.id, broad.revision, { model: chosenModel });
-      server = await startServer(config);
+      server = await startServer(config, { scheduledTaskSend: sendOwned });
       for (let i=0; i<100 && store.runs(broad.id)[0]?.status !== "sent"; i++) await Bun.sleep(20);
       assert.equal(deliveries.length, 2);
-      assert.equal(deliveries[1].agent, "legalwork-scheduled-all");
+      assert.equal(deliveries[1].projectAccess, "all");
       assert.deepEqual(deliveries[1].model, chosenModel);
       console.log("scheduled HTTP checks passed");
     } finally { await server.stop(); engine.stop(true); inboxDb.close(); }

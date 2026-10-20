@@ -1,3 +1,4 @@
+import { getAppBuildInfo } from './build-info.mjs';
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
@@ -60,6 +61,7 @@ import { getApplicationsForFile } from "./file-applications.mjs";
 import { composeAppleMailDraft, composeOutlookDraft } from "./mail-draft.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { ensureLawossHomeWorkspace } from "./lawoss-home-workspace.mjs";
+import { createRuntimeBootstrapGate } from "./runtime-bootstrap-gate.mjs";
 import { copyFilesIntoProject, resolveProjectFolder } from "./project-file-copy.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
 import { describeBlockedUrl, guardNavigation } from "./window-allowlist.mjs";
@@ -173,7 +175,7 @@ const NATIVE_DEEP_LINK_EVENT = "legalwork:deep-link-native";
 const APP_BUNDLE_IDENTIFIER = "com.eigenweltlabs.legalwork";
 const DEV_APP_IDENTIFIER = "com.eigenweltlabs.legalwork.dev";
 const DESKTOP_PROTOCOL_SCHEME = "legalwork";
-const isDevMode = process.env.LEGALWORK_DEV_MODE === "1";
+const isDevMode = !app.isPackaged && process.env.LEGALWORK_DEV_MODE === "1";
 // LAWOSS: APP_NAME (app.setName) aj DISPLAY_NAME (menu, tray) sú LAWOSS. APP_NAME určuje na
 // macOS priečinok logov a meno v support bundle; userData sa odvodzuje od APP_IDENTIFIER,
 // ktorý sa nemení (stráž lawoss/scripts/check-branding.mjs).
@@ -1101,7 +1103,6 @@ const runtimeManager = createRuntimeManager({
 
 let runtimeDisposedForQuit = false;
 let runtimeDisposeInProgress = false;
-let runtimeBootstrapPromise = null;
 
 // The only non-app page the main window may show (allowed by name in the
 // navigation guard).
@@ -1276,12 +1277,11 @@ async function bootRuntimeForSelectedWorkspace() {
   return { ok: true, skipped: false, engine, legalworkServer, workspaceId: bootWorkspace.id ?? null };
 }
 
-function ensureRuntimeBootstrap() {
-  if (!runtimeBootstrapPromise) {
-    runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch(describeRuntimeBootFailure);
-  }
-  return runtimeBootstrapPromise;
-}
+// LAWOSS: zlyhanie ({ ok: false } aj výnimka) brána zabudne, aby „Skúsiť znova“
+// spustilo engine odznova. Úspech a rozbehnutý pokus ostávajú jeden promise.
+const ensureRuntimeBootstrap = createRuntimeBootstrapGate(() =>
+  bootRuntimeForSelectedWorkspace().catch(describeRuntimeBootFailure),
+);
 
 async function projectUsesExternalAppFiles(projectDir) {
   const requestedPath = String(projectDir ?? "").trim();
@@ -1851,12 +1851,8 @@ const desktopCommandHandlers = {
       return runtimeManager.orchestratorInstanceDispose(String(args[0] ?? "").trim());
   },
   "appBuildInfo": async (event, ...args) => {
-      return {
-        version: app.getVersion(),
-        gitSha: process.env.LEGALWORK_GIT_SHA ?? null,
-        buildEpoch: process.env.LEGALWORK_BUILD_EPOCH ?? null,
-        legalworkDevMode: process.env.LEGALWORK_DEV_MODE === "1",
-      };
+      return getAppBuildInfo({resourcesPath: process.resourcesPath, version: app.getVersion(),
+        platform: process.platform, arch: process.arch, isPackaged: app.isPackaged});
   },
   "getUiControlBridgeInfo": async (event, ...args) => {
       try {
@@ -1867,7 +1863,7 @@ const desktopCommandHandlers = {
       }
   },
   "getLegalworkUiMcpCommand": async (event, ...args) => {
-      if (process.env.LEGALWORK_DEV_MODE === "1") {
+      if (isDevMode) {
         return ["node", path.resolve(__dirname, "../../..", "packages/legalwork-ui-mcp/index.mjs")];
       }
       return ["npx", "-y", "legalwork-ui-mcp"];
@@ -3180,7 +3176,7 @@ if (!app.requestSingleInstanceLock()) {
     await uiControlServer.start().catch((error) => {
       console.warn("[ui-control] failed to start", error);
     });
-    runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch(describeRuntimeBootFailure);
+    void ensureRuntimeBootstrap();
 
     queueDeepLinks(forwardedDeepLinks(process.argv));
     if (process.platform === "darwin" && !startHiddenPending) {

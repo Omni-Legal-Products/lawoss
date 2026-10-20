@@ -39,7 +39,7 @@ import type { RecorderBridge, ServerConfig, WorkspaceInfo } from "./types.js";
 
 const ORG = "org_kanzlei";
 const cleanups: Array<() => Promise<void>> = [];
-let activeFirstFailureTiming: ProjectSyncFirstFailureTiming | undefined;
+let activeFirstFailureTiming: Pick<ProjectSyncFirstFailureTiming, "cleanupEntry" | "cleanupExit"> | undefined;
 const originalPlatformUrl = process.env.EIGENWELT_PLATFORM_URL;
 const originalRuntimeDb = process.env.LEGALWORK_RUNTIME_DB;
 
@@ -67,6 +67,135 @@ afterEach(async () => {
 });
 
 const ALL = { documents: true, notes: true, tasks: true, recordings: false, metadata: true, reviews: true };
+
+/** Names map public operations to the existing observer's bounded numeric statements. */
+function createSyncFixturePhaseTiming(options: {
+  fixture: "member-own-folder" | "recordings";
+  env: Readonly<Record<string, string | undefined>>;
+  now: () => number;
+  write: (frame: string) => void;
+}) {
+  const phases = options.fixture === "member-own-folder" ? [
+    "shared-folder-setup", "choose-folder", "member-first-round", "initial-status", "initial-overview",
+    "revoke-settings", "owner-revoke-round", "member-revoke-round", "revoked-status", "revoked-bytes", "revoked-metadata",
+    "reshare-settings", "owner-reshare-round", "member-reshare-round", "reshared-status", "leave", "left-bytes", "member-left-round", "final-status",
+  ] : [
+    "owner-machine", "member-machine", "local-project", "disable-recordings", "disabled-round", "enable-recordings",
+    "export-round", "repeat-export-round", "member-arrival-round", "recording-bytes",
+  ];
+  const observer = createProjectSyncFirstFailureTiming({ case: options.fixture, env: options.env, now: options.now, write: options.write });
+  return {
+    ...observer,
+    async run<T>(phase: string, operation: () => Promise<T>): Promise<T> {
+      const statement = phases.indexOf(phase) + 1;
+      if (!statement) return operation();
+      observer.enter(statement);
+      const result = await operation();
+      observer.done(statement);
+      return result;
+    },
+  };
+}
+
+test("sync fixture phase observation freezes pending work before cleanup and ignores its late continuation", async () => {
+  const frames: string[] = [];
+  let time = 0;
+  let finish: (value: string) => void = () => { throw new Error("pending operation not entered"); };
+  const observer = createSyncFixturePhaseTiming({
+    fixture: "member-own-folder",
+    env: { LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS: "1", CI: "true", GITHUB_ACTIONS: "true" },
+    now: () => time,
+    write: frame => { frames.push(frame); },
+  });
+  expect(await observer.run("shared-folder-setup", async () => "ready")).toBe("ready");
+  const pending = observer.run("member-reshare-round", () => new Promise<string>(resolve => { finish = resolve; }));
+  time = 5001;
+  observer.cleanupEntry(8);
+  expect(frames).toHaveLength(1);
+  const snapshot = JSON.parse(frames[0].slice(frames[0].indexOf(" ") + 1));
+  expect(snapshot).toMatchObject({ case: "member-own-folder", kind: "body", currentStatement: 14, lastCompletedStatement: 1, bodyComplete: false, bodySettled: false, elapsedMs: 5001, cleanupCount: 8 });
+  const frozen = frames[0];
+  finish("late");
+  expect(await pending).toBe("late");
+  observer.complete(); observer.settled(); observer.cleanupEntry(0);
+  observer.cleanupExit(false, 0); observer.cleanupExit(false, 0);
+  expect(frames[0]).toBe(frozen);
+  expect(frames).toHaveLength(2);
+  expect(JSON.parse(frames[1].slice(frames[1].indexOf(" ") + 1))).toMatchObject({ kind: "cleanup", exited: true, remainingCallbacks: 0 });
+  expect(frames.every(frame => Buffer.byteLength(frame) <= 8192)).toBe(true);
+});
+
+test("sync fixture phase observation stays quiet when disabled or successful and preserves operation and assertion failures", async () => {
+  const frames: string[] = [];
+  let clockReads = 0;
+  const create = (enabled: boolean) => createSyncFixturePhaseTiming({
+    fixture: "recordings", env: enabled ? { LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS: "1", CI: "true", GITHUB_ACTIONS: "true" } : {},
+    now: () => ++clockReads, write: frame => { frames.push(frame); },
+  });
+  const disabled = create(false);
+  expect(await disabled.run("owner-machine", async () => 7)).toBe(7);
+  disabled.cleanupEntry(1); disabled.cleanupExit(false, 0);
+  expect(clockReads).toBe(0); expect(frames).toEqual([]);
+  const passed = create(true);
+  await passed.run("owner-machine", async () => undefined);
+  passed.complete(); passed.settled(); passed.cleanupEntry(1); passed.cleanupExit(false, 0);
+  expect(frames).toEqual([]);
+  const sentinel = new Error("private failure contents");
+  for (const failurePoint of ["operation", "assertion"]) {
+    frames.length = 0;
+    const failed = create(true);
+    const body = async () => {
+      try {
+        await failed.run("enable-recordings", async () => { if (failurePoint === "operation") throw sentinel; });
+        throw sentinel; // Assertion failure outside the observed operation.
+      } catch (error) { failed.failed(); throw error; }
+      finally { failed.settled(); }
+    };
+    await expect(body()).rejects.toBe(sentinel);
+    failed.cleanupEntry(2); failed.cleanupExit(true, 1);
+    expect(frames).toHaveLength(2);
+    expect(frames.join("")).not.toContain(sentinel.message);
+    const snapshot = JSON.parse(frames[0].slice(frames[0].indexOf(" ") + 1));
+    expect(snapshot).toMatchObject({ currentStatement: failurePoint === "operation" ? 6 : null, bodyFailed: true, bodySettled: true });
+    expect(snapshot.events.filter((event: { kind: string }) => event.kind === "body-failed")).toHaveLength(1);
+  }
+});
+
+test("sync fixture phase observations bound their closed fields and require every diagnostic flag", async () => {
+  for (const missing of ["LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS", "CI", "GITHUB_ACTIONS"]) {
+    const env: Record<string, string> = { LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS: "1", CI: "true", GITHUB_ACTIONS: "true" };
+    delete env[missing];
+    const disabled = createSyncFixturePhaseTiming({ fixture: "recordings", env,
+      now: () => { throw new Error("disabled clock read"); }, write: () => { throw new Error("disabled publication"); } });
+    expect(await disabled.run("owner-machine", async () => "result")).toBe("result");
+    disabled.cleanupEntry(1); disabled.cleanupExit(false, 0);
+  }
+  const frames: string[] = [];
+  const observer = createSyncFixturePhaseTiming({ fixture: "recordings",
+    env: { LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS: "1", CI: "true", GITHUB_ACTIONS: "true" },
+    now: () => Number.MAX_SAFE_INTEGER, write: frame => { frames.push(frame); } });
+  await observer.run("private unrecognized phase", async () => undefined);
+  for (let index = 0; index < 60; index++) await observer.run("repeat-export-round", async () => undefined);
+  observer.cleanupEntry(Infinity); observer.cleanupExit(true, Number.MAX_SAFE_INTEGER);
+  expect(frames).toHaveLength(2);
+  expect(frames.join("")).not.toContain("private unrecognized phase");
+  const body = JSON.parse(frames[0].slice(frames[0].indexOf(" ") + 1));
+  expect(body.events).toHaveLength(96);
+  expect(body).toMatchObject({ currentStatement: null, lastCompletedStatement: 8, dropped: 25, cleanupCount: 0 });
+  expect(JSON.parse(frames[1].slice(frames[1].indexOf(" ") + 1))).toMatchObject({ remainingCallbacks: 65535 });
+  expect(frames.every(frame => Buffer.byteLength(frame) <= 8192)).toBe(true);
+});
+
+function observeSyncFixture(fixture: "member-own-folder" | "recordings") {
+  const observer = createSyncFixturePhaseTiming({
+    fixture,
+    env: { LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS: process.env.LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS, CI: process.env.CI, GITHUB_ACTIONS: process.env.GITHUB_ACTIONS },
+    now: () => performance.now(),
+    write: frame => { console.error(frame.trimEnd()); },
+  });
+  activeFirstFailureTiming = observer;
+  return observer;
+}
 
 /**
  * The firm's platform, in memory: who sees which project, as the real access
@@ -1020,76 +1149,88 @@ describe("project sync between computers", () => {
   });
 
   test("used as the member's copy, their own folder stays theirs when they are taken off or leave", async () => {
-    const { platform, owner, member, akte, own, folderPath, projectId } = await sameFolderOnBoth();
-    await resolveProjectSync(member.config, own, { action: "use_folder" });
-    await runProjectSync(member.config, { platform });
-    expect(await projectSyncStatus(member.config, own)).toMatchObject({ mode: "synced", role: "member", ownFolder: true });
-    expect((await projectSyncOverview(member.config)).roles?.[own.id]).toBe("member");
-    expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([own.id]);
+    const observer = observeSyncFixture("member-own-folder");
+    try {
+      const { platform, owner, member, akte, own, folderPath, projectId } = await observer.run("shared-folder-setup", sameFolderOnBoth);
+      await observer.run("choose-folder", () => resolveProjectSync(member.config, own, { action: "use_folder" }));
+      await observer.run("member-first-round", () => runProjectSync(member.config, { platform }));
+      expect(await observer.run("initial-status", () => projectSyncStatus(member.config, own))).toMatchObject({ mode: "synced", role: "member", ownFolder: true });
+      expect((await observer.run("initial-overview", () => projectSyncOverview(member.config))).roles?.[own.id]).toBe("member");
+      expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([own.id]);
 
-    // Taken off: the project stays Ben's own, and Anna's id in the shared folder is left alone.
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
-    await runProjectSync(owner.config, { platform });
-    await runProjectSync(member.config, { platform });
-    expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([own.id]);
-    expect((await projectSyncStatus(member.config, own)).mode).toBe("local");
-    expect(await read(own, "a.txt")).toBe("a");
-    expect((await readProjectDetails(folderPath)).syncProjectId).toBe(projectId);
+      // Taken off: the project stays Ben's own, and Anna's id in the shared folder is left alone.
+      await observer.run("revoke-settings", () => saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] })));
+      await observer.run("owner-revoke-round", () => runProjectSync(owner.config, { platform }));
+      await observer.run("member-revoke-round", () => runProjectSync(member.config, { platform }));
+      expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([own.id]);
+      expect((await observer.run("revoked-status", () => projectSyncStatus(member.config, own))).mode).toBe("local");
+      expect(await observer.run("revoked-bytes", () => read(own, "a.txt"))).toBe("a");
+      expect((await observer.run("revoked-metadata", () => readProjectDetails(folderPath))).syncProjectId).toBe(projectId);
 
-    // Given access again, he chose this folder before; leaving keeps it too.
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
-    await runProjectSync(owner.config, { platform });
-    await runProjectSync(member.config, { platform });
-    expect((await projectSyncStatus(member.config, own)).mode).toBe("synced");
-    await resolveProjectSync(member.config, own, { action: "remove", force: true });
-    expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([own.id]);
-    expect(await read(own, "a.txt")).toBe("a");
-    await runProjectSync(member.config, { platform });
-    expect((await projectSyncStatus(member.config, own)).state).toBe("local");
+      // Given access again, he chose this folder before; leaving keeps it too.
+      await observer.run("reshare-settings", () => saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] })));
+      await observer.run("owner-reshare-round", () => runProjectSync(owner.config, { platform }));
+      await observer.run("member-reshare-round", () => runProjectSync(member.config, { platform }));
+      expect((await observer.run("reshared-status", () => projectSyncStatus(member.config, own))).mode).toBe("synced");
+      await observer.run("leave", () => resolveProjectSync(member.config, own, { action: "remove", force: true }));
+      expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([own.id]);
+      expect(await observer.run("left-bytes", () => read(own, "a.txt"))).toBe("a");
+      await observer.run("member-left-round", () => runProjectSync(member.config, { platform }));
+      expect((await observer.run("final-status", () => projectSyncStatus(member.config, own))).state).toBe("local");
+      observer.complete();
+    } catch (error) { observer.failed(); throw error; }
+    finally { observer.settled(); }
   });
 
+  // Windows portable spent 3767ms in one disabled sync round (job 118309230267,
+  // 2026-10-19) and the 5000ms default expired as the next save started.
   test("recordings linked to the project reach colleagues when recordings are in the scope", async () => {
-    const { platform } = fakeFirm();
-    const owner = await machine("user_anna", "Anna");
-    const member = await machine("user_ben", "Ben");
-    const akte = await localProject(owner.config, "Akte");
-    const exported: string[] = [];
-    const idle = { available: false, recordingActive: false, liveTranscriptActive: false, fileName: null, error: null };
-    const recorder: RecorderBridge = {
-      listProjectRecordings: async (projectId) =>
-        projectId === akte.id
-          ? [
-              { id: "rec_done", title: "Mandantengespräch", durationMs: 1000, status: "complete", segmentCount: 1 },
-              { id: "rec_live", title: "Läuft noch", durationMs: 0, status: "recording", segmentCount: 0 },
-            ]
-          : [],
-      exportProjectRecording: async (_projectId, id, root) => {
-        exported.push(id);
-        await mkdir(join(root, "recordings", "2026-09-25-mandantengesprach"), { recursive: true });
-        await writeFile(join(root, "recordings", "2026-09-25-mandantengesprach", "transcript.md"), "# Mandantengespräch");
-        const past = new Date(Date.now() - 60_000);
-        await utimes(join(root, "recordings", "2026-09-25-mandantengesprach", "transcript.md"), past, past);
-        return true;
-      },
-      status: () => idle,
-      setLiveTranscript: () => idle,
-    };
-    owner.config.recorder = recorder;
+    const observer = observeSyncFixture("recordings");
+    try {
+      const { platform } = fakeFirm();
+      const owner = await observer.run("owner-machine", () => machine("user_anna", "Anna"));
+      const member = await observer.run("member-machine", () => machine("user_ben", "Ben"));
+      const akte = await observer.run("local-project", () => localProject(owner.config, "Akte"));
+      const exported: string[] = [];
+      const idle = { available: false, recordingActive: false, liveTranscriptActive: false, fileName: null, error: null };
+      const recorder: RecorderBridge = {
+        listProjectRecordings: async (projectId) =>
+          projectId === akte.id
+            ? [
+                { id: "rec_done", title: "Mandantengespräch", durationMs: 1000, status: "complete", segmentCount: 1 },
+                { id: "rec_live", title: "Läuft noch", durationMs: 0, status: "recording", segmentCount: 0 },
+              ]
+            : [],
+        exportProjectRecording: async (_projectId, id, root) => {
+          exported.push(id);
+          await mkdir(join(root, "recordings", "2026-09-25-mandantengesprach"), { recursive: true });
+          await writeFile(join(root, "recordings", "2026-09-25-mandantengesprach", "transcript.md"), "# Mandantengespräch");
+          const past = new Date(Date.now() - 60_000);
+          await utimes(join(root, "recordings", "2026-09-25-mandantengesprach", "transcript.md"), past, past);
+          return true;
+        },
+        status: () => idle,
+        setLiveTranscript: () => idle,
+      };
+      owner.config.recorder = recorder;
 
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId], scope: { ...ALL, recordings: false } }));
-    await runProjectSync(owner.config, { platform });
-    expect(exported).toEqual([]);
+      await observer.run("disable-recordings", () => saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId], scope: { ...ALL, recordings: false } })));
+      await observer.run("disabled-round", () => runProjectSync(owner.config, { platform }));
+      expect(exported).toEqual([]);
 
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId], scope: { ...ALL, recordings: true } }));
-    await runProjectSync(owner.config, { platform });
-    await runProjectSync(owner.config, { platform });
-    // Only the finished recording, and only once.
-    expect(exported).toEqual(["rec_done"]);
+      await observer.run("enable-recordings", () => saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId], scope: { ...ALL, recordings: true } })));
+      await observer.run("export-round", () => runProjectSync(owner.config, { platform }));
+      await observer.run("repeat-export-round", () => runProjectSync(owner.config, { platform }));
+      // Only the finished recording, and only once.
+      expect(exported).toEqual(["rec_done"]);
 
-    await runProjectSync(member.config, { platform });
-    const [copy] = projectsOf(member.config);
-    expect(await read(copy, "recordings/2026-09-25-mandantengesprach/transcript.md")).toBe("# Mandantengespräch");
-  });
+      await observer.run("member-arrival-round", () => runProjectSync(member.config, { platform }));
+      const [copy] = projectsOf(member.config);
+      expect(await observer.run("recording-bytes", () => read(copy, "recordings/2026-09-25-mandantengesprach/transcript.md"))).toBe("# Mandantengespräch");
+      observer.complete();
+    } catch (error) { observer.failed(); throw error; }
+    finally { observer.settled(); }
+  }, { timeout: 20_000 });
 
   test("tasks of a local project stay on this computer; turning sync on sends them", async () => {
     const { platform } = fakeFirm();

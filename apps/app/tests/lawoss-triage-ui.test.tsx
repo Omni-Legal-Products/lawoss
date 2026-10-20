@@ -285,3 +285,15 @@ test("fix round 3: súbor so značkou odškrtnutého priečinka má v náhľade 
     expect(note).not.toContain("—");
   }
 });
+
+test("priveľký klient: kód servera triage_too_large dá advokátovi vetu v jeho jazyku (R7)", () => {
+  const error = new LegalworkServerError(413, "triage_too_large", "Priečinok klienta je príliš veľký na usporiadanie naraz.");
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    expect(friendlyError(error, (key, params) => t(`lawoss.triage.${key}`, "sk", params))).toBe("Priečinok klienta je príliš veľký na usporiadanie naraz (viac ako 4 GB alebo 20 000 súborov). Zvoľte „Nie, nechaj ho tak, ako je“ alebo usporiadajte menší podpriečinok.");
+    expect(friendlyError(error, (key, params) => t(`lawoss.triage.${key}`, "cs", params))).toContain("„Ne, nech ji tak, jak je“");
+    expect(friendlyError(error, (key, params) => t(`lawoss.triage.${key}`, "en", params))).toContain("“No, leave it as it is”");
+    expect(friendlyError(error, (key, params) => t(`lawoss.triage.${key}`, "de", params))).toContain("„Nein, so lassen, wie er ist“");
+  } finally { console.warn = warn; }
+});

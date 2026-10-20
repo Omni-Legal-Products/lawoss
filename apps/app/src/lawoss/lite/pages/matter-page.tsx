@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { revalidateScopeTarget } from "../../okf/scope-target";
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -10,7 +11,7 @@ import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
 import { deadlineAnchor, hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick } from "../live";
 import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
-import { localMatter, officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
+import { canActOnSource, localMatter, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
 import { daysUntil, deadlineKey, deadlineText, dueText, inHorizon, urgencyOf } from "../../okf/view-rules";
 import { composeQuickAction, MORE_ACTIONS, QUICK_ACTIONS } from "../quick-actions";
 import { POSTPROCESS_RESOURCE_NAME, postprocessSource, VYSTUP_SKILL_NAME, vystupSkillBody } from "../../okf/skill-bundle";
@@ -68,7 +69,7 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
   const matter = matterFromParams(data.matters, params);
   // Vec v priečinku svojho klienta: v praxi „každý klient zvlášť“ nikdy nad inou vecou ani nad celou praxou (N1).
   const local = matter && scope ? localMatter(scope, matter, data.matters) : null;
-  const target = !matter ? null : local ?? (scope?.practiceRoot ? null : { workspace: officeWorkspace(connection), selected: matter, discovered: data.matters });
+  const target = !matter ? null : local;
   useMinuteTick(); // o polnoci sa posunie „dnes" aj odpočet
   useHotTitle(hotDeadlineCount(data, today()));
   // Všetky rozhovory veci z toho istého výpisu priečinka ako bočný strom („Zobraziť všetky“ vedie sem).
@@ -81,14 +82,15 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
   const input = data.inputs.find((entry) => entry.path === matter.path);
 
   async function onAction(id: ActionId) {
-    if (running.current || !matter || !target || modelGap) return;
+    if (running.current || !matter || !target || meta.failed || !canActOnSource(data, target.workspace.id) || modelGap) return;
     running.current = true; setBusy(id); setError(null);
     try {
       if (!connection) throw new Error(t("lawoss.integrations.error.registration_denied", locale));
       const prompt = composeQuickAction(id, { title: matter.title, matterRef: matter.matterRef, path: target.selected.path }, locale);
       // Jen připraví koncept v nové konverzaci nad věcí; nic se neodesílá.
       // Shared client and office access remains controlled by native Permissions.
-      const route = await openMatterSession(connection, target.workspace, target.selected, target.discovered, prompt, id === "document" ? installVystupSkill : undefined);
+      const current = await revalidateScopeTarget(scope,connection,target.workspace.id);
+      const route = await openMatterSession(current.connection, current.workspace, target.selected, target.discovered, prompt, id === "document" ? installVystupSkill : undefined);
       if (alive.current) navigate(route);
     } catch (failure) {
       // Surová hláška může obsahovat interní pojmy; advokát vidí obecný text, diagnostika jde do konzole.
@@ -98,11 +100,12 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
   }
 
   async function onContinue(conversation: MatterConversation) {
-    if (running.current || !connection) return;
+    if (running.current || !connection || !target || meta.failed || !canActOnSource(data, target.workspace.id)) return;
     running.current = true; setError(null);
     try {
-      const target = await openMatterConversation(connection, conversation);
-      if (alive.current) navigate(target);
+      const current = await revalidateScopeTarget(scope,connection,target.workspace.id);
+      const route = await openMatterConversation(current.connection, conversation);
+      if (alive.current) navigate(route);
     } catch (failure) {
       console.warn("LAWOSS-lite: continue conversation failed", failure);
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -111,11 +114,12 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
 
   async function onFiles(files: File[]) {
     const office = target?.workspace;
-    if (running.current || !target || files.length === 0) return;
+    if (running.current || !target || meta.failed || !canActOnSource(data, target.workspace.id) || files.length === 0) return;
     running.current = true; setBusy("add_document"); setError(null); setSaved(null);
     try {
       if (!connection?.client || !office) throw new Error(t("lawoss.integrations.error.registration_denied", locale));
-      const result = await saveDocumentsToMatter(connection.client, office.id, target.selected, files);
+      const current = await revalidateScopeTarget(scope,connection,office.id);
+      const result = await saveDocumentsToMatter(current.connection.client, current.workspace.id, target.selected, files);
       setSaved(result.map((r) => `${r.name} (${r.id})`).join(", "));
       // Dnes a „K zařazení“ mají nový vstup ukázat hned.
       void queries.invalidateQueries({ queryKey: ["okf-overview"] });
@@ -129,7 +133,7 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
   return <LiteMatterView key={matter.path} matter={matter} cockpit={cockpit} busy={busy} error={error} onAction={(id) => void onAction(id)}
     conversations={conversations.items} conversationsComplete={conversations.status !== "ready" || conversations.complete}
     conversationsError={conversations.status === "error" ? conversations.retry ?? (() => {}) : undefined} onContinue={(c) => void onContinue(c)}
-    onFiles={(files) => void onFiles(files)} saved={saved} modelGap={modelGap}
+    onFiles={(files) => void onFiles(files)} saved={saved} modelGap={modelGap} sourceReady={Boolean(!meta.failed && target && canActOnSource(data,target.workspace.id))}
     scopePaths={input?.scopePaths}
     existingMemorySources={input?.existingMemorySources}
     truths={Object.fromEntries((input?.records ?? []).map((record) => [record.id, record.truth]))}
@@ -137,7 +141,7 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
     meta={meta} focusDeadline={params.get("lehota")} />;
 }
 
-export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], conversationsComplete = true, conversationsError, onContinue, onFiles, saved = null, modelGap = null, scopePaths = [], existingMemorySources = [], truths = {}, client, meta, focusDeadline = null }: {
+export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], conversationsComplete = true, conversationsError, onContinue, onFiles, saved = null, modelGap = null, sourceReady = true, scopePaths = [], existingMemorySources = [], truths = {}, client, meta, focusDeadline = null }: {
   matter: MatterOverview;
   scopePaths?: readonly string[];
   existingMemorySources?: readonly string[];
@@ -145,6 +149,8 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
   busy: ActionId | null;
   error: string | null;
   onAction: (id: ActionId) => void;
+  /** `false`: zdroj veci nie je čerstvo prečítaný alebo prax sa zmenila (#168); akcie sú vypnuté. */
+  sourceReady?: boolean;
   /** Všetky rozhovory veci, najnovší prvý. */
   conversations?: readonly MatterConversation[];
   /** `false`: výpis narazil na limit, staršie rozhovory môžu chýbať. */
@@ -281,14 +287,14 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
       <div className="lw-matter-dock" style={reveal(1)}>
         <div className="lw-matter-actions">
           {QUICK_ACTIONS.map((action, index) => (
-            <button key={action.id} type="button" className={index === 0 ? "lw-matter-action is-primary" : "lw-matter-action"} disabled={busy !== null || (modelGap !== null && !(action.id === "add_document" && onFiles))} aria-busy={busy === action.id}
+            <button key={action.id} type="button" className={index === 0 ? "lw-matter-action is-primary" : "lw-matter-action"} disabled={!sourceReady || busy !== null || (modelGap !== null && !(action.id === "add_document" && onFiles))} aria-busy={busy === action.id}
               onClick={() => action.id === "add_document" && onFiles ? fileInput.current?.click() : onAction(action.id)}>{t(action.labelKey, locale)}</button>
           ))}
           <details className="lw-matter-more" ref={moreMenu}>
             <summary>{text("matter_more")}</summary>
             <div className="lw-matter-more-list" aria-label={text("more_actions")}>
               {MORE_ACTIONS.map((action) => (
-                <button key={action.id} type="button" className="lw-matter-action" disabled={busy !== null || modelGap !== null} aria-busy={busy === action.id} onClick={() => { if (moreMenu.current) moreMenu.current.open = false; onAction(action.id); }}>{t(action.labelKey, locale)}</button>
+                <button key={action.id} type="button" className="lw-matter-action" disabled={!sourceReady || busy !== null || modelGap !== null} aria-busy={busy === action.id} onClick={() => { if (moreMenu.current) moreMenu.current.open = false; onAction(action.id); }}>{t(action.labelKey, locale)}</button>
               ))}
             </div>
           </details>
@@ -315,7 +321,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
           {conversationsComplete ? null : <p className="lw-matter-empty">{text("conversations_partial")}</p>}
           <div className="lw-matter-conv-list">
             {conversations.map((c) => (
-              <button key={c.id} type="button" className="lw-matter-conv" disabled={busy !== null} onClick={() => onContinue?.(c)}>
+              <button key={c.id} type="button" className="lw-matter-conv" disabled={!sourceReady || busy !== null} onClick={() => onContinue?.(c)}>
                 <span className="lw-matter-conv-title">{c.title ?? text("conversation_untitled")}</span>
                 <span className="lw-matter-conv-meta"><span className="lw-matter-mono">{formatStamp(c.updated, locale)}</span><span className="lw-matter-conv-go">{text("conversation_continue")}</span></span>
               </button>

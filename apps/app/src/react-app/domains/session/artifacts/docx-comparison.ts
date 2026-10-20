@@ -25,12 +25,15 @@ async function comparisonCopy(buffer: ArrayBuffer) {
 /** Word-level LCS; paragraphs/rows are aligned before their individual runs. */
 function diff<T>(old: T[], next: T[], key: (item: T) => string): Diff<T>[] {
   if (old.length * next.length > 2_000_000) throw new Error("This comparison is too large. Compare smaller sections first.");
+  // XML-derived keys stay unchanged during alignment. Read each once rather
+  // than traversing the same paragraph/control again for every matrix cell.
+  const oldKeys = old.map(key); const nextKeys = next.map(key);
   const table = Array.from({ length: old.length + 1 }, () => new Uint32Array(next.length + 1));
-  for (let i = old.length - 1; i >= 0; i--) for (let j = next.length - 1; j >= 0; j--) table[i][j] = key(old[i]) === key(next[j]) ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+  for (let i = old.length - 1; i >= 0; i--) for (let j = next.length - 1; j >= 0; j--) table[i][j] = oldKeys[i] === nextKeys[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
   const result: Diff<T>[] = [];
   let i = 0; let j = 0;
   while (i < old.length || j < next.length) {
-    if (i < old.length && j < next.length && key(old[i]) === key(next[j])) result.push({ kind: "same", old: old[i++], next: next[j++] });
+    if (i < old.length && j < next.length && oldKeys[i] === nextKeys[j]) result.push({ kind: "same", old: old[i++], next: next[j++] });
     else if (i < old.length && (j === next.length || table[i + 1][j] >= table[i][j + 1])) result.push({ kind: "remove", old: old[i++] });
     else result.push({ kind: "add", next: next[j++] });
   }

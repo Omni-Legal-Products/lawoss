@@ -77,7 +77,7 @@ describe("LAWOSS: engine bez Eigenweltu", () => {
     expect(bundledModelsCatalogPath({ [LAWOSS_MODELS_CATALOG_ENV]: own })).toBe(own);
   });
 
-  test("spustený engine dostane poistky aj keď volajúci posiela adresu Eigenweltu", async () => {
+  test.each([undefined, false])("spustený engine zachová poistky pri zdedenom aj prázdnom prostredí: %s", async inheritEnvironment => {
     const dir = await tempDir("lawoss-engine-env-");
     const envPath = join(dir, "engine-env.json");
     // Podvrhnutý engine: Node spustí súbor `serve` z pracovného priečinka, lebo engine
@@ -87,7 +87,7 @@ describe("LAWOSS: engine bez Eigenweltu", () => {
     if (!node) throw new Error("Test potrebuje Node.js v PATH.");
     await writeFile(join(dir, "serve"), `const fs = require("node:fs");
 const http = require("node:http");
-const keys = ["OPENCODE_MODELS_URL", "OPENCODE_MODELS_PATH", "OPENCODE_DISABLE_MODELS_FETCH", "OPENCODE_DISABLE_SHARE", "OPENCODE_DISABLE_AUTOUPDATE"];
+const keys = ["OPENCODE_MODELS_URL", "OPENCODE_MODELS_PATH", "OPENCODE_DISABLE_MODELS_FETCH", "OPENCODE_DISABLE_SHARE", "OPENCODE_DISABLE_AUTOUPDATE", "LAWOSS_SYNTHETIC_INHERIT_CANARY"];
 fs.writeFileSync(${JSON.stringify(envPath)}, JSON.stringify(Object.fromEntries(keys.map((key) => [key, process.env[key] ?? null]))));
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
 http.createServer((request, response) => {
@@ -100,20 +100,32 @@ http.createServer((request, response) => {
 });
 process.on("SIGTERM", () => process.exit(0));
 `, "utf8");
-    const engine = await createManagedOpencodeServer({
-      bin: node,
-      cwd: dir,
-      env: { OPENCODE_MODELS_URL: "https://models.eigenweltlabs.com", OPENCODE_DISABLE_MODELS_FETCH: "0" },
-    });
+    const ambientCatalog = join(dir, "ambient-firm-catalog.json");
+    await writeFile(ambientCatalog, "{}", "utf8");
+    const previousCatalog = process.env[LAWOSS_MODELS_CATALOG_ENV];
+    const previousCanary = process.env.LAWOSS_SYNTHETIC_INHERIT_CANARY;
+    let engine: Awaited<ReturnType<typeof createManagedOpencodeServer>> | undefined;
     try {
+      process.env[LAWOSS_MODELS_CATALOG_ENV] = ambientCatalog;
+      process.env.LAWOSS_SYNTHETIC_INHERIT_CANARY = "synthetic-parent";
+      engine = await createManagedOpencodeServer({
+        bin: node,
+        cwd: dir,
+        inheritEnvironment,
+        env: { OPENCODE_MODELS_URL: "https://models.eigenweltlabs.com", OPENCODE_MODELS_PATH: "caller-must-not-override", OPENCODE_DISABLE_MODELS_FETCH: "0", OPENCODE_DISABLE_SHARE: "0", OPENCODE_DISABLE_AUTOUPDATE: "0" },
+      });
       const seen = JSON.parse(await readFile(envPath, "utf8")) as Record<string, string | null>;
       expect(seen.OPENCODE_DISABLE_MODELS_FETCH).toBe("1");
       expect(seen.OPENCODE_DISABLE_SHARE).toBe("1");
       expect(seen.OPENCODE_DISABLE_AUTOUPDATE).toBe("1");
-      expect(seen.OPENCODE_MODELS_PATH).toBe(bundledModelsCatalogPath()!);
+      expect(seen.OPENCODE_MODELS_PATH).toBe(inheritEnvironment === false ? bundledModelsCatalogPath({})! : ambientCatalog);
+      expect(seen.LAWOSS_SYNTHETIC_INHERIT_CANARY).toBe(inheritEnvironment === false ? null : "synthetic-parent");
       expect(engine.execution.env.find((entry) => entry.name === "OPENCODE_DISABLE_MODELS_FETCH")?.value).toBe("1");
     } finally {
-      await engine.close();
+      try {await engine?.close();} finally {
+        if (previousCatalog === undefined) delete process.env[LAWOSS_MODELS_CATALOG_ENV]; else process.env[LAWOSS_MODELS_CATALOG_ENV] = previousCatalog;
+        if (previousCanary === undefined) delete process.env.LAWOSS_SYNTHETIC_INHERIT_CANARY; else process.env.LAWOSS_SYNTHETIC_INHERIT_CANARY = previousCanary;
+      }
     }
   });
 });

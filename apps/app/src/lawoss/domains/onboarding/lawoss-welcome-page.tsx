@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { Check, FileWarning, ShieldCheck } from "lucide-react";
+import { normalizeDirectoryPath } from "@/app/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocale } from "@/i18n/use-locale";
@@ -484,9 +485,20 @@ export async function preferOpenClient(
  * „+ Nová vec“ pre klienta vybraného v prehľade praxe: zapíše ho ako klienta formulára.
  * Server overí, že priečinok je klient; chybu ohlási volajúci.
  */
-export async function chooseClient(api: Pick<WelcomeApi, "updateOnboardingProfile">, profile: OnboardingProfile | null, clientRoot: string): Promise<OnboardingProfile | null> {
+export async function chooseClient(api: Pick<WelcomeApi, "updateOnboardingProfile" | "listWorkspaces">, profile: OnboardingProfile | null, clientRoot: string): Promise<OnboardingProfile | null> {
+  if (!api.listWorkspaces) throw new Error("client_workspace_unavailable");
+  const list = await api.listWorkspaces();
+  const root = normalizeDirectoryPath(clientRoot);
+  const practice = normalizeDirectoryPath(profile?.officeRoot);
+  if (!list.items.some(workspace => workspace.workspaceType !== "remote" && sameFolder(workspace.path,clientRoot)) || (practice && root !== practice && !root.startsWith(`${practice}/`))) throw new Error("client_workspace_unavailable");
   if (sameFolder(clientRoot, profile?.clientRoot)) return null;
   return api.updateOnboardingProfile({ clientRoot, step: "matter" });
+}
+/** Profil bez vybraného klienta: formulár prípadu sa po odmietnutom klientovi pýta znova (nič sa nepreberie potichu). */
+function withoutClient(profile: OnboardingProfile | null): OnboardingProfile | null {
+  if (!profile?.clientRoot) return profile;
+  const { clientRoot: _refused, ...rest } = profile;
+  return rest;
 }
 /** Meno klienta pre formulár veci; bez prístupu k pracovným priestorom názov priečinka. */
 async function clientTitleFor(api: WelcomeApi, root: string): Promise<string> {
@@ -573,16 +585,27 @@ export function LawossWelcomePage({
   );
   const clearError = useCallback(() => setError(null), []);
   useEffect(() => {
+    let cancelled = false;
+    setOpenClientPending(initialStep === "matter");
     void api
       .onboardingStatus()
       .then(async (status) => {
+        if (cancelled) return;
         setProfile(status.profile);
         if (initialStep === "matter") {
-          // Klient vybraný v prehľade praxe (`?root=`, MČ 16. 10. 2026) má prednosť pred otvoreným klientom.
+          // Klient vybraný v prehľade praxe (`?root=`, prehľad praxe) má prednosť pred otvoreným klientom.
           // Ak ho nastaviť nejde, formulár to povie; nová vec nesmie potichu vzniknúť u iného klienta.
           const preferred = initialRoot
-            ? await chooseClient(api, status.profile, initialRoot).catch((reason: unknown) => { setError(onboardingErrorMessage(reason, locale)); setClientFolderError(true); return null; })
+            ? await chooseClient(api, status.profile, initialRoot).catch((reason: unknown) => {
+              // #168: odmietnutý klient (neregistrovaný, mimo praxe, chýbajúci) sa nenahradí uloženým klientom profilu.
+              // Formulár ostane bez vybraného klienta s otvorenou voľbou klienta a vetou chyby (oprava onboardingu 19. 10.).
+              setProfile(withoutClient(status.profile));
+              setError(onboardingErrorMessage(reason, locale));
+              setClientFolderError(true);
+              return null;
+            })
             : await preferOpenClient(api, status.profile, readActiveWorkspaceId());
+          if (cancelled) return;
           if (preferred) setProfile(preferred);
           setOpenClientPending(false);
         }
@@ -600,9 +623,11 @@ export function LawossWelcomePage({
         );
       })
       .catch(() => {
+        if (cancelled) return;
         setOpenClientPending(false);
         setError(tr("error"));
       });
+    return () => { cancelled = true; };
   }, [api, initialStep, initialRoot, hasCompletedOnboarding]);
   /** Každé dokončenie zapíše do profilu značku `completedAt` (#96), až potom pokračuje volajúci. */
   // Klient po registrácii pred usporiadaním; server mohol po aktivácii zmeniť token či port.
@@ -667,6 +692,7 @@ export function LawossWelcomePage({
     setBusy(true);
     setError(null);
     try {
+      if (request.action === "matter" && initialRoot) await chooseClient(api,profile,request.clientRoot);
       const pending = { request, value: await api.planOnboarding(request) };
       setPreview(pending);
       writePendingOnboarding(window.localStorage, pending);

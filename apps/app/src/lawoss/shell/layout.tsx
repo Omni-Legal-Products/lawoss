@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 
 import { useControlActions, type LegalworkControlAction } from "@/react-app/shell/control/control-provider";
 
+import { AlphaNotice } from "../alpha/alpha-notice";
 import { MarketplaceUpdateNotifier } from "../domains/marketplace/update-notifier";
 import { VISIBLE_EXPERIMENT_VIEWS } from "../experiments/registry";
 import { LiteNav } from "../lite/lite-nav";
@@ -108,6 +109,7 @@ function LiteControlActions() {
 export function LawossLayout(props: { children: ReactNode }) {
   return (
     <div className="lw-experiment-content">
+      <AlphaNotice />
       <section className="lw-sheet">{props.children}</section>
     </div>
   );

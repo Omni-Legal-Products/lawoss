@@ -1,0 +1,100 @@
+name: Resume exact desktop release acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validate native intake, stage accepted draft metadata, or explicitly publish and promote
+        required: true
+        type: choice
+        options: [intake, resume, publish]
+        default: intake
+      source_run_id:
+        description: Original build run ID. Reuse its exact artifacts without rebuilding or restamping.
+        required: true
+        type: string
+      intake_json:
+        description: For intake only, paste portable JSON from acceptance-handoff.mjs pack
+        required: false
+        type: string
+      intake_run_ids:
+        description: For resume/publish, comma-separated successful intake run IDs covering every source target
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: desktop-release-metadata-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  intake:
+    if: inputs.mode == 'intake'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Save operator intake without shell interpolation
+        env:
+          NATIVE_INTAKE_JSON: ${{ inputs.intake_json }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {writeFile} from 'node:fs/promises';
+          const value=process.env.NATIVE_INTAKE_JSON;
+          if(!value||Buffer.byteLength(value)>65535)throw new Error('Native intake missing or too large');
+          JSON.parse(value);
+          await writeFile(process.env.RUNNER_TEMP+'/intake.json',value,{flag:'wx',mode:0o600});
+          NODE
+      - name: Validate native receipts against original run and exact installer bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: node scripts/release/acceptance-handoff.mjs validate --source-run-id "$SOURCE_RUN_ID" --intake "$RUNNER_TEMP/intake.json" --out "$RUNNER_TEMP/validated-intake"
+      - name: Preserve validated native intake
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-native-intake-${{ inputs.source_run_id }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/intake.json
+          if-no-files-found: error
+          retention-days: 30
+
+  resume:
+    if: inputs.mode != 'intake'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Read and merge successful native intake artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          INTAKE_RUN_IDS: ${{ inputs.intake_run_ids }}
+        run: node scripts/release/acceptance-handoff.mjs collect --source-run-id "$SOURCE_RUN_ID" --intake-run-ids "$INTAKE_RUN_IDS" --out "$RUNNER_TEMP/collected-intake"
+      - name: Resume original artifacts and serialized evidence revisions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          RESUME_MODE: ${{ inputs.mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          flags=()
+          if [ "$RESUME_MODE" = publish ]; then flags+=(--publish); fi
+          node scripts/release/acceptance-handoff.mjs resume --source-run-id "$SOURCE_RUN_ID" --intake "$RUNNER_TEMP/collected-intake/intake.json" --out "$RUNNER_TEMP/resumed" "${flags[@]}"
+      - name: Preserve resumed evidence and original candidate identity
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-resume-${{ inputs.source_run_id }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/resumed/*/release-candidate.json
+            ${{ runner.temp }}/resumed/*/release-evidence-*.json
+          if-no-files-found: warn
+          retention-days: 30

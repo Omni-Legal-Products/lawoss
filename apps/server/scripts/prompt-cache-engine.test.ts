@@ -15,7 +15,9 @@ import { startServer } from "../src/server";
 import type { ServerConfig } from "../src/types";
 
 // Separate process from unit tests: no mocked hooks, SDK, runtime builder or
-// server proxy. Only external model, MCP and UI surfaces are synthetic.
+// application server. Only external model, MCP and UI surfaces are synthetic.
+// Protected production proxy dispatch is separately asserted denied; the cache
+// contract runs against the owned synthetic engine with its actual credentials.
 async function runFixture(injectTimestamp: boolean) {
   const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
   if (!binary) throw new Error("Set LEGALWORK_TEST_OPENCODE_BIN to the shipped engine (build legalwork-server first)");
@@ -36,6 +38,7 @@ async function runFixture(injectTimestamp: boolean) {
   let epoch = "continuous";
   let modelID = "fixture";
   let contractError: Error | undefined;
+  let providerRequests = 0;
   const ui = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const snapshot = { ok: true, route: `/workspace/matter/session/${activeSession}`, activeSurface: surface ? {
       id: `${activeSession}:file:${surface}`, kind: "document", format: "docx", sessionId: activeSession, workspaceId: "matter", name: surface, path: surface, editable: true,
@@ -47,6 +50,7 @@ async function runFixture(injectTimestamp: boolean) {
     return Response.json(snapshot);
   } });
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    providerRequests++;
     const input = CacheRequestSchema.parse(await request.json());
     // The engine also generates titles/summaries: those are independent prompts,
     // never silently admitted to the conversation's cache epoch.
@@ -128,9 +132,13 @@ async function runFixture(injectTimestamp: boolean) {
     expect(agents.some(agent => agent.name === "legalwork")).toBe(true);
     expect(agents.some(agent => agent.name === "explore")).toBe(true);
   };
+  const engineClient = () => {
+    if (!engine?.running()) throw new Error("Owned synthetic engine unavailable");
+    return createOpencodeClient({baseUrl: engine.url, directory: workspace.path,
+      headers: {authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}`}});
+  };
   const prompt = async (text: string, context: string) => {
-    if (!server) throw new Error("LegalWork server unavailable");
-    const client = createOpencodeClient({ baseUrl: `http://127.0.0.1:${server.port}/workspace/matter/opencode`, directory: workspace.path, headers: { authorization: "Bearer fixture" } });
+    const client = engineClient();
     const result = await client.session.prompt(buildSessionPromptRequest({ sessionID: activeSession,
       agent: "legalwork", model: { providerID: "fixture", modelID }, parts: [{ type: "text", text }],
     }, context), { throwOnError: true, signal: AbortSignal.timeout(45000) });
@@ -163,6 +171,17 @@ async function runFixture(injectTimestamp: boolean) {
     server = await startServer(config);
     await startEngine();
     activeSession = z.object({ id: z.string() }).parse(await request("/workspace/matter/opencode/session", { title: "Synthetic cache contract" })).id;
+    // Keep the real public proxy as a negative admission oracle, not an implicit
+    // public/protected approval. No fixture flag, policy exception or mock guard.
+    const beforeDenied = providerRequests;
+    const proxyClient = createOpencodeClient({baseUrl: `http://127.0.0.1:${server.port}/workspace/matter/opencode`,
+      directory: workspace.path, headers: {authorization: "Bearer fixture"}});
+    const denied = await proxyClient.session.prompt(buildSessionPromptRequest({sessionID: activeSession,
+      agent: "legalwork", model: {providerID: "fixture", modelID}, parts: [{type: "text", text: "PROTECTED-PROXY-CANARY"}]}, "PROTECTED-PROXY-CONTEXT"));
+    expect(denied.response.status).toBe(403);
+    expect(denied.error).toMatchObject({code: "ai_transfer_denied"});
+    expect(providerRequests).toBe(beforeDenied);
+    expect(config.agentSandboxEnabled).not.toBe(true); // no sandbox body rewrite in the former proxy path
     await personalize("PROJECT INITIAL SYNTHETIC PREFERENCE");
     await prompt("CACHE_PARENT: Read the file, use MCP, delegate and get the clock.", "APP INITIAL SYNTHETIC CONTEXT");
     if (injectTimestamp) {
@@ -208,7 +227,7 @@ async function runFixture(injectTimestamp: boolean) {
     expect(() => assertCachePrefix(first, { ...first, tools: [...(first.tools ?? [])].reverse() }, "negative tool order")).toThrow("tools[");
     // Intentional context boundaries are explicit. Ordinary turns, live state
     // updates and restart above NEVER reset the baseline.
-    await request(`/workspace/matter/opencode/session/${activeSession}/summarize`, { providerID: "fixture", modelID: "fixture", auto: false });
+    await engineClient().session.summarize({sessionID: activeSession, providerID: "fixture", modelID: "fixture", auto: false}, {throwOnError: true, signal: AbortSignal.timeout(45000)});
     epoch = "compaction"; previous.clear();
     await prompt("Continue after explicit compaction.", "APP COMPACTED SYNTHETIC CONTEXT");
     await prompt("Continue in the compacted context.", "APP COMPACTED FOLLOW-UP CONTEXT");

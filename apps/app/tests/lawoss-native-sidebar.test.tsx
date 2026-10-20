@@ -75,7 +75,7 @@ const mixed = clientNavModel([root, tatranWs, legacy], "/prax", readyOverview(ro
 type TestValue = Parameters<typeof ClientNavTestProvider>[0]["value"];
 function navValue(model: TestValue["model"], nodes: TreeClient[], extra: Partial<TestValue> = {}): TestValue {
   return {
-    connection: null, scope: rootScope, data: undefined, groups: mixedGroups, model,
+    connection: null, scope: rootScope, data: undefined, groups: mixedGroups, model, excludedWorkspaceIds: [],
     tree: { nodes, toggle: () => {}, openConversation: () => {}, newConversation: () => {} },
     open: {}, setOpen: () => {}, focused: null, startNewChat: () => false, ...extra,
   };

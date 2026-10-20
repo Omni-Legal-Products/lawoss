@@ -1,3 +1,4 @@
+import { isManagedDeadline, managedDeadlineTrusted, type DeadlineWorkflowEvidence } from "./deadline-workflow.ts";
 /**
  * Prehľad nad pamäťou spisov pre UI — čistá funkcia nad už načítanými
  * záznamami. Nesiaha na disk ani na server; súbory načíta volajúci
@@ -33,6 +34,7 @@ export type MatterOverview = {
 };
 
 export type MatterInput = {
+  deadlineWorkflowEvidence?: DeadlineWorkflowEvidence;
   path: string;
   /** Skutočná cesta načítanej karty, vrátane starších názvov. */
   cardPath?: string;
@@ -155,7 +157,7 @@ function matterOverview(input: MatterInput): MatterOverview {
   let lastEvent: MatterOverview["lastEvent"];
   for (const r of input.records) {
     const file = input.recordFiles?.[r.id];
-    for (const d of recordDeadlines(r)) deadlines.push({ date: d.date, ...(d.raw !== d.date ? { raw: d.raw } : {}), title: r.title, recordId: r.id, ...(d.invalid ? { invalid: d.invalid } : {}), ...(file ? { file } : {}) });
+    for (const d of (isManagedDeadline(r) && !managedDeadlineTrusted(r, input.deadlineWorkflowEvidence) ? [] : recordDeadlines(r))) deadlines.push({ date: d.date, ...(d.raw !== d.date ? { raw: d.raw } : {}), title: r.title, recordId: r.id, ...(d.invalid ? { invalid: d.invalid } : {}), ...(file ? { file } : {}) });
     for (const e of r.timeline) {
       if (!lastEvent || e.date > lastEvent.date) lastEvent = { date: e.date, text: e.text };
     }

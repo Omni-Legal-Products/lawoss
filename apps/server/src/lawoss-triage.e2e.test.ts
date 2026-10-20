@@ -1,6 +1,6 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyTriagePlan, inspectOnboardingRoot, prepareTriage } from "./lawoss/onboarding-runtime.js";
@@ -196,6 +196,18 @@ test("usporiadanie na mieste nepoužije návrh modelu", async () => {
   await f.success("triage/grant", { root: f.client, confirm: true });
   const refused = await f.call("triage/plan", { root: f.client, useModel: true });
   expect({ status: refused.status, code: (await refused.json()).code }).toEqual({ status: 400, code: "triage_model_in_place" });
+});
+
+// NTFS riedky súbor cez truncate nevytvorí (4 GB by sa naozaj alokovali), preto len macOS a Linux.
+test.skipIf(process.platform === "win32")("priveľký klient dostane 413 s kódom triage_too_large a hláškou pre advokáta (R7)", async () => {
+  const f = await convertedFixture();
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  // Nad 4 GB: limit sa prekročí už podľa veľkosti súboru, bez čítania obsahu.
+  const big = join(f.client, "Sken spisu.pdf");
+  await writeFile(big, ""); await truncate(big, 4 * 1024 ** 3 + 1);
+  const refused = await f.call("triage/plan", { root: f.client });
+  const body = await refused.json();
+  expect({ status: refused.status, code: body.code, message: body.message }).toEqual({ status: 413, code: "triage_too_large", message: "Priečinok klienta je príliš veľký na usporiadanie naraz (viac ako 4 GB alebo 20 000 súborov). Zvoľte „Nie, nechaj ho tak, ako je“ alebo usporiadajte menší podpriečinok." });
 });
 
 test("súhlas na mieste platí na jedno usporiadanie a jeho vrátenie (rozhodnutie MČ 12. 10.)", async () => {

@@ -1,5 +1,6 @@
 /** Present manual HTTP approvals only in the host's native main window. */
-export function createHostApprovalHandler({ getWindow, showMessageBox }) {
+export function createHostApprovalHandler({ getWindow, showMessageBox, showContextReview = undefined }) {
+  const contextActions = new Set(["ai.public.synthetic", "ai.documents.synthetic", "ai.protected.synthetic", "ai.documents.protected", "ai.protected.document"]);
   let queue = Promise.resolve();
   return (request, signal) => {
     const present = async () => {
@@ -14,16 +15,17 @@ export function createHostApprovalHandler({ getWindow, showMessageBox }) {
         const source = request.actor.type === "host"
           ? "Host"
           : `Connected client (app, agent or remote connection)${request.actor.clientId ? `: ${request.actor.clientId}` : ""}`;
-        const result = await showMessageBox(window, {
+        const options = {
           type: "question",
-          title: "LegalWork approval",
-          message: "Allow this workspace change?",
+          title: request.action === "ai.public.synthetic" ? "Public AI request" : "LegalWork approval",
+          message: request.action === "ai.public.synthetic" ? "Send this public synthetic model request?" : "Allow this workspace change?",
           detail: [
             `Source: ${source}`,
             ...(request.actor.scope ? [`Access: ${request.actor.scope}`] : []),
             `Workspace: ${request.workspaceId}`,
             `Action: ${request.action}`,
             request.summary,
+            ...(request.description ? [request.description] : []),
             ...(request.paths.length ? ["Paths:", ...request.paths] : []),
           ].join("\n"),
           buttons: ["Deny", "Allow"],
@@ -31,7 +33,10 @@ export function createHostApprovalHandler({ getWindow, showMessageBox }) {
           cancelId: 0,
           noLink: true,
           signal: controller.signal,
-        });
+        };
+        const review = contextActions.has(request.action) || options.detail.length > 2000;
+        if (review && !showContextReview) return "deny";
+        const result = await (review ? showContextReview : showMessageBox)(window, options);
         return !controller.signal.aborted && !window.isDestroyed() && result.response === 1 ? "allow" : "deny";
       } catch {
         return "deny";

@@ -7,13 +7,27 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { brokerRequest, prepareOutboundRequest, type OutboundRequest, networkModeSchema, type NetworkMode } from "./network.js";
+import { brokerRequest, prepareOutboundRequest, type OutboundRequest, type OutboundResponse, networkModeSchema, type NetworkMode } from "./network.js";
 import { validateMounts, type SandboxMount } from "./files.js";
 import { SandboxFilesystem, filesystemError, filesystemRequestSchema } from "./filesystem.js";
 import { SharedVmRuntime } from "./runtime.js";
 import { bootWithFallback, canUseMacHypervisor, type Accelerator } from "./acceleration.js";
 import { vmResources } from "./resources.js";
 export { validateMounts, within, type SandboxMount } from "./files.js";
+
+/** Close VMs that are already constructed before waiting on a boot promise.
+ * A caller can abort while QEMU is still starting; shutdown must not sit on
+ * that 180s startup timer. */
+export async function shutdownSandboxRuntimes(pending: Promise<SharedVmRuntime>[], booting: SharedVmRuntime[]): Promise<void> {
+  // Attach handlers before close(). Killing a VM rejects its boot promise;
+  // a rejection with no listener fails the test runner.
+  const closing = pending.map(async (runtime) => {
+    try { await (await runtime).close(); }
+    catch { /* Boot rejected because shutdown already stopped the process. */ }
+  });
+  await Promise.all(booting.map((runtime) => runtime.close().catch(() => {})));
+  await Promise.all(closing);
+}
 
 const exec = promisify(execFile);
 const OUTPUT_LIMIT = 1024 * 1024;
@@ -23,6 +37,9 @@ const manifestSchema = z.object({ version: z.literal(1), architecture: z.enum(["
 export type SandboxResult = { output: string; exitCode: number; truncated: boolean };
 export type SandboxRun = { command: string; cwd: string; mounts: SandboxMount[]; timeoutMs: number; beforeCommit?: () => Promise<void>;
   signal: AbortSignal; networkMode?: NetworkMode; authorizeNetwork: (request: OutboundRequest) => Promise<boolean> };
+/** Constructor-owned capability, never supplied by HTTP, model arguments or persisted settings. */
+export type SandboxRequestBroker = (request: OutboundRequest, signal: AbortSignal) => Promise<OutboundResponse>;
+export type SandboxBrokerOptions = Readonly<{ request: SandboxRequestBroker; maxRequests: number }>;
 const eventSchema = z.discriminatedUnion("event", [
   z.object({ event: z.literal("output"), stream: z.enum(["stdout", "stderr"]), data: z.string().max(16384) }),
   z.object({ event: z.literal("exit"), code: z.number().int() }),
@@ -43,13 +60,19 @@ export function sandboxResources(): string {
  * has a NIC. Neither has host mounts; each command has its own folder broker. */
 export class VmSandbox {
   private static runtimes = new Map<string, Promise<SharedVmRuntime>>();
+  private static booting = new Set<SharedVmRuntime>();
   static async shutdown(): Promise<void> {
     const runtimes = [...this.runtimes.values()];
+    const booting = [...this.booting];
     this.runtimes.clear();
-    await Promise.all(runtimes.map(async (runtime) => (await runtime).close()));
+    this.booting.clear();
+    await shutdownSandboxRuntimes(runtimes, booting);
   }
   private prepared: Promise<z.infer<typeof manifestSchema>> | undefined;
-  constructor(readonly resources = sandboxResources(), private readonly acceleration: "auto" | "software" = "auto") {}
+  constructor(readonly resources = sandboxResources(), private readonly acceleration: "auto" | "software" = "auto",
+    private readonly broker?: SandboxBrokerOptions) {
+    if (broker && (!Number.isInteger(broker.maxRequests) || broker.maxRequests < 1 || broker.maxRequests > 4096)) throw new Error("Invalid sandbox broker request bound.");
+  }
   private executable(architecture: string) { return join(this.resources, `qemu-system-${architecture}${process.platform === "win32" ? ".exe" : ""}`); }
 
   async status(): Promise<{ available: boolean; reason?: string }> {
@@ -123,8 +146,13 @@ export class VmSandbox {
         "-append", `rdinit=/init panic=1 quiet console=${arm ? "ttyAMA0" : "ttyS0"}${directNetwork ? " legalwork.network=allow" : ""}`,
         "-chardev", pipeName ? `pipe,id=rpc,path=${pipeName}` : "stdio,id=rpc", "-device", arm ? "virtio-serial-device" : "virtio-serial-pci",
         "-device", "virtserialport,chardev=rpc,name=org.legalwork.rpc"];
-      return new SharedVmRuntime(executable, args, diagnostics, consolePath, () => { if (published) onClose(); }, pipeName,
-        undefined, accelerator === "tcg" ? 180000 : 30000);
+      let vm!: SharedVmRuntime;
+      vm = new SharedVmRuntime(executable, args, diagnostics, consolePath, () => {
+        VmSandbox.booting.delete(vm);
+        if (published) onClose();
+      }, pipeName, undefined, accelerator === "tcg" ? 180000 : 30000);
+      VmSandbox.booting.add(vm);
+      return vm;
     });
     console.info(`[sandbox] ${accelerator}, ${resources.cpus} CPUs, ${resources.memoryMiB} MiB ceiling, ${directNetwork ? "unrestricted" : "restricted"} network`);
     published = true;
@@ -134,6 +162,7 @@ export class VmSandbox {
   async run(input: SandboxRun): Promise<SandboxResult> {
     input.signal.throwIfAborted();
     const networkMode = networkModeSchema.parse(input.networkMode ?? "approve");
+    if (this.broker && networkMode !== "approve") throw new Error("A capability-brokered sandbox cannot enable a network interface.");
     if (!Number.isInteger(input.timeoutMs) || input.timeoutMs < 1 || input.timeoutMs > 600000) throw new Error("Invalid sandbox timeout.");
     if (!input.command || input.command.length > 128000) throw new Error("Invalid sandbox command.");
     const mounts = await validateMounts(input.mounts);
@@ -143,6 +172,7 @@ export class VmSandbox {
     const filesystem = await SandboxFilesystem.create(mounts, signal);
     let output = "", truncated = false, requests = 0, exitCode: number | undefined;
     const active = new Set<string>(), activeFilesystem = new Set<string>();
+    const networkWork = new Set<Promise<void>>();
     let filesystemWork = Promise.resolve();
     try {
       const runtime = await new Promise<SharedVmRuntime>((resolve, reject) => {
@@ -182,17 +212,20 @@ export class VmSandbox {
             }).catch((error: unknown) => controller.abort(error));
           }
           if (event.event === "request") {
-            if (++requests > 200 || active.size >= 16 || active.has(event.id) || activeFilesystem.has(event.id)) throw new Error("Sandbox network request limit exceeded.");
+            if (++requests > (this.broker?.maxRequests ?? 200) || active.size >= 16 || active.has(event.id) || activeFilesystem.has(event.id)) throw new Error("Sandbox network request limit exceeded.");
             active.add(event.id);
-            void (async () => {
+            const work = (async () => {
               try {
                 if (networkMode !== "approve") throw new Error("Network request broker is disabled by the sandbox network policy.");
-                const response = await brokerRequest(prepareOutboundRequest(event.request), input.authorizeNetwork, signal);
+                const request = prepareOutboundRequest(event.request);
+                const response = this.broker ? await this.broker.request(request, signal) : await brokerRequest(request, input.authorizeNetwork, signal);
                 await send({ id: event.id, response });
               } catch (error) {
                 if (!signal.aborted) await send({ id: event.id, error: error instanceof Error ? error.message : "Request denied" });
               } finally { active.delete(event.id); }
             })().catch((error: unknown) => controller.abort(error));
+            networkWork.add(work);
+            void work.finally(() => networkWork.delete(work));
           }
         } catch (error) { controller.abort(error); }
       });
@@ -207,6 +240,7 @@ export class VmSandbox {
       controller.abort();
       filesystem.cancel();
       await filesystemWork;
+      await Promise.allSettled(networkWork);
       await filesystem.dispose();
     }
   }

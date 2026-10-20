@@ -1,6 +1,16 @@
 export const shellEn = {
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Something went wrong. Try again, or choose a different folder.",
+  "lawoss.practice.selected": "Selected practice",
+  "lawoss.practice.single": "Only this client",
+  "lawoss.practice.excluded": "Excluded workspaces: {count}",
+  "lawoss.practice.incomplete": "The practice overview is incomplete. Other deadlines may exist.",
+  "lawoss.practice.office": "Office",
+  "lawoss.practice.fresh": "Current",
+  "lawoss.practice.stale": "Last successful read",
+  "lawoss.practice.unavailable": "Unavailable",
+  "lawoss.practice.truncated": "Truncated",
+
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Sort documents",
   "lawoss.triage.trial_entry": "Sort documents in the trial copy",
@@ -112,6 +122,7 @@ export const shellEn = {
   "lawoss.triage.error_changed": "The trial copy changed in the meantime. Prepare a new preview.",
   "lawoss.triage.error_generic": "Sorting did not succeed. Try again.",
   "lawoss.triage.error_office_config": "The office okf.config is not saved as UTF-8 (for example ANSI from PowerShell). Open it in Notepad, save it with UTF-8 encoding and prepare the preview again.",
+  "lawoss.triage.error_too_large": "The client folder is too large to organise in one go (more than 4 GB or 20,000 files). Choose “No, leave it as it is” or organise a smaller subfolder.",
   "lawoss.triage.error_undo": "Undo is not possible because some sorted documents were edited or a file was added to a new matter: {paths}",
   "lawoss.triage.open_clients": "Open clients and matters",
   "lawoss.triage.reason_demand_letter": "Pre-action or payment demand letter (“{matched}”)",
@@ -120,6 +131,8 @@ export const shellEn = {
   "lawoss.triage.refresh": "Prepare a new preview",
   "lawoss.triage.back": "Back to clients",
   "lawoss.triage.nothing": "There is nothing to sort in this trial copy.",
+  "lawoss.alpha.notice": "This is an alpha version of LAWOSS for testing. Try it on synthetic data or on a copy of the folder. Use your own matter files only at your own risk.",
+  "lawoss.alpha.dismiss": "Got it",
   "lawoss.shell.experiments": "Experiments",
   "lawoss.shell.switches_status": "Switches and status",
   "lawoss.shell.new_matter": "New matter (OKF)",
@@ -302,6 +315,16 @@ type SlavicPluralKey = "lawoss.lite.due_in_days_few" | "lawoss.lite.due_in_days_
 export const shellCs = {
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Něco se nepodařilo. Zkuste to znovu, nebo vyberte jinou složku.",
+  "lawoss.practice.selected": "Vybraná praxe",
+  "lawoss.practice.single": "Pouze tento klient",
+  "lawoss.practice.excluded": "Vyloučené pracovní prostory: {count}",
+  "lawoss.practice.incomplete": "Přehled praxe je neúplný. Mohou existovat další lhůty.",
+  "lawoss.practice.office": "Kancelář",
+  "lawoss.practice.fresh": "Aktuální",
+  "lawoss.practice.stale": "Poslední úspěšné čtení",
+  "lawoss.practice.unavailable": "Nedostupné",
+  "lawoss.practice.truncated": "Neúplné čtení",
+
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Roztřídit dokumenty",
   "lawoss.triage.trial_entry": "Roztřídit dokumenty v kopii",
@@ -413,6 +436,7 @@ export const shellCs = {
   "lawoss.triage.error_changed": "Kopie se mezitím změnila. Připravte nový náhled.",
   "lawoss.triage.error_generic": "Roztřídění se nepodařilo. Zkuste to znovu.",
   "lawoss.triage.error_office_config": "Soubor okf.config kanceláře není uložený v UTF-8 (například v ANSI z PowerShellu). Otevřete ho v Poznámkovém bloku, uložte ho s kódováním UTF-8 a připravte náhled znovu.",
+  "lawoss.triage.error_too_large": "Složka klienta je příliš velká na to, aby se dala uspořádat najednou (více než 4 GB nebo 20 000 souborů). Zvolte „Ne, nech ji tak, jak je“ nebo uspořádejte menší podsložku.",
   "lawoss.triage.error_undo": "Vrátit nelze, protože některé roztříděné dokumenty jste mezitím upravili nebo jste do nového případu přidali soubor: {paths}",
   "lawoss.triage.open_clients": "Otevřít klienty a případy",
   "lawoss.triage.reason_demand_letter": "Předžalobní výzva nebo upomínka („{matched}“)",
@@ -421,6 +445,8 @@ export const shellCs = {
   "lawoss.triage.refresh": "Připravit nový náhled",
   "lawoss.triage.back": "Zpět na klienty",
   "lawoss.triage.nothing": "V kopii není co roztřídit.",
+  "lawoss.alpha.notice": "Toto je alfa verze LAWOSS určená k testování. Zkoušejte ji na syntetických datech nebo na kopii složky. Vlastní spisy pouze na vlastní riziko.",
+  "lawoss.alpha.dismiss": "Rozumím",
   "lawoss.shell.experiments": "Experimenty",
   "lawoss.shell.switches_status": "Přepínače a stav",
   "lawoss.shell.new_matter": "Nový spis (OKF)",
@@ -602,6 +628,16 @@ export const shellCs = {
 export const shellSk = {
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Niečo sa nepodarilo. Skúste to znova, alebo vyberte iný priečinok.",
+  "lawoss.practice.selected": "Vybraná prax",
+  "lawoss.practice.single": "Iba tento klient",
+  "lawoss.practice.excluded": "Vylúčené pracovné priestory: {count}",
+  "lawoss.practice.incomplete": "Prehľad praxe je neúplný. Môžu existovať ďalšie lehoty.",
+  "lawoss.practice.office": "Kancelária",
+  "lawoss.practice.fresh": "Aktuálne",
+  "lawoss.practice.stale": "Posledné úspešné čítanie",
+  "lawoss.practice.unavailable": "Nedostupné",
+  "lawoss.practice.truncated": "Neúplné čítanie",
+
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Roztriediť dokumenty",
   "lawoss.triage.trial_entry": "Roztriediť dokumenty v kópii",
@@ -713,6 +749,7 @@ export const shellSk = {
   "lawoss.triage.error_changed": "Kópia sa medzitým zmenila. Pripravte nový náhľad.",
   "lawoss.triage.error_generic": "Roztriedenie sa nepodarilo. Skúste to znova.",
   "lawoss.triage.error_office_config": "Súbor okf.config kancelárie nie je uložený v UTF-8 (napríklad v ANSI z PowerShellu). Otvorte ho v Poznámkovom bloku, uložte ho s kódovaním UTF-8 a pripravte náhľad znova.",
+  "lawoss.triage.error_too_large": "Priečinok klienta je príliš veľký na usporiadanie naraz (viac ako 4 GB alebo 20 000 súborov). Zvoľte „Nie, nechaj ho tak, ako je“ alebo usporiadajte menší podpriečinok.",
   "lawoss.triage.error_undo": "Vrátiť sa nedá, lebo niektoré roztriedené dokumenty ste medzitým upravili alebo ste do nového prípadu pridali súbor: {paths}",
   "lawoss.triage.open_clients": "Otvoriť klientov a prípady",
   "lawoss.triage.reason_demand_letter": "Predžalobná výzva alebo upomienka („{matched}“)",
@@ -721,6 +758,8 @@ export const shellSk = {
   "lawoss.triage.refresh": "Pripraviť nový náhľad",
   "lawoss.triage.back": "Späť na klientov",
   "lawoss.triage.nothing": "V kópii nie je čo roztriediť.",
+  "lawoss.alpha.notice": "Toto je alfa verzia LAWOSS na testovanie. Skúšajte ju na syntetických dátach alebo na kópii priečinka. Vlastné spisy len na vlastné riziko.",
+  "lawoss.alpha.dismiss": "Rozumiem",
   "lawoss.shell.experiments": "Experimenty",
   "lawoss.shell.switches_status": "Prepínače a stav",
   "lawoss.shell.new_matter": "Nový spis (OKF)",
@@ -902,6 +941,16 @@ export const shellSk = {
 export const shellDe = {
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Etwas ist nicht gelungen. Versuchen Sie es erneut oder wählen Sie einen anderen Ordner.",
+  "lawoss.practice.selected": "Ausgewählte Kanzlei",
+  "lawoss.practice.single": "Nur dieser Mandant",
+  "lawoss.practice.excluded": "Ausgeschlossene Arbeitsbereiche: {count}",
+  "lawoss.practice.incomplete": "Die Kanzleiübersicht ist unvollständig. Weitere Fristen sind möglich.",
+  "lawoss.practice.office": "Kanzlei",
+  "lawoss.practice.fresh": "Aktuell",
+  "lawoss.practice.stale": "Letzte erfolgreiche Abfrage",
+  "lawoss.practice.unavailable": "Nicht verfügbar",
+  "lawoss.practice.truncated": "Unvollständige Abfrage",
+
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Dokumente sortieren",
   "lawoss.triage.trial_entry": "Dokumente in der Testkopie sortieren",
@@ -1013,6 +1062,7 @@ export const shellDe = {
   "lawoss.triage.error_changed": "Die Testkopie hat sich inzwischen geändert. Erstellen Sie eine neue Vorschau.",
   "lawoss.triage.error_generic": "Die Sortierung ist nicht gelungen. Versuchen Sie es erneut.",
   "lawoss.triage.error_office_config": "Die okf.config der Kanzlei ist nicht als UTF-8 gespeichert (zum Beispiel ANSI aus PowerShell). Öffnen Sie sie im Editor, speichern Sie sie mit der Codierung UTF-8 und erstellen Sie die Vorschau erneut.",
+  "lawoss.triage.error_too_large": "Der Mandantenordner ist zu groß, um ihn auf einmal zu ordnen (mehr als 4 GB oder 20.000 Dateien). Wählen Sie „Nein, so lassen, wie er ist“ oder ordnen Sie einen kleineren Unterordner.",
   "lawoss.triage.error_undo": "Rückgängig machen ist nicht möglich, weil sortierte Dokumente bearbeitet oder einer neuen Akte eine Datei hinzugefügt wurde: {paths}",
   "lawoss.triage.open_clients": "Mandanten und Akten öffnen",
   "lawoss.triage.reason_demand_letter": "Mahnung oder Zahlungsaufforderung vor Klage („{matched}“)",
@@ -1021,6 +1071,8 @@ export const shellDe = {
   "lawoss.triage.refresh": "Neue Vorschau erstellen",
   "lawoss.triage.back": "Zurück zu den Mandanten",
   "lawoss.triage.nothing": "In dieser Testkopie gibt es nichts zu sortieren.",
+  "lawoss.alpha.notice": "Dies ist eine Alpha-Version von LAWOSS zum Testen. Probieren Sie sie mit synthetischen Daten oder an einer Kopie des Ordners aus. Eigene Akten nur auf eigenes Risiko.",
+  "lawoss.alpha.dismiss": "Verstanden",
   "lawoss.shell.experiments": "Experimente",
   "lawoss.shell.switches_status": "Schalter und Status",
   "lawoss.shell.new_matter": "Neue Akte (OKF)",

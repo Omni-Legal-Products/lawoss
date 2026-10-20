@@ -86,6 +86,17 @@ const TOO_LARGE = /(?:^|: |; )[^;]*?: (?:office_search_incomplete|entry_limit|by
 const folderTooLargeMessage = (error: unknown, locale: Language) =>
   error instanceof Error && TOO_LARGE.test(error.message) ? folderTooLarge[locale] : undefined;
 /**
+ * Vybraný klient nie je pripojený priečinok praxe alebo leží mimo nej (`chooseClient`, #168): nový prípad
+ * u neho nevznikne; formulár ponúkne výber klienta (oprava onboardingu 19. 10. 2026).
+ */
+const CLIENT_UNAVAILABLE = "client_workspace_unavailable";
+const clientUnavailable: Record<Language, string> = {
+  sk: "Tento klient nie je pripojený v praxi alebo jeho priečinok chýba. Vyberte klienta nižšie.",
+  cs: "Tento klient není v praxi připojený nebo jeho složka chybí. Vyberte klienta níže.",
+  en: "This client is not connected in the practice or its folder is missing. Choose a client below.",
+  de: "Dieser Mandant ist in der Kanzlei nicht verbunden oder sein Ordner fehlt. Wählen Sie unten einen Mandanten.",
+};
+/**
  * Chyba servera ako veta pre advokáta v jazyku rozhrania; neznáma chyba je všeobecná veta.
  * Surová správa (cesty, interné kódy) ide vždy len do konzoly. Spoločná pre pruh chyby aj hromadný krok.
  */
@@ -93,6 +104,7 @@ export function onboardingErrorMessage(error: unknown, locale: Language): string
   console.warn("LAWOSS onboarding:", error);
   if (error instanceof Error && error.message === UNSAFE_FOLDER_NAME_MESSAGE) return unsafeFolderName[locale];
   if (error instanceof Error && error.message === FRESH_NOT_EMPTY) return foundText(locale)("freshNotEmpty");
+  if (error instanceof Error && error.message === CLIENT_UNAVAILABLE) return clientUnavailable[locale];
   return lockedFilesMessage(error, locale) ??
     identityMessage(error, locale) ??
     folderTooLargeMessage(error, locale) ??

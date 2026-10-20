@@ -1,3 +1,4 @@
+import { scopedWikiRuntime } from "./scoped-runtime.test-helper.js";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -21,7 +22,13 @@ test("wiki tools respect project access without overriding host file access", as
     startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false, agentSandboxEnabled: false,
   };
   const { workspace } = await registerLocalProject(config, { folderPath: join(root, "project"), name: "Project", preset: "starter" });
-  workspace.baseUrl = "http://127.0.0.1:1";
+  const enginePosts: string[] = [];
+  const engine = Bun.serve({hostname: "127.0.0.1", port: 0, async fetch(request) {
+    if (request.method === "POST") enginePosts.push(await request.text());
+    return Response.json({});
+  }});
+  cleanup.push(async () => {engine.stop(true);});
+  workspace.baseUrl = engine.url.origin;
   const store = new WikiStore(config); cleanup.push(() => store.close());
   const wiki = await store.create({ name: "Private disabled wiki", template: "blank" });
   await store.update(wiki.id, { allowInProjects: false });
@@ -39,15 +46,27 @@ test("wiki tools respect project access without overriding host file access", as
   const project = await LegalWorkWikiTools({ directory: workspace.path });
   await expect(project["tool.execute.before"]({ tool: "read", sessionID: "project-session" }, { args: { filePath: join(root, "outside.txt") } })).resolves.toBeUndefined();
   expect(project).not.toHaveProperty("shell.env");
-  const ownWiki = await LegalWorkWikiTools({ directory: wiki.root });
-  await expect(ownWiki["tool.execute.before"]({ tool: "read", sessionID: "wiki-session" }, { args: { filePath: join(workspace.path, "outside.txt") } })).rejects.toMatchObject({ code: "wiki_native_project_access" });
-  await expect(ownWiki["tool.execute.before"]({ tool: "write", sessionID: "wiki-session" }, { args: { filePath: join(workspace.path, "new.txt") } })).rejects.toMatchObject({ code: "wiki_native_project_access" });
-  await expect(ownWiki["tool.execute.before"]({ tool: "read", sessionID: "wiki-session" }, { args: { filePath: join(wiki.root, "AGENTS.md") } })).resolves.toBeUndefined();
+  // The shared project credential cannot become a wiki credential by naming another session.
+  const denied = await fetch(`${base}/wikis/file-policy`, { headers: {
+    "x-legalwork-wiki-agent-token": token, "x-legalwork-wiki-agent-session": "wiki-session",
+    "x-legalwork-wiki-agent-directory": encodeURIComponent(wiki.root),
+  } });
+  expect(denied.status).toBe(403);
+  expect(await denied.json()).toMatchObject({ code: "wiki_agent_client_runtime_required" });
+  const wikiRuntime = await scopedWikiRuntime(config,"wiki-session",wiki.root);
+  cleanup.push(() => wikiRuntime.close());
+  expect(wikiRuntime.config === config).toBe(false);
+  expect(wikiRuntime.headers()["x-legalwork-wiki-agent-token"] === token).toBe(false);
+  const ownWiki = await wikiRuntime.run(() => LegalWorkWikiTools({ directory: wiki.root }));
+  await expect(wikiRuntime.run(() => ownWiki["tool.execute.before"]({ tool: "read", sessionID: "wiki-session" }, { args: { filePath: join(workspace.path, "outside.txt") } }))).rejects.toMatchObject({ code: "wiki_native_project_access" });
+  await expect(wikiRuntime.run(() => ownWiki["tool.execute.before"]({ tool: "write", sessionID: "wiki-session" }, { args: { filePath: join(workspace.path, "new.txt") } }))).rejects.toMatchObject({ code: "wiki_native_project_access" });
+  await expect(wikiRuntime.run(() => ownWiki["tool.execute.before"]({ tool: "read", sessionID: "wiki-session" }, { args: { filePath: join(wiki.root, "AGENTS.md") } }))).resolves.toBeUndefined();
   expect(JSON.parse(await project.tool.wiki_list.execute({}, { sessionID: "project-session" })).wikis).toEqual([]);
   const headers = { authorization: `Bearer ${config.token}`, "x-legalwork-host-token": config.hostToken, "content-type": "application/json" };
-  for (const path of ["/session/project-session/shell", "/pty"]) {
-    const response = await fetch(`${base}/workspace/${workspace.id}/opencode${path}`, { method: "POST", headers, body: "{}" });
+  for (const [path, code] of [["/session/project-session/shell", "ai_transfer_denied"], ["/pty", "sandbox_required"]]) {
+    const response = await fetch(`${base}/workspace/${workspace.id}/opencode${path}`, { method: "POST", headers, body: JSON.stringify({command: "SYNTHETIC_DENIED_SHELL_CANARY"}) });
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ code: "sandbox_required" });
+    expect(await response.json()).toMatchObject({ code });
   }
+  expect(enginePosts).toEqual([]);
 });

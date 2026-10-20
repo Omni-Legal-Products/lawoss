@@ -20,6 +20,8 @@ files:
   - "!server/dist/opencode-plugins/**"
   - package.json
 extraResources:
+  - from: resources/build-info.json
+    to: build-info.json
   # MIT žiada doložku „in all copies or substantial portions of the Software".
   # Balík je kópia: bez týchto dvoch súborov by tester dostal .dmg, v ktorom
   # licencia LegalWorku nie je nikde. `files:` je whitelist a koreň repozitára

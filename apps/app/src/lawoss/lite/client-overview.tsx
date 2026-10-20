@@ -41,17 +41,20 @@ function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientNav; wor
   useMinuteTick();
   const locale = useLocale();
   const { scope, data, model } = nav;
-  if (!scope || !data || !model.clients.has(workspaceId)) return null;
+  // #168: priečinok mimo rozsahu praxe (`excludedWorkspaceIds`) prehľad klienta nedostane.
+  if (!scope || !data || !model.clients.has(workspaceId) || nav.excludedWorkspaceIds.includes(workspaceId)) return null;
   const todayIso = today();
   const own = clientDeadlines(data, scope, (folder) => ownerOfFolder(model.visible, folder) === workspaceId, todayIso);
   return <ClientOverviewView workspaceId={workspaceId} locale={locale} todayIso={todayIso} matters={own.matters}
-    deadlines={[...own.overdue, ...own.upcomingDeadlines]} soon={own.totals.deadlinesWithin7Days} />;
+    deadlines={[...own.overdue, ...own.upcomingDeadlines]} soon={own.totals.deadlinesWithin7Days} partial={data.coverage.status !== "complete"} />;
 }
 
-export function ClientOverviewView({ workspaceId, locale, todayIso, matters, deadlines, soon }: {
+export function ClientOverviewView({ workspaceId, locale, todayIso, matters, deadlines, soon, partial = false }: {
   workspaceId: string; locale: Language; todayIso: string; matters: readonly MatterOverview[]; deadlines: readonly UpcomingDeadline[];
   /** Lehoty do 7 dní, spočítané ako register (`totals.deadlinesWithin7Days`). */
   soon: number;
+  /** Pokrytie praxe nie je úplné (#168): prehľad to povie, aby „žiadne lehoty“ neznelo ako istota. */
+  partial?: boolean;
 }) {
   const evidence = matters.reduce((sum, m) => sum + m.counts.evidence, 0);
   const title = t("lawoss.lite.client_overview_title", locale);
@@ -63,6 +66,7 @@ export function ClientOverviewView({ workspaceId, locale, todayIso, matters, dea
   ];
   return <section aria-label={title} data-lawoss-client-overview="" className="space-y-3">
     <SectionHeading title={title} />
+    {partial ? <p className="lw-status warn" role="alert" data-lawoss-client-overview-partial="">{t("lawoss.practice.incomplete", locale)}</p> : null}
     <dl className="grid grid-cols-3 gap-3">
       {stats.map((stat) => <Surface key={stat.key} className="rounded-xl px-4 py-3">
         <dt className="text-xs text-muted-foreground">{stat.label}</dt>

@@ -97,7 +97,7 @@ test("remote projects, files, aliases and foreign symlink targets cannot reconne
 });
 
 test("native mounted session list and getters exclude later foreign chats reusing old path", async () => {
-  const f = await fixture(); f.config.workspaces[0]!.directory = f.a; let late = false;
+  const f = await fixture(); f.config.workspaces[0]!.directory = f.a; let late = false, shellRequests = 0;
   const engine = Bun.serve({ port: 0, fetch: request => {
     const url = new URL(request.url);
     expect(request.headers.get("x-opencode-directory")).toBe(f.b);
@@ -107,7 +107,7 @@ test("native mounted session list and getters exclude later foreign chats reusin
     if (url.pathname === "/experimental/session") return Response.json(late ? [foreign, original] : [original]);
     if (url.pathname === "/session") return Response.json([foreign]);
     if (url.pathname === "/session/original") { expect(request.headers.get("content-length")).toBeNull(); return Response.json(original); }
-    if (url.pathname === "/session/original/shell") return Response.json({ cwd: f.b });
+    if (url.pathname === "/session/original/shell") { shellRequests++; return Response.json({ cwd: f.b }); }
     if (url.pathname === "/session/foreign-late") return Response.json(foreign);
     return Response.json([]);
   } }); cleanup.push(() => Promise.resolve(engine.stop(true)));
@@ -121,7 +121,9 @@ test("native mounted session list and getters exclude later foreign chats reusin
   expect(ordinary.status).toBe(200); expect((await ordinary.json()).items.map((item: { id: string }) => item.id)).toEqual(["original"]);
   expect((await fetch(`${base}/opencode/session/original`, { headers })).status).toBe(200);
   const shell = await fetch(`${base}/opencode/session/original/shell`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ agent: "build", command: "pwd" }) });
-  expect(shell.status).toBe(200); expect(await shell.json()).toEqual({ cwd: f.b });
+  expect(shell.status).toBe(403); expect(await shell.json()).toMatchObject({ code: "ai_transfer_denied" });
+  expect(shellRequests).toBe(0);
+  // Supported session rebind remains verified above; protected tool execution is unavailable.
   expect((await fetch(`${base}/opencode/session/foreign-late/message`, { headers })).status).toBe(404);
   expect((await fetch(`${base}/sessions/foreign-late/messages`, { headers })).status).toBe(404);
   expect((await fetch(`${base}/opencode/experimental/session`, { headers })).status).toBe(403);

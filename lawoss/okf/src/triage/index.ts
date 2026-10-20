@@ -11,7 +11,7 @@ export { applyTriagePlan, listTriageRuns, newRunId, parseTriagePlan, undoTriage,
 export { ClassificationError, parseClassification } from "./classification.ts";
 export { buildTriagePlan, defaultLeaveInPlace, planFingerprint } from "./plan.ts";
 export { classifyByRules, findCaseNumber, folderHintRole, looksLikeArchiveFolder, TRIAGE_ROLES, type RuleCode, type TriageRole } from "./rules.ts";
-export { grantInPlaceReorganize, IN_PLACE_MARKER, looksLikeTrialName, scanTriage, TrialCloneError, TRIAL_MARKER, verifyTrialClone, verifyTriageTarget, type TriageTarget, type TriageTargetOptions } from "./scan.ts";
+export { grantInPlaceReorganize, IN_PLACE_MARKER, looksLikeTrialName, scanTriage, TRIAGE_INSPECTION_LIMITS, TriageTooLargeError, TrialCloneError, TRIAL_MARKER, verifyTrialClone, verifyTriageTarget, type TriageTarget, type TriageTargetOptions } from "./scan.ts";
 export * from "./types.ts";
 
 export type ModelProposal = { state: "none" } | { state: "ready"; file: string; documents: number; matters: number } | { state: "stale"; file: string } | { state: "invalid"; file: string; message: string };

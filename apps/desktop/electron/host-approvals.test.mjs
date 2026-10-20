@@ -90,3 +90,42 @@ test("serializes dialogs and skips a cancelled request waiting in the queue", as
   assert.equal(await second, "deny");
   assert.equal(opened, 1);
 });
+
+test("public model confirmation uses bounded exact-context review, never the native message box", async () => {
+  const window = hostWindow();
+  const description = 'Target: http://127.0.0.1/v1/chat/completions\n' + '<img src="https://invalid.test/">'.repeat(400) + "EXACT-END";
+  const handler = createHostApprovalHandler({getWindow: () => window,
+    showMessageBox: async () => assert.fail("Long exact context cannot use the unbounded native sheet"),
+    showContextReview: async (parent, options) => {
+      assert.equal(parent, window);
+      assert.equal(options.title, "Public AI request");
+      assert.equal(options.message, "Send this public synthetic model request?");
+      assert.ok(options.detail.includes(description));
+      assert.ok(options.detail.endsWith(request.paths[0]));
+      assert.equal(options.defaultId, 0);
+      return {response: 1};
+    }});
+  assert.equal(await handler({...request, action: "ai.public.synthetic", description}, new AbortController().signal), "allow");
+});
+
+test("public context fails closed without review surface; long ordinary approvals use it too", async () => {
+  const handler = createHostApprovalHandler({getWindow: hostWindow, showMessageBox: async () => assert.fail("No context fallback")});
+  assert.equal(await handler({...request, action: "ai.public.synthetic", description: "full context"}, new AbortController().signal), "deny");
+  let shown = false;
+  const bounded = createHostApprovalHandler({getWindow: hostWindow, showMessageBox: async () => assert.fail("No native overflow"), showContextReview: async () => {shown = true; return {response: 0};}});
+  assert.equal(await bounded({...request, description: "x".repeat(9000)}, new AbortController().signal), "deny");
+  assert.equal(shown, true);
+});
+
+for (const action of ["ai.documents.synthetic", "ai.protected.synthetic", "ai.documents.protected", "ai.protected.document"]) {
+  test(`short ${action} requests always use isolated full-context review and fail closed without it`, async () => {
+    let shown = 0;
+    const handler = createHostApprovalHandler({getWindow: hostWindow,
+      showMessageBox: async () => assert.fail("Protected context cannot use the ordinary message box"),
+      showContextReview: async (_parent, options) => {shown++; assert.match(options.detail, new RegExp(action.replaceAll(".", "\\."))); assert.ok(options.detail.includes("SHORT-EXACT-CONTEXT")); return {response: 1};}});
+    assert.equal(await handler({...request, action, description: "SHORT-EXACT-CONTEXT"}, new AbortController().signal), "allow");
+    assert.equal(shown, 1);
+    const unavailable = createHostApprovalHandler({getWindow: hostWindow, showMessageBox: async () => assert.fail("No fallback to unreviewed native sheet")});
+    assert.equal(await unavailable({...request, action, description: "SHORT-EXACT-CONTEXT"}, new AbortController().signal), "deny");
+  });
+}

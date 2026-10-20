@@ -7,7 +7,7 @@ import { startServer } from "./server.js";
 import { parseEigenweltEntitlements } from "./eigenwelt-auth.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { writeCachedEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
-import { SystemOneResponseSchema, SystemOneProviderSchema } from "./systemone-schema.js";
+import { SystemOneProviderSchema } from "./systemone-schema.js";
 import type { ServerConfig } from "./types.js";
 
 let dir: string;
@@ -30,13 +30,13 @@ const request = {
   questions: { red: { type: "noul", instructions: "Is it red?" } },
 };
 const selection = { providerId: "local-jev", model: "jev-latest" };
-const call = (
+const call = async (
   method: string,
   path: string,
   body?: unknown,
   token: string | null = config.token,
-) =>
-  fetch(`${base}/systemone${path}`, {
+) => {
+  const response = await fetch(`${base}/systemone${path}`, {
     method,
     headers: {
       "content-type": "application/json",
@@ -44,6 +44,12 @@ const call = (
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  if (method === "POST" && path === "" && token === config.token) {
+    if (response.status === 403) expect(await response.clone().json()).toMatchObject({ code: "ai_transfer_denied" });
+    expect(sent).toHaveLength(0);
+  }
+  return response;
+};
 
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), "legalwork-systemone-"));
@@ -166,7 +172,7 @@ test("auth and scope are enforced, malformed requests cannot execute", async () 
   expect(sent).toHaveLength(0);
 });
 
-test("custom providers persist private credentials, run with the selected model and never fall back", async () => {
+test("custom providers persist private credentials and protected execution cannot fall back", async () => {
   const provider = {
     id: selection.providerId,
     name: "Local JEV",
@@ -183,14 +189,9 @@ test("custom providers persist private credentials, run with the selected model 
   expect((await stat(join(dir, "systemone.json"))).mode & 0o777).toBe(0o600);
   expect((await call("PUT", "/selection", selection)).status).toBe(200);
   const result = await call("POST", "", { request });
-  expect(result.status).toBe(200);
-  expect(SystemOneResponseSchema.parse(await result.json()).model).toBe(
-    "openjev-0.1",
-  );
-  expect(sent.at(-1)).toEqual({
-    authorization: "Bearer custom-secret",
-    model: "jev-latest",
-  });
+  expect(result.status).toBe(403);
+  expect(await result.json()).toMatchObject({ code: "ai_transfer_denied" });
+  expect(sent).toEqual([]);
   expect(
     (
       await call("PUT", "/providers", {
@@ -209,25 +210,27 @@ test("custom providers persist private credentials, run with the selected model 
       })
     ).status,
   ).toBe(200);
-  expect((await call("POST", "/test", selection)).status).toBe(200);
+  const probe = await call("POST", "/test", selection);
+  expect(probe.status).toBe(403); expect(await probe.json()).toMatchObject({ code: "ai_transfer_denied" });
+  expect(sent).toEqual([]);
   expect(
     (await call("POST", "", { request: { ...request, model: "other" } }))
       .status,
-  ).toBe(422);
+  ).toBe(403);
   expect(
     (await call("PUT", "/providers", { ...provider, enabled: false })).status,
   ).toBe(200);
-  expect((await call("POST", "", { request })).status).toBe(409);
+  expect((await call("POST", "", { request })).status).toBe(403);
   expect((await call("DELETE", "/providers/local-jev")).status).toBe(200);
   const count = sent.length;
-  expect((await call("POST", "", { request })).status).toBe(409);
+  expect((await call("POST", "", { request })).status).toBe(403);
   expect(
     JSON.parse(await readFile(join(dir, "systemone.json"), "utf8")).selection,
   ).toEqual(selection);
   expect(sent).toHaveLength(count);
 });
 
-test("managed EigenJev reuses the subscription key and denies disabled, unavailable, offline and signed-out calls", async () => {
+test("managed EigenJev metadata persists while protected execution is denied in every account state", async () => {
   await writeEigenweltConnection(config, {
     platformURL: platform.url.origin,
     platformToken: "platform-token",
@@ -260,16 +263,9 @@ test("managed EigenJev reuses the subscription key and denies disabled, unavaila
     ).status,
   ).toBe(200);
   const result = await call("POST", "", { request });
-  expect(result.status).toBe(200);
-  expect(await result.json()).toMatchObject({
-    model: "openjev-0.1",
-    requestedModel: "EigenJev",
-    providerId: "eigenwelt",
-  });
-  expect(sent.at(-1)).toEqual({
-    authorization: "Bearer existing-subscription-key",
-    model: "EigenJev",
-  });
+  expect(result.status).toBe(403);
+  expect(await result.json()).toMatchObject({ code: "ai_transfer_denied" });
+  expect(sent).toEqual([]);
   // A newer platform exposes independent models under the same subscription provider.
   multipleModels = true;
   const managed = () => call("POST", "", { providerId: "eigenwelt", request: { ...request, model: "TypeSafeJev" } });
@@ -278,22 +274,22 @@ test("managed EigenJev reuses the subscription key and denies disabled, unavaila
     { id: "EigenJev", status: "ready", region: "EU" },
     { id: "TypeSafeJev", status: "disabled", region: "US" },
   ]);
-  expect((await managed()).status).toBe(409);
+  expect((await managed()).status).toBe(403);
   usEnabled = true;
   enabled = false;
-  expect((await managed()).status).toBe(200);
-  expect(sent.at(-1)).toEqual({ model: "TypeSafeJev", authorization: "Bearer existing-subscription-key" });
-  expect((await call("POST", "", { request })).status).toBe(409);
+  expect((await managed()).status).toBe(403);
+  expect(sent).toEqual([]);
+  expect((await call("POST", "", { request })).status).toBe(403);
   usEnabled = false;
   const count = sent.length;
   enabled = false;
-  expect((await call("POST", "", { request })).status).toBe(409);
+  expect((await call("POST", "", { request })).status).toBe(403);
   enabled = true;
   available = false;
-  expect((await call("POST", "", { request })).status).toBe(409);
+  expect((await call("POST", "", { request })).status).toBe(403);
   available = true;
   platformStatus = 503;
-  expect((await call("POST", "", { request })).status).toBe(409);
+  expect((await call("POST", "", { request })).status).toBe(403);
   platformStatus = 200;
   await writeEigenweltConnection(config, {
     entitlements: null,
@@ -301,36 +297,36 @@ test("managed EigenJev reuses the subscription key and denies disabled, unavaila
     platformToken: null,
     refreshToken: null,
   });
-  expect((await call("POST", "", { request })).status).toBe(409);
+  expect((await call("POST", "", { request })).status).toBe(403);
   expect(sent).toHaveLength(count);
   expect((await call("DELETE", "/providers/eigenwelt")).status).toBe(400);
 });
 
 
-test("one provider discovers aliases and executes multiple models with the same key", async () => {
+test("one provider discovers aliases while all model executions remain denied", async () => {
   const provider = { id: "typesafe", name: "TypeSafe JEV", endpoint: `${platform.url.origin}/v1/systemone`, apiKey: "custom-secret", enabled: true, models: [] };
   expect((await call("PUT", "/providers", provider)).status).toBe(200);
   const read = async () => z.object({providers:z.array(SystemOneProviderSchema)}).parse(await (await call("GET", "/settings")).json()).providers.find(p => p.id === provider.id)!;
   expect((await read()).models.map(m=>m.id)).toEqual(["jev-latest","jev-preview"]);
   for (const model of catalogNames) {
-    expect((await call("POST", "", {providerId:provider.id,request:{...request,model}})).status).toBe(200);
-    expect(sent.at(-1)).toEqual({model,authorization:"Bearer custom-secret"});
+    expect((await call("POST", "", {providerId:provider.id,request:{...request,model}})).status).toBe(403);
+    expect(sent).toEqual([]);
   }
   expect((await call("PUT", "/selection", {providerId:provider.id,model:"jev-preview"})).status).toBe(200);
-  expect((await call("POST", "", {request})).status).toBe(200);
-  expect(sent.at(-1)?.model).toBe("jev-preview");
+  expect((await call("POST", "", {request})).status).toBe(403);
+  expect(sent).toEqual([]);
   catalogNames=["jev-latest"];
-  expect((await call("POST", "", {request})).status).toBe(422);
+  expect((await call("POST", "", {request})).status).toBe(403);
   catalogNames=["jev-latest","jev-preview"];
   catalogStatus=503;
   expect((await read()).status).toBe("unavailable");
   expect((await read()).models).toEqual([]);
   const count=sent.length;
-  expect((await call("POST", "", {request})).status).toBe(422);
+  expect((await call("POST", "", {request})).status).toBe(403);
   expect(sent).toHaveLength(count);
   // Explicit version pins remain usable even without a listing endpoint.
   expect((await call("PUT", "/providers", {...provider,models:[{id:"jev-1.13.0",name:"Pinned JEV",questionTypes:["noul"]}]})).status).toBe(200);
-  expect((await call("POST", "", {providerId:provider.id,request:{...request,model:"jev-1.13.0"}})).status).toBe(200);
+  expect((await call("POST", "", {providerId:provider.id,request:{...request,model:"jev-1.13.0"}})).status).toBe(403);
   expect((await read()).modelsError).not.toContain("private error body");
   catalogStatus=401;
   expect((await read()).status).toBe("disconnected");
@@ -347,8 +343,8 @@ test("legacy one-model connections migrate without changing credentials, IDs or 
   const provider=settings.providers.find(p=>p.id===legacy.id)!;
   expect(provider.models.map(m=>m.id)).toEqual(["jev-latest","jev-preview","jev-1.12.0"]);
   expect(JSON.stringify(response)).not.toContain("custom-secret");
-  expect((await call("POST","",{request})).status).toBe(200);
-  expect(sent.at(-1)).toEqual({model:"jev-1.12.0",authorization:"Bearer custom-secret"});
+  expect((await call("POST","",{request})).status).toBe(403);
+  expect(sent).toEqual([]);
   // A normal edit writes the new format, retaining the key and the selected version.
   expect((await call("PUT","/providers",{...provider,models:provider.models.filter(m=>m.source==="configured"),name:"Renamed"})).status).toBe(200);
   const stored=JSON.parse(await readFile(join(dir,"systemone.json"),"utf8"));

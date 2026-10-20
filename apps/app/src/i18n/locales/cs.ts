@@ -1,3 +1,4 @@
+import { deadlinesCs } from "../../lawoss/i18n/deadlines";
 import { setupCs } from "../../lawoss/i18n/setup";
 import { initialCs } from "../../lawoss/i18n/initial";
 import { mattersCs } from "../../lawoss/i18n/matters";
@@ -1214,6 +1215,9 @@ export default {
   "settings.custom_binary_hint": "Tímto nasměrujete LegalWork na místní sestavení OpenCode",
   "settings.custom_binary_label": "Vlastní binární soubor OpenCode",
   "settings.debug_base_url": "Základní URL: {url}",
+  "settings.build_identity_embedded": "Identita vložená do balíčku",
+  "settings.build_identity_development": "Identita vývojového checkoutu",
+  "settings.build_identity_unavailable": "Identita sestavení není doložena",
   "settings.debug_commit": "Commit: {sha}",
   "settings.debug_connect_url": "URL pro připojení: {url}",
   "settings.debug_deeplink_unavailable": "Ladicí deeplinky zatím nejsou k dispozici.",
@@ -3100,6 +3104,7 @@ export default {
   "boot.ready": "Připraveno",
   "boot.error": "Něco se pokazilo",
   "boot.reload": "Znovu načíst",
+  "boot.retry": "Zkusit znovu",
   "boot.collecting_logs": "Shromažďování logů...",
   "boot.collect_logs": "Shromáždit logy pro podporu",
   "reload.verb_removed": "byl odstraněn",
@@ -6957,4 +6962,5 @@ export default {
   "wiki.whole_wiki": "Celá wiki",
   "wiki.wiki_root": "Kořen wiki",
   "wiki.your_firm": "vaše kancelář",
+  ...deadlinesCs,
 } as const;

@@ -1,0 +1,1201 @@
+{
+  "schema": "lawoss.public-fixture-manifest/v1",
+  "files": {
+    "PRIVACY.md": {
+      "bytes": 1495,
+      "sha256": "ee9b1f04ff8b3930ea5f99d6fb1c80e13ecc900697f82520d16ae4afb0af8438"
+    },
+    "README.md": {
+      "bytes": 4172,
+      "sha256": "cb90078fa59cbbed1b7af5ca96afa1a378ec3a577205b916f667e614fb80c082"
+    },
+    "THIRD_PARTY_NOTICES.md": {
+      "bytes": 819,
+      "sha256": "473bb54d42b15ea61884b09115692be282fd49bbd3b4cdb154ed3eb8ab5493ab"
+    },
+    "VALIDATION.md": {
+      "bytes": 1614,
+      "sha256": "68ce6798f33bbf2d43069303c5d370c51ddc731f4cc52098ff46e1a2987dec37"
+    },
+    "edge-cases/README.md": {
+      "bytes": 142,
+      "sha256": "4d4c59cc03152dbc237a0fac1ba62f5f1ee5175b116a9c158d1c841bdb3c6d58"
+    },
+    "edge-cases/missing-type.md": {
+      "bytes": 77,
+      "sha256": "08509edcc6ca6e40a8a36dd3582bbdc3de9ba4b35a6da6b89d9061fc9ee5c2fd"
+    },
+    "ground-truth/expected.json": {
+      "bytes": 4475,
+      "sha256": "6dde96450d604170a948f02d0ea43f79146e5ab65e0ee02ee8f4452c21433a00"
+    },
+    "ground-truth/task-catalog.md": {
+      "bytes": 2015,
+      "sha256": "c1647f25eef518d5002aa753dc4bef829c6735293df38defaa3d28055f10817d"
+    },
+    "office/Clients/C01/00_K_zarazeni/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/01_Podklady/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/02_Reserse/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/03_Navrhy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/04_Vystupy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/05_Komunikace/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/05_Komunikace/Dulezita_posta/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/AGENTS.md": {
+      "bytes": 2965,
+      "sha256": "bcbf08855e4199ff48dfad4acfe8b66d191d30678126418bfe4397885729b96d"
+    },
+    "office/Clients/C01/CLAUDE.md": {
+      "bytes": 2965,
+      "sha256": "bcbf08855e4199ff48dfad4acfe8b66d191d30678126418bfe4397885729b96d"
+    },
+    "office/Clients/C01/KOMUNIKACNE-KANALY.md": {
+      "bytes": 2754,
+      "sha256": "f04951c996ada80609c478b0c0d7da2c5550e1d093438d754117fb3398c3c512"
+    },
+    "office/Clients/C01/MEMORY.md": {
+      "bytes": 252,
+      "sha256": "afc3e0ed97c69b94bc2a94dccf551e4c57c6e7d461f7ac6ebc0d44a1cf3bca05"
+    },
+    "office/Clients/C01/PRACOVNY-PROFIL.md": {
+      "bytes": 2922,
+      "sha256": "c1f5324a85cc95e74ea4b2d4f54a0c2c14b567293e884a205c9a19bdf97e204e"
+    },
+    "office/Clients/C01/Spisy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/Spisy/test-02/00_K_zarazeni/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/Spisy/test-02/01_Podklady/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/Spisy/test-02/01_Podklady/test-02.docx": {
+      "bytes": 37647,
+      "sha256": "232bde79418a895947fe6535b0a761d7f3b4bdeeab1f57ac53ba4d5d4199c93f"
+    },
+    "office/Clients/C01/Spisy/test-02/01_Podklady/test-02.pdf": {
+      "bytes": 52501,
+      "sha256": "4f25bd0780fd06e20901f81ec7f37499b6ba9245ee0f31e155d48865c66edeed"
+    },
+    "office/Clients/C01/Spisy/test-02/01_Podklady/varianta-1.md": {
+      "bytes": 199,
+      "sha256": "a3968ee68b56d2853546970fce5f9577d8eefa909f66fa81ec5f888d836ecab6"
+    },
+    "office/Clients/C01/Spisy/test-02/01_Podklady/varianta-2.md": {
+      "bytes": 180,
+      "sha256": "d02df0ccf9b337aa5b5298466d38c78f94d9b36b6b4f2445793f26b03d1c25f5"
+    },
+    "office/Clients/C01/Spisy/test-02/02_Reserse/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/Spisy/test-02/03_Navrhy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/Spisy/test-02/04_Vystupy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/Spisy/test-02/05_Komunikace/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/Spisy/test-02/05_Komunikace/Dulezita_posta/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/Spisy/test-02/05_Komunikace/test-02.eml": {
+      "bytes": 72770,
+      "sha256": "724c64db1f8c81c2647e6d6a0a1418666a02278c820fb05b61bc574499524318"
+    },
+    "office/Clients/C01/Spisy/test-02/AGENTS.md": {
+      "bytes": 2580,
+      "sha256": "649db220699c04728831c90c0d92899c2976d9263618a4c9b7d19319b0fcaf0f"
+    },
+    "office/Clients/C01/Spisy/test-02/CLAUDE.md": {
+      "bytes": 2580,
+      "sha256": "649db220699c04728831c90c0d92899c2976d9263618a4c9b7d19319b0fcaf0f"
+    },
+    "office/Clients/C01/Spisy/test-02/KOMUNIKACNE-KANALY.md": {
+      "bytes": 2773,
+      "sha256": "89a9c16b8c151e9a7d27168599656da0add7ad2352920efa2cea726504fbff8e"
+    },
+    "office/Clients/C01/Spisy/test-02/MEMORY.md": {
+      "bytes": 271,
+      "sha256": "74efd4107f8656476a823f3afe3631cae0e971a616cc02ed2ab45d049af3749e"
+    },
+    "office/Clients/C01/Spisy/test-02/PRACOVNY-PROFIL.md": {
+      "bytes": 2922,
+      "sha256": "c1f5324a85cc95e74ea4b2d4f54a0c2c14b567293e884a205c9a19bdf97e204e"
+    },
+    "office/Clients/C01/Spisy/test-02/VSTUPY.md": {
+      "bytes": 2045,
+      "sha256": "6e85d57ec5a399248f3242b5e3eed8f3d99097f9e768b7f725607ad5ae80ec3e"
+    },
+    "office/Clients/C01/Spisy/test-02/_STATUS.md": {
+      "bytes": 1113,
+      "sha256": "3b7add0c5a8fafcf2ad2c64c9157bbcb8be9a168f4615449d986129286571633"
+    },
+    "office/Clients/C01/Spisy/test-02/evidence.md": {
+      "bytes": 468,
+      "sha256": "d0df5dfc7d15d90d2c19673696d7f1f09d3212b1331f7d72808816721c017ce5"
+    },
+    "office/Clients/C01/Spisy/test-02/ledger.csv": {
+      "bytes": 176,
+      "sha256": "0fc7a9f9b8bb557ac63929c414902018d098edcfb0a4b3a71b848e5e677df41e"
+    },
+    "office/Clients/C01/Spisy/test-02/matter.md": {
+      "bytes": 720,
+      "sha256": "238161fe686f6782da595791973b0c5089996700a654b4a0574258e03f7c5c6a"
+    },
+    "office/Clients/C01/Spisy/test-06/00_K_zarazeni/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/Spisy/test-06/01_Podklady/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/Spisy/test-06/01_Podklady/test-06.docx": {
+      "bytes": 37648,
+      "sha256": "b08ed7e66365f83a4d47dfb4280d0e67b6ade269ff65295b34753346cbccc60f"
+    },
+    "office/Clients/C01/Spisy/test-06/01_Podklady/test-06.pdf": {
+      "bytes": 53226,
+      "sha256": "83fc19aee293c5a682368d43ea29aa001f1474818c27f7daa3e59e1e44c9eb83"
+    },
+    "office/Clients/C01/Spisy/test-06/02_Reserse/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/Spisy/test-06/03_Navrhy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/Spisy/test-06/04_Vystupy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/Spisy/test-06/05_Komunikace/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/Spisy/test-06/05_Komunikace/Dulezita_posta/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C01/Spisy/test-06/05_Komunikace/test-06.eml": {
+      "bytes": 73758,
+      "sha256": "cf113326450d17dc15ae79d674dce988a7a1e352b3804bf3dd799a4ef6f2b3b6"
+    },
+    "office/Clients/C01/Spisy/test-06/AGENTS.md": {
+      "bytes": 2566,
+      "sha256": "1792ec5258d3c34821dfe9273806be599282e761349825d8020f39315ce158f7"
+    },
+    "office/Clients/C01/Spisy/test-06/CLAUDE.md": {
+      "bytes": 2566,
+      "sha256": "1792ec5258d3c34821dfe9273806be599282e761349825d8020f39315ce158f7"
+    },
+    "office/Clients/C01/Spisy/test-06/KOMUNIKACNE-KANALY.md": {
+      "bytes": 2766,
+      "sha256": "17a16e41617205467823df4ee11ada0b453100f6607e45b14fded293b955fa5a"
+    },
+    "office/Clients/C01/Spisy/test-06/MEMORY.md": {
+      "bytes": 264,
+      "sha256": "3b4e04781c654815953e823e66986da8c7f4a3150ff857e10aa0bedb7bf905b7"
+    },
+    "office/Clients/C01/Spisy/test-06/PRACOVNY-PROFIL.md": {
+      "bytes": 2922,
+      "sha256": "c1f5324a85cc95e74ea4b2d4f54a0c2c14b567293e884a205c9a19bdf97e204e"
+    },
+    "office/Clients/C01/Spisy/test-06/VSTUPY.md": {
+      "bytes": 2038,
+      "sha256": "2c4c07b948ef501e2a809f8997b1cbb66b13259cdb62f253a43512bd6cddeaa5"
+    },
+    "office/Clients/C01/Spisy/test-06/_STATUS.md": {
+      "bytes": 1099,
+      "sha256": "e730d2e87a9478a9ae393cc62717f3ff4ed6f03991a5edb5c38f73b7de646a7d"
+    },
+    "office/Clients/C01/Spisy/test-06/evidence.md": {
+      "bytes": 468,
+      "sha256": "801ee6ec1fec2fff37abb4b3d9a3c9676c8ab4331469caac54d11079d96b3bec"
+    },
+    "office/Clients/C01/Spisy/test-06/ledger.csv": {
+      "bytes": 176,
+      "sha256": "52a06b8a71400e335c7d1a10a117077cd2e5c60b753da692b435ac11c98a672a"
+    },
+    "office/Clients/C01/Spisy/test-06/matter.md": {
+      "bytes": 706,
+      "sha256": "2bf689e5c16698ddb6cd7bc7a0c80e2b8ad88a0a14c4d326e797b25aee192928"
+    },
+    "office/Clients/C01/VSTUPY.md": {
+      "bytes": 2026,
+      "sha256": "cf74e3a1ebc26dd7ca09702e8ec7d4b2d578668ace9f755ed490cc4065354bc7"
+    },
+    "office/Clients/C01/client.md": {
+      "bytes": 1616,
+      "sha256": "2c3940349e9b1438da8f98b4937ac4652295497131dc179c7fd71d0f2e171451"
+    },
+    "office/Clients/C01/index.md": {
+      "bytes": 55,
+      "sha256": "fcd6e23abfaf3e4b9aea4dde87292002c47f262eab9e4ce90f90f6e20829d9b3"
+    },
+    "office/Clients/C02/00_K_zarazeni/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/01_Podklady/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/02_Reserse/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/03_Navrhy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/04_Vystupy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/05_Komunikace/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/05_Komunikace/Dulezita_posta/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/AGENTS.md": {
+      "bytes": 2965,
+      "sha256": "5f62bfa13ad56adf5d57bac2e9d4bcb885ac774ce39205c2b9a0996e07d283bf"
+    },
+    "office/Clients/C02/CLAUDE.md": {
+      "bytes": 2965,
+      "sha256": "5f62bfa13ad56adf5d57bac2e9d4bcb885ac774ce39205c2b9a0996e07d283bf"
+    },
+    "office/Clients/C02/KOMUNIKACNE-KANALY.md": {
+      "bytes": 2754,
+      "sha256": "a7e3a0d416f34ecb5455fdf984d25ded45250db4c4d722f4e976c8444ca48fcb"
+    },
+    "office/Clients/C02/MEMORY.md": {
+      "bytes": 252,
+      "sha256": "b6b878c87688b288db0170d27ce9eac8dba05334d8285c650f6bcdec4dc3466b"
+    },
+    "office/Clients/C02/PRACOVNY-PROFIL.md": {
+      "bytes": 2922,
+      "sha256": "c1f5324a85cc95e74ea4b2d4f54a0c2c14b567293e884a205c9a19bdf97e204e"
+    },
+    "office/Clients/C02/Spisy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/Spisy/test-04/00_K_zarazeni/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/Spisy/test-04/01_Podklady/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/Spisy/test-04/01_Podklady/test-04.docx": {
+      "bytes": 37621,
+      "sha256": "1dcf3e4ba3e52ddce53be048423fa896da5afdd14e4e643f6bf2eefd71b54f4a"
+    },
+    "office/Clients/C02/Spisy/test-04/01_Podklady/test-04.pdf": {
+      "bytes": 51971,
+      "sha256": "e1d091f2688fdc3832e2290e57c698c40da0fe8ac88d87bd31d871417f17220d"
+    },
+    "office/Clients/C02/Spisy/test-04/01_Podklady/varianta-1.md": {
+      "bytes": 170,
+      "sha256": "6044bfdc8c3cc90a22f311849b769dcab5aece33866cb1e18273ae1d83aff3c3"
+    },
+    "office/Clients/C02/Spisy/test-04/01_Podklady/varianta-2.md": {
+      "bytes": 177,
+      "sha256": "f82447f8dc776a666e3543d2c86ec11a133ae11aaf76088338cbd4f8996632ee"
+    },
+    "office/Clients/C02/Spisy/test-04/02_Reserse/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/Spisy/test-04/03_Navrhy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/Spisy/test-04/04_Vystupy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/Spisy/test-04/05_Komunikace/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/Spisy/test-04/05_Komunikace/Dulezita_posta/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/Spisy/test-04/05_Komunikace/test-04.eml": {
+      "bytes": 72042,
+      "sha256": "2d7487525a3c746adf6412910cd62652e54ad54d472c28ef5f5dc0128b0861b4"
+    },
+    "office/Clients/C02/Spisy/test-04/AGENTS.md": {
+      "bytes": 2564,
+      "sha256": "9572576e7fd92c06e1bd8eaa6157aaf617864ff9a132b03b18c801c124be21ca"
+    },
+    "office/Clients/C02/Spisy/test-04/CLAUDE.md": {
+      "bytes": 2564,
+      "sha256": "9572576e7fd92c06e1bd8eaa6157aaf617864ff9a132b03b18c801c124be21ca"
+    },
+    "office/Clients/C02/Spisy/test-04/KOMUNIKACNE-KANALY.md": {
+      "bytes": 2765,
+      "sha256": "df0ee28030aa3490a29709a4ed9e0f374d1c38a5353398746cf57961c85145ef"
+    },
+    "office/Clients/C02/Spisy/test-04/MEMORY.md": {
+      "bytes": 263,
+      "sha256": "dfcdf3714942db5dfe8466e61bdcb70a075a26b009338920223522232dccc652"
+    },
+    "office/Clients/C02/Spisy/test-04/PRACOVNY-PROFIL.md": {
+      "bytes": 2922,
+      "sha256": "c1f5324a85cc95e74ea4b2d4f54a0c2c14b567293e884a205c9a19bdf97e204e"
+    },
+    "office/Clients/C02/Spisy/test-04/VSTUPY.md": {
+      "bytes": 2037,
+      "sha256": "8e3ac441913827ea3b6f8ad333d106d6a2c59f3d41eb9f948d3935315a7ab132"
+    },
+    "office/Clients/C02/Spisy/test-04/_STATUS.md": {
+      "bytes": 1097,
+      "sha256": "7e5b662954bc23abf0041670c42658ee1d4e74db31cc8e4756909f04787b7ea5"
+    },
+    "office/Clients/C02/Spisy/test-04/evidence.md": {
+      "bytes": 468,
+      "sha256": "1a6a8ff482175f7af1a90b3abcb9bd5897a628037eec2153e1d0efc52c36dfdc"
+    },
+    "office/Clients/C02/Spisy/test-04/ledger.csv": {
+      "bytes": 176,
+      "sha256": "51ffe91453ac5038d3090dfd244cfe98b4c68dc69310791637a93e7245d5b56c"
+    },
+    "office/Clients/C02/Spisy/test-04/matter.md": {
+      "bytes": 704,
+      "sha256": "ef8f2af369eeecededc9a31bcb270671ef1a89fc917efcee07b62a38e790fa9e"
+    },
+    "office/Clients/C02/Spisy/test-09/00_K_zarazeni/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/Spisy/test-09/01_Podklady/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/Spisy/test-09/01_Podklady/test-09-scan.pdf": {
+      "bytes": 109665,
+      "sha256": "bd70a7121a3e6df24b31f2c2ff07913659b8c9446b76ba2614e1efaf187cbde3"
+    },
+    "office/Clients/C02/Spisy/test-09/01_Podklady/test-09.docx": {
+      "bytes": 37636,
+      "sha256": "92886bea7234d501e4ba0ca9e07d11ab8b31363869acbcfd1ce425a210f98dc3"
+    },
+    "office/Clients/C02/Spisy/test-09/01_Podklady/test-09.pdf": {
+      "bytes": 52816,
+      "sha256": "65bed099b04ef712389af44c307fff5043ce2c4d4965a147e24683fa224b2aaa"
+    },
+    "office/Clients/C02/Spisy/test-09/02_Reserse/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/Spisy/test-09/03_Navrhy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/Spisy/test-09/04_Vystupy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/Spisy/test-09/05_Komunikace/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/Spisy/test-09/05_Komunikace/Dulezita_posta/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C02/Spisy/test-09/05_Komunikace/test-09.eml": {
+      "bytes": 73200,
+      "sha256": "e86edb2bf7b8aaca31173ce196a162f7bef1e333aac9d7e7c8b25cdc4d58ef87"
+    },
+    "office/Clients/C02/Spisy/test-09/AGENTS.md": {
+      "bytes": 2576,
+      "sha256": "69255bff144a7b1dd91fec81365a89d94ddd6bdc56dcb6ef4cd8812d22547f46"
+    },
+    "office/Clients/C02/Spisy/test-09/CLAUDE.md": {
+      "bytes": 2576,
+      "sha256": "69255bff144a7b1dd91fec81365a89d94ddd6bdc56dcb6ef4cd8812d22547f46"
+    },
+    "office/Clients/C02/Spisy/test-09/KOMUNIKACNE-KANALY.md": {
+      "bytes": 2771,
+      "sha256": "30c4f9fa8614e0958b304dac213966cb7a5e3a255408f1f2d5b9b8e2fd7ea54c"
+    },
+    "office/Clients/C02/Spisy/test-09/MEMORY.md": {
+      "bytes": 269,
+      "sha256": "f6a554f4ac39565106df4d9daf7f9b85b957d9af014b6217fad946ff6153d932"
+    },
+    "office/Clients/C02/Spisy/test-09/PRACOVNY-PROFIL.md": {
+      "bytes": 2922,
+      "sha256": "c1f5324a85cc95e74ea4b2d4f54a0c2c14b567293e884a205c9a19bdf97e204e"
+    },
+    "office/Clients/C02/Spisy/test-09/VSTUPY.md": {
+      "bytes": 2043,
+      "sha256": "e4b16b08bff73429d135be24c43b69e68bfd567829d797fd32d953f4ef491c14"
+    },
+    "office/Clients/C02/Spisy/test-09/_STATUS.md": {
+      "bytes": 1109,
+      "sha256": "7bad80ee8284632e92aa3a98c8bc3712159710fe61856f982e77fa7b6dfa899b"
+    },
+    "office/Clients/C02/Spisy/test-09/evidence.md": {
+      "bytes": 468,
+      "sha256": "3c60a666a554d64634e49e7baac50569ad58bcbdc1efee6678aa250d0706658f"
+    },
+    "office/Clients/C02/Spisy/test-09/ledger.csv": {
+      "bytes": 176,
+      "sha256": "594ef7d1e0d8b793979aee1f88056dc75f3237b21fb3bd6bf990734075f0b33a"
+    },
+    "office/Clients/C02/Spisy/test-09/matter.md": {
+      "bytes": 716,
+      "sha256": "c43509294965264cb572a133352fb3819fd3caf4f0880187507802c94df88a13"
+    },
+    "office/Clients/C02/VSTUPY.md": {
+      "bytes": 2026,
+      "sha256": "405e3ac09da2dc659f82eb656c2c265e53cd9beb25be032a959100baeaf6716f"
+    },
+    "office/Clients/C02/client.md": {
+      "bytes": 1616,
+      "sha256": "863b50769e8c9b1e72b5a0a484a7f9802b520be345f1b36ec21ea815d8f0cffe"
+    },
+    "office/Clients/C02/index.md": {
+      "bytes": 55,
+      "sha256": "2d1eb0fd00b9008e0855501173281e53077a1172dfacf927cce05f822645d097"
+    },
+    "office/Clients/C03/00_K_zarazeni/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/01_Podklady/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/02_Reserse/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/03_Navrhy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/04_Vystupy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/05_Komunikace/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/05_Komunikace/Dulezita_posta/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/AGENTS.md": {
+      "bytes": 2965,
+      "sha256": "5188f86e13fb431abf75131c0597c4885f2a74d5190e5eb207d148ee562d0474"
+    },
+    "office/Clients/C03/CLAUDE.md": {
+      "bytes": 2965,
+      "sha256": "5188f86e13fb431abf75131c0597c4885f2a74d5190e5eb207d148ee562d0474"
+    },
+    "office/Clients/C03/KOMUNIKACNE-KANALY.md": {
+      "bytes": 2754,
+      "sha256": "cc1fbe0f86d6bd2b3bd5e02f635f0864b51c48255eb83597c164bde6a9142fdb"
+    },
+    "office/Clients/C03/MEMORY.md": {
+      "bytes": 252,
+      "sha256": "7a9c21f4a399a5df433eaf1e32d1c4b485f7a703b6b35c595043720f47f5e085"
+    },
+    "office/Clients/C03/PRACOVNY-PROFIL.md": {
+      "bytes": 2922,
+      "sha256": "c1f5324a85cc95e74ea4b2d4f54a0c2c14b567293e884a205c9a19bdf97e204e"
+    },
+    "office/Clients/C03/Spisy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/Spisy/test-01/00_K_zarazeni/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/Spisy/test-01/01_Podklady/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/Spisy/test-01/01_Podklady/test-01.docx": {
+      "bytes": 37629,
+      "sha256": "fbec64479cb2fcd5aa900db47ddefaa87cf57df95d2e0d8e3a0a4c717ed24fb7"
+    },
+    "office/Clients/C03/Spisy/test-01/01_Podklady/test-01.pdf": {
+      "bytes": 52038,
+      "sha256": "9379aa14ea2a0e686e813c6a655009012067a5441bae1f43b52498144d3ab5e2"
+    },
+    "office/Clients/C03/Spisy/test-01/01_Podklady/varianta-1.md": {
+      "bytes": 153,
+      "sha256": "ae6720a41fe8a1c06afaf2acc7ad84a77bd3bad12073879a849c1b899296e773"
+    },
+    "office/Clients/C03/Spisy/test-01/01_Podklady/varianta-2.md": {
+      "bytes": 186,
+      "sha256": "44b69f2d6747b4e48eb665ba516248eef88b66b344067eed5cf8d6a92df9966d"
+    },
+    "office/Clients/C03/Spisy/test-01/02_Reserse/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/Spisy/test-01/03_Navrhy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/Spisy/test-01/04_Vystupy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/Spisy/test-01/05_Komunikace/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/Spisy/test-01/05_Komunikace/Dulezita_posta/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/Spisy/test-01/05_Komunikace/test-01.eml": {
+      "bytes": 72132,
+      "sha256": "40d8c117e69685348728d62eeec13d932a8a46858c6765cd4ad5e5c875e8064e"
+    },
+    "office/Clients/C03/Spisy/test-01/AGENTS.md": {
+      "bytes": 2556,
+      "sha256": "ed52a38afedc520de5f06e2d79e8654bc344056bc4354e4abf65d3705508f60e"
+    },
+    "office/Clients/C03/Spisy/test-01/CLAUDE.md": {
+      "bytes": 2556,
+      "sha256": "ed52a38afedc520de5f06e2d79e8654bc344056bc4354e4abf65d3705508f60e"
+    },
+    "office/Clients/C03/Spisy/test-01/KOMUNIKACNE-KANALY.md": {
+      "bytes": 2761,
+      "sha256": "684beac9eaa545f60c6aed5e0cc675dd56bfd761ea05c90a9b46b99060db3a32"
+    },
+    "office/Clients/C03/Spisy/test-01/MEMORY.md": {
+      "bytes": 259,
+      "sha256": "cd905fda3d90196d6c7d6a33674704f7a6db8a3e3b3b2a8a501596ee45c469a5"
+    },
+    "office/Clients/C03/Spisy/test-01/PRACOVNY-PROFIL.md": {
+      "bytes": 2922,
+      "sha256": "c1f5324a85cc95e74ea4b2d4f54a0c2c14b567293e884a205c9a19bdf97e204e"
+    },
+    "office/Clients/C03/Spisy/test-01/VSTUPY.md": {
+      "bytes": 2033,
+      "sha256": "a3efb552036a5e34a7e610efed3ecab6e20032d4a712782350964072c09e298e"
+    },
+    "office/Clients/C03/Spisy/test-01/_STATUS.md": {
+      "bytes": 1089,
+      "sha256": "f369bd3c11bda21db48a02c99ed4285473e3175d603ac0f66c84c3855f429c38"
+    },
+    "office/Clients/C03/Spisy/test-01/evidence.md": {
+      "bytes": 468,
+      "sha256": "4e3bf8b95e98d74cca32b1e4e481ca0f1f5caa4e659926f87de80e7269c6220a"
+    },
+    "office/Clients/C03/Spisy/test-01/ledger.csv": {
+      "bytes": 176,
+      "sha256": "7cfa094d9c28bca777727cca992f17b64aada7a3abe909dbfb2af6c241550091"
+    },
+    "office/Clients/C03/Spisy/test-01/matter.md": {
+      "bytes": 696,
+      "sha256": "66b6969fedc44e5af4a62ba17fa184ade2edb4bdb5c3aaa3e72153e316812c57"
+    },
+    "office/Clients/C03/Spisy/test-07/00_K_zarazeni/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/Spisy/test-07/01_Podklady/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/Spisy/test-07/01_Podklady/test-07.docx": {
+      "bytes": 37610,
+      "sha256": "c673be9a7b03217b3ca5d3019f33140f057fb47506e071cea019555e0f1e2af3"
+    },
+    "office/Clients/C03/Spisy/test-07/01_Podklady/test-07.pdf": {
+      "bytes": 51822,
+      "sha256": "bfd028a3ffb9a8b1b88f50880778b7602c0b70337ad6b9f19d2e2c3ea711259b"
+    },
+    "office/Clients/C03/Spisy/test-07/02_Reserse/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/Spisy/test-07/03_Navrhy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/Spisy/test-07/04_Vystupy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/Spisy/test-07/05_Komunikace/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/Spisy/test-07/05_Komunikace/Dulezita_posta/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C03/Spisy/test-07/05_Komunikace/test-07.eml": {
+      "bytes": 71838,
+      "sha256": "46d94a32816251d971021aeba006386f001861db81949484ea3c64157184b9c5"
+    },
+    "office/Clients/C03/Spisy/test-07/AGENTS.md": {
+      "bytes": 2560,
+      "sha256": "ef332e40bb0e01908853f1074bfcb941bfdfc43eed49f80c88df745b6774b61f"
+    },
+    "office/Clients/C03/Spisy/test-07/CLAUDE.md": {
+      "bytes": 2560,
+      "sha256": "ef332e40bb0e01908853f1074bfcb941bfdfc43eed49f80c88df745b6774b61f"
+    },
+    "office/Clients/C03/Spisy/test-07/KOMUNIKACNE-KANALY.md": {
+      "bytes": 2763,
+      "sha256": "108d68d615509cf464f2ac39e8f4653017007c19beaa165c412883e14c720a7c"
+    },
+    "office/Clients/C03/Spisy/test-07/MEMORY.md": {
+      "bytes": 261,
+      "sha256": "561668ed1c43863d3446169c60effa99db17a3ac108c18fad9c55cc5ffd40cf0"
+    },
+    "office/Clients/C03/Spisy/test-07/PRACOVNY-PROFIL.md": {
+      "bytes": 2922,
+      "sha256": "c1f5324a85cc95e74ea4b2d4f54a0c2c14b567293e884a205c9a19bdf97e204e"
+    },
+    "office/Clients/C03/Spisy/test-07/VSTUPY.md": {
+      "bytes": 2035,
+      "sha256": "21f01212bef53790422665483839f12f477408df82d76fdde2eeab39a6026e9a"
+    },
+    "office/Clients/C03/Spisy/test-07/_STATUS.md": {
+      "bytes": 1093,
+      "sha256": "8ee91fcdfd6cfc2267b47f66dee05ae9543630b7c2e6238863fa63f654742b95"
+    },
+    "office/Clients/C03/Spisy/test-07/evidence.md": {
+      "bytes": 468,
+      "sha256": "8ad791a6f13b61255846456da61ee7edf58fd7768919fe7840e17c830644264d"
+    },
+    "office/Clients/C03/Spisy/test-07/ledger.csv": {
+      "bytes": 176,
+      "sha256": "e3b3a74771bd9ef1b8df19cc7962851f1b31bdf612e38fe5df49cab61f65bfe1"
+    },
+    "office/Clients/C03/Spisy/test-07/matter.md": {
+      "bytes": 700,
+      "sha256": "6220af14890f787732264184515b33625f629546d7eb1f208c2dd0de13f60528"
+    },
+    "office/Clients/C03/VSTUPY.md": {
+      "bytes": 2026,
+      "sha256": "a5cfeada4548b48d18099cb55beaa0082b5eb23f7e89cf81d8c3ecbc2fdcd352"
+    },
+    "office/Clients/C03/client.md": {
+      "bytes": 1616,
+      "sha256": "4ae133ed5dc0262a6c6955791fc411d4a019da504fc00942989ca493866ed49b"
+    },
+    "office/Clients/C03/index.md": {
+      "bytes": 55,
+      "sha256": "272fd1337f9717496ef9bb49c683eb908a655c46b4ced5e0c958da7a15edfc8c"
+    },
+    "office/Clients/C04/00_K_zarazeni/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/01_Podklady/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/02_Reserse/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/03_Navrhy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/04_Vystupy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/05_Komunikace/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/05_Komunikace/Dulezita_posta/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/AGENTS.md": {
+      "bytes": 2965,
+      "sha256": "2a4f2d2eddd7e4a544bd5623c03ce20a2990ab9b61ba3ac5d2db49be1dd3a1fa"
+    },
+    "office/Clients/C04/CLAUDE.md": {
+      "bytes": 2965,
+      "sha256": "2a4f2d2eddd7e4a544bd5623c03ce20a2990ab9b61ba3ac5d2db49be1dd3a1fa"
+    },
+    "office/Clients/C04/KOMUNIKACNE-KANALY.md": {
+      "bytes": 2754,
+      "sha256": "b480ae99610280c1ad5164eae0cbc4350a6208c7d222c6d61aec19afe18fd891"
+    },
+    "office/Clients/C04/MEMORY.md": {
+      "bytes": 252,
+      "sha256": "5a2636f14ec97b9e2d54324ab901a5ac48c6093c8a71b3c5aeaab78a3b5fd634"
+    },
+    "office/Clients/C04/PRACOVNY-PROFIL.md": {
+      "bytes": 2922,
+      "sha256": "c1f5324a85cc95e74ea4b2d4f54a0c2c14b567293e884a205c9a19bdf97e204e"
+    },
+    "office/Clients/C04/Spisy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/Spisy/test-03/00_K_zarazeni/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/Spisy/test-03/01_Podklady/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/Spisy/test-03/01_Podklady/test-03.docx": {
+      "bytes": 37638,
+      "sha256": "5d0c3e91867c1de6b155be88f17bef8a3b6bad9bf307d6dd2a0265c8159aa3d9"
+    },
+    "office/Clients/C04/Spisy/test-03/01_Podklady/test-03.pdf": {
+      "bytes": 51567,
+      "sha256": "23598f38638cd0ba5cea8c9bb0a6d6bfff5afd7a1bc05a720bbff67035be44be"
+    },
+    "office/Clients/C04/Spisy/test-03/02_Reserse/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/Spisy/test-03/03_Navrhy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/Spisy/test-03/04_Vystupy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/Spisy/test-03/05_Komunikace/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/Spisy/test-03/05_Komunikace/Dulezita_posta/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/Spisy/test-03/05_Komunikace/test-03.eml": {
+      "bytes": 71488,
+      "sha256": "bac38b20ca5d5a1c46d3ee5de7ba7323817970d583254c5d00fc2bc404470ceb"
+    },
+    "office/Clients/C04/Spisy/test-03/AGENTS.md": {
+      "bytes": 2568,
+      "sha256": "47a34300259a2b3c976cc3f8c25ef78467f1a0234ce6631245285cc66d49be95"
+    },
+    "office/Clients/C04/Spisy/test-03/CLAUDE.md": {
+      "bytes": 2568,
+      "sha256": "47a34300259a2b3c976cc3f8c25ef78467f1a0234ce6631245285cc66d49be95"
+    },
+    "office/Clients/C04/Spisy/test-03/KOMUNIKACNE-KANALY.md": {
+      "bytes": 2767,
+      "sha256": "89df9339ac563ec10421eef6bad26bc8cbac27ef8c84fbd86ffa9192ed69390c"
+    },
+    "office/Clients/C04/Spisy/test-03/MEMORY.md": {
+      "bytes": 265,
+      "sha256": "009b41b75703a9c643f7dca97d89450d6d3b46a68c067332fe4e5390f1233bb1"
+    },
+    "office/Clients/C04/Spisy/test-03/PRACOVNY-PROFIL.md": {
+      "bytes": 2922,
+      "sha256": "c1f5324a85cc95e74ea4b2d4f54a0c2c14b567293e884a205c9a19bdf97e204e"
+    },
+    "office/Clients/C04/Spisy/test-03/VSTUPY.md": {
+      "bytes": 2039,
+      "sha256": "416599f75791d11f13ee82681240236bf5afbcb08792bce373db8f5abdb98854"
+    },
+    "office/Clients/C04/Spisy/test-03/_STATUS.md": {
+      "bytes": 1101,
+      "sha256": "626bcfa52ac31eff4450941cf4ab08d5e82dbb07dcae6339927477e0e899b78c"
+    },
+    "office/Clients/C04/Spisy/test-03/evidence.md": {
+      "bytes": 468,
+      "sha256": "4cd98f36da04b2798eb577ec2e6b2b83ecb2f40c0e73facb8421f343a080e011"
+    },
+    "office/Clients/C04/Spisy/test-03/ledger.csv": {
+      "bytes": 176,
+      "sha256": "c11aec4d166918abb214ed280ee235b69721d15846197cc541215f550ff58d22"
+    },
+    "office/Clients/C04/Spisy/test-03/matter.md": {
+      "bytes": 708,
+      "sha256": "91137f103e4ddccfb588be5e981f9c289493ad71624b4703b804c62c7eca534e"
+    },
+    "office/Clients/C04/Spisy/test-10/00_K_zarazeni/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/Spisy/test-10/01_Podklady/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/Spisy/test-10/01_Podklady/test-10.docx": {
+      "bytes": 37610,
+      "sha256": "013641fed305a9254cf6dacab19569174f79eac148ebea7945ad0699027ef5d1"
+    },
+    "office/Clients/C04/Spisy/test-10/01_Podklady/test-10.pdf": {
+      "bytes": 51883,
+      "sha256": "db382c4f0e3d7dee39b632f74e9917ece59b060fd491bedae488eff1cabf7d0e"
+    },
+    "office/Clients/C04/Spisy/test-10/02_Reserse/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/Spisy/test-10/03_Navrhy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/Spisy/test-10/04_Vystupy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/Spisy/test-10/05_Komunikace/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/Spisy/test-10/05_Komunikace/Dulezita_posta/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C04/Spisy/test-10/05_Komunikace/test-10.eml": {
+      "bytes": 71924,
+      "sha256": "065b7b2cb65802f06450ccba3b0700f5a9d5df3bf3726685b5f8502cee276e17"
+    },
+    "office/Clients/C04/Spisy/test-10/AGENTS.md": {
+      "bytes": 2572,
+      "sha256": "c4cfd3943419f202f517d09598a635ab4f8d41d71edd15181066e4e37f054709"
+    },
+    "office/Clients/C04/Spisy/test-10/CLAUDE.md": {
+      "bytes": 2572,
+      "sha256": "c4cfd3943419f202f517d09598a635ab4f8d41d71edd15181066e4e37f054709"
+    },
+    "office/Clients/C04/Spisy/test-10/KOMUNIKACNE-KANALY.md": {
+      "bytes": 2769,
+      "sha256": "012a2c2683608cad66faaf3d458f11c8909359ddcca3a98a3b3dc7d1bf2bae50"
+    },
+    "office/Clients/C04/Spisy/test-10/MEMORY.md": {
+      "bytes": 267,
+      "sha256": "7832ea1909089c82b042c1cb63a28d8b4bb82c692e8eeb2fb7452cc36e3d1061"
+    },
+    "office/Clients/C04/Spisy/test-10/PRACOVNY-PROFIL.md": {
+      "bytes": 2922,
+      "sha256": "c1f5324a85cc95e74ea4b2d4f54a0c2c14b567293e884a205c9a19bdf97e204e"
+    },
+    "office/Clients/C04/Spisy/test-10/VSTUPY.md": {
+      "bytes": 2041,
+      "sha256": "9df364f32183e134d22d56929485b3089e6580a8957f3e52b1353d5f62b6bb01"
+    },
+    "office/Clients/C04/Spisy/test-10/_STATUS.md": {
+      "bytes": 1105,
+      "sha256": "ea3f99b5d7e0ba1b37fe70417f5ab5f58fdcbc12318350f337a211f6b5cbcd5c"
+    },
+    "office/Clients/C04/Spisy/test-10/evidence.md": {
+      "bytes": 468,
+      "sha256": "0ac1e91aac54d7b58eeceaf72e69522823a3086727be3e978d2c0c707653e5a3"
+    },
+    "office/Clients/C04/Spisy/test-10/ledger.csv": {
+      "bytes": 177,
+      "sha256": "beece5e68920561778f8523d6d82feb05f2c5940ff57508c6a8a13599dfd214a"
+    },
+    "office/Clients/C04/Spisy/test-10/matter.md": {
+      "bytes": 712,
+      "sha256": "7c9abb20ea28573f1cb18ed120a1b75ce9b812abbe8c61839d7e71f4612b5ae5"
+    },
+    "office/Clients/C04/VSTUPY.md": {
+      "bytes": 2026,
+      "sha256": "9dad3d578e370092e1e25d69f95bc4785e810fec7c4ea2124b0485a1e6caadef"
+    },
+    "office/Clients/C04/client.md": {
+      "bytes": 1616,
+      "sha256": "b67652569d68802c0cec070398ebcacddb8be2d55c9992b7a834f192323bf0da"
+    },
+    "office/Clients/C04/index.md": {
+      "bytes": 55,
+      "sha256": "5c98eba57493866dc7a1d1784fd74ef45daa5a4370c3dedbc5a257864c9ad810"
+    },
+    "office/Clients/C05/00_K_zarazeni/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/01_Podklady/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/02_Reserse/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/03_Navrhy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/04_Vystupy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/05_Komunikace/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/05_Komunikace/Dulezita_posta/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/AGENTS.md": {
+      "bytes": 2965,
+      "sha256": "57141bbda2a8abd24b996f02c6315d20c9fec56aef9ec4e341a8a07a253cef5b"
+    },
+    "office/Clients/C05/CLAUDE.md": {
+      "bytes": 2965,
+      "sha256": "57141bbda2a8abd24b996f02c6315d20c9fec56aef9ec4e341a8a07a253cef5b"
+    },
+    "office/Clients/C05/KOMUNIKACNE-KANALY.md": {
+      "bytes": 2754,
+      "sha256": "22a60f8d4f3bb13010d443204d0e2e21a8c40d5b8b603ae77c00a09a51758a21"
+    },
+    "office/Clients/C05/MEMORY.md": {
+      "bytes": 252,
+      "sha256": "002d3d37d2f42e2c19f52da1b9945d58d00025fcb94f8d2f8b6bbcc701784a19"
+    },
+    "office/Clients/C05/PRACOVNY-PROFIL.md": {
+      "bytes": 2922,
+      "sha256": "c1f5324a85cc95e74ea4b2d4f54a0c2c14b567293e884a205c9a19bdf97e204e"
+    },
+    "office/Clients/C05/Spisy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/Spisy/test-05/00_K_zarazeni/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/Spisy/test-05/01_Podklady/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/Spisy/test-05/01_Podklady/test-05.docx": {
+      "bytes": 37621,
+      "sha256": "bf642d99d76cc14f947c9089118e9ac54d6d274fb71567122be71eb58a62df8b"
+    },
+    "office/Clients/C05/Spisy/test-05/01_Podklady/test-05.pdf": {
+      "bytes": 51441,
+      "sha256": "bebd3cdd2febc931cc723a48c7bc9abd3620e92c7c9d440238024bcc7f4247b8"
+    },
+    "office/Clients/C05/Spisy/test-05/01_Podklady/varianta-1.md": {
+      "bytes": 171,
+      "sha256": "af18b00b6c0b8909550534750b859be6fa0355c500c51aa9f438e2fade37673c"
+    },
+    "office/Clients/C05/Spisy/test-05/01_Podklady/varianta-2.md": {
+      "bytes": 187,
+      "sha256": "1819db5a02ea3fc7a969c0781d80ace79546ead32611bae1ba265062a6d6e190"
+    },
+    "office/Clients/C05/Spisy/test-05/02_Reserse/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/Spisy/test-05/03_Navrhy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/Spisy/test-05/04_Vystupy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/Spisy/test-05/05_Komunikace/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/Spisy/test-05/05_Komunikace/Dulezita_posta/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/Spisy/test-05/05_Komunikace/test-05.eml": {
+      "bytes": 71316,
+      "sha256": "1a4beb43afa5b349b84d1520ee80128026003428bc0ffef7342c6a4ebdae7990"
+    },
+    "office/Clients/C05/Spisy/test-05/AGENTS.md": {
+      "bytes": 2548,
+      "sha256": "a048872ee0cddf88133cf388bda3fb740935248648399f2542eb3a150e5402c4"
+    },
+    "office/Clients/C05/Spisy/test-05/CLAUDE.md": {
+      "bytes": 2548,
+      "sha256": "a048872ee0cddf88133cf388bda3fb740935248648399f2542eb3a150e5402c4"
+    },
+    "office/Clients/C05/Spisy/test-05/KOMUNIKACNE-KANALY.md": {
+      "bytes": 2757,
+      "sha256": "6ebe92440c22a8ffa1a8756f15d9c270c1a13ea7ec5b41357408070abd1a0db2"
+    },
+    "office/Clients/C05/Spisy/test-05/MEMORY.md": {
+      "bytes": 255,
+      "sha256": "0f2b7b7f5e816f4603a1c2e8b292862655092a78d8b7a516a641ce712731fc0b"
+    },
+    "office/Clients/C05/Spisy/test-05/PRACOVNY-PROFIL.md": {
+      "bytes": 2922,
+      "sha256": "c1f5324a85cc95e74ea4b2d4f54a0c2c14b567293e884a205c9a19bdf97e204e"
+    },
+    "office/Clients/C05/Spisy/test-05/VSTUPY.md": {
+      "bytes": 2029,
+      "sha256": "a13e934ae46672c503a316597369605ba071bf9358856d5846137c9916cb01a2"
+    },
+    "office/Clients/C05/Spisy/test-05/_STATUS.md": {
+      "bytes": 1081,
+      "sha256": "9ab9b65b02e3437e57c5308067b1f595b9f5f02b6ad62ce37b183b711cc7b8d5"
+    },
+    "office/Clients/C05/Spisy/test-05/evidence.md": {
+      "bytes": 468,
+      "sha256": "d6693c66af5e2343df472f1eb0242119372ab39dfa54abd0dd27c272e490b691"
+    },
+    "office/Clients/C05/Spisy/test-05/ledger.csv": {
+      "bytes": 176,
+      "sha256": "f8fb831a71af5312f074f1c6a3e90e7ed1d761cee48fbf9f26ccc67b749e46be"
+    },
+    "office/Clients/C05/Spisy/test-05/matter.md": {
+      "bytes": 688,
+      "sha256": "2a2f96267064c308365e561c517b78bc095fa3307001ada6248fbced148e9909"
+    },
+    "office/Clients/C05/Spisy/test-08/00_K_zarazeni/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/Spisy/test-08/01_Podklady/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/Spisy/test-08/01_Podklady/test-08.docx": {
+      "bytes": 37656,
+      "sha256": "9555dce5b2adf9d5748cfe80b51444cf4542bb71099347c2c148b4fb1de747fb"
+    },
+    "office/Clients/C05/Spisy/test-08/01_Podklady/test-08.pdf": {
+      "bytes": 52828,
+      "sha256": "adee1cb4133ee534ac41f8ab15ba2cd05306e7d5f861748f95c96fac437e539d"
+    },
+    "office/Clients/C05/Spisy/test-08/02_Reserse/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/Spisy/test-08/03_Navrhy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/Spisy/test-08/04_Vystupy/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/Spisy/test-08/05_Komunikace/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/Spisy/test-08/05_Komunikace/Dulezita_posta/.keep": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "office/Clients/C05/Spisy/test-08/05_Komunikace/test-08.eml": {
+      "bytes": 73346,
+      "sha256": "0bfcc367fbeb905fafb6194a6b93b840ebb8546c9d72c39092d12cfaf076d03f"
+    },
+    "office/Clients/C05/Spisy/test-08/AGENTS.md": {
+      "bytes": 2574,
+      "sha256": "3a01ec876e624b6bca141626c8768732ed2dee410774faedbcce20a6eb1c7fbc"
+    },
+    "office/Clients/C05/Spisy/test-08/CLAUDE.md": {
+      "bytes": 2574,
+      "sha256": "3a01ec876e624b6bca141626c8768732ed2dee410774faedbcce20a6eb1c7fbc"
+    },
+    "office/Clients/C05/Spisy/test-08/KOMUNIKACNE-KANALY.md": {
+      "bytes": 2770,
+      "sha256": "1404d9377c428966284de72a02b98540528ec75064b2f1a598ffcad6cf1c8290"
+    },
+    "office/Clients/C05/Spisy/test-08/MEMORY.md": {
+      "bytes": 268,
+      "sha256": "6b99c7c92e997b0fbf5cb9083c257536f82f33f8f2270c0c0b0801708b8f6638"
+    },
+    "office/Clients/C05/Spisy/test-08/PRACOVNY-PROFIL.md": {
+      "bytes": 2922,
+      "sha256": "c1f5324a85cc95e74ea4b2d4f54a0c2c14b567293e884a205c9a19bdf97e204e"
+    },
+    "office/Clients/C05/Spisy/test-08/VSTUPY.md": {
+      "bytes": 2042,
+      "sha256": "3f83934ad29ac5de4f8917e5bcbf04f028bf6e3aadf3201811917050dc395e73"
+    },
+    "office/Clients/C05/Spisy/test-08/_STATUS.md": {
+      "bytes": 1107,
+      "sha256": "87375b8747ce20b3cfaf5f0ee60c82abf63fb010d1b85ebbe6a9a420eda8e415"
+    },
+    "office/Clients/C05/Spisy/test-08/evidence.md": {
+      "bytes": 468,
+      "sha256": "87d0756ae5d6042699c17e7bd048b14258accbb897eb1de2a62bb2ff7d6c3f9b"
+    },
+    "office/Clients/C05/Spisy/test-08/ledger.csv": {
+      "bytes": 176,
+      "sha256": "b4c447f7701be3314adabbd8650f6e7aef39ccfbe820216edf0dfeeb34edad8f"
+    },
+    "office/Clients/C05/Spisy/test-08/matter.md": {
+      "bytes": 714,
+      "sha256": "4917c3eb575c5e9e79c4429afeb1410e246cd6c374e0a19cf17f3f36c481a472"
+    },
+    "office/Clients/C05/VSTUPY.md": {
+      "bytes": 2026,
+      "sha256": "e09d9984b4e10d1a32f0a8f53bf6785c72988ed90ee5332061c250eb4fdbb096"
+    },
+    "office/Clients/C05/client.md": {
+      "bytes": 1616,
+      "sha256": "ecbd343c83c140659fce25f550b397b49d4c7255136c7e137cc9bd1fbef449d1"
+    },
+    "office/Clients/C05/index.md": {
+      "bytes": 55,
+      "sha256": "4cc1fd6f1046267f6fb8ef4403b91e3c53610802a1d5ebe6d14588674f9e1da7"
+    },
+    "third-party/OKF-LICENSE.txt": {
+      "bytes": 1071,
+      "sha256": "ae2380682b457ec03e2b36b54a64e2cc6c21727c3d3b64dfb3c6f16ee4c6ebae"
+    },
+    "tools/validate_dataset.py": {
+      "bytes": 9561,
+      "sha256": "36ce263ae4111fa4a37dd1c110317d1c54b3f6cda0bf78c5cd36c90bd7f4c792"
+    }
+  }
+}

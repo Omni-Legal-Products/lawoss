@@ -250,13 +250,16 @@ jobs:
       # pamäťou a kanonickými cestami. Explicitné ./src cesty fungujú aj
       # na Windows a nevložia Node helpery do Bun; dist zostavujeme až potom.
       # lawoss-path-containment: workspace v koreni disku (subst) a zdieľania (net share).
+      # Job 118335222340 (2026-10-19) killed 14 tests at the 5000ms default while
+      # work was still finishing: onboarding apply returned 200 after the abort,
+      # and project-sync siblings passed in 3873ms and 4638ms.
       - name: LAWOSS server (onboarding, register existing, triage, memory, paths, containment, reload watcher, process tree)
         id: windows_server_source
         working-directory: apps/server
         env:
           LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS: '1'
         run: >-
-          bun test
+          bun test --timeout 20000
           ./src/artifact-files.e2e.test.ts
           ./src/cloud-plugin-resources.test.ts
           ./src/cloud-plugins.test.ts
@@ -308,6 +311,7 @@ jobs:
           ./src/task-sync.test.ts
           ./src/workspace-reconnect.e2e.test.ts
           ./src/test-support/project-sync-first-failure-timing.test.ts
+          ./src/test-support/onboarding-first-failure-timing.test.ts
 
       - name: Diagnose pending task handoff in a fresh Bun process
         if: ${{ failure() && steps.windows_server_source.outcome == 'failure' }}
@@ -354,7 +358,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     name: Diagnostic native Windows (full synthetic flow)
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 100
     permissions:
       contents: read
       actions: read
@@ -420,7 +424,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: pnpm --filter @legalwork/desktop build:electron
       - name: Full synthetic native flow with bounded bootstrap tracing
-        timeout-minutes: 12
+        # Ten existing provisioning/inference windows alone total 55 minutes.
+        timeout-minutes: 75
         env:
           LAWOSS_ISIR_NATIVE_DIAGNOSTICS: "1"
           LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE: ${{ runner.temp }}/isir-native-diagnostics.json

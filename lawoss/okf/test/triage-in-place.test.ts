@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-import { chmod, mkdtemp, mkdir, open, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, open, readFile, readdir, realpath, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
-import { applyTriagePlan, buildTriagePlan, folderHintRole, looksLikeArchiveFolder, MAX_TRIAGE_MATTERS, parseClassification, parseTriagePlan, grantInPlaceReorganize, IN_PLACE_MARKER, prepareTriage, replanTriage, scanTriage, TriageConflictError, TrialCloneError, undoTriage, verifyTriageTarget } from "../src/triage/index.ts";
+import { applyTriagePlan, buildTriagePlan, folderHintRole, looksLikeArchiveFolder, MAX_TRIAGE_MATTERS, parseClassification, parseTriagePlan, grantInPlaceReorganize, IN_PLACE_MARKER, prepareTriage, replanTriage, scanTriage, TRIAGE_INSPECTION_LIMITS, TriageConflictError, TriageTooLargeError, TrialCloneError, undoTriage, verifyTriageTarget } from "../src/triage/index.ts";
 import { HRON_FIXTURE, HRON_MATTERS, TRIAGE_FIXTURE, writeTriageFixture } from "./fixtures/triage-client.ts";
 import { holdWindowsFileLock } from "./windows-file-lock.ts";
 
@@ -692,3 +692,50 @@ test("súhlas nezapíše značku cez symbolický odkaz .lawoss mimo priečinka k
   await expect(grantInPlaceReorganize(root, NOW)).rejects.toThrow(/symbolický odkaz/);
   expect(await readdir(outside)).toEqual([]);
 });
+
+/** Hláška pre advokáta, keď je klient na jedno usporiadanie priveľký (R7). */
+const TOO_LARGE = { code: "triage_too_large", message: "Priečinok klienta je príliš veľký na usporiadanie naraz (viac ako 4 GB alebo 20 000 súborov). Zvoľte „Nie, nechaj ho tak, ako je“ alebo usporiadajte menší podpriečinok." };
+const GiB = 1024 ** 3;
+/** Riedky súbor danej veľkosti: na APFS a ext4 vznikne okamžite a na disku nezaberie miesto. */
+async function sparseFile(path: string, size: number) { await writeFile(path, ""); await truncate(path, size); }
+
+test("klient nad limitom usporiadania dostane zrozumiteľnú hlášku s kódom triage_too_large (R7)", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  await writeFile(join(root, "Velky podklad.pdf"), "x".repeat(1024));
+  expect(TRIAGE_INSPECTION_LIMITS).toEqual({ maxBytes: 4 * GiB, maxEntries: 20_000 });
+  await expect(scanTriage(root, { limits: { maxBytes: 10 }, ...HOST })).rejects.toMatchObject(TOO_LARGE);
+  await expect(scanTriage(root, { limits: { maxBytes: 10 }, ...HOST })).rejects.toBeInstanceOf(TriageTooLargeError);
+  await expect(scanTriage(root, { limits: { maxEntries: 1 }, ...HOST })).rejects.toMatchObject(TOO_LARGE);
+});
+
+test("zamknutý súbor pred prekročením limitu nezakryje hlášku o veľkosti (R7)", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  // `!` sa radí pred `.lawoss` aj pred dokumenty: zámok je prvý problém inšpekcie, limit až ďalší.
+  await writeFile(join(root, "!otvoreny.docx"), "x");
+  await expect(scanTriage(root, { hooks: lockHooks("!otvoreny.docx"), limits: { maxBytes: 10 }, ...HOST })).rejects.toMatchObject(TOO_LARGE);
+});
+
+test("zamknutý súbor sa aj s limitmi usporiadania preskočí ako locked (R7, Review Focus 4)", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  for (const hooks of [wordHooks([LOCKED_DOCX]), lockHooks(LOCKED_DOCX)]) {
+    const inventory = await scanTriage(root, { hooks, ...HOST });
+    expect(inventory.skipped).toContainEqual({ path: LOCKED_DOCX, reason: "locked" });
+    expect(inventory.documents.some(document => document.path === LOCKED_DOCX)).toBe(false);
+  }
+});
+
+// NTFS riedky súbor cez truncate nevytvorí (2 GiB by sa naozaj alokovali), preto len macOS a Linux.
+test.skipIf(process.platform === "win32")("klient s 2 GB dokumentom sa usporiada s predvolenými limitmi, so starým limitom 1 GB nie (R7)", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  await sparseFile(join(root, "Sken spisu.pdf"), 2 * GiB);
+  await expect(scanTriage(root, { limits: { maxBytes: GiB }, ...HOST })).rejects.toMatchObject(TOO_LARGE);
+  const inventory = await scanTriage(root, HOST);
+  expect(inventory.documents.find(document => document.path === "Sken spisu.pdf")?.size).toBe(2 * GiB);
+  // Zápis znova prečíta celý strom; s pôvodným limitom 1 GB by hlásil „priečinok sa zmenil“.
+  const plan = replanTriage(inventory, undefined, [], NOW);
+  expect(await applyTriagePlan(plan, HOST)).toMatchObject({ status: "applied", moved: plan.moves.length });
+}, 120_000);

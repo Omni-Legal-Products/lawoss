@@ -1,3 +1,4 @@
+import { requireUnsupportedProtectedTransport } from "../lawoss/ai-governance-engine.js";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { EnvStoreReadError, InvalidEnvKeyError, isValidEnvKey, type EnvService } from "../env-file.js";
@@ -495,10 +496,11 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
   });
 
   addRoute(routes, "GET", "/voice/realtime/capability", "host", async () => {
-    return jsonResponse(await getOpenAiRealtimeVoiceCapability(env));
+    return jsonResponse({supported: false, providerId: null, model: null, reason: "unsupported-transport"});
   });
 
   addRoute(routes, "POST", "/voice/realtime/call", "host", async (ctx) => {
+    await requireUnsupportedProtectedTransport(config, "voice");
     const body = await readJsonBody(ctx.request);
     return jsonResponse(await createOpenAiRealtimeVoiceCall(env, body));
   });

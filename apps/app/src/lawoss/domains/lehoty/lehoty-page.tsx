@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { DeadlineWorkflowPanel } from "./deadline-review";
 import { deadlineText } from "../../okf/view-rules";
 import { OkfPage, useMatterText } from "../okf-page";
 import { Link, useSearchParams } from "react-router-dom";
@@ -28,24 +29,27 @@ export function LehotyPage() {
   const pick = client ? (connection: OkfConnection | null) => connection?.workspaces.find((w) => w.id === client) ?? activeWorkspace(connection) : undefined;
   return <OkfPage title={text("deadlinesTitle")} pickWorkspace={pick}>{(data, _meta, scope) => client
     ? <ClientRegister data={data} scope={scope} workspaceId={client} />
-    : <RealRegister data={data} />}</OkfPage>;
+    : <><DeadlineWorkflowPanel data={data} scope={scope} /><RealRegister data={data} /></>}</OkfPage>;
 }
 
 /** Register jedného klienta; neznámy priečinok (napr. odpojený) ukáže celý register. */
 function ClientRegister({ data, scope, workspaceId }: { data: OkfReadResult; scope: OkfScope | null; workspaceId: string }) {
   const { locale } = useMatterText();
   const nav = usePublishedClientNav();
-  if (!scope || scope.anchor.id !== workspaceId) return <RealRegister data={data} />;
+  if (!scope || scope.anchor.id !== workspaceId) return <><DeadlineWorkflowPanel data={data} scope={scope} /><RealRegister data={data} /></>;
   const workspace = scope.anchor;
   // Vlastník veci ako v bočnom paneli (koreň praxe nevidí veci registrovaných klientov); bez panela priečinok klienta.
   const owns = (folder: string) => nav ? ownerOfFolder(nav.model.visible, folder) === workspaceId : within(comparable(workspace.path), folder);
   const name = workspace.displayNameResolved || workspace.name || workspace.path;
+  // Postup lehôt (#168) len nad prípadmi tohto klienta, ako register pod ním.
+  const own = clientDeadlines(data, scope, owns, today());
   return <>
     <p className="lw-lead">
       <strong>{t("lawoss.lite.client_deadlines_title", locale, { name })}</strong>{" · "}
       <Link to={LEHOTY_PATH}>{t("lawoss.lite.client_deadlines_back", locale)}</Link>
     </p>
-    <RealRegister data={clientDeadlines(data, scope, owns, today())} />
+    <DeadlineWorkflowPanel data={own} scope={scope} />
+    <RealRegister data={own} />
   </>;
 }
 
