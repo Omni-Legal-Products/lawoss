@@ -34,6 +34,18 @@ nativných scenárov runner zapíše `blocked` a skončí nenulovo.
 
 ## AI režimy v governance kandidátovi
 
+**AI hranice v alfe (rozhodnutie 20. 10. 2026):** alfa sa dodáva s prepínačom **AI hranice vypnutým**.
+Bežný chat, fronta, plánované úlohy, revízie, benchmarky, SystemOne, hlas a vzdialené OCR potom
+fungujú ako pred governance a posielajú obsah zvolenému poskytovateľovi bez ďalšieho potvrdenia.
+Zapnete ich v **Nastavenia → Poskytovatelia AI → AI hranice**; zmena platí hneď, bez reštartu.
+Tento počítač ich môže vynútiť premennou prostredia `LAWOSS_AI_BOUNDARIES_ENFORCED=1` (iba zapnúť,
+nie vypnúť); prepínač je potom zamknutý s textom „Zapnuté nastavením tohto počítača“. Nie je to
+firemná politika: skutočný kľúč firemnej politiky (so zrkadlom na platforme) je ďalší krok.
+Poškodené uložené nastavenie sa berie ako zapnuté, kým ho používateľ znova neuloží.
+Pri zapnutí appka odmietne nové správy; odpoveď, ktorú model už práve píše, môže dobehnúť. Odseky nižšie o poučení a unsupported prenosoch
+opisujú stav so **zapnutými** AI hranicami. Chránené generovanie dokumentov a verejný text
+fungujú v oboch stavoch rovnako.
+
 Zaznamenajte presný SHA: táto zmena zatiaľ nie je release acceptance. Poučenie v onboardingu, AI a integráciách uvádza aktuálne vypnuté spracovanie chráneného/neznámeho kontextu. Prečítanie ani pripojený účet/provider spracovanie nepovoľujú. Ručné súbory a priečinky zostávajú dostupné; bez modelu sa nevyberá náhradný provider. Samotné `localhost` nie je dôkaz lokálneho modelu ani izolovaného downstreamu.
 
 Pre syntetický pozitívny test nastavte vlastný OpenAI-compatible model na vlastnenom loopback receiveri bez reálnych credentials/billing. V existujúcom AI nastavení použite samostatný formulár verejného textu. Vytvorí nový prázdny scratch bez spisu, histórie, AGENTS/wiki/personalizácie a nástrojov. Natívny dialóg pred každým odoslaním ukáže cieľ a úplný serializovaný systémový/textový kontext. Potvrdenie je technická klasifikácia jedného verejného požiadavku, nie právny grant. Očakávajte skutočnú odpoveď `PUBLIC_SYNTHETIC_OK`; pri zamietnutí nesmie receiver dostať nový požiadavok. Tento formulár nesprístupňuje generovanie v klientskom priečinku, prílohy, shell, MCP ani subagentov. Bez spravovaného pripnutého enginu alebo nakonfigurovaného kompatibilného modelu je nedostupný.

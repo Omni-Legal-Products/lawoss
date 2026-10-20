@@ -11,6 +11,8 @@ export type RuntimeOpencodeConfig = {
   /** Informational read acknowledgment; never a permission or provider profile. */
   guidanceAck?: GuidanceAck;
   aiPreference?: {version: 1; preferredMode: "local" | "unspecified"; sourceHash: string};
+  /** LAWOSS: the user's „AI hranice" choice (lawoss/ai-boundaries.ts); absent means the alpha default. */
+  aiBoundaries?: {enforced: boolean} | {invalid: true};
   sandbox?: SandboxSettings;
   sandboxEdit?: string;
   sandboxSync?: { account: string; revision: number; dirty: boolean };
@@ -116,6 +118,9 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
   return {
     ...(guidanceAck.success ? {guidanceAck: guidanceAck.data} : {}),
     ...(preference ? {aiPreference: preference} : {}),
+    // A damaged value stays visible as invalid (treated as enforced), never silently dropped to the default.
+    ...(value.aiBoundaries === undefined ? {} : isRecord(value.aiBoundaries) && typeof value.aiBoundaries.enforced === "boolean" && Object.keys(value.aiBoundaries).length === 1
+      ? {aiBoundaries: {enforced: value.aiBoundaries.enforced}} : {aiBoundaries: {invalid: true as const}}),
     ...(typeof value.sandboxEdit === "string" ? { sandboxEdit: value.sandboxEdit } : {}),
     ...(value.sandbox !== undefined ? { sandbox: sandboxSettingsSchema.parse(value.sandbox) } : {}),
     ...(value.sandboxSync !== undefined ? { sandboxSync: sandboxSyncSchema.parse(value.sandboxSync) } : {}),
@@ -297,6 +302,11 @@ export async function readRuntimeOpencodeConfig(config: ServerConfig, workspaceI
   }
 
   });
+}
+
+/** LAWOSS: the stored JSON text of one row (null when absent), for fail-closed readers. */
+export async function readRuntimeOpencodeConfigText(config: ServerConfig, workspaceId: string): Promise<string | null> {
+  return withRuntimeDb(config, async () => (await runtimeDb(config)).get(workspaceId)?.configJson ?? null);
 }
 
 export async function writeRuntimeOpencodeConfig(

@@ -2,8 +2,9 @@
 import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AI_GUIDANCE_VERSION, type AiGovernanceView } from "@legalwork/types/ai-governance";
-import type { Language } from "@/i18n";
+import { t, type Language } from "@/i18n";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
+import { publishAiBoundaries, useAiBoundaries } from "./boundaries-store";
 import { resolveLegalworkConnection, type ResolvedLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 
 const copy: Record<Language, {title: string; remote: string; reading: string; profile: string; action: string; blocked: string; bounded: string; acknowledge: string; saved: string; failed: string; jurisdiction: string}> = {
@@ -14,7 +15,7 @@ const copy: Record<Language, {title: string; remote: string; reading: string; pr
     reading: "Potvrzení přečtení zaznamená pouze tuto informaci. Nenahrazuje souhlas klienta, DPA ani posouzení konkrétní služby.",
     profile: "Použití chráněných údajů vyžaduje posouzení konkrétního účtu, účelu, kategorií údajů a příslušných jurisdikcí. Přihlášení ani placený tarif takové posouzení nenahrazují.",
     action: "Odeslání, podání nebo podpis se schvalují samostatně pro konkrétní úkon.",
-    blocked: "Běžný chat s neověřeným kontextem, vzdálené OCR, SystemOne a živý hlasový režim jsou v tomto sestavení blokované. Veřejný text lze samostatně otestovat níže v odděleném prostředí. Ověření modelové hranice a kancelářské politiky není dokončeno. Blokace platí i pro localhost a zadání bez ověřeného kontextu. Model lze nastavit; pokračovat můžete bez něj. Ruční práce a soubory zůstávají dostupné.",
+    blocked: "Při zapnutých hranicích AI jsou běžný chat s neověřeným kontextem, vzdálené OCR, SystemOne a živý hlasový režim blokované. Veřejný text lze samostatně otestovat níže v odděleném prostředí. Ověření modelové hranice a kancelářské politiky není dokončeno. Blokace platí i pro localhost a zadání bez ověřeného kontextu. Model lze nastavit; pokračovat můžete bez něj. Ruční práce a soubory zůstávají dostupné.",
     jurisdiction: "Jurisdikce informace", acknowledge: "Přečetl/a jsem informaci", saved: "Přečtení zaznamenáno. Povolení AI tím nevzniká.", failed: "Přečtení se nepodařilo zaznamenat na tomto zařízení.",
   },
   sk: {
@@ -24,7 +25,7 @@ const copy: Record<Language, {title: string; remote: string; reading: string; pr
     reading: "Potvrdenie prečítania zaznamená iba túto informáciu. Nenahrádza súhlas klienta, DPA ani posúdenie konkrétnej služby.",
     profile: "Použitie chránených údajov vyžaduje posúdenie konkrétneho účtu, účelu, kategórií údajov a príslušných jurisdikcií. Prihlásenie ani platený program také posúdenie nenahrádzajú.",
     action: "Odoslanie, podanie alebo podpis sa schvaľujú samostatne pre konkrétny úkon.",
-    blocked: "Bežný chat s neovereným kontextom, vzdialené OCR, SystemOne a živý hlasový režim sú v tomto zostavení blokované. Verejný text možno samostatne otestovať nižšie v oddelenom prostredí. Overenie modelovej hranice a kancelárskej politiky nie je dokončené. Blokovanie platí aj pre localhost a zadanie bez overeného kontextu. Model možno nastaviť; pokračovať môžete bez neho. Ručná práca a súbory zostávajú dostupné.",
+    blocked: "Pri zapnutých AI hraniciach sú bežný chat s neovereným kontextom, vzdialené OCR, SystemOne a živý hlasový režim blokované. Verejný text možno samostatne otestovať nižšie v oddelenom prostredí. Overenie modelovej hranice a kancelárskej politiky nie je dokončené. Blokovanie platí aj pre localhost a zadanie bez overeného kontextu. Model možno nastaviť; pokračovať môžete bez neho. Ručná práca a súbory zostávajú dostupné.",
     jurisdiction: "Jurisdikcia informácie", acknowledge: "Prečítal/a som informáciu", saved: "Prečítanie zaznamenané. Povolenie AI tým nevzniká.", failed: "Prečítanie sa nepodarilo zaznamenať na tomto zariadení.",
   },
   en: {
@@ -34,7 +35,7 @@ const copy: Record<Language, {title: string; remote: string; reading: string; pr
     reading: "A reading acknowledgment records this information only. It does not replace client consent, a DPA or a review of the particular service.",
     profile: "Protected information requires a review of the particular account, purpose, data categories and applicable jurisdictions. Signing in or paying for a plan does not replace that review.",
     action: "Sending, filing and signing require a separate confirmation of the particular action.",
-    blocked: "Ordinary chat with an unverified context, remote OCR, SystemOne and realtime voice are blocked in this build. Public text can be tested separately below in an isolated environment. The model boundary and firm policy are not yet verified. This also applies to localhost and requests without a verified context. You can configure a model and continue without it; manual work and files remain available.",
+    blocked: "While AI boundaries are on, ordinary chat with an unverified context, remote OCR, SystemOne and realtime voice are blocked. Public text can be tested separately below in an isolated environment. The model boundary and firm policy are not yet verified. This also applies to localhost and requests without a verified context. You can configure a model and continue without it; manual work and files remain available.",
     jurisdiction: "Information jurisdiction", acknowledge: "I have read this information", saved: "Reading recorded. This does not grant AI permission.", failed: "Reading could not be recorded on this device.",
   },
   de: {
@@ -44,7 +45,7 @@ const copy: Record<Language, {title: string; remote: string; reading: string; pr
     reading: "Die Lesebestätigung dokumentiert nur diese Information. Sie ersetzt weder Mandanteneinwilligung, DPA noch die Prüfung des konkreten Dienstes.",
     profile: "Geschützte Informationen erfordern eine Prüfung von Konto, Zweck, Datenkategorien und einschlägigen Rechtsordnungen. Anmeldung oder Bezahltarif ersetzen diese Prüfung nicht.",
     action: "Versand, Einreichung und Signatur erfordern eine eigene Bestätigung des konkreten Vorgangs.",
-    blocked: "Normaler Chat mit ungeprüftem Kontext, Remote-OCR, SystemOne und Echtzeit-Sprache sind in diesem Build gesperrt. Öffentlicher Text kann unten separat in einer isolierten Umgebung getestet werden. Modellgrenze und Kanzleirichtlinie sind noch nicht geprüft. Dies gilt auch für localhost und Anfragen ohne verifizierten Kontext. Sie können ein Modell konfigurieren und ohne Modell fortfahren; manuelle Arbeit und Dateien bleiben verfügbar.",
+    blocked: "Solange die KI-Grenzen aktiv sind, sind normaler Chat mit ungeprüftem Kontext, Remote-OCR, SystemOne und Echtzeit-Sprache gesperrt. Öffentlicher Text kann unten separat in einer isolierten Umgebung getestet werden. Modellgrenze und Kanzleirichtlinie sind noch nicht geprüft. Dies gilt auch für localhost und Anfragen ohne verifizierten Kontext. Sie können ein Modell konfigurieren und ohne Modell fortfahren; manuelle Arbeit und Dateien bleiben verfügbar.",
     jurisdiction: "Rechtsordnung der Information", acknowledge: "Ich habe die Information gelesen", saved: "Lesen erfasst. Dadurch entsteht keine KI-Freigabe.", failed: "Das Lesen konnte auf diesem Gerät nicht erfasst werden.",
   },
 };
@@ -57,6 +58,8 @@ export function createAiGuidanceClient(connection: ResolvedLegalworkConnection) 
 export function AiGuidance({locale}: {locale: Language}) {
   const text = copy[locale], id = useId();
   const [view, setView] = useState<AiGovernanceView | null>(null);
+  const live = useAiBoundaries();
+  const enforced = Boolean((live ?? view?.boundaries)?.enforced);
   const [providerId, setProviderId] = useState(""), [modelId, setModelId] = useState(""), [publicText, setPublicText] = useState("");
   const [publicBusy, setPublicBusy] = useState(false), [publicReply, setPublicReply] = useState(""), [publicError, setPublicError] = useState("");
   const publicCopy = {
@@ -82,7 +85,7 @@ export function AiGuidance({locale}: {locale: Language}) {
     let active = true;
     void resolveLegalworkConnection().then(connection => connection.normalizedBaseUrl
       ? createAiGuidanceClient(connection).aiGovernance() : null).then(view => {
-      if (active) {setView(view); setSaved(view?.guidanceAck?.textVersion === AI_GUIDANCE_VERSION);}
+      if (active) {setView(view); publishAiBoundaries(view?.boundaries); setSaved(view?.guidanceAck?.textVersion === AI_GUIDANCE_VERSION);}
     }).catch(() => {});
     return () => {active = false;};
   }, []);
@@ -98,7 +101,10 @@ export function AiGuidance({locale}: {locale: Language}) {
   return <aside aria-labelledby={id} data-lawoss-ai-governance="unsupported" className="space-y-2 rounded border border-amber-500/60 p-3 text-sm">
     <h3 id={id} className="font-semibold">{text.title}</h3>
     <p>{text.remote}</p><p>{text.reading}</p><p>{text.profile}</p><p>{text.action}</p>
-    <p role="status" className="font-medium">{text.blocked}</p>
+    {/* AI hranice: shared with the Settings row, so a toggle updates this notice immediately.
+        Unknown (not loaded) reads as off: wrongly saying "content may leave" is the safer error. */}
+    <p role="status" data-lawoss-ai-boundaries={enforced ? "on" : "off"} className="font-medium">{`${t("lawoss.ai_boundaries.title", locale)}: ${enforced ? t("lawoss.ai_boundaries.state_on", locale) : t("lawoss.ai_boundaries.state_off", locale)}`}</p>
+    {enforced ? <p>{text.blocked}</p> : null}
     {view?.boundedDocuments?.state === "conditional" ? <p>{text.bounded}</p> : null}
     {saved ? <p>{text.saved}</p> : <>
       <label className="flex items-center gap-2">{text.jurisdiction}

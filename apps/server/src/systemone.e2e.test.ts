@@ -9,6 +9,7 @@ import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { writeCachedEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import { SystemOneProviderSchema } from "./systemone-schema.js";
 import type { ServerConfig } from "./types.js";
+import { enforceAiBoundaries } from "./lawoss/test-support/ai-boundaries.js";
 
 let dir: string;
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -142,6 +143,8 @@ beforeAll(async () => {
   });
   process.env.EIGENWELT_PLATFORM_URL = platform.url.origin;
   server = await startServer(config);
+  // #168 denial expectations for every SystemOne execution: „AI hranice" on explicitly.
+  await enforceAiBoundaries(config);
   base = `http://127.0.0.1:${server.port}`;
   const issued = await fetch(`${base}/tokens`, {
     method: "POST",

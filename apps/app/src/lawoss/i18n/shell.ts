@@ -1,6 +1,19 @@
 export const shellEn = {
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Something went wrong. Try again, or choose a different folder.",
+  // AI hranice (lawoss/domains/ai/boundaries.tsx): native Settings → AI switch and chat refusal.
+  "lawoss.ai_boundaries.title": "AI boundaries",
+  "lawoss.ai_boundaries.description": "When on, the app sends matter content to no model except protected document generation. Ordinary chat is then off.",
+  "lawoss.ai_boundaries.state_off": "Off. Ordinary chat sends what you type or attach to the selected AI provider without further confirmation.",
+  "lawoss.ai_boundaries.state_on": "On. The app refuses new messages to ordinary chat, voice, remote OCR, SystemOne, scheduled tasks and AI reviews. A reply the model is already writing may still finish. Protected document generation keeps working.",
+  "lawoss.ai_boundaries.state_locked": "On by a setting of this computer. It cannot be switched off in this app.",
+  "lawoss.ai_boundaries.state_invalid": "The stored setting is damaged. The app treats AI boundaries as on until you save the setting again.",
+  "lawoss.ai_boundaries.load_failed": "The AI boundaries setting could not be loaded.",
+  "lawoss.ai_boundaries.host_only": "Change this setting in the desktop app.",
+  "lawoss.ai_boundaries.save_failed": "The AI boundaries setting could not be saved.",
+  "lawoss.ai_boundaries.chat_refused": "The message was not sent: AI boundaries are on, so the app sends no content to ordinary chat. You can switch them off in Settings → AI Providers.",
+  "lawoss.ai_boundaries.open_settings": "Open AI boundaries setting",
+
   "lawoss.practice.selected": "Selected practice",
   "lawoss.practice.single": "Only this client",
   "lawoss.practice.excluded": "Excluded workspaces: {count}",
@@ -318,6 +331,19 @@ type SlavicPluralKey = "lawoss.lite.due_in_days_few" | "lawoss.lite.due_in_days_
 export const shellCs = {
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Něco se nepodařilo. Zkuste to znovu, nebo vyberte jinou složku.",
+  // AI hranice (lawoss/domains/ai/boundaries.tsx): natívny prepínač v Nastaveniach → AI a odmietnutie chatu.
+  "lawoss.ai_boundaries.title": "Hranice AI",
+  "lawoss.ai_boundaries.description": "Když jsou zapnuté, aplikace neposílá obsah spisů žádnému modelu kromě chráněného generování dokumentů. Běžný chat je pak vypnutý.",
+  "lawoss.ai_boundaries.state_off": "Vypnuté. Běžný chat posílá to, co do něj napíšete nebo přiložíte, zvolenému poskytovateli AI bez dalšího potvrzení.",
+  "lawoss.ai_boundaries.state_on": "Zapnuté. Aplikace odmítne nové zprávy do běžného chatu, hlas, vzdálené OCR, SystemOne, plánované úlohy a revize s AI. Odpověď, kterou model už právě píše, může ještě doběhnout. Chráněné generování dokumentů funguje dál.",
+  "lawoss.ai_boundaries.state_locked": "Zapnuté nastavením tohoto počítače. V této aplikaci je vypnout nelze.",
+  "lawoss.ai_boundaries.state_invalid": "Uložené nastavení je poškozené. Dokud ho znovu neuložíte, aplikace bere hranice AI jako zapnuté.",
+  "lawoss.ai_boundaries.load_failed": "Nastavení hranic AI se nepodařilo načíst.",
+  "lawoss.ai_boundaries.host_only": "Nastavení změníte v desktopové aplikaci.",
+  "lawoss.ai_boundaries.save_failed": "Nastavení hranic AI se nepodařilo uložit.",
+  "lawoss.ai_boundaries.chat_refused": "Zpráva nebyla odeslána: hranice AI jsou zapnuté, proto aplikace neposílá obsah běžnému chatu. Vypnout je můžete v Nastavení → Poskytovatelé AI.",
+  "lawoss.ai_boundaries.open_settings": "Otevřít nastavení hranic AI",
+
   "lawoss.practice.selected": "Vybraná praxe",
   "lawoss.practice.single": "Pouze tento klient",
   "lawoss.practice.excluded": "Vyloučené pracovní prostory: {count}",
@@ -634,6 +660,19 @@ export const shellCs = {
 export const shellSk = {
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Niečo sa nepodarilo. Skúste to znova, alebo vyberte iný priečinok.",
+  // AI hranice (lawoss/domains/ai/boundaries.tsx): natívny prepínač v Nastaveniach → AI a odmietnutie chatu.
+  "lawoss.ai_boundaries.title": "AI hranice",
+  "lawoss.ai_boundaries.description": "Keď sú zapnuté, appka neposiela obsah spisov žiadnemu modelu okrem chráneného generovania dokumentov. Bežný chat je potom vypnutý.",
+  "lawoss.ai_boundaries.state_off": "Vypnuté. Bežný chat posiela to, čo doň napíšete alebo priložíte, zvolenému poskytovateľovi AI bez ďalšieho potvrdenia.",
+  "lawoss.ai_boundaries.state_on": "Zapnuté. Appka odmietne nové správy do bežného chatu, hlas, vzdialené OCR, SystemOne, plánované úlohy a revízie s AI. Odpoveď, ktorú model už práve píše, môže ešte dobehnúť. Chránené generovanie dokumentov funguje ďalej.",
+  "lawoss.ai_boundaries.state_locked": "Zapnuté nastavením tohto počítača. V tejto appke ich vypnúť nemožno.",
+  "lawoss.ai_boundaries.state_invalid": "Uložené nastavenie je poškodené. Kým ho znova neuložíte, appka berie AI hranice ako zapnuté.",
+  "lawoss.ai_boundaries.load_failed": "Nastavenie AI hraníc sa nepodarilo načítať.",
+  "lawoss.ai_boundaries.host_only": "Nastavenie zmeníte v desktopovej appke.",
+  "lawoss.ai_boundaries.save_failed": "Nastavenie AI hraníc sa nepodarilo uložiť.",
+  "lawoss.ai_boundaries.chat_refused": "Správa sa neodoslala: AI hranice sú zapnuté, preto appka neposiela obsah bežnému chatu. Vypnúť ich môžete v Nastaveniach → Poskytovatelia AI.",
+  "lawoss.ai_boundaries.open_settings": "Otvoriť nastavenie AI hraníc",
+
   "lawoss.practice.selected": "Vybraná prax",
   "lawoss.practice.single": "Iba tento klient",
   "lawoss.practice.excluded": "Vylúčené pracovné priestory: {count}",
@@ -950,6 +989,19 @@ export const shellSk = {
 export const shellDe = {
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Etwas ist nicht gelungen. Versuchen Sie es erneut oder wählen Sie einen anderen Ordner.",
+  // AI hranice (lawoss/domains/ai/boundaries.tsx): Schalter in Einstellungen → KI und Chat-Ablehnung.
+  "lawoss.ai_boundaries.title": "KI-Grenzen",
+  "lawoss.ai_boundaries.description": "Wenn sie aktiv sind, sendet die App Akteninhalte an kein Modell außer an die geschützte Dokumenterstellung. Der normale Chat ist dann ausgeschaltet.",
+  "lawoss.ai_boundaries.state_off": "Aus. Der normale Chat sendet, was Sie eingeben oder anhängen, ohne weitere Bestätigung an den gewählten KI-Anbieter.",
+  "lawoss.ai_boundaries.state_on": "An. Die App lehnt neue Nachrichten an den normalen Chat, Sprache, Remote-OCR, SystemOne, geplante Aufgaben und KI-Prüfungen ab. Eine Antwort, die das Modell bereits schreibt, kann noch fertig werden. Die geschützte Dokumenterstellung funktioniert weiter.",
+  "lawoss.ai_boundaries.state_locked": "An durch eine Einstellung dieses Computers. In dieser App lassen sie sich nicht ausschalten.",
+  "lawoss.ai_boundaries.state_invalid": "Die gespeicherte Einstellung ist beschädigt. Bis Sie sie erneut speichern, behandelt die App die KI-Grenzen als aktiv.",
+  "lawoss.ai_boundaries.load_failed": "Die Einstellung der KI-Grenzen konnte nicht geladen werden.",
+  "lawoss.ai_boundaries.host_only": "Ändern Sie diese Einstellung in der Desktop-App.",
+  "lawoss.ai_boundaries.save_failed": "Die Einstellung der KI-Grenzen konnte nicht gespeichert werden.",
+  "lawoss.ai_boundaries.chat_refused": "Die Nachricht wurde nicht gesendet: Die KI-Grenzen sind aktiv, daher sendet die App keine Inhalte an den normalen Chat. Sie können sie unter Einstellungen → KI-Provider ausschalten.",
+  "lawoss.ai_boundaries.open_settings": "Einstellung der KI-Grenzen öffnen",
+
   "lawoss.practice.selected": "Ausgewählte Kanzlei",
   "lawoss.practice.single": "Nur dieser Mandant",
   "lawoss.practice.excluded": "Ausgeschlossene Arbeitsbereiche: {count}",

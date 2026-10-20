@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { reviewRecognitionPage, reviewSourcePage } from "./source-page.js";
 import { ReviewResultSchema } from "./schema.js";
 import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
+import { GlobalFonts } from "@napi-rs/canvas";
+import { pdfAsset } from "../document-preparation/pdf-assets.js";
 import { PageStructureSchema } from "@legalwork/types/document-structure";
 
 test("source preview highlights validated OCR regions and rejects stale or escaped evidence", async () => {
@@ -117,5 +119,28 @@ test("recognition pages list every page's status and open the first page that ne
     await expect(reviewRecognitionPage(root, "scan.pdf", "prepared.json", signal, 4)).rejects.toThrow("does not exist");
     await writeFile(join(root, "scan.pdf"), "changed");
     await expect(reviewRecognitionPage(root, "scan.pdf", "prepared.json", signal)).rejects.toThrow("no longer matches");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+// CI regression (Linux, file-order dependent): highlight spans were measured with the host's generic
+// sans-serif fallback, which changes once other code in the process registers a canvas font (OCR
+// token drawing registers Liberation Sans Bold). A font registered under the generic name must not
+// move the span; it is removed again so later tests in the same process keep the host default.
+test("native PDF quote spans do not depend on fonts registered elsewhere in the process", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "review-native-font-")));
+  try {
+    const pdf = await PDFDocument.create(), font = await pdf.embedFont(StandardFonts.Helvetica);
+    const prefix = "Unrelated text. ", quote = "The notice period is 30 days.";
+    pdf.addPage([400, 400]).drawText(prefix + quote + " Other text.", { x: 20, y: 350, size: 12, font });
+    const bytes = await pdf.save(); await writeFile(join(root, "contract.pdf"), bytes);
+    const result = ReviewResultSchema.parse({ value: "30 days", reason: "", citations: [{ page: 1, source: "native", quote }], confidence: "high", evidence: "cited", backend: "llm", providerId: "fixture", model: "fixture", requestedModel: "fixture", sourceHash: createHash("sha256").update(bytes).digest("hex"), prompt: { key: "notice", label: "Notice", question: "What is the notice period?", kind: "text" }, completedAt: Date.now() });
+    const regions = async () => (await reviewSourcePage(root, "contract.pdf", result, 0, new AbortController().signal)).regions;
+    const plain = await regions();
+    const alias = GlobalFonts.register(Buffer.from(pdfAsset("standard_fonts/LiberationSans-Bold.ttf")), "sans-serif");
+    let shadowed: Awaited<ReturnType<typeof regions>>;
+    try {shadowed = await regions();} finally {if (alias) GlobalFonts.remove(alias);}
+    expect(shadowed).toEqual(plain);
+    expect(plain[0].x).toBeCloseTo((20 + font.widthOfTextAtSize(prefix, 12)) / 400, 2);
+    expect(plain[0].width).toBeCloseTo(font.widthOfTextAtSize(quote, 12) / 400, 2);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

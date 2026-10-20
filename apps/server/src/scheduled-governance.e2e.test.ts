@@ -4,9 +4,11 @@ import {startServer} from "./server.js";
 import {ScheduledTaskStore} from "./scheduled-tasks/store.js";
 import {runtimeDbPath} from "./runtime-db.js";
 import {syntheticHostConfig} from "./lawoss/test-support/host-config.js";
+import {enforceAiBoundaries} from "./lawoss/test-support/ai-boundaries.js";
 
-test.each(["synthetic-chat", null])("ordinary server construction refuses protected schedules before existing/fresh chat side effects: %s", async sessionId => {
+test.each(["synthetic-chat", null])("with AI boundaries on, ordinary server construction refuses protected schedules before existing/fresh chat side effects: %s", async sessionId => {
   const {root, config} = await syntheticHostConfig();
+  await enforceAiBoundaries(config);
   const payloads: string[] = [];
   const engine = Bun.serve({hostname: "127.0.0.1", port: 0, async fetch(request) {
     if (request.method === "POST") payloads.push(await request.text());
