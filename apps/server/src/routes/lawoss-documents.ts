@@ -45,6 +45,17 @@ export function registerLawossDocumentRoutes(options: {
     const body = z.strictObject({ paths: z.array(z.string().min(1).max(4096)).min(1).max(20) }).parse(await options.readJsonBodyLimited(ctx.request, 100 * 1024));
     return { documents: await documents.prepare(workspace, body.paths), untrusted: true };
   });
+  // Only the native host can attest that a person inspected the source. This
+  // route is deliberately absent from agent tools and owner-bearer authority.
+  addRoute(routes, "POST", `${base}/:document/visual-review`, "host-token", async ctx => {
+    if (ctx.actor?.type !== "host") throw new ApiError(403, "document_review_host", "Visual review requires the authenticated host.");
+    options.ensureWritable(config);
+    const workspace = await options.resolveWorkspace(config, ctx.params.id);
+    try {
+      const input = z.strictObject({ expectedHash: z.string().regex(/^[a-f0-9]{64}$/), expectedUpdatedAt: z.number().nonnegative(), pages: z.array(z.number().int().positive().max(1000)).min(1).max(1000), confirmation: z.literal("decorative-only") }).parse(await options.readJsonBodyLimited(ctx.request, 32 * 1024));
+      return jsonResponse({ document: await documents.reviewDecorativePages(workspace, z.uuid().parse(ctx.params.document), input), untrusted: true });
+    } catch (error) { if (error instanceof z.ZodError) throw new ApiError(400, "documents_input", "Confirm the exact current source and reviewed pages."); throw error; }
+  });
   route("GET", `${base}/:document/read`, async (ctx, workspace) => {
     const url = new URL(ctx.request.url);
     const offset = z.coerce.number().int().nonnegative().parse(url.searchParams.get("offset") ?? 0);
