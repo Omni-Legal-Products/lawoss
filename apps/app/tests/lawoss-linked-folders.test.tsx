@@ -50,6 +50,14 @@ describe("model: čo sa smie pripojiť", () => {
     expect(linkRefusal("/prax/Klienti/Šťastný/Spisy/Úhrada", scope())).toBe("own");
   });
 
+  test("kontajner praxe (projekt obsahuje koreň praxe): nie „patrí klientovi“, ale pravidlá praxe a iných klientov", () => {
+    const container = scope({ clientRoot: "/prax", otherClients: ["/prax/Klienti/Hron"] });
+    expect(linkRefusal("/prax", container)).toBe("practice_root");
+    expect(linkRefusal("/prax/Vzory", container)).toBe("practice_root");
+    expect(linkRefusal("/prax/Klienti/Hron", container)).toBe("other_client");
+    expect(linkRefusal("/prax/_kancelaria", container)).toBeNull();
+  });
+
   test("priečinok iného klienta (aj jeho podpriečinok, aj priečinok, ktorý ho obsahuje) sa odmietne", () => {
     expect(linkRefusal("/prax/Klienti/Hron", scope())).toBe("other_client");
     expect(linkRefusal("/prax/Klienti/Hron/Spisy", scope())).toBe("other_client");

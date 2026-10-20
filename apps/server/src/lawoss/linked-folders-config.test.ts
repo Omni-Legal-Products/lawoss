@@ -180,6 +180,8 @@ describe("pripojené priečinky klienta: oprava 2", () => {
     expect(await code(await put("ws_client", ["Zdielane/Vzory"]))).toEqual({ status: 400, code: "linked_folder_relative" });
     expect(await code(await put("ws_client", [runtimeStorageDir(config)]))).toEqual({ status: 409, code: "linked_folder_app_data" });
     expect(await code(await put("ws_client", [join(runtimeStorageDir(config), "..")]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+    await mkdir(join(runtimeStorageDir(config), "bundled-plugins"), { recursive: true });
+    expect(await code(await put("ws_client", [join(runtimeStorageDir(config), "bundled-plugins")]))).toEqual({ status: 409, code: "linked_folder_app_data" });
   });
 
   test("registrácia klienta obnoví mapu hneď (klient B vnútri A nepatrí A až do ďalšieho zápisu)", async () => {

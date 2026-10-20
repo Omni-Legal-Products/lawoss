@@ -98,11 +98,15 @@ describe("oprava 2", () => {
     expect(linkedFolderConflict("Zdielane", scope)).toBe("relative");
     expect(linkedFolderConflict("/home/ana", scope)).toBe("app_data");
     expect(linkedFolderConflict("/home/ana/Library/LAWOSS", scope)).toBe("app_data");
-    // Priečinok vnútri dát aplikácie mapu ani súbor enginu neobsahuje (a v testoch tam bývajú aj priečinky používateľa).
-    expect(linkedFolderConflict("/home/ana/Library/LAWOSS/vault", scope)).toBeNull();
+    // Aj priečinok vnútri dát aplikácie (napr. kód pluginov) sa odmietne.
+    expect(linkedFolderConflict("/home/ana/Library/LAWOSS/bundled-plugins", scope)).toBe("app_data");
     const home = map({ officeRoot: null, clients: [{ root: "/home/ana", folders: [] }] });
     expect(allowedFolders(home, "/home/ana/Spisy", ["/home/ana/Library/LAWOSS"])).toEqual([]);
     expect(externalDirectoryAllowed(map(), "/prax/Klienti/Tatran/Spisy", ["/prax/Klienti/Tatran"], ["/prax/Klienti/Tatran/.app"])).toBe(false);
+    // Cieľ v dátach aplikácie sa nepovolí ani vtedy, keď by ho pokrýval povolený priečinok.
+    const inside = map({ officeRoot: null, clients: [{ root: "/prax/Klienti/Tatran", folders: ["/zdielane"] }] });
+    expect(externalDirectoryAllowed(inside, "/prax/Klienti/Tatran/Spisy", ["/zdielane/Vzory"], ["/zdielane/LAWOSS"])).toBe(false);
+    expect(externalDirectoryAllowed(inside, "/prax/Klienti/Tatran/Spisy", ["/zdielane/LAWOSS/bundled-plugins"], ["/zdielane/LAWOSS"])).toBe(false);
   });
 
   test("klient zaregistrovaný vnútri iného ostane oddelený aj od chatov vonkajšieho; pamäť kancelárie pod kontajnerom smie", () => {
@@ -114,5 +118,15 @@ describe("oprava 2", () => {
     expect(externalDirectoryAllowed(nested, "/prax/Klienti/Tatran/Spisy", ["/prax/Klienti/Tatran/Pobočka/x"])).toBe(false);
     expect(externalDirectoryAllowed(nested, "/prax/Klienti/Tatran/Spisy", ["/prax/Klienti/Tatran/Korešpondencia"])).toBe(true);
     expect(externalDirectoryAllowed(nested, "/prax/Klienti/Tatran/Spisy", ["/prax/_kancelaria"])).toBe(true);
+  });
+});
+
+describe("oprava 3", () => {
+  test("dáta aplikácie oboma smermi; obsah wiki v priečinku aplikácie ostáva povolený (upstream ho tam ukladá)", () => {
+    const scope = { ownRoot: "/prax/Klienti/Tatran", otherRoots: [], officeRoot: null, protectedDirs: ["/app"], contentRoots: ["/app/wikis/w1"] };
+    expect(linkedFolderConflict("/app/bundled-plugins", scope)).toBe("app_data");
+    expect(linkedFolderConflict("/app", scope)).toBe("app_data");
+    expect(linkedFolderConflict("/app/wikis/w1", scope)).toBeNull();
+    expect(linkedFolderConflict("/app/wikis", scope)).toBe("app_data");
   });
 });

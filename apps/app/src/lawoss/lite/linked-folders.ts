@@ -57,9 +57,11 @@ export function linkRefusal(candidate: string | null | undefined, scope: LinkSco
   if (!raw || !isAbsolute(raw)) return "missing";
   const folder = comparable(raw);
   const own = comparableFolder(scope.clientRoot);
-  // Vlastný priečinok klienta a všetko v ňom agent v chate klienta číta aj bez pripojenia.
-  if (own && within(own, folder)) return "own";
   const practice = comparableFolder(scope.practiceRoot);
+  // Vlastný priečinok klienta a všetko v ňom chaty klienta čítajú aj bez pripojenia. Neplatí pre kontajner
+  // praxe (projekt, ktorý obsahuje koreň praxe): jeho koreň sa bez otázky nepovolí, platia pravidlá praxe.
+  const container = Boolean(own && practice && within(own, practice));
+  if (own && !container && within(own, folder)) return "own";
   // Koreň praxe alebo priečinok nad ním by otvoril všetkých klientov naraz.
   if (practice && within(folder, practice)) return "practice_root";
   // Iný klient: jeho priečinok, niečo v ňom, alebo priečinok, ktorý ho obsahuje (únik medzi klientmi).

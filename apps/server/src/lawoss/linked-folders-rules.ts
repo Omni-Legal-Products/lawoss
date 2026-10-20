@@ -55,7 +55,7 @@ export type LinkedFolderConflict = "relative" | "app_data" | "other_client" | "p
 /**
  * Prečo priečinok nepatrí k pripojeným priečinkom klienta (všetko kanonicky):
  * - relatívna cesta (nevie sa, voči čomu);
- * - obsahuje dáta aplikácie (súbor enginu, mapa pre plugin): agent by si ich prepísaním vedel rozšíriť prístup;
+ * - obsahuje dáta aplikácie alebo v nich leží (súbor enginu, mapa, kód pluginov): agent by si nimi vedel rozšíriť prístup;
  * - leží v inom registrovanom klientovi alebo ho obsahuje (overí sa aj pre podpriečinok vlastného koreňa,
  *   takže registrovaný kontajner praxe nepripojí koreň klienta, ktorý obsahuje);
  * - leží v praxi alebo ju obsahuje (okrem pamäte kancelárie).
@@ -63,9 +63,12 @@ export type LinkedFolderConflict = "relative" | "app_data" | "other_client" | "p
  */
 export function linkedFolderConflict(folder: string, scope: {
   ownRoot: string | null; otherRoots: readonly string[]; officeRoot: string | null; protectedDirs?: readonly string[];
+  /** Obsah wiki, ktorý upstream predvolene ukladá v priečinku aplikácie: nie je to kód ani konfigurácia. */
+  contentRoots?: readonly string[];
 }): LinkedFolderConflict | null {
   if (!isAbsolute(folder)) return "relative";
-  if ((scope.protectedDirs ?? []).some((dir) => isPathWithin(folder, dir))) return "app_data";
+  const content = (scope.contentRoots ?? []).some((root) => isPathWithin(root, folder));
+  if ((scope.protectedDirs ?? []).some((dir) => isPathWithin(folder, dir) || (isPathWithin(dir, folder) && !content))) return "app_data";
   if (isOfficeMemoryFolder(folder, scope.officeRoot)) return null;
   const others = scope.otherRoots.filter((root) => !(scope.ownRoot && isPathWithin(root, scope.ownRoot)));
   if (others.some((root) => overlaps(root, folder))) return "other_client";
@@ -90,7 +93,7 @@ export function allowedFolders(map: LinkedFoldersMap, directory: string, protect
   if (!owner) return [];
   const otherRoots = map.clients.filter((client) => client !== owner).map((client) => client.root);
   const practiceContainer = Boolean(map.officeRoot && isPathWithin(owner.root, map.officeRoot));
-  const rootUsable = !practiceContainer && !protectedDirs.some((dir) => isPathWithin(owner.root, dir));
+  const rootUsable = !practiceContainer && !protectedDirs.some((dir) => overlaps(dir, owner.root));
   const folders = owner.folders.filter((folder) => linkedFolderConflict(folder, { ownRoot: owner.root, otherRoots, officeRoot: map.officeRoot, protectedDirs }) === null);
   return [...(rootUsable ? [owner.root] : []), ...folders];
 }
@@ -113,6 +116,8 @@ export function externalDirectoryAllowed(map: LinkedFoldersMap, directory: strin
   const allowed = allowedFolders(map, directory, protectedDirs);
   return targets.every((target) => {
     if (target === null || !allowed.some((folder) => isPathWithin(folder, target))) return false;
+    // Nič v dátach aplikácie (súbor enginu, mapa, kód pluginov) sa nepovolí bez otázky.
+    if (protectedDirs.some((dir) => isPathWithin(dir, target))) return false;
     const targetOwner = ownerOf(map, target);
     return !targetOwner || targetOwner === owner || isPathWithin(targetOwner.root, owner.root);
   });

@@ -1259,3 +1259,9 @@ Engine číta jeden spoločný `OPENCODE_CONFIG` pre všetkých klientov, takže
 |---|---|
 | `apps/server/src/server.ts` | `PATCH /workspace/:id/config`: +2 riadky, nové `allow` v `external_directory` smie byť len holé `*` alebo `<absolútny priečinok>/*` cez tie isté pravidlá ako natívny zoznam (`requireLinkableExternalDirectory`). `startServer`: +3 riadky, `onWorkspacesChanged` (registrácia, odobratie, presun) obnoví mapu pripojených priečinkov (`linkedFoldersMapRefresher`, zápisy čaká zastavenie servera); import rozšírený. |
 | `apps/server/src/agent-sandbox/service.ts` | +1 import, 1 riadok: do sandboxu sa zdieľajú len priečinky, ktoré pravidlá pripojených priečinkov dovolia (`linkableFolders`: nie iný klient, prax ani priečinok s dátami aplikácie, nie relatívne; wiki má vlastné pravidlá a filter ju nemení). |
+
+#### Pripojené priečinky klienta, oprava 3 (2026-10-20, feat/pripojene-priecinky)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/lawoss-workspace-memory-context.e2e.test.ts` | Fixture má dáta aplikácie (runtime) vo vlastnom priečinku `runtime/` (+1 komentár, +1 riadok, 1 zmenený): priečinok používateľa vnútri dát aplikácie sa už nepripojí (`linked_folder_app_data` oboma smermi). |

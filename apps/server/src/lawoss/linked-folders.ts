@@ -60,7 +60,9 @@ const localWorkspaces = (config: ServerConfig): WorkspaceInfo[] => config.worksp
 async function conflictScope(config: ServerConfig, workspace: WorkspaceInfo) {
   const others = await Promise.all(localWorkspaces(config).filter((other) => other.id !== workspace.id).map((other) => existingCanonical(other.path)));
   const appData = await existingCanonical(runtimeStorageDir(config)) ?? runtimeStorageDir(config);
+  const wikis = await Promise.all(config.workspaces.filter((entry) => entry.preset === "wiki" && entry.workspaceType !== "remote" && entry.path).map((entry) => existingCanonical(entry.path)));
   return {
+    contentRoots: wikis.filter((root): root is string => root !== null),
     ownRoot: await existingCanonical(workspace.path),
     otherRoots: others.filter((root): root is string => root !== null),
     officeRoot: await officeRoot(config),
