@@ -12,7 +12,7 @@ import type { MatterConversation } from "../src/lawoss/lite/matter-conversations
 import { openClientFolderChat } from "../src/lawoss/lite/office-scope";
 import { onboardingErrorMessage } from "../src/lawoss/domains/onboarding/onboarding-errors";
 import type { OkfConnection } from "../src/lawoss/okf/connection";
-import { okfScope, okfScopeKey, type OkfScope } from "../src/lawoss/okf/read-model";
+import { locateInScope, okfScope, okfScopeKey, type OkfScope } from "../src/lawoss/okf/read-model";
 import { isScopeRefusal, revalidateScopeTarget, revalidationScope } from "../src/lawoss/okf/scope-target";
 import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 
@@ -84,6 +84,25 @@ describe("overenie z rovnakého zoznamu ako revalidateScopeTarget (žiadne falo�
   });
 });
 
+describe("koreň praxe s diakritikou v NFC aj NFD: predpona a cesty sa nepoškodia", () => {
+  const forms = ["NFC", "NFD"] as const;
+  for (const rootForm of forms) for (const clientForm of forms) {
+    test(`koreň ${rootForm}, klient ${clientForm}`, () => {
+      const practice = "/Users/a/Kancelária".normalize(rootForm);
+      const client = ws("alfa", "/Users/a/Kancelária/Klienti/Álfa".normalize(clientForm));
+      const other = ws("beta", "/Users/a/Kancelária/Klienti/Beta".normalize(clientForm));
+      const scope = okfScope([client, other], client, practice);
+      expect(scope?.practiceRoot).toBe(practice);
+      expect(scope?.members.map((m) => m.prefix).sort()).toEqual(["Klienti/Beta", "Klienti/Álfa".normalize("NFC")]);
+      for (const input of forms) {
+        const at = scope ? locateInScope(scope, "Klienti/Álfa/Spisy/Spor".normalize(input)) : null;
+        expect(at?.workspace.id).toBe("alfa");
+        expect(at?.path).toBe("Spisy/Spor");
+      }
+    });
+  }
+});
+
 describe("existujúci chat po zlyhanom overení sa neotvorí (#168)", () => {
   const conversation: MatterConversation = { id: "s1", workspaceId: alfa.id, title: "Rozhovor", updated: 1, directory: "/prax/Klienti/Alfa" } as MatterConversation;
   const loaded = { ...connection, client: {} as never };
@@ -129,14 +148,31 @@ describe("Nový chat: koreň praxe počas čítania, kontext trasy a prázdny v�
   const project = (id: string): NewChatTarget => ({ id, workspaceId: id, root: `/prax/Klienti/${id}`, title: id });
 
   test("R1(a): otvorený koreň praxe, prehľad sa číta → výber s čakaním, nie chat nad celou praxou", () => {
-    expect(projectNewChatAction("lite", "root", "root", [], undefined, true)).toEqual({ kind: "pick" });
-    expect(projectNewChatAction("lite", "root", "root", [], undefined, false)).toBeNull();
-    expect(projectNewChatAction("lite", "tatran", "root", [], undefined, true)).toBeNull();
-    expect(projectNewChatAction("pro", "root", "root", [], undefined, true)).toBeNull();
-    expect(settleRootPicker(true, false, 0)).toBe("wait");
-    expect(settleRootPicker(false, false, 2)).toBe("pick");
-    expect(settleRootPicker(false, false, 0)).toBe("native");
-    expect(settleRootPicker(false, true, 0)).toBe("refuse");
+    expect(projectNewChatAction("lite", "root", "root", [], undefined, { pending: true })).toEqual({ kind: "pick" });
+    expect(projectNewChatAction("lite", "root", "root", [])).toBeNull();
+    expect(projectNewChatAction("lite", "tatran", "root", [], undefined, { pending: true })).toBeNull();
+    expect(projectNewChatAction("pro", "root", "root", [], undefined, { pending: true })).toBeNull();
+    expect(settleRootPicker({ pending: true, isRoot: true, rootTargets: 0 })).toBe("wait");
+    expect(settleRootPicker({ isRoot: true, rootTargets: 2 })).toBe("pick");
+    expect(settleRootPicker({ isRoot: true, rootTargets: 0 })).toBe("native");
+    expect(settleRootPicker({ failed: true, isRoot: true, rootTargets: 0 })).toBe("refuse");
+  });
+
+  test("koreň praxe s neúplným prehľadom bez klientov: odmietnutie, nie natívny chat nad celou praxou", () => {
+    expect(projectNewChatAction("lite", "root", "root", [], undefined, { incomplete: true })).toEqual({ kind: "refuse" });
+    expect(projectNewChatAction("lite", "root", "root", [], undefined, { failed: true })).toEqual({ kind: "refuse" });
+    expect(settleRootPicker({ incomplete: true, isRoot: true, rootTargets: 0 })).toBe("refuse");
+    // Úplný prehľad bez klientov z OKF = obyčajný projekt.
+    expect(projectNewChatAction("lite", "root", "root", [], undefined, {})).toBeNull();
+  });
+
+  test("profil onboardingu sa ešte číta: otvorený projekt môže byť koreň praxe, výber počká", () => {
+    // Kým sa profil číta, `practiceRootId` je null; natívny chat by mohol vzniknúť nad celou praxou.
+    expect(projectNewChatAction("lite", "root", null, [], undefined, { rootUnknown: true })).toEqual({ kind: "pick" });
+    expect(projectNewChatAction("pro", "root", null, [], undefined, { rootUnknown: true })).toBeNull();
+    expect(settleRootPicker({ rootUnknown: true, isRoot: false, rootTargets: 0 })).toBe("wait");
+    expect(settleRootPicker({ isRoot: false, rootTargets: 0 })).toBe("native");
+    expect(settleRootPicker({ isRoot: true, rootTargets: 1 })).toBe("pick");
   });
 
   test("R1(b): detail prípadu a prehľad klienta (bez otvoreného projektu) založia chat u klienta z trasy", () => {
@@ -158,7 +194,7 @@ describe("Nový chat: koreň praxe počas čítania, kontext trasy a prázdny v�
     expect(clientNavPending({ connectionLoading: false, failed: false, scopePending: false, scope: true, data: false })).toBe(true);
     expect(clientNavPending({ connectionLoading: false, failed: true, scopePending: false, scope: true, data: false })).toBe(false);
     for (const locale of ["sk", "cs", "en", "de"] as const) {
-      for (const key of ["lawoss.lite.client_pick_empty", "lawoss.practice.refused"]) {
+      for (const key of ["lawoss.lite.client_pick_empty", "lawoss.practice.refused", "lawoss.practice.refused_overview"]) {
         expect(t(key, locale)).not.toBe(key);
         expect(t(key, locale)).not.toContain("—");
       }

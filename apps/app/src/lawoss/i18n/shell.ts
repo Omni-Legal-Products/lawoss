@@ -11,7 +11,7 @@ export const shellEn = {
   "lawoss.practice.unavailable": "Unavailable",
   "lawoss.practice.truncated": "Truncated",
   "lawoss.practice.refused": "This client could not be verified right now: the practice changed or its folder could not be read completely. Refresh the overview and try again.",
-  "lawoss.lite.client_pick_empty": "Add a client first.",
+  "lawoss.practice.refused_overview": "The practice overview could not be verified: the practice changed or could not be read completely. Refresh the overview and try again.",
 
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Sort documents",
@@ -212,6 +212,7 @@ export const shellEn = {
   "lawoss.lite.inputs_client": "Client input",
   "lawoss.lite.new_matter": "New matter",
   "lawoss.lite.add_client": "Add client",
+  "lawoss.lite.client_pick_empty": "Add a client first.",
   "lawoss.lite.attach_existing_client": "Connect an existing client folder",
   "lawoss.lite.clients_title": "Clients and matters",
   "lawoss.lite.clients_empty": "No clients yet. Create the first one.",
@@ -327,7 +328,7 @@ export const shellCs = {
   "lawoss.practice.unavailable": "Nedostupné",
   "lawoss.practice.truncated": "Neúplné čtení",
   "lawoss.practice.refused": "Klienta se teď nepodařilo ověřit: praxe se změnila nebo se jeho složku nepodařilo přečíst celou. Obnovte přehled a zkuste to znovu.",
-  "lawoss.lite.client_pick_empty": "Nejprve přidejte klienta.",
+  "lawoss.practice.refused_overview": "Přehled praxe se nepodařilo ověřit: praxe se změnila nebo se nedala přečíst celá. Obnovte přehled a zkuste to znovu.",
 
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Roztřídit dokumenty",
@@ -530,6 +531,7 @@ export const shellCs = {
   "lawoss.lite.inputs_client": "Vstup klienta",
   "lawoss.lite.new_matter": "Nový případ",
   "lawoss.lite.add_client": "Přidat klienta",
+  "lawoss.lite.client_pick_empty": "Nejprve přidejte klienta.",
   "lawoss.lite.attach_existing_client": "Připojit existující složku klienta",
   "lawoss.lite.clients_title": "Klienti a případy",
   "lawoss.lite.clients_empty": "Zatím žádní klienti. Založte prvního.",
@@ -642,7 +644,7 @@ export const shellSk = {
   "lawoss.practice.unavailable": "Nedostupné",
   "lawoss.practice.truncated": "Neúplné čítanie",
   "lawoss.practice.refused": "Klienta sa teraz nepodarilo overiť: prax sa zmenila alebo sa jeho priečinok nepodarilo prečítať celý. Obnovte prehľad a skúste to znova.",
-  "lawoss.lite.client_pick_empty": "Najprv pridajte klienta.",
+  "lawoss.practice.refused_overview": "Prehľad praxe sa nepodarilo overiť: prax sa zmenila alebo sa nedala prečítať celá. Obnovte prehľad a skúste to znova.",
 
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Roztriediť dokumenty",
@@ -845,6 +847,7 @@ export const shellSk = {
   "lawoss.lite.inputs_client": "Vstup klienta",
   "lawoss.lite.new_matter": "Nový prípad",
   "lawoss.lite.add_client": "Pridať klienta",
+  "lawoss.lite.client_pick_empty": "Najprv pridajte klienta.",
   "lawoss.lite.attach_existing_client": "Pripojiť existujúci priečinok klienta",
   "lawoss.lite.clients_title": "Klienti a prípady",
   "lawoss.lite.clients_empty": "Zatiaľ žiadni klienti. Založte prvého.",
@@ -956,8 +959,8 @@ export const shellDe = {
   "lawoss.practice.stale": "Letzte erfolgreiche Abfrage",
   "lawoss.practice.unavailable": "Nicht verfügbar",
   "lawoss.practice.truncated": "Unvollständige Abfrage",
-  "lawoss.practice.refused": "Dieser Mandant konnte gerade nicht geprüft werden: Die Kanzlei hat sich geändert oder sein Ordner konnte nicht vollständig gelesen werden. Aktualisieren Sie die Übersicht und versuchen Sie es erneut.",
-  "lawoss.lite.client_pick_empty": "Fügen Sie zuerst einen Mandanten hinzu.",
+  "lawoss.practice.refused": "Dieser Mandant konnte gerade nicht geprüft werden: Die Kanzleistruktur hat sich geändert oder sein Ordner konnte nicht vollständig gelesen werden. Aktualisieren Sie die Übersicht und versuchen Sie es erneut.",
+  "lawoss.practice.refused_overview": "Die Kanzleiübersicht konnte nicht geprüft werden: Die Kanzleistruktur hat sich geändert oder konnte nicht vollständig gelesen werden. Aktualisieren Sie die Übersicht und versuchen Sie es erneut.",
 
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Dokumente sortieren",
@@ -1158,6 +1161,7 @@ export const shellDe = {
   "lawoss.lite.inputs_client": "Mandanteneingang",
   "lawoss.lite.new_matter": "Neue Akte",
   "lawoss.lite.add_client": "Mandant hinzufügen",
+  "lawoss.lite.client_pick_empty": "Fügen Sie zuerst einen Mandanten hinzu.",
   "lawoss.lite.attach_existing_client": "Bestehenden Mandantenordner verbinden",
   "lawoss.lite.clients_title": "Mandanten und Akten",
   "lawoss.lite.clients_empty": "Noch keine Mandanten. Legen Sie den ersten an.",

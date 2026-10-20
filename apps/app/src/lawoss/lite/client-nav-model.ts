@@ -83,7 +83,7 @@ export function forgetProjectOverride(overrides: Readonly<Record<string, boolean
 }
 
 /** Čo urobí „Nový chat“ bez otvoreného projektu: natívne správanie (Pokročilý, žiadny klient), rovno jediný klient, alebo výber. */
-export type NewChatAction = { kind: "native" } | { kind: "create"; target: NewChatTarget } | { kind: "pick" };
+export type NewChatAction = { kind: "native" } | { kind: "create"; target: NewChatTarget } | { kind: "pick" } | { kind: "refuse" };
 /**
  * `context`: klient z trasy (detail prípadu `?vec=`, prehľad klienta `?klient=`, chat v priečinku klienta). Tieto
  * stránky nemajú otvorený projekt, preto sa kontext trasy uplatní aj tu: chat rovno u toho klienta, bez výberu.
@@ -111,23 +111,39 @@ export function contextChoice(choices: readonly NewChatTarget[], contextKey: str
  * (rozhodnutie MČ 19. 10. 2026). Kontext trasy (chat v priečinku klienta, vec, prehľad klienta) založí chat
  * u toho klienta, inak výber klientov koreňa. `null` = obyčajný projekt alebo Pokročilý režim: natívne.
  */
-export function projectNewChatAction(mode: "lite" | "pro", openProjectId: string, rootId: string | null, rootTargets: readonly NewChatTarget[], contextKey?: string, pending = false): NewChatAction | null {
-  if (mode !== "lite" || openProjectId !== rootId) return null;
-  // R1(a): prehľad koreňa sa ešte číta, klienti nie sú známi: výber s čakaním, nie natívny chat nad celou praxou.
-  if (rootTargets.length === 0) return pending ? { kind: "pick" } : null;
+/**
+ * Stav čítania pre „Nový chat“ v otvorenom projekte: `pending` = prehľad sa číta, `rootUnknown` = profil onboardingu
+ * (koreň praxe) sa ešte číta, `incomplete` = prehľad je neúplný (orezaný alebo s problémami), `failed` = nedostupný.
+ */
+export type ProjectChatRead = { pending?: boolean; rootUnknown?: boolean; incomplete?: boolean; failed?: boolean };
+
+export function projectNewChatAction(mode: "lite" | "pro", openProjectId: string, rootId: string | null, rootTargets: readonly NewChatTarget[], contextKey?: string, read: ProjectChatRead = {}): NewChatAction | null {
+  if (mode !== "lite") return null;
+  // Profil sa ešte číta: otvorený projekt môže byť koreň praxe, výber počká (nie natívny chat nad celou praxou).
+  if (read.rootUnknown) return { kind: "pick" };
+  if (openProjectId !== rootId) return null;
+  if (rootTargets.length === 0) {
+    // R1(a): prehľad koreňa sa ešte číta → výber s čakaním. Neúplný alebo nedostupný prehľad nedokladá, že koreň
+    // nemá klientov: odmietnutie, nie natívny chat nad celou praxou. Úplný prehľad bez klientov = obyčajný projekt.
+    if (read.pending) return { kind: "pick" };
+    return read.incomplete || read.failed ? { kind: "refuse" } : null;
+  }
   const target = contextKey ? rootTargets.find((t) => t.key === contextKey) : undefined;
   if (target) return { kind: "create", target };
   return rootTargets.length === 1 ? { kind: "create", target: rootTargets[0] } : { kind: "pick" };
 }
 
 /**
- * Výber v koreni praxe otvorený počas čítania (R1(a)), keď čítanie skončí: klienti sú = výber; žiadni klienti
- * z OKF = obyčajný projekt, natívny chat v ňom; prehľad sa nedal prečítať = nič sa nezaloží (odmietnutie).
+ * Výber otvorený počas čítania profilu alebo prehľadu koreňa (R1(a)), keď čítanie skončí: projekt nie je koreň =
+ * natívny chat; klienti sú = výber; úplný prehľad bez klientov z OKF = obyčajný projekt, natívny chat v ňom;
+ * neúplný alebo nedostupný prehľad = nič sa nezaloží (odmietnutie).
  */
-export function settleRootPicker(pending: boolean, failed: boolean, rootTargets: number): "wait" | "pick" | "native" | "refuse" {
-  if (pending) return "wait";
-  if (rootTargets > 0) return "pick";
-  return failed ? "refuse" : "native";
+export function settleRootPicker(read: ProjectChatRead & { isRoot: boolean; rootTargets: number }): "wait" | "pick" | "native" | "refuse" {
+  if (read.pending || read.rootUnknown) return "wait";
+  // Profil dočítaný a otvorený projekt nie je koreň praxe: natívny chat v ňom.
+  if (!read.isRoot) return "native";
+  if (read.rootTargets > 0) return "pick";
+  return read.failed || read.incomplete ? "refuse" : "native";
 }
 
 /**

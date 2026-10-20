@@ -392,9 +392,10 @@ export function okfScope(workspaces: readonly RouteWorkspace[], anchor: RouteWor
   const top = inside.filter((w) => !inside.some((other) => other.id !== w.id && within(other.path, w.path) && !within(w.path, other.path)));
   const root = top.find((w) => within(w.path, practiceRoot));
   if (root) return { anchor, members: [{ workspace: root, prefix: "" }] };
-  const base = queryPath(practiceRoot);
+  // Predpona z NFC na oboch stranách: `within` porovnáva v NFC, koreň a klient môžu prísť v rôznom tvare (NFD z macOS).
+  const base = queryPath(practiceRoot).normalize("NFC");
   const members = top
-    .map((workspace) => ({ workspace, prefix: queryPath(workspace.path).slice(base.length).replace(/^\/+/, "") }))
+    .map((workspace) => ({ workspace, prefix: queryPath(workspace.path).normalize("NFC").slice(base.length).replace(/^\/+/, "") }))
     .sort((a, b) => a.prefix.localeCompare(b.prefix));
   return members.length ? { anchor, members, practiceRoot } : single;
 }
@@ -402,13 +403,16 @@ export function okfScope(workspaces: readonly RouteWorkspace[], anchor: RouteWor
 /** Cesta z prehľadu → priečinok, ktorý ju obsahuje, a cesta v ňom (najdlhšia zhoda). */
 export function locateInScope(scope: OkfScope, path: string): { workspace: RouteWorkspace; path: string } | null {
   if (path.startsWith("/") || path.includes("\\") || path.split("/").some(p => p === "." || p === "..")) return null;
-  let best: OkfScopeMember | undefined;
+  // Cesta aj predpona v NFC: rez podľa dĺžky predpony inak pri zmiešanom tvare (NFD/NFC) poškodí cestu.
+  const nfc = path.normalize("NFC");
+  let best: { member: OkfScopeMember; prefix: string } | undefined;
   for (const member of scope.members) {
-    const hit = member.prefix === "" || path === member.prefix || path.startsWith(`${member.prefix}/`);
-    if (hit && (!best || member.prefix.length > best.prefix.length)) best = member;
+    const prefix = member.prefix.normalize("NFC");
+    const hit = prefix === "" || nfc === prefix || nfc.startsWith(`${prefix}/`);
+    if (hit && (!best || prefix.length > best.prefix.length)) best = { member, prefix };
   }
   if (!best) return null;
-  return { workspace: best.workspace, path: !best.prefix ? path : path === best.prefix ? "" : path.slice(best.prefix.length + 1) };
+  return { workspace: best.member.workspace, path: !best.prefix ? path : nfc === best.prefix ? "" : nfc.slice(best.prefix.length + 1) };
 }
 
 /**

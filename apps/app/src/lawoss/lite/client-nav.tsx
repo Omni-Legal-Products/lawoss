@@ -23,7 +23,7 @@ import { mapDesktopWorkspace, type RouteWorkspace } from "@/react-app/shell/rout
 import type { OkfConnection } from "../okf/connection";
 import { officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope, usePracticeRoot } from "../okf/read-model";
 import { clientPreferenceScope, type ClientChoice } from "./client-choice";
-import { closedGroups, clientNavPending, contextChoice, focusedProject, forgetProjectOverride, mattersOpen, newChatAction, newChatChoices, projectNewChatAction, projectNodes, settleRootPicker, type NewChatTarget } from "./client-nav-model";
+import { closedGroups, clientNavPending, contextChoice, focusedProject, forgetProjectOverride, mattersOpen, newChatAction, newChatChoices, projectNewChatAction, projectNodes, settleRootPicker, type NewChatTarget, type ProjectChatRead } from "./client-nav-model";
 import { toast } from "@/components/ui/sonner";
 import { isClientFolderOf, openClientFolderChat } from "./office-scope";
 import { isScopeRefusal, revalidateScopeTarget, revalidationScope, type RecheckTarget } from "../okf/scope-target";
@@ -128,7 +128,11 @@ export function useClientNavData(live?: { groups?: readonly WorkspaceSessionGrou
     scope: loaded && root !== undefined ? revalidationScope(loaded.workspaces, anchor?.id, root) : null,
     practice: Boolean(practiceRoot),
   }), [loaded, anchor?.id, root, practiceRoot]);
-  return { connection, scope, data, groups, model, pending, failed, excludedWorkspaceIds, check };
+  // Stav čítania pre „Nový chat“ v koreni praxe: profil sa číta, prehľad je neúplný (orezaný alebo s problémami).
+  const read = useMemo<ProjectChatRead>(() => ({
+    pending, failed, rootUnknown: practiceRoot === undefined, incomplete: Boolean(data && (data.truncated || data.problems.length > 0)),
+  }), [pending, failed, practiceRoot, data]);
+  return { connection, scope, data, groups, model, pending, failed, excludedWorkspaceIds, check, read };
 }
 
 
@@ -232,10 +236,11 @@ function ClientNavRoot({ groups, selectedWorkspaceId, children }: { groups?: rea
   const pendingRoot = useRef<string | null>(null);
   const startNewChat = useCallback((openProjectId: string | null, create: (workspaceId: string) => void) => {
     if (openProjectId) {
-      const action = projectNewChatAction(mode, openProjectId, nav.model.practiceRootId, rootTargets, contextKey, nav.pending);
+      const action = projectNewChatAction(mode, openProjectId, nav.model.practiceRootId, rootTargets, contextKey, nav.read);
       if (!action || action.kind === "native") return false;
+      if (action.kind === "refuse") { toast.error(t("lawoss.practice.refused_overview", locale)); return true; }
       if (action.kind === "create") { start(action.target, create); return true; }
-      // Pri čítaní (R1(a)) si výber zapamätá koreň: dočítaný bez klientov z OKF dostane natívny chat.
+      // Pri čítaní (profil, prehľad koreňa) si výber zapamätá projekt: po dočítaní rozhodne `settleRootPicker`.
       createRef.current = create;
       pendingRoot.current = openProjectId;
       setPicking("root");
@@ -249,18 +254,19 @@ function ClientNavRoot({ groups, selectedWorkspaceId, children }: { groups?: rea
     createRef.current = create;
     setPicking("all");
     return true;
-  }, [mode, choices, rootTargets, contextKey, nav.model.practiceRootId, nav.model.ownerOf, nav.pending, start]);
+  }, [mode, choices, rootTargets, contextKey, nav.model.practiceRootId, nav.model.ownerOf, nav.pending, nav.read, start, locale]);
   // Koreň praxe dočítaný bez klientov z OKF: obyčajný projekt, natívny chat v ňom; nedostupný prehľad: nič sa nezaloží.
   // Výber všetkých klientov dočítaný bez klientov ostane otvorený s „Najprv pridajte klienta“.
   useEffect(() => {
     if (picking !== "root") return;
-    const settled = settleRootPicker(nav.pending, nav.failed, rootTargets.length);
+    const project = pendingRoot.current;
+    const settled = settleRootPicker({ ...nav.read, isRoot: project !== null && project === nav.model.practiceRootId, rootTargets: rootTargets.length });
     if (settled === "wait" || settled === "pick") return;
-    const create = createRef.current, root = pendingRoot.current;
+    const create = createRef.current;
     setPicking(null); createRef.current = null; pendingRoot.current = null;
-    if (settled === "refuse") toast.error(t("lawoss.practice.refused", locale));
-    else if (create && root) create(root);
-  }, [picking, nav.pending, nav.failed, rootTargets.length, locale]);
+    if (settled === "refuse") toast.error(t("lawoss.practice.refused_overview", locale));
+    else if (create && project) create(project);
+  }, [picking, nav.read, nav.model.practiceRootId, rootTargets.length, locale]);
   const close = () => { setPicking(null); createRef.current = null; pendingRoot.current = null; };
   const pick = (choice: ClientChoice) => {
     setPicking(null);
@@ -271,9 +277,9 @@ function ClientNavRoot({ groups, selectedWorkspaceId, children }: { groups?: rea
   };
   return <ClientNavContext.Provider value={{ ...snapshot, tree, open, setOpen, focused, startNewChat }}>
     {children}
-    <ClientPickerDialog open={picking !== null} purpose="ask" choices={pickerChoices} loading={picking !== null && nav.pending} activeId={nav.connection?.activeWorkspaceId}
+    <ClientPickerDialog open={picking !== null} purpose="ask" choices={pickerChoices} loading={picking !== null && (nav.pending || nav.read.rootUnknown === true)} activeId={nav.connection?.activeWorkspaceId}
       preferenceScope={clientPreferenceScope(nav.scope, nav.connection?.baseUrl)} locale={locale}
-      empty={picking === "all" ? <EmptyChoices locale={locale} onAdd={close} failed={nav.failed} /> : null}
+      empty={picking === "all" ? <EmptyChoices locale={locale} onAdd={close} failed={nav.failed || nav.read.incomplete === true} /> : null}
       onClose={close} onPick={pick} />
   </ClientNavContext.Provider>;
 }
@@ -281,7 +287,7 @@ function ClientNavRoot({ groups, selectedWorkspaceId, children }: { groups?: rea
 /** Výber všetkých klientov dočítaný bez klientov: povedať to a ponúknuť Pridať klienta (nie prázdne okno). */
 function EmptyChoices({ locale, onAdd, failed }: { locale: Language; onAdd: () => void; failed: boolean }) {
   return <div className="grid gap-2 text-sm" data-lawoss-client-picker-empty="">
-    <p role="status">{t(failed ? "lawoss.practice.refused" : "lawoss.lite.client_pick_empty", locale)}</p>
+    <p role="status">{t(failed ? "lawoss.practice.refused_overview" : "lawoss.lite.client_pick_empty", locale)}</p>
     {failed ? null : <Button variant="outline" className="justify-self-start" render={<Link to={NEW_CLIENT_PATH} onClick={onAdd} />}>{t("lawoss.lite.add_client", locale)}</Button>}
   </div>;
 }

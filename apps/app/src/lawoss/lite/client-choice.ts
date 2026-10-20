@@ -9,6 +9,9 @@ import { NEW_MATTER_PATH } from "./links";
 
 export type ClientChoice = { id: string; root: string; title: string };
 
+/** Rovnaká relatívna cesta bez ohľadu na tvar diakritiky (NFC/NFD). */
+const samePath = (a: string, b: string): boolean => a.normalize("NFC") === b.normalize("NFC");
+
 /** Klienti praxe na výber; mimo praxe (jeden priečinok) prázdny zoznam, výber sa nepýta. */
 export function practiceClientChoices(scope: OkfScope | null, clients: readonly OkfClient[] = []): ClientChoice[] {
   if (!scope?.practiceRoot) return [];
@@ -16,7 +19,7 @@ export function practiceClientChoices(scope: OkfScope | null, clients: readonly 
     .map(({ workspace, prefix }) => ({
       id: workspace.id,
       root: workspace.path,
-      title: clients.find((c) => c.path === prefix)?.title || workspace.displayNameResolved || workspace.name || lastSegment(prefix),
+      title: clients.find((c) => samePath(c.path, prefix))?.title || workspace.displayNameResolved || workspace.name || lastSegment(prefix),
     }))
     .sort((a, b) => a.title.localeCompare(b.title, "cs") || a.id.localeCompare(b.id));
 }
@@ -44,5 +47,5 @@ export const newMatterLink = (clientRoot?: string): string => clientRoot ? `${NE
 /** Klient z karty v prehľade (cesta voči koreňu praxe) → jeho priečinok, ak je to registrovaný klient. */
 export function clientRootOf(scope: OkfScope | null, clientPath: string): string | undefined {
   if (!scope?.practiceRoot) return undefined;
-  return scope.members.find((m) => m.prefix === clientPath)?.workspace.path;
+  return scope.members.find((m) => samePath(m.prefix, clientPath))?.workspace.path;
 }
