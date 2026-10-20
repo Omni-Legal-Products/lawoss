@@ -31,3 +31,8 @@ Existing actual matrix test scripts/ci/sandbox-matrix.test.mjs:4pass, independen
 Office watcher: cache-clear hypothesis rejected by second-buildOOM; fresh serial compiler experiment passes initial+2rebuilds at4288MiB (PIDs31524/31987/32405). Unit3pass; actual CLI shutdown exits0, captured3processes,0survivors. Fresh review resolved config-input and fatal-exit findings; no remaining must-fix.
 Native local complete:10cases + attachment + negative + actual relaunch/reconnect/same IDs/allSHA; exit0 and clean owned shutdown. This does not identify the original CI500.
 Toolchain mismatch found: prior local Bun1.4.0, CI1.4.2; previous source-suite results remain diagnostic, not matching-CI acceptance. Recheck on pinned binary.
+
+## 2026-10-20T22:52:17.805274+00:00 — PR202 base reconciliation
+
+- GitHub reported a conflict using stale base5aded641; actual dev5400fae0 already contains the candidate PDF review. Ordinary no-rewrite merge has identical index tree before this receipt and changes no product source.
+- Exact Node24.21 watcher suite3pass0fail; AGENTS/CLAUDE identical and whitespace validation clean. CI on the new merge head remains required; no claim of Windows native acceptance or repaired PR200 startup.
