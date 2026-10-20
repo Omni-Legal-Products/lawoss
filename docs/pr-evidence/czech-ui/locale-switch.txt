@@ -1,0 +1,52 @@
+macOS Electron, isolated synthetic profile, production language store.
+Czech full AX state:
+Window: "LAWOSS - Dev", App: Electron.
+0 standard window LAWOSS - Dev, Secondary Actions: Raise
+	1 container LAWOSS - Dev
+		2 container
+			3 HTML content Dnes, URL: localhost:5174/.work/czech-ui-smoke.html#/welcome
+				4 container
+					5 container
+						6 image LAWOSS
+						7 text LAWOSS
+						8 heading Nastavte svou praxi, Value: 1
+							9 text Nastavte svou praxi
+						10 content list
+							11 container
+								12 text 1 .  Vy a jurisdikce
+							13 container
+								14 text 2 .  Data a AI
+							15 container
+								16 text 3 .  Složka
+						17 container
+							18 text Vaše jméno
+							19 text field (settable) Vaše jméno
+						20 container
+							21 text Jurisdikce
+							22 pop-up button Jurisdikce, Value: Slovensko
+								23 (selected) Slovensko
+						24 container
+							25 text Jazyk rozhraní
+							26 pop-up button Jazyk rozhraní, Value: Čeština
+								27 (selected) Čeština
+						28 button (disabled) Uložit a pokračovat
+					29 container Notifications alt+T
+				30 container
+					31 button QA Čeština
+					32 button QA Slovenčina
+	33 close button
+	34 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	35 minimise button
+36 menu bar
+	37 Electron
+	38 Soubor
+	39 Úpravy
+	40 Zobrazení
+	41 Okno
+	42 Nápověda
+
+The focused UI element is 31 button QA Čeština
+
+Slovak AX state after switching:
+There has been no change in the accessibility tree for Window: "LAWOSS - Dev".
+The focused UI element is 9 button QA Slovenčina
