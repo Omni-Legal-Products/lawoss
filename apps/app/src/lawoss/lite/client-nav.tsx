@@ -23,17 +23,17 @@ import { mapDesktopWorkspace, type RouteWorkspace } from "@/react-app/shell/rout
 import type { OkfConnection } from "../okf/connection";
 import { officeWorkspace, today, useOkfConnection, useOkfOverview, useOkfScope, usePracticeRoot } from "../okf/read-model";
 import { clientPreferenceScope, type ClientChoice } from "./client-choice";
-import { closedGroups, focusedProject, forgetProjectOverride, mattersOpen, newChatAction, newChatChoices, projectNewChatAction, projectNodes, type NewChatTarget } from "./client-nav-model";
+import { closedGroups, clientNavPending, contextChoice, focusedProject, forgetProjectOverride, mattersOpen, newChatAction, newChatChoices, projectNewChatAction, projectNodes, settleRootPicker, type NewChatTarget } from "./client-nav-model";
 import { toast } from "@/components/ui/sonner";
 import { isClientFolderOf, openClientFolderChat } from "./office-scope";
-import { revalidateScopeTarget } from "../okf/scope-target";
+import { isScopeRefusal, revalidateScopeTarget, revalidationScope, type RecheckTarget } from "../okf/scope-target";
 import type { OkfScope } from "../okf/read-model";
 import type { ClientGroup } from "./today-model";
 import { ClientPickerDialog } from "./client-picker";
 import { clientGroupDirectory, clientNavAnchor, clientNavModel, type ClientOverviewState } from "./client-projects";
 import { clientToggle, focusedClientKey, matterToggle, routeFocus, type TreeClient, type TreeMatter } from "./client-tree";
 import { useClientTree } from "./client-tree-data";
-import { clientDeadlinesLink, clientOverviewLink, LEHOTY_PATH, liteMatterLink } from "./links";
+import { clientDeadlinesLink, clientOverviewLink, LEHOTY_PATH, liteMatterLink, NEW_CLIENT_PATH } from "./links";
 import { matterUrgency, useMinuteTick } from "./live";
 import { comparable, within, type MatterConversation } from "./matter-conversations";
 import { groupByClient } from "./today-model";
@@ -115,13 +115,22 @@ export function useClientNavData(live?: { groups?: readonly WorkspaceSessionGrou
   const groups = useMemo(() => data ? groupByClient(data.matters, data.inputs, data.clients) : [], [data]);
   // #168: neoverená prax (chyba profilu, nebezpečná cesta) je nedostupná, nie „ešte sa číta“.
   const failed = resolution.state === "unavailable" || Boolean(scope && !data && query.isError) || (connection !== null && !connection.client) || (loaded === null && connectionError !== null);
-  const pending = !(scope && data) && !failed;
+  // Číta sa spojenie, koreň praxe alebo prehľad. Bez kotvy (žiadny priečinok) nie je čo čítať: nečaká sa.
+  const pending = clientNavPending({ connectionLoading: loaded === null && connectionError === null, failed, scopePending: resolution.pending, scope: scope !== null, data: data !== undefined });
   const model = useMemo(() => {
     const overview: ClientOverviewState = scope && data ? { status: "ready", scope, groups, matters: data.matters } : failed ? { status: "unavailable" } : { status: "pending" };
     return clientNavModel(all ?? workspaces ?? [], practiceRoot, overview);
   }, [all, workspaces, practiceRoot, scope, data, groups, failed]);
-  return { connection, scope, data, groups, model, pending, excludedWorkspaceIds };
+  // Overenie pred akciou (#168) dostane spojenie a rozsah z `loadOkfConnection`, z ktorých ho `revalidateScopeTarget`
+  // postaví znova; živý zoznam panela (bez wiki, s projektmi len z desktopu) slúži len na zobrazenie.
+  const check = useMemo<RecheckTarget>(() => ({
+    connection: loaded,
+    scope: loaded && root !== undefined ? revalidationScope(loaded.workspaces, anchor?.id, root) : null,
+    practice: Boolean(practiceRoot),
+  }), [loaded, anchor?.id, root, practiceRoot]);
+  return { connection, scope, data, groups, model, pending, failed, excludedWorkspaceIds, check };
 }
+
 
 export type PublishedClientNav = Pick<ReturnType<typeof useClientNavData>, "connection" | "scope" | "data" | "groups" | "model" | "excludedWorkspaceIds">;
 
@@ -176,6 +185,7 @@ function ClientNavRoot({ groups, selectedWorkspaceId, children }: { groups?: rea
   const sessionDirectory = useMemo(() => liveSessionDirectories(live), [live]);
   const tree = useClientTree(nav.connection, nav.scope, nav.data, pathname, search, locale, {
     sessionDirectory,
+    recheck: nav.check,
     closedFor: (focus) => closedGroups(nav.groups, nav.model.ownerOf, open, focusedProject(focus, nav.groups, nav.model.ownerOf)),
   });
   const focused = focusedProject(tree.focus, nav.groups, nav.model.ownerOf);
@@ -209,57 +219,84 @@ function ClientNavRoot({ groups, selectedWorkspaceId, children }: { groups?: rea
   const start = useCallback((target: NewChatTarget, create: (workspaceId: string) => void) => {
     const failed = (failure: unknown) => {
       console.warn("LAWOSS: new chat for client", failure);
-      toast.error(t("lawoss.lite.action_error_generic", locale));
+      toast.error(t(isScopeRefusal(failure) ? "lawoss.practice.refused" : "lawoss.lite.action_error_generic", locale));
     };
     // #168 (ako `openClientChat`): pred chatom sa znova overí prax, členstvo priečinka a čerstvé čítanie jeho zdroja.
-    if (!target.folder) { revalidateClientProject(nav.scope, nav.connection, target.workspaceId).then(() => create(target.workspaceId)).catch(failed); return; }
-    openClientFolderChat(target.workspaceId, target.folder, nav.scope, nav.connection).then((to) => navigate(to)).catch(failed);
-  }, [navigate, locale, nav.scope, nav.connection]);
+    const { check } = nav;
+    if (!target.folder) { revalidateClientProject(check, target.workspaceId).then(() => create(target.workspaceId)).catch(failed); return; }
+    openClientFolderChat(target.workspaceId, target.folder, check.scope, check.connection).then((to) => navigate(to)).catch(failed);
+  }, [navigate, locale, nav.check]);
   // Kontext trasy: vec, prehľad klienta alebo chat v priečinku klienta → jeho klient.
   const contextKey = focusedClientKey(tree.focus, nav.groups) ?? routeFocus(pathname, search).client;
+  // Otvorený koreň praxe, pre ktorý sa výber zobrazil počas čítania (po načítaní bez klientov = natívny chat v ňom).
+  const pendingRoot = useRef<string | null>(null);
   const startNewChat = useCallback((openProjectId: string | null, create: (workspaceId: string) => void) => {
     if (openProjectId) {
-      const action = projectNewChatAction(mode, openProjectId, nav.model.practiceRootId, rootTargets, contextKey);
+      const action = projectNewChatAction(mode, openProjectId, nav.model.practiceRootId, rootTargets, contextKey, nav.pending);
       if (!action || action.kind === "native") return false;
       if (action.kind === "create") { start(action.target, create); return true; }
+      // Pri čítaní (R1(a)) si výber zapamätá koreň: dočítaný bez klientov z OKF dostane natívny chat.
       createRef.current = create;
+      pendingRoot.current = openProjectId;
       setPicking("root");
       return true;
     }
-    const action = newChatAction(mode, choices);
+    // R1(b): detail prípadu a prehľad klienta sú trasy bez otvoreného projektu; ich klient je kontext.
+    const action = newChatAction(mode, choices, contextChoice(choices, contextKey, nav.model.ownerOf));
     // Klienti sa ešte čítajú: výber ukáže čakanie, nie natívny dialóg.
     if (action.kind === "native" && !(mode === "lite" && choices.length === 0 && nav.pending)) return false;
     if (action.kind === "create") { start(action.target, create); return true; }
     createRef.current = create;
     setPicking("all");
     return true;
-  }, [mode, choices, rootTargets, contextKey, nav.model.practiceRootId, nav.pending, start]);
-  // Čítanie skončilo bez klientov: výber sa zavrie (nič sa nezaloží).
+  }, [mode, choices, rootTargets, contextKey, nav.model.practiceRootId, nav.model.ownerOf, nav.pending, start]);
+  // Koreň praxe dočítaný bez klientov z OKF: obyčajný projekt, natívny chat v ňom; nedostupný prehľad: nič sa nezaloží.
+  // Výber všetkých klientov dočítaný bez klientov ostane otvorený s „Najprv pridajte klienta“.
   useEffect(() => {
-    if (picking === "all" && !nav.pending && choices.length === 0) { setPicking(null); createRef.current = null; }
-  }, [picking, nav.pending, choices.length]);
+    if (picking !== "root") return;
+    const settled = settleRootPicker(nav.pending, nav.failed, rootTargets.length);
+    if (settled === "wait" || settled === "pick") return;
+    const create = createRef.current, root = pendingRoot.current;
+    setPicking(null); createRef.current = null; pendingRoot.current = null;
+    if (settled === "refuse") toast.error(t("lawoss.practice.refused", locale));
+    else if (create && root) create(root);
+  }, [picking, nav.pending, nav.failed, rootTargets.length, locale]);
+  const close = () => { setPicking(null); createRef.current = null; pendingRoot.current = null; };
   const pick = (choice: ClientChoice) => {
     setPicking(null);
+    pendingRoot.current = null;
     const target = pickerChoices.find((c) => c.id === choice.id);
     if (target && createRef.current) start(target, createRef.current);
     createRef.current = null;
   };
   return <ClientNavContext.Provider value={{ ...snapshot, tree, open, setOpen, focused, startNewChat }}>
     {children}
-    <ClientPickerDialog open={picking !== null} purpose="ask" choices={pickerChoices} loading={picking === "all" && nav.pending} activeId={nav.connection?.activeWorkspaceId}
+    <ClientPickerDialog open={picking !== null} purpose="ask" choices={pickerChoices} loading={picking !== null && nav.pending} activeId={nav.connection?.activeWorkspaceId}
       preferenceScope={clientPreferenceScope(nav.scope, nav.connection?.baseUrl)} locale={locale}
-      onClose={() => { setPicking(null); createRef.current = null; }} onPick={pick} />
+      empty={picking === "all" ? <EmptyChoices locale={locale} onAdd={close} failed={nav.failed} /> : null}
+      onClose={close} onPick={pick} />
   </ClientNavContext.Provider>;
 }
 
+/** Výber všetkých klientov dočítaný bez klientov: povedať to a ponúknuť Pridať klienta (nie prázdne okno). */
+function EmptyChoices({ locale, onAdd, failed }: { locale: Language; onAdd: () => void; failed: boolean }) {
+  return <div className="grid gap-2 text-sm" data-lawoss-client-picker-empty="">
+    <p role="status">{t(failed ? "lawoss.practice.refused" : "lawoss.lite.client_pick_empty", locale)}</p>
+    {failed ? null : <Button variant="outline" className="justify-self-start" render={<Link to={NEW_CLIENT_PATH} onClick={onAdd} />}>{t("lawoss.lite.add_client", locale)}</Button>}
+  </div>;
+}
+
 /**
- * Chat u registrovaného klienta praxe (#168, ako `openClientChat`): prax je tá istá, priečinok rozsahu, v ktorom
- * klient leží (on sám alebo koreň praxe), sa práve čerstvo prečítal a klient je stále registrovaný. Bez praxe
- * (jeden priečinok, žiadny koreň) natívne správanie ako v #168 („Opýtať sa“ bez praxe neoveruje).
+ * Chat u registrovaného klienta praxe (#168, ako `openClientChat`). Overí, že prax je tá istá (spojenie a rozsah
+ * zo servera), že klient leží v člene rozsahu, ktorý sa práve čerstvo prečítal, a že je stále registrovaný.
+ * Člen rozsahu je klient sám, ak je priečinkom najvyššej úrovne praxe; vnorený registrovaný klient (napr. v
+ * registrovanom koreni, „jeden priečinok pre všetko“) sa overí čítaním koreňa, jeho vlastný priečinok sa zvlášť
+ * nečíta. Bez známeho koreňa praxe (jeden priečinok) sa neoveruje nič, ako v #168 („Opýtať sa“ bez praxe).
  */
-export async function revalidateClientProject(scope: OkfScope | null, connection: OkfConnection | null, workspaceId: string): Promise<void> {
-  if (!scope?.practiceRoot) return;
-  if (!connection) throw new Error("client_workspace_unavailable");
+export async function revalidateClientProject(check: RecheckTarget, workspaceId: string): Promise<void> {
+  if (!check.practice) return;
+  const { scope, connection } = check;
+  if (!scope || !connection) throw new Error("client_workspace_unavailable");
   const project = connection.workspaces.find((w) => w.id === workspaceId);
   const member = project?.path ? scope.members.find((m) => m.workspace.id === workspaceId || (m.workspace.path && within(comparable(m.workspace.path), comparable(project.path)))) : undefined;
   if (!member) throw new Error("client_workspace_unavailable");

@@ -13,11 +13,11 @@ import { groupByClient, nextDeadline, type ClientGroup } from "../today-model";
 import { ATTACH_EXISTING_CLIENT_PATH, LITE_CLIENTS_PATH, liteMatterLink, NEW_CLIENT_PATH } from "../links";
 import { clientPreferenceScope, clientRootOf, practiceClientChoices, type ClientChoice } from "../client-choice";
 import { NewMatterAction } from "../client-picker";
-import { useClientConversations } from "../client-tree-data";
+import { conversationFailureKey, openCheckedConversation, useClientConversations } from "../client-tree-data";
 import type { ConversationList } from "../client-tree";
-import { openMatterConversation, type MatterConversation } from "../matter-conversations";
+import type { MatterConversation } from "../matter-conversations";
 import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
-import { revalidateScopeTarget } from "../../okf/scope-target";
+import { toast } from "@/components/ui/sonner";
 import { TriageEntry } from "../../domains/roztriedenie/triage-entry";
 import { hotDeadlineCount, LiveStamp, matterUrgency, useHotTitle, useMinuteTick } from "../live";
 import "./okf-glass.css";
@@ -51,13 +51,11 @@ function ClientsLive({ data, meta, scope, locale }: { data: OkfReadResult; meta:
     // Ako strom: druhý klik počas aktivácie priečinka nič nespustí.
     if (opening.current) return;
     opening.current = true;
-    // #168: priečinok sa aktivuje len po overení praxe a čerstvého zdroja; inak natívna trasa chatu bez aktivácie.
-    revalidateScopeTarget(scope, connection, conversation.workspaceId)
-      .then((current) => openMatterConversation(current.connection, conversation))
-      .then((to) => navigate(to)).catch((failure: unknown) => {
-        console.warn("LAWOSS-lite: client conversation", failure);
-        navigate(fallback);
-      }).finally(() => { opening.current = false; });
+    // #168: priečinok sa aktivuje len po overení praxe a čerstvého zdroja. Pri chybe sa chat neotvorí: jeho trasa
+    // by priečinok aktivovala bez overenia. Advokát dostane vetu (odmietnutie overenia alebo všeobecná chyba).
+    openCheckedConversation(conversation, { scope, connection })
+      .then((result) => { if (result.kind === "open") navigate(result.to); else toast.error(t(conversationFailureKey(result), locale)); })
+      .finally(() => { opening.current = false; });
   };
   return <ClientsView groups={groups} meta={meta} locale={locale} actions={<TriageEntry />}
     choices={choices} preferenceScope={clientPreferenceScope(scope, connection?.baseUrl)} activeId={connection?.activeWorkspaceId} clientRoot={clientRoot} focus={focus}

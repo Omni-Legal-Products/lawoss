@@ -84,9 +84,26 @@ export function forgetProjectOverride(overrides: Readonly<Record<string, boolean
 
 /** Čo urobí „Nový chat“ bez otvoreného projektu: natívne správanie (Pokročilý, žiadny klient), rovno jediný klient, alebo výber. */
 export type NewChatAction = { kind: "native" } | { kind: "create"; target: NewChatTarget } | { kind: "pick" };
-export function newChatAction(mode: "lite" | "pro", choices: readonly NewChatTarget[]): NewChatAction {
+/**
+ * `context`: klient z trasy (detail prípadu `?vec=`, prehľad klienta `?klient=`, chat v priečinku klienta). Tieto
+ * stránky nemajú otvorený projekt, preto sa kontext trasy uplatní aj tu: chat rovno u toho klienta, bez výberu.
+ */
+export function newChatAction(mode: "lite" | "pro", choices: readonly NewChatTarget[], context?: NewChatTarget): NewChatAction {
   if (mode !== "lite" || choices.length === 0) return { kind: "native" };
+  if (context) return { kind: "create", target: context };
   return choices.length === 1 ? { kind: "create", target: choices[0] } : { kind: "pick" };
+}
+
+/**
+ * Voľba „Nového chatu“ pre klienta z kontextu trasy: klient v koreni praxe podľa kľúča skupiny, registrovaný
+ * klient podľa projektu, ktorý jeho skupinu vlastní. Neznámy kľúč alebo klient mimo volieb = žiadna.
+ */
+export function contextChoice(choices: readonly NewChatTarget[], contextKey: string | undefined, ownerOf: ReadonlyMap<string, string>): NewChatTarget | undefined {
+  if (!contextKey) return undefined;
+  const byKey = choices.find((c) => c.key === contextKey);
+  if (byKey) return byKey;
+  const owner = ownerOf.get(contextKey);
+  return owner ? choices.find((c) => c.folder === undefined && c.workspaceId === owner) : undefined;
 }
 
 /**
@@ -94,9 +111,29 @@ export function newChatAction(mode: "lite" | "pro", choices: readonly NewChatTar
  * (rozhodnutie MČ 19. 10. 2026). Kontext trasy (chat v priečinku klienta, vec, prehľad klienta) založí chat
  * u toho klienta, inak výber klientov koreňa. `null` = obyčajný projekt alebo Pokročilý režim: natívne.
  */
-export function projectNewChatAction(mode: "lite" | "pro", openProjectId: string, rootId: string | null, rootTargets: readonly NewChatTarget[], contextKey?: string): NewChatAction | null {
-  if (mode !== "lite" || openProjectId !== rootId || rootTargets.length === 0) return null;
+export function projectNewChatAction(mode: "lite" | "pro", openProjectId: string, rootId: string | null, rootTargets: readonly NewChatTarget[], contextKey?: string, pending = false): NewChatAction | null {
+  if (mode !== "lite" || openProjectId !== rootId) return null;
+  // R1(a): prehľad koreňa sa ešte číta, klienti nie sú známi: výber s čakaním, nie natívny chat nad celou praxou.
+  if (rootTargets.length === 0) return pending ? { kind: "pick" } : null;
   const target = contextKey ? rootTargets.find((t) => t.key === contextKey) : undefined;
   if (target) return { kind: "create", target };
   return rootTargets.length === 1 ? { kind: "create", target: rootTargets[0] } : { kind: "pick" };
+}
+
+/**
+ * Výber v koreni praxe otvorený počas čítania (R1(a)), keď čítanie skončí: klienti sú = výber; žiadni klienti
+ * z OKF = obyčajný projekt, natívny chat v ňom; prehľad sa nedal prečítať = nič sa nezaloží (odmietnutie).
+ */
+export function settleRootPicker(pending: boolean, failed: boolean, rootTargets: number): "wait" | "pick" | "native" | "refuse" {
+  if (pending) return "wait";
+  if (rootTargets > 0) return "pick";
+  return failed ? "refuse" : "native";
+}
+
+/**
+ * Číta sa ešte niečo, na čo „Nový chat“ čaká: spojenie, koreň praxe (s kotvou) alebo prehľad známeho rozsahu.
+ * Bez rozsahu (žiadny priečinok, teda nič na čítanie) a po chybe sa nečaká, inak by výber s čakaním nezavrel.
+ */
+export function clientNavPending(state: { connectionLoading: boolean; failed: boolean; scopePending: boolean; scope: boolean; data: boolean }): boolean {
+  return !state.failed && (state.connectionLoading || state.scopePending || (state.scope && !state.data));
 }

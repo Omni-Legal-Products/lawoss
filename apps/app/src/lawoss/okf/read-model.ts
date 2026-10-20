@@ -357,9 +357,13 @@ const safeAbsolute = (path: string): boolean => {
   const normalized = queryPath(path);
   return path === path.trim() && /^(?:[A-Za-z]:\/|\/)/.test(normalized) && !normalized.split("/").some(p => p === "." || p === "..") && !normalized.replace(/^\/\//, "/").includes("//");
 };
-const pathIdentity = (path: string): string => /^(?:[A-Za-z]:|\/\/)/.test(queryPath(path)) ? queryPath(path).toLowerCase() : queryPath(path);
+/** Totožnosť cesty: NFC (macOS môže vrátiť názov priečinka v NFD), na Windows bez rozlíšenia veľkosti písmen. */
+const pathIdentity = (path: string): string => {
+  const normalized = queryPath(path).normalize("NFC");
+  return /^(?:[A-Za-z]:|\/\/)/.test(normalized) ? normalized.toLowerCase() : normalized;
+};
 export function okfScopeKey(scope: OkfScope): string {
-  return JSON.stringify([scope.practiceRoot ? pathIdentity(scope.practiceRoot) : null, scope.members.map(m => [m.workspace.id, pathIdentity(m.workspace.path), m.prefix, m.workspace.workspaceType ?? "local"]).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
+  return JSON.stringify([scope.practiceRoot ? pathIdentity(scope.practiceRoot) : null, scope.members.map(m => [m.workspace.id, pathIdentity(m.workspace.path), m.prefix.normalize("NFC"), m.workspace.workspaceType ?? "local"]).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
 }
 export function excludedWorkspaceIds(workspaces: readonly RouteWorkspace[], scope: OkfScope | null): string[] {
   return workspaces.filter(w => !scope?.members.some(m => m.workspace.id === w.id || (w.workspaceType !== "remote" && within(m.workspace.path, w.path)))).map(w => w.id).sort();

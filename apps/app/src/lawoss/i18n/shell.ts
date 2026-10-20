@@ -10,6 +10,8 @@ export const shellEn = {
   "lawoss.practice.stale": "Last successful read",
   "lawoss.practice.unavailable": "Unavailable",
   "lawoss.practice.truncated": "Truncated",
+  "lawoss.practice.refused": "This client could not be verified right now: the practice changed or its folder could not be read completely. Refresh the overview and try again.",
+  "lawoss.lite.client_pick_empty": "Add a client first.",
 
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Sort documents",
@@ -324,6 +326,8 @@ export const shellCs = {
   "lawoss.practice.stale": "Poslední úspěšné čtení",
   "lawoss.practice.unavailable": "Nedostupné",
   "lawoss.practice.truncated": "Neúplné čtení",
+  "lawoss.practice.refused": "Klienta se teď nepodařilo ověřit: praxe se změnila nebo se jeho složku nepodařilo přečíst celou. Obnovte přehled a zkuste to znovu.",
+  "lawoss.lite.client_pick_empty": "Nejprve přidejte klienta.",
 
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Roztřídit dokumenty",
@@ -637,6 +641,8 @@ export const shellSk = {
   "lawoss.practice.stale": "Posledné úspešné čítanie",
   "lawoss.practice.unavailable": "Nedostupné",
   "lawoss.practice.truncated": "Neúplné čítanie",
+  "lawoss.practice.refused": "Klienta sa teraz nepodarilo overiť: prax sa zmenila alebo sa jeho priečinok nepodarilo prečítať celý. Obnovte prehľad a skúste to znova.",
+  "lawoss.lite.client_pick_empty": "Najprv pridajte klienta.",
 
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Roztriediť dokumenty",
@@ -950,6 +956,8 @@ export const shellDe = {
   "lawoss.practice.stale": "Letzte erfolgreiche Abfrage",
   "lawoss.practice.unavailable": "Nicht verfügbar",
   "lawoss.practice.truncated": "Unvollständige Abfrage",
+  "lawoss.practice.refused": "Dieser Mandant konnte gerade nicht geprüft werden: Die Kanzlei hat sich geändert oder sein Ordner konnte nicht vollständig gelesen werden. Aktualisieren Sie die Übersicht und versuchen Sie es erneut.",
+  "lawoss.lite.client_pick_empty": "Fügen Sie zuerst einen Mandanten hinzu.",
 
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Dokumente sortieren",

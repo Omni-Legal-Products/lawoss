@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { shellCs, shellSk } from "../src/lawoss/i18n/shell";
 import { mattersCs, mattersSk } from "../src/lawoss/i18n/matters";
 import { setupCs, setupSk } from "../src/lawoss/i18n/setup";
@@ -120,6 +122,19 @@ describe("Prípad namiesto veci (SK, CS)", () => {
     expect(notes).toContain("názov priečinka sa líši od názvu prípadu „MSPH 79 INS 1/2026“ — upravený na jeden segment");
     expect(notes).toContain("doplň krajinu; jurisdikcia prípadu ju nenahrádza");
     expect(notes.filter((note) => OLD.test(note))).toEqual([]);
+  });
+
+  test("texty v zdrojoch Lehôt a AI (postup lehôt, poučenie o AI) nehovoria o veci", () => {
+    // Texty tu nie sú v slovníkoch (pomocník `copy`, objekt textov), preto sa číta zdroj bez komentárov.
+    const root = join(import.meta.dir, "../src/lawoss/domains");
+    const hits: string[] = [];
+    for (const dir of ["lehoty", "ai"]) {
+      for (const name of readdirSync(join(root, dir)).filter((file) => /\.tsx?$/.test(file))) {
+        const code = readFileSync(join(root, dir, name), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+        code.split("\n").forEach((line, index) => { if (OLD.test(line)) hits.push(`${dir}/${name}:${index + 1}: ${line.trim().slice(0, 120)}`); });
+      }
+    }
+    expect(hits).toEqual([]);
   });
 
   test("problémy pri čítaní pamäte", async () => {

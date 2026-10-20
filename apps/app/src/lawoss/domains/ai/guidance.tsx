@@ -8,7 +8,7 @@ import { resolveLegalworkConnection, type ResolvedLegalworkConnection } from "@/
 
 const copy: Record<Language, {title: string; remote: string; reading: string; profile: string; action: string; blocked: string; bounded: string; acknowledge: string; saved: string; failed: string; jurisdiction: string}> = {
   cs: {
-    bounded: "Zpracování vybraných dokumentů má samostatný podmíněný režim: výslovně vyberete existující posouzený profil věci pro nastavený účet a model. Hostitel zkontroluje konkrétní složku, zdroje a každý úplný přenos. Nové právní schválení zde vytvořit nelze; bez profilu pokračujte ručně. Syntetický test na doslovné loopback adrese vyžaduje samostatné potvrzení hostitele a nevytváří klientské oprávnění.",
+    bounded: "Zpracování vybraných dokumentů má samostatný podmíněný režim: výslovně vyberete existující posouzený profil případu pro nastavený účet a model. Hostitel zkontroluje konkrétní složku, zdroje a každý úplný přenos. Nové právní schválení zde vytvořit nelze; bez profilu pokračujte ručně. Syntetický test na doslovné loopback adrese vyžaduje samostatné potvrzení hostitele a nevytváří klientské oprávnění.",
     title: "AI a chráněné údaje",
     remote: "Vzdálená AI předává obsah i odvozené údaje mimo zařízení. Označení místního modelu nebo adresa localhost samy nedokládají místní zpracování.",
     reading: "Potvrzení přečtení zaznamená pouze tuto informaci. Nenahrazuje souhlas klienta, DPA ani posouzení konkrétní služby.",
@@ -18,7 +18,7 @@ const copy: Record<Language, {title: string; remote: string; reading: string; pr
     jurisdiction: "Jurisdikce informace", acknowledge: "Přečetl/a jsem informaci", saved: "Přečtení zaznamenáno. Povolení AI tím nevzniká.", failed: "Přečtení se nepodařilo zaznamenat na tomto zařízení.",
   },
   sk: {
-    bounded: "Spracovanie vybraných dokumentov má samostatný podmienený režim: výslovne vyberiete existujúci posúdený profil veci pre nastavený účet a model. Hostiteľ skontroluje konkrétny priečinok, zdroje a každý úplný prenos. Nové právne schválenie tu vytvoriť nemožno; bez profilu pokračujte ručne. Syntetický test na doslovnej loopback adrese vyžaduje samostatné potvrdenie hostiteľa a nevytvára klientské oprávnenie.",
+    bounded: "Spracovanie vybraných dokumentov má samostatný podmienený režim: výslovne vyberiete existujúci posúdený profil prípadu pre nastavený účet a model. Hostiteľ skontroluje konkrétny priečinok, zdroje a každý úplný prenos. Nové právne schválenie tu vytvoriť nemožno; bez profilu pokračujte ručne. Syntetický test na doslovnej loopback adrese vyžaduje samostatné potvrdenie hostiteľa a nevytvára klientské oprávnenie.",
     title: "AI a chránené údaje",
     remote: "Vzdialená AI odovzdáva obsah aj odvodené údaje mimo zariadenia. Označenie miestneho modelu alebo adresa localhost samy nedokladajú miestne spracovanie.",
     reading: "Potvrdenie prečítania zaznamená iba túto informáciu. Nenahrádza súhlas klienta, DPA ani posúdenie konkrétnej služby.",

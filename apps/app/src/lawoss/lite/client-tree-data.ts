@@ -6,13 +6,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import type { Language } from "@/i18n";
 import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import type { MatterOverview } from "../../../../../lawoss/okf/read";
 import type { OkfConnection } from "../okf/connection";
 import { openMatterSession } from "../okf/matter-session";
 import { canActOnSource, localMatter, locateInScope, type OkfReadResult, type OkfScope } from "../okf/read-model";
-import { revalidateScopeTarget } from "../okf/scope-target";
+import { t, type Language } from "@/i18n";
+import { toast } from "@/components/ui/sonner";
+import { isScopeRefusal, revalidateScopeTarget, type RecheckTarget } from "../okf/scope-target";
 import { buildClientTree, clearFocusOverrides, clientFolderFor, clientToggle, directoryFocus, fetchPlan, matterSource, routeFocus, sessionFocus, type ConversationList, type TreeFocus } from "./client-tree";
 import { liteMatterLink } from "./links";
 import {
@@ -68,6 +69,8 @@ function matterList(states: ReadonlyMap<string, FolderState>, root: Folder | nul
 export type ClientTreeOptions = {
   sessionDirectory?: (workspaceId: string, sessionId: string) => string | null | undefined;
   closedFor?: (focus: Pick<TreeFocus, "client" | "matter">) => ReadonlySet<string>;
+  /** Spojenie a rozsah na overenie pred akciou (#168); bez neho sa overuje tým, čo strom zobrazuje. */
+  recheck?: RecheckTarget;
 };
 
 export const SESSION_DIRECTORY_KEY = "lite-session-directory";
@@ -179,12 +182,15 @@ export function useClientTree(connection: OkfConnection | null, scope: OkfScope 
     },
   });
   const toggle = useCallback((key: string, expanded: boolean) => setOverrides((prev) => ({ ...prev, [key]: !expanded })), []);
+  const check = options.recheck ?? { connection, scope, practice: Boolean(scope?.practiceRoot) };
   const run = (work: () => Promise<string>, fallback: string, explain = false) => {
     if (running.current) return;
     running.current = true;
     work().then((to) => navigate(to)).catch((failure: unknown) => {
       console.warn("LAWOSS-lite: tree conversation", failure);
-      // Záloha: konverzácia bez aktivácie, alebo detail veci, ktorý povie, že sa rozhovor neotvoril (a čo chýba, napr. model).
+      // #168: overenie praxe alebo klienta zlyhalo → nič sa neotvorí ani neaktivuje, advokát dostane vetu.
+      if (isScopeRefusal(failure)) { toast.error(t("lawoss.practice.refused", locale)); return; }
+      // Záloha: detail prípadu, ktorý povie, že sa rozhovor neotvoril (a čo chýba, napr. model).
       navigate(fallback, explain ? { state: TREE_FAILURE_STATE } : undefined);
     }).finally(() => { running.current = false; });
   };
@@ -192,8 +198,11 @@ export function useClientTree(connection: OkfConnection | null, scope: OkfScope 
     const route = workspaceSessionRoute(conversation.workspaceId, conversation.id);
     // Bez spojenia alebo aktivácie (napr. mimo desktopu) aspoň otvoriť konverzáciu; priečinok vyberie jej trasa.
     if (!connection) { navigate(route); return; }
-    // #168: priečinok sa aktivuje len po overení praxe a čerstvého zdroja; inak záloha bez aktivácie.
-    run(async () => openMatterConversation((await revalidateScopeTarget(scope, connection, conversation.workspaceId)).connection, conversation), route);
+    if (running.current) return;
+    running.current = true;
+    openCheckedConversation(conversation, { scope: check.scope, connection: check.connection ?? connection })
+      .then((result) => { if (result.kind === "open") navigate(result.to); else toast.error(t(conversationFailureKey(result), locale)); })
+      .finally(() => { running.current = false; });
   };
   /** Ako rýchla akcia na detaile veci: nová konverzácia v priečinku veci u jej klienta, s konceptom (nič sa neodošle). */
   const newConversation = (path: string) => {
@@ -203,11 +212,34 @@ export function useClientTree(connection: OkfConnection | null, scope: OkfScope 
     const prompt = composeQuickAction("open", { title: matter.title, matterRef: matter.matterRef, path: local.selected.path }, locale);
     // #168: pred založením overiť prax a čerstvý zdroj klienta (ako rýchla akcia na detaile prípadu).
     run(async () => {
-      const current = await revalidateScopeTarget(scope, connection, local.workspace.id);
+      const current = await revalidateScopeTarget(check.scope, check.connection ?? connection, local.workspace.id);
       return openMatterSession(current.connection, current.workspace, local.selected, local.discovered, prompt);
     }, liteMatterLink(path), true);
   };
   return { nodes, focus, toggle, openConversation, newConversation };
+}
+
+/** Výsledok otvorenia existujúceho chatu: trasa, odmietnuté overenie (#168), alebo iná chyba. */
+export type ConversationOpen = { kind: "open"; to: string } | { kind: "refused" } | { kind: "failed" };
+export const conversationFailureKey = (result: Exclude<ConversationOpen, { kind: "open" }>): string =>
+  result.kind === "refused" ? "lawoss.practice.refused" : "lawoss.lite.action_error_generic";
+
+/**
+ * Existujúci chat zo stromu alebo z prehľadu klienta (#168): najprv overenie praxe, klienta a čerstvého zdroja,
+ * potom aktivácia jeho priečinka. Pri akejkoľvek chybe žiadna trasa: trasa chatu by priečinok aktivovala bez overenia.
+ */
+export async function openCheckedConversation(
+  conversation: MatterConversation,
+  check: { scope: OkfScope | null; connection: OkfConnection },
+  deps: { revalidate: typeof revalidateScopeTarget; open: typeof openMatterConversation } = { revalidate: revalidateScopeTarget, open: openMatterConversation },
+): Promise<ConversationOpen> {
+  try {
+    const current = await deps.revalidate(check.scope, check.connection, conversation.workspaceId);
+    return { kind: "open", to: await deps.open(current.connection, conversation) };
+  } catch (failure) {
+    console.warn("LAWOSS-lite: open conversation", failure);
+    return isScopeRefusal(failure) ? { kind: "refused" } : { kind: "failed" };
+  }
 }
 
 /** Všetky rozhovory veci pre jej detail, z toho istého výpisu ako strom. */
