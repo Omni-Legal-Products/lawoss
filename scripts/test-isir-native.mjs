@@ -404,6 +404,7 @@ try {
       approvalScopes.set(workspace.id, expectation); protectedApprovals.expectOperation(expectation);
     }
     const provisionStartedAtMs=Date.now(), nativeReviewStart=protectedApprovals?.receipts.length??0;
+    diagnostics.provisioningStart(index+1,cdp.events,cdp.events.length,{origin:serverInfo.baseUrl,workspaceId:workspace.id});
     await click('Generate through chat');
     // Cold VM provisioning and the initial complete-source native review precede
     // inference. Preserve the separate existing 90-second generation oracle.
