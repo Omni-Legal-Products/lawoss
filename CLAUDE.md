@@ -339,3 +339,5 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Multiple listeners for one config must respect the active session claim, refresh historical authority from serialized storage and retain failed teardown ownership. Release a claim and worker slot only after checkpoint, stop and disposal succeed; reserve capacity before startup and evict only an actually idle worker.
 
 - A failed optional build-cache save does not establish a runtime defect. If cache acquisition/pruning blocks a platform, retain its original failure, isolate the cache workaround to that platform, and require fresh compilation plus all original acceptance gates.
+
+- Verify repeated Office development builds separately from cold builds. Keep the last bundle while serial fresh compiler processes bound retained build memory; coalesce changes during compilation, include configuration/shared-package inputs, and drain the owned compiler on shutdown without overriding NODE_OPTIONS.

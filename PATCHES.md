@@ -6,6 +6,12 @@
 | --- | --- |
 | `apps/app/vite.wordaddin.config.ts` | Plugin `lawoss-office-editor-stub` (`enforce: "pre"`) presmeruje importy `artifact-xlsx-editor` a `artifact-pptx-editor` na nový LAWOSS súbor `apps/app/src/lawoss/word-addin/office-editor-stub.tsx`. Ten má rovnaké props a namiesto editora ukáže lokalizovanú výzvu otvoriť súbor v aplikácii LAWOSS. Agentovi hneď vracia jasnú chybu namiesto minútového čakania na načítanie. Zmena platí pre `dev:word-addin` aj pre dodávaný `build:word-addin`. Desktopová aplikácia editory nemení. Dôvod: taskpane montuje celý `SessionRoute`, takže Rollup parsoval aj lazy editory (Univer ~15 MB, pptx-react-viewer ~14,6 MB kódu) a watch build po syncoch v0.2.4 a v0.2.9 padal na „JavaScript heap out of memory“. Meranie na `d12701a7`, Node 24.21, `vite build --watch`: 10 727 → 8 094 modulov, peak heapUsed 4,64 GB → 2,79 GB (predvolený limit 4 288 MB), prvý build (Vite „built in“) 39 s → 22 s. Zmenu správania schválil MČ 20. 10. 2026. |
 
+## Pamäť opakovaného Office buildu (2026-10-21)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/package.json`, `apps/app/scripts/word-addin-watch{,.test}.mjs`, `.github/workflows/ci-tests.yml` | Na `5aded641` prvý `vite build --watch` prešiel, druhý po obyčajnom dotyku stubu vyčerpal predvolený4288MiB heap. Ani experiment s vyprázdnením Rollup module-cache nepomohol. `dev:word-addin` teraz sleduje zdroje, verejné súbory, zdieľané zdroje a skutočné konfigurácie; každý sériový build má nový Node proces. Predchádzajúci bundle ostáva dostupný; úpravy počas buildu sa zlúčia do ďalšieho, chyba je viditeľná a ďalšia úprava ju môže opraviť. Nemení NODE_OPTIONS, produkčný build ani rozsah editorov z #193. Cena: studená kompilácia pri každej úprave. Skutočný prvý build a dve prestavby prešli v troch PID pri predvolenom heape; Node regresie fronty, config vstupov a obnovy bežia aj v CI. |
+
 ## Studený štart enginu na Windows (2026-10-19)
 
 | Súbory | Downstream doplnenie a dôvod |

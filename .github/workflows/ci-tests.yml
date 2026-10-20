@@ -128,7 +128,7 @@ jobs:
         run: node --test apps/desktop/electron/runtime-embedded-auth.node.test.mjs
 
       - name: Verify native ISIR bootstrap, diagnostics and owned resources
-        run: node --test lawoss/testing/isir/native/*.test.mjs
+        run: node --test lawoss/testing/isir/native/*.test.mjs apps/app/scripts/word-addin-watch.test.mjs
 
       # LAWOSS: server/dist musí fungovať aj v rozložení app.asar, kde koreňový lawoss/ chýba.
       - name: Verify packaged server modules load

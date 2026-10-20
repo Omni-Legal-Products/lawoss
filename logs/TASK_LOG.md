@@ -23,3 +23,11 @@ Candidate app:2867pass/2platformskip/0fail; strict app typecheck and both i18n c
 Default-heap Office production build passed (8119 transformed modules; stub present, no pptx/Univer editor chunk). Watch initial/rebuild in progress.
 Ruling: a new independent dev run39501263644 failed before packaging in WindowsARM64 MSYS2 optional cache-save paccache(exit127), despite pacman-contrib installation. Disable optional cache only for ARM64 using the action's documented input; do not claim a runtime fix or weaken compiler/native gates.
 Checks: attempted nonexistent ci-matrix.test.mjs (not a passing test); replaced with direct execution assertions over the actual exported sandboxMatrices plus YAML validation.
+
+Watch finding correction: the initial default-heap build passed in57646ms (8119 modules). Touching unchanged stub triggered a second build, which OOMed near4025MiB with4288MiB heap limit. Historical193 cold-build measurement is not watch-rebuild acceptance. Investigating retained Rollup module-cache lifetime with a bounded independent experiment; no heap increase.
+Full server candidate run:2996pass/81skip/4fail (capacity30000ms, managed idle close, late response ownership, wiki deletion sync). Isolated original four-file replay:56pass/1skip/0fail. Original full failure retained; replay is diagnostic, not replacement acceptance.
+Existing actual matrix test scripts/ci/sandbox-matrix.test.mjs:4pass, independently confirmed by reviewer.
+
+Office watcher: cache-clear hypothesis rejected by second-buildOOM; fresh serial compiler experiment passes initial+2rebuilds at4288MiB (PIDs31524/31987/32405). Unit3pass; actual CLI shutdown exits0, captured3processes,0survivors. Fresh review resolved config-input and fatal-exit findings; no remaining must-fix.
+Native local complete:10cases + attachment + negative + actual relaunch/reconnect/same IDs/allSHA; exit0 and clean owned shutdown. This does not identify the original CI500.
+Toolchain mismatch found: prior local Bun1.4.0, CI1.4.2; previous source-suite results remain diagnostic, not matching-CI acceptance. Recheck on pinned binary.
