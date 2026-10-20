@@ -3,8 +3,9 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { compileCMakeJsAddon, ensureNodeDistribution } from "./windows-arm64-speech-compile.mjs";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -65,11 +66,48 @@ try {
   // Upstream's addon CMake file passes Unix rpath flags to every platform.
   const cmake = path.join(addon, "CMakeLists.txt");
   await writeFile(cmake, (await readFile(cmake, "utf8")).replace(/^\s*-Wl,-rpath,.*$/gm, ""));
-  run(process.execPath, [require.resolve("cmake-js/bin/cmake-js"), "compile", "--directory", addon, "--arch", "arm64", "--CDCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"], {
-    env: { ...process.env, SHERPA_ONNX_INSTALL_DIR: native, NODE_PATH: path.join(desktop, "node_modules") },
-  });
+  const previousSherpa = process.env.SHERPA_ONNX_INSTALL_DIR;
+  const previousNodePath = process.env.NODE_PATH;
+  process.env.SHERPA_ONNX_INSTALL_DIR = native;
+  process.env.NODE_PATH = path.join(desktop, "node_modules");
+  const artifact = path.join(addon, "build", "Release", "sherpa-onnx.node");
+  try {
+    await ensureNodeDistribution({
+      version: process.versions.node,
+      arch: "arm64",
+      home: homedir(),
+      fetchFile: async (url) => {
+        const response = await fetch(url, { signal: AbortSignal.timeout(120_000) });
+        if (!response.ok) throw new Error(`Speech dependency download failed: HTTP ${response.status}`);
+        return Buffer.from(await response.arrayBuffer());
+      },
+      extractArchive: async (bytes, dest) => {
+        const archive = path.join(dest, "node-headers.tar.gz");
+        await writeFile(archive, bytes);
+        const tar = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
+        run(tar, ["-xf", "node-headers.tar.gz", "--strip-components=1"], { cwd: dest });
+        await rm(archive, { force: true });
+      },
+    });
+    const cmakeJs = require("cmake-js");
+    await compileCMakeJsAddon({
+      compile: () => new cmakeJs.BuildSystem({
+        directory: addon,
+        arch: "arm64",
+        cMakeOptions: { CMAKE_MSVC_RUNTIME_LIBRARY: "MultiThreaded" },
+      }).compile(),
+      artifactExists: async () => {
+        try { await access(artifact); return true; } catch { return false; }
+      },
+    });
+  } finally {
+    if (previousSherpa === undefined) delete process.env.SHERPA_ONNX_INSTALL_DIR;
+    else process.env.SHERPA_ONNX_INSTALL_DIR = previousSherpa;
+    if (previousNodePath === undefined) delete process.env.NODE_PATH;
+    else process.env.NODE_PATH = previousNodePath;
+  }
   const destination = path.dirname(require.resolve("sherpa-onnx-node/package.json"));
-  await copyFile(path.join(addon, "build/Release/sherpa-onnx.node"), path.join(destination, "sherpa-onnx.node"));
+  await copyFile(artifact, path.join(destination, "sherpa-onnx.node"));
   for (const name of await readdir(path.join(native, "lib"))) {
     if (name.endsWith(".dll")) await copyFile(path.join(native, "lib", name), path.join(destination, name));
   }

@@ -250,13 +250,16 @@ jobs:
       # pamäťou a kanonickými cestami. Explicitné ./src cesty fungujú aj
       # na Windows a nevložia Node helpery do Bun; dist zostavujeme až potom.
       # lawoss-path-containment: workspace v koreni disku (subst) a zdieľania (net share).
+      # Job 118335222340 (2026-10-19) killed 14 tests at the 5000ms default while
+      # work was still finishing: onboarding apply returned 200 after the abort,
+      # and project-sync siblings passed in 3873ms and 4638ms.
       - name: LAWOSS server (onboarding, register existing, triage, memory, paths, containment, reload watcher, process tree)
         id: windows_server_source
         working-directory: apps/server
         env:
           LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS: '1'
         run: >-
-          bun test
+          bun test --timeout 20000
           ./src/artifact-files.e2e.test.ts
           ./src/cloud-plugin-resources.test.ts
           ./src/cloud-plugins.test.ts
