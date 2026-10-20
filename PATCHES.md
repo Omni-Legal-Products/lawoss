@@ -13,6 +13,14 @@
 | `.github/workflows/ci-windows-portable.yml` | Krok serverových testov na Windows má `bun test --timeout 20000`. Dôvod: job `118335222340` (2026-10-19) prerušil 14 testov na predvolených 5000 ms. Onboarding `apply` vrátil 200 až po prerušení a susedné testy synchronizácie prešli za 3873 ms a 4638 ms. |
 | `apps/desktop/package.json`, `apps/server/src/agent-sandbox/runtime.test.ts` | Skript `test` desktopu spúšťa aj `electron/runtime-bootstrap-gate.test.mjs` a `scripts/windows-arm64-speech-compile.test.mjs`; serverový test sandboxu overí, že `shutdown()` nečaká na zrušený boot. Dôvod: pokrytie opráv vyššie v CI. |
 
+## Gemini provider failure outcomes (2026-10-18)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/package.json` | Explicitne bundluje aj standalone helper `provider-failure-observer.ts`; jeho plochý tsc výstup sa kopíruje mimo node_modules rovnako ako ostatné plugin súbory. Bez toho všetky štyri Package and launch platformy odmietli bare import `zod`. Guard zostáva nezmenený; postbuild Node regresia overuje skutočný detached helper a native test používa kópiu skutočného built capabilities pluginu. |
+| `apps/server/src/opencode-plugins/office-plugin-shared.ts`, `apps/app/src/react-app/infra/query-client.ts`, `apps/app/src/react-app/shell/session-route.tsx` | Diagnostická publikácia neblokuje EOF pôvodnej provider odpovede: najviac osem nezávislých úloh vlastní plugin, dispose ich zruší a odčerpá; workspace lookup zachová caller abort aj svoj timeout. Po trvalom zápise server oznámi sessions sync a existujúci shell invaliduje session snapshots; aktívne sa znovu načítajú a neaktívne ostávajú stale. |
+| `apps/server/src/opencode-plugins/legalwork-capabilities-knowledge.ts`, `apps/server/src/routes/sessions.ts`, `apps/server/src/wiki/agent-access.ts` | Existujúci managed plugin pripája privátny provider observation hook; nonce sa odstráni pred vzdialeným fetch. Úzko autorizovaný endpoint overí skutočný assistant/user/provider/model a ukladá iba konečný kód do app-owned runtime SQLite. Messages/snapshot zobrazia odmietnutie podpisu iba pri nedokončenom terminálnom idle ťahu, po reštarte rovnako; úspešný retry ani tool step sa neprepíše. Bez overeného witness sa prázdny Gemini ťah označí ako incomplete/unknown. Engine ostáva 1.18.29; opaque reasoning/signature ani engine DB sa nemenia. Toto je oprava pozorovateľnosti, príčina incidentov s podpisom zostáva otvorená. |
+
 ## Synthetic scenario benchmark completion and grading (2026-10-18)
 
 | Súbory | Downstream doplnenie a dôvod |
