@@ -1,3 +1,4 @@
+import { deadlinesEn } from "../../lawoss/i18n/deadlines";
 import { setupEn } from "../../lawoss/i18n/setup";
 import { initialEn } from "../../lawoss/i18n/initial";
 import { mattersEn } from "../../lawoss/i18n/matters";
@@ -3457,6 +3458,9 @@ export default {
   "settings.custom_binary_hint": "Use this to point LegalWork at a local OpenCode build",
   "settings.custom_binary_label": "Custom OpenCode binary",
   "settings.debug_base_url": "Base URL: {url}",
+  "settings.build_identity_embedded": "Embedded build identity",
+  "settings.build_identity_development": "Development checkout identity",
+  "settings.build_identity_unavailable": "Build identity unavailable",
   "settings.debug_commit": "Commit: {sha}",
   "settings.debug_connect_url": "Connect URL: {url}",
   "settings.debug_deeplink_unavailable": "Debug deeplinks are not yet available.",
@@ -5890,6 +5894,7 @@ export default {
   "boot.ready": "Ready",
   "boot.error": "Something went wrong",
   "boot.reload": "Reload",
+  "boot.retry": "Try again",
   "boot.collecting_logs": "Collecting logs...",
   "boot.collect_logs": "Collect logs for support",
   "reload.verb_removed": "was removed",
@@ -7057,4 +7062,5 @@ export default {
   "views.project_hint": "Dashboards and reports you chose to save in this project.",
   "views.no_saved_dashboards": "No saved dashboards yet. Create one in a chat, then choose Save and this project.",
   "views.report": "Report",
+  ...deadlinesEn,
 } as const;

@@ -1,6 +1,11 @@
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { onboardingErrorMessage } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
 import { incompleteInspectionMessage } from "../../../lawoss/okf/src/onboarding/messages";
+
+// Chyby onboardingu zapisujú surovú správu do konzoly; v teste je to len šum (review 6c).
+let quiet: ReturnType<typeof spyOn>;
+beforeEach(() => { quiet = spyOn(console, "warn").mockImplementation(() => undefined); });
+afterEach(() => { quiet.mockRestore(); });
 
 // Windows: dokument otvorený vo Worde či Outlooku zastaví náhľad onboardingu; advokát má vedieť, ktorý súbor zavrieť.
 test("a locked file from an incomplete inspection is explained in the UI language with its paths", () => {
@@ -22,7 +27,11 @@ test("a locked file from an incomplete inspection is explained in the UI languag
   const many = new Error(incompleteInspectionMessage("x", ["a", "b", "c", "d", "e", "f"].map((path) => ({ path, code: "locked_file" }))));
   expect(onboardingErrorMessage(many, "en")).toBe("Files are open in another application (for example Word) or cannot be accessed: a, b, c, d, e. Close them and try again.");
   expect(onboardingErrorMessage(many, "de")).toStartWith("Dateien sind in einer anderen Anwendung geöffnet");
-  // Bez zamknutého súboru ostáva správa servera so zoznamom problémov.
+  // Bez zamknutého súboru advokát dostane všeobecnú vetu, zoznam problémov ide do konzoly.
+  const warn = quiet;
+  warn.mockClear();
   const other = new Error(incompleteInspectionMessage("Source client could not be inspected completely.", [{ path: "a.pdf", code: "EIO" }]));
-  expect(onboardingErrorMessage(other, "sk")).toBe("Source client could not be inspected completely: a.pdf: EIO");
+  expect(onboardingErrorMessage(other, "sk")).toBe("Niečo sa nepodarilo. Skúste to znova, alebo vyberte iný priečinok.");
+  expect(onboardingErrorMessage(other, "en")).toBe("Something went wrong. Try again, or choose a different folder.");
+  expect(warn).toHaveBeenCalledTimes(2);
 });

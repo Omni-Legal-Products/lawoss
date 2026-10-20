@@ -60,6 +60,12 @@ async function canonicalDirectory(path: string): Promise<string> {
   return resolve(path);
 }
 
+/** Priečinok neexistuje (ani cesta k nemu); iná chyba (odkaz, prístup) sa rieši pri overení cesty. */
+async function missingDirectory(path: string): Promise<boolean> {
+  try { await lstat(path); return false; }
+  catch (error) { return error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR"); }
+}
+
 async function readJson(path: string): Promise<unknown> {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
@@ -86,6 +92,12 @@ async function writeJson(path: string, value: unknown, replace = false): Promise
   if (replace) { try { await rename(target, path); } catch (error) { await unlink(target); throw error; } }
 }
 
+export type OnboardingApplyCheckpoint =
+  | "ticket-enter" | "ticket-done" | "directories-enter" | "directories-done"
+  | "execute-enter" | "execute-done" | "receipt-enter" | "receipt-done"
+  | "register-enter" | "register-done" | "office-grant-enter" | "office-grant-done"
+  | "watchers-enter" | "watchers-done" | "profile-enter" | "profile-done";
+
 /** Host-only durable previews. The client confirms an immutable ticket, never supplies operations. */
 export function registerOnboardingRoutes(options: {
   routes: Route[]; config: ServerConfig;
@@ -94,8 +106,12 @@ export function registerOnboardingRoutes(options: {
   ensureWritable: (config: ServerConfig) => void;
   onWorkspacesChanged: () => void;
   serializeWorkspace: (workspace: WorkspaceInfo) => unknown;
+  applyCheckpoint?: (checkpoint: OnboardingApplyCheckpoint) => void;
 }): void {
   const { config } = options;
+  // Trusted embedding observation only: never supplied by HTTP/configuration and
+  // never allowed to change the operation, its durability or its error identity.
+  const checkpoint = (value: OnboardingApplyCheckpoint) => { try { options.applyCheckpoint?.(value); } catch { /* Observation is inert. */ } };
   const storage = join(runtimeStorageDir(config), "lawoss-onboarding");
   const profilePath = join(storage, "profile.json");
   const busy = new Set<string>();
@@ -113,9 +129,15 @@ export function registerOnboardingRoutes(options: {
   });
   route("GET", "status", async () => ({ profile: await readProfile(), capabilities: { map: true, trialClone: true } }));
   // Prehľad praxe (N1, MČ 16. 10. 2026): pamäť kancelárie v koreni praxe číta len hostiteľ, agent ju má cez grant.
-  route("GET", "office-memory", async () => {
+  route("GET", "office-memory", async ctx => {
+    const expected = new URL(ctx.request.url).searchParams.get("expectedPracticeRoot");
     const officeRoot = (await readProfile())?.officeRoot;
-    return officeRoot ? readOfficeMemory(await canonicalDirectory(officeRoot)) : { directory: null, files: [], problems: [], truncated: false };
+    const currentRoot = officeRoot ? await canonicalDirectory(officeRoot) : null;
+    const expectedRoot = expected ? await canonicalDirectory(expected).catch(() => null) : null;
+    if (!currentRoot || currentRoot !== expectedRoot) throw new ApiError(409, "practice_scope_changed", "The selected practice changed. Refresh the overview.");
+    const read = await readOfficeMemory(currentRoot, { signal: ctx.request.signal });
+    if ((await readProfile())?.officeRoot !== officeRoot) throw new ApiError(409, "practice_scope_changed", "The selected practice changed. Refresh the overview.");
+    return read;
   });
   route("POST", "profile", async ctx => {
     const rawPatch = profileSchema.partial().extend({ subjectRoot: z.string().min(1).max(4096).nullable().optional() }).parse(await body(ctx));
@@ -126,6 +148,11 @@ export function registerOnboardingRoutes(options: {
       const profile = profileSchema.parse({ ...previous, ...(changesClient ? { subjectRoot: undefined, matterRoot: undefined, trial: false } : {}), ...patch, version: 1 });
       for (const [key, level] of [["officeRoot", "office"], ["clientRoot", "client"], ["subjectRoot", "subject"], ["matterRoot", "matter"]] as const) {
         const path = profile[key]; if (!path) continue;
+        // Uložený priečinok, ktorý medzitým zmizol (zmazaná kancelária), neblokuje inú zmenu profilu; inak by zlyhal
+        // každý ďalší zápis vrátane výberu klienta pri „Nový prípad“ (test 19. 10. 2026). Vybraný priečinok sa overí vždy.
+        const chosen = patch[key] !== undefined;
+        if (!chosen && await missingDirectory(path)) continue;
+        if (chosen && await missingDirectory(path)) throw new ApiError(400, "folder_missing", `Selected ${key} folder does not exist.`, { key, name: basename(path) });
         await canonicalDirectory(path);
         // LAWOSS: identita z kariet v koreni (plytko). Plná inšpekcia celého stromu tu odmietala
         // skutočných klientov (veľký strom, symlink, zamknutý dokument), chyba z callu 8. 10. 2026.
@@ -184,8 +211,10 @@ export function registerOnboardingRoutes(options: {
     if (busy.has(input.id)) throw new ApiError(409, "onboarding_busy", "This onboarding operation is already running.");
     busy.add(input.id);
     try {
+      checkpoint("ticket-enter");
       const ticket = await readTicket(join(storage, `${input.id}.json`));
       if (ticket.version !== 1 || ticket.id !== input.id || ticket.fingerprint !== input.fingerprint || digest(ticket.preview) !== input.fingerprint || ticket.officeMemoryRoot !== ticket.preview.officeMemoryRoot) throw new ApiError(409, "stale_preview", "Preview fingerprint does not match. Create a new preview.");
+      checkpoint("ticket-done");
       const receiptPath = join(storage, `${input.id}.result.json`);
       let result: OnboardingResult;
       let repeated = false;
@@ -196,21 +225,30 @@ export function registerOnboardingRoutes(options: {
         if (!workspaceRoot) throw new Error("Onboarding preview has no target.");
         const externalProfileDirectory = join(externalAppFilesRoot(config, { path: workspaceRoot }), ".opencode");
         const journalDirectory = join(storage, "journal");
+        checkpoint("directories-enter");
         await mkdir(journalDirectory, { recursive: true, mode: 0o700 });
         await mkdir(externalProfileDirectory, { recursive: true, mode: 0o700 });
+        checkpoint("directories-done");
+        checkpoint("execute-enter");
         result = await executeOnboarding(ticket.preview, { journalDirectory, externalProfileDirectory });
+        checkpoint("execute-done");
+        checkpoint("receipt-enter");
         await writeJson(receiptPath, { fingerprint: input.fingerprint, result });
+        checkpoint("receipt-done");
       }
       if (result.status === "rolled_back") throw new ApiError(409, "onboarding_rolled_back", "This plan was rolled back. Create a new preview.");
       // Kancelária a prax nemajú pracovný priestor klienta; registrácia klientov praxe patrí do plánu C.
       if (ticket.preview.action === "office" || ticket.preview.action === "practice") return { result: repeated ? "already_applied" : "applied", ...result };
       const clientRoot = result.clientRoot ?? (ticket.preview.action === "existing" || ticket.preview.action === "client" ? result.root : undefined);
       if (!clientRoot) throw new Error("Onboarding did not return a client workspace.");
+      checkpoint("register-enter");
       await canonicalDirectory(clientRoot);
       const prior = config.workspaces.find(workspace => workspace.path === clientRoot);
       const appFiles = ticket.preview.action === "matter" || ticket.preview.action === "subject" ? prior?.appFiles ?? result.appFiles : result.appFiles;
       const { workspace } = await registerLocalProject(config, { folderPath: clientRoot, name: prior?.name ?? ticket.name, preset: "starter", registerExisting: true, appFiles });
+      checkpoint("register-done");
       if (ticket.officeMemoryRoot && !(await lstat(join(storage, `${input.id}.office-grant.json`)).then(() => true).catch(error => { if (missing(error)) return false; throw error; }))) {
+        checkpoint("office-grant-enter");
         const office = await canonicalDirectory(ticket.officeMemoryRoot);
         await writeRuntimeOpencodeConfig(config, workspace.id, current => {
           const permission = current.permission && typeof current.permission === "object" && !Array.isArray(current.permission) ? current.permission : {};
@@ -218,9 +256,14 @@ export function registerOnboardingRoutes(options: {
           return { ...current, permission: { ...permission, external_directory: { ...grants, [`${office}/*`]: "allow" } } };
         });
         await writeJson(join(storage, `${input.id}.office-grant.json`), { fingerprint: input.fingerprint, office });
+        checkpoint("office-grant-done");
       }
+      checkpoint("watchers-enter");
       options.onWorkspacesChanged();
+      checkpoint("watchers-done");
+      if (result.matterRoot) checkpoint("profile-enter");
       const currentProfile = result.matterRoot ? await readProfile() : null;
+      if (result.matterRoot) checkpoint("profile-done");
       const subjectRoot = currentProfile?.subjectRoot && result.matterRoot && inside(clientRoot, currentProfile.subjectRoot) && inside(currentProfile.subjectRoot, result.matterRoot) ? currentProfile.subjectRoot : null;
       return { ...(result.matterRoot ? { subjectRoot } : {}), result: repeated || result.status === "already_applied" ? "already_applied" : "applied", ...result, appFiles, workspace: options.serializeWorkspace(workspace), activeId: workspace.id, workspaces: config.workspaces.map(options.serializeWorkspace) };
     } finally { busy.delete(input.id); }

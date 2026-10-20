@@ -1,17 +1,35 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { toast as sonnerToast } from "sonner";
 
 import { toast } from "../src/components/ui/sonner";
 
-// sonner's Observer notifies subscribers via requestAnimationFrame, which bun's
-// test runtime doesn't provide. The assertions below only rely on synchronous
-// Observer state (toasts + dismissedToasts), but dismiss() still calls rAF.
-if (typeof globalThis.requestAnimationFrame === "undefined") {
-  globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) =>
-    setTimeout(() => callback(0), 0) as unknown as number) as typeof requestAnimationFrame;
-}
-
 describe("sonner toast wrapper", () => {
+  // Dismiss notifies real subscribers asynchronously even though these tests
+  // inspect synchronous Observer state. Own only our missing-runtime adapter;
+  // leaking it makes later SSR imports initialize browser animation lifecycles.
+  let previousFrame: PropertyDescriptor | undefined;
+  const frames = new Set<Promise<void>>();
+  beforeEach(() => {
+    previousFrame = Object.getOwnPropertyDescriptor(globalThis, "requestAnimationFrame");
+    if (typeof globalThis.requestAnimationFrame !== "undefined") return;
+    Object.defineProperty(globalThis, "requestAnimationFrame", { configurable: true, value: (callback: FrameRequestCallback) => {
+      let complete!: () => void;
+      const frame = new Promise<void>(resolve => { complete = resolve; });
+      frames.add(frame);
+      return setTimeout(() => {
+        try { callback(performance.now()); }
+        finally { frames.delete(frame); complete(); }
+      }, 0) as unknown as number;
+    } });
+  });
+  afterEach(async () => {
+    try { while (frames.size) await Promise.all([...frames]); }
+    finally {
+      if (previousFrame) Object.defineProperty(globalThis, "requestAnimationFrame", previousFrame);
+      else Reflect.deleteProperty(globalThis, "requestAnimationFrame");
+    }
+  });
+
   test("app errors target only the app host, excluding embedded editors' default hosts", () => {
     const id = toast.error("Cannot move the open file");
     const entry = sonnerToast.getToasts().find(entry => entry.id === id);

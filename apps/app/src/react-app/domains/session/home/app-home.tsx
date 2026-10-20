@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { aiBoundariesRefusal } from "@/lawoss/domains/ai/boundaries-refusal";
 import { ArrowUp, ChevronDown, Folder, Paperclip, Plus } from "lucide-react";
 import type { WorkspaceInfo } from "@/app/lib/desktop";
 import type { ModelRef } from "@/app/types";
@@ -32,6 +33,8 @@ export type AppHomeProps = {
   modelVariantLabel: string;
   modelBehaviorOptions: { value: string | null; label: string }[];
   onModelVariantChange: (variant: string | null) => void;
+  /** LAWOSS: opens Settings → AI Providers when AI hranice refused the first message. */
+  onOpenAiSettings?: () => void;
 };
 
 export function AppHome(props: AppHomeProps) {
@@ -41,6 +44,7 @@ export function AppHome(props: AppHomeProps) {
   const [sending, setSending] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [boundariesRefused, setBoundariesRefused] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -83,7 +87,10 @@ export function AppHome(props: AppHomeProps) {
       }));
       await props.onSend(text, active);
     } catch (error) {
-      setError(error instanceof Error ? error.message : t("home.send_failed"));
+      // LAWOSS: an AI hranice refusal is shown as the localized sentence, never the raw denial JSON.
+      const boundaries = aiBoundariesRefusal(error);
+      setBoundariesRefused(Boolean(boundaries));
+      setError(boundaries ?? (error instanceof Error ? error.message : t("home.send_failed")));
       sendingRef.current = false;
       setSending(false);
     }
@@ -169,7 +176,7 @@ export function AppHome(props: AppHomeProps) {
               <span className="lw-home-project-hint">{project ? t("home.existing_project_hint") : t("home.new_project_hint")}</span>
             </div>
             <input ref={fileInput} className="sr-only" type="file" multiple tabIndex={-1} aria-label={t("home.add_files")} disabled={busy} onChange={(event) => { addAttachments(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
-            {error ? <p role="alert" className="lw-home-error">{error}</p> : null}
+            {error ? <p role="alert" className="lw-home-error">{error}{boundariesRefused && props.onOpenAiSettings ? <>{" "}<Button variant="link" size="xs" onClick={props.onOpenAiSettings}>{t("lawoss.ai_boundaries.open_settings")}</Button></> : null}</p> : null}
           </form>
           <TaskSuggestionCards className="lw-home-suggestions" providerConnectedCount={props.providerConnectedCount} onConnect={props.onConnect} onSelect={(prompt) => { if (!busy) { setText(prompt); requestAnimationFrame(focusPrompt); } }} />
         </WelcomeSurface>

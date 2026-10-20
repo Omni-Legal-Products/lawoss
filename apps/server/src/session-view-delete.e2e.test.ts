@@ -7,9 +7,10 @@ import { ViewRecordSchema, type ViewPreview } from "@legalwork/types/views";
 import { withSessionExecution } from "./session-execution-gate.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
+import { enforceAiBoundaries } from "./lawoss/test-support/ai-boundaries.js";
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
-async function fixture() {
+async function fixture(options: { aiBoundaries?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), "session-view-delete-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const preview: ViewPreview = { status: "preview", owner: { kind: "workspace", id: "project" }, input: { version: 1, title: "Unsaved dashboard", mode: "dashboard", catalog: "legalwork-1", program: 'root = Text("Keep this")', queries: {} } };
@@ -23,6 +24,7 @@ async function fixture() {
     if (path === "/session/chat" && request.method === "DELETE") { state.deleted++; return Response.json(true); }
     if (path === "/session/chat") return Response.json({ id: "chat", title: "Chat", directory: root, time: { created: 1, updated: 1 } });
     if (path === "/session/chat/prompt_async") { state.prompts++; return new Response(null, { status: 204 }); }
+    if (path === "/session/unrelated") return Response.json({ id: "unrelated", directory: root });
     if (path === "/session/chat/todo") return Response.json([{ id: "todo", content: "Finish review", status: "in_progress", priority: "high" }]);
     if (path === "/session/chat/message/human") return Response.json({ info: { id: "human", sessionID: "chat", role: "user", agent: "legalwork", model: { providerID: "test", modelID: "test" } }, parts: [{ type: "text", text: "Finish my review" }] });
     if (path === "/session/chat/message" && state.recovery) return Response.json([{ info: { id: "empty", parentID: "human", sessionID: "chat", role: "assistant", finish: "stop" }, parts: [{ type: "reasoning", text: "Thinking" }] }]);
@@ -32,6 +34,7 @@ async function fixture() {
   cleanup.push(() => { engine.stop(true); });
   const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "test", hostToken: "host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"], workspaces: [{ id: "project", name: "Project", path: root, workspaceType: "local", preset: "starter", baseUrl: `http://127.0.0.1:${engine.port}` }], authorizedRoots: [root], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   const server = await startServer(config); cleanup.push(() => server.stop());
+  if (options.aiBoundaries) await enforceAiBoundaries(config);
   const request = (path: string, method = "GET", body?: unknown, source?: unknown) => fetch(`http://127.0.0.1:${server.port}${path}${source ? `?source=${encodeURIComponent(JSON.stringify(source))}` : ""}`, { method, headers: { authorization: "Bearer test", "x-legalwork-host-token": "host", "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
   return { root, state, request, preview, config };
 }
@@ -100,7 +103,67 @@ test("running tools cannot disappear between transcript review and the idle chec
   expect((await request(`${endpoint}?discardReview=${review.reviewToken}`, "DELETE")).status).toBe(200);
 });
 
-test("deletion excludes direct sends, queue mutations, and another delete until review finishes", async () => {
+test("with AI boundaries on, deletion excludes direct sends, queue mutations, and another delete until review finishes", async () => {
+  const { state, request } = await fixture({ aiBoundaries: true });
+  let reviewed = () => {}, release = () => {};
+  const reached = new Promise<void>(resolve => { reviewed = resolve; });
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  state.reviewHook = async () => { reviewed(); await blocked; };
+  const deleting = request(endpoint, "DELETE");
+  try {
+    await reached;
+    for (const action of ["message", "prompt_async", "command", "fork"])
+      expect((await request(`/workspace/project/opencode/session/chat/${action}`, "POST", { parts: [] })).status).toBe(409);
+    expect((await request(`${endpoint}/queue`, "POST", { type: "pause", paused: false })).status).toBe(409);
+    expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "empty" })).status).toBe(409);
+    expect((await request(endpoint, "DELETE")).status).toBe(409);
+    // The unrelated chat is outside the deletion reservation, but its protected model call is denied.
+    const unrelated = await request("/workspace/project/opencode/session/unrelated/prompt_async", "POST", { parts: [] });
+    expect(unrelated.status).toBe(403);
+    expect(await unrelated.json()).toMatchObject({ code: "ai_transfer_denied" });
+    expect(state.prompts).toBe(0);
+  } finally { release(); await deleting; }
+  expect((await deleting).status).toBe(409);
+  state.reviewHook = undefined;
+  expect((await request(`${endpoint}/queue`, "POST", { type: "pause", paused: false })).status).toBe(200);
+});
+
+test("a reserved send blocks deletion even before the engine reports busy", async () => {
+  const { state, request, config } = await fixture();
+  await withSessionExecution(config, "chat", async () => {
+    expect((await request(endpoint, "DELETE")).status).toBe(409);
+    expect(state.deleted).toBe(0);
+  });
+  const review = reviewSchema.parse(await (await request(`${endpoint}/views`)).json());
+  expect((await request(`${endpoint}?discardReview=${review.reviewToken}`, "DELETE")).status).toBe(200);
+});
+
+test("with AI boundaries on, server-mediated recovery preserves typed governance denial and releases reservations without inference", async () => {
+  const { state, request } = await fixture({ aiBoundaries: true });
+  state.recovery = true;
+  expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "old" })).status).toBe(409);
+  expect(state.prompts).toBe(0);
+  for (let retry = 0; retry < 2; retry++) {
+    const denied = await request(`${endpoint}/review-recovery`, "POST", { messageId: "empty" });
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toMatchObject({ code: "ai_transfer_denied" });
+    expect(state.prompts).toBe(0);
+  }
+  expect((await request(`${endpoint}/queue`, "POST", { type: "pause", paused: true })).status).toBe(200);
+});
+
+test("with AI boundaries off (alpha default), server-mediated recovery accepts a 204, uses the verified request and deduplicates it", async () => {
+  const { state, request } = await fixture();
+  state.recovery = true;
+  expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "old" })).status).toBe(409);
+  expect(state.prompts).toBe(0);
+  expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "empty" })).status).toBe(200);
+  expect(state.prompts).toBe(1);
+  expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "empty" })).status).toBe(200);
+  expect(state.prompts).toBe(1);
+});
+
+test("with AI boundaries off (alpha default), deletion excludes direct sends, queue mutations, and another delete until review finishes", async () => {
   const { state, request } = await fixture();
   let reviewed = () => {}, release = () => {};
   const reached = new Promise<void>(resolve => { reviewed = resolve; });
@@ -120,25 +183,4 @@ test("deletion excludes direct sends, queue mutations, and another delete until 
   expect((await deleting).status).toBe(409);
   state.reviewHook = undefined;
   expect((await request(`${endpoint}/queue`, "POST", { type: "pause", paused: false })).status).toBe(200);
-});
-
-test("a reserved send blocks deletion even before the engine reports busy", async () => {
-  const { state, request, config } = await fixture();
-  await withSessionExecution(config, "chat", async () => {
-    expect((await request(endpoint, "DELETE")).status).toBe(409);
-    expect(state.deleted).toBe(0);
-  });
-  const review = reviewSchema.parse(await (await request(`${endpoint}/views`)).json());
-  expect((await request(`${endpoint}?discardReview=${review.reviewToken}`, "DELETE")).status).toBe(200);
-});
-
-test("server-mediated recovery accepts a 204, uses the verified request and deduplicates it", async () => {
-  const { state, request } = await fixture();
-  state.recovery = true;
-  expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "old" })).status).toBe(409);
-  expect(state.prompts).toBe(0);
-  expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "empty" })).status).toBe(200);
-  expect(state.prompts).toBe(1);
-  expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "empty" })).status).toBe(200);
-  expect(state.prompts).toBe(1);
 });

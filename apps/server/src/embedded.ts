@@ -173,7 +173,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     console.log(`[embedded] moved connectors into the shared store: ${connectorImport.imported.join(", ")}`);
   }
 
-  server = await startServer(config, { onListening: async (port) => {
+  server = await startServer(config, { publicEngineBinary: () => managed.engine?.execution.command, onListening: async (port) => {
     const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
   if (!config.opencodeBaseUrl && options.manageOpencode) {
     // One managed engine has one process-wide OPENCODE_CONFIG_DIR. Select the

@@ -49,3 +49,16 @@ test("a missing edited entry still offers Cancel edit without an empty pause ban
   expect(html).not.toContain(t("composer.queue_paused"));
   expect(html).not.toContain(t("composer.resume_queue"));
 });
+
+test("a delivery refused by AI hranice shows the localized sentence and a link to the setting", () => {
+  let opened = 0;
+  const refused = { ...message, status: "failed" as const, error: "Protected AI processing is unavailable. Continue manually without a model." };
+  const html = renderQueue({ messages: [refused], paused: true, onOpenAiSettings: () => { opened++; } });
+  expect(html).toContain(t("lawoss.ai_boundaries.chat_refused"));
+  expect(html).toContain(t("lawoss.ai_boundaries.open_settings"));
+  expect(html).not.toContain("Protected AI processing");
+  expect(opened).toBe(0);
+  const other = renderQueue({ messages: [{ ...message, status: "failed" as const, error: "Shell interpolation in shortcuts is disabled." }], paused: true, onOpenAiSettings: () => {} });
+  expect(other).toContain("Shell interpolation in shortcuts is disabled.");
+  expect(other).not.toContain(t("lawoss.ai_boundaries.open_settings"));
+});

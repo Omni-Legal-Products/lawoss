@@ -25,7 +25,10 @@ async function fixture(readOnly = false, onApproval?: ServerConfig["requestHostA
   });
   const calls: string[] = [];
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => {
-    calls.push(`${request.method} ${new URL(request.url).pathname}`);
+    const path = new URL(request.url).pathname;
+    calls.push(`${request.method} ${path}`);
+    // The proxy checks that a session belongs to the workspace before forwarding.
+    if (path === "/session/synthetic_session") return Response.json({ id: "synthetic_session", directory: workspace });
     return Response.json({ ok: true });
   } });
   cleanup.push(() => engine.stop(true));
@@ -82,7 +85,7 @@ test("viewer cannot retrieve configuration through direct, mounted, export, meta
   expect(await normal.text()).toContain("provider-secret-sentinel");
   const session = await fetch(`${f.base}/opencode/session/synthetic_session/message`, { headers: f.viewer });
   expect(session.status).toBe(200);
-  expect(f.calls).toEqual(["GET /session/synthetic_session/message"]);
+  expect(f.calls).toEqual(["GET /session/synthetic_session", "GET /session/synthetic_session/message"]);
 });
 
 test("skill detail and plugin configuration require collaborator access at every mount", async () => {
@@ -113,7 +116,7 @@ test("read-only mode blocks proxy mutations for collaborators at every mount but
     }
     expect((await fetch(`${f.base}${mount}/session/synthetic_session`, { headers: f.collaborator })).status).toBe(200);
   }
-  expect(f.calls).toEqual(Array(3).fill("GET /session/synthetic_session"));
+  expect(f.calls).toEqual(Array(6).fill("GET /session/synthetic_session"));
   expect(() => assertOpencodeProxyAllowed({ type: "remote", scope: "collaborator" }, "POST", "/permission/request/reply", false)).not.toThrow();
   expect(() => assertOpencodeProxyAllowed({ type: "remote", scope: "owner" }, "POST", "/permission/request/reply", true)).toThrow();
 });

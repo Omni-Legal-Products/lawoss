@@ -1,0 +1,23 @@
+{
+  "engineVersion": "1.18.29",
+  "repository": "anomalyco/opencode",
+  "releaseId": 383062420,
+  "architectures": {
+    "arm64": {
+      "id": 545047606,
+      "name": "opencode-linux-arm64.tar.gz",
+      "size": 60343887,
+      "sha256": "70baf769395ca4e7a68924026530c390eace194f3b7e4919d4efcb2aa2eed3c0",
+      "binarySize": 184199312,
+      "binarySha256": "e94d9ebec16ce2611eae94026afe8ec87f2e2dcc66db40bc4f889955b026eb75"
+    },
+    "x64": {
+      "id": 545047611,
+      "name": "opencode-linux-x64-baseline.tar.gz",
+      "size": 60527414,
+      "sha256": "03a3f2f063e23477e3e4c3a738eb389f56c5a6ecf54d6a5a6d91caab557f042d",
+      "binarySize": 184666240,
+      "binarySha256": "ca6c0e1f42be3120595bf6848937e7586ec862c87fa7aa111e89c7cc6e9a4650"
+    }
+  }
+}

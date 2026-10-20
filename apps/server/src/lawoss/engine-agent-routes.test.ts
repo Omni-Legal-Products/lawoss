@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runtimeStorageDir } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
 import { authenticateWikiAgentRequest, ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
 import { SERVER_CREDENTIAL_ENV, withoutServerCredentials } from "./engine-credentials.js";
@@ -45,12 +46,11 @@ test("routes naming a chat accept only the calling chat", async () => {
   await expect(authenticateWikiAgentRequest(config, request("/benchmarks/session-ablation?session=chat_b", { session: "chat_a" }))).rejects.toMatchObject({ code: "wiki_agent_session_mismatch" });
 });
 
-test("only a scheduled all-projects run reads another project, and only its contents", async () => {
+test("shared engine credentials cannot borrow scheduled all-project access", async () => {
   const { config, a, request } = await fixture();
   await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_b/project/contents", { session: "chat_a" }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
   await grantWikiAgentSession(config, { sessionId: "scheduled_all", directory: a, scope: "collaborator", allProjects: true });
-  const scheduled = await authenticateWikiAgentRequest(config, request("/workspace/ws_b/project/contents", { session: "scheduled_all" }));
-  expect(scheduled?.allProjects).toBe(true);
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_b/project/contents", { session: "scheduled_all" }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
   await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_b/files/content?path=x", { session: "scheduled_all" }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
   await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_a/scheduled-tasks", { session: "chat_a", method: "POST", body: { projectAccess: "all" } }))).rejects.toMatchObject({ code: "wiki_agent_project_access" });
   await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_a/scheduled-tasks/task_1", { session: "chat_a", method: "PATCH", body: {} }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
@@ -66,4 +66,46 @@ test("the firm's guard is readable with the engine credential alone, nothing els
 test("server credentials are removed from an inherited environment", () => {
   const env = Object.fromEntries([...SERVER_CREDENTIAL_ENV, "PATH", "LEGALWORK_WIKI_AGENT_TOKEN"].map((name) => [name, `${name}-value`]));
   expect(Object.keys(withoutServerCredentials(env)).sort()).toEqual(["LEGALWORK_WIKI_AGENT_TOKEN", "PATH"]);
+});
+
+// Security gate: a shared process token does not authenticate the calling chat.
+// A trusted host dispatch pins the process credential before either session claim is used.
+test("a runtime token for A cannot impersonate an already registered B session", async () => {
+  const { config, a, b, request } = await fixture();
+  expect((await authenticateWikiAgentRequest(config, request("/workspace/ws_a/files/content?path=x", { session: "chat_a", directory: a })))?.workspaceId).toBe("ws_a");
+  await grantWikiAgentSession(config, { sessionId: "chat_b", directory: b, scope: "collaborator" });
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_b/files/content?path=private.md", {
+    session: "chat_b", directory: b,
+  }))).rejects.toMatchObject({ code: "wiki_agent_client_runtime_required" });
+  expect((await authenticateWikiAgentRequest(config, request("/workspace/ws_a/files/content?path=x", { session: "chat_a", directory: a })))?.workspaceId).toBe("ws_a");
+});
+
+test("two client directories inside one office workspace cannot borrow each other's existing sessions", async () => {
+  const {config, a, request} = await fixture();
+  const clientA = join(a, "office", "AK", "A"), clientB = join(a, "office", "AK", "B");
+  await mkdir(clientA, {recursive: true}); await mkdir(clientB, {recursive: true});
+  // Use a fresh host runtime so the first trusted grant is the selected client directory.
+  const selected = {...config};
+  const profile = join(runtimeStorageDir(selected), "lawoss-onboarding");
+  await mkdir(profile, {recursive: true});
+  await writeFile(join(profile, "profile.json"), JSON.stringify({officeRoot: a, clientRoot: clientA}));
+  const token = await ensureWikiAgentToken(selected);
+  await grantWikiAgentSession(selected, {sessionId: "client_a", directory: clientA, scope: "collaborator"});
+  await grantWikiAgentSession(selected, {sessionId: "client_b", directory: clientB, scope: "collaborator"});
+  const attack = request("/workspace/ws_a/files/content?path=office/AK/B/private.md", {session: "client_b", directory: clientB});
+  attack.headers.set("x-legalwork-wiki-agent-token", token);
+  await expect(authenticateWikiAgentRequest(selected, attack)).rejects.toMatchObject({code: "wiki_agent_client_workspace_required"});
+  const broadRead = request("/workspace/ws_a/files/content?path=office/AK/B/private.md", {session: "client_a", directory: clientA});
+  broadRead.headers.set("x-legalwork-wiki-agent-token", token);
+  await expect(authenticateWikiAgentRequest(selected, broadRead)).rejects.toMatchObject({code: "wiki_agent_client_workspace_required"});
+});
+
+
+test("registered client workspace retains child matter tools and the process cannot borrow a higher role", async () => {
+  const {config, a, request} = await fixture();
+  const matter = join(a, "matter"); await mkdir(matter);
+  await grantWikiAgentSession(config, {sessionId: "matter", directory: matter, scope: "owner"});
+  expect((await authenticateWikiAgentRequest(config, request("/workspace/ws_a/files/content?path=x", {session: "matter", directory: matter})))?.actor.scope).toBe("collaborator");
+  await grantWikiAgentSession(config, {sessionId: "viewer", directory: matter, scope: "viewer"});
+  expect((await authenticateWikiAgentRequest(config, request("/workspace/ws_a/files/content?path=x", {session: "matter", directory: matter})))?.actor.scope).toBe("viewer");
 });

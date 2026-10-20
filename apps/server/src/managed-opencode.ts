@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import { withoutServerCredentials } from "./lawoss/engine-credentials.js";
 import { lawossEngineEnv } from "./lawoss/engine-network.js";
+import { engineStartTimeoutMs } from "./lawoss/engine-start-timeout.js";
 import { killProcessTree } from "./lawoss/process-tree.js";
 
 export type ManagedOpencodeServer = {
@@ -226,6 +227,8 @@ export async function createManagedOpencodeServer(options: {
   excludedPorts?: number[];
   timeoutMs?: number;
   env?: Record<string, string | undefined>;
+  /** Dedicated public scratch executions inherit no user/provider environment. */
+  inheritEnvironment?: boolean;
 }): Promise<ManagedOpencodeServer> {
   const hostname = options.hostname ?? "127.0.0.1";
   const username = randomSecret();
@@ -235,10 +238,10 @@ export async function createManagedOpencodeServer(options: {
   // recursive external scan also picks up nested packages for other agent apps.
   const features = { OPENCODE_DISABLE_EXTERNAL_SKILLS: "true", OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: process.env.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS ?? "true" };
   // LAWOSS: engine bez sťahovania katalógu, zdieľania a aktualizácie (lawoss/engine-network.ts).
-  const lawossEnv = lawossEngineEnv();
+  const lawossEnv = lawossEngineEnv(options.inheritEnvironment === false ? {} : process.env);
   // LAWOSS: the server's own credentials never reach the engine (lawoss/engine-credentials.ts).
   const env = withoutServerCredentials({
-    ...process.env,
+    ...(options.inheritEnvironment === false ? {} : process.env),
     ...features,
     ...options.env,
     ...lawossEnv,
@@ -283,7 +286,8 @@ export async function createManagedOpencodeServer(options: {
 
     try {
       const startedAt = Date.now();
-      const timeoutMs = options.timeoutMs ?? 15000;
+      // 🟡 LAWOSS: na Windows engine štartuje pomalšie ako 15 s (lawoss/engine-start-timeout.ts).
+      const timeoutMs = options.timeoutMs ?? engineStartTimeoutMs();
       const url = await waitForServerReady(child, timeoutMs);
       await waitForHttpReady(child, url, username, password, Math.max(0, timeoutMs - (Date.now() - startedAt)));
       child.once("exit", (code, signal) => {

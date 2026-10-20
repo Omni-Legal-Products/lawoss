@@ -1,7 +1,7 @@
 import { documentExecutionDirectory } from "./native-document-preflight";
 import { DocumentVisualReview } from "./document-visual-review";
 import { openDocumentVisualSource } from "./document-visual-source";
-import { documentGenerationKey, getDocumentGeneration, isDocumentGenerationActive, reconcileDocumentGeneration, readDocumentGenerationSnapshot, isDocumentGenerationSnapshotCurrent, subscribeDocumentGenerations } from "./document-generation-lifecycle";
+import { PROTECTED_DOCUMENT_GENERATION_TRANSPORT, documentGenerationKey, getDocumentGeneration, isDocumentGenerationActive, reconcileDocumentGeneration, readDocumentGenerationSnapshot, isDocumentGenerationSnapshotCurrent, subscribeDocumentGenerations } from "./document-generation-lifecycle";
 /** @jsxImportSource react */
 import * as React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,7 +9,7 @@ import type { LegalworkServerClient, LawossOutputStatus } from "@/app/lib/legalw
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
-import { discoverDocumentSources, readDocumentWorkingDirectory, persistDocumentWorkingDirectory, documentClientIdentity, documentCoverage, documentOutputState, freshDocumentSources, listAllDocuments, type DocumentGenerationCallback, type FreshDocument } from "./document-processing";
+import { discoverDocumentSources, selectDocumentGenerationProfile, documentProfileCopy, readDocumentWorkingDirectory, persistDocumentWorkingDirectory, documentClientIdentity, documentCoverage, documentOutputState, freshDocumentSources, listAllDocuments, type DocumentGenerationCallback, type FreshDocument } from "./document-processing";
 
 export type DocumentProcessingPanelProps = {
   client: LegalworkServerClient; workspaceId: string; projectId: string; workspaceRoot: string;
@@ -64,17 +64,39 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
   // source check before invoking onGenerate; cached data never authorizes send.
   const canGenerate = missingPaths.length === 0 && sourcesAvailable;
   let generationDirectory: string;
+  let directoryError: string | null = null;
   try {
     generationDirectory = documentExecutionDirectory(props.workspaceRoot, caseDirectory, props.isRemote).directory;
   } catch {
     generationDirectory = "";
+    directoryError = t("documents.invalid_directory");
   }
+  const protectedFlow = props.onGenerate?.transport === PROTECTED_DOCUMENT_GENERATION_TRANSPORT;
+  const model = props.onGenerate?.model;
+  const profileText = documentProfileCopy[locale];
+  const profiles = useQuery({
+    queryKey: ["lawoss-document-profiles", ...identity, model?.providerID, model?.modelID, caseDirectory],
+    queryFn: () => props.client.listLawossDocumentProfiles(props.workspaceId, {providerId: model!.providerID, modelId: model!.modelID, caseDirectory: documentExecutionDirectory(props.workspaceRoot, caseDirectory, props.isRemote).relative}),
+    enabled: props.active && protectedFlow && Boolean(model) && !directoryError,
+    staleTime: 0, refetchInterval: props.active ? 5000 : false, refetchOnWindowFocus: "always",
+  });
+  const profileOwner = JSON.stringify([...identity, model?.providerID, model?.modelID, caseDirectory, profiles.data?.targetFingerprint]);
+  const [profileChoice, setProfileChoice] = React.useState<{owner: string; id: string} | null>(null);
+  const profileId = profileChoice?.owner === profileOwner ? profileChoice.id : "";
+  let selectedProfile: NonNullable<typeof profiles.data>["profiles"][number] | undefined;
+  let profileReady = !protectedFlow && !directoryError;
+  if (protectedFlow && profiles.data && !profiles.isError && !directoryError) {
+    try {selectedProfile = selectDocumentGenerationProfile(profiles.data, profileId); profileReady = true;} catch { /* Explicit selection is required. */ }
+  }
+  const protectedTarget = protectedFlow && model && profiles.data ? {providerId: model.providerID, modelId: model.modelID, targetFingerprint: profiles.data.targetFingerprint, ...(selectedProfile ? {profileId: selectedProfile.id, profileRevision: selectedProfile.revision} : {})} : undefined;
   const generationKey = documentGenerationKey({
     projectId: props.projectId,
     baseUrl: props.client.baseUrl,
     workspaceId: props.workspaceId,
     root: props.workspaceRoot,
     directory: generationDirectory,
+    transport: props.onGenerate?.transport,
+    protectedTarget,
   }, language, records);
   const binding = React.useSyncExternalStore(
     subscribeDocumentGenerations,
@@ -134,7 +156,12 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
     if (!exactOriginalCoverage || latest.some(record => record.freshness !== "current")) {
       throw new Error(t("documents.sources_changed"));
     }
-    await props.onGenerate!({ projectId: props.projectId, caseDirectory, sources: latest, outputLanguage: language, newGeneration });
+    if (protectedFlow) {
+      if (!model) throw new Error(profileText.unavailable);
+      const freshProfiles = await props.client.listLawossDocumentProfiles(props.workspaceId, {providerId: model.providerID, modelId: model.modelID, caseDirectory: documentExecutionDirectory(props.workspaceRoot, caseDirectory, props.isRemote).relative});
+      selectDocumentGenerationProfile(freshProfiles, profileId);
+    }
+    await props.onGenerate!({ profileId: profileId || undefined, projectId: props.projectId, caseDirectory, sources: latest, outputLanguage: language, newGeneration });
   });
   const sourceStatusLabel = (record: FreshDocument) => {
     if (sources.isFetching) return t("documents.checking");
@@ -224,7 +251,17 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
       setCaseDirectory(event.target.value);
       persistDocumentWorkingDirectory(projectKey, event.target.value);
     }} placeholder={t("documents.root_directory")} /></label> : null}
-    <Button size="sm" disabled={busy || !canGenerate || generationActive || lifecycle.isError || !props.onGenerate} onClick={() => void generate(binding?.phase === "completed")}>
+    {directoryError ? <p role="alert" className="text-destructive">{directoryError}</p> : null}
+    {protectedFlow ? <div className="my-2">
+      <label className="block">{profileText.label}<select className="my-1 w-full rounded border border-border bg-background p-1" value={profileId} disabled={busy || generationActive || !profiles.data} onChange={event => setProfileChoice({owner: profileOwner, id: event.target.value})}>
+        <option value="">{profiles.data?.syntheticReviewAvailable ? profileText.synthetic : profileText.choose}</option>
+        {(profiles.data?.profiles ?? []).map(profile => <option key={profile.id} value={profile.id}>{profile.scope.matterId} · {profile.scope.jurisdictions.join("/")} · {profile.legalProfileId} v{profile.legalProfileVersion} · #{profile.revision}</option>)}
+      </select></label>
+      <p className="text-muted-foreground">{profileText.note}</p>
+      {!profileReady ? <p role="status">{profileText.unavailable}</p> : null}
+      {profiles.isError ? <p role="alert">{String(profiles.error)}</p> : null}
+    </div> : null}
+    <Button size="sm" disabled={busy || Boolean(directoryError) || !canGenerate || !profileReady || generationActive || lifecycle.isError || !props.onGenerate} onClick={() => void generate(binding?.phase === "completed")}>
       {binding?.phase === "error" ? t("documents.retry_generation") : binding?.phase === "completed" ? t("documents.new_generation") : t("documents.generate")}
     </Button>
     {generationActive ? <p role="status">{t("documents.run_active")}</p> : null}

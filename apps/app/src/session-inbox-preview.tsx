@@ -22,11 +22,12 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Toaster, toast } from "@/components/ui/sonner";
-import { initLocale, setLocale } from "@/i18n";
+import { initLocale, isLanguage, setLocale } from "@/i18n";
 import "./app/index.css";
 
 if (!import.meta.env.DEV) throw new Error("Development fixture only.");
-initLocale(); setLocale("en");
+const requestedLocale = new URLSearchParams(location.search).get("locale");
+initLocale(); setLocale(isLanguage(requestedLocale) ? requestedLocale : "en");
 document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
 const client = createLegalworkServerClient({ baseUrl: "http://127.0.0.1:8798", token: "scheduled-preview" });
 const cache = getReactQueryClient();

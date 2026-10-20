@@ -15,7 +15,7 @@ import { deadlineKey, deadlineText, dueTextFromDays, isCalendarDay, urgencyOf, t
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { buildToday, nextDeadline, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
 import { LITE_CLIENTS_PATH, liteDeadlineLink, liteMatterLink } from "../links";
-import { practiceClientChoices, type ClientChoice } from "../client-choice";
+import { clientPreferenceScope, practiceClientChoices, type ClientChoice } from "../client-choice";
 import { NewMatterAction } from "../client-picker";
 import { hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick } from "../live";
 import "./okf-glass.css";
@@ -56,9 +56,9 @@ function TodayLive({ data, meta, scope, locale, name }: { data: OkfReadResult; m
   const model = useMemo(() => buildToday(data, now), [data, now]);
   useHotTitle(hotDeadlineCount(data, now));
   const { connection } = useOkfConnection();
-  // Prax: „+ Nová vec“ sa najprv opýta, pre ktorého klienta (MČ 16. 10. 2026).
+  // Prax: „+ Nová vec“ sa najprv opýta, pre ktorého klienta (prehľad praxe).
   const choices = useMemo(() => practiceClientChoices(scope, data.clients), [scope, data.clients]);
-  return <TodayView model={model} locale={locale} meta={meta} name={name} choices={choices} activeId={connection?.activeWorkspaceId} />;
+  return <TodayView model={model} locale={locale} meta={meta} name={name} choices={choices} preferenceScope={clientPreferenceScope(scope, connection?.baseUrl)} activeId={connection?.activeWorkspaceId} />;
 }
 
 type Text = (key: string, params?: Record<string, string | number>) => string;
@@ -83,7 +83,7 @@ const isWeekend = (iso: string) => [0, 6].includes(parseDay(iso).getUTCDay());
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });
 
 /** Ranní otázka „co mi dnes hoří": přehled, pás lhůt, lhůty, úkoly, k zařazení a věci. Jen čte, nic nezapisuje. */
-export function TodayView({ model, locale, now = new Date(), meta, name, choices, activeId }: { model: TodayModel; locale: Language; now?: Date; meta?: OkfPageMeta; name?: string; choices?: readonly ClientChoice[]; activeId?: string | null }) {
+export function TodayView({ model, locale, now = new Date(), meta, name, choices, activeId, preferenceScope }: { model: TodayModel; locale: Language; now?: Date; meta?: OkfPageMeta; name?: string; choices?: readonly ClientChoice[]; activeId?: string | null; preferenceScope?: string }) {
   const text: Text = (key, params) => t(`lawoss.lite.${key}`, locale, params);
   const todayIso = today(now);
   // „Tento týždeň" = všetko, čo nie je v pokoji (po lehote, neplatné, do 7 dní) - rovnaké pravidlo ako farby.
@@ -101,7 +101,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
           <h1 className="lw-today-greeting">{text(greetingKey(now.getHours()))}{name ? <span className="lw-today-name">, {name}</span> : null}</h1>
           <p className="lw-today-lead">{lead}</p>
         </div>
-        <NewMatterAction className="lw-today-primary" locale={locale} choices={choices} activeId={activeId}>+ {text("new_matter")}</NewMatterAction>
+        <NewMatterAction className="lw-today-primary" locale={locale} choices={choices} activeId={activeId} preferenceScope={preferenceScope}>+ {text("new_matter")}</NewMatterAction>
         <dl className="lw-today-stats">
           <Stat label={text("stat_week")} value={thisWeek.length} hot={thisWeek.some((d) => urgency(d, todayIso) === "hot")} />
           <Stat label={text("tasks_title")} value={model.tasks.length} />

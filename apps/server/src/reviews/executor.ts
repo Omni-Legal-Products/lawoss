@@ -1,3 +1,4 @@
+import { createGovernedEngineFetch, requireGovernedEngineDispatch } from "../lawoss/ai-governance-engine.js";
 import { z } from "zod";
 import { setTimeout as delay } from "node:timers/promises";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
@@ -37,6 +38,8 @@ export function isTextReviewModel(value: unknown) {
 }
 
 type ReviewBackends = {
+  /** Trusted in-process transport port. Never populated from HTTP or persisted settings. */
+  engineFetch?: typeof fetch;
   settings: typeof readSystemOneSettings;
   subscribed?: (config: ServerConfig) => Promise<boolean>;
   infer: (config: ServerConfig, request: SystemOneRequest, options: Parameters<typeof systemOne>[2]) => Promise<SystemOneResponse>;
@@ -49,7 +52,7 @@ export class ReviewExecutor {
   private client(workspace: WorkspaceInfo) {
     const connection = resolveWorkspaceOpencodeConnection(this.config, workspace);
     if (!connection.baseUrl) throw new ApiError(503, "review_engine_unavailable", "Connect the project to its agent engine first.");
-    return createOpencodeClient({ baseUrl: connection.baseUrl, ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}) });
+    return createOpencodeClient({ baseUrl: connection.baseUrl, fetch: this.backends.engineFetch ?? createGovernedEngineFetch(this.config, workspace.id), ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}) });
   }
   async models(workspace: WorkspaceInfo): Promise<ReviewCapabilities> {
     const models: ReviewCapabilities["models"] = [], errors: string[] = [];
@@ -101,6 +104,9 @@ export class ReviewExecutor {
     return { models, errors, settings: { mode: subscribed || selectedJev ? "mixed" : "llm", jev: selectedJev, llm: selectedLlm }, allowedKinds: ReviewColumnKindSchema.options } satisfies ReviewCapabilities;
   }
   private async llm(workspace: WorkspaceInfo, selected: ReviewModel, column: ReviewColumn, pages: EvidencePage[], signal: AbortSignal, correction?: string) {
+    // SDK fetch errors may be converted to empty results; retain the typed host denial
+    // before creating any review session. Pure domain fixtures own an explicit transport.
+    if (!this.backends.engineFetch) await requireGovernedEngineDispatch(this.config, workspace.id, "POST", "/session/review/message");
     const client = this.client(workspace), query = { directory: workspace.path };
     const ids = await client.tool.ids(query, { signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]) });
     if (!ids.data) throw new Error("Could not disable agent tools for review inference.");

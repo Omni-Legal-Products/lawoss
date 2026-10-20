@@ -5,6 +5,7 @@ interface ApprovalResult {
   id: string;
   allowed: boolean;
   reason?: string;
+  nativeDecision?: { actorRef: string; decidedAt: string };
 }
 
 interface PendingApproval {
@@ -39,14 +40,14 @@ export class ApprovalService {
     if (this.disposed || signal?.aborted) {
       return { id: "cancelled", allowed: false, reason: "cancelled" };
     }
-    if (this.config.mode === "auto" && !forceManual) {
+    if (this.config.mode === "auto" && !forceManual && !input.nativeOnly) {
       return { id: "auto", allowed: true };
     }
-    if (rememberKey && this.remembered.has(rememberKey)) return { id: "remembered", allowed: true };
+    if (!input.nativeOnly && rememberKey && this.remembered.has(rememberKey)) return { id: "remembered", allowed: true };
     const id = shortId();
     const request: ApprovalRequest = {
       ...input,
-      canRemember: Boolean(rememberKey && input.sessionID),
+      canRemember: Boolean(!input.nativeOnly && rememberKey && input.sessionID),
       id,
       createdAt: Date.now(),
     };
@@ -74,13 +75,14 @@ export class ApprovalService {
     const hostHandler = this.hostHandler;
     // Chat requests are answered in that chat's existing permission panel.
     // The host-only HTTP endpoint remains the authority for the decision.
-    if (hostHandler && !request.sessionID) {
+    if (hostHandler && (!request.sessionID || request.nativeOnly)) {
       // Keep the pending request available to the host API while the native
       // confirmation is open. Either response closes the other presentation.
       void Promise.resolve().then(async () => {
         if (controller.signal.aborted) return;
         const reply = await hostHandler(request, controller.signal);
-        this.respond(id, reply);
+        if (request.nativeOnly) this.respondNative(id, reply);
+        else this.respond(id, reply);
       }).catch(() => this.settle(id, false, "host_unavailable"));
     }
     return result;
@@ -88,11 +90,19 @@ export class ApprovalService {
 
   respond(id: string, reply: "allow" | "deny" | "always"): ApprovalResult | null {
     const pending = this.pending.get(id);
+    if (pending?.request.nativeOnly) return null;
     if (reply === "always") {
       if (!pending?.rememberKey || !pending.request.canRemember) return null;
       this.remembered.set(pending.rememberKey, pending.request.workspaceId);
     }
     return this.settle(id, reply !== "deny", reply === "deny" ? "denied" : undefined);
+  }
+
+  /** Only a verified host-token route or the private native dialog may call this. */
+  respondNative(id: string, reply: "allow" | "deny" | "always"): ApprovalResult | null {
+    if (!this.pending.get(id)?.request.nativeOnly || reply === "always") return null;
+    return this.settle(id, reply === "allow", reply === "deny" ? "denied" : undefined,
+      { actorRef: "native-host", decidedAt: new Date().toISOString() });
   }
 
   forgetRemembered(workspaceId?: string) {
@@ -105,7 +115,7 @@ export class ApprovalService {
     for (const id of this.pending.keys()) this.settle(id, false, "cancelled");
   }
 
-  private settle(id: string, allowed: boolean, reason?: string): ApprovalResult | null {
+  private settle(id: string, allowed: boolean, reason?: string, nativeDecision?: ApprovalResult["nativeDecision"]): ApprovalResult | null {
     const pending = this.pending.get(id);
     if (!pending) return null;
     this.pending.delete(id);
@@ -115,6 +125,7 @@ export class ApprovalService {
       id,
       allowed,
       reason,
+      ...(nativeDecision ? { nativeDecision } : {}),
     };
     pending.resolve(result);
     return result;

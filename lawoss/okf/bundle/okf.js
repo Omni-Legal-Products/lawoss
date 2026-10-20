@@ -1204,6 +1204,15 @@ function findCaseNumber(text) {
   const key = `${senate}${register.toUpperCase()}-${Number(number)}-${year}`;
   return { key, display: `${senate}${register} ${Number(number)}/${year}` };
 }
+function folderHintRole(folder) {
+  const name = normalizeText(folder).replace(/ (?:19|20)\d{2}(?: \d{1,2}){0,2}$/, "");
+  return FOLDER_HINTS.find((hint) => hint.words.includes(name))?.role;
+}
+var ARCHIVE_WORDS = new Set(["archiv", "archive", "archivy", "stare", "stary", "stara", "old", "fotky", "foto", "fotografie", "photos", "rozne", "ruzne", "misc", "backup", "backups", "zaloha", "zalohy", "ostatne", "ostatni", "temp", "tmp"]);
+function looksLikeArchiveFolder(folder) {
+  const name = normalizeText(folder);
+  return /^(?:19|20)\d{2}(?: \d{1,2}){0,2}$/.test(name) || ARCHIVE_WORDS.has(name.split(" ")[0] ?? "");
+}
 function classifyByRules(input) {
   const ext = input.ext.toLowerCase();
   const stem = input.ext ? input.name.slice(0, -(input.ext.length + 1)) : input.name;
@@ -1327,10 +1336,8 @@ var CZ_MATTER_WORDS = [
 ];
 var fold = (word) => word.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase("sk");
 var MATTER_WORDS = new Set([...SK_MATTER_WORDS, ...CZ_MATTER_WORDS].map(fold));
-var startsWithMatterWord = (name) => {
-  const first = name.normalize("NFC").trim().split(/[\s,.;:()_-]+/u)[0] ?? "";
-  return MATTER_WORDS.has(fold(first));
-};
+var firstWord = (name) => fold(name.normalize("NFC").trim().split(/[\s,.;:()_-]+/u)[0] ?? "");
+var startsWithMatterWord = (name) => MATTER_WORDS.has(firstWord(name));
 var looksLikeMatterName = (name) => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined || startsWithMatterWord(name));
 
 // src/onboarding/suggest.ts
@@ -1407,9 +1414,11 @@ function matchPattern(index, pattern) {
 }
 async function suggestOnboardingLevel(root) {
   const survey = await surveyFolder(root);
-  const base = { root: survey.root, complete: survey.complete, clients: [] };
   const index = indexChildren(survey.entries);
   const top = childrenOf(index, "");
+  const files = new Set(survey.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));
+  const childOffices = top.filter((entry) => entry.kind === "directory" && OFFICE_DIRS.some((office) => files.has(`${entry.path}/${office}/okf.config`))).map((entry) => nameOf(entry.path));
+  const base = { root: survey.root, complete: survey.complete, clients: [], ...childOffices.length ? { childOffices } : {} };
   const topFiles = top.filter((entry) => entry.kind === "file").map((entry) => nameOf(entry.path).toLowerCase());
   if (topFiles.some((name) => CLIENT_CARDS.has(name)))
     return { ...base, level: "client", marked: true, score: 1, signals: ["client_card"] };
@@ -4194,15 +4203,23 @@ import { basename as basename6, isAbsolute as isAbsolute8, join as join11, relat
 var INVENTORY_SCHEMA = "lawoss.triage.inventory/v1";
 var CLASSIFICATION_SCHEMA = "lawoss.triage.classification/v1";
 var PLAN_SCHEMA = "lawoss.triage.plan/v1";
+var MAX_TRIAGE_MATTERS = 100;
+var TOO_MANY_MATTERS_CODE = "triage_too_many_matters";
 
 // src/triage/scan.ts
 var TRIAL_MARKER = ".lawoss-trial.json";
 var TRIAGE_DIR = ".lawoss/triage";
 var MAX_TRIAGE_DOCUMENTS = 2000;
+var TRIAGE_INSPECTION_LIMITS = { maxBytes: 4 * 1024 ** 3, maxEntries: 20000 };
 
 class TrialCloneError extends Error {
   code = "not_trial_clone";
 }
+
+class TriageTooLargeError extends Error {
+  code = "triage_too_large";
+}
+var TOO_LARGE = "Priečinok klienta je príliš veľký na usporiadanie naraz (viac ako 4 GB alebo 20 000 súborov). Zvoľte „Nie, nechaj ho tak, ako je“ alebo usporiadajte menší podpriečinok.";
 var NOT_TRIAL_CLONE = "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli.";
 var sha3 = (value) => createHash6("sha256").update(value).digest("hex");
 var record2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -4342,7 +4359,9 @@ async function lockedForWrite(path, hooks = {}) {
 var onlyLockedIssues = (inspection) => inspection.issues.length > 0 && inspection.issues.every((issue) => issue.code === "locked_file");
 async function scanTriage(rootInput, options = {}) {
   const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory, options);
-  const inspection = await inspectOnboardingRoot(clone.root, options.limits, options.hooks);
+  const inspection = await inspectOnboardingRoot(clone.root, options.limits ?? TRIAGE_INSPECTION_LIMITS, options.hooks);
+  if (inspection.issues.some((issue) => issue.code === "byte_limit" || issue.code === "entry_limit"))
+    throw new TriageTooLargeError(TOO_LARGE);
   if (!inspection.complete && !onlyLockedIssues(inspection)) {
     const issue = inspection.issues[0];
     throw new Error(issue?.code === "symlink_not_followed" ? `Priečinok obsahuje symbolický odkaz (${issue.path}); roztriedenie ho nesleduje. Odstráňte ho z priečinka.` : `Priečinok sa nepodarilo prečítať celý (${issue?.code ?? "neznámy dôvod"}${issue?.path ? `: ${issue.path}` : ""}).`);
@@ -4385,12 +4404,13 @@ async function scanTriage(rootInput, options = {}) {
     matters.push({ id: `existing-${sha3(dir).slice(0, 12)}`, path: dir, ...fields.title ? { title: fields.title } : {}, ...caseKey ? { caseKey } : {}, roles });
   }
   const under = (path, folder) => path.startsWith(`${folder}/`);
+  const roleFolder = (dir) => clientFolders.has(dir.toLocaleLowerCase()) || /^\d{2}_/.test(dir) || dir.startsWith("_") || folderHintRole(dir) !== undefined;
   const clientFolders = new Set([...profile.folders, ...Object.values(profile.roles)].map((folder) => folder.split("/")[0].toLocaleLowerCase()));
   const matterProfile = workingProfile(newMatterProfile?.folders, newMatterProfile?.roles, newMatterProfile?.naming, language);
   for (const dir of [...directories].filter((dir) => !dir.includes("/") && !hidden(dir)).sort()) {
-    if (["spisy", "memory", "office", "_kancelaria"].includes(dir.toLocaleLowerCase()) || clientFolders.has(dir.toLocaleLowerCase()))
+    if (["spisy", "memory", "office", "_kancelaria"].includes(dir.toLocaleLowerCase()) || roleFolder(dir))
       continue;
-    if (!looksLikeMatterName(dir) || entityDirs.some((entity) => entity === dir || under(entity, dir)))
+    if (entityDirs.some((entity) => entity === dir || under(entity, dir)))
       continue;
     if (![...files.keys()].some((path) => under(path, dir) && !hidden(path)))
       continue;
@@ -4412,17 +4432,17 @@ async function scanTriage(rootInput, options = {}) {
     if (!matter)
       return;
     const rest = path.slice(matter.path.length + 1);
-    if (rest.split("/").slice(0, -1).some(looksLikeMatterName))
-      return { matter, reason: "in_matter" };
+    if (!rest.includes("/") || matter.roles.inbox && under(rest, matter.roles.inbox))
+      return { matter };
     const sorted = Object.entries(matter.roles).filter(([role]) => role !== "inbox").map(([, folder]) => folder);
-    return sorted.some((folder) => under(rest, folder)) && !(matter.roles.inbox && under(rest, matter.roles.inbox)) ? { matter, reason: "already_sorted" } : { matter };
+    return { matter, reason: sorted.some((folder) => under(rest, folder)) ? "already_sorted" : "in_matter" };
   };
   const documents = [];
   const skipped = [];
   for (const entry of files.values()) {
     const name = entry.path.split("/").pop();
     const home = implicitHome(entry.path);
-    const reason = hidden(entry.path) ? "hidden" : entry.path.split("/")[0] === "memory" ? "memory" : !entry.path.includes("/") && (CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name)) ? "system" : CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name) ? "system_name" : matters.some((matter) => !matter.implicit && under(entry.path, matter.path)) ? "in_matter" : entityDirs.some((dir) => under(entry.path, dir)) ? "inside_entity" : home ? home.reason : entry.path.split("/").slice(0, -1).some(looksLikeMatterName) ? "in_matter" : sortedFolders.some((folder) => under(entry.path, folder)) && !(inbox && under(entry.path, inbox)) ? "already_sorted" : undefined;
+    const reason = hidden(entry.path) ? "hidden" : entry.path.split("/")[0] === "memory" ? "memory" : !entry.path.includes("/") && (CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name)) ? "system" : CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name) ? "system_name" : matters.some((matter) => !matter.implicit && under(entry.path, matter.path)) ? "in_matter" : entityDirs.some((dir) => under(entry.path, dir)) ? "inside_entity" : home ? home.reason : !entry.path.includes("/") || inbox && under(entry.path, inbox) ? undefined : sortedFolders.some((folder) => under(entry.path, folder)) ? "already_sorted" : "in_folder";
     if (reason) {
       if (reason !== "hidden")
         skipped.push({ path: entry.path, reason });
@@ -4683,16 +4703,23 @@ function resolveFolder(roles, role) {
   }
   return null;
 }
+function defaultLeaveInPlace(inventory) {
+  return inventory.matters.filter((matter) => matter.implicit && looksLikeArchiveFolder(matter.path)).map((matter) => matter.id);
+}
 function buildTriagePlan(inventory, options) {
   const language = inventory.language;
   const keep = new Set(options.keepInInbox ?? []);
+  const leave = new Set((options.leaveInPlace ?? []).filter((key) => inventory.matters.some((matter) => matter.implicit && matter.id === key)));
+  const leftPath = (key) => inventory.matters.find((matter) => matter.id === key)?.path ?? key;
   const model = new Map((options.classification?.documents ?? []).map((decision) => [decision.id, decision]));
   const decisions = new Map;
   const caseGroups = new Map;
   for (const document of inventory.documents) {
     const fromModel = model.get(document.id);
     if (fromModel) {
-      decisions.set(document.id, { role: fromModel.confidence === "low" ? "inbox" : fromModel.role, matter: document.matter ?? fromModel.matter, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...fromModel.truncated ? { truncated: true } : {} });
+      const leftFolder = fromModel.matter && leave.has(fromModel.matter) ? leftPath(fromModel.matter) : undefined;
+      const target = leftFolder ? undefined : fromModel.matter;
+      decisions.set(document.id, { ...leftFolder ? { leftFolder } : {}, role: fromModel.confidence === "low" || leftFolder ? "inbox" : fromModel.role, matter: document.matter ?? target, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...fromModel.truncated ? { truncated: true } : {} });
       continue;
     }
     const rule = classifyByRules(document);
@@ -4723,7 +4750,16 @@ function buildTriagePlan(inventory, options) {
   for (const matter of options.classification?.matters ?? [])
     addMatter({ ...matter, source: "model" });
   for (const [caseKey, group] of [...caseGroups].sort(([a], [b]) => a.localeCompare(b))) {
-    const existing = inventory.matters.find((matter) => matter.caseKey === caseKey);
+    const existing = inventory.matters.find((matter) => matter.caseKey === caseKey && !leave.has(matter.id));
+    const left = existing ? undefined : inventory.matters.find((matter) => matter.caseKey === caseKey && leave.has(matter.id));
+    if (left) {
+      for (const id of group.ids) {
+        const decision = decisions.get(id);
+        if (decision)
+          Object.assign(decision, { role: "inbox", leftFolder: left.path });
+      }
+      continue;
+    }
     const fromModel = planned.find((matter) => matter.caseNumber && findCaseNumber(matter.caseNumber)?.key === caseKey);
     let key = existing?.id ?? fromModel?.key;
     if (!key && group.ids.length >= RULE_MATTER_MIN_DOCUMENTS) {
@@ -4751,6 +4787,9 @@ function buildTriagePlan(inventory, options) {
   const occupied = new Set(inventory.occupied.map((path) => path.toLocaleLowerCase()));
   const needsMattersDir = planned.length > 0 && !occupied.has("spisy");
   const adopted = inventory.matters.filter((matter) => matter.implicit).map((matter) => {
+    const title = matter.title ?? matter.path;
+    if (leave.has(matter.id))
+      return { entry: { key: matter.id, title, folder: matter.path, date: options.today, dateSource: "today", kind: "non_contentious", area: GENERAL_AREA[language], jurisdiction: inventory.jurisdiction, source: "folder", documents: 0, left: true }, operations: [] };
     const caseNumber = matter.implicit?.caseNumber;
     const kind = caseNumber ? "contentious" : "non_contentious";
     const area = caseNumber ? MATTER_AREA[language] : GENERAL_AREA[language];
@@ -4788,7 +4827,11 @@ function buildTriagePlan(inventory, options) {
   const stays = [];
   const used = new Set;
   for (const document of inventory.documents) {
+    if (document.matter && leave.has(document.matter))
+      continue;
     const decision = decisions.get(document.id);
+    if (decision.matter && leave.has(decision.matter))
+      delete decision.matter;
     const destination = destinations.get(decision.matter ?? "") ?? destinations.get("");
     const requested = decision.role ?? "inbox";
     const primary = resolveFolder(destination.roles, requested);
@@ -4826,12 +4869,14 @@ function buildTriagePlan(inventory, options) {
       ...decision.matched ? { matched: decision.matched } : {},
       ...decision.reason ? { reason: decision.reason } : {},
       ...decision.truncated ? { truncated: true } : {},
+      ...decision.leftFolder && decision.source !== "user" ? { leftFolder: decision.leftFolder } : {},
       ...to !== `${folder}/${document.name}` ? { renamed: true } : {}
     });
   }
   const kept = planned.filter((matter) => used.has(matter.key));
   for (const matter of [...kept, ...adopted.map((item) => item.entry)])
-    matter.documents = moves.filter((move) => move.matter === matter.key).length;
+    if (!("left" in matter))
+      matter.documents = moves.filter((move) => move.matter === matter.key).length;
   const create = [
     ...needsMattersDir && kept.length ? [{ path: "Spisy", kind: "directory" }] : [],
     ...kept.flatMap((matter) => matter.operations),
@@ -4861,6 +4906,10 @@ import { appendFile, copyFile as copyFile2, link, lstat as lstat12, mkdir as mkd
 import { dirname as dirname8, isAbsolute as isAbsolute9, join as join13, resolve as resolve11 } from "node:path";
 class TriageConflictError extends Error {
   code = "triage_conflict";
+}
+
+class TooManyMattersError extends Error {
+  code = TOO_MANY_MATTERS_CODE;
 }
 var record4 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 var missing4 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
@@ -4897,8 +4946,11 @@ function parseTriagePlan(value) {
     invalid("fingerprint");
   if (!Array.isArray(value.create) || !Array.isArray(value.moves) || !Array.isArray(value.stays) || !Array.isArray(value.matters))
     invalid("zoznamy");
-  if (value.moves.length > 5000 || value.matters.length > 100)
+  if (value.moves.length > 5000 || value.matters.length > 1000)
     invalid("príliš veľa položiek");
+  const proposed = value.matters.filter((matter) => !(record4(matter) && matter.left === true)).length;
+  if (proposed > MAX_TRIAGE_MATTERS)
+    throw new TooManyMattersError(`Plán zakladá ${proposed} prípadov; naraz najviac ${MAX_TRIAGE_MATTERS}. Odškrtnite niektoré priečinky.`);
   const create = parseOnboardingPlan({ version: 1, root: value.root, treeDigest: value.treeDigest, operations: value.create }).operations;
   for (const operation of create)
     safeRelative(operation.path, "create.path", operation.kind === "file");
@@ -5106,7 +5158,7 @@ async function applyTriagePlan(input, options = {}) {
         return { status: "already_applied", runId: plan.runId, moved: plan.moves.length, created: plan.create.length, journal: dir };
       }
     } else {
-      const inspection = await inspectOnboardingRoot(root, {}, options.hooks);
+      const inspection = await inspectOnboardingRoot(root, TRIAGE_INSPECTION_LIMITS, options.hooks);
       if (!inspection.complete && !onlyLockedIssues(inspection) || triageTreeDigest(inspection.entries) !== plan.treeDigest)
         throw new TriageConflictError("Priečinok sa od náhľadu zmenil. Pripravte nový náhľad.");
       const paths = new Map(inspection.entries.map((entry) => [entry.path.toLocaleLowerCase(), entry]));
@@ -5331,7 +5383,7 @@ async function listTriageRuns(rootInput) {
     try {
       const { plan, events } = await readRun(root, name);
       const state = events.some((event) => event.t === "undone") ? "undone" : events.some((event) => event.t === "undo_started") ? "undoing" : events.some((event) => event.t === "completed") ? "applied" : events.length ? "interrupted" : "planned";
-      result.push({ runId: name, createdAt: plan.createdAt, state, moves: plan.moves.length, matters: plan.matters.length, fingerprint: plan.fingerprint });
+      result.push({ runId: name, createdAt: plan.createdAt, state, moves: plan.moves.length, matters: plan.matters.filter((matter) => !matter.left).length, fingerprint: plan.fingerprint });
     } catch {}
   }
   return result.sort((a, b) => b.runId.localeCompare(a.runId));
@@ -5374,7 +5426,7 @@ async function prepareTriage(root, options = {}) {
       classification = latest.classification;
   }
   const now = options.now ?? new Date;
-  const plan = buildTriagePlan(inventory, { classification, keepInInbox: options.keepInInbox, today: options.today ?? now.toISOString().slice(0, 10), runId: newRunId(now), createdAt: now.toISOString() });
+  const plan = buildTriagePlan(inventory, { classification, keepInInbox: options.keepInInbox, leaveInPlace: options.leaveInPlace ?? defaultLeaveInPlace(inventory), today: options.today ?? now.toISOString().slice(0, 10), runId: newRunId(now), createdAt: now.toISOString() });
   return { inventory, plan, proposal, ...classification ? { classification } : {} };
 }
 
@@ -5633,14 +5685,25 @@ function validate(root) {
       errors.push({ path: rel, message: error instanceof Error ? error.message : String(error) });
     }
   }
+  const cardNames = new Set(ENTITY_TYPES.flatMap((type) => CARD_ALIASES[type]));
+  const cardsByFolder = new Map;
   for (const rel of documents) {
     if (workingPaths.some((path) => rel.startsWith(path)) || rel.split("/").some((part) => WORKING_FOLDERS.some((folder) => folder === part)) || rel.split("/").pop() === "BRAIN.md")
       continue;
+    const name = basename8(rel);
+    if (cardNames.has(name)) {
+      const folder = dirname10(rel) === "." ? "" : dirname10(rel);
+      cardsByFolder.set(folder, [...cardsByFolder.get(folder) ?? [], name]);
+    }
     const parent = dirname10(join15(root, rel));
     const bundleRoot = !rel.includes("/") || basename8(parent) === "memory" || ENTITY_TYPES.some((type) => CARD_ALIASES[type].some((name) => existsSync4(join15(parent, name))));
     const error = validateMarkdown(rel, readText(join15(root, rel)), bundleRoot);
     if (error)
       errors.push(error);
+  }
+  for (const [folder, cards] of cardsByFolder) {
+    if (cards.length > 1)
+      errors.push({ path: folder, message: `Viac kariet entity: ${cards.sort().join(", ")}. Najprv zosúlaď ich obsah.` });
   }
   return errors;
 }

@@ -100,20 +100,25 @@ describe("plán a zápis", () => {
     const original = await treeHash(clone.root);
     const sourceBefore = await treeHash(clone.source);
     const { inventory, plan } = await rulesPlan(clone);
-    expect(inventory.documents.length).toBe(35);
+    // Pracovné priečinky advokáta (Korespondencia 2024, Emaily, Drafty, Podania) ostanú, ako sú (rozhodnutie 19. 10. 2026).
+    expect(inventory.documents.length).toBe(29);
+    for (const path of ["Korespondencia 2024/priloha.pdf", "Emaily/priloha.pdf", "Drafty/memo.docx", "Podania/odpor.pdf"]) expect(inventory.skipped).toContainEqual({ path, reason: "in_folder" });
     expect(move(plan, "odpoved_klienta_2024-03-02.eml")?.to).toBe("05_Komunikacia/odpoved_klienta_2024-03-02.eml");
     expect(move(plan, "IMG_2041.jpg")?.to).toBe("00_Na_zatriedenie/IMG_2041.jpg");
     expect(move(plan, "Zmluva_o_dielo_v2.docx")?.to).toBe("03_Drafty/Zmluva_o_dielo_v2.docx");
-    expect(plan.matters).toHaveLength(1);
-    expect(plan.matters[0]).toMatchObject({ folder: "Spisy/2026-10 Konanie 8C 123-2023", caseNumber: "8C 123/2023", source: "rules", dateSource: "today", documents: 2 });
+    expect(plan.matters.filter(matter => matter.source === "folder").map(matter => matter.folder)).toEqual(["Fotky", "Stare"]);
+    expect(plan.matters.filter(matter => matter.source === "rules")).toHaveLength(1);
+    expect(plan.matters.find(matter => matter.source === "rules")).toMatchObject({ folder: "Spisy/2026-10 Konanie 8C 123-2023", caseNumber: "8C 123/2023", source: "rules", dateSource: "today", documents: 2 });
     expect(move(plan, "Rozsudok 8C_123_2023.pdf")?.to).toBe("Spisy/2026-10 Konanie 8C 123-2023/05_Komunikacia/Dolezita_posta/Rozsudok 8C_123_2023.pdf");
-    const attachments = plan.moves.filter(item => item.from.endsWith("/priloha.pdf") && item.to.startsWith("05_Komunikacia/"));
-    expect(attachments.map(item => item.to).sort()).toEqual(["05_Komunikacia/priloha (2).pdf", "05_Komunikacia/priloha.pdf"]);
-    expect(attachments.some(item => item.renamed)).toBe(true);
+    // Súbory z rôznych podpriečinkov sa nikdy nezlejú do jedného priečinka klienta (žiadne premenovanie zo zlúčenia).
+    // Archív `Stare` a `Fotky` sú predvolene odškrtnuté: ostanú nedotknuté (rozhodnutie 19. 10. 2026).
+    expect(plan.matters.filter(matter => matter.left).map(matter => matter.folder)).toEqual(["Fotky", "Stare"]);
+    expect(move(plan, "Stare/priloha.pdf")).toBeUndefined();
+    expect(plan.moves.filter(item => item.renamed)).toEqual([]);
 
     const result = await applyTriagePlan(plan, { trialJournalDirectory: clone.journal });
-    expect(result).toMatchObject({ status: "applied", moved: 35 });
-    expect(await readFile(join(clone.root, "05_Komunikacia/priloha (2).pdf"), "utf8")).toContain("synthetic attachment");
+    expect(result).toMatchObject({ status: "applied", moved: plan.moves.length });
+    expect(await readFile(join(clone.root, "Stare/priloha.pdf"), "utf8")).toContain("synthetic attachment B");
     const card = await readFile(join(clone.root, "Spisy/2026-10 Konanie 8C 123-2023/matter.md"), "utf8");
     expect(card).toContain('spisova_znacka: "8C 123/2023"');
     expect(card).toContain("kind: contentious");
@@ -123,7 +128,7 @@ describe("plán a zápis", () => {
     expect((await applyTriagePlan(plan, { trialJournalDirectory: clone.journal })).status).toBe("already_applied");
     expect((await listTriageRuns(clone.root))[0]).toMatchObject({ runId: plan.runId, state: "applied" });
 
-    expect(await undoTriage(clone.root, plan.runId, { trialJournalDirectory: clone.journal })).toMatchObject({ status: "undone", restored: 35 });
+    expect(await undoTriage(clone.root, plan.runId, { trialJournalDirectory: clone.journal })).toMatchObject({ status: "undone", restored: plan.moves.length });
     expect(await treeHash(clone.root)).toBe(original);
     expect((await undoTriage(clone.root, plan.runId)).status).toBe("already_undone");
     await expect(applyTriagePlan(plan)).rejects.toThrow("vrátený");
@@ -336,7 +341,8 @@ describe("profily a limity", () => {
   });
   test("limity čítania sa prejavia ako odmietnutie, nie čiastočný plán", async () => {
     const clone = await trialClone();
-    await expect(scanTriage(clone.root, { limits: { maxEntries: 10 } })).rejects.toThrow("entry_limit");
+    // Od R7 nesie odmietnutie kód pre appku namiesto interného `entry_limit`.
+    await expect(scanTriage(clone.root, { limits: { maxEntries: 10 } })).rejects.toMatchObject({ code: "triage_too_large" });
   });
 });
 

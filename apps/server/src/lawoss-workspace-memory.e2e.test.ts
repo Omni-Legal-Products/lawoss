@@ -79,6 +79,13 @@ test("mapped production hook checkpoints outside the client and preserves it acr
     const first = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, first); expect(first.system[0]).not.toContain("FAILED");
     const checkpoint = join(appRoot, ".lawoss", "handoff", "mapped.md"); expect((await readdir(appRoot, { recursive: true })).map(entry => entry.replaceAll(sep, "/"))).toContain(".lawoss/handoff/mapped.md"); const good = await readFile(checkpoint, "utf8"); expect(good).toContain("MAPPED-HOOK-ANCHOR"); expect(await workspaceSnapshot(f.root)).toEqual(before);
     for (const stop of stops.splice(0)) await stop(); const restarted = await startServer(f.config); stops.push(() => restarted.stop()); process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${restarted.port}`;
+    const oldToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN!;
+    await engineAgentSession(f.config, { sessionID: "mapped", directory: f.root });
+    expect(process.env.LEGALWORK_WIKI_AGENT_TOKEN).not.toBe(oldToken);
+    const stale = await fetch(`${process.env.LEGALWORK_SERVER_URL}/workspaces`, { headers: { "x-legalwork-wiki-agent-token": oldToken, "x-legalwork-wiki-agent-session": "mapped", "x-legalwork-wiki-agent-directory": encodeURIComponent(f.root) } });
+    expect(stale.status).toBe(403);
+    expect(await stale.json()).toMatchObject({ code: "wiki_agent_unauthorized" });
+    // The outer agent fixture restores the original environment below.
     const fresh = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, fresh); expect(fresh.system[0]).not.toContain("FAILED"); const afterRestart = await readFile(checkpoint, "utf8"); expect(afterRestart).toContain("MAPPED-HOOK-ANCHOR");
     await rm(profilePath); const revoked = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, revoked); expect(revoked.system[0]).toContain("FAILED"); expect(await readFile(checkpoint, "utf8")).toBe(afterRestart);
   } finally { if (previous.url === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previous.url; agent.restore(); }

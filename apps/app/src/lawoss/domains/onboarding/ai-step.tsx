@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { AiGuidance } from "../ai/guidance";
 import { useEffect, useState } from "react";
 import { preferRealWorkspace } from "../../home-workspace";
 import { CircleAlert, CircleCheck, ExternalLink, Loader2 } from "lucide-react";
@@ -110,6 +111,7 @@ export function AiStepView({
   const ready = model.state === "ready";
   return (
     <>
+      <AiGuidance locale={locale} />
       <p
         role="status"
         data-lawoss-ai-model={model.state}

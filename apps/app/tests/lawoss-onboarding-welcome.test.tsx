@@ -59,6 +59,13 @@ describe("LAWOSS welcome flow", () => {
     expect(html).not.toContain("Start fresh");
   });
 
+  test("Vybrať iný priečinok je dostupné už počas prezerania priečinka (MČ 19. 10.)", () => {
+    const html = page("folder", { initialRoot: "/Users/a/Klienti/Novák" });
+    expect(html).toContain("Looking at the folder…");
+    expect(html).toMatch(/<button[^>]*>Choose another folder<\/button>/);
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Choose another folder/);
+  });
+
   test("obrazovka Toto som našiel nahradí krok Priečinok aj po obnovení na kroku found", () => {
     const html = page("found", { initialRoot: "/x" });
     expect(html).toContain("Looking at the folder…");
@@ -73,10 +80,26 @@ describe("LAWOSS welcome flow", () => {
     }
   });
 
+  test("kým sa hľadá klient pre nový prípad, ostáva Zrušiť aj Teraz preskočiť (19. 10. 2026)", () => {
+    const html = page("matter", { completed: true });
+    expect(html).toContain("Finding the open client");
+    expect(html).toMatch(/>Cancel<\/button>/);
+    expect(html).toMatch(/>Skip for now<\/button>/);
+  });
+
   test("prvý onboarding nemá Zrušiť a krok Priečinok má Späť", () => {
     const html = page("folder");
     expect(html).not.toMatch(/>Cancel</);
     expect(html).toMatch(/>Back</);
+  });
+
+  test("Späť a Zrušiť na kroku Priečinok sú v hlavičke, bez rolovania pod voľby (MČ 19. 10.)", () => {
+    for (const [html, label] of [[page("folder"), ">Back<"], [page("folder", { completed: true }), ">Cancel<"]] as const) {
+      expect(html.indexOf(label)).toBeGreaterThan(-1);
+      expect(html.indexOf(label)).toBeLessThan(html.indexOf("Connect an existing folder"));
+      expect(html.split(label)).toHaveLength(2);
+      expect(html).not.toContain("<footer");
+    }
   });
 
   test("počas obrazovky Toto som našiel nie je Späť (zápis sa nedá potichu opustiť)", () => {
@@ -109,5 +132,15 @@ describe("LAWOSS welcome flow", () => {
     expect(clientsFolderOf(undefined)).toBe("");
     expect(clientsFolderOf("  ")).toBe("");
     expect(clientsFolderOf("Office")).toBe("");
+  });
+
+  // Koreň praxe (pripojený existujúci priečinok) nie je kancelária: Klienti patria dovnútra, nie vedľa.
+  test("the Klienti folder lies inside a practice root and beside an office folder", () => {
+    expect(clientsFolderOf("/x/Prax")).toBe("/x/Prax/Klienti");
+    expect(clientsFolderOf("/x/Prax/Office")).toBe("/x/Prax/Klienti");
+    expect(clientsFolderOf("C:\\Prax")).toBe("C:\\Prax\\Klienti");
+    expect(clientsFolderOf("C:\\Prax\\Office")).toBe("C:\\Prax\\Klienti");
+    expect(clientsFolderOf("/x/Prax/_kancelaria")).toBe("/x/Prax/Klienti");
+    expect(clientsFolderOf("/x/Prax/")).toBe("/x/Prax/Klienti");
   });
 });

@@ -1,196 +1,114 @@
 # LAWOSS alfa: akceptačný protokol
 
-Tento protokol je určený pre interné alfa testovanie LAWOSS. Je doplnkom k
-[build návodu pre alfa testerov](lawoss-build-pre-testerov.md) a opisuje dve
-reprodukovateľné cesty, ktoré má tester prejsť pred nahlásením výsledku: hlavnú
-cestu s organizáciou spisov (OKF) a kratšiu cestu bez OKF. Obe začínajú prvým
-spustením aplikácie s prázdnym profilom.
+Aktívny postup k 17. 10. 2026 pre zdrojový základ
+`fdd10927d92aaf4c25217430cc316ef38e4e8057` je
+**Ty → AI (možno preskočiť) → Priečinok → klient a vec → dokument → pamäť → nový rozhovor**.
+Predchádzajúcu voľbu OKF a kancelárie zachováva
+[historický protokol z 13. 10.](archive/lawoss-alpha-acceptance-2026-10-13.md).
+[D1 zo 4. až 5. 10.](lawoss-d1-zabalena-appka-2026-10-05.md) je datovaný výsledok iného buildu.
+Tieto staršie výsledky nepreukazujú akceptáciu nového inštalátora.
 
-> **Hranica alfa testu:** úspešný preflight ani úspešný scenár nie je právne, bezpečnostné ani produkčné schválenie. Build nie je určený na skutočné spisy.
+Rozhodnutia a ich stav patria do
+[koordinačného indexu](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/main/planning/stav-produktu.md).
+Odkaz je cieľ pripravovaného samostatného dokumentačného patchu, nie tvrdenie, že bol zverejnený.
+Build a inštaláciu rozlišuje [návod pre testerov](lawoss-build-pre-testerov.md).
 
-> **Rozsah protokolu (aktualizované 13. 10. 2026):** onboarding cez priečinok (tri kroky Ty, AI, Priečinok)
-> je v `dev` od 13. 10. (PR [#135](https://github.com/Omni-Legal-Products/lawoss/pull/135),
-> [#136](https://github.com/Omni-Legal-Products/lawoss/pull/136), [#137](https://github.com/Omni-Legal-Products/lawoss/pull/137)
-> a [#145](https://github.com/Omni-Legal-Products/lawoss/pull/145), admin merge MČ). Smer je v
-> [specu k#92](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/92), ktorý ešte nie je odsúhlasený tímom;
-> postup je v plánoch `docs/superpowers/plans/2026-10-08-onboarding-*.md`.
-> Zaznamenajte presný commit testovaného buildu.
+## Pripravte presný balíček a dva profily
 
-## Bezpečnostné podmienky
+1. Použite iba syntetické alebo verejné údaje. Bežný profil a reálne spisy ponechajte zatvorené a nedotknuté.
+2. Zapíšte presný release tag, názov inštalátora, SHA-256, platformu a architektúru z jeho
+   `release-evidence-<platform>-<arch>.json`. Nepoužite CLI `releases/latest` ako výber desktopu.
+3. Overte finálne bytes a podpis po signing, notarization a stapling. Úspešný source build,
+   `--dir` alebo packaged startup neznamená úplnú release akceptáciu.
+4. Pripravte samostatný vlastnený profil. Migrovaný profil vytvorte výhradne ako kópiu
+   starého syntetického profilu s doloženým podporovaným baseline. Originál zachovajte.
+5. V Nastaveniach → Debug zapíšte stav identity, plný commit, verziu, kanál a platformu.
+   `embedded` znamená vloženú a skontrolovanú identitu. `development` označuje checkout.
+   `unavailable` znamená, že pôvod balíčka nie je doložený. Runtime env toto označenie neopraví.
 
-- Použite iba **syntetické alebo verejné dáta**. Nepoužívajte klientske,
-  privilegované, osobné ani inak dôverné informácie.
-- Do issue, logu, screenshotu ani chatu nevkladajte API keys, tokens, client
-  identifiers, client documents alebo prompts. Pred odoslaním výstup skontrolujte
-  a začiernite.
-- Nevykonávajte externé odoslanie, podpis, podanie ani inú následnú právnu alebo
-  finančnú operáciu. Každá významná akcia má zostať pod ľudskou kontrolou.
+Príkazy runneru a jeho platformové obmedzenia sú v [release evidence](release-evidence.md).
+macOS adapter porovná nainštalovanú `.app` s readonly obsahom finálneho DMG alebo ZIP,
+overí `codesign` a Gatekeeper, spustí ju s izolovaným profilom a číta živé IPC cez shipping
+UI-control. Rozhranie CDP ani runtime fuses sa nemenia. Bez manuálne dokončených
+nativných scenárov runner zapíše `blocked` a skončí nenulovo.
 
-## 1. Príprava a preflight
+## AI režimy v governance kandidátovi
 
-1. Použite samostatný testovací priečinok mimo reálnych pracovných dát.
-2. Na macOS, Windows alebo Linux zaznamenajte operačný systém a architektúru
-   (`arm64` alebo `x64`).
-3. Použite Node 24 a `pnpm@11.4.0` podľa build návodu. Overenie bez providerov
-   spustite z koreňa repozitára:
+**AI hranice v alfe (rozhodnutie 20. 10. 2026):** alfa sa dodáva s prepínačom **AI hranice vypnutým**.
+Bežný chat, fronta, plánované úlohy, revízie, benchmarky, SystemOne, hlas a vzdialené OCR potom
+fungujú ako pred governance a posielajú obsah zvolenému poskytovateľovi bez ďalšieho potvrdenia.
+Zapnete ich v **Nastavenia → Poskytovatelia AI → AI hranice**; zmena platí hneď, bez reštartu.
+Tento počítač ich môže vynútiť premennou prostredia `LAWOSS_AI_BOUNDARIES_ENFORCED=1` (iba zapnúť,
+nie vypnúť); prepínač je potom zamknutý s textom „Zapnuté nastavením tohto počítača“. Nie je to
+firemná politika: skutočný kľúč firemnej politiky (so zrkadlom na platforme) je ďalší krok.
+Poškodené uložené nastavenie sa berie ako zapnuté, kým ho používateľ znova neuloží.
+Pri zapnutí appka odmietne nové správy; odpoveď, ktorú model už práve píše, môže dobehnúť. Odseky nižšie o poučení a unsupported prenosoch
+opisujú stav so **zapnutými** AI hranicami. Chránené generovanie dokumentov a verejný text
+fungujú v oboch stavoch rovnako.
 
-   ```bash
-   pnpm test:alpha-preflight
-   node scripts/alpha-preflight.mjs --strict
-   ```
+Zaznamenajte presný SHA: táto zmena zatiaľ nie je release acceptance. Poučenie v onboardingu, AI a integráciách uvádza aktuálne vypnuté spracovanie chráneného/neznámeho kontextu. Prečítanie ani pripojený účet/provider spracovanie nepovoľujú. Ručné súbory a priečinky zostávajú dostupné; bez modelu sa nevyberá náhradný provider. Samotné `localhost` nie je dôkaz lokálneho modelu ani izolovaného downstreamu.
 
-4. Zapíšte commit (`git rev-parse HEAD`), vetvu a výsledok preflightu. Ak
-   používate Node 26 alebo inú nepodporovanú verziu, uveďte to v hlásení;
-   normálny režim iba upozorní, strict režim taký runtime odmietne.
-5. Pokračujte iba vtedy, keď rozumiete rozdielu medzi technickým preflightom a
-   schválením na právne, bezpečnostné alebo produkčné použitie.
+Pre syntetický pozitívny test nastavte vlastný OpenAI-compatible model na vlastnenom loopback receiveri bez reálnych credentials/billing. V existujúcom AI nastavení použite samostatný formulár verejného textu. Vytvorí nový prázdny scratch bez spisu, histórie, AGENTS/wiki/personalizácie a nástrojov. Natívny dialóg pred každým odoslaním ukáže cieľ a úplný serializovaný systémový/textový kontext. Potvrdenie je technická klasifikácia jedného verejného požiadavku, nie právny grant. Očakávajte skutočnú odpoveď `PUBLIC_SYNTHETIC_OK`; pri zamietnutí nesmie receiver dostať nový požiadavok. Tento formulár nesprístupňuje generovanie v klientskom priečinku, prílohy, shell, MCP ani subagentov. Bez spravovaného pripnutého enginu alebo nakonfigurovaného kompatibilného modelu je nedostupný.
 
-## 2. Zlatá cesta s OKF
+Chránené chat/queue/Fusion, remote OCR/SystemOne/voice a ostatné nepreukázané prenosy zostávajú unsupported. Existujúci výslovne vybraný vstavaný lokálny OCR je samostatná cesta. Podpora chráneného modelu vyžaduje preukázanú engine/OS/receiver hranicu, zhodný enforced wire kontrakt a konkrétny právny profil schválený príslušným gestorom. Generický engine v lokálnom H1 teste čítal cez priamy shell mimo workspace aj pri permission deny; tento výsledok sa nesmie označiť za bezpečnú izoláciu. Nepripájajte skutočný spis.
 
-Prejdite celý scenár v poradí:
+Migráciu legacy nastavení najprv zobrazte cez host-only `/lawoss/ai-governance/migration/preview`; apply prijíma aktuálny `sourceHash`. Import zachová iba preferenciu, nevytvára approved profil. Produkčný backup/restore, retention, incident owner/contact a Windows rollback ešte vyžadujú samostatnú acceptance. Rollback už odoslané dáta nevráti; starší build bez governance vyžaduje prevádzkové odobratie vzdialených credentials/povolení, nie zmazanie policy DB.
 
-**voľba OKF → kancelária → klient → vec → dokument → pamäť → nový rozhovor**
 
-### Vy a voľba OKF
+## Prejdite aktuálny onboarding
 
-1. Pri prvom spustení sa otvorí „Nastavte svoju prax“. V kroku „Vy a
-   jurisdikcia“ vyplňte vymyslené meno do poľa „Vaše meno“, zvoľte
-   jurisdikciu a jazyk rozhrania a pokračujte.
-2. V kroku „Organizácia spisov“ overte, že nie je predvolená žiadna voľba a
-   „Pokračovať“ je zablokované. Prečítajte poučenie.
-3. Zvoľte „Používať OKF“. Overte, že pokračovať sa dá až po zaškrtnutí
-   „Beriem na vedomie, ako OKF pracuje s údajmi spisu.“ Text nesmie hovoriť
-   o súhlase.
+1. V kroku **Ty** zadajte vymyslené meno, jurisdikciu a jazyk rozhrania.
+2. V kroku **AI** overte pravdivý stav poskytovateľa a modelu. Bez modelu pokračujte
+   cez preskočenie. Ponuka poskytovateľa ani uložený API kľúč nepotvrdzuje funkčné pripojenie.
+3. V kroku **Priečinok** otvorte skutočný systémový picker. Zrušte ho a overte, že
+   nevznikol pracovný priestor ani zápis OKF. Potom ho otvorte znova a vyberte testovaciu složku.
+4. Pre obyčajný priečinok skontrolujte výsledok rozpoznania, náhľad plánovaných zmien a
+   potvrdenie pred zápisom. Nehľadajte historický krok „voľba OKF“.
+5. Samostatne pripojte existujúci syntetický OKF klient. Overte rozpoznanie existujúcich
+   súborov, ponúknutý skúšobný klon a bezpečné doplnenie. Mapovanie bez zápisu je
+   v tomto zdrojovom základe skryté flagom `ALPHA_HIDE_MAP_WITHOUT_WRITING`.
+6. Založte klienta a vec cez náhľad a potvrdenie. Po dokončení overte viditeľný názov,
+   priečinok veci, klientsky workspace a existujúce skills. Zrušenie toku z bočného panela
+   sa má vrátiť do aplikácie, nie na prvý krok Ty.
 
-### Kancelária
+## Overte dokument, pamäť a oddelenie klientov
 
-1. Zvoľte „Vytvoriť novú“ a ako nadradený priečinok testovací priečinok mimo
-   reálnych dát.
-2. Otvorte „Náhľad zmien“, skontrolujte plánované zmeny a až potom zvoľte
-   „Potvrdiť a vykonať“.
-3. Overte, že vznikol priečinok kancelárie s `okf.config` a že kancelária
-   nevytvorila vlastný pracovný priestor.
+1. Vložte syntetický dokument do veci. Overte jeho pôvod, aktuálne bytes a správny pracovný kontext.
+2. Zapíšte syntetickú informáciu do pamäte veci. Otvorte nový rozhovor a overte jej použitie.
+3. Reštartujte skutočnú nainštalovanú aplikáciu. Overte opäť živý commit, profil,
+   served renderer, klienta, vec a pamäť.
+4. Založte ďalších dvoch syntetických klientov. Overte prehľad praxe aj izoláciu agenta.
+   Skúste chybu čítania jedného klienta a obnovu. Chýbajúci klient sa nesmie tváriť ako nula lehôt.
+5. Pre zahrnuté zmeny lehôt prejdite samostatný CZ a SK prípad: dokument a doručenie,
+   doložené pravidlo, deterministický výpočet, potvrdenie človekom, jeden zápis OKF a ICS.
+   Zmena kandidáta musí zneplatniť potvrdenie. Bez schváleného právneho pravidla je scenár `blocked`.
+6. Pre cloudovú politiku overte konkrétnu službu a podporované cesty, zmenu konfigurácie a
+   odvolanie oprávnenia. Bez testovacieho účtu, právnej brány alebo potrebného konektora je výsledok `blocked`.
 
-### Dáta a AI
+Každý scenár opakujte na čistom aj migrovanom profile každého deklarovaného targetu.
+Samostatne overte CZ a SK UI a zdroj LegalWork vypnutý aj zapnutý.
+Katalóg LAWOSS a flagy dokazujú ponuku. Pre každú integráciu zaznamenajte oddelene
+**ponúknuté → nainštalované → pripojené → overené**, s dátumom a odkazom na dôkaz.
+Aktuálny zdroj skrýva upstream kalendár, wiki, dashboards a plánované úlohy cez
+`ALPHA_HIDE_UNADOPTED_UPSTREAM`; ich existencia v kóde nie je tvrdenie o dostupnosti.
 
-1. Krok výslovne uvedie stav modelu: „Model je pripojený:“ s názvom modelu,
-   alebo „Zatiaľ nemáte pripojený model“, prípadne že poskytovateľ je
-   pripojený bez vybraného modelu alebo že vybraný model už nie je dostupný.
-2. Cez „Otvoriť nastavenia AI“ overte, že stav zodpovedá nastaveniam. Zrušená
-   bezplatná vrstva sa nesmie zobraziť ako pripojený model.
-3. Analytika je v LAWOSS natrvalo vypnutá. Krok AI ani Nastavenia nesmú
-   ponúkať prepínač na jej zapnutie. Ak sa zobrazí, zaznamenajte odchýlku.
-4. Pokračujte. Bez modelu tlačidlo znie „Pokračovať bez modelu“.
+## Zapíšte výsledok
 
-### Klient a vec
+Záznam obsahuje build identitu, finálny digest, target, druh a vlastníka profilu,
+scenár, `pass|fail|blocked|not-run`, operátora, čas a odkaz na redigované dôkazy.
+Čistý profil nenahrádza migrovaný a iná architektúra nenahrádza cieľovú.
+Technický PASS nie je právne ani produkčné schválenie. Nezverejňujte klientske údaje,
+API kľúče ani discovery token UI-control.
 
-1. Vytvorte testovacieho klienta s vymysleným názvom s bodkami, napríklad
-   `Testovací klient s. r. o.` V náhľade zmien overte, že priečinok sa volá
-   `Testovací klient s. r. o` (bez koncovej bodky) a karta klienta nesie celý
-   názov. Názov začínajúci bodkou alebo obsahujúci `/` musí skončiť
-   zrozumiteľnou chybou v jazyku rozhrania.
-2. Založte jednu testovaciu vec s jednoznačným názvom a krátkym syntetickým
-   opisom. Po potvrdení sa otvorí klient ako pracovný priestor.
-3. Overte, že v klientovi sú skills `novy-spis`, `okf-pamat` a
-   `usporiadaj-spis`.
-4. Overte, že po reštarte alebo otvorení nového okna viete klienta a vec znovu
-   nájsť a že sa zobrazuje správny kontext.
+`draft`, `built`, `signed`, `tested`, `published` a `delivered` sú samostatné stavy.
+Po zmene finálnych bytes, podpise alebo novom builde sa pôvodný runtime výsledok neprenesie.
 
-### Dokument a zdroj
+## Ďalšie kroky
 
-1. Pridajte do veci krátky syntetický alebo verejný dokument, pri ktorom je
-   dovolené jeho ďalšie spracovanie.
-2. Položte otázku, na ktorú sa dá odpovedať iba z dokumentu.
-3. Skontrolujte, či odpoveď uvádza správny **zdroj**, či sa dá spätne dohľadať
-   relevantné miesto a či systém nepridáva tvrdenie, ktoré dokument nepodporuje.
-4. Ak má výstup právny význam, tester musí overiť jurisdikciu, dátum a citáciu;
-   odpoveď modelu sama osebe nie je overeným právnym záverom.
+Pred publikáciou dokončite všetky povinné scenáre pre rovnaký digest na oboch profiloch.
+Až potom overte upload read-back a príslušný distribuční ukazovateľ.
 
-### Pamäť a nový rozhovor
+## Otvorené otázky
 
-1. Uložte jednu neškodnú, jasne označenú informáciu do pamäte veci, napríklad
-   vymyslenú lehotu alebo zapojený subjekt.
-2. V detaile veci overte, že sa informácia zobrazí (zapojené subjekty pod
-   nadpisom „Zapojené subjekty“) a že rozsah pamäte uvádza vec, klienta aj
-   kanceláriu. Ak otvoríte priečinok veci samostatne, rozsah výslovne uvedie
-   „Klient: nenačítaný“ a „Kancelária: nenačítaná“.
-3. Otvorte nový rozhovor v tej istej veci a overte, či sa použije iba očakávaný
-   kontext.
-4. Skontrolujte, či sa informácia nezobrazí v inej veci alebo pri inom
-   testovacom klientovi.
-5. Ak systém navrhne následnú akciu s právnym, externým alebo trvalým dopadom,
-   musí zostať za **ľudské potvrdenie** pred jej vykonaním.
-
-## 2a. Kratšia cesta bez OKF
-
-Začnite s novým prázdnym profilom a prejdite:
-
-**voľba „Zatiaľ bez OKF“ → AI → pracovný priečinok → dokument → nový rozhovor**
-
-1. V kroku „Vy a jurisdikcia“ vyplňte vymyslené meno a pokračujte.
-2. Zvoľte „Zatiaľ bez OKF“. Potvrdenie sa nevyžaduje a onboarding má tri kroky.
-3. V kroku „Dáta a AI“ overte rovnaký výslovný stav modelu a neprítomnosť
-   prepínača analytiky ako v ceste s OKF. Analytika je natrvalo vypnutá.
-4. Ako „Pracovný priečinok (voliteľné)“ vyberte testovací priečinok so
-   syntetickým dokumentom a zvoľte „Dokončiť“.
-5. Overte, že priečinok je pridaný ako pracovný priestor, nevznikla v ňom
-   štruktúra OKF ani skills OKF a úvodná obrazovka je použiteľná. V bočnom
-   paneli je odkaz „Zapnúť OKF“.
-6. Položte otázku k dokumentu a skontrolujte **zdroj** ako v ceste s OKF.
-7. Otvorte nový rozhovor v tom istom priečinku a overte, či sa použije iba
-   očakávaný kontext.
-
-## 3. Matica providerov
-
-Pre každý provider, ktorý je testerovi dostupný, vyplňte samostatný riadok.
-Neposielajte do hlásenia kľúče ani obsah otázok.
-
-| Provider | Pripojený stav | Predvolený/ponúknutý model | Prvá otázka | Stav po reštarte | Chyba po odpojení |
-|---|---|---|---|---|---|
-| OpenAI |  |  |  |  |  |
-| Anthropic |  |  |  |  |  |
-| Lokálny alebo iný podporovaný provider |  |  |  |  |  |
-
-Pri každom riadku overte, že:
-
-- pripojený provider má zrozumiteľný stav a model sa dá vybrať bez hádania;
-- prvá otázka skončí buď odpoveďou, alebo zrozumiteľnou chybou;
-- po odpojení sa nezobrazuje starý úspešný stav a používateľ dostane ďalší
-  bezpečný krok;
-- reštart nemení zvolený provider alebo model bez vysvetlenia.
-
-## 4. Výsledok
-
-Scenár označte ako **PASS** iba vtedy, ak:
-
-- preflight uvádza očakávané prostredie;
-- prešla celá cesta voľba OKF → kancelária → klient → vec → dokument →
-  pamäť → nový rozhovor aj kratšia cesta bez OKF, alebo hlásenie výslovne
-  uvádza, ktorú cestu tester neprešiel;
-- krok AI pravdivo uviedol stav modelu a analytika ostala natrvalo vypnutá
-  bez možnosti zapnúť ju v rozhraní;
-- odpoveď sa dala skontrolovať podľa zdroja a nebola prezentovaná ako
-  automaticky schválené právne stanovisko;
-- neunikol kontext medzi vecami;
-- každá významná alebo externá akcia vyžadovala ľudské potvrdenie;
-- test použil iba syntetické alebo verejné dáta.
-
-Inak označte scenár ako **FAIL**, uveďte prvý krok odchýlky a priložte iba
-redigované technické údaje cez [alpha test report](../.github/ISSUE_TEMPLATE/alpha-test-report.yml).
-
-### Environment summary / prostredie
-
-```text
-Operating system:
-Architecture:
-Node:
-pnpm:
-Commit:
-Branch:
-Provider(s) tested:
-Path(s): s OKF / bez OKF
-Scenario result: PASS / FAIL
-```
-
-Tento dokument je akceptačný protokol pre internú alfu, nie vyhlásenie o
-produkčnej pripravenosti, bezpečnostný audit ani právne posúdenie.
+Konkrétni prevádzkovatelia a termíny platformovej akceptácie, testovacie účty a schválené
+právne pravidlá musia byť doložené pri release kandidátovi. Tento protokol ich neschvaľuje.

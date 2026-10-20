@@ -3,7 +3,11 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { enforceAiBoundaries } from "./lawoss/test-support/ai-boundaries.js";
 import { startServer } from "./server.js";
+import { SessionMessageQueue, QueuePreparationError } from "./session-message-queue.js";
+import { queueActionSchema } from "./session-queue-schema.js";
+import { assertNoHostShellInterpolation } from "./agent-sandbox/proxy-gate.js";
 import { openSqlite } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 
@@ -36,7 +40,7 @@ function auth(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-function startMockOpencode(input?: { sessionDirectory?: string; invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean; retry?: () => { type: "retry"; attempt: number; message: string; next: number } | null; commands?: () => Array<{ name: string; template: string }>; promptError?: () => { name: string; data: { message: string } } | undefined; providerId?: string }) {
+function startMockOpencode(input?: { sessionDirectory?: string; invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean; retry?: () => { type: "retry"; attempt: number; message: string; next: number } | null; commands?: () => Array<{ name: string; template: string }>; promptError?: () => { name: string; data: { message: string } } | undefined; providerId?: string; captureSessionCreate?: (headers: Headers, body: unknown) => void }) {
   const requests: Array<{ pathname: string; search: string; directory: string | null; method: string }> = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -49,6 +53,11 @@ function startMockOpencode(input?: { sessionDirectory?: string; invalidList?: bo
         search: url.search,
         directory: request.headers.get("x-opencode-directory"),
       });
+
+      if (url.pathname === "/session" && request.method === "POST") {
+        input?.captureSessionCreate?.(request.headers, await request.json());
+        return Response.json({ id: "ses_created", directory: request.headers.get("x-opencode-directory"), time: {} });
+      }
 
       if (url.pathname === "/session") {
         if (input?.invalidList) {
@@ -134,7 +143,7 @@ function startMockOpencode(input?: { sessionDirectory?: string; invalidList?: bo
   return { server, requests };
 }
 
-async function startLegalworkServer(input: { workspaceRoot: string; opencodeBaseUrl: string; readOnly?: boolean; agentSandboxEnabled?: boolean }) {
+async function startLegalworkServer(input: { workspaceRoot: string; opencodeBaseUrl: string; readOnly?: boolean; agentSandboxEnabled?: boolean; aiBoundaries?: boolean }) {
   const isolated = { LEGALWORK_TOKEN_STORE: join(input.workspaceRoot, "tokens.json"), LEGALWORK_RUNTIME_DB: join(input.workspaceRoot, "runtime.sqlite"), LEGALWORK_DATA_DIR: join(input.workspaceRoot, "data") };
   const previous = Object.fromEntries(Object.keys(isolated).map((key) => [key, process.env[key]]));
   Object.assign(process.env, isolated);
@@ -173,6 +182,8 @@ async function startLegalworkServer(input: { workspaceRoot: string; opencodeBase
   };
   const server = await startServer(config) as Served;
   stops.push(() => server.stop(true));
+  // #168 denial expectations: „AI hranice" on explicitly (per-root runtime DB).
+  if (input.aiBoundaries) await enforceAiBoundaries(config);
   return { server, token: config.token };
 }
 
@@ -391,31 +402,18 @@ describe("workspace session read APIs", () => {
 
   });
 
-  test("acknowledges proxied session commands before upstream completion", async () => {
+  test("with AI boundaries on, protected session commands fail promptly without contacting the engine", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const command = deferred();
     const mock = startMockOpencode({ holdCommand: command.promise });
-    const legalwork = await startLegalworkServer({
-      workspaceRoot,
-      readOnly: false,
-      opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
+    const legalwork = await startLegalworkServer({ workspaceRoot, readOnly: false, aiBoundaries: true, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}` });
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/opencode/session/ses_1/command`, {
+      method: "POST", headers: { ...auth(legalwork.token), "Content-Type": "application/json" }, body: JSON.stringify({ command: "review", arguments: "" }),
     });
-
-    const response = await Promise.race([
-      fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/opencode/session/ses_1/command`, {
-        method: "POST",
-        headers: { ...auth(legalwork.token), "Content-Type": "application/json" },
-        body: JSON.stringify({ command: "review", arguments: "" }),
-      }),
-      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 100)),
-    ]);
-
-    expect(response).not.toBe("timeout");
-    expect(response instanceof Response ? response.status : 0).toBe(200);
-    await expect(response instanceof Response ? response.json() : null).resolves.toMatchObject({ accepted: true });
-    const sawCommand = await waitUntil(() => mock.requests.some((request) => request.pathname === "/session/ses_1/command"));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: "ai_transfer_denied" });
+    expect(mock.requests.some(request => request.pathname === "/session/ses_1/command")).toBe(false);
     command.resolve();
-    expect(sawCommand).toBe(true);
   });
 
   test("keeps legacy /w workspace opencode proxy alias", async () => {
@@ -436,29 +434,22 @@ describe("workspace session read APIs", () => {
     expect(mock.requests.some((request) => request.pathname === "/session")).toBe(true);
   });
 
-  test("forwards sandbox-rewritten prompts without a stale content length", async () => {
+  test("forwards sandbox-rewritten session creation without a stale content length", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const mock = startMockOpencode();
-    // 🟡 LAWOSS: proxy servera len na čítanie odmieta zápisy (#142); test overuje prepis pre sandbox.
-    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, agentSandboxEnabled: true, readOnly: false });
-    const originalFetch = globalThis.fetch;
     let forwarded: { headers: Headers; body: unknown } | undefined;
-    globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-      if (String(input) === `http://127.0.0.1:${mock.server.port}/session/ses_1/message` && init?.method === "POST") {
-        if (!(init.body instanceof ArrayBuffer)) throw new Error("expected buffered proxy body");
-        forwarded = { headers: new Headers(init.headers), body: JSON.parse(Buffer.from(init.body).toString()) };
-        return Response.json({ info: { id: "response", role: "assistant" }, parts: [] });
-      }
-      return originalFetch(input, init);
-    }, originalFetch);
-    stops.push(() => { globalThis.fetch = originalFetch; });
-    const body = JSON.stringify({ parts: [{ type: "text", text: "Verify connection" }], tools: { bash: false } });
-    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/opencode/session/ses_1/message`, {
+    const mock = startMockOpencode({ captureSessionCreate: (headers, body) => { forwarded = { headers, body }; } });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, agentSandboxEnabled: true, readOnly: false });
+    const body = JSON.stringify({ title: "Synthetic Č", tools: { bash: false } });
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/opencode/session`, {
       method: "POST", headers: { ...auth(legalwork.token), "Content-Type": "application/json", "Content-Length": String(Buffer.byteLength(body)) }, body,
     });
     expect(response.status).toBe(200);
-    expect(forwarded?.body).toMatchObject({ tools: { bash: false, legalwork_shell: false } });
-    expect(forwarded?.headers.get("content-length")).toBeNull();
+    expect(await response.json()).toMatchObject({ id: "ses_created" });
+    expect(forwarded?.body).toMatchObject({ title: "Synthetic Č", tools: { bash: false, legalwork_shell: false } });
+    // The receiver's HTTP stack computes length for the actual rewritten bytes;
+    // it must never receive the smaller caller-supplied pre-rewrite length.
+    expect(Number(forwarded?.headers.get("content-length"))).not.toBe(Buffer.byteLength(body));
+    expect(mock.requests.filter(request => request.method === "POST").map(request => request.pathname)).toEqual(["/session"]);
   });
 
   test("returns 502 when OpenCode returns an invalid session list payload", async () => {
@@ -499,11 +490,177 @@ describe("workspace session read APIs", () => {
       message: "OpenCode engine is not ready",
     });
   });
+  test("with AI boundaries off (alpha default), acknowledges proxied session commands before upstream completion", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const command = deferred();
+    const mock = startMockOpencode({ holdCommand: command.promise });
+    const legalwork = await startLegalworkServer({
+      workspaceRoot,
+      readOnly: false,
+      opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
+    });
+
+    const response = await Promise.race([
+      fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/opencode/session/ses_1/command`, {
+        method: "POST",
+        headers: { ...auth(legalwork.token), "Content-Type": "application/json" },
+        body: JSON.stringify({ command: "review", arguments: "" }),
+      }),
+      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 100)),
+    ]);
+
+    expect(response).not.toBe("timeout");
+    expect(response instanceof Response ? response.status : 0).toBe(200);
+    await expect(response instanceof Response ? response.json() : null).resolves.toMatchObject({ accepted: true });
+    const sawCommand = await waitUntil(() => mock.requests.some((request) => request.pathname === "/session/ses_1/command"));
+    command.resolve();
+    expect(sawCommand).toBe(true);
+  });
+  test("with AI boundaries off (alpha default), forwards sandbox-rewritten prompts without a stale content length", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode();
+    // 🟡 LAWOSS: proxy servera len na čítanie odmieta zápisy (#142); test overuje prepis pre sandbox.
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, agentSandboxEnabled: true, readOnly: false });
+    const originalFetch = globalThis.fetch;
+    let forwarded: { headers: Headers; body: unknown } | undefined;
+    globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      // #168 forwards through protectedEngineFetch, which hands the fallback one complete Request.
+      const request = input instanceof Request && init === undefined ? input : new Request(input, init);
+      if (request.url === `http://127.0.0.1:${mock.server.port}/session/ses_1/message` && request.method === "POST") {
+        forwarded = { headers: new Headers(request.headers), body: await request.json() };
+        return Response.json({ info: { id: "response", role: "assistant" }, parts: [] });
+      }
+      return originalFetch(input, init);
+    }, originalFetch);
+    stops.push(() => { globalThis.fetch = originalFetch; });
+    const body = JSON.stringify({ parts: [{ type: "text", text: "Verify connection" }], tools: { bash: false } });
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/opencode/session/ses_1/message`, {
+      method: "POST", headers: { ...auth(legalwork.token), "Content-Type": "application/json", "Content-Length": String(Buffer.byteLength(body)) }, body,
+    });
+    expect(response.status).toBe(200);
+    expect(forwarded?.body).toMatchObject({ tools: { bash: false, legalwork_shell: false } });
+    expect(forwarded?.headers.get("content-length")).toBeNull();
+  });
 });
 
 
 describe("shared session queue API", () => {
-  test("queued execution cannot bypass the protected shell or interpolate host commands", async () => {
+  test("with AI boundaries on, queued execution cannot bypass the protected shell or interpolate host commands", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode({ idle: () => true, commands: () => [
+      { name: "review", template: "Review these files" },
+      { name: "unsafe", template: "Inspect !`echo unexpected-host-execution`" },
+    ] });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false, aiBoundaries: true, agentSandboxEnabled: true });
+    const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/queue`;
+    const headers = { ...auth(legalwork.token), "Content-Type": "application/json" };
+    const enqueue = (execution: unknown) => fetch(base, { method: "POST", headers, body: JSON.stringify({
+      type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text: "queue check", parts: [], attachments: [], editor: { mentions: {}, pasteParts: [] } }, execution,
+    }) });
+    const command = { kind: "command", command: "review", arguments: "", model: "test/test" };
+    for (const execution of [
+      { kind: "shell", command: "echo unexpected-host-execution" },
+      { ...command, arguments: "!`echo unexpected-host-execution`" },
+      { ...command, command: "unsafe" },
+    ]) {
+      const rejected = await enqueue(execution);
+      expect(rejected.status).toBe(403);
+    }
+    expect((await fetch(base, { headers }).then(response => response.json())).entries).toEqual([]);
+    expect(mock.requests.some(request => /\/(shell|command)$/.test(request.pathname) && request.method === "POST")).toBe(false);
+    const protectedCommand = await enqueue(command);
+    expect(protectedCommand.status).toBe(403);
+    expect(await protectedCommand.json()).toMatchObject({ code: "ai_transfer_denied" });
+    expect((await fetch(base, { headers }).then(response => response.json())).entries).toEqual([]);
+    expect(mock.requests.some(request => request.method === "POST")).toBe(false);
+  });
+  test("a queued shortcut is checked again through its owned transport when its definition changes", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    let template = "Review these files", deliveries = 0;
+    const queue = new SessionMessageQueue(join(workspaceRoot, "owned-queue"), {
+      idle: async () => true,
+      send: async () => { try { assertNoHostShellInterpolation(template); } catch (error) { throw new QueuePreparationError(error instanceof Error ? error.message : "Invalid shortcut"); } deliveries++; },
+    });
+    stops.push(() => queue.stop());
+    await queue.act("ws_1", "ses_1", { type: "pause", paused: true });
+    await queue.act("ws_1", "ses_1", queueActionSchema.parse({ type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text: "queue check", parts: [], attachments: [], editor: { mentions: {}, pasteParts: [] } }, execution: { kind: "command", command: "review", arguments: "", model: "test/test" } }));
+    template = "Inspect !`echo unexpected-host-execution`";
+    await queue.act("ws_1", "ses_1", { type: "pause", paused: false });
+    expect(await waitUntil(() => deliveries > 0)).toBe(false);
+    const failed = await queue.read("ws_1", "ses_1");
+    expect(failed.paused).toBe(true);
+    expect(failed.entries[0].status).toBe("failed");
+    expect(failed.entries[0].error).toContain("Shell interpolation");
+    expect(deliveries).toBe(0);
+  });
+
+  test("a globally visible chat from another project cannot be read or changed through this project's queue", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const otherRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode({ sessionDirectory: otherRoot });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false });
+    const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/queue`;
+    const headers = { ...auth(legalwork.token), "Content-Type": "application/json" };
+    for (const url of [base, `${base}?revision=0`]) expect((await fetch(url, { headers })).status).toBe(404);
+    for (const action of [
+      { type: "pause", paused: true },
+      { type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text: "wrong project", parts: [], attachments: [], editor: { mentions: {}, pasteParts: [] } }, execution: { kind: "shell", command: "echo wrong" } },
+    ]) expect((await fetch(base, { method: "POST", headers, body: JSON.stringify(action) })).status).toBe(404);
+    expect(mock.requests.some(request => request.method === "POST" || request.method === "PATCH")).toBe(false);
+  });
+  test("an owned aborted delivery completes once and follow-ups resume without resending it", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    let aborted = true;
+    const deliveries: string[] = [];
+    const queue = new SessionMessageQueue(join(workspaceRoot, "owned-queue"), {
+      idle: async () => true,
+      send: async (_workspace, _session, entry) => { deliveries.push(entry.id); if (aborted) return { pause: true, reason: "stop" }; },
+    });
+    stops.push(() => queue.stop());
+    const first = queueActionSchema.parse({ type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text: "first", parts: [], attachments: [], editor: { mentions: {}, pasteParts: [] } }, execution: { kind: "prompt", model: { providerID: "test", modelID: "test" }, parts: [{ type: "text", text: "first" }] } });
+    const second = queueActionSchema.parse({ ...first, id: crypto.randomUUID() });
+    if (first.type !== "enqueue" || second.type !== "enqueue") throw new Error("Expected enqueue fixture");
+    await queue.act("ws_1", "ses_1", { type: "pause", paused: true });
+    await queue.act("ws_1", "ses_1", first); await queue.act("ws_1", "ses_1", second);
+    await queue.act("ws_1", "ses_1", { type: "pause", paused: false });
+    for (let attempt = 0; attempt < 100 && !(await queue.read("ws_1", "ses_1")).paused; attempt++) await Bun.sleep(5);
+    const stopped = await queue.read("ws_1", "ses_1");
+    expect(stopped.paused).toBe(true); expect(stopped.completedIds).toContain(first.id);
+    expect(stopped.entries.map(entry => [entry.id, entry.status])).toEqual([[second.id, "queued"]]);
+    aborted = false;
+    await queue.act("ws_1", "ses_1", { type: "pause", paused: false });
+    for (let attempt = 0; attempt < 100 && (await queue.read("ws_1", "ses_1")).entries.length; attempt++) await Bun.sleep(5);
+    expect((await queue.read("ws_1", "ses_1")).entries).toEqual([]);
+    await queue.act("ws_1", "ses_1", first);
+    expect(deliveries).toEqual([first.id, second.id]);
+  });
+
+  test("with AI boundaries on, both HTTP windows observe unchanged empty queues after a denied enqueue", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode({ idle: () => true });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false, aiBoundaries: true });
+    const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/queue`;
+    const headers = { ...auth(legalwork.token), "Content-Type": "application/json" };
+    const before = await fetch(base, { headers }).then(response => response.json());
+    const input = { type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text: "synthetic queue check", parts: [], attachments: [], editor: { mentions: {}, pasteParts: [] } }, execution: { kind: "prompt", model: { providerID: "test", modelID: "test" }, parts: [{ type: "text", text: "synthetic queue check" }] } };
+    const response = await fetch(base, { method: "POST", headers, body: JSON.stringify(input) });
+    expect(response.status).toBe(403); expect(await response.json()).toMatchObject({ code: "ai_transfer_denied" });
+    const readA = await fetch(base, { headers }).then(response => response.json());
+    const readB = await fetch(base, { headers }).then(response => response.json());
+    expect(readA).toEqual(readB); expect(readB).toEqual(before); expect(readB.entries).toEqual([]);
+    expect(await fetch(`${base}?revision=${readB.revision}`, { headers }).then(response => response.json())).toBeNull();
+    expect(mock.requests.some(request => request.method === "POST" || request.method === "PATCH")).toBe(false);
+    expect((await fetch(base)).status).toBe(401);
+  });
+
+  test("read-only servers never accept executable queue changes", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode();
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}` });
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/queue`, { method: "POST", headers: { ...auth(legalwork.token), "Content-Type": "application/json" }, body: JSON.stringify({ type: "pause", paused: false }) });
+    expect(response.status).toBe(403);
+  });
+  test("with AI boundaries off (alpha default), queued execution cannot bypass the protected shell or interpolate host commands", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const mock = startMockOpencode({ idle: () => true, commands: () => [
       { name: "review", template: "Review these files" },
@@ -523,13 +680,15 @@ describe("shared session queue API", () => {
     ]) {
       const rejected = await enqueue(execution);
       expect(rejected.status).toBe(403);
+      // With AI hranice off, the refusal is the queue's own shell/interpolation validation.
+      expect(await rejected.json()).toMatchObject({ code: "sandbox_required" });
     }
     expect((await fetch(base, { headers }).then(response => response.json())).entries).toEqual([]);
     expect(mock.requests.some(request => /\/(shell|command)$/.test(request.pathname) && request.method === "POST")).toBe(false);
     expect((await enqueue(command)).status).toBe(200);
     expect(await waitUntil(() => mock.requests.some(request => request.pathname === "/session/ses_1/command"))).toBe(true);
   });
-  test("a queued shortcut is checked again when its definition changes before dispatch", async () => {
+  test("with AI boundaries off (alpha default), a queued shortcut is checked again when its definition changes before dispatch", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     let template = "Review these files";
     const mock = startMockOpencode({ idle: () => true, commands: () => [{ name: "review", template }] });
@@ -552,21 +711,7 @@ describe("shared session queue API", () => {
     expect(queue.entries[0].error).toContain("Shell interpolation");
     expect(mock.requests.some(request => request.pathname === "/session/ses_1/command")).toBe(false);
   });
-  test("a globally visible chat from another project cannot be read or changed through this project's queue", async () => {
-    const workspaceRoot = await createWorkspaceRoot();
-    const otherRoot = await createWorkspaceRoot();
-    const mock = startMockOpencode({ sessionDirectory: otherRoot });
-    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false });
-    const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/queue`;
-    const headers = { ...auth(legalwork.token), "Content-Type": "application/json" };
-    for (const url of [base, `${base}?revision=0`]) expect((await fetch(url, { headers })).status).toBe(404);
-    for (const action of [
-      { type: "pause", paused: true },
-      { type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text: "wrong project", parts: [], attachments: [], editor: { mentions: {}, pasteParts: [] } }, execution: { kind: "shell", command: "echo wrong" } },
-    ]) expect((await fetch(base, { method: "POST", headers, body: JSON.stringify(action) })).status).toBe(404);
-    expect(mock.requests.some(request => request.method === "POST" || request.method === "PATCH")).toBe(false);
-  });
-  test("a confirmed aborted prompt completes delivery and follow-ups can resume without resending it", async () => {
+  test("with AI boundaries off (alpha default), a confirmed aborted prompt completes delivery and follow-ups can resume without resending it", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     let aborted = true;
     const mock = startMockOpencode({ idle: () => true, promptError: () => aborted ? { name: "MessageAbortedError", data: { message: "Stopped by user" } } : undefined });
@@ -592,7 +737,7 @@ describe("shared session queue API", () => {
     await send(first); // An acknowledgement retry cannot resend the aborted original.
     expect(mock.requests.filter(request => request.pathname === "/session/ses_1/message" && request.method === "POST")).toHaveLength(2);
   });
-  test("both windows read the same queue; server dispatch restores the chat once and rejects stale writes", async () => {
+  test("with AI boundaries off (alpha default), both windows read the same queue; server dispatch restores the chat once and rejects stale writes", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     let idle = false;
     const mock = startMockOpencode({ idle: () => idle });
@@ -623,12 +768,5 @@ describe("shared session queue API", () => {
     const unknown = await fetch(base.replace("ses_1", "ses_missing"), { method: "POST", headers, body: JSON.stringify(input) });
     expect(unknown.ok).toBe(false);
     expect((await fetch(base)).status).toBe(401);
-  });
-  test("read-only servers never accept executable queue changes", async () => {
-    const workspaceRoot = await createWorkspaceRoot();
-    const mock = startMockOpencode();
-    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}` });
-    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/queue`, { method: "POST", headers: { ...auth(legalwork.token), "Content-Type": "application/json" }, body: JSON.stringify({ type: "pause", paused: false }) });
-    expect(response.status).toBe(403);
   });
 });

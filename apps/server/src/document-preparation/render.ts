@@ -1,4 +1,4 @@
-import { createCanvas, loadImage, DOMMatrix, Path2D } from "@napi-rs/canvas";
+import { createCanvas, loadImage, DOMMatrix, GlobalFonts, Path2D } from "@napi-rs/canvas";
 import { pdfAsset } from "./pdf-assets.js";
 import type { OcrContent, OcrPage } from "../ocr/types.js";
 import { pdfQuoteRegions } from "./highlights.js";
@@ -17,6 +17,16 @@ class BinaryDataFactory {
     if (!directory) throw new Error("Unsupported PDF asset kind");
     return pdfAsset(`${directory}/${filename}`);
   }
+}
+// LAWOSS: quote spans for generic sans text (Helvetica/Arial without embedded data, which PDF.js draws
+// with its metric-compatible Liberation Sans) are measured with that same bundled font under a private
+// family name. The host's generic fallback differs by platform and changes once any other code in the
+// process registers a canvas font (OCR token drawing registers Liberation Sans Bold).
+let measureSans: string | undefined;
+function measureFamily(family: string) {
+  if (family !== "sans-serif") return family;
+  measureSans ??= GlobalFonts.register(Buffer.from(pdfAsset("standard_fonts/LiberationSans-Regular.ttf")), "LegalWork Measure Sans") ? `"LegalWork Measure Sans"` : family;
+  return measureSans;
 }
 let renderer: Promise<typeof import("pdfjs-dist/legacy/build/pdf.mjs")> | undefined;
 function loadRenderer() {
@@ -76,7 +86,7 @@ export async function openDocument(bytes: Uint8Array, kind: "pdf" | "image"): Pr
         const nativeText = content.items.map(item => "str" in item ? item.str + (item.hasEOL ? "\n" : " ") : "").join("").trim();
         const context = canvas.getContext("2d");
         const highlights = quote ? pdfQuoteRegions(content, viewport, quote, (text, family, size) => {
-          context.font = `${size}px ${family}`;
+          context.font = `${size}px ${measureFamily(family)}`;
           return context.measureText(text).width;
         }) : undefined;
         signal.throwIfAborted();

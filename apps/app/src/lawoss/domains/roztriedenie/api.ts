@@ -25,12 +25,15 @@ export type TriageMoveView = {
   id: string; from: string; to: string; size: number; role: TriageRole; matter?: string;
   source: "rules" | "model" | "user" | "fallback"; confidence: "high" | "medium" | "low";
   rule?: string; matched?: string; reason?: string; truncated?: boolean; renamed?: boolean;
+  /** Patrí k odškrtnutému priečinku, preto ide na zatriedenie (fix round 3). */
+  leftFolder?: string;
 };
-export type TriageMatterView = { key: string; title: string; folder: string; date: string; dateSource: "model" | "today"; kind: string; caseNumber?: string; counterparty?: string; court?: string; source: "rules" | "model" | "folder"; documents: number };
+export type TriageMatterView = { key: string; title: string; folder: string; date: string; dateSource: "model" | "today"; kind: string; caseNumber?: string; counterparty?: string; court?: string; source: "rules" | "model" | "folder"; documents: number; left?: boolean };
 export type TriageProposal = { state: "none" } | { state: "ready"; file: string; documents: number; matters: number } | { state: "stale"; file: string } | { state: "invalid"; file: string; message: string };
 export type TriagePreview = {
   id: string; fingerprint: string; runId: string; root: string; language: "sk" | "cs" | "en";
-  documents: number; keepInInbox: string[]; classification: { used: boolean; documents: number };
+  /** `leaveInPlace`: existujúce priečinky, ktoré advokát odškrtol; ostanú nedotknuté. */
+  documents: number; keepInInbox: string[]; leaveInPlace?: string[]; classification: { used: boolean; documents: number };
   matters: TriageMatterView[]; moves: TriageMoveView[]; stays: { id: string; path: string; why: "already_in_place" | "unclear" | "no_inbox" }[];
   newFolders: number; proposal?: TriageProposal;
 };
@@ -38,8 +41,14 @@ export type TriageApplyResult = { status: "applied" | "already_applied"; runId: 
 export type TriageUndoResult = { status: "undone" | "already_undone"; runId: string; restored: number; removed: number; kept: string[] };
 
 export const triageStatus = (client: TriageClient, root: string) => client.lawossTriage<TriageStatus>("status", { root });
-export const triagePlan = (client: TriageClient, root: string, useModel = false) => client.lawossTriage<TriagePreview>("plan", { root, ...(useModel ? { useModel: true } : {}) });
-export const triageReplan = (client: TriageClient, id: string, keepInInbox: readonly string[]) => client.lawossTriage<TriagePreview>("replan", { id, keepInInbox });
+/** `leaveInPlace`: odškrtnuté priečinky z predošlého náhľadu; bez neho predvoľba servera (archív, holý rok). */
+export const triagePlan = (client: TriageClient, root: string, useModel = false, leaveInPlace?: readonly string[]) =>
+  client.lawossTriage<TriagePreview>("plan", { root, ...(useModel ? { useModel: true } : {}), ...(leaveInPlace ? { leaveInPlace } : {}) });
+export const triageReplan = (client: TriageClient, id: string, keepInInbox: readonly string[], leaveInPlace?: readonly string[]) =>
+  client.lawossTriage<TriagePreview>("replan", { id, keepInInbox, ...(leaveInPlace ? { leaveInPlace } : {}) });
+/** Nový zoznam odškrtnutých priečinkov po prepnutí jedného (rozhodnutie 19. 10. 2026). */
+export const toggledLeave = (preview: Pick<TriagePreview, "leaveInPlace">, key: string, leave: boolean): string[] =>
+  leave ? [...new Set([...(preview.leaveInPlace ?? []), key])] : (preview.leaveInPlace ?? []).filter((item) => item !== key);
 export const triageApply = (client: TriageClient, preview: Pick<TriagePreview, "id" | "fingerprint">) => client.lawossTriage<TriageApplyResult>("apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
 export const triageUndo = (client: TriageClient, root: string, runId: string) => client.lawossTriage<TriageUndoResult>("undo", { root, runId, confirm: true });
 /** Výslovný súhlas s usporiadaním priečinka klienta na mieste („Áno, usporiadaj“). */

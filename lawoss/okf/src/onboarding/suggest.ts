@@ -13,7 +13,8 @@ import { hasLegalForm, isBareDate, looksLikeMatterName } from "./suggest-pattern
 export type SuggestedLevel = "practice" | "client" | "matter" | "unknown";
 export type SuggestionSignal = "office_config" | "client_card" | "matter_card" | "legal_form_children" | "matter_named_children" | "letter_buckets" | "matter_named_root" | "documents_only" | "plain_directories" | "empty" | "inside_office";
 export type SuggestedClient = { path: string; name: string };
-export type OnboardingSuggestion = { root: string; level: SuggestedLevel; marked: boolean; score: number; signals: SuggestionSignal[]; clientPattern?: string; clients: SuggestedClient[]; complete: boolean };
+/** `childOffices`: priame podpriečinky s kanceláriou OKF (`<meno>/Office/okf.config`); pole je len keď nejaký je. */
+export type OnboardingSuggestion = { root: string; level: SuggestedLevel; marked: boolean; score: number; signals: SuggestionSignal[]; clientPattern?: string; clients: SuggestedClient[]; complete: boolean; childOffices?: string[] };
 export type SurveyEntry = { path: string; kind: "file" | "directory" };
 export type FolderSurvey = { root: string; complete: boolean; entries: SurveyEntry[] };
 
@@ -86,9 +87,12 @@ function matchPattern(index: ChildIndex, pattern: string): SuggestedClient[] {
 
 export async function suggestOnboardingLevel(root: string): Promise<OnboardingSuggestion> {
   const survey = await surveyFolder(root);
-  const base = { root: survey.root, complete: survey.complete, clients: [] };
   const index = indexChildren(survey.entries);
   const top = childrenOf(index, "");
+  // Kancelária vnorená o úroveň nižšie (MČ 19. 10. 2026): advokát má zrejme pripojiť priamo ten podpriečinok.
+  const files = new Set(survey.entries.filter(entry => entry.kind === "file").map(entry => entry.path));
+  const childOffices = top.filter(entry => entry.kind === "directory" && OFFICE_DIRS.some(office => files.has(`${entry.path}/${office}/okf.config`))).map(entry => nameOf(entry.path));
+  const base = { root: survey.root, complete: survey.complete, clients: [], ...(childOffices.length ? { childOffices } : {}) };
   const topFiles = top.filter(entry => entry.kind === "file").map(entry => nameOf(entry.path).toLowerCase());
   if (topFiles.some(name => CLIENT_CARDS.has(name))) return { ...base, level: "client", marked: true, score: 1, signals: ["client_card"] };
   if (topFiles.some(name => MATTER_CARDS.has(name))) return { ...base, level: "matter", marked: true, score: 1, signals: ["matter_card"] };

@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import { buildTimeline, groupFacts, LiteMatterView, type LiteCockpit } from "../src/lawoss/lite/pages/matter-page";
 import { TodayView } from "../src/lawoss/lite/pages/today-page";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
-import { LiteNavView } from "../src/lawoss/lite/lite-nav";
+import { ClientMattersView } from "../src/lawoss/lite/client-nav";
 import { OkfPageState } from "../src/lawoss/domains/okf-page";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { deadlineAnchor, LiveStamp, matterUrgency } from "../src/lawoss/lite/live";
@@ -119,7 +119,9 @@ describe("dynamické pohľady z OKF", () => {
     expect(matterUrgency([{ date: addDays(NOW, -1) }], NOW)).toBe("hot");
     expect(matterUrgency([{ date: addDays(NOW, 2) }], NOW)).toBe("near");
     expect(matterUrgency([{ date: addDays(NOW, 10) }], NOW)).toBeUndefined();
-    const nav = html(<SidebarProvider><LiteNavView recent={[{ path: "a", title: "Vec A", deadlines: [{ date: addDays(NOW, 1) }] }, { path: "b", title: "Vec B", deadlines: [] }]} /></SidebarProvider>);
+    const node = (path: string, title: string, deadlines: { date: string }[]) => ({ path, title, deadlines, expanded: false, current: false, conversations: [], more: false, status: "ready" as const, canStart: false });
+    // Prípady klienta v natívnom bočnom paneli (MČ 19. 10. 2026) nesú bod naliehavosti pri veci.
+    const nav = html(<SidebarProvider><ClientMattersView open locale="en" nodes={[{ key: "client:A", title: "Klient A", expanded: true, current: false, conversations: [], more: false, status: "ready", matters: [node("a", "Vec A", [{ date: addDays(NOW, 1) }]), node("b", "Vec B", [])] }]} /></SidebarProvider>);
     expect(nav.match(/lw-nav-urgency/g) ?? []).toHaveLength(1);
     const clients = html(<ClientsView locale="en" groups={[{ key: "client:Novák", client: "Novák", matters: [{ ...matter, deadlines: [{ date: addDays(NOW, 3), title: "x", recordId: "M-1" }] }] }]} />);
     // Klient bez vecí má kartu s výzvou na novú vec, nie prázdny zoznam.

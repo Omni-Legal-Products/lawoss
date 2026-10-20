@@ -25,6 +25,7 @@ export type OkfConnection = {
   token: string;
   workspaces: RouteWorkspace[];
   activeWorkspaceId: string;
+  authGeneration?: number;
 };
 
 /** Aktívne id musí patriť do zoznamu pre používateľa (bez domovského priestoru); inak prvý skutočný priečinok alebo prázdne. */
@@ -32,6 +33,13 @@ export function resolveActiveWorkspaceId(workspaces: readonly { id: string }[], 
   return workspaces.find((workspace) => workspace.id === activeId)?.id ?? workspaces[0]?.id ?? "";
 }
 
+const authenticationGenerations = new Map<string, number>();
+const authenticationGeneration = (base: string, token: string, hostToken: string | null | undefined): number => {
+  const key = JSON.stringify([base, token, hostToken ?? ""]);
+  let generation = authenticationGenerations.get(key);
+  if (generation === undefined) { generation = authenticationGenerations.size + 1; authenticationGenerations.set(key, generation); }
+  return generation;
+};
 export async function loadOkfConnection(): Promise<OkfConnection> {
   let desktopWorkspaces: RouteWorkspace[] = [];
   if (isDesktopRuntime()) {
@@ -55,7 +63,7 @@ export async function loadOkfConnection(): Promise<OkfConnection> {
   const list = await client.listWorkspaces();
   const workspaces = withoutLawossHome(mergeRouteWorkspaces(list.items, desktopWorkspaces));
   const activeWorkspaceId = resolveActiveWorkspaceId(workspaces, readActiveWorkspaceId() ?? list.activeId);
-  return { client, baseUrl: normalizedBaseUrl, token: resolvedToken, workspaces, activeWorkspaceId };
+  return { client, baseUrl: normalizedBaseUrl, token: resolvedToken, workspaces, activeWorkspaceId, authGeneration: authenticationGeneration(normalizedBaseUrl, resolvedToken, resolvedHostToken) };
 }
 
 /**

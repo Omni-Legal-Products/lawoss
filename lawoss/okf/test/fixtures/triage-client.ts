@@ -50,3 +50,19 @@ export async function writeTriageFixture(root: string, files: Readonly<Record<st
     await writeFile(join(root, path), content);
   }
 }
+
+/** Rovnaké mená dokumentov v každej veci, ako v syntetickej kancelárii z testu 19. 10. 2026 (klient C002). */
+const MATTER_FILE_NAMES = [
+  "01-zmluva.docx", "Navrh podania alebo pokynu.docx", "Podklady.pdf", "Priloha balicek.zip", "Re podklady.eml",
+  "Stanovisko FINAL verzia 2.docx", "Tabulka vypocet.xlsx", "Vyjadrenie protistrany.pdf", "Zapis.rtf", "export.json",
+  "fotografia.png", "poznamky.txt", "scan_0001.pdf", "sprava.html", "udalosti.csv", "vymena.xml",
+] as const;
+/** Veci klienta pomenované kódom veci (`M004 …`), bez karty a bez spisovej značky; spolu 48 dokumentov. */
+export const HRON_MATTERS = [
+  "M004 Vyúčtovanie nájmu logistického skladu",
+  "M005 Neakceptovaný modul informačného systému",
+  "M006 Kolízia označenia nápojového radu",
+] as const;
+export const HRON_FIXTURE: Readonly<Record<string, string>> = Object.fromEntries(
+  HRON_MATTERS.flatMap(matter => MATTER_FILE_NAMES.map(name => [`${matter}/${name}`, `synteticky obsah ${matter} ${name}`])),
+);

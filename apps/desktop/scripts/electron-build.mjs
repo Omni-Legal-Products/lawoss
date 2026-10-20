@@ -10,6 +10,16 @@ const electronSidecarDir = resolve(desktopRoot, "resources", "sidecars");
 const electronRoot = resolve(desktopRoot, "electron");
 const packagedServerRoot = resolve(desktopRoot, "server");
 
+import { targetFromTriple, writeBuildInfoForCheckout } from '../../../scripts/release/build-info.mjs';
+const identityTarget = process.env.CARGO_CFG_TARGET_TRIPLE ?? process.env.TARGET;
+const identityVersion = JSON.parse(readFileSync(resolve(desktopRoot, 'package.json'), 'utf8')).version;
+writeBuildInfoForCheckout({root: repoRoot, out: resolve(desktopRoot, 'resources/build-info.json'),
+  version: identityVersion, ...(identityTarget ? targetFromTriple(identityTarget) : {platform:process.platform,arch:process.arch}),
+  channel: identityVersion.includes('alpha') ? 'alpha' : 'stable',
+  workflowRunUrl: process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID
+    ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : '',
+  release: identityVersion !== '0.0.0'});
+
 const pnpmCmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const nodeCmd = process.execPath;
 

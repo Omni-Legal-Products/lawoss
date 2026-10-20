@@ -1,3 +1,5 @@
+import { requireAiBoundariesAdmission } from "../lawoss/ai-governance-engine.js";
+import { readAiBoundaries } from "../lawoss/ai-boundaries.js";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { EnvStoreReadError, InvalidEnvKeyError, isValidEnvKey, type EnvService } from "../env-file.js";
@@ -495,10 +497,13 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
   });
 
   addRoute(routes, "GET", "/voice/realtime/capability", "host", async () => {
+    // LAWOSS: AI hranice (lawoss/ai-boundaries.ts); off is the pre-governance capability.
+    if ((await readAiBoundaries(config)).enforced) return jsonResponse({supported: false, providerId: null, model: null, reason: "unsupported-transport"});
     return jsonResponse(await getOpenAiRealtimeVoiceCapability(env));
   });
 
   addRoute(routes, "POST", "/voice/realtime/call", "host", async (ctx) => {
+    await requireAiBoundariesAdmission(config, "voice");
     const body = await readJsonBody(ctx.request);
     return jsonResponse(await createOpenAiRealtimeVoiceCall(env, body));
   });

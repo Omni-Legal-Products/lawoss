@@ -7,6 +7,11 @@ import { ApiError } from "../errors.js";
 import { callSystemOne } from "../systemone-client.js";
 import { ReviewRequests } from "./scheduler.js";
 import { builtinReviewLibrary } from "./builtin-library.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { enforceAiBoundaries } from "../lawoss/test-support/ai-boundaries.js";
+import { closeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 const calls: Array<{ path: string; method: string; body: unknown }> = [];
 const decisions: SystemOneRequest[] = [];
 let fail = false, wrongModel = false, fabricated = false, incomplete = false, modelOffline = false, quota = false, subscribed = false, noDefault = false;
@@ -49,7 +54,12 @@ const engine = Bun.serve({ port: 0, async fetch(request) {
 const workspace: WorkspaceInfo = { id: "qa", name: "QA", path: "/qa", preset: "starter", workspaceType: "local" };
 const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "test", hostToken: "test-host", configPath: "/unused-fixture", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [workspace], authorizedRoots: [workspace.path], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false, opencodeBaseUrl: engine.url.origin };
 const settings: SystemOneSettings = { selection: { providerId: "firm-jev", model: "jev" }, providers: [SystemOneProviderSchema.parse({ id: "firm-jev", name: "Firm JEV", endpoint: "http://localhost/v1/systemone", enabled: true, managed: false, status: "ready", models: [{ id: "jev", name: "JEV", questionTypes: ["noul", "choice"], source: "configured" }] })] };
-const executor = new ReviewExecutor(config, { settings: async () => structuredClone(settings), infer: async (_config, request, options) => {
+// Explicit admitted transport for the pure executor contract. HTTP routes always use
+// the strict production default, tested separately below and by receiver regressions.
+function fixtureExecutor(config: ServerConfig, backends: NonNullable<ConstructorParameters<typeof ReviewExecutor>[1]>, requests?: ReviewRequests, timeoutMs?: number) {
+  return new ReviewExecutor(config, {...backends, engineFetch: fetch}, requests, timeoutMs);
+}
+const executor = fixtureExecutor(config, { settings: async () => structuredClone(settings), infer: async (_config, request, options) => {
   decisions.push(request); expect(options?.providerId).toBe("firm-jev"); if (fail) throw new Error("JEV unavailable");
   return SystemOneResponseSchema.parse({ model: "serving-jev", answers: Object.fromEntries(Object.keys(request.questions).map(key => [key, { type: "noul", noul: .95 }])), usage: { input_tokens: 123, output_tokens: 0 } });
 } });
@@ -93,7 +103,7 @@ test("builtin JEV choices abstain for missing, irrelevant, uncertain and low-pro
       { index: 0, probability: .5, value: "Needs review", evidence: "uncertain" },
     ] satisfies Array<{ index: number; probability: number; value: string; evidence: ReviewResult["evidence"] }>) {
       const selected = prompt.options[scenario.index];
-      const inference = new ReviewExecutor(config, { settings: async () => structuredClone(settings), infer: async (_config, request) => {
+      const inference = fixtureExecutor(config, { settings: async () => structuredClone(settings), infer: async (_config, request) => {
         const question = request.questions.answer;
         expect(question.type).toBe("choice");
         if (question.type !== "choice") throw new Error("Expected explicit fallback choices");
@@ -192,7 +202,7 @@ test("provider billing errors fail promptly rather than leaving cells in an endl
 });
 
 test("stalled LLM calls release their session and retry within a bounded request deadline", async () => {
-  const bounded = new ReviewExecutor(config, { settings: async () => structuredClone(settings), infer: async () => { throw new Error("Unexpected JEV"); } }, new ReviewRequests({ cells: 1, documents: 1 }, { retryDelayMs: 1, jitterMs: 0 }), 60);
+  const bounded = fixtureExecutor(config, { settings: async () => structuredClone(settings), infer: async () => { throw new Error("Unexpected JEV"); } }, new ReviewRequests({ cells: 1, documents: 1 }, { retryDelayMs: 1, jitterMs: 0 }), 60);
   stalledPrompts = 1;
   expect((await bounded.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).value).toBe("Yes");
   expect(calls.filter(call => call.path.endsWith("/message"))).toHaveLength(2);
@@ -222,7 +232,7 @@ test("an abandoned quota reply cannot consume another request's stalled attempts
     stalledPrompts = 3;
     // Resume the abandoned HTTP handler while the next request is running.
     onStalledPrompt = release;
-    const bounded = new ReviewExecutor(config, { settings: async () => structuredClone(settings), infer: async () => { throw new Error("Unexpected JEV"); } }, new ReviewRequests({ cells: 1, documents: 1 }, { retryDelayMs: 1, jitterMs: 0 }), 60);
+    const bounded = fixtureExecutor(config, { settings: async () => structuredClone(settings), infer: async () => { throw new Error("Unexpected JEV"); } }, new ReviewRequests({ cells: 1, documents: 1 }, { retryDelayMs: 1, jitterMs: 0 }), 60);
     await expect(bounded.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).rejects.toThrow("request time limit");
     expect(calls.filter(call => call.path.endsWith("/message"))).toHaveLength(3);
     expect(calls.filter(call => call.method === "DELETE")).toHaveLength(3);
@@ -247,18 +257,18 @@ test("subscribers default to Eigenwelt rather than an unrelated global chat mode
   expect(found.settings.jev).toEqual({ providerId: "eigenwelt", model: "EigenJev" });
 });
 test("non-subscribers default to LLM without JEV and mixed with a configured JEV provider", async () => {
-  const noJev = new ReviewExecutor(config, { settings: async () => ({ ...settings, providers: [] }), infer: async () => { throw new Error("No inference"); } });
+  const noJev = fixtureExecutor(config, { settings: async () => ({ ...settings, providers: [] }), infer: async () => { throw new Error("No inference"); } });
   expect((await noJev.models(workspace)).settings).toEqual({ mode: "llm", jev: null, llm: { providerId: "firm", model: "chat" } });
-  const configured = new ReviewExecutor(config, { settings: async () => ({ ...settings, providers: settings.providers.map(provider => ({ ...provider, status: "unavailable" })) }), infer: async () => { throw new Error("No inference"); } });
+  const configured = fixtureExecutor(config, { settings: async () => ({ ...settings, providers: settings.providers.map(provider => ({ ...provider, status: "unavailable" })) }), infer: async () => { throw new Error("No inference"); } });
   expect((await configured.models(workspace)).settings).toEqual({ mode: "mixed", jev: { providerId: "firm-jev", model: "jev" }, llm: { providerId: "firm", model: "chat" } });
 });
 test("subscription defaults retain managed EigenJev during an outage instead of selecting a custom provider", async () => {
-  const discovery = new ReviewExecutor(config, { subscribed: async () => true, settings: async () => structuredClone(settings), infer: async () => { throw new Error("No inference"); } });
+  const discovery = fixtureExecutor(config, { subscribed: async () => true, settings: async () => structuredClone(settings), infer: async () => { throw new Error("No inference"); } });
   expect((await discovery.models(workspace)).settings).toEqual({ mode: "mixed", jev: { providerId: "eigenwelt", model: "EigenJev" }, llm: null });
 });
 test("connected models are selected even without global chat or JEV selections", async () => {
   noDefault = true;
-  const discovery = new ReviewExecutor(config, { settings: async () => ({ ...settings, selection: { providerId: "missing", model: "missing" } }), infer: async () => { throw new Error("Must not run inference"); } });
+  const discovery = fixtureExecutor(config, { settings: async () => ({ ...settings, selection: { providerId: "missing", model: "missing" } }), infer: async () => { throw new Error("Must not run inference"); } });
   const found = await discovery.models(workspace);
   expect(found.settings.jev).toEqual({ providerId: "firm-jev", model: "jev" }); expect(found.settings.llm).toEqual({ providerId: "firm", model: "chat" }); expect(found.settings.mode).toBe("mixed");
 });
@@ -266,7 +276,7 @@ test("connected models are selected even without global chat or JEV selections",
 test("a throttled JEV chunk retries individually without repeating prior successful chunks", async () => {
   const seen: number[] = [];
   let throttled = false;
-  const retried = new ReviewExecutor(config, { settings: async () => structuredClone(settings), infer: async (_config, request, options) => {
+  const retried = fixtureExecutor(config, { settings: async () => structuredClone(settings), infer: async (_config, request, options) => {
     expect(options?.retry).toBe(false); // The review scheduler owns retries, not the adapter.
     const state = request.state;
     const part = typeof state === "object" && state !== null && !Array.isArray(state) ? state.document_part : undefined;
@@ -281,7 +291,7 @@ test("a throttled JEV chunk retries individually without repeating prior success
 
 
 test("review discovery excludes disabled managed models even when the provider is ready", async () => {
-  const managed = new ReviewExecutor(config, { infer: async () => { throw new Error("Discovery must not infer"); }, settings: async () => ({ ...settings, providers: [
+  const managed = fixtureExecutor(config, { infer: async () => { throw new Error("Discovery must not infer"); }, settings: async () => ({ ...settings, providers: [
     SystemOneProviderSchema.parse({ ...settings.providers[0], id: "eigenwelt", managed: true, models: [
       { id: "EigenJev", name: "Eigenwelt Europe EigenJev", questionTypes: ["noul", "choice"], source: "configured", status: "ready", region: "EU" },
       { id: "TypeSafeJev", name: "Eigenwelt US Jev", questionTypes: ["noul", "choice"], source: "configured", status: "disabled", region: "US" },
@@ -294,7 +304,7 @@ test("review discovery excludes disabled managed models even when the provider i
 
 test("a subscriber's explicit TypeSafe selection survives unavailability without switching region", async () => {
   const selection = { providerId: "eigenwelt", model: "TypeSafeJev" };
-  const discovery = new ReviewExecutor(config, {
+  const discovery = fixtureExecutor(config, {
     subscribed: async () => true,
     settings: async () => ({ ...settings, selection, providers: [SystemOneProviderSchema.parse({
       ...settings.providers[0], id: "eigenwelt", managed: true,
@@ -326,7 +336,7 @@ test("review evidence reaches the SystemOne HTTP adapter for EU and US models, i
     for (const model of ["EigenJev", "TypeSafeJev"]) for (const long of [false, true]) {
       received.length = 0;
       const selection = { providerId: "eigenwelt", model };
-      const runner = new ReviewExecutor(config, {
+      const runner = fixtureExecutor(config, {
         settings: async () => ({ selection, providers: [SystemOneProviderSchema.parse({ ...settings.providers[0], id: "eigenwelt", managed: true,
           models: [{ id: model, name: model, source: "configured", questionTypes: ["noul", "choice"], status: "ready" }],
         })] }),
@@ -377,4 +387,26 @@ test("structured answers still undergo source verification", async () => {
   const result = await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal);
   expect(result.value).toBe("Needs review");
   expect(result.citations).toEqual([]);
+});
+
+test("with AI boundaries on, the production review executor refuses protected processing with the typed host denial before inference", async () => {
+  const root = await mkdtemp(join(tmpdir(), "review-boundaries-"));
+  const bounded: ServerConfig = {...config, configPath: join(root, "server.json")};
+  try {
+    await enforceAiBoundaries(bounded);
+    const guarded = new ReviewExecutor(bounded, {settings: async () => structuredClone(settings), infer: async () => {throw new Error("Must not call JEV");}});
+    await expect(guarded.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).rejects.toMatchObject({status: 403, code: "ai_transfer_denied"});
+    expect(calls.filter(call => call.path.endsWith("/message") || call.path === "/session")).toEqual([]);
+  } finally {await closeRuntimeOpencodeConfig(bounded); await rm(root, {recursive: true});}
+});
+
+test("with AI boundaries off (alpha default), the production review executor reaches the engine without a fixture transport", async () => {
+  const root = await mkdtemp(join(tmpdir(), "review-boundaries-off-"));
+  const open: ServerConfig = {...config, configPath: join(root, "server.json")};
+  try {
+    structuredResponse = true;
+    const production = new ReviewExecutor(open, {settings: async () => structuredClone(settings), infer: async () => {throw new Error("Must not call JEV");}});
+    expect((await production.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).value).toBe("Yes");
+    expect(calls.some(call => call.path.endsWith("/message"))).toBe(true);
+  } finally {await closeRuntimeOpencodeConfig(open); await rm(root, {recursive: true});}
 });

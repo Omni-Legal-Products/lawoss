@@ -1,0 +1,47 @@
+{
+  "id": "sk-civil-appeal",
+  "jurisdiction": "sk",
+  "legalArea": "civil_procedure",
+  "version": "2026-proposed",
+  "sha256": "23de296ae5260b92829f66c761e8a651bfd0720367489c685d7a06e45617a60d",
+  "status": "synthetic_only",
+  "effectiveFrom": "2026-07-15",
+  "effectiveTo": "2026-12-31",
+  "selectionBasis": "actual_service_date",
+  "sources": [
+    {
+      "url": "https://static.slov-lex.sk/static/SK/ZZ/2015/160/20260715.portal",
+      "locator": "§121; §362",
+      "textHash": "475e44d6ff5e394ba54fb926bbb3379628b238ff770b987c1e473b697f47fffc",
+      "retrievedAt": "2026-10-17T21:41:01.135Z"
+    },
+    {
+      "url": "https://static.slov-lex.sk/static/SK/ZZ/1993/241/20251101.portal",
+      "locator": "§2(3); §4b (2026 exceptions)",
+      "textHash": "1f24683253ae70e755c4459ffa8f279e94057f8b3ba0956560c60a1b0fd95309",
+      "retrievedAt": "2026-10-17T21:41:01.135Z"
+    }
+  ],
+  "duration": {
+    "count": 15,
+    "unit": "days"
+  },
+  "excludeTriggerDay": true,
+  "finalDayAdjustment": "next_eligible_day",
+  "holidaySetId": "sk-holidays-2026-proposed",
+  "holidaySetHash": "fd26b852a14e1bef081c4fba766033e7e05554124595c9241bf611afabc28694",
+  "coveredYears": [
+    2026
+  ],
+  "exclusions": [
+    "deemed service",
+    "correction orders",
+    "wrong or missing advice",
+    "special proceedings",
+    "unclear recipient or representation",
+    "interruption, extension or waiver",
+    "international service"
+  ],
+  "reviewedBy": [],
+  "reviewedAt": null
+}

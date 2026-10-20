@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, CheckCircle2, FolderTree, Inbox, RotateCcw, Sparkles, TriangleAlert } from "lucide-react";
 import { t, type Language } from "@/i18n";
@@ -10,13 +10,14 @@ import { LawossLayout } from "../../shell/layout";
 import { activeWorkspace, useOkfConnection } from "../../okf/read-model";
 import { openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
 import { AI_SETTINGS_PATH, useMatterModelGap } from "../../lite/matter-model";
-import { LITE_CLIENTS_PATH, organizeFolderLink } from "../../lite/links";
+import { LITE_CLIENTS_PATH, NEW_CLIENT_PATH, organizeFolderLink } from "../../lite/links";
 import { installMissingOnboardingSkills } from "../onboarding/install-pack";
 import { ensureSkillAvailable, workspaceSkillEngine } from "../../okf/skill-availability";
 
 const ROZTRIED_SPIS_SKILL = "roztried-spis";
-import { plansPreview, undoableRun, triageApply, triagePlan, triageReplan, triageStatus, triageTargetRoot, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus, type TriageUndoResult } from "./api";
+import { plansPreview, toggledLeave, undoableRun, triageApply, triagePlan, triageReplan, triageStatus, triageTargetRoot, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus, type TriageUndoResult } from "./api";
 import { OFFICE_CONFIG_ENCODING_CODE } from "../../../../../../lawoss/okf/src/profile";
+import { MAX_TRIAGE_MATTERS, TOO_MANY_MATTERS_CODE } from "../../../../../../lawoss/okf/src/triage/types";
 import "../../lite/pages/okf-glass.css";
 import "./triage.css";
 
@@ -28,11 +29,13 @@ const lastSegment = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() 
 const folderOf = (path: string) => path.split("/").slice(0, -1).join("/");
 
 /** Kód chyby servera → veta pre advokáta. Surové hlášky (cesty, interné názvy) idú len do konzoly. */
-function friendlyError(error: unknown, text: Text): string {
+export function friendlyError(error: unknown, text: Text): string {
   console.warn("LAWOSS triage:", error);
   if (error instanceof LegalworkServerError) {
-    if (error.code === "not_trial_clone") return text("not_trial");
+    if (error.code === "not_trial_clone") return text("not_client_folder");
+    if (error.code === "triage_too_large") return text("error_too_large");
     if (error.code === OFFICE_CONFIG_ENCODING_CODE) return text("error_office_config");
+    if (error.code === TOO_MANY_MATTERS_CODE) return text("error_too_many_matters", { max: MAX_TRIAGE_MATTERS });
     if (error.code === "stale_preview" || (error.code === "triage_conflict" && /zmenil/.test(error.message))) return text("error_changed");
     if (error.code === "triage_conflict" && error.message.includes(": ")) return text("error_undo", { paths: error.message.slice(error.message.indexOf(": ") + 2) });
   }
@@ -78,7 +81,7 @@ function TriageEmpty({ text, message, create = false, organizeRoot }: { text: Te
       <FolderTree aria-hidden size={28} />
       <p>{message}</p>
       <div className="lw-triage-row">
-        {create ? <Link className="lw-today-primary" to="/welcome?continue=client">{text("create_trial")}</Link> : null}
+        {create ? <Link className="lw-today-primary" to={NEW_CLIENT_PATH}>{text("create_trial")}</Link> : null}
         {organizeRoot ? <Link className="lw-btn gold" to={organizeFolderLink(organizeRoot)}>{text("organize_okf")}</Link> : null}
         <Link className="lw-triage-ghost" to={LITE_CLIENTS_PATH}>{text("back")}</Link>
       </div>
@@ -128,13 +131,14 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
     finally { if (alive.current) setPhase((current) => current.kind === "busy" ? { kind: "idle" } : current); }
   }, [text]);
 
-  const load = useCallback(async (useModel = false) => {
+  // `leaveInPlace`: odškrtnuté priečinky prenesie aj prepínač modelu (nový náhľad), inak by sa stratili.
+  const load = useCallback(async (useModel = false, leaveInPlace?: readonly string[]) => {
     if (!client) return;
     const next = await run(text("loading"), async () => {
       const state = await triageStatus(client, root);
       if (alive.current) setStatus(state);
       // Server pri usporiadaní na mieste model odmietne (400 triage_model_in_place).
-      return state.trial && plansPreview(state) ? triagePlan(client, root, useModel && state.mode !== "in_place") : null;
+      return state.trial && plansPreview(state) ? triagePlan(client, root, useModel && state.mode !== "in_place", leaveInPlace) : null;
     });
     if (alive.current && next !== undefined) setPreview(next);
   }, [client, root, run, text]);
@@ -148,6 +152,11 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
     const ids = new Set(preview.keepInInbox);
     if (keep) ids.add(id); else ids.delete(id);
     const next = await run(text("updating"), () => triageReplan(client, preview.id, [...ids]));
+    if (next && alive.current) setPreview(next);
+  }
+  async function toggleLeave(key: string, leave: boolean) {
+    if (!client || !preview) return;
+    const next = await run(text("updating"), () => triageReplan(client, preview.id, preview.keepInInbox, toggledLeave(preview, key, leave)));
     if (next && alive.current) setPreview(next);
   }
   async function confirm() {
@@ -214,7 +223,7 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
       ) : null}
 
       {busy ? <p className="lw-triage-quiet" aria-live="polite">{phase.label}</p> : null}
-      {phase.kind !== "applied" && !askUndo && preview ? <TriagePreviewView preview={preview} text={text} busy={busy} inPlace={inPlace} onKeep={toggleKeep} onConfirm={confirm} onModel={(useModel) => void load(useModel)}
+      {phase.kind !== "applied" && !askUndo && preview ? <TriagePreviewView preview={preview} text={text} busy={busy} inPlace={inPlace} onKeep={toggleKeep} onLeave={toggleLeave} onConfirm={confirm} onModel={(useModel) => void load(useModel, preview.leaveInPlace)}
         model={<ModelPanel root={root} connection={connection} locale={locale} preview={preview} busy={busy} inPlace={inPlace} onOpen={(path) => navigate(path)} onError={(message) => setError(message)} />} /> : null}
     </>
   );
@@ -267,22 +276,48 @@ const RULE_KEYS = new Set(["email_file", "data_box", "power_of_attorney", "court
 
 function reasonOf(move: TriageMoveView, text: Text): string {
   if (move.source === "user") return text("reason_user");
+  if (move.leftFolder) return text("reason_left_folder", { name: move.leftFolder });
   if (move.source === "fallback") return text("reason_fallback");
   if (move.source === "model") return move.reason || text("source_model");
   return move.rule && RULE_KEYS.has(move.rule) ? text(`reason_${move.rule}`, { matched: move.matched ?? "" }) : "";
+}
+
+/** `badge`: nový prípad (pravidlá, model), existujúci priečinok advokáta, alebo nič (priečinky klienta). */
+type MoveGroup = { key: string; title: string; badge?: "new_matter_badge" | "existing_folder_badge"; moves: TriageMoveView[] };
+/**
+ * Riadky zoskupené podľa cieľového prípadu (test 19. 10. 2026): najprv hlavný priečinok klienta, potom prípady
+ * podľa názvu. V skupine najprv zaradené podľa roly, nakoniec to, čo čaká na zatriedenie.
+ */
+export function groupMoves(moves: readonly TriageMoveView[], matters: ReadonlyMap<string, TriagePreview["matters"][number]>): MoveGroup[] {
+  const order = (move: TriageMoveView) => move.role === "inbox" ? ROLE_KEYS.length : ROLE_KEYS.indexOf(move.role);
+  const byKey = new Map<string, MoveGroup>();
+  for (const move of moves) {
+    const key = move.matter ?? "";
+    const matter = move.matter ? matters.get(move.matter) : undefined;
+    // Existujúci prípad mimo náhľadu nesie meno svojho priečinka (`<prípad>/<rola>/dokument`).
+    const badge = !matter ? undefined : matter.source === "folder" ? "existing_folder_badge" as const : "new_matter_badge" as const;
+    const group = byKey.get(key) ?? { key, title: matter?.title ?? (move.matter ? lastSegment(folderOf(folderOf(move.to))) : ""), badge, moves: [] };
+    group.moves.push(move);
+    byKey.set(key, group);
+  }
+  for (const group of byKey.values()) group.moves.sort((a, b) => order(a) - order(b) || a.from.localeCompare(b.from));
+  return [...byKey.values()].sort((a, b) => Number(a.key !== "") - Number(b.key !== "") || a.title.localeCompare(b.title));
 }
 
 /**
  * Náhľad ako tabuľka: dokument, odkiaľ, kam, prečo, istota, nová vec; riadok sa dá nechať na zatriedenie.
  * `inPlace`: priečinok klienta na mieste (nie skúšobný klon), texty potom o klone nehovoria a model sa neponúka.
  */
-export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep, onConfirm, onModel, model }: { preview: TriagePreview; text: Text; busy: boolean; inPlace?: boolean; onKeep: (id: string, keep: boolean) => void; onConfirm: () => void; onModel: (useModel: boolean) => void; model?: ReactNode }) {
+export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep, onLeave, onConfirm, onModel, model }: { preview: TriagePreview; text: Text; busy: boolean; inPlace?: boolean; onKeep: (id: string, keep: boolean) => void; onLeave?: (key: string, leave: boolean) => void; onConfirm: () => void; onModel: (useModel: boolean) => void; model?: ReactNode }) {
   const matters = new Map(preview.matters.map((matter) => [matter.key, matter]));
   const inbox = preview.moves.filter((move) => move.role === "inbox").length;
   const keep = new Set(preview.keepInInbox);
-  // Najprv zaradené u klienta, potom veci, nakoniec to, čo čaká na zatriedenie.
-  const order = (move: TriageMoveView) => move.role === "inbox" ? ROLE_KEYS.length : ROLE_KEYS.indexOf(move.role);
-  const rows = [...preview.moves].sort((a, b) => Number(a.role === "inbox") - Number(b.role === "inbox") || (a.matter ?? "").localeCompare(b.matter ?? "") || order(a) - order(b) || a.from.localeCompare(b.from));
+  const groups = groupMoves(preview.moves, matters);
+  // Odškrtnutý existujúci priečinok ostane nedotknutý a medzi nové prípady sa nepočíta.
+  const proposed = preview.matters.filter((matter) => !matter.left).length;
+  const created = preview.matters.filter((matter) => !matter.left && matter.source !== "folder").length;
+  // Nad limit sa zápis odmietne; advokát to vidí vopred a vie, že má odškrtnúť niektoré priečinky.
+  const tooMany = proposed > MAX_TRIAGE_MATTERS;
   if (preview.documents === 0) return <p className="lw-triage-quiet">{text(inPlace ? "nothing_in_place" : "nothing")}</p>;
   return (
     <>
@@ -290,7 +325,7 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
         <div><dd>{preview.documents}</dd><dt>{text("stat_documents")}</dt></div>
         <div><dd>{preview.moves.length - inbox}</dd><dt>{text("stat_sorted")}</dt></div>
         <div data-tone={inbox ? "calm" : undefined}><dd>{inbox}</dd><dt>{text("stat_inbox")}</dt></div>
-        <div data-tone={preview.matters.length ? "gold" : undefined}><dd>{preview.matters.length}</dd><dt>{text("stat_matters")}</dt></div>
+        <div data-tone={proposed ? "gold" : undefined}><dd>{proposed}</dd><dt>{text("stat_matters")}<small>{text("stat_matters_new", { count: created })}</small></dt></div>
       </dl>
 
       {/* Na mieste je návrh len deterministický (spec #92): server model odmietne, panel ani prepínač sa neukážu. */}
@@ -303,6 +338,7 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
         </div>
       ) : null}
 
+      {tooMany ? <div className="lw-status warn lw-triage-alert" role="alert"><TriangleAlert aria-hidden size={18} /><span>{text("error_too_many_matters", { max: MAX_TRIAGE_MATTERS })}</span></div> : null}
       {preview.matters.length ? (
         <section className="lw-triage-matters" style={reveal(3)}>
           <h2>{text("matters_title")}</h2>
@@ -311,7 +347,14 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
               <li key={matter.key} className="lw-triage-panel lw-triage-matter">
                 <strong>{matter.title}</strong>
                 <small>{[matter.caseNumber ? text("matter_case", { case: matter.caseNumber }) : "", matter.counterparty ? text("matter_counterparty", { name: matter.counterparty }) : "", text("matter_documents", { count: matter.documents })].filter(Boolean).join(" · ")}</small>
-                <small className="lw-triage-muted">{text(MATTER_SOURCE_KEYS[matter.source])}{matter.dateSource === "today" ? ` · ${text("matter_date_today")}` : ""}</small>
+                <small className="lw-triage-muted">{matter.left ? text("matter_left") : `${text(MATTER_SOURCE_KEYS[matter.source])}${matter.dateSource === "today" ? ` · ${text("matter_date_today")}` : ""}`}</small>
+                {/* Existujúci priečinok advokáta je len návrh: odškrtnutý ostane presne tak, ako je (rozhodnutie 19. 10. 2026). */}
+                {matter.source === "folder" && onLeave ? (
+                  <label className="lw-triage-leave">
+                    <input type="checkbox" aria-label={`${text("matter_keep_folder")}: ${matter.title}`} checked={!matter.left} disabled={busy} onChange={(event) => onLeave(matter.key, !event.target.checked)} />
+                    {text("matter_keep_folder")}
+                  </label>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -322,24 +365,33 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
         <table className="lw-triage-table">
           <thead><tr><th>{text("col_document")}</th><th>{text("col_from")}</th><th>{text("col_to")}</th><th>{text("col_reason")}</th><th>{text("col_confidence")}</th><th>{text("col_keep")}</th></tr></thead>
           <tbody>
-            {rows.map((move) => {
-              const matter = move.matter ? matters.get(move.matter) : undefined;
-              const from = folderOf(move.from);
-              return (
-                <tr key={move.id} data-role={move.role}>
-                  <td className="lw-triage-name" title={move.from}>{lastSegment(move.from)}</td>
-                  <td className={from ? "lw-triage-path" : "lw-triage-from-root"}>{from || text("root_folder")}</td>
-                  <td>
-                    <span className="lw-triage-role">{move.role === "inbox" ? <Inbox aria-hidden size={13} /> : null}{text(`role_${move.role}`)}</span>
-                    {matter ? <span className="lw-triage-matter-chip">{matter.title} <em>{text("new_matter_badge")}</em></span> : move.matter ? <span className="lw-triage-matter-chip">{folderOf(folderOf(move.to)).split("/").pop()}</span> : null}
-                    <small className="lw-triage-path" title={move.to}>{folderOf(move.to)}{move.renamed ? ` · ${text("renamed")}` : ""}</small>
-                  </td>
-                  <td className="lw-triage-reason">{reasonOf(move, text)}{move.truncated ? <small> · {text("truncated")}</small> : null}</td>
-                  <td><span className="lw-triage-confidence" data-level={move.confidence}>{text(`confidence_${move.confidence}`)}</span></td>
-                  <td className="lw-triage-keep"><input type="checkbox" aria-label={`${text("col_keep")}: ${lastSegment(move.from)}`} checked={keep.has(move.id)} disabled={busy || (move.role === "inbox" && !keep.has(move.id) && !move.matter)} onChange={(event) => onKeep(move.id, event.target.checked)} /></td>
+            {groups.map((group) => (
+              <Fragment key={group.key}>
+                <tr className="lw-triage-group" data-lawoss-triage-group={group.key}>
+                  <th colSpan={6} scope="colgroup">
+                    <span>{group.title || text("root_folder")}</span>
+                    {group.badge ? <em className="lw-triage-matter-chip">{text(group.badge)}</em> : null}
+                  </th>
                 </tr>
-              );
-            })}
+                {group.moves.map((move) => {
+                  const from = folderOf(move.from);
+                  const to = folderOf(move.to);
+                  return (
+                    <tr key={move.id} data-role={move.role}>
+                      <td className="lw-triage-name" title={move.from}>{lastSegment(move.from)}</td>
+                      <td className={from ? "lw-triage-from" : "lw-triage-from-root"} title={from || undefined}>{from ? lastSegment(from) : text("root_folder")}</td>
+                      <td>
+                        <span className="lw-triage-role">{move.role === "inbox" ? <Inbox aria-hidden size={13} /> : null}{text(`role_${move.role}`)}</span>
+                        <small className="lw-triage-target" title={to}>{lastSegment(to)}{move.renamed ? ` · ${text("renamed")}` : ""}</small>
+                      </td>
+                      <td className="lw-triage-reason">{reasonOf(move, text)}{move.truncated ? <small> · {text("truncated")}</small> : null}</td>
+                      <td><span className="lw-triage-confidence" data-level={move.confidence}>{text(`confidence_${move.confidence}`)}</span></td>
+                      <td className="lw-triage-keep"><input type="checkbox" aria-label={`${text("col_keep")}: ${lastSegment(move.from)}`} checked={keep.has(move.id)} disabled={busy || (move.role === "inbox" && !keep.has(move.id) && !move.matter)} onChange={(event) => onKeep(move.id, event.target.checked)} /></td>
+                    </tr>
+                  );
+                })}
+              </Fragment>
+            ))}
           </tbody>
         </table>
       </section>
@@ -353,7 +405,7 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
 
       <footer className="lw-triage-bar" style={reveal(6)}>
         <p>{inPlace ? text("confirm_note_in_place") : text("confirm_note", { count: preview.moves.length })}</p>
-        <button type="button" className="lw-today-primary" disabled={busy || preview.moves.length === 0} onClick={onConfirm}>{text("confirm")}</button>
+        <button type="button" className="lw-today-primary" disabled={busy || tooMany || preview.moves.length === 0} onClick={onConfirm}>{text("confirm")}</button>
       </footer>
     </>
   );

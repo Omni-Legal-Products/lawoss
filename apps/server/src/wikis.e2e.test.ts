@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { enforceAiBoundaries } from "./lawoss/test-support/ai-boundaries.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -253,7 +254,7 @@ describe("Wiki HTTP API", () => {
     expect((await request(`/workspace/${wiki.workspaceId}/project`, "owner")).status).toBe(200);
   });
 
-  test("a scheduled run replaces a prior owner origin with collaborator scope before prompting", async () => {
+  test("with AI boundaries on, a denied scheduled run cannot reuse the prior runtime owner credential after restart", async () => {
     const { request, config, root, base } = await fixture();
     const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Private scheduled knowledge" })).json());
     expect((await request(`/wikis/${wiki.id}`, "owner", "PATCH", { allowInProjects: true })).status).toBe(200);
@@ -282,6 +283,7 @@ describe("Wiki HTTP API", () => {
       const stopInitial = stops.pop();
       if (!stopInitial) throw new Error("Expected the initial fixture server");
       await stopInitial();
+      await enforceAiBoundaries(config);
       const store = await ScheduledTaskStore.open(runtimeDbPath(config));
       const due = Date.now() - 60000;
       const task = store.create(project.id, { title: "Scheduled review", prompt: "Read available knowledge", sessionId,
@@ -290,9 +292,17 @@ describe("Wiki HTTP API", () => {
       stops.push(() => server.stop());
       restartedBase = `http://127.0.0.1:${server.port}`;
       ready();
-      for (let attempt = 0; attempt < 200 && store.runs(task.id)[0]?.status !== "sent"; attempt++) await Bun.sleep(10);
-      expect(store.runs(task.id)[0]?.status).toBe("sent");
-      expect(privateReadStatus).toBe(404);
+      try {
+        for (let attempt = 0; attempt < 200 && store.runs(task.id)[0]?.status !== "failed"; attempt++) await Bun.sleep(10);
+        expect(store.runs(task.id)[0]?.status).toBe("failed");
+        expect(store.runs(task.id)[0]?.error).toContain("Protected AI processing is unavailable");
+        expect(privateReadStatus).toBeUndefined();
+        expect((await fetch(`${restartedBase}/wikis/${wiki.id}/page?path=Instructions.md`, { headers })).status).toBe(403);
+        const freshToken = await ensureWikiAgentToken(config);
+        expect(freshToken).not.toBe(token);
+        await grantWikiAgentSession(config, { sessionId, directory: project.path, scope: "collaborator" });
+        expect((await fetch(`${restartedBase}/wikis/${wiki.id}/page?path=Instructions.md`, { headers: { ...headers, "x-legalwork-wiki-agent-token": freshToken } })).status).toBe(404);
+      } finally { store.close(); }
     } finally { ready(); engine.stop(true); }
   });
 
@@ -376,5 +386,50 @@ describe("Wiki HTTP API", () => {
   test("server read-only mode blocks registration even for the owner", async () => {
     const { request } = await fixture(true);
     expect((await request("/wikis", "host", "POST", { name: "Read only" })).status).toBe(403);
+  });
+  test("with AI boundaries off (alpha default), a scheduled run replaces a prior owner origin with collaborator scope before prompting", async () => {
+    const { request, config, root, base } = await fixture();
+    const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Private scheduled knowledge" })).json());
+    expect((await request(`/wikis/${wiki.id}`, "owner", "PATCH", { allowInProjects: true })).status).toBe(200);
+    const project = (await registerLocalProject(config, { folderPath: join(root, "Project"), name: "Scheduled project", preset: "starter" })).workspace;
+    const token = await ensureWikiAgentToken(config), sessionId = "existing-owner-chat";
+    await grantWikiAgentSession(config, { sessionId, directory: project.path, scope: "owner" });
+    const headers = { "x-legalwork-wiki-agent-token": token, "x-legalwork-wiki-agent-session": sessionId, "x-legalwork-wiki-agent-directory": encodeURIComponent(project.path) };
+    expect((await fetch(`${base}/wikis/${wiki.id}/page?path=Instructions.md`, { headers })).status).toBe(200);
+    let restartedBase = "", privateReadStatus: number | undefined;
+    let ready = () => {};
+    const serverReady = new Promise<void>(resolve => { ready = resolve; });
+    const engine = Bun.serve({ port: 0, fetch: async req => {
+      const path = new URL(req.url).pathname;
+      if (path === "/agent") return Response.json([{ name: "legalwork-scheduled-project", permission: [{ permission: "*", pattern: "*", action: "deny" }] }]);
+      if (path === "/session/status") return Response.json({});
+      if (path === `/session/${sessionId}`) return Response.json({ id: sessionId, directory: project.path, time: {} });
+      if (path === `/session/${sessionId}/prompt_async`) {
+        await serverReady;
+        privateReadStatus = (await fetch(`${restartedBase}/wikis/${wiki.id}/page?path=Instructions.md`, { headers })).status;
+        return new Response(null, { status: 204 });
+      }
+      return Response.json({});
+    } });
+    try {
+      project.baseUrl = `http://127.0.0.1:${engine.port}`;
+      const stopInitial = stops.pop();
+      if (!stopInitial) throw new Error("Expected the initial fixture server");
+      await stopInitial();
+      const store = await ScheduledTaskStore.open(runtimeDbPath(config));
+      const due = Date.now() - 60000;
+      const task = store.create(project.id, { title: "Scheduled review", prompt: "Read available knowledge", sessionId,
+        schedule: { kind: "once", startAt: new Date(due).toISOString(), timeZone: "Europe/Berlin" } }, due - 60000);
+      const server = await startServer(config);
+      stops.push(() => server.stop());
+      restartedBase = `http://127.0.0.1:${server.port}`;
+      ready();
+      for (let attempt = 0; attempt < 200 && store.runs(task.id)[0]?.status !== "sent"; attempt++) await Bun.sleep(10);
+      expect(store.runs(task.id)[0]?.status).toBe("sent");
+      // The private wiki stays closed to the scheduled prompt. Since #168 the prior runtime
+      // credential is also revoked by the restart (403); before it the downgraded scope gave 404.
+      expect(privateReadStatus === 403 || privateReadStatus === 404).toBe(true);
+      store.close();
+    } finally { ready(); engine.stop(true); }
   });
 });
