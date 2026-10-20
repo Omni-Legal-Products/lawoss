@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
+import { enforceAiBoundaries } from "./lawoss/test-support/ai-boundaries.js";
 
-test("server-mediated recovery preserves governance denial and releases its reservation", async () => {
+test("with AI boundaries on, server-mediated recovery preserves governance denial and releases its reservation", async () => {
   const root = await mkdtemp(join(tmpdir(), "recovery-governance-"));
   let prompts = 0;
   const engine = Bun.serve({hostname: "127.0.0.1", port: 0, fetch(request) {
@@ -22,6 +23,7 @@ test("server-mediated recovery preserves governance denial and releases its rese
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   try {
     server = await startServer(config);
+    await enforceAiBoundaries(config);
     const endpoint = `http://127.0.0.1:${server.port}/workspace/project/sessions/chat`;
     const request = (path: string, body: unknown) => fetch(endpoint + path, {method: "POST", headers: {authorization: `Bearer ${config.token}`, "content-type": "application/json"}, body: JSON.stringify(body)});
     expect((await request("/review-recovery", {messageId: "old"})).status).toBe(409);

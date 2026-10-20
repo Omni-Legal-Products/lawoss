@@ -145,7 +145,9 @@ test("authenticated HTTP lifecycle, local scope and owned non-model delivery sur
     } finally { await server.stop(); engine.stop(true); inboxDb.close(); }
   `);
   try {
-    const child = Bun.spawn([process.execPath, script], { env: { ...process.env, XDG_CONFIG_HOME: root, LEGALWORK_RUNTIME_DB: join(root, "runtime.sqlite"), OPENCODE_DB: join(root, "opencode.sqlite") }, stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn([process.execPath, script], { env: { ...process.env, XDG_CONFIG_HOME: root, LEGALWORK_RUNTIME_DB: join(root, "runtime.sqlite"), OPENCODE_DB: join(root, "opencode.sqlite"),
+      // #168 denial of an untrusted schedule: „AI hranice" on in this isolated child (lawoss/ai-boundaries.ts).
+      LAWOSS_AI_BOUNDARIES_ENFORCED: "1" }, stdout: "pipe", stderr: "pipe" });
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect({ exit, failure: exit === 0 ? "" : stderr + stdout }).toEqual({ exit: 0, failure: "" });
     expect(stdout).toContain("scheduled HTTP checks passed");

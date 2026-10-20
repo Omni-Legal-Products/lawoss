@@ -12,6 +12,7 @@ import { ensureWikiAgentToken } from "../src/wiki/agent-access";
 import { assertCachePrefix, CacheRequestSchema, type CacheRequest } from "../src/prompt-cache.test-support";
 import { closeRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../src/runtime-opencode-config-store";
 import { startServer } from "../src/server";
+import { enforceAiBoundaries } from "../src/lawoss/test-support/ai-boundaries";
 import type { ServerConfig } from "../src/types";
 
 // Separate process from unit tests: no mocked hooks, SDK, runtime builder or
@@ -172,7 +173,9 @@ async function runFixture(injectTimestamp: boolean) {
     await startEngine();
     activeSession = z.object({ id: z.string() }).parse(await request("/workspace/matter/opencode/session", { title: "Synthetic cache contract" })).id;
     // Keep the real public proxy as a negative admission oracle, not an implicit
-    // public/protected approval. No fixture flag, policy exception or mock guard.
+    // public/protected approval. No fixture flag, policy exception or mock guard;
+    // „AI hranice" are switched on through their ordinary user setting.
+    await enforceAiBoundaries(config);
     const beforeDenied = providerRequests;
     const proxyClient = createOpencodeClient({baseUrl: `http://127.0.0.1:${server.port}/workspace/matter/opencode`,
       directory: workspace.path, headers: {authorization: "Bearer fixture"}});

@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { enforceAiBoundaries } from "./lawoss/test-support/ai-boundaries.js";
 import { mkdtemp, mkdir, rename, readFile, writeFile, rm, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -96,8 +97,8 @@ test("remote projects, files, aliases and foreign symlink targets cannot reconne
   expect(await readFile(join(f.b, "source.pdf"), "utf8")).toBe("%PDF-original");
 });
 
-test("native mounted session list and getters exclude later foreign chats reusing old path", async () => {
-  const f = await fixture(); f.config.workspaces[0]!.directory = f.a; let late = false, shellRequests = 0;
+test("with AI boundaries on, native mounted session list and getters exclude later foreign chats reusing old path", async () => {
+  const f = await fixture(); await enforceAiBoundaries(f.config); f.config.workspaces[0]!.directory = f.a; let late = false, shellRequests = 0;
   const engine = Bun.serve({ port: 0, fetch: request => {
     const url = new URL(request.url);
     expect(request.headers.get("x-opencode-directory")).toBe(f.b);

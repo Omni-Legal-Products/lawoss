@@ -7,6 +7,11 @@ import { ApiError } from "../errors.js";
 import { callSystemOne } from "../systemone-client.js";
 import { ReviewRequests } from "./scheduler.js";
 import { builtinReviewLibrary } from "./builtin-library.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { enforceAiBoundaries } from "../lawoss/test-support/ai-boundaries.js";
+import { closeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 const calls: Array<{ path: string; method: string; body: unknown }> = [];
 const decisions: SystemOneRequest[] = [];
 let fail = false, wrongModel = false, fabricated = false, incomplete = false, modelOffline = false, quota = false, subscribed = false, noDefault = false;
@@ -384,8 +389,13 @@ test("structured answers still undergo source verification", async () => {
   expect(result.citations).toEqual([]);
 });
 
-test("the production review executor refuses protected processing with the typed host denial before inference", async () => {
-  const guarded = new ReviewExecutor(config, {settings: async () => structuredClone(settings), infer: async () => {throw new Error("Must not call JEV");}});
-  await expect(guarded.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).rejects.toMatchObject({status: 403, code: "ai_transfer_denied"});
-  expect(calls.filter(call => call.path.endsWith("/message") || call.path === "/session")).toEqual([]);
+test("with AI boundaries on, the production review executor refuses protected processing with the typed host denial before inference", async () => {
+  const root = await mkdtemp(join(tmpdir(), "review-boundaries-"));
+  const bounded: ServerConfig = {...config, configPath: join(root, "server.json")};
+  try {
+    await enforceAiBoundaries(bounded);
+    const guarded = new ReviewExecutor(bounded, {settings: async () => structuredClone(settings), infer: async () => {throw new Error("Must not call JEV");}});
+    await expect(guarded.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).rejects.toMatchObject({status: 403, code: "ai_transfer_denied"});
+    expect(calls.filter(call => call.path.endsWith("/message") || call.path === "/session")).toEqual([]);
+  } finally {await closeRuntimeOpencodeConfig(bounded); await rm(root, {recursive: true});}
 });

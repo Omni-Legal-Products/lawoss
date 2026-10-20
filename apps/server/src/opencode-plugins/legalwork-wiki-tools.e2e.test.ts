@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { enforceAiBoundaries } from "../lawoss/test-support/ai-boundaries.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -202,7 +203,7 @@ test("an agent captures an authorized source into real Markdown through the serv
   expect(JSON.parse(await unknown.tool.wiki_list.execute({})).code).toBe("wiki_agent_session_unknown");
 });
 
-test("authenticated session origins are preserved while protected prompts and commands cannot execute", async () => {
+test("with AI boundaries on, authenticated session origins are preserved while protected prompts and commands cannot execute", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-wiki-proxy-origin-"));
   roots.push(root);
   const project = join(root, "Prüfung 東京");
@@ -232,6 +233,7 @@ test("authenticated session origins are preserved while protected prompts and co
   await store.close();
   const runtimeToken = await ensureWikiAgentToken(config);
   const server = await startServer(config);
+  await enforceAiBoundaries(config);
   stops.unshift(async () => { await server.stop(); });
   const url = `http://127.0.0.1:${server.port}`;
   const proxyPath = `${url}/workspace/origin-matter/opencode/session`;

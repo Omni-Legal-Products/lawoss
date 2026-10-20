@@ -11,6 +11,8 @@ export type RuntimeOpencodeConfig = {
   /** Informational read acknowledgment; never a permission or provider profile. */
   guidanceAck?: GuidanceAck;
   aiPreference?: {version: 1; preferredMode: "local" | "unspecified"; sourceHash: string};
+  /** LAWOSS: the user's „AI hranice" choice (lawoss/ai-boundaries.ts); absent means the alpha default. */
+  aiBoundaries?: {enforced: boolean};
   sandbox?: SandboxSettings;
   sandboxEdit?: string;
   sandboxSync?: { account: string; revision: number; dirty: boolean };
@@ -116,6 +118,7 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
   return {
     ...(guidanceAck.success ? {guidanceAck: guidanceAck.data} : {}),
     ...(preference ? {aiPreference: preference} : {}),
+    ...(isRecord(value.aiBoundaries) && typeof value.aiBoundaries.enforced === "boolean" ? {aiBoundaries: {enforced: value.aiBoundaries.enforced}} : {}),
     ...(typeof value.sandboxEdit === "string" ? { sandboxEdit: value.sandboxEdit } : {}),
     ...(value.sandbox !== undefined ? { sandbox: sandboxSettingsSchema.parse(value.sandbox) } : {}),
     ...(value.sandboxSync !== undefined ? { sandboxSync: sandboxSyncSchema.parse(value.sandboxSync) } : {}),

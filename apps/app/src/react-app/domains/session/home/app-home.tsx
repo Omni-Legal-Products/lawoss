@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { aiBoundariesRefusal } from "@/lawoss/domains/ai/boundaries-refusal";
 import { ArrowUp, ChevronDown, Folder, Paperclip, Plus } from "lucide-react";
 import type { WorkspaceInfo } from "@/app/lib/desktop";
 import type { ModelRef } from "@/app/types";
@@ -83,7 +84,8 @@ export function AppHome(props: AppHomeProps) {
       }));
       await props.onSend(text, active);
     } catch (error) {
-      setError(error instanceof Error ? error.message : t("home.send_failed"));
+      // LAWOSS: an AI hranice refusal is shown as the localized sentence, never the raw denial JSON.
+      setError(aiBoundariesRefusal(error) ?? (error instanceof Error ? error.message : t("home.send_failed")));
       sendingRef.current = false;
       setSending(false);
     }

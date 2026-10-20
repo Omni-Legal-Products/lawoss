@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { openBenchmarkStore, resetBenchmarkStoreCache } from "./benchmarks/store.js";
 import { BenchmarkRunner, type BenchmarkOpencodeClient } from "./benchmarks/runner.js";
 import { startServer } from "./server.js";
+import { enforceAiBoundaries } from "./lawoss/test-support/ai-boundaries.js";
 import type { ServerConfig } from "./types.js";
 
 const stops: Array<() => void | Promise<void>> = [];
@@ -244,6 +245,8 @@ async function startLegalworkServer() {
   };
   const server = await startServer(config);
   stops.push(() => server.stop());
+  // #168 denial expectations: „AI hranice" on explicitly (per-root runtime DB).
+  await enforceAiBoundaries(config);
   return { base: `http://127.0.0.1:${server.port}`, token: config.token, workspaceRoot, config };
 }
 

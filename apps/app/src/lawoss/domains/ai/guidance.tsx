@@ -2,7 +2,7 @@
 import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AI_GUIDANCE_VERSION, type AiGovernanceView } from "@legalwork/types/ai-governance";
-import type { Language } from "@/i18n";
+import { t, type Language } from "@/i18n";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resolveLegalworkConnection, type ResolvedLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 
@@ -98,7 +98,8 @@ export function AiGuidance({locale}: {locale: Language}) {
   return <aside aria-labelledby={id} data-lawoss-ai-governance="unsupported" className="space-y-2 rounded border border-amber-500/60 p-3 text-sm">
     <h3 id={id} className="font-semibold">{text.title}</h3>
     <p>{text.remote}</p><p>{text.reading}</p><p>{text.profile}</p><p>{text.action}</p>
-    <p role="status" className="font-medium">{text.blocked}</p>
+    {/* AI hranice: the "blocked" notice is true only while they are on (alpha default off). */}
+    <p role="status" className="font-medium">{view?.boundaries?.enforced ? text.blocked : `${t("lawoss.ai_boundaries.title", locale)}: ${t("lawoss.ai_boundaries.state_off", locale)}`}</p>
     {view?.boundedDocuments?.state === "conditional" ? <p>{text.bounded}</p> : null}
     {saved ? <p>{text.saved}</p> : <>
       <label className="flex items-center gap-2">{text.jurisdiction}

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { startServer } from "./server.js";
+import { enforceAiBoundaries } from "./lawoss/test-support/ai-boundaries.js";
 import type { ServerConfig } from "./types.js";
 
 type Served = {
@@ -41,9 +42,11 @@ function baseConfig(): ServerConfig {
   } as ServerConfig;
 }
 
-async function boot() {
-  const server = await startServer(baseConfig()) as Served;
+async function boot(options: { aiBoundaries?: boolean } = {}) {
+  const config = baseConfig();
+  const server = await startServer(config) as Served;
   stops.push(() => server.stop(true));
+  if (options.aiBoundaries) stops.push(await enforceAiBoundaries(config));
   return {
     server,
     base: `http://127.0.0.1:${server.port}`,
@@ -338,9 +341,26 @@ describe("env routes", () => {
     expect(del.status).toBe(404);
   });
 
-  test("voice realtime capability is unavailable without standard OpenAI credentials", async () => {
+  test("with AI boundaries off (alpha default), voice realtime capability reads the standard OpenCode OpenAI API credential", async () => {
     delete process.env.OPENAI_API_KEY;
+    const authDir = join(process.env.XDG_DATA_HOME!, "opencode");
+    mkdirSync(authDir, { recursive: true });
+    writeFileSync(join(authDir, "auth.json"), JSON.stringify({
+      openai: { type: "api", key: "sk-provider-test" },
+    }));
+
     const { base } = await boot();
+    const response = await fetch(`${base}/voice/realtime/capability`, { headers: hostAuth() });
+    expect(await response.json()).toMatchObject({
+      supported: true,
+      providerId: "openai",
+      model: "gpt-realtime-2.1",
+    });
+  });
+
+  test("with AI boundaries on, voice realtime capability is unavailable without standard OpenAI credentials", async () => {
+    delete process.env.OPENAI_API_KEY;
+    const { base } = await boot({ aiBoundaries: true });
     const response = await fetch(`${base}/voice/realtime/capability`, { headers: hostAuth() });
 
     expect(response.status).toBe(200);
@@ -352,7 +372,7 @@ describe("env routes", () => {
     });
   });
 
-  test("voice realtime capability remains unavailable with a standard OpenCode OpenAI credential", async () => {
+  test("with AI boundaries on, voice realtime capability remains unavailable with a standard OpenCode OpenAI credential", async () => {
     delete process.env.OPENAI_API_KEY;
     const authDir = join(process.env.XDG_DATA_HOME!, "opencode");
     mkdirSync(authDir, { recursive: true });
@@ -360,7 +380,7 @@ describe("env routes", () => {
       openai: { type: "api", key: "sk-provider-test" },
     }));
 
-    const { base } = await boot();
+    const { base } = await boot({ aiBoundaries: true });
     const response = await fetch(`${base}/voice/realtime/capability`, { headers: hostAuth() });
     expect(await response.json()).toMatchObject({
       supported: false,
@@ -371,7 +391,7 @@ describe("env routes", () => {
   });
 
   for (const credentials of ["saved", "environment", "both"] as const) {
-    test(`voice stays unavailable with ${credentials} credentials and never contacts its receiver`, async () => {
+    test(`with AI boundaries on, voice stays unavailable with ${credentials} credentials and never contacts its receiver`, async () => {
       if (credentials !== "saved") process.env.OPENAI_API_KEY = "sk-env-synthetic";
       if (credentials !== "environment") {
         const authDir = join(process.env.XDG_DATA_HOME!, "opencode");
@@ -384,7 +404,7 @@ describe("env routes", () => {
         if (request.url.startsWith("https://api.openai.com/")) { receiverCalls++; return new Response("unexpected", { status: 500 }); }
         return nativeFetch(input, init);
       }, nativeFetch);
-      const { base } = await boot();
+      const { base } = await boot({ aiBoundaries: true });
       const capability = await fetch(`${base}/voice/realtime/capability`, { headers: hostAuth() });
       expect(await capability.json()).toEqual({ supported: false, providerId: null, model: null, reason: "unsupported-transport" });
       const response = await fetch(`${base}/voice/realtime/call`, { method: "POST", headers: { ...hostAuth(), "content-type": "application/json" }, body: JSON.stringify({ sdp: "v=0", sessionContext: "SYNTHETIC_PROTECTED_CONTEXT" }) });

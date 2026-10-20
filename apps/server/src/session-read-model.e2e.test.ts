@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { enforceAiBoundaries } from "./lawoss/test-support/ai-boundaries.js";
 import { startServer } from "./server.js";
 import { SessionMessageQueue, QueuePreparationError } from "./session-message-queue.js";
 import { queueActionSchema } from "./session-queue-schema.js";
@@ -142,7 +143,7 @@ function startMockOpencode(input?: { sessionDirectory?: string; invalidList?: bo
   return { server, requests };
 }
 
-async function startLegalworkServer(input: { workspaceRoot: string; opencodeBaseUrl: string; readOnly?: boolean; agentSandboxEnabled?: boolean }) {
+async function startLegalworkServer(input: { workspaceRoot: string; opencodeBaseUrl: string; readOnly?: boolean; agentSandboxEnabled?: boolean; aiBoundaries?: boolean }) {
   const isolated = { LEGALWORK_TOKEN_STORE: join(input.workspaceRoot, "tokens.json"), LEGALWORK_RUNTIME_DB: join(input.workspaceRoot, "runtime.sqlite"), LEGALWORK_DATA_DIR: join(input.workspaceRoot, "data") };
   const previous = Object.fromEntries(Object.keys(isolated).map((key) => [key, process.env[key]]));
   Object.assign(process.env, isolated);
@@ -181,6 +182,8 @@ async function startLegalworkServer(input: { workspaceRoot: string; opencodeBase
   };
   const server = await startServer(config) as Served;
   stops.push(() => server.stop(true));
+  // #168 denial expectations: „AI hranice" on explicitly (per-root runtime DB).
+  if (input.aiBoundaries) await enforceAiBoundaries(config);
   return { server, token: config.token };
 }
 
@@ -399,11 +402,11 @@ describe("workspace session read APIs", () => {
 
   });
 
-  test("protected session commands fail promptly without contacting the engine", async () => {
+  test("with AI boundaries on, protected session commands fail promptly without contacting the engine", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const command = deferred();
     const mock = startMockOpencode({ holdCommand: command.promise });
-    const legalwork = await startLegalworkServer({ workspaceRoot, readOnly: false, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}` });
+    const legalwork = await startLegalworkServer({ workspaceRoot, readOnly: false, aiBoundaries: true, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}` });
     const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/opencode/session/ses_1/command`, {
       method: "POST", headers: { ...auth(legalwork.token), "Content-Type": "application/json" }, body: JSON.stringify({ command: "review", arguments: "" }),
     });
@@ -491,13 +494,13 @@ describe("workspace session read APIs", () => {
 
 
 describe("shared session queue API", () => {
-  test("queued execution cannot bypass the protected shell or interpolate host commands", async () => {
+  test("with AI boundaries on, queued execution cannot bypass the protected shell or interpolate host commands", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const mock = startMockOpencode({ idle: () => true, commands: () => [
       { name: "review", template: "Review these files" },
       { name: "unsafe", template: "Inspect !`echo unexpected-host-execution`" },
     ] });
-    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false, agentSandboxEnabled: true });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false, aiBoundaries: true, agentSandboxEnabled: true });
     const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/queue`;
     const headers = { ...auth(legalwork.token), "Content-Type": "application/json" };
     const enqueue = (execution: unknown) => fetch(base, { method: "POST", headers, body: JSON.stringify({
@@ -581,10 +584,10 @@ describe("shared session queue API", () => {
     expect(deliveries).toEqual([first.id, second.id]);
   });
 
-  test("both HTTP windows observe unchanged empty queues after a denied enqueue", async () => {
+  test("with AI boundaries on, both HTTP windows observe unchanged empty queues after a denied enqueue", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const mock = startMockOpencode({ idle: () => true });
-    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false, aiBoundaries: true });
     const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/queue`;
     const headers = { ...auth(legalwork.token), "Content-Type": "application/json" };
     const before = await fetch(base, { headers }).then(response => response.json());

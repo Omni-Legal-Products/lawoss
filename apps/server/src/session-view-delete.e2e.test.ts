@@ -7,9 +7,10 @@ import { ViewRecordSchema, type ViewPreview } from "@legalwork/types/views";
 import { withSessionExecution } from "./session-execution-gate.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
+import { enforceAiBoundaries } from "./lawoss/test-support/ai-boundaries.js";
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
-async function fixture() {
+async function fixture(options: { aiBoundaries?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), "session-view-delete-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const preview: ViewPreview = { status: "preview", owner: { kind: "workspace", id: "project" }, input: { version: 1, title: "Unsaved dashboard", mode: "dashboard", catalog: "legalwork-1", program: 'root = Text("Keep this")', queries: {} } };
@@ -32,6 +33,7 @@ async function fixture() {
   cleanup.push(() => { engine.stop(true); });
   const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "test", hostToken: "host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"], workspaces: [{ id: "project", name: "Project", path: root, workspaceType: "local", preset: "starter", baseUrl: `http://127.0.0.1:${engine.port}` }], authorizedRoots: [root], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   const server = await startServer(config); cleanup.push(() => server.stop());
+  if (options.aiBoundaries) await enforceAiBoundaries(config);
   const request = (path: string, method = "GET", body?: unknown, source?: unknown) => fetch(`http://127.0.0.1:${server.port}${path}${source ? `?source=${encodeURIComponent(JSON.stringify(source))}` : ""}`, { method, headers: { authorization: "Bearer test", "x-legalwork-host-token": "host", "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
   return { root, state, request, preview, config };
 }
@@ -100,8 +102,8 @@ test("running tools cannot disappear between transcript review and the idle chec
   expect((await request(`${endpoint}?discardReview=${review.reviewToken}`, "DELETE")).status).toBe(200);
 });
 
-test("deletion excludes direct sends, queue mutations, and another delete until review finishes", async () => {
-  const { state, request } = await fixture();
+test("with AI boundaries on, deletion excludes direct sends, queue mutations, and another delete until review finishes", async () => {
+  const { state, request } = await fixture({ aiBoundaries: true });
   let reviewed = () => {}, release = () => {};
   const reached = new Promise<void>(resolve => { reviewed = resolve; });
   const blocked = new Promise<void>(resolve => { release = resolve; });
@@ -135,8 +137,8 @@ test("a reserved send blocks deletion even before the engine reports busy", asyn
   expect((await request(`${endpoint}?discardReview=${review.reviewToken}`, "DELETE")).status).toBe(200);
 });
 
-test("server-mediated recovery preserves typed governance denial and releases reservations without inference", async () => {
-  const { state, request } = await fixture();
+test("with AI boundaries on, server-mediated recovery preserves typed governance denial and releases reservations without inference", async () => {
+  const { state, request } = await fixture({ aiBoundaries: true });
   state.recovery = true;
   expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "old" })).status).toBe(409);
   expect(state.prompts).toBe(0);

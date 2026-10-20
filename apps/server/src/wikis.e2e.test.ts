@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { enforceAiBoundaries } from "./lawoss/test-support/ai-boundaries.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -253,7 +254,7 @@ describe("Wiki HTTP API", () => {
     expect((await request(`/workspace/${wiki.workspaceId}/project`, "owner")).status).toBe(200);
   });
 
-  test("a denied scheduled run cannot reuse the prior runtime owner credential after restart", async () => {
+  test("with AI boundaries on, a denied scheduled run cannot reuse the prior runtime owner credential after restart", async () => {
     const { request, config, root, base } = await fixture();
     const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Private scheduled knowledge" })).json());
     expect((await request(`/wikis/${wiki.id}`, "owner", "PATCH", { allowInProjects: true })).status).toBe(200);
@@ -282,6 +283,7 @@ describe("Wiki HTTP API", () => {
       const stopInitial = stops.pop();
       if (!stopInitial) throw new Error("Expected the initial fixture server");
       await stopInitial();
+      await enforceAiBoundaries(config);
       const store = await ScheduledTaskStore.open(runtimeDbPath(config));
       const due = Date.now() - 60000;
       const task = store.create(project.id, { title: "Scheduled review", prompt: "Read available knowledge", sessionId,

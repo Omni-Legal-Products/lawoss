@@ -30,7 +30,10 @@ export type GuidanceAck = {textVersion: string; jurisdiction: "CZ" | "SK"; actor
 
 export const AI_GUIDANCE_VERSION = "2026-10-17-technical-alpha";
 export const GuidanceAckSchema = z.strictObject({textVersion: z.string().min(1).max(80), jurisdiction: z.enum(["CZ", "SK"]), actorRef: z.literal("native-host"), readAt: z.number().int().nonnegative()});
-export type AiGovernanceView = {publicContext?: {available: boolean; targets: Array<{id: string; models: string[]}>}; guidanceVersion: string; guidanceAck: GuidanceAck | null;
+/** LAWOSS alpha switch: when enforced, only protected document generation reaches a model.
+ * `firm` is a tightening-only lock; nothing in the renderer can unlock it. */
+export type AiBoundaries = {enforced: boolean; locked: boolean; source: "default" | "user" | "firm"};
+export type AiGovernanceView = {boundaries?: AiBoundaries; publicContext?: {available: boolean; targets: Array<{id: string; models: string[]}>}; guidanceVersion: string; guidanceAck: GuidanceAck | null;
   boundedDocuments?: {state: "conditional"; requiresApprovedMatterProfile: true; requiresNativeCaseReview: true; requiresFinalWireReview: true; approvalCreation: "unavailable"};
   protectedProcessing: "unsupported"; blockers: string[]; capabilities: Array<{kind: TransferKind; state: "unsupported"; reason: "unsupported-transport"}>};
 

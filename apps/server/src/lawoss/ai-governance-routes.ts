@@ -7,10 +7,11 @@ import { addRoute, type Route } from "../routes/registry.js";
 import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
 import { readGovernedCapabilities } from "./ai-governance.js";
+import { GLOBAL_AI_GUIDANCE_ID, readAiBoundaries, writeAiBoundaries } from "./ai-boundaries.js";
 
-export const GLOBAL_AI_GUIDANCE_ID = "__global_ai_guidance__";
+export { GLOBAL_AI_GUIDANCE_ID };
 export async function readAiGovernanceView(config: ServerConfig, publicEngineAvailable = false): Promise<AiGovernanceView> {
-  return {publicContext: {available: publicEngineAvailable, targets: await listPublicAiTargets(config)}, guidanceVersion: AI_GUIDANCE_VERSION,
+  return {boundaries: await readAiBoundaries(config), publicContext: {available: publicEngineAvailable, targets: await listPublicAiTargets(config)}, guidanceVersion: AI_GUIDANCE_VERSION,
     guidanceAck: (await readRuntimeOpencodeConfig(config, GLOBAL_AI_GUIDANCE_ID)).guidanceAck ?? null,
     boundedDocuments: {state: "conditional", requiresApprovedMatterProfile: true, requiresNativeCaseReview: true, requiresFinalWireReview: true, approvalCreation: "unavailable"},
     protectedProcessing: "unsupported", blockers: ["enforced-policy-wire-unavailable", "engine-egress-unproven"],
@@ -31,6 +32,14 @@ export function registerAiGovernanceRoutes(options: {routes: Route[]; config: Se
     const body = parsed.data;
     await writeRuntimeOpencodeConfig(config, GLOBAL_AI_GUIDANCE_ID, current => ({...current,
       guidanceAck: {...body, actorRef: "native-host", readAt: Date.now()}}));
+    return jsonResponse(await readAiGovernanceView(config, Boolean(options.getPublicEngineBinary?.())));
+  });
+  // Native Settings → AI „AI hranice". A firm lock refuses switching off (409).
+  addRoute(routes, "PUT", "/lawoss/ai-governance/boundaries", "host-token", async ctx => {
+    ensureWritable();
+    const parsed = z.strictObject({enforced: z.boolean()}).safeParse(await options.readJsonBodyLimited(ctx.request, 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_ai_boundaries", "Send only whether AI boundaries are enforced.");
+    await writeAiBoundaries(config, parsed.data.enforced);
     return jsonResponse(await readAiGovernanceView(config, Boolean(options.getPublicEngineBinary?.())));
   });
   addRoute(routes, "POST", "/lawoss/ai-governance/public-text", "host-token", async ctx => {

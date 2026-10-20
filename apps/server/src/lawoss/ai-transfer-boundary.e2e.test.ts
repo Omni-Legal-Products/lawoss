@@ -6,9 +6,10 @@ import { join } from "node:path";
 import { startServer } from "../server.js";
 import { openSqlite, runtimeDbPath } from "../runtime-db.js";
 import { syntheticHostConfig } from "./test-support/host-config.js";
+import { enforceAiBoundaries } from "./test-support/ai-boundaries.js";
 
 // This proves host admission only. It does not claim engine-internal provider egress isolation.
-test("protected prompt/attachment/compaction/command are refused before the engine receiver; manual files remain available", async () => {
+test("with AI boundaries on, protected prompt/attachment/compaction/command are refused before the engine receiver; manual files remain available", async () => {
   const {root, config} = await syntheticHostConfig();
   const received: string[] = [];
   const receiver = Bun.serve({hostname: "127.0.0.1", port: 0, async fetch(request) { if (request.method === "GET") return Response.json({id: "fixture", directory: config.workspaces[0]?.path}); received.push(await request.text()); return Response.json({id: "synthetic"});}});
@@ -22,6 +23,7 @@ test("protected prompt/attachment/compaction/command are refused before the engi
     const workspace = join(root, "matter"); await mkdir(workspace); await writeFile(join(workspace, "manual.md"), "manual-path");
     config.workspaces.push({id: "fixture", name: "Synthetic", path: workspace, workspaceType: "local", preset: "starter", baseUrl: receiver.url.origin});
     const server = await startServer(config); stop = () => server.stop();
+    await enforceAiBoundaries(config);
     const base = `http://127.0.0.1:${server.port}`;
     const headers = {authorization: `Bearer ${config.token}`, "content-type": "application/json"};
     for (const operation of ["message", "prompt_async", "prompt", "summarize", "compact", "command", "shell", "init", "%6dessage"]) {
@@ -51,13 +53,14 @@ test("protected prompt/attachment/compaction/command are refused before the engi
   }
 });
 
-test("a mounted SDK transport also rejects dispatch before a receiver gets content", async () => {
+test("with AI boundaries on, a mounted SDK transport also rejects dispatch before a receiver gets content", async () => {
   const {root, config} = await syntheticHostConfig();
   const received: string[] = [];
   const receiver = Bun.serve({hostname: "127.0.0.1", port: 0, async fetch(request) {received.push(await request.text()); return Response.json({ok: true});}});
   try {
     await fetch(receiver.url, {method: "POST", body: "PUBLIC-SYNTHETIC-PROBE"});
     expect(received).toEqual(["PUBLIC-SYNTHETIC-PROBE"]); received.length = 0;
+    await enforceAiBoundaries(config);
     const guarded = createGovernedEngineFetch(config, "fixture");
     await expect(guarded(new Request(`${receiver.url.origin}/w/fixture/opencode/session/fixture/message`, {
       method: "POST", body: "PROTECTED-SDK-CANARY",
@@ -76,6 +79,7 @@ test("acknowledgment cannot inject an actor or approve a provider", async () => 
   let stop: (() => void | Promise<void>) | undefined;
   try {
     const server = await startServer(config); stop = () => server.stop();
+    await enforceAiBoundaries(config);
     const base = `http://127.0.0.1:${server.port}`;
     const host = {"x-legalwork-host-token": config.hostToken, "content-type": "application/json"};
     const forged = await fetch(base + "/lawoss/ai-governance/acknowledge", {method: "POST", headers: host,
