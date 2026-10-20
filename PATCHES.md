@@ -11,6 +11,7 @@
 | `apps/server/src/project-sync.test.ts` | Test nahrávok má limit 20 s. Dôvod: PR #168, `portable-windows` job 118309230267 (2026-10-19), kolo so vypnutými nahrávkami trvalo 3767 ms a predvolených 5000 ms vypršalo pri ďalšom uložení nastavení. Asercia nespadla. |
 | `scripts/sandbox/build-macos.sh` | Sťahovanie pripraveného archívu sa zopakuje trikrát a neúplný súbor sa zmaže. `curl --retry` HTTP 504 neopakuje. Keď primárny GitLab spadne, libslirp ide zo zrkadla `gitlab.com/qemu-project`. Dôvod: job `118335843500` (2026-10-19T22:18:40Z), HTTP 504 po inštalácii glib. sha256 zrkadla `f43e68b6…` sedí s pinom, overené stiahnutím 2026-10-19. Hash sa kontroluje aj v skripte. |
 | `.github/workflows/ci-windows-portable.yml` | Krok serverových testov na Windows má `bun test --timeout 20000`. Dôvod: job `118335222340` (2026-10-19) prerušil 14 testov na predvolených 5000 ms. Onboarding `apply` vrátil 200 až po prerušení a susedné testy synchronizácie prešli za 3873 ms a 4638 ms. |
+| `apps/desktop/package.json`, `apps/server/src/agent-sandbox/runtime.test.ts` | Skript `test` desktopu spúšťa aj `electron/runtime-bootstrap-gate.test.mjs` a `scripts/windows-arm64-speech-compile.test.mjs`; serverový test sandboxu overí, že `shutdown()` nečaká na zrušený boot. Dôvod: pokrytie opráv vyššie v CI. |
 
 ## Synthetic scenario benchmark completion and grading (2026-10-18)
 
