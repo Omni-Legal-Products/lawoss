@@ -36,6 +36,7 @@ export class SharedVmRuntime {
   private writer: NodeJS.WritableStream;
   private pipe?: Socket;
   private idle?: ReturnType<typeof setTimeout>;
+  private startup?: ReturnType<typeof setTimeout>;
   private pressure?: ReturnType<typeof setInterval>;
   private failure?: Error;
   private stderr = "";
@@ -48,7 +49,7 @@ export class SharedVmRuntime {
     this.child = spawn(executable, args, { stdio: ["pipe", "pipe", "pipe"], shell: false, windowsHide: true,
       env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR, TEMP: process.env.TEMP, TMP: process.env.TMP } });
     this.writer = this.child.stdin;
-    const timeout = setTimeout(() => this.stop(new Error("Protected runtime startup timed out.")), startupMs);
+    this.startup = setTimeout(() => this.stop(new Error("Protected runtime startup timed out.")), startupMs);
     const decoder = new FrameDecoder();
     let started = false;
     this.ready = new Promise<void>((resolve, reject) => {
@@ -56,7 +57,7 @@ export class SharedVmRuntime {
       const receive = (chunk: Buffer) => {
         try {
           decoder.push(chunk, (raw) => {
-            if (!started) { boot.parse(raw); started = true; clearTimeout(timeout); resolve(); }
+            if (!started) { boot.parse(raw); started = true; clearTimeout(this.startup); resolve(); }
             else {
               const event = envelope.parse(raw);
               this.runs.get(event.run)?.receive(event.payload);
@@ -82,7 +83,7 @@ export class SharedVmRuntime {
     process.once("exit", exit);
     this.closed = new Promise<void>((resolve) => {
       this.child.once("close", () => {
-        clearTimeout(timeout);
+        clearTimeout(this.startup);
         process.removeListener("exit", exit);
         void (async () => {
           const log = await readFile(consolePath, "utf8").catch(() => "");
@@ -102,6 +103,7 @@ export class SharedVmRuntime {
     if (this.failure) return;
     this.failure = error;
     this.setReferenced(true);
+    clearTimeout(this.startup);
     clearTimeout(this.idle);
     clearInterval(this.pressure);
     this.onClose();
