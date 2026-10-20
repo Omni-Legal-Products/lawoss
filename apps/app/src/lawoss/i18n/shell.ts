@@ -342,7 +342,10 @@ export const shellEn = {
   "lawoss.lite.more_items": "+{count} more",
   "lawoss.lite.urgent": "urgent deadline",
   "lawoss.lite.client_unnamed": "Client",
-  "lawoss.lite.client_no_matters": "No matters yet."
+  "lawoss.lite.client_no_matters": "No matters yet.",
+  // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
+  "lawoss.word_addin.editor_unavailable_title": "Open in the LAWOSS app",
+  "lawoss.word_addin.editor_unavailable_description": "The add-in pane cannot open spreadsheets and presentations. Open {name} in the LAWOSS app."
 };
 
 /** Čeština a slovenština potřebují navíc tvary few/many (Intl.PluralRules, viz `t()` v i18n/index.ts). */
@@ -694,7 +697,10 @@ export const shellCs = {
   "lawoss.lite.more_items": "+{count} další",
   "lawoss.lite.urgent": "naléhavá lhůta",
   "lawoss.lite.client_unnamed": "Klient",
-  "lawoss.lite.client_no_matters": "Zatím bez případů."
+  "lawoss.lite.client_no_matters": "Zatím bez případů.",
+  // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
+  "lawoss.word_addin.editor_unavailable_title": "Otevřete v aplikaci LAWOSS",
+  "lawoss.word_addin.editor_unavailable_description": "Panel doplňku neotevírá tabulky a prezentace. Soubor {name} otevřete v aplikaci LAWOSS."
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
@@ -1043,7 +1049,10 @@ export const shellSk = {
   "lawoss.lite.more_items": "+{count} ďalšie",
   "lawoss.lite.urgent": "naliehavá lehota",
   "lawoss.lite.client_unnamed": "Klient",
-  "lawoss.lite.client_no_matters": "Zatiaľ bez prípadov."
+  "lawoss.lite.client_no_matters": "Zatiaľ bez prípadov.",
+  // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
+  "lawoss.word_addin.editor_unavailable_title": "Otvorte v aplikácii LAWOSS",
+  "lawoss.word_addin.editor_unavailable_description": "Panel doplnku neotvára tabuľky a prezentácie. Súbor {name} otvorte v aplikácii LAWOSS."
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
@@ -1390,5 +1399,8 @@ export const shellDe = {
   "lawoss.lite.more_items": "+{count} weitere",
   "lawoss.lite.urgent": "dringende Frist",
   "lawoss.lite.client_unnamed": "Mandant",
-  "lawoss.lite.client_no_matters": "Noch keine Akten."
+  "lawoss.lite.client_no_matters": "Noch keine Akten.",
+  // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
+  "lawoss.word_addin.editor_unavailable_title": "In der LAWOSS-App öffnen",
+  "lawoss.word_addin.editor_unavailable_description": "Der Add-in-Bereich öffnet keine Tabellen und Präsentationen. Öffnen Sie {name} in der LAWOSS-App."
 } satisfies Record<keyof typeof shellEn, string>;
