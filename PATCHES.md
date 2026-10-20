@@ -1230,3 +1230,9 @@ Rozhodnutie MČ 19. 10. 2026: klient = natívny projekt (registrovaný priečino
 | Súbory | Zmena a dôvod |
 |---|---|
 | `apps/app/src/react-app/shell/welcome-route.tsx` | Po dokončení onboardingu naviguje na `completion.landing`, ak ho dokončenie nesie, inak ako doteraz na domov priečinka (+1 komentár, 1 riadok zmenený). LAWOSS `FRESH_OFFICE_COMPLETION` (`lawoss/domains/onboarding/found-flow.ts`) ho nastaví pri „Začať nanovo“ na Klienti a prípady: nová kancelária sa ako pracovný priečinok neregistruje (každý klient je samostatný priečinok), advokát pristane pri „Pridať klienta“. Vetva `fix/test-kolo-2`, test vlastníka 19. 10. 2026. |
+
+### Izolovaný testovací beh na macOS bez klúčenky (2026-10-20, fix/dev-mock-keychain)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/desktop/electron/main.mjs` | Pri `LAWOSS_DEV_MOCK_KEYCHAIN=1` na macOS pridá prepínač `use-mock-keychain` pred štartom appky. Dôvod: izolovaný testovací beh s presmerovaným `HOME` nemá klúčenku a macOS by ponúkol „Reset To Defaults“ skutočnej klúčenky používateľa. Bez premennej sa nič nemení. |
