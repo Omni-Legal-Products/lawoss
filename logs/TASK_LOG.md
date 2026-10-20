@@ -40,3 +40,14 @@ Toolchain mismatch found: prior local Bun1.4.0, CI1.4.2; previous source-suite r
 - Reviewer rejected broadresponsecache and absenthostowner. Additional owner, warm-body and cancellation RED/GREEN contracts retained. Fullsuite exposed protected precondition regression; existingtests unchanged and finalcorrectplacement/exactpath passed.
 - Final fullserver3014pass/67skip/0fail, productionbuildpass,48targetedpass, Nodeproduction19pass andNode204/205/304pass. Independentreview38pass/no mustfix. NewWindows source selection includes bothregressionfiles; no budget/oracle change.
 - mac source reload-watcher job118906948432 stillunclassified;25exactisolatedreplays pass, not replacementCIacceptance. Intermediate invaliddirectory Node test selection, aborted broad-caching run andfailedpreflight run are retained as failed/diagnostic evidence.
+
+## 2026-10-20T22:52:17.805274+00:00 — PR202 base reconciliation
+
+- GitHub reported a conflict using stale base5aded641; actual dev5400fae0 already contains the candidate PDF review. Ordinary no-rewrite merge has identical index tree before this receipt and changes no product source.
+- Exact Node24.21 watcher suite3pass0fail; AGENTS/CLAUDE identical and whitespace validation clean. CI on the new merge head remains required; no claim of Windows native acceptance or repaired PR200 startup.
+
+## 2026-10-20T23:14Z — PR202 concurrent history reconciliation
+
+- First ordinary push rejected because remote e1b477a2 had merged accepted PDF177/dev5400fae0. Preserved both histories and receipts; product tree unchanged from verified local9cc1. No force push.
+- Local9cc1 full server3017pass/67skip/0fail; full desktop build pass; actual native10cases, attachment, negatives, relaunch/same IDs/hashes and owned cleanup pass. Historical macOS provisioning500 remains unclassified.
+- PDF functional assertions passed, but first full runner failed strict owned cleanup; original failure retained. Evidence-only observer copy reran all original assertions and unchanged cleanup policy successfully; timing/cause of first failure remains unclassified. No cleanup guard relaxed.
