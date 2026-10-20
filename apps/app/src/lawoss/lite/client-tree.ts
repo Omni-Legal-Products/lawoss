@@ -60,14 +60,20 @@ export function focusedClientKey(focus: Pick<TreeFocus, "client" | "matter">, gr
 }
 
 /**
- * Otvorený chat podľa jeho priečinka (v tvare appky): najhlbšia vec, ktorej priečinok ho obsahuje.
- * Chat priamo v priečinku klienta alebo mimo vecí nič nerozbaľuje (je v natívnych Chatoch); neznámy priečinok tiež nie.
+ * Otvorený chat podľa jeho priečinka (v tvare appky): najhlbšia vec, ktorej priečinok ho obsahuje; inak klient,
+ * ktorého priečinok leží vnútri projektu chatu (klient v koreni kancelárie). Chat priamo v priečinku projektu
+ * nič nerozbaľuje (je v natívnych Chatoch); neznámy priečinok tiež nie.
  */
-export function directoryFocus(directory: string | null | undefined, owners: Pick<Owners, "matters">): Pick<TreeFocus, "client" | "matter"> {
+export function directoryFocus(directory: string | null | undefined, owners: Pick<Owners, "matters" | "clients">, projectRoot?: string | null): Pick<TreeFocus, "client" | "matter"> {
   if (!directory) return {};
   const dir = comparable(directory);
-  const matter = owners.matters.filter((m) => m.folder && within(m.folder, dir)).sort((a, b) => (b.folder?.length ?? 0) - (a.folder?.length ?? 0))[0];
-  return matter ? { matter: matter.path } : {};
+  const deepest = <T extends { folder: string | null }>(list: readonly T[]) =>
+    list.filter((o) => o.folder && within(o.folder, dir)).sort((a, b) => (b.folder?.length ?? 0) - (a.folder?.length ?? 0))[0];
+  const matter = deepest(owners.matters);
+  if (matter) return { matter: matter.path };
+  const root = projectRoot ? comparable(projectRoot) : null;
+  const client = root ? deepest(owners.clients.filter((c) => c.folder !== null && c.folder !== root && within(root, c.folder))) : undefined;
+  return client ? { client: client.key } : {};
 }
 
 /** Trasa sa presunula na uzol: jeho prepnutie (aj prepnutie jeho klienta) sa zabudne, aby ho trasa rozbalila. */

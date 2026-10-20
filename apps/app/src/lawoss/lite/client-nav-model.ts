@@ -53,7 +53,7 @@ export function closedGroups(groups: readonly Pick<ClientGroup, "key">[], ownerO
 }
 
 /** Kam „Nový chat“ založí chat: priečinok klienta (registrovaný projekt) alebo priečinok klienta v koreni praxe. */
-export type NewChatTarget = ClientChoice & { workspaceId: string; folder?: string };
+export type NewChatTarget = ClientChoice & { workspaceId: string; folder?: string; key?: string };
 
 /**
  * Natívny „Nový chat“ v bežnom režime bez otvoreného projektu (rozhodnutia MČ 19. 10. 2026): klienti praxe na výber
@@ -71,7 +71,7 @@ export function newChatChoices(
     .filter((w) => model.clients.has(w.id) && !model.hidden.has(w.id) && w.id !== rootId)
     .map((w) => ({ id: w.id, workspaceId: w.id, root: w.path, title: w.displayNameResolved || w.name || w.path }));
   const folders: NewChatTarget[] = rootId && !model.hidden.has(rootId)
-    ? rootClients.map((c) => ({ id: `${rootId}\u0000${c.key}`, workspaceId: rootId, folder: c.folder, root: c.folder, title: c.title }))
+    ? rootClients.map((c) => ({ id: `${rootId}\u0000${c.key}`, key: c.key, workspaceId: rootId, folder: c.folder, root: c.folder, title: c.title }))
     : [];
   return [...projects, ...folders].sort((a, b) => a.title.localeCompare(b.title, "cs") || a.id.localeCompare(b.id));
 }
@@ -87,4 +87,16 @@ export type NewChatAction = { kind: "native" } | { kind: "create"; target: NewCh
 export function newChatAction(mode: "lite" | "pro", choices: readonly NewChatTarget[]): NewChatAction {
   if (mode !== "lite" || choices.length === 0) return { kind: "native" };
   return choices.length === 1 ? { kind: "create", target: choices[0] } : { kind: "pick" };
+}
+
+/**
+ * „Nový chat“ v otvorenom projekte (bežný režim): v koreni praxe s klientmi z OKF nikdy nad celým koreňom
+ * (rozhodnutie MČ 19. 10. 2026). Kontext trasy (chat v priečinku klienta, vec, prehľad klienta) založí chat
+ * u toho klienta, inak výber klientov koreňa. `null` = obyčajný projekt alebo Pokročilý režim: natívne.
+ */
+export function projectNewChatAction(mode: "lite" | "pro", openProjectId: string, rootId: string | null, rootTargets: readonly NewChatTarget[], contextKey?: string): NewChatAction | null {
+  if (mode !== "lite" || openProjectId !== rootId || rootTargets.length === 0) return null;
+  const target = contextKey ? rootTargets.find((t) => t.key === contextKey) : undefined;
+  if (target) return { kind: "create", target };
+  return rootTargets.length === 1 ? { kind: "create", target: rootTargets[0] } : { kind: "pick" };
 }

@@ -38,9 +38,12 @@ const strictlyWithin = (outer: string, inner: string): boolean => outer !== inne
 /** Absolútny priečinok cesty z prehľadu (voči koreňu rozsahu); mimo rozsahu `null`. */
 /** Priečinok klienta z prehľadu na disku (karta, tvar cesty, inak jeho vec), v pôvodnom tvare pre engine; mimo rozsahu `null`. */
 export function clientGroupDirectory(scope: OkfScope, group: Group): string | null {
+  // Vec bez klienta nemá priečinok klienta; priečinok veci nie je miesto pre chat klienta.
+  if (group.key.startsWith("matter:")) return null;
   const folder = groupFolder(group);
   const at = folder === null ? null : locateInScope(scope, folder);
-  return at?.workspace.path ? folderPath(at.workspace, at.path) : null;
+  // Prázdna cesta = koreň priečinka rozsahu (napr. koreň praxe), nie priečinok klienta.
+  return at?.workspace.path && at.path ? folderPath(at.workspace, at.path) : null;
 }
 
 export function overviewFolder(scope: OkfScope, relative: string): string | null {
@@ -82,11 +85,18 @@ export function clientNavModel(workspaces: readonly Workspace[], practiceRoot: s
   };
   const hidden = new Set<string>();
   const practiceRootId = practiceRoot ? local.find((w) => comparable(w.path) === comparable(practiceRoot))?.id ?? null : null;
-  if (practiceRoot === undefined || (practiceRoot && overview.status === "pending")) {
-    for (const w of local) {
+  const holdCandidates = (among: readonly Workspace[]) => {
+    for (const w of among) {
       const dir = comparable(w.path);
-      if (local.some((o) => o.id !== w.id && (strictlyWithin(comparable(o.path), dir) || strictlyWithin(dir, comparable(o.path))))) hidden.add(w.id);
+      if (among.some((o) => o.id !== w.id && (strictlyWithin(comparable(o.path), dir) || strictlyWithin(dir, comparable(o.path))))) hidden.add(w.id);
     }
+  };
+  if (practiceRoot === undefined) {
+    // Prax ešte nie je známa (len kým sa číta profil): ktorýkoľvek z vnorených by mohol byť koreň praxe alebo jeho vec.
+    holdCandidates(local);
+  } else if (practiceRoot && overview.status === "pending") {
+    // Prax je známa, prehľad sa číta: len kandidáti pod koreňom praxe; nesúvisiace vnorené projekty ostanú.
+    holdCandidates(local.filter((w) => within(comparable(practiceRoot), comparable(w.path))));
   } else if (practiceRoot) {
     const root = comparable(practiceRoot);
     const inside = local.filter((w) => within(root, comparable(w.path)));

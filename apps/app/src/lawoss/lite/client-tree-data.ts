@@ -131,7 +131,8 @@ export function useClientTree(connection: OkfConnection | null, scope: OkfScope 
     return owner ?? { workspace, abs: workspace.path };
   }, [route, connection, clientFolders, byDirectory]);
   const sessionStates = useFolderListings(connection, sessionFolder ? [sessionFolder] : []);
-  const focus = route.session ? (byDirectory ? directoryFocus(sessionDirectory, owners) : sessionFocus(route, assignConversations(loaded(sessionStates), owners))) : route;
+  const sessionProject = route.session ? connection?.workspaces.find((w) => w.id === route.session?.workspaceId)?.path ?? null : null;
+  const focus = route.session ? (byDirectory ? directoryFocus(sessionDirectory, owners, sessionProject) : sessionFocus(route, assignConversations(loaded(sessionStates), owners))) : route;
   const closed = options.closedFor?.(focus);
   const effective = closed?.size ? { ...overrides, ...Object.fromEntries([...closed].map((key) => [clientToggle(key), false])) } : overrides;
   // Trasa sa presunula na uzol: jeho prepnutie sa zabudne (inak by ho navždy prebilo).
