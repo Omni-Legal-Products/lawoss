@@ -93,7 +93,7 @@ test('test entry forwards normal desktop commands, events and arguments unchange
 // Production before-quit callback AND showShutdownScreen run unchanged in this
 // model; loadURL invalidates the pending renderer evaluation before IPC return.
 // It is source-only: no Electron/browser/engine/server execution.
-async function shutdownNavigationFixture(t,{publish=publishNativeQuitAcceptance,strictError}={}) {
+async function shutdownNavigationFixture(t,{publish=publishNativeQuitAcceptance,strictError,locale='cs'}={}) {
   const root=await realpath(await mkdtemp(path.join(tmpdir(),'native-quit-')));t.after(()=>rm(root,{recursive:true,force:true}));
   const child=Object.assign(new EventEmitter(),{pid:700021,exitCode:null,signalCode:null});
   const events=[],nonce='a'.repeat(64);
@@ -107,8 +107,8 @@ async function shutdownNavigationFixture(t,{publish=publishNativeQuitAcceptance,
   const productionApp={on:(_event,fn)=>onBeforeQuit=fn,quit:()=>{if(disposed)return;onBeforeQuit({preventDefault(){}});}};
   const noop={dispose(){},stop(){},destroy(){},releaseAll(){}};
   const context=vm.createContext({app:productionApp,mainWindow:{isDestroyed:()=>false,show(){},webContents:{loadURL:url=>{shutdownUrl=url;events.push('shutdown-navigation');socket.message({id:evaluationId,error:{code:-32000,message:'Inspected target navigated or closed'}});}}},
-    nativeCopy,uiLocales:createNativeLocaleState(()=> 'cs'),DISPLAY_NAME:'LAWOSS',
-    SHUTDOWN_SCREEN_URL:'data:synthetic-shutdown',runtimeDisposedForQuit:false,runtimeDisposeInProgress:false,appIsQuitting:false,
+    nativeCopy,uiLocales:createNativeLocaleState(()=>locale),DISPLAY_NAME:'LAWOSS',
+    runtimeDisposedForQuit:false,runtimeDisposeInProgress:false,appIsQuitting:false,
     recorderServiceInstance:noop,appAudioTap:noop,callOverlay:noop,systemDictation:noop,dictationHud:noop,appTray:noop,powerSessions:noop,
     disposeRuntimeBeforeQuit:async()=>{disposed=true;events.push('leader-exit');child.exitCode=0;child.emit('exit',0);},uiControlServer:{stop:async()=>{}},
   });
@@ -137,12 +137,13 @@ async function shutdownNavigationFixture(t,{publish=publishNativeQuitAcceptance,
   });
   return {run,events,root,oldPath,moved,nonce,get teardown(){return teardown;},get shutdownUrl(){return shutdownUrl;},f};
 }
-test('actual guarded entry and driver survive production shutdown navigation before IPC response, only after strict closure',async t=>{
-  const f=await shutdownNavigationFixture(t);await f.run();
+for(const [locale,copy] of [['cs','Ukončuji služby LAWOSS'],['sk','Ukončujem služby LAWOSS'],['en','Stopping LAWOSS services']])
+test(`actual guarded entry and driver survive ${locale} production shutdown navigation before IPC response, only after strict closure`,async t=>{
+  const f=await shutdownNavigationFixture(t,{locale});await f.run();
   assert.deepEqual(f.events,['shutdown-navigation','leader-exit','cdp-close','strict-stop','rename','relaunch']);
   assert.equal(f.f.events.filter(event=>event==='appBuildInfo').length,1);
   assert.equal(f.teardown.code,'ISIR_NATIVE_CDP_SHUTDOWN_NAVIGATION');
-  assert.match(decodeURIComponent(f.shutdownUrl),/Ukončuji služby LAWOSS/);
+  assert.ok(decodeURIComponent(f.shutdownUrl).includes(copy));
 });
 
 for(const [name,publish] of [
