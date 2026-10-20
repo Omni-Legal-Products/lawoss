@@ -4,6 +4,12 @@ import { Button } from "@/components/ui/button";
 import { desktopBridge } from "@/app/lib/desktop";
 
 const menus: ("File" | "Edit" | "View" | "Help")[] = ["File", "Edit", "View", "Help"];
+const menuLabelKeys: Record<(typeof menus)[number], string> = {
+  File: "lawoss.shell.menu.file",
+  Edit: "lawoss.shell.menu.edit",
+  View: "lawoss.shell.menu.view",
+  Help: "lawoss.shell.menu.help",
+};
 
 // Use the installed native menus, including their roles and accelerators.
 export function WindowMenubar() {
@@ -27,7 +33,7 @@ export function WindowMenubar() {
             event.currentTarget.click();
           }}
         >
-          {t(`lawoss.shell.menu.${menu.toLowerCase()}`, locale)}
+          {t(menuLabelKeys[menu], locale)}
         </Button>
       ))}
     </nav>
