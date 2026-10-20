@@ -6236,6 +6236,7 @@ const de = {
   "boot.ready": "Bereit",
   "boot.error": "Etwas ist schiefgelaufen",
   "boot.reload": "Neu laden",
+  "boot.retry": "Erneut versuchen",
   "boot.collecting_logs": "Protokolle werden gesammelt...",
   "boot.collect_logs": "Protokolle für den Support sammeln",
   "reload.verb_removed": "wurde entfernt",

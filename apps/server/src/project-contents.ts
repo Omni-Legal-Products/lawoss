@@ -186,11 +186,11 @@ export async function readProjectContent(sources: ProjectContentSources, input: 
     content = recording.segments.map((segment) => `[${Math.floor(segment.startMs / 1000)}s] ${segment.text}`).join("\n");
   } else {
     if (query.kind === "notes" && !/^Notes\/[^/]+\.md$/i.test(query.id)) missing();
-    if (!textExtensions.has(extname(query.id).toLowerCase())) {
-      throw new ApiError(400, "document_tool_required", "Use the document tools to read this file; its project-relative path is the listed id.");
-    }
     const path = await projectPath(workspace.path, query.id);
     if (sources.scope === "viewer") await resolveReadableWorkspaceFilePath(workspace.path, query.id, sources.scope);
+    if (!textExtensions.has(extname(query.id).toLowerCase())) {
+      throw new ApiError(400, "document_tool_required", "Call lawoss_documents_prepare with this project-relative path, then lawoss_documents_list and lawoss_documents_read using returned UUIDs, never file paths.", { nextTool: "lawoss_documents_prepare", arguments: { paths: [query.id] }, then: ["lawoss_documents_list", "lawoss_documents_read"] });
+    }
     if ((await stat(path)).size > 2_000_000) throw new ApiError(413, "file_too_large", "Use the file tools for this large document.");
     content = await readText(path, 2_000_000);
   }

@@ -3100,6 +3100,7 @@ export default {
   "boot.ready": "Pripravené",
   "boot.error": "Niečo sa pokazilo",
   "boot.reload": "Znovu načítať",
+  "boot.retry": "Skúsiť znova",
   "boot.collecting_logs": "Zhromažďovanie logov...",
   "boot.collect_logs": "Zhromaždiť logy pre podporu",
   "reload.verb_removed": "bol odstránený",

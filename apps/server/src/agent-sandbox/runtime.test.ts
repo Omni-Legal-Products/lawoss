@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { SharedVmRuntime } from "./runtime.js";
+import { shutdownSandboxRuntimes } from "./vm.js";
 
 const fixture = `
 const { encodeFrame, FrameDecoder } = require(${JSON.stringify(fileURLToPath(new URL("./protocol.ts", import.meta.url)))});
@@ -74,6 +75,15 @@ test("a delayed memory-pressure sample cannot kill a newly active command", asyn
     await delay(80);
     expect(f.isClosed()).toBe(true);
   } finally { resolvePressure(false); await f.vm.close(); }
+});
+
+test("shutdown closes a runtime that has not finished booting", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sandbox-boot-"));
+  const vm = new SharedVmRuntime(process.execPath, ["-e", "setInterval(() => {}, 1000)"], directory, join(directory, "console.log"),
+    () => {}, undefined, undefined, 60_000);
+  const started = Date.now();
+  await shutdownSandboxRuntimes([vm.waitUntilReady().then(() => vm)], [vm]);
+  expect(Date.now() - started).toBeLessThan(5_000);
 });
 
 test("cancellation completes without discarding the healthy shared runtime", async () => {

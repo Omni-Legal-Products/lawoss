@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { unzipSync } from "fflate";
+import PostalMime from "postal-mime";
 import { within } from "../reviews/storage.js";
 import { docxEvidence, prepareReviewEvidence } from "../reviews/evidence.js";
 import { inspectPdfText } from "../document-preparation/render.js";
@@ -9,13 +10,29 @@ import type { EvidencePage } from "../reviews/chunks.js";
 import type { DocumentPreparation } from "../document-preparation/service.js";
 
 const TEXT = new Set(["", ".rtf", ".js", ".ts", ".tsx", ".jsx", ".py", ".css", ".sql", ".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".jsonl", ".xml", ".yaml", ".yml", ".html", ".htm", ".log"]);
-export const CORPUS_EXTENSIONS = new Set([...TEXT, ".pdf", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".png", ".jpg", ".jpeg", ".webp"]);
+export const CORPUS_EXTENSIONS = new Set([...TEXT, ".eml", ".pdf", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".png", ".jpg", ".jpeg", ".webp"]);
 const MAX_TEXT = 2_000_000;
 function xmlText(value: string) {
   return value.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "").replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
     .replace(/<\/(?:\w+:)?(?:p|row|tr|table-row|h[1-6])>/g, "\n").replace(/<[^>]*>/g, " ")
     .replace(/&#(x[\da-f]+|\d+);/gi, (_, code: string) => { const n = code[0].toLowerCase() === "x" ? parseInt(code.slice(1), 16) : Number(code); return n <= 0x10ffff ? String.fromCodePoint(n) : "�"; })
     .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&").replace(/[ \t]+/g, " ").trim();
+}
+export type CorpusAttachment = { name: string; bytes: Uint8Array; extension?: string };
+async function emailEvidence(bytes: Uint8Array, signal: AbortSignal) {
+  signal.throwIfAborted();
+  const message = await PostalMime.parse(bytes, { attachmentEncoding: "arraybuffer", maxNestingDepth: 32, maxHeadersSize: 256 * 1024, forceRfc822Attachments: true, maxRfc822NestingDepth: 0 });
+  signal.throwIfAborted();
+  // Plain alternative is authoritative. HTML is converted to inert text only;
+  // it is never rendered, executed or fetched (including remote images).
+  const body = message.text?.trim() || xmlText((message.html ?? "").replace(/<(script|style|iframe|object|template|noscript)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, ""));
+  const extensions: Record<string, string> = { "application/pdf": ".pdf", "message/rfc822": ".eml", "text/plain": ".txt", "text/html": ".html", "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp" };
+  const attachments: CorpusAttachment[] = message.attachments.map((attachment, index) => {
+    if (typeof attachment.content === "string") throw new Error("Unexpected MIME attachment encoding.");
+    const extension = extname(attachment.filename ?? "").toLowerCase() || extensions[attachment.mimeType] || ".bin";
+    return { name: attachment.filename || `attachment-${index + 1}${extension}`, extension, bytes: attachment.content instanceof Uint8Array ? attachment.content : new Uint8Array(attachment.content) };
+  });
+  return { body, attachments };
 }
 export function officeText(bytes: Uint8Array, extension: string) {
   let total = 0;
@@ -39,8 +56,8 @@ export function officeText(bytes: Uint8Array, extension: string) {
     }).join("\t")).join("\n");
   }).join("\n\n");
 }
-export type CorpusText = { text: string; pages: EvidencePage[]; complete: boolean; extraction: "native" | "ocr"; hash: string; preparationPath?: string; issue?: string };
-export async function extractCorpusText(workspace: string, path: string, preparation: DocumentPreparation, signal: AbortSignal, options: { retry?: boolean } = {}): Promise<CorpusText> {
+export type CorpusText = { text: string; pages: EvidencePage[]; complete: boolean; extraction: "native" | "ocr"; hash: string; preparationPath?: string; issue?: string; attachments?: CorpusAttachment[] };
+export async function extractCorpusText(workspace: string, path: string, preparation: DocumentPreparation, signal: AbortSignal, options: { retry?: boolean; attachments?: boolean } = {}): Promise<CorpusText> {
   signal.throwIfAborted();
   const root = await realpath(workspace), absolute = await realpath(resolve(root, path));
   if (!within(root, absolute)) throw new Error("The file is outside this project.");
@@ -55,12 +72,18 @@ export async function extractCorpusText(workspace: string, path: string, prepara
   let preparationPath: string | undefined;
   let needsOcr = [".png", ".jpg", ".jpeg", ".webp"].includes(extension);
   let extraction: "native" | "ocr" = "native";
+  let attachments: CorpusAttachment[] | undefined;
   const requiredOcrPages = new Set<number>();
   if (extension === ".pdf") {
     const inspected = await inspectPdfText(bytes, signal);
     pages = inspected.map((page, index) => ({ page: index + 1, text: page.text, source: "native", status: page.needsOcr ? "needs-review" : "complete" }));
     inspected.forEach((page, index) => { if (page.needsOcr) requiredOcrPages.add(index + 1); });
     needsOcr = requiredOcrPages.size > 0;
+  } else if (extension === ".eml") {
+    const message = await emailEvidence(bytes, signal); text = message.body; attachments = message.attachments;
+    // Corpus-only readers do not recursively prepare attachments. The document
+    // service upgrades coverage only after all descendants have been inspected.
+    if (attachments.length) { complete = false; issue = "Email attachments require document preparation and separate reads."; }
   } else if (extension === ".docx") {
     pages = docxEvidence(bytes);
   } else if ([".xlsx", ".pptx", ".odt", ".ods", ".odp"].includes(extension)) text = officeText(bytes, extension);
@@ -97,5 +120,5 @@ export async function extractCorpusText(workspace: string, path: string, prepara
   if (text.length > MAX_TEXT) throw new Error("Extracted text exceeds 2 million characters; narrow the source. Nothing was silently truncated.");
   signal.throwIfAborted();
   if (createHash("sha256").update(await readFile(absolute)).digest("hex") !== hash) throw new Error("The source changed during extraction. Retry this file.");
-  return { text, pages, complete, extraction, hash, preparationPath, issue };
+  return { text, pages, complete, extraction, hash, preparationPath, issue, ...(options.attachments && attachments ? { attachments } : {}) };
 }
