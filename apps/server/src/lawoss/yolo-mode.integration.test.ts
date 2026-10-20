@@ -73,7 +73,7 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("a real engine mo
   } });
 
   // One fresh engine per phase, as after the app's engine reload.
-  const runPhase = async (phase: string) => {
+  const runPhase = async (phase: string, agent = "legalwork") => {
     const production = await buildLegalworkRuntimeConfigObject(config, workspace.id);
     const file = join(root, `config-${phase}.json`);
     await writeFile(file, JSON.stringify({ enabled_providers: ["fixture"], model: "fixture/fixture", small_model: "fixture/fixture", share: "disabled", autoupdate: false,
@@ -97,7 +97,7 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("a real engine mo
       if (!ready) throw new Error("Engine did not start: " + (engine.exitCode !== null ? await logs : "timed out"));
       const session = z.object({ id: z.string() }).parse(await (await fetch(engineBase + "/session", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json());
       const accepted = await fetch(`${engineBase}/session/${session.id}/prompt_async`, { method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agent: "legalwork", model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: "Premenuj zmluvu." }] }) });
+        body: JSON.stringify({ agent, model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: "Premenuj zmluvu." }] }) });
       expect(accepted.ok).toBe(true);
       const prompts: string[] = [];
       for (let i = 0; i < 300; i++) {
@@ -127,12 +127,21 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("a real engine mo
     await writeYoloMode(config, true);
     hostApprovals.length = 0; shellCalls.length = 0;
     const on = await runPhase("on");
-    expect(on.permission).toMatchObject({ legalwork_shell: "allow", edit: "allow", external_directory: { "*": "allow" } });
+    // The shared map keeps the lawyer's rules; the chat agent carries the YOLO allows.
+    expect(on.permission).toMatchObject({ legalwork_shell: "ask", edit: "ask" });
     expect(on.prompts).toEqual([]);
     expect(hostApprovals).toEqual([]);
     expect(shellCalls).toEqual(["mv zmluva.txt 01_Zmluva.txt"]);
     expect(await readFile(join(matter, "01_Zmluva.txt"), "utf8")).toBe("text");
-    console.log(JSON.stringify({ off: { enginePrompts: off.prompts, chatApprovals: offApprovals }, on: { enginePrompts: on.prompts, chatApprovals: hostApprovals, shellCalls } }));
+    const onApprovals = [...hostApprovals], onCalls = [...shellCalls];
+
+    // A scheduled run under YOLO still asks before the command and moves nothing.
+    hostApprovals.length = 0;
+    const scheduled = await runPhase("scheduled", "legalwork-scheduled-all");
+    expect([...scheduled.prompts, ...hostApprovals]).toContain("sandbox.bash");
+    expect(await readFile(join(matter, "01_Zmluva.txt"), "utf8")).toBe("text");
+    console.log(JSON.stringify({ off: { enginePrompts: off.prompts, chatApprovals: offApprovals }, on: { enginePrompts: on.prompts, chatApprovals: onApprovals, shellCalls: onCalls },
+      scheduled: { enginePrompts: scheduled.prompts, chatApprovals: hostApprovals } }));
   } finally {
     fixture.stop(true); service.stop();
     await closeRuntimeOpencodeConfig(config); Bun.gc(true);

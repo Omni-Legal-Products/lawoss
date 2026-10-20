@@ -149,7 +149,7 @@ export class AgentSandboxService {
         await ask("edit", "*", "Allow this command to change files on this computer? Sandboxing is off, so file access is not confined to shared folders.", [workspace.path], commandAction("edit"));
         await ask("webfetch", "*", "Allow this command to contact websites or the local network? Sandboxing is off, so individual requests cannot be restricted.", [], commandAction("webfetch"));
         await ask("external_directory", "*", "Allow this command to access folders outside the project? Sandboxing is off, so folder boundaries cannot be enforced.", [workspace.path],
-          restrictive([wholeCommandAction({ external_directory: await yoloModeActive(this.config) ? yoloExternalDirectory() : runtimeExternalDirectory(runtime) }, "external_directory"), wholeAgentAction(agentRules, "external_directory")]));
+          restrictive([wholeCommandAction({ external_directory: await yoloModeActive(this.config) ? yoloExternalDirectory(runtimeExternalDirectory(runtime)) : runtimeExternalDirectory(runtime) }, "external_directory"), wholeAgentAction(agentRules, "external_directory")]));
         if (command.skills?.length) {
           const skills = await listSkills(workspace.path, true);
           for (const name of command.skills) {

@@ -23,13 +23,41 @@ import type { ServerConfig } from "../types.js";
  */
 export type YoloMode = { enabled: boolean; locked: boolean; source: "default" | "user" | "organization" };
 
-/** Device-wide, never per client: one engine config file serves every client folder. */
-const YOLO_RULES = { edit: "allow", bash: "allow", external_directory: { "*": "allow" } } as const;
+/** Device-wide, never per client: one engine config file serves every client folder. The folder
+ * rule stays a bare `*` key, which the linked-folders plugin leaves in place. */
+const YOLO_TOOLS = ["edit", "bash", "external_directory"] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * YOLO removes asking, never a prohibition. A tool the lawyer forbade outright (`deny`, or a
+ * `*` denial) keeps its rule; otherwise the tool is allowed and the lawyer's denied patterns
+ * follow the allow, so they still win (the engine applies the last matching rule).
+ */
+function yoloRule(own: unknown, tool: (typeof YOLO_TOOLS)[number]): unknown {
+  if (own === "deny" || (isRecord(own) && own["*"] === "deny")) return own;
+  const denied = isRecord(own) ? Object.entries(own).filter(([pattern, action]) => pattern !== "*" && action === "deny") : [];
+  if (!denied.length && tool !== "external_directory") return "allow";
+  return { "*": "allow", ...Object.fromEntries(denied) };
+}
+
+/** The allow rules for the chat agent while YOLO Mode is on, derived from the rules in effect. */
+export function yoloPermissions(permission: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(YOLO_TOOLS.map((tool) => [tool, yoloRule(permission[tool], tool)]));
+}
+
+const LOCKED: YoloMode = { enabled: false, locked: true, source: "organization" };
 
 export async function readYoloMode(config: ServerConfig): Promise<YoloMode> {
-  // Any firm rule for tools is a minimum the member cannot loosen, so YOLO stays off.
-  if (await appliedOrgPolicy(config, "tools.permissions")) return { enabled: false, locked: true, source: "organization" };
   const row = await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID);
+  // Any firm rule for tools is a minimum the member cannot loosen, so YOLO stays off. A flag saved
+  // earlier is cleared, so releasing the policy later never turns YOLO on without a new confirmation.
+  if (await appliedOrgPolicy(config, "tools.permissions")) {
+    if (row.lawossYolo) await clearYoloFlag(config);
+    return LOCKED;
+  }
   return row.lawossYolo?.enabled === true ? { enabled: true, locked: false, source: "user" } : { enabled: false, locked: false, source: "default" };
 }
 
@@ -40,32 +68,37 @@ export async function yoloModeActive(config: ServerConfig): Promise<boolean> {
 export async function writeYoloMode(config: ServerConfig, enabled: boolean): Promise<YoloMode> {
   if (enabled && (await readYoloMode(config)).locked)
     throw new ApiError(409, "yolo_mode_locked", "Your organization manages tool permissions, so YOLO Mode is unavailable.");
-  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, (current) => {
-    const next = { ...current };
-    // Off removes the flag, so the row is exactly what it was before.
-    if (enabled) next.lawossYolo = { enabled: true };
-    else delete next.lawossYolo;
-    return next;
-  });
+  if (enabled) await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, (current) => ({ ...current, lawossYolo: { enabled: true } }));
+  else await clearYoloFlag(config);
   return readYoloMode(config);
 }
 
+// Off removes the flag, so the row is exactly what it was before.
+async function clearYoloFlag(config: ServerConfig): Promise<void> {
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, (current) => {
+    const next = { ...current };
+    delete next.lawossYolo;
+    return next;
+  });
+}
+
 /**
- * The permission map in effect: unchanged while off; while on, edits, commands
- * and folders outside the project are allowed. Internet access keeps the
- * lawyer's rule. The allows go last, because the engine applies the last
- * matching rule.
+ * The managed shell's own permission read: unchanged while off; while on, the YOLO rules
+ * replace edits, commands and folders at the end of the map. Internet access keeps the
+ * lawyer's rule. The engine gets the same rules on the chat agent only.
  */
 export function applyYoloPermissions(permission: Record<string, unknown>, enabled: boolean): Record<string, unknown> {
   if (!enabled) return permission;
+  const rules = yoloPermissions(permission);
   const next = { ...permission };
-  for (const key of Object.keys(YOLO_RULES)) delete next[key];
-  return { ...next, edit: YOLO_RULES.edit, bash: YOLO_RULES.bash, external_directory: { ...YOLO_RULES.external_directory } };
+  for (const tool of YOLO_TOOLS) delete next[tool];
+  return { ...next, ...rules };
 }
 
-/** The managed shell's whole-command folder rule while YOLO Mode is on. */
-export function yoloExternalDirectory(): Record<string, unknown> {
-  return { ...YOLO_RULES.external_directory };
+/** The managed shell's whole-command folder rule while YOLO Mode is on (the workspace's own denials kept). */
+export function yoloExternalDirectory(workspace: Record<string, unknown>): Record<string, unknown> {
+  const rule = yoloRule(workspace, "external_directory");
+  return isRecord(rule) ? rule : { "*": "allow" };
 }
 
 export function registerYoloModeRoutes(options: { routes: Route[]; config: ServerConfig;

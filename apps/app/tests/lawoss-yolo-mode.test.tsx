@@ -34,7 +34,9 @@ test("switching on only asks for an in-page confirmation; switching off saves at
   const html = row({confirming: true});
   expect(html).toContain('role="alertdialog"');
   for (const text of [
-    "Agent bude v priečinkoch klientov bez pýtania presúvať, premenúvať, upravovať a mazať súbory a spúšťať príkazy.",
+    "Agent bude bez pýtania presúvať, premenúvať, upravovať a mazať súbory a spúšťať príkazy.",
+    "Môže čítať, meniť a odosielať akýkoľvek súbor, ku ktorému má prístup váš používateľský účet na tomto počítači, nielen priečinky klientov.",
+    "Príkazy bežia s vašimi plnými právami.", "Internet je povolený, ak ho nižšie neobmedzíte.", "Naplánované úlohy sa pýtajú ďalej.",
     "Môže čítať a meniť aj súbory v priečinkoch iných klientov. Dôvernosť medzi klientmi sa v YOLO Mode nestráži.",
     "LAWOSS tieto zmeny nevie vrátiť. Majte zálohy.",
     "Zapnúť YOLO Mode", "Zrušiť",
@@ -49,7 +51,8 @@ test("on and firm-locked states are visible; a firm lock disables the switch", (
   const enabled = row({mode: on});
   expect(enabled).toContain('data-lawoss-yolo="on"');
   expect(enabled).toContain('aria-checked="true"');
-  expect(enabled).toContain("Pravidlá nižšie pre úpravy, príkazy a priečinky sa teraz neuplatňujú.");
+  expect(enabled).toContain("Voľby „Najprv sa opýtať“ nižšie sa v chate preskočia, „Nikdy nepovoliť“ platí ďalej.");
+  expect(enabled).toContain("Naplánované úlohy sa pýtajú ďalej.");
   expect(enabled).toContain("Prejaví sa bez reštartu appky");
   const firm = row({mode: locked});
   expect(firm).toContain('data-lawoss-yolo="locked"');

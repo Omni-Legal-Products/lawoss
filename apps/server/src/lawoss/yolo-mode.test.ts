@@ -7,14 +7,14 @@ import { AgentSandboxService } from "../agent-sandbox/service.js";
 import { eigenweltPlatformUrl } from "../eigenwelt-auth.js";
 import { closeEigenweltConnectionForTests, writeEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { keepLegalworkRuntimeConfigFileFresh, legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "../legalwork-runtime-config.js";
-import { resetOrgPolicyRuntimeForTests, scheduleOrgPolicySync } from "../org-policy.js";
+import { releaseOrgPolicyKey, resetOrgPolicyRuntimeForTests, scheduleOrgPolicySync } from "../org-policy.js";
 import {
   closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, readRuntimeOpencodeConfigText, writeRuntimeOpencodeConfig,
 } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
 import { writeAiBoundaries } from "./ai-boundaries.js";
 import { requireAiBoundariesAdmission } from "./ai-governance-engine.js";
-import { applyYoloPermissions, readYoloMode, writeYoloMode } from "./yolo-mode.js";
+import { applyYoloPermissions, readYoloMode, writeYoloMode, yoloPermissions } from "./yolo-mode.js";
 
 const realFetch = globalThis.fetch;
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -77,18 +77,22 @@ test("YOLO Mode is off by default and a damaged stored value counts as off", asy
   expect(await readYoloMode(config)).toEqual({ enabled: false, locked: false, source: "default" });
 });
 
-test("the overlay allows edits, commands and folders, never widens the network and leaves off untouched", () => {
-  const own = { "*": "deny", edit: "ask", webfetch: "ask", bash: { "*": "ask", "git *": "allow" }, doom_loop: "ask" };
+test("the overlay removes asking, never a prohibition, never widens the network and leaves off untouched", () => {
+  const own = { "*": "deny", edit: "ask", webfetch: "ask", bash: { "*": "ask", "git *": "allow", "rm -rf *": "deny" }, doom_loop: "ask" };
   expect(applyYoloPermissions(own, false)).toBe(own);
   const on = applyYoloPermissions(own, true);
-  expect(on).toEqual({ "*": "deny", webfetch: "ask", doom_loop: "ask", edit: "allow", bash: "allow", external_directory: { "*": "allow" } });
-  // Later rules win in the engine: the allows come after a wildcard denial.
+  expect(on).toEqual({ "*": "deny", webfetch: "ask", doom_loop: "ask", edit: "allow", bash: { "*": "allow", "rm -rf *": "deny" }, external_directory: { "*": "allow" } });
+  // Later rules win in the engine: the allows come after a wildcard denial, the lawyer's denials after the allow.
   expect(Object.keys(on).slice(-3)).toEqual(["edit", "bash", "external_directory"]);
+  expect(Object.keys(Object(on.bash))).toEqual(["*", "rm -rf *"]);
   expect(applyYoloPermissions({ webfetch: "deny" }, true).webfetch).toBe("deny");
   expect(applyYoloPermissions({}, true)).not.toHaveProperty("webfetch");
+  // A tool the lawyer forbade stays forbidden; folder denials stay too.
+  expect(yoloPermissions({ edit: "deny", bash: { "*": "deny", "ls *": "allow" }, external_directory: { "/x/*": "allow", "/tajne/*": "deny" } }))
+    .toEqual({ edit: "deny", bash: { "*": "deny", "ls *": "allow" }, external_directory: { "*": "allow", "/tajne/*": "deny" } });
 });
 
-test("on writes the allow rules into the engine config; off restores the previous config byte for byte", async () => {
+test("on gives only the chat agent the allow rules; off restores the previous config byte for byte", async () => {
   const { root, config } = await setup();
   const linked = join(root, "Pripojeny");
   await baseline(config, linked);
@@ -99,16 +103,25 @@ test("on writes the allow rules into the engine config; off restores the previou
   expect(await writeYoloMode(config, true)).toEqual({ enabled: true, locked: false, source: "user" });
   const on = await engineConfig(config);
   // Desktop engines run commands through the managed shell; host bash stays denied.
-  expect(on.permission).toMatchObject({ edit: "allow", legalwork_shell: "allow", bash: "deny", legalwork_webfetch: "ask", doom_loop: "ask", external_directory: { "*": "allow" } });
-  // The default agent only keeps host execution off; it does not restrict edits or folders.
-  expect(on.agent.legalwork?.permission).toEqual({ bash: "deny", webfetch: "deny", websearch: "deny" });
-  expect(on.agent.build?.permission).toMatchObject({ bash: "deny" });
+  expect(on.agent.legalwork?.permission).toEqual({ edit: "allow", external_directory: { "*": "allow" }, legalwork_shell: "allow", bash: "deny", webfetch: "deny", websearch: "deny" });
+  // Every other agent, scheduled runs included, keeps the lawyer's rules: the shared map is unchanged.
+  expect(on.permission).toEqual(off.permission);
+  expect(on.agent["legalwork-scheduled-all"]).toEqual(off.agent["legalwork-scheduled-all"]);
+  expect(on.agent["legalwork-scheduled-all"]?.permission).toMatchObject({ edit: "ask", legalwork_shell: "ask" });
+  expect(on.agent.build).toEqual(off.agent.build);
   // The lawyer's own rules are not rewritten: the switch is a separate flag in the same row.
   expect(JSON.parse(String(await readRuntimeOpencodeConfigText(config, GLOBAL_TOOL_PERMISSIONS_ID))).permission).toEqual(JSON.parse(String(storedBefore)).permission);
 
   expect(await writeYoloMode(config, false)).toEqual({ enabled: false, locked: false, source: "default" });
   expect(await readRuntimeOpencodeConfigText(config, GLOBAL_TOOL_PERMISSIONS_ID)).toBe(storedBefore);
   expect((await engineConfig(config)).text).toBe(off.text);
+});
+
+test("the lawyer's denials still apply in the engine config under YOLO", async () => {
+  const { config } = await setup();
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { edit: "ask", bash: { "*": "ask", "rm -rf *": "deny" } } }));
+  await writeYoloMode(config, true);
+  expect((await engineConfig(config)).agent.legalwork?.permission).toMatchObject({ legalwork_shell: { "*": "allow", "rm -rf *": "deny" }, edit: "allow" });
 });
 
 test("the switch refreshes the engine config file of a running workspace", async () => {
@@ -118,24 +131,31 @@ test("the switch refreshes the engine config file of a running workspace", async
   const stop = keepLegalworkRuntimeConfigFileFresh(config, "ws_1");
   cleanups.push(stop);
   await writeYoloMode(config, true);
-  let permission: Record<string, unknown> = {};
-  for (let attempt = 0; attempt < 50 && permission.edit !== "allow"; attempt++) {
-    permission = JSON.parse(await readFile(legalworkRuntimeConfigFilePath(config), "utf8")).permission;
-    if (permission.edit !== "allow") await Bun.sleep(20);
+  let permission: Record<string, unknown> | undefined;
+  for (let attempt = 0; attempt < 50 && permission?.edit !== "allow"; attempt++) {
+    permission = JSON.parse(await readFile(legalworkRuntimeConfigFilePath(config), "utf8")).agent.legalwork.permission;
+    if (permission?.edit !== "allow") await Bun.sleep(20);
   }
   expect(permission).toMatchObject({ edit: "allow", legalwork_shell: "allow" });
 });
 
-test("a firm that manages tool permissions shows YOLO locked off and refuses switching it on", async () => {
+test("a firm that manages tool permissions locks YOLO off and clears a stored flag for good", async () => {
   const { root, config } = await setup({ "tools.permissions": { mode: "enforced", value: { bash: "ask" } } });
   await baseline(config, join(root, "Pripojeny"));
   // Saved before the firm policy arrived.
   await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current, lawossYolo: { enabled: true } }));
   expect(await readYoloMode(config)).toEqual({ enabled: false, locked: true, source: "organization" });
+  expect(await readRuntimeOpencodeConfigText(config, GLOBAL_TOOL_PERMISSIONS_ID)).not.toContain("lawossYolo");
   await expect(writeYoloMode(config, true)).rejects.toMatchObject({ status: 409, code: "yolo_mode_locked" });
-  expect((await engineConfig(config)).permission).toMatchObject({ edit: "ask", legalwork_shell: "ask" });
-  // Switching off stays possible and removes the stale flag.
+  const locked = await engineConfig(config);
+  expect(locked.permission).toMatchObject({ edit: "ask", legalwork_shell: "ask" });
+  expect(locked.agent.legalwork?.permission).not.toHaveProperty("edit");
   expect(await writeYoloMode(config, false)).toEqual({ enabled: false, locked: true, source: "organization" });
+  // Released later: YOLO does not come back without a new confirmation.
+  await writeEigenweltConnection(config, { platformToken: null, account: null, platformURL: null });
+  await scheduleOrgPolicySync(config, { force: true });
+  await releaseOrgPolicyKey(config, "tools.permissions");
+  expect(await readYoloMode(config)).toEqual({ enabled: false, locked: false, source: "default" });
 });
 
 test("AI boundaries keep refusing model transfer while YOLO Mode is on", async () => {
@@ -177,5 +197,20 @@ test("the managed shell on this computer moves a file without approval only whil
   await expect(service.run(config.workspaces[0], { command: "mv 01_Zmluva.txt zmluva.txt", sessionID: "ses_1", write: true, timeoutMs: 10000 },
     { type: "host" }, AbortSignal.timeout(15000))).rejects.toMatchObject({ code: "sandbox_permission_denied" });
   expect(asked).toEqual(["sandbox.webfetch"]);
+  expect(await readFile(join(matter, "01_Zmluva.txt"), "utf8")).toBe("text");
+
+  // Scheduled runs keep the lawyer's rules in their agent; the shell takes the stricter one and asks.
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current, permission: { edit: "ask", bash: "ask" } }));
+  asked.length = 0;
+  await expect(service.run(config.workspaces[0], { command: "mv 01_Zmluva.txt zmluva.txt", sessionID: "ses_2", write: true, timeoutMs: 10000 },
+    { type: "host" }, AbortSignal.timeout(15000), [{ permission: "bash", pattern: "*", action: "ask" }])).rejects.toMatchObject({ code: "sandbox_permission_denied" });
+  expect(asked).toEqual(["sandbox.bash"]);
+
+  // A command rule the lawyer forbade still refuses, without asking.
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current, permission: { edit: "ask", bash: { "*": "ask", "rm -rf *": "deny" } } }));
+  asked.length = 0;
+  await expect(service.run(config.workspaces[0], { command: "rm -rf *", sessionID: "ses_1", write: true, timeoutMs: 10000 },
+    { type: "host" }, AbortSignal.timeout(15000))).rejects.toMatchObject({ code: "sandbox_permission_denied" });
+  expect(asked).toEqual([]);
   expect(await readFile(join(matter, "01_Zmluva.txt"), "utf8")).toBe("text");
 });

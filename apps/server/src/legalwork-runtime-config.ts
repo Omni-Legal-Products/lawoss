@@ -85,7 +85,7 @@ import { repairRuntimeProviders } from "./runtime-provider-repair.js";
 import { externalOpencodeConfigDir } from "./lawoss/workspace-app-files.js";
 import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
 import { appendLawossToolDenials, LAWOSS_LOAD_WIKI_TOOLS } from "./lawoss/hidden-upstream-tools.js";
-import { applyYoloPermissions, yoloModeActive } from "./lawoss/yolo-mode.js";
+import { yoloModeActive, yoloPermissions } from "./lawoss/yolo-mode.js";
 import { sandboxEngineAgents, sandboxEnginePermissions } from "./agent-sandbox/engine-policy.js";
 import { REVIEW_AGENT, reviewAgentConfig } from "./reviews/agent.js";
 
@@ -280,9 +280,8 @@ export async function buildLegalworkRuntimeConfigObject(
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
   };
   // The firm's tool permissions apply over the member's own.
-  // LAWOSS: „YOLO Mode" (lawoss/yolo-mode.ts) under the firm's rules; off leaves the map unchanged.
   const { permission } = config
-    ? await orgPolicyPermissions(config, applyYoloPermissions({ ...runtimeConfig.permission }, await yoloModeActive(config)))
+    ? await orgPolicyPermissions(config, { ...runtimeConfig.permission })
     : { permission: { ...runtimeConfig.permission } };
   const instructionPermission = permission.legalwork_project_set_instructions === "deny" ? "deny" : "ask";
   // Append the specific rule after wildcard rules; approvals cannot be saved
@@ -330,6 +329,8 @@ export async function buildLegalworkRuntimeConfigObject(
         mode: "primary",
         temperature: 0.2,
         prompt: agentPrompt,
+        // LAWOSS: „YOLO Mode" (lawoss/yolo-mode.ts) for the chat agent only; scheduled and other agents keep the shared map.
+        ...(config && await yoloModeActive(config) ? { permission: yoloPermissions(permission) } : {}),
       },
     },
     plugin: (await Promise.all([
