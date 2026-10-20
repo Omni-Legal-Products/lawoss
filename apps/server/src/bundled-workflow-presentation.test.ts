@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BUNDLED_WORKFLOW_FILES } from "./core-skills";
-import { projectFieldsFromTemplate } from "./project-templates";
-import { listSkillsInDir } from "./skills";
+import { BUNDLED_WORKFLOW_FILES } from "./core-skills.js";
+import { projectFieldsFromTemplate } from "./project-templates.js";
+import { listSkillsInDir } from "./skills.js";
 
 test("only the exact bundled workflow bytes receive a presentation identity; customized copies remain literal", async () => {
   const root = await mkdtemp(join(tmpdir(), "lawoss-display-"));

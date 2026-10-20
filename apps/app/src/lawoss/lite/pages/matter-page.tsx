@@ -310,7 +310,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
             <Link to={AI_SETTINGS_PATH}>{text("model_gap_open")}</Link>
           </div>
         ) : null}
-        {error ? <div className="lw-status err" role="alert"><DiagnosticMessage value={error} /></div> : null}
+        {error ? <div className="lw-status err" role="alert"><DiagnosticMessage value={error} fallback={text("action_error_generic")} /></div> : null}
       </div>
 
       {conversationsError ? <div className="lw-status warn" role="status" data-lawoss-lite="conversations-error">

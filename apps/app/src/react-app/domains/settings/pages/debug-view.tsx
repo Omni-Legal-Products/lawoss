@@ -1049,7 +1049,7 @@ export function DebugView(props: DebugViewProps) {
               </div>
             </div>
             <div className="rounded-full border border-dls-border bg-dls-sidebar/50 px-2.5 py-1 text-[11px] font-medium text-dls-secondary">
-              {props.electronAlphaUpdaterChannel === "alpha" ? "Alpha" : "Stable"}
+              {t(props.electronAlphaUpdaterChannel === "alpha" ? "lawoss.shell.channel.alpha" : "lawoss.shell.channel.stable")}
             </div>
           </div>
 

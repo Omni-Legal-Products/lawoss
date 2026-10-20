@@ -1,3 +1,5 @@
+import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 import { Button } from "@/components/ui/button";
 import { desktopBridge } from "@/app/lib/desktop";
 
@@ -5,8 +7,9 @@ const menus: ("File" | "Edit" | "View" | "Help")[] = ["File", "Edit", "View", "H
 
 // Use the installed native menus, including their roles and accelerators.
 export function WindowMenubar() {
+  const locale = useLocale();
   return (
-    <nav aria-label="Application menu" className="hidden h-full items-center titlebar-no-drag windows:flex">
+    <nav aria-label={t("lawoss.shell.menu.label", locale)} className="hidden h-full items-center titlebar-no-drag windows:flex">
       {menus.map((menu) => (
         <Button
           key={menu}
@@ -24,7 +27,7 @@ export function WindowMenubar() {
             event.currentTarget.click();
           }}
         >
-          {menu}
+          {t(`lawoss.shell.menu.${menu.toLowerCase()}`, locale)}
         </Button>
       ))}
     </nav>

@@ -133,6 +133,8 @@ export interface RecorderBridge {
 }
 
 export interface ServerConfig {
+  /** Host-owned, presentation-only locale of the paired desktop. Never accepted over HTTP. */
+  getUiLocale?: () => string;
   /** Read-only migration from the previous desktop safeStorage connector store. */
   decryptLegacyConnectorSecrets?: (value: string) => string | Promise<string>;
   host: string;

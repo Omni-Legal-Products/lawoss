@@ -1,3 +1,4 @@
+import { nativeCopy } from "./native-locale.mjs";
 import { canonicalRealpath } from "./lawoss-picked-path.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
@@ -616,12 +617,13 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, listLocalWorkspaceAppFiles, listLocalWorkspaces, reconnectHostWorkspace, recorder, onSidecarExit, getApprovalWindow }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, listLocalWorkspaceAppFiles, listLocalWorkspaces, reconnectHostWorkspace, recorder, onSidecarExit, getApprovalWindow, getUiLocale = () => "en", subscribeUiLocale = () => () => {} }) {
   const requestHostApproval = createHostApprovalHandler({
     getWindow: getApprovalWindow,
+    getLocale: getUiLocale,
     showContextReview: async (window, options) => {
       const { BrowserWindow, ipcMain, screen } = await import("electron");
-      return createContextReview({ BrowserWindow, ipcMain, screen })(window, options);
+      return createContextReview({ BrowserWindow, ipcMain, screen, getLocale: getUiLocale, subscribeLocale: subscribeUiLocale })(window, options);
     },
     showMessageBox: async (window, options) => {
       const { dialog } = await import("electron");
@@ -1486,6 +1488,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       // LEGALWORK_APPROVAL_MODE or server.json approval.mode setting.
       defaultApprovalMode: "auto",
       requestHostApproval,
+      getUiLocale,
       configPath: serverConfigPath,
       workspaces: workspacePaths,
       hostWorkspaceAppFiles,
@@ -1507,7 +1510,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
         const { dialog } = await import("electron");
         app.focus({ steal: true });
         const result = await dialog.showOpenDialog({
-          title: pickOptions?.title,
+          title: pickOptions?.title || nativeCopy(getUiLocale()).chooseFolder,
           defaultPath: pickOptions?.defaultPath,
           properties: pickOptions?.existingOnly ? ["openDirectory"] : ["openDirectory", "createDirectory"],
         });

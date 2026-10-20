@@ -129,3 +129,18 @@ for (const action of ["ai.documents.synthetic", "ai.protected.synthetic", "ai.do
     assert.equal(await unavailable({...request, action, description: "SHORT-EXACT-CONTEXT"}, new AbortController().signal), "deny");
   });
 }
+
+test("Czech native approval localizes only host copy and keeps denial defaults and exact request details", async () => {
+  /** @type {{buttons: string[], title: string, defaultId: number, cancelId: number, detail: string} | undefined} */
+  let shown;
+  const handler = createHostApprovalHandler({ getWindow: hostWindow, getLocale: () => "cs",
+    showMessageBox: async (_parent, options) => { shown = options; return { response: 0 }; },
+  });
+  assert.equal(await handler(request, new AbortController().signal), "deny");
+  assert.ok(shown);
+  assert.deepEqual(shown.buttons, ["Odmítnout", "Povolit"]);
+  assert.equal(shown.title, "Schválení LAWOSS");
+  assert.equal(shown.defaultId, 0); assert.equal(shown.cancelId, 0);
+  assert.ok(shown.detail.includes(request.summary));
+  assert.ok(shown.detail.includes(request.paths[0]));
+});

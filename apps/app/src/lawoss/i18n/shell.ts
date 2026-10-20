@@ -1,4 +1,12 @@
 export const shellEn = {
+  "lawoss.shell.channel.stable": "Stable",
+  "lawoss.shell.channel.alpha": "Alpha",
+  "lawoss.shell.menu.label": "Application menu",
+  "lawoss.shell.menu.file": "File",
+  "lawoss.shell.menu.edit": "Edit",
+  "lawoss.shell.menu.view": "View",
+  "lawoss.shell.menu.help": "Help",
+
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Something went wrong. Try again, or choose a different folder.",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): native Settings → AI switch and chat refusal.
@@ -329,6 +337,14 @@ export const shellEn = {
 type SlavicPluralKey = "lawoss.lite.due_in_days_few" | "lawoss.lite.due_in_days_many";
 
 export const shellCs = {
+  "lawoss.shell.channel.stable": "Stabilní",
+  "lawoss.shell.channel.alpha": "Alfa",
+  "lawoss.shell.menu.label": "Nabídka aplikace",
+  "lawoss.shell.menu.file": "Soubor",
+  "lawoss.shell.menu.edit": "Úpravy",
+  "lawoss.shell.menu.view": "Zobrazení",
+  "lawoss.shell.menu.help": "Nápověda",
+
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Něco se nepodařilo. Zkuste to znovu, nebo vyberte jinou složku.",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): natívny prepínač v Nastaveniach → AI a odmietnutie chatu.
@@ -658,6 +674,14 @@ export const shellCs = {
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
+  "lawoss.shell.channel.stable": "Stabilný",
+  "lawoss.shell.channel.alpha": "Alfa",
+  "lawoss.shell.menu.label": "Ponuka aplikácie",
+  "lawoss.shell.menu.file": "Súbor",
+  "lawoss.shell.menu.edit": "Úpravy",
+  "lawoss.shell.menu.view": "Zobrazenie",
+  "lawoss.shell.menu.help": "Pomocník",
+
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Niečo sa nepodarilo. Skúste to znova, alebo vyberte iný priečinok.",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): natívny prepínač v Nastaveniach → AI a odmietnutie chatu.
@@ -987,6 +1011,14 @@ export const shellSk = {
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
+  "lawoss.shell.channel.stable": "Stabil",
+  "lawoss.shell.channel.alpha": "Alpha-Version",
+  "lawoss.shell.menu.label": "Anwendungsmenü",
+  "lawoss.shell.menu.file": "Datei",
+  "lawoss.shell.menu.edit": "Bearbeiten",
+  "lawoss.shell.menu.view": "Ansicht",
+  "lawoss.shell.menu.help": "Hilfe",
+
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Etwas ist nicht gelungen. Versuchen Sie es erneut oder wählen Sie einen anderen Ordner.",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): Schalter in Einstellungen → KI und Chat-Ablehnung.

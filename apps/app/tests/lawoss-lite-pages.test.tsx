@@ -119,7 +119,9 @@ describe("stránky LAWOSS-lite", () => {
     // Hlavních 5 akcí + 6 dalších (typy práce z /legal): během běžící akce jsou vypnuté všechny.
     expect(out.match(/<button[^>]*disabled=""[^>]*>(Summarise|Check|Prepare|Add|Verify|Legal research|Strategy|Revise|Letter|Produce)/g)?.length).toBe(11);
     expect(out).toContain("The conversation could not be opened. Try again, or use the advanced mode.");
-    expect(out).not.toContain("boom");
+    expect(out).toContain("<details><summary>Technical details (original text)</summary>");
+    expect(out).toContain(">boom</pre>");
+    expect(out.replace(/<details>[\s\S]*?<\/details>/g, "")).not.toContain("boom");
   });
   test("Věc: přehled ukáže lhůty s označením neověřených a úkoly z paměti", () => {
     const cockpit: Pick<Cockpit, "deadlines" | "tasks" | "attention" | "facts" | "parties"> = {
@@ -181,7 +183,7 @@ describe("stavy stránek LAWOSS-lite", () => {
       const out = lite(props);
       expect(out).toContain(expected);
       expect(out).not.toContain("dashboard");
-      expect(out).not.toMatch(BANNED);
+      expect(out.replace(/<details>[\s\S]*?<\/details>/g, "")).not.toMatch(BANNED);
     }
     expect(lite({ workspace: null })).toContain("Open the office folder");
     expect(lite({})).toContain("New matter");

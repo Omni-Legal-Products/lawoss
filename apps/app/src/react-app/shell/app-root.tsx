@@ -1,3 +1,5 @@
+import { desktopBridge } from "../../app/lib/desktop";
+import { isDesktopRuntime } from "../../app/utils";
 import { DocumentRuntimeProvider } from "../domains/session/artifacts/document-runtime";
 /** @jsxImportSource react */
 
@@ -33,7 +35,10 @@ export function AppRoot() {
   useDesktopFontZoomBehavior();
   // `t()` reads a module variable, so subscribing here is what makes a language
   // change in Settings repaint the app instead of waiting for a reload.
-  useLocale();
+  const locale = useLocale();
+  useEffect(() => {
+    if (isDesktopRuntime()) void desktopBridge.setUiLocale(locale).catch(() => undefined);
+  }, [locale]);
 
   // Module-level dedupe keeps StrictMode double-mounts from double-counting.
   useEffect(() => {

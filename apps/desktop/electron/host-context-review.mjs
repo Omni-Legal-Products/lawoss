@@ -1,17 +1,22 @@
+import { nativeCopy, normalizeUiLocale } from "./native-locale.mjs";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 // Fixed host-owned document: request contents are delivered only as textContent
 // by the isolated preload. No application bridge, page script or remote resource.
-const documentUrl = `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'"><title>Review request</title><style>
+function reviewDocumentUrl(locale) {
+  const copy = nativeCopy(locale);
+  return `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html><html lang="${normalizeUiLocale(locale) ?? "en"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'"><title>${copy.review}</title><style>
 *{box-sizing:border-box}html,body{height:100%;margin:0}body{font:14px system-ui,sans-serif;background:#fff;color:#161616;padding:20px;display:flex;flex-direction:column;gap:12px;overflow:hidden}h1{font-size:20px;margin:0}p{margin:0}header,footer{flex:none}header{display:grid;gap:8px}pre{flex:1;min-height:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid #aaa;border-radius:6px;padding:12px;margin:0;font:12px/1.5 ui-monospace,monospace;user-select:text}footer{display:flex;justify-content:flex-end;gap:12px;padding-top:4px}button{font:inherit;padding:8px 18px;min-height:38px}button:focus-visible,pre:focus-visible{outline:3px solid #185abc;outline-offset:2px}
-</style></head><body><header><h1 id="heading">Review request</h1><p id="message"></p><p>Review the complete context below. This decision applies only to this request.</p></header><pre id="context" tabindex="0" role="region" aria-label="Complete request context"></pre><footer><button id="deny" type="button" disabled autofocus>Deny</button><button id="allow" type="button" disabled>Allow this request</button></footer></body></html>`)}`;
+</style></head><body><header><h1 id="heading">${copy.review}</h1><p id="message"></p><p id="review-note">${copy.reviewNote}</p></header><pre id="context" tabindex="0" role="region" aria-label="${copy.context}"></pre><footer><button id="deny" type="button" disabled autofocus>${copy.deny}</button><button id="allow" type="button" disabled>${copy.allowRequest}</button></footer></body></html>`)}`;
+}
 
 /** Main-process authority over one disposable, sender/request-bound review. */
-export function createContextReview({ BrowserWindow, ipcMain, screen }) {
+export function createContextReview({ BrowserWindow, ipcMain, screen, getLocale = (_window) => "en", subscribeLocale = (_listener) => () => {} }) {
   return (parent, options) => new Promise(resolve => {
     if (options.signal.aborted || parent.isDestroyed()) return resolve({response: 0});
     const reviewId = randomUUID();
+    const documentUrl = reviewDocumentUrl(getLocale(parent));
     const work = screen.getDisplayMatching(parent.getBounds()).workAreaSize;
     const width = Math.min(900, Math.max(1, work.width - 32));
     const height = Math.min(760, Math.max(1, work.height - 48));
@@ -23,13 +28,22 @@ export function createContextReview({ BrowserWindow, ipcMain, screen }) {
         sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false,
         devTools: false, webSecurity: true, navigateOnDragDrop: false, spellcheck: false}});
     const contents = window.webContents;
-    const payload = Object.freeze({reviewId, title: options.title, message: options.message, detail: options.detail});
+    const ui = () => {
+      const locale = normalizeUiLocale(getLocale(parent)) ?? "en";
+      const copy = nativeCopy(locale);
+      return {locale, deny: copy.deny, allow: copy.allowRequest, note: copy.reviewNote, context: copy.context,
+        title: options.presentationKind === "public" ? copy.publicTitle : options.presentationKind === "change" ? copy.approvalTitle : options.title,
+        message: options.presentationKind === "public" ? copy.publicQuestion : options.presentationKind === "change" ? copy.changeQuestion : options.message};
+    };
+    const payload = () => Object.freeze({reviewId, title: options.title, message: options.message, detail: options.detail, ui: ui()});
+    let unsubscribeLocale = () => {};
     let settled = false, ready = false;
     const ownSender = event => event.sender === contents && event.senderFrame === contents.mainFrame
       && !window.isDestroyed() && contents.getURL() === documentUrl;
     const finish = response => {
       if (settled) return;
       settled = true;
+      unsubscribeLocale();
       ipcMain.removeListener("lawoss:host-review:ready", onReady);
       ipcMain.removeListener("lawoss:host-review:decision", onDecision);
       options.signal.removeEventListener("abort", deny);
@@ -38,9 +52,15 @@ export function createContextReview({ BrowserWindow, ipcMain, screen }) {
       resolve({response});
     };
     const deny = () => finish(0);
+    unsubscribeLocale = subscribeLocale(owner => {
+      if (owner !== parent || settled || !ready || window.isDestroyed()) return;
+      const copy = ui();
+      window.setTitle?.(copy.title);
+      contents.send("lawoss:host-review:locale", {reviewId, ui: copy});
+    });
     const onReady = (event, id) => {
       if (settled || ready || id !== reviewId || !ownSender(event)) return;
-      ready = true; contents.send("lawoss:host-review:payload", payload);
+      ready = true; contents.send("lawoss:host-review:payload", payload());
     };
     const onDecision = (event, id, decision) => {
       if (settled || !ready || id !== reviewId || !ownSender(event)) return;

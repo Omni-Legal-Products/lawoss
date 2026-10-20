@@ -1,3 +1,4 @@
+import { nativeCopy } from "./native-locale.mjs";
 // Native application menu: template installation, the macOS/system menu
 // actions that forward into the renderer (chat windows, settings, updates,
 // sidebar, zoom),
@@ -12,7 +13,7 @@ const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "legalwork:native-menu:toggle-sidebar";
 const NATIVE_MENU_CHECK_UPDATES_EVENT = "legalwork:native-menu:check-updates";
 const NATIVE_MENU_ZOOM_EVENT = "legalwork:native-menu:zoom";
 
-export function createApplicationMenu({ appName, getWindow, collectSupportLogs }) {
+export function createApplicationMenu({ appName, getWindow, collectSupportLogs, getLocale = (_window) => "en" }) {
   let applicationMenuVisible = process.platform === "darwin";
 
   async function activeMenuWindow() {
@@ -64,6 +65,7 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
   }
 
   function install() {
+    const copy = nativeCopy(getLocale(BrowserWindow.getFocusedWindow()), appName);
     const isMac = process.platform === "darwin";
     const template = /** @type {import("electron").MenuItemConstructorOptions[]} */ ([
       ...(isMac
@@ -71,16 +73,16 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
             {
               label: appName,
               submenu: [
-                { role: "about", label: `About ${appName}` },
+                { role: "about", label: copy.about },
                 {
-                  label: "Check for Updates...",
+                  label: copy.updates,
                   click: () => {
                     void checkForUpdatesFromNativeMenu();
                   },
                 },
                 { type: "separator" },
                 {
-                  label: "Settings...",
+                  label: copy.settings,
                   accelerator: "Command+,",
                   click: () => {
                     void openSettingsFromNativeMenu();
@@ -89,20 +91,20 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
                 { type: "separator" },
                 { role: "services" },
                 { type: "separator" },
-                { role: "hide", label: `Hide ${appName}` },
+                { role: "hide", label: copy.hide },
                 { role: "hideOthers" },
                 { role: "unhide" },
                 { type: "separator" },
-                { role: "quit", label: `Quit ${appName}` },
+                { role: "quit", label: copy.quit },
               ],
             },
           ]
         : []),
       {
-        label: "File",
+        id: "File", label: copy.file,
         submenu: [
           {
-            label: "Open Chat in New Window",
+            label: copy.newWindow,
             click: (_menuItem, targetWindow) => {
               void openSessionWindowFromNativeMenu(targetWindow);
             },
@@ -112,7 +114,7 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
             ? []
             : [
                 {
-                  label: "Settings",
+                  label: copy.settings,
                   accelerator: "Control+,",
                   click: () => {
                     void openSettingsFromNativeMenu();
@@ -124,7 +126,7 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
         ],
       },
       {
-        label: "Edit",
+        id: "Edit", label: copy.edit,
         submenu: [
           { role: "undo" },
           { role: "redo" },
@@ -139,7 +141,7 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
                 { role: "selectAll" },
                 { type: "separator" },
                 {
-                  label: "Speech",
+                  label: copy.speech,
                   submenu: [
                     { role: "startSpeaking" },
                     { role: "stopSpeaking" },
@@ -147,7 +149,7 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
                 },
                 { type: "separator" },
                 {
-                  label: "Settings...",
+                  label: copy.settings,
                   click: () => {
                     void openSettingsFromNativeMenu();
                   },
@@ -161,10 +163,10 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
         ],
       },
       {
-        label: "View",
+        id: "View", label: copy.view,
         submenu: [
           {
-            label: "Toggle Sidebar",
+            label: copy.sidebar,
             accelerator: "CommandOrControl+B",
             click: () => {
               void toggleSidebarFromNativeMenu();
@@ -176,21 +178,21 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
           { role: "toggleDevTools" },
           { type: "separator" },
           {
-            label: "Actual Size",
+            label: copy.actualSize,
             accelerator: "CommandOrControl+0",
             click: () => {
               void zoomFromNativeMenu("reset");
             },
           },
           {
-            label: "Zoom In",
+            label: copy.zoomIn,
             accelerator: "CommandOrControl+Plus",
             click: () => {
               void zoomFromNativeMenu("in");
             },
           },
           {
-            label: "Zoom Out",
+            label: copy.zoomOut,
             accelerator: "CommandOrControl+-",
             click: () => {
               void zoomFromNativeMenu("out");
@@ -201,7 +203,7 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
         ],
       },
       {
-        label: "Window",
+        id: "Window", label: copy.window,
         submenu: [
           { role: "minimize" },
           { role: "zoom" },
@@ -222,10 +224,10 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
       // native), plus the updater entry on non-mac (macOS keeps it in the app
       // menu).
       {
-        role: "help",
+        role: "help", id: "Help", label: copy.help,
         submenu: [
           {
-            label: "Collect Support Logs...",
+            label: copy.support,
             click: () => {
               collectSupportLogs?.();
             },
@@ -235,7 +237,7 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
             : [
                 { type: "separator" },
                 {
-                  label: "Check for Updates...",
+                  label: copy.updates,
                   click: () => {
                     void checkForUpdatesFromNativeMenu();
                   },
@@ -245,6 +247,11 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
       },
     ]);
 
+    const translateRoles = items => { for (const item of items) {
+      if (!item.label && item.role && copy[item.role]) item.label = copy[item.role];
+      if (item.submenu) translateRoles(item.submenu);
+    } };
+    translateRoles(template);
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   }
 
@@ -260,7 +267,7 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
     if (!["File", "Edit", "View", "Help"].includes(label)) return false;
     if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return false;
     const menu = Menu.getApplicationMenu()?.items.find((item) =>
-      item.label.replace(/&/g, "") === label || (label === "Help" && item.role === "help"),
+      item.id === label || item.label.replace(/&/g, "") === label || (label === "Help" && item.role === "help"),
     )?.submenu;
     if (!menu) return false;
     const zoom = window.webContents.getZoomFactor();

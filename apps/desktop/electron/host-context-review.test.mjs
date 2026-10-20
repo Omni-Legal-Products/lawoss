@@ -5,7 +5,9 @@ import vm from "node:vm";
 import { test } from "node:test";
 import { createContextReview } from "./host-context-review.mjs";
 
-function fixture() {
+function fixture(initialLocale = "en") {
+  let locale = initialLocale;
+  const localeListeners = new Set();
   const ipcMain = new EventEmitter(), windows = [];
   class Window extends EventEmitter {
     constructor(options) {
@@ -19,7 +21,7 @@ function fixture() {
     destroy() {this.destroyed = true; this.emit("closed");}
   }
   const parent = Object.assign(new EventEmitter(), {isDestroyed: () => false, getBounds: () => ({x: 0, y: 0, width: 800, height: 600})});
-  const show = createContextReview({BrowserWindow: Window, ipcMain, screen: {getDisplayMatching: () => ({workAreaSize: {width: 800, height: 600}})}});
+  const show = createContextReview({BrowserWindow: Window, ipcMain, getLocale: () => locale, subscribeLocale: listener => {localeListeners.add(listener); return () => localeListeners.delete(listener);}, screen: {getDisplayMatching: () => ({workAreaSize: {width: 800, height: 600}})}});
   const controller = new AbortController();
   const promise = show(parent, {title: "Review", message: "Send?", detail: "EXACT-START" + "<script>private()</script>".repeat(400) + "EXACT-END", signal: controller.signal});
   const window = windows[0];
@@ -27,7 +29,7 @@ function fixture() {
   const event = {sender: window.webContents, senderFrame: window.webContents.mainFrame};
   const ready = () => ipcMain.emit("lawoss:host-review:ready", event, id);
   const answer = decision => ipcMain.emit("lawoss:host-review:decision", event, id, decision);
-  return {ipcMain, parent, window, id, event, ready, answer, promise, controller};
+  return {ipcMain, parent, window, id, event, ready, answer, promise, controller, changeLocale: value => {locale = value; for (const listener of localeListeners) listener(parent);}, localeListeners};
 }
 
 test("constrains review to work area, isolates renderer and sends the exact context only to its own frame", async () => {
@@ -99,4 +101,20 @@ test("isolated preload renders immutable textContent, exposes no app bridge, and
   assert.equal(elements.get("context").textContent, detail);
   elements.get("allow").click();
   assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), ["lawoss:host-review:decision", "owned-review", "allow"]);
+});
+
+test("isolated review uses Czech host copy and updates an open review without replacing its exact context", async () => {
+  const f = fixture("cs");
+  f.ready();
+  assert.equal(f.window.sent[1].ui.deny, "Odmítnout");
+  assert.equal(f.window.sent[1].ui.allow, "Povolit tuto žádost");
+  const detail = f.window.sent[1].detail;
+  f.changeLocale("sk");
+  assert.equal(f.window.sent[0], "lawoss:host-review:locale");
+  assert.equal(f.window.sent[1].ui.deny, "Odmietnuť");
+  f.changeLocale("cs");
+  assert.equal(f.window.sent[1].ui.deny, "Odmítnout");
+  assert.ok(detail.endsWith("EXACT-END"));
+  f.answer("deny"); await f.promise;
+  assert.equal(f.localeListeners.size, 0);
 });
