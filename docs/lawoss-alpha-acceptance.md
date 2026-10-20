@@ -38,8 +38,11 @@ nativných scenárov runner zapíše `blocked` a skončí nenulovo.
 Bežný chat, fronta, plánované úlohy, revízie, benchmarky, SystemOne, hlas a vzdialené OCR potom
 fungujú ako pred governance a posielajú obsah zvolenému poskytovateľovi bez ďalšieho potvrdenia.
 Zapnete ich v **Nastavenia → Poskytovatelia AI → AI hranice**; zmena platí hneď, bez reštartu.
-Kancelária ich môže vynútiť premennou prostredia `LAWOSS_AI_BOUNDARIES_ENFORCED=1` (iba zapnúť,
-nie vypnúť); prepínač je potom zamknutý. Odseky nižšie o poučení a unsupported prenosoch
+Tento počítač ich môže vynútiť premennou prostredia `LAWOSS_AI_BOUNDARIES_ENFORCED=1` (iba zapnúť,
+nie vypnúť); prepínač je potom zamknutý s textom „Zapnuté nastavením tohto počítača“. Nie je to
+firemná politika: skutočný kľúč firemnej politiky (so zrkadlom na platforme) je ďalší krok.
+Poškodené uložené nastavenie sa berie ako zapnuté, kým ho používateľ znova neuloží.
+Pri zapnutí appka odmietne nové správy; odpoveď, ktorú model už práve píše, môže dobehnúť. Odseky nižšie o poučení a unsupported prenosoch
 opisujú stav so **zapnutými** AI hranicami. Chránené generovanie dokumentov a verejný text
 fungujú v oboch stavoch rovnako.
 

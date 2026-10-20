@@ -150,3 +150,36 @@ test("with AI boundaries on, server-mediated recovery preserves typed governance
   }
   expect((await request(`${endpoint}/queue`, "POST", { type: "pause", paused: true })).status).toBe(200);
 });
+
+test("with AI boundaries off (alpha default), server-mediated recovery accepts a 204, uses the verified request and deduplicates it", async () => {
+  const { state, request } = await fixture();
+  state.recovery = true;
+  expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "old" })).status).toBe(409);
+  expect(state.prompts).toBe(0);
+  expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "empty" })).status).toBe(200);
+  expect(state.prompts).toBe(1);
+  expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "empty" })).status).toBe(200);
+  expect(state.prompts).toBe(1);
+});
+
+test("with AI boundaries off (alpha default), deletion excludes direct sends, queue mutations, and another delete until review finishes", async () => {
+  const { state, request } = await fixture();
+  let reviewed = () => {}, release = () => {};
+  const reached = new Promise<void>(resolve => { reviewed = resolve; });
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  state.reviewHook = async () => { reviewed(); await blocked; };
+  const deleting = request(endpoint, "DELETE");
+  try {
+    await reached;
+    for (const action of ["message", "prompt_async", "command", "fork"])
+      expect((await request(`/workspace/project/opencode/session/chat/${action}`, "POST", { parts: [] })).status).toBe(409);
+    expect((await request(`${endpoint}/queue`, "POST", { type: "pause", paused: false })).status).toBe(409);
+    expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "empty" })).status).toBe(409);
+    expect((await request(endpoint, "DELETE")).status).toBe(409);
+    // Unrelated chats remain usable.
+    expect((await request("/workspace/project/opencode/session/unrelated/prompt_async", "POST", { parts: [] })).status).toBe(200);
+  } finally { release(); }
+  expect((await deleting).status).toBe(409);
+  state.reviewHook = undefined;
+  expect((await request(`${endpoint}/queue`, "POST", { type: "pause", paused: false })).status).toBe(200);
+});

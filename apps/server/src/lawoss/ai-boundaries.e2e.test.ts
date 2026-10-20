@@ -2,10 +2,11 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { startServer } from "../server.js";
-import { AI_BOUNDARIES_FIRM_ENV } from "./ai-boundaries.js";
+import { AI_BOUNDARIES_DENIAL_SOURCE } from "@legalwork/types/ai-governance";
+import { AI_BOUNDARIES_DEVICE_ENV } from "./ai-boundaries.js";
 import { syntheticHostConfig } from "./test-support/host-config.js";
 
-const saved = {LEGALWORK_TOKEN_STORE: process.env.LEGALWORK_TOKEN_STORE, LEGALWORK_RUNTIME_DB: process.env.LEGALWORK_RUNTIME_DB, [AI_BOUNDARIES_FIRM_ENV]: process.env[AI_BOUNDARIES_FIRM_ENV]};
+const saved = {LEGALWORK_TOKEN_STORE: process.env.LEGALWORK_TOKEN_STORE, LEGALWORK_RUNTIME_DB: process.env.LEGALWORK_RUNTIME_DB, [AI_BOUNDARIES_DEVICE_ENV]: process.env[AI_BOUNDARIES_DEVICE_ENV]};
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
   try {for (const cleanup of cleanups.splice(0).reverse()) await cleanup();}
@@ -17,7 +18,7 @@ async function fixture(receiver?: {url: URL}) {
   cleanups.push(() => rm(root, {recursive: true}));
   process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
   process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
-  delete process.env[AI_BOUNDARIES_FIRM_ENV];
+  delete process.env[AI_BOUNDARIES_DEVICE_ENV];
   if (receiver) {
     const workspace = join(root, "matter"); await mkdir(workspace);
     config.workspaces.push({id: "fixture", name: "Synthetic", path: workspace, workspaceType: "local", preset: "starter", baseUrl: receiver.url.origin});
@@ -43,11 +44,11 @@ test("native AI settings read and change the boundaries; only the host may write
     .toEqual({enforced: true, locked: false, source: "user"});
 });
 
-test("a firm lock shows as locked and refuses switching boundaries off", async () => {
+test("a lock from this computer shows as locked and refuses switching boundaries off", async () => {
   const {base, host, setEnforced} = await fixture();
-  process.env[AI_BOUNDARIES_FIRM_ENV] = "1";
+  process.env[AI_BOUNDARIES_DEVICE_ENV] = "1";
   expect((await fetch(`${base}/lawoss/ai-governance`, {headers: host}).then(response => response.json())).boundaries)
-    .toEqual({enforced: true, locked: true, source: "firm"});
+    .toEqual({enforced: true, locked: true, source: "device"});
   const refused = await setEnforced(false);
   expect(refused.status).toBe(409);
   expect(await refused.json()).toMatchObject({code: "ai_boundaries_locked"});
@@ -70,7 +71,8 @@ test("off: an ordinary chat prompt passes the engine proxy; on: it is refused be
   expect((await setEnforced(true)).status).toBe(200);
   const refused = await send();
   expect(refused.status).toBe(403);
-  expect(await refused.json()).toMatchObject({code: "ai_transfer_denied"});
+  // The renderer recognises this refusal by the shared typed marker, not by its English text.
+  expect(await refused.json()).toMatchObject({code: "ai_transfer_denied", details: {source: AI_BOUNDARIES_DENIAL_SOURCE}});
   expect(received).toEqual([]);
 });
 

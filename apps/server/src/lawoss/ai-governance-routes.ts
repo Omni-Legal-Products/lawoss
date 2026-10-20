@@ -7,7 +7,7 @@ import { addRoute, type Route } from "../routes/registry.js";
 import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
 import { readGovernedCapabilities } from "./ai-governance.js";
-import { GLOBAL_AI_GUIDANCE_ID, readAiBoundaries, writeAiBoundaries } from "./ai-boundaries.js";
+import { GLOBAL_AI_GUIDANCE_ID, preservedAiBoundaries, readAiBoundaries, writeAiBoundaries } from "./ai-boundaries.js";
 
 export { GLOBAL_AI_GUIDANCE_ID };
 export async function readAiGovernanceView(config: ServerConfig, publicEngineAvailable = false): Promise<AiGovernanceView> {
@@ -30,7 +30,8 @@ export function registerAiGovernanceRoutes(options: {routes: Route[]; config: Se
     const parsed = z.strictObject({textVersion: z.literal(AI_GUIDANCE_VERSION), jurisdiction: z.enum(["CZ", "SK"])}).safeParse(await options.readJsonBodyLimited(ctx.request, 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_guidance_ack", "Read acknowledgment must name the current notice and jurisdiction only.");
     const body = parsed.data;
-    await writeRuntimeOpencodeConfig(config, GLOBAL_AI_GUIDANCE_ID, current => ({...current,
+    const preserved = await preservedAiBoundaries(config);
+    await writeRuntimeOpencodeConfig(config, GLOBAL_AI_GUIDANCE_ID, current => ({...current, ...preserved,
       guidanceAck: {...body, actorRef: "native-host", readAt: Date.now()}}));
     return jsonResponse(await readAiGovernanceView(config, Boolean(options.getPublicEngineBinary?.())));
   });

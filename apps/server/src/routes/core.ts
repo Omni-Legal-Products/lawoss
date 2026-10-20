@@ -1,4 +1,4 @@
-import { requireUnsupportedProtectedTransport } from "../lawoss/ai-governance-engine.js";
+import { requireAiBoundariesAdmission } from "../lawoss/ai-governance-engine.js";
 import { readAiBoundaries } from "../lawoss/ai-boundaries.js";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -503,7 +503,7 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
   });
 
   addRoute(routes, "POST", "/voice/realtime/call", "host", async (ctx) => {
-    await requireUnsupportedProtectedTransport(config, "voice");
+    await requireAiBoundariesAdmission(config, "voice");
     const body = await readJsonBody(ctx.request);
     return jsonResponse(await createOpenAiRealtimeVoiceCall(env, body));
   });

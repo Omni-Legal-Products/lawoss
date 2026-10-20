@@ -2,6 +2,7 @@ import { TRANSFER_KINDS, TransferIntentSchema, type GovernanceProfile, type Gove
 import { readGovernanceProfiles } from "./ai-governance-store.js";
 import type { ServerConfig } from "../types.js";
 import { ApiError } from "../errors.js";
+import { readAiBoundaries } from "./ai-boundaries.js";
 
 /** Eligibility is not dispatch authority: only the confined final-wire transport uses this result. */
 export async function eligibleGovernanceProfiles(config: ServerConfig, intent: TransferIntent): Promise<{profiles: GovernanceProfile[]} | Extract<TransferDecision, {allowed: false}>> {
@@ -36,6 +37,10 @@ export async function requireTransferAllowed(config: ServerConfig, intent: Trans
   if (!decision.allowed) throw new ApiError(403, "ai_transfer_denied", "Protected AI processing is unavailable. Continue manually without a model.", {reason: decision.reason});
   return decision;
 }
-export async function readGovernedCapabilities(_config: ServerConfig, _scope: GovernanceScope) {
-  return TRANSFER_KINDS.map(kind => ({kind, state: "unsupported" as const, reason: "unsupported-transport" as const}));
+/** With „AI hranice" off (alpha default) ordinary transports pass the host guard, so they read as available. */
+export async function readGovernedCapabilities(config: ServerConfig, _scope: GovernanceScope) {
+  const enforced = (await readAiBoundaries(config)).enforced;
+  return TRANSFER_KINDS.map(kind => enforced
+    ? {kind, state: "unsupported" as const, reason: "unsupported-transport" as const}
+    : {kind, state: "available" as const, reason: null});
 }

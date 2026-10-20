@@ -3,6 +3,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { LegalworkServerError } from "../src/app/lib/legalwork-server";
 import { AiBoundariesRowView, saveAiBoundaries } from "../src/lawoss/domains/ai/boundaries";
 import { aiBoundariesRefusal } from "../src/lawoss/domains/ai/boundaries-refusal";
+import { publishAiBoundaries } from "../src/lawoss/domains/ai/boundaries-store";
+import { AiGuidance } from "../src/lawoss/domains/ai/guidance";
+import { AI_BOUNDARIES_DENIAL_SOURCE } from "@legalwork/types/ai-governance";
 
 const noop = () => {};
 
@@ -15,15 +18,41 @@ test("the AI boundaries row shows the alpha default off with a plain explanation
   expect(html).not.toContain('data-disabled=""');
 });
 
-test("on and firm-locked states are visible; a firm lock disables the switch", () => {
+test("on, device-locked and damaged states are visible; only a device lock disables the switch", () => {
   const on = renderToStaticMarkup(<AiBoundariesRowView locale="sk" boundaries={{enforced: true, locked: false, source: "user"}} canWrite busy={false} failed={false} onChange={noop} />);
   expect(on).toContain('data-lawoss-ai-boundaries="on"');
   expect(on).toContain('aria-checked="true"');
-  expect(on).toContain("Bežný chat je vypnutý");
-  const locked = renderToStaticMarkup(<AiBoundariesRowView locale="sk" boundaries={{enforced: true, locked: true, source: "firm"}} canWrite busy={false} failed={false} onChange={noop} />);
+  expect(on).toContain("Appka odmietne nové správy do bežného chatu");
+  expect(on).toContain("Odpoveď, ktorú model už práve píše, môže ešte dobehnúť");
+  const locked = renderToStaticMarkup(<AiBoundariesRowView locale="sk" boundaries={{enforced: true, locked: true, source: "device"}} canWrite busy={false} failed={false} onChange={noop} />);
   expect(locked).toContain('data-lawoss-ai-boundaries="locked"');
   expect(locked).toContain('data-disabled=""');
-  expect(locked).toContain("kancelária");
+  expect(locked).toContain("Zapnuté nastavením tohto počítača");
+  expect(locked).not.toContain("kancelária");
+  const invalid = renderToStaticMarkup(<AiBoundariesRowView locale="sk" boundaries={{enforced: true, locked: false, source: "invalid"}} canWrite busy={false} failed={false} onChange={noop} />);
+  expect(invalid).toContain('data-lawoss-ai-boundaries="invalid"');
+  expect(invalid).toContain('aria-checked="true"');
+  expect(invalid).not.toContain('data-disabled=""');
+  expect(invalid).toContain("Uložené nastavenie je poškodené. Kým ho znova neuložíte, appka berie AI hranice ako zapnuté.");
+});
+
+test("a failed first load inside the desktop app says so instead of pointing to the desktop app", () => {
+  const html = renderToStaticMarkup(<AiBoundariesRowView locale="sk" boundaries={null} canWrite={false} busy={false} failed={false} loadFailed onChange={noop} />);
+  expect(html).toContain("Nastavenie AI hraníc sa nepodarilo načítať.");
+  expect(html).not.toContain("v desktopovej appke");
+});
+
+test("the AI notice follows a toggle immediately through the shared state", () => {
+  publishAiBoundaries({enforced: false, locked: false, source: "default"});
+  const off = renderToStaticMarkup(<AiGuidance locale="sk" />);
+  expect(off).toContain('data-lawoss-ai-boundaries="off"');
+  expect(off).not.toContain("Pri zapnutých AI hraniciach sú bežný chat");
+  publishAiBoundaries({enforced: true, locked: false, source: "user"});
+  const on = renderToStaticMarkup(<AiGuidance locale="sk" />);
+  expect(on).toContain('data-lawoss-ai-boundaries="on"');
+  expect(on).toContain("AI hranice: Zapnuté. Appka odmietne nové správy");
+  expect(on).toContain("Pri zapnutých AI hraniciach sú bežný chat");
+  publishAiBoundaries({enforced: false, locked: false, source: "user"});
 });
 
 test("every locale renders the row; without the native host the switch is disabled", () => {
@@ -48,7 +77,7 @@ test("toggling saves the switch through the native host with both current creden
 });
 
 test("a refused chat send becomes a localized sentence pointing to the setting, never the raw English text", () => {
-  const typed = new LegalworkServerError(403, "ai_transfer_denied", "Protected AI processing is unavailable. Continue manually without a model.");
+  const typed = new LegalworkServerError(403, "ai_transfer_denied", "Protected AI processing is unavailable. Continue manually without a model.", {reason: "unknown-context", source: AI_BOUNDARIES_DENIAL_SOURCE});
   const sk = aiBoundariesRefusal(typed, "sk");
   expect(sk).toContain("AI hranice");
   expect(sk).toContain("Nastaveniach → Poskytovatelia AI");
@@ -58,6 +87,9 @@ test("a refused chat send becomes a localized sentence pointing to the setting, 
   expect(cs).not.toBe(sk);
   expect(aiBoundariesRefusal(new Error("Protected AI processing is unavailable. Continue manually without a model."), "sk")).toBe(sk);
   expect(aiBoundariesRefusal(new LegalworkServerError(409, "recovery_changed", "Other"), "sk")).toBeNull();
+  // The typed marker (shared with the server guard) is recognised whatever the text says.
+  expect(aiBoundariesRefusal(new LegalworkServerError(403, "ai_transfer_denied", "Any wording", {source: AI_BOUNDARIES_DENIAL_SOURCE}), "sk")).toBe(sk);
+  expect(aiBoundariesRefusal(new Error(JSON.stringify({code: "ai_transfer_denied", message: "Any wording", details: {source: AI_BOUNDARIES_DENIAL_SOURCE}})), "sk")).toBe(sk);
   // Protected document generation uses the same code for its own refusals; AI hranice are not the cause there.
   expect(aiBoundariesRefusal(new LegalworkServerError(403, "ai_transfer_denied", "The current legal profile does not admit this protected transmission.", {reason: "profile-missing"}), "sk")).toBeNull();
   expect(aiBoundariesRefusal(new LegalworkServerError(403, "ai_transfer_denied", "A current matter and explicit CZ/SK jurisdiction are required.", {reason: "unknown-context"}), "sk")).toBeNull();

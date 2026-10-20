@@ -399,3 +399,14 @@ test("with AI boundaries on, the production review executor refuses protected pr
     expect(calls.filter(call => call.path.endsWith("/message") || call.path === "/session")).toEqual([]);
   } finally {await closeRuntimeOpencodeConfig(bounded); await rm(root, {recursive: true});}
 });
+
+test("with AI boundaries off (alpha default), the production review executor reaches the engine without a fixture transport", async () => {
+  const root = await mkdtemp(join(tmpdir(), "review-boundaries-off-"));
+  const open: ServerConfig = {...config, configPath: join(root, "server.json")};
+  try {
+    structuredResponse = true;
+    const production = new ReviewExecutor(open, {settings: async () => structuredClone(settings), infer: async () => {throw new Error("Must not call JEV");}});
+    expect((await production.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).value).toBe("Yes");
+    expect(calls.some(call => call.path.endsWith("/message"))).toBe(true);
+  } finally {await closeRuntimeOpencodeConfig(open); await rm(root, {recursive: true});}
+});

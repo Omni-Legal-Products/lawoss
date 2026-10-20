@@ -5,7 +5,7 @@ import { registerProtectedDocumentProfileRoutes } from "./lawoss/protected-ai/pr
 import { registerProtectedDocumentRoutes } from "./lawoss/protected-ai/routes.js";
 import { protectedEngineFetch, protectedSessionResponse, registerProtectedRuntime } from "./lawoss/protected-ai/dispatch.js";
 import { retainWikiAgentRuntime } from "./wiki/agent-access.js";
-import { createGovernedEngineFetch, governedOcrTransport, requireGovernedEngineDispatch, requireUnsupportedProtectedTransport } from "./lawoss/ai-governance-engine.js";
+import { createGovernedEngineFetch, governedOcrTransport, requireGovernedEngineDispatch, requireAiBoundariesAdmission } from "./lawoss/ai-governance-engine.js";
 import { registerDeadlineRoutes } from "./lawoss/deadlines/routes.js";
 import { acquireRuntimeDbLifetime, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { resolveWorkspaceFilePath, recheckWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
@@ -981,7 +981,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
       const workspace = await scheduledWorkspace(task);
       // A new chat transmits its title too; default model work must be admitted
       // before creating any engine session, not only before sending its prompt.
-      if (!scheduledTaskSend) await requireUnsupportedProtectedTransport(config, "chat", workspace.id);
+      if (!scheduledTaskSend) await requireAiBoundariesAdmission(config, "chat", workspace.id);
       const client = createWorkspaceOpencodeClient(config, workspace);
       return unwrapOpencodeResult(await client.session.create({ title: task.title }, { signal: AbortSignal.timeout(10000) }), "/session").id;
     },

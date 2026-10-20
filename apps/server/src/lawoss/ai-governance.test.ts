@@ -2,6 +2,7 @@ import { compareAndSetGovernanceProfile } from "./ai-governance-store.js";
 import { afterEach, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { syntheticHostConfig } from "./test-support/host-config.js";
+import { enforceAiBoundaries } from "./test-support/ai-boundaries.js";
 import type { TransferIntent } from "@legalwork/types/ai-governance";
 import { evaluateTransfer, readGovernedCapabilities, requireTransferAllowed } from "./ai-governance.js";
 
@@ -18,8 +19,16 @@ test("unknown context and missing profiles deny; no model never selects a provid
   await expect(requireTransferAllowed(config, intent)).rejects.toMatchObject({status: 403, code: "ai_transfer_denied", details: {reason: "profile-missing"}});
 });
 
-test("every protected transport is explicitly unsupported until engine egress and wire mirror are proven", async () => {
+test("with AI boundaries off (alpha default), ordinary transports read as available", async () => {
   const {root, config} = await syntheticHostConfig(); roots.push(root);
+  const capabilities = await readGovernedCapabilities(config, intent.scope);
+  expect(capabilities).toHaveLength(12);
+  for (const capability of capabilities) expect(capability).toMatchObject({state: "available", reason: null});
+});
+
+test("with AI boundaries on, every protected transport is explicitly unsupported until engine egress and wire mirror are proven", async () => {
+  const {root, config} = await syntheticHostConfig(); roots.push(root);
+  await enforceAiBoundaries(config);
   const capabilities = await readGovernedCapabilities(config, intent.scope);
   expect(capabilities).toHaveLength(12);
   for (const capability of capabilities) expect(capability).toMatchObject({state: "unsupported", reason: "unsupported-transport"});
