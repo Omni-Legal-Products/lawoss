@@ -1,4 +1,9 @@
 import { QueryClient } from "@tanstack/react-query";
+import type { SyncPoke } from "@legalwork/types/sync-events";
+
+export async function refreshSessionSnapshotsOnSync(client: QueryClient, poke: SyncPoke): Promise<void> {
+  if (poke.sessions || poke.resync) await client.invalidateQueries({ queryKey: ["react-session-snapshot"] });
+}
 
 type QueryClientGlobal = typeof globalThis & {
   __owReactQueryClient?: QueryClient;

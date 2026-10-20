@@ -74,7 +74,7 @@ export async function listWorkspaces(context?: OpenCodeContext): Promise<Array<{
   const headers = await workspaceToolHeaders(context);
   const response = await fetch(`${url}/workspaces`, {
     headers,
-    signal: AbortSignal.timeout(8_000),
+    signal: context?.abort ? AbortSignal.any([context.abort, AbortSignal.timeout(8_000)]) : AbortSignal.timeout(8_000),
   });
   if (!response.ok) throw new Error(`Workspace lookup failed: HTTP ${response.status}`);
   const payload = (await response.json()) as WorkspaceListPayload;
