@@ -102,11 +102,11 @@ Nastavenia → AI Providers → Add provider. Model sa potom vyberá dole v okne
 
 Platí pri zapnutom OKF. V alfe len vymyslené alebo verejné údaje.
 
-### Nová vec
+### Nový prípad
 
-1. Klienti → „+ Nová vec“ (alebo ikona „Nová vec“ v bočnom paneli).
-2. Formulár ukáže, pod ktorým klientom vec vznikne. Predvolený je klient práve otvoreného pracovného priestoru, inak naposledy použitý. Iného klienta vyberiete v poli „Iný klient (priečinok)“ a tlačidlom „Použiť tohto klienta“.
-3. Vyplňte názov, oblasť a druh veci → „Náhľad zmien“ → skontrolujte zoznam → „Potvrdiť a vykonať“. Vec vznikne v `Spisy/` u klienta.
+1. Klienti → „+ Nový prípad“ (alebo ikona „Nový prípad“ v bočnom paneli).
+2. Formulár ukáže, pod ktorým klientom prípad vznikne. Predvolený je klient práve otvoreného pracovného priestoru, inak naposledy použitý. Iného klienta vyberiete v poli „Iný klient (priečinok)“ a tlačidlom „Použiť tohto klienta“.
+3. Vyplňte názov, oblasť a „Druh prípadu“ → „Náhľad zmien“ → skontrolujte zoznam → „Potvrdiť a vykonať“. Prípad vznikne v `Spisy/` u klienta.
 
 ### Pripojenie existujúceho priečinka klienta
 
@@ -130,7 +130,7 @@ Funguje **len v skúšobnom klone**. Originál klienta sa nikdy nemení.
 1. Pripojte existujúci priečinok klienta ako **Skúšobný klon** (pozri vyššie).
 2. Klienti → **Roztriediť dokumenty**. Appka hneď ukáže návrh podľa názvov súborov: počet dokumentov, koľko sa zaradí, koľko ostane na zatriedenie a ktoré veci vzniknú. V tabuľke vidíte pri každom dokumente, odkiaľ a kam pôjde, prečo a s akou istotou. Dokument môžete nechať na zatriedenie.
 3. **Spresniť s modelom** (potrebuje pripojený model): zaškrtnite súhlas, že celý text dokumentov ide k poskytovateľovi modelu, → **Otvoriť rozhovor s modelom** → odošlite pripravenú správu. Model prečíta dokumenty, navrhne veci (napríklad podľa spisovej značky a protistrany) a zaradí dokumenty. Nič nepresunie.
-4. Vráťte sa na **Roztriediť dokumenty** → **Použiť návrh modelu**. Skontrolujte nové veci a tabuľku.
+4. Vráťte sa na **Roztriediť dokumenty** → **Použiť návrh modelu**. Skontrolujte „Nové prípady“ a tabuľku.
 5. **Potvrdiť a roztriediť**. Appka založí veci v `Spisy/` a presunie dokumenty do pracovných priečinkov klienta a vecí. Nič neprepíše ani nezmaže.
 6. Celý beh vrátite tlačidlom **Vrátiť roztriedenie** (aj neskôr v paneli „Posledné roztriedenie“). Klon sa vráti presne do pôvodného stavu.
 

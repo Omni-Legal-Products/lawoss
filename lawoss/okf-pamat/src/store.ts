@@ -283,6 +283,23 @@ export function standingApproval(
   };
 }
 
+/** Shared mutex for canonical writers; callback must stay synchronous. */
+export function withRecordWriteLock<T>(dir: string, action: () => T): T {
+  mkdirSync(dir, { recursive: true });
+  const lock = join(dir, ".okf-write.lock");
+  try {
+    mkdirSync(lock);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") {
+      throw new ConcurrentWriteError(`Pamäť ${dir} je zamknutá iným zápisom. Zopakuj zápis po jeho dokončení. Po páde procesu odstráň ${lock} až po overení, že žiadny zápis nebeží.`);
+    }
+    throw error;
+  }
+  try {
+    return action();
+  } finally { rmSync(lock, { recursive: true }); }
+}
+
 /**
  * @param leakScopeDir Spis, z ktorého zápis prichádza. Keď CLI smeruje L1/L3
  *   do kancelárie, `dir` je kancelária — ale jehly úniku musia prísť zo spisu
@@ -303,17 +320,7 @@ export function applyRecordWrite(
   authorize(diff, approval === STANDING ? standingApproval(dir, diff) : approval);
   if (diff.after) assertNoLeak(leakScopeDir, diff.after);
   assertHasSource(diff.after);
-  mkdirSync(dir, { recursive: true });
-  const lock = join(dir, ".okf-write.lock");
-  try {
-    mkdirSync(lock);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "EEXIST") {
-      throw new ConcurrentWriteError(`Pamäť ${dir} je zamknutá iným zápisom. Zopakuj zápis po jeho dokončení. Po páde procesu odstráň ${lock} až po overení, že žiadny zápis nebeží.`);
-    }
-    throw error;
-  }
-  try {
+  withRecordWriteLock(dir, () => {
     const store = readStore(dir);
     assertNotStale(store, diff);
     mkdirSync(store.memoryDir, { recursive: true });
@@ -338,9 +345,7 @@ export function applyRecordWrite(
     } finally {
       rmSync(temporary, { force: true });
     }
-  } finally {
-    rmSync(lock, { recursive: true });
-  }
+  });
 }
 
 /**

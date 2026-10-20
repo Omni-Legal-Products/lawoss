@@ -4,8 +4,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { resetBenchmarkStoreCache } from "./benchmarks/store.js";
+import { openBenchmarkStore, resetBenchmarkStoreCache } from "./benchmarks/store.js";
+import { BenchmarkRunner, type BenchmarkOpencodeClient } from "./benchmarks/runner.js";
 import { startServer } from "./server.js";
+import { enforceAiBoundaries } from "./lawoss/test-support/ai-boundaries.js";
 import type { ServerConfig } from "./types.js";
 
 const stops: Array<() => void | Promise<void>> = [];
@@ -48,6 +50,7 @@ type MockSession = { directory: string; state: "idle" | "busy"; userId?: string;
 let opencodeServer: ReturnType<typeof Bun.serve>;
 const mockSessions = new Map<string, MockSession>();
 let sessionCounter = 0;
+let inferenceRequests = 0;
 
 function startMockOpencode() {
   return Bun.serve({
@@ -56,6 +59,7 @@ function startMockOpencode() {
       const url = new URL(request.url);
       const path = url.pathname;
       const directory = decodeURIComponent(request.headers.get("x-opencode-directory") ?? "");
+      if (request.method === "POST" && /\/(message|prompt_async)$/.test(path)) inferenceRequests++;
 
       if (request.method === "GET" && path === "/provider") {
         return Response.json({
@@ -205,7 +209,7 @@ afterEach(async () => {
   resetBenchmarkStoreCache();
 });
 
-async function startLegalworkServer() {
+async function startLegalworkServer(options: { aiBoundaries?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-benchmarks-e2e-"));
   roots.push(root);
   process.env.LEGALWORK_BENCHMARKS_DB = join(root, "benchmarks.sqlite");
@@ -241,7 +245,9 @@ async function startLegalworkServer() {
   };
   const server = await startServer(config);
   stops.push(() => server.stop());
-  return { base: `http://127.0.0.1:${server.port}`, token: config.token, workspaceRoot };
+  // #168 denial expectations: „AI hranice" on explicitly (per-root runtime DB).
+  if (options.aiBoundaries !== false) await enforceAiBoundaries(config);
+  return { base: `http://127.0.0.1:${server.port}`, token: config.token, workspaceRoot, config };
 }
 
 function auth(token: string) {
@@ -263,8 +269,160 @@ async function waitFor(predicate: () => Promise<boolean>, timeoutMs = 15_000): P
 }
 
 describe("benchmark API end-to-end", () => {
-  test("catalog, custom tasks, run lifecycle, results, delete", async () => {
-    const { base, token, workspaceRoot } = await startLegalworkServer();
+  test("catalog and custom tasks remain usable; protected runs are refused without side effects and historical runs remain readable", async () => {
+    const { base, token, workspaceRoot, config } = await startLegalworkServer();
+
+    // -- catalog
+    const catalog = await json(await fetch(`${base}/workspace/ws_1/benchmarks/catalog`, { headers: auth(token) }));
+    expect(catalog.ref).toBe(SHA);
+    expect(catalog.items).toHaveLength(1);
+    expect(catalog.verticals).toEqual([{ id: "tax", label: expect.any(String), count: 1 }]);
+    expect(catalog.hydration.total).toBe(1);
+
+    const taskPreview = await json(
+      await fetch(
+        `${base}/workspace/ws_1/benchmarks/catalog/task?key=${encodeURIComponent("tasks/tax/draft-tax-memo")}`,
+        { headers: auth(token) },
+      ),
+    );
+    expect(taskPreview.task.title).toBe("Draft Tax Memo");
+    expect(taskPreview.task.workType).toBe("draft");
+
+    // -- import the Harvey task into the workspace task table
+    const imported = await json(
+      await fetch(`${base}/workspace/ws_1/benchmarks/tasks/import`, {
+        method: "POST",
+        headers: auth(token),
+        body: JSON.stringify({ keys: ["tasks/tax/draft-tax-memo", "tasks/nope/missing"] }),
+      }),
+    );
+    expect(imported.items).toHaveLength(1);
+    expect(imported.items[0]).toMatchObject({
+      id: "tasks/tax/draft-tax-memo",
+      source: "harvey",
+      workType: "draft",
+      docCount: 1,
+    });
+    expect(imported.failed).toHaveLength(1);
+
+    // -- custom task with an uploaded document
+    const customTask = await json(
+      await fetch(`${base}/workspace/ws_1/benchmarks/tasks`, {
+        method: "POST",
+        headers: auth(token),
+        body: JSON.stringify({
+          title: "Review NDA",
+          workType: "review",
+          tags: ["Contracts"],
+          instructions: "Review the NDA and write memo.docx.",
+          deliverables: ["memo.docx"],
+          criteria: [{ title: "Flags clause", matchCriteria: "PASS if the clause is flagged." }],
+          documents: [{ name: "nda.txt", contentBase64: Buffer.from("the nda text").toString("base64") }],
+        }),
+      }),
+      201,
+    );
+    expect(customTask.item.docCount).toBe(1);
+    expect(customTask.item.criteria).toHaveLength(1);
+    const customTaskId = customTask.item.id as string;
+
+    const taskList = await json(await fetch(`${base}/workspace/ws_1/benchmarks/tasks`, { headers: auth(token) }));
+    expect(taskList.items).toHaveLength(2);
+    expect(taskList.items.every((item: { latestResults: unknown[] }) => item.latestResults.length === 0)).toBe(true);
+
+    // -- task documents stage into the workspace so the file viewer can open them
+    const harveyDocs = await json(
+      await fetch(
+        `${base}/workspace/ws_1/benchmarks/tasks/${encodeURIComponent("tasks/tax/draft-tax-memo")}/documents`,
+        { headers: auth(token) },
+      ),
+    );
+    expect(harveyDocs.items).toHaveLength(1);
+    expect(harveyDocs.items[0]).toMatchObject({ name: "input.docx" });
+    expect(existsSync(join(workspaceRoot, harveyDocs.items[0].relativePath))).toBe(true);
+
+    const customDocs = await json(
+      await fetch(`${base}/workspace/ws_1/benchmarks/tasks/${encodeURIComponent(customTaskId)}/documents`, {
+        headers: auth(token),
+      }),
+    );
+    expect(customDocs.items).toHaveLength(1);
+    expect(customDocs.items[0]).toMatchObject({ name: "nda.txt" });
+
+    // Protect actual HTTP admission; positive model/scoring lifecycles remain
+    // in the owned BenchmarkOpencodeClient port fixtures in runner.test.ts.
+    const sessionsBefore = sessionCounter, requestsBefore = inferenceRequests;
+    const created = await fetch(`${base}/workspace/ws_1/benchmarks/runs`, {
+      method: "POST", headers: auth(token), body: JSON.stringify({ title: "Denied run", tasks: ["tasks/tax/draft-tax-memo", customTaskId], models: [{ providerID: "prov", modelID: "model-a" }], concurrency: 2 }),
+    });
+    expect(created.status).toBe(403);
+    expect(await created.json()).toMatchObject({ code: "ai_transfer_denied" });
+    expect(sessionCounter).toBe(sessionsBefore);
+    expect(inferenceRequests).toBe(requestsBefore);
+    expect((await json(await fetch(`${base}/workspace/ws_1/benchmarks/runs`, { headers: auth(token) }))).items).toEqual([]);
+    const tasksAfterDenied = await json(await fetch(`${base}/workspace/ws_1/benchmarks/tasks`, { headers: auth(token) }));
+    expect(tasksAfterDenied.items.every((item: { latestResults: unknown[] }) => item.latestResults.length === 0)).toBe(true);
+
+    // A genuine public store fixture supplies historical non-executing state;
+    // denying a new model request must not hide a lawyer's previous run history.
+    const store = await openBenchmarkStore(config), runId = "historical-interrupted";
+    store.createRun({ id: runId, workspaceId: "ws_1", title: "Previous run", status: "interrupted", judgeProviderId: "deepseek", judgeModelId: "deepseek-v4-flash", concurrency: 1, catalogRef: SHA, createdAt: 1000 }, [{ providerID: "prov", modelID: "model-a" }], []);
+    const list = await json(await fetch(`${base}/workspace/ws_1/benchmarks/runs`, { headers: auth(token) }));
+    expect(list.items.map((item: { id: string }) => item.id)).toEqual([runId]);
+    const detail = await json(await fetch(`${base}/workspace/ws_1/benchmarks/runs/${runId}`, { headers: auth(token) }));
+    expect(detail.run).toMatchObject({ id: runId, status: "interrupted", title: "Previous run" });
+    expect(detail.items).toEqual([]);
+    const resume = await fetch(`${base}/workspace/ws_1/benchmarks/runs/${runId}/resume`, { method: "POST", headers: auth(token) });
+    expect(resume.status).toBe(403); expect(await resume.json()).toMatchObject({ code: "ai_transfer_denied" });
+    expect((await json(await fetch(`${base}/workspace/ws_1/benchmarks/runs/${runId}`, { headers: auth(token) }))).run.status).toBe("interrupted");
+    expect(sessionCounter).toBe(sessionsBefore); expect(inferenceRequests).toBe(requestsBefore);
+
+    // -- delete cleans up
+    await json(
+      await fetch(`${base}/workspace/ws_1/benchmarks/runs/${runId}`, { method: "DELETE", headers: auth(token) }),
+    );
+    const gone = await fetch(`${base}/workspace/ws_1/benchmarks/runs/${runId}`, { headers: auth(token) });
+    expect(gone.status).toBe(404);
+    expect(existsSync(join(workspaceRoot, ".legalwork", "benchmarks", runId))).toBe(false);
+  });
+
+  test("governance denial precedes unavailable-model execution without contacting a provider", async () => {
+    const { base, token, config } = await startLegalworkServer();
+    await json(
+      await fetch(`${base}/workspace/ws_1/benchmarks/tasks/import`, {
+        method: "POST",
+        headers: auth(token),
+        body: JSON.stringify({ keys: ["tasks/tax/draft-tax-memo"] }),
+      }),
+    );
+    const response = await fetch(`${base}/workspace/ws_1/benchmarks/runs`, {
+      method: "POST",
+      headers: auth(token),
+      body: JSON.stringify({
+        tasks: ["tasks/tax/draft-tax-memo"],
+        models: [{ providerID: "prov", modelID: "no-such-model" }],
+      }),
+    });
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as { code: string };
+    expect(body.code).toBe("ai_transfer_denied");
+    expect(inferenceRequests).toBe(0);
+    expect((await json(await fetch(`${base}/workspace/ws_1/benchmarks/runs`, { headers: auth(token) }))).items).toEqual([]);
+    // Model catalog validation remains a pure domain contract, separate from
+    // the current host prohibition on executing protected HTTP jobs.
+    let modelCalls = 0;
+    const unexpected = async () => { modelCalls++; throw new Error("An unavailable model must never execute"); };
+    const client: BenchmarkOpencodeClient = {
+      provider: { list: async () => ({ data: { all: [{ id: "prov", models: { "model-a": {} } }, { id: "deepseek", models: { "deepseek-v4-flash": {} } }] } }) },
+      session: { create: unexpected, prompt: unexpected, promptAsync: unexpected, status: unexpected, messages: unexpected, abort: unexpected, delete: unexpected },
+    };
+    const runner = new BenchmarkRunner({ config, createClient: () => client });
+    await expect(runner.createRun(config.workspaces[0]!, { tasks: ["tasks/tax/draft-tax-memo"], models: [{ providerID: "prov", modelID: "no-such-model" }] })).rejects.toMatchObject({ status: 400, code: "benchmark_model_unavailable" });
+    expect(modelCalls).toBe(0);
+
+  });
+  test("with AI boundaries off (alpha default), catalog, custom tasks, run lifecycle, results, delete", async () => {
+    const { base, token, workspaceRoot } = await startLegalworkServer({ aiBoundaries: false });
 
     // -- catalog
     const catalog = await json(await fetch(`${base}/workspace/ws_1/benchmarks/catalog`, { headers: auth(token) }));
@@ -420,9 +578,8 @@ describe("benchmark API end-to-end", () => {
     expect(gone.status).toBe(404);
     expect(existsSync(join(workspaceRoot, ".legalwork", "benchmarks", runId))).toBe(false);
   });
-
-  test("rejects runs with unavailable models", async () => {
-    const { base, token } = await startLegalworkServer();
+  test("with AI boundaries off (alpha default), rejects runs with unavailable models", async () => {
+    const { base, token } = await startLegalworkServer({ aiBoundaries: false });
     await json(
       await fetch(`${base}/workspace/ws_1/benchmarks/tasks/import`, {
         method: "POST",

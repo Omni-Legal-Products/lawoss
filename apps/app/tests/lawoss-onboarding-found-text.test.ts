@@ -15,3 +15,18 @@ test("parametre sa doplnia a slovenčina nepreberá české pojmy", () => {
 test("bez dlhej pomlčky", () => {
   for (const locale of ["sk", "cs", "en", "de"] as const) for (const value of Object.values(FOUND_TEXT[locale])) expect(value).not.toMatch(/[–—]/);
 });
+
+test("voľby „Toto je“ začínajú veľkým písmenom vo všetkých jazykoch, vety ostávajú malým (test 19. 10. 2026)", () => {
+  const expected = {
+    sk: ["Klient", "Celá prax", "Jeden prípad"],
+    cs: ["Klient", "Celá praxe", "Jeden případ"],
+    en: ["A client", "A whole practice", "One matter"],
+    de: ["Ein Mandant", "Eine ganze Kanzlei", "Eine Angelegenheit"],
+  } as const;
+  for (const locale of ["sk", "cs", "en", "de"] as const) {
+    const text = foundText(locale);
+    expect([text("asClient"), text("asPractice"), text("asMatter")]).toEqual([...expected[locale]]);
+  }
+  expect(foundText("sk")("practiceFound", { count: 3 })).toBe("Vyzerá to ako celá prax: 3 klientov.");
+  expect(foundText("sk")("connectExistingHint")).toBe("Klient, celá prax alebo jeden prípad. Rozpoznám to a spýtam sa.");
+});

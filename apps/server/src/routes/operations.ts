@@ -62,11 +62,19 @@ export function registerOperationRoutes(options: RegisterOperationRoutesOptions)
   addRoute(routes, "POST", "/approvals/:id", "host", async (ctx) => {
     const body = await readJsonBody(ctx.request);
     const pending = ctx.approvals.list().find((item) => item.id === ctx.params.id);
+    if (pending?.nativeOnly && ctx.actor?.type !== "host") {
+      throw new ApiError(403, "native_host_required", "This decision requires the native host.");
+    }
+    if (pending?.nativeOnly && body.reply === "always") {
+      throw new ApiError(400, "native_decision_not_rememberable", "This decision cannot be remembered.");
+    }
     if (pending?.sessionID && (body.sessionID !== pending.sessionID || body.workspaceId !== pending.workspaceId)) {
       throw new ApiError(409, "approval_session_mismatch", "This approval belongs to another chat.");
     }
     const reply = body.reply === "allow" ? "allow" : body.reply === "always" ? "always" : "deny";
-    const result = ctx.approvals.respond(ctx.params.id, reply);
+    const result = pending?.nativeOnly
+      ? ctx.approvals.respondNative(ctx.params.id, reply)
+      : ctx.approvals.respond(ctx.params.id, reply);
     if (!result) {
       throw new ApiError(404, "approval_not_found", "Approval request not found");
     }

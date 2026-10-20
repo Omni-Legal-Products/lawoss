@@ -82,7 +82,6 @@ async function twoClients() {
   if (!a || !b) throw new Error("Both client folders must be registered");
   await grantWikiAgentSession(server.config, { sessionId: "ses_klient_a", directory: clientA, scope: "collaborator" });
   await grantWikiAgentSession(server.config, { sessionId: "ses_klient_b", directory: clientB, scope: "collaborator" });
-  await grantWikiAgentSession(server.config, { sessionId: "ses_viewer_a", directory: clientA, scope: "viewer" });
   const probe = async (calls: Call[]) => probeSchema.parse(await (await fetch(`${server.config.opencodeBaseUrl}/probe`, { method: "POST", body: JSON.stringify(calls) })).json());
   const asA = (path: string, extra: Omit<Call, "path" | "session" | "directory"> = {}): Call => ({ path, session: "ses_klient_a", directory: clientA, ...extra });
   return { server, a, b, clientA, clientB, probe, asA, logs };
@@ -179,7 +178,8 @@ boundary("plugin calls for client A still work and list only client A", async ()
 }, 30_000);
 
 boundary("a chat started by a viewer stays a viewer through the engine", async () => {
-  const { a, probe } = await twoClients();
+  const { server, a, probe } = await twoClients();
+  await grantWikiAgentSession(server.config, {sessionId: "ses_viewer_a", directory: a.path, scope: "viewer"});
   const { results } = await probe([
     { path: `/workspace/${encodeURIComponent(a.id)}/files/content?path=poznamka.md`, session: "ses_viewer_a", directory: (await realpath(a.path)) },
     { path: `/workspace/${encodeURIComponent(a.id)}/files/content`, method: "POST", session: "ses_viewer_a", directory: (await realpath(a.path)), body: { path: "poznamka.md", content: "prepísané" } },
@@ -208,4 +208,17 @@ boundary("neither the engine credential nor a server token appears in the server
   expect(logs.length).toBeGreaterThan(0);
   const text = logs.join("\n");
   for (const value of [secret, "client-token", "host-token", "client-token-from-env", "host-token-from-env"]) expect(text).not.toContain(value);
+}, 30_000);
+
+
+boundary("registered B session claims cannot escape A's immutable runtime pin; A stays usable", async () => {
+  const { a, b, clientA, clientB, probe } = await twoClients();
+  const { results } = await probe([
+    { path: `/workspace/${a.id}/files/content?path=poznamka.md`, session: "ses_klient_a", directory: clientA },
+    { path: `/workspace/${b.id}/files/content?path=tajne.md`, session: "ses_klient_b", directory: clientB },
+    { path: `/workspace/${a.id}/files/content?path=poznamka.md`, session: "ses_klient_a", directory: clientA },
+  ]);
+  expect(results.map(item => item.status)).toEqual([200, 403, 200]);
+  expect(results[1]?.body).toContain("wiki_agent_client_runtime_required");
+  expect(results[1]?.body).not.toContain("DÔVERNÉ");
 }, 30_000);

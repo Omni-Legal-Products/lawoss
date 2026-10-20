@@ -12,6 +12,7 @@ import { Client, parentFolderOf, trialCloneName, welcomeText } from "../src/lawo
 import type { OnboardingProfile } from "../src/lawoss/domains/onboarding/api";
 import { ALPHA_HIDE_MAP_WITHOUT_WRITING, visibleExistingClientModes } from "../src/lawoss/feature-flags";
 import { ATTACH_EXISTING_CLIENT_PATH, organizeFolderLink } from "../src/lawoss/lite/links";
+import { OkfPageState } from "../src/lawoss/domains/okf-page";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
 
 const base: OnboardingProfile = { version: 1, lawyerName: "Testovací advokát", jurisdiction: "sk", language: "sk" };
@@ -81,6 +82,28 @@ describe("connecting an existing client folder", () => {
     expect(novySpis).not.toContain("canonical: true");
   });
 
+  test("a fresh office lands on Klienti a prípady without registering the office root (19. 10. 2026)", () => {
+    const route = readFileSync(join(import.meta.dir, "../src/react-app/shell/welcome-route.tsx"), "utf8");
+    expect(route).toContain("navigate(completion?.landing ?? (activeId ? homeRoute(activeId) : \"/home\"), { replace: true });");
+    const page = readFileSync(join(import.meta.dir, "../src/lawoss/domains/onboarding/lawoss-welcome-page.tsx"), "utf8");
+    expect(page).toContain("onFreshDone={(result) => complete(result, FRESH_OFFICE_COMPLETION)}");
+    // Zbalená voľba klienta sa otvorí len pri chybe priečinka klienta, nie pri inej chybe stránky.
+    expect(page).toContain("chooserOpen={clientFolderError}");
+  });
+
+  test("Klienti without any client folder yet (fresh office) offer Pridať klienta instead of opening a folder", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><OkfPageState connection="ready" workspace={null} error={null} data={undefined} loading={false}
+      noWorkspace={<ClientsView groups={[]} locale="sk" />}>{() => null}</OkfPageState></MemoryRouter>);
+    expect(html).toMatch(/class="lw-today-primary" href="\/welcome\?continue=client"[^>]*>Pridať klienta/);
+    const page = readFileSync(join(import.meta.dir, "../src/lawoss/lite/pages/clients-page.tsx"), "utf8");
+    expect(page).toContain("noWorkspace={<ClientsView groups={[]} locale={locale} />}");
+  });
+
+  test("an empty office shows Klienti with Pridať klienta as the next step", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><ClientsView groups={[]} locale="sk" /></MemoryRouter>);
+    expect(html).toMatch(/lw-clients-empty[\s\S]*class="lw-today-primary" href="\/welcome\?continue=client"[^>]*>Pridať klienta/);
+  });
+
   test("the sidebar icon and the settings button carry the full name", () => {
     const html = renderToStaticMarkup(<MemoryRouter>{withQuery(<OnboardingEntryActions compact />)}</MemoryRouter>);
     expect(html).toContain('aria-label="Add folder"');
@@ -92,6 +115,6 @@ describe("connecting an existing client folder", () => {
     const html = renderToStaticMarkup(<MemoryRouter><ClientsView groups={[]} locale="sk" /></MemoryRouter>);
     expect(html).toContain('href="/welcome?continue=folder"');
     expect(html).toContain("Pripojiť existujúci priečinok klienta");
-    expect(html).toContain("+ Nová vec");
+    expect(html).toContain("+ Nový prípad");
   });
 });

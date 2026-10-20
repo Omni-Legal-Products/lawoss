@@ -12,9 +12,10 @@ export type ShellNavKey = "navHome" | "navScheduled" | "navCalendar" | "navProje
 const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navWikis", "navEvaluations"];
 
 export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionPinnedProjects" | "sectionSharedProjects" | "sectionProjects" | "sectionRecent";
-export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
+export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectMatters" | "projectDeadlines" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
 const DEFAULT_CHAT_ORDER: ChatSectionKey[] = ["navNewChat", "sectionPinned", "sectionPinnedProjects", "sectionSharedProjects", "sectionProjects", "sectionRecent"];
-const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectCalendar", "projectReviews", "projectTasks", "projectFiles", "projectSessions"];
+// LAWOSS: Prípady a Lehoty klienta (lawoss/lite/client-nav.tsx) hneď za Domovom.
+const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectMatters", "projectDeadlines", "projectCalendar", "projectReviews", "projectTasks", "projectFiles", "projectSessions"];
 
 export type ShellConfig = {
   newWindowBehavior: "ask" | "empty" | "copy";
@@ -31,6 +32,8 @@ export type ShellConfig = {
   projectNavOrder: ProjectNavKey[];
   projectCalendar: boolean;
   projectHome: boolean;
+  projectMatters: boolean;
+  projectDeadlines: boolean;
   projectReviews: boolean;
   projectTasks: boolean;
   projectFiles: boolean;
@@ -92,6 +95,8 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   projectNavOrder: DEFAULT_PROJECT_ORDER,
   projectCalendar: true,
   projectHome: true,
+  projectMatters: true,
+  projectDeadlines: true,
   projectReviews: true,
   projectTasks: true,
   projectFiles: true,
@@ -145,6 +150,17 @@ function readChatOrder(value: unknown): ChatSectionKey[] {
   return order;
 }
 
+/** LAWOSS: Prípady a Lehoty doplnené do uloženého poradia idú za Domov, nie na koniec. */
+const LAWOSS_PROJECT_ITEMS: ProjectNavKey[] = ["projectMatters", "projectDeadlines"];
+function readProjectOrder(value: unknown): ProjectNavKey[] {
+  const order = readOrder(value, DEFAULT_PROJECT_ORDER);
+  const added = LAWOSS_PROJECT_ITEMS.filter((key) => Array.isArray(value) && !value.includes(key));
+  if (!added.length) return order;
+  const rest = order.filter((key) => !added.includes(key));
+  rest.splice(rest.indexOf("projectHome") + 1, 0, ...added);
+  return rest;
+}
+
 export function readShellConfig(): ShellConfig {
   if (typeof window === "undefined") return DEFAULT_SHELL_CONFIG;
   try {
@@ -177,7 +193,7 @@ export function readShellConfig(): ShellConfig {
       newWindowBehavior: next.newWindowBehavior === "empty" || next.newWindowBehavior === "copy" ? next.newWindowBehavior : "ask",
       navOrder,
       chatSectionOrder,
-      projectNavOrder: readOrder(next.projectNavOrder, DEFAULT_PROJECT_ORDER),
+      projectNavOrder: readProjectOrder(next.projectNavOrder),
       projectSessions: true,
       // The notifications bell has no UI toggle anymore, so force it off even if
       // an older persisted config had it enabled.

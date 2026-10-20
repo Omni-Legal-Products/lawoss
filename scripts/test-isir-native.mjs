@@ -6,11 +6,12 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, access, symlink, realpath, ren
 import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadNativeCorpus } from "../lawoss/testing/isir/native/corpus.mjs";
 import { startProvider, decodeNativeToolOutput } from "../lawoss/testing/isir/native/provider.mjs";
 import { partialPdf } from "../lawoss/testing/isir/native/partial-pdf.mjs";
-import { connectRenderer, until } from "../lawoss/testing/isir/native/cdp.mjs";
+import { connectRenderer, until as nativeUntil } from "../lawoss/testing/isir/native/cdp.mjs";
+import { createNativeProtectedApprover } from "../lawoss/testing/isir/native/protected-approvals.mjs";
 import { stopForRelaunch } from "../lawoss/testing/isir/native/relaunch-stop.mjs";
 import { readNativeQuitAcceptance } from "../lawoss/testing/isir/native/quit-acceptance.mjs";
 import { stopNativeChild } from "../lawoss/testing/isir/native/owned-process.mjs";
@@ -42,7 +43,8 @@ assert.ok(!requestedEndpointRefresh || (process.env.CI && corpus.mode==='synthet
 // Ordinary complete synthetic native runs always cover metadata refresh. An
 // external corpus and the explicitly partial debug mode keep their own scope.
 const endpointRefresh=corpus.mode==='synthetic' && !debugPair;
-const diagnostics = createNativeDiagnostics({ enabled: process.env.LAWOSS_ISIR_NATIVE_DIAGNOSTICS === '1', ci: Boolean(process.env.CI), mode: corpus.mode, outputFile: process.env.LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE });
+let cdp;
+const diagnostics = createNativeDiagnostics({ enabled: process.env.LAWOSS_ISIR_NATIVE_DIAGNOSTICS === '1', ci: Boolean(process.env.CI), mode: corpus.mode, outputFile: process.env.LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE, readGenerationResponseBody: requestId => cdp.send('Network.getResponseBody',{requestId}) });
 const nativeFetch = diagnostics.fetch;
 const stop = child => stopNativeChild(child,3000,{observe:diagnostics.ownedProcess});
 // An explicit fixture is preflighted, but never substitutes for a prepared
@@ -59,7 +61,10 @@ const profile = path.join(root, "profile");
 diagnostics.bindOwnedRoot(root);
 let engineLogLaunchWallMs=null,engineLogDeadlineWallMs=null;
 const children = [];
-let cdp;
+let protectedApprovals;
+const approvalScopes = new Map();
+const approvalReceipts = [];
+const until = (read, description, timeout) => nativeUntil(async () => {protectedApprovals?.check(); return read();}, description, timeout);
 let boundaryProbe;
 let recoveryVerificationStart;
 let recoveryRendererExpected;
@@ -118,6 +123,7 @@ const relaunchCleanupErrors=[];
 let cleanupPromise;
 const cleanup = () => cleanupPromise ??= (async () => {
   const result = await settleCleanup(primaryError, [
+    async () => {if (protectedApprovals) {await protectedApprovals.close(); approvalReceipts.push(...protectedApprovals.receipts); protectedApprovals = undefined;}},
     () => cdp?.evaluate('window.__isirChooserBoundary?.disconnect()'),
     () => cdp?.close(),
     ...[...children].reverse().map(({child}) => () => stop(child)),
@@ -125,11 +131,19 @@ const cleanup = () => cleanupPromise ??= (async () => {
     () => provider.close(),
     () => preparedEngine.cleanup(),
   ]);
+  if(corpus.mode==='synthetic'&&result.failures.length){
+    try {
+      const seen=new Set();
+      const describe=(error,depth=0)=>{if(depth>8)return {truncated:true};if(error&&typeof error==='object'){if(seen.has(error))return {circular:true};seen.add(error);return {name:error.name,message:error.message,stack:error.stack,...('cause' in error?{cause:describe(error.cause,depth+1)}:{}),...(error instanceof AggregateError?{errors:[...error.errors].map(item=>describe(item,depth+1))}:{})}}return {value:String(error)}};
+      await writeFile(path.join(root,'native-cleanup-errors.private.json'),JSON.stringify({failures:result.failures.map(error=>describe(error))},null,2),{mode:0o600});
+    } catch { /* Supplemental private evidence never changes cleanup decisions. */ }
+  }
   for (const error of result.failures) console.error('Owned native cleanup failure', JSON.stringify(errorMetadata(error)));
   if(primaryError&&engineTraces)console.error('Owned completed engine bootstrap spans',JSON.stringify(engineTraces.snapshot()));
   const processes=children.map(({child,label})=>({label,pid:child.pid,exitCode:child.exitCode,signal:child.signalCode}));
   await writeFile(path.join(root,'process-receipts.json'),JSON.stringify({cleaned:result.failures.length===0,processes},null,2),{mode:0o600});
   await diagnostics.write({events:cdp?.events,error:primaryError,cleanupErrors:[...relaunchCleanupErrors,...result.failures]});
+  if (corpus.mode === "synthetic") await writeFile(path.join(root,"native-context-approvals.json"),JSON.stringify({receipts:approvalReceipts},null,2),{mode:0o600});
   console.log(`Owned native cleanup ${result.failures.length ? 'failed' : 'completed'}; private evidence: ${root}`);
   if (result.error) throw result.error;
 })();
@@ -144,7 +158,8 @@ try {
   await until(async () => (await nativeFetch(env.LEGALWORK_ELECTRON_START_URL)).ok, "owned Vite");
   engineLogLaunchWallMs=Date.now();
   let appChild = launch(electron, [...(process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : []), path.join(repo, "apps/desktop/scripts/isir-native-entry.mjs")], path.join(repo, "apps/desktop"), "electron");
-  cdp = await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch);
+  cdp = await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch, diagnostics.observeNetworkEvent);
+  if (corpus.mode === "synthetic") protectedApprovals = createNativeProtectedApprover({mode: corpus.mode, root, profile, cdpOrigin: `http://127.0.0.1:${cdpPort}`, providerEndpoint: provider.url, request: nativeFetch});
   await cdp.send('Page.enable');
   assert.deepEqual(await cdp.evaluate('({visibility:document.visibilityState,focused:document.hasFocus()})'),{visibility:'visible',focused:true},'Owned native page is active for production UI polling');
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1800,height:1400,deviceScaleFactor:1,mobile:false});
@@ -370,10 +385,57 @@ try {
     }
     diagnostics.phase("generation",index+1);
     const receiptStart=provider.receipts.length,eventStart=cdp.events.length;
+    if (protectedApprovals) {
+      const knownHashes = new Set(entry.documents.map(document => sha256(document.bytes)));
+      const selected = [];
+      for (const source of prepared) {
+        assert.ok(knownHashes.has(source.hash),"Automatic native classification is restricted to the independently hashed synthetic corpus");
+        let offset = 0, text = "";
+        while (offset !== null) {
+          const {body} = await api(workspace,`lawoss/documents/${source.id}/read?offset=${offset}&limit=16000`);
+          assert.equal(body.hash, source.hash); text += body.text;
+          assert.ok(Buffer.byteLength(text) <= 4 * 1024 * 1024,"Synthetic native context must remain fully reviewable");
+          offset = body.nextOffset;
+        }
+        assert.ok(text.includes(`SYNTHETIC case ${index+1} `),"Expected synthetic source canary precedes native approval");
+        selected.push({id: source.id, hash: source.hash, path: source.path, text});
+      }
+      const expectation = {workspaceId: workspace.id, hostDirectory: workspace.path, sources: selected};
+      approvalScopes.set(workspace.id, expectation); protectedApprovals.expectOperation(expectation);
+    }
+    const provisionStartedAtMs=Date.now(), nativeReviewStart=protectedApprovals?.receipts.length??0;
     await click('Generate through chat');
-    const binding=await until(()=>cdp.evaluate(`JSON.parse(localStorage.getItem('lawoss.document-generations.v1')??'[]').map(x=>x[1]).find(b=>b.workspaceId===${JSON.stringify(workspace.id)})`),'persisted native generation binding');
+    // Cold VM provisioning and the initial complete-source native review precede
+    // inference. Preserve the separate existing 90-second generation oracle.
+    const provisionResponse = await until(()=>{
+      const events=cdp.events.slice(eventStart);
+      const request=events.find(event=>event.method==='Network.requestWillBeSent'&&event.params.request.method==='POST'&&new URL(event.params.request.url).pathname===`/workspace/${workspace.id}/lawoss/documents/generation`);
+      return request&&events.find(event=>event.method==='Network.responseReceived'&&event.params.requestId===request.params.requestId);
+    },'actual confined VM ready response before inference',240000);
+    console.log('Native provisioning response',JSON.stringify({status:provisionResponse.params.response.status,elapsedMs:Date.now()-provisionStartedAtMs}));
+    if(provisionResponse.params.response.status!==200){
+      let code='unclassified';
+      try {
+        const raw=(await cdp.send('Network.getResponseBody',{requestId:provisionResponse.params.requestId})).body,value=JSON.parse(raw);
+        const known=['protected_runtime_capacity','protected_checkpoint_busy','protected_checkpoint_failed','protected_checkpoint_invalid','protected_runtime_unavailable','protected_session_busy','host_decision_stale','protected_directory_denied','protected_source_scope','protected_source_denied','protected_prompt_invalid','protected_ai_denied','protected_ai_profile_missing','protected_runtime_closed'];
+        if(known.includes(value?.code))code=value.code;
+        if(corpus.mode==='synthetic')await writeFile(path.join(root,'protected-provision-refusal.private.json'),raw,{mode:0o600});
+      } catch { /* Preserve the real status failure even if supplemental evidence is unavailable. */ }
+      console.log('Native provisioning refusal',JSON.stringify({status:provisionResponse.params.response.status,code}));
+    }
+    assert.equal(provisionResponse.params.response.status,200,'Protected document provisioning must return HTTP200');
+    const provision = await until(async()=>{try {return JSON.parse((await cdp.send('Network.getResponseBody',{requestId:provisionResponse.params.requestId})).body);} catch {return false;}},'actual host-to-guest directory mapping');
+    assert.equal(provision.directoryMapping.hostDirectory,workspace.path);
+    assert.equal(provision.directoryMapping.guestDirectory,'/tmp/home/protected-engine/workspace');
+    assert.match(provision.directoryMapping.rootIdentity,/^[a-f0-9]{64}$/);
+    assert.equal(provision.legalApproval,false);
+    diagnostics.generationStart(index+1,cdp.events,eventStart,{origin:serverInfo.baseUrl,workspaceId:workspace.id,sessionId:provision.session.id});
+    const binding=await until(()=>cdp.evaluate(`JSON.parse(localStorage.getItem('lawoss.document-generations.v1')??'[]').map(x=>x[1]).find(b=>b.workspaceId===${JSON.stringify(workspace.id)}&&b.transport==='protected-documents-v1')`),'persisted native protected generation binding');
+    assert.equal(provision.session.id,binding.sessionId,"Actual provisioned VM session owns the native prompt");
     assert.match(binding.messageId,/^msg_[a-f0-9]{12}[A-Za-z0-9]{14}$/);
     assert.ok(['accepted','running'].includes(binding.phase),'Immediate acknowledgment stays active');
+    const inferenceStartedAtMs=Date.now();
+    console.log('Native generation ready',JSON.stringify({elapsedMs:Date.now()-provisionStartedAtMs,providerReceiptCount:provider.receipts.length-receiptStart,sourceRequestCount:provider.receipts.slice(receiptStart).filter(receipt=>receipt.sources.length).length,latestOrdinal:Math.max(0,...provider.receipts.slice(receiptStart).map(receipt=>receipt.ordinal??0)),nativeReviewCount:(protectedApprovals?.receipts.length??0)-nativeReviewStart,initialReviewCount:protectedApprovals?.receipts.slice(nativeReviewStart).filter(receipt=>receipt.action==='ai.documents.synthetic').length??0,wireReviewCount:protectedApprovals?.receipts.slice(nativeReviewStart).filter(receipt=>receipt.action==='ai.protected.synthetic').length??0}));
     const generation=await until(()=>{
       const receipts=provider.receipts.slice(receiptStart).filter(r=>r.sources.length);
       const last=receipts.at(-1);
@@ -381,7 +443,18 @@ try {
       if(error)return {error:decodeNativeToolOutput(error.content).error};
       const result=last?.toolResults.map(r=>{try{return decodeNativeToolOutput(r.content)}catch{return null}}).find(r=>r&&typeof r.valid==='boolean');
       return result?{result,receipts}:false;
-    },'actual engine tool validation result',90000);
+    },'actual engine tool validation result',90000).catch(async error => {
+      console.log('Native generation incomplete',JSON.stringify({elapsedMs:Date.now()-inferenceStartedAtMs,providerReceiptCount:provider.receipts.length-receiptStart,sourceRequestCount:provider.receipts.slice(receiptStart).filter(receipt=>receipt.sources.length).length,latestOrdinal:Math.max(0,...provider.receipts.slice(receiptStart).map(receipt=>receipt.ordinal??0)),nativeReviewCount:(protectedApprovals?.receipts.length??0)-nativeReviewStart,initialReviewCount:protectedApprovals?.receipts.slice(nativeReviewStart).filter(receipt=>receipt.action==='ai.documents.synthetic').length??0,wireReviewCount:protectedApprovals?.receipts.slice(nativeReviewStart).filter(receipt=>receipt.action==='ai.protected.synthetic').length??0}));
+      // Private, wholly synthetic failure evidence only. Preserve the original
+      // oracle and error; a diagnostic read never counts as tool completion.
+      if (corpus.mode === 'synthetic') {
+        try {
+          const response = await nativeFetch(`${serverInfo.baseUrl}/workspace/${workspace.id}/opencode/session/${binding.sessionId}/message`, {headers:serverAuth,signal:AbortSignal.timeout(3000)});
+          await writeFile(path.join(root,'protected-generation-engine.json'),JSON.stringify({status:response.status,body:await response.json()},null,2),{mode:0o600});
+        } catch { /* Supplemental diagnostics must not mask the failed oracle. */ }
+      }
+      throw error;
+    });
     assert.equal(generation.error,undefined,`Production native tool failed: ${generation.error}`);
     assert.equal(generation.result.valid,true,JSON.stringify(generation.result.issues));
     const actualHashes={};
@@ -405,7 +478,7 @@ try {
     assert.ok(cdp.events.slice(eventStart).some(e=>e.method==='Network.responseReceived'&&e.params.requestId===requests[0].params.requestId&&e.params.response.status===204),'Immediate production204 response');
     await openFiles(workspace);await click('Dokumenty');await click('Prepare this folder');
     await until(async()=>{const text=await panelText();return text.includes('Chat run ended; separate checks')&&text.includes('Format and sources verified')},'renderer completed binding and current output verification');
-    const terminalBinding=await cdp.evaluate(`JSON.parse(localStorage.getItem('lawoss.document-generations.v1')??'[]').map(x=>x[1]).find(b=>b.workspaceId===${JSON.stringify(workspace.id)})`);
+    const terminalBinding=await cdp.evaluate(`JSON.parse(localStorage.getItem('lawoss.document-generations.v1')??'[]').map(x=>x[1]).find(b=>b.workspaceId===${JSON.stringify(workspace.id)}&&b.transport==='protected-documents-v1')`);
     assert.equal(terminalBinding.nativeRunObserved,true,'Production native SSE busy status was consumed');
     assert.ok(terminalBinding.nativeRevision>=2,'Native live lifecycle revision includes busy/idle');
     assert.equal(terminalBinding.phase,'completed');
@@ -415,7 +488,7 @@ try {
     if(index<workspaces.length-1)assert.ok(!siblingFiles.includes('native-registry.csv'),'Generate must not write to the next project');
     const foreign=await api(sibling,`lawoss/documents/${prepared[0].id}/read`);
     assert.notEqual(foreign.response.status,200,'A different selected project cannot read this evidence ID');
-    evidence.push({workspaceId:workspace.id,pickerReceipt,nativeRevision:terminalBinding.nativeRevision,documentIds:prepared.map(d=>d.id),sessionId:binding.sessionId,messageId:binding.messageId,sourceHashes:entry.documents.map(d=>sha256(d.bytes)),outputHashes:actualHashes,nativeSubmission:{messageID:payload.messageID,model:payload.model,agent:payload.agent,variant:payload.variant,status:204},assistantParentIds:[...new Set(snapshot.messages.filter(m=>m.info.role==='assistant').map(m=>m.info.parentID))],toolNames:parts.filter(p=>p.type==='tool').map(p=>p.tool)});
+    evidence.push({workspaceId:workspace.id,pickerReceipt,nativeRevision:terminalBinding.nativeRevision,directoryMapping:provision.directoryMapping,operationId:provision.operationId,documentIds:prepared.map(d=>d.id),sessionId:binding.sessionId,messageId:binding.messageId,sourceHashes:entry.documents.map(d=>sha256(d.bytes)),outputHashes:actualHashes,nativeSubmission:{messageID:payload.messageID,model:payload.model,agent:payload.agent,variant:payload.variant,status:204},assistantParentIds:[...new Set(snapshot.messages.filter(m=>m.info.role==='assistant').map(m=>m.info.parentID))],toolNames:parts.filter(p=>p.type==='tool').map(p=>p.tool)});
     console.log(`${debugPair?"DEBUG":"PASS"} native case ${index+1}/10: picker/drop, all sources, real engine tools, saved/validated hashes, native204+terminal`);
   }
   await writeFile(path.join(root,'native-receipts.json'),JSON.stringify({mode:corpus.mode,fullMatrix:!debugPair,engineVersion:health.version,engineIdentities,cases:evidence},null,2),{mode:0o600});
@@ -452,6 +525,10 @@ try {
   const chatRequest=await until(()=>cdp.events.slice(chatStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&new URL(e.params.request.url).pathname===chatQueuePath&&JSON.parse(e.params.request.postData??'{}').type==='enqueue'),'ordinary native chat queue submission');
   const queuedChat=JSON.parse(chatRequest.params.request.postData);
   assert.equal(queuedChat.execution.kind,'prompt');assert.deepEqual(queuedChat.execution.model,{providerID:'isir-native',modelID:'synthetic'});assert.equal(queuedChat.execution.agent,'legalwork');assert.equal(queuedChat.execution.variant,'high');
+  const queuedAttachmentFiles=queuedChat.execution.parts.filter(part=>part.type==='file');
+  assert.equal(queuedAttachmentFiles.length,1,'The structured upload mention becomes one actual typed file capability');
+  assert.equal(queuedAttachmentFiles[0].url,pathToFileURL(attachment).href,'Protected upload uses the registered physical workspace root, not a subcase or Markdown inference');
+
   await until(()=>cdp.events.slice(chatStart).some(e=>e.method==='Network.responseReceived'&&e.params.requestId===chatRequest.params.requestId&&e.params.response.status===200),'ordinary native queue admission returned200');
   diagnostics.promptEnd('attachment');
   const attachmentPath=path.relative(chatWorkspace.path,attachment).replaceAll('\\','/');
@@ -460,7 +537,21 @@ try {
   const uploaded=cdp.events.slice(attachStart).find(e=>e.method==='Network.responseReceived'&&e.params.response.url.endsWith(`/workspace/${chatWorkspace.id}/files/raw`)&&e.params.response.status===200);
   assert.ok(uploaded,'Actual authenticated binary upload returned200');
   extraEvidence.chat={path:attachmentPath,hash:sha256(await readFile(attachment)),uploadStatus:200,promptRequestId:chatRequest.params.requestId};
-  await until(async()=>{const {body}=await api(chatWorkspace,`sessions/${chatEvidence.sessionId}/snapshot?limit=20`);const user=body.item?.messages.find(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('Native attachment submission fixture.')));return body.item?.status.type==='idle'&&user&&body.item.messages.some(m=>m.info.parentID===user.info.id&&m.info.finish==='stop')},'real engine stores and completes native attachment turn');
+  const attachmentSnapshot=await until(async()=>{const {body}=await api(chatWorkspace,`sessions/${chatEvidence.sessionId}/snapshot?limit=20`);const user=body.item?.messages.find(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('Native attachment submission fixture.')));return body.item?.status.type==='idle'&&user&&body.item.messages.some(m=>m.info.parentID===user.info.id&&m.info.finish==='stop')?body.item:false},'real engine stores and completes native attachment turn');
+  const attachmentUser=attachmentSnapshot.messages.find(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('Native attachment submission fixture.')));
+  assert.ok(attachmentUser.parts.every(part=>part.type!=='file'),'The guest never receives a host file URL');
+  const normalizedAttachments=attachmentUser.parts.flatMap(part=>{if(part.type!=='text')return [];try{const value=JSON.parse(part.text);return value?.untrustedSelectedDocument===true?[value]:[]}catch{return []}});
+  assert.equal(normalizedAttachments.length,1,'Actual engine history contains one host-normalized selected source, not only an uploaded path');
+  const normalizedAttachment=normalizedAttachments[0];
+  assert.ok(chatEvidence.documentIds.includes(normalizedAttachment.documentId),'Normalized evidence belongs to this exact protected selection');
+  assert.equal(normalizedAttachment.sha256,sha256(chatSource.bytes));
+  assert.equal(normalizedAttachment.uploadedCopyPath,attachmentPath);
+  let normalizedSourceText='',normalizedSourcePath,normalizedOffset=0;
+  while(normalizedOffset!==null){const {body}=await api(chatWorkspace,`lawoss/documents/${normalizedAttachment.documentId}/read?offset=${normalizedOffset}&limit=16000`);assert.equal(body.hash,normalizedAttachment.sha256);normalizedSourceText+=body.text;normalizedSourcePath=body.provenance.sourcePath;normalizedOffset=body.nextOffset;}
+  assert.ok(normalizedSourceText.length>0,'The normalized attachment contains actual prepared evidence text');
+  assert.equal(normalizedAttachment.text,normalizedSourceText);
+  assert.equal(normalizedAttachment.originalPath,normalizedSourcePath);
+  extraEvidence.chat.normalizedSource={documentId:normalizedAttachment.documentId,sha256:normalizedAttachment.sha256,uploadedCopyPath:normalizedAttachment.uploadedCopyPath,textHash:sha256(Buffer.from(normalizedSourceText))};
   assert.equal(sha256(await readFile(attachment)),sha256(chatSource.bytes));
   console.log('PASS native composer attachment upload, actual saved bytes and real engine submission');
   // Actual saved bytes are the input for invalidation tests, never generated
@@ -527,12 +618,13 @@ try {
     // Source selection returns to the supported Dokumenty scope; extra
     // negative inputs remain on disk and are never manually deselected there.
     await openFiles(last);await click('Dokumenty');await click('Prepare this folder');
+    const currentGeneration=await until(()=>cdp.evaluate(`(()=>{const panel=document.querySelector('[aria-label="Document processing"]');const controls=[...panel.querySelectorAll('button')].filter(e=>['Generate through chat','Start a new generation','Retry in created chat'].includes(e.textContent.trim())&&e.getBoundingClientRect().width>0);return controls.length===1&&!controls[0].disabled?{enabled:true}:false})()`),'current enabled native generation control');
+    assert.equal(currentGeneration.enabled,true);
     const before=cdp.events.length;
     await cdp.evaluate(`(()=>{const e=document.querySelector('[aria-label="Document processing"] label input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'../case-01');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
     await until(()=>cdp.evaluate(`document.querySelector('[aria-label="Document processing"] label input').value==='../case-01'`),'actual cross-project working-directory input');
-    await click('Generate through chat');
-    await until(()=>cdp.evaluate(`!!document.querySelector('[aria-label="Document processing"] [role="alert"]')`),'cross-project working directory is refused');
-    const crossRequests=cdp.events.slice(before).filter(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&(e.params.request.url.endsWith('/prompt_async')||/\/opencode\/session(?:\?|$)/.test(e.params.request.url)));
+    await until(()=>cdp.evaluate(`(()=>{const panel=document.querySelector('[aria-label="Document processing"]');const alert=[...panel.querySelectorAll('[role="alert"]')].some(e=>e.textContent.includes('Enter an existing subdirectory of the selected project.'));const controls=[...panel.querySelectorAll('button')].filter(e=>['Generate through chat','Start a new generation','Retry in created chat'].includes(e.textContent.trim())&&e.getBoundingClientRect().width>0);return alert&&controls.length===1&&controls[0].disabled})()`),'cross-project working directory has an immediate visible refusal and disabled generation control');
+    const crossRequests=cdp.events.slice(before).filter(e=>{if(e.method!=='Network.requestWillBeSent'||e.params.request.method!=='POST')return false;const pathname=new URL(e.params.request.url).pathname;return pathname.endsWith('/lawoss/documents/generation')||pathname.endsWith('/prompt_async')||/\/opencode\/session(?:\/|$)/.test(pathname)||/\/sessions\/[^/]+\/queue$/.test(pathname)});
     assert.equal(crossRequests.length,0,'Invalid working scope cannot create or submit an engine session');
     await cdp.evaluate(`(()=>{const e=document.querySelector('[aria-label="Document processing"] label input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
     console.log('PASS native pending/partial states, collision bytes, edited and wrong-identity invalidation, cross-project no writes');
@@ -541,6 +633,7 @@ try {
   const first=workspaces[0],oldPath=first.path,moved=path.join(root,'cases','case-01 přesunutý spis');
   await openFiles(first);
   diagnostics.phase("relaunch");
+  if (protectedApprovals) {await protectedApprovals.close(); approvalReceipts.push(...protectedApprovals.receipts); protectedApprovals = undefined;}
   await stopForRelaunch({
     requestQuit:()=>cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('isirNativeQuit')"),
     readQuitAcceptance:()=>readNativeQuitAcceptance(appChild.isirNativeQuitAcceptance),
@@ -549,7 +642,7 @@ try {
   await rename(oldPath,moved);
   await writeFile(path.join(root,'chooser.json'),JSON.stringify({paths:[moved]}));
   appChild=launch(electron,[...(process.platform==='linux'?['--no-sandbox','--disable-gpu']:[]),path.join(repo,'apps/desktop/scripts/isir-native-entry.mjs')],path.join(repo,'apps/desktop'),'electron-relaunch');
-  cdp=await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch);
+  cdp=await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch, diagnostics.observeNetworkEvent);
   await cdp.send('Page.enable');
   assert.deepEqual(await cdp.evaluate('({visibility:document.visibilityState,focused:document.hasFocus()})'),{visibility:'visible',focused:true},'Relaunched owned page is active for production UI polling');
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1800,height:1400,deviceScaleFactor:1,mobile:false});
@@ -559,6 +652,10 @@ try {
   await click('Reconnect project folder');
   await until(async()=>{const saved=JSON.parse(await readFile(path.join(profile,'legalwork-workspaces.json'),'utf8'));const found=saved.workspaces.find(w=>w.id===first.id);return found?.path===moved},'production native chooser canonical reconnect transaction',90000);
   await until(()=>['/workspace/'+first.id+'/reconnect','/workspaces/'+first.id+'/activate'].every(path=>cdp.events.slice(recoveryStart).some(e=>e.method==='Network.responseReceived'&&new URL(e.params.response.url).pathname.endsWith(path)&&e.params.response.status===200)),'actual native reconnect and activation200');
+  if (corpus.mode === "synthetic") {
+    protectedApprovals = createNativeProtectedApprover({mode: corpus.mode, root, profile, cdpOrigin: `http://127.0.0.1:${cdpPort}`, providerEndpoint: provider.url, request: nativeFetch});
+    for (const [workspaceId, expectation] of approvalScopes) protectedApprovals.expectOperation({...expectation, hostDirectory: workspaceId === first.id ? moved : expectation.hostDirectory});
+  }
   first.path=moved;
   await openFiles(first);
   serverInfo=await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('legalworkServerInfo')");
@@ -578,6 +675,14 @@ try {
   assert.equal(recovered.response.status,200);assert.equal(recovered.body.item.session.id,evidence[0].sessionId);
   assert.equal(recovered.body.item.session.directory,moved);
   assert.ok(recovered.body.item.messages.some(m=>m.info.id===evidence[0].messageId),'Original engine message ID/history survives native reconnect');
+  const mappingResponse = await engineRequest(`/session/${encodeURIComponent(evidence[0].sessionId)}/protected-transport`);
+  assert.equal(mappingResponse.status,200,'The actual owning protected runtime publishes its current measured mapping');
+  const recoveredTransport = await mappingResponse.json();
+  assert.equal(recoveredTransport.directoryMapping.hostDirectory,moved);
+  assert.equal(recoveredTransport.directoryMapping.guestDirectory,'/tmp/home/protected-engine/workspace');
+  assert.match(recoveredTransport.directoryMapping.rootIdentity,/^[a-f0-9]{64}$/);
+  assert.notEqual(recoveredTransport.directoryMapping.rootIdentity,evidence[0].directoryMapping.rootIdentity,'Moved host ownership requires a fresh measured binding');
+  assert.equal(recoveredTransport.legalApproval,false);
   diagnostics.recoveryStage('session-open');
   await cdp.evaluate(`window.__legalworkControl.execute('session.open',{sessionId:${JSON.stringify(evidence[0].sessionId)}})`);
   diagnostics.recoveryStage('composer-wait');
@@ -593,24 +698,40 @@ try {
   const recoveryRequest=await until(()=>cdp.events.slice(recoveryPromptStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&new URL(e.params.request.url).pathname===recoveryQueuePath&&JSON.parse(e.params.request.postData??'{}').type==='enqueue'&&e.params.request.postData.includes('NATIVE_RECOVERED_CWD_PROOF')),'actual recovered-session native queue submission');
   await until(()=>cdp.events.slice(recoveryPromptStart).some(e=>e.method==='Network.responseReceived'&&e.params.requestId===recoveryRequest.params.requestId&&e.params.response.status===200),'recovered-session queue admission returned200');
   diagnostics.promptEnd('recovery');
+  diagnostics.recoveryStage('runtime-readiness');
+  // Queue admission stores intent; a restored operation must independently
+  // finish its fresh native admission and cold provision before inference.
+  await until(async()=>{
+    const response=await engineRequest(`/session/${encodeURIComponent(evidence[0].sessionId)}/protected-transport`);
+    assert.equal(response.status,200);
+    const state=await response.json();
+    assert.equal(state.sessionId,evidence[0].sessionId);
+    assert.equal(state.directoryMapping.hostDirectory,moved);
+    assert.equal(state.directoryMapping.guestDirectory,'/tmp/home/protected-engine/workspace');
+    assert.equal(state.directoryMapping.rootIdentity,recoveredTransport.directoryMapping.rootIdentity);
+    assert.equal(state.legalApproval,false);
+    return state.runtimeState==='ready';
+  },'recovered protected runtime is ready after fresh native admission and cold provision',240000);
   diagnostics.recoveryStage('fresh-poll');
   const freshRead=await until(async()=>{
     const {body}=await api(first,`sessions/${evidence[0].sessionId}/snapshot?limit=20`),item=body.item;
     const user=item?.messages.find(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('NATIVE_RECOVERED_CWD_PROOF')));
     const assistant=user&&item.messages.find(m=>m.info.parentID===user.info.id&&m.info.finish==='stop');
     const read=user&&item.messages.filter(m=>m.info.parentID===user.info.id).flatMap(m=>m.parts).find(p=>p.type==='tool'&&p.tool==='lawoss_documents_read'&&p.state.status==='completed');
-    const cwd=user&&item.messages.filter(m=>m.info.parentID===user.info.id).flatMap(m=>m.parts).find(p=>p.type==='tool'&&p.tool==='legalwork_shell'&&p.state.status==='completed'&&p.state.input.command===(process.platform==='win32'?'node -p "process.cwd()"':'pwd'));
-    return item?.status.type==='idle'&&assistant&&read&&cwd?{session:item.session,user:user.info.id,read,cwd}:false;
+    const tools=user&&item.messages.filter(m=>m.info.parentID===user.info.id).flatMap(m=>m.parts).filter(p=>p.type==='tool');
+    return item?.status.type==='idle'&&assistant&&read?{session:item.session,user:user.info.id,read,tools}:false;
   },'real engine executes a fresh scoped document read after native reconnect',60000);
   diagnostics.recoveryStage('fresh-check');
   assert.equal(freshRead.session.directory,moved);assert.equal(freshRead.session.id,evidence[0].sessionId);
   assert.ok(evidence[0].documentIds.includes(freshRead.read.state.input.id));
-  assert.equal(freshRead.cwd.state.input.workdir,undefined,'Managed shell uses the recovered default directory without an explicit path');
-  assert.equal(freshRead.cwd.state.metadata.exit,0,'Actual managed shell command exited successfully');
-  assert.equal(freshRead.cwd.state.metadata.sandbox,'host','Actual host shell reports the recovered native folder');
-  assert.equal(freshRead.cwd.state.output.trim(),moved,"Actual managed shell cwd uses the moved folder, without an absolute read operand");
+  const readEvidence = decodeNativeToolOutput(freshRead.read.state.output);
+  assert.equal(readEvidence.workspaceId,first.id);
+  assert.equal(readEvidence.id,freshRead.read.state.input.id);
+  assert.ok(evidence[0].sourceHashes.includes(readEvidence.hash),'Recovered real tool evidence still belongs to the independently hashed selected originals');
+  if (corpus.mode === 'synthetic') assert.ok(readEvidence.text.includes('SYNTHETIC case 1 '),'The fresh VM tool read returns the selected synthetic source bytes');
+  assert.ok(freshRead.tools.every(part=>['lawoss_documents_list','lawoss_documents_read','lawoss_documents_export','lawoss_documents_validate'].includes(part.tool)),'Recovered protected execution never invokes a general host shell or unrelated capability');
   assert.equal(await access(oldPath).then(()=>true,()=>false),false);
-  extraEvidence.recoveryRead={sessionId:freshRead.session.id,messageId:freshRead.user,directory:freshRead.session.directory,actualPwd:freshRead.cwd.state.output.trim(),documentId:freshRead.read.state.input.id,promptRequestId:recoveryRequest.params.requestId};
+  extraEvidence.recoveryRead={sessionId:freshRead.session.id,messageId:freshRead.user,directory:freshRead.session.directory,directoryMapping:recoveredTransport.directoryMapping,sourceHash:readEvidence.hash,documentId:freshRead.read.state.input.id,promptRequestId:recoveryRequest.params.requestId};
   // Every output, source and project is independently reread after an actual
   // Electron shutdown and launch with the same profile, not store reconstruction.
   diagnostics.recoveryStage('retained-files');
@@ -658,6 +779,7 @@ try {
   primaryError = error;
   for(const failure of relaunchCleanupErrors)console.error('Relaunch owned cleanup failure',JSON.stringify(errorMetadata(failure)));
   const failure = diagnostics.failure(error);
+  try { diagnostics.captureGenerationHostErrors(children); } catch { /* Diagnostics cannot replace the primary failure. */ }
   console.error('Primary native failure before cleanup', JSON.stringify(failure));
   await diagnostics.captureEngineLog({error,selectedDirectory:workspaces[0].path,launchWallMs:engineLogLaunchWallMs,deadlineWallMs:engineLogDeadlineWallMs}).catch(()=>undefined);
   const fetchPhases=children.filter(owner=>['electron','electron-relaunch'].includes(owner.label)).flatMap(owner=>nativeEngineFetchRecords(owner.output()).map(record=>({process:owner.label,...record}))).slice(-64);

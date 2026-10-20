@@ -6,7 +6,7 @@ import { z } from "zod";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { ensureWikiAgentToken, grantWikiAgentSession, revokeWikiAgentSession } from "./agent-access.js";
-import { waitForApprovals, respondApproval } from "./approval.test-helpers.js";
+import { listApprovals, waitForApprovals, respondApproval } from "./approval.test-helpers.js";
 
 const cleanup: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const stop of cleanup.splice(0).reverse()) await stop(); });
@@ -65,15 +65,21 @@ test("scope changes and deleted chats revoke grants; revoke while approval is pe
   await grantWikiAgentSession(f.config, { sessionId: "chat", directory: f.wiki.root, scope: "collaborator" });
   expect([403, 404]).toContain((await f.agent(`${f.base}/matter/read?path=note.txt`)).status);
   await grantWikiAgentSession(f.config, { sessionId: "chat", directory: f.wiki.root, scope: "owner" });
-  const pending = f.agent(`${f.base}/matter/access`, "POST");
-  const [approval] = await waitForApprovals(f.url, f.config.hostToken);
-  expect((await f.host(`${f.base}/matter/access`, "DELETE")).status).toBe(200);
+  // A process credential's downgraded role cannot be elevated by regranting an owner session.
+  expect([403,404]).toContain((await f.agent(`${f.base}/matter/access`,"POST")).status);
+  expect([403,404]).toContain((await f.agent(`${f.base}/matter/read?path=note.txt`)).status);
+  expect(await listApprovals(f.url,f.config.hostToken)).toEqual([]);
+  // Pending-owner lifecycle assertions require an independent owner-only runtime.
+  const owner = await fixture();
+  const pending = owner.agent(`${owner.base}/matter/access`, "POST");
+  const [approval] = await waitForApprovals(owner.url, owner.config.hostToken);
+  expect((await owner.host(`${owner.base}/matter/access`, "DELETE")).status).toBe(200);
   expect(approval.action).toBe("wiki.project.read");
   expect((await pending).status).toBe(403);
-  expect((await f.agent(`${f.base}/matter/read?path=note.txt`)).status).toBe(403);
-  expect((await f.requestAccess("allow")).status).toBe(200);
-  revokeWikiAgentSession(f.config, "chat");
-  expect((await f.agent(`${f.base}/matter/read?path=note.txt`)).status).toBe(403);
+  expect((await owner.agent(`${owner.base}/matter/read?path=note.txt`)).status).toBe(403);
+  expect((await owner.requestAccess("allow")).status).toBe(200);
+  revokeWikiAgentSession(owner.config, "chat");
+  expect((await owner.agent(`${owner.base}/matter/read?path=note.txt`)).status).toBe(403);
 });
 
 

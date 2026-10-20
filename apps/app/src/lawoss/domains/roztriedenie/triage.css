@@ -29,6 +29,8 @@
 }
 /* Usporiadanie vnútri onboardingu: premenné a panely ako na stránke, bez okrajov a žiary stránky. */
 .lw-triage.lw-triage-embedded { max-width: none; margin: 0; padding: 0; }
+/* Náhľad presunov v onboardingu dostane šírku okna; v úzkom stĺpci sa tabuľka nedala čítať (test 19. 10. 2026). */
+.lw-onb-main:has([data-lawoss-reorganize]) { max-width: 1180px; }
 .lw-triage.lw-triage-embedded::before { display: none; }
 .lw-triage > * { position: relative; animation: lw-okf-rise 620ms var(--td-ease) both; animation-delay: calc(var(--lw-i, 0) * 60ms); }
 
@@ -79,6 +81,7 @@
 .lw-triage-stats > div { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border: 1px solid var(--td-line); border-radius: var(--td-radius); background: var(--td-glass), var(--lw-surface); }
 .lw-triage-stats dd { order: 1; margin: 0; font-family: var(--lw-font-mono); font-size: 24px; font-weight: 600; }
 .lw-triage-stats dt { order: 2; font-size: 12px; color: var(--lw-text-secondary); }
+.lw-triage-stats dt small { display: block; margin-top: 2px; font-size: 11px; color: var(--lw-text-tertiary); }
 .lw-triage-stats [data-tone="gold"] dd { color: var(--td-gold-hi); }
 .lw-triage-stats [data-tone="calm"] dd { color: var(--lw-text-secondary); }
 
@@ -98,6 +101,8 @@
 .lw-triage-matter::after { content: ""; position: absolute; inset: 0 20% auto; height: 1px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--td-gold) 55%, transparent), transparent); }
 .lw-triage-matter strong { font-size: 14px; }
 .lw-triage-matter small { font-size: 12px; color: var(--lw-text-secondary); }
+.lw-triage-leave { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; cursor: pointer; }
+.lw-triage-leave input { accent-color: var(--td-gold); width: 16px; height: 16px; }
 
 .lw-triage-table-wrap { padding: 4px 0; overflow-x: auto; }
 .lw-triage-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -107,13 +112,15 @@
 .lw-triage-table tbody tr { transition: background 160ms var(--td-ease); }
 .lw-triage-table tbody tr:hover { background: color-mix(in srgb, var(--lw-text-primary) 4%, transparent); }
 .lw-triage-table tr[data-role="inbox"] .lw-triage-role { color: var(--lw-text-secondary); }
-.lw-triage-name { font-weight: 500; max-width: 260px; overflow-wrap: anywhere; }
-.lw-triage-path { display: block; font-family: var(--lw-font-mono); font-size: 11px; color: var(--lw-text-tertiary); overflow-wrap: anywhere; }
-td.lw-triage-path { display: table-cell; max-width: 180px; }
-.lw-triage-from-root { font-size: 12px; color: var(--lw-text-tertiary); white-space: nowrap; }
-.lw-triage-role { display: inline-flex; align-items: center; gap: 4px; font-weight: 500; }
-.lw-triage-matter-chip { display: inline-block; margin: 4px 0 2px; padding: 1px 8px; border-radius: 999px; font-size: 11px; color: var(--td-gold-hi); background: color-mix(in srgb, var(--td-gold) 12%, transparent); }
-.lw-triage-matter-chip em { font-style: normal; opacity: 0.75; }
+/* Názvy a priečinky proporčným písmom, zalomené medzi slovami; dlhý priečinok skrátený, celá cesta v tooltipe (test 19. 10. 2026). */
+.lw-triage-name { font-weight: 500; min-width: 160px; max-width: 280px; overflow-wrap: break-word; }
+.lw-triage-from, .lw-triage-from-root { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--lw-text-secondary); }
+.lw-triage-from-root { color: var(--lw-text-tertiary); }
+.lw-triage-target { display: block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--lw-text-tertiary); }
+.lw-triage-role { display: inline-flex; align-items: center; gap: 4px; font-weight: 500; white-space: nowrap; }
+.lw-triage-table tr.lw-triage-group th { padding: 16px 12px 6px; font-size: 13px; font-weight: 600; color: var(--lw-text-primary); text-align: left; white-space: normal; border-bottom: 1px solid var(--td-line); }
+.lw-triage-table tbody tr.lw-triage-group:hover { background: none; }
+.lw-triage-matter-chip { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-style: normal; font-weight: 500; color: var(--td-gold-hi); background: color-mix(in srgb, var(--td-gold) 12%, transparent); }
 .lw-triage-reason { max-width: 320px; color: var(--lw-text-secondary); line-height: 1.45; }
 .lw-triage-reason small { color: var(--lw-text-tertiary); }
 .lw-triage-confidence { padding: 2px 8px; border-radius: 999px; font-size: 11px; border: 1px solid var(--td-line); white-space: nowrap; }

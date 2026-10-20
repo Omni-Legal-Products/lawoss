@@ -1,5 +1,7 @@
+import type { ProtectedDocumentProfiles } from "@legalwork/types/ai-governance";
 import type { LegalworkServerClient, LawossDocumentRead, LawossDocumentSummary, LawossOutputLanguage, LawossOutputStatus } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
+import type { DocumentGenerationMetadata } from "./document-generation-lifecycle";
 
 const clientIdentities = new WeakMap<object, number>();
 let nextClientIdentity = 1;
@@ -34,8 +36,8 @@ export function persistDocumentWorkingDirectory(key: string, directory: string) 
 }
 
 export type FreshDocument = LawossDocumentSummary & { freshness: "current" | "pending" | "stale" | "error"; pages: LawossDocumentRead["pages"] };
-export type DocumentGenerationRequest = { projectId: string; caseDirectory: string; sources: LawossDocumentSummary[]; outputLanguage: LawossOutputLanguage; retrySessionId?: string | null; newGeneration?: boolean };
-export type DocumentGenerationCallback = (request: DocumentGenerationRequest) => Promise<string>;
+export type DocumentGenerationRequest = { projectId: string; caseDirectory: string; sources: LawossDocumentSummary[]; outputLanguage: LawossOutputLanguage; profileId?: string; retrySessionId?: string | null; newGeneration?: boolean };
+export type DocumentGenerationCallback = ((request: DocumentGenerationRequest) => Promise<string>) & {readonly transport?: DocumentGenerationMetadata["transport"]; readonly model?: {providerID: string; modelID: string}};
 
 export async function discoverDocumentSources(client: Pick<LegalworkServerClient, "listWorkspaceDirectory"> & Partial<Pick<LegalworkServerClient, "readWorkspaceFile">>, workspaceId: string, folder: string): Promise<string[]> {
   const paths: string[] = [];
@@ -65,7 +67,7 @@ export async function discoverDocumentSources(client: Pick<LegalworkServerClient
       if (entry.name.startsWith(".")) continue;
       if (entry.kind === "dir") queue.push(entry.path);
       else {
-        if (!/\.(pdf|txt|md|markdown|csv|tsv|json|jsonl|html|htm|xml|log|yaml|yml|rtf|docx|xlsx|pptx|odt|ods|odp|png|jpg|jpeg|webp|js|ts|tsx|jsx|py|css|sql)$/i.test(entry.name)) throw new Error(t("documents.unsupported", { path: entry.path }));
+        if (!/\.(pdf|eml|txt|md|markdown|csv|tsv|json|jsonl|html|htm|xml|log|yaml|yml|rtf|docx|xlsx|pptx|odt|ods|odp|png|jpg|jpeg|webp|js|ts|tsx|jsx|py|css|sql)$/i.test(entry.name)) throw new Error(t("documents.unsupported", { path: entry.path }));
         paths.push(entry.path);
         if (paths.length > 20) throw new Error(t("documents.folder_limit"));
       }
@@ -150,3 +152,17 @@ export async function submitDocumentTask(input: { pending: { sessionId: string |
     return input.pending.sessionId;
   } finally { input.pending.running = false; }
 }
+
+/** An empty selection never silently chooses a stored matter or creates a grant. */
+export function selectDocumentGenerationProfile(view: ProtectedDocumentProfiles, profileId: string) {
+  if (!profileId && view.syntheticReviewAvailable) return undefined;
+  const profile = view.profiles.find(item => item.id === profileId);
+  if (!profile || (profile.expiresAt !== null && Date.parse(profile.expiresAt) <= Date.now())) throw new Error(documentProfileCopy.en.unavailable);
+  return profile;
+}
+export const documentProfileCopy = {
+  cs: {label: "Posouzený profil a věc", choose: "Vyberte profil výslovně", synthetic: "Pouze syntetický test – potvrzení v okně hostitele", unavailable: "Pro tento model vyberte aktuální posouzený profil věci. Bez něj pokračujte ručně; vytvoření schválení zde není dostupné.", note: "Hostitel ověří konkrétní složku, zdroje a příslušnost k vybrané věci. Každý úplný kontext přenosu potvrdíte samostatně. Výběr profilu nevytváří právní schválení."},
+  sk: {label: "Posúdený profil a vec", choose: "Vyberte profil výslovne", synthetic: "Iba syntetický test – potvrdenie v okne hostiteľa", unavailable: "Pre tento model vyberte aktuálny posúdený profil veci. Bez neho pokračujte ručne; vytvorenie schválenia tu nie je dostupné.", note: "Hostiteľ overí konkrétny priečinok, zdroje a príslušnosť k vybranej veci. Každý úplný kontext prenosu potvrdíte samostatne. Výber profilu nevytvára právne schválenie."},
+  en: {label: "Reviewed profile and matter", choose: "Choose a profile explicitly", synthetic: "Synthetic test only – review in the native host window", unavailable: "Select a current reviewed matter profile for this model. Otherwise continue manually; creating approvals is unavailable here.", note: "The host reviews the exact directory, sources and their association with the chosen matter. Review every complete transmission separately. Choosing a profile does not create legal approval."},
+  de: {label: "Geprüftes Profil und Mandat", choose: "Profil ausdrücklich auswählen", synthetic: "Nur synthetischer Test – Prüfung im Hostfenster", unavailable: "Wählen Sie ein aktuelles geprüftes Mandatsprofil für dieses Modell. Andernfalls arbeiten Sie manuell weiter; Freigaben können hier nicht erstellt werden.", note: "Der Host prüft Verzeichnis, Quellen und deren Zuordnung zum gewählten Mandat. Bestätigen Sie jede vollständige Übertragung separat. Die Profilauswahl erzeugt keine rechtliche Freigabe."},
+};

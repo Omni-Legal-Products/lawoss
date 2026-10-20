@@ -21,6 +21,8 @@ import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { ProjectReviews } from "../../reviews/project-reviews";
 import { ProjectsPage } from "../../workspace/projects-page";
 import { ProjectHome } from "../../workspace/project-home";
+import { ClientOverview } from "@/lawoss/lite/client-overview";
+import { clientDeadlinesLink } from "@/lawoss/lite/links";
 import { ProjectPersonalisationProvider } from "../../workspace/project-personalisation-modal";
 /** @jsxImportSource react */
 import { LanguageSwitcher } from "@/lawoss/shell/language-switcher";
@@ -1028,7 +1030,7 @@ export function SessionPage(props: SessionPageProps) {
     onOpenSearch={props.sidebar.onOpenSearch}
     onOpenProject={async (id, page) => {
       if (await props.sidebar.onSelectWorkspace(id, { navigate: false }) === false) return;
-      navigate(page === "workspace" ? workspaceSessionRoute(id) + "?view=workspace" : page === "projectFiles" ? workspaceViewRoute(id, "files") : page === "projectCalendar" ? workspaceCalendarRoute(id) : page === "projectReviews" ? workspaceReviewsRoute(id) : page === "projectTasks" ? workspaceTasksRoute(id) : workspaceProjectRoute(id));
+      navigate(page === "workspace" ? workspaceSessionRoute(id) + "?view=workspace" : page === "projectFiles" ? workspaceViewRoute(id, "files") : page === "projectCalendar" ? workspaceCalendarRoute(id) : page === "projectReviews" ? workspaceReviewsRoute(id) : page === "projectTasks" ? workspaceTasksRoute(id) : page === "projectDeadlines" ? clientDeadlinesLink(id) : workspaceProjectRoute(id));
     }}
     onOpenSession={openSessionTab}
     onNewChat={props.sidebar.onCreateChatInWorkspace}
@@ -1081,6 +1083,7 @@ export function SessionPage(props: SessionPageProps) {
       tasksView={renderProjectTasks(true, inWorkspace)}
       onViewAllDeadlines={inWorkspace || isProjectViewHidden("calendar") ? undefined : () => navigate(workspaceCalendarRoute(props.selectedWorkspaceId))}
       onRename={props.onRenameProject}
+      extra={<ClientOverview workspaceId={props.selectedWorkspaceId} />}
     /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
   ) : null;
 

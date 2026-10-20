@@ -5,6 +5,7 @@ import { FileText, GripVertical, Pencil, Play, Trash2, Undo2 } from "lucide-reac
 import { LazyMotion, Reorder, domMax, useDragControls, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
+import { aiBoundariesRefusal } from "@/lawoss/domains/ai/boundaries-refusal";
 import type { QueuedComposerDraft } from "../surface/composer-state-store";
 
 export type QueuedMessagesPanelProps = {
@@ -17,6 +18,8 @@ export type QueuedMessagesPanelProps = {
   paused: boolean;
   onResume: () => void;
   disabled: boolean;
+  /** LAWOSS: opens Settings → AI Providers for an entry refused by AI hranice. */
+  onOpenAiSettings?: () => void;
 };
 
 export function QueuedMessagesPanel(props: QueuedMessagesPanelProps) {
@@ -47,7 +50,14 @@ export function QueuedMessagesPanel(props: QueuedMessagesPanelProps) {
         </Button>
       </div>}
       {props.messages.some(message => message.status === "uncertain") && <p role="alert" className="px-2 py-2 text-xs text-destructive">{t("composer.queue_uncertain")}</p>}
-      {props.messages.filter(message => message.status === "failed" && message.error).map(message => <p key={message.id} role="alert" className="px-2 py-2 text-xs text-destructive">{message.error}</p>)}
+      {props.messages.filter(message => message.status === "failed" && message.error).map(message => {
+        // LAWOSS: a delivery refused by AI hranice keeps only the server text; show the localized sentence.
+        const boundaries = aiBoundariesRefusal(message.error);
+        return <div key={message.id} role="alert" className="px-2 py-2 text-xs text-destructive">
+          <p>{boundaries ?? message.error}</p>
+          {boundaries && props.onOpenAiSettings ? <Button variant="ghost" size="xs" onClick={props.onOpenAiSettings}>{t("lawoss.ai_boundaries.open_settings")}</Button> : null}
+        </div>;
+      })}
       {props.editingId && !props.messages.some(message => message.id === props.editingId) && <Button variant="ghost" size="xs" onClick={props.onCancelEdit}>{t("composer.cancel_queued_edit")}</Button>}
       <LazyMotion features={domMax}>
         <Reorder.Group axis="y" values={ids} onReorder={order => { dragOrderRef.current = order; setDragOrder(order); }} layoutScroll className="max-h-40 overflow-y-auto overscroll-contain">

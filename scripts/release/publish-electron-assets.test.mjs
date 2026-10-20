@@ -1,88 +1,39 @@
-import { test } from "node:test";
-import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createChecksums } from "./checksums.mjs";
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, mkdir, readFile, rm, writeFile, copyFile, readdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
+import { createChecksums } from './checksums.mjs';
+import { createReleaseEvidence, REQUIRED_NATIVE_SCENARIOS, evidenceFilename, sha256 } from './release-evidence.mjs';
 
-test("publishes one checksum list for all platforms and rejects incomplete artifacts", async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), "lawoss-release-publish-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const dist = join(dir, "dist");
-  const log = join(dir, "uploads.jsonl");
-  // Exercise the real publishing script with a local gh stub; never contact GitHub.
-  await writeFile(join(dir, "gh"), `#!/usr/bin/env node
-require('node:fs').appendFileSync(process.env.UPLOAD_LOG, JSON.stringify(process.argv.slice(2))+'\\n');
-`, { mode: 0o755 });
-  const assetFiles = [];
-  for (const arch of ["arm64", "x64"]) {
-    const platform = join(dist, arch);
-    await mkdir(platform, { recursive: true });
-    const name = `lawoss-mac-${arch}-1.0.0.zip`;
-    const file = join(platform, name);
-    assetFiles.push(file);
-    await writeFile(file, `final ${arch} bytes`);
-    await writeFile(join(platform, "SHA256SUMS"), await createChecksums([file]));
-    await writeFile(join(platform, "latest-mac.yml"), `version: 1.0.0\nfiles:\n  - url: ${name}\n    sha512: fixture\n`);
-  }
-  for (const arch of ["arm64", "x64"]) {
-    const platform = join(dist, `win-${arch}`);
-    await mkdir(platform, { recursive: true });
-    const name = `lawoss-win-${arch}-1.0.0.exe`;
-    const file = join(platform, name);
-    assetFiles.push(file);
-    await writeFile(file, `final Windows ${arch} bytes`);
-    await writeFile(join(platform, "SHA256SUMS"), await createChecksums([file]));
-    await writeFile(join(platform, arch === "arm64" ? "latest-arm64.yml" : "latest.yml"), `version: 1.0.0\nfiles:\n  - url: ${name}\n    sha512: fixture\n`);
-  }
-  const script = fileURLToPath(new URL("./publish-electron-assets.mjs", import.meta.url));
-  const run = (extraEnv = {}) => spawnSync(process.execPath, [script, "--manifests-only", dist, "v1.0.0"], {
-    encoding: "utf8",
-    env: { ...process.env, RELEASE_REPOSITORY: "", PATH: `${dir}${delimiter}${process.env.PATH}`, RUNNER_TEMP: dir,
-      GITHUB_REPOSITORY: "fixture/legalwork", UPLOAD_LOG: log, ...extraEnv },
-  });
-  const result = run();
-  assert.equal(result.status, 0, result.stderr);
-  const checksumFile = join(dir, "legalwork-electron-manifests", "SHA256SUMS");
-  assert.equal(await readFile(checksumFile, "utf8"), await createChecksums(assetFiles));
-  const uploads = (await readFile(log, "utf8")).trim().split("\n").map(JSON.parse);
-  assert.equal(uploads.length, 4);
-  assert.deepEqual(uploads[3], ["release", "upload", "v1.0.0", checksumFile, "--repo", "fixture/legalwork", "--clobber"]);
-  const output = join(dir, "legalwork-electron-manifests");
-  assert.match(await readFile(join(output, "latest-arm64.yml"), "utf8"), /lawoss-win-arm64/);
-  assert.doesNotMatch(await readFile(join(output, "latest.yml"), "utf8"), /arm64/);
-
-  const windowsManifest = join(dist, "win-x64", "latest.yml");
-  const originalWindowsManifest = await readFile(windowsManifest, "utf8");
-  await writeFile(windowsManifest, originalWindowsManifest + "  - url: lawoss-win-arm64-1.0.0.exe\n    sha512: fixture\n");
-  const mixed = run();
-  assert.notEqual(mixed.status, 0);
-  assert.match(mixed.stderr, /latest.yml must contain only Windows x64 installers/);
-  await writeFile(windowsManifest, originalWindowsManifest);
-
-  // A present, valid list can still be stale or omit its installer.
-  await writeFile(join(dist, "x64", "SHA256SUMS"), await createChecksums([assetFiles[0]]));
-  const stale = run();
-  assert.notEqual(stale.status, 0);
-  assert.match(stale.stderr, /Missing SHA256SUMS entry for lawoss-mac-x64/);
-  assert.equal((await readFile(log, "utf8")).trim().split("\n").length, 4);
-
-  await rm(join(dist, "x64", "SHA256SUMS"));
-  const incomplete = run();
-  assert.notEqual(incomplete.status, 0);
-  assert.match(incomplete.stderr, /Missing SHA256SUMS alongside/);
-  assert.equal((await readFile(log, "utf8")).trim().split("\n").length, 4);
-
-  // RELEASE_REPOSITORY moves the upload target without touching the source repository.
-  await writeFile(join(dist, "x64", "SHA256SUMS"), await createChecksums([assetFiles[1]]));
-  const moved = run({ RELEASE_REPOSITORY: "fixture/lawoss-releases" });
-  assert.equal(moved.status, 0, moved.stderr);
-  // Od v0.2.9 sa na jeden beh nahrávajú štyri súbory (aj manifest Windows ARM64).
-  const movedUploads = (await readFile(log, "utf8")).trim().split("\n").map(JSON.parse).slice(4);
-  assert.equal(movedUploads.length, 4);
-  for (const upload of movedUploads) {
-    assert.equal(upload[upload.indexOf("--repo") + 1], "fixture/lawoss-releases");
-  }
+test('single promotion verifies final target bytes, all referenced architectures, manifests and immutable uploads',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'lawoss-promotion-'));t.after(()=>rm(root,{recursive:true,force:true}));const dist=join(root,'dist'),remote=join(root,'remote'),log=join(root,'uploads.jsonl');await mkdir(remote);
+ await writeFile(join(root,'gh'),`#!/usr/bin/env node
+const fs=require('node:fs'),p=require('node:path');const args=process.argv.slice(2);const remote=process.env.REMOTE;
+if(args[0]==='api'&&args[1].includes('/releases/tags/')){console.log(JSON.stringify({tag_name:'v1.0.0',draft:false,assets:fs.readdirSync(remote).map(name=>({name,id:1}))}));}
+else if(args[1]==='view'){console.log(JSON.stringify({tagName:'v1.0.0',isDraft:false,assets:fs.readdirSync(remote).map(name=>({name}))}));}
+else if(args[1]==='download'){fs.copyFileSync(p.join(remote,args[args.indexOf('--pattern')+1]),p.join(args[args.indexOf('--dir')+1],args[args.indexOf('--pattern')+1]));}
+else if(args[1]==='upload'){if(args.includes('--clobber'))throw new Error('immutable clobber');fs.appendFileSync(process.env.UPLOAD_LOG,JSON.stringify(args)+'\\n');for(const file of args.slice(3,args.indexOf('--repo')))fs.copyFileSync(file,p.join(remote,p.basename(file)));}
+else throw new Error('unexpected gh');
+`,{mode:0o755});
+ const payloads=[];let winManifest;
+ for(const platform of ['darwin','win32'])for(const arch of ['arm64','x64']){
+  const dir=join(dist,`${platform}-${arch}`);await mkdir(dir,{recursive:true});const name=`lawoss-${platform==='darwin'?'mac':'win'}-${arch}-1.0.0.${platform==='darwin'?'zip':'exe'}`,file=join(dir,name),bytes=Buffer.from(`final ${platform} ${arch}`);await writeFile(file,bytes);await copyFile(file,join(remote,name));payloads.push(file);
+  const digest=sha256(bytes),at='2026-10-17T00:00:00Z',evidenceUrl='https://example.invalid/native';
+  const evidence=createReleaseEvidence({build:{schemaVersion:1,product:'lawoss-desktop',version:'1.0.0',gitSha:'a'.repeat(40),buildEpoch:'123',platform,arch,channel:'stable',workflowRunUrl:evidenceUrl},releaseTag:'v1.0.0',assets:[{name,size:bytes.length,sha256:digest}],receipts:['built','signed','tested'].map(state=>({state,at,actor:'fixture',evidenceUrl,assetSha256:digest})),signing:{status:'verified',evidenceUrl},acceptance:REQUIRED_NATIVE_SCENARIOS.flatMap(scenario=>['fresh','migrated'].map(profile=>({scenario,profile,status:'pass',assetSha256:digest,evidenceUrl})))});
+  await writeFile(join(dir,evidenceFilename(evidence.build)),JSON.stringify(evidence));await writeFile(join(dir,'SHA256SUMS'),await createChecksums([file]));
+  const manifest=join(dir,platform==='darwin'?'latest-mac.yml':arch==='arm64'?'latest-arm64.yml':'latest.yml');await writeFile(manifest,`version: 1.0.0\nfiles:\n  - url: ${name}\n    sha512: ${createHash('sha512').update(bytes).digest('base64')}\n`);if(platform==='win32'&&arch==='x64')winManifest=manifest;
+ }
+ const run=()=>spawnSync(process.execPath,[fileURLToPath(new URL('./publish-electron-assets.mjs',import.meta.url)),'--manifests-only',dist,'v1.0.0'],{encoding:'utf8',env:{...process.env,PATH:`${root}${delimiter}${process.env.PATH}`,RUNNER_TEMP:root,REMOTE:remote,UPLOAD_LOG:log,RELEASE_REPOSITORY:'fixture/repo'}});
+ const result=run();assert.equal(result.status,0,result.stderr);const calls=(await readFile(log,'utf8')).trim().split('\n').map(JSON.parse);assert.equal(calls.length,5);assert.ok(!calls[0].includes('--clobber'));assert.equal(await readFile(join(remote,'SHA256SUMS'),'utf8'),await createChecksums(payloads));
+ assert.match(await readFile(join(remote,'latest-mac.yml'),'utf8'),/mac-x64/);assert.doesNotMatch(await readFile(join(remote,'latest.yml'),'utf8'),/arm64/);assert.ok((await readdir(remote)).some(name=>name.startsWith('promotion-latest-mac.yml-')));
+ const repeat=run();assert.equal(repeat.status,0,repeat.stderr);assert.equal((await readFile(log,'utf8')).trim().split('\n').length,5);
+ const original=await readFile(winManifest,'utf8');await writeFile(winManifest,original+'  - url: lawoss-win-arm64-1.0.0.exe\n    sha512: fixture\n');const mixed=run();assert.notEqual(mixed.status,0);assert.match(mixed.stderr,/only Windows x64/);await writeFile(winManifest,original);
+ await writeFile(join(remote,'lawoss-win-x64-1.0.0.exe'),'changed after upload');const changed=run();assert.notEqual(changed.status,0);assert.match(changed.stderr,/bytes differ/);assert.equal((await readFile(log,'utf8')).trim().split('\n').length,5);
+ await rm(join(dist,'darwin-x64','release-evidence-darwin-x64.json'));const incomplete=run();assert.notEqual(incomplete.status,0);assert.match(incomplete.stderr,/Missing validated target|missing.*target|Unowned release payload/i);
 });
+
+test('refuses payload without target evidence before first upload',async t=>{const root=await mkdtemp(join(tmpdir(),'missing-evidence-'));t.after(()=>rm(root,{recursive:true,force:true}));const dist=join(root,'dist');await mkdir(dist);await writeFile(join(dist,'lawoss-win-x64-1.0.0.exe'),'final');await writeFile(join(dist,'latest.yml'),'version: 1.0.0\nfiles:\n  - url: lawoss-win-x64-1.0.0.exe\n    sha512: fixture\n');await writeFile(join(root,'gh'),'#!/bin/sh\nexit 0\n',{mode:0o755});const result=spawnSync(process.execPath,[fileURLToPath(new URL('./publish-electron-assets.mjs',import.meta.url)),dist,'v1.0.0'],{encoding:'utf8',env:{...process.env,PATH:`${root}${delimiter}${process.env.PATH}`,GITHUB_REPOSITORY:'fixture/repo',RELEASE_REPOSITORY:'',RUNNER_TEMP:root}});assert.notEqual(result.status,0);assert.match(result.stderr,/evidence/i);});

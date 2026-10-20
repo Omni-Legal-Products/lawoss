@@ -9,6 +9,7 @@ import { upsertSkillResource } from "./skill-resources.js";
 import { LegalWorkSkillTools } from "./opencode-plugins/legalwork-skill-tools.js";
 import type { OpenCodeContext } from "./opencode-plugins/office-plugin-shared.js";
 import type { ServerConfig } from "./types.js";
+import { scopedWikiRuntime } from "./wiki/scoped-runtime.test-helper.js";
 import { engineAgentSession } from "./lawoss/test-support/engine-agent.js";
 
 test("a global workflow exposes current Markdown and Word resources in fresh projects without external-folder grants", async () => {
@@ -26,6 +27,7 @@ test("a global workflow exposes current Markdown and Word resources in fresh pro
     tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
   };
   const server = await startServer(config);
+  const otherRuntime = await scopedWikiRuntime(config, "fresh-chat", other);
   try {
     const base = `http://127.0.0.1:${server.port}`;
     process.env.LEGALWORK_SERVER_URL = base;
@@ -72,8 +74,11 @@ test("a global workflow exposes current Markdown and Word resources in fresh pro
     await upsertSkillResource(workspace, name, { name: "felder.md", content: "Reimported intake fields" });
     expect(JSON.parse(await read("resources/felder.md")).payload.content).toBe("Reimported intake fields");
     const freshContext = { ...context, directory: other, sessionID: "fresh-chat" };
-    await plugin.tool.legalwork_skill_load.execute({ name }, freshContext);
-    expect(JSON.parse(await read("resources/felder.md", freshContext)).payload.content).toBe("Reimported intake fields");
+    await expect(plugin.tool.legalwork_skill_load.execute({ name }, freshContext)).rejects.toThrow("HTTP 403");
+    await otherRuntime.run(async () => {
+      await plugin.tool.legalwork_skill_load.execute({ name }, freshContext);
+      expect(JSON.parse(await read("resources/felder.md", freshContext)).payload.content).toBe("Reimported intake fields");
+    });
     for (const path of [workspace, other]) expect(await readFile(join(path, ".opencode/skills", name, "SKILL.md")).catch(() => null)).toBeNull();
     const endpoint = `${base}/workspace/ws_0/skills/${name}/package-file`;
     const query = new URLSearchParams({ directory: dirname(skill.path), path: "resources/felder.md" });
@@ -88,6 +93,7 @@ test("a global workflow exposes current Markdown and Word resources in fresh pro
     const replaced = z.object({ ok: z.boolean(), error: z.string() }).parse(JSON.parse(await read("resources/felder.md")));
     expect(replaced.ok).toBe(false); expect(replaced.error).toContain("Load it again");
   } finally {
+    await otherRuntime.close();
     await server.stop();
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;

@@ -1,0 +1,25 @@
+name: Public fixture integrity
+on:
+  pull_request:
+    paths:
+      - .gitattributes
+      - lawoss/testing/fixtures/**
+      - .github/workflows/ci-public-fixtures.yml
+  push:
+    branches: [dev]
+    paths:
+      - .gitattributes
+      - lawoss/testing/fixtures/**
+      - .github/workflows/ci-public-fixtures.yml
+permissions:
+  contents: read
+jobs:
+  frozen-cz-fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Verify exact reviewed corpus bytes after checkout
+        run: node lawoss/testing/fixtures/verify.mjs

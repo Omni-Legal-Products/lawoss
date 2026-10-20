@@ -169,7 +169,22 @@ export type WorkspaceLegalworkConfig = {
   } | null;
 };
 
+export type BuildInfoV1 = {
+  schemaVersion: 1;
+  product: "lawoss-desktop";
+  version: string;
+  gitSha: string;
+  buildEpoch: string;
+  platform: "darwin" | "win32" | "linux";
+  arch: "arm64" | "x64";
+  channel: "alpha" | "stable";
+  workflowRunUrl: string;
+};
+
 export type AppBuildInfo = {
+  provenance?: "embedded" | "development" | "unavailable";
+  channel?: "alpha" | "stable";
+  workflowRunUrl?: string;
   version: string;
   gitSha?: string | null;
   buildEpoch?: string | null;

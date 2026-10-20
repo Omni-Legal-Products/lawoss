@@ -41,17 +41,21 @@ const settingsCheckpoints: readonly ProjectSyncSettingsCheckpoint[] = [
 const settingsPrefix = "LAWOSS_PROJECT_SYNC_SETTINGS_FIRST_FAILURE ";
 type SettingsEvent = Readonly<{ checkpoint: ProjectSyncSettingsCheckpoint; elapsedMs: number }>;
 const prefix = "LAWOSS_PROJECT_SYNC_FIRST_FAILURE ";
-const protocol = { protocol: "project-sync-first-failure", schema: 1, case: "revoke" };
 const boundedCount = (value: number) => Number.isFinite(value) ? Math.min(65535, Math.max(0, Math.floor(value))) : 0;
-const validStatement = (value: number) => Number.isInteger(value) && value >= 1 && value <= 39;
 
 export function createProjectSyncFirstFailureTiming(options: {
+  case?: "revoke" | "member-own-folder" | "recordings";
   env: Environment;
   now: () => number;
   write: (frame: string) => void;
 }): ProjectSyncFirstFailureTiming {
   if (options.env.LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS !== "1" ||
       options.env.CI !== "true" || options.env.GITHUB_ACTIONS !== "true") return quiet;
+  const caseName = options.case ?? "revoke";
+  if (caseName !== "revoke" && caseName !== "member-own-folder" && caseName !== "recordings") return quiet;
+  const protocol = { protocol: "project-sync-first-failure", schema: 1, case: caseName };
+  const statementLimit = caseName === "revoke" ? 39 : caseName === "member-own-folder" ? 19 : 10;
+  const validStatement = (value: number) => Number.isInteger(value) && value >= 1 && value <= statementLimit;
 
   // Do not retain environment/configuration or writer errors in observations.
   const { now, write } = options;
@@ -107,7 +111,7 @@ export function createProjectSyncFirstFailureTiming(options: {
     settingsCheckpoint,
     enter(statement) {
       if (frozen || !validStatement(statement)) return;
-      settingsArmed = !settingsSeen && statement === 5 && !bodyFailed && !bodySettled && !bodyComplete;
+      settingsArmed = caseName === "revoke" && !settingsSeen && statement === 5 && !bodyFailed && !bodySettled && !bodyComplete;
       if (statement === 5) settingsSeen = true;
       currentStatement = statement;
       record("enter", statement);
@@ -149,7 +153,7 @@ export function createProjectSyncFirstFailureTiming(options: {
       // snapshot clock read; inner normalization never changes outer bytes.
       const settingsOutcome = !snapshot.bodyFailed && !snapshot.bodySettled ? "pending"
         : snapshot.bodyFailed && snapshot.bodySettled ? "caught-failure" : null;
-      const settingsFrame = !snapshot.bodyComplete && snapshot.currentStatement === 5 && snapshot.lastCompletedStatement === 4 && settingsOutcome
+      const settingsFrame = caseName === "revoke" && !snapshot.bodyComplete && snapshot.currentStatement === 5 && snapshot.lastCompletedStatement === 4 && settingsOutcome
         ? `${settingsPrefix}${JSON.stringify(Object.freeze({
           protocol: "project-sync-settings-first-failure", schema: 1, case: "revoke", statement: 5, kind: "settings",
           outcome: settingsOutcome, elapsedMs: Math.max(snapshot.elapsedMs, settingsElapsedMs),

@@ -10,10 +10,11 @@ import {
   type ReactNode,
 } from "react";
 import { Check, FileWarning, ShieldCheck } from "lucide-react";
+import { normalizeDirectoryPath } from "@/app/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocale } from "@/i18n/use-locale";
-import { LANGUAGE_OPTIONS, setLanguagePreference, type Language } from "@/i18n";
+import { LANGUAGE_OPTIONS, setLanguagePreference, t, type Language } from "@/i18n";
 import type {
   ClientType,
   DocumentLanguage,
@@ -43,43 +44,46 @@ import { visibleExistingClientModes } from "../../feature-flags";
 import { clientTitleOf, resolveOpenClient, type OpenClientReader } from "../../okf/open-client";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { readActiveWorkspaceId } from "@/react-app/shell/session-memory";
-import {
-  LOCKED_FILE_CODE,
-  LOCKED_FILES_MESSAGE_PREFIX,
-  UNSAFE_FOLDER_NAME_MESSAGE,
-} from "../../../../../../lawoss/okf/src/onboarding/messages";
-import { OFFICE_CONFIG_ENCODING_MESSAGE } from "../../../../../../lawoss/okf/src/profile";
 import { LawossWordmark } from "../../shell/wordmark";
 import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import "./onboarding.css";
 import { TriageEntry } from "../roztriedenie/triage-entry";
 import type { TriageClient } from "../roztriedenie/api";
-import { FolderStep } from "./folder-step";
+import { FolderStep, ScreenHead } from "./folder-step";
 import { FoundScreen, OkfNotice } from "./found-screen";
+import { FRESH_OFFICE_COMPLETION } from "./found-flow";
 import { foundText } from "./found-text";
-import { canonicalPathRejection, unquotedTypedPath } from "./typed-paths";
+import { unquotedTypedPath } from "./typed-paths";
+import { onboardingErrorMessage } from "./onboarding-errors";
+
+export { onboardingErrorMessage };
 
 /** Jazyky rozhrania v poradí LAWOSS (SK, CS, EN, DE) s pôvodnými názvami namiesto kódov. */
 const UI_LANGUAGE_ORDER: readonly Language[] = ["sk", "cs", "en", "de"];
 const UI_LANGUAGES = UI_LANGUAGE_ORDER.flatMap((code) => LANGUAGE_OPTIONS.filter((option) => option.value === code));
 
+/** Názvy priečinka kancelárie, ktorého `Klienti` ležia vedľa neho (nie vo vnútri). */
+const OFFICE_FOLDER_NAMES: ReadonlySet<string> = new Set(["office", "_kancelaria"]);
+
 /**
- * Priečinok klientov vedľa kancelárie: založenie kancelárie vytvorí `<rodič>/Office` a `<rodič>/Klienti`
- * (`client_path: "Klienti/*"`), takže krok klienta ho len predvyplní. Bez kancelárie ostane prázdny.
+ * Priečinok klientov, ktorý krok klienta predvyplní. Pre koreň kancelárie (`Office`, `_kancelaria`)
+ * je to `<rodič>/Klienti` (založenie kancelárie vytvorí `Office` aj `Klienti` vedľa seba,
+ * `client_path: "Klienti/*"`), pre koreň praxe `<koreň>/Klienti`. Oddeľovač ostáva podľa vstupu.
+ * Bez kancelárie alebo bez oddeľovača ostane prázdny.
  */
 export function clientsFolderOf(officeRoot: string | undefined): string {
   const root = officeRoot?.trim().replace(/[\\/]+$/, "");
   if (!root) return "";
   const cut = Math.max(root.lastIndexOf("/"), root.lastIndexOf("\\"));
   if (cut < 0) return "";
-  return `${root.slice(0, cut)}${root[cut]}Klienti`;
+  const separator = root[cut];
+  const isOffice = OFFICE_FOLDER_NAMES.has(root.slice(cut + 1).toLowerCase());
+  return `${isOffice ? root.slice(0, cut) : root}${separator}Klienti`;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
 const documentLanguage = (language: Language): DocumentLanguage =>
   language === "de" ? "en" : language;
-const errorMessage = (error: unknown, fallback: string) =>
-  error instanceof Error && error.message.trim() ? error.message : fallback;
 const text: Record<Language, Record<string, string>> = {
   en: {
     title: "Set up your practice",
@@ -107,10 +111,10 @@ const text: Record<Language, Record<string, string>> = {
     jurisdictionSk: "Slovakia",
     jurisdictionCz: "Czech Republic",
     person: "Person",
-    mode: "Connection mode",
-    convert: "Convert safely",
+    mode: "How to connect the folder",
+    convert: "Add helper files to the folder",
     map: "Map without writing",
-    trial_clone: "Trial clone",
+    trial_clone: "Try on a copy (recommended)",
     memory: "Relative existing memory path",
     anchor: "Identity text found in that file",
     area: "Area",
@@ -123,9 +127,9 @@ const text: Record<Language, Record<string, string>> = {
     non_contentious: "Matter (non-contentious)",
     mapHelp:
       "Mapping stays read-only. Both fields are required and must refer to existing client memory.",
-    trial: "This is a trial clone. Confirm before creating work in it.",
+    trial: "This is a copy of the client folder. Confirm before creating work in it.",
     trialConfirm:
-      "I understand this trial clone is not the original client folder.",
+      "I understand this copy is not the original client folder.",
     changes: "Planned changes",
     done: "Your practice is ready. Add clients and matters later from the sidebar or Settings.",
     error: "This step could not be completed.",
@@ -136,7 +140,7 @@ const text: Record<Language, Record<string, string>> = {
     ai: "Dáta a AI",
     folder: "Priečinok",
     client: "Prvý klient",
-    matter: "Prvá vec",
+    matter: "Prvý prípad",
     back: "Späť",
     skip: "Teraz preskočiť",
     save: "Uložiť a pokračovať",
@@ -156,10 +160,10 @@ const text: Record<Language, Record<string, string>> = {
     jurisdictionSk: "Slovensko",
     jurisdictionCz: "Česko",
     person: "Fyzická osoba",
-    mode: "Režim pripojenia",
-    convert: "Bezpečne doplniť",
+    mode: "Ako pripojiť priečinok",
+    convert: "Pridať pomocné súbory do priečinka",
     map: "Mapovať bez zápisu",
-    trial_clone: "Skúšobný klon",
+    trial_clone: "Vyskúšať na kópii (odporúčané)",
     memory: "Relatívna cesta k existujúcej pamäti",
     anchor: "Text identity nájdený v tomto súbore",
     area: "Oblasť",
@@ -167,16 +171,16 @@ const text: Record<Language, Record<string, string>> = {
     withoutSubject: "Bez subjektu",
     existingSubject: "Existujúci subjekt",
     newSubject: "Vytvoriť subjekt",
-    kind: "Druh veci",
-    contentious: "Spis (konanie)",
-    non_contentious: "Vec (nesporová agenda)",
+    kind: "Druh prípadu",
+    contentious: "Spor (konanie)",
+    non_contentious: "Nesporová agenda",
     mapHelp:
       "Mapovanie je iba na čítanie. Oba údaje sú povinné a musia odkazovať na existujúcu pamäť klienta.",
-    trial: "Ide o skúšobný klon. Pred vytvorením práce ho potvrďte.",
+    trial: "Ide o kópiu priečinka klienta. Pred vytvorením práce ju potvrďte.",
     trialConfirm:
-      "Rozumiem, že skúšobný klon nie je pôvodný priečinok klienta.",
+      "Rozumiem, že kópia nie je pôvodný priečinok klienta.",
     changes: "Plánované zmeny",
-    done: "Prax je pripravená. Klientov a veci pridáte neskôr z bočného panela alebo Nastavení.",
+    done: "Prax je pripravená. Klientov a prípady pridáte neskôr z bočného panela alebo Nastavení.",
     error: "Tento krok sa nepodarilo dokončiť.",
   },
   cs: {
@@ -185,7 +189,7 @@ const text: Record<Language, Record<string, string>> = {
     ai: "Data a AI",
     folder: "Složka",
     client: "První klient",
-    matter: "První věc",
+    matter: "První případ",
     back: "Zpět",
     skip: "Nyní přeskočit",
     save: "Uložit a pokračovat",
@@ -205,10 +209,10 @@ const text: Record<Language, Record<string, string>> = {
     jurisdictionSk: "Slovensko",
     jurisdictionCz: "Česko",
     person: "Fyzická osoba",
-    mode: "Režim připojení",
-    convert: "Bezpečně doplnit",
+    mode: "Jak připojit složku",
+    convert: "Přidat pomocné soubory do složky",
     map: "Mapovat bez zápisu",
-    trial_clone: "Zkušební klon",
+    trial_clone: "Vyzkoušet na kopii (doporučeno)",
     memory: "Relativní cesta k existující paměti",
     anchor: "Text identity nalezený v souboru",
     area: "Oblast",
@@ -216,15 +220,15 @@ const text: Record<Language, Record<string, string>> = {
     withoutSubject: "Bez subjektu",
     existingSubject: "Existující subjekt",
     newSubject: "Vytvořit subjekt",
-    kind: "Druh věci",
-    contentious: "Spis (řízení)",
-    non_contentious: "Věc",
+    kind: "Druh případu",
+    contentious: "Spor (řízení)",
+    non_contentious: "Nesporná agenda",
     mapHelp:
       "Mapování je pouze pro čtení. Oba údaje jsou povinné a musí odkazovat na existující paměť klienta.",
-    trial: "Jde o zkušební klon. Před vytvořením práce jej potvrďte.",
-    trialConfirm: "Rozumím, že zkušební klon není původní složka klienta.",
+    trial: "Jde o kopii složky klienta. Před vytvořením práce ji potvrďte.",
+    trialConfirm: "Rozumím, že kopie není původní složka klienta.",
     changes: "Plánované změny",
-    done: "Praxe je připravena. Klienty a věci přidáte později z postranního panelu nebo Nastavení.",
+    done: "Praxe je připravena. Klienty a případy přidáte později z postranního panelu nebo Nastavení.",
     error: "Tento krok se nepodařilo dokončit.",
   },
   de: {
@@ -253,10 +257,10 @@ const text: Record<Language, Record<string, string>> = {
     jurisdictionSk: "Slowakei",
     jurisdictionCz: "Tschechien",
     person: "Person",
-    mode: "Verbindungsmodus",
-    convert: "Sicher ergänzen",
+    mode: "So verbinden Sie den Ordner",
+    convert: "Hilfsdateien zum Ordner hinzufügen",
     map: "Ohne Schreiben abbilden",
-    trial_clone: "Testkopie",
+    trial_clone: "Auf einer Kopie ausprobieren (empfohlen)",
     memory: "Relativer bestehender Speicherpfad",
     anchor: "In der Datei gefundener Identitätstext",
     area: "Bereich",
@@ -270,89 +274,14 @@ const text: Record<Language, Record<string, string>> = {
     mapHelp:
       "Die Abbildung bleibt schreibgeschützt. Beide Felder sind erforderlich und müssen auf den vorhandenen Mandantenspeicher verweisen.",
     trial:
-      "Dies ist eine Testkopie. Bestätigen Sie sie vor dem Erstellen von Arbeit.",
+      "Dies ist eine Kopie des Mandantenordners. Bestätigen Sie sie vor dem Erstellen von Arbeit.",
     trialConfirm:
-      "Ich verstehe, dass die Testkopie nicht der ursprüngliche Mandantenordner ist.",
+      "Ich verstehe, dass die Kopie nicht der ursprüngliche Mandantenordner ist.",
     changes: "Geplante Änderungen",
     done: "Ihre Kanzlei ist bereit. Mandanten und Angelegenheiten können Sie später über die Seitenleiste oder Einstellungen hinzufügen.",
     error: "Dieser Schritt konnte nicht abgeschlossen werden.",
   },
 };
-const unsafeFolderName: Record<Language, string> = {
-  sk: "Názov priečinka nesmie byť prázdny, začínať bodkou, obsahovať znaky / \\ : < > \" | ? * ani mať viac ako 120 znakov. Bodky vnútri názvu, napríklad „s. r. o.“, sú v poriadku.",
-  cs: "Název složky nesmí být prázdný, začínat tečkou, obsahovat znaky / \\ : < > \" | ? * ani mít více než 120 znaků. Tečky uvnitř názvu, například „s. r. o.“, jsou v pořádku.",
-  en: "The folder name must not be empty, start with a dot, contain / \\ : < > \" | ? * or be longer than 120 characters. Dots inside the name, such as \"s. r. o.\", are fine.",
-  de: "Der Ordnername darf nicht leer sein, nicht mit einem Punkt beginnen, keine Zeichen / \\ : < > \" | ? * enthalten und nicht länger als 120 Zeichen sein. Punkte im Namen, etwa „s. r. o.“, sind zulässig.",
-};
-/** Zamknutý súbor z neúplnej inšpekcie (Windows: dokument otvorený vo Worde); cesty sú zo správy servera. */
-const lockedFiles: Record<Language, (paths: string, many: boolean) => string> = {
-  sk: (paths, many) =>
-    many
-      ? `Súbory sú otvorené v inej aplikácii (napríklad vo Worde) alebo k nim nie je prístup: ${paths}. Zatvorte ich a skúste to znova.`
-      : `Súbor je otvorený v inej aplikácii (napríklad vo Worde) alebo k nemu nie je prístup: ${paths}. Zatvorte ho a skúste to znova.`,
-  cs: (paths, many) =>
-    many
-      ? `Soubory jsou otevřené v jiné aplikaci (například ve Wordu) nebo k nim není přístup: ${paths}. Zavřete je a zkuste to znovu.`
-      : `Soubor je otevřený v jiné aplikaci (například ve Wordu) nebo k němu není přístup: ${paths}. Zavřete ho a zkuste to znovu.`,
-  en: (paths, many) =>
-    many
-      ? `Files are open in another application (for example Word) or cannot be accessed: ${paths}. Close them and try again.`
-      : `A file is open in another application (for example Word) or cannot be accessed: ${paths}. Close it and try again.`,
-  de: (paths, many) =>
-    many
-      ? `Dateien sind in einer anderen Anwendung geöffnet (zum Beispiel in Word) oder nicht zugänglich: ${paths}. Schließen Sie sie und versuchen Sie es erneut.`
-      : `Eine Datei ist in einer anderen Anwendung geöffnet (zum Beispiel in Word) oder nicht zugänglich: ${paths}. Schließen Sie sie und versuchen Sie es erneut.`,
-};
-const lockedFilesMessage = (error: unknown, locale: Language) => {
-  if (!(error instanceof Error) || !error.message.startsWith(LOCKED_FILES_MESSAGE_PREFIX)) return undefined;
-  // Zamknuté súbory sú v zozname vpredu; „; “ môže byť aj v názve súboru, preto rozhoduje kód za cestou.
-  const list = error.message
-    .slice(LOCKED_FILES_MESSAGE_PREFIX.length)
-    .trim()
-    .replace(/ \(\+\d+ more\)$/, "");
-  const paths = [...list.matchAll(new RegExp(`(?:^|; )(.+?): ${LOCKED_FILE_CODE}(?=; |$)`, "g"))].map((match) => match[1] ?? "");
-  return paths.length ? lockedFiles[locale](paths.join(", "), paths.length > 1) : undefined;
-};
-/** okf.config kancelárie v ANSI (PowerShell 5.1 `Set-Content`): názvy priečinkov z neho by boli poškodené. */
-const officeConfigEncoding: Record<Language, string> = {
-  sk: "Súbor okf.config kancelárie nie je uložený v UTF-8 (napríklad v ANSI z PowerShellu), takže priečinky z neho by mali poškodené názvy. Otvorte ho v Poznámkovom bloku, uložte ho s kódovaním UTF-8 a skúste to znova.",
-  cs: "Soubor okf.config kanceláře není uložený v UTF-8 (například v ANSI z PowerShellu), takže složky z něj by měly poškozené názvy. Otevřete ho v Poznámkovém bloku, uložte ho s kódováním UTF-8 a zkuste to znovu.",
-  en: "The office okf.config is not saved as UTF-8 (for example ANSI from PowerShell), so folders from it would get damaged names. Open it in Notepad, save it with UTF-8 encoding and try again.",
-  de: "Die okf.config der Kanzlei ist nicht als UTF-8 gespeichert (zum Beispiel ANSI aus PowerShell), daher hätten Ordner daraus beschädigte Namen. Öffnen Sie sie im Editor, speichern Sie sie mit der Codierung UTF-8 und versuchen Sie es erneut.",
-};
-const officeConfigEncodingMessage = (error: unknown, locale: Language) =>
-  error instanceof Error && error.message.startsWith(OFFICE_CONFIG_ENCODING_MESSAGE) ? officeConfigEncoding[locale] : undefined;
-/**
- * Vo vybranom priečinku je iná kancelária alebo karta (`conflicting_identity`), prípadne sa kancelária
- * nedala spoľahlivo vyhľadať (`office_search_incomplete`). Spec #92: stop s vysvetlením.
- */
-const nestedIdentity: Record<Language, (paths: string) => string> = {
-  sk: (paths) => `Vo vybranom priečinku už je iná kancelária alebo iný klient: ${paths}. Taký priečinok sa nedá pripojiť ako jeden klient. Pripojte priamo priečinok tej kancelárie alebo vyberte iný priečinok.`,
-  cs: (paths) => `Ve vybrané složce už je jiná kancelář nebo jiný klient: ${paths}. Takovou složku nelze připojit jako jednoho klienta. Připojte přímo složku té kanceláře nebo vyberte jinou složku.`,
-  en: (paths) => `The selected folder already contains another office or another client: ${paths}. Such a folder cannot be added as a single client. Add that office folder directly or choose a different folder.`,
-  de: (paths) => `Der gewählte Ordner enthält bereits eine andere Kanzlei oder einen anderen Mandanten: ${paths}. Ein solcher Ordner kann nicht als ein Mandant hinzugefügt werden. Fügen Sie direkt den Ordner dieser Kanzlei hinzu oder wählen Sie einen anderen Ordner.`,
-};
-const officeSearchIncomplete: Record<Language, string> = {
-  sk: "Priečinok sa nepodarilo prehľadať celý (je veľmi veľký alebo sa niektorý podpriečinok nedá čítať), takže nie je isté, že v ňom nie je iná kancelária. Vyberte menší priečinok, napríklad priečinok jedného klienta.",
-  cs: "Složku se nepodařilo prohledat celou (je velmi velká nebo některou podsložku nelze číst), takže není jisté, že v ní není jiná kancelář. Vyberte menší složku, například složku jednoho klienta.",
-  en: "The folder could not be searched completely (it is very large or a subfolder cannot be read), so it is not certain that it contains no other office. Choose a smaller folder, for example the folder of one client.",
-  de: "Der Ordner konnte nicht vollständig durchsucht werden (er ist sehr groß oder ein Unterordner ist nicht lesbar), daher ist nicht sicher, dass er keine andere Kanzlei enthält. Wählen Sie einen kleineren Ordner, zum Beispiel den Ordner eines Mandanten.",
-};
-const identityMessage = (error: unknown, locale: Language) => {
-  if (!(error instanceof Error)) return undefined;
-  if (/(?:^|: |; )\.: office_search_incomplete(?=; |$| \()/.test(error.message)) return officeSearchIncomplete[locale];
-  const paths = [...error.message.matchAll(/(?:: |; )([^;]+?): conflicting_identity(?=; |$| \()/g)].map((match) => match[1] ?? "");
-  return paths.length ? nestedIdentity[locale](paths.join(", ")) : undefined;
-};
-/** Server errors in the UI language where the app knows them; other messages stay as sent. */
-export const onboardingErrorMessage = (error: unknown, locale: Language) =>
-  error instanceof Error && error.message === UNSAFE_FOLDER_NAME_MESSAGE
-    ? unsafeFolderName[locale]
-    : (lockedFilesMessage(error, locale) ??
-      identityMessage(error, locale) ??
-      officeConfigEncodingMessage(error, locale) ??
-      canonicalPathRejection(error, locale) ??
-      errorMessage(error, text[locale].error));
 const field = (label: string, child: ReactNode) => (
   <label className="grid gap-1.5 text-sm font-medium">
     <span>{label}</span>
@@ -396,9 +325,9 @@ function PathInput({
 }
 const extraText: Record<Language, Record<string, string>> = {
   sk: {
-    newMatter: "Nová vec",
-    matterUnder: "Vec vznikne pod klientom",
-    noClientYet: "Vyberte priečinok klienta, pod ktorým vec vznikne.",
+    newMatter: "Nový prípad",
+    matterUnder: "Prípad vznikne pod klientom",
+    noClientYet: "Vyberte priečinok klienta, pod ktorým prípad vznikne.",
     otherClient: "Iný klient (priečinok)",
     useClient: "Použiť tohto klienta",
     openClientLoading: "Zisťujem, ktorý klient je otvorený…",
@@ -422,9 +351,9 @@ const extraText: Record<Language, Record<string, string>> = {
     finish: "Dokončiť",
   },
   cs: {
-    newMatter: "Nová věc",
-    matterUnder: "Věc vznikne pod klientem",
-    noClientYet: "Vyberte složku klienta, pod kterým věc vznikne.",
+    newMatter: "Nový případ",
+    matterUnder: "Případ vznikne pod klientem",
+    noClientYet: "Vyberte složku klienta, pod kterým případ vznikne.",
     otherClient: "Jiný klient (složka)",
     useClient: "Použít tohoto klienta",
     openClientLoading: "Zjišťuji, který klient je otevřený…",
@@ -501,6 +430,8 @@ const extraText: Record<Language, Record<string, string>> = {
     finish: "Abschließen",
   },
 };
+/** Kľúče textov onboardingu (pre test terminológie). */
+export const welcomeTextKeys = (locale: Language): string[] => [...new Set([...Object.keys(text[locale]), ...Object.keys(extraText[locale])])];
 /** Texty krokov onboardingu v jazyku rozhrania. */
 export const welcomeText = (locale: Language) => (key: string): string =>
   key === "cancel"
@@ -554,9 +485,20 @@ export async function preferOpenClient(
  * „+ Nová vec“ pre klienta vybraného v prehľade praxe: zapíše ho ako klienta formulára.
  * Server overí, že priečinok je klient; chybu ohlási volajúci.
  */
-export async function chooseClient(api: Pick<WelcomeApi, "updateOnboardingProfile">, profile: OnboardingProfile | null, clientRoot: string): Promise<OnboardingProfile | null> {
+export async function chooseClient(api: Pick<WelcomeApi, "updateOnboardingProfile" | "listWorkspaces">, profile: OnboardingProfile | null, clientRoot: string): Promise<OnboardingProfile | null> {
+  if (!api.listWorkspaces) throw new Error("client_workspace_unavailable");
+  const list = await api.listWorkspaces();
+  const root = normalizeDirectoryPath(clientRoot);
+  const practice = normalizeDirectoryPath(profile?.officeRoot);
+  if (!list.items.some(workspace => workspace.workspaceType !== "remote" && sameFolder(workspace.path,clientRoot)) || (practice && root !== practice && !root.startsWith(`${practice}/`))) throw new Error("client_workspace_unavailable");
   if (sameFolder(clientRoot, profile?.clientRoot)) return null;
   return api.updateOnboardingProfile({ clientRoot, step: "matter" });
+}
+/** Profil bez vybraného klienta: formulár prípadu sa po odmietnutom klientovi pýta znova (nič sa nepreberie potichu). */
+function withoutClient(profile: OnboardingProfile | null): OnboardingProfile | null {
+  if (!profile?.clientRoot) return profile;
+  const { clientRoot: _refused, ...rest } = profile;
+  return rest;
 }
 /** Meno klienta pre formulár veci; bez prístupu k pracovným priestorom názov priečinka. */
 async function clientTitleFor(api: WelcomeApi, root: string): Promise<string> {
@@ -565,11 +507,15 @@ async function clientTitleFor(api: WelcomeApi, root: string): Promise<string> {
   const reader: OpenClientReader = { listWorkspaceDirectory: api.listWorkspaceDirectory, readWorkspaceFile: api.readWorkspaceFile };
   return api.listWorkspaces().then((list) => clientTitleOf(reader, list.items, root)).catch(() => fallback);
 }
+/** Klient servera po registrácii pripojeného priečinka (môže mať nový token či port). */
+export type RegisteredApi = TriageClient & Pick<OnboardingApi, "updateOnboardingProfile">;
 /** Completion details that are not an onboarding apply result. */
 export type OnboardingCompletion = {
   workingFolder?: string;
   /** Všetci klienti dávky praxe s pracovným priečinkom (aj prvý); volajúci každého zaregistruje. */
   clients?: OnboardingApplyResult[];
+  /** Kam appka po dokončení prejde; bez neho domov vybraného priečinka. */
+  landing?: string;
 };
 type Props = {
   api: WelcomeApi;
@@ -588,6 +534,11 @@ type Props = {
   hasCompletedOnboarding?: boolean;
   /** „Zrušiť“ v toku z bočného panela: návrat tam, odkiaľ advokát prišiel. */
   onCancel?: () => void;
+  /**
+   * Registrácia a výber pripojeného priečinka ešte pred usporiadaním (welcome-route); bez nej sa len pokračuje.
+   * Vráti klienta servera po aktivácii: usporiadanie aj značka dokončenia potom idú cez neho (review 6d).
+   */
+  onRegister?: (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => Promise<RegisteredApi | undefined>;
 };
 export function LawossWelcomePage({
   api,
@@ -597,6 +548,7 @@ export function LawossWelcomePage({
   hasCompletedOnboarding = false,
   onCancel,
   onComplete,
+  onRegister,
   onOpenAiSettings,
   pickDirectory,
 }: Props) {
@@ -614,6 +566,8 @@ export function LawossWelcomePage({
   >();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Chyba pri voľbe priečinka klienta pre nový prípad: zbalená voľba iného klienta sa otvorí (veta chyby odkazuje na ňu).
+  const [clientFolderError, setClientFolderError] = useState(false);
   // Vybraný priečinok kroku Priečinok; kým je prázdny, krok ponúka pripojiť existujúci alebo začať nanovo.
   const [foundRoot, setFoundRoot] = useState<string | null>(initialRoot ?? null);
   const found = foundText(locale);
@@ -629,17 +583,29 @@ export function LawossWelcomePage({
     (reason: unknown) => setError(onboardingErrorMessage(reason, locale)),
     [locale],
   );
+  const clearError = useCallback(() => setError(null), []);
   useEffect(() => {
+    let cancelled = false;
+    setOpenClientPending(initialStep === "matter");
     void api
       .onboardingStatus()
       .then(async (status) => {
+        if (cancelled) return;
         setProfile(status.profile);
         if (initialStep === "matter") {
-          // Klient vybraný v prehľade praxe (`?root=`, MČ 16. 10. 2026) má prednosť pred otvoreným klientom.
+          // Klient vybraný v prehľade praxe (`?root=`, prehľad praxe) má prednosť pred otvoreným klientom.
           // Ak ho nastaviť nejde, formulár to povie; nová vec nesmie potichu vzniknúť u iného klienta.
           const preferred = initialRoot
-            ? await chooseClient(api, status.profile, initialRoot).catch((reason: unknown) => { setError(onboardingErrorMessage(reason, locale)); return null; })
+            ? await chooseClient(api, status.profile, initialRoot).catch((reason: unknown) => {
+              // #168: odmietnutý klient (neregistrovaný, mimo praxe, chýbajúci) sa nenahradí uloženým klientom profilu.
+              // Formulár ostane bez vybraného klienta s otvorenou voľbou klienta a vetou chyby (oprava onboardingu 19. 10.).
+              setProfile(withoutClient(status.profile));
+              setError(onboardingErrorMessage(reason, locale));
+              setClientFolderError(true);
+              return null;
+            })
             : await preferOpenClient(api, status.profile, readActiveWorkspaceId());
+          if (cancelled) return;
           if (preferred) setProfile(preferred);
           setOpenClientPending(false);
         }
@@ -657,13 +623,17 @@ export function LawossWelcomePage({
         );
       })
       .catch(() => {
+        if (cancelled) return;
         setOpenClientPending(false);
         setError(tr("error"));
       });
+    return () => { cancelled = true; };
   }, [api, initialStep, initialRoot, hasCompletedOnboarding]);
   /** Každé dokončenie zapíše do profilu značku `completedAt` (#96), až potom pokračuje volajúci. */
+  // Klient po registrácii pred usporiadaním; server mohol po aktivácii zmeniť token či port.
+  const registeredApi = useRef<RegisteredApi | undefined>(undefined);
   const finish = async (current: OnboardingProfile | null, result?: OnboardingApplyResult, completion?: OnboardingCompletion) => {
-    const marked = await markOnboardingCompleted(api, current);
+    const marked = await markOnboardingCompleted(registeredApi.current ?? api, current);
     if (marked) setProfile(marked);
     await onComplete(result, completion);
   };
@@ -722,6 +692,7 @@ export function LawossWelcomePage({
     setBusy(true);
     setError(null);
     try {
+      if (request.action === "matter" && initialRoot) await chooseClient(api,profile,request.clientRoot);
       const pending = { request, value: await api.planOnboarding(request) };
       setPreview(pending);
       writePendingOnboarding(window.localStorage, pending);
@@ -800,11 +771,11 @@ export function LawossWelcomePage({
       setBusy(false);
     }
   };
-  const complete = async (result: OnboardingApplyResult | undefined) => {
+  const complete = async (result: OnboardingApplyResult | undefined, completion?: OnboardingCompletion) => {
     setBusy(true);
     setError(null);
     try {
-      await finish(profile, result);
+      await finish(profile, result, completion);
     } catch (reason) {
       setError(onboardingErrorMessage(reason, locale));
     } finally {
@@ -826,6 +797,20 @@ export function LawossWelcomePage({
     language: locale,
   };
   const identity = { lawyerName: base.lawyerName, jurisdiction: base.jurisdiction, language: base.language };
+  // Krok Priečinok a „Toto som našiel“ vykresľujú vlastné obrazovky s navigáciou pri nadpise.
+  const folderScreen = (step === "folder" || step === "found") && triage !== null;
+  const backNav = sidebarFlow ? (
+    <button type="button" className="lw-btn" disabled={busy} onClick={onCancel}>
+      {tr("cancel")}
+    </button>
+  ) : (
+    <Button
+      variant="ghost"
+      onClick={() => void move(steps[Math.max(0, idx - 1)])}
+    >
+      {tr("back")}
+    </Button>
+  );
   return (
     <DirectoryPickerContext.Provider value={pickDirectory}>
       {/* Koreň appky má overflow: hidden; bez vlastnej posúvateľnej oblasti by náhľad zmien a jeho
@@ -908,7 +893,7 @@ export function LawossWelcomePage({
               />
             </>
           ) : null}
-          {(step === "folder" || step === "found") && triage ? (
+          {folderScreen && triage ? (
             foundRoot ? (
               <FoundScreen
                 api={api}
@@ -921,22 +906,31 @@ export function LawossWelcomePage({
                   setCompletedResult(result);
                   await finish(profile, result, completion);
                 }}
-                onChangeFolder={() => setFoundRoot(null)}
+                onRegister={async (result, completion) => {
+                  const registered = await onRegister?.(result, completion);
+                  if (registered) registeredApi.current = registered;
+                  return registered;
+                }}
+                onChangeFolder={() => { setError(null); setFoundRoot(null); }}
+                onPickRoot={(path) => { setError(null); setFoundRoot(path); }}
                 onError={reportError}
+                onClearError={clearError}
               />
             ) : (
               <FolderStep
                 api={api}
                 identity={identity}
                 text={found}
+                nav={backNav}
                 pickDirectory={pickDirectory}
                 onFound={(root) => {
                   setError(null);
                   setFoundRoot(root);
                 }}
                 onAcknowledge={() => acknowledgeOkf()}
-                // R7: „Začať nanovo“ nezaregistruje pracovný priečinok; appka ide na domov s interným priestorom.
-                onFreshDone={() => complete(undefined)}
+                // R7: „Začať nanovo“ nezaregistruje koreň kancelárie ako pracovný priečinok (rozhodnutie 19. 10. 2026);
+                // advokát pristane na Klienti a prípady pri „Pridať klienta“.
+                onFreshDone={(result) => complete(result, FRESH_OFFICE_COMPLETION)}
                 onError={reportError}
               />
             )
@@ -957,6 +951,8 @@ export function LawossWelcomePage({
           {step === "matter" && !openClientPending ? (
             <Matter
               title={initialStep === "matter" ? tr("newMatter") : tr("matter")}
+              nav={<>{backNav}<Button variant="ghost" disabled={busy} onClick={() => void move("done")}>{tr("skip")}</Button></>}
+              chooserOpen={clientFolderError}
               clientTitle={clientTitle}
               base={base}
               locale={locale}
@@ -966,6 +962,7 @@ export function LawossWelcomePage({
               onClientChange={async (clientRoot) => {
                 setBusy(true);
                 setError(null);
+                setClientFolderError(false);
                 try {
                   setProfile(
                     await api.updateOnboardingProfile({
@@ -975,6 +972,7 @@ export function LawossWelcomePage({
                   );
                 } catch (reason) {
                   setError(onboardingErrorMessage(reason, locale));
+                  setClientFolderError(true);
                 } finally {
                   setBusy(false);
                 }
@@ -1083,21 +1081,12 @@ export function LawossWelcomePage({
           </section>
         ) : null}
         {/* Počas obrazovky „Toto som našiel“ päta nie je: bežiaci zápis by sa dal potichu opustiť;
-            obrazovka má vlastné „Vybrať iný priečinok“, vypnuté počas zápisu. */}
-        {step !== "identity" && step !== "done" && !foundRoot ? (
+            obrazovka má vlastné „Vybrať iný priečinok“, vypnuté počas zápisu. Krok Priečinok má Späť
+            pri nadpise (pod veľkými voľbami by bolo až po rolovaní). */}
+        {/* Formulár prípadu má Zrušiť a Teraz preskočiť pri nadpise (test 19. 10. 2026); kým sa hľadá klient, ostáva päta. */}
+        {step !== "identity" && step !== "done" && !(step === "matter" && !openClientPending) && !foundRoot && !folderScreen ? (
           <footer className="mt-8 flex justify-between">
-            {sidebarFlow ? (
-              <button type="button" className="lw-btn" disabled={busy} onClick={onCancel}>
-                {tr("cancel")}
-              </button>
-            ) : (
-              <Button
-                variant="ghost"
-                onClick={() => void move(steps[Math.max(0, idx - 1)])}
-              >
-                {tr("back")}
-              </Button>
-            )}
+            {backNav}
             {step === "client" || step === "matter" ? (
               <Button
                 variant="ghost"
@@ -1113,7 +1102,7 @@ export function LawossWelcomePage({
     </DirectoryPickerContext.Provider>
   );
 }
-function Identity({
+export function Identity({
   base,
   locale,
   tr,
@@ -1153,7 +1142,12 @@ function Identity({
         <select
           className="lw-onb-select"
           value={language}
-          onChange={(e) => setLanguage(e.target.value as Language)}
+          onChange={(e) => {
+            const next = e.target.value as Language;
+            setLanguage(next);
+            // Rozhranie sa prepne hneď (rodič číta useLocale), nie až po uložení.
+            setLanguagePreference(next);
+          }}
         >
           {UI_LANGUAGES.map((x) => (
             <option key={x.value} value={x.value}>{x.nativeName}</option>
@@ -1404,9 +1398,15 @@ export function Matter({
   onPlan,
   onClientChange,
   onSubjectChange,
+  nav,
+  chooserOpen = false,
 }: {
   title: string;
   clientTitle: string;
+  /** Zrušiť / Späť a Teraz preskočiť pri nadpise: v päte dlhého formulára boli až pod okrajom okna (test 19. 10. 2026). */
+  nav?: ReactNode;
+  /** Po chybe sa zbalená voľba klienta otvorí: veta chyby odkazuje na tlačidlo „Vybrať priečinok“ v nej. */
+  chooserOpen?: boolean;
   base: OnboardingProfile;
   locale: Language;
   tr: (key: string) => string;
@@ -1464,9 +1464,35 @@ export function Matter({
       void onSubjectChange(null);
     }
   };
+  const clientChooser = (
+    <div className="grid gap-2">
+      <PathInput
+        value={selectedClientPath}
+        onChange={setSelectedClientPath}
+      />
+      <Button
+        type="button"
+        variant="outline"
+        disabled={
+          busy || !selectedClientPath.trim() || selectedClientPath === root
+        }
+        onClick={() => {
+          setSubject("");
+          setSubjectMode("none");
+          setSelectedSubjectRoot("");
+          setSubjectTouched(true);
+          setTitle("");
+          setConfirmed(false);
+          void onClientChange(selectedClientPath);
+        }}
+      >
+        {tr("useClient")}
+      </Button>
+    </div>
+  );
   return (
     <>
-      <h2 className="text-xl font-semibold">{heading}</h2>
+      <ScreenHead title={heading}>{nav ? <div className="flex flex-wrap gap-2">{nav}</div> : null}</ScreenHead>
       <div className="lw-onb-inset grid gap-1" data-lawoss-matter-client>
         {root ? (
           <>
@@ -1478,32 +1504,15 @@ export function Matter({
           <p className="text-sm">{tr("noClientYet")}</p>
         )}
       </div>
-      {field(
-        root ? tr("otherClient") : tr("client"),
-        <div className="grid gap-2">
-          <PathInput
-            value={selectedClientPath}
-            onChange={setSelectedClientPath}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            disabled={
-              busy || !selectedClientPath.trim() || selectedClientPath === root
-            }
-            onClick={() => {
-              setSubject("");
-              setSubjectMode("none");
-              setSelectedSubjectRoot("");
-              setSubjectTouched(true);
-              setTitle("");
-              setConfirmed(false);
-              void onClientChange(selectedClientPath);
-            }}
-          >
-            {tr("useClient")}
-          </Button>
-        </div>,
+      {/* Klient z kontextu (karta klienta, bočný strom, otvorený klient) je vybraný; iného klienta treba rozbaliť.
+          Bez klienta sa formulár pýta hneď (test 19. 10. 2026). */}
+      {root ? (
+        <details className="grid gap-2 text-sm" data-lawoss-other-client="" open={chooserOpen}>
+          <summary className="cursor-pointer font-medium">{tr("otherClient")}</summary>
+          <div className="mt-2">{clientChooser}</div>
+        </details>
+      ) : (
+        field(tr("client"), clientChooser)
       )}
       {trial ? (
         <div className="lw-status warn">

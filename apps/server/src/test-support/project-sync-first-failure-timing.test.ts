@@ -27,6 +27,23 @@ function payload(frame: string) {
 }
 
 describe("first project-sync failure statement observation", () => {
+  test("closed additional fixture cases retain independent bounds and cannot emit revoke settings observations", () => {
+    for (const [caseName, last] of [["member-own-folder", 19], ["recordings", 10]] as const) {
+      const frames: string[] = [];
+      const observer = createProjectSyncFirstFailureTiming({ case: caseName, env: enabled, now: () => 0, write: frame => { frames.push(frame); } });
+      observer.enter(4); observer.done(4); observer.enter(5);
+      observer.settingsCheckpoint?.("callback-enter");
+      observer.enter(last); observer.enter(last + 1);
+      observer.cleanupEntry(2);
+      expect(frames).toHaveLength(1);
+      expect(payload(frames[0])).toMatchObject({ case: caseName, currentStatement: last, lastCompletedStatement: 4 });
+    }
+    let reads = 0;
+    const frames: string[] = [];
+    const observer = Reflect.apply(createProjectSyncFirstFailureTiming, undefined, [{ case: "private-unknown-case", env: enabled, now: () => ++reads, write: (frame: string) => frames.push(frame) }]);
+    observer.enter(1); observer.cleanupEntry(1); observer.cleanupExit(true, 0);
+    expect(reads).toBe(0); expect(frames).toEqual([]);
+  });
   test("requires all three exact flags, reads no disabled clock and keeps a passing fixture quiet", () => {
     for (const [key, expected] of Object.entries(enabled)) {
       for (const value of [undefined, "", "TRUE", "false", "0", "1 ", "1", "true"].filter((value) => value !== expected)) {

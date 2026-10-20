@@ -6,6 +6,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     linux-image-cloud-$(dpkg --print-architecture) \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
+# Build-time execution in the actual guest userspace, using the exact Linux
+# architecture selected by build-guest. The read-only ELF is mounted later by
+# the host and is deliberately not duplicated in the initrd.
+RUN --mount=type=bind,source=runtime,target=/opt/protected-engine-check,ro \
+    /usr/local/bin/node --input-type=module -e 'import{readFileSync,writeFileSync}from"node:fs";import{createHash}from"node:crypto";import{execFileSync}from"node:child_process";const p="/opt/protected-engine-check/";const m=JSON.parse(readFileSync(p+"protected-opencode-manifest.json"));const binarySha256=createHash("sha256").update(readFileSync(p+"protected-opencode")).digest("hex");if(binarySha256!==m.binary.sha256)throw Error("Guest engine checksum mismatch");const version=execFileSync(p+"protected-opencode",["--version"],{timeout:60000,encoding:"utf8"}).trim();if(version!==m.engineVersion)throw Error("Guest engine version mismatch");writeFileSync("/opt/protected-opencode-guest-proof.json",JSON.stringify({version,binarySha256,environment:"linux-bookworm-guest"})+"\n")'
 COPY requirements.txt /opt/legalwork/requirements.txt
 RUN pip install --no-cache-dir -r /opt/legalwork/requirements.txt \
     && pip freeze > /opt/legalwork/python-packages.txt
@@ -26,6 +31,7 @@ COPY --from=guest / /rootfs
 RUN mkdir /out && cp /rootfs/boot/vmlinuz-* /out/kernel && rm -rf /rootfs/boot /rootfs/var/cache /rootfs/var/lib/apt/lists
 RUN cp /rootfs/opt/legalwork/guest-packages.tsv /out/guest-packages.tsv
 RUN cp /rootfs/opt/legalwork/python-packages.txt /out/python-packages.txt
+RUN cp /rootfs/opt/protected-opencode-guest-proof.json /out/protected-opencode-guest-proof.json
 RUN printf "nameserver 10.0.2.3\noptions timeout:1 attempts:1\n" > /rootfs/etc/resolv.conf
 WORKDIR /rootfs
 RUN find . -print0 | cpio --null -o -H newc | gzip -1 > /out/initrd.gz

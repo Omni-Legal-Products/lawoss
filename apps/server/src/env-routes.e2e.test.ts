@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { startServer } from "./server.js";
+import { enforceAiBoundaries } from "./lawoss/test-support/ai-boundaries.js";
 import type { ServerConfig } from "./types.js";
 
 type Served = {
@@ -41,9 +42,11 @@ function baseConfig(): ServerConfig {
   } as ServerConfig;
 }
 
-async function boot() {
-  const server = await startServer(baseConfig()) as Served;
+async function boot(options: { aiBoundaries?: boolean } = {}) {
+  const config = baseConfig();
+  const server = await startServer(config) as Served;
   stops.push(() => server.stop(true));
+  if (options.aiBoundaries) stops.push(await enforceAiBoundaries(config));
   return {
     server,
     base: `http://127.0.0.1:${server.port}`,
@@ -338,21 +341,7 @@ describe("env routes", () => {
     expect(del.status).toBe(404);
   });
 
-  test("voice realtime capability is unavailable without standard OpenAI credentials", async () => {
-    delete process.env.OPENAI_API_KEY;
-    const { base } = await boot();
-    const response = await fetch(`${base}/voice/realtime/capability`, { headers: hostAuth() });
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      supported: false,
-      providerId: null,
-      model: null,
-      reason: "openai_credentials_unavailable",
-    });
-  });
-
-  test("voice realtime capability reads the standard OpenCode OpenAI API credential", async () => {
+  test("with AI boundaries off (alpha default), voice realtime capability reads the standard OpenCode OpenAI API credential", async () => {
     delete process.env.OPENAI_API_KEY;
     const authDir = join(process.env.XDG_DATA_HOME!, "opencode");
     mkdirSync(authDir, { recursive: true });
@@ -369,7 +358,93 @@ describe("env routes", () => {
     });
   });
 
-  test("voice realtime prefers a locally saved OpenAI key over the inherited environment key", async () => {
+  test("with AI boundaries on, voice realtime capability is unavailable without standard OpenAI credentials", async () => {
+    delete process.env.OPENAI_API_KEY;
+    const { base } = await boot({ aiBoundaries: true });
+    const response = await fetch(`${base}/voice/realtime/capability`, { headers: hostAuth() });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      supported: false,
+      providerId: null,
+      model: null,
+      reason: "unsupported-transport",
+    });
+  });
+
+  test("with AI boundaries on, voice realtime capability remains unavailable with a standard OpenCode OpenAI credential", async () => {
+    delete process.env.OPENAI_API_KEY;
+    const authDir = join(process.env.XDG_DATA_HOME!, "opencode");
+    mkdirSync(authDir, { recursive: true });
+    writeFileSync(join(authDir, "auth.json"), JSON.stringify({
+      openai: { type: "api", key: "sk-provider-test" },
+    }));
+
+    const { base } = await boot({ aiBoundaries: true });
+    const response = await fetch(`${base}/voice/realtime/capability`, { headers: hostAuth() });
+    expect(await response.json()).toMatchObject({
+      supported: false,
+      providerId: null,
+      model: null,
+      reason: "unsupported-transport",
+    });
+  });
+
+  for (const credentials of ["saved", "environment", "both"] as const) {
+    test(`with AI boundaries on, voice stays unavailable with ${credentials} credentials and never contacts its receiver`, async () => {
+      if (credentials !== "saved") process.env.OPENAI_API_KEY = "sk-env-synthetic";
+      if (credentials !== "environment") {
+        const authDir = join(process.env.XDG_DATA_HOME!, "opencode");
+        mkdirSync(authDir, { recursive: true });
+        writeFileSync(join(authDir, "auth.json"), JSON.stringify({ openai: { type: "api", key: "sk-saved-synthetic" } }));
+      }
+      let receiverCalls = 0;
+      globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        const request = new Request(input, init);
+        if (request.url.startsWith("https://api.openai.com/")) { receiverCalls++; return new Response("unexpected", { status: 500 }); }
+        return nativeFetch(input, init);
+      }, nativeFetch);
+      const { base } = await boot({ aiBoundaries: true });
+      const capability = await fetch(`${base}/voice/realtime/capability`, { headers: hostAuth() });
+      expect(await capability.json()).toEqual({ supported: false, providerId: null, model: null, reason: "unsupported-transport" });
+      const response = await fetch(`${base}/voice/realtime/call`, { method: "POST", headers: { ...hostAuth(), "content-type": "application/json" }, body: JSON.stringify({ sdp: "v=0", sessionContext: "SYNTHETIC_PROTECTED_CONTEXT" }) });
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body).toMatchObject({ code: "ai_transfer_denied" });
+      expect(JSON.stringify(body)).not.toMatch(/sk-env-synthetic|sk-saved-synthetic|SYNTHETIC_PROTECTED_CONTEXT/);
+      expect(receiverCalls).toBe(0);
+    });
+  }
+  test("values persist across server restart", async () => {
+    const first = await boot();
+    await fetch(`${first.base}/env`, {
+      method: "PUT",
+      headers: hostAuth(),
+      body: JSON.stringify({ key: "PERSISTED", value: "yes" }),
+    });
+    await first.server.stop(true);
+    stops.pop();
+
+    const second = await boot();
+    const body = (await (await fetch(`${second.base}/env`, { headers: hostAuth() })).json()) as {
+      items: Array<{ key: string; value: string }>;
+    };
+    expect(body.items).toEqual([expect.objectContaining({ key: "PERSISTED", value: "yes" })]);
+  });
+  test("with AI boundaries off (alpha default), voice realtime capability is unavailable without standard OpenAI credentials", async () => {
+    delete process.env.OPENAI_API_KEY;
+    const { base } = await boot();
+    const response = await fetch(`${base}/voice/realtime/capability`, { headers: hostAuth() });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      supported: false,
+      providerId: null,
+      model: null,
+      reason: "openai_credentials_unavailable",
+    });
+  });
+  test("with AI boundaries off (alpha default), voice realtime prefers a locally saved OpenAI key over the inherited environment key", async () => {
     process.env.OPENAI_API_KEY = "sk-env-test";
     const authDir = join(process.env.XDG_DATA_HOME!, "opencode");
     mkdirSync(authDir, { recursive: true });
@@ -398,8 +473,7 @@ describe("env routes", () => {
 
     expect(response.status).toBe(200);
   });
-
-  test("voice realtime call uses the unified WebRTC endpoint and exact semantic VAD contract", async () => {
+  test("with AI boundaries off (alpha default), voice realtime call uses the unified WebRTC endpoint and exact semantic VAD contract", async () => {
     process.env.OPENAI_API_KEY = "sk-test";
     let realtimeInstructions = "";
     globalThis.fetch = (async (input, init) => {
@@ -482,8 +556,7 @@ describe("env routes", () => {
       tools: ["continue_work", "answer_in_voice"],
     });
   });
-
-  test("voice realtime call does not expose a credential when OpenAI rejects the model", async () => {
+  test("with AI boundaries off (alpha default), voice realtime call does not expose a credential when OpenAI rejects the model", async () => {
     process.env.OPENAI_API_KEY = "sk-test";
     globalThis.fetch = ((input, init) => {
       const request = new Request(input, init);
@@ -508,21 +581,5 @@ describe("env routes", () => {
     expect(body.code).toBe("openai_realtime_failed");
     expect(body.message).toContain("Model is not available");
     expect(JSON.stringify(body)).not.toContain("sk-test");
-  });
-  test("values persist across server restart", async () => {
-    const first = await boot();
-    await fetch(`${first.base}/env`, {
-      method: "PUT",
-      headers: hostAuth(),
-      body: JSON.stringify({ key: "PERSISTED", value: "yes" }),
-    });
-    await first.server.stop(true);
-    stops.pop();
-
-    const second = await boot();
-    const body = (await (await fetch(`${second.base}/env`, { headers: hostAuth() })).json()) as {
-      items: Array<{ key: string; value: string }>;
-    };
-    expect(body.items).toEqual([expect.objectContaining({ key: "PERSISTED", value: "yes" })]);
   });
 });

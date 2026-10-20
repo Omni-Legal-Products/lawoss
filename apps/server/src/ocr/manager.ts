@@ -6,7 +6,7 @@ import type { OcrSettingsView } from "@legalwork/types/ocr";
 import { ApiError } from "../errors.js";
 import { createConfiguredOcrService } from "./index.js";
 import { isLoopbackOcrEndpoint, OcrSettingsStore, serverEngineSchema, type OcrSettings, type ServerEngineSettings } from "./settings.js";
-import type { OcrSecretResolver } from "./server-engine.js";
+import type { OcrFetch, OcrSecretResolver } from "./server-engine.js";
 import { OcrRuntime, ocrTestPage } from "./runtime.js";
 import { layoutModelAsset } from "./models.js";
 import { OcrVault, vaultLock } from "./vault.js";
@@ -44,7 +44,7 @@ export class OcrManager {
   private automaticPending = false;
   private automaticCancelled = false;
   private stopped = false;
-  constructor(root: string, private readonly firm?: () => Promise<FirmOcr>) {
+  constructor(root: string, private readonly firm?: () => Promise<FirmOcr>, private readonly remoteTransport?: {unsupported: () => Promise<boolean>; request: OcrFetch}) {
     this.store = new OcrSettingsStore(join(root, "settings.json"));
     this.vault = new OcrVault(join(root, "keys.vault"));
     this.runtime = new OcrRuntime(root);
@@ -70,11 +70,12 @@ export class OcrManager {
   }
   async service() {
     const { settings, resolveApiKey } = await this.effective();
-    return createConfiguredOcrService(settings, { localRuntime: this.runtime.local, resolveApiKey });
+    return createConfiguredOcrService(settings, { localRuntime: this.runtime.local, resolveApiKey, fetch: this.remoteTransport?.request });
   }
   async view(readOnly = false): Promise<OcrSettingsView> {
     const { settings, resolveApiKey, firmKeys } = await this.effective();
-    const info = createConfiguredOcrService(settings, { localRuntime: this.runtime.local, resolveApiKey }).listEngines();
+    const info = createConfiguredOcrService(settings, { localRuntime: this.runtime.local, resolveApiKey, fetch: this.remoteTransport?.request }).listEngines();
+    const remoteUnsupported = await this.remoteTransport?.unsupported() ?? false;
     return {
       defaultEngineId: settings.defaultEngineId, readOnly,
       installerAvailable: await this.runtime.available(), installation: this.runtime.installation ?? (this.automaticPending ? { engineId: "local-fast", stage: "runtime" } : null),
@@ -88,7 +89,7 @@ export class OcrManager {
           languages: info.find((item) => item.id === engine.id)?.languages?.slice() ?? null,
           keyConfigured,
           firmKey: firmKeys.get(engine.id),
-          status: engine.kind !== "local" ? (engine.apiKeyRef === null || keyConfigured ? "ready" : "missing-key")
+          status: engine.kind !== "local" ? (remoteUnsupported ? "unsupported" : engine.apiKeyRef === null || keyConfigured ? "ready" : "missing-key")
             : !this.runtime.supported(engine.model) ? "unsupported"
             : await this.runtime.ready(engine.model) ? "ready" : "not-installed",
         };

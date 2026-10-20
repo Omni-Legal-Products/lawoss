@@ -1,3 +1,5 @@
+import { AiGuidance } from "@/lawoss/domains/ai/guidance";
+import { currentLocale } from "@/i18n";
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 import { PluginCreateDialog, type PluginCreateStore } from "./plugin-create-dialog";
 /** @jsxImportSource react */
@@ -245,6 +247,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           } : undefined} /> : null}
         {props.skillImports ? <ImportSkillsButton open={skillImportOpen} onOpenChange={setSkillImportOpen} source={skillImportSource} returnFocus={importOpen ? false : importButton} asWorkflow={false} busy={props.busy} canUseDesktopTools={!props.isRemoteWorkspace} existingNames={new Set(props.skillImports.skills().map(skill => skill.name))} extensions={props.skillImports} onImported={importedSkills} onPackageImported={importedPackage} onBack={() => { setSkillImportOpen(false); setImportOpen(true); }} /> : null}
         {/* LAWOSS: zdroje integrácií (LAWOSS, LegalWork, vlastné) nad záložkami. */}
+        <AiGuidance locale={currentLocale()} />
         <IntegrationSourcesCard />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <HubTabs items={TABS} value={tab} onChange={selectTab} label={t("extensions.eyebrow_integrations")} />

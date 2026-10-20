@@ -23,7 +23,7 @@ describe("readOfficeMemory (N1, prehľad praxe)", () => {
     await writeFile(join(root, "Office", "memory", "poznamka.txt"), "nie");
     await writeFile(join(root, "Office", "memory", "vnorene", "T-003.md"), "nie");
     expect(await readOfficeMemory(root)).toEqual({
-      directory: "Office",
+      practiceRoot: root, directory: "Office",
       files: [{ path: "Office/memory/T-001.md", content: "a" }, { path: "Office/memory/T-002.md", content: "b" }],
       problems: [],
       truncated: false,
@@ -32,9 +32,9 @@ describe("readOfficeMemory (N1, prehľad praxe)", () => {
 
   test("prax bez kancelárie alebo bez pamäte nič nehlási", async () => {
     const root = await practice();
-    expect(await readOfficeMemory(root)).toEqual({ directory: null, files: [], problems: [], truncated: false });
+    expect(await readOfficeMemory(root)).toEqual({ practiceRoot: root, directory: null, files: [], problems: [], truncated: false });
     await mkdir(join(root, "_kancelaria"));
-    expect(await readOfficeMemory(root)).toEqual({ directory: "_kancelaria", files: [], problems: [], truncated: false });
+    expect(await readOfficeMemory(root)).toEqual({ practiceRoot: root, directory: "_kancelaria", files: [], problems: [], truncated: false });
   });
 
   test("odkaz von z praxe ani priveľký súbor sa neprečíta, ostatné áno", async () => {
@@ -57,6 +57,29 @@ describe("readOfficeMemory (N1, prehľad praxe)", () => {
     await mkdir(join(elsewhere, "memory"));
     await writeFile(join(elsewhere, "memory", "T-001.md"), "cudzie");
     await symlink(elsewhere, join(root, "Office"));
-    expect(await readOfficeMemory(root)).toEqual({ directory: null, files: [], problems: [], truncated: false });
+    const result = await readOfficeMemory(root);
+    expect(result.files).toEqual([]);
+    expect(result.problems).toHaveLength(1);
   });
+});
+
+
+test("aggregate office budget is bounded and reported", async () => {
+  const root = await practice();
+  await mkdir(join(root, "Office", "memory"), { recursive: true });
+  for (let i = 0; i < 9; i++) await writeFile(join(root, "Office", "memory", `T-${i}.md`), "x".repeat(OFFICE_MEMORY_MAX_BYTES));
+  const result = await readOfficeMemory(root);
+  expect(result.files.reduce((n, f) => n + Buffer.byteLength(f.content), 0)).toBeLessThanOrEqual(8 * 1024 * 1024);
+  expect(result.truncated).toBe(true);
+});
+
+
+test("memory directory symlink is rejected with visible coverage problem", async () => {
+  const root = await practice(), other = await practice();
+  await mkdir(join(root, "Office"));
+  await writeFile(join(other, "T-secret.md"), "foreign");
+  await symlink(other, join(root, "Office", "memory"));
+  const result = await readOfficeMemory(root);
+  expect(result.files).toEqual([]);
+  expect(result.problems).toHaveLength(1);
 });

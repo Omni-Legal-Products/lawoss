@@ -1,7 +1,8 @@
 import { t } from "@/i18n";
 import { isExperimentHidden } from "../feature-flags";
 /**
- * LAWOSS experiments — the single list behind the "Experimenty" sidebar item.
+ * LAWOSS experiments — the single list behind the Experimenty page (`/experimenty`).
+ * Since G2 (19. 10. 2026) no sidebar item or toolbar links here; the page is reachable by address.
  *
  * Two kinds of entry:
  *  - `flag` — a switch that changes behaviour somewhere else in the app.
