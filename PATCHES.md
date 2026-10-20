@@ -1248,3 +1248,25 @@ Rozhodnutie MČ 19. 10. 2026: klient = natívny projekt (registrovaný priečino
 | `apps/server/src/{types,embedded,word-addin,word-addin-shell}.ts`, `apps/app/src/word-addin/{index,word-addin-root}.tsx` | Nepovinný hostitelský getter předává platný jazyk přes chráněný bootstrap; panel reaguje na změnu a uchová jazyk pro offline stav. Hash párování odděluje cache, 401 ji ruší. Shell verze 7 obnoví neměnnou cache bez změny manifestového oprávnění. Původní schopnosti, autentizace a TLS zůstávají. |
 
 Související regresní testy: jazyková preference, skutečné čtení/intake a částečný zápis, metadata šablon a upravených postupů, nativní menu a izolované schválení, párovaný Office bootstrap/offline cache, mutace jazykových katalogů. Přenosné OKF CLI se sestavuje připnutým Bun 1.4.2; druhé sestavení musí mít shodný hash.
+### 2026-10-18 — PDF visual coverage and host review
+
+Approved repair scope: scenario repair plan; coordination proposal remains [PR #100](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/100). No calculator or Google feature implementation.
+
+| Upstream files | Small hook / preservation contract |
+|---|---|
+| `apps/server/src/document-preparation/render.ts`, `apps/server/src/corpus/extract.ts`, `apps/server/src/content-search.test.ts` | Add per-page native text/visual reasons; preserve OCR recognition and coordinates while visual uncertainty remains partial. Existing OCR regression retains its location assertions. |
+| `apps/app/src/app/lib/legalwork-server.ts`, `apps/app/src/react-app/domains/session/panel/{document-processing-panel,workspace-files-panel}.tsx` | Native document panel shows text vs visual coverage, opens the original viewer and submits explicit hash/revision-bound host confirmation. Host capability is a boolean; credentials remain closed over in the existing client. |
+| `apps/app/src/i18n/locales/{en,de,cs,sk}.ts`, `apps/app/tests/{document-processing-client.test.ts,document-processing-panel.test.tsx}` | Localized exact-source confirmation, bearer-only explanation, and native rendering/client regressions. |
+
+LAWOSS service/types/route additions remain under their existing document workflow. Host-only review cannot clear images, annotations, missing text, failed attachment discovery or unreviewed descendants. No source bytes or raw preparation evidence are edited.
+
+Native embedded-child review controls stay blocked until the viewer opens the exact decoded child bytes; a parent cover/email is not sufficient visual evidence. The source-container open action is labeled separately.
+
+### 2026-10-18 — exact displayed PDF source before attestation
+
+| Upstream files | Focused hook / regression contract |
+|---|---|
+| `apps/app/src/react-app/domains/session/artifacts/{artifact-panel,preview}.tsx` | Existing persistent PDF owner accepts an explicit fresh download into its exact binary query; immutable blob SHA and actual visible iframe load acknowledge the review-open request. Ordinary persistence, ownership and tab identity remain intact. |
+| `apps/app/src/react-app/domains/session/panel/{document-processing-panel,document-visual-review}.tsx`, locale files, `apps/app/tests/document-processing-panel.test.tsx` | Confirmation remains disabled until the matching loaded-viewer receipt; changed/replayed bytes retract/refuse it. Translation reasons use literal audited keys. |
+
+New focused viewer hook/source registry and mounted regression reuse existing native panels and owned browser lifecycle. Public synthetic screenshots and boundary notes: `lawoss/testing/evidence/pdf-visual-review/`. The merged EML subtree-readable contract is also preserved when review recomputes ancestor status; unsupported siblings still prevent completeness.

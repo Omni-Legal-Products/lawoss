@@ -1,6 +1,23 @@
 import { expect, test } from "bun:test";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 
+test("visual review client binds native host capability and exact source revision", async () => {
+  const requests: Array<{ host: string | null; body: unknown; path: string }> = [];
+  const server = Bun.serve({ port: 0, fetch: async request => {
+    requests.push({ host: request.headers.get("x-legalwork-host-token"), body: await request.json(), path: new URL(request.url).pathname });
+    return Response.json({ document: { complete: true }, untrusted: true });
+  } });
+  try {
+    const baseUrl = `http://127.0.0.1:${server.port}`;
+    const host = createLegalworkServerClient({ baseUrl, hostToken: "synthetic-host" });
+    const owner = createLegalworkServerClient({ baseUrl, token: "synthetic-owner" });
+    expect(owner.canReviewDocumentVisuals).toBe(false); expect(host.canReviewDocumentVisuals).toBe(true);
+    const input = { expectedHash: "a".repeat(64), expectedUpdatedAt: 123, pages: [1], confirmation: "decorative-only" as const };
+    await host.reviewLawossDocumentVisuals("selected workspace", "exact document", input);
+    expect(requests).toEqual([{ host: "synthetic-host", body: input, path: "/workspace/selected%20workspace/lawoss/documents/exact%20document/visual-review" }]);
+  } finally { server.stop(true); }
+});
+
 test("native document client sends exact selected runtime scope and prepare/read/cancel/export/validate bodies", async () => {
   const calls: Array<{ path: string; method: string; body: unknown }> = [];
   const server = Bun.serve({ port: 0, fetch: async request => {
