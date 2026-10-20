@@ -23,6 +23,7 @@ async function fixture() {
     if (path === "/session/chat" && request.method === "DELETE") { state.deleted++; return Response.json(true); }
     if (path === "/session/chat") return Response.json({ id: "chat", title: "Chat", directory: root, time: { created: 1, updated: 1 } });
     if (path === "/session/chat/prompt_async") { state.prompts++; return new Response(null, { status: 204 }); }
+    if (path === "/session/unrelated") return Response.json({ id: "unrelated", directory: root });
     if (path === "/session/chat/todo") return Response.json([{ id: "todo", content: "Finish review", status: "in_progress", priority: "high" }]);
     if (path === "/session/chat/message/human") return Response.json({ info: { id: "human", sessionID: "chat", role: "user", agent: "legalwork", model: { providerID: "test", modelID: "test" } }, parts: [{ type: "text", text: "Finish my review" }] });
     if (path === "/session/chat/message" && state.recovery) return Response.json([{ info: { id: "empty", parentID: "human", sessionID: "chat", role: "assistant", finish: "stop" }, parts: [{ type: "reasoning", text: "Thinking" }] }]);

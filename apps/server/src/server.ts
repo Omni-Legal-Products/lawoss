@@ -11,7 +11,9 @@ import { acquireRuntimeDbLifetime, runtimeDbResource, withRuntimeDb } from "./ru
 import { resolveWorkspaceFilePath, recheckWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { LawossDocuments } from "./lawoss/documents/service.js";
 import { registerLawossDocumentRoutes } from "./routes/lawoss-documents.js";
-import { workspaceOwnsSession } from "./lawoss/workspace-history.js";
+import { engineCurrentProject, engineProjectWorktree, scopeSessionListQuery, workspaceListsSession } from "./lawoss/session-list-scope.js";
+import { assertEngineRouteScoped, scopeProjectList } from "./lawoss/engine-route-scope.js";
+import { sessionOwnershipChecked, workspaceReadsSession } from "./lawoss/session-ownership.js";
 import { sessionInfoSchema } from "./session-read-model.js";
 import { historicalWorkspaceSessions } from "./lawoss/workspace-history-sessions.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
@@ -1475,6 +1477,12 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
 
   const proxyPath = input.proxyPath ?? input.url.pathname;
   const scopedProxyPath = normalizeOpencodeProxyPath(proxyPath);
+  // Refuse locally before the session ownership lookup reaches the engine.
+  const method = input.request.method.toUpperCase();
+  const protectedExecution = input.config.agentSandboxEnabled || (await new WikiStore(input.config).list()).length > 0;
+  if (protectedExecution) assertSandboxProxyAllowed(method, proxyPath);
+  // LAWOSS: refuse engine routes and overrides that leave the folder; see engine-route-scope.ts.
+  assertEngineRouteScoped(method, scopedProxyPath, input.url.searchParams, input.request.headers);
   let targetUrl = buildOpencodeProxyUrl(baseUrl, proxyPath, input.url.search);
   const headers = new Headers(input.request.headers);
   headers.delete("authorization");
@@ -1498,11 +1506,24 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     headers.set("Authorization", auth);
   }
 
+  // LAWOSS: a folder's session list stays inside the folder; see session-list-scope.ts.
+  const listRoot = workspace && directory && input.request.method.toUpperCase() === "GET" && scopedProxyPath === "/session" ? resolveOpencodeDirectory(workspace) : null;
+  const listRoots = listRoot ? [listRoot, workspace?.workspaceType === "local" ? await realpath(listRoot).catch(() => listRoot) : listRoot] : null;
+  if (listRoots && directory) {
+    const scopedUrl = new URL(targetUrl);
+    await scopeSessionListQuery({ query: scopedUrl.searchParams, directory, roots: listRoots, worktree: () => engineProjectWorktree(buildOpencodeProxyUrl(baseUrl, "/project/current", ""), headers, input.request.signal) });
+    targetUrl = scopedUrl.toString();
+  }
+
   if (scopedProxyPath === "/experimental/session") {
     throw new ApiError(403, "workspace_history_internal", "Global session history is host-internal");
   }
-  const sessionMatch = scopedProxyPath.match(/^\/session\/([^/]+)(?:\/|$)/);
-  if (workspace && (workspace.previousPaths?.length || workspace.appFilesStorageKey) && sessionMatch && !["status", "list"].includes(sessionMatch[1]!)) {
+  // LAWOSS: engine 1.18.29 lists v2 `/api/session` per engine project, not per folder; the app lists `/session`.
+  if (scopedProxyPath === "/api/session" && input.request.method.toUpperCase() === "GET") {
+    throw new ApiError(403, "session_list_unscoped", "Use the folder session list");
+  }
+  const sessionMatch = scopedProxyPath.match(/^(?:\/api)?\/session\/([^/]+)(?:\/|$)/);
+  if (workspace && sessionOwnershipChecked(workspace) && sessionMatch && !["status", "list"].includes(sessionMatch[1]!)) {
     const sessionId = decodeURIComponent(sessionMatch[1]!);
     const metadataUrl = buildOpencodeProxyUrl(baseUrl, `/session/${encodeURIComponent(sessionId)}`, "");
     const metadataHeaders = new Headers(headers);
@@ -1511,12 +1532,9 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     const metadata = await fetch(metadataUrl, { headers: metadataHeaders, signal: AbortSignal.any([input.request.signal, AbortSignal.timeout(10_000)]) });
     if (!metadata.ok) throw new ApiError(404, "session_not_found", "Session not found");
     const parsed = sessionInfoSchema.safeParse(await metadata.json());
-    if (!parsed.success || !workspaceOwnsSession(workspace, parsed.data)) throw new ApiError(404, "session_not_found", "Session does not belong to this project");
+    if (!parsed.success || !(await workspaceReadsSession(workspace, parsed.data))) throw new ApiError(404, "session_not_found", "Session does not belong to this project");
   }
 
-  const method = input.request.method.toUpperCase();
-  const protectedExecution = input.config.agentSandboxEnabled || (await new WikiStore(input.config).list()).length > 0;
-  if (protectedExecution) assertSandboxProxyAllowed(method, proxyPath);
   const normalizedPath = normalizeOpencodeProxyPath(proxyPath);
   const sessionDirectory = input.url.searchParams.get("directory") || decodeOpencodeDirectoryHeader(headers.get("x-opencode-directory"));
   const session = normalizedPath.match(/^\/session\/([^/]+)\/(?:message|prompt_async|command|fork)$/);
@@ -1569,18 +1587,24 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     signal: input.request.signal,
   });
 
-  if (workspace && method === "GET" && scopedProxyPath === "/session" && response.ok && (workspace.previousPaths?.length || workspace.appFilesStorageKey)) {
+  if (workspace && listRoots && response.ok) {
     const current = sessionInfoSchema.array().safeParse(await response.json());
     if (!current.success) throw new ApiError(502, "opencode_invalid_response", "Invalid session list");
-    const historical = await historicalWorkspaceSessions(input.config, workspace, {
+    const historical = workspace.previousPaths?.length || workspace.appFilesStorageKey ? await historicalWorkspaceSessions(input.config, workspace, {
       roots: parseOptionalBoolean(input.url.searchParams.get("roots"), "roots"),
       start: parseOptionalNonNegativeInteger(input.url.searchParams.get("start"), "start"),
       search: input.url.searchParams.get("search") ?? undefined,
-    });
-    const merged = new Map([...historical, ...current.data].filter(session => workspaceOwnsSession(workspace, session)).map(session => [session.id, session]));
+    }) : [];
+    const merged = new Map([...historical, ...current.data].filter(session => workspaceListsSession(workspace, listRoots, session)).map(session => [session.id, session]));
     const ordered = [...merged.values()].sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0));
     const limit = parseOptionalPositiveInteger(input.url.searchParams.get("limit"), "limit");
     return jsonResponse(limit ? ordered.slice(0, limit) : ordered);
+  }
+
+  if (workspace && directory && method === "GET" && scopedProxyPath === "/project" && response.ok) {
+    const root = resolveOpencodeDirectory(workspace) ?? directory;
+    const roots = [root, workspace.workspaceType === "local" ? await realpath(root).catch(() => root) : root];
+    return jsonResponse(scopeProjectList(await response.json(), await engineCurrentProject(buildOpencodeProxyUrl(baseUrl, "/project/current", ""), headers, input.request.signal), roots));
   }
 
   if (method === "POST" && response.ok && (normalizedPath === "/session" || normalizedPath.endsWith("/fork")) && sessionDirectory && input.actor?.scope && await realpath(sessionDirectory).catch(() => null)) {

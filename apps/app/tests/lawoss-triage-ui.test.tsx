@@ -4,7 +4,8 @@ import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 import { t } from "../src/i18n";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
-import { TriagePreviewView, TriageTopline, TriageUndoSummary } from "../src/lawoss/domains/roztriedenie/triage-page";
+import { LegalworkServerError } from "../src/app/lib/legalwork-server";
+import { friendlyError, TriagePreviewView, TriageTopline, TriageUndoSummary } from "../src/lawoss/domains/roztriedenie/triage-page";
 import { offersTriageEntry, plansPreview, triageApply, triageGrant, triageLink, triageTargetRoot, triagePlan, triageReplan, triageUndo, type TriageApiPath, type TriageClient, type TriagePreview } from "../src/lawoss/domains/roztriedenie/api";
 import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
 
@@ -40,7 +41,7 @@ describe("roztriedenie v appke", () => {
     expect(out).toContain("Podpísaná zmluva o dielo.");
     expect(out).toContain("Model čítal skrátený text");
     expect(out).toContain("Hlavný priečinok klienta");
-    expect(out).toContain("Dokumenty na presun v skúšobnom klone: 4.");
+    expect(out).toContain("Dokumenty na presun v kópii: 4.");
     expect(out).toContain("Potvrdiť a roztriediť");
     expect(out).toContain("Už je na správnom mieste");
     expect(out).toMatch(/aria-label="Nechať na zatriedenie: Plnomocenstvo.pdf" checked=""/);
@@ -156,8 +157,8 @@ describe("štítok stránky roztriedenia podľa režimu (D1 9. 10.)", () => {
     expect(markup).not.toContain("klon");
     expect(markup).toContain("Samostatný klient");
   });
-  test("skúšobný klon ostáva označený ako klon", () => {
-    expect(html(<TriageTopline text={text} root="/x/Klient (trial 2026-10-05)" inPlace={false} />)).toContain("Skúšobný klon");
+  test("skúšobná kópia ostáva označená ako kópia", () => {
+    expect(html(<TriageTopline text={text} root="/x/Klient (trial 2026-10-05)" inPlace={false} />)).toContain("Kópia");
   });
 });
 
@@ -184,4 +185,16 @@ describe("vrátenie po novom súhlase (rozhodnutie MČ 13. 10. 2026)", () => {
     expect(undoableRun({ trial: false, runs: [] })).toBeUndefined();
     expect(undoableRun(null)).toBeUndefined();
   });
+});
+
+test("priveľký klient: kód servera triage_too_large dá advokátovi vetu v jeho jazyku (R7)", () => {
+  const error = new LegalworkServerError(413, "triage_too_large", "Priečinok klienta je príliš veľký na usporiadanie naraz.");
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    expect(friendlyError(error, (key, params) => t(`lawoss.triage.${key}`, "sk", params))).toBe("Priečinok klienta je príliš veľký na usporiadanie naraz (viac ako 4 GB alebo 20 000 súborov). Zvoľte „Nie, nechaj ho tak, ako je“ alebo usporiadajte menší podpriečinok.");
+    expect(friendlyError(error, (key, params) => t(`lawoss.triage.${key}`, "cs", params))).toContain("„Ne, nech ji tak, jak je“");
+    expect(friendlyError(error, (key, params) => t(`lawoss.triage.${key}`, "en", params))).toContain("“No, leave it as it is”");
+    expect(friendlyError(error, (key, params) => t(`lawoss.triage.${key}`, "de", params))).toContain("„Nein, so lassen, wie er ist“");
+  } finally { console.warn = warn; }
 });

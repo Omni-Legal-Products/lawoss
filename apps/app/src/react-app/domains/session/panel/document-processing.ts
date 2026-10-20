@@ -67,7 +67,7 @@ export async function discoverDocumentSources(client: Pick<LegalworkServerClient
       if (entry.name.startsWith(".")) continue;
       if (entry.kind === "dir") queue.push(entry.path);
       else {
-        if (!/\.(pdf|txt|md|markdown|csv|tsv|json|jsonl|html|htm|xml|log|yaml|yml|rtf|docx|xlsx|pptx|odt|ods|odp|png|jpg|jpeg|webp|js|ts|tsx|jsx|py|css|sql)$/i.test(entry.name)) throw new Error(t("documents.unsupported", { path: entry.path }));
+        if (!/\.(pdf|eml|txt|md|markdown|csv|tsv|json|jsonl|html|htm|xml|log|yaml|yml|rtf|docx|xlsx|pptx|odt|ods|odp|png|jpg|jpeg|webp|js|ts|tsx|jsx|py|css|sql)$/i.test(entry.name)) throw new Error(t("documents.unsupported", { path: entry.path }));
         paths.push(entry.path);
         if (paths.length > 20) throw new Error(t("documents.folder_limit"));
       }

@@ -54,6 +54,11 @@ export async function verifyProxyCancellation(start: typeof startServer, scenari
       arrived.resolve();
       return;
     }
+    if (url.pathname === "/session/synthetic") {
+      // The proxy checks that a session belongs to the workspace before forwarding.
+      response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ id: "synthetic", directory: path }));
+      return;
+    }
     if (url.pathname === "/session/synthetic/abort") {
       let body = "";
       for await (const chunk of request) body += chunk;

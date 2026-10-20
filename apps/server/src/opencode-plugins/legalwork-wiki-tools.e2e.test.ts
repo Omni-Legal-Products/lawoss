@@ -213,6 +213,8 @@ test("authenticated session origins are preserved while protected prompts and co
     if (request.method === "POST" && /\/(message|prompt_async|command)$/.test(path)) inferenceRequests++;
     if (request.method === "GET" && path === "/command") return Response.json([{ name: "capture", template: "Capture the requested knowledge." }]);
     if (request.method === "POST" && path === "/session") return Response.json({ id: "ses_http_origin", directory: project, title: "Matter" });
+    // The proxy checks that a session belongs to the workspace before forwarding.
+    if (request.method === "GET" && path === "/session/ses_http_origin") return Response.json({ id: "ses_http_origin", directory: project, title: "Matter" });
     if (request.method === "POST" && path === "/session/ses_http_origin/message") return Response.json({ id: "msg_fixture", sessionID: "ses_http_origin" });
     if (request.method === "POST" && path === "/session/ses_http_origin/prompt_async") return new Response(null, { status: 204 });
     if (request.method === "POST" && path === "/session/ses_http_origin/fork") return Response.json({ id: "ses_http_fork", directory: project, title: "Fork" });
