@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { openuiLicenseNotices } from "./scripts/openui-license-notices";
@@ -31,6 +31,18 @@ const buildAppVersion =
   readPackageVersion(appPackagePath) ||
   "0.0.0";
 
+// LAWOSS: the task pane does not ship the xlsx/pptx editors (Univer,
+// pptx-react-viewer). Parsing them pushed the watch build past the default
+// Node heap; the stub shows "open in the LAWOSS app" instead. See PATCHES.md.
+const officeEditorStub = resolve(appRoot, "src/lawoss/word-addin/office-editor-stub.tsx");
+function lawossOfficeEditorStub(): Plugin {
+  return {
+    name: "lawoss-office-editor-stub",
+    enforce: "pre",
+    resolveId: (source) => /(^|\/)artifact-(xlsx|pptx)-editor$/.test(source) ? officeEditorStub : null,
+  };
+}
+
 export default defineConfig({
   base: "/word-addin/",
   define: {
@@ -38,6 +50,7 @@ export default defineConfig({
     "import.meta.env.VITE_LEGALWORK_DEPLOYMENT": JSON.stringify("web"),
   },
   plugins: [
+    lawossOfficeEditorStub(),
     openuiLicenseNotices(),
     tailwindcss(),
     react({
