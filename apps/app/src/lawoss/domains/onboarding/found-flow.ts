@@ -199,6 +199,41 @@ export function createReorganizeFlow(deps: {
   return { begin, show };
 }
 
+/** Odpoveď na „Toto som našiel“: `chat` = súbory OKF a chat s klientom (MČ 19. 10. 2026), `yes` = tabuľka. */
+export type Answer = "no" | "yes" | "chat";
+
+/**
+ * Klient, s ktorým sa chat otvorí: prvý úspešne pridaný s pracovným priečinkom, inak prvý úspešný.
+ * Jediné pravidlo pre tlačidlo, cieľ chatu aj nadpis náhradnej obrazovky.
+ */
+export function chatTarget(queue: readonly BatchItem[]): BatchItem | undefined {
+  return queue.find(item => item.status === "done" && item.result?.workspace) ?? queue.find(item => item.status === "done");
+}
+
+/** Súhrn po pridaní súborov ponúkne chat len po odpovedi „chat“ a ako posledný krok praxe po odpovedi „Nie“. */
+export function batchOffersChat(answer: Answer, practice: boolean): boolean {
+  return answer === "chat" || (answer === "no" && practice);
+}
+
+/**
+ * Odpoveď pri jednom klientovi (aj nadradenom klientovi prípadu): najprv pomocné súbory, potom podľa odpovede
+ * dokončenie, usporiadanie podľa tabuľky alebo chat (registrácia je až v ňom). Ak súbory nepribudli, súhrn.
+ */
+export async function answerClient(deps: {
+  addFiles: (items: readonly { root: string; name: string }[]) => Promise<BatchItem[]>;
+  done: (result?: OnboardingApplyResult) => Promise<void> | void;
+  reorganize: (queue: BatchItem[], result?: OnboardingApplyResult) => Promise<void>;
+  chat?: (queue: BatchItem[], result?: OnboardingApplyResult) => Promise<void>;
+  showBatch: (items: BatchItem[]) => void;
+}, choice: Answer, target: { root: string; name: string }): Promise<void> {
+  const batch = await deps.addFiles([target]);
+  const first = batch[0];
+  if (first?.status === "done" && choice === "no") { await deps.done(first.result); return; }
+  if (first?.status === "done" && choice === "yes") { await deps.reorganize(batch, first.result); return; }
+  if (first?.status === "done" && choice === "chat" && deps.chat) { await deps.chat(batch, first.result); return; }
+  deps.showBatch(batch);
+}
+
 /** Chat sa neotvoril: dôvod, klienti pre náhradné usporiadanie podľa tabuľky a výsledok pre dokončenie. */
 export type ClientChatView = { name: "chatUnavailable"; reason: ClientChatUnavailable; queue: BatchItem[]; result?: OnboardingApplyResult };
 
@@ -216,7 +251,7 @@ export function createClientChatFlow(deps: {
   show: (view: ClientChatView) => void;
 }) {
   const begin = async (queue: BatchItem[], result?: OnboardingApplyResult): Promise<void> => {
-    const target = queue.find(item => item.status === "done" && item.result?.workspace) ?? queue.find(item => item.status === "done");
+    const target = chatTarget(queue);
     if (!target) { deps.show({ name: "chatUnavailable", reason: "failed", queue, result }); return; }
     const registered = target.result ?? result;
     await deps.register(registered);

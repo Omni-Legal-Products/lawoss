@@ -11,19 +11,30 @@ import { toSessionTransportDirectory } from "@/app/lib/session-scope";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { normalizeDirectoryPath } from "@/app/utils";
 import { fetchProviderList } from "@/react-app/infra/provider-list-query";
-import { loadOkfConnection, openSessionWithPrompt } from "../../okf/connection";
+import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
 import { ensureSkillAvailable, workspaceSkillEngine } from "../../okf/skill-availability";
 import { publishAiBoundaries } from "../ai/boundaries-store";
 import { installMissingOnboardingSkills } from "./install-pack";
 import { prepareClientChat, type ClientChatOutcome, type ClientChatRequest } from "./client-chat";
 
-export async function openOnboardedClientChat(request: ClientChatRequest, options: { skillLanguage: Language; defaultModel: ModelRef | null | undefined }): Promise<ClientChatOutcome> {
-  const connection = await loadOkfConnection();
+/**
+ * Priečinok klienta pre chat: podľa id z výsledku registrácie, inak podľa cesty. Len lokálny pracovný
+ * priečinok so spojením na server a tokenom enginu; inak `null` a chat sa neotvorí.
+ */
+export function clientChatTarget(connection: OkfConnection, request: Pick<ClientChatRequest, "workspaceId" | "directory">) {
   const client = connection.client;
   const directory = normalizeDirectoryPath(request.directory);
   const workspace = connection.workspaces.find(item => item.id === request.workspaceId) ?? connection.workspaces.find(item => normalizeDirectoryPath(item.path) === directory);
-  const endpoint = workspace ? resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token }) : null;
-  if (!client || !workspace || workspace.workspaceType === "remote" || !endpoint?.token) return { unavailable: "failed" };
+  if (!client || !workspace || workspace.workspaceType === "remote") return null;
+  const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
+  return endpoint?.token ? { client, workspace, endpoint } : null;
+}
+
+export async function openOnboardedClientChat(request: ClientChatRequest, options: { skillLanguage: Language; defaultModel: ModelRef | null | undefined }, load: () => Promise<OkfConnection> = loadOkfConnection): Promise<ClientChatOutcome> {
+  const connection = await load();
+  const target = clientChatTarget(connection, request);
+  if (!target) return { unavailable: "failed" };
+  const { client, workspace, endpoint } = target;
   const opencode = createClient(endpoint.opencodeBaseUrl, toSessionTransportDirectory(workspace.path) || undefined, { token: endpoint.token, mode: "legalwork" });
   return prepareClientChat({
     governance: async () => {

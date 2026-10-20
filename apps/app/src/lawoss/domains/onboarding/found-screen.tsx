@@ -7,7 +7,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { toggledLeave, triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { friendlyError, TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
-import { addOkfFiles, childPath, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientPath, createReorganizeFlow, retryFailed, workspaceResults, type BatchItem, type FoundIdentity } from "./found-flow";
+import { addOkfFiles, answerClient, batchOffersChat, chatTarget, childPath, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientPath, createReorganizeFlow, retryFailed, workspaceResults, type Answer, type BatchItem, type FoundIdentity } from "./found-flow";
 import { clientChatPrompt, type ClientChatOutcome, type ClientChatRequest, type ClientChatUnavailable } from "./client-chat";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
@@ -19,8 +19,6 @@ import type { OnboardingCompletion } from "./lawoss-welcome-page";
 type Text = (key: FoundTextKey, params?: Record<string, string | number>) => string;
 export type FoundLevel = "practice" | "client" | "matter";
 type Scope = "client" | "practice";
-/** `chat`: OKF súbory a chat s klientom (MČ 19. 10. 2026); `yes`: usporiadanie podľa tabuľky. */
-type Answer = "no" | "yes" | "chat";
 
 const SCOPES: readonly Scope[] = ["client", "practice"];
 
@@ -187,8 +185,8 @@ export function FoundView({ text, busy, suggestion, level, scope, selected, onLe
 
 export function BatchView({ text, busy, items, answer, onRetry, onContinue, onChangeFolder, onChat }: { text: Text; busy: boolean; items: readonly BatchItem[]; answer?: Answer; onRetry: () => void; onContinue: () => void; onChangeFolder?: () => void; onChat?: () => void }) {
   const done = items.filter(item => item.status === "done").length;
-  // Posledný krok praxe (a klienta po zopakovaní): chat s prvým pridaným klientom; tabuľka ide po klientoch ďalej.
-  const chatWith = onChat && answer !== "yes" ? items.find(item => item.status === "done") : undefined;
+  // Kedy sa chat ponúka, rozhoduje volajúci (`batchOffersChat`); s kým, `chatTarget`.
+  const chatWith = onChat ? chatTarget(items) : undefined;
   const failed = items.filter(item => item.status === "failed");
   const pending = items.some(item => item.status === "pending");
   return (
@@ -381,11 +379,14 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     }
     // Vec (R9): pripojí sa nadradený priečinok ako klient, nie samotná vec.
     const target = level === "matter" ? matterClientPath(suggestion.root) : suggestion.root;
-    const batch = await addOkfFiles(api, [{ root: target, name: folderName(target) }], identity, today, (next) => setPhase({ name: "batch", items: next, answer: choice }), describe);
-    if (batch[0]?.status === "done" && choice === "no") { await onDone(batch[0].result); return; }
-    if (batch[0]?.status === "done" && choice === "chat" && chat) { await chat.begin(batch, batch[0].result); return; }
-    if (batch[0]?.status === "done" && choice === "yes") { await reorganize.begin(batch, batch[0].result); return; }
-    setPhase({ name: "batch", items: batch, answer: choice });
+    const progress = (next: BatchItem[]) => setPhase({ name: "batch", items: next, answer: choice });
+    await answerClient({
+      addFiles: (items) => addOkfFiles(api, items, identity, today, progress, describe),
+      done: (result) => onDone(result),
+      reorganize: reorganize.begin,
+      chat: chat?.begin,
+      showBatch: progress,
+    }, choice, { root: target, name: folderName(target) });
   });
 
   if (phase.name === "loading") {
@@ -424,7 +425,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
       const progress = (next: BatchItem[]) => setPhase({ name: "batch", items: next, answer: phase.answer });
       progress(await retryFailed(api, phase.items, identity, today, progress, describe));
     });
-    const chatBatch = chat ? () => run(async () => {
+    const chatBatch = chat && batchOffersChat(phase.answer, level === "practice") ? () => run(async () => {
       batchClients.current = workspaceResults(phase.items);
       await chat.begin(phase.items.filter(item => item.status === "done"), firstWorkspaceResult(phase.items));
     }) : undefined;
@@ -435,7 +436,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     const finish = (landing?: string) => run(async () => { await onDone(phase.result, { ...completion(), ...(landing ? { landing } : {}) }); });
     return (
       <ChatUnavailableView
-        text={text} busy={busy} name={current?.name ?? ""} reason={phase.reason}
+        text={text} busy={busy} name={chatTarget(phase.queue)?.name ?? current?.name ?? ""} reason={phase.reason}
         onSettings={() => void finish(AI_SETTINGS_LANDING)}
         onRetry={() => void run(async () => { if (chat) await chat.begin(phase.queue, phase.result); })}
         onTable={() => void run(() => reorganize.begin(phase.queue, phase.result))}

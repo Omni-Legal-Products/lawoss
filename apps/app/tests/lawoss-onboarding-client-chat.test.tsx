@@ -1,10 +1,14 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
-import type { OnboardingApplyResult, OnboardingSuggestion } from "../src/lawoss/domains/onboarding/api";
+import type { OnboardingApi, OnboardingApplyResult, OnboardingPlanRequest, OnboardingSuggestion } from "../src/lawoss/domains/onboarding/api";
 import { BatchView, ChatUnavailableView, FoundView } from "../src/lawoss/domains/onboarding/found-screen";
 import { FOUND_TEXT, foundText } from "../src/lawoss/domains/onboarding/found-text";
-import { createClientChatFlow, type BatchItem, type ClientChatView } from "../src/lawoss/domains/onboarding/found-flow";
+import { addOkfFiles, answerClient, batchOffersChat, chatTarget, createClientChatFlow, type BatchItem, type ClientChatView } from "../src/lawoss/domains/onboarding/found-flow";
+import { clientChatTarget, openOnboardedClientChat } from "../src/lawoss/domains/onboarding/client-chat-open";
+import type { OkfConnection } from "../src/lawoss/okf/connection";
+import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
+import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { CLIENT_CHAT_SKILL, clientChatGap, clientChatPrompt, prepareClientChat, type ClientChatDeps } from "../src/lawoss/domains/onboarding/client-chat";
 import { okfSkillPack } from "../src/lawoss/domains/onboarding/install-pack";
 import { NOVY_SPIS_SKILL_NAME } from "../src/lawoss/okf/skill-bundle";
@@ -90,10 +94,24 @@ describe("prax: posledný krok ponúkne chat s prvým klientom", () => {
     expect(html).toMatch(/class="lw-btn"[^>]*>Otvoriť v LAWOSS</);
     expect(html).not.toContain("Otvoriť chat s klientom Beta");
   });
-  test("po odpovedi Áno (tabuľka po jednom klientovi) sa chat neponúka", () => {
-    const html = renderToStaticMarkup(<BatchView text={foundText("sk")} busy={false} items={items} answer="yes" onChat={() => undefined} onRetry={() => undefined} onContinue={() => undefined} />);
+  test("chat len po odpovedi chat a ako posledný krok praxe po odpovedi Nie; nie po Áno ani pri jednom klientovi s Nie", () => {
+    expect(batchOffersChat("chat", false)).toBe(true);
+    expect(batchOffersChat("chat", true)).toBe(true);
+    expect(batchOffersChat("no", true)).toBe(true);
+    expect(batchOffersChat("no", false)).toBe(false);
+    expect(batchOffersChat("yes", true)).toBe(false);
+    expect(batchOffersChat("yes", false)).toBe(false);
+    // Bez onChat (volajúci chat neponúka) súhrn ostáva pôvodný.
+    const html = renderToStaticMarkup(<BatchView text={foundText("sk")} busy={false} items={items} answer="yes" onRetry={() => undefined} onContinue={() => undefined} />);
     expect(html).toContain("Ďalší klient");
     expect(html).not.toContain("Otvoriť chat");
+  });
+  test("jeden pomocník cieľa chatu: prvý úspešný s pracovným priečinkom, inak prvý úspešný", () => {
+    expect(chatTarget(items)?.name).toBe("Alfa");
+    const plain: BatchItem = { root: "/p/Gama", name: "Gama", status: "done" };
+    expect(chatTarget([items[0]!, plain, items[2]!])?.name).toBe("Beta");
+    expect(chatTarget([items[0]!, plain])?.name).toBe("Gama");
+    expect(chatTarget([items[0]!])).toBeUndefined();
   });
   test("bez úspešného klienta sa chat neponúka", () => {
     const html = renderToStaticMarkup(<BatchView text={foundText("sk")} busy={false} items={[items[0]!]} answer="chat" onChat={() => undefined} onRetry={() => undefined} onContinue={() => undefined} onChangeFolder={() => undefined} />);
@@ -199,7 +217,7 @@ describe("príprava chatu: hranice, model, skilly, až potom chat", () => {
     expect(await prepareClientChat(d.value)).toEqual({ route: "/workspace/ws-1/session/s-1" });
     expect(d.log).toEqual(["governance", "providers", "skills", `skill:${NOVY_SPIS_SKILL_NAME}`, "open"]);
   });
-  test("zapnuté AI hranice: chat sa neotvorí a nič sa nezapisuje", async () => {
+  test("zapnuté AI hranice: chat sa neotvorí a skilly sa neinštalujú (pomocné súbory už pribudli skôr)", async () => {
     const d = deps({ governance: async () => ({ enforced: true, locked: false, source: "user" }) });
     expect(await prepareClientChat(d.value)).toEqual({ unavailable: "boundaries" });
     expect(d.log).not.toContain("open");
@@ -227,6 +245,14 @@ describe("príprava chatu: hranice, model, skilly, až potom chat", () => {
       expect(d.log).not.toContain("open");
     }
   });
+  test("zlyhaná inštalácia skillov je zlyhanie, chat sa neotvorí", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+    const d = deps({ installSkills: async () => { throw new Error("disk full"); } });
+    expect(await prepareClientChat(d.value)).toEqual({ unavailable: "failed" });
+    expect(d.log).not.toContain("open");
+    expect(d.log.some((entry) => entry.startsWith("skill:"))).toBe(false);
+    warn.mockRestore();
+  });
   test("chybný zoznam poskytovateľov alebo založenie chatu je zlyhanie", async () => {
     const warn = spyOn(console, "warn").mockImplementation(() => undefined);
     expect(await prepareClientChat(deps({ providerList: async () => { throw new Error("x"); } }).value)).toEqual({ unavailable: "failed" });
@@ -253,7 +279,12 @@ describe("prvá správa agentovi", () => {
     expect(prompt).toContain("Navrhni prípady.");
     expect(prompt).toContain("Existujúce podpriečinky ber ako kandidátov na prípady");
     expect(prompt).toContain("Opýtaj sa ma, ktoré prípady chcem založiť.");
-    expect(prompt).toContain("Bez môjho výslovného súhlasu nič nepresúvaj, nepremenúvaj, nemaž ani nezakladaj.");
+    expect(prompt).toContain("Bez môjho výslovného súhlasu nič nezakladaj, nepremenúvaj ani nemaž.");
+    // Presúvať agent v tomto chate zatiaľ nevie (samostatná úloha pridá nástroj); správa si nesmie protirečiť.
+    expect(prompt).toContain("Súbory v tomto chate zatiaľ presúvať ani premenúvať nevieš");
+    expect(prompt).not.toContain("nepresúvaj");
+    expect(prompt).toContain("Ak niečo nevieš urobiť, povedz to; netvrď, že si súbory presunul alebo prípad založil, kým to výsledok nástroja nepotvrdí.");
+    expect(prompt).toContain("Usporiadať podľa OKF → Pokročilé → Usporiadať podľa tabuľky");
     expect(prompt).toContain("/novy-spis");
     expect(prompt).toContain("/roztried-spis");
     expect(prompt).toContain("/usporiadaj-spis");
@@ -268,9 +299,74 @@ describe("prvá správa agentovi", () => {
       expect(prompt).toContain("\"Alfa\"");
       expect(prompt).toContain("/novy-spis");
       expect(prompt).not.toContain("—");
+      // Cesta k tabuľke menuje skutočné popisky obrazovky v tom istom jazyku.
+      expect(prompt).toContain(foundText(locale)("advanced"));
+      expect(prompt).toContain(foundText(locale)("answerTable"));
     }
     expect(clientChatPrompt(foundText("sk"), "Alfa")).not.toMatch(OLD_SK);
     expect(clientChatPrompt(foundText("cs"), "Alfa")).not.toMatch(OLD_CS);
     for (const value of Object.values(FOUND_TEXT.de)) expect(value).not.toContain("—");
+  });
+});
+
+describe("odpoveď na obrazovke: súbory, potom registrácia, potom chat", () => {
+  // Rovnaké falošné API ako lawoss-onboarding-found-flow: zaznamená plán a zápis pomocných súborov.
+  const fakeApi = (log: string[]): Pick<OnboardingApi, "planOnboarding" | "applyOnboarding" | "updateOnboardingProfile"> => {
+    const plans: OnboardingPlanRequest[] = [];
+    return {
+      planOnboarding: async (request) => { plans.push(request); log.push("plan"); return { id: `id-${plans.length}`, fingerprint: "f".repeat(64), preview: { operations: ["AGENTS.md"] } }; },
+      applyOnboarding: async (): Promise<OnboardingApplyResult> => { log.push("apply"); return { result: "applied", root: "/p/Novák", clientRoot: "/p/Novák", workspace: { id: "ws-1", path: "/p/Novák" } }; },
+      updateOnboardingProfile: async () => ({ version: 1, lawyerName: "L", jurisdiction: "sk", language: "sk" }),
+    };
+  };
+  const identity = { lawyerName: "L", jurisdiction: "sk" as const, language: "sk" as const };
+  const run = async (choice: "chat" | "no" | "yes", open: () => Promise<{ route: string } | { unavailable: "failed" }> = async () => ({ route: "/r" })) => {
+    const log: string[] = [];
+    const api = fakeApi(log);
+    const flow = createClientChatFlow({
+      register: async (result) => { log.push(`register:${result?.workspace?.id}`); },
+      openChat: async (request) => { log.push(`chat:${request.directory}`); return open(); },
+      prompt: (name) => clientChatPrompt(foundText("sk"), name),
+      done: (_result, landing) => { log.push(`done:${landing}`); },
+      show: (view) => { log.push(`show:${view.reason}`); },
+    });
+    await answerClient({
+      addFiles: (items) => addOkfFiles(api, items, identity, new Date("2026-10-20T10:00:00Z"), () => undefined, String),
+      done: (result) => { log.push(`done:${result?.workspace?.id}`); },
+      reorganize: async () => { log.push("table"); },
+      chat: flow.begin,
+      showBatch: () => { log.push("batch"); },
+    }, choice, { root: "/p/Novák", name: "Novák" });
+    return log;
+  };
+  test("chat: pomocné súbory, registrácia, chat v priečinku klienta, pristátie v chate", async () => {
+    expect(await run("chat")).toEqual(["plan", "apply", "register:ws-1", "chat:/p/Novák", "done:/r"]);
+  });
+  test("chat sa neotvorí: náhradná obrazovka po registrácii, nič sa nedokončí", async () => {
+    expect(await run("chat", async () => ({ unavailable: "failed" }))).toEqual(["plan", "apply", "register:ws-1", "chat:/p/Novák", "show:failed"]);
+  });
+  test("Nie a tabuľka ostávajú bez chatu", async () => {
+    expect(await run("no")).toEqual(["plan", "apply", "done:ws-1"]);
+    expect(await run("yes")).toEqual(["plan", "apply", "table"]);
+  });
+});
+
+describe("zapojenie otvorenia chatu (client-chat-open)", () => {
+  const server = createLegalworkServerClient({ baseUrl: "http://127.0.0.1:1", token: "t" });
+  const local: RouteWorkspace = { id: "ws-1", name: "Novák", displayNameResolved: "Novák", path: "/p/Novák", preset: "starter", workspaceType: "local" };
+  const connection = (patch: Partial<OkfConnection> = {}): OkfConnection => ({ client: server, baseUrl: "http://127.0.0.1:1", token: "t", workspaces: [local], activeWorkspaceId: "ws-1", ...patch });
+  test("priečinok klienta podľa id aj podľa cesty", () => {
+    expect(clientChatTarget(connection(), { workspaceId: "ws-1", directory: "/iné" })?.workspace.id).toBe("ws-1");
+    expect(clientChatTarget(connection(), { directory: "/p/Novák/" })?.workspace.id).toBe("ws-1");
+  });
+  test("chýbajúci priečinok, vzdialený priečinok, chýbajúci token alebo server: chat sa neotvorí", () => {
+    expect(clientChatTarget(connection({ workspaces: [] }), { workspaceId: "ws-1", directory: "/p/Novák" })).toBeNull();
+    expect(clientChatTarget(connection({ workspaces: [{ ...local, workspaceType: "remote", baseUrl: "https://remote.example", openworkToken: "r" }] }), { workspaceId: "ws-1", directory: "/p/Novák" })).toBeNull();
+    expect(clientChatTarget(connection({ token: "" }), { workspaceId: "ws-1", directory: "/p/Novák" })).toBeNull();
+    expect(clientChatTarget(connection({ client: null }), { workspaceId: "ws-1", directory: "/p/Novák" })).toBeNull();
+  });
+  test("bez priečinka klienta vráti zlyhanie bez volania servera", async () => {
+    const outcome = await openOnboardedClientChat({ workspaceId: "ws-x", directory: "/p/Iný", prompt: "x" }, { skillLanguage: "sk", defaultModel: null }, async () => connection());
+    expect(outcome).toEqual({ unavailable: "failed" });
   });
 });
