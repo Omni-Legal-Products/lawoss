@@ -1,3 +1,4 @@
+import { applyYoloPermissions, yoloModeActive } from "./lawoss/yolo-mode.js";
 import { acquireRuntimeDbLifetime, runtimeDbPath, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, projectTaskPermissions, allProjectTaskPermissions } from "./scheduled-tasks/access.js";
 import { readSystemOneSettings } from "./systemone.js";
@@ -279,8 +280,9 @@ export async function buildLegalworkRuntimeConfigObject(
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
   };
   // The firm's tool permissions apply over the member's own.
+  // LAWOSS: „YOLO Mode" (lawoss/yolo-mode.ts) under the firm's rules; off leaves the map unchanged.
   const { permission } = config
-    ? await orgPolicyPermissions(config, { ...runtimeConfig.permission })
+    ? await orgPolicyPermissions(config, applyYoloPermissions({ ...runtimeConfig.permission }, await yoloModeActive(config)))
     : { permission: { ...runtimeConfig.permission } };
   const instructionPermission = permission.legalwork_project_set_instructions === "deny" ? "deny" : "ask";
   // Append the specific rule after wildcard rules; approvals cannot be saved

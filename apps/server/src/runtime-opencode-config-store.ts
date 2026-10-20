@@ -13,6 +13,8 @@ export type RuntimeOpencodeConfig = {
   aiPreference?: {version: 1; preferredMode: "local" | "unspecified"; sourceHash: string};
   /** LAWOSS: the user's „AI hranice" choice (lawoss/ai-boundaries.ts); absent means the alpha default. */
   aiBoundaries?: {enforced: boolean} | {invalid: true};
+  /** LAWOSS: „YOLO Mode" in the global tool-permission row (lawoss/yolo-mode.ts); absent or damaged means off. */
+  lawossYolo?: {enabled: true};
   sandbox?: SandboxSettings;
   sandboxEdit?: string;
   sandboxSync?: { account: string; revision: number; dirty: boolean };
@@ -121,6 +123,7 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     // A damaged value stays visible as invalid (treated as enforced), never silently dropped to the default.
     ...(value.aiBoundaries === undefined ? {} : isRecord(value.aiBoundaries) && typeof value.aiBoundaries.enforced === "boolean" && Object.keys(value.aiBoundaries).length === 1
       ? {aiBoundaries: {enforced: value.aiBoundaries.enforced}} : {aiBoundaries: {invalid: true as const}}),
+    ...(isRecord(value.lawossYolo) && value.lawossYolo.enabled === true ? {lawossYolo: {enabled: true as const}} : {}),
     ...(typeof value.sandboxEdit === "string" ? { sandboxEdit: value.sandboxEdit } : {}),
     ...(value.sandbox !== undefined ? { sandbox: sandboxSettingsSchema.parse(value.sandbox) } : {}),
     ...(value.sandboxSync !== undefined ? { sandboxSync: sandboxSyncSchema.parse(value.sandboxSync) } : {}),

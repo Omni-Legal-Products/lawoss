@@ -63,6 +63,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "reload.label_skill", "reload.label_plugin", "reload.label_mcp", "reload.label_agent",
   // Product and brand names
   "autogram.title",
+  "lawoss.yolo.title", "lawoss.yolo.badge", // LAWOSS: the switch is named „YOLO Mode" in every language (MČ 20. 10. 2026).
   "ocr.api_paddle", "ocr.api_mistral",
   "benchmark.onboarding_eyebrow", "benchmark.import_title", "settings.tab_benchmark",
   "premium_upsell.eyebrow",
