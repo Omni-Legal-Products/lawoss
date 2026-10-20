@@ -16,6 +16,17 @@ test("extracts XLSX shared strings/values, slide text and OpenDocument content",
   expect(officeText(zipSync({ "content.xml": strToU8('<text:p>Contract term</text:p>') }), ".odt")).toContain("Contract term");
 });
 
+test("corpus-only EML reads flag unprepared attachments without retaining their binary buffers", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corpus-email-"));
+  const manager = new OcrManager(join(root, "ocr")), prep = new DocumentPreparation(manager);
+  try {
+    await writeFile(join(root, "email.eml"), ['MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="mail"', '', '--mail', 'Content-Type: text/plain; charset=utf-8', 'Content-Transfer-Encoding: base64', '', 'U3ludGhldGljIGVtYWlsIGJvZHku', '--mail', 'Content-Type: text/plain', 'Content-Disposition: attachment; filename="evidence.txt"', '', 'Unread attachment evidence', '--mail--'].join('\r\n'));
+    const result = await extractCorpusText(root, "email.eml", prep, new AbortController().signal);
+    expect(result.text).toBe("Synthetic email body."); expect(result.complete).toBe(false);
+    expect(result.issue).toContain("attachments"); expect(result).not.toHaveProperty("attachments");
+  } finally { prep.stop(); manager.stop(); await rm(root, { recursive: true, force: true }); }
+});
+
 test("native text, DOCX and searchable PDFs avoid OCR; images automatically use it", async () => {
   const root = await mkdtemp(join(tmpdir(), "corpus-extract-")); let ocrCalls = 0;
   const prep = new DocumentPreparation(new OcrManager(join(root, "ocr")), { snapshot: async () => ({ fingerprint: "test", service: new OcrService([{ info: { id: "fixture", label: "Fixture", execution: "local", model: "fixture", languages: null, regions: false, warnings: [] }, recognize: async () => { ocrCalls++; return { text: "The document contains an assignment clause.", regions: [], truncated: false }; } }], "fixture") }) });
