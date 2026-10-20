@@ -51,7 +51,7 @@ test("iný directory počká, kým dobehne rozbehnutý štart, a dostane vlastn�
   let calls = 0;
   const start = () => {
     calls += 1;
-    return calls === 1 ? hold : Promise.resolve(new Response("{\"n\":2}", { status: 204, headers: { "content-type": "application/json" } }));
+    return calls === 1 ? hold : Promise.resolve(new Response("{\"n\":2}", { status: 201, headers: { "content-type": "application/json" } }));
   };
   const first = sharedEngineResponse("http://127.0.0.1:9/mcp?directory=one", start, 1_000);
   const second = sharedEngineResponse("http://127.0.0.1:9/mcp?directory=two", start, 1_000);
@@ -61,7 +61,7 @@ test("iný directory počká, kým dobehne rozbehnutý štart, a dostane vlastn�
   const [a, b] = await Promise.all([first, second]);
   expect(a.status).toBe(200);
   expect(await cachedEngineResponse(a).json()).toEqual({ n: 1 });
-  expect(b.status).toBe(204);
+  expect(b.status).toBe(201);
   expect(await cachedEngineResponse(b).json()).toEqual({ n: 2 });
   expect(calls).toBe(2);
 });
@@ -79,4 +79,21 @@ test("zlyhaný štart uvoľní rad a iný directory sa spustí", async () => {
   await expect(first).rejects.toThrow("install failed");
   expect((await second).status).toBe(200);
   expect(order).toEqual(["fail", "next"]);
+});
+
+for (const status of [204, 205, 304]) test(`shared metadata preserves bodyless HTTP ${status}`, async () => {
+  const cached = await sharedEngineResponse(`http://127.0.0.1:9/empty-${status}`, () =>
+    Promise.resolve(new Response(null, { status })));
+  const response = cachedEngineResponse(cached);
+  expect(response.status).toBe(status);
+  expect(response.body).toBeNull();
+  expect(await response.text()).toBe("");
+});
+
+test("matching engine credentials cannot share another host owner's readiness response", async () => {
+  const key = "http://127.0.0.1:9/mcp?directory=shared";
+  const first = sharedEngineResponse(key, async () => Response.json({ owner: "first" }), 1_000, {});
+  const second = sharedEngineResponse(key, async () => Response.json({ owner: "second" }), 1_000, {});
+  expect(await cachedEngineResponse(await first).json()).toEqual({ owner: "first" });
+  expect(await cachedEngineResponse(await second).json()).toEqual({ owner: "second" });
 });

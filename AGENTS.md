@@ -341,3 +341,5 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - A failed optional build-cache save does not establish a runtime defect. If cache acquisition/pruning blocks a platform, retain its original failure, isolate the cache workaround to that platform, and require fresh compilation plus all original acceptance gates.
 
 - Verify repeated Office development builds separately from cold builds. Keep the last bundle while serial fresh compiler processes bound retained build memory; coalesce changes during compilation, include configuration/shared-package inputs, and drain the owned compiler on shutdown without overriding NODE_OPTIONS.
+
+- Serialize ordinary session-list cold readiness underneath protected routing, scoped to the host config, workspace and current connection. Fetch each list freshly after readiness, retain HTTP cancellation, and keep owned confined reads, individual-session authority checks and long-lived streams outside ordinary initialization.

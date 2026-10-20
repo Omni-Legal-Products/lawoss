@@ -31,3 +31,12 @@ Existing actual matrix test scripts/ci/sandbox-matrix.test.mjs:4pass, independen
 Office watcher: cache-clear hypothesis rejected by second-buildOOM; fresh serial compiler experiment passes initial+2rebuilds at4288MiB (PIDs31524/31987/32405). Unit3pass; actual CLI shutdown exits0, captured3processes,0survivors. Fresh review resolved config-input and fatal-exit findings; no remaining must-fix.
 Native local complete:10cases + attachment + negative + actual relaunch/reconnect/same IDs/allSHA; exit0 and clean owned shutdown. This does not identify the original CI500.
 Toolchain mismatch found: prior local Bun1.4.0, CI1.4.2; previous source-suite results remain diagnostic, not matching-CI acceptance. Recheck on pinned binary.
+
+## 2026-10-20T23:05:24.659526+00:00 — Windows source/native build triage and TDD
+
+- PR201 Windows source5failures repaired in52119ab5; fixture now executes actual localization functions. Nativehelpers377pass and desktop450pass/6skip; subsequentremoteheadc073df1d includes this commit.
+- PR200 Windows package118922997677 failed before generation: selectedMCP300s timeout; archived job, safe diagnostic, engineidentitysmoke. Historicalmac provisioning500 remains a separate unknown.
+- RealHTTP RED proves ordinarySDK sessionLIST bypasses sharedcoldbootstrap; final repair only joins readiness below protected routing. Actuallist responses are fresh and separately authenticated/cancelled.
+- Reviewer rejected broadresponsecache and absenthostowner. Additional owner, warm-body and cancellation RED/GREEN contracts retained. Fullsuite exposed protected precondition regression; existingtests unchanged and finalcorrectplacement/exactpath passed.
+- Final fullserver3014pass/67skip/0fail, productionbuildpass,48targetedpass, Nodeproduction19pass andNode204/205/304pass. Independentreview38pass/no mustfix. NewWindows source selection includes bothregressionfiles; no budget/oracle change.
+- mac source reload-watcher job118906948432 stillunclassified;25exactisolatedreplays pass, not replacementCIacceptance. Intermediate invaliddirectory Node test selection, aborted broad-caching run andfailedpreflight run are retained as failed/diagnostic evidence.
