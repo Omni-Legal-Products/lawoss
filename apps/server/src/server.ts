@@ -1,3 +1,12 @@
+import { registerAiGovernanceRoutes } from "./lawoss/ai-governance-routes.js";
+import { ProtectedDocumentRuntime } from "./lawoss/protected-ai/runtime.js";
+import { protectedGuestBundleFactory } from "./lawoss/protected-ai/bundle.js";
+import { registerProtectedDocumentProfileRoutes } from "./lawoss/protected-ai/profiles.js";
+import { registerProtectedDocumentRoutes } from "./lawoss/protected-ai/routes.js";
+import { protectedEngineFetch, protectedSessionResponse, registerProtectedRuntime } from "./lawoss/protected-ai/dispatch.js";
+import { retainWikiAgentRuntime } from "./wiki/agent-access.js";
+import { createGovernedEngineFetch, requireGovernedEngineDispatch, requireUnsupportedProtectedTransport } from "./lawoss/ai-governance-engine.js";
+import { registerDeadlineRoutes } from "./lawoss/deadlines/routes.js";
 import { acquireRuntimeDbLifetime, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { resolveWorkspaceFilePath, recheckWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { LawossDocuments } from "./lawoss/documents/service.js";
@@ -15,7 +24,7 @@ import { withSessionExecution } from "./session-execution-gate.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
-import { ScheduledTaskRunner } from "./scheduled-tasks/runner.js";
+import { ScheduledTaskRunner, type ScheduledExecutor } from "./scheduled-tasks/runner.js";
 import { registerScheduledTaskRoutes } from "./routes/scheduled-tasks.js";
 import type { ScheduledTask } from "@legalwork/types/scheduled-tasks";
 import { composedSkill } from "./skill-composition.js";
@@ -154,7 +163,7 @@ import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
-import { registerOnboardingRoutes } from "./lawoss/onboarding.js";
+import { registerOnboardingRoutes, type OnboardingApplyCheckpoint } from "./lawoss/onboarding.js";
 import { LawossOcrManager, registerLawossOcrRoutes } from "./lawoss/ocr-opt-in.js";
 import { registerLawossMarketplaceRoutes } from "./lawoss/marketplace-routes.js";
 import { startWeeklyMarketplaceCheck } from "./lawoss/marketplace-updates.js";
@@ -652,9 +661,9 @@ async function createOpenAiRealtimeVoiceCall(env: EnvService, input: unknown) {
 }
 
 const workspaceBootstrapPromises = new WeakMap<ServerConfig, Map<string, Promise<void>>>();
-const reloadBaselineRefreshers = new WeakMap<
+const workspaceBootstrapScopes = new WeakMap<
   ServerConfig,
-  (workspaceId: string, reasons?: ReloadReason[]) => Promise<void>
+  (workspaceId: string, bootstrap: () => Promise<void>) => Promise<void>
 >();
 
 type LogLevel = "info" | "warn" | "error";
@@ -823,7 +832,7 @@ export type StartedServer = ServeResult & {
 const orgPolicyResource = Symbol("server-org-policy");
 const firmHubResource = Symbol("server-firm-hub");
 
-export async function startServer(config: ServerConfig, runtimeOptions: { documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void> } = {}): Promise<StartedServer> {
+export async function startServer(config: ServerConfig, runtimeOptions: { scheduledTaskSend?: ScheduledExecutor["send"]; publicEngineBinary?: () => string | undefined; documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void>; onboardingApplyCheckpoint?: (checkpoint: OnboardingApplyCheckpoint) => void } = {}): Promise<StartedServer> {
   const lifetime = acquireRuntimeDbLifetime(config);
   const cleanups: Array<() => void | Promise<unknown>> = [];
   const producerStops: Array<() => void | Promise<unknown>> = [];
@@ -853,6 +862,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   await runtimeDbResource(config, firmHubResource, async path => ({ close: () => closeFirmHubRuntime(config, join(dirname(path), "firm-hub")) }));
   cleanups.push(() => stopMessageQueue(config));
   producerStops.push(retainOrgPolicyReloads(config));
+  cleanups.push(retainWikiAgentRuntime(config));
   const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"));
   cleanups.push(() => approvals.dispose());
   const agentSandbox = new AgentSandboxService(config, approvals);
@@ -865,10 +875,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   cleanups.push(() => wikiStore.close());
   await wikiStore.list();
   let watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
-  cleanups.push(() => { watcherHandle.close(); workspaceBootstrapPromises.delete(config); reloadBaselineRefreshers.delete(config); });
-  reloadBaselineRefreshers.set(
+  cleanups.push(() => { watcherHandle.close(); workspaceBootstrapPromises.delete(config); workspaceBootstrapScopes.delete(config); });
+  workspaceBootstrapScopes.set(
     config,
-    (workspaceId, reasons) => watcherHandle.refreshWorkspace(workspaceId, reasons),
+    (workspaceId, bootstrap) => watcherHandle.withWorkspaceBootstrap(workspaceId, bootstrap),
   );
   const restartReloadWatchers = () => {
     if (stopping) return;
@@ -921,12 +931,21 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     grantAgentSession: (sessionId, directory) => grantWikiAgentSession(config, { sessionId, directory, scope: "collaborator" }),
   });
   // LAWOSS: OCR models download only after the lawyer turns OCR on (lawoss/ocr-opt-in.ts).
-  const ocr = new LawossOcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config));
+  const ocr = new LawossOcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config), {state: "unsupported", request: async () => requireUnsupportedProtectedTransport(config, "ocr")});
   cleanups.push(() => { benchmarkRunner.dispose(); ocr.stop(); });
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
   cleanups.push(() => preparation.stop());
   const documents = new LawossDocuments(config, preparation);
   cleanups.push(() => documents.stop());
+  const protectedDocuments = new ProtectedDocumentRuntime({config, approvals, documents, getGuestBundle: protectedGuestBundleFactory(config)});
+  await protectedDocuments.initialize().catch(() => {
+    // Keep local Files/manual work available. This runtime retains its failed
+    // initialization and refuses generation until protected history is repaired.
+    console.warn("Protected document history is unavailable; protected execution remains disabled.");
+  });
+  cleanups.push(registerProtectedRuntime(config, protectedDocuments));
+  cleanups.push(() => protectedDocuments.close());
+  producerStops.push(() => protectedDocuments.close());
   const corpus = new CorpusService({
     selection: async () => {
       const settings = await readSystemOneSettings(config);
@@ -952,6 +971,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     if (workspace.workspaceType === "remote") throw new ApiError(400, "local_schedule_only", "Scheduled tasks require a local project.");
     return workspace;
   };
+  const scheduledTaskSend = runtimeOptions.scheduledTaskSend;
   const scheduledRunner = new ScheduledTaskRunner(scheduledTasks, {
     available: async task => {
       if (config.readOnly) return false;
@@ -961,11 +981,17 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       return !target || !status[target] || status[target].type === "idle";
     },
     createSession: async task => {
-      const client = createWorkspaceOpencodeClient(config, await scheduledWorkspace(task));
+      const workspace = await scheduledWorkspace(task);
+      // A new chat transmits its title too; default model work must be admitted
+      // before creating any engine session, not only before sending its prompt.
+      if (!scheduledTaskSend) await requireUnsupportedProtectedTransport(config, "chat", workspace.id);
+      const client = createWorkspaceOpencodeClient(config, workspace);
       return unwrapOpencodeResult(await client.session.create({ title: task.title }, { signal: AbortSignal.timeout(10000) }), "/session").id;
     },
-    send: (task, sessionId) => withSessionExecution(config, sessionId, async () => {
+    // Trusted embedding port for owned non-model jobs; never read from HTTP/config/env.
+    send: scheduledTaskSend ?? ((task: ScheduledTask, sessionId: string) => withSessionExecution(config, sessionId, async () => {
       const workspace = await scheduledWorkspace(task);
+      await requireGovernedEngineDispatch(config, workspace.id, "POST", `/session/${sessionId}/prompt_async`);
       const client = createWorkspaceOpencodeClient(config, workspace);
       const session = unwrapOpencodeResult(await client.session.get({ sessionID: sessionId }, { signal: AbortSignal.timeout(10000) }), "/session");
       if (resolve(session.directory) !== resolve(workspace.path) || session.time.archived) throw new ApiError(400, "schedule_session", "The destination chat is no longer available in this project.");
@@ -982,9 +1008,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       const result = await client.session.promptAsync({ sessionID: sessionId, agent, ...(task.model ? { model: task.model } : {}),
         parts: [{ type: "text", text: `[Scheduled task: ${task.title}]\n\n${task.prompt}` }] }, { signal: AbortSignal.timeout(30000) });
       if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
-    }, true),
+    }, true)),
   });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents, scheduledTasks, wikiStore, wikiSync);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents, scheduledTasks, wikiStore, wikiSync, protectedDocuments, runtimeOptions.publicEngineBinary, runtimeOptions.onboardingApplyCheckpoint);
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) =>
     unwrapOpencodeResult(await createDirectoryOpencodeClient(config, workspace, directory).session.get({ sessionID }, { signal }), "/session"));
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
@@ -1355,13 +1381,14 @@ async function resolveProxyOpencodeDirectory(workspace: WorkspaceInfo, headers: 
   throw new ApiError(400, "path_escape", "Session directory escapes workspace root");
 }
 
-function createOpencodeDirectoryFetch(directory: string): typeof fetch {
+function createOpencodeDirectoryFetch(directory: string, config: ServerConfig, workspaceId: string): typeof fetch {
+  const governedFetch = protectedEngineFetch(config, workspaceId, createGovernedEngineFetch(config, workspaceId));
   return Object.assign(
     (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const request = input instanceof Request ? input : new Request(input, init);
       const headers = new Headers(init?.headers ?? request.headers);
       headers.set("x-opencode-directory", buildOpencodeDirectoryHeader(directory));
-      return fetch(new Request(request, { headers }));
+      return governedFetch(new Request(request, { headers }));
     },
     { preconnect: fetch.preconnect },
   );
@@ -1374,7 +1401,7 @@ type OpencodeClientResult<T, E> =
 function createWorkspaceOpencodeClient(config: ServerConfig, workspace: WorkspaceInfo) {
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const directory = resolveOpencodeDirectory(workspace);
-  const directoryFetch = directory ? createOpencodeDirectoryFetch(directory) : undefined;
+  const directoryFetch = directory ? createOpencodeDirectoryFetch(directory, config, workspace.id) : protectedEngineFetch(config, workspace.id, createGovernedEngineFetch(config, workspace.id));
 
   return createOpencodeClient({
     baseUrl: connection.baseUrl?.trim(),
@@ -1394,7 +1421,7 @@ function createDirectoryOpencodeClient(config: ServerConfig, workspace: Workspac
   return createOpencodeClient({
     baseUrl: connection.baseUrl?.trim(),
     directory,
-    fetch: createOpencodeDirectoryFetch(directory),
+    fetch: createOpencodeDirectoryFetch(directory, config, workspace.id),
     ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}),
   });
 }
@@ -1436,6 +1463,13 @@ async function proxyOpencodeRequest(input: {
 
 async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequest>[0]) {
   const workspace = input.workspace;
+  if (workspace) {
+    const url = new URL(input.request.url);
+    url.pathname = normalizeOpencodeProxyPath(input.proxyPath ?? input.url.pathname);
+    const protectedResponse = await protectedSessionResponse(input.config, workspace.id, new Request(url, input.request));
+    if (protectedResponse) return protectedResponse;
+  }
+  await requireGovernedEngineDispatch(input.config, workspace?.id ?? null, input.request.method, normalizeOpencodeProxyPath(input.proxyPath ?? input.url.pathname));
   const baseUrl = workspace ? resolveWorkspaceOpencodeConnection(input.config, workspace).baseUrl?.trim() ?? "" : "";
   if (!baseUrl) {
     throw new ApiError(400, "opencode_unconfigured", "OpenCode base URL is missing for this workspace");
@@ -1538,14 +1572,15 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     });
     return jsonResponse({ ok: true, accepted: true });
   }
+  const engineFetch = protectedEngineFetch(input.config, workspace?.id ?? "", fetch);
   // Cold instance bootstrap hangs until npm install finishes. Share one GET /mcp
   // for this URL. A different directory waits so a second install does not start
   // beside it. A 20s client poll does not abort the install.
   if (method === "GET" && scopedProxyPath === "/mcp") {
-    const cached = await abortable(sharedEngineResponse(targetUrl, (signal) => fetch(targetUrl, { method, headers, signal })), input.request.signal);
+    const cached = await abortable(sharedEngineResponse(targetUrl, (signal) => engineFetch(targetUrl, { method, headers, signal })), input.request.signal);
     return sanitizeProxyResponse(cachedEngineResponse(cached));
   }
-  const response = await fetch(targetUrl, {
+  const response = await engineFetch(targetUrl, {
     method,
     headers,
     body,
@@ -1958,6 +1993,9 @@ function createRoutes(
   scheduledTasks: ScheduledTaskStore,
   wikiStore: WikiStore,
   wikiSync: WikiSync,
+  protectedDocuments: ProtectedDocumentRuntime,
+  publicEngineBinary?: () => string | undefined,
+  onboardingApplyCheckpoint?: (checkpoint: OnboardingApplyCheckpoint) => void,
 ): Route[] {
   const routes: Route[] = [];
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
@@ -2011,7 +2049,11 @@ function createRoutes(
     },
   });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerAiGovernanceRoutes({routes, config, jsonResponse, readJsonBodyLimited, getPublicEngineBinary: publicEngineBinary, pinnedEngineVersion: OPENCODE_VERSION});
+  registerProtectedDocumentRoutes({routes, runtime: protectedDocuments, jsonResponse, readJsonBodyLimited});
+  registerProtectedDocumentProfileRoutes({config, routes, jsonResponse});
   registerLawossDocumentRoutes({ routes, config, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerDeadlineRoutes({ routes, config, approvals, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   registerLawossOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   const projectFolders = registerStorageRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace, onProjectFoldersChanged: (id) => noteProjectFoldersChanged(config, id), onProjectRenamed: (id, name) => noteProjectRenamed(config, id, name) });
@@ -2091,7 +2133,7 @@ function createRoutes(
     createOpenAiRealtimeVoiceCall,
   });
 
-  registerOnboardingRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, onWorkspacesChanged, serializeWorkspace: (workspace) => serializeWorkspace(workspace, "owner") });
+  registerOnboardingRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, onWorkspacesChanged, applyCheckpoint: onboardingApplyCheckpoint, serializeWorkspace: (workspace) => serializeWorkspace(workspace, "owner") });
   // LAWOSS: LAWOSS Marketplace pre všetkých klientov a aktualizácie (lawoss/marketplace-routes.ts).
   // Po zmene globálnych pluginov sa nečinné inštancie enginu obnovia (nové skilly a MCP), pri bežiacej úlohe len MCP a výzva na obnovu.
   registerLawossMarketplaceRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, resolveWorkspace: (id) => resolveWorkspace(config, id), afterChange: async (ctx) => {
@@ -5416,32 +5458,23 @@ async function resolveWorkspace(config: ServerConfig, id: string, options: { boo
     const bootstrapKey = `${workspace.id}:${resolvedWorkspace}:${usesExternalWorkspaceAppFiles(workspace) ? "outside" : "inside"}`;
     let bootstrap = bootstraps.get(bootstrapKey);
     if (!bootstrap) {
-      bootstrap = (async () => {
+      const bootstrapFiles = async () => {
         const bootstrapWorkspace = { ...workspace, path: resolvedWorkspace };
         const appFilesRoot = workspaceAppFilesRoot(config, bootstrapWorkspace);
-        const ensured = usesExternalWorkspaceAppFiles(bootstrapWorkspace)
-          ? await ensureDir(appFilesRoot).then(() => ensureWorkspaceFiles(appFilesRoot, bootstrapWorkspace.preset, {
+        if (usesExternalWorkspaceAppFiles(bootstrapWorkspace)) {
+          await ensureDir(appFilesRoot);
+          await ensureWorkspaceFiles(appFilesRoot, bootstrapWorkspace.preset, {
             root: resolvedWorkspace,
             name: bootstrapWorkspace.displayName ?? bootstrapWorkspace.name,
-          }))
-          : await ensureWorkspaceFilesForBootstrap(bootstrapWorkspace);
-        const bootstrapReloadReasons = new Set<ReloadReason>(ensured.reloadReasons);
-        if (await repairCommands(appFilesRoot)) {
-          bootstrapReloadReasons.add("commands");
+          });
+        } else {
+          await ensureWorkspaceFilesForBootstrap(bootstrapWorkspace);
         }
-        if (bootstrapReloadReasons.size > 0) {
-          // The managed OpenCode process starts alongside this server and
-          // reads the freshly seeded files when its first instance is made.
-          // Suppress watcher noise here, but never dispose the engine from a
-          // request path: doing that can abort a prompt submitted at the same
-          // moment. Later user-authored changes still flow through the normal
-          // reload event/coordinator gate.
-          await reloadBaselineRefreshers.get(config)?.(
-            workspace.id,
-            Array.from(bootstrapReloadReasons),
-          );
-        }
-      })();
+        await repairCommands(appFilesRoot);
+      };
+      // Scope before the first bundled write; Windows may deliver notifications
+      // while bootstrap is still running. Never dispose an engine from here.
+      bootstrap = workspaceBootstrapScopes.get(config)?.(workspace.id, bootstrapFiles) ?? bootstrapFiles();
       bootstraps.set(bootstrapKey, bootstrap);
     }
 

@@ -1,3 +1,4 @@
+import { deadlinesDe } from "../../lawoss/i18n/deadlines";
 import { setupDe } from "../../lawoss/i18n/setup";
 import { initialDe } from "../../lawoss/i18n/initial";
 import { mattersDe } from "../../lawoss/i18n/matters";
@@ -3630,6 +3631,9 @@ const de = {
   "settings.custom_binary_hint": "Damit richten Sie LegalWork auf einen lokalen OpenCode-Build aus",
   "settings.custom_binary_label": "Eigene OpenCode-Binärdatei",
   "settings.debug_base_url": "Basis-URL: {url}",
+  "settings.build_identity_embedded": "Eingebettete Build-Identität",
+  "settings.build_identity_development": "Identität des Entwicklungs-Checkouts",
+  "settings.build_identity_unavailable": "Build-Identität nicht verfügbar",
   "settings.debug_commit": "Commit: {sha}",
   "settings.debug_connect_url": "Verbindungs-URL: {url}",
   "settings.debug_deeplink_unavailable": "Debug-Deeplinks sind noch nicht verfügbar.",
@@ -7420,6 +7424,7 @@ const de = {
   "views.project_hint": "Dashboards und Berichte, die Sie bewusst in diesem Projekt gespeichert haben.",
   "views.no_saved_dashboards": "Noch keine gespeicherten Dashboards. Erstellen Sie eines im Chat und wählen Sie dann Speichern und dieses Projekt.",
   "views.report": "Bericht",
+  ...deadlinesDe,
 } as const;
 
 export default de;

@@ -59,7 +59,7 @@ export async function verifyProxyCancellation(start: typeof startServer, scenari
       response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ id: "synthetic", directory: path }));
       return;
     }
-    if (url.pathname === "/session/synthetic/prompt_async") {
+    if (url.pathname === "/session/synthetic/abort") {
       let body = "";
       for await (const chunk of request) body += chunk;
       prompts.push(JSON.parse(body));
@@ -132,8 +132,8 @@ export async function verifyProxyCancellation(start: typeof startServer, scenari
       streams.get("success")!.end('data: {"type":"session.idle"}\n\n');
       assert.equal(new TextDecoder().decode((await stream.reader.read()).value), 'data: {"type":"session.idle"}\n\n');
       assert.equal((await stream.reader.read()).done, true);
-      const prompt = { messageID: "synthetic-message", parts: [{ type: "text", text: "Synthetic accepted request" }] };
-      const accepted = await fetch(`${selected}/session/synthetic/prompt_async`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(prompt) });
+      const prompt = { reason: "Synthetic accepted abort" };
+      const accepted = await fetch(`${selected}/session/synthetic/abort`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(prompt) });
       assert.equal(accepted.status, 204); await accepted.arrayBuffer();
       assert.deepEqual(prompts, [prompt]);
       const save = await fetch(`${base}/files/content`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ path: "result.txt", content: "Persisted synthetic output" }) });

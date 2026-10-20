@@ -1,3 +1,4 @@
+import { isManagedDeadline } from "../../../../../lawoss/okf/deadline-workflow.ts";
 /**
  * Načítanie pamäte spisov cez server API — iba čítanie, nič nezapisuje.
  *
@@ -7,7 +8,7 @@
  * nezhodí celé čítanie — skončí v `problems` a zvyšok sa spracuje.
  */
 import { readManualStatus } from "../../../../../lawoss/okf-pamat/src/manual-status.ts";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -20,12 +21,20 @@ import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
 import { looksLikeMatterName } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { validateStore } from "../../../../../lawoss/okf-pamat/src/validate.ts";
+import { selectSourceSnapshot } from "./practice-read-state";
 import { loadOkfConnection, type OkfConnection } from "./connection";
 import type { OfficeMemoryRead } from "./office-memory";
 
-export type OkfReadClient = Pick<LegalworkServerClient, "listWorkspaceDirectory" | "readWorkspaceFile">;
+export type OkfReadClient = Pick<LegalworkServerClient, "listWorkspaceDirectory" | "readWorkspaceFile"> & Partial<Pick<LegalworkServerClient, "lawossDeadlineRequest">>;
 type ReadProblem = { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office" };
+export type OkfSourceReadState = { source: "workspace" | "office"; workspaceId?: string; checkedAt: number; lastSuccessAt: number | null; state: "fresh" | "stale" | "unavailable" | "truncated" };
+export type OkfCoverage = { status: "complete" | "partial" | "failed"; scopeKey: string; sources: readonly OkfSourceReadState[] };
+type SourceSnapshot = { inputs: MatterInput[]; clients: OkfClient[]; office?: OfficeBundle | null };
+export type OkfReadOptions = { signal?: AbortSignal; previous?: OkfReadResult; now?: () => number };
 export type OkfReadResult = Overview & {
+  coverage: OkfCoverage;
+  /** RAM-only successful source snapshots, never a second store. */
+  sourceSnapshots?: Record<string, SourceSnapshot>;
   problems: ReadProblem[];
   /** Workspace má viac vecí než `MAX_MATTERS`; prehľad je čiastočný. */
   truncated: boolean;
@@ -74,15 +83,18 @@ export async function readWorkspaceMemory(
   client: OkfReadClient,
   workspaceId: string,
   todayIso: string = today(),
+  options: OkfReadOptions = {},
 ): Promise<OkfReadResult> {
+  options.signal?.throwIfAborted();
   const problems: ReadProblem[] = [];
+  const readFile = (path: string) => client.readWorkspaceFile(workspaceId, path, { signal: options.signal });
   let truncated = false;
   type Listing = Awaited<ReturnType<OkfReadClient["listWorkspaceDirectory"]>>;
   const cache = new Map<string, Promise<Listing["entries"]>>();
   const list = (path: string, optional = false): Promise<Listing["entries"]> => {
     let pending = cache.get(path);
     if (!pending) {
-      pending = client.listWorkspaceDirectory(workspaceId, path).then((result) => {
+      pending = client.listWorkspaceDirectory(workspaceId, path, { signal: options.signal }).then((result) => {
         if (result.truncated) {
           truncated = true;
           problems.push({ path, message: "Neúplný výpis priečinka zo servera." });
@@ -147,7 +159,7 @@ export async function readWorkspaceMemory(
     const pending = (async () => {
       const card = (await list(clientPath)).find((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
       if (!card) return undefined;
-      const title = parseFrontmatter((await client.readWorkspaceFile(workspaceId, childPath(clientPath, card.name))).content)?.title;
+      const title = parseFrontmatter((await readFile(childPath(clientPath, card.name))).content)?.title;
       return typeof title === "string" && title.trim() ? title.trim() : undefined;
     })().catch((e: unknown) => { problems.push({ path: clientPath, message: message(e), scope: "client" }); return undefined; });
     clientTitles.set(clientPath, pending);
@@ -164,7 +176,7 @@ export async function readWorkspaceMemory(
           if (file.kind === "dir") { problems.push({ path: file.path, message: "Vnorená pamäť nie je podporovaná; presuň záznamy do memory/." }); continue; }
           if (file.kind !== "file" || !file.name.endsWith(".md") || RESERVED.has(file.name)) continue;
           try {
-            const record = parseRecord((await client.readWorkspaceFile(workspaceId, file.path)).content);
+            const record = parseRecord((await readFile(file.path)).content);
             if (files[record.id]) problems.push({ path: file.path, message: `Duplicitné ID ${record.id}.` });
             records.push(record);
             files[record.id] ??= file.path;
@@ -187,13 +199,13 @@ export async function readWorkspaceMemory(
     if (card) {
       input.cardPath = childPath(path, card);
       try {
-        const fm = parseFrontmatter((await client.readWorkspaceFile(workspaceId, childPath(path, card))).content);
+        const fm = parseFrontmatter((await readFile(childPath(path, card))).content);
         if (!fm) throw new Error("Karta nemá platný frontmatter.");
         input.cardFrontmatter = fm;
       } catch (e) { problems.push({ path: childPath(path, card), message: message(e) }); }
     }
     if (entries.some((e) => e.name === "VSTUPY.md" && e.kind === "file")) {
-      try { input.intake = (await client.readWorkspaceFile(workspaceId, childPath(path, "VSTUPY.md"))).content; }
+      try { input.intake = (await readFile(childPath(path, "VSTUPY.md"))).content; }
       catch (e) { problems.push({ path: childPath(path, "VSTUPY.md"), message: message(e) }); }
     }
     const ancestors = path.split("/").map((_, i, parts) => parts.slice(0, parts.length - 1 - i).join("/"));
@@ -212,7 +224,7 @@ export async function readWorkspaceMemory(
         const officePath = ancestor ? `${ancestor}/${office}` : office;
         if (scopePaths.length === 1 && (await list(officePath)).some((e) => e.name === "okf.config" && e.kind === "file")) {
           try {
-            const config = parseMemoryFrontmatter((await client.readWorkspaceFile(workspaceId, `${officePath}/okf.config`)).content);
+            const config = parseMemoryFrontmatter((await readFile(`${officePath}/okf.config`)).content);
             const pattern = config.get("client_path");
             // Ako `readClientPath` v CLI: vzor s U+FFFD (ANSI z Windows) nesedí na nič a klient by potichu zmizol.
             if (typeof pattern === "string" && pattern.includes("\uFFFD")) throw new Error("client_path obsahuje poškodený znak (U+FFFD) — súbor nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8");
@@ -249,7 +261,7 @@ export async function readWorkspaceMemory(
     if (clientPath !== undefined && (await list(clientPath)).some((entry) => entry.name === "VSTUPY.md" && entry.kind === "file")) {
       const intakePath = childPath(clientPath, "VSTUPY.md");
       try {
-        input.inheritedIntakes = [{ content: (await client.readWorkspaceFile(workspaceId, intakePath)).content, path: intakePath, scope: "client" }];
+        input.inheritedIntakes = [{ content: (await readFile(intakePath)).content, path: intakePath, scope: "client" }];
       } catch (e) { problems.push({ path: intakePath, message: message(e), scope: "client" }); }
     }
     const existingMemorySources: string[] = [];
@@ -282,8 +294,17 @@ export async function readWorkspaceMemory(
     }
     if (entries.some((entry) => entry.name === "_STATUS.md" && entry.kind === "file")) {
       const statusPath = childPath(path, "_STATUS.md");
-      try { input.manualStatus = readManualStatus((await client.readWorkspaceFile(workspaceId, statusPath)).content, input.records, todayIso); }
+      try { input.manualStatus = readManualStatus((await readFile(statusPath)).content, input.records, todayIso); }
       catch (error) { problems.push({ path: statusPath, message: message(error) }); }
+    }
+    if (input.records.some(isManagedDeadline)) {
+      input.deadlineWorkflowEvidence = {};
+      if (client.lawossDeadlineRequest) {
+        try {
+          const result = await client.lawossDeadlineRequest<{ items: Array<{ candidateId: string; revisionHash: string; recordFingerprint: string; receiptId: string | null; trusted: boolean }> }>(workspaceId, `?matterPath=${encodeURIComponent(path)}`, undefined, { signal: options.signal });
+          input.deadlineWorkflowEvidence = Object.fromEntries(result.items.map(item => [item.candidateId, { recordFingerprint: item.recordFingerprint, revisionHash: item.revisionHash, receiptId: item.receiptId, trusted: item.trusted }]));
+        } catch { problems.push({ path, message: "Potvrzení lhůt hostitelem se nepodařilo ověřit; zobrazují se k právní kontrole." }); }
+      }
     }
     return input;
   });
@@ -295,10 +316,15 @@ export async function readWorkspaceMemory(
     return title ? { path: clientPath, title } : { path: clientPath };
   }));
   problems.sort((a, b) => a.path.localeCompare(b.path) || a.message.localeCompare(b.message));
-  return { ...buildOverview(matters, todayIso), problems, truncated, inputs: matters, clients };
+  options.signal?.throwIfAborted();
+  const checkedAt = (options.now ?? Date.now)();
+  const valid = !problems.length && !truncated;
+  return { ...buildOverview(matters, todayIso), problems, truncated, inputs: matters, clients,
+    coverage: { scopeKey: JSON.stringify([workspaceId]), status: valid ? "complete" : matters.length || clients.length ? "partial" : "failed", sources: [{ source: "workspace", workspaceId, checkedAt, lastSuccessAt: valid ? checkedAt : null, state: valid ? "fresh" : truncated ? "truncated" : "unavailable" }] } };
+
 }
 
-// ── rozsah praxe (N1, rozhodnutie MČ 16. 10. 2026) ───────────────────────────
+// ── rozsah praxe (N1, podklad PR #162) ───────────────────────────
 
 /** Člen rozsahu: registrovaný pracovný priečinok a jeho cesta voči koreňu rozsahu („“ = koreň). */
 export type OkfScopeMember = { workspace: RouteWorkspace; prefix: string };
@@ -316,11 +342,26 @@ export type OkfScope = {
 };
 export type OkfScopeClient = OkfReadClient & Partial<Pick<LegalworkServerClient, "lawossOfficeMemory">>;
 
-const queryPath = (path: string | undefined): string => normalizeDirectoryQueryPath(path);
+const queryPath = (path: string | undefined): string => {
+  // A drive root is absolute; the normalized drive-relative spelling Z: is not.
+  if (path && /^[A-Za-z]:[\\/]+$/.test(path)) return `${path.slice(0,2)}/`;
+  return normalizeDirectoryQueryPath(path);
+};
+const safeAbsolute = (path: string): boolean => {
+  const normalized = queryPath(path);
+  return path === path.trim() && /^(?:[A-Za-z]:\/|\/)/.test(normalized) && !normalized.split("/").some(p => p === "." || p === "..") && !normalized.replace(/^\/\//, "/").includes("//");
+};
+const pathIdentity = (path: string): string => /^(?:[A-Za-z]:|\/\/)/.test(queryPath(path)) ? queryPath(path).toLowerCase() : queryPath(path);
+export function okfScopeKey(scope: OkfScope): string {
+  return JSON.stringify([scope.practiceRoot ? pathIdentity(scope.practiceRoot) : null, scope.members.map(m => [m.workspace.id, pathIdentity(m.workspace.path), m.prefix, m.workspace.workspaceType ?? "local"]).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
+}
+export function excludedWorkspaceIds(workspaces: readonly RouteWorkspace[], scope: OkfScope | null): string[] {
+  return workspaces.filter(w => !scope?.members.some(m => m.workspace.id === w.id || (w.workspaceType !== "remote" && within(m.workspace.path, w.path)))).map(w => w.id).sort();
+}
 /** `inner` je `outer` alebo leží v ňom; veľkosť písmen podľa platformy ako `officeOf`. */
 const within = (outer: string, inner: string): boolean => {
-  const a = normalizeDirectoryPath(outer);
-  const b = normalizeDirectoryPath(inner);
+  const a = pathIdentity(outer);
+  const b = pathIdentity(inner);
   return Boolean(a && b) && (a === b || b.startsWith(a.endsWith("/") ? a : `${a}/`));
 };
 const joinPath = (prefix: string, path: string): string => !prefix ? path : !path ? prefix : `${prefix}/${path}`;
@@ -335,7 +376,9 @@ export function okfScope(workspaces: readonly RouteWorkspace[], anchor: RouteWor
   const single: OkfScope = { anchor, members: [{ workspace: anchor, prefix: "" }] };
   const local = (w: RouteWorkspace) => w.workspaceType !== "remote" && Boolean(w.path);
   if (!practiceRoot || !local(anchor) || !within(practiceRoot, anchor.path)) return single;
+  if (!safeAbsolute(practiceRoot)) return null;
   const inside = workspaces.filter((w) => local(w) && within(practiceRoot, w.path));
+  if (inside.some(w => !safeAbsolute(w.path)) || new Set(inside.map(w => pathIdentity(w.path))).size !== inside.length) return null;
   const top = inside.filter((w) => !inside.some((other) => other.id !== w.id && within(other.path, w.path) && !within(w.path, other.path)));
   const root = top.find((w) => within(w.path, practiceRoot));
   if (root) return { anchor, members: [{ workspace: root, prefix: "" }] };
@@ -348,6 +391,7 @@ export function okfScope(workspaces: readonly RouteWorkspace[], anchor: RouteWor
 
 /** Cesta z prehľadu → priečinok, ktorý ju obsahuje, a cesta v ňom (najdlhšia zhoda). */
 export function locateInScope(scope: OkfScope, path: string): { workspace: RouteWorkspace; path: string } | null {
+  if (path.startsWith("/") || path.includes("\\") || path.split("/").some(p => p === "." || p === "..")) return null;
   let best: OkfScopeMember | undefined;
   for (const member of scope.members) {
     const hit = member.prefix === "" || path === member.prefix || path.startsWith(`${member.prefix}/`);
@@ -372,6 +416,10 @@ export function localMatter(scope: OkfScope, matter: MatterOverview, matters: re
   return selected ? { workspace: target.workspace, selected, discovered } : null;
 }
 
+export function canActOnSource(data: OkfReadResult, workspaceId: string): boolean {
+  return data.coverage?.sources.some(source => source.source === "workspace" && source.workspaceId === workspaceId && source.state === "fresh") ?? false;
+}
+
 function prefixInput(input: MatterInput, prefix: string): MatterInput {
   if (!prefix) return input;
   const at = (path: string) => joinPath(prefix, path);
@@ -388,10 +436,11 @@ function prefixInput(input: MatterInput, prefix: string): MatterInput {
 
 type OfficeBundle = { directory: string; records: OkfRecord[]; files: Record<string, string> };
 
-async function readOfficeBundle(client: OkfScopeClient, problems: ReadProblem[], todayIso: string): Promise<OfficeBundle | null> {
-  if (!client.lawossOfficeMemory) return null;
+async function readOfficeBundle(client: OkfScopeClient, problems: ReadProblem[], todayIso: string, practiceRoot: string, signal?: AbortSignal): Promise<OfficeBundle | null> {
+  if (!client.lawossOfficeMemory) { problems.push({ path: "Office", message: "Server nepodporuje overené čítanie kancelárie.", scope: "office" }); return null; }
   let read: OfficeMemoryRead;
-  try { read = await client.lawossOfficeMemory(); }
+  try { read = await client.lawossOfficeMemory(practiceRoot, { signal });
+    if (pathIdentity(read.practiceRoot ?? "") !== pathIdentity(practiceRoot)) throw new Error("practice_scope_changed"); }
   catch (e) { problems.push({ path: "Office", message: message(e), scope: "office" }); return null; }
   for (const problem of read.problems) problems.push({ ...problem, scope: "office" });
   if (read.truncated) problems.push({ path: `${read.directory ?? "Office"}/memory`, message: "Neúplný výpis pamäte kancelárie.", scope: "office" });
@@ -429,45 +478,71 @@ function withOffice(input: MatterInput, office: OfficeBundle | null, problems: R
  * Jeden prehľad z celého rozsahu: každý priečinok sa číta ako doteraz (`readWorkspaceMemory`), cesty
  * dostanú predponu voči koreňu praxe a pravidlá `buildOverview` bežia raz nad všetkým (ADR 0014, 1 a 2).
  */
-export async function readScopeMemory(client: OkfScopeClient, scope: OkfScope, todayIso: string = today()): Promise<OkfReadResult> {
-  if (!scope.practiceRoot && scope.members.length === 1 && scope.members[0].prefix === "") {
-    return readWorkspaceMemory(client, scope.members[0].workspace.id, todayIso);
-  }
+export async function readScopeMemory(client: OkfScopeClient, scope: OkfScope, todayIso: string = today(), options: OkfReadOptions = {}): Promise<OkfReadResult> {
+  options.signal?.throwIfAborted();
+  const key = okfScopeKey(scope);
+  const previous = options.previous?.coverage?.scopeKey === key ? options.previous : undefined;
   const problems: ReadProblem[] = [];
-  const parts = await mapLimit(scope.members, 2, (member) => readWorkspaceMemory(client, member.workspace.id, todayIso));
-  const office = scope.practiceRoot ? await readOfficeBundle(client, problems, todayIso) : null;
-  let truncated = parts.some((part) => part.truncated);
-  let inputs = parts.flatMap((part, i) => part.inputs.map((input) => withOffice(prefixInput(input, scope.members[i].prefix), office, problems)));
-  if (inputs.length > MAX_MATTERS) { inputs = inputs.slice(0, MAX_MATTERS); truncated = true; }
-  parts.forEach((part, i) => {
-    for (const problem of part.problems) problems.push({ ...problem, path: joinPath(scope.members[i].prefix, problem.path) });
-  });
-  const clients = parts.flatMap((part, i) => (part.clients ?? []).map((c) => ({ ...c, path: joinPath(scope.members[i].prefix, c.path) })))
-    .sort((a, b) => a.path.localeCompare(b.path));
-  problems.sort((a, b) => a.path.localeCompare(b.path) || a.message.localeCompare(b.message));
-  return { ...buildOverview(inputs, todayIso), problems, truncated, inputs, clients };
+  const checkedAt = (options.now ?? Date.now)();
+  const sources: OkfSourceReadState[] = [];
+  const snapshots: Record<string, SourceSnapshot> = {};
+  const parts = await mapLimit(scope.members, 2, member => readWorkspaceMemory(client, member.workspace.id, todayIso, options));
+  let truncated = false;
+  const select = (id: string, source: "workspace" | "office", current: SourceSnapshot, issues: ReadProblem[], cut: boolean): SourceSnapshot => {
+    problems.push(...issues);
+    truncated ||= cut;
+    const valid = !issues.length && !cut;
+    const snapshotKey = JSON.stringify([source,id]);
+    const old = previous?.sourceSnapshots?.[snapshotKey];
+    const oldState = previous?.coverage.sources.find(s => source === "office" ? s.source === "office" : s.workspaceId === id);
+    const selected = selectSourceSnapshot({ current, previous: old, previousState: oldState, source, ...(source === "workspace" ? { workspaceId: id } : {}), checkedAt, valid, truncated: cut });
+    if (selected.retain) snapshots[snapshotKey] = selected.snapshot;
+    sources.push(selected.state);
+    return selected.state.state === "fresh" ? selected.snapshot : { ...selected.snapshot, inputs: selected.snapshot.inputs.map(input => ({ ...input, deadlineWorkflowEvidence: {} })) };
+  };
+  const selected = parts.map((part,i) => select(scope.members[i].workspace.id, "workspace", { inputs: part.inputs, clients: part.clients ?? [] }, part.problems.map(p => ({ ...p, path: joinPath(scope.members[i].prefix,p.path) })), part.truncated));
+  let office: OfficeBundle | null = null;
+  if (scope.practiceRoot) {
+    const officeProblems: ReadProblem[] = [];
+    const current = await readOfficeBundle(client, officeProblems, todayIso, scope.practiceRoot, options.signal);
+    office = select("office", "office", { inputs: [], clients: [], office: current }, officeProblems, officeProblems.some(p => p.message.includes("Neúplný"))).office ?? null;
+  }
+  options.signal?.throwIfAborted();
+  let inputs = selected.flatMap((part,i) => part.inputs.map(input => withOffice(prefixInput(input,scope.members[i].prefix),office,problems)));
+  if (inputs.length > MAX_MATTERS) { inputs = inputs.slice(0,MAX_MATTERS); truncated = true; }
+  if (!inputs.length && office?.records.length) problems.push({ path: office.directory, message: "Pamäť kancelárie obsahuje záznamy bez vecí; tento pohľad ich zatiaľ nevie zobraziť.", scope: "office" });
+  const clients = selected.flatMap((part,i) => part.clients.map(c => ({ ...c, path: joinPath(scope.members[i].prefix,c.path) }))).sort((a,b) => a.path.localeCompare(b.path));
+  const usable = sources.some(s => s.state === "fresh" || s.state === "stale") || inputs.length > 0 || clients.length > 0;
+  const status = !problems.length && !truncated && sources.every(s => s.state === "fresh") ? "complete" : usable ? "partial" : "failed";
+  problems.sort((a,b) => a.path.localeCompare(b.path) || a.message.localeCompare(b.message));
+  return { ...buildOverview(inputs,todayIso), inputs, clients, problems, truncated, coverage: { scopeKey: key, status, sources }, sourceSnapshots: snapshots };
 }
 
 /**
  * Rozsah pohľadu: koreň praxe z profilu onboardingu, kým sa nenačíta `pending` (žiadne čítanie jedného
  * klienta, ktoré by o chvíľu nahradila celá prax). Bez profilu alebo pri chybe ostane jeden priečinok.
  */
-export function useOkfScope(connection: OkfConnection | null, anchor: RouteWorkspace | null): { scope: OkfScope | null; pending: boolean } {
+export type ScopeResolution = { state: "ready" | "pending" | "unavailable"; scope: OkfScope | null; pending: boolean; excludedWorkspaceIds: readonly string[]; message?: string };
+export function useOkfScope(connection: OkfConnection | null, anchor: RouteWorkspace | null): ScopeResolution {
   const client = connection?.client ?? null;
   const root = useQuery({
-    queryKey: ["okf-practice-root", connection?.baseUrl ?? "", connection?.token ?? ""],
+    queryKey: ["okf-practice-root", connection?.baseUrl ?? "", connection?.token ?? "", connection?.authGeneration ?? 0],
     enabled: Boolean(client),
     queryFn: async () => (await client?.onboardingStatus())?.profile?.officeRoot ?? null,
     // Bez staleTime: po onboardingu praxe nová stránka hneď číta celú prax, nie len otvoreného klienta.
     retry: false,
+    retryOnMount: false,
+    refetchOnWindowFocus: true,
+    refetchInterval: OKF_REFRESH_MS,
   });
-  const practiceRoot = !client || root.isError ? null : root.data;
+  const practiceRoot = !client ? null : root.isError ? undefined : root.data;
   const workspaces = connection?.workspaces;
   const scope = useMemo(
     () => practiceRoot === undefined ? null : okfScope(workspaces ?? [], anchor, practiceRoot),
     [workspaces, anchor, practiceRoot],
   );
-  return { scope, pending: practiceRoot === undefined && anchor !== null };
+  const pending = !root.isError && practiceRoot === undefined && anchor !== null;
+  return { scope, pending, state: root.isError || (anchor && practiceRoot && !scope) ? "unavailable" : pending ? "pending" : "ready", excludedWorkspaceIds: excludedWorkspaceIds(workspaces ?? [],scope), ...(root.isError ? { message: message(root.error) } : {}) };
 }
 
 /** Spojenie na server rovnako ako v Novom spise, len ako hook. */
@@ -484,7 +559,12 @@ export function useOkfConnection(): { connection: OkfConnection | null; error: s
   const queries = useQueryClient();
   const [generation, setGeneration] = useState(0);
   useEffect(() => {
-    const onChange = () => setGeneration((value) => value + 1);
+    const onChange = () => {
+      void queries.cancelQueries({ queryKey: ["okf-overview"] });
+      queries.removeQueries({ queryKey: ["okf-overview"] });
+      void queries.invalidateQueries({ queryKey: ["okf-practice-root"] });
+      setConnection(null); setGeneration(value => value + 1);
+    };
     for (const name of [SERVER_SETTINGS_CHANGED, OFFICE_SCOPE_RESTORED]) window.addEventListener(name, onChange);
     return () => { for (const name of [SERVER_SETTINGS_CHANGED, OFFICE_SCOPE_RESTORED]) window.removeEventListener(name, onChange); };
   }, []);
@@ -495,11 +575,15 @@ export function useOkfConnection(): { connection: OkfConnection | null; error: s
         if (cancelled) return;
         setConnection(next); setError(null);
         // Po změně spojení i čtení se stejným klíčem (token beze změny) musí proběhnout znovu.
-        if (generation > 0) void queries.invalidateQueries({ queryKey: ["okf-overview"] });
+
       })
       .catch((e: unknown) => { if (!cancelled) setError(message(e)); });
     return () => { cancelled = true; };
   }, [generation]);
+  useEffect(() => {
+    const timer = setInterval(() => { if (document.visibilityState !== "hidden") setGeneration(v => v + 1); }, OKF_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, []);
   return { connection, error };
 }
 
@@ -542,28 +626,35 @@ export function okfRefreshInterval(lastReadMs: number | undefined): number {
 }
 
 /** Kľúč rozsahu: členovia a koreň praxe; nový klient v praxi = nové čítanie. */
-const scopeKey = (scope: OkfScope | null): string => scope ? [scope.practiceRoot ?? "", ...scope.members.map((m) => `${m.workspace.id}:${m.prefix}`)].join("|") : "";
+const scopeKey = (scope: OkfScope | null): string => scope ? okfScopeKey(scope) : "";
 
-export function useOkfOverview(connection: OkfConnection | null, scope: OkfScope | null) {
+type OverviewConnection = Pick<OkfConnection, "baseUrl" | "token" | "authGeneration"> & { client: OkfScopeClient | null };
+/** Query owner shared by native views; identity and cancellation are captured at read admission. */
+export function okfOverviewQueryOptions(connection: OverviewConnection | null, scope: OkfScope | null, day: string, queries: QueryClient) {
   const client = connection?.client ?? null;
   const key = scopeKey(scope);
-  return useQuery({
-    // Adresa a token v klíči: nové spojení = nové čtení (cache je jen v paměti, nikam se neukládá).
-    queryKey: ["okf-overview", key, connection?.baseUrl ?? "", connection?.token ?? ""],
+  const queryKey = ["okf-overview", key, connection?.baseUrl ?? "", connection?.token ?? "", connection?.authGeneration ?? 0, day];
+  return {
+    queryKey,
     enabled: Boolean(client && scope),
-    queryFn: async () => {
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
       if (!client || !scope) throw new Error("Server LAWOSS nebeží alebo chýba workspace.");
       const started = Date.now();
-      try { return await readScopeMemory(client, scope); }
+      const previous = queries.getQueryData<OkfReadResult>(queryKey) ?? queries.getQueriesData<OkfReadResult>({ queryKey: queryKey.slice(0,-1) })
+        .flatMap(([,data]) => data ? [data] : []).sort((a,b) => Math.max(...b.coverage.sources.map(s => s.checkedAt)) - Math.max(...a.coverage.sources.map(s => s.checkedAt)))[0];
+      try { return await readScopeMemory(client, scope, day, { signal, previous }); }
       finally { readDurations.set(key, Date.now() - started); }
     },
-    // Pohľady sú živé: zápis agenta alebo advokáta do OKF súborov sa ukáže bez reštartu.
-    // Obnovuje sa pri návrate do okna a v tichosti na pozadí; zmena sa prekreslí len pri inom obsahu.
-    // Prax: interval sa počíta z čítania celej praxe, nie jedného klienta (ADR 0014, bod 3).
     refetchOnWindowFocus: true,
     refetchInterval: () => okfRefreshInterval(scope ? readDurations.get(key) : undefined),
     refetchIntervalInBackground: false,
-  });
+  };
+}
+export function useOkfOverview(connection: OkfConnection | null, scope: OkfScope | null) {
+  const queries = useQueryClient();
+  const [day, setDay] = useState(today);
+  useEffect(() => { const timer = setInterval(() => setDay(today()), 1000); return () => clearInterval(timer); }, []);
+  return useQuery(okfOverviewQueryOptions(connection,scope,day,queries));
 }
 
 // ── zobrazenie ────────────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import { requireUnsupportedProtectedTransport } from "./lawoss/ai-governance-engine.js";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -339,6 +340,7 @@ export async function systemOne(
   input: SystemOneRequest,
   options: { providerId?: string; signal?: AbortSignal; retry?: boolean } = {},
 ) {
+  await requireUnsupportedProtectedTransport(config, "systemone");
   const store = await readStore(config);
   const selection = await selectionOf(config, store);
   const id = options.providerId ?? selection.providerId;

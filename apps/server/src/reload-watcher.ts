@@ -22,12 +22,27 @@ type WorkspaceReloadWatcher = {
   close: () => void;
 };
 
+const bootstrapReasons: ReloadReason[] = ["agents", "commands", "skills"];
+type BootstrapScope = { depth: number; revision: number; refreshers: Set<() => Promise<void>> };
+const bootstrapScopes = new WeakMap<ServerConfig, Map<string, BootstrapScope>>();
+
+function workspaceBootstrapScope(config: ServerConfig, workspace: WorkspaceInfo) {
+  let scopes = bootstrapScopes.get(config);
+  if (!scopes) { scopes = new Map(); bootstrapScopes.set(config, scopes); }
+  const key = JSON.stringify([workspace.id, resolve(workspace.path)]);
+  let scope = scopes.get(key);
+  if (!scope) { scope = { depth: 0, revision: 0, refreshers: new Set() }; scopes.set(key, scope); }
+  const owned = scope;
+  return { scope, release: () => { if (!owned.depth && !owned.refreshers.size && scopes.get(key) === owned) scopes.delete(key); } };
+}
+
 export function startReloadWatchers(input: {
   config: ServerConfig;
   reloadEvents: ReloadEventStore;
   logger?: Logger | null;
   debounceMs?: number;
-}): { close: () => void; refreshWorkspace: (workspaceId: string, reasons?: ReloadReason[]) => Promise<void> } {
+}): { close: () => void; refreshWorkspace: (workspaceId: string, reasons?: ReloadReason[]) => Promise<void>;
+  withWorkspaceBootstrap: <T>(workspaceId: string, work: () => Promise<T>) => Promise<T> } {
   const { config, reloadEvents } = input;
   const logger = input.logger ?? null;
   const debounceMs = typeof input.debounceMs === "number" ? input.debounceMs : 750;
@@ -36,7 +51,7 @@ export function startReloadWatchers(input: {
 
   for (const workspace of config.workspaces) {
     try {
-      const watcher = startWorkspaceReloadWatcher({ workspace, reloadEvents, logger, debounceMs });
+      const watcher = startWorkspaceReloadWatcher({ workspace, reloadEvents, logger, debounceMs, bootstrap: workspaceBootstrapScope(config, workspace) });
       workspaceWatchers.set(workspace.id, watcher);
     } catch (error) {
       logger?.log("warn", "Reload watcher failed to start", {
@@ -67,6 +82,31 @@ export function startReloadWatchers(input: {
     refreshWorkspace: async (workspaceId: string, reasons?: ReloadReason[]) => {
       await workspaceWatchers.get(workspaceId)?.refreshBaseline(reasons);
     },
+    withWorkspaceBootstrap: async (workspaceId, work) => {
+      const workspace = config.workspaces.find(item => item.id === workspaceId);
+      if (!workspace) return work();
+      // Ownership precedes both writes and watcher creation. A project-sync
+      // restart or second listener joins this same config/workspace/root scope.
+      const { scope, release } = workspaceBootstrapScope(config, workspace);
+      scope.depth++; scope.revision++;
+      let failed = false;
+      try { return await work(); }
+      catch (error) { failed = true; throw error; }
+      finally {
+        try {
+          const refreshed = new Set<() => Promise<void>>();
+          for (;;) {
+            const current = [...scope.refreshers].filter(refresh => !refreshed.has(refresh));
+            if (!current.length) break;
+            current.forEach(refresh => refreshed.add(refresh));
+            const results = await Promise.allSettled(current.map(refresh => refresh()));
+            const failure = results.find(result => result.status === "rejected");
+            if (failure?.status === "rejected") throw failure.reason;
+          }
+        } catch (error) { if (!failed) throw error; }
+        finally { scope.depth--; scope.revision++; release(); }
+      }
+    },
   };
 }
 
@@ -75,13 +115,15 @@ function startWorkspaceReloadWatcher(input: {
   reloadEvents: ReloadEventStore;
   logger: Logger | null;
   debounceMs: number;
+  bootstrap: ReturnType<typeof workspaceBootstrapScope>;
 }): WorkspaceReloadWatcher {
-  const { workspace, reloadEvents, logger, debounceMs } = input;
+  const { workspace, reloadEvents, logger, debounceMs, bootstrap } = input;
   const root = resolve(workspace.path);
   const opencodeRoot = join(root, ".opencode");
 
   const trees: DirectoryTreeWatcher[] = [];
   const baselines = new Map<ReloadReason, string>();
+  const baselineRevisions = new Map<ReloadReason, number>();
   const pendingChecks = new Map<ReloadReason, { timer: ReturnType<typeof setTimeout>; trigger?: ReloadTrigger }>();
 
   let closed = false;
@@ -99,14 +141,22 @@ function startWorkspaceReloadWatcher(input: {
     }
     rootWatcher?.close();
     opencodeRootWatcher?.close();
+    bootstrap.scope.refreshers.delete(refreshBootstrapBaseline);
+    bootstrap.release();
   };
 
   const refreshBaseline = async (reasons: ReloadReason[] = fingerprintedReloadReasons) => {
     for (const reason of reasons) {
       if (!fingerprintedReloadReasons.includes(reason)) continue;
-      baselines.set(reason, await computeReloadFingerprint(root, reason));
+      const revision = (baselineRevisions.get(reason) ?? 0) + 1;
+      baselineRevisions.set(reason, revision);
+      const current = await computeReloadFingerprint(root, reason);
+      if (!closed && baselineRevisions.get(reason) === revision) baselines.set(reason, current);
     }
   };
+
+  const refreshBootstrapBaseline = () => refreshBaseline(bootstrapReasons);
+  bootstrap.scope.refreshers.add(refreshBootstrapBaseline);
 
   // Best-known named trigger per reason. fs.watch event order and filename
   // presence are platform-dependent (macOS often omits filenames or fires a
@@ -146,8 +196,13 @@ function startWorkspaceReloadWatcher(input: {
   const checkReason = async (reason: ReloadReason, trigger?: ReloadTrigger) => {
     if (closed) return;
     if (!fingerprintedReloadReasons.includes(reason)) return;
+    const bundled = bootstrapReasons.includes(reason);
+    if (bundled && bootstrap.scope.depth) return;
 
+    const revision = baselineRevisions.get(reason);
+    const bootstrapRevision = bootstrap.scope.revision;
     const current = await computeReloadFingerprint(root, reason);
+    if (closed || baselineRevisions.get(reason) !== revision || bundled && (bootstrap.scope.depth || bootstrap.scope.revision !== bootstrapRevision)) return;
     const previous = baselines.get(reason);
     baselines.set(reason, current);
 

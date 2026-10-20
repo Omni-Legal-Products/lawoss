@@ -75,3 +75,6 @@ apps/desktop/resources/node/
 /apps/desktop/resources/.engine-dependencies-build/
 # Built, checksum-verified sandbox runtime
 apps/server/resources/agent-sandbox/runtime/
+
+# Generated for each target after version stamping.
+apps/desktop/resources/build-info.json

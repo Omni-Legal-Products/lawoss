@@ -150,12 +150,14 @@ if (!process.env.SOURCE_DATE_EPOCH) {
   );
 }
 
-const report = { ok, versions, checks, warnings };
+const packagedAcceptance = { status: "not-run", scope: "source-review-only", reason: "Native acceptance requires the final installer digest and fresh/migrated profile receipts." };
+const report = { ok, versions, checks, warnings, packagedAcceptance };
 
 if (outputJson) {
   console.log(JSON.stringify(report, null, 2));
 } else {
-  console.log("Release review");
+  console.log("Release review (source/build checks only)");
+  console.log(`Packaged acceptance: ${packagedAcceptance.status} (${packagedAcceptance.reason})`);
   for (const check of checks) {
     const status = check.ok ? "ok" : "fail";
     console.log(`- ${status}: ${check.label} (${check.details})`);

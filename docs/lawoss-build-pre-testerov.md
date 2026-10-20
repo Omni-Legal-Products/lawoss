@@ -21,6 +21,8 @@ Hotové verzie sú v [releasoch forku](https://github.com/Omni-Legal-Products/la
 
 Verziu appky nájdete v Nastaveniach, v časti Aktualizácie. Uveďte ju pri každom hlásení chyby.
 
+Technickí testeri si overujú presný balíček podľa časti „Overenie konkrétneho desktop balíčka“ nižšie.
+
 ## 3. Syntetické dáta na skúšanie
 
 Syntetické dáta sú vymyslené kancelárie, klienti a veci. Nie sú v nich skutoční ľudia ani skutočné spisy. Terminál ani žiadne príkazy na to nepotrebujete.
@@ -99,7 +101,22 @@ Do hlásenia nikdy nevkladajte API kľúče, heslá ani údaje skutočných klie
 
 Nasledujúce časti sú pre tých, ktorí si appku skladajú sami alebo ladia jej beh. Právnici ich zväčša nepotrebujú.
 
-Postup akceptačného behu s kritériami PASS/FAIL je v [alfa akceptačnom protokole](lawoss-alpha-acceptance.md). Prejdené cesty na zabalenej appke sú v [D1](lawoss-d1-zabalena-appka-2026-10-05.md).
+Postup akceptačného behu s kritériami PASS/FAIL je v [alfa akceptačnom protokole](lawoss-alpha-acceptance.md); používa tok **Ty → AI (možno preskočiť) → Priečinok**. Prejdené cesty na zabalenej appke sú v [D1](lawoss-d1-zabalena-appka-2026-10-05.md). D1 zo 4. až 5. 10. 2026 je historický snapshot iného buildu, nie dôkaz nového vydania.
+
+### Overenie konkrétneho desktop balíčka
+
+Vyberte presný desktop release tag a súbor pre svoj systém a architektúru.
+CLI orchestrátora má samostatné vydania. Odkaz `releases/latest` preto neurčuje správny desktop.
+Žiadny aktuálny balíček tu nie je označený za otestovaný iba na základe názvu vydania.
+
+Stiahnite aj `release-evidence-<platform>-<arch>.json` a porovnajte názov, veľkosť a SHA-256
+inštalátora. Na macOS použite `shasum -a 256 <asset>`, na Windows
+`Get-FileHash .\<asset> -Algorithm SHA256`. Nainštalujte tieto presné bytes.
+V Nastaveniach → Debug prečítajte verziu, celý commit, kanál, target a stav identity.
+`unavailable` znamená nedoložený pôvod staršieho balíčka. SHA z iného checkoutu ho nenahrádza.
+
+Postup dokladovania podpisu, oboch profilov a publikácie je v [release evidence](release-evidence.md).
+Draft nie je verejná distribúcia. Verejný ukazovateľ sa neposunie bez prijatej platformovej akceptácie.
 
 ### Syntetické dáta: kontrolný súčet a posun dátumov
 

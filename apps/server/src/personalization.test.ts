@@ -20,6 +20,7 @@ import type { ServerConfig } from "./types.js";
 import { LegalWorkCapabilitiesKnowledge } from "./opencode-plugins/legalwork-capabilities-knowledge.js";
 import { LegalWorkProjectTools } from "./opencode-plugins/legalwork-project-tools.js";
 import type { OpenCodeContext } from "./opencode-plugins/office-plugin-shared.js";
+import { scopedWikiRuntime } from "./wiki/scoped-runtime.test-helper.js";
 import { engineAgentSession } from "./lawoss/test-support/engine-agent.js";
 import { readLegalworkWorkspaceConfig, writeLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
 import { readProjectDetails, updateProjectDetails, updateProjectPersonalization } from "./project-store.js";
@@ -160,11 +161,13 @@ describe("Personalisation", () => {
     };
     const firstPlugin = await pluginFor(workspace);
     const secondPlugin = await pluginFor(join(nested, "documents"));
+    const secondRuntime = await scopedWikiRuntime(config, "ses_second", join(nested, "documents"));
     // What an existing chat knows: the latest project prompt reminder it received.
     const known = new Map<typeof firstPlugin, string>();
     const prompt = async (plugin: typeof firstPlugin) => {
       const message: { message: { id: string }; parts: object[] } = { message: { id: "msg_test" }, parts: [] };
-      await plugin["chat.message"]({ sessionID: plugins.get(plugin) ?? "ses_unrecorded" }, message);
+      const turn = () => plugin["chat.message"]({ sessionID: plugins.get(plugin) ?? "ses_unrecorded" }, message);
+      if (plugin === secondPlugin) await secondRuntime.run(turn); else await turn();
       const reminder = message.parts.map((part) => String(Reflect.get(part, "text"))).join("\n");
       if (reminder) known.set(plugin, reminder);
       return known.get(plugin) ?? "";
@@ -180,6 +183,8 @@ describe("Personalisation", () => {
       expect((await readProjectDetails(workspace)).personalizationPrompt).toBe("Use formal British English.");
       expect(await prompt(firstPlugin)).toContain("Use formal British English.");
       expect(await prompt(firstPlugin)).not.toContain("Use short German paragraphs.");
+      const sharedDenied = await fetch(`${base}/workspace/ws_2/personalization`, { headers: { "x-legalwork-wiki-agent-token": process.env.LEGALWORK_WIKI_AGENT_TOKEN!, "x-legalwork-wiki-agent-session": "ses_second", "x-legalwork-wiki-agent-directory": encodeURIComponent(join(nested, "documents")) } });
+      expect(sharedDenied.status).toBe(403);
       expect(await prompt(secondPlugin)).toContain("Use short German paragraphs.");
       expect(await prompt(secondPlugin)).not.toContain("Use formal British English.");
       expect(await prompt(firstPlugin)).toContain("take precedence over conflicting global");
@@ -203,6 +208,7 @@ describe("Personalisation", () => {
         await restarted.stop();
       }
     } finally {
+      await secondRuntime.close();
       await server.stop();
       if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
       else process.env.LEGALWORK_SERVER_URL = previousUrl;

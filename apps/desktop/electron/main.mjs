@@ -1,3 +1,4 @@
+import { getAppBuildInfo } from './build-info.mjs';
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
@@ -174,7 +175,7 @@ const NATIVE_DEEP_LINK_EVENT = "legalwork:deep-link-native";
 const APP_BUNDLE_IDENTIFIER = "com.eigenweltlabs.legalwork";
 const DEV_APP_IDENTIFIER = "com.eigenweltlabs.legalwork.dev";
 const DESKTOP_PROTOCOL_SCHEME = "legalwork";
-const isDevMode = process.env.LEGALWORK_DEV_MODE === "1";
+const isDevMode = !app.isPackaged && process.env.LEGALWORK_DEV_MODE === "1";
 // LAWOSS: APP_NAME (app.setName) aj DISPLAY_NAME (menu, tray) sú LAWOSS. APP_NAME určuje na
 // macOS priečinok logov a meno v support bundle; userData sa odvodzuje od APP_IDENTIFIER,
 // ktorý sa nemení (stráž lawoss/scripts/check-branding.mjs).
@@ -1850,12 +1851,8 @@ const desktopCommandHandlers = {
       return runtimeManager.orchestratorInstanceDispose(String(args[0] ?? "").trim());
   },
   "appBuildInfo": async (event, ...args) => {
-      return {
-        version: app.getVersion(),
-        gitSha: process.env.LEGALWORK_GIT_SHA ?? null,
-        buildEpoch: process.env.LEGALWORK_BUILD_EPOCH ?? null,
-        legalworkDevMode: process.env.LEGALWORK_DEV_MODE === "1",
-      };
+      return getAppBuildInfo({resourcesPath: process.resourcesPath, version: app.getVersion(),
+        platform: process.platform, arch: process.arch, isPackaged: app.isPackaged});
   },
   "getUiControlBridgeInfo": async (event, ...args) => {
       try {
@@ -1866,7 +1863,7 @@ const desktopCommandHandlers = {
       }
   },
   "getLegalworkUiMcpCommand": async (event, ...args) => {
-      if (process.env.LEGALWORK_DEV_MODE === "1") {
+      if (isDevMode) {
         return ["node", path.resolve(__dirname, "../../..", "packages/legalwork-ui-mcp/index.mjs")];
       }
       return ["npx", "-y", "legalwork-ui-mcp"];

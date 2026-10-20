@@ -97,8 +97,9 @@ test('complete phase proves final version even if bounded request retention has 
 test('receipt rejects forged origin, incomplete stages and contradictory collector exit codes',()=>{const r=observedReceipt();for(const mutate of [v=>v.originalBoundary.phase='complete',v=>v.originalBoundary.health200=false,v=>v.originalBoundary.startupStage='verified',v=>v.exit='ok',v=>{v.exit='child-unclosed';},v=>{v.stage='awaiting-lawoss-build';},v=>{v.engine.afterVersionVerified=true;},v=>{v.producer.status='not-run';v.producer.ackSha256=null;},v=>{v.exit='not-run';}]){const v=structuredClone(r);mutate(v);assert.throws(()=>api.projectReceipt(v));}});
 test('timeout and unclosed outcomes cannot be promoted by late bounded child evidence',()=>{const r=observedReceipt(),m=progressed();r.exit='timeout';r.lifecycle.code=0;assert.equal(api.classifyAltered(r,m),'unknown');const unclosed=structuredClone(r);unclosed.exit='child-unclosed';unclosed.lifecycle.closed=false;unclosed.lifecycle.code=null;unclosed.stage='native';unclosed.engine.afterSha256=null;unclosed.engine.afterManifestsSha256=null;unclosed.producer={status:'unknown',ackSha256:null};unclosed.engine.beforeVersionVerified=false;unclosed.alteredBoundary=null;assert.doesNotThrow(()=>api.projectReceipt(unclosed));assert.equal(api.classifyAltered(unclosed,m),'unknown');});
 function assertManagedCredentialBoundary(managed) {
-  assert.match(managed,/const env = withoutServerCredentials\(\{\s+\.\.\.process.env,\s+\.\.\.features,\s+\.\.\.options.env,\s+\.\.\.lawossEnv,/);
-  assert.match(managed,/Object.entries\(withoutServerCredentials\(\{\s+\.\.\.features,/);
+  assert.match(managed,/const lawossEnv = lawossEngineEnv\(options\.inheritEnvironment === false \? \{\} : process\.env\);/);
+  assert.match(managed,/const env = withoutServerCredentials\(\{\s+\.\.\.\(options\.inheritEnvironment === false \? \{\} : process\.env\),\s+\.\.\.features,\s+\.\.\.options\.env,\s+\.\.\.lawossEnv,\s+OPENCODE_SERVER_USERNAME: username,\s+OPENCODE_SERVER_PASSWORD: password,\s+\}\);/);
+  assert.match(managed,/Object.entries\(withoutServerCredentials\(\{\s+\.\.\.features,\s+\.\.\.\(options\.env \?\? \{\}\),\s+\.\.\.lawossEnv,\s+OPENCODE_SERVER_USERNAME: username,\s+OPENCODE_SERVER_PASSWORD: password,\s+\}\)\)/);
   assert.match(managed,/spawn\(command, args, \{\s+cwd: options.cwd,\s+env,/);
 }
 test('source propagation retains reserved filters and current-dev credential stripping',async()=>{
@@ -112,6 +113,30 @@ test('source propagation retains reserved filters and current-dev credential str
   assertManagedCredentialBoundary(managed);
   assert.throws(()=>assertManagedCredentialBoundary(managed.replace('const env = withoutServerCredentials({','const env = ({')));
   assert.ok(!network.includes('OPENCODE_AUTH_CONTENT'));
+});
+test('managed credential source guard rejects inheritance, wrapper and precedence regressions',async()=>{
+  const managed=await fs.readFile(path.join(repo,'apps/server/src/managed-opencode.ts'),'utf8');
+  assertManagedCredentialBoundary(managed);
+  const ambient='...(options.inheritEnvironment === false ? {} : process.env),';
+  const mutations=[
+    ['inverted inheritance',ambient,'...(options.inheritEnvironment !== false ? {} : process.env),'],
+    ['unconditional inheritance',ambient,'...process.env,'],
+    ['reversed inheritance branches',ambient,'...(options.inheritEnvironment === false ? process.env : {}),'],
+    ['network helper inherits ambient env','lawossEngineEnv(options.inheritEnvironment === false ? {} : process.env)','lawossEngineEnv(process.env)'],
+    ['removed spawn credential wrapper','const env = withoutServerCredentials({','const env = ({'],
+    ['removed snapshot credential wrapper','Object.entries(withoutServerCredentials({','Object.entries(({'],
+    ['removed features','    ...features,\n',''],
+    ['ambient after feature guards',ambient+'\n    ...features,','...features,\n    '+ambient],
+    ['options override LAWOSS guards','...options.env,\n    ...lawossEnv,','...lawossEnv,\n    ...options.env,'],
+    ['snapshot options override LAWOSS guards','...(options.env ?? {}),\n    ...lawossEnv,','...lawossEnv,\n    ...(options.env ?? {}),'],
+    ['snapshot includes ambient credentials','...(options.env ?? {}),','...process.env,'],
+    ['spawn uses unfiltered options','cwd: options.cwd,\n      env,','cwd: options.cwd,\n      env: options.env,'],
+  ];
+  for(const [name,before,after] of mutations){
+    const changed=managed.replace(before,after);
+    assert.notEqual(changed,managed,`${name}: mutation must affect actual source`);
+    assert.throws(()=>assertManagedCredentialBoundary(changed),undefined,name);
+  }
 });
 test('closed publication CLI rejects wrong filename with fixed nonraw error and missing private receipt publishes unknown',async t=>{const dir=await root(t),privateFile=path.join(dir,'missing'),env={...process.env,...context(),GITHUB_SHA:await api.actualCheckout()};const bad=await collectChild(spawn(process.execPath,[entry,'finalize',privateFile,path.join(dir,'PRIVATE-wrong')],{env,stdio:['ignore','pipe','pipe']}),{limit:1024});assert.equal(bad.outcome,'child-error');assert.equal(bad.text,undefined);const good=await collectChild(spawn(process.execPath,[entry,'finalize',privateFile,path.join(dir,'engine-empty-auth-probe.json')],{env,stdio:['ignore','pipe','pipe']}),{capture:true,limit:1024});assert.deepEqual(good,{outcome:'ok',closed:true,code:0,text:''});const result=JSON.parse(await fs.readFile(path.join(dir,'engine-empty-auth-probe.json')));assert.equal(result.outcome,'unknown');assert.equal(result.exit,'not-run');assert.ok(!JSON.stringify(result).includes(dir));});
 test('owner finalizer maps oversized, duplicate, nonfinite, malformed and symlink receipts to clean unknown',async t=>{const dir=await root(t),env={...context(),GITHUB_SHA:await api.actualCheckout()},r=api.newReceipt(env);const poisoned=[Buffer.alloc(65537),Buffer.from([0xff]),Buffer.from(JSON.stringify(r).replace('"schemaVersion":1','"schemaVersion":1,"schemaVersion":1')),Buffer.from(JSON.stringify(r).replace('"runId":123','"runId":1e999')),Buffer.from(JSON.stringify({...r,delta:{...r.delta,private:'PRIVATE'}}))];for(const [i,payload] of poisoned.entries()){const sub=path.join(dir,String(i));await fs.mkdir(sub);const file=path.join(sub,'owner.private.json');await fs.writeFile(file,payload);assert.deepEqual(await api.finalize(file,path.join(sub,'engine-empty-auth-probe.json'),env),r);}const linked=path.join(dir,'linked');await fs.symlink(path.join(dir,'0','owner.private.json'),linked);assert.deepEqual(await api.finalize(linked,path.join(dir,'engine-empty-auth-probe.json'),env),r);});

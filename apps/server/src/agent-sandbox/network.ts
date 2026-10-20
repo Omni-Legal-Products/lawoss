@@ -106,10 +106,21 @@ export async function brokerRequest(
   authorize: (request: OutboundRequest) => Promise<boolean>,
   signal: AbortSignal,
   dependencies: NetworkDependencies = { resolve: (host) => lookup(host, { all: true }), send: sendPinned },
-  options: { allowPrivate?: boolean } = {},
+  options: { allowPrivate?: boolean; beforeConnect?: () => Promise<void> } = {},
 ): Promise<OutboundResponse> {
   signal.throwIfAborted();
-  if (!await authorize(request)) throw new Error("Internet access denied by LegalWork permissions.");
+  // A native review can outlive its worker. Cancellation must settle this
+  // broker now; a late boolean decision must never resume DNS or socket IO.
+  const approved = await new Promise<boolean>((resolve, reject) => {
+    const abort = () => { signal.removeEventListener("abort", abort); reject(signal.reason); };
+    const finish = () => signal.removeEventListener("abort", abort);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) { abort(); return; }
+    try {
+      void authorize(request).then(value => { finish(); resolve(value); }, error => { finish(); reject(error); });
+    } catch (error) { finish(); reject(error); }
+  });
+  if (!approved) throw new Error("Internet access denied by LegalWork permissions.");
   signal.throwIfAborted();
   const hostname = new URL(request.url).hostname.replace(/^\[|\]$/g, "");
   const addresses = isIP(hostname)
@@ -119,6 +130,8 @@ export async function brokerRequest(
   if (!addresses.length || (!options.allowPrivate && addresses.some(({ address }) => !publicAddress(address)))) {
     throw new Error("The destination resolves to a local, private or reserved address.");
   }
+  await options.beforeConnect?.();
+  signal.throwIfAborted();
   // The validated IP is dialled directly. TLS still verifies the original host.
   return dependencies.send(request, addresses[0], signal);
 }

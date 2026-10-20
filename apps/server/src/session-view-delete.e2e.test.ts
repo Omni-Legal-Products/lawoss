@@ -115,9 +115,12 @@ test("deletion excludes direct sends, queue mutations, and another delete until 
     expect((await request(`${endpoint}/queue`, "POST", { type: "pause", paused: false })).status).toBe(409);
     expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "empty" })).status).toBe(409);
     expect((await request(endpoint, "DELETE")).status).toBe(409);
-    // Unrelated chats remain usable.
-    expect((await request("/workspace/project/opencode/session/unrelated/prompt_async", "POST", { parts: [] })).status).toBe(200);
-  } finally { release(); }
+    // The unrelated chat is outside the deletion reservation, but its protected model call is denied.
+    const unrelated = await request("/workspace/project/opencode/session/unrelated/prompt_async", "POST", { parts: [] });
+    expect(unrelated.status).toBe(403);
+    expect(await unrelated.json()).toMatchObject({ code: "ai_transfer_denied" });
+    expect(state.prompts).toBe(0);
+  } finally { release(); await deleting; }
   expect((await deleting).status).toBe(409);
   state.reviewHook = undefined;
   expect((await request(`${endpoint}/queue`, "POST", { type: "pause", paused: false })).status).toBe(200);
@@ -133,13 +136,16 @@ test("a reserved send blocks deletion even before the engine reports busy", asyn
   expect((await request(`${endpoint}?discardReview=${review.reviewToken}`, "DELETE")).status).toBe(200);
 });
 
-test("server-mediated recovery accepts a 204, uses the verified request and deduplicates it", async () => {
+test("server-mediated recovery preserves typed governance denial and releases reservations without inference", async () => {
   const { state, request } = await fixture();
   state.recovery = true;
   expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "old" })).status).toBe(409);
   expect(state.prompts).toBe(0);
-  expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "empty" })).status).toBe(200);
-  expect(state.prompts).toBe(1);
-  expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "empty" })).status).toBe(200);
-  expect(state.prompts).toBe(1);
+  for (let retry = 0; retry < 2; retry++) {
+    const denied = await request(`${endpoint}/review-recovery`, "POST", { messageId: "empty" });
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toMatchObject({ code: "ai_transfer_denied" });
+    expect(state.prompts).toBe(0);
+  }
+  expect((await request(`${endpoint}/queue`, "POST", { type: "pause", paused: true })).status).toBe(200);
 });

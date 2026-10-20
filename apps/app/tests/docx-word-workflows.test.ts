@@ -206,6 +206,31 @@ test("saving unchanged Word content does not create a false redline", async () =
   assert.deepEqual((await readWordMetadata(redline)).pages, (await readWordMetadata(saved)).pages);
 });
 
+test("comparing an unchanged full contract preserves every clause and its bold heading without revisions", async () => {
+  const clauses = 120;
+  const zip = await JSZip.loadAsync(await fixture());
+  const paragraphs = Array.from({ length: clauses }, (_, index) => `<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Clause ${index + 1}. </w:t></w:r><w:r><w:t>The tenant shall retain each invoice and provide the original record upon written request.</w:t></w:r></w:p>`).join("");
+  zip.file("word/document.xml", `<w:document xmlns:w="${W}"><w:body>${paragraphs}<w:sectPr/></w:body></w:document>`);
+  const original = await zip.generateAsync({ type: "arraybuffer" });
+  const redline = await compareWordDocuments(original, original, "Counsel");
+  assert.ok(!(await inspectWordPackage(redline)).some(finding => finding.kind === "revisions"));
+  const document = parseXml(await xml(await JSZip.loadAsync(redline), "word/document.xml"));
+  assert.equal(elements(document, "p").length, clauses);
+  for (const [index, paragraph] of elements(document, "p").entries()) {
+    const bold = elements(paragraph, "r").filter(run => elements(run, "b").some(property => !["false", "0", "off"].includes(property.getAttributeNS(W, "val") ?? "true")));
+    assert.equal(bold.flatMap(run => elements(run, "t").map(text => text.textContent)).join(""), `Clause ${index + 1}. `);
+  }
+  assert.equal(elements(document, "t").map(node => node.textContent).join(""), Array.from({ length: clauses }, (_, index) => `Clause ${index + 1}. The tenant shall retain each invoice and provide the original record upon written request.`).join(""));
+});
+
+test("comparison still rejects invalid packages and an over-limit clause alignment", async () => {
+  const valid = await comparisonFixture("Original clause");
+  await assert.rejects(compareWordDocuments(new ArrayBuffer(0), valid, "Counsel"));
+  await assert.rejects(compareWordDocuments(valid, new ArrayBuffer(0), "Counsel"));
+  const oversized = await comparisonFixture(Array.from({ length: 710 }, (_, index) => `term${index}`).join(" "));
+  await assert.rejects(compareWordDocuments(oversized, oversized, "Counsel"), /This comparison is too large/);
+});
+
 test("combining clauses added at different positions preserves structural review", async () => {
   const original = await comparisonFixture("Original clause");
   const a = await JSZip.loadAsync(original); const b = await JSZip.loadAsync(original);

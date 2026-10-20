@@ -1,3 +1,4 @@
+import type { FilePartInput } from "@opencode-ai/sdk/v2/client";
 import type { ComposerAttachment, ComposerDraft, ComposerPart } from "@/app/types";
 import type { ComposerPastePart } from "../composer-state-store";
 import {
@@ -6,8 +7,32 @@ import {
   calendarComposerInstruction, calendarComposerDisplayText, taskComposerInstruction, taskComposerDisplayText,
   parsePluginComposerMention, pluginComposerDisplayText, type ComposerMentionKind,
 } from "./mention-encoding";
-import { workspaceAttachmentInstruction, workspaceAttachmentDisplayText } from "./workspace-attachment";
+import { workspaceAttachmentInstruction, workspaceAttachmentDisplayText, parseWorkspaceAttachmentMention } from "./workspace-attachment";
 import { parseSlashCommandInvocation } from "./slash-command";
+
+// UI provenance only: these references originate at the structured upload
+// mention boundary. The host's current selected-original hash check remains
+// the authority; this map grants no filesystem access or transfer permission.
+const uploadParts = new WeakMap<ComposerPart, {reference: string; displayText: string}>();
+
+export function protectedWorkspaceUploadParts(draft: ComposerDraft, workspaceRoot: string): ReadonlyMap<ComposerPart, FilePartInput> {
+  const files = new Map<ComposerPart, FilePartInput>();
+  for (const part of draft.parts) {
+    const provenance = uploadParts.get(part);
+    if (!provenance) continue;
+    if (part.type !== "text" || part.text !== provenance.displayText) throw new Error("The selected upload reference changed; attach it again.");
+    const attachment = parseWorkspaceAttachmentMention(provenance.reference);
+    if (!attachment || attachment.source || !/^\.legalwork\/attachments\/[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}\/[a-zA-Z0-9._-]+$/.test(attachment.path))
+      throw new Error("Attach a saved copy of a selected original before continuing this protected operation.");
+    const root = workspaceRoot.replaceAll("\\", "/").replace(/\/+$/, "");
+    if (!(root.startsWith("/") && !root.startsWith("//")) && !/^[A-Za-z]:\//.test(root)) throw new Error("The registered workspace root is unavailable.");
+    const absolute = `${root}/${attachment.path}`;
+    const encoded = absolute.split("/").map(encodeURIComponent).join("/");
+    const url = /^[A-Za-z]:\//.test(absolute) ? `file:///${encoded.replace(/^([A-Za-z])%3A/, "$1:")}` : `file://${encoded}`;
+    files.set(part, {type: "file", url, filename: attachment.name, mime: "application/octet-stream"});
+  }
+  return files;
+}
 
 export function buildComposerDraft(
   text: string,
@@ -42,7 +67,9 @@ export function buildComposerDraft(
       if (kind === "file") return [{ type: "file", path: value, label: value } satisfies ComposerDraft["parts"][number]];
       if (kind === "upload") {
         modelContexts.push(workspaceAttachmentInstruction(value));
-        return [{ type: "text", text: workspaceAttachmentDisplayText(value) } satisfies ComposerDraft["parts"][number]];
+        const part: ComposerPart = {type: "text", text: workspaceAttachmentDisplayText(value)};
+        uploadParts.set(part, {reference: value, displayText: part.text});
+        return [part];
       }
       if (kind === "memory") {
         modelContexts.push(legalMemoryComposerInstruction(value));

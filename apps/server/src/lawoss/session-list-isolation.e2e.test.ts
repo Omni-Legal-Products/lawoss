@@ -266,7 +266,9 @@ for (const [name, bin] of engines) {
     expect((await get(`/workspace/klient-a/sessions/${foreign}`, { method: "DELETE" })).status).toBe(404);
     expect((await get(`/workspace/klient-a/sessions/${own}`)).status).toBe(200);
     if (engine.requests) {
-      expect((await proxy("klient-a", `${foreign}/prompt_async`, { method: "POST", body: JSON.stringify({ parts: [{ type: "text", text: "x" }] }) })).status).toBe(404);
+      // Chránená AI (#168) odmietne každý model dispatch typovo (403) skôr, než sa engine dotkne; vlastníctvo cudzieho rozhovoru overí ne-modelový príkaz.
+      expect((await proxy("klient-a", `${foreign}/prompt_async`, { method: "POST", body: JSON.stringify({ parts: [{ type: "text", text: "x" }] }) })).status).toBe(403);
+      expect((await proxy("klient-a", `${foreign}/abort`, { method: "POST", body: "{}" })).status).toBe(404);
       // Proxy si pýta len metadáta rozhovoru; obsah ani príkaz cudzieho rozhovoru do enginu nejde.
       expect(engine.requests.filter((request) => request.includes(`/session/${foreign}/`))).toEqual([]);
     }

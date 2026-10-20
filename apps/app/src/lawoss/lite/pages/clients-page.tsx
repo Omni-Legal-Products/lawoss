@@ -11,7 +11,7 @@ import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { urgencyOf } from "../../okf/view-rules";
 import { groupByClient, nextDeadline, type ClientGroup } from "../today-model";
 import { ATTACH_EXISTING_CLIENT_PATH, liteMatterLink } from "../links";
-import { clientRootOf, practiceClientChoices, type ClientChoice } from "../client-choice";
+import { clientPreferenceScope, clientRootOf, practiceClientChoices, type ClientChoice } from "../client-choice";
 import { NewMatterAction } from "../client-picker";
 import { TriageEntry } from "../../domains/roztriedenie/triage-entry";
 import { hotDeadlineCount, LiveStamp, matterUrgency, useHotTitle, useMinuteTick } from "../live";
@@ -31,7 +31,7 @@ function ClientsLive({ data, meta, scope, locale }: { data: OkfReadResult; meta:
   // Karta klienta ide rovno do svojho klienta, bez výberu.
   const clientRoot = (key: string) => key.startsWith("client:") ? clientRootOf(scope, key.slice("client:".length)) : undefined;
   return <ClientsView groups={groupByClient(data.matters, data.inputs, data.clients)} meta={meta} locale={locale} actions={<TriageEntry />}
-    choices={choices} activeId={connection?.activeWorkspaceId} clientRoot={clientRoot} />;
+    choices={choices} preferenceScope={clientPreferenceScope(scope, connection?.baseUrl)} activeId={connection?.activeWorkspaceId} clientRoot={clientRoot} />;
 }
 
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });
@@ -39,10 +39,10 @@ const initials = (name: string) => name.split(/\s+/).filter((part) => /\p{L}/u.t
 
 /** Klienti ako karty s ich vecami; najbližšia lehota a jej naliehavosť z tej istej pamäte ako Dnes. */
 /** `actions`: ďalšie vstupy vedľa novej veci (roztriedenie skúšobného klona). */
-export function ClientsView({ groups, meta, locale: forced, actions, choices, activeId, clientRoot }: {
+export function ClientsView({ groups, meta, locale: forced, actions, choices, activeId, clientRoot, preferenceScope }: {
   groups: readonly ClientGroup[]; meta?: OkfPageMeta; locale?: Language; actions?: ReactNode;
-  /** Prax: klienti na krátky výber pri „+ Nová vec“ a priečinok klienta z karty (MČ 16. 10. 2026). */
-  choices?: readonly ClientChoice[]; activeId?: string | null; clientRoot?: (groupKey: string) => string | undefined;
+  /** Prax: klienti na krátky výber pri „+ Nová vec“ a priečinok klienta z karty (prehľad praxe). */
+  choices?: readonly ClientChoice[]; activeId?: string | null; preferenceScope?: string; clientRoot?: (groupKey: string) => string | undefined;
 }) {
   const current = useLocale();
   const locale = forced ?? current;
@@ -58,7 +58,7 @@ export function ClientsView({ groups, meta, locale: forced, actions, choices, ac
         <div className="lw-clients-actions">
           {actions}
           <Link className="lw-btn" to={ATTACH_EXISTING_CLIENT_PATH}>{text("attach_existing_client")}</Link>
-          <NewMatterAction className="lw-today-primary" locale={locale} choices={choices} activeId={activeId}>+ {text("new_matter")}</NewMatterAction>
+          <NewMatterAction className="lw-today-primary" locale={locale} choices={choices} activeId={activeId} preferenceScope={preferenceScope}>+ {text("new_matter")}</NewMatterAction>
         </div>
       </header>
 

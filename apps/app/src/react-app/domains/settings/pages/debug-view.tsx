@@ -1,4 +1,6 @@
 /** @jsxImportSource react */
+import { BuildIdentity } from '../../../../lawoss/release/build-identity';
+import type { AppBuildInfo } from '@legalwork/types/desktop-ipc';
 import {
   CircleAlert,
   Copy,
@@ -39,6 +41,7 @@ const compactDangerActionClass =
   "inline-flex h-9 items-center gap-2 rounded-xl border border-red-7/40 bg-red-9 px-4 text-xs font-medium text-white transition-colors hover:bg-red-10 disabled:cursor-not-allowed disabled:opacity-60";
 
 type RuntimeSummary = {
+  build: AppBuildInfo | null;
   appVersionLabel: string;
   appCommitLabel: string;
   opencodeVersionLabel: string;
@@ -399,7 +402,7 @@ export function DebugView(props: DebugViewProps) {
         </div>
         <div className="grid gap-2 text-[12px] text-dls-secondary md:grid-cols-2">
           <div>{t("settings.debug_desktop_app", { version: props.runtimeSummary.appVersionLabel })}</div>
-          <div>{t("settings.debug_commit", { commit: props.runtimeSummary.appCommitLabel })}</div>
+          <BuildIdentity build={props.runtimeSummary.build} />
           <div>
             {t("settings.debug_opencode_version", { version: props.runtimeSummary.opencodeVersionLabel })}
           </div>

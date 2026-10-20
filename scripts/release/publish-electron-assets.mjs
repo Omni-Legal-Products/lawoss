@@ -1,12 +1,19 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
+import { publishEvidenceRevision, verifyEvidenceChain } from './evidence-revision.mjs';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { publishImmutableFiles, runGh } from './immutable-upload.mjs';
+import { createPromotionReceipt, evidenceFilename, observeAssets, sha256, validateReleaseEvidence } from './release-evidence.mjs';
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { createChecksums, isElectronReleaseAsset, mergeChecksums } from "./checksums.mjs";
 
 const args = process.argv.slice(2);
 const manifestsOnly = args.includes("--manifests-only");
-const positional = args.filter((arg) => arg !== "--manifests-only");
+const payloadOnly = args.includes("--payload-only");
+const draftPayload = args.includes("--draft-payload");
+const positional = args.filter((arg) => !["--manifests-only", "--payload-only", "--draft-payload"].includes(arg));
 const [distRootArg, releaseTag] = positional;
 
 if (!distRootArg || !releaseTag) {
@@ -44,10 +51,6 @@ function isReleaseAsset(path) {
   return isElectronReleaseAsset(path);
 }
 
-function runGh(args) {
-  const result = spawnSync("gh", args, { stdio: "inherit", encoding: "utf8" });
-  if (result.status !== 0) process.exit(result.status ?? 1);
-}
 
 function parseManifest(path) {
   const raw = readFileSync(path, "utf8");
@@ -188,6 +191,20 @@ function validateManifest(name, manifest) {
 }
 
 const files = walk(distRoot);
+const evidencePaths=files.filter(path=>/^release-evidence-(darwin|win32|linux)-(arm64|x64)\.json$/.test(basename(path)));
+if(!evidencePaths.length)throw new Error('Missing per-target release evidence');
+const evidenceItems=evidencePaths.map(path=>({path,evidence:JSON.parse(readFileSync(path,'utf8'))}));
+for(const {path,evidence}of evidenceItems){
+ if(basename(path)!==evidenceFilename(evidence.build)||evidence.releaseTag!==releaseTag)throw new Error('Evidence target filename or exact release tag differs');
+ validateReleaseEvidence(evidence,evidence.assets,{requireTested:!draftPayload});
+}
+const evidenceNames=new Set(evidenceItems.flatMap(x=>x.evidence.assets.map(asset=>asset.name)));
+for(const path of files.filter(isReleaseAsset))if(!evidenceNames.has(basename(path)))throw new Error(`Unowned release payload: ${basename(path)}`);
+if(payloadOnly){
+ for(const {path,evidence}of evidenceItems)validateReleaseEvidence(evidence,await observeAssets(evidence.assets.map(asset=>join(dirname(path),asset.name))),{requireTested:!draftPayload});
+ await publishImmutableFiles({files:[...files.filter(isReleaseAsset),...evidencePaths,...files.filter(isUpdaterManifest).filter(path=>evidenceNames.has(basename(path)))],tag:releaseTag,repo,requireDraft:draftPayload});
+ process.exit(0);
+}
 const releaseAssets = files.filter(isReleaseAsset);
 const manifestsByName = new Map();
 // Matrix jobs hash the final signed installers before uploading them. Their
@@ -196,7 +213,7 @@ const checksums = manifestsOnly
   ? await mergeChecksums(files.filter((path) => basename(path) === "SHA256SUMS"))
   : await createChecksums(releaseAssets);
 
-for (const path of files.filter(isUpdaterManifest)) {
+for (const path of files.filter(isUpdaterManifest).filter(path=>!/^latest-mac-(arm64|x64)\.yml$/.test(basename(path)))) {
   if (manifestsOnly && !files.includes(join(dirname(path), "SHA256SUMS"))) {
     throw new Error(`Missing SHA256SUMS alongside ${path}`);
   }
@@ -229,17 +246,35 @@ const mergedManifests = [...manifestsByName.entries()].sort().map(([name, paths]
   return [name, manifest];
 });
 
-if (!manifestsOnly) {
-  runGh(["release", "upload", releaseTag, ...releaseAssets, "--repo", repo, "--clobber"]);
-}
-
-for (const [name, manifest] of mergedManifests) {
-  const outputPath = join(outputDir, name);
-  mkdirSync(dirname(outputPath), { recursive: true });
-  writeFileSync(outputPath, stringifyManifest(manifest), "utf8");
-  runGh(["release", "upload", releaseTag, `${outputPath}#${name}`, "--repo", repo, "--clobber"]);
-}
-
-const checksumPath = join(outputDir, "SHA256SUMS");
-writeFileSync(checksumPath, checksums, "utf8");
-runGh(["release", "upload", releaseTag, checksumPath, "--repo", repo, "--clobber"]);
+// Read the exact immutable payload back before producing any common updater feed.
+const verificationRoot=await mkdtemp(join(tmpdir(),'lawoss-promotion-'));
+try {
+ for(const {path,evidence}of evidenceItems){
+  const targetRoot=join(verificationRoot,`${evidence.build.platform}-${evidence.build.arch}`);mkdirSync(targetRoot,{recursive:true});
+  for(const asset of evidence.assets){
+   if(manifestsOnly)await runGh(['release','download',releaseTag,'--repo',repo,'--pattern',asset.name,'--dir',targetRoot]);
+   else writeFileSync(join(targetRoot,asset.name),readFileSync(join(dirname(path),asset.name)));
+  }
+  validateReleaseEvidence(evidence,await observeAssets(evidence.assets.map(asset=>join(targetRoot,asset.name))),{requireTested:true});
+ }
+ const outputs=[];
+ for(const [name,manifest] of mergedManifests){
+  for(const file of manifest.files){
+   const item=evidenceItems.find(x=>x.evidence.assets.some(asset=>asset.name===file.url));
+   if(!item)throw new Error(`Missing validated target for ${file.url}`);
+   const bytes=await readFile(join(verificationRoot,`${item.evidence.build.platform}-${item.evidence.build.arch}`,file.url));
+   if(file.sha512!==createHash('sha512').update(bytes).digest('base64'))throw new Error(`Updater SHA-512 differs from final bytes: ${file.url}`);
+  }
+  const outputPath=join(outputDir,name);const bytes=stringifyManifest(manifest);writeFileSync(outputPath,bytes,'utf8');outputs.push(outputPath);
+  const receipt=createPromotionReceipt({manifest:{name,sha256:sha256(bytes),references:manifest.files.map(file=>file.url)},evidences:evidenceItems.map(item=>({evidence:item.evidence,sha256:sha256(readFileSync(item.path))}))});
+  const receiptPath=join(outputDir,`promotion-${name}-${sha256(JSON.stringify(receipt))}.json`);writeFileSync(receiptPath,`${JSON.stringify(receipt,null,2)}\n`);outputs.push(receiptPath);
+ }
+ const checksumPath=join(outputDir,'SHA256SUMS');writeFileSync(checksumPath,checksums,'utf8');outputs.push(checksumPath);
+ // Canonical evidence is metadata owned by its dedicated writer. A caller here
+ // may create initial identical metadata, never silently rebase a remote revision.
+ for(const {path,evidence} of evidenceItems){
+  const revision=await publishEvidenceRevision({path,repo,tag:releaseTag});
+  await verifyEvidenceChain({repo,tag:releaseTag,name:evidenceFilename(evidence.build),expectedSha256:revision.sha256});
+ }
+ await publishImmutableFiles({files:[...(!manifestsOnly?releaseAssets:[]),...outputs],tag:releaseTag,repo});
+}finally{await rm(verificationRoot,{recursive:true,force:true});}

@@ -226,6 +226,10 @@ jobs:
             exit 0
           fi
 
+          if [ "${{ steps.resolve.outputs.build_electron }}" = "true" ] && [ "${{ steps.resolve.outputs.draft }}" != "true" ]; then
+            echo "Desktop releases must start as drafts; publish only after exact native acceptance." >&2
+            exit 1
+          fi
           DRAFT_FLAG=""
           PRERELEASE_FLAG=""
           if [ "${{ steps.resolve.outputs.draft }}" = "true" ]; then
@@ -392,6 +396,7 @@ jobs:
       - name: Stamp release version from tag
         shell: bash
         run: |
+          node scripts/release/build-info.mjs --assert-clean
           node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
           pnpm install --lockfile-only --no-frozen-lockfile
 
@@ -617,19 +622,41 @@ jobs:
             node apps/desktop/scripts/packaged-startup-regression.mjs "$PACKAGED_EXECUTABLE"
           fi
 
+      - name: Record final target evidence after signing and startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release/checksums.mjs apps/desktop/dist-electron
+          node scripts/release/release-evidence.mjs create --build apps/desktop/resources/build-info.json --assets-dir apps/desktop/dist-electron --release-tag "$RELEASE_TAG"
+
+      - name: Stage exact final artifact for native acceptance
+        shell: bash
+        run: node scripts/release/acceptance-handoff.mjs stage --assets-dir apps/desktop/dist-electron --out "$RUNNER_TEMP/release-candidate"
+
+      - name: Preserve final installer and target evidence before the public gate
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os_type == 'macos' && 'darwin' || matrix.os_type == 'windows' && 'win32' || 'linux' }}-${{ startsWith(matrix.target_triple, 'aarch64') && 'arm64' || 'x64' }}
+          path: ${{ runner.temp }}/release-candidate/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Require exact native acceptance before public publication
+        if: needs.resolve-release.outputs.draft != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for evidence in apps/desktop/dist-electron/release-evidence-*.json; do
+            node scripts/release/release-evidence.mjs verify --evidence "$evidence" --assets-dir apps/desktop/dist-electron --require-tested
+          done
+
       - name: Upload Electron release assets
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          assets=(apps/desktop/dist-electron/lawoss-*)
-          if [ ${#assets[@]} -eq 0 ]; then
-            echo "No Electron release assets found in apps/desktop/dist-electron" >&2
-            exit 1
-          fi
-          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$RELEASE_REPOSITORY" --clobber
+          node scripts/release/publish-electron-assets.mjs --payload-only ${{ needs.resolve-release.outputs.draft == 'true' && '--draft-payload' || '' }} apps/desktop/dist-electron "$RELEASE_TAG"
 
       - name: Checksum final Electron release assets
         shell: bash
@@ -642,6 +669,7 @@ jobs:
           path: |
             apps/desktop/dist-electron/latest*.yml
             apps/desktop/dist-electron/SHA256SUMS
+            apps/desktop/dist-electron/release-evidence-*.json
           if-no-files-found: error
 
   publish-electron-assets:
@@ -730,6 +758,7 @@ jobs:
       - name: Stamp release version from tag
         shell: bash
         run: |
+          node scripts/release/build-info.mjs --assert-clean
           node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
           pnpm install --lockfile-only --no-frozen-lockfile
 
@@ -849,6 +878,7 @@ jobs:
       - name: Stamp release version from tag
         shell: bash
         run: |
+          node scripts/release/build-info.mjs --assert-clean
           node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
           pnpm install --lockfile-only --no-frozen-lockfile
 

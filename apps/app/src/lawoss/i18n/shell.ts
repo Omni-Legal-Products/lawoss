@@ -1,6 +1,16 @@
 export const shellEn = {
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Something went wrong. Try again, or choose a different folder.",
+  "lawoss.practice.selected": "Selected practice",
+  "lawoss.practice.single": "Only this client",
+  "lawoss.practice.excluded": "Excluded workspaces: {count}",
+  "lawoss.practice.incomplete": "The practice overview is incomplete. Other deadlines may exist.",
+  "lawoss.practice.office": "Office",
+  "lawoss.practice.fresh": "Current",
+  "lawoss.practice.stale": "Last successful read",
+  "lawoss.practice.unavailable": "Unavailable",
+  "lawoss.practice.truncated": "Truncated",
+
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Sort documents",
   "lawoss.triage.trial_entry": "Sort documents in the trial copy",
@@ -272,6 +282,16 @@ type SlavicPluralKey = "lawoss.lite.due_in_days_few" | "lawoss.lite.due_in_days_
 export const shellCs = {
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Něco se nepodařilo. Zkuste to znovu, nebo vyberte jinou složku.",
+  "lawoss.practice.selected": "Vybraná praxe",
+  "lawoss.practice.single": "Pouze tento klient",
+  "lawoss.practice.excluded": "Vyloučené pracovní prostory: {count}",
+  "lawoss.practice.incomplete": "Přehled praxe je neúplný. Mohou existovat další lhůty.",
+  "lawoss.practice.office": "Kancelář",
+  "lawoss.practice.fresh": "Aktuální",
+  "lawoss.practice.stale": "Poslední úspěšné čtení",
+  "lawoss.practice.unavailable": "Nedostupné",
+  "lawoss.practice.truncated": "Neúplné čtení",
+
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Roztřídit dokumenty",
   "lawoss.triage.trial_entry": "Roztřídit dokumenty v kopii",
@@ -542,6 +562,16 @@ export const shellCs = {
 export const shellSk = {
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Niečo sa nepodarilo. Skúste to znova, alebo vyberte iný priečinok.",
+  "lawoss.practice.selected": "Vybraná prax",
+  "lawoss.practice.single": "Iba tento klient",
+  "lawoss.practice.excluded": "Vylúčené pracovné priestory: {count}",
+  "lawoss.practice.incomplete": "Prehľad praxe je neúplný. Môžu existovať ďalšie lehoty.",
+  "lawoss.practice.office": "Kancelária",
+  "lawoss.practice.fresh": "Aktuálne",
+  "lawoss.practice.stale": "Posledné úspešné čítanie",
+  "lawoss.practice.unavailable": "Nedostupné",
+  "lawoss.practice.truncated": "Neúplné čítanie",
+
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Roztriediť dokumenty",
   "lawoss.triage.trial_entry": "Roztriediť dokumenty v kópii",
@@ -812,6 +842,16 @@ export const shellSk = {
 export const shellDe = {
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Etwas ist nicht gelungen. Versuchen Sie es erneut oder wählen Sie einen anderen Ordner.",
+  "lawoss.practice.selected": "Ausgewählte Kanzlei",
+  "lawoss.practice.single": "Nur dieser Mandant",
+  "lawoss.practice.excluded": "Ausgeschlossene Arbeitsbereiche: {count}",
+  "lawoss.practice.incomplete": "Die Kanzleiübersicht ist unvollständig. Weitere Fristen sind möglich.",
+  "lawoss.practice.office": "Kanzlei",
+  "lawoss.practice.fresh": "Aktuell",
+  "lawoss.practice.stale": "Letzte erfolgreiche Abfrage",
+  "lawoss.practice.unavailable": "Nicht verfügbar",
+  "lawoss.practice.truncated": "Unvollständige Abfrage",
+
   // Roztriedenie dokumentov v skúšobnom klone (lawoss/okf/src/triage).
   "lawoss.triage.title": "Dokumente sortieren",
   "lawoss.triage.trial_entry": "Dokumente in der Testkopie sortieren",

@@ -9,7 +9,7 @@ import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connecti
 import { isLawossHomeWorkspace } from "../../home-workspace";
 import { ADD_FOLDER_PATH, NEW_MATTER_PATH, organizeFolderLink } from "../../lite/links";
 import { activeWorkspace, officeWorkspace, useOkfConnection, useOkfScope } from "../../okf/read-model";
-import { newMatterLink, practiceClientChoices } from "../../lite/client-choice";
+import { clientPreferenceScope, newMatterLink, practiceClientChoices } from "../../lite/client-choice";
 import { ClientPickerDialog } from "../../lite/client-picker";
 import type { OkfChoice } from "./api";
 
@@ -102,7 +102,7 @@ export function OnboardingEntryActions({
   const text = labels[locale];
   const { connection } = useOkfConnection();
   const active = activeWorkspace(connection);
-  // Prax: nová vec sa najprv opýta, pre ktorého klienta (MČ 16. 10. 2026). Mená z registrácie, bez čítania pamäte.
+  // Prax: nová vec sa najprv opýta, pre ktorého klienta (prehľad praxe). Mená z registrácie, bez čítania pamäte.
   const { scope } = useOkfScope(connection, officeWorkspace(connection));
   const choices = useMemo(() => practiceClientChoices(scope), [scope]);
   const [picking, setPicking] = useState(false);
@@ -152,7 +152,7 @@ export function OnboardingEntryActions({
         <FolderPlus className="size-4" />
         {compact ? null : <span>{text.matter}</span>}
       </Button>
-      <ClientPickerDialog open={picking} purpose="new_matter" choices={choices} activeId={connection?.activeWorkspaceId} locale={locale}
+      <ClientPickerDialog open={picking} purpose="new_matter" choices={choices} preferenceScope={clientPreferenceScope(scope, connection?.baseUrl)} activeId={connection?.activeWorkspaceId} locale={locale}
         onClose={() => setPicking(false)} onPick={(choice) => { setPicking(false); navigate(newMatterLink(choice.root)); }} />
     </div>
   );

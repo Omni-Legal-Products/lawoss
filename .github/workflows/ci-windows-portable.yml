@@ -311,6 +311,7 @@ jobs:
           ./src/task-sync.test.ts
           ./src/workspace-reconnect.e2e.test.ts
           ./src/test-support/project-sync-first-failure-timing.test.ts
+          ./src/test-support/onboarding-first-failure-timing.test.ts
 
       - name: Diagnose pending task handoff in a fresh Bun process
         if: ${{ failure() && steps.windows_server_source.outcome == 'failure' }}
@@ -357,7 +358,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     name: Diagnostic native Windows (full synthetic flow)
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 100
     permissions:
       contents: read
       actions: read
@@ -423,7 +424,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: pnpm --filter @legalwork/desktop build:electron
       - name: Full synthetic native flow with bounded bootstrap tracing
-        timeout-minutes: 12
+        # Ten existing provisioning/inference windows alone total 55 minutes.
+        timeout-minutes: 75
         env:
           LAWOSS_ISIR_NATIVE_DIAGNOSTICS: "1"
           LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE: ${{ runner.temp }}/isir-native-diagnostics.json

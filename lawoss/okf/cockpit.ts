@@ -1,3 +1,4 @@
+import { isManagedDeadline, managedDeadlineTrusted, type DeadlineWorkflowEvidence } from "./deadline-workflow.ts";
 /**
  * Read-only cockpit jednej veci — čistá logika nad prehľadom pamäte spisov
  * (`read.ts`). Nesiaha na disk, nič nepočíta z predpisov a nič nezapisuje.
@@ -129,7 +130,8 @@ function validVerificationTime(value: unknown): value is string {
 }
 
 /** Legacy verification without actor type never implies human approval. */
-export function provenance(record: OkfRecord): Provenance {
+export function provenance(record: OkfRecord, evidence?: DeadlineWorkflowEvidence): Provenance {
+  if (isManagedDeadline(record)) return managedDeadlineTrusted(record,evidence) ? "overené" : "overenie neurčené";
   if (record.verified?.some((v) => v.type === "human" && typeof v.by === "string" && v.by.trim() && validVerificationTime(v.at) && v.truth === record.truth)) return "overené";
   if (record.verified?.some((v) => v.type === "machine")) return "strojovo overené";
   if ((record.verified?.length ?? 0) > 0) return "overenie neurčené";
@@ -171,7 +173,7 @@ function facts(input: MatterInput): CockpitFact[] {
         id: r.id,
         title: r.title,
         kind: kindLabel(r.type),
-        provenance: provenance(r),
+        provenance: provenance(r,input.deadlineWorkflowEvidence),
         file: fileOf(input, r),
       };
       if (src?.title) fact.source = src.title;
@@ -208,10 +210,10 @@ function deadlines(input: MatterInput, todayIso: string): CockpitDeadline[] {
         date,
         title: r.title,
         recordId: r.id,
-        provenance: provenance(r),
+        provenance: isManagedDeadline(r) ? managedDeadlineTrusted(r, input.deadlineWorkflowEvidence) ? "overené" : "overenie neurčené" : provenance(r),
         file: fileOf(input, r),
         overdue: !invalid && deadlineTier(date, todayIso) === "overdue",
-        confirmed: deadlineConfirmed(r, raw),
+        confirmed: isManagedDeadline(r) ? managedDeadlineTrusted(r, input.deadlineWorkflowEvidence) : deadlineConfirmed(r, raw),
       };
       if (invalid) item.invalid = invalid;
       const label = invalid ? undefined : deadlineLabel(raw);

@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url";
 
 import { createOfficeAddinManager } from "./office-addin-manager.mjs";
 import { ensureOpencodeStateDir } from "./opencode-state-dir.mjs";
+import { createContextReview } from "./host-context-review.mjs";
 import { createHostApprovalHandler } from "./host-approvals.mjs";
 import { migrateLegacyWindowsOpenCodeConfig } from "./opencode-config-migration.mjs";
 import { killProcessTree } from "./lawoss-process-tree.mjs";
@@ -618,6 +619,10 @@ function loadUserEnvFile() {
 export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, listLocalWorkspaceAppFiles, listLocalWorkspaces, reconnectHostWorkspace, recorder, onSidecarExit, getApprovalWindow }) {
   const requestHostApproval = createHostApprovalHandler({
     getWindow: getApprovalWindow,
+    showContextReview: async (window, options) => {
+      const { BrowserWindow, ipcMain, screen } = await import("electron");
+      return createContextReview({ BrowserWindow, ipcMain, screen })(window, options);
+    },
     showMessageBox: async (window, options) => {
       const { dialog } = await import("electron");
       if (options.signal.aborted || window.isDestroyed()) return { response: 0, checkboxChecked: false };

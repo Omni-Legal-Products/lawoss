@@ -17,7 +17,7 @@ import { buildToday } from "./today-model";
 import { matterUrgency, useMinuteTick } from "./live";
 import { LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, liteMatterLink } from "./links";
 import { openClientChat, openOfficeChat, restoreOfficeScope } from "./office-scope";
-import { practiceClientChoices } from "./client-choice";
+import { clientPreferenceScope, practiceClientChoices } from "./client-choice";
 import { ClientPickerDialog } from "./client-picker";
 
 const RECENT_LIMIT = 5;
@@ -42,6 +42,7 @@ export function LiteNav(props: { activePane?: boolean }) {
   const locale = useLocale();
   const choices = useMemo(() => practiceClientChoices(scope, query.data?.clients), [scope, query.data?.clients]);
   const [picking, setPicking] = useState(false);
+  const [askError, setAskError] = useState(false);
   // Návrat z konverzace na stránku kanceláře vrátí rozsah na kancelář (nová věc, nastavení, Zeptat se).
   useEffect(() => {
     if (!OFFICE_PAGES.has(pathname)) return;
@@ -50,21 +51,27 @@ export function LiteNav(props: { activePane?: boolean }) {
   const open = (chat: Promise<string>) => {
     chat.then(navigate).catch((failure: unknown) => {
       console.warn("LAWOSS-lite: ask", failure);
-      navigate(ASK_PATH);
+      setAskError(true);
     });
   };
-  // Prax (MČ 16. 10. 2026): z detailu veci rovno do jej klienta, inak krátky výber klienta.
+  // Prax (prehľad praxe): z detailu veci rovno do jej klienta, inak krátky výber klienta.
   const onAsk = () => {
-    if (choices.length < 2 || !scope) { open(openOfficeChat()); return; }
+    setAskError(false);
+    if (!scope || !query.data) { setAskError(true); return; }
+    if (!scope.practiceRoot) { open(openOfficeChat()); return; }
+    if (!choices.length) { setAskError(true); return; }
+    if (choices.length === 1) { open(openClientChat(choices[0].id, scope, connection)); return; }
     const matter = pathname === LITE_MATTER_PATH ? new URLSearchParams(search).get("vec") : null;
     const owner = matter === null ? null : locateInScope(scope, matter)?.workspace.id;
-    if (owner) open(openClientChat(owner));
+    if (owner) open(openClientChat(owner, scope, connection));
+    else if (matter !== null) setAskError(true);
     else setPicking(true);
   };
   return <>
+    {askError ? <p role="alert">{t("lawoss.practice.unavailable", locale)}</p> : null}
     <LiteNavView recent={recent} activePane={props.activePane} onAsk={onAsk} />
-    <ClientPickerDialog open={picking} purpose="ask" choices={choices} activeId={connection?.activeWorkspaceId} locale={locale}
-      onClose={() => setPicking(false)} onPick={(choice) => { setPicking(false); open(openClientChat(choice.id)); }} />
+    <ClientPickerDialog open={picking} purpose="ask" choices={choices} preferenceScope={clientPreferenceScope(scope, connection?.baseUrl)} activeId={connection?.activeWorkspaceId} locale={locale}
+      onClose={() => setPicking(false)} onPick={(choice) => { setPicking(false); open(openClientChat(choice.id, scope, connection)); }} />
   </>;
 }
 
