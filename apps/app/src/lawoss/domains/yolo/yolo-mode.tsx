@@ -96,7 +96,8 @@ export function YoloModeRowView(props: { locale: Language; mode: YoloMode | null
           </LayoutSectionItemHeaderActions>
         </LayoutSectionItemHeader>
         <p role="status" data-lawoss-yolo={state} className="text-[13px] leading-relaxed text-foreground">{text}</p>
-        {props.mode?.enabled ? <p className="text-[13px] text-muted-foreground">{t("lawoss.yolo.applies", props.locale)}</p> : null}
+        {/* Both directions: a running engine keeps its rules until the idle reload. */}
+        {props.mode && !props.mode.locked ? <p className="text-[13px] text-muted-foreground">{t("lawoss.yolo.applies", props.locale)}</p> : null}
         {props.confirming ? (
           <div role="alertdialog" aria-labelledby={confirmTitleId} className="flex flex-col gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
             <p id={confirmTitleId} className="text-sm font-medium text-ink">{t("lawoss.yolo.confirm_title", props.locale)}</p>
@@ -152,19 +153,23 @@ export function YoloBadgeView({ mode }: { mode: YoloMode | null }) {
   );
 }
 
-/** Beside the composer's model controls: visible only while YOLO Mode is on. */
+const BADGE_REFRESH_MS = 15_000;
+
+/** Beside the composer's model controls: visible only while YOLO Mode is on. The state is
+ * read on mount and refreshed, so a server that answers late (cold start) still shows it. */
 export function YoloBadge() {
   const mode = useYoloMode();
   useEffect(() => {
-    if (current) return;
     let active = true;
-    void resolveLegalworkConnection().then(async (connection) => {
+    const refresh = () => void resolveLegalworkConnection().then(async (connection) => {
       if (!connection.normalizedBaseUrl) return;
       const client = createLegalworkServerClient({ baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken, hostToken: connection.resolvedHostToken });
       const next = await loadYoloMode(client);
       if (active) publishYoloMode(next);
-    }).catch(() => { /* No badge without a known state; Settings shows the failure. */ });
-    return () => { active = false; };
+    }).catch(() => { /* Retried on the next refresh; Settings shows a load failure. */ });
+    refresh();
+    const timer = setInterval(refresh, BADGE_REFRESH_MS);
+    return () => { active = false; clearInterval(timer); };
   }, []);
   return <YoloBadgeView mode={mode} />;
 }

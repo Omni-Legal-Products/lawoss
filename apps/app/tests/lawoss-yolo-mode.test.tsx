@@ -23,6 +23,9 @@ test("YOLO Mode is a native row, off by default, with a short Slovak subtitle", 
   expect(html).toContain('aria-checked="false"');
   expect(html).not.toContain('data-disabled=""');
   expect(html).not.toContain('role="alertdialog"');
+  // Switching off also waits for the engine reload, so the note shows in both states.
+  expect(html).toContain("Prejaví sa bez reštartu appky");
+  expect(row({mode: null})).not.toContain("Prejaví sa bez reštartu appky");
 });
 
 test("switching on only asks for an in-page confirmation; switching off saves at once", () => {
@@ -53,6 +56,7 @@ test("on and firm-locked states are visible; a firm lock disables the switch", (
   expect(firm).toContain('data-disabled=""');
   expect(firm).toContain('aria-checked="false"');
   expect(firm).toContain("Vaša organizácia spravuje povolenia nástrojov");
+  expect(firm).not.toContain("Prejaví sa bez reštartu appky");
   const guest = row({canWrite: false});
   expect(guest).toContain('data-disabled=""');
 });

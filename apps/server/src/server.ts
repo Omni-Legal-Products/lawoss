@@ -1,5 +1,5 @@
-import { registerYoloModeRoutes } from "./lawoss/yolo-mode.js";
 import { registerAiGovernanceRoutes } from "./lawoss/ai-governance-routes.js";
+import { registerYoloModeRoutes } from "./lawoss/yolo-mode.js";
 import { ProtectedDocumentRuntime } from "./lawoss/protected-ai/runtime.js";
 import { protectedGuestBundleFactory } from "./lawoss/protected-ai/bundle.js";
 import { registerProtectedDocumentProfileRoutes } from "./lawoss/protected-ai/profiles.js";
