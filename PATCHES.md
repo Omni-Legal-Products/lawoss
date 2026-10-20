@@ -1,5 +1,19 @@
 # LAWOSS downstream patches
 
+## Gemini provider failure outcomes (2026-10-18)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/package.json` | Explicitne bundluje aj standalone helper `provider-failure-observer.ts`; jeho plochý tsc výstup sa kopíruje mimo node_modules rovnako ako ostatné plugin súbory. Bez toho všetky štyri Package and launch platformy odmietli bare import `zod`. Guard zostáva nezmenený; postbuild Node regresia overuje skutočný detached helper a native test používa kópiu skutočného built capabilities pluginu. |
+| `apps/server/src/opencode-plugins/office-plugin-shared.ts`, `apps/app/src/react-app/infra/query-client.ts`, `apps/app/src/react-app/shell/session-route.tsx` | Diagnostická publikácia neblokuje EOF pôvodnej provider odpovede: najviac osem nezávislých úloh vlastní plugin, dispose ich zruší a odčerpá; workspace lookup zachová caller abort aj svoj timeout. Po trvalom zápise server oznámi sessions sync a existujúci shell invaliduje session snapshots; aktívne sa znovu načítajú a neaktívne ostávajú stale. |
+| `apps/server/src/opencode-plugins/legalwork-capabilities-knowledge.ts`, `apps/server/src/routes/sessions.ts`, `apps/server/src/wiki/agent-access.ts` | Existujúci managed plugin pripája privátny provider observation hook; nonce sa odstráni pred vzdialeným fetch. Úzko autorizovaný endpoint overí skutočný assistant/user/provider/model a ukladá iba konečný kód do app-owned runtime SQLite. Messages/snapshot zobrazia odmietnutie podpisu iba pri nedokončenom terminálnom idle ťahu, po reštarte rovnako; úspešný retry ani tool step sa neprepíše. Bez overeného witness sa prázdny Gemini ťah označí ako incomplete/unknown. Engine ostáva 1.18.29; opaque reasoning/signature ani engine DB sa nemenia. Toto je oprava pozorovateľnosti, príčina incidentov s podpisom zostáva otvorená. |
+
+## Synthetic scenario benchmark completion and grading (2026-10-18)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/benchmarks/runner.ts`, `apps/server/src/benchmarks/runner.test.ts`, `apps/server/src/benchmarks.e2e.test.ts` | Existujúci perzistentný runner koreluje prijatý prompt s konkrétnym engine-visible user ID a parent ID odpovede, čaká na terminálny finish a čerstvý idle po čítaní; dokončený tool step ani samotný completed timestamp nestačia. Úspešná prázdna native status mapa zachováva pinned engine idle kontrakt; neznámy/chybový status nedáva terminal dôkaz. Stabilné prázdne ukončenie je nehodnotená chyba, prerušenie má vlastný stav. Nejednoznačné transportné zlyhanie nespúšťa duplicitný prompt; sync fallback ostáva pre nepodporovaný endpoint. Jediný LAWOSS tag pripája čistý syntetický adaptér: striktný JSON/types/saldo/procedure verdikt sa perzistuje nezávisle od troch pôvodných evidence rubrík v existujúcom structured-output judge. Pred vytvorením agent session runner zachytí bounded inventár pôvodných vstupov (identity, SHA-256 a bajty) iba v pamäti hostiteľa. Nové, nahradené či zmenené citované súbory nemôžu slúžiť ako nezávislý dôkaz; extractor používa iba prijaté pôvodné bajty. Resume znova pripraví vstupy a inventár bez DB migrácie. Scenario tag zároveň vypína automatické output-limit pokračovanie, takže prvý chybný artifact nemožno prepísať opravným pokusom; generická Harvey recovery ostáva. Citácie nového adaptéra sú presné documents-relative cesty; tagovaný judge dostane bounded snapshot skutočne prečítaných citovaných súborov cez existujúci extractor. Neznáma/outside/symlink/oracle citácia nemôže prejsť, nečitateľný/OCR citovaný podklad ostáva unable/error; nejde o úplné pokrytie spisu ani dôkaz agentnej odolnosti. Výpadok judge ostáva pipeline error, prvý artifact/verdikt sa automaticky neopravuje ani nenahrádza. Dve behaviorálne kritériá TEST-CZ-08 sú bez nezávislých nástrojových/sieťových receipts vždy LIMITED (`UNVERIFIED_TOOL_BEHAVIOR`), nie pozorované zlyhanie aplikácie; formát a tretie obsahové kritérium ostávajú samostatné. Pred legacy OOXML extrakciou metadata-only ZIP preflight bez inflácie limituje všetky položky vrátane nepoužitých médií na 16 MiB súčtu deklarovaných rozbalených aj encoded veľkostí a 1000 entries; stored položky vyžadujú size === originalSize aj pri prekrývaní lokálnych offsetov. Všeobecné Harvey/custom hodnotenie a limit recovery ostávajú zachované. |
+
 ## ISIR native Files navigation (2026-10-16)
 
 | Súbory | Downstream doplnenie a dôvod |
@@ -976,6 +990,13 @@ Zachované obe histórie a celý nezmenený samostatný SDK/dependency helper; r
 | Súbory | Oprava a overenie |
 |---|---|
 | `scripts/test-isir-native.mjs`, `apps/app/tests/chooser-boundary.fixture.tsx`, `lawoss/testing/isir/native/import-boundary.browser.mjs` | Po skutočnom fddcc CI páde pri case1 nový guard číta desktop HashRouter a skutočný committed control snapshot, nie browser pathname. Pôvodné IDs zahŕňajú public openFiles aj odpojených DocumentPane portalov. Mounted regresia používa skutočný SessionPage import event, SidePanel, runtime-env a control provider; pôvodný modeled callback už nie je acceptance oracle. Strict owner/input/new-tab/bytes odmietnutia a pôvodné rozpočty zostávajú. Normálny native CI nového headu ostáva povinný. |
+
+### Session-group synchronization lifetime (2026-10-18)
+
+| Súbory | Oprava a dôkaz |
+|---|---|
+| `apps/app/src/react-app/shell/use-session-group-sync.ts`, `apps/app/src/react-app/shell/session-group-sync-controller.ts` | Jediný životný cyklus vlastní initial sync, polling, cursory a backoff naprieč metadata rendermi. Nedostupný root čaká na existujúcu akciu reconnect alebo zmenu root/capability; žiadny projekt sa nemaže. Generačné kontroly odmietnu oneskorené odpovede; reconnect počas pending čítania sa zopakuje až po uvoľnení vlastníka. |
+| `apps/app/tests/session-group-sync-controller.test.ts`, `apps/app/tests/session-group-sync.fixture.tsx`, `apps/app/tests/fixtures/session-group-sync.html` | Jednotkové interleaving/fake-clock regresie a skutočne mounted React hook s existujúcim HTTP klientom v izolovanom Chromiu. Tridsať minút je simulovaný čas, nie 30-minútový wall-clock Electron test; sedem nedostupných projektov vyvolá sedem vlastných warnings, dostupný ďalej polluje. |
 
 ### Frozen public CZ fixture bytes (2026-10-18)
 
