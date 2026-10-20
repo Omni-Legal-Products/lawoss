@@ -4199,10 +4199,16 @@ var PLAN_SCHEMA = "lawoss.triage.plan/v1";
 var TRIAL_MARKER = ".lawoss-trial.json";
 var TRIAGE_DIR = ".lawoss/triage";
 var MAX_TRIAGE_DOCUMENTS = 2000;
+var TRIAGE_INSPECTION_LIMITS = { maxBytes: 4 * 1024 ** 3, maxEntries: 20000 };
 
 class TrialCloneError extends Error {
   code = "not_trial_clone";
 }
+
+class TriageTooLargeError extends Error {
+  code = "triage_too_large";
+}
+var TOO_LARGE = "Priečinok klienta je príliš veľký na usporiadanie naraz (viac ako 4 GB alebo 20 000 súborov). Zvoľte „Nie, nechaj ho tak, ako je“ alebo usporiadajte menší podpriečinok.";
 var NOT_TRIAL_CLONE = "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli.";
 var sha3 = (value) => createHash6("sha256").update(value).digest("hex");
 var record2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -4342,7 +4348,9 @@ async function lockedForWrite(path, hooks = {}) {
 var onlyLockedIssues = (inspection) => inspection.issues.length > 0 && inspection.issues.every((issue) => issue.code === "locked_file");
 async function scanTriage(rootInput, options = {}) {
   const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory, options);
-  const inspection = await inspectOnboardingRoot(clone.root, options.limits, options.hooks);
+  const inspection = await inspectOnboardingRoot(clone.root, options.limits ?? TRIAGE_INSPECTION_LIMITS, options.hooks);
+  if (inspection.issues.some((issue) => issue.code === "byte_limit" || issue.code === "entry_limit"))
+    throw new TriageTooLargeError(TOO_LARGE);
   if (!inspection.complete && !onlyLockedIssues(inspection)) {
     const issue = inspection.issues[0];
     throw new Error(issue?.code === "symlink_not_followed" ? `Priečinok obsahuje symbolický odkaz (${issue.path}); roztriedenie ho nesleduje. Odstráňte ho z priečinka.` : `Priečinok sa nepodarilo prečítať celý (${issue?.code ?? "neznámy dôvod"}${issue?.path ? `: ${issue.path}` : ""}).`);
@@ -5106,7 +5114,7 @@ async function applyTriagePlan(input, options = {}) {
         return { status: "already_applied", runId: plan.runId, moved: plan.moves.length, created: plan.create.length, journal: dir };
       }
     } else {
-      const inspection = await inspectOnboardingRoot(root, {}, options.hooks);
+      const inspection = await inspectOnboardingRoot(root, TRIAGE_INSPECTION_LIMITS, options.hooks);
       if (!inspection.complete && !onlyLockedIssues(inspection) || triageTreeDigest(inspection.entries) !== plan.treeDigest)
         throw new TriageConflictError("Priečinok sa od náhľadu zmenil. Pripravte nový náhľad.");
       const paths = new Map(inspection.entries.map((entry) => [entry.path.toLocaleLowerCase(), entry]));

@@ -336,7 +336,8 @@ describe("profily a limity", () => {
   });
   test("limity čítania sa prejavia ako odmietnutie, nie čiastočný plán", async () => {
     const clone = await trialClone();
-    await expect(scanTriage(clone.root, { limits: { maxEntries: 10 } })).rejects.toThrow("entry_limit");
+    // Od R7 nesie odmietnutie kód pre appku namiesto interného `entry_limit`.
+    await expect(scanTriage(clone.root, { limits: { maxEntries: 10 } })).rejects.toMatchObject({ code: "triage_too_large" });
   });
 });
 

@@ -110,4 +110,14 @@ describe("LAWOSS welcome flow", () => {
     expect(clientsFolderOf("  ")).toBe("");
     expect(clientsFolderOf("Office")).toBe("");
   });
+
+  // Koreň praxe (pripojený existujúci priečinok) nie je kancelária: Klienti patria dovnútra, nie vedľa.
+  test("the Klienti folder lies inside a practice root and beside an office folder", () => {
+    expect(clientsFolderOf("/x/Prax")).toBe("/x/Prax/Klienti");
+    expect(clientsFolderOf("/x/Prax/Office")).toBe("/x/Prax/Klienti");
+    expect(clientsFolderOf("C:\\Prax")).toBe("C:\\Prax\\Klienti");
+    expect(clientsFolderOf("C:\\Prax\\Office")).toBe("C:\\Prax\\Klienti");
+    expect(clientsFolderOf("/x/Prax/_kancelaria")).toBe("/x/Prax/Klienti");
+    expect(clientsFolderOf("/x/Prax/")).toBe("/x/Prax/Klienti");
+  });
 });
