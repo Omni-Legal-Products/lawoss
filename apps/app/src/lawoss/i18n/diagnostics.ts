@@ -1,4 +1,8 @@
 export const diagnosticsEn = {
+  "lawoss.diagnostics.workflow_due_name": "Due Diligence",
+  "lawoss.diagnostics.workflow_due_description": "Review a data room against the matter’s due diligence scope and prepare a report supported by sources.",
+  "lawoss.diagnostics.workflow_knowledge_name": "Firm Knowledge",
+  "lawoss.diagnostics.workflow_knowledge_description": "Work with the firm’s wiki using its own structure and procedures.",
   "lawoss.diagnostics.unknown": "The operation could not be completed. See the technical details.",
   "lawoss.diagnostics.details": "Technical details (original text)",
   "lawoss.diagnostics.listing_incomplete": "The directory listing is incomplete.",
@@ -18,6 +22,10 @@ export const diagnosticsEn = {
 };
 
 export const diagnosticsCs = {
+  "lawoss.diagnostics.workflow_due_name": "Právní prověrka",
+  "lawoss.diagnostics.workflow_due_description": "Prověřte dokumenty v rozsahu právní prověrky a připravte zprávu podloženou zdroji.",
+  "lawoss.diagnostics.workflow_knowledge_name": "Znalosti kanceláře",
+  "lawoss.diagnostics.workflow_knowledge_description": "Pracujte se znalostní bází kanceláře podle její struktury a pravidel.",
   "lawoss.diagnostics.unknown": "Operaci se nepodařilo dokončit. Podrobnosti najdete v technických údajích.",
   "lawoss.diagnostics.details": "Technické podrobnosti (původní text)",
   "lawoss.diagnostics.listing_incomplete": "Výpis složky není úplný.",
@@ -37,6 +45,10 @@ export const diagnosticsCs = {
 } satisfies Record<keyof typeof diagnosticsEn, string>;
 
 export const diagnosticsSk = {
+  "lawoss.diagnostics.workflow_due_name": "Právna previerka",
+  "lawoss.diagnostics.workflow_due_description": "Preverte dokumenty v rozsahu právnej previerky a pripravte správu podloženú zdrojmi.",
+  "lawoss.diagnostics.workflow_knowledge_name": "Znalosti kancelárie",
+  "lawoss.diagnostics.workflow_knowledge_description": "Pracujte so znalostnou bázou kancelárie podľa jej štruktúry a pravidiel.",
   "lawoss.diagnostics.unknown": "Operáciu sa nepodarilo dokončiť. Podrobnosti nájdete v technických údajoch.",
   "lawoss.diagnostics.details": "Technické podrobnosti (pôvodný text)",
   "lawoss.diagnostics.listing_incomplete": "Výpis priečinka nie je úplný.",
@@ -56,6 +68,10 @@ export const diagnosticsSk = {
 } satisfies Record<keyof typeof diagnosticsEn, string>;
 
 export const diagnosticsDe = {
+  "lawoss.diagnostics.workflow_due_name": "Rechtliche Prüfung",
+  "lawoss.diagnostics.workflow_due_description": "Prüfen Sie die Dokumente im Umfang der rechtlichen Prüfung und erstellen Sie einen quellenbasierten Bericht.",
+  "lawoss.diagnostics.workflow_knowledge_name": "Kanzleiwissen",
+  "lawoss.diagnostics.workflow_knowledge_description": "Arbeiten Sie mit dem Kanzleiwiki nach dessen Struktur und Regeln.",
   "lawoss.diagnostics.unknown": "Der Vorgang konnte nicht abgeschlossen werden. Prüfen Sie die technischen Details.",
   "lawoss.diagnostics.details": "Technische Details (Originaltext)",
   "lawoss.diagnostics.listing_incomplete": "Die Ordnerliste ist unvollständig.",

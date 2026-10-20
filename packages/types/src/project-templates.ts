@@ -3,7 +3,10 @@ import { projectTemplateStrings } from "./project-template-strings.js";
 export { projectTemplateStrings } from "./project-template-strings.js";
 import type { ProjectField } from "./workspace.js";
 
-type Locale = "en" | "de";
+export const PROJECT_TEMPLATE_LOCALES = ["en", "de", "cs", "sk"] as const;
+export type ProjectTemplateLocale = (typeof PROJECT_TEMPLATE_LOCALES)[number];
+type Locale = ProjectTemplateLocale;
+export const isProjectTemplateLocale = (value: unknown): value is Locale => PROJECT_TEMPLATE_LOCALES.some(locale => locale === value);
 
 
 function t(key: string, locale: Locale): string {
@@ -54,8 +57,7 @@ export function projectFieldLabel(field: ProjectField, locale: Locale = "en"): s
   const label = suggestedLabels(locale)[field.id];
   if (!label || field.labelSource === "custom") return field.label;
   if (field.labelSource === "suggested" ||
-      ["en", "de"].some((language) =>
-        suggestedLabels(language === "de" ? "de" : "en")[field.id] === field.label)) return label;
+      PROJECT_TEMPLATE_LOCALES.some((language) => suggestedLabels(language)[field.id] === field.label)) return label;
   return field.label;
 }
 
@@ -65,7 +67,7 @@ export function localizedProjectFields(fields: ProjectField[], locale: Locale = 
     ...field,
     label: projectFieldLabel(field, locale),
     labelSource: field.labelSource ?? (
-      suggestedLabels("en")[field.id] === field.label || suggestedLabels("de")[field.id] === field.label
+      PROJECT_TEMPLATE_LOCALES.some(language => suggestedLabels(language)[field.id] === field.label)
         ? "suggested" : "custom"
     ),
   }));
@@ -77,7 +79,7 @@ export function localizedTemplateFields(fields: ProjectField[], locale: Locale =
     const keys = field.id === "status" ? ["status_open", "status_active", "status_waiting", "status_closed"]
       : field.id === "priority" ? ["priority_low", "priority_normal", "priority_high"] : [];
     if (field.labelSource !== "suggested" || !keys.length || field.options?.length !== keys.length) return field;
-    const unchanged = (["en", "de"] satisfies Locale[]).some((language) => keys.every((key, index) => field.options?.[index] === t(`projects.schema.${key}`, language)));
+    const unchanged = PROJECT_TEMPLATE_LOCALES.some((language) => keys.every((key, index) => field.options?.[index] === t(`projects.schema.${key}`, language)));
     return unchanged ? { ...field, options: keys.map((key) => t(`projects.schema.${key}`, locale)) } : field;
   });
 }

@@ -10,7 +10,7 @@ import { validateDescription, validateSkillName } from "./validators.js";
 import { isOutsideWorkspacePath, resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { ApiError } from "./errors.js";
 import { globalSkillsDir, projectSkillsDir } from "./workspace-files.js";
-import { BUNDLED_WORKFLOW_NAMES } from "./bundled-workflows.js";
+import { BUNDLED_WORKFLOW_NAMES, originalBundledWorkflow } from "./bundled-workflows.js";
 
 export type SkippedSkill = { path: string; reason: string };
 
@@ -74,9 +74,11 @@ async function parseSkillEntry(
   workspaceRoot?: string,
 ): Promise<SkillItem | null> {
   let parsed: ReturnType<typeof parseFrontmatter>;
+  let original = "";
   try {
     const readablePath = workspaceRoot ? await resolveWorkspaceFilePath(workspaceRoot, skillPath) : skillPath;
-    parsed = parseFrontmatter(await readFile(readablePath, "utf8"));
+    original = await readFile(readablePath, "utf8");
+    parsed = parseFrontmatter(original);
   } catch (error) {
     console.warn("[skills] Skipped unreadable or malformed skill:", skillPath, error);
     skipped?.push({ path: skillPath, reason: error instanceof Error ? error.message.split("\n")[0]! : "Could not read or parse SKILL.md" });
@@ -108,6 +110,7 @@ async function parseSkillEntry(
     description,
     path: skillPath,
     scope,
+    ...(scope === "global" && originalBundledWorkflow(name, original) ? { bundledDisplayId: name } : {}),
     trigger: trigger.trim() || undefined,
     ...(kind ? { kind } : {}),
     ...(workflowType ? { workflowType } : {}),

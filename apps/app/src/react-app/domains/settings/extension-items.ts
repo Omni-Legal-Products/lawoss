@@ -1,3 +1,4 @@
+import { bundledPresentation } from "@/lawoss/i18n/bundled-presentation";
 import { getMcpServerName, isBuiltInLegalWorkExtension, type McpDirectoryInfo } from "../../../app/constants";
 import { evaluateEnablement, type EnablementContext } from "../../../app/enablement";
 import type { EnablementResult } from "../../../app/extensions";
@@ -33,7 +34,7 @@ export type ExtensionItemBuildInput = {
   quickConnect: McpDirectoryInfo[];
   platform: "darwin" | "linux" | "windows" | "web";
   mcpServers: McpServerEntry[];
-  installedSkills: Array<{ name: string; description?: string; path: string }>;
+  installedSkills: Array<{ name: string; description?: string; path: string; bundledDisplayId?: string }>;
   enablementContext: EnablementContext;
   isBuiltInConnected: (entry: McpDirectoryInfo) => boolean;
 };
@@ -89,8 +90,8 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
   const standaloneSkillItems = input.installedSkills.map((skill): ExtensionItem => ({
     id: `skill:${skill.name}`,
     source: "skill",
-    name: skill.name,
-    description: skill.description ?? null,
+    name: bundledPresentation(skill)?.name ?? skill.name,
+    description: bundledPresentation(skill)?.description ?? skill.description ?? null,
     installState: "installed",
     setupState: "ready",
     active: true,

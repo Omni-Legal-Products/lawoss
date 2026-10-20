@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { isProjectTemplateLocale, type ProjectTemplateLocale } from "@legalwork/types/workspace";
 import type { ProjectTemplateCatalog } from "@legalwork/types/workspace";
 import { defaultProjectTemplates, localizedTemplateFields, projectTemplateCatalogSchema, projectTemplateName } from "./project-schema.js";
 import { ApiError } from "./errors.js";
@@ -22,7 +23,7 @@ export async function readProjectTemplates(config: Pick<ServerConfig, "configPat
   }
 }
 
-export function localizeProjectTemplates(catalog: ProjectTemplateCatalog, language: "en" | "de") {
+export function localizeProjectTemplates(catalog: ProjectTemplateCatalog, language: ProjectTemplateLocale) {
   return { ...catalog, templates: catalog.templates.map((template) => ({
     ...template, name: projectTemplateName(template, language), fields: localizedTemplateFields(template.fields, language),
   })) };
@@ -53,12 +54,12 @@ export function saveProjectTemplates(config: Pick<ServerConfig, "configPath">, i
 }
 
 export async function projectFieldsFromTemplate(config: Pick<ServerConfig, "configPath">, input: Record<string, unknown>) {
-  if (input.templateLanguage !== undefined && input.templateLanguage !== "en" && input.templateLanguage !== "de")
-    throw new ApiError(400, "invalid_project_template", "Template language must be en or de.");
+  if (input.templateLanguage !== undefined && !isProjectTemplateLocale(input.templateLanguage))
+    throw new ApiError(400, "invalid_project_template", "Template language must be en, de, cs or sk.");
   const catalog = await readProjectTemplates(config);
   const id = input.templateId === undefined ? catalog.defaultTemplateId : input.templateId;
   if (id === null) return [];
   const template = catalog.templates.find((entry) => entry.id === id);
   if (!template) throw new ApiError(400, "invalid_project_template", "Choose an existing project template.");
-  return localizedTemplateFields(template.fields, input.templateLanguage === "de" ? "de" : "en");
+  return localizedTemplateFields(template.fields, isProjectTemplateLocale(input.templateLanguage) ? input.templateLanguage : "en");
 }

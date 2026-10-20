@@ -7,6 +7,12 @@ import { globalSkillsDir } from "./workspace-files.js";
 
 export const BUNDLED_WORKFLOW_NAMES = [...new Set(BUNDLED_WORKFLOW_FILES.map(file => file.path.split("/")[0]!))];
 
+/** Presentation identity is granted only to the exact shipped document, never its editable frontmatter. */
+export function originalBundledWorkflow(name: string, content: string): string | undefined {
+  const source = BUNDLED_WORKFLOW_FILES.find(file => file.path === `${name}/SKILL.md`);
+  return source && Buffer.from(source.content, source.encoding).equals(Buffer.from(content)) ? name : undefined;
+}
+
 /** Retire the old global content procedure without replacing customized workflows. */
 async function upgradeWikiLauncher(destination: string) {
   const path = join(destination, "SKILL.md");

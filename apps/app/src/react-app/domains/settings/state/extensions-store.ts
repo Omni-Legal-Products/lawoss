@@ -819,7 +819,7 @@ export function createExtensionsStore(options: {
     }));
   };
 
-  function skillCardOf(entry: { name: string; description?: string; path: string; trigger?: string; kind?: string; workflowType?: string; firm?: "automatic" | "optional" }): SkillCard {
+  function skillCardOf(entry: { bundledDisplayId?: string; name: string; description?: string; path: string; trigger?: string; kind?: string; workflowType?: string; firm?: "automatic" | "optional" }): SkillCard {
     return {
       name: entry.name,
       description: entry.description,
@@ -827,6 +827,7 @@ export function createExtensionsStore(options: {
       trigger: entry.trigger,
       kind: entry.kind,
       workflowType: entry.workflowType,
+      ...(entry.bundledDisplayId ? { bundledDisplayId: entry.bundledDisplayId } : {}),
       ...(entry.firm ? { firm: entry.firm } : {}),
     };
   }
