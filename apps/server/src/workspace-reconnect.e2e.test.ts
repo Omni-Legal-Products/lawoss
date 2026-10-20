@@ -234,6 +234,7 @@ test("reconnect captures native archived-zero and genuinely archived history as 
  const engine=Bun.serve({port:0,fetch:async request=>{
   expect(request.headers.get("authorization")).toBe("Basic "+Buffer.from("synthetic:local").toString("base64"));
   const url=new URL(request.url),all=late?[...sessions,{id:"future-foreign",directory:f.a,title:"Later reused path",time:{created:4,updated:5,archived:0}}]:sessions;
+  if(url.pathname==="/mcp"){expect(url.searchParams.get("directory")).toBe(f.b);return Response.json({});}
   if(url.pathname==="/experimental/session"){
    expect(url.searchParams.get("directory")).toBeNull();expect(url.searchParams.get("limit")).toBe("1000");
    return Response.json(url.searchParams.get("archived")==="true"?all:all.filter(session=>!("archived" in session.time)));
