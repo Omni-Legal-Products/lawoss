@@ -1,6 +1,44 @@
 import { expect, test } from "bun:test";
 import { LegalWorkProjectTools } from "./legalwork-project-tools.js";
 
+test("document read rejects paths recoverably before transport and reads only listed UUIDs", async () => {
+  const { z } = await import("zod");
+  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+  const id = "00000000-0000-4000-8000-000000000001";
+  let documentReads = 0, permissionRequests = 0;
+  const server = Bun.serve({ port: 0, fetch(request) {
+    const url = new URL(request.url);
+    expect(request.headers.get("x-legalwork-wiki-agent-session")).toBe("synthetic-session");
+    if (url.pathname === "/workspaces") return Response.json({ items: [{ id: "synthetic", path: "/synthetic" }] });
+    if (url.pathname === "/workspace/synthetic/lawoss/documents") return Response.json({ documents: [{ id }], nextOffset: null });
+    expect(url.pathname).toBe(`/workspace/synthetic/lawoss/documents/${id}/read`);
+    documentReads++;
+    return Response.json({ text: "Synthetic listed evidence", nextOffset: null, complete: true, untrusted: true });
+  } });
+  process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_WIKI_AGENT_TOKEN = "synthetic-token";
+  try {
+    const plugin = await LegalWorkProjectTools(), tool = plugin.tool.lawoss_documents_read;
+    const schema = z.object(tool.args), wire = z.fromJSONSchema(z.toJSONSchema(schema));
+    const context = { directory: "/synthetic", sessionID: "synthetic-session", ask: async () => { permissionRequests++; } };
+    for (const value of ["email/message.eml", "contract.pdf", "", "not-a-uuid"]) {
+      expect(schema.safeParse({ id: value }).success).toBe(false);
+      expect(wire.safeParse({ id: value }).success).toBe(false);
+      const result = JSON.parse(await tool.execute({ id: value }, context));
+      expect(result.code).toBe("document_arguments"); expect(result.nextTool).toBe("lawoss_documents_list");
+    }
+    expect(documentReads).toBe(0);
+    const listed = JSON.parse(await plugin.tool.lawoss_documents_list.execute({}, context));
+    const read = JSON.parse(await tool.execute({ id: listed.documents[0].id }, context));
+    expect(read.text).toBe("Synthetic listed evidence"); expect(documentReads).toBe(1); expect(permissionRequests).toBe(0);
+    const unbound = JSON.parse(await tool.execute({ id }, { directory: "/synthetic" }));
+    expect(unbound.error).toContain("not configured"); expect(documentReads).toBe(1);
+  } finally {
+    server.stop(true);
+    if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
+    if (oldToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = oldToken;
+  }
+});
+
 test("project tools resolve the closest project, carry pagination and reject unrelated directories", async () => {
   const oldUrl = process.env.LEGALWORK_SERVER_URL;
   const oldToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;

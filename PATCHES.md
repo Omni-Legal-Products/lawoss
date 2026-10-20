@@ -13,6 +13,19 @@
 | `.github/workflows/ci-windows-portable.yml` | Krok serverových testov na Windows má `bun test --timeout 20000`. Dôvod: job `118335222340` (2026-10-19) prerušil 14 testov na predvolených 5000 ms. Onboarding `apply` vrátil 200 až po prerušení a susedné testy synchronizácie prešli za 3873 ms a 4638 ms. |
 | `apps/desktop/package.json`, `apps/server/src/agent-sandbox/runtime.test.ts` | Skript `test` desktopu spúšťa aj `electron/runtime-bootstrap-gate.test.mjs` a `scripts/windows-arm64-speech-compile.test.mjs`; serverový test sandboxu overí, že `shutdown()` nečaká na zrušený boot. Dôvod: pokrytie opráv vyššie v CI. |
 
+## Oprava čítania EML a dokumentových UUID (2026-10-18)
+
+Bugfix existujúcej prípravy dokumentov podľa používateľom prijatého plánu opráv SCN002; nemení právne ani integračné možnosti CZ/Google.
+
+| Súbory | Úzky zásah a hranica dôkazu |
+| --- | --- |
+| `apps/server/src/corpus/extract.ts`, `apps/server/src/corpus/extract.test.ts` | Existujúci priamy `postal-mime` dekóduje EML; preferuje plain body, HTML poskytuje ako inertný text. Prílohy v corpus-only čítaní ostávajú nepokryté a cache nedrží dekódované binárne buffery. MIME parsing má limit vnorenia a hlavičiek popri existujúcom 64 MiB vstupe; kontroluje zrušenie pred/po parse. Nejde o prísne prerušenie parsera uprostred CPU práce. |
+| `apps/server/src/project-contents.ts`, `apps/server/src/project-contents.test.ts`, `apps/server/src/opencode-plugins/legalwork-project-tools.ts`, `apps/server/src/opencode-plugins/legalwork-project-tools.test.ts` | Native project-read vracia konkrétnu cestu prepare → list → read. Model dostáva popis UUID a obnoviteľnú typovanú chybu pri použití cesty namiesto ID; wire/execution UUID validácia a existujúca autorizácia ostávajú. Skutočný tool/HTTP test číta EML a priložené PDF cez session-bound prístup. |
+| `apps/server/src/lawoss-documents.e2e.test.ts`, `apps/server/src/lawoss/documents/service.ts` | MIME prílohy vstupujú do existujúcej PDF/OCR rekurzie s rovnakými tree-wide count/decoded-byte/text/depth rozpočtami. Susedia rezervujú kapacitu pred zostupom; mená sú iba proveniencia, scratch používa UUID. Nepodporované deti zachovajú partial; hash zdroja, attachment hash a PDF čísla strán ostávajú overované. Verejný syntetický smoke prečítal 10/10 EML tiel a 10/10 PDF detí bez zmeny hashov; kvôli pôvodnej PDF/OCR coverage všetkých 20 zostalo partial. Toto nie je dôkaz native UI/modelového úspechu ani právnej správnosti. |
+| `apps/app/src/react-app/domains/session/panel/document-processing.ts`, `apps/app/tests/document-processing.test.ts` | Natívne zisťovanie zdrojov v priečinku prijíma aj `.eml` bez rozlíšenia veľkosti písmen. Skutočný helper test overuje výber EML aj jeho potomkov pri refresh, samostatné čítanie priloženého PDF a vylúčenie susedného spisu; priečinok s nepodporovaným súborom sa naďalej celý odmietne. Produkčný zásah mení iba allowlist. |
+
+Review doplnenie: EML s prázdnym telom a úplne čitateľnými prílohami môže byť `readable/complete` s nulovým počtom vlastných strán. Rekurzia vracia oddelene úplnosť a čitateľnosť vlastného podstromu: čitateľný potomok pri neúplnom pokrytí znamená `partial`, skutočne prázdny dokument zostáva `failed`; susedné vetvy ani iné originály výsledok nemenia.
+
 ## Gemini provider failure outcomes (2026-10-18)
 
 | Súbory | Downstream doplnenie a dôvod |
