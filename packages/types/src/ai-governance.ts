@@ -30,9 +30,15 @@ export type GuidanceAck = {textVersion: string; jurisdiction: "CZ" | "SK"; actor
 
 export const AI_GUIDANCE_VERSION = "2026-10-17-technical-alpha";
 export const GuidanceAckSchema = z.strictObject({textVersion: z.string().min(1).max(80), jurisdiction: z.enum(["CZ", "SK"]), actorRef: z.literal("native-host"), readAt: z.number().int().nonnegative()});
-export type AiGovernanceView = {publicContext?: {available: boolean; targets: Array<{id: string; models: string[]}>}; guidanceVersion: string; guidanceAck: GuidanceAck | null;
+/** LAWOSS alpha switch: when enforced, only protected document generation reaches a model.
+ * `device` is a tightening-only lock from this computer's environment; `invalid` is a damaged
+ * stored value, treated as enforced until saved again. Nothing in the renderer can unlock either. */
+export type AiBoundaries = {enforced: boolean; locked: boolean; source: "default" | "user" | "device" | "invalid"};
+/** `details.source` of the `ai_transfer_denied` error sent only by the AI hranice host guard. */
+export const AI_BOUNDARIES_DENIAL_SOURCE = "ai-boundaries";
+export type AiGovernanceView = {boundaries?: AiBoundaries; publicContext?: {available: boolean; targets: Array<{id: string; models: string[]}>}; guidanceVersion: string; guidanceAck: GuidanceAck | null;
   boundedDocuments?: {state: "conditional"; requiresApprovedMatterProfile: true; requiresNativeCaseReview: true; requiresFinalWireReview: true; approvalCreation: "unavailable"};
-  protectedProcessing: "unsupported"; blockers: string[]; capabilities: Array<{kind: TransferKind; state: "unsupported"; reason: "unsupported-transport"}>};
+  protectedProcessing: "unsupported"; blockers: string[]; capabilities: Array<{kind: TransferKind; state: "unsupported" | "available"; reason: "unsupported-transport" | null}>};
 
 export type PublicAiResult = {reply: string; operationId: string; scope: "public-text-scratch"; legalApproval: false};
 

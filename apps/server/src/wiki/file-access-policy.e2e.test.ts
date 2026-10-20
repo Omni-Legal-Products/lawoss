@@ -1,4 +1,5 @@
 import { scopedWikiRuntime } from "./scoped-runtime.test-helper.js";
+import { enforceAiBoundaries } from "../lawoss/test-support/ai-boundaries.js";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -63,6 +64,15 @@ test("wiki tools respect project access without overriding host file access", as
   await expect(wikiRuntime.run(() => ownWiki["tool.execute.before"]({ tool: "read", sessionID: "wiki-session" }, { args: { filePath: join(wiki.root, "AGENTS.md") } }))).resolves.toBeUndefined();
   expect(JSON.parse(await project.tool.wiki_list.execute({}, { sessionID: "project-session" })).wikis).toEqual([]);
   const headers = { authorization: `Bearer ${config.token}`, "x-legalwork-host-token": config.hostToken, "content-type": "application/json" };
+  // AI hranice off (alpha default): the pre-#168 sandbox gate still refuses host shells.
+  for (const path of ["/session/project-session/shell", "/pty"]) {
+    const response = await fetch(`${base}/workspace/${workspace.id}/opencode${path}`, { method: "POST", headers, body: JSON.stringify({command: "SYNTHETIC_DENIED_SHELL_CANARY"}) });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: "sandbox_required" });
+  }
+  expect(enginePosts).toEqual([]);
+  // #168 denial expectation for the project shell: „AI hranice" on explicitly.
+  await enforceAiBoundaries(config);
   for (const [path, code] of [["/session/project-session/shell", "ai_transfer_denied"], ["/pty", "sandbox_required"]]) {
     const response = await fetch(`${base}/workspace/${workspace.id}/opencode${path}`, { method: "POST", headers, body: JSON.stringify({command: "SYNTHETIC_DENIED_SHELL_CANARY"}) });
     expect(response.status).toBe(403);

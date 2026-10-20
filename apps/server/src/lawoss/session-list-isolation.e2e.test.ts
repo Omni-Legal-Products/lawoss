@@ -6,6 +6,8 @@ import { z } from "zod";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
+import { enforceAiBoundaries } from "./test-support/ai-boundaries.js";
+import { AI_BOUNDARIES_DENIAL_SOURCE } from "@legalwork/types/ai-governance";
 
 /**
  * Výpis rozhovorov cez proxy priečinka (`/workspace/:id/opencode/session`) nesmie ukázať
@@ -181,7 +183,7 @@ async function serve(folders: Office, engineUrl: string, extra: Record<string, s
     const listed = status === 200 ? z.array(sessionSchema).parse(body).map((session) => session.title).sort() : [];
     return { status, listed };
   };
-  return Object.assign(list, { get, sse });
+  return Object.assign(list, { get, sse, config });
 }
 
 const engines = [["engine na skúšku (výber 1.18.29)", undefined], ...(binary ? [["skutočný engine", binary] as const] : [])] as const;
@@ -235,7 +237,7 @@ for (const [name, bin] of engines) {
     const alias = join(folders.base, "odkaz-A");
     await symlink(folders.clientA, alias, "junction");
     const nfd: Record<string, string> = process.platform === "darwin" ? { "vec-a-nfd": folders.matterA.normalize("NFD") } : {};
-    const { get } = await serve(folders, engine.url, { "klient-a-odkaz": alias, ...nfd });
+    const { get, config } = await serve(folders, engine.url, { "klient-a-odkaz": alias, ...nfd });
     const id = engine.ids;
     const own = id["A koreň"]!, foreign = id["B tajné"]!, foreignMatter = id["B spis tajný"]!;
     const proxy = async (workspace: string, path: string, init?: RequestInit) => {
@@ -266,8 +268,14 @@ for (const [name, bin] of engines) {
     expect((await get(`/workspace/klient-a/sessions/${foreign}`, { method: "DELETE" })).status).toBe(404);
     expect((await get(`/workspace/klient-a/sessions/${own}`)).status).toBe(200);
     if (engine.requests) {
-      // Chránená AI (#168) odmietne každý model dispatch typovo (403) skôr, než sa engine dotkne; vlastníctvo cudzieho rozhovoru overí ne-modelový príkaz.
-      expect((await proxy("klient-a", `${foreign}/prompt_async`, { method: "POST", body: JSON.stringify({ parts: [{ type: "text", text: "x" }] }) })).status).toBe(403);
+      const prompt = () => get(`/workspace/klient-a/opencode/session/${foreign}/prompt_async`, { method: "POST", body: JSON.stringify({ parts: [{ type: "text", text: "x" }] }) });
+      // AI hranice vypnuté (predvolené v alfe): prompt prejde AI strážou, cudzí rozhovor odmietne kontrola vlastníctva (#190).
+      expect((await prompt()).status).toBe(404);
+      // AI hranice zapnuté: model dispatch odmietne typovo (403 so značkou) ešte pred kontrolou vlastníctva a enginom.
+      const restore = await enforceAiBoundaries(config);
+      cleanups.push(restore);
+      expect(await prompt()).toMatchObject({ status: 403, body: { code: "ai_transfer_denied", details: { source: AI_BOUNDARIES_DENIAL_SOURCE } } });
+      // Vlastníctvo cudzieho rozhovoru overí aj ne-modelový príkaz.
       expect((await proxy("klient-a", `${foreign}/abort`, { method: "POST", body: "{}" })).status).toBe(404);
       // Proxy si pýta len metadáta rozhovoru; obsah ani príkaz cudzieho rozhovoru do enginu nejde.
       expect(engine.requests.filter((request) => request.includes(`/session/${foreign}/`))).toEqual([]);

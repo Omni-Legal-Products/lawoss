@@ -3,8 +3,9 @@ import {rm} from "node:fs/promises";
 import {openBenchmarkStore, resetBenchmarkStoreCache} from "./benchmarks/store.js";
 import {startServer} from "./server.js";
 import {syntheticHostConfig} from "./lawoss/test-support/host-config.js";
+import {enforceAiBoundaries} from "./lawoss/test-support/ai-boundaries.js";
 
-test("benchmark execution refuses protected processing before a run or engine session is created", async () => {
+test("with AI boundaries on, benchmark execution refuses protected processing before a run or engine session is created", async () => {
   const {root, config} = await syntheticHostConfig();
   const sent: string[] = [];
   const engine = Bun.serve({hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -18,6 +19,7 @@ test("benchmark execution refuses protected processing before a run or engine se
   }});
   config.workspaces = [{id: "synthetic", name: "Synthetic", path: root, workspaceType: "local", preset: "starter", baseUrl: engine.url.origin}];
   const server = await startServer(config);
+  await enforceAiBoundaries(config);
   const store = await openBenchmarkStore(config);
   const base = `http://127.0.0.1:${server.port}/workspace/synthetic/benchmarks`;
   const headers = {authorization: `Bearer ${config.token}`, "content-type": "application/json"};

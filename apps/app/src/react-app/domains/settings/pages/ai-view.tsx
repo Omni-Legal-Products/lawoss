@@ -6,6 +6,7 @@ import { useState, type ReactNode } from "react";
 
 import { t, currentLocale } from "@/i18n";
 import { AiGuidance } from "@/lawoss/domains/ai/guidance";
+import { AiBoundariesRow } from "@/lawoss/domains/ai/boundaries";
 import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { ProviderIcon } from "../../../design-system/provider-icon";
 import { SettingsNotice, SettingsStatusBadge } from "../settings-section";
@@ -84,6 +85,7 @@ export function AiSettingsView(props: AiSettingsViewProps) {
   return (
     <LayoutStack>
       <AiGuidance locale={currentLocale()} />
+      <AiBoundariesRow locale={currentLocale()} />
       {/* ---- Providers ---- */}
       <LayoutSection>
         <LayoutSectionHeader>

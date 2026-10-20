@@ -319,7 +319,7 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 ## Confined document transport invariants
 
-- A protected document session is owned by its host runtime registry, never by a renderer flag or session-shaped ID. Keep the general engine denied. The guest has no NIC, client filesystem mount or provider credential; only current selected-document capabilities and the fixed host model relay are available.
+- A protected document session is owned by its host runtime registry, never by a renderer flag or session-shaped ID. Keep the general engine denied while AI hranice are enforced; the alpha ships with them off by default (MČ 20. 10. 2026). The guest has no NIC, client filesystem mount or provider credential; only current selected-document capabilities and the fixed host model relay are available.
 - Bind each native final-wire decision to complete serialized bytes and current source/root/runtime/plugin/launcher/config/target/account/legal-profile/organization-policy identity. Revalidate before the socket and during receipt. Native source classification, legal eligibility, operation authority and output correctness remain separate gates.
 - Identical prepared-source readmission changes only list ordering; exclude its admittedAt timestamp from semantic authority, while retaining extraction revisions, coverage, provenance, raw hashes and physical source/root identities. A fresh final-wire review still binds the current complete serialized tool response.
 - Cancelled legacy network reviews must settle without waiting for an external decision callback. A late decision cannot resume DNS or socket IO; retain complete network-work drain, especially for constructor-owned protected callbacks.

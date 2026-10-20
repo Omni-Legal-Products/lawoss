@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { enforceAiBoundaries } from "../lawoss/test-support/ai-boundaries.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -202,7 +203,7 @@ test("an agent captures an authorized source into real Markdown through the serv
   expect(JSON.parse(await unknown.tool.wiki_list.execute({})).code).toBe("wiki_agent_session_unknown");
 });
 
-test("authenticated session origins are preserved while protected prompts and commands cannot execute", async () => {
+test("with AI boundaries on, authenticated session origins are preserved while protected prompts and commands cannot execute", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-wiki-proxy-origin-"));
   roots.push(root);
   const project = join(root, "Prüfung 東京");
@@ -215,6 +216,88 @@ test("authenticated session origins are preserved while protected prompts and co
     if (request.method === "POST" && path === "/session") return Response.json({ id: "ses_http_origin", directory: project, title: "Matter" });
     // The proxy checks that a session belongs to the workspace before forwarding.
     if (request.method === "GET" && path === "/session/ses_http_origin") return Response.json({ id: "ses_http_origin", directory: project, title: "Matter" });
+    if (request.method === "POST" && path === "/session/ses_http_origin/message") return Response.json({ id: "msg_fixture", sessionID: "ses_http_origin" });
+    if (request.method === "POST" && path === "/session/ses_http_origin/prompt_async") return new Response(null, { status: 204 });
+    if (request.method === "POST" && path === "/session/ses_http_origin/fork") return Response.json({ id: "ses_http_fork", directory: project, title: "Fork" });
+    return Response.json({ ok: true });
+  } });
+  stops.push(async () => { await engine.stop(); });
+  const engineUrl = `http://127.0.0.1:${engine.port}`;
+  const config: ServerConfig = {
+    host: "127.0.0.1", port: 0, token: "origin-client", hostToken: "origin-host", opencodeBaseUrl: engineUrl,
+    configPath: join(root, "configuration", "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"],
+    workspaces: [{ id: "origin-matter", name: "Matter", path: project, preset: "starter", workspaceType: "local", baseUrl: engineUrl }],
+    authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli",
+    logFormat: "pretty", logRequests: false,
+  };
+  const store = new WikiStore(config);
+  const wiki = await store.create({ name: "Personal knowledge", root: join(root, "wiki"), template: "blank" });
+  await store.close();
+  const runtimeToken = await ensureWikiAgentToken(config);
+  const server = await startServer(config);
+  await enforceAiBoundaries(config);
+  stops.unshift(async () => { await server.stop(); });
+  const url = `http://127.0.0.1:${server.port}`;
+  const proxyPath = `${url}/workspace/origin-matter/opencode/session`;
+  const query = new URLSearchParams({ directory: project });
+  const created = await fetch(`${proxyPath}?${query}`, { method: "POST",
+    headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify({ title: "Matter" }) });
+  expect(created.status).toBe(200);
+  expect(z.object({ id: z.string() }).parse(await created.json()).id).toBe("ses_http_origin");
+  process.env.LEGALWORK_SERVER_URL = url;
+  process.env.LEGALWORK_SERVER_TOKEN = config.token;
+  process.env.LEGALWORK_WIKI_AGENT_TOKEN = runtimeToken;
+  const { tool } = await LegalWorkWikiTools({ directory: project, sessionID: "ses_http_origin" });
+  const listed = JSON.parse(await tool.wiki_list.execute({}));
+  expect(listed.wikis.some((entry: { id: string }) => entry.id === wiki.id)).toBe(true);
+  expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).content).toContain("Wiki structure");
+
+  const prompted = await fetch(`${proxyPath}/ses_http_origin/prompt_async?${query}`, { method: "POST",
+    headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ parts: [] }) });
+  expect(prompted.status).toBe(403);
+  expect(await prompted.json()).toMatchObject({ code: "ai_transfer_denied" });
+  expect(inferenceRequests).toBe(0);
+  expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).content).toContain("Wiki structure");
+  // The trusted plugin grant remains independently testable without any model send.
+  await grantWikiAgentSession(config, { sessionId: "ses_http_origin", directory: project, scope: "collaborator" });
+  const denied = JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" }));
+  expect(denied.ok).toBe(false);
+  expect(denied.code).toBe("wiki_access_denied");
+
+  const hostCommand = await fetch(`${proxyPath}/ses_http_origin/command?${query}`, { method: "POST",
+    headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" },
+    body: JSON.stringify({ command: "capture", arguments: "" }) });
+  expect(hostCommand.status).toBe(403);
+  expect(await hostCommand.json()).toMatchObject({ code: "ai_transfer_denied" });
+  expect(inferenceRequests).toBe(0);
+  expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).code).toBe("wiki_access_denied");
+  const forked = await fetch(`${proxyPath}/ses_http_origin/fork?${query}`, { method: "POST",
+    headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ scope: "owner" }) });
+  expect(forked.status).toBe(200);
+  const forkId = z.object({ id: z.string() }).parse(await forked.json()).id;
+  const fork = await LegalWorkWikiTools({ directory: project, sessionID: forkId });
+  expect(JSON.parse(await fork.tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).code).toBe("wiki_access_denied");
+  expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).code).toBe("wiki_access_denied");
+
+  const narrow = await fetch(`${url}/tokens`, { headers: {
+    "x-legalwork-wiki-agent-token": runtimeToken, "x-legalwork-wiki-agent-session": "ses_http_origin",
+    "x-legalwork-wiki-agent-directory": encodeURIComponent(project),
+  } });
+  expect(narrow.status).toBe(403);
+});
+
+test("with AI boundaries off (alpha default), authenticated proxy session origin grants local wiki access and a collaborator prompt downgrades it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-wiki-proxy-origin-"));
+  roots.push(root);
+  const project = join(root, "Prüfung 東京");
+  await mkdir(project);
+  let inferenceRequests = 0;
+  const engine = await serve({ hostname: "127.0.0.1", port: 0, fetch: async (request) => {
+    const path = new URL(request.url).pathname;
+    if (request.method === "POST" && /\/(message|prompt_async|command)$/.test(path)) inferenceRequests++;
+    if (request.method === "GET" && path === "/command") return Response.json([{ name: "capture", template: "Capture the requested knowledge." }]);
+    if (request.method === "GET" && path === "/session/ses_http_origin") return Response.json({ id: "ses_http_origin", directory: project, title: "Matter" });
+    if (request.method === "POST" && path === "/session") return Response.json({ id: "ses_http_origin", directory: project, title: "Matter" });
     if (request.method === "POST" && path === "/session/ses_http_origin/message") return Response.json({ id: "msg_fixture", sessionID: "ses_http_origin" });
     if (request.method === "POST" && path === "/session/ses_http_origin/prompt_async") return new Response(null, { status: 204 });
     if (request.method === "POST" && path === "/session/ses_http_origin/fork") return Response.json({ id: "ses_http_fork", directory: project, title: "Fork" });
@@ -252,12 +335,9 @@ test("authenticated session origins are preserved while protected prompts and co
 
   const prompted = await fetch(`${proxyPath}/ses_http_origin/prompt_async?${query}`, { method: "POST",
     headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ parts: [] }) });
-  expect(prompted.status).toBe(403);
-  expect(await prompted.json()).toMatchObject({ code: "ai_transfer_denied" });
-  expect(inferenceRequests).toBe(0);
-  expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).content).toContain("Wiki structure");
-  // The trusted plugin grant remains independently testable without any model send.
-  await grantWikiAgentSession(config, { sessionId: "ses_http_origin", directory: project, scope: "collaborator" });
+  // A client-token prompt reaches the engine and downgrades the session origin to collaborator.
+  expect(prompted.status).toBe(204);
+  expect(inferenceRequests).toBe(1);
   const denied = JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" }));
   expect(denied.ok).toBe(false);
   expect(denied.code).toBe("wiki_access_denied");
@@ -265,9 +345,8 @@ test("authenticated session origins are preserved while protected prompts and co
   const hostCommand = await fetch(`${proxyPath}/ses_http_origin/command?${query}`, { method: "POST",
     headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" },
     body: JSON.stringify({ command: "capture", arguments: "" }) });
-  expect(hostCommand.status).toBe(403);
-  expect(await hostCommand.json()).toMatchObject({ code: "ai_transfer_denied" });
-  expect(inferenceRequests).toBe(0);
+  // The host's own command reaches the engine; #168's monotone credential downgrade keeps wiki reads closed.
+  expect(hostCommand.status).toBe(200);
   expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Structure.md" })).code).toBe("wiki_access_denied");
   const forked = await fetch(`${proxyPath}/ses_http_origin/fork?${query}`, { method: "POST",
     headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ scope: "owner" }) });

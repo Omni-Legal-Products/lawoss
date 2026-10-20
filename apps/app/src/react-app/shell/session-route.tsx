@@ -2917,6 +2917,7 @@ export function SessionRoute() {
               if (location.pathname === "/home") navigate(homeRoute(id), { replace: true });
             }}
             onSend={handleHomeSend}
+            onOpenAiSettings={() => handleOpenSettings("/settings/ai")}
             disabled={effectiveLoading || createWorkspaceBusy || !client}
             providerConnectedCount={usableProviderCount}
             onConnect={() => void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}

@@ -38,6 +38,7 @@ import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
 import { t } from "@/i18n";
+import { aiBoundariesRefusal } from "@/lawoss/domains/ai/boundaries-refusal";
 import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import type { ImportedPlugin } from "@/app/lib/extension-imports";
 import type { ComposerConnector } from "./composer/tool-menu";
@@ -150,7 +151,7 @@ const VOICE_JOB_COMPLETION_SETTLE_MS = 3_000;
 
 type SessionError = {
   message: string;
-  kind?: "model-not-found" | "generic";
+  kind?: "model-not-found" | "generic" | "ai-boundaries";
   /** For model-not-found: the model that failed. */
   failedModel?: { providerID: string; modelID: string };
   /** For model-not-found: suggested replacements from the backend. */
@@ -419,6 +420,9 @@ function TrialEndedNotice(props: { billingUrl: string }) {
 }
 
 function parseSessionError(thrown: unknown): SessionError {
+  // LAWOSS: AI hranice refused the send; show the localized sentence, not the raw denial.
+  const boundaries = aiBoundariesRefusal(thrown);
+  if (boundaries) return { message: boundaries, kind: "ai-boundaries" };
   const raw = thrown instanceof Error ? thrown.message : String(thrown);
   // Try to detect ProviderModelNotFoundError from the SDK error shape.
   // The error message may be a JSON string from our serializer in session-route.
@@ -443,11 +447,12 @@ function parseSessionError(thrown: unknown): SessionError {
   return { message: raw || "Failed to send prompt." };
 }
 
-function SessionErrorCard({ error, onDismiss, onChangeModel, onOpenModelPicker, renderRecovery }: {
+function SessionErrorCard({ error, onDismiss, onChangeModel, onOpenModelPicker, onOpenAiSettings, renderRecovery }: {
   error: SessionError;
   onDismiss: () => void;
   onChangeModel?: (model: { providerID: string; modelID: string }) => void;
   onOpenModelPicker?: () => void;
+  onOpenAiSettings?: () => void;
   renderRecovery?: (error: string) => ReactNode;
 }) {
   const recovery = renderRecovery?.(error.message);
@@ -458,6 +463,20 @@ function SessionErrorCard({ error, onDismiss, onChangeModel, onOpenModelPicker, 
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-red-11">{error.message}</div>
+            {error.kind === "ai-boundaries" && onOpenAiSettings ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-full border border-dls-border bg-dls-surface px-3 py-1.5 text-xs font-medium text-dls-text transition-colors hover:bg-dls-hover"
+                  onClick={() => {
+                    onOpenAiSettings();
+                    onDismiss();
+                  }}
+                >
+                  {t("lawoss.ai_boundaries.open_settings")}
+                </button>
+              </div>
+            ) : null}
             {error.kind === "model-not-found" ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 {error.suggestions && error.suggestions.length > 0 ? (
@@ -1145,7 +1164,16 @@ export function SessionSurface(props: SessionSurfaceProps) {
     props.onDraftChange(buildDraft("", []));
   }, [buildDraft, clearComposerSession, props.onDraftChange, props.sessionId]);
 
-  const queueFailure = (error: unknown) => toast.error(t("composer.queue_failed"), { description: error instanceof Error ? error.message : String(error) });
+  // LAWOSS: „AI hranice" are in Settings → AI Providers ("providers" maps to /settings/ai).
+  const openAiSettings = props.onOpenSettingsSection ? () => props.onOpenSettingsSection?.("providers") : undefined;
+  const queueFailure = (error: unknown) => {
+    const boundaries = aiBoundariesRefusal(error);
+    if (boundaries) {
+      toast.error(t("composer.queue_failed"), { description: boundaries, ...(openAiSettings ? { action: { label: t("lawoss.ai_boundaries.open_settings"), onClick: openAiSettings } } : {}) });
+      return;
+    }
+    toast.error(t("composer.queue_failed"), { description: error instanceof Error ? error.message : String(error) });
+  };
   const handleQueue = async () => {
     const text = draft.trim();
     if ((!text && attachments.length === 0) || queueSubmitting.current) return;
@@ -1975,6 +2003,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     onDismiss={handleDismissError}
                     onChangeModel={props.onChangeModel}
                     onOpenModelPicker={props.onModelClick}
+                    onOpenAiSettings={openAiSettings}
                     renderRecovery={renderSubscriptionRecovery}
                   />
                 ) : (
@@ -1993,6 +2022,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 onDismiss={handleDismissError}
                 onChangeModel={props.onChangeModel}
                 onOpenModelPicker={props.onModelClick}
+                onOpenAiSettings={openAiSettings}
                 renderRecovery={renderSubscriptionRecovery}
               />
             ) : (
@@ -2167,7 +2197,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onToggleRealtimeVoice={() => props.onRealtimeVoiceActiveChange?.(!props.realtimeVoiceActive)}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
           queueAccessory={queuePaused || queuedDrafts.length > 0 || editingQueuedDraftId ? (
-            <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} onResume={resumeQueue} disabled={sendBlocked || queueSaving} />
+            <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} onResume={resumeQueue} disabled={sendBlocked || queueSaving} onOpenAiSettings={openAiSettings} />
           ) : null}
           compactTopSpacing={Boolean(subscriptionEndedAccessoryVisible || trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || hasActivePlan || props.activePermission || queuedDrafts.length > 0)}
           topAccessory={
