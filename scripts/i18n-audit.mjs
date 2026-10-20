@@ -23,6 +23,10 @@ import { join, basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { projectTemplateStrings } from "../packages/types/src/project-template-strings.ts";
 
+import { NATIVE_STRINGS } from "../apps/desktop/electron/native-locale.mjs";
+import { OFFICE_SHELL_COPY } from "../apps/server/src/word-addin-shell.ts";
+import { presentationLocaleFailures } from "./check-presentation-locales.mjs";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..");
 const LOCALES_DIR = join(REPO_ROOT, "apps/app/src/i18n/locales");
@@ -679,6 +683,15 @@ if (mode === "--prune") {
 
   if (totalRemoved === 0) console.log("  ✓ nothing to prune");
   console.log();
+}
+
+// The desktop main process and immutable offline Office shell have separate catalogs.
+if (isAll) {
+  const errors = presentationLocaleFailures({ native: NATIVE_STRINGS, office: OFFICE_SHELL_COPY });
+  console.log("=== Native and offline Office presentation ===");
+  for (const error of errors) console.error(`  ✗ ${error}`);
+  if (errors.length) exitCode = 1;
+  else console.log("  ✓ en/cs/sk/de keys, placeholders and Czech copy");
 }
 
 // --- Done ---

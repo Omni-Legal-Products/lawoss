@@ -59,6 +59,18 @@ function parseFrontmatter(text) {
   return null;
 }
 
+// diagnostics.ts
+class OkfDiagnostic extends Error {
+  code;
+  params;
+  constructor(code, params, message) {
+    super(message);
+    this.code = code;
+    this.params = params;
+    this.name = "OkfDiagnostic";
+  }
+}
+
 // src/language.ts
 var DOCUMENT_LANGUAGES = ["cs", "sk", "en"];
 function resolveDocumentLanguage(language, jurisdiction) {
@@ -612,7 +624,7 @@ var OFFICE_CONFIG_ENCODING_MESSAGE = "okf.config kancelárie nie je v UTF-8 ani 
 function parseWorkingProfile(content) {
   const fields = parseFrontmatter(content);
   if (fields?.type !== "working-profile" || !fields.folders || !fields.folder_roles || !fields.document_naming)
-    throw new Error(`Neplatný ${PROFILE_FILE}`);
+    throw new OkfDiagnostic("okf.profile_invalid", { path: PROFILE_FILE }, `Neplatný ${PROFILE_FILE}`);
   return workingProfile(JSON.parse(fields.folders), JSON.parse(fields.folder_roles), fields.document_naming);
 }
 function parseOfficeWorkingProfile(text, language = "sk") {
@@ -621,7 +633,7 @@ function parseOfficeWorkingProfile(text, language = "sk") {
     return;
   const keys = [...content.matchAll(/^(matter_folders|folder_roles|document_naming):/gm)].map((match) => match[1]);
   if (new Set(keys).size !== keys.length)
-    throw new Error("Duplicitný kľúč pracovného profilu");
+    throw new OkfDiagnostic("okf.profile_invalid", { path: PROFILE_FILE }, "Duplicitný kľúč pracovného profilu");
   const roleLines = [];
   let inRoles = false;
   for (const line of content.split(`
@@ -634,7 +646,7 @@ function parseOfficeWorkingProfile(text, language = "sk") {
   const roleNames = [...roleLines.join(`
 `).matchAll(/(?:^|[{,\n])\s*([a-z][a-z_]*):/g)].map((match) => match[1]);
   if (new Set(roleNames).size !== roleNames.length)
-    throw new Error("Duplicitná rola pracovného profilu");
+    throw new OkfDiagnostic("okf.profile_invalid", { path: PROFILE_FILE }, "Duplicitná rola pracovného profilu");
   const fields = parseFrontmatter2(content);
   for (const key of ["matter_folders", "folder_roles", "document_naming"]) {
     if (JSON.stringify(fields.get(key) ?? null).includes("�")) {
@@ -679,28 +691,28 @@ function workingProfile(folders, roles, naming, language = "sk") {
   const defaultRoles = DEFAULT_FOLDER_ROLES[resolveDocumentLanguage(language)];
   const paths = [];
   if (folders !== undefined && !Array.isArray(folders))
-    throw new Error("matter_folders musí byť zoznam priečinkov");
+    throw new OkfDiagnostic("okf.profile_invalid", { path: PROFILE_FILE }, "matter_folders musí byť zoznam priečinkov");
   for (const folder of folders ?? Object.values(defaultRoles)) {
     if (typeof folder !== "string" || !safeFolder(folder))
-      throw new Error("matter_folders obsahuje neplatnú alebo systémovú cestu");
+      throw new OkfDiagnostic("okf.profile_invalid", { path: PROFILE_FILE }, "matter_folders obsahuje neplatnú alebo systémovú cestu");
     if (paths.some((path) => path.toLocaleLowerCase() === folder.toLocaleLowerCase()))
-      throw new Error("matter_folders obsahuje duplicitnú cestu");
+      throw new OkfDiagnostic("okf.profile_invalid", { path: PROFILE_FILE }, "matter_folders obsahuje duplicitnú cestu");
     paths.push(folder);
   }
   if (paths.length === 0)
-    throw new Error("matter_folders nesmie byť prázdny");
+    throw new OkfDiagnostic("okf.profile_invalid", { path: PROFILE_FILE }, "matter_folders nesmie byť prázdny");
   const mappings = {};
   const selectedRoles = roles ?? (folders === undefined ? defaultRoles : {});
   if (typeof selectedRoles !== "object" || selectedRoles === null || Array.isArray(selectedRoles))
-    throw new Error("folder_roles musí byť mapovanie");
+    throw new OkfDiagnostic("okf.profile_invalid", { path: PROFILE_FILE }, "folder_roles musí byť mapovanie");
   for (const [role, path] of Object.entries(selectedRoles)) {
     if (!/^[a-z][a-z_]*$/.test(role) || typeof path !== "string" || !paths.includes(path))
-      throw new Error("folder_roles musí odkazovať na priečinok z matter_folders");
+      throw new OkfDiagnostic("okf.profile_invalid", { path: PROFILE_FILE }, "folder_roles musí odkazovať na priečinok z matter_folders");
     mappings[role] = path;
   }
   const pattern = naming ?? "{date}_{description}_v{version}";
   if (typeof pattern !== "string" || !pattern.trim() || /[\\/<>:"|?*`\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(pattern) || /[{}]/.test(pattern.replace(/\{(?:date|kind|client|description|version)\}/g, "")))
-    throw new Error("document_naming obsahuje neplatný názov alebo neznámy placeholder");
+    throw new OkfDiagnostic("okf.profile_invalid", { path: PROFILE_FILE }, "document_naming obsahuje neplatný názov alebo neznámy placeholder");
   return { folders: paths, roles: mappings, naming: pattern };
 }
 function renderWorkingProfile(profile, language = "sk") {
