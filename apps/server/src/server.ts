@@ -69,6 +69,7 @@ import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plu
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, existingMcpScope, listMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled, type McpScope } from "./mcp.js";
 import { probeMcpServer, registerMcpClient } from "./mcp-probe.js";
+import { abortable, cachedEngineResponse, sharedEngineResponse } from "./engine-warmup-gate.js";
 import { deleteSkill, listSkills, resolveHubSkillKind, skillPathForScope, upsertSkill, type SkippedSkill } from "./skills.js";
 import {
   deleteSkillResource,
@@ -1553,7 +1554,15 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     });
     return jsonResponse({ ok: true, accepted: true });
   }
-  const response = await protectedEngineFetch(input.config, workspace?.id ?? "", fetch)(targetUrl, {
+  const engineFetch = protectedEngineFetch(input.config, workspace?.id ?? "", fetch);
+  // Cold instance bootstrap hangs until npm install finishes. Share one GET /mcp
+  // for this URL. A different directory waits so a second install does not start
+  // beside it. A 20s client poll does not abort the install.
+  if (method === "GET" && scopedProxyPath === "/mcp") {
+    const cached = await abortable(sharedEngineResponse(targetUrl, (signal) => engineFetch(targetUrl, { method, headers, signal })), input.request.signal);
+    return sanitizeProxyResponse(cachedEngineResponse(cached));
+  }
+  const response = await engineFetch(targetUrl, {
     method,
     headers,
     body,
@@ -5879,8 +5888,10 @@ async function awaitEngineInstance(
   const deadline = Date.now() + deadlineMs;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
-      await response.text().catch(() => undefined);
+      await abortable(
+        sharedEngineResponse(url.toString(), (signal) => fetch(url, { headers, signal })),
+        AbortSignal.timeout(20_000),
+      );
       return;
     } catch {
       await new Promise((resolve) => setTimeout(resolve, engineMcpSyncRetryDelayMs()));

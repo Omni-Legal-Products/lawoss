@@ -19,15 +19,28 @@ export PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR"
 export PATH="$work/sandbox-tools/bin:$PATH"
 python3 -m venv "$work/sandbox-tools"
 "$work/sandbox-tools/bin/pip" install --disable-pip-version-check meson==1.10.0
+fetch_pinned() {
+  local url="$1" file="$2" attempt
+  # curl --retry does not repeat an HTTP 504. GitLab did that while fetching
+  # libslirp on macos-15-arm (job 118335843500, 2026-10-19).
+  for attempt in 1 2 3; do
+    if curl -fL --connect-timeout 20 --max-time 180 "$url" -o "$file"; then
+      return 0
+    fi
+    rm -f "$file"
+    sleep 5
+  done
+  return 1
+}
 source_archive() {
   local name="$1" url="$2" hash="$3"
   local file="$work/sandbox-source/${url##*/}"
   if [ ! -f "$file" ]; then
-    if ! curl -fL --retry 2 --connect-timeout 20 --max-time 180 "$url" -o "$file"; then
+    if ! fetch_pinned "$url" "$file"; then
       # GNU's primary server is intermittently unreachable from hosted Macs.
       # A mirror serves the same pinned archive, still verified below.
       [ -n "${4:-}" ] || return 1
-      curl -fL --retry 2 --connect-timeout 20 --max-time 180 "$4" -o "$file"
+      fetch_pinned "$4" "$file"
     fi
   fi
   echo "$hash  $file" | shasum -a 256 -c -
@@ -50,6 +63,8 @@ source_archive glib-2.90.1 https://download.gnome.org/sources/glib/2.90/glib-2.9
 meson setup "$work/glib-build" "$work/sandbox-source/glib-2.90.1" --prefix="$work/qemu-deps" --libdir=lib --buildtype=release --wrap-mode=nofallback -Dtests=false -Dinstalled_tests=false -Dnls=disabled -Dintrospection=disabled -Dlibmount=disabled -Dselinux=disabled -Dxattr=false
 meson compile -C "$work/glib-build" -j3
 meson install -C "$work/glib-build"
+# gitlab.freedesktop.org returned HTTP 504 on macos-15-arm (job 118335843500).
+# The qemu-project copy is the same archive: sha256 checked 2026-10-19.
 source_archive libslirp-v4.9.5 https://gitlab.freedesktop.org/slirp/libslirp/-/archive/v4.9.5/libslirp-v4.9.5.tar.gz f43e68b60b580647574ec4a0e2b6c600a56281e6c39f79426510832dc810f483 https://gitlab.com/qemu-project/libslirp/-/archive/v4.9.5/libslirp-v4.9.5.tar.gz
 meson setup "$work/slirp-build" "$work/sandbox-source/libslirp-v4.9.5" --prefix="$work/qemu-deps" --libdir=lib --buildtype=release --wrap-mode=nofallback
 meson compile -C "$work/slirp-build" -j3

@@ -109,6 +109,10 @@ export function LoadingOverlay() {
                 <Button variant="outline" size="sm" className="absolute bottom-6 right-6" onClick={openUpdates}>
                   {t("ai_plans.check_updates")}
                 </Button>
+                {/* Reload len vyčistí renderer. Opakovaný štart prejde, lebo hlavný proces zlyhaný bootstrap nezapamätá. */}
+                <Button size="sm" onClick={() => window.location.reload()}>
+                  {t("boot.retry")}
+                </Button>
                 <CollectLogsButton />
                 <Dialog open={updatesOpen} onOpenChange={setUpdatesOpen}>
                   {/* Keep the updater and its menus above the boot overlay. */}
