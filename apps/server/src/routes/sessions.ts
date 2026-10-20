@@ -1,4 +1,5 @@
 import { workspaceOwnsSession } from "../lawoss/workspace-history.js";
+import { sessionOwnershipChecked, workspaceReadsSession } from "../lawoss/session-ownership.js";
 import type { SessionViewPreview } from "@legalwork/types/views";
 import { beginSessionDeletion, withSessionExecution } from "../session-execution-gate.js";
 import { REVIEW_RECOVERY_PROMPT } from "../reviews/recover-empty-review-response.js";
@@ -15,6 +16,9 @@ import { ApiError } from "../errors.js";
 import { canonicalFilePath } from "../file-write-lock.js";
 import { posix, win32 } from "node:path";
 import { applySessionUsageLimits, deleteSessionUsageLimits, recordSessionUsageLimit } from "../session-usage-limits.js";
+import { applySessionProviderFailures, deleteSessionProviderFailures, providerFailureWitnessSchema, recordSessionProviderFailure } from "../session-provider-failures.js";
+import { authenticateWikiAgentRequest } from "../wiki/agent-access.js";
+import { announceSyncChange } from "../app-sync-events.js";
 import { usageLimitDetailsSchema } from "../provider-usage-limit.js";
 import { buildSession, buildSessionList, buildSessionMessages, buildSessionSnapshot } from "../session-read-model.js";
 import {
@@ -203,7 +207,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
       const session = buildSession(unwrapOpencodeResult(await opencode.session.get({ sessionID: sessionId }), `/session/${encodeURIComponent(sessionId)}`));
-      if ((workspace.previousPaths?.length || workspace.appFilesStorageKey) && !workspaceOwnsSession(workspace, session)) throw new ApiError(404, "session_not_found", "Session does not belong to this project");
+      if (sessionOwnershipChecked(workspace) && !(await workspaceReadsSession(workspace, session))) throw new ApiError(404, "session_not_found", "Session does not belong to this project");
       return session;
     } catch (error) {
       remapSessionReadError(error);
@@ -217,12 +221,13 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   ) {
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
-      if (workspace.previousPaths?.length || workspace.appFilesStorageKey) await readWorkspaceSession(workspace, sessionId);
+      if (sessionOwnershipChecked(workspace)) await readWorkspaceSession(workspace, sessionId);
+      const statuses = unwrapOpencodeResult(await opencode.session.status(), "/session/status");
       return buildSessionMessages(
-        await applySessionUsageLimits(config, workspace.id, sessionId, unwrapOpencodeResult(
+        await applySessionProviderFailures(config, workspace.id, sessionId, await applySessionUsageLimits(config, workspace.id, sessionId, unwrapOpencodeResult(
           await opencode.session.messages({ sessionID: sessionId, limit: input.limit }),
           `/session/${encodeURIComponent(sessionId)}/message`,
-        )),
+        )), statuses[sessionId]?.type === "idle" || !statuses[sessionId]),
       );
     } catch (error) {
       remapSessionReadError(error);
@@ -236,7 +241,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   ) {
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
-      if (workspace.previousPaths?.length || workspace.appFilesStorageKey) await readWorkspaceSession(workspace, sessionId);
+      if (sessionOwnershipChecked(workspace)) await readWorkspaceSession(workspace, sessionId);
       const [session, messages, todos, statuses] = await Promise.all([
         opencode.session
           .get({ sessionID: sessionId })
@@ -249,7 +254,8 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
           .then((result) => unwrapOpencodeResult(result, `/session/${encodeURIComponent(sessionId)}/todo`)),
         opencode.session.status().then((result) => unwrapOpencodeResult(result, "/session/status")),
       ]);
-      return buildSessionSnapshot({ session, messages: await applySessionUsageLimits(config, workspace.id, sessionId, messages), todos, statuses });
+      const observed = await applySessionProviderFailures(config, workspace.id, sessionId, await applySessionUsageLimits(config, workspace.id, sessionId, messages), statuses[sessionId]?.type === "idle" || !statuses[sessionId]);
+      return buildSessionSnapshot({ session, messages: observed, todos, statuses });
     } catch (error) {
       remapSessionReadError(error);
     }
@@ -463,6 +469,22 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     return jsonResponse({ stopped: true });
   });
 
+  addRoute(routes, "POST", "/workspace/:id/sessions/:sessionId/provider-failure", "client", async ctx => {
+    ensureWritable(config);
+    const origin = await authenticateWikiAgentRequest(config, ctx.request);
+    if (!origin || origin.sessionId !== ctx.params.sessionId || origin.workspaceId !== ctx.params.id) throw new ApiError(403, "provider_witness_denied", "A scoped engine observation is required.");
+    const parsed = providerFailureWitnessSchema.safeParse(await readJsonBodyLimited(ctx.request, 2048));
+    if (!parsed.success) throw new ApiError(400, "provider_witness_invalid", "A bounded provider failure observation is required.");
+    const witness = parsed.data;
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = createWorkspaceOpencodeClient(config, workspace);
+    const message = unwrapOpencodeResult(await client.session.message({ sessionID: ctx.params.sessionId, messageID: witness.messageId }), "session message");
+    if (message.info.role !== "assistant" || message.info.sessionID !== ctx.params.sessionId || message.info.parentID !== witness.userMessageId || message.info.providerID !== witness.providerId || message.info.modelID !== witness.modelId) throw new ApiError(409, "provider_witness_changed", "The observed assistant does not match this provider request.");
+    await recordSessionProviderFailure(config, workspace.id, ctx.params.sessionId, witness);
+    announceSyncChange(config, "sessions");
+    return jsonResponse({ ok: true });
+  });
+
   addRoute(
     routes,
     "POST",
@@ -572,7 +594,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       throw new ApiError(400, "invalid_payload", "sessionId is required");
     }
 
-    if (workspace.previousPaths?.length || workspace.appFilesStorageKey) await readWorkspaceSession(workspace, sessionId);
+    if (sessionOwnershipChecked(workspace)) await readWorkspaceSession(workspace, sessionId);
     const locks = new Map<string, () => void>();
     const lock = (id: string) => { if (!locks.has(id)) locks.set(id, beginSessionDeletion(config, id)); };
     try {
@@ -592,6 +614,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
         recoveredRequests.delete(id);
         await messageQueue.removeSession(workspace.id, id);
         await deleteSessionUsageLimits(config, workspace.id, id);
+        await deleteSessionProviderFailures(config, workspace.id, id);
       }
 
       return jsonResponse({ ok: true });

@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useControlActions, type LegalworkControlAction } from "@/react-app/shell/control/control-provider";
 
+import { AlphaNotice } from "../alpha/alpha-notice";
 import { MarketplaceUpdateNotifier } from "../domains/marketplace/update-notifier";
 import { VISIBLE_EXPERIMENT_VIEWS } from "../experiments/registry";
 import { LiteNav } from "../lite/lite-nav";
@@ -173,6 +174,7 @@ export function LawossLayout(props: { children: ReactNode }) {
   const lite = useUiMode() === "lite";
   return (
     <div className="lw-experiment-content">
+      <AlphaNotice />
       {lite ? null : <nav className="lw-experiment-nav" aria-label={t("lawoss.shell.experiments", locale)}>
         {experimentyNavItems().map((item) => (
           <NavLink key={item.to} to={item.to} end>{item.label}</NavLink>

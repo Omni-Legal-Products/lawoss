@@ -60,6 +60,7 @@ import { getApplicationsForFile } from "./file-applications.mjs";
 import { composeAppleMailDraft, composeOutlookDraft } from "./mail-draft.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { ensureLawossHomeWorkspace } from "./lawoss-home-workspace.mjs";
+import { createRuntimeBootstrapGate } from "./runtime-bootstrap-gate.mjs";
 import { copyFilesIntoProject, resolveProjectFolder } from "./project-file-copy.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
 import { describeBlockedUrl, guardNavigation } from "./window-allowlist.mjs";
@@ -1101,7 +1102,6 @@ const runtimeManager = createRuntimeManager({
 
 let runtimeDisposedForQuit = false;
 let runtimeDisposeInProgress = false;
-let runtimeBootstrapPromise = null;
 
 // The only non-app page the main window may show (allowed by name in the
 // navigation guard).
@@ -1276,12 +1276,11 @@ async function bootRuntimeForSelectedWorkspace() {
   return { ok: true, skipped: false, engine, legalworkServer, workspaceId: bootWorkspace.id ?? null };
 }
 
-function ensureRuntimeBootstrap() {
-  if (!runtimeBootstrapPromise) {
-    runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch(describeRuntimeBootFailure);
-  }
-  return runtimeBootstrapPromise;
-}
+// LAWOSS: zlyhanie ({ ok: false } aj výnimka) brána zabudne, aby „Skúsiť znova“
+// spustilo engine odznova. Úspech a rozbehnutý pokus ostávajú jeden promise.
+const ensureRuntimeBootstrap = createRuntimeBootstrapGate(() =>
+  bootRuntimeForSelectedWorkspace().catch(describeRuntimeBootFailure),
+);
 
 async function projectUsesExternalAppFiles(projectDir) {
   const requestedPath = String(projectDir ?? "").trim();
@@ -3180,7 +3179,7 @@ if (!app.requestSingleInstanceLock()) {
     await uiControlServer.start().catch((error) => {
       console.warn("[ui-control] failed to start", error);
     });
-    runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch(describeRuntimeBootFailure);
+    void ensureRuntimeBootstrap();
 
     queueDeepLinks(forwardedDeepLinks(process.argv));
     if (process.platform === "darwin" && !startHiddenPending) {

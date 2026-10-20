@@ -1,6 +1,7 @@
 /** Krok Priečinok (spec P1, P7): pripojiť existujúci priečinok alebo začať nanovo. */
 import { useRef, useState } from "react";
 import { FolderOpen, FolderPlus } from "lucide-react";
+import { AlphaNoticeInline } from "../../alpha/alpha-notice";
 import type { OnboardingApi, OnboardingApplyResult } from "./api";
 import { startFreshFolder, type FoundIdentity } from "./found-flow";
 import type { FoundTextKey } from "./found-text";
@@ -13,6 +14,8 @@ export function FolderChoiceView({ text, busy, onConnect, onFresh }: { text: Tex
     <div className="grid gap-4">
       <h2 className="text-xl font-semibold">{text("folderTitle")}</h2>
       <p className="text-muted-foreground">{text("folderLead")}</p>
+      {/* Alfa: pri voľbe priečinka musí byť vidieť, na čom sa skúša; tu bez možnosti skryť. */}
+      <AlphaNoticeInline />
       <div className="lw-onb-choices">
         <section className="lw-onb-choice">
           <FolderOpen className="size-6" aria-hidden />
