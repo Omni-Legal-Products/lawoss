@@ -15,8 +15,10 @@ const TITLE: Record<Purpose, string> = { new_matter: "client_pick_new_matter", a
  * Krátky výber klienta (MČ 16. 10. 2026): predvolený je naposledy vybraný, inak otvorený klient.
  * Potvrdenie si klienta zapamätá; zrušenie nič nespustí.
  */
-export function ClientPickerDialog({ open, purpose, choices, activeId, locale, onPick, onClose }: {
+export function ClientPickerDialog({ open, purpose, choices, activeId, locale, onPick, onClose, loading = false }: {
   open: boolean;
+  /** Klienti sa ešte čítajú: dialóg to povie namiesto prázdneho zoznamu. */
+  loading?: boolean;
   purpose: Purpose;
   choices: readonly ClientChoice[];
   activeId?: string | null;
@@ -46,6 +48,7 @@ export function ClientPickerDialog({ open, purpose, choices, activeId, locale, o
           <DialogTitle id={labelId}>{text(TITLE[purpose])}</DialogTitle>
           <DialogDescription>{text("client_pick_note")}</DialogDescription>
         </DialogHeader>
+        {loading && choices.length === 0 ? <p role="status" className="text-sm text-muted-foreground" data-lawoss-client-picker-loading="">{t("lawoss.lite.state_loading", locale)}</p> : null}
         <RadioGroup aria-labelledby={labelId} value={selected} onValueChange={(value) => setSelected(String(value))} className="max-h-72 gap-1 overflow-y-auto">
           {choices.map((c) => (
             <label key={c.id} className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-muted/50" data-lawoss-client-choice={c.id}>

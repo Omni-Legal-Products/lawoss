@@ -1,6 +1,6 @@
 // Natívny bočný panel s klientmi a prípadmi (rozhodnutie MČ 19. 10. 2026, oprava po review): klient = natívny
 // projekt (registrovaný priečinok), pod ním Domov, Prípady, Lehoty, Úlohy, Súbory, Chaty.
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -16,10 +16,11 @@ import { chatSectionShown, LITE_CHAT_SECTIONS_KEY, reloadLiteChatSections, setLi
 import { LawossNav } from "../src/lawoss/shell/layout";
 import { NEW_CLIENT_PATH, clientDeadlinesLink, liteMatterLink } from "../src/lawoss/lite/links";
 import { clientDeadlines, clientGroupDirectory, clientNavAnchor, clientNavModel, ownerOfFolder, type ClientOverviewState } from "../src/lawoss/lite/client-projects";
-import { closedGroups, focusedProject, forgetProjectOverride, mattersOpen, newChatAction, newChatChoices, projectNodes } from "../src/lawoss/lite/client-nav-model";
-import { ClientDeadlinesNavItem, ClientMattersNavItem, ClientMattersView, ClientNavTestProvider, liveConnection, liveProjectGroups, liveSessionDirectories } from "../src/lawoss/lite/client-nav";
+import { closedGroups, focusedProject, forgetProjectOverride, mattersOpen, newChatAction, newChatChoices, projectNewChatAction, projectNodes } from "../src/lawoss/lite/client-nav-model";
+import { isClientFolderOf } from "../src/lawoss/lite/office-scope";
+import { clientChatKeys, ClientDeadlinesNavItem, ClientMattersNavItem, ClientMattersView, ClientNavTestProvider, liveConnection, liveProjectGroups, liveSessionDirectories, practiceRootState } from "../src/lawoss/lite/client-nav";
 import { ClientOverviewView } from "../src/lawoss/lite/client-overview";
-import { buildClientTree, clientToggle, type ConversationList, type TreeClient } from "../src/lawoss/lite/client-tree";
+import { buildClientTree, clientToggle, directoryFocus, type ConversationList, type TreeClient } from "../src/lawoss/lite/client-tree";
 import { SESSION_DIRECTORY_KEY, useClientTree } from "../src/lawoss/lite/client-tree-data";
 import { comparable, FOLDER_SESSIONS_KEY } from "../src/lawoss/lite/matter-conversations";
 import type { ClientGroup } from "../src/lawoss/lite/today-model";
@@ -210,8 +211,15 @@ describe("strom v paneli: natívny chat v priečinku a zatvorené Prípady nič 
   test("chat priamo v priečinku projektu (natívne Chaty) nerozbalí Prípady a nespustí výpis podstromu", () => {
     expect(probe("/workspace/office/session/s-root", "", {}).reads).toBe(1);
     expect(probe("/workspace/office/session/s-root", "", { sessionDirectory: () => "/prax" })).toEqual({ expanded: false, reads: 0, lookups: 0 });
-    // Podpriečinok mimo vecí ani chat bez priečinka tiež nič nerozbalia.
-    expect(probe("/workspace/office/session/s-x", "", { sessionDirectory: () => "/prax/AK/T/Tatran/Korešpondencia" })).toEqual({ expanded: false, reads: 0, lookups: 0 });
+    // Chat bez priečinka nič nerozbalí.
+    expect(probe("/workspace/office/session/s-x", "", { sessionDirectory: () => null })).toEqual({ expanded: false, reads: 0, lookups: 0 });
+  });
+
+  test("chat v priečinku klienta v kancelárii (aj jeho podpriečinku mimo vecí) rozbalí klienta a načíta jeho chaty", () => {
+    expect(probe("/workspace/office/session/s-x", "", { sessionDirectory: () => "/prax/AK/T/Tatran/Korešpondencia" })).toEqual({ expanded: true, reads: 1, lookups: 0 });
+    expect(directoryFocus("/prax/AK/T/Tatran", { matters: [], clients: [{ key: "path:Tatran", folder: comparable("/prax/AK/T/Tatran") }] }, "/prax")).toEqual({ client: "path:Tatran" });
+    // Klient, ktorého priečinok je projekt sám (registrovaný klient): chat je v natívnych Chatoch, nič sa nerozbalí.
+    expect(directoryFocus("/prax/Tatran", { matters: [], clients: [{ key: "client:Tatran", folder: comparable("/prax/Tatran") }] }, "/prax/Tatran")).toEqual({});
   });
 
   test("chat vo veci (aj rozvetvený, ešte v zozname projektu) rozbalí svoju vec podľa priečinka, nie podľa zoznamu", () => {
@@ -271,51 +279,80 @@ const PERSISTED_STORES = [
   "../src/react-app/kernel/notification-store",
   "../src/lawoss/experiments/store",
 ];
-type PersistApi = { persist: { setOptions: (options: { storage: ReturnType<typeof createJSONStorage> }) => void } };
+type JsonStorage = ReturnType<typeof createJSONStorage>;
+type PersistApi = {
+  getState: () => unknown;
+  setState: (state: unknown, replace: true) => void;
+  persist: { setOptions: (options: { storage: JsonStorage }) => void; getOptions: () => { storage?: JsonStorage } };
+};
 const isPersisted = (value: unknown): value is PersistApi =>
-  typeof value === "function" && "persist" in value && typeof value.persist === "object" && value.persist !== null && "setOptions" in value.persist;
+  typeof value === "function" && "persist" in value && typeof value.persist === "object" && value.persist !== null
+  && "setOptions" in value.persist && "getOptions" in value.persist && "getState" in value && "setState" in value;
+
+const mapStorage = (own: Map<string, string>): Storage => ({
+  get length() { return own.size; },
+  key: (index) => [...own.keys()][index] ?? null,
+  clear: () => own.clear(),
+  getItem: (key) => own.get(key) ?? null,
+  setItem: (key, value) => { own.set(key, value); },
+  removeItem: (key) => { own.delete(key); },
+});
 
 /**
- * AppSidebar v spoločnom procese bun testov: pred importom sa nainštaluje jedno úplné úložisko na `globalThis`
- * aj `window` a po importe sa deskriptory vrátia. Trvalé obchody si úložisko zachytili pri importe; každý dostane
- * výslovne adaptér appky, ktorý číta práve nainštalovaný `localStorage` (ako by ho zachytil neskorší import v inom
- * súbore, napr. session-inbox.test.ts), takže po teste nezostane zachytené cudzie úložisko ani globálny preposielač.
+ * AppSidebar v spoločnom procese bun testov (oprava po review, kolo 3):
+ * - Pred importom jedno úplné úložisko na `globalThis` aj `window`; po importe (synchrónne vo `finally`, bez
+ *   ďalších awaitov, aby sa chyba importu nezamaskovala) sa oba deskriptory vrátia.
+ * - Úložisko z času importu je pôvodný adaptér trvalých obchodov. Siaha po práve nainštalovanom `localStorage`
+ *   (ako by ho zachytil import v neskoršom súbore, napr. session-inbox.test.ts), inak po vlastnej mape.
+ * - Počas testov majú obchody súkromnú mapu testu; po testoch dostane každý späť svoj pôvodný adaptér a stav.
  */
 async function importSidebar() {
-  const own = new Map<string, string>();
-  const storage: Storage = {
-    get length() { return own.size; },
-    key: (index) => [...own.keys()][index] ?? null,
-    clear: () => own.clear(),
-    getItem: (key) => own.get(key) ?? null,
-    setItem: (key, value) => { own.set(key, value); },
-    removeItem: (key) => { own.delete(key); },
+  const fallback = mapStorage(new Map());
+  const importTime: Storage = {
+    get length() { return current().length; },
+    key: (index) => current().key(index),
+    clear: () => current().clear(),
+    getItem: (key) => current().getItem(key),
+    setItem: (key, value) => current().setItem(key, value),
+    removeItem: (key) => current().removeItem(key),
   };
+  const isStorage = (value: unknown): value is Storage => typeof value === "object" && value !== null && value !== importTime && "getItem" in value && "setItem" in value && "removeItem" in value;
+  function current(): Storage {
+    const value: unknown = Object.getOwnPropertyDescriptor(globalThis, "localStorage")?.value;
+    return isStorage(value) ? value : fallback;
+  }
   const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
-  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
-  Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: storage, addEventListener: () => {}, removeEventListener: () => {} } });
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: importTime });
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: importTime, addEventListener: () => {}, removeEventListener: () => {} } });
+  let modules: [typeof import("../src/react-app/domains/session/sidebar/app-sidebar"), typeof import("../src/react-app/domains/workspace/project-personalisation-modal"), typeof import("../src/react-app/domains/workspace/project-favorites-store")];
+  let storeModules: Record<string, unknown>[];
   try {
-    const [{ AppSidebar }, { ProjectPersonalisationProvider }, { useProjectFavoritesStore }] = await Promise.all([
+    modules = await Promise.all([
       import("../src/react-app/domains/session/sidebar/app-sidebar"),
       import("../src/react-app/domains/workspace/project-personalisation-modal"),
       import("../src/react-app/domains/workspace/project-favorites-store"),
     ]);
-    return { AppSidebar, ProjectPersonalisationProvider, useProjectFavoritesStore };
+    // Aj obchody, ktoré AppSidebar sám nenačíta, vzniknú s úložiskom (bez neho by nemali ani persist API).
+    storeModules = await Promise.all(PERSISTED_STORES.map((path) => import(path)));
   } finally {
     if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
     else Reflect.deleteProperty(globalThis, "localStorage");
     if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
     else Reflect.deleteProperty(globalThis, "window");
-    const live = createJSONStorage(() => ({
-      getItem: (key: string) => globalThis.localStorage?.getItem(key) ?? null,
-      setItem: (key: string, value: string) => globalThis.localStorage?.setItem(key, value),
-      removeItem: (key: string) => globalThis.localStorage?.removeItem(key),
-    }));
-    for (const path of PERSISTED_STORES) {
-      for (const value of Object.values(await import(path))) if (isPersisted(value)) value.persist.setOptions({ storage: live });
-    }
   }
+  const stores = storeModules.flatMap((module) => Object.values(module).filter(isPersisted));
+  const testStorage = createJSONStorage(() => mapStorage(new Map()));
+  const originals = stores.map((store) => ({ store, storage: store.persist.getOptions().storage, state: store.getState() }));
+  for (const store of stores) store.persist.setOptions({ storage: testStorage });
+  afterAll(() => {
+    for (const { store, storage, state } of originals) {
+      if (storage) store.persist.setOptions({ storage });
+      store.setState(state, true);
+    }
+  });
+  const [{ AppSidebar }, { ProjectPersonalisationProvider }, { useProjectFavoritesStore }] = modules;
+  return { AppSidebar, ProjectPersonalisationProvider, useProjectFavoritesStore };
 }
 const { AppSidebar, ProjectPersonalisationProvider, useProjectFavoritesStore } = await importSidebar();
 
@@ -547,5 +584,62 @@ describe("Domov klienta: natívny ProjectHome s prehľadom OKF", () => {
     expect(shellSk["lawoss.lite.matter_new_chat"]).toBe("Nový chat");
     expect(source("lawoss/lite/client-overview.tsx")).not.toContain("`lawoss.lite.${");
     expect(Object.values(shellDe).some((value) => value.includes("—"))).toBe(false);
+  });
+});
+
+describe("kolo 3: chat v kancelárii, chyba spojenia, chaty klienta", () => {
+  const inRoot = [{ key: "client:Klienti/Hron", title: "Hron", folder: "/prax/Klienti/Hron" }, { key: "client:Klienti/Novak", title: "Novák", folder: "/prax/Klienti/Novak" }];
+  const rootModel = { clients: new Set(["root"]), hidden: new Set<string>(), practiceRootId: "root" };
+  const targets = newChatChoices([root], rootModel, inRoot);
+
+  test("Nový chat v otvorenom koreni kancelárie: klient z kontextu trasy, inak výber; obyčajný projekt a Pokročilý natívne", () => {
+    expect(projectNewChatAction("lite", "root", "root", targets, "client:Klienti/Novak")).toEqual({ kind: "create", target: expect.objectContaining({ workspaceId: "root", folder: "/prax/Klienti/Novak" }) });
+    expect(projectNewChatAction("lite", "root", "root", targets)).toEqual({ kind: "pick" });
+    expect(projectNewChatAction("lite", "root", "root", targets, "client:Iny")).toEqual({ kind: "pick" });
+    expect(projectNewChatAction("lite", "root", "root", targets.slice(0, 1))).toEqual({ kind: "create", target: expect.objectContaining({ folder: "/prax/Klienti/Hron" }) });
+    expect(projectNewChatAction("lite", "tatran", "root", targets, "client:Klienti/Novak")).toBeNull();
+    expect(projectNewChatAction("pro", "root", "root", targets, "client:Klienti/Novak")).toBeNull();
+    expect(projectNewChatAction("lite", "root", "root", [], "client:Klienti/Novak")).toBeNull();
+    // Panel sa opýta LAWOSS skôr, než natívne založí chat v otvorenom projekte.
+    expect(source("react-app/domains/session/sidebar/app-sidebar.tsx")).toMatch(/if \(lawossNewChat\(openProjectId \|\| null, props\.onCreateChatInWorkspace\)\) return;\s*if \(openProjectId\) props\.onCreateChatInWorkspace\(openProjectId\);/);
+  });
+
+  test("priečinok pre chat klienta nikdy nie je koreň ani vec", () => {
+    expect(clientGroupDirectory(rootScope, { key: "matter:Spis", matters: [matter("Spis", "Spis")] })).toBeNull();
+    expect(clientGroupDirectory(rootScope, { key: "client:", matters: [] })).toBeNull();
+    expect(isClientFolderOf("/prax", "/prax/Klienti/Hron")).toBe(true);
+    expect(isClientFolderOf("/prax", "/prax")).toBe(false);
+    expect(isClientFolderOf("/prax", "/prax/")).toBe(false);
+    expect(isClientFolderOf("/prax", "/ine/Hron")).toBe(false);
+  });
+
+  test("spojenie zlyhalo: bez praxe, nič sa neskrýva natrvalo; kým sa číta, prax je neznáma", () => {
+    const loaded = { client: null, baseUrl: "", token: "", workspaces: [], activeWorkspaceId: "" };
+    expect(practiceRootState(null, "Server nebeží", undefined)).toBeNull();
+    expect(practiceRootState(null, null, undefined)).toBeUndefined();
+    expect(practiceRootState(loaded, null, "/prax")).toBe("/prax");
+    expect([...clientNavModel([root, tatranWs, legacy], practiceRootState(null, "Server nebeží", undefined), { status: "unavailable" }).hidden]).toEqual([]);
+  });
+
+  test("prax známa a prehľad sa číta: kandidáti len pod koreňom praxe, nesúvisiace vnorené projekty ostanú", () => {
+    const outer = ws("outer", "/ine");
+    const inner = ws("inner", "/ine/Pod");
+    expect([...clientNavModel([root, tatranWs, outer, inner], "/prax", { status: "pending" }).hidden].sort()).toEqual(["root", "tatran"]);
+  });
+
+  test("klient v koreni kancelárie: jeho vlastné chaty pod ním (5 + Zobraziť všetky), otvorený chat označený; registrovaný klient nie", () => {
+    const chats = Array.from({ length: 6 }, (_, i) => ({ workspaceId: "root", id: `k${i}`, title: `Chat klienta ${i}`, updated: 100 - i }));
+    const nodes = buildClientTree({ groups: mixedGroups, focus: { client: "client:Klienti/Novak" }, overrides: {}, canStart: () => true,
+      lists: { client: (key) => ready(key === "client:Klienti/Novak" ? chats : []), matter: () => ready() } });
+    const own = (projectNodes(nodes, mixed, "root") ?? []);
+    expect([...clientChatKeys(rootScope, mixedGroups, own, "/prax")].sort()).toEqual(["client:Klienti/Hron", "client:Klienti/Novak"]);
+    expect([...clientChatKeys(rootScope, mixedGroups, projectNodes(nodes, mixed, "tatran") ?? [], "/prax/Klienti/Tatran")]).toEqual([]);
+    const out = html(<ClientMattersView nodes={own} open locale="en" clientChats={clientChatKeys(rootScope, mixedGroups, own, "/prax")} />, "/workspace/root/session/k1");
+    expect(out.match(/data-lawoss-tree-conversation=/g)).toHaveLength(5);
+    expect(out).toMatch(/<button(?=[^>]*aria-current="page")(?=[^>]*data-lawoss-tree-conversation="k1")[^>]*>/);
+    expect(out).toContain(`href="/klienti?klient=${encodeURIComponent("client:Klienti/Novak")}"`);
+    expect(out.indexOf("Chat klienta 0")).toBeLessThan(out.indexOf("Dedičstvo"));
+    // Bez príznaku (registrovaný klient, chaty v natívnych Chatoch) sa chaty klienta neukážu.
+    expect(html(<ClientMattersView nodes={own} open locale="en" />)).not.toContain("Chat klienta 0");
   });
 });

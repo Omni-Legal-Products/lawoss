@@ -9,6 +9,7 @@ import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "..
 import { activateLocalWorkspace } from "../okf/matter-session";
 import { activeWorkspace, officeOf, officeWorkspace, OFFICE_SCOPE_RESTORED } from "../okf/read-model";
 import { currentUiMode } from "./ui-mode";
+import { comparable, within } from "./matter-conversations";
 
 let pending: Promise<OkfConnection> | null = null;
 
@@ -30,6 +31,10 @@ export function restoreOfficeScope(): Promise<OkfConnection> {
   return pending;
 }
 
+/** Priečinok klienta leží vnútri priečinka (nie je ním samým): chat nad celým koreňom sa nikdy nezaloží. */
+export const isClientFolderOf = (workspacePath: string | null | undefined, folder: string): boolean =>
+  Boolean(workspacePath) && comparable(folder) !== comparable(workspacePath ?? "") && within(comparable(workspacePath ?? ""), comparable(folder));
+
 /**
  * „Nový chat“ v priečinku klienta, ktorý leží v registrovanom koreni praxe (jeden priečinok pre všetko,
  * MČ 19. 10. 2026): aktivuje koreň a založí chat s priečinkom konverzácie = priečinok klienta, nikdy nad
@@ -39,6 +44,7 @@ export async function openClientFolderChat(workspaceId: string, folder: string):
   const connection = await loadOkfConnection();
   const workspace = connection.workspaces.find((w) => w.id === workspaceId);
   if (!connection.client || !workspace) throw new Error("client workspace unavailable");
+  if (!isClientFolderOf(workspace.path, folder)) throw new Error("not a client folder inside the workspace");
   const active = connection.activeWorkspaceId === workspace.id ? connection : await activateLocalWorkspace({ ...connection, client: connection.client }, workspace, connection.workspaces);
   return openSessionWithPrompt(active, workspace, "", toSessionTransportDirectory(folder));
 }

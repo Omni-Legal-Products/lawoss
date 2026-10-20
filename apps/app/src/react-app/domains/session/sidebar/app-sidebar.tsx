@@ -737,8 +737,8 @@ function AppSidebarContent(props: AppSidebarProps) {
 
   const newChatSection = shellConfig.navNewChat ? <SidebarMenuItem key="navNewChat" className="mb-1 flex items-center gap-1">
             <SidebarMenuButton className="min-w-0 flex-1 gap-3 font-medium text-foreground [&_svg]:size-[18px]" disabled={Boolean(openProjectId) && props.newChatDisabled} onClick={() => {
+              if (lawossNewChat(openProjectId || null, props.onCreateChatInWorkspace)) return;
               if (openProjectId) props.onCreateChatInWorkspace(openProjectId);
-              else if (lawossNewChat(props.onCreateChatInWorkspace)) return;
               else if (props.onNewChat) props.onNewChat();
               else if (props.onShowChats) props.onShowChats();
               else navigate("/home");
