@@ -15,7 +15,8 @@ import { dirname, join } from "node:path";
 import { canonicalPath, externalDirectoryAllowed, LINKED_FOLDERS_MAP_FILE, parseLinkedFoldersMap, patternDirectory } from "../lawoss/linked-folders-rules.js";
 
 type ReplyOptions = { path: { id: string; permissionID: string }; body: { response: "once" }; query?: { directory?: string } };
-type PluginInput = { directory?: string; client?: { postSessionIdPermissionsPermissionId?: (options: ReplyOptions) => Promise<unknown> } };
+type SessionGet = (options: { path: { id: string }; query?: { directory?: string } }) => Promise<{ data?: unknown }>;
+type PluginInput = { directory?: string; client?: { postSessionIdPermissionsPermissionId?: (options: ReplyOptions) => Promise<unknown>; session?: { get?: SessionGet } } };
 type BusEvent = { type?: string; properties?: unknown };
 
 type Asked = { id: string; sessionID: string; permission: string; patterns: string[] };
@@ -28,26 +29,37 @@ function asked(properties: unknown): Asked | null {
   return { id, sessionID, permission, patterns };
 }
 
+/** Mapa od servera a priečinok, v ktorom leží (dáta aplikácie: nikdy sa nepovolia). */
 async function readMap() {
   const config = process.env.OPENCODE_CONFIG?.trim();
   if (!config) return null;
   try {
-    return parseLinkedFoldersMap(JSON.parse(await readFile(join(dirname(config), LINKED_FOLDERS_MAP_FILE), "utf8")));
+    const map = parseLinkedFoldersMap(JSON.parse(await readFile(join(dirname(config), LINKED_FOLDERS_MAP_FILE), "utf8")));
+    return map ? { map, appData: await canonicalPath(dirname(config)) } : null;
   } catch {
     return null;
   }
 }
 
+/** Chat otázky patrí tejto inštancii (jej priečinok), inak plugin nerozhoduje. */
+async function sessionInDirectory(input: PluginInput, sessionID: string, directory: string): Promise<boolean> {
+  const get = input.client?.session?.get;
+  if (!get) return false;
+  const { data } = await get.call(input.client?.session, { path: { id: sessionID }, query: { directory } });
+  const sessionDirectory = data && typeof data === "object" && "directory" in data && typeof data.directory === "string" ? data.directory : null;
+  return sessionDirectory !== null && await canonicalPath(sessionDirectory) === await canonicalPath(directory);
+}
+
 /** Rozhodnutie pre jednu otázku; `true` = odpovedať „once“. Výnimka = nerozhodovať. Neexportuje sa: engine volá každý export. */
 async function linkedFolderDecision(directory: string, request: Asked): Promise<boolean> {
   if (request.permission !== "external_directory") return false;
-  const map = await readMap();
-  if (!map) return false;
+  const read = await readMap();
+  if (!read) return false;
   const targets = await Promise.all(request.patterns.map((pattern) => {
     const folder = patternDirectory(pattern);
     return folder ? canonicalPath(folder) : null;
   }));
-  return externalDirectoryAllowed(map, await canonicalPath(directory), targets);
+  return externalDirectoryAllowed(read.map, await canonicalPath(directory), targets, [read.appData]);
 }
 
 export const LawossLinkedFolders = async (input: PluginInput) => ({
@@ -58,6 +70,7 @@ export const LawossLinkedFolders = async (input: PluginInput) => ({
     if (!request || !reply) return;
     try {
       if (!(await linkedFolderDecision(input.directory, request))) return;
+      if (!(await sessionInDirectory(input, request.sessionID, input.directory))) return;
       await reply.call(input.client, { path: { id: request.sessionID, permissionID: request.id }, body: { response: "once" }, query: { directory: input.directory } });
     } catch {
       // Bez rozhodnutia ostane bežná otázka používateľovi.

@@ -1252,3 +1252,10 @@ Engine číta jeden spoločný `OPENCODE_CONFIG` pre všetkých klientov, takže
 | `apps/server/package.json` | Do `build` pribudol `src/opencode-plugins/lawoss-linked-folders.ts` (zabalený plugin ako ostatné). |
 | `apps/server/src/legalwork-runtime-config.test.ts` | Očakávanie: spoločný súbor po zápise globálnych oprávnení už nenesie `external_directory` riadku pracovného priestoru (ide po chatoch). |
 | `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Položka `projectLinkedFolders` dostane `active` (otvorený Domov klienta), aby sa zvýraznila, keď Domov otvorila ona. |
+
+#### Pripojené priečinky klienta, oprava 2 (2026-10-20, feat/pripojene-priecinky)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/server.ts` | `PATCH /workspace/:id/config`: +2 riadky, nové `allow` v `external_directory` smie byť len holé `*` alebo `<absolútny priečinok>/*` cez tie isté pravidlá ako natívny zoznam (`requireLinkableExternalDirectory`). `startServer`: +3 riadky, `onWorkspacesChanged` (registrácia, odobratie, presun) obnoví mapu pripojených priečinkov (`linkedFoldersMapRefresher`, zápisy čaká zastavenie servera); import rozšírený. |
+| `apps/server/src/agent-sandbox/service.ts` | +1 import, 1 riadok: do sandboxu sa zdieľajú len priečinky, ktoré pravidlá pripojených priečinkov dovolia (`linkableFolders`: nie iný klient, prax ani priečinok s dátami aplikácie, nie relatívne; wiki má vlastné pravidlá a filter ju nemení). |

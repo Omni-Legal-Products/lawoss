@@ -14,7 +14,7 @@ import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { normalizeAuthorizedFolderPath } from "@/react-app/domains/settings/panels/authorized-folders-panel-state";
 import { comparable, within } from "./matter-conversations";
 
-export type LinkRefusal = "own" | "contains_client" | "other_client" | "practice_root" | "missing" | "duplicate";
+export type LinkRefusal = "own" | "contains_client" | "other_client" | "practice_root" | "app_data" | "missing" | "duplicate";
 
 /** Statické kľúče textov (audit nepovoľuje skladanie kľúča za behu). */
 export const LINK_REFUSAL_TEXT = {
@@ -22,6 +22,7 @@ export const LINK_REFUSAL_TEXT = {
   contains_client: "lawoss.lite.linked_folders_refuse_contains_client",
   other_client: "lawoss.lite.linked_folders_refuse_other_client",
   practice_root: "lawoss.lite.linked_folders_refuse_practice_root",
+  app_data: "lawoss.lite.linked_folders_refuse_app_data",
   missing: "lawoss.lite.linked_folders_refuse_missing",
   duplicate: "lawoss.lite.linked_folders_refuse_duplicate",
 } as const satisfies Record<LinkRefusal, string>;
@@ -29,7 +30,8 @@ export const LINK_REFUSAL_TEXT = {
 /** Odmietnutie servera (natívny zápis, kanonické cesty) ako dôvod pre ten istý text. */
 export function serverRefusal(error: unknown): LinkRefusal | null {
   const code = error && typeof error === "object" && "code" in error ? error.code : null;
-  return code === "linked_folder_other_client" ? "other_client" : code === "linked_folder_practice" ? "practice_root" : null;
+  return code === "linked_folder_other_client" ? "other_client" : code === "linked_folder_practice" ? "practice_root"
+    : code === "linked_folder_app_data" ? "app_data" : code === "linked_folder_relative" ? "missing" : null;
 }
 
 export type LinkScope = {

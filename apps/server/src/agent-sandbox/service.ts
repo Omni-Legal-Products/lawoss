@@ -26,6 +26,8 @@ import { WikiStore } from "../wiki/store.js";
 import { WikiSync } from "../wiki/sync.js";
 import { assertWikiWorkspaceAccess, ownsWikis, wikiAgentCanAccess, wikiForDirectory } from "../wiki/access.js";
 import { buildWikiFilePolicy, wikiContentPath, wikiSafeSandboxMounts } from "../wiki/file-access-policy.js";
+// LAWOSS: do sandboxu len priečinky, ktoré pravidlá pripojených priečinkov dovolia (iný klient, prax, dáta aplikácie nie).
+import { linkableFolders } from "../lawoss/linked-folders.js";
 
 export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number };
 export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
@@ -163,7 +165,7 @@ export class AgentSandboxService {
       }
       const writeAction = commandAction("edit");
       const externalRules = runtimeExternalDirectory(runtime);
-      const sources = [...new Set(await Promise.all([workspace.path, ...authorizedFolders(externalRules), ...projectGrants.map(grant => grant.root)].map(source => ownWiki ? realpath(source).catch(() => { throw new ApiError(403, "wiki_project_mount_unavailable", "A shared folder is unavailable. Review this chat's project access."); }) : Promise.resolve(source))))];
+      const sources = [...new Set(await Promise.all([workspace.path, ...await linkableFolders(this.config, workspace, authorizedFolders(externalRules)), ...projectGrants.map(grant => grant.root)].map(source => ownWiki ? realpath(source).catch(() => { throw new ApiError(403, "wiki_project_mount_unavailable", "A shared folder is unavailable. Review this chat's project access."); }) : Promise.resolve(source))))];
       if (sources.length > 1 && Object.entries(externalRules).some(([pattern, action]) => pattern !== "*" && action === "deny")) {
         throw new ApiError(403, "sandbox_directory_scope", "A scoped folder denial cannot be enforced by sharing the whole folder. Choose narrower authorized folders.");
       }

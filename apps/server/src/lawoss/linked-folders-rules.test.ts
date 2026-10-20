@@ -79,3 +79,40 @@ describe("pomocné pravidlá", () => {
     }
   });
 });
+
+describe("oprava 2", () => {
+  test("spoločný súbor: preč každé `allow` okrem holého `*` (aj `**`, glob, holý priečinok, `~/…`)", () => {
+    expect(withoutClientFolderGrants({ external_directory: { "/a/**": "allow", "/b/*.pdf": "allow", "/c": "allow", "~/d/*": "allow", " * ": "allow", "/f/*": "deny", "/g/*": "ask" } }))
+      .toEqual({ external_directory: { " * ": "allow", "/f/*": "deny", "/g/*": "ask" } });
+  });
+
+  test("iný registrovaný klient sa overí aj pre podpriečinok vlastného koreňa (kontajner praxe nepripojí koreň klienta)", () => {
+    const container = { ownRoot: "/prax", otherRoots: ["/prax/Klienti/Tatran"], officeRoot: null };
+    expect(linkedFolderConflict("/prax/Klienti/Tatran", container)).toBe("other_client");
+    expect(linkedFolderConflict("/prax/Klienti", container)).toBe("other_client");
+    expect(linkedFolderConflict("/prax/Vzory", container)).toBeNull();
+  });
+
+  test("relatívna cesta a priečinok s dátami aplikácie sa nepripoja; koreň klienta s dátami aplikácie sa nepovolí", () => {
+    const scope = { ownRoot: "/prax/Klienti/Tatran", otherRoots: [], officeRoot: null, protectedDirs: ["/home/ana/Library/LAWOSS"] };
+    expect(linkedFolderConflict("Zdielane", scope)).toBe("relative");
+    expect(linkedFolderConflict("/home/ana", scope)).toBe("app_data");
+    expect(linkedFolderConflict("/home/ana/Library/LAWOSS", scope)).toBe("app_data");
+    // Priečinok vnútri dát aplikácie mapu ani súbor enginu neobsahuje (a v testoch tam bývajú aj priečinky používateľa).
+    expect(linkedFolderConflict("/home/ana/Library/LAWOSS/vault", scope)).toBeNull();
+    const home = map({ officeRoot: null, clients: [{ root: "/home/ana", folders: [] }] });
+    expect(allowedFolders(home, "/home/ana/Spisy", ["/home/ana/Library/LAWOSS"])).toEqual([]);
+    expect(externalDirectoryAllowed(map(), "/prax/Klienti/Tatran/Spisy", ["/prax/Klienti/Tatran"], ["/prax/Klienti/Tatran/.app"])).toBe(false);
+  });
+
+  test("klient zaregistrovaný vnútri iného ostane oddelený aj od chatov vonkajšieho; pamäť kancelárie pod kontajnerom smie", () => {
+    const nested = map({ clients: [
+      { root: "/prax", folders: [] },
+      { root: "/prax/Klienti/Tatran", folders: ["/prax/_kancelaria"] },
+      { root: "/prax/Klienti/Tatran/Pobočka", folders: [] },
+    ] });
+    expect(externalDirectoryAllowed(nested, "/prax/Klienti/Tatran/Spisy", ["/prax/Klienti/Tatran/Pobočka/x"])).toBe(false);
+    expect(externalDirectoryAllowed(nested, "/prax/Klienti/Tatran/Spisy", ["/prax/Klienti/Tatran/Korešpondencia"])).toBe(true);
+    expect(externalDirectoryAllowed(nested, "/prax/Klienti/Tatran/Spisy", ["/prax/_kancelaria"])).toBe(true);
+  });
+});

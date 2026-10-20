@@ -8,7 +8,7 @@
  * (diakritika z macOS). Modul nemá stav; plugin ho dostane zabalený do svojho súboru.
  */
 import { realpath } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { isPathWithin } from "./path-within.js";
 
 export const LINKED_FOLDERS_MAP_FILE = "lawoss-linked-folders.json";
@@ -50,17 +50,26 @@ export function isOfficeMemoryFolder(folder: string, officeRoot: string | null):
 
 const overlaps = (a: string, b: string): boolean => isPathWithin(a, b) || isPathWithin(b, a);
 
+export type LinkedFolderConflict = "relative" | "app_data" | "other_client" | "practice";
+
 /**
  * Prečo priečinok nepatrí k pripojeným priečinkom klienta (všetko kanonicky):
- * leží v inom klientovi alebo ho obsahuje, alebo leží v praxi či ju obsahuje (okrem pamäte kancelárie).
- * Podpriečinok vlastného klienta prekáža nikomu. Registrovaný priečinok, ktorý klienta obsahuje
- * (koreň praxe), nie je „iný klient“; prax pokrýva pravidlo koreňa praxe.
+ * - relatívna cesta (nevie sa, voči čomu);
+ * - obsahuje dáta aplikácie (súbor enginu, mapa pre plugin): agent by si ich prepísaním vedel rozšíriť prístup;
+ * - leží v inom registrovanom klientovi alebo ho obsahuje (overí sa aj pre podpriečinok vlastného koreňa,
+ *   takže registrovaný kontajner praxe nepripojí koreň klienta, ktorý obsahuje);
+ * - leží v praxi alebo ju obsahuje (okrem pamäte kancelárie).
+ * Registrovaný priečinok, ktorý klienta obsahuje (koreň praxe), nie je „iný klient“; prax pokrýva pravidlo praxe.
  */
-export function linkedFolderConflict(folder: string, scope: { ownRoot: string | null; otherRoots: readonly string[]; officeRoot: string | null }): "other_client" | "practice" | null {
+export function linkedFolderConflict(folder: string, scope: {
+  ownRoot: string | null; otherRoots: readonly string[]; officeRoot: string | null; protectedDirs?: readonly string[];
+}): LinkedFolderConflict | null {
+  if (!isAbsolute(folder)) return "relative";
+  if ((scope.protectedDirs ?? []).some((dir) => isPathWithin(folder, dir))) return "app_data";
   if (isOfficeMemoryFolder(folder, scope.officeRoot)) return null;
-  if (scope.ownRoot && isPathWithin(scope.ownRoot, folder)) return null;
   const others = scope.otherRoots.filter((root) => !(scope.ownRoot && isPathWithin(root, scope.ownRoot)));
   if (others.some((root) => overlaps(root, folder))) return "other_client";
+  if (scope.ownRoot && isPathWithin(scope.ownRoot, folder)) return null;
   if (scope.officeRoot && overlaps(scope.officeRoot, folder)) return "practice";
   return null;
 }
@@ -72,17 +81,18 @@ export function ownerOf(map: LinkedFoldersMap, directory: string): LinkedFolders
 
 /**
  * Kam smie chat bez otázky: koreň svojho klienta (aj z chatu prípadu) a jeho pripojené priečinky,
- * ktoré nekolidujú s iným klientom ani s praxou. Registrovaný koreň praxe (obsahuje koreň praxe)
- * nie je klient: jeho koreň sa nepovolí, chaty v ňom ostanú pri bežnej otázke.
+ * ktoré nekolidujú s iným klientom, praxou ani dátami aplikácie. Registrovaný koreň praxe (obsahuje
+ * koreň praxe) nie je klient: jeho koreň sa nepovolí. Koreň, ktorý obsahuje dáta aplikácie, tiež nie.
  */
-export function allowedFolders(map: LinkedFoldersMap, directory: string): string[] {
+export function allowedFolders(map: LinkedFoldersMap, directory: string, protectedDirs: readonly string[] = []): string[] {
   if (map.firmManaged) return [];
   const owner = ownerOf(map, directory);
   if (!owner) return [];
   const otherRoots = map.clients.filter((client) => client !== owner).map((client) => client.root);
   const practiceContainer = Boolean(map.officeRoot && isPathWithin(owner.root, map.officeRoot));
-  const folders = owner.folders.filter((folder) => linkedFolderConflict(folder, { ownRoot: owner.root, otherRoots, officeRoot: map.officeRoot }) === null);
-  return [...(practiceContainer ? [] : [owner.root]), ...folders];
+  const rootUsable = !practiceContainer && !protectedDirs.some((dir) => isPathWithin(owner.root, dir));
+  const folders = owner.folders.filter((folder) => linkedFolderConflict(folder, { ownRoot: owner.root, otherRoots, officeRoot: map.officeRoot, protectedDirs }) === null);
+  return [...(rootUsable ? [owner.root] : []), ...folders];
 }
 
 /** Priečinok zo vzoru otázky enginu (`<priečinok>/*`); iný tvar sa nerozhoduje. */
@@ -91,11 +101,21 @@ export function patternDirectory(pattern: string): string | null {
   return pattern.slice(0, -2) || "/";
 }
 
-/** Povoliť bez otázky, len ak každý cieľ leží v povolenom priečinku chatu. */
-export function externalDirectoryAllowed(map: LinkedFoldersMap, directory: string, targets: readonly (string | null)[]): boolean {
+/**
+ * Povoliť bez otázky, len ak každý cieľ leží v povolenom priečinku chatu a nepatrí inému klientovi:
+ * najhlbší registrovaný priečinok cieľa je klient chatu, jeho kontajner (koreň praxe) alebo žiadny.
+ * Klient zaregistrovaný vnútri iného tak ostane oddelený aj od chatov vonkajšieho.
+ */
+export function externalDirectoryAllowed(map: LinkedFoldersMap, directory: string, targets: readonly (string | null)[], protectedDirs: readonly string[] = []): boolean {
   if (targets.length === 0 || targets.some((target) => target === null)) return false;
-  const allowed = allowedFolders(map, directory);
-  return targets.every((target) => target !== null && allowed.some((folder) => isPathWithin(folder, target)));
+  const owner = ownerOf(map, directory);
+  if (!owner) return false;
+  const allowed = allowedFolders(map, directory, protectedDirs);
+  return targets.every((target) => {
+    if (target === null || !allowed.some((folder) => isPathWithin(folder, target))) return false;
+    const targetOwner = ownerOf(map, target);
+    return !targetOwner || targetOwner === owner || isPathWithin(targetOwner.root, owner.root);
+  });
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);

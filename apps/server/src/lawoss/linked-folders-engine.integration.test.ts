@@ -114,6 +114,9 @@ test.skipIf(!binary)("klient A číta svoje pripojené priečinky a koreň aj z 
     expect(await attempt(matterA, files.linkedA2)).toBe("read");
     await writeMap([]);
     expect(await attempt(clientA, files.linkedA)).toBe("asked");
+    // Priečinok s dátami aplikácie (súbor enginu, mapa) sa nepovolí ani vtedy, keď je v mape klienta.
+    await writeMap([engineDir]);
+    expect(await attempt(clientA, engineConfig)).toBe("asked");
   } finally {
     engine.kill("SIGKILL");
     await engine.exited;

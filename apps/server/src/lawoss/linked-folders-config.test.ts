@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { buildLegalworkRuntimeConfigObject, keepLegalworkRuntimeConfigFileFresh, legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "../legalwork-runtime-config.js";
 import { readRuntimeOpencodeConfig, runtimeStorageDir, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
-import { linkedFoldersMapPath } from "./linked-folders.js";
+import { linkableFolders, linkedFoldersMapPath, writeLinkedFoldersMap } from "./linked-folders.js";
 import { parseLinkedFoldersMap } from "./linked-folders-rules.js";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
@@ -62,6 +62,13 @@ async function practice() {
   };
   const server = await startServer(config);
   stops.push(() => server.stop());
+  const base = `http://127.0.0.1:${server.port}`;
+  const patch = (workspaceId: string, externalDirectory: Record<string, unknown>) => fetch(`${base}/workspace/${workspaceId}/config`, {
+    method: "PATCH", headers: { authorization: `Bearer ${CLIENT_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ opencode: { permission: { external_directory: externalDirectory } } }),
+  });
+  const host = (path: string, method: string, body?: unknown) => fetch(`${base}${path}`, {
+    method, headers: { "x-legalwork-host-token": "owt_linked_folders_host", "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body),
+  });
   const put = (workspaceId: string, folders: string[]) => fetch(`http://127.0.0.1:${server.port}/workspace/${workspaceId}/authorized-folders`, {
     method: "PUT", headers: { authorization: `Bearer ${CLIENT_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ folders }),
   });
@@ -70,7 +77,7 @@ async function practice() {
     await writeFile(join(runtimeStorageDir(config), "lawoss-onboarding", "profile.json"), JSON.stringify({ officeRoot: practiceRoot }));
   };
   const readMap = async () => parseLinkedFoldersMap(JSON.parse(await readFile(linkedFoldersMapPath(config), "utf8")));
-  return { root, config, client, other, linked, practiceRoot, put, writeProfile, readMap };
+  return { root, config, client, other, linked, practiceRoot, put, patch, host, writeProfile, readMap };
 }
 
 const externalDirectory = (built: Record<string, unknown>): Record<string, unknown> => {
@@ -147,5 +154,71 @@ describe("pripojené priečinky klienta: kontrola natívneho zápisu na serveri"
     const { config, other, put, root } = await practice();
     await writeRuntimeOpencodeConfig(config, "ws_client", (current) => ({ ...current, permission: { external_directory: { [`${other}/*`]: "allow" } } }));
     expect((await put("ws_client", [other, join(root, "Neexistuje")])).status).toBe(200);
+  });
+});
+
+describe("pripojené priečinky klienta: oprava 2", () => {
+  test("spoločný súbor: preč ide každé povolenie priečinka (`**`, glob, holý priečinok, `~/…`), ostane holé `*`, odmietnutia a otázky", async () => {
+    const { config } = await practice();
+    await writeRuntimeOpencodeConfig(config, "ws_client", (current) => ({ ...current, permission: { external_directory: {
+      "/a/**": "allow", "/b/*.pdf": "allow", "/c": "allow", "~/d/*": "allow", "/e/*": "allow", "*": "allow", "/f/*": "deny", "/g/*": "ask",
+    } } }));
+    expect(externalDirectory(await buildLegalworkRuntimeConfigObject(config, "ws_client"))).toEqual({ "*": "allow", "/f/*": "deny", "/g/*": "ask" });
+  });
+
+  test("PATCH konfigurácie: povolenie priečinka len ako `<absolútny priečinok>/*` cez tie isté pravidlá; holé `*` smie", async () => {
+    const { other, linked, patch } = await practice();
+    expect(await code(await patch("ws_client", { [`${other}/*`]: "allow" }))).toEqual({ status: 409, code: "linked_folder_other_client" });
+    expect(await code(await patch("ws_client", { [`${linked}/**`]: "allow" }))).toEqual({ status: 400, code: "linked_folder_pattern" });
+    expect(await code(await patch("ws_client", { "Zdielane/*": "allow" }))).toEqual({ status: 400, code: "linked_folder_relative" });
+    expect((await patch("ws_client", { [`${linked}/*`]: "allow", "/deny/*": "deny" })).status).toBe(200);
+    expect((await patch("ws_client", { "*": "allow" })).status).toBe(200);
+  });
+
+  test("relatívna cesta a priečinok s dátami aplikácie sa nepripojí", async () => {
+    const { config, put } = await practice();
+    expect(await code(await put("ws_client", ["Zdielane/Vzory"]))).toEqual({ status: 400, code: "linked_folder_relative" });
+    expect(await code(await put("ws_client", [runtimeStorageDir(config)]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+    expect(await code(await put("ws_client", [join(runtimeStorageDir(config), "..")]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+  });
+
+  test("registrácia klienta obnoví mapu hneď (klient B vnútri A nepatrí A až do ďalšieho zápisu)", async () => {
+    const { config, client, host, readMap } = await practice();
+    await writeLinkedFoldersMap(config);
+    const nested = join(client, "Hron pobočka");
+    await mkdir(nested);
+    const response = await host("/workspaces/local", "POST", { folderPath: nested, name: "Hron pobočka", registerExisting: true });
+    expect(response.status, await response.clone().text()).toBeLessThan(300);
+    let map = await readMap();
+    for (let attempt = 0; attempt < 100 && !map?.clients.some((entry) => entry.root === nested); attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      map = await readMap();
+    }
+    expect(map?.clients.map((entry) => entry.root)).toContain(nested);
+  });
+
+  test("mapa: súbežné zápisy idú za sebou, posledný obsah vyhrá", async () => {
+    const { config, linked, readMap } = await practice();
+    const first = writeLinkedFoldersMap(config);
+    await writeRuntimeOpencodeConfig(config, "ws_client", (current) => ({ ...current, permission: { external_directory: { [`${linked}/*`]: "allow" } } }));
+    const second = writeLinkedFoldersMap(config);
+    await Promise.all([first, second]);
+    expect((await readMap())?.clients.find((entry) => entry.folders.length)?.folders).toEqual([linked]);
+  });
+
+  test("mapa: položka zapísaná mimo kontrol (napr. migráciou) s iným klientom alebo relatívna sa do mapy nedostane", async () => {
+    const { config, other, linked, readMap } = await practice();
+    await writeRuntimeOpencodeConfig(config, "ws_client", (current) => ({ ...current, permission: { external_directory: {
+      [`${other}/*`]: "allow", "relative/*": "allow", [`${linked}/*`]: "allow",
+    } } }));
+    await writeLinkedFoldersMap(config);
+    expect((await readMap())?.clients.find((entry) => entry.folders.length)?.folders).toEqual([linked]);
+  });
+
+  test("sandbox: priečinky klienta na zdieľanie prejdú tými istými pravidlami (iný klient, relatívna cesta, dáta aplikácie nie)", async () => {
+    const { config, other, linked } = await practice();
+    const workspace = config.workspaces.find((entry) => entry.id === "ws_client");
+    if (!workspace) throw new Error("fixture");
+    expect(await linkableFolders(config, workspace, [other, "relative", runtimeStorageDir(config), linked])).toEqual([linked]);
   });
 });

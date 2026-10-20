@@ -114,6 +114,8 @@ describe("model: čo sa smie pripojiť", () => {
   test("odmietnutie servera (kanonické cesty, symbolický odkaz) má ten istý text ako odmietnutie v appke", () => {
     expect(serverRefusal(new LegalworkServerError(409, "linked_folder_other_client", "x"))).toBe("other_client");
     expect(serverRefusal(new LegalworkServerError(409, "linked_folder_practice", "x"))).toBe("practice_root");
+    expect(serverRefusal(new LegalworkServerError(409, "linked_folder_app_data", "x"))).toBe("app_data");
+    expect(serverRefusal(new LegalworkServerError(400, "linked_folder_relative", "x"))).toBe("missing");
     expect(serverRefusal(new Error("network"))).toBeNull();
   });
 });
@@ -292,7 +294,7 @@ describe("texty pripojených priečinkov", () => {
   const keys = ["linked_folders_title", "linked_folders_desc", "linked_folders_empty", "linked_folders_link", "linked_folders_unlink", "linked_folders_office",
     "linked_folders_locked", "linked_folders_error", "linked_folders_save_error", "linked_folders_reload", "linked_folders_declined", "linked_folders_unavailable"];
   test("všetky jazyky, každý dôvod odmietnutia má statický kľúč, nemčina bez dlhej pomlčky", () => {
-    const reasons: LinkRefusal[] = ["own", "contains_client", "other_client", "practice_root", "missing", "duplicate"];
+    const reasons: LinkRefusal[] = ["own", "contains_client", "other_client", "practice_root", "app_data", "missing", "duplicate"];
     for (const dict of [shellEn, shellCs, shellSk, shellDe]) {
       for (const key of keys) expect(dict).toHaveProperty([`lawoss.lite.${key}`]);
       for (const reason of reasons) expect(dict).toHaveProperty([LINK_REFUSAL_TEXT[reason]]);
@@ -304,9 +306,11 @@ describe("texty pripojených priečinkov", () => {
   test("slovenčina poctivo: len chaty tohto klienta, čítanie aj úpravy podľa oprávnení, zmena hneď; čeština drží pojmy", () => {
     expect(shellSk["lawoss.lite.linked_folders_desc"]).toContain("V chatoch tohto klienta");
     expect(shellSk["lawoss.lite.linked_folders_desc"]).toContain("upravovať");
-    expect(shellSk["lawoss.lite.linked_folders_desc"]).toContain("Iní klienti ich nevidia.");
+    // Iní klienti sa k nim dostanú len po otázke používateľovi (engine sa pýta), nie „nevidia ich“.
+    expect(shellSk["lawoss.lite.linked_folders_desc"]).toContain("V chatoch iných klientov sa vás agent najprv opýta.");
+    for (const dict of [shellEn, shellCs, shellSk, shellDe]) expect(dict["lawoss.lite.linked_folders_desc"]).not.toMatch(/nevidia|nevidí|do not see|sehen sie nicht/);
     expect(shellSk["lawoss.lite.linked_folders_reload"]).not.toContain("LAWOSS");
-    expect(shellSk[LINK_REFUSAL_TEXT.own]).toContain("v chatoch klienta");
+    expect(shellSk[LINK_REFUSAL_TEXT.own]).toContain("chaty klienta");
     expect(shellCs["lawoss.lite.linked_folders_title"]).toBe("Připojené složky");
     expect(shellCs[LINK_REFUSAL_TEXT.other_client]).toContain("klient");
   });
