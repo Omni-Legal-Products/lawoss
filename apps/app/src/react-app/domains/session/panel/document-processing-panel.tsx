@@ -1,4 +1,6 @@
 import { documentExecutionDirectory } from "./native-document-preflight";
+import { DocumentVisualReview } from "./document-visual-review";
+import { openDocumentVisualSource } from "./document-visual-source";
 import { PROTECTED_DOCUMENT_GENERATION_TRANSPORT, documentGenerationKey, getDocumentGeneration, isDocumentGenerationActive, reconcileDocumentGeneration, readDocumentGenerationSnapshot, isDocumentGenerationSnapshotCurrent, subscribeDocumentGenerations } from "./document-generation-lifecycle";
 /** @jsxImportSource react */
 import * as React from "react";
@@ -13,6 +15,7 @@ export type DocumentProcessingPanelProps = {
   client: LegalworkServerClient; workspaceId: string; projectId: string; workspaceRoot: string;
   folder: string; selectedPaths: string[]; onSelectPaths: (paths: string[]) => void;
   fileVersion: string; active: boolean; isRemote: boolean; onGenerate?: DocumentGenerationCallback;
+  onOpenSource?: (path: string) => void;
 };
 
 export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
@@ -229,6 +232,14 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
       <p className="break-all">{record.path}{record.provenance.attachmentName ? ` → ${record.provenance.attachmentName}` : ""}</p>
       <p>{sourceStatusLabel(record)} · {readsCurrent && record.freshness === "current" ? record.readablePages : 0}/{record.pageCount}</p>
       {record.issue ? <p className="break-words text-muted-foreground">{record.issue}</p> : null}
+      {record.freshness === "current" ? <DocumentVisualReview key={`${record.id}:${record.hash}:${record.updatedAt}`} record={record} host={props.client.canReviewDocumentVisuals}
+        source={{ client: props.client, workspaceId: props.workspaceId, path: record.provenance.sourcePath }} disabled={busy || !current} onOpen={props.onOpenSource ? () => void action(async () => {
+          if (record.provenance.parentId) { props.onOpenSource!(record.provenance.sourcePath); return; }
+          await openDocumentVisualSource({ client: props.client, workspaceId: props.workspaceId, path: record.provenance.sourcePath }, record.hash, () => props.onOpenSource!(record.provenance.sourcePath));
+        }) : undefined}
+        onReview={pages => void action(async () => {
+          await props.client.reviewLawossDocumentVisuals(props.workspaceId, record.id, { expectedHash: record.hash, expectedUpdatedAt: record.updatedAt, pages, confirmation: "decorative-only" });
+        })} /> : null}
       {canCancelPreparation(record) ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => void action(async () => {
         await props.client.cancelLawossDocument(props.workspaceId, record.id);
       })}>{t("documents.cancel")}</Button> : !preparationActive(record) ? <Button size="sm" variant="ghost" disabled={busy || !current} onClick={() => void readSource(record)}>
