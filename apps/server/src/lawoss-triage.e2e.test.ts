@@ -255,3 +255,63 @@ test("nový súhlas ruší vrátenie predošlého usporiadania na mieste a statu
   expect(after.undoRunId).toBeUndefined();
   expect((await f.call("triage/undo", { root: f.client, runId: applied.runId, confirm: true })).status).toBe(403);
 }, transactionTimeout);
+
+test("odškrtnutý existujúci priečinok ostane po zápise nedotknutý (rozhodnutie 19. 10. 2026)", async () => {
+  const f = await convertedFixture();
+  await mkdir(join(f.client, "M004 Vyúčtovanie"));
+  await writeFile(join(f.client, "M004 Vyúčtovanie", "zmluva.pdf"), "m");
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  const preview = await f.success("triage/plan", { root: f.client });
+  const folder = preview.matters.find((matter: { folder: string }) => matter.folder === "M004 Vyúčtovanie");
+  expect(folder).toMatchObject({ source: "folder", documents: 1 });
+  const left = await f.success("triage/replan", { id: preview.id, keepInInbox: [], leaveInPlace: [folder.key, "existing-000000000000"] });
+  expect(left.leaveInPlace).toEqual([folder.key]);
+  expect(left.matters.find((matter: { key: string }) => matter.key === folder.key)).toMatchObject({ left: true, documents: 0 });
+  expect(left.moves.some((move: { from: string }) => move.from.startsWith("M004 Vyúčtovanie/"))).toBe(false);
+  // Zmena inej voľby bez `leaveInPlace` odškrtnutie zachová.
+  expect((await f.success("triage/replan", { id: left.id, keepInInbox: [] })).leaveInPlace).toEqual([folder.key]);
+  await f.success("triage/apply", { id: left.id, fingerprint: left.fingerprint, confirm: true });
+  expect(await readdir(join(f.client, "M004 Vyúčtovanie"))).toEqual(["zmluva.pdf"]);
+}, transactionTimeout);
+
+test("odškrtnutý priečinok neprijme dokumenty so spisovou značkou z koreňa; zápis aj vrátenie ho nezmenia (fix round 2)", async () => {
+  const f = await convertedFixture();
+  const spor = join(f.client, "Spor BETA 18Cb-47-2026");
+  await mkdir(spor);
+  await writeFile(join(spor, "zaloba.pdf"), "s");
+  for (const name of ["Uznesenie 18Cb 47 2026.pdf", "Vyzva 18Cb_47_2026.pdf"]) await writeFile(join(f.client, name), name);
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  const preview = await f.success("triage/plan", { root: f.client });
+  const folder = preview.matters.find((matter: { folder: string }) => matter.folder === "Spor BETA 18Cb-47-2026");
+  const left = await f.success("triage/replan", { id: preview.id, keepInInbox: [], leaveInPlace: [folder.key] });
+  const touches = (path: string) => path.startsWith("Spor BETA 18Cb-47-2026/");
+  expect(left.moves.filter((move: { from: string; to: string }) => touches(move.from) || touches(move.to))).toEqual([]);
+  // Fix round 3: žiadny nový prípad v Spisy/ pre tú istú značku; voľné súbory idú na zatriedenie s poznámkou.
+  expect(left.matters.filter((matter: { left?: boolean; caseNumber?: string }) => !matter.left && matter.caseNumber?.startsWith("18Cb"))).toEqual([]);
+  const noted = left.moves.filter((move: { leftFolder?: string }) => move.leftFolder === "Spor BETA 18Cb-47-2026").map((move: { to: string }) => move.to).sort();
+  expect(noted).toEqual(["00_Na_zatriedenie/Uznesenie 18Cb 47 2026.pdf", "00_Na_zatriedenie/Vyzva 18Cb_47_2026.pdf"]);
+  const before = await tree(spor);
+  const applied = await f.success("triage/apply", { id: left.id, fingerprint: left.fingerprint, confirm: true });
+  expect(await tree(spor)).toBe(before);
+  expect(await exists(join(f.client, "Spisy")) ? (await readdir(join(f.client, "Spisy"))).filter(name => name.includes("18Cb")) : []).toEqual([]);
+  expect((await f.success("triage/undo", { root: f.client, runId: applied.runId, confirm: true })).status).toBe("undone");
+  expect(await tree(spor)).toBe(before);
+  // Prepínač modelu (nový /triage/plan) nesie odškrtnutie ďalej.
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  const again = await f.success("triage/plan", { root: f.client, leaveInPlace: [folder.key] });
+  expect(again.leaveInPlace).toEqual([folder.key]);
+}, transactionTimeout);
+
+test("archív je predvolene odškrtnutý a nad 100 zaškrtnutých prípadov apply vráti konkrétny kód (fix round 2)", async () => {
+  const f = await convertedFixture();
+  await mkdir(join(f.client, "Archív"));
+  await writeFile(join(f.client, "Archív", "stary.pdf"), "a");
+  for (let index = 0; index < 101; index++) { await mkdir(join(f.client, `Vec ${index}`)); await writeFile(join(f.client, `Vec ${index}`, "d.pdf"), String(index)); }
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  const preview = await f.success("triage/plan", { root: f.client });
+  const archive = preview.matters.find((matter: { folder: string }) => matter.folder === "Archív");
+  expect(archive).toMatchObject({ left: true });
+  expect(preview.leaveInPlace).toEqual([archive.key]);
+  const refused = await f.call("triage/apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
+  expect({ status: refused.status, code: (await refused.json()).code }).toEqual({ status: 400, code: "triage_too_many_matters" });
+}, transactionTimeout);

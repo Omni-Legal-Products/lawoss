@@ -1,8 +1,8 @@
-import { revalidateScopeTarget } from "../../okf/scope-target";
 /** @jsxImportSource react */
+import { revalidateScopeTarget } from "../../okf/scope-target";
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { missingScopeLevels, scopeLevels, type MatterOverview } from "../../../../../../lawoss/okf/read";
@@ -11,13 +11,14 @@ import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
 import { deadlineAnchor, hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick } from "../live";
 import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
-import { canActOnSource, localMatter, officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
+import { canActOnSource, localMatter, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
 import { daysUntil, deadlineKey, deadlineText, dueText, inHorizon, urgencyOf } from "../../okf/view-rules";
 import { composeQuickAction, MORE_ACTIONS, QUICK_ACTIONS } from "../quick-actions";
 import { POSTPROCESS_RESOURCE_NAME, postprocessSource, VYSTUP_SKILL_NAME, vystupSkillBody } from "../../okf/skill-bundle";
 import { clientOf, nextDeadline } from "../today-model";
 import { LITE_CLIENTS_PATH } from "../links";
-import { listMatterConversations, openMatterConversation, type MatterConversation } from "../matter-conversations";
+import { openMatterConversation, type MatterConversation } from "../matter-conversations";
+import { isTreeFailure, useMatterConversations } from "../client-tree-data";
 import { saveDocumentsToMatter } from "../matter-intake";
 import { AI_SETTINGS_PATH, useMatterModelGap, type MatterModelGap } from "../matter-model";
 import "./lite.css";
@@ -60,6 +61,9 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const [busy, setBusy] = useState<ActionId | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // „+ Nový rozhovor“ v bočnom strome zlyhal a priviedol sem: povedať to (pod tým aj medzera v modeli, ak je).
+  const location = useLocation();
+  useEffect(() => { if (isTreeFailure(location.state)) setError("tree"); }, [location.key, location.state]);
   const [saved, setSaved] = useState<string | null>(null);
   const queries = useQueryClient();
   const matter = matterFromParams(data.matters, params);
@@ -68,14 +72,8 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
   const target = !matter ? null : local;
   useMinuteTick(); // o polnoci sa posunie „dnes" aj odpočet
   useHotTitle(hotDeadlineCount(data, today()));
-  const conversations = useQuery({
-    queryKey: ["lite-matter-conversations", target?.workspace?.id ?? "", target?.selected.path ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
-    enabled: Boolean(connection?.client && target),
-    queryFn: () => {
-      if (!connection || !target) throw new Error("no connection");
-      return listMatterConversations(connection, target.selected.path, 5, target.workspace);
-    },
-  });
+  // Všetky rozhovory veci z toho istého výpisu priečinka ako bočný strom („Zobraziť všetky“ vedie sem).
+  const conversations = useMatterConversations(connection, scope, data, matter);
   // Bez modelu sa rýchla akcia ani nespustí; detail to povie vopred a ukáže cestu k pripojeniu.
   const modelGap = useMatterModelGap(connection);
   // Chybějící nebo neznámá cesta (smazaná nebo přejmenovaná věc) → zpět na seznam, nikdy jiná věc.
@@ -133,7 +131,8 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
 
   // Kľúč podľa veci: pri prechode na inú vec sa záložka, zvýraznenie aj potvrdenia vynulujú.
   return <LiteMatterView key={matter.path} matter={matter} cockpit={cockpit} busy={busy} error={error} onAction={(id) => void onAction(id)}
-    conversations={conversations.data ?? []} onContinue={(c) => void onContinue(c)}
+    conversations={conversations.items} conversationsComplete={conversations.status !== "ready" || conversations.complete}
+    conversationsError={conversations.status === "error" ? conversations.retry ?? (() => {}) : undefined} onContinue={(c) => void onContinue(c)}
     onFiles={(files) => void onFiles(files)} saved={saved} modelGap={modelGap} sourceReady={Boolean(!meta.failed && target && canActOnSource(data,target.workspace.id))}
     scopePaths={input?.scopePaths}
     existingMemorySources={input?.existingMemorySources}
@@ -142,7 +141,7 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
     meta={meta} focusDeadline={params.get("lehota")} />;
 }
 
-export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], onContinue, onFiles, saved = null, modelGap = null, sourceReady = true, scopePaths = [], existingMemorySources = [], truths = {}, client, meta, focusDeadline = null }: {
+export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], conversationsComplete = true, conversationsError, onContinue, onFiles, saved = null, modelGap = null, sourceReady = true, scopePaths = [], existingMemorySources = [], truths = {}, client, meta, focusDeadline = null }: {
   matter: MatterOverview;
   scopePaths?: readonly string[];
   existingMemorySources?: readonly string[];
@@ -150,9 +149,14 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
   busy: ActionId | null;
   error: string | null;
   onAction: (id: ActionId) => void;
+  /** `false`: zdroj veci nie je čerstvo prečítaný alebo prax sa zmenila (#168); akcie sú vypnuté. */
   sourceReady?: boolean;
-  /** Rozpracované konverzace nad věcí, nejnovější první. */
+  /** Všetky rozhovory veci, najnovší prvý. */
   conversations?: readonly MatterConversation[];
+  /** `false`: výpis narazil na limit, staršie rozhovory môžu chýbať. */
+  conversationsComplete?: boolean;
+  /** Výpis zlyhal: hláška a „Skúsiť znova“ namiesto prázdnej sekcie. */
+  conversationsError?: () => void;
   onContinue?: (conversation: MatterConversation) => void;
   /** Přetažené nebo vybrané soubory - uloží se do věci jako vstupy k zařazení. */
   onFiles?: (files: File[]) => void;
@@ -308,9 +312,13 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
         {error ? <div className="lw-status err" role="alert">{text("action_error_generic")}</div> : null}
       </div>
 
+      {conversationsError ? <div className="lw-status warn" role="status" data-lawoss-lite="conversations-error">
+        <span>{text("tree_load_error")}</span> <button type="button" className="lw-matter-action" onClick={conversationsError}>{text("state_retry")}</button>
+      </div> : null}
       {conversations.length > 0 ? (
         <section className="lw-matter-panel lw-matter-conversations" data-lawoss-lite="conversations" style={reveal(2)}>
           <h2 className="lw-matter-section">{text("conversations_title")}</h2>
+          {conversationsComplete ? null : <p className="lw-matter-empty">{text("conversations_partial")}</p>}
           <div className="lw-matter-conv-list">
             {conversations.map((c) => (
               <button key={c.id} type="button" className="lw-matter-conv" disabled={!sourceReady || busy !== null} onClick={() => onContinue?.(c)}>

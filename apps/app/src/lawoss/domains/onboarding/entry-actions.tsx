@@ -7,7 +7,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 import { isLawossHomeWorkspace } from "../../home-workspace";
-import { ADD_FOLDER_PATH, NEW_MATTER_PATH, organizeFolderLink } from "../../lite/links";
+import { ADD_FOLDER_PATH, NEW_CLIENT_PATH, NEW_MATTER_PATH, organizeFolderLink } from "../../lite/links";
 import { activeWorkspace, officeWorkspace, useOkfConnection, useOkfScope } from "../../okf/read-model";
 import { clientPreferenceScope, newMatterLink, practiceClientChoices } from "../../lite/client-choice";
 import { ClientPickerDialog } from "../../lite/client-picker";
@@ -66,10 +66,13 @@ export function useOkfOffered(skip: boolean): boolean | undefined {
 
 const labels = {
   en: { client: "Add client", folder: "Add folder", organize: "Organise by OKF", matter: "New matter", okf: "Turn on OKF" },
-  sk: { client: "Pridať klienta", folder: "Pridať priečinok", organize: "Usporiadať podľa OKF", matter: "Nová vec", okf: "Zapnúť OKF" },
-  cs: { client: "Přidat klienta", folder: "Přidat složku", organize: "Uspořádat podle OKF", matter: "Nová věc", okf: "Zapnout OKF" },
+  sk: { client: "Pridať klienta", folder: "Pridať priečinok", organize: "Usporiadať podľa OKF", matter: "Nový prípad", okf: "Zapnúť OKF" },
+  cs: { client: "Přidat klienta", folder: "Přidat složku", organize: "Uspořádat podle OKF", matter: "Nový případ", okf: "Zapnout OKF" },
   de: { client: "Mandant hinzufügen", folder: "Ordner hinzufügen", organize: "Nach OKF ordnen", matter: "Neue Angelegenheit", okf: "OKF einschalten" },
 };
+
+/** Popisky akcií v jazyku rozhrania (pre test terminológie). */
+export const entryActionLabels = (locale: keyof typeof labels): Readonly<Record<string, string>> => labels[locale];
 
 /** "Zapnúť OKF": shown only while OKF is not on. */
 export function EnableOkfAction({ compact = false, okfOffered }: { compact?: boolean; okfOffered?: boolean }) {
@@ -113,7 +116,7 @@ export function OnboardingEntryActions({
       <Button
         variant="outline"
         size={compact ? "icon-xs" : "sm"}
-        onClick={() => navigate("/welcome?continue=client")}
+        onClick={() => navigate(NEW_CLIENT_PATH)}
         aria-label={text.client}
         title={text.client}
       >

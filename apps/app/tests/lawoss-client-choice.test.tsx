@@ -87,6 +87,14 @@ describe("„+ Nová vec“ v Dnes a v Klientoch", () => {
     // Hlavné „+ Nová vec“ na stránke Klienti sa pýta.
     expect(out).toMatch(/<button[^>]*data-lawoss-new-matter-pick/);
   });
+
+  test("prehľad jedného klienta (bočný strom, ?klient=) ide rovno do neho aj z hlavného tlačidla (test 19. 10. 2026)", () => {
+    const out = html(<ClientsView locale="sk" choices={choices} activeId="alfa" focus="client:Horak"
+      groups={[{ key: "client:Horak", client: "Horák s.r.o.", matters: [{ path: "Horak/Spisy/2026-10 Spor", title: "Spor", deadlines: [] } as never] }, { key: "client:ALFA", client: "ALFA STAV s.r.o.", matters: [] }]}
+      clientRoot={(key) => key === "client:Horak" ? `${ROOT}/Horak` : undefined} />);
+    expect(out).not.toContain("data-lawoss-new-matter-pick");
+    expect(out).toContain(`root=${encodeURIComponent(`${ROOT}/Horak`)}`);
+  });
 });
 
 describe("formulár novej veci s vybraným klientom", () => {

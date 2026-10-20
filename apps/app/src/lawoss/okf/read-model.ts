@@ -11,7 +11,7 @@ import { readManualStatus } from "../../../../../lawoss/okf-pamat/src/manual-sta
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
-import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { normalizeDirectoryPath, normalizeDirectoryQueryPath } from "@/app/utils";
 
@@ -26,7 +26,12 @@ import { loadOkfConnection, type OkfConnection } from "./connection";
 import type { OfficeMemoryRead } from "./office-memory";
 
 export type OkfReadClient = Pick<LegalworkServerClient, "listWorkspaceDirectory" | "readWorkspaceFile"> & Partial<Pick<LegalworkServerClient, "lawossDeadlineRequest">>;
-type ReadProblem = { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office" };
+/** `folderUnavailable`: id pracovného priestoru, ktorého priečinok na disku chýba (presunutý, premenovaný, odpojený disk). */
+type ReadProblem = { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office"; folderUnavailable?: string };
+
+/** Server: priečinok pracovného priestoru na disku nie je (`resolveWorkspace`, 404). */
+export const FOLDER_UNAVAILABLE = "project_folder_unavailable";
+export const isFolderUnavailable = (error: unknown): boolean => error instanceof LegalworkServerError && error.code === FOLDER_UNAVAILABLE;
 export type OkfSourceReadState = { source: "workspace" | "office"; workspaceId?: string; checkedAt: number; lastSuccessAt: number | null; state: "fresh" | "stale" | "unavailable" | "truncated" };
 export type OkfCoverage = { status: "complete" | "partial" | "failed"; scopeKey: string; sources: readonly OkfSourceReadState[] };
 type SourceSnapshot = { inputs: MatterInput[]; clients: OkfClient[]; office?: OfficeBundle | null };
@@ -101,7 +106,8 @@ export async function readWorkspaceMemory(
         }
         return result.entries;
       }).catch((e: unknown) => {
-        if (!optional || !missing(e)) problems.push({ path, message: message(e) });
+        if (isFolderUnavailable(e)) problems.push({ path, message: message(e), folderUnavailable: workspaceId });
+        else if (!optional || !missing(e)) problems.push({ path, message: message(e) });
         return [];
       });
       cache.set(path, pending);
@@ -194,7 +200,7 @@ export async function readWorkspaceMemory(
     const input: MatterInput = { path, records: [], recordFiles, scopePaths };
     const entries = await list(path);
     const cards = CARD_FILES.filter((name) => entries.some((e) => e.kind === "file" && e.name === name));
-    if (cards.length > 1) problems.push({ path, message: `Viac kariet veci: ${cards.join(", ")}. Zosúlaď ich obsah; prehľad používa ${cards[0]}.` });
+    if (cards.length > 1) problems.push({ path, message: `Viac kariet prípadu: ${cards.join(", ")}. Zosúlaď ich obsah; prehľad používa ${cards[0]}.` });
     const card = cards[0];
     if (card) {
       input.cardPath = childPath(path, card);
@@ -249,7 +255,7 @@ export async function readWorkspaceMemory(
     for (const dir of scopePaths) {
       const bundle = await readBundle(dir);
       for (const record of bundle.records) {
-        if (recordFiles[record.id]) problems.push({ path: bundle.files[record.id], message: `Duplicitné ID ${record.id} v rozsahu veci ${path}.` });
+        if (recordFiles[record.id]) problems.push({ path: bundle.files[record.id], message: `Duplicitné ID ${record.id} v rozsahu prípadu ${path}.` });
         recordFiles[record.id] ??= bundle.files[record.id];
         input.records.push(record);
       }
@@ -351,9 +357,13 @@ const safeAbsolute = (path: string): boolean => {
   const normalized = queryPath(path);
   return path === path.trim() && /^(?:[A-Za-z]:\/|\/)/.test(normalized) && !normalized.split("/").some(p => p === "." || p === "..") && !normalized.replace(/^\/\//, "/").includes("//");
 };
-const pathIdentity = (path: string): string => /^(?:[A-Za-z]:|\/\/)/.test(queryPath(path)) ? queryPath(path).toLowerCase() : queryPath(path);
+/** Totožnosť cesty: NFC (macOS môže vrátiť názov priečinka v NFD), na Windows bez rozlíšenia veľkosti písmen. */
+const pathIdentity = (path: string): string => {
+  const normalized = queryPath(path).normalize("NFC");
+  return /^(?:[A-Za-z]:|\/\/)/.test(normalized) ? normalized.toLowerCase() : normalized;
+};
 export function okfScopeKey(scope: OkfScope): string {
-  return JSON.stringify([scope.practiceRoot ? pathIdentity(scope.practiceRoot) : null, scope.members.map(m => [m.workspace.id, pathIdentity(m.workspace.path), m.prefix, m.workspace.workspaceType ?? "local"]).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
+  return JSON.stringify([scope.practiceRoot ? pathIdentity(scope.practiceRoot) : null, scope.members.map(m => [m.workspace.id, pathIdentity(m.workspace.path), m.prefix.normalize("NFC"), m.workspace.workspaceType ?? "local"]).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
 }
 export function excludedWorkspaceIds(workspaces: readonly RouteWorkspace[], scope: OkfScope | null): string[] {
   return workspaces.filter(w => !scope?.members.some(m => m.workspace.id === w.id || (w.workspaceType !== "remote" && within(m.workspace.path, w.path)))).map(w => w.id).sort();
@@ -382,9 +392,10 @@ export function okfScope(workspaces: readonly RouteWorkspace[], anchor: RouteWor
   const top = inside.filter((w) => !inside.some((other) => other.id !== w.id && within(other.path, w.path) && !within(w.path, other.path)));
   const root = top.find((w) => within(w.path, practiceRoot));
   if (root) return { anchor, members: [{ workspace: root, prefix: "" }] };
-  const base = queryPath(practiceRoot);
+  // Predpona z NFC na oboch stranách: `within` porovnáva v NFC, koreň a klient môžu prísť v rôznom tvare (NFD z macOS).
+  const base = queryPath(practiceRoot).normalize("NFC");
   const members = top
-    .map((workspace) => ({ workspace, prefix: queryPath(workspace.path).slice(base.length).replace(/^\/+/, "") }))
+    .map((workspace) => ({ workspace, prefix: queryPath(workspace.path).normalize("NFC").slice(base.length).replace(/^\/+/, "") }))
     .sort((a, b) => a.prefix.localeCompare(b.prefix));
   return members.length ? { anchor, members, practiceRoot } : single;
 }
@@ -392,13 +403,16 @@ export function okfScope(workspaces: readonly RouteWorkspace[], anchor: RouteWor
 /** Cesta z prehľadu → priečinok, ktorý ju obsahuje, a cesta v ňom (najdlhšia zhoda). */
 export function locateInScope(scope: OkfScope, path: string): { workspace: RouteWorkspace; path: string } | null {
   if (path.startsWith("/") || path.includes("\\") || path.split("/").some(p => p === "." || p === "..")) return null;
-  let best: OkfScopeMember | undefined;
+  // Cesta aj predpona v NFC: rez podľa dĺžky predpony inak pri zmiešanom tvare (NFD/NFC) poškodí cestu.
+  const nfc = path.normalize("NFC");
+  let best: { member: OkfScopeMember; prefix: string } | undefined;
   for (const member of scope.members) {
-    const hit = member.prefix === "" || path === member.prefix || path.startsWith(`${member.prefix}/`);
-    if (hit && (!best || member.prefix.length > best.prefix.length)) best = member;
+    const prefix = member.prefix.normalize("NFC");
+    const hit = prefix === "" || nfc === prefix || nfc.startsWith(`${prefix}/`);
+    if (hit && (!best || prefix.length > best.prefix.length)) best = { member, prefix };
   }
   if (!best) return null;
-  return { workspace: best.workspace, path: !best.prefix ? path : path === best.prefix ? "" : path.slice(best.prefix.length + 1) };
+  return { workspace: best.member.workspace, path: !best.prefix ? path : nfc === best.prefix ? "" : nfc.slice(best.prefix.length + 1) };
 }
 
 /**
@@ -467,7 +481,7 @@ function withOffice(input: MatterInput, office: OfficeBundle | null, problems: R
   const recordFiles = { ...input.recordFiles };
   const records = [...input.records];
   for (const record of office.records) {
-    if (recordFiles[record.id]) { problems.push({ path: office.files[record.id], message: `Duplicitné ID ${record.id} v rozsahu veci ${input.path}.`, scope: "office" }); continue; }
+    if (recordFiles[record.id]) { problems.push({ path: office.files[record.id], message: `Duplicitné ID ${record.id} v rozsahu prípadu ${input.path}.`, scope: "office" }); continue; }
     recordFiles[record.id] = office.files[record.id];
     records.push(record);
   }
@@ -518,12 +532,8 @@ export async function readScopeMemory(client: OkfScopeClient, scope: OkfScope, t
   return { ...buildOverview(inputs,todayIso), inputs, clients, problems, truncated, coverage: { scopeKey: key, status, sources }, sourceSnapshots: snapshots };
 }
 
-/**
- * Rozsah pohľadu: koreň praxe z profilu onboardingu, kým sa nenačíta `pending` (žiadne čítanie jedného
- * klienta, ktoré by o chvíľu nahradila celá prax). Bez profilu alebo pri chybe ostane jeden priečinok.
- */
-export type ScopeResolution = { state: "ready" | "pending" | "unavailable"; scope: OkfScope | null; pending: boolean; excludedWorkspaceIds: readonly string[]; message?: string };
-export function useOkfScope(connection: OkfConnection | null, anchor: RouteWorkspace | null): ScopeResolution {
+/** Jedno čítanie koreňa praxe pre `usePracticeRoot` aj `useOkfScope` (rovnaký kľúč = jedna cache). */
+function usePracticeRootQuery(connection: OkfConnection | null) {
   const client = connection?.client ?? null;
   const root = useQuery({
     queryKey: ["okf-practice-root", connection?.baseUrl ?? "", connection?.token ?? "", connection?.authGeneration ?? 0],
@@ -535,6 +545,23 @@ export function useOkfScope(connection: OkfConnection | null, anchor: RouteWorks
     refetchOnWindowFocus: true,
     refetchInterval: OKF_REFRESH_MS,
   });
+  return root;
+}
+
+/** Koreň praxe z profilu onboardingu; `undefined`, kým sa číta, `null` bez praxe alebo pri chybe. */
+export function usePracticeRoot(connection: OkfConnection | null): string | null | undefined {
+  const root = usePracticeRootQuery(connection);
+  return !connection?.client || root.isError ? null : root.data;
+}
+
+/**
+ * Rozsah pohľadu: koreň praxe z profilu onboardingu, kým sa nenačíta `pending` (žiadne čítanie jedného
+ * klienta, ktoré by o chvíľu nahradila celá prax). Chyba čítania profilu = `unavailable` (#168).
+ */
+export type ScopeResolution = { state: "ready" | "pending" | "unavailable"; scope: OkfScope | null; pending: boolean; excludedWorkspaceIds: readonly string[]; message?: string };
+export function useOkfScope(connection: OkfConnection | null, anchor: RouteWorkspace | null): ScopeResolution {
+  const client = connection?.client ?? null;
+  const root = usePracticeRootQuery(connection);
   const practiceRoot = !client ? null : root.isError ? undefined : root.data;
   const workspaces = connection?.workspaces;
   const scope = useMemo(

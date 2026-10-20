@@ -1,14 +1,16 @@
-import { revalidateScopeTarget } from "../okf/scope-target";
 /**
  * LAWOSS-lite pracuje s celou kanceláří. Konverzace nad věcí ale aktivuje složku věci
- * (session route to dělá sama), takže nová věc, „Zeptat se“ i Personalizace by jinak
+ * (session route to dělá sama), takže nová věc i Personalizace by jinak
  * běžely nad věcí. Tady se rozsah vrací na kancelář (review PR #100).
  */
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
+import { toSessionTransportDirectory } from "@/app/lib/session-scope";
 import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../okf/connection";
 import { activateLocalWorkspace } from "../okf/matter-session";
+import { revalidateScopeTarget } from "../okf/scope-target";
 import { activeWorkspace, officeOf, officeWorkspace, type OkfScope, OFFICE_SCOPE_RESTORED } from "../okf/read-model";
 import { currentUiMode } from "./ui-mode";
+import { comparable, within } from "./matter-conversations";
 
 let pending: Promise<OkfConnection> | null = null;
 
@@ -30,20 +32,22 @@ export function restoreOfficeScope(): Promise<OkfConnection> {
   return pending;
 }
 
-/** „Zeptat se“: nová konverzace v kanceláři, bez věci - ne poslední konverzace naposledy otevřené věci. */
-export async function openOfficeChat(): Promise<string> {
-  const connection = await restoreOfficeScope();
-  const office = officeWorkspace(connection);
-  if (!office) throw new Error("no office workspace");
-  return openSessionWithPrompt(connection, office, "");
-}
+/** Priečinok klienta leží vnútri priečinka (nie je ním samým): chat nad celým koreňom sa nikdy nezaloží. */
+export const isClientFolderOf = (workspacePath: string | null | undefined, folder: string): boolean =>
+  Boolean(workspacePath) && comparable(folder) !== comparable(workspacePath ?? "") && within(comparable(workspacePath ?? ""), comparable(folder));
 
-/** „Opýtať sa“ v praxi: nová konverzácia v priečinku vybraného klienta, nikdy nad celou praxou (prehľad praxe). */
-export async function openClientChat(workspaceId: string, expectedScope: OkfScope | null, expectedConnection: OkfConnection | null): Promise<string> {
+/**
+ * „Nový chat“ v priečinku klienta, ktorý leží v registrovanom koreni praxe (jeden priečinok pre všetko,
+ * MČ 19. 10. 2026): aktivuje koreň a založí chat s priečinkom konverzácie = priečinok klienta, nikdy nad
+ * celou praxou. Server priečinok overí v koreni (ako pri chate vo veci). Pred aktiváciou sa ako v #168
+ * (`openClientChat`) znova overí prax, členstvo priečinka v nej a čerstvé čítanie jeho zdroja.
+ */
+export async function openClientFolderChat(workspaceId: string, folder: string, expectedScope: OkfScope | null, expectedConnection: OkfConnection | null): Promise<string> {
   if (!expectedConnection) throw new Error("client_workspace_unavailable");
-  const { connection, workspace } = await revalidateScopeTarget(expectedScope,expectedConnection,workspaceId);
+  const { connection, workspace } = await revalidateScopeTarget(expectedScope, expectedConnection, workspaceId);
+  if (!isClientFolderOf(workspace.path, folder)) throw new Error("not a client folder inside the workspace");
   const active = connection.activeWorkspaceId === workspace.id ? connection : await activateLocalWorkspace({ ...connection, client: connection.client }, workspace, connection.workspaces);
-  return openSessionWithPrompt(active, workspace, "");
+  return openSessionWithPrompt(active, workspace, "", toSessionTransportDirectory(folder));
 }
 
 /** Nastavení v lite: složka věci → kancelář (Personalizace je profil kanceláře). `null` = nic neměnit. */

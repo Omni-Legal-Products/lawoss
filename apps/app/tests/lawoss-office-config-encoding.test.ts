@@ -1,10 +1,15 @@
 // okf.config kancelárie v ANSI (PowerShell 5.1 `Set-Content`): appka chybu preloží a editor súbor neprepíše.
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { t } from "../src/i18n";
 import { OFFICE_CONFIG_ENCODING_CODE, parseOfficeWorkingProfile, workingProfile } from "../../../lawoss/okf/src/profile";
 import { onboardingErrorMessage } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
 import { isOfficeConfigEncodingError, loadOfficeProfile, updateOfficeProfile } from "../src/lawoss/okf/office-profile";
+
+// Chyby onboardingu zapisujú surovú správu do konzoly; v teste je to len šum (review 6c).
+let quiet: ReturnType<typeof spyOn>;
+beforeEach(() => { quiet = spyOn(console, "warn").mockImplementation(() => undefined); });
+afterEach(() => { quiet.mockRestore(); });
 
 // Tak ho vráti server: neplatné bajty ANSI dekóduje ako U+FFFD.
 const ansi = 'standing_authorization: "JUDr. Vojt�ch ��ha"\nmatter_folders: ["Podklady", "N�vrhy"]\nfolder_roles:\n  drafts: "N�vrhy"\nclient_path: "Klienti/*"\n';

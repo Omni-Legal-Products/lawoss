@@ -60,6 +60,12 @@ async function canonicalDirectory(path: string): Promise<string> {
   return resolve(path);
 }
 
+/** Priečinok neexistuje (ani cesta k nemu); iná chyba (odkaz, prístup) sa rieši pri overení cesty. */
+async function missingDirectory(path: string): Promise<boolean> {
+  try { await lstat(path); return false; }
+  catch (error) { return error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR"); }
+}
+
 async function readJson(path: string): Promise<unknown> {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
@@ -142,6 +148,11 @@ export function registerOnboardingRoutes(options: {
       const profile = profileSchema.parse({ ...previous, ...(changesClient ? { subjectRoot: undefined, matterRoot: undefined, trial: false } : {}), ...patch, version: 1 });
       for (const [key, level] of [["officeRoot", "office"], ["clientRoot", "client"], ["subjectRoot", "subject"], ["matterRoot", "matter"]] as const) {
         const path = profile[key]; if (!path) continue;
+        // Uložený priečinok, ktorý medzitým zmizol (zmazaná kancelária), neblokuje inú zmenu profilu; inak by zlyhal
+        // každý ďalší zápis vrátane výberu klienta pri „Nový prípad“ (test 19. 10. 2026). Vybraný priečinok sa overí vždy.
+        const chosen = patch[key] !== undefined;
+        if (!chosen && await missingDirectory(path)) continue;
+        if (chosen && await missingDirectory(path)) throw new ApiError(400, "folder_missing", `Selected ${key} folder does not exist.`, { key, name: basename(path) });
         await canonicalDirectory(path);
         // LAWOSS: identita z kariet v koreni (plytko). Plná inšpekcia celého stromu tu odmietala
         // skutočných klientov (veľký strom, symlink, zamknutý dokument), chyba z callu 8. 10. 2026.

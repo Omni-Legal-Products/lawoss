@@ -17,8 +17,7 @@ import { parseFrontmatter } from "../frontmatter.ts";
 import { resolveDocumentLanguage } from "../language.ts";
 import { parseOfficeWorkingProfile, parseWorkingProfile, PROFILE_FILE, workingProfile } from "../profile.ts";
 import { inspectCardLevel, inspectOnboardingRoot, type InspectionHooks, type InspectionLimits, type OnboardingInspection, type TreeEntry } from "../onboarding/classify.ts";
-import { looksLikeMatterName } from "../onboarding/suggest-patterns.ts";
-import { findCaseNumber } from "./rules.ts";
+import { findCaseNumber, folderHintRole } from "./rules.ts";
 import { INVENTORY_SCHEMA, type ExistingMatter, type SkipReason, type TriageDocument, type TriageInventory } from "./types.ts";
 
 export const TRIAL_MARKER = ".lawoss-trial.json";
@@ -240,14 +239,17 @@ export async function scanTriage(rootInput: string, options: TriageTargetOptions
     matters.push({ id: `existing-${sha(dir).slice(0, 12)}`, path: dir, ...(fields.title ? { title: fields.title } : {}), ...(caseKey ? { caseKey } : {}), roles });
   }
   const under = (path: string, folder: string) => path.startsWith(`${folder}/`);
-  // Priamy podpriečinok klienta pomenovaný ako vec (`Kupa haly Senec`, `Spor BETA 18Cb-47-2026`) je vec aj bez
-  // karty. Ostáva na mieste: jeho dokumenty sa zaraďujú len v rámci neho a plán mu doplní kartu (test 16. 10. 2026, N2, N5).
-  // Pracovné priečinky klienta, `Spisy`, pamäť a kancelária vecami nie sú; priečinok s kartou vnútri rieši karta.
+  // Usporiadanie triedi len voľné súbory (rozhodnutie 19. 10. 2026): v koreni klienta a v jeho priečinku na zatriedenie,
+  // v prípade len v jeho koreni a jeho priečinku na zatriedenie. Pracovný je len podpriečinok, ktorého celý názov je rola
+  // (pracovný profil klienta, `NN_…`, `Korešpondencia`, `Podania 2024`); ten ostane, ako je. Každý iný priamy podpriečinok
+  // s dokumentmi je návrh prípadu: ostane na mieste, dostane kartu a vlastné pracovné priečinky (test 16. 10., N2 a N5;
+  // test 19. 10., M004) a advokát ho v náhľade môže odškrtnúť. Jeho vnorené priečinky sa nikdy nerozpustia.
+  const roleFolder = (dir: string) => clientFolders.has(dir.toLocaleLowerCase()) || /^\d{2}_/.test(dir) || dir.startsWith("_") || folderHintRole(dir) !== undefined;
   const clientFolders = new Set([...profile.folders, ...Object.values(profile.roles)].map(folder => folder.split("/")[0]!.toLocaleLowerCase()));
   const matterProfile = workingProfile(newMatterProfile?.folders, newMatterProfile?.roles, newMatterProfile?.naming, language);
   for (const dir of [...directories].filter(dir => !dir.includes("/") && !hidden(dir)).sort()) {
-    if (["spisy", "memory", "office", "_kancelaria"].includes(dir.toLocaleLowerCase()) || clientFolders.has(dir.toLocaleLowerCase())) continue;
-    if (!looksLikeMatterName(dir) || entityDirs.some(entity => entity === dir || under(entity, dir))) continue;
+    if (["spisy", "memory", "office", "_kancelaria"].includes(dir.toLocaleLowerCase()) || roleFolder(dir)) continue;
+    if (entityDirs.some(entity => entity === dir || under(entity, dir))) continue;
     if (![...files.keys()].some(path => under(path, dir) && !hidden(path))) continue;
     const caseNumber = findCaseNumber(dir);
     let roles = matterProfile.roles;
@@ -256,14 +258,14 @@ export async function scanTriage(rootInput: string, options: TriageTargetOptions
   }
   const inbox = profile.roles.inbox;
   const sortedFolders = Object.entries(profile.roles).filter(([role]) => role !== "inbox").map(([, folder]) => folder);
-  /** Vec bez karty, v ktorej dokument leží, a dôvod, ak sa v nej netriedi (vnorená vec, už zaradený). */
+  /** Vec bez karty, v ktorej dokument leží; triedi sa len voľný súbor v jej koreni alebo v jej priečinku na zatriedenie. */
   const implicitHome = (path: string): { matter: ExistingMatter; reason?: SkipReason } | undefined => {
     const matter = matters.find(item => item.implicit && under(path, item.path));
     if (!matter) return undefined;
     const rest = path.slice(matter.path.length + 1);
-    if (rest.split("/").slice(0, -1).some(looksLikeMatterName)) return { matter, reason: "in_matter" };
+    if (!rest.includes("/") || (matter.roles.inbox && under(rest, matter.roles.inbox))) return { matter };
     const sorted = Object.entries(matter.roles).filter(([role]) => role !== "inbox").map(([, folder]) => folder);
-    return sorted.some(folder => under(rest, folder)) && !(matter.roles.inbox && under(rest, matter.roles.inbox)) ? { matter, reason: "already_sorted" } : { matter };
+    return { matter, reason: sorted.some(folder => under(rest, folder)) ? "already_sorted" : "in_matter" };
   };
   const documents: TriageDocument[] = [];
   const skipped: { path: string; reason: SkipReason }[] = [];
@@ -277,11 +279,10 @@ export async function scanTriage(rootInput: string, options: TriageTargetOptions
       : matters.some(matter => !matter.implicit && under(entry.path, matter.path)) ? "in_matter"
       : entityDirs.some(dir => under(entry.path, dir)) ? "inside_entity"
       : home ? home.reason
-      // Hlbšie vnorený priečinok pomenovaný ako vec (`Stare/2025-01 Spor`) je vec aj bez karty. Jeho dokumenty
-      // ostanú spolu na mieste, roztriedenie vec nerozpustí; kartu dostane len priamy podpriečinok klienta (vyššie).
-      : entry.path.split("/").slice(0, -1).some(looksLikeMatterName) ? "in_matter"
-      : sortedFolders.some(folder => under(entry.path, folder)) && !(inbox && under(entry.path, inbox)) ? "already_sorted"
-      : undefined;
+      // Voľný súbor v koreni klienta alebo v jeho priečinku na zatriedenie sa triedi; nič iné sa nehýbe.
+      : !entry.path.includes("/") || (inbox && under(entry.path, inbox)) ? undefined
+      : sortedFolders.some(folder => under(entry.path, folder)) ? "already_sorted"
+      : "in_folder";
     if (reason) { if (reason !== "hidden") skipped.push({ path: entry.path, reason }); continue; }
     // Otvorený vo Worde: na čítanie áno, presunúť sa nedá. Preskočí sa a nahlási ako zamknutý.
     if (await lockedForWrite(join(clone.root, entry.path), options.hooks)) { skipped.push({ path: entry.path, reason: "locked" }); continue; }

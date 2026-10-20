@@ -1,11 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 import { t } from "../src/i18n";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
-import { LegalworkServerError } from "../src/app/lib/legalwork-server";
 import { friendlyError, TriagePreviewView, TriageTopline, TriageUndoSummary } from "../src/lawoss/domains/roztriedenie/triage-page";
+import { LegalworkServerError } from "../src/app/lib/legalwork-server";
+import { MAX_TRIAGE_MATTERS } from "../../../lawoss/okf/src/triage/types";
 import { offersTriageEntry, plansPreview, triageApply, triageGrant, triageLink, triageTargetRoot, triagePlan, triageReplan, triageUndo, type TriageApiPath, type TriageClient, type TriagePreview } from "../src/lawoss/domains/roztriedenie/api";
 import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
 
@@ -33,7 +34,7 @@ describe("roztriedenie v appke", () => {
     for (const label of ["Dokument", "Odkiaľ", "Kam", "Prečo", "Istota", "Nechať na zatriedenie"]) expect(out).toContain(label);
     expect(out).toContain("Komunikácia");
     expect(out).toContain("Dôležitá pošta");
-    expect(out).toContain("nová vec");
+    expect(out).toContain("nový prípad");
     expect(out).toContain("Spisová značka 8C 123/2023");
     expect(out).toContain("E-mailová správa (.eml)");
     expect(out).toContain("Rozhodnutie alebo písomnosť súdu podľa názvu („rozsudok“)");
@@ -185,6 +186,104 @@ describe("vrátenie po novom súhlase (rozhodnutie MČ 13. 10. 2026)", () => {
     expect(undoableRun({ trial: false, runs: [] })).toBeUndefined();
     expect(undoableRun(null)).toBeUndefined();
   });
+});
+
+test("náhľad je čitateľný: odkiaľ ako meno priečinka, riadky zoskupené podľa prípadu (test 19. 10. 2026)", () => {
+  const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, "sk", params);
+  const m4 = "M004 Vyúčtovanie nájmu logistického skladu", m5 = "M005 Neakceptovaný modul informačného systému";
+  const grouped: TriagePreview = {
+    ...preview, keepInInbox: [], documents: 4,
+    matters: [m4, m5].map((title, index) => ({ key: `existing-${index}`, title, folder: title, date: "2026-10-19", dateSource: "today" as const, kind: "non_contentious" as const, source: "folder" as const, documents: 2 })),
+    moves: [
+      { id: "d1", from: `${m5}/01-zmluva.docx`, to: `${m5}/01_Podklady/01-zmluva.docx`, size: 1, role: "client_documents", matter: "existing-1", source: "rules", confidence: "medium", rule: "contract", matched: "zmluva" },
+      { id: "d2", from: `${m4}/01-zmluva.docx`, to: `${m4}/01_Podklady/01-zmluva.docx`, size: 1, role: "client_documents", matter: "existing-0", source: "rules", confidence: "medium", rule: "contract", matched: "zmluva" },
+      { id: "d3", from: `${m4}/poznamky.txt`, to: `${m4}/00_Na_zatriedenie/poznamky.txt`, size: 1, role: "inbox", matter: "existing-0", source: "rules", confidence: "low", rule: "unknown" },
+      { id: "d4", from: "odpoved.eml", to: "05_Komunikacia/odpoved.eml", size: 1, role: "correspondence", source: "rules", confidence: "high", rule: "email_file", matched: ".eml" },
+    ],
+  };
+  const out = html(<TriagePreviewView preview={grouped} text={text} busy={false} inPlace onKeep={() => {}} onConfirm={() => {}} onModel={() => {}} />);
+  // Skupina na prípad: hlavička skupiny, pod ňou jeho dokumenty; najprv klient, potom prípady podľa názvu.
+  const groups = [...out.matchAll(/data-lawoss-triage-group="([^"]*)"[^>]*>(?:<[^>]+>)*([^<]+)/g)].map((match) => [match[1], match[2]]);
+  expect(groups).toEqual([["", text("root_folder")], ["existing-0", m4], ["existing-1", m5]]);
+  const body = out.slice(out.indexOf("<tbody"));
+  expect(body.indexOf(`title="${m4}/poznamky.txt"`)).toBeGreaterThan(body.indexOf(`data-lawoss-triage-group="existing-0"`));
+  expect(body.indexOf(`title="${m4}/poznamky.txt"`)).toBeLessThan(body.indexOf(`data-lawoss-triage-group="existing-1"`));
+  // Odkiaľ: meno priečinka s plnou cestou v tooltipe, nie celá cesta písaná po znakoch.
+  expect(out).toContain(`<td class="lw-triage-from" title="${m4}">${m4}</td>`);
+  expect(out).not.toMatch(/<td class="lw-triage-path/);
+  // Kam: pracovný priečinok prípadu menom, plná cesta v tooltipe.
+  expect(out).toContain(`title="${m4}/01_Podklady">01_Podklady</small>`);
+});
+
+test("existujúci priečinok sa dá odškrtnúť; v skupine je „existujúci priečinok“, nie „nový prípad“ (rozhodnutie 19. 10. 2026)", () => {
+  const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, "sk", params);
+  const m4 = "M004 Vyúčtovanie", m5 = "M005 Modul";
+  const folders: TriagePreview = {
+    ...preview, keepInInbox: [], leaveInPlace: ["existing-1"], documents: 2,
+    matters: [
+      { key: "existing-0", title: m4, folder: m4, date: "2026-10-19", dateSource: "today", kind: "non_contentious", source: "folder", documents: 1 },
+      { key: "existing-1", title: m5, folder: m5, date: "2026-10-19", dateSource: "today", kind: "non_contentious", source: "folder", documents: 0, left: true },
+    ],
+    moves: [{ id: "d1", from: `${m4}/01-zmluva.docx`, to: `${m4}/01_Podklady/01-zmluva.docx`, size: 1, role: "client_documents", matter: "existing-0", source: "rules", confidence: "medium", rule: "contract", matched: "zmluva" }],
+  };
+  const calls: [string, boolean][] = [];
+  const out = html(<TriagePreviewView preview={folders} text={text} busy={false} inPlace onKeep={() => {}} onLeave={(key, leave) => calls.push([key, leave])} onConfirm={() => {}} onModel={() => {}} />);
+  expect(out).toContain(`data-lawoss-triage-group="existing-0"`);
+  expect(out).toContain("existujúci priečinok");
+  expect(out).not.toContain("nový prípad");
+  expect(out).toMatch(/<input type="checkbox"[^>]*aria-label="Založiť ako prípad: M004 Vyúčtovanie" checked=""/);
+  expect(out).toMatch(/<input type="checkbox"[^>]*aria-label="Založiť ako prípad: M005 Modul"(?![^>]*checked)/);
+  expect(out).toContain("Priečinok ostane presne tak, ako je.");
+  // Odškrtnutý priečinok sa nepočíta medzi nové prípady.
+  expect(out).toMatch(/<dd>1<\/dd><dt>Prípady<small>z toho nové: 0<\/small><\/dt>/);
+  for (const locale of ["sk", "cs", "en", "de"] as const) for (const key of ["existing_folder_badge", "matter_keep_folder", "matter_left"]) {
+    expect(t(`lawoss.triage.${key}`, locale)).not.toBe(`lawoss.triage.${key}`);
+    expect(t(`lawoss.triage.${key}`, locale)).not.toContain("—");
+  }
+});
+
+test("replan posiela odškrtnuté priečinky", async () => {
+  const calls: [string, unknown][] = [];
+  const client: TriageClient = { lawossTriage: async <T,>(path: string, body: unknown) => { calls.push([path, body]); return {} as T; } };
+  await triageReplan(client, preview.id, [], ["existing-1"]);
+  expect(calls).toEqual([["replan", { id: preview.id, keepInInbox: [], leaveInPlace: ["existing-1"] }]]);
+});
+
+test("fix round 2: nad limit prípadov náhľad vopred povie, čo odškrtnúť, a nedovolí potvrdiť; chyba servera tiež", () => {
+  const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, "sk", params);
+  const many: TriagePreview = { ...preview, keepInInbox: [], matters: Array.from({ length: MAX_TRIAGE_MATTERS + 1 }, (_, index) => ({ key: `existing-${index}`, title: `Vec ${index}`, folder: `Vec ${index}`, date: "2026-10-19", dateSource: "today" as const, kind: "non_contentious", source: "folder" as const, documents: 1 })) };
+  const out = html(<TriagePreviewView preview={many} text={text} busy={false} inPlace onKeep={() => {}} onLeave={() => {}} onConfirm={() => {}} onModel={() => {}} />);
+  expect(out).toContain(`Naraz sa dá založiť najviac ${MAX_TRIAGE_MATTERS} prípadov.`);
+  expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Potvrdiť a roztriediť/);
+  const quiet = spyOn(console, "warn").mockImplementation(() => undefined);
+  expect(friendlyError(new LegalworkServerError(400, "triage_too_many_matters", "x"), text)).toBe(text("error_too_many_matters", { max: MAX_TRIAGE_MATTERS }));
+  quiet.mockRestore();
+  for (const locale of ["sk", "cs", "en", "de"] as const) {
+    expect(t("lawoss.triage.error_too_many_matters", locale, { max: 100 })).toContain("100");
+    expect(t("lawoss.triage.stat_matters_new", locale, { count: 2 })).toContain("2");
+    expect(t("lawoss.triage.error_too_many_matters", locale, { max: 100 })).not.toContain("—");
+  }
+  expect(t("lawoss.triage.matter_keep_folder", "de")).toBe("Als Akte anlegen");
+  expect(t("lawoss.triage.stat_matters", "sk")).toBe("Prípady");
+});
+
+test("fix round 2: prepínač modelu nesie odškrtnuté priečinky", async () => {
+  const calls: [string, unknown][] = [];
+  const client: TriageClient = { lawossTriage: async <T,>(path: string, body: unknown) => { calls.push([path, body]); return {} as T; } };
+  await triagePlan(client, "/x/klient", true, ["existing-1"]);
+  expect(calls).toEqual([["plan", { root: "/x/klient", useModel: true, leaveInPlace: ["existing-1"] }]]);
+});
+
+test("fix round 3: súbor so značkou odškrtnutého priečinka má v náhľade poznámku", () => {
+  const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, "sk", params);
+  const noted: TriagePreview = { ...preview, keepInInbox: [], matters: [], moves: [{ id: "d1", from: "Uznesenie 18Cb 47 2026.pdf", to: "00_Na_zatriedenie/Uznesenie 18Cb 47 2026.pdf", size: 1, role: "inbox", source: "rules", confidence: "medium", rule: "court_decision", matched: "uznesenie", leftFolder: "Spor BETA 18Cb-47-2026" }] };
+  const out = html(<TriagePreviewView preview={noted} text={text} busy={false} inPlace onKeep={() => {}} onConfirm={() => {}} onModel={() => {}} />);
+  expect(out).toContain("Patrí k priečinku Spor BETA 18Cb-47-2026, ktorý ste nechali bez zmeny");
+  for (const locale of ["sk", "cs", "en", "de"] as const) {
+    const note = t("lawoss.triage.reason_left_folder", locale, { name: "X" });
+    expect(note).toContain("X");
+    expect(note).not.toContain("—");
+  }
 });
 
 test("priveľký klient: kód servera triage_too_large dá advokátovi vetu v jeho jazyku (R7)", () => {

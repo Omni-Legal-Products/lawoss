@@ -87,12 +87,12 @@ export type MarketplaceEntry = {
 export const PENDING_REF = "caka-na-push";
 
 const OKF_ENTRY: MarketplaceEntry = {
-  id: "okf", name: "OKF: klienti, veci a pamäť", kind: "plugin", channel: "lab", category: "bundled",
+  id: "okf", name: "OKF: klienti, prípady a pamäť", kind: "plugin", channel: "lab", category: "bundled",
   description: "Lokálne skilly s pribalenými nástrojmi.",
   jurisdictions: ["SK", "CZ"], version: null, source: { repository: "Omni-Legal-Products/lawoss", ref: "súčasť tejto aplikácie" },
   dependencies: ["Node.js 24"], capabilities: ["local-write"],
   verification: { status: "review", checkedAt: "2026-09-20" },
-  humanGate: "Zápisy do veci sa vykonajú po potvrdení zobrazeného plánu.",
+  humanGate: "Zápisy do prípadu sa vykonajú po potvrdení zobrazeného plánu.",
   install: { scope: "workspace", action: "okf" },
 };
 

@@ -3,7 +3,7 @@ import type { OnboardingApi, OnboardingApplyResult, OnboardingPlanRequest, Onboa
 import type { TriageApiPath } from "../src/lawoss/domains/roztriedenie/api";
 import {
   addOkfFiles, childPath, connectPractice, convertRequest, documentLanguage, firstWorkspaceResult,
-  folderName, freshOfficeRequest, workspaceResults, startFreshFolder, isEmptyFolderSuggestion, matterClientPath, parentPath, practiceRequest, reorganizeTarget, retryFailed, startReorganize, type BatchItem,
+  folderName, freshOfficeRequest, workspaceResults, createReorganizeFlow, freshFolderFlow, reorganizePreview, type ReorganizeView, startFreshFolder, isEmptyFolderSuggestion, matterClientPath, parentPath, practiceRequest, reorganizeTarget, retryFailed, startReorganize, type BatchItem,
 } from "../src/lawoss/domains/onboarding/found-flow";
 
 const identity = { lawyerName: "Syntetický advokát", jurisdiction: "sk" as const, language: "sk" as const };
@@ -55,16 +55,19 @@ describe("hromadné pridanie OKF súborov", () => {
   test("zlyhanie jedného klienta nezastaví ostatných; súhrn a opakovanie len neúspešných", async () => {
     const { api, applied } = fakeApi();
     const progress: BatchItem[][] = [];
-    const items = await addOkfFiles(api, [{ root: "/p/Alfa", name: "Alfa" }, { root: "/p/Zamknutý", name: "Zamknutý" }, { root: "/p/Gama", name: "Gama" }], identity, today, next => progress.push(next));
+    // Chybu pre advokáta skladá volajúci v jazyku rozhrania; tok surovú správu nezobrazuje.
+    const describe = (reason: unknown) => `Veta pre advokáta (${reason instanceof Error ? reason.message : "?"})`;
+    const items = await addOkfFiles(api, [{ root: "/p/Alfa", name: "Alfa" }, { root: "/p/Zamknutý", name: "Zamknutý" }, { root: "/p/Gama", name: "Gama" }], identity, today, next => progress.push(next), describe);
     expect(items.map(item => item.status)).toEqual(["done", "failed", "done"]);
-    expect(items[1]?.error).toBe("locked_file");
+    expect(items[1]?.error).toBe("Veta pre advokáta (locked_file)");
     expect(applied).toHaveLength(2);
     expect(progress.at(-1)).toEqual(items);
     expect(firstWorkspaceResult(items)?.workspace?.path).toBe("/p/Alfa");
     // Spec: každý potvrdený klient je samostatný pracovný priečinok, nie len prvý.
     expect(workspaceResults(items).map(result => result.workspace?.path)).toEqual(["/p/Alfa", "/p/Gama"]);
-    const again = await retryFailed(api, items, identity, today, () => undefined);
+    const again = await retryFailed(api, items, identity, today, () => undefined, describe);
     expect(again.map(item => item.status)).toEqual(["done", "failed", "done"]);
+    expect(again[1]?.error).toBe("Veta pre advokáta (locked_file)");
     expect(applied).toHaveLength(2);
   });
 });
@@ -152,5 +155,93 @@ describe("Začať nanovo", () => {
     expect(result).not.toBe("not_empty");
     expect(calls).toEqual(["suggest /p/Nový", "acknowledge", "plan"]);
     expect(plans[0]).toMatchObject({ action: "office", parent: "/p/Nový", language: "en" });
+  });
+});
+
+describe("odolnosť voči prerušeniu usporiadania (MČ 19. 10.: stránka sa obnovila počas /triage/plan)", () => {
+  const item: BatchItem = { root: "/k/Novák", name: "Novák", status: "done", result: { result: "applied", root: "/k/Novák", clientRoot: "/k/Novák", workspace: { id: "ws-novak", path: "/k/Novák" } } };
+  const triageLog = (order: string[], label: string, plan: "ok" | "fail" | "hang" = "ok") => ({ lawossTriage: <T,>(path: TriageApiPath): Promise<T> => {
+    order.push(`${label}:${path}`);
+    if (path === "plan" && plan === "fail") return Promise.reject(new Error("Load failed"));
+    if (path === "plan" && plan === "hang") return new Promise<T>(() => undefined);
+    return Promise.resolve((path === "grant" ? { granted: true } : { id: "t", fingerprint: "f", moves: [] }) as T);
+  } });
+  const flow = (order: string[], options: { plan?: "ok" | "fail" | "hang"; fresh?: boolean; register?: () => Promise<void> } = {}) => {
+    const views: ReorganizeView[] = [];
+    const done: unknown[] = [];
+    const client = { current: triageLog(order, "old", options.plan) };
+    const reorganize = createReorganizeFlow({
+      client,
+      register: async () => { order.push("register"); await options.register?.(); return options.fresh ? triageLog(order, "new", options.plan) : undefined; },
+      done: async (result) => { done.push(result); },
+      show: (view) => views.push(view),
+    });
+    return { reorganize, views, done, client };
+  };
+
+  test("pracovný priečinok je zaregistrovaný a vybraný skôr, než sa začne usporiadanie; zlyhaný plán ukáže Skúsiť znova", async () => {
+    const order: string[] = [];
+    const { reorganize, views } = flow(order, { plan: "fail" });
+    await reorganize.begin([item], item.result);
+    expect(order).toEqual(["register", "old:grant", "old:plan"]);
+    expect(views.map(view => view.name)).toEqual(["reorganizeFailed"]);
+  });
+  test("plán, ktorý nikdy neskončí (obnovenie stránky), už nájde priečinok zaregistrovaný", async () => {
+    const order: string[] = [];
+    void flow(order, { plan: "hang" }).reorganize.begin([item], item.result);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(order).toEqual(["register", "old:grant", "old:plan"]);
+  });
+  test("zlyhaná registrácia nespustí usporiadanie", async () => {
+    const order: string[] = [];
+    const { reorganize } = flow(order, { register: async () => { throw new Error("register failed"); } });
+    await expect(reorganize.begin([item], item.result)).rejects.toThrow("register failed");
+    expect(order).toEqual(["register"]);
+  });
+  test("po registrácii ide usporiadanie (aj ďalší klienti) cez nového klienta servera (nový token alebo port)", async () => {
+    const order: string[] = [];
+    const { reorganize, views, client } = flow(order, { fresh: true });
+    const second: BatchItem = { ...item, root: "/k/Beta", name: "Beta" };
+    await reorganize.begin([item, second], item.result);
+    await reorganize.show([second], item.result);
+    expect(order).toEqual(["register", "new:grant", "new:plan", "new:grant", "new:plan"]);
+    expect(views.map(view => view.name)).toEqual(["reorganize", "reorganize"]);
+    expect(client.current).not.toBeUndefined();
+  });
+  test("prázdny front: bez registrácie a usporiadania rovno koniec", async () => {
+    const order: string[] = [];
+    const { reorganize, done } = flow(order);
+    await reorganize.begin([], item.result);
+    expect(order).toEqual([]);
+    expect(done).toEqual([item.result]);
+  });
+  test("náhľad ďalšieho klienta: úspech vráti náhľad, zlyhanie dôvod (na Skúsiť znova)", async () => {
+    const ok = { lawossTriage: async <T,>(path: TriageApiPath): Promise<T> => (path === "grant" ? { granted: true } : { id: "t", fingerprint: "f", moves: [] }) as T };
+    expect("preview" in await reorganizePreview(ok, item)).toBe(true);
+    const bad = { lawossTriage: async <T,>(): Promise<T> => { throw new Error("x"); } };
+    expect("failure" in await reorganizePreview(bad, item)).toBe(true);
+  });
+});
+
+describe("Začať nanovo na zdieľanom alebo cloudovom disku (review 6d)", () => {
+  const shared = "/Users/a/Library/CloudStorage/GoogleDrive-a/Shared drives/Kancelária";
+  test("pred zápisom sa opýta; Zrušiť nič nezapíše", async () => {
+    const asked: string[] = [];
+    let started = false;
+    const result = await freshFolderFlow({ pick: async () => shared, confirm: async (kind) => { asked.push(kind); return false; }, start: async () => { started = true; return "zapísané"; } });
+    expect(result).toBeNull();
+    expect(asked).toEqual(["shared"]);
+    expect(started).toBe(false);
+  });
+  test("Pokračovať zapíše do vybraného priečinka", async () => {
+    const started: string[] = [];
+    expect(await freshFolderFlow({ pick: async () => shared, confirm: async () => true, start: async (parent) => { started.push(parent); return "zapísané"; } })).toBe("zapísané");
+    expect(started).toEqual([shared]);
+  });
+  test("obyčajný priečinok sa nepýta a zrušený výber nič nerobí", async () => {
+    let asked = false;
+    expect(await freshFolderFlow({ pick: async () => "/Users/a/Nová kancelária", confirm: async () => { asked = true; return true; }, start: async () => "zapísané" })).toBe("zapísané");
+    expect(asked).toBe(false);
+    expect(await freshFolderFlow({ pick: async () => null, confirm: async () => true, start: async () => "zapísané" })).toBeNull();
   });
 });

@@ -79,7 +79,7 @@ export function groupPlan(rows: readonly PlanEntry[], context: PlanGroupContext)
   } else if (folder !== title) {
     // Spisová značka má lomítko (`MSPH 79 INS 1/2026`); názov priečinka je jeden
     // segment, názov veci v karte ostáva pôvodný. Advokát musí vidieť oboje.
-    groups.pozornost.push({ label: folder, noteKey: "lawoss.setup.plan.sanitized", noteParams: { title }, note: `názov priečinka sa líši od názvu veci „${title}“ — upravený na jeden segment` });
+    groups.pozornost.push({ label: folder, noteKey: "lawoss.setup.plan.sanitized", noteParams: { title }, note: `názov priečinka sa líši od názvu prípadu „${title}“ — upravený na jeden segment` });
   }
 
   if (form.subject === "pravnicka-osoba" || form.subject === "fyzicka-osoba-podnikatel") {
@@ -87,7 +87,7 @@ export function groupPlan(rows: readonly PlanEntry[], context: PlanGroupContext)
   }
 
   if (form.subject !== "spis" && form.subject !== "projekt") {
-    if (!form.country?.trim()) groups.pozornost.push({ label: "Krajina klienta", labelKey: "lawoss.setup.plan.country", noteKey: "lawoss.setup.plan.missingCountry", note: "doplň krajinu; jurisdikcia veci ju nenahrádza" });
+    if (!form.country?.trim()) groups.pozornost.push({ label: "Krajina klienta", labelKey: "lawoss.setup.plan.country", noteKey: "lawoss.setup.plan.missingCountry", note: "doplň krajinu; jurisdikcia prípadu ju nenahrádza" });
     groups.pozornost.push({ label: "Overenie subjektu", labelKey: "lawoss.setup.plan.verification", noteKey: "lawoss.setup.plan.unverified", note: "zatiaľ neoverené — preverenie sa vykoná pri inicializácii; samotná požiadavka nie je výsledkom" });
   }
 
