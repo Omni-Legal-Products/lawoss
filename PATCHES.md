@@ -34,6 +34,12 @@ Review doplnenie: EML s prázdnym telom a úplne čitateľnými prílohami môž
 | `apps/server/src/opencode-plugins/office-plugin-shared.ts`, `apps/app/src/react-app/infra/query-client.ts`, `apps/app/src/react-app/shell/session-route.tsx` | Diagnostická publikácia neblokuje EOF pôvodnej provider odpovede: najviac osem nezávislých úloh vlastní plugin, dispose ich zruší a odčerpá; workspace lookup zachová caller abort aj svoj timeout. Po trvalom zápise server oznámi sessions sync a existujúci shell invaliduje session snapshots; aktívne sa znovu načítajú a neaktívne ostávajú stale. |
 | `apps/server/src/opencode-plugins/legalwork-capabilities-knowledge.ts`, `apps/server/src/routes/sessions.ts`, `apps/server/src/wiki/agent-access.ts` | Existujúci managed plugin pripája privátny provider observation hook; nonce sa odstráni pred vzdialeným fetch. Úzko autorizovaný endpoint overí skutočný assistant/user/provider/model a ukladá iba konečný kód do app-owned runtime SQLite. Messages/snapshot zobrazia odmietnutie podpisu iba pri nedokončenom terminálnom idle ťahu, po reštarte rovnako; úspešný retry ani tool step sa neprepíše. Bez overeného witness sa prázdny Gemini ťah označí ako incomplete/unknown. Engine ostáva 1.18.29; opaque reasoning/signature ani engine DB sa nemenia. Toto je oprava pozorovateľnosti, príčina incidentov s podpisom zostáva otvorená. |
 
+## Limit štartu enginu na Windows (2026-10-19)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/managed-opencode.ts` | +1 import `engineStartTimeoutMs` z nového `apps/server/src/lawoss/engine-start-timeout.ts`; predvolený limit `options.timeoutMs ?? 15000` nahrádza `options.timeoutMs ?? engineStartTimeoutMs()` (+1 riadok komentára). Na Windows 90 s, inde ostáva 15 s; `LAWOSS_ENGINE_START_TIMEOUT_MS` (1000 až 600000) limit prepíše. Explicitný `timeoutMs` volajúceho má naďalej prednosť. Dôvod: na Windows s antivírusom sidecar štartoval 28 až 46 s a alfa skončila na „Timeout waiting for OpenCode server after 15000ms“ (lawoss#185). |
+
 ## Synthetic scenario benchmark completion and grading (2026-10-18)
 
 | Súbory | Downstream doplnenie a dôvod |
