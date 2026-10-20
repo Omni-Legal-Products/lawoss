@@ -33,6 +33,7 @@ import { ClientPickerDialog } from "./client-picker";
 import { clientGroupDirectory, clientNavAnchor, clientNavModel, type ClientOverviewState } from "./client-projects";
 import { clientToggle, focusedClientKey, matterToggle, routeFocus, type TreeClient, type TreeMatter } from "./client-tree";
 import { useClientTree } from "./client-tree-data";
+import { LinkedFoldersNavView, useLinkedFolders } from "./linked-folders-view";
 import { clientDeadlinesLink, clientOverviewLink, LEHOTY_PATH, liteMatterLink, NEW_CLIENT_PATH } from "./links";
 import { matterUrgency, useMinuteTick } from "./live";
 import { comparable, within, type MatterConversation } from "./matter-conversations";
@@ -324,10 +325,10 @@ export function useLawossNewChat(): (openProjectId: string | null, create: (work
   return nav?.startNewChat ?? (() => false);
 }
 
-/** Stránka Projekty: Prípady a Lehoty len pri projektoch, ktoré sú klienti OKF. */
+/** Stránka Projekty: Prípady a Lehoty len pri projektoch, ktoré sú klienti OKF; Pripojené priečinky sú len ukazovateľ panela (Domov). */
 export function useClientProjectItem(): (key: string, workspaceId: string) => boolean {
   const nav = usePublishedClientNav();
-  return (key, workspaceId) => (key !== "projectMatters" && key !== "projectDeadlines") || Boolean(nav?.model.clients.has(workspaceId));
+  return (key, workspaceId) => key !== "projectLinkedFolders" && ((key !== "projectMatters" && key !== "projectDeadlines") || Boolean(nav?.model.clients.has(workspaceId)));
 }
 
 /** Položka „Prípady“ v natívnej mape položiek projektu. */
@@ -377,6 +378,16 @@ export function ClientDeadlinesNavItem({ workspaceId, className }: { workspaceId
       {hot ? <><span className="lw-nav-urgency" data-urgency="hot" aria-hidden /><span className="sr-only">{t("lawoss.lite.urgent", locale)}</span></> : null}
     </SidebarMenuSubButton>
   </SidebarMenuSubItem>;
+}
+
+/** Položka „Pripojené priečinky“ pod klientom: počet z natívneho zoznamu povolených priečinkov, klik otvorí Domov. */
+export function ClientLinkedFoldersNavItem({ workspaceId, className, onOpen }: { workspaceId: string; className?: string; onOpen?: () => void }) {
+  const nav = use(ClientNavContext);
+  const locale = useLocale();
+  const client = Boolean(nav?.model.clients.has(workspaceId));
+  const query = useLinkedFolders(nav?.connection ?? null, workspaceId, client);
+  if (!client) return null;
+  return <LinkedFoldersNavView locale={locale} count={query.data?.folders.length ?? 0} className={className} onOpen={onOpen} />;
 }
 
 type TreeActions = {

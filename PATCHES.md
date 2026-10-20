@@ -1230,3 +1230,13 @@ Rozhodnutie MČ 19. 10. 2026: klient = natívny projekt (registrovaný priečino
 | Súbory | Zmena a dôvod |
 |---|---|
 | `apps/app/src/react-app/shell/welcome-route.tsx` | Po dokončení onboardingu naviguje na `completion.landing`, ak ho dokončenie nesie, inak ako doteraz na domov priečinka (+1 komentár, 1 riadok zmenený). LAWOSS `FRESH_OFFICE_COMPLETION` (`lawoss/domains/onboarding/found-flow.ts`) ho nastaví pri „Začať nanovo“ na Klienti a prípady: nová kancelária sa ako pracovný priečinok neregistruje (každý klient je samostatný priečinok), advokát pristane pri „Pridať klienta“. Vetva `fix/test-kolo-2`, test vlastníka 19. 10. 2026. |
+
+### Pripojené priečinky klienta (2026-10-20, feat/pripojene-priecinky)
+
+Rozhodnutie MČ 19. 10. 2026: klient má jeden hlavný priečinok (OKF) a k nemu pripojené ďalšie, ktoré agent smie čítať; využije natívne povolené priečinky. Zoznam aj zápis sú natívne `listAuthorizedFolders` / `setAuthorizedFolders` projektu klienta (`permission.external_directory`), zámok firmy `tools.permissions` ako v Nastaveniach. Logika je v `apps/app/src/lawoss/lite/linked-folders.ts` a `linked-folders-view.tsx`; upstream súbory majú len tenké háky.
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/shell-config.tsx` | `ProjectNavKey` + `projectLinkedFolders`, v `DEFAULT_PROJECT_ORDER` hneď za `projectDeadlines`, boolean v `ShellConfig` predvolene `true`. `LAWOSS_PROJECT_ITEMS` ho obsahuje a `readProjectOrder` dopĺňa chýbajúci kľúč za jeho predchodcu (Domov → Prípady → Lehoty → Pripojené priečinky) namiesto všetkých naraz za Domov. Dôvod: položka pod klientom sa dá vypnúť v natívnom prispôsobení panela ako Prípady a Lehoty. |
+| `apps/app/src/react-app/domains/session/sidebar/sidebar-customization.tsx` | Položka `SIDEBAR_ITEMS.projectLinkedFolders` (`lawoss.lite.linked_folders_title`, ikona `FolderSymlink`) pre prispôsobenie panela (+1 riadok, +1 import). |
+| `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Mapa položiek projektu vykreslí `ClientLinkedFoldersNavItem` (počet pripojených priečinkov klienta, klik otvorí Domov); projekt, ktorý nie je klient, alebo klient bez pripojených priečinkov nedostane nič (+1 riadok, +1 import). |

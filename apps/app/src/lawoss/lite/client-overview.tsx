@@ -1,7 +1,8 @@
 /** @jsxImportSource react */
 /**
  * Prehľad klienta z OKF na natívnom Domove projektu (slot `extra` v `ProjectHome`, MČ 19. 10. 2026):
- * prípady klienta s najbližšou lehotou, súčty a najbližšie lehoty s odkazom na register lehôt klienta.
+ * prípady klienta s najbližšou lehotou, súčty a najbližšie lehoty s odkazom na register lehôt klienta,
+ * pod nimi pripojené priečinky klienta (natívne povolené priečinky projektu, `linked-folders-view.tsx`).
  * Projekt, ktorý nie je klient OKF, nedostane nič.
  */
 import { ArrowUpRight } from "lucide-react";
@@ -14,9 +15,11 @@ import { cn } from "@/lib/utils";
 import { isOfficeFile, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
 import { dayClass, formatDay, today } from "../okf/read-model";
 import { deadlineText, urgencyOf } from "../okf/view-rules";
-import { clientDeadlines, ownerOfFolder } from "./client-projects";
+import { clientDeadlines, clientGroupDirectory, ownerOfFolder } from "./client-projects";
 import { useClientNavData, usePublishedClientNav, type PublishedClientNav } from "./client-nav";
 import { clientDeadlinesLink, liteDeadlineLink, liteMatterLink } from "./links";
+import { otherClientFolders } from "./linked-folders";
+import { LinkedFolders } from "./linked-folders-view";
 import { nextDeadline } from "./today-model";
 import { useMinuteTick } from "./live";
 
@@ -45,8 +48,15 @@ function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientNav; wor
   if (!scope || !data || !model.clients.has(workspaceId) || nav.excludedWorkspaceIds.includes(workspaceId)) return null;
   const todayIso = today();
   const own = clientDeadlines(data, scope, (folder) => ownerOfFolder(model.visible, folder) === workspaceId, todayIso);
-  return <ClientOverviewView workspaceId={workspaceId} locale={locale} todayIso={todayIso} matters={own.matters}
-    deadlines={[...own.overdue, ...own.upcomingDeadlines]} soon={own.totals.deadlinesWithin7Days} partial={data.coverage.status !== "complete"} />;
+  const clientRoot = nav.connection?.workspaces.find((w) => w.id === workspaceId)?.path ?? "";
+  // Iní klienti: registrovaní klienti panela a priečinky klientov z prehľadu praxe (únik medzi klientmi).
+  const otherClients = otherClientFolders(clientRoot, (nav.connection?.workspaces ?? []).filter((w) => model.clients.has(w.id)),
+    nav.groups.flatMap((group) => clientGroupDirectory(scope, group) ?? []));
+  return <div className="space-y-4">
+    <ClientOverviewView workspaceId={workspaceId} locale={locale} todayIso={todayIso} matters={own.matters}
+      deadlines={[...own.overdue, ...own.upcomingDeadlines]} soon={own.totals.deadlinesWithin7Days} partial={data.coverage.status !== "complete"} />
+    <LinkedFolders connection={nav.connection} workspaceId={workspaceId} practiceRoot={scope.practiceRoot ?? null} otherClients={otherClients} locale={locale} />
+  </div>;
 }
 
 export function ClientOverviewView({ workspaceId, locale, todayIso, matters, deadlines, soon, partial = false }: {

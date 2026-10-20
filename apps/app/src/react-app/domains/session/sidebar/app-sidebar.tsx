@@ -10,7 +10,7 @@ import * as React from "react";
 import legalworkMarkDark from "../../../../../../../lawoss/brand/lawoss-mark.svg";
 import { LawossWordmark } from "../../../../lawoss/shell/wordmark";
 import { LawossNav } from "../../../../lawoss/shell/layout";
-import { ClientDeadlinesNavItem, ClientMattersNavItem, ClientNavProvider, useHiddenClientProjects, useLawossNewChat } from "@/lawoss/lite/client-nav";
+import { ClientDeadlinesNavItem, ClientLinkedFoldersNavItem, ClientMattersNavItem, ClientNavProvider, useHiddenClientProjects, useLawossNewChat } from "@/lawoss/lite/client-nav";
 import { LITE_CLIENTS_PATH, NEW_CLIENT_PATH } from "@/lawoss/lite/links";
 import { useChatSectionVisibility } from "@/lawoss/lite/chat-sections";
 import { OkfWorkspaceSkillSync } from "@/lawoss/okf/workspace-skill-sync";
@@ -1140,6 +1140,7 @@ function WorkspaceSidebarGroup({
                   </SidebarMenuSubItem>,
                   projectMatters: <ClientMattersNavItem key="projectMatters" workspaceId={workspace.id} className={PROJECT_FEATURE_CLASS} />,
                   projectDeadlines: <ClientDeadlinesNavItem key="projectDeadlines" workspaceId={workspace.id} className={PROJECT_FEATURE_CLASS} />,
+                  projectLinkedFolders: <ClientLinkedFoldersNavItem key="projectLinkedFolders" workspaceId={workspace.id} className={PROJECT_FEATURE_CLASS} onOpen={() => { void ctx.onOpenProjectPage(workspace.id, "home"); }} />,
                   projectReviews: <SidebarMenuSubItem key="projectReviews">
                     <SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "reviews")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "reviews"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "reviews")} onClick={() => { void ctx.onOpenProjectPage(workspace.id, "reviews"); }}>
                       <TableProperties className="size-4" strokeWidth={1.5} />
