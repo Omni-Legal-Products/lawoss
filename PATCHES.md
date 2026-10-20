@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Panel doplnku Office bez editorov xlsx/pptx (2026-10-20)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/vite.wordaddin.config.ts` | Plugin `lawoss-office-editor-stub` (`enforce: "pre"`) presmeruje importy `artifact-xlsx-editor` a `artifact-pptx-editor` na nový LAWOSS súbor `apps/app/src/lawoss/word-addin/office-editor-stub.tsx`. Ten má rovnaké props a namiesto editora ukáže lokalizovanú výzvu otvoriť súbor v aplikácii LAWOSS. Agentovi vracia jasnú chybu, nie „editor sa ešte načítava“. Zmena platí pre `dev:word-addin` aj pre dodávaný `build:word-addin`. Desktopová aplikácia editory nemení. Dôvod: taskpane montuje celý `SessionRoute`, takže Rollup parsoval aj lazy editory (Univer ~15 MB, pptx-react-viewer ~14,6 MB kódu) a watch build po syncoch v0.2.4 a v0.2.9 padal na „JavaScript heap out of memory“. Meranie na `d12701a7`, Node 24.21, `vite build --watch`: 10 727 → 8 094 modulov, peak heapUsed 4,64 GB → 2,79 GB (predvolený limit 4 288 MB), prvý build 43 s → 26 s. Zmenu správania schválil MČ 20. 10. 2026. |
+
 ## Studený štart enginu na Windows (2026-10-19)
 
 | Súbory | Downstream doplnenie a dôvod |
