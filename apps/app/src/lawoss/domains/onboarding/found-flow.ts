@@ -7,6 +7,7 @@ import { hasLegalForm } from "../../../../../../lawoss/okf/src/onboarding/sugges
 import { triageGrant, triagePlan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { LITE_CLIENTS_PATH } from "../../lite/links";
 import type { OnboardingCompletion } from "./lawoss-welcome-page";
+import type { ClientChatOutcome, ClientChatRequest, ClientChatUnavailable } from "./client-chat";
 import type { DocumentLanguage, ExistingPlanRequest, Jurisdiction, OfficePlanRequest, OnboardingApi, OnboardingApplyResult, OnboardingSuggestion, PracticePlanRequest } from "./api";
 
 export type FoundIdentity = { lawyerName: string; jurisdiction: Jurisdiction; language: Language };
@@ -196,6 +197,35 @@ export function createReorganizeFlow(deps: {
     await show(queue, result);
   };
   return { begin, show };
+}
+
+/** Chat sa neotvoril: dôvod, klienti pre náhradné usporiadanie podľa tabuľky a výsledok pre dokončenie. */
+export type ClientChatView = { name: "chatUnavailable"; reason: ClientChatUnavailable; queue: BatchItem[]; result?: OnboardingApplyResult };
+
+/**
+ * Chat s klientom po pridaní priečinka (MČ 19. 10. 2026). `begin` najprv zaregistruje a vyberie priečinok
+ * (ako usporiadanie), potom otvorí chat s pripravenou správou v priečinku prvého pridaného klienta (pri praxi
+ * prvý úspešný; ostatní sa zaregistrujú s ním cez dokončenie volajúceho). Chat, ktorý sa neotvoril, ukáže
+ * náhradnú obrazovku; dokončenie onboardingu pristane v otvorenom chate (`landing`).
+ */
+export function createClientChatFlow(deps: {
+  register: (result?: OnboardingApplyResult) => Promise<unknown>;
+  openChat: (request: ClientChatRequest) => Promise<ClientChatOutcome>;
+  prompt: (name: string) => string;
+  done: (result: OnboardingApplyResult | undefined, landing: string) => Promise<void> | void;
+  show: (view: ClientChatView) => void;
+}) {
+  const begin = async (queue: BatchItem[], result?: OnboardingApplyResult): Promise<void> => {
+    const target = queue.find(item => item.status === "done" && item.result?.workspace) ?? queue.find(item => item.status === "done");
+    if (!target) { deps.show({ name: "chatUnavailable", reason: "failed", queue, result }); return; }
+    const registered = target.result ?? result;
+    await deps.register(registered);
+    const request: ClientChatRequest = { workspaceId: target.result?.workspace?.id, directory: reorganizeTarget(target), prompt: deps.prompt(target.name) };
+    const outcome = await deps.openChat(request).catch((reason: unknown): ClientChatOutcome => { console.warn("[lawoss] client chat after adding a folder", reason); return { unavailable: "failed" }; });
+    if ("route" in outcome) await deps.done(registered, outcome.route);
+    else deps.show({ name: "chatUnavailable", reason: outcome.unavailable, queue, result: registered });
+  };
+  return { begin };
 }
 
 /**

@@ -1230,3 +1230,9 @@ Rozhodnutie MČ 19. 10. 2026: klient = natívny projekt (registrovaný priečino
 | Súbory | Zmena a dôvod |
 |---|---|
 | `apps/app/src/react-app/shell/welcome-route.tsx` | Po dokončení onboardingu naviguje na `completion.landing`, ak ho dokončenie nesie, inak ako doteraz na domov priečinka (+1 komentár, 1 riadok zmenený). LAWOSS `FRESH_OFFICE_COMPLETION` (`lawoss/domains/onboarding/found-flow.ts`) ho nastaví pri „Začať nanovo“ na Klienti a prípady: nová kancelária sa ako pracovný priečinok neregistruje (každý klient je samostatný priečinok), advokát pristane pri „Pridať klienta“. Vetva `fix/test-kolo-2`, test vlastníka 19. 10. 2026. |
+
+### Chat s klientom po pridaní priečinka (2026-10-20, feat/chat-po-pridani)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/welcome-route.tsx` | Odovzdá `onOpenClientChat` z LAWOSS `lawoss/domains/onboarding/client-chat-open.ts` do `LawossWelcomePage` s predvoleným modelom z `local.prefs` (+1 import, +1 komentár, 1 riadok zmenený). „Toto som našiel“ potom pri klientovi ponúkne „Otvoriť chat s klientom“: po registrácii skontroluje AI hranice a model, nainštaluje skilly OKF, overí `/novy-spis` v engine a založí chat v priečinku klienta s pripravenou prvou správou; dokončenie onboardingu pristane v chate cez existujúce `completion.landing`. Rozhodnutie MČ 19. 10. 2026: po pridaní existujúceho priečinka klienta sa otvorí chat ku klientovi, tabuľka usporiadania ostane ako pokročilá voľba. |

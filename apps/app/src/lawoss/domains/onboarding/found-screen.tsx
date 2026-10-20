@@ -7,7 +7,8 @@ import { useLocale } from "@/i18n/use-locale";
 import { toggledLeave, triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { friendlyError, TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
-import { addOkfFiles, childPath, cloudFolderKind, connectPractice, firstWorkspaceResult, folderName, matterClientPath, createReorganizeFlow, retryFailed, workspaceResults, type BatchItem, type FoundIdentity } from "./found-flow";
+import { addOkfFiles, childPath, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientPath, createReorganizeFlow, retryFailed, workspaceResults, type BatchItem, type FoundIdentity } from "./found-flow";
+import { clientChatPrompt, type ClientChatOutcome, type ClientChatRequest, type ClientChatUnavailable } from "./client-chat";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
 import { ScreenHead } from "./folder-step";
@@ -18,7 +19,8 @@ import type { OnboardingCompletion } from "./lawoss-welcome-page";
 type Text = (key: FoundTextKey, params?: Record<string, string | number>) => string;
 export type FoundLevel = "practice" | "client" | "matter";
 type Scope = "client" | "practice";
-type Answer = "no" | "yes";
+/** `chat`: OKF súbory a chat s klientom (MČ 19. 10. 2026); `yes`: usporiadanie podľa tabuľky. */
+type Answer = "no" | "yes" | "chat";
 
 const SCOPES: readonly Scope[] = ["client", "practice"];
 
@@ -73,15 +75,26 @@ type ViewProps = {
   onAnswer: (answer: Answer) => void; onChangeFolder: () => void;
   /** Kancelária v podpriečinku: pripojiť priamo ten podpriečinok. */
   onPickRoot: (root: string) => void;
+  /** Volajúci vie otvoriť chat s klientom: pri klientovi je chat hlavná voľba a tabuľka pokročilá. */
+  chat?: boolean;
 };
 
-export function FoundView({ text, busy, suggestion, level, scope, selected, onLevel, onScope, onToggle, onAll, onAnswer, onChangeFolder, onPickRoot }: ViewProps) {
+export function FoundView({ text, busy, suggestion, level, scope, selected, onLevel, onScope, onToggle, onAll, onAnswer, onChangeFolder, onPickRoot, chat = false }: ViewProps) {
   const yesDisabled = level === "practice" && scope === "practice";
   // Prax po klientoch bez označeného klienta: nie je čo urobiť, kancelária sa nezapíše.
   const nothingSelected = level === "practice" && scope === "client" && selected.length === 0;
   const parentName = folderName(matterClientPath(suggestion.root));
   const noClients = level === "practice" && scope === "client" && suggestion.clients.length === 0;
   const cloud = cloudFolderKind(suggestion.root);
+  // Chat s klientom len pri jednom klientovi; prax ho ponúkne po pridaní súborov (BatchView), prípad pripája klienta.
+  const chatChoice = chat && level === "client";
+  const yesChoice = (
+    <section className="lw-onb-choice">
+      <h3>{text(chatChoice ? "answerTable" : "answerYes")}</h3>
+      <p>{yesDisabled ? text("answerYesDisabled") : text(level === "practice" ? "answerYesPractice" : "answerYesHint")}</p>
+      <button type="button" className="lw-btn" disabled={busy || yesDisabled || nothingSelected} onClick={() => onAnswer("yes")}>{text(chatChoice ? "answerTable" : "answerYes")}</button>
+    </section>
+  );
   return (
     <div className="grid gap-5" data-lawoss-found>
       {/* Návrat na výber priečinka je pri nadpise: pod návrhom a odpoveďami by bol až po rolovaní (MČ 19. 10.). */}
@@ -140,21 +153,31 @@ export function FoundView({ text, busy, suggestion, level, scope, selected, onLe
       ) : null}
       {level !== "matter" ? (
         <section className="grid gap-3">
-          <h3 className="font-semibold">{text("reorganizeQuestion")}</h3>
+          <h3 className="font-semibold">{text(chatChoice ? "nextQuestion" : "reorganizeQuestion")}</h3>
           <OkfNotice text={text} />
           {noClients ? <p className="lw-status warn">{text("noClientsHint")}</p> : null}
           <div className="lw-onb-choices">
+            {chatChoice ? (
+              <section className="lw-onb-choice">
+                <h3>{text("answerChat")}</h3>
+                <p>{text("answerChatHint")}</p>
+                <button type="button" className="lw-btn gold" disabled={busy} onClick={() => onAnswer("chat")}>{text("answerChat")}</button>
+              </section>
+            ) : null}
             <section className="lw-onb-choice">
               <h3>{text("answerNo")}</h3>
               <p>{text("answerNoHint")}</p>
-              <button type="button" className="lw-btn gold" disabled={busy || nothingSelected} onClick={() => onAnswer("no")}>{text("answerNo")}</button>
+              <button type="button" className={chatChoice ? "lw-btn" : "lw-btn gold"} disabled={busy || nothingSelected} onClick={() => onAnswer("no")}>{text("answerNo")}</button>
             </section>
-            <section className="lw-onb-choice">
-              <h3>{text("answerYes")}</h3>
-              <p>{yesDisabled ? text("answerYesDisabled") : text(level === "practice" ? "answerYesPractice" : "answerYesHint")}</p>
-              <button type="button" className="lw-btn" disabled={busy || yesDisabled || nothingSelected} onClick={() => onAnswer("yes")}>{text("answerYes")}</button>
-            </section>
+            {chatChoice ? null : yesChoice}
           </div>
+          {/* Tabuľka usporiadania ostáva ako pokročilá voľba (MČ 19. 10. 2026). */}
+          {chatChoice ? (
+            <details className="grid gap-2">
+              <summary className="cursor-pointer text-sm font-medium">{text("advanced")}</summary>
+              <div className="mt-2">{yesChoice}</div>
+            </details>
+          ) : null}
           <p className="text-xs text-muted-foreground">{text("acknowledge")}</p>
         </section>
       ) : null}
@@ -162,8 +185,10 @@ export function FoundView({ text, busy, suggestion, level, scope, selected, onLe
   );
 }
 
-export function BatchView({ text, busy, items, answer, onRetry, onContinue, onChangeFolder }: { text: Text; busy: boolean; items: readonly BatchItem[]; answer?: Answer; onRetry: () => void; onContinue: () => void; onChangeFolder?: () => void }) {
+export function BatchView({ text, busy, items, answer, onRetry, onContinue, onChangeFolder, onChat }: { text: Text; busy: boolean; items: readonly BatchItem[]; answer?: Answer; onRetry: () => void; onContinue: () => void; onChangeFolder?: () => void; onChat?: () => void }) {
   const done = items.filter(item => item.status === "done").length;
+  // Posledný krok praxe (a klienta po zopakovaní): chat s prvým pridaným klientom; tabuľka ide po klientoch ďalej.
+  const chatWith = onChat && answer !== "yes" ? items.find(item => item.status === "done") : undefined;
   const failed = items.filter(item => item.status === "failed");
   const pending = items.some(item => item.status === "pending");
   return (
@@ -174,9 +199,10 @@ export function BatchView({ text, busy, items, answer, onRetry, onContinue, onCh
         <div className="flex gap-2">
           {failed.length ? <button type="button" className="lw-btn" disabled={busy} onClick={onRetry}>{text("retry")}</button> : null}
           {/* Nikto nepribudol: nie je čo otvoriť ani usporiadať, ostáva iný priečinok. */}
+          {chatWith && onChat ? <button type="button" className="lw-btn gold" disabled={busy} onClick={onChat}>{text("chatWith", { name: chatWith.name })}</button> : null}
           {done === 0 && onChangeFolder
             ? <button type="button" className="lw-btn gold" disabled={busy} onClick={onChangeFolder}>{text("changeFolder")}</button>
-            : <button type="button" className="lw-btn gold" disabled={busy} onClick={onContinue}>{text(answer === "yes" ? "nextClient" : "open")}</button>}
+            : <button type="button" className={chatWith ? "lw-btn" : "lw-btn gold"} disabled={busy} onClick={onContinue}>{text(answer === "yes" ? "nextClient" : "open")}</button>}
         </div>
       ) : null}
     </div>
@@ -218,6 +244,29 @@ export function ReorganizeFailedView({ text, busy, name, message, more, onRetry,
   );
 }
 
+const CHAT_REASON: Record<ClientChatUnavailable, FoundTextKey> = { "no-model": "chatNoModel", boundaries: "chatBoundaries", failed: "chatFailed" };
+
+/**
+ * Chat sa neotvoril (bez modelu, zapnuté AI hranice, zlyhanie): krátka veta, cesta k nastaveniu alebo Skúsiť
+ * znova, a náhradne usporiadanie podľa tabuľky či otvorenie bez chatu. Priečinok je už pripojený.
+ */
+export function ChatUnavailableView({ text, busy, name, reason, onSettings, onRetry, onTable, onFinish }: { text: Text; busy: boolean; name: string; reason: ClientChatUnavailable; onSettings: () => void; onRetry: () => void; onTable: () => void; onFinish: () => void }) {
+  return (
+    <div className="grid gap-3" data-lawoss-chat-unavailable={reason}>
+      <ScreenHead title={text("chatTitle", { name })} />
+      <p className="lw-status warn" role="alert">{text(CHAT_REASON[reason])}</p>
+      <p className="text-muted-foreground">{text("chatFallbackHint")}</p>
+      <div className="flex flex-wrap gap-2">
+        {reason === "failed"
+          ? <button type="button" className="lw-btn gold" disabled={busy} onClick={onRetry}>{text("retryReorganize")}</button>
+          : <button type="button" className="lw-btn gold" disabled={busy} onClick={onSettings}>{text(reason === "boundaries" ? "openBoundaries" : "connectProvider")}</button>}
+        <button type="button" className="lw-btn" disabled={busy} onClick={onTable}>{text("answerTable")}</button>
+        <button type="button" className="lw-btn" disabled={busy} onClick={onFinish}>{text("open")}</button>
+      </div>
+    </div>
+  );
+}
+
 type Props = {
   api: Pick<OnboardingApi, "planOnboarding" | "applyOnboarding" | "updateOnboardingProfile" | "suggestOnboarding">;
   triage: TriageClient;
@@ -237,16 +286,25 @@ type Props = {
   onError: (reason: unknown) => void;
   /** Nový krok zmaže starý pruh chyby nad obrazovkou (review 6c). */
   onClearError: () => void;
+  /**
+   * Chat s klientom v jeho priečinku s pripravenou správou (MČ 19. 10. 2026); volá sa po registrácii.
+   * Bez neho obrazovka chat neponúka. Vráti trasu chatu alebo dôvod, prečo sa neotvoril.
+   */
+  onOpenChat?: (request: ClientChatRequest) => Promise<ClientChatOutcome>;
 };
+
+/** Nastavenia AI (poskytovatelia aj AI hranice); náhradná cesta po neotvorenom chate tam dokončí onboarding. */
+const AI_SETTINGS_LANDING = "/settings/ai";
 
 type Phase =
   | { name: "loading"; failed?: boolean }
   | { name: "question"; suggestion: OnboardingSuggestion }
   | { name: "batch"; items: BatchItem[]; answer: Answer }
   | { name: "reorganize"; queue: BatchItem[]; preview: TriagePreview; result?: OnboardingApplyResult }
-  | { name: "reorganizeFailed"; queue: BatchItem[]; message: string; result?: OnboardingApplyResult };
+  | { name: "reorganizeFailed"; queue: BatchItem[]; message: string; result?: OnboardingApplyResult }
+  | { name: "chatUnavailable"; queue: BatchItem[]; reason: ClientChatUnavailable; result?: OnboardingApplyResult };
 
-export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, onDone, onRegister, onChangeFolder, onPickRoot, onError, onClearError }: Props) {
+export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, onDone, onRegister, onChangeFolder, onPickRoot, onError, onClearError, onOpenChat }: Props) {
   const locale = useLocale();
   const triageText = useTriageText(locale);
   const [phase, setPhase] = useState<Phase>({ name: "loading" });
@@ -298,6 +356,15 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     show: (view) => setPhase(view.name === "reorganize" ? view : { name: "reorganizeFailed", queue: view.queue, result: view.result, message: friendlyError(view.failure, triageText) }),
   });
 
+  /** Chat s klientom: registrácia, potom chat s prvou správou v jazyku rozhrania (logika v `createClientChatFlow`). */
+  const chat = onOpenChat ? createClientChatFlow({
+    register: (result) => onRegister(result, completion()),
+    openChat: onOpenChat,
+    prompt: (name) => clientChatPrompt(text, name),
+    done: (result, landing) => onDone(result, { ...completion(), landing }),
+    show: setPhase,
+  }) : undefined;
+
   const answer = (suggestion: OnboardingSuggestion, choice: Answer) => run(async () => {
     await onAcknowledge();
     if (level === "practice") {
@@ -316,6 +383,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     const target = level === "matter" ? matterClientPath(suggestion.root) : suggestion.root;
     const batch = await addOkfFiles(api, [{ root: target, name: folderName(target) }], identity, today, (next) => setPhase({ name: "batch", items: next, answer: choice }), describe);
     if (batch[0]?.status === "done" && choice === "no") { await onDone(batch[0].result); return; }
+    if (batch[0]?.status === "done" && choice === "chat" && chat) { await chat.begin(batch, batch[0].result); return; }
     if (batch[0]?.status === "done" && choice === "yes") { await reorganize.begin(batch, batch[0].result); return; }
     setPhase({ name: "batch", items: batch, answer: choice });
   });
@@ -341,6 +409,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
         onAnswer={(choice) => void answer(phase.suggestion, choice)}
         onChangeFolder={onChangeFolder}
         onPickRoot={onPickRoot}
+        chat={Boolean(chat)}
       />
     );
   }
@@ -355,9 +424,25 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
       const progress = (next: BatchItem[]) => setPhase({ name: "batch", items: next, answer: phase.answer });
       progress(await retryFailed(api, phase.items, identity, today, progress, describe));
     });
-    return <BatchView text={text} busy={busy} items={phase.items} answer={phase.answer} onRetry={() => void retry()} onContinue={() => void continueBatch()} onChangeFolder={onChangeFolder} />;
+    const chatBatch = chat ? () => run(async () => {
+      batchClients.current = workspaceResults(phase.items);
+      await chat.begin(phase.items.filter(item => item.status === "done"), firstWorkspaceResult(phase.items));
+    }) : undefined;
+    return <BatchView text={text} busy={busy} items={phase.items} answer={phase.answer} onRetry={() => void retry()} onContinue={() => void continueBatch()} onChangeFolder={onChangeFolder} onChat={chatBatch ? () => void chatBatch() : undefined} />;
   }
   const [current, ...rest] = phase.queue;
+  if (phase.name === "chatUnavailable") {
+    const finish = (landing?: string) => run(async () => { await onDone(phase.result, { ...completion(), ...(landing ? { landing } : {}) }); });
+    return (
+      <ChatUnavailableView
+        text={text} busy={busy} name={current?.name ?? ""} reason={phase.reason}
+        onSettings={() => void finish(AI_SETTINGS_LANDING)}
+        onRetry={() => void run(async () => { if (chat) await chat.begin(phase.queue, phase.result); })}
+        onTable={() => void run(() => reorganize.begin(phase.queue, phase.result))}
+        onFinish={() => void finish()}
+      />
+    );
+  }
   if (phase.name === "reorganizeFailed") {
     return (
       <ReorganizeFailedView
