@@ -14,9 +14,12 @@ import type { OfficeEditorApi, OfficeEditorProps } from "@/react-app/domains/ses
 
 const unavailable = "This spreadsheet or presentation cannot be opened in the Office add-in pane. Ask the user to open it in the LAWOSS app.";
 
+// Ready on purpose: the document runtime waits for ready() before it runs an
+// agent action, so false would stall the agent for a minute. Every call fails
+// at once with the message above instead.
 const inertApi: OfficeEditorApi = {
   navigate: () => Promise.reject(new Error(unavailable)),
-  isReady: () => false,
+  isReady: () => true,
   save: () => Promise.resolve(false),
   drain: () => Promise.resolve(),
   getBuffer: () => Promise.resolve(null),
