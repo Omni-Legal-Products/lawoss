@@ -1,3 +1,4 @@
+import { DiagnosticMessage } from "../../i18n/diagnostic-message";
 /** @jsxImportSource react */
 import { revalidateScopeTarget } from "../../okf/scope-target";
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
@@ -60,7 +61,7 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const [busy, setBusy] = useState<ActionId | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   // „+ Nový rozhovor“ v bočnom strome zlyhal a priviedol sem: povedať to (pod tým aj medzera v modeli, ak je).
   const location = useLocation();
   useEffect(() => { if (isTreeFailure(location.state)) setError("tree"); }, [location.key, location.state]);
@@ -95,7 +96,7 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
     } catch (failure) {
       // Surová hláška může obsahovat interní pojmy; advokát vidí obecný text, diagnostika jde do konzole.
       console.warn("LAWOSS-lite: quick action failed", failure);
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(failure);
     } finally { running.current = false; setBusy(null); }
   }
 
@@ -108,7 +109,7 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
       if (alive.current) navigate(route);
     } catch (failure) {
       console.warn("LAWOSS-lite: continue conversation failed", failure);
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(failure);
     } finally { running.current = false; }
   }
 
@@ -125,7 +126,7 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
       void queries.invalidateQueries({ queryKey: ["okf-overview"] });
     } catch (failure) {
       console.warn("LAWOSS-lite: document intake failed", failure);
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(failure);
     } finally { running.current = false; setBusy(null); }
   }
 
@@ -147,7 +148,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
   existingMemorySources?: readonly string[];
   cockpit: LiteCockpit | null;
   busy: ActionId | null;
-  error: string | null;
+  error: unknown;
   onAction: (id: ActionId) => void;
   /** `false`: zdroj veci nie je čerstvo prečítaný alebo prax sa zmenila (#168); akcie sú vypnuté. */
   sourceReady?: boolean;
@@ -309,7 +310,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
             <Link to={AI_SETTINGS_PATH}>{text("model_gap_open")}</Link>
           </div>
         ) : null}
-        {error ? <div className="lw-status err" role="alert">{text("action_error_generic")}</div> : null}
+        {error ? <div className="lw-status err" role="alert"><DiagnosticMessage value={error} /></div> : null}
       </div>
 
       {conversationsError ? <div className="lw-status warn" role="status" data-lawoss-lite="conversations-error">

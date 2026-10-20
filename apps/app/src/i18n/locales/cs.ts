@@ -1,3 +1,4 @@
+import { diagnosticsCs } from "../../lawoss/i18n/diagnostics";
 import { deadlinesCs } from "../../lawoss/i18n/deadlines";
 import { setupCs } from "../../lawoss/i18n/setup";
 import { initialCs } from "../../lawoss/i18n/initial";
@@ -11,6 +12,7 @@ import { ocrCs } from "../../lawoss/i18n/ocr";
  * Produktové pojmy (Skills, Plugins, Commands, OpenCode, OpenPackage, LegalWork) se nepřekládají. Session je chat, projekt je klient (MČ 19. 10. 2026).
  */
 export default {
+  ...diagnosticsCs,
   ...setupCs,
   ...initialCs,
   ...mattersCs,

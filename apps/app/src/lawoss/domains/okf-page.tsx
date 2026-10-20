@@ -1,3 +1,4 @@
+import { DiagnosticMessage } from "../i18n/diagnostic-message";
 /** @jsxImportSource react */
 import { useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -137,7 +138,7 @@ export function OkfPageState(props: {
 function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText): ReactNode {
   const missingOnly = props.missingFolder && !(props.data && (props.hasContent ?? hasMatters)(props.data));
   if (missingOnly) return props.missingFolder;
-  if (props.error) return <div className="lw-status err" role="alert">{text("memoryError", { error: props.error instanceof Error ? props.error.message : String(props.error) })}</div>;
+  if (props.error) return <div className="lw-status err" role="alert"><DiagnosticMessage value={props.error} /></div>;
   if (props.connection === "loading") return <OkfSkeleton label={text("connectionLoading")} />;
   if (props.connection === "unavailable") return <div className="lw-status warn" role="alert">{text("serverUnavailable")}</div>;
   if (props.workspace === null && props.firstRun) return <Navigate to="/welcome" replace />;
@@ -154,7 +155,7 @@ function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText
   </>;
   if (props.data.problems.length || props.data.truncated) return <div className="lw-status err" role="alert">
     {text("incompleteRead")}
-    {props.rawProblems !== false && props.data.problems.slice(0, 3).map((problem, index) => <p key={`${problem.path}/${index}`}>{problem.path || props.workspace}: {problem.message}</p>)}
+    {props.rawProblems !== false && props.data.problems.slice(0, 3).map((problem, index) => <p key={`${problem.path}/${index}`}>{problem.path || props.workspace}: <DiagnosticMessage value={problem} /></p>)}
   </div>;
   if (props.okfOff) return <div className="lw-empty" data-lawoss-empty="off">
     <p>{text("okfOff")}</p>

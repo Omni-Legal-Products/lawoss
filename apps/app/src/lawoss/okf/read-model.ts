@@ -1,3 +1,4 @@
+import { diagnosticFields, OkfDiagnostic, type DiagnosticFields } from "../../../../../lawoss/okf/diagnostics";
 import { isManagedDeadline } from "../../../../../lawoss/okf/deadline-workflow.ts";
 /**
  * Načítanie pamäte spisov cez server API — iba čítanie, nič nezapisuje.
@@ -27,7 +28,7 @@ import type { OfficeMemoryRead } from "./office-memory";
 
 export type OkfReadClient = Pick<LegalworkServerClient, "listWorkspaceDirectory" | "readWorkspaceFile"> & Partial<Pick<LegalworkServerClient, "lawossDeadlineRequest">>;
 /** `folderUnavailable`: id pracovného priestoru, ktorého priečinok na disku chýba (presunutý, premenovaný, odpojený disk). */
-type ReadProblem = { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office"; folderUnavailable?: string };
+type ReadProblem = DiagnosticFields & { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office"; folderUnavailable?: string };
 
 /** Server: priečinok pracovného priestoru na disku nie je (`resolveWorkspace`, 404). */
 export const FOLDER_UNAVAILABLE = "project_folder_unavailable";
@@ -102,12 +103,12 @@ export async function readWorkspaceMemory(
       pending = client.listWorkspaceDirectory(workspaceId, path, { signal: options.signal }).then((result) => {
         if (result.truncated) {
           truncated = true;
-          problems.push({ path, message: "Neúplný výpis priečinka zo servera." });
+          problems.push({ path, message: "Neúplný výpis priečinka zo servera.", code: "okf.listing_incomplete" });
         }
         return result.entries;
       }).catch((e: unknown) => {
-        if (isFolderUnavailable(e)) problems.push({ path, message: message(e), folderUnavailable: workspaceId });
-        else if (!optional || !missing(e)) problems.push({ path, message: message(e) });
+        if (isFolderUnavailable(e)) problems.push({ path, message: message(e), ...diagnosticFields(e), folderUnavailable: workspaceId });
+        else if (!optional || !missing(e)) problems.push({ path, message: message(e), ...diagnosticFields(e) });
         return [];
       });
       cache.set(path, pending);
@@ -167,7 +168,7 @@ export async function readWorkspaceMemory(
       if (!card) return undefined;
       const title = parseFrontmatter((await readFile(childPath(clientPath, card.name))).content)?.title;
       return typeof title === "string" && title.trim() ? title.trim() : undefined;
-    })().catch((e: unknown) => { problems.push({ path: clientPath, message: message(e), scope: "client" }); return undefined; });
+    })().catch((e: unknown) => { problems.push({ path: clientPath, message: message(e), ...diagnosticFields(e), scope: "client" }); return undefined; });
     clientTitles.set(clientPath, pending);
     return pending;
   };
@@ -179,14 +180,14 @@ export async function readWorkspaceMemory(
         const files: Record<string, string> = {};
         const hasMemory = (await list(dir)).some((e) => e.kind === "dir" && e.name === MEMORY_DIR);
         for (const file of (hasMemory ? await list(childPath(dir, MEMORY_DIR)) : []).slice().sort((a, b) => a.name.localeCompare(b.name))) {
-          if (file.kind === "dir") { problems.push({ path: file.path, message: "Vnorená pamäť nie je podporovaná; presuň záznamy do memory/." }); continue; }
+          if (file.kind === "dir") { problems.push({ path: file.path, message: "Vnorená pamäť nie je podporovaná; presuň záznamy do memory/.", code: "okf.nested_memory" }); continue; }
           if (file.kind !== "file" || !file.name.endsWith(".md") || RESERVED.has(file.name)) continue;
           try {
             const record = parseRecord((await readFile(file.path)).content);
-            if (files[record.id]) problems.push({ path: file.path, message: `Duplicitné ID ${record.id}.` });
+            if (files[record.id]) problems.push({ path: file.path, message: `Duplicitné ID ${record.id}.`, code: "okf.duplicate_id", params: { id: record.id } });
             records.push(record);
             files[record.id] ??= file.path;
-          } catch (e) { problems.push({ path: file.path, message: message(e) }); }
+          } catch (e) { problems.push({ path: file.path, message: message(e), ...diagnosticFields(e) }); }
         }
         return { records, files };
       })();
@@ -200,19 +201,19 @@ export async function readWorkspaceMemory(
     const input: MatterInput = { path, records: [], recordFiles, scopePaths };
     const entries = await list(path);
     const cards = CARD_FILES.filter((name) => entries.some((e) => e.kind === "file" && e.name === name));
-    if (cards.length > 1) problems.push({ path, message: `Viac kariet prípadu: ${cards.join(", ")}. Zosúlaď ich obsah; prehľad používa ${cards[0]}.` });
+    if (cards.length > 1) problems.push({ path, message: `Viac kariet prípadu: ${cards.join(", ")}. Zosúlaď ich obsah; prehľad používa ${cards[0]}.`, code: "okf.multiple_cards", params: { cards: cards.join(", "), selected: cards[0] } });
     const card = cards[0];
     if (card) {
       input.cardPath = childPath(path, card);
       try {
         const fm = parseFrontmatter((await readFile(childPath(path, card))).content);
-        if (!fm) throw new Error("Karta nemá platný frontmatter.");
+        if (!fm) throw new OkfDiagnostic("okf.card_invalid", {}, "Karta nemá platný frontmatter.");
         input.cardFrontmatter = fm;
-      } catch (e) { problems.push({ path: childPath(path, card), message: message(e) }); }
+      } catch (e) { problems.push({ path: childPath(path, card), message: message(e), ...diagnosticFields(e) }); }
     }
     if (entries.some((e) => e.name === "VSTUPY.md" && e.kind === "file")) {
       try { input.intake = (await readFile(childPath(path, "VSTUPY.md"))).content; }
-      catch (e) { problems.push({ path: childPath(path, "VSTUPY.md"), message: message(e) }); }
+      catch (e) { problems.push({ path: childPath(path, "VSTUPY.md"), message: message(e), ...diagnosticFields(e) }); }
     }
     const ancestors = path.split("/").map((_, i, parts) => parts.slice(0, parts.length - 1 - i).join("/"));
     let clientPath: string | undefined;
@@ -246,7 +247,7 @@ export async function readWorkspaceMemory(
                 clientPath = found;
               }
             }
-          } catch (e) { problems.push({ path: `${officePath}/okf.config`, message: message(e) }); }
+          } catch (e) { problems.push({ path: `${officePath}/okf.config`, message: message(e), ...diagnosticFields(e) }); }
         }
         scopePaths.push(officePath);
         break;
@@ -255,7 +256,7 @@ export async function readWorkspaceMemory(
     for (const dir of scopePaths) {
       const bundle = await readBundle(dir);
       for (const record of bundle.records) {
-        if (recordFiles[record.id]) problems.push({ path: bundle.files[record.id], message: `Duplicitné ID ${record.id} v rozsahu prípadu ${path}.` });
+        if (recordFiles[record.id]) problems.push({ path: bundle.files[record.id], message: `Duplicitné ID ${record.id} v rozsahu prípadu ${path}.`, code: "okf.duplicate_id", params: { id: record.id } });
         recordFiles[record.id] ??= bundle.files[record.id];
         input.records.push(record);
       }
@@ -268,7 +269,7 @@ export async function readWorkspaceMemory(
       const intakePath = childPath(clientPath, "VSTUPY.md");
       try {
         input.inheritedIntakes = [{ content: (await readFile(intakePath)).content, path: intakePath, scope: "client" }];
-      } catch (e) { problems.push({ path: intakePath, message: message(e), scope: "client" }); }
+      } catch (e) { problems.push({ path: intakePath, message: message(e), ...diagnosticFields(e), scope: "client" }); }
     }
     const existingMemorySources: string[] = [];
     for (const dir of scopePaths) {
@@ -293,7 +294,7 @@ export async function readWorkspaceMemory(
       const source = recordFiles[finding.recordId];
       problems.push({
         path: source ?? path,
-        message: finding.message,
+        message: finding.message, code: "okf.validation_failed",
         kind: "validation",
         scope: scopeOf(source),
       });
@@ -301,7 +302,7 @@ export async function readWorkspaceMemory(
     if (entries.some((entry) => entry.name === "_STATUS.md" && entry.kind === "file")) {
       const statusPath = childPath(path, "_STATUS.md");
       try { input.manualStatus = readManualStatus((await readFile(statusPath)).content, input.records, todayIso); }
-      catch (error) { problems.push({ path: statusPath, message: message(error) }); }
+      catch (error) { problems.push({ path: statusPath, message: message(error), ...diagnosticFields(error) }); }
     }
     if (input.records.some(isManagedDeadline)) {
       input.deadlineWorkflowEvidence = {};
@@ -309,7 +310,7 @@ export async function readWorkspaceMemory(
         try {
           const result = await client.lawossDeadlineRequest<{ items: Array<{ candidateId: string; revisionHash: string; recordFingerprint: string; receiptId: string | null; trusted: boolean }> }>(workspaceId, `?matterPath=${encodeURIComponent(path)}`, undefined, { signal: options.signal });
           input.deadlineWorkflowEvidence = Object.fromEntries(result.items.map(item => [item.candidateId, { recordFingerprint: item.recordFingerprint, revisionHash: item.revisionHash, receiptId: item.receiptId, trusted: item.trusted }]));
-        } catch { problems.push({ path, message: "Potvrzení lhůt hostitelem se nepodařilo ověřit; zobrazují se k právní kontrole." }); }
+        } catch { problems.push({ path, message: "Potvrzení lhůt hostitelem se nepodařilo ověřit; zobrazují se k právní kontrole.", code: "okf.deadline_unverified" }); }
       }
     }
     return input;
@@ -451,25 +452,25 @@ function prefixInput(input: MatterInput, prefix: string): MatterInput {
 type OfficeBundle = { directory: string; records: OkfRecord[]; files: Record<string, string> };
 
 async function readOfficeBundle(client: OkfScopeClient, problems: ReadProblem[], todayIso: string, practiceRoot: string, signal?: AbortSignal): Promise<OfficeBundle | null> {
-  if (!client.lawossOfficeMemory) { problems.push({ path: "Office", message: "Server nepodporuje overené čítanie kancelárie.", scope: "office" }); return null; }
+  if (!client.lawossOfficeMemory) { problems.push({ path: "Office", message: "Server nepodporuje overené čítanie kancelárie.", code: "okf.office_unsupported", scope: "office" }); return null; }
   let read: OfficeMemoryRead;
   try { read = await client.lawossOfficeMemory(practiceRoot, { signal });
     if (pathIdentity(read.practiceRoot ?? "") !== pathIdentity(practiceRoot)) throw new Error("practice_scope_changed"); }
-  catch (e) { problems.push({ path: "Office", message: message(e), scope: "office" }); return null; }
+  catch (e) { problems.push({ path: "Office", message: message(e), ...diagnosticFields(e), scope: "office" }); return null; }
   for (const problem of read.problems) problems.push({ ...problem, scope: "office" });
-  if (read.truncated) problems.push({ path: `${read.directory ?? "Office"}/memory`, message: "Neúplný výpis pamäte kancelárie.", scope: "office" });
+  if (read.truncated) problems.push({ path: `${read.directory ?? "Office"}/memory`, message: "Neúplný výpis pamäte kancelárie.", code: "okf.office_incomplete", scope: "office" });
   if (!read.directory) return null;
   const bundle: OfficeBundle = { directory: read.directory, records: [], files: {} };
   for (const file of read.files) {
     try {
       const record = parseRecord(file.content);
-      if (bundle.files[record.id]) problems.push({ path: file.path, message: `Duplicitné ID ${record.id}.`, scope: "office" });
+      if (bundle.files[record.id]) problems.push({ path: file.path, message: `Duplicitné ID ${record.id}.`, code: "okf.duplicate_id", params: { id: record.id }, scope: "office" });
       bundle.records.push(record);
       bundle.files[record.id] ??= file.path;
-    } catch (e) { problems.push({ path: file.path, message: message(e), scope: "office" }); }
+    } catch (e) { problems.push({ path: file.path, message: message(e), ...diagnosticFields(e), scope: "office" }); }
   }
   for (const finding of validateStore(bundle.records, { today: todayIso })) {
-    if (finding.severity === "error") problems.push({ path: bundle.files[finding.recordId] ?? bundle.directory, message: finding.message, kind: "validation", scope: "office" });
+    if (finding.severity === "error") problems.push({ path: bundle.files[finding.recordId] ?? bundle.directory, message: finding.message, code: "okf.validation_failed", kind: "validation", scope: "office" });
   }
   return bundle;
 }
@@ -481,7 +482,7 @@ function withOffice(input: MatterInput, office: OfficeBundle | null, problems: R
   const recordFiles = { ...input.recordFiles };
   const records = [...input.records];
   for (const record of office.records) {
-    if (recordFiles[record.id]) { problems.push({ path: office.files[record.id], message: `Duplicitné ID ${record.id} v rozsahu prípadu ${input.path}.`, scope: "office" }); continue; }
+    if (recordFiles[record.id]) { problems.push({ path: office.files[record.id], message: `Duplicitné ID ${record.id} v rozsahu prípadu ${input.path}.`, code: "okf.duplicate_id", params: { id: record.id }, scope: "office" }); continue; }
     recordFiles[record.id] = office.files[record.id];
     records.push(record);
   }
@@ -524,7 +525,7 @@ export async function readScopeMemory(client: OkfScopeClient, scope: OkfScope, t
   options.signal?.throwIfAborted();
   let inputs = selected.flatMap((part,i) => part.inputs.map(input => withOffice(prefixInput(input,scope.members[i].prefix),office,problems)));
   if (inputs.length > MAX_MATTERS) { inputs = inputs.slice(0,MAX_MATTERS); truncated = true; }
-  if (!inputs.length && office?.records.length) problems.push({ path: office.directory, message: "Pamäť kancelárie obsahuje záznamy bez vecí; tento pohľad ich zatiaľ nevie zobraziť.", scope: "office" });
+  if (!inputs.length && office?.records.length) problems.push({ path: office.directory, message: "Pamäť kancelárie obsahuje záznamy bez vecí; tento pohľad ich zatiaľ nevie zobraziť.", code: "okf.office_orphans", scope: "office" });
   const clients = selected.flatMap((part,i) => part.clients.map(c => ({ ...c, path: joinPath(scope.members[i].prefix,c.path) }))).sort((a,b) => a.path.localeCompare(b.path));
   const usable = sources.some(s => s.state === "fresh" || s.state === "stale") || inputs.length > 0 || clients.length > 0;
   const status = !problems.length && !truncated && sources.every(s => s.state === "fresh") ? "complete" : usable ? "partial" : "failed";

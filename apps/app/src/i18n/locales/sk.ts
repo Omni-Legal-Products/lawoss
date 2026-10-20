@@ -1,3 +1,4 @@
+import { diagnosticsSk } from "../../lawoss/i18n/diagnostics";
 import { deadlinesSk } from "../../lawoss/i18n/deadlines";
 import { setupSk } from "../../lawoss/i18n/setup";
 import { initialSk } from "../../lawoss/i18n/initial";
@@ -11,6 +12,7 @@ import { ocrSk } from "../../lawoss/i18n/ocr";
  * Produktové pojmy (Skills, Plugins, Commands, OpenCode, OpenPackage, LegalWork) sa neprekladajú. Session je chat, projekt je klient (MČ 19. 10. 2026).
  */
 export default {
+  ...diagnosticsSk,
   ...setupSk,
   ...initialSk,
   ...mattersSk,

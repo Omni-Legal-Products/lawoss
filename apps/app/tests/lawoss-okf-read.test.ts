@@ -136,6 +136,7 @@ test("canonical validator exposes a broken related link with its source file and
   }), "ws", TODAY);
 
   expect(out.problems).toContainEqual({
+    code: "okf.validation_failed",
     path: file,
     message: expect.stringContaining("Q-missing"),
     kind: "validation",

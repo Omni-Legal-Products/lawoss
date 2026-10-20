@@ -1,3 +1,4 @@
+import type { DiagnosticFields } from "./diagnostics";
 import { isManagedDeadline, managedDeadlineTrusted, type DeadlineWorkflowEvidence } from "./deadline-workflow.ts";
 /**
  * Read-only cockpit jednej veci — čistá logika nad prehľadom pamäte spisov
@@ -19,7 +20,7 @@ type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené
 /** Prečo riadok čaká na advokáta. Opäť slovo, nie farba. */
 type AttentionState = "po termíne" | "blíži sa" | "neparsovateľné" | "chýba údaj" | "bez prameňa" | "nespracované";
 
-type MatterProblem = { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office" };
+type MatterProblem = DiagnosticFields & { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office" };
 
 export type CockpitInput = {
   matters: readonly MatterOverview[];
