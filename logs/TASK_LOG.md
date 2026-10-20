@@ -51,3 +51,10 @@ Toolchain mismatch found: prior local Bun1.4.0, CI1.4.2; previous source-suite r
 - First ordinary push rejected because remote e1b477a2 had merged accepted PDF177/dev5400fae0. Preserved both histories and receipts; product tree unchanged from verified local9cc1. No force push.
 - Local9cc1 full server3017pass/67skip/0fail; full desktop build pass; actual native10cases, attachment, negatives, relaunch/same IDs/hashes and owned cleanup pass. Historical macOS provisioning500 remains unclassified.
 - PDF functional assertions passed, but first full runner failed strict owned cleanup; original failure retained. Evidence-only observer copy reran all original assertions and unchanged cleanup policy successfully; timing/cause of first failure remains unclassified. No cleanup guard relaxed.
+
+## 2026-10-20T23:20Z — isolated macOS packaged startup keychain
+
+- Actualaf23 app.asar444imports/447static, security/bundled tools and packaged VM passed. Original real startup failed unchanged90s before renderer controls. Owned process sample showed main thread blocked in SecItemCopyMatching/Keychain decrypt.
+- TDD: actual spawned fixture first failed missing --use-mock-keychain; Darwin-only isolated runner argument now matches existing native entry. Both original cleanup regressions pass; same actual package now starts, registers renderer controls, replaces token and verifies0600. Production main/keychain and all acceptance limits/oracles unchanged.
+- Evidence-only sampler initially had a timer-shadowing error; invalid run retained separately. Exact ownedPID was identity-checked and stopped; normal running profile/process untouched. No inference from that invalid harness run. Full-process sample is supplemental causal evidence.
+- Independent review: no must-fix; synthetic mock-keychain startup does not establish real login-keychain integration. Existing AGENTS/CLAUDE reusable rule extended identically.
