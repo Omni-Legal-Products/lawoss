@@ -8,9 +8,7 @@ import { createNativeLaunchDiagnostics, nativeLaunchDiagnostic } from './native-
 // consumed the preceding bytes. This is not native application evidence.
 function fixture(t, parts, stdout = '') {
   const collector = createNativeLaunchDiagnostics();
-  const script = `const parts=${JSON.stringify(parts.map(bytes => Buffer.from(bytes).toString('base64')))};
-process.stdout.write(${JSON.stringify(stdout)});
-process.on('message',value=>{if(value==='exit')process.exit(73);else process.stderr.write(Buffer.from(parts[value],'base64'));});`;
+  const script = `process.on('message',value=>{if(value==='exit')process.exit(73);else (value.stream==='stdout'?process.stdout:process.stderr).write(Buffer.from(value.bytes,'base64'));});`;
   const child = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
   let received = 0, closed = false;
   const readers = [];
@@ -21,9 +19,10 @@ process.on('message',value=>{if(value==='exit')process.exit(73);else process.std
   });
   const close = once(child, 'close').then(() => { closed = true; });
   t.after(async () => { if (!closed) child.kill('SIGKILL'); await close; });
+  child.send({ stream: 'stdout', bytes: Buffer.from(stdout).toString('base64') });
   let requested = 0;
   return { child, collector, close, async write(index) {
-    requested += Buffer.byteLength(parts[index]); child.send(index);
+    requested += Buffer.byteLength(parts[index]); child.send({ stream: 'stderr', bytes: Buffer.from(parts[index]).toString('base64') });
     if (received < requested) await new Promise(resolve => readers.push({ bytes: requested, resolve }));
   }, async exit() { child.send('exit'); await close; } };
 }

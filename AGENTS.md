@@ -79,6 +79,7 @@ Rules:
 
 ## TypeScript and package management
 
+- Keep controlled child payloads off `node -e` argv; send them over the existing IPC channel while preserving real pipe-byte handshakes. Wall-clock retry integration tests prove progress and cleanup; deterministic collector sequences prove exact final boundary/error tuples.
 - Native readiness diagnostics count existing attempts and retain fixed stage/boundary/last-retry-error observations before cleanup. These are independent observations, not cause proof; preserve requests, security checks, Windows supervision and original deadlines.
 - Freeze native startup exit/stderr observations before cleanup; publish only closed categories, bounded counts and signals. A cleanup kill or a marker is not crash-cause proof. Fixture duration is not an isolated cold-start measurement.
 - Linux ELF runtime packaging must copy the complete non-glibc closure, patch only owned copies with $ORIGIN per ELF, and preserve source/license/hash provenance. Test relocation after hiding originals; manifest integrity alone is not loader or final AppImage acceptance.

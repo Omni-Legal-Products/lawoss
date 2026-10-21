@@ -15,6 +15,29 @@ test('readiness retains capped attempts, highest completed progress and immutabl
   assert.equal(primary.message, 'PRIVATE-PRIMARY');assert.throws(() => { frozen.progress = 'PRIVATE'; });
 });
 
+test('a newer retry boundary and its failure remain independent of highest completed progress', () => {
+  const cases = [
+    ['UI failure', () => {}, { attempts: 1, attemptsCapped: false, progress: 'renderer-identity', lastBoundary: 'interactive-ui', lastError: 'native-ui-not-ready' }],
+    ['next owner boundary', collector => { collector.attempt();collector.boundary('process-owner'); },
+      { attempts: 2, attemptsCapped: false, progress: 'renderer-identity', lastBoundary: 'process-owner', lastError: 'native-ui-not-ready' }],
+    ['next snapshot failure', collector => {
+      collector.attempt();collector.boundary('process-owner');collector.passed('process-identity');collector.boundary('snapshot');
+      collector.failure(Object.assign(new Error('PRIVATE-SNAPSHOT'), { code: 'shipping-control-request-timeout' }));
+    }, { attempts: 2, attemptsCapped: false, progress: 'renderer-identity', lastBoundary: 'snapshot', lastError: 'shipping-control-request-timeout' }],
+  ];
+  for (const [name, advance, expected] of cases) {
+    const collector = createNativeReadinessDiagnostics();
+    collector.attempt();collector.passed('renderer-identity');collector.boundary('interactive-ui');
+    collector.failure(Object.assign(new Error('PRIVATE-UI'), { code: 'native-ui-not-ready' }));
+    advance(collector);
+    const frozen = collector.freeze(), primary = new Error('PRIVATE-PRIMARY');
+    collector.associate(primary);
+    assert.deepEqual(frozen, expected, name);assert.strictEqual(nativeReadinessDiagnostic(primary), frozen);
+    collector.attempt();collector.passed('ready');collector.boundary('ready');collector.failure(new Error('PRIVATE-CLEANUP'));
+    assert.strictEqual(collector.freeze(), frozen);assert.deepEqual(nativeReadinessDiagnostic(primary), expected, name);
+  }
+});
+
 test('only whole known codes and the four exact validator messages produce fixed readiness categories', () => {
   const cases = [
     [new Error('Live packaged IPC identity differs'), 'packaged-identity-mismatch'],

@@ -181,16 +181,19 @@ test('actual readiness timeout freezes non-exited status before cleanup terminat
   await assert.rejects(readFile(join(options.profileRoot, '.alpha-native-app.lock')), { code: 'ENOENT' });
 });
 
-for (const [name, change, progress, boundary, lastError] of [
-  ['held snapshot body', { stall: true }, 'process-identity', 'snapshot', 'shipping-control-request-timeout'],
-  ['unusable UI', { readiness: { documentReadyState: 'complete', bootOverlayVisible: true, interactiveControls: 1 } }, 'renderer-identity', 'interactive-ui', 'native-ui-not-ready'],
-]) test(`actual readiness retries retain the last ${name} boundary before owned cleanup`, { skip: process.platform === 'win32', timeout: 10_000 }, async t => {
+for (const [name, change, progress] of [
+  ['held snapshot body', { stall: true }, 'process-identity'],
+  ['unusable UI', { readiness: { documentReadyState: 'complete', bootOverlayVisible: true, interactiveControls: 1 } }, 'renderer-identity'],
+]) test(`actual readiness retries retain highest completed progress for ${name} before owned cleanup`, { skip: process.platform === 'win32', timeout: 10_000 }, async t => {
   const options = await fixture(t, change);
   let caught;await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 1200 }), error => { caught = error;return true; });
   assert.equal(caught.code, 'native-readiness-timeout');assert.equal(caught.nativeCleanup.descendantClosure, 'verified');
   const facts = nativeReadinessDiagnostic(caught);
   assert.ok(facts.attempts > 0 && facts.attempts <= 128);assert.equal(facts.attemptsCapped, false);
-  assert.equal(facts.progress, progress);assert.equal(facts.lastBoundary, boundary);assert.equal(facts.lastError, lastError);
+  assert.equal(facts.progress, progress);
+  // The wall clock can expire at a newer retry boundary than this completed progress.
+  const snapshots = Number(await readFile(join(options.profileRoot, 'userdata/snapshot-count'), 'utf8'));
+  assert.ok(Number.isSafeInteger(snapshots) && snapshots >= 1);
   assert.equal(nativeReadinessDiagnostic(caught.cause), null);
   assert.doesNotMatch(JSON.stringify(facts), /PRIVATE|private|token|rendererUrl|baseUrl|"pid"/);
   assert.ok(Object.isFrozen(facts));
