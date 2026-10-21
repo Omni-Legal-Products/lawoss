@@ -13,6 +13,7 @@ export type CachedEngineResponse = {
 };
 
 const inflight = new Map<string, Promise<CachedEngineResponse>>();
+const ownedInflight = new WeakMap<object, Map<string, Promise<CachedEngineResponse>>>();
 let warmupLane: Promise<void> = Promise.resolve();
 
 const HOP_BY_HOP = new Set(["content-encoding", "content-length", "transfer-encoding"]);
@@ -28,8 +29,11 @@ export function sharedEngineResponse(
   key: string,
   start: (signal: AbortSignal) => Promise<Response>,
   timeoutMs = 600_000,
+  owner?: object,
 ): Promise<CachedEngineResponse> {
-  const existing = inflight.get(key);
+  const requests = owner ? ownedInflight.get(owner) ?? new Map<string, Promise<CachedEngineResponse>>() : inflight;
+  if (owner) ownedInflight.set(owner, requests);
+  const existing = requests.get(key);
   if (existing) return existing;
   const pending = enqueueWarmup(async () => {
     const controller = new AbortController();
@@ -46,9 +50,9 @@ export function sharedEngineResponse(
       clearTimeout(timer);
     }
   }).finally(() => {
-    if (inflight.get(key) === pending) inflight.delete(key);
+    if (requests.get(key) === pending) requests.delete(key);
   });
-  inflight.set(key, pending);
+  requests.set(key, pending);
   return pending;
 }
 
@@ -65,7 +69,8 @@ export function abortable<T>(promise: Promise<T>, signal?: AbortSignal | null): 
 export function cachedEngineResponse(cached: CachedEngineResponse): Response {
   const bytes = new ArrayBuffer(cached.body.byteLength);
   new Uint8Array(bytes).set(cached.body);
-  return new Response(bytes, { status: cached.status, statusText: cached.statusText, headers: cached.headers });
+  const body = [204, 205, 304].includes(cached.status) ? null : bytes;
+  return new Response(body, { status: cached.status, statusText: cached.statusText, headers: cached.headers });
 }
 
 function abortError(): DOMException {

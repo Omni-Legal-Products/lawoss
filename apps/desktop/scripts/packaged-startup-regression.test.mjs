@@ -83,7 +83,7 @@ process.exit(42);
   }
 });
 
-test("packaged startup cleanup terminates descendants holding output pipes open", {
+test("packaged startup isolates the macOS keychain and terminates descendants holding output pipes open", {
   skip: process.platform === "win32" ? "POSIX process-group regression" : false,
   timeout: 20_000,
 }, async () => {
@@ -92,10 +92,12 @@ test("packaged startup cleanup terminates descendants holding output pipes open"
   const fixture = path.join(directory, "app", "fake-app.mjs");
   const pidFile = path.join(directory, "descendant.pid");
   await writeFile(fixture, `#!${process.execPath}
+import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { chmodSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
+assert.equal(process.argv.includes("--use-mock-keychain"), ${process.platform === "darwin"}, "isolated macOS package tests must not enter the host keychain");
 const orphan = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);'], { stdio: ["ignore", "inherit", "inherit"] });
 writeFileSync(process.env.CLEANUP_TEST_PID_FILE, String(orphan.pid));
 const server = http.createServer((_request, response) => {

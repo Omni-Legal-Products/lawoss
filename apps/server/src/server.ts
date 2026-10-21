@@ -1388,13 +1388,28 @@ async function resolveProxyOpencodeDirectory(workspace: WorkspaceInfo, headers: 
 }
 
 function createOpencodeDirectoryFetch(directory: string, config: ServerConfig, workspaceId: string): typeof fetch {
-  const governedFetch = protectedEngineFetch(config, workspaceId, createGovernedEngineFetch(config, workspaceId));
+  const governedFetch = createGovernedEngineFetch(config, workspaceId);
+  const initializedFetch = Object.assign((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    const headers = request.headers;
+    if (request.method === "GET" && new URL(request.url).pathname === "/session") {
+      const readiness = new URL(request.url);
+      readiness.pathname = "/mcp";
+      readiness.search = "";
+      readiness.searchParams.set("directory", new URL(request.url).searchParams.get("directory") ?? directory);
+      const key = JSON.stringify([workspaceId, readiness.toString(), [...headers]]);
+      return abortable(sharedEngineResponse(key, signal => governedFetch(new Request(readiness, { headers, signal })), undefined, config), request.signal)
+        .then(() => { request.signal.throwIfAborted(); return governedFetch(request); });
+    }
+    return governedFetch(request);
+  }, { preconnect: fetch.preconnect });
+  const protectedFetch = protectedEngineFetch(config, workspaceId, initializedFetch);
   return Object.assign(
     (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const request = input instanceof Request ? input : new Request(input, init);
       const headers = new Headers(init?.headers ?? request.headers);
       headers.set("x-opencode-directory", buildOpencodeDirectoryHeader(directory));
-      return governedFetch(new Request(request, { headers }));
+      return protectedFetch(new Request(request, { headers }));
     },
     { preconnect: fetch.preconnect },
   );

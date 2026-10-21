@@ -23,7 +23,11 @@ await writeFile(discoveryPath, JSON.stringify({ token: "legacy-test-token" }));
 await chmod(discoveryPath, 0o644);
 let output = "";
 let launchError;
-const child = spawn(path.resolve(target), process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : [], {
+// This fresh synthetic profile must not probe the host login keychain. Match
+// the isolated native entry; production launches retain the real keychain.
+const startupArgs = process.platform === "darwin" ? ["--use-mock-keychain"]
+  : process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : [];
+const child = spawn(path.resolve(target), startupArgs, {
   env: {
     ...process.env,
     NODE_OPTIONS: "", ELECTRON_RUN_AS_NODE: "",

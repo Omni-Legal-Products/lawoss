@@ -868,6 +868,63 @@ async function generationResponseFixture(run, {enabled=true,readFailure=false}={
   } finally {renderer?.close();for(const connection of sockets.clients)connection.terminate();await new Promise(resolve=>sockets.close(resolve));await new Promise(resolve=>server.close(resolve));await rm(root,{recursive:true,force:true});}
 }
 
+test('provisioning failure before a session exists retains its exact owned response and bounded host category',async()=>{
+  await generationResponseFixture(async f=>{
+    const route='/workspace/PRIVATE-WORKSPACE/lawoss/documents/generation';
+    f.bodies.set('PRIVATE-PROVISION',{body:JSON.stringify({code:'internal_error',message:'PRIVATE-CAUSE'}),base64Encoded:false});
+    f.diagnostics.provisioningStart(2,f.events,f.events.length,f.context);
+    f.emit(promptRequest('PRIVATE-FOREIGN','/workspace/OTHER/lawoss/documents/generation'));
+    f.emit(promptRequest('PRIVATE-PROVISION',route));f.emit(promptResponse('PRIVATE-PROVISION',500));
+    await f.flush();assert.deepEqual(f.reads,[]);
+    f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE-PROVISION'}});await f.flush();await f.flush();
+    f.diagnostics.failure(new Error('PRIVATE-PRIMARY'));
+    f.diagnostics.captureGenerationHostErrors([{label:'electron',output:()=>
+      '[legalwork-server] Unhandled error: POST '+route+' Error: Protected engine worker exited (1, phase engine-health, health unreachable, initialization unobserved).\n'+
+      '    at PRIVATE (file:///PRIVATE/lawoss/protected-ai/vm-engine.js:141:24)\n'}]);
+    const result=await f.receipt();
+    assert.equal(result.provisioning[0].caseIndex,2);assert.equal(result.provisioning[0].status,500);
+    assert.equal(result.provisioning[0].state,'finished');assert.equal(result.provisioning[0].responseError.code,'internal_error');
+    assert.deepEqual(result.generationPrompts,[]);
+    assert.deepEqual(result.provisioningHostErrors,[{caseIndex:2,category:'worker-exited',name:'Error',code:null,phase:'engine-health',frames:[{module:'lawoss/protected-ai/vm-engine.js',line:141,column:24}]}]);
+    assert.deepEqual(f.reads,['PRIVATE-PROVISION']);
+    assert.doesNotMatch(JSON.stringify(result),/PRIVATE|private-host|Unhandled error|worker exited|file:\/\/|stack/);
+  });
+});
+
+test('provisioning diagnostics stay bounded, freeze on failure and never replace prompt receipts',async()=>{
+  await generationResponseFixture(async f=>{
+    for(let index=1;index<=12;index++)f.diagnostics.provisioningStart(index,f.events,f.events.length,f.context);
+    f.emit(promptRequest('PRIVATE-OK','/workspace/PRIVATE-WORKSPACE/lawoss/documents/generation'));
+    f.emit(promptResponse('PRIVATE-OK',200));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE-OK'}});await f.flush();
+    f.diagnostics.generationStart(10,f.events,f.events.length,f.context);
+    f.emit(promptRequest('PRIVATE-PROMPT'));f.emit(promptResponse('PRIVATE-PROMPT',204));await f.flush();
+    const before=await f.receipt();
+    assert.equal(before.provisioning.length,10);assert.equal(before.provisioning[9].status,200);
+    assert.equal(before.generationPrompts[0].status,204);assert.deepEqual(f.reads,[]);
+    f.diagnostics.failure(new Error('PRIVATE-PRIMARY'));
+    f.emit(promptResponse('PRIVATE-OK',500));await f.flush();
+    f.diagnostics.provisioningStart(1,[],0,f.context);
+    const after=await f.receipt();assert.deepEqual(after.provisioning,before.provisioning);
+    assert.deepEqual(after.generationPrompts,before.generationPrompts);assert.deepEqual(f.reads,[]);
+  });
+});
+
+test('prompt startup cannot erase late provisioning completion or its failure diagnostic',async()=>{
+  await generationResponseFixture(async f=>{
+    const route='/workspace/PRIVATE-WORKSPACE/lawoss/documents/generation';
+    f.bodies.set('PRIVATE-PROVISION',{body:'{"code":"internal_error","message":"PRIVATE"}',base64Encoded:false});
+    f.diagnostics.provisioningStart(1,f.events,f.events.length,f.context);
+    f.emit(promptRequest('PRIVATE-PROVISION',route));f.emit(promptResponse('PRIVATE-PROVISION',500));await f.flush();
+    f.diagnostics.generationStart(1,f.events,f.events.length,f.context);
+    f.emit(promptRequest('PRIVATE-PROMPT'));f.emit(promptResponse('PRIVATE-PROMPT',204));
+    f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE-PROVISION'}});
+    f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE-PROMPT'}});await f.flush();await f.flush();
+    const result=await f.receipt();
+    assert.equal(result.provisioning[0].state,'finished');assert.equal(result.generationPrompts[0].state,'finished');
+    assert.deepEqual(f.reads,['PRIVATE-PROVISION']);
+  });
+});
+
 test('owned completed generation5xx reads the actual CDP response once and retains only recognized envelope metadata',async()=>{
   await generationResponseFixture(async f=>{
     for(const [index,body,shape,name,code] of [

@@ -224,11 +224,12 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   async function listWorkspaceSessions(
     workspace: WorkspaceInfo,
     input: { roots?: boolean; start?: number; search?: string; limit?: number },
+    signal: AbortSignal,
   ) {
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
       const lists = await Promise.all([
-        opencode.session.list(input).then(result => buildSessionList(unwrapOpencodeResult(result, "/session"))),
+        opencode.session.list(input, { signal }).then(result => buildSessionList(unwrapOpencodeResult(result, "/session"))),
         historicalWorkspaceSessions(config, workspace, input),
       ]);
       const byId = new Map(lists.flat().filter(session => workspaceOwnsSession(workspace, session)).map(session => [session.id, session]));
@@ -319,7 +320,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       start: parseOptionalNonNegativeInteger(ctx.url.searchParams.get("start"), "start"),
       search: ctx.url.searchParams.get("search")?.trim() || undefined,
       limit: parseOptionalPositiveInteger(ctx.url.searchParams.get("limit"), "limit"),
-    });
+    }, ctx.request.signal);
     return jsonResponse({ items });
   });
 
