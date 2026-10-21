@@ -291,8 +291,30 @@ test('selected-instance category and finite startup/census projections are bound
     assert.equal(result.schema,6);assert.equal(result.network.requests[0].endpoint,'engine.path');
     assert.equal(result.startup.length,32);assert.equal(result.startupDropped,8);
     assert.equal(result.ownedProcesses.length,128);assert.equal(result.ownedProcessesDropped,22);
-    assert.deepEqual(result.ownedProcesses[0],{phase:'startup',stage:'term-wait',index:23,elapsedMs:22,knownLive:1,unknown:0,moved:0,mismatched:0,leaderExited:true,anchored:true});
+    assert.deepEqual(result.ownedProcesses[0],{phase:'startup',stopAttempt:0,stage:'term-wait',index:23,elapsedMs:22,knownLive:1,unknown:0,moved:0,mismatched:0,leaderExited:true,anchored:true});
     assert.doesNotMatch(text,/PRIVATE|private-host|987654|"pid"|"uid"|command|"directory"/);
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test('owned stop attempts increment only at capture and project closed bounded counts without private extras',async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'native-stop-counts-'));
+  try{
+    const outputFile=path.join(root,'safe.json'),d=createNativeDiagnostics({enabled:true,ci:true,mode:'synthetic',outputFile});
+    const row={stage:'capture',index:1,elapsedMs:0,knownLive:2,unknown:0,moved:0,mismatched:0,leaderExited:false,anchored:false,
+      leaderLive:1,descendantLive:1,states:{running:0,sleeping:1,idle:0,stopped:0,uninterruptible:0,zombie:0,dead:0,other:0,unknown:1,'PRIVATE-STATE':987654},
+      signals:{term:{returned:0,esrch:0,refusedIdentity:0,pid:987654},kill:{returned:0,esrch:0,refusedIdentity:0},command:'PRIVATE-COMMAND'},pid:987654};
+    d.phase('relaunch');d.ownedProcess(row);d.ownedProcess({...row,stage:'term-wait',index:2});d.ownedProcess(row);
+    assert.throws(()=>d.ownedProcess({...row,states:{...row.states,unknown:-1}}),/census/);
+    assert.throws(()=>d.ownedProcess({...row,signals:{...row.signals,term:{returned:'PRIVATE',esrch:0,refusedIdentity:0}}}),/census/);
+    await d.write();let result=JSON.parse(await readFile(outputFile,'utf8'));
+    assert.deepEqual(result.ownedProcesses.map(row=>row.stopAttempt),[1,1,2]);
+    assert.deepEqual(result.ownedProcesses[0].states,{running:0,sleeping:1,idle:0,stopped:0,uninterruptible:0,zombie:0,dead:0,other:0,unknown:1});
+    assert.deepEqual(result.ownedProcesses[0].signals,{term:{returned:0,esrch:0,refusedIdentity:0},kill:{returned:0,esrch:0,refusedIdentity:0}});
+    assert.equal(result.ownedProcesses[0].leaderLive,1);assert.equal(result.ownedProcesses[0].descendantLive,1);
+    assert.doesNotMatch(JSON.stringify(result),/PRIVATE|987654|"pid"|command/);
+    for(let i=3;i<=132;i++)d.ownedProcess(row);
+    await d.write();result=JSON.parse(await readFile(outputFile,'utf8'));
+    assert.deepEqual(result.ownedProcesses.slice(-5).map(row=>row.stopAttempt),[128,null,null,null,null]);
   }finally{await rm(root,{recursive:true,force:true});}
 });
 

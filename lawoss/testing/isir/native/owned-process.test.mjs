@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { stopNativeChild } from './owned-process.mjs';
+import { stopNativeChild, posixStateCategory } from './owned-process.mjs';
 
 // A terminated orphan may await init's reap on Linux; a zombie cannot execute
 // or hold the inherited pipes. Inspect only the PID this fixture created.
@@ -28,10 +28,28 @@ test('already exited native child is not signalled again',async()=>{
 });
 test('native child that ignores graceful stop is awaited through force stop',async()=>{
   const child=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});console.log('ready');setInterval(()=>{},1000)"],{detached:process.platform!=='win32',stdio:['ignore','pipe','pipe']});
+  const observations=[];
   // Exercise the production cleanup budget; repeated real identity snapshots
   // are not a 100ms cleanup SLA. Ownership and actual exit remain mandatory.
-  try {await once(child.stdout,'data');await stopNativeChild(child);assert.ok(child.exitCode!==null||child.signalCode!==null);}
+  try {
+    await once(child.stdout,'data');await stopNativeChild(child,undefined,{observe:value=>observations.push(value)});assert.ok(child.exitCode!==null||child.signalCode!==null);
+    if(process.platform!=='win32'){
+      assert.equal(observations[0].leaderLive,1);assert.equal(observations[0].states.unknown,0);assert.equal(observations[0].states.other,0);
+    }
+  }
   finally {if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');}
+});
+
+test('POSIX state observation uses only each operating system first-character codes',()=>{
+  for(const platform of ['darwin','linux']){
+    for(const [code,state] of [['R+','running'],['SX','sleeping'],['I','idle'],['T','stopped'],['Z+','zombie']])assert.equal(posixStateCategory(code,platform),state);
+    assert.equal(posixStateCategory(undefined,platform),'unknown');assert.equal(posixStateCategory('',platform),'unknown');
+    assert.equal(posixStateCategory('PRIVATE-STATE',platform),'other');
+  }
+  assert.equal(posixStateCategory('U','darwin'),'uninterruptible');assert.equal(posixStateCategory('U','linux'),'other');
+  assert.equal(posixStateCategory('D','linux'),'uninterruptible');assert.equal(posixStateCategory('D','darwin'),'other');
+  assert.equal(posixStateCategory('t','linux'),'stopped');assert.equal(posixStateCategory('t','darwin'),'other');
+  assert.equal(posixStateCategory('X','linux'),'dead');assert.equal(posixStateCategory('X','darwin'),'other');
 });
 
 test('cleanup waits for the owned descendant after its leader exits on SIGTERM', {skip:process.platform==='win32',timeout:10000}, async()=>{
@@ -177,6 +195,56 @@ function forceFixture(snapshot){
   };
   return f;
 }
+
+test('existing census adds finite matching roles, state counts and signal returns without raw identity',{skip:process.platform==='win32'},async()=>{
+  const rows=[identity(700001,{state:'running'}),identity(700002,{state:'sleeping'}),identity(700003,{state:'PRIVATE-STATE /private/client'}),identity(700004)];
+  const f=sequenceFixture([]);f.options.readTable=()=>f.signals.length===rows.length?[]:rows;
+  await stopNativeChild(f.child,1,f.options);
+  const capture=f.observations[0],last=f.observations.at(-1);
+  assert.equal(capture.leaderLive,1);assert.equal(capture.descendantLive,3);
+  assert.deepEqual(capture.states,{running:1,sleeping:1,idle:0,stopped:0,uninterruptible:0,zombie:0,dead:0,other:1,unknown:1});
+  assert.deepEqual(last.signals,{term:{returned:4,esrch:0,refusedIdentity:0},kill:{returned:0,esrch:0,refusedIdentity:0}});
+  assert.deepEqual(f.signals,[[700002,'SIGTERM'],[700003,'SIGTERM'],[700004,'SIGTERM'],[700001,'SIGTERM']]);
+  assert.doesNotMatch(JSON.stringify(f.observations),/PRIVATE|private|70000|synthetic-birth|"pid"|"start"/);
+});
+
+test('matching zombie state is counted while the unchanged running predicate proves no live members',{skip:process.platform==='win32'},async()=>{
+  const a=identity(700001,{state:'sleeping'}),b=identity(700002,{state:'sleeping'}),f=sequenceFixture([]);
+  f.options.readTable=()=>f.signals.length===2?[{...b,state:'zombie',running:false}]:[a,b];
+  await stopNativeChild(f.child,1,f.options);
+  assert.equal(f.observations.at(-1).knownLive,0);assert.equal(f.observations.at(-1).leaderLive,0);assert.equal(f.observations.at(-1).descendantLive,0);
+  assert.equal(f.observations.at(-1).states.zombie,1);
+});
+
+test('a finite dead-state observation does not replace the original running predicate',{skip:process.platform==='win32'},async()=>{
+  const a=identity(700001,{state:'dead',running:true}),f=sequenceFixture([]);
+  f.options.readTable=()=>f.signals.length?[]:[a];
+  await stopNativeChild(f.child,1,f.options);
+  assert.equal(f.observations[0].knownLive,1);assert.equal(f.observations[0].states.dead,1);
+  assert.deepEqual(f.signals,[[a.pid,'SIGTERM']]);
+});
+
+test('existing recheck skip and ESRCH become separate finite observations without new signals',{skip:process.platform==='win32'},async()=>{
+  const a=identity(700001),b=identity(700002),reused={...b,start:'PRIVATE-REUSED'},f=sequenceFixture([[a,b],[a,b],[a,reused],[a],[]]);
+  await stopNativeChild(f.child,1,f.options);
+  assert.deepEqual(f.signals,[[a.pid,'SIGTERM']]);
+  assert.deepEqual(f.observations.at(-1).signals.term,{returned:1,esrch:0,refusedIdentity:1});
+  const g=sequenceFixture([]);g.options.readTable=()=>g.signals.length===2?[]:[a,b];
+  g.options.kill=(pid,kind)=>{g.signals.push([pid,kind]);if(pid===b.pid)throw Object.assign(new Error('PRIVATE-ESRCH'),{code:'ESRCH'});g.child.signalCode=kind;};
+  await stopNativeChild(g.child,1,g.options);
+  assert.deepEqual(g.observations.at(-1).signals.term,{returned:1,esrch:1,refusedIdentity:0});
+});
+
+test('force return and ESRCH counters stay separate from TERM and non-ESRCH errors retain identity',{skip:process.platform==='win32'},async()=>{
+  const a=identity(700001),b=identity(700002);
+  const f=forceFixture(f=>f.signals.filter(([,kind])=>kind==='SIGKILL').length===2?[]:[a,b]);
+  f.options.kill=(pid,kind)=>{f.signals.push([pid,kind]);if(kind==='SIGKILL'&&pid===b.pid)throw Object.assign(new Error('PRIVATE-ESRCH'),{code:'ESRCH'});if(pid===a.pid)f.child.signalCode=kind;};
+  await stopNativeChild(f.child,1,f.options);
+  assert.deepEqual(f.observations.at(-1).signals,{term:{returned:2,esrch:0,refusedIdentity:0},kill:{returned:1,esrch:1,refusedIdentity:0}});
+  const primary=Object.assign(new Error('PRIVATE-SIGNAL-ERROR'),{code:'EPERM'}),g=sequenceFixture([[a],[a],[a]]);
+  g.options.kill=()=>{throw primary;};
+  await assert.rejects(stopNativeChild(g.child,1,g.options),error=>error===primary);
+});
 
 test('force rechecks admit late identities and give each a separate fresh positive-PID signal',{skip:process.platform==='win32'},async()=>{
   const a=identity(700001),b=identity(700002),c=identity(700003),d=identity(700004);

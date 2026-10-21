@@ -573,7 +573,7 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
   const promptProjection=()=>Object.fromEntries(['attachment','recovery'].map(role=>{
     const run=promptRuns[role];return [role,run?{click:run.click,network:run.network}:null];
   }));
-  let startupDropped=0,ownedProcessesDropped=0;
+  let startupDropped=0,ownedProcessesDropped=0,ownedStopAttempt=0;
   const observationStarted=performance.now();
   const startupStages=['request','headers','body','verified'];
   const processStages=['capture','term-signal','term-wait','kill-signal','kill-wait','signal-recheck'];
@@ -651,7 +651,25 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
       if(!processStages.includes(value?.stage))throw new Error('Unknown process diagnostic stage');
       const counts=['index','elapsedMs','knownLive','unknown','moved','mismatched'];
       if(!counts.every(key=>Number.isSafeInteger(value[key])&&value[key]>=0)||typeof value.leaderExited!=='boolean'||typeof value.anchored!=='boolean')throw new Error('Invalid process diagnostic census');
-      ownedProcesses.push({phase,stage:value.stage,index:value.index,elapsedMs:value.elapsedMs,knownLive:value.knownLive,unknown:value.unknown,moved:value.moved,mismatched:value.mismatched,leaderExited:value.leaderExited,anchored:value.anchored});
+      const extra={},validCount=value=>Number.isSafeInteger(value)&&value>=0;
+      if(value.leaderLive!==undefined||value.descendantLive!==undefined){
+        if(!validCount(value.leaderLive)||!validCount(value.descendantLive))throw new Error('Invalid process diagnostic census');
+        Object.assign(extra,{leaderLive:value.leaderLive,descendantLive:value.descendantLive});
+      }
+      if(value.states!==undefined){
+        const keys=['running','sleeping','idle','stopped','uninterruptible','zombie','dead','other','unknown'];
+        if(!value.states||!keys.every(key=>validCount(value.states[key])))throw new Error('Invalid process diagnostic census');
+        extra.states=Object.fromEntries(keys.map(key=>[key,value.states[key]]));
+      }
+      if(value.signals!==undefined){
+        const keys=['returned','esrch','refusedIdentity'];
+        if(!value.signals||!['term','kill'].every(kind=>value.signals[kind]&&keys.every(key=>validCount(value.signals[kind][key]))))throw new Error('Invalid process diagnostic census');
+        extra.signals=Object.fromEntries(['term','kill'].map(kind=>[kind,Object.fromEntries(keys.map(key=>[key,value.signals[kind][key]]))]));
+      }
+      // 0 means capture was not observed; null means the bounded attempt index
+      // overflowed. Only the existing capture boundary starts a new attempt.
+      if(value.stage==='capture')ownedStopAttempt=Math.min(129,ownedStopAttempt+1);
+      ownedProcesses.push({phase,stopAttempt:ownedStopAttempt>128?null:ownedStopAttempt,stage:value.stage,index:value.index,elapsedMs:value.elapsedMs,knownLive:value.knownLive,unknown:value.unknown,moved:value.moved,mismatched:value.mismatched,leaderExited:value.leaderExited,anchored:value.anchored,...extra});
       if(ownedProcesses.length>128){ownedProcesses.shift();ownedProcessesDropped++;}
     },
     async probeWorkspace({serverInfo,serverAuth,workspaces,selectedIndex=1}){

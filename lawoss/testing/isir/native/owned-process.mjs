@@ -7,6 +7,15 @@ const waitForExit = (child, timeout) => new Promise(resolve => {
   const done=()=>{clearTimeout(timer);child.off('exit',done);resolve(exited(child));};
   const timer=setTimeout(done,timeout);child.once('exit',done);
 });
+const stateCategories=['running','sleeping','idle','stopped','uninterruptible','zombie','dead','other','unknown'];
+// First state character only: Apple adv_cmds ps/ps.1 and procps ps(1).
+// This observation never changes running (!Z), identity or signal admission.
+export function posixStateCategory(stat,platform=process.platform) {
+  if(typeof stat!=='string'||!stat.length)return 'unknown';
+  const common={R:'running',S:'sleeping',I:'idle',T:'stopped',Z:'zombie'};
+  const specific=platform==='darwin'?{U:'uninterruptible'}:platform==='linux'?{D:'uninterruptible',t:'stopped',X:'dead'}:{};
+  return common[stat[0]]??specific[stat[0]]??'other';
+}
 
 // Read identity metadata only, never process command lines or environments.
 // Both supported POSIX runners provide these ps columns.
@@ -26,7 +35,7 @@ function processTable(group, capturedPids) {
   const rows=result.stdout.trim().split('\n').map(line=>{
     const fields=line.trim().split(/\s+/);
     if(fields.length!==10||!fields.slice(0,4).every(value=>/^\d+$/.test(value)))throw new Error('Invalid process identity snapshot');
-    return {pid:Number(fields[0]),parent:Number(fields[1]),group:Number(fields[2]),uid:Number(fields[3]),start:fields.slice(4,9).join(' '),running:!fields[9].startsWith('Z')};
+    return {pid:Number(fields[0]),parent:Number(fields[1]),group:Number(fields[2]),uid:Number(fields[3]),start:fields.slice(4,9).join(' '),running:!fields[9].startsWith('Z'),state:posixStateCategory(fields[9])};
   });
   return process.platform==='darwin'?rows.filter(row=>row.pid!==process.pid):rows;
 }
@@ -41,11 +50,17 @@ async function stopPosixGroup(child, timeout, {readTable,kill=(pid,kind)=>proces
   const table=snapshot();
   const members=table.filter(row=>row.group===child.pid&&row.running);
   const owned=new Map(members.map(member=>[member.pid,member]));
+  const signals={term:{returned:0,esrch:0,refusedIdentity:0},kill:{returned:0,esrch:0,refusedIdentity:0}};
   for(const member of members)capturedPids.add(member.pid);
   const census=(stage,rows)=>{
     const matching=row=>owned.has(row.pid)&&sameIdentity(owned.get(row.pid),row);
     const knownLive=rows.filter(row=>row.running&&matching(row)).length;
+    const states=Object.fromEntries(stateCategories.map(state=>[state,0]));
+    for(const row of rows.filter(matching))states[stateCategories.includes(row.state)?row.state:typeof row.state!=='string'||!row.state.length?'unknown':'other']++;
     observe({stage,index:index++,elapsedMs:Math.round(performance.now()-started),knownLive,
+      leaderLive:rows.filter(row=>row.running&&matching(row)&&row.pid===child.pid).length,
+      descendantLive:rows.filter(row=>row.running&&matching(row)&&row.pid!==child.pid).length,
+      states,signals:{term:{...signals.term},kill:{...signals.kill}},
       unknown:rows.filter(row=>row.running&&row.group===child.pid&&!matching(row)).length,
       moved:rows.filter(row=>{const old=owned.get(row.pid);return row.running&&old&&old.uid===row.uid&&old.start===row.start&&old.group!==row.group}).length,
       mismatched:rows.filter(row=>row.running&&owned.has(row.pid)&&!matching(row)).length,
@@ -82,6 +97,7 @@ async function stopPosixGroup(child, timeout, {readTable,kill=(pid,kind)=>proces
     // Discovery, every signal recheck, and waiting share this phase's original
     // budget. A stream of newly anchored members cannot restart the timeout.
     const deadline=now()+timeout,attempted=new Set(),replacements=new Set();
+    const signalCounts=kind==='SIGTERM'?signals.term:signals.kill;
     const key=row=>JSON.stringify([row.pid,row.group,row.uid,row.start]);
     const signal=members=>{
       let living=members;
@@ -99,9 +115,10 @@ async function stopPosixGroup(child, timeout, {readTable,kill=(pid,kind)=>proces
           // Keep already queued identities ahead of a changed PID's new birth;
           // its admission cannot borrow the stale candidate's signal attempt.
           if(current)replacements.add(key(current));
+          signalCounts.refusedIdentity++;
           continue;
         }
-        try {kill(identity.pid,kind);}catch(error){if(error.code!=='ESRCH')throw error;}
+        try {kill(identity.pid,kind);signalCounts.returned++;}catch(error){if(error.code!=='ESRCH')throw error;signalCounts.esrch++;}
       }
     };
     signal(inspect(signalStage));
