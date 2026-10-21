@@ -135,7 +135,7 @@ async function macArchitecture(app, arch) {
     if (build.platform !== 'darwin' || build.arch !== arch) throw new Error('macOS embedded architecture differs');
     const executable = join(app, 'Contents/MacOS/LAWOSS');
     if (!(await lstat(executable)).isFile()) throw new Error('Expected physical packaged Mac executable');
-    if (process.platform === 'darwin') await promisify(execFile)('/usr/bin/lipo', ['-verify_arch', arch === 'x64' ? 'x86_64' : 'arm64', executable], { timeout: 10_000 });
+    if (process.platform === 'darwin') await promisify(execFile)('/usr/bin/lipo', [executable, '-verify_arch', arch === 'x64' ? 'x86_64' : 'arm64'], { timeout: 10_000 });
 }
 async function payloadRoot(extracted) {
     const names = await readdir(extracted);
