@@ -94,7 +94,7 @@ public sealed class AlphaWindowsJob : IDisposable {
       attributes = Marshal.AllocHGlobal(size); Require(InitializeProcThreadAttributeList(attributes, 2, 0, ref size)); initialized = true;
       jobs = Marshal.AllocHGlobal(IntPtr.Size); Marshal.WriteIntPtr(jobs, owner.job);
       // PROC_THREAD_ATTRIBUTE_JOB_LIST: assignment occurs atomically at creation.
-      Require(UpdateProcThreadAttribute(attributes, 0, new IntPtr(0x00020013), jobs, new IntPtr(IntPtr.Size), IntPtr.Zero, IntPtr.Zero));
+      Require(UpdateProcThreadAttribute(attributes, 0, new IntPtr(0x0002000D), jobs, new IntPtr(IntPtr.Size), IntPtr.Zero, IntPtr.Zero));
       handles = Marshal.AllocHGlobal(IntPtr.Size * 2); Marshal.WriteIntPtr(handles, input); Marshal.WriteIntPtr(handles, IntPtr.Size, output);
       // The sole inherited handles are NUL. Control pipes and the job stay private.
       Require(UpdateProcThreadAttribute(attributes, 0, new IntPtr(0x00020002), handles, new IntPtr(IntPtr.Size * 2), IntPtr.Zero, IntPtr.Zero));

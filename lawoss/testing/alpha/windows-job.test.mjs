@@ -23,6 +23,18 @@ test('Windows launch contract preserves literal argv/env and rejects ambiguous o
   ]) assert.throws(() => validateWindowsJobOptions({ ...options, ...patch }), /windows-job-invalid-options/);
 });
 
+test('native attribute calls use the Windows SDK input attribute enum values', async () => {
+  // Microsoft WinBase.h: ProcThreadAttributeJobList=13, HandleList=2;
+  // ProcThreadAttributeValue combines the decimal enum with INPUT 0x20000.
+  // https://raw.githubusercontent.com/microsoft/win32metadata/main/generation/WinSDK/RecompiledIdlHeaders/um/WinBase.h
+  const source = await readFile(new URL('./windows-job.ps1', import.meta.url), 'utf8');
+  for (const [variable, enumeration] of [['jobs', 13], ['handles', 2]]) {
+    const argument = new RegExp(`UpdateProcThreadAttribute\\(attributes, 0, new IntPtr\\((0x[0-9a-fA-F]+)\\), ${variable},`).exec(source);
+    assert.ok(argument, `Missing native ${variable} attribute call`);
+    assert.equal(Number(argument[1]), 0x20000 | enumeration);
+  }
+});
+
 test('private supervisor protocol accepts only current nonce, closed finite frames and exact helper identity', () => {
   assert.deepEqual(parseWindowsJobFrame(JSON.stringify(ready), { nonce, supervisorPid: 456 }), ready);
   for (const frame of [
