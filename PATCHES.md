@@ -1271,3 +1271,38 @@ New focused viewer hook/source registry and mounted regression reuse existing na
 | Súbory | Zmena a dôvod |
 |---|---|
 | `apps/app/src/react-app/shell/welcome-route.tsx` | Odovzdá `onOpenClientChat` z LAWOSS `lawoss/domains/onboarding/client-chat-open.ts` do `LawossWelcomePage` s predvoleným modelom z `local.prefs` (+1 import, +1 komentár, 1 riadok zmenený). „Toto som našiel“ potom pri klientovi ponúkne „Otvoriť chat s klientom“: po registrácii skontroluje AI hranice a model, nainštaluje skilly OKF, overí `/novy-spis` v engine a založí chat v priečinku klienta s pripravenou prvou správou; dokončenie onboardingu pristane v chate cez existujúce `completion.landing`. Rozhodnutie MČ 19. 10. 2026: po pridaní existujúceho priečinka klienta sa otvorí chat ku klientovi, tabuľka usporiadania ostane ako pokročilá voľba. |
+
+### Pripojené priečinky klienta (2026-10-20, feat/pripojene-priecinky)
+
+Rozhodnutie MČ 19. 10. 2026: klient má jeden hlavný priečinok (OKF) a k nemu pripojené ďalšie, ktoré agent smie čítať; využije natívne povolené priečinky. Zoznam aj zápis sú natívne `listAuthorizedFolders` / `setAuthorizedFolders` projektu klienta (`permission.external_directory`), zámok firmy `tools.permissions` ako v Nastaveniach. Logika je v `apps/app/src/lawoss/lite/linked-folders.ts` a `linked-folders-view.tsx`; upstream súbory majú len tenké háky.
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/shell-config.tsx` | `ProjectNavKey` + `projectLinkedFolders`, v `DEFAULT_PROJECT_ORDER` hneď za `projectDeadlines`, boolean v `ShellConfig` predvolene `true`. `LAWOSS_PROJECT_ITEMS` ho obsahuje a `readProjectOrder` dopĺňa chýbajúci kľúč za jeho predchodcu (Domov → Prípady → Lehoty → Pripojené priečinky) namiesto všetkých naraz za Domov. Dôvod: položka pod klientom sa dá vypnúť v natívnom prispôsobení panela ako Prípady a Lehoty. |
+| `apps/app/src/react-app/domains/session/sidebar/sidebar-customization.tsx` | Položka `SIDEBAR_ITEMS.projectLinkedFolders` (`lawoss.lite.linked_folders_title`, ikona `FolderSymlink`) pre prispôsobenie panela (+1 riadok, +1 import). |
+| `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Mapa položiek projektu vykreslí `ClientLinkedFoldersNavItem` (počet pripojených priečinkov klienta, klik otvorí Domov); projekt, ktorý nie je klient, alebo klient bez pripojených priečinkov nedostane nič (+1 riadok, +1 import). |
+
+#### Pripojené priečinky klienta, oprava 1 (2026-10-20, feat/pripojene-priecinky)
+
+Engine číta jeden spoločný `OPENCODE_CONFIG` pre všetkých klientov, takže povolenia priečinkov jedného klienta platili v chatoch všetkých. Priečinky klientov preto do spoločného súboru nejdú; plugin `apps/server/src/opencode-plugins/lawoss-linked-folders.ts` (mimo `extensions/`) odpovie na otázku `external_directory` len v chatoch toho klienta podľa mapy, ktorú server zapisuje vedľa súboru enginu (`apps/server/src/lawoss/linked-folders.ts`, pravidlá `linked-folders-rules.ts`).
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/legalwork-runtime-config.ts` | +1 import; `withoutClientFolderGrants(...)` okolo členských oprávnení pred `orgPolicyPermissions` (bez `<priečinok>/*: allow` riadku klienta; iné položky ostanú); plugin `lawoss-linked-folders` v zozname pluginov; `writeLegalworkRuntimeConfigFile` zapíše aj mapu pripojených priečinkov; `keepLegalworkRuntimeConfigFileFresh` pri zápise iného klienta obnoví len mapu (súbor nie). Dôvod: únik medzi klientmi cez spoločný súbor. |
+| `apps/server/src/server.ts` | +1 import, +2 riadky v `PUT /workspace/:id/authorized-folders`: `requireLinkableFolders` odmietne nový priečinok, ktorý (po `realpath`, NFC) leží v inom registrovanom lokálnom klientovi alebo ho obsahuje, alebo leží v koreni praxe z profilu či ho obsahuje (pamäť kancelárie `Office/`/`_kancelaria/` smie). Platí pre natívne Nastavenia aj priame API. |
+| `apps/server/package.json` | Do `build` pribudol `src/opencode-plugins/lawoss-linked-folders.ts` (zabalený plugin ako ostatné). |
+| `apps/server/src/legalwork-runtime-config.test.ts` | Očakávanie: spoločný súbor po zápise globálnych oprávnení už nenesie `external_directory` riadku pracovného priestoru (ide po chatoch). |
+| `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Položka `projectLinkedFolders` dostane `active` (otvorený Domov klienta), aby sa zvýraznila, keď Domov otvorila ona. |
+
+#### Pripojené priečinky klienta, oprava 2 (2026-10-20, feat/pripojene-priecinky)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/server.ts` | `PATCH /workspace/:id/config`: +2 riadky, nové `allow` v `external_directory` smie byť len holé `*` alebo `<absolútny priečinok>/*` cez tie isté pravidlá ako natívny zoznam (`requireLinkableExternalDirectory`). `startServer`: +3 riadky, `onWorkspacesChanged` (registrácia, odobratie, presun) obnoví mapu pripojených priečinkov (`linkedFoldersMapRefresher`, zápisy čaká zastavenie servera); import rozšírený. |
+| `apps/server/src/agent-sandbox/service.ts` | +1 import, 1 riadok: do sandboxu sa zdieľajú len priečinky, ktoré pravidlá pripojených priečinkov dovolia (`linkableFolders`: nie iný klient, prax ani priečinok s dátami aplikácie, nie relatívne; wiki má vlastné pravidlá a filter ju nemení). |
+
+#### Pripojené priečinky klienta, oprava 3 (2026-10-20, feat/pripojene-priecinky)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/lawoss-workspace-memory-context.e2e.test.ts` | Fixture má dáta aplikácie (runtime) vo vlastnom priečinku `runtime/` (+1 komentár, +1 riadok, 1 zmenený): priečinok používateľa vnútri dát aplikácie sa už nepripojí (`linked_folder_app_data` oboma smermi). |
