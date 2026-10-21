@@ -886,6 +886,7 @@ test('provisioning failure before a session exists retains its exact owned respo
     assert.equal(result.provisioning[0].state,'finished');assert.equal(result.provisioning[0].responseError.code,'internal_error');
     assert.deepEqual(result.generationPrompts,[]);
     assert.deepEqual(result.provisioningHostErrors,[{caseIndex:2,category:'worker-exited',name:'Error',code:null,phase:'engine-health',frames:[{module:'lawoss/protected-ai/vm-engine.js',line:141,column:24}]}]);
+    assert.deepEqual(result.hostConsoleCapture.runs,[{kind:'provisioning',caseIndex:2,match:'one',shape:'named-error',traceLines:1}]);
     assert.deepEqual(f.reads,['PRIVATE-PROVISION']);
     assert.doesNotMatch(JSON.stringify(result),/PRIVATE|private-host|Unhandled error|worker exited|file:\/\/|stack/);
   });
@@ -1060,6 +1061,41 @@ test('host console capture ignores foreign owners and routes and remains unknown
     f.bodies.set('PRIVATE',{body:'{}',base64Encoded:false});f.diagnostics.generationStart(1,f.events,f.events.length,f.context);f.emit(promptRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();await f.flush();
     f.diagnostics.failure(new Error('PRIVATE'));f.diagnostics.captureGenerationHostErrors([{label:'electron',output:()=>text}]);
     assert.deepEqual((await f.receipt()).generationHostErrors,[{caseIndex:1,category:'unknown',name:'Error',code:null,phase:null,frames:[]}]);
+  });
+});
+
+test('host console coverage distinguishes missing, ambiguous, unclassified and truncated owned evidence without text',async()=>{
+  const prefix='[legalwork-server] Unhandled error: POST /workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async ';
+  const unknown=prefix+'Error: PRIVATE-UNKNOWN\n    at PRIVATE (/PRIVATE/unlisted.js:12:34)\n';
+  const samples=[
+    {outputs:['PRIVATE-NO-MATCH'],match:'none',shape:'absent',traceLines:0,truncated:0},
+    {outputs:[unknown],match:'one',shape:'named-error',traceLines:1,truncated:0},
+    {outputs:[prefix+'DOMException [TimeoutError]: PRIVATE-UNKNOWN'],match:'one',shape:'dom-exception',traceLines:0,truncated:0},
+    {outputs:[prefix+'PRIVATE-MALFORMED'],match:'one',shape:'unrecognized',traceLines:0,truncated:0},
+    {outputs:[unknown+unknown],match:'ambiguous',shape:'ambiguous',traceLines:0,truncated:0},
+    {outputs:[unknown+'x'.repeat(256*1024)],match:'none',shape:'absent',traceLines:0,truncated:1},
+    {outputs:['é'.repeat(200000)],match:'none',shape:'absent',traceLines:0,truncated:1},
+    {outputs:[()=>{throw new Error('PRIVATE-READ-FAILURE');},()=>null,()=>{throw new Error('THIRD-OWNER');}],statuses:['read-error','unavailable'],match:'none',shape:'absent',traceLines:0,truncated:0},
+    {outputs:[null],missing:true,statuses:['unavailable'],match:'none',shape:'absent',traceLines:0,truncated:0},
+  ];
+  for(const sample of samples)await generationResponseFixture(async f=>{
+    f.bodies.set('PRIVATE',{body:'{}',base64Encoded:false});
+    f.diagnostics.generationStart(1,f.events,f.events.length,f.context);
+    f.emit(promptRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();await f.flush();
+    f.diagnostics.failure(new Error('PRIVATE-PRIMARY'));
+    f.diagnostics.captureGenerationHostErrors([
+      {label:'provider',output:()=>{throw new Error('FOREIGN-OWNER');}},
+      ...sample.outputs.map(output=>sample.missing?{label:'electron'}:{label:'electron',output:typeof output==='function'?output:()=>output}),
+    ]);
+    const result=await f.receipt(),inspected=Math.min(2,sample.outputs.length);
+    assert.deepEqual(result.hostConsoleCapture,{
+      owners:Array.from({length:inspected},(_,i)=>({source:'electron',status:sample.statuses?.[i]??'read',truncated:sample.truncated===1})),
+      runs:[{kind:'prompt',caseIndex:1,match:sample.match,shape:sample.shape,traceLines:sample.traceLines}],
+    });
+    assert.equal(result.generationHostErrors[0].category,sample.shape==='dom-exception'?'timeout':'unknown');
+    assert.doesNotMatch(JSON.stringify(result),/PRIVATE|FOREIGN|THIRD|unlisted|xxxx|é|Unhandled error/);
+    f.diagnostics.captureGenerationHostErrors([{label:'electron',output:()=>{throw new Error('MUST-NOT-RECAPTURE');}}]);
+    assert.deepEqual(await f.receipt(),result);
   });
 });
 

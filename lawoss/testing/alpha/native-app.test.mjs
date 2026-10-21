@@ -84,7 +84,7 @@ const identity = () => ({ ok:true, build:{version:'1.2.3-alpha.1',gitSha:'${buil
 const server=createServer(async (req,res)=>{
   if(req.headers.authorization!=='Bearer '+token){res.writeHead(401);res.end('{}');return;}
   if(req.url==='/build-info'){res.end(JSON.stringify(identity()));return;}
-  if(req.url==='/snapshot'){snapshotCalls++;await writeFile(join(process.env.LEGALWORK_ELECTRON_USERDATA,'snapshot-count'),String(snapshotCalls));if(presentation && (presentation.remaining === -1 || presentation.remaining-- > 0)){if(presentation.identityAfterSnapshot)patch=presentation.identityAfterSnapshot;res.end(JSON.stringify({ok:false,error:presentation.error ?? 'Renderer presentation is not available yet.',readiness:Object.hasOwn(presentation,'readiness') ? presentation.readiness : ${JSON.stringify(readiness)}}));return;}if(${stall}){res.writeHead(200);res.write('{');return;}res.end(JSON.stringify({ok:true,route:'/welcome',readiness:${JSON.stringify(readiness)}}));return;}
+  if(req.url==='/snapshot'){snapshotCalls++;await writeFile(join(process.env.LEGALWORK_ELECTRON_USERDATA,'snapshot-count'),String(snapshotCalls));if(presentation?.stall==='headers')return;if(presentation?.stall==='body'){res.writeHead(200);res.write('{');return;}if(presentation && (presentation.remaining === -1 || presentation.remaining-- > 0)){if(presentation.identityAfterSnapshot)patch=presentation.identityAfterSnapshot;res.end(JSON.stringify({ok:false,error:presentation.error ?? 'Renderer presentation is not available yet.',readiness:Object.hasOwn(presentation,'readiness') ? presentation.readiness : ${JSON.stringify(readiness)}}));return;}if(${stall}){res.writeHead(200);res.write('{');return;}res.end(JSON.stringify({ok:true,route:'/welcome',readiness:${JSON.stringify(readiness)}}));return;}
   if(req.url==='/execute'){let raw='';for await(const chunk of req)raw+=chunk;const input=JSON.parse(raw);if(input.actionId==='fixture.identity')patch=input.args;if(input.actionId==='fixture.presentation'){presentation=input.args;snapshotCalls=0;if(input.args.identity)patch=input.args.identity;}res.end(JSON.stringify({ok:true,input}));return;}
   res.writeHead(404);res.end('{}');
 });
@@ -246,6 +246,14 @@ test('a transient presentation watchdog after launch recovers inside the observa
 test('persistent presentation delay cannot extend the original five-second observation budget', { skip: process.platform === 'win32', timeout: 8000 }, async t => {
   const options = await fixture(t), app = options.own(await launchAlphaApp({ ...options, build }));
   await app.execute('fixture.presentation', { remaining: -1 });
+  const started = performance.now();
+  await assert.rejects(app.observe(), { code: 'shipping-control-request-timeout' });
+  assert.ok(performance.now() - started < 8000);
+});
+
+for (const phase of ['headers', 'body']) test(`stalled snapshot ${phase} reports the owned observation timeout`, { skip: process.platform === 'win32', timeout: 8000 }, async t => {
+  const options = await fixture(t), app = options.own(await launchAlphaApp({ ...options, build }));
+  await app.execute('fixture.presentation', { stall: phase, remaining: 0 });
   const started = performance.now();
   await assert.rejects(app.observe(), { code: 'shipping-control-request-timeout' });
   assert.ok(performance.now() - started < 8000);

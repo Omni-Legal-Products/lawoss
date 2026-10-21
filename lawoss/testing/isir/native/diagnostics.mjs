@@ -512,6 +512,7 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
   const provisioning=[],provisioningRuns=[];
   let generationHostErrors=[],hostErrorsCaptured=false;
   let provisioningHostErrors=[];
+  let hostConsoleCapture=null;
   let generationRun=null;
   let provisioningRun=null;
   const readGenerationError=run=>{
@@ -682,33 +683,47 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
       hostErrorsCaptured=true;
       const runs=[...generationRuns,...provisioningRuns].filter(run=>run.receipt.issued&&run.receipt.status>=500&&run.receipt.status<=599);
       if(!runs.length)return;
+      hostConsoleCapture={owners:[],runs:[]};
       // Owned console envelopes are structural evidence, not authenticated
       // causes: a guest or arbitrary message can imitate text. Never publish
       // output, paths, functions, messages or arbitrary error properties.
       const buffers=[];let inspected=0;
       try{for(const owner of Array.isArray(owners)?owners:[]){
         if(inspected===2)break;
-        if(!['electron','electron-relaunch'].includes(owner?.label)||typeof owner.output!=='function')continue;
+        const source=owner?.label;
+        if(!['electron','electron-relaunch'].includes(source))continue;
         inspected++;
-        try{const text=owner.output();if(typeof text==='string'){
+        const coverage={source,status:'unavailable',truncated:false};
+        hostConsoleCapture.owners.push(coverage);
+        try{const text=typeof owner.output==='function'?owner.output():null;if(typeof text==='string'){
           const tail=Buffer.from(text.slice(-256*1024),'utf8');
+          coverage.status='read';coverage.truncated=text.length>256*1024||tail.length>256*1024;
           buffers.push(tail.subarray(Math.max(0,tail.length-256*1024)).toString('utf8').split(/\r?\n/));
-        }}catch{}
+        }}catch{coverage.status='read-error';}
       }}catch{}
       const project=run=>{
         const matches=[],prefix=`[legalwork-server] Unhandled error: POST ${run.path} `;
-        for(const lines of buffers)for(let i=0;i<lines.length;i++)if(lines[i].startsWith(prefix)){
+        for(const lines of buffers)for(let i=0;i<lines.length;i++)if(matches.length<2&&lines[i].startsWith(prefix)){
           const block=[lines[i].slice(prefix.length),...lines.slice(i+1,i+33)];
-          matches.push(generationHostError(block,0));
+          matches.push(block);
         }
-        return {caseIndex:run.receipt.caseIndex,...(matches.length===1?matches[0]:{category:'unknown',name:'Error',code:null,phase:null,frames:[]})};
+        const match=matches.length===0?'none':matches.length===1?'one':'ambiguous';
+        let shape=match==='none'?'absent':match==='ambiguous'?'ambiguous':'unrecognized',traceLines=0;
+        if(matches.length===1){
+          const block=matches[0];
+          if(/^(Error|TypeError|RangeError|SyntaxError|TimeoutError|AbortError|ZodError)(?::| \[)/.test(block[0]))shape='named-error';
+          else if(/^DOMException \[(TimeoutError|AbortError)\]:/.test(block[0]))shape='dom-exception';
+          for(const line of block.slice(1)){if(!/^\s+at /.test(line))break;traceLines++;}
+        }
+        hostConsoleCapture.runs.push({kind:generationRuns.includes(run)?'prompt':'provisioning',caseIndex:run.receipt.caseIndex,match,shape,traceLines});
+        return {caseIndex:run.receipt.caseIndex,...(matches.length===1?generationHostError(matches[0],0):{category:'unknown',name:'Error',code:null,phase:null,frames:[]})};
       };
       generationHostErrors=runs.filter(run=>generationRuns.includes(run)).map(project);
       provisioningHostErrors=runs.filter(run=>provisioningRuns.includes(run)).map(project);
     },
     async write({events=[],error=null,cleanupErrors=[]}={}){
       if(!enabled)return;
-      const data={schema:6,generationPrompts,provisioning,...(hostErrorsCaptured?{generationHostErrors,provisioningHostErrors}:{}),promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
+      const data={schema:6,generationPrompts,provisioning,...(hostErrorsCaptured?{generationHostErrors,provisioningHostErrors}:{}),...(hostConsoleCapture?{hostConsoleCapture}:{}),promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
       await writeFile(outputFile,JSON.stringify(data,null,2),{mode:0o600});
     },
     failure(error){

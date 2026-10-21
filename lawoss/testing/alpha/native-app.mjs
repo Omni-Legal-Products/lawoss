@@ -256,9 +256,15 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
   }
   async function request(endpoint, options = {}, budget = 5000) {
     assertRunning();
-    const response = await fetch(`${discovery.baseUrl}${endpoint}`, { ...options, redirect: 'error',
-      headers: { ...options.headers, authorization: `Bearer ${discovery.token}` }, signal: AbortSignal.timeout(Math.max(1, budget)) });
-    return readJsonResponse(response);
+    const signal = AbortSignal.timeout(Math.max(1, budget));
+    try {
+      const response = await fetch(`${discovery.baseUrl}${endpoint}`, { ...options, redirect: 'error',
+        headers: { ...options.headers, authorization: `Bearer ${discovery.token}` }, signal });
+      return await readJsonResponse(response);
+    } catch (error) {
+      if (signal.aborted) throw blocked('shipping-control-request-timeout');
+      throw error;
+    }
   }
   async function observe(budget = 5000) {
     const deadline = performance.now() + budget;
