@@ -63,7 +63,7 @@ export function nativeAppEnvironment(root, { platform = process.platform, enviro
     NODE_OPTIONS: '', ELECTRON_RUN_AS_NODE: '', LEGALWORK_DEV_MODE: '0',
     LEGALWORK_ELECTRON_USERDATA: paths.join(root, 'userdata'), LEGALWORK_DATA_DIR: paths.join(root, 'runtime'),
     LEGALWORK_SERVER_CONFIG: paths.join(root, 'runtime/server.json'), LEGALWORK_RUNTIME_DB: paths.join(root, 'runtime/runtime.db'),
-    OPENCODE_DB: paths.join(root, 'runtime/opencode.db'), LEGALWORK_WORKSPACES: paths.join(root, 'workspace'), LEGALWORK_WORD_ADDIN: '0' };
+    OPENCODE_DB: paths.join(root, 'runtime/opencode.db'), LEGALWORK_WORD_ADDIN: '0' };
 }
 
 async function ownedDirectory(directory) {

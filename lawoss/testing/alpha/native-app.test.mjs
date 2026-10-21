@@ -30,7 +30,7 @@ test('environment has explicit synthetic storage and preserves only native UI/sy
     WAYLAND_DISPLAY: 'wayland-0', XDG_RUNTIME_DIR: '/run/user/1', DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/bus',
     HOME: '/private', OPENAI_API_KEY: 'private-key', NODE_OPTIONS: '--import=private',
     ELECTRON_RUN_AS_NODE: '1', ELECTRON_EXTRA_LAUNCH_ARGS: '--remote-debugging-port=9222',
-    LEGALWORK_UI_CONTROL_DISCOVERY: '/private/discovery', OPENCODE_CONFIG: 'private',
+    LEGALWORK_UI_CONTROL_DISCOVERY: '/private/discovery', OPENCODE_CONFIG: 'private', LEGALWORK_WORKSPACES: '/private/workspaces',
     SystemRoot: 'C:\\Windows', WINDIR: 'C:\\Windows', APPDATA: 'private', USERPROFILE: 'private',
     COMSPEC: 'C:\\Windows\\System32\\cmd.exe', PATHEXT: '.COM;.EXE;.CMD', TEMP: '/private/temp' };
   const linux = nativeAppEnvironment('/owned', { platform: 'linux', environment: ambient });
@@ -43,6 +43,7 @@ test('environment has explicit synthetic storage and preserves only native UI/sy
   assert.equal(linux.NODE_OPTIONS, '');
   assert.equal(linux.ELECTRON_RUN_AS_NODE, '');
   for (const key of ['OPENAI_API_KEY', 'OPENCODE_CONFIG', 'LEGALWORK_UI_CONTROL_DISCOVERY', 'ELECTRON_EXTRA_LAUNCH_ARGS']) assert.equal(linux[key], undefined);
+  assert.equal(linux.LEGALWORK_WORKSPACES, undefined, 'a relaunch must read persisted workspace configuration instead of an acceptance override');
   const windows = nativeAppEnvironment('C:\\owned', { platform: 'win32', environment: ambient });
   assert.equal(windows.SystemRoot, ambient.SystemRoot);
   assert.equal(windows.PATHEXT, ambient.PATHEXT);

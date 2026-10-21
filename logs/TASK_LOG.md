@@ -89,3 +89,10 @@ Toolchain mismatch found: prior local Bun1.4.0, CI1.4.2; previous source-suite r
 - Actual corrected Mac artifact48a/f3b16c52 shows welcome in delayed diagnostic capture; immediate native capture still showed Ready. Superseded startup result; shipping snapshot now waits two frames and must be rebuilt/retested.
 - CI39636278035 failed macOS Office watch output-loop assertion. Deterministic unnamed-event RED2!=1, GREEN4/4, independent fatal-close and edit-during-build probes pass. Previous server reload-watcher failure remained unreproduced in local10pass1skip and full3060pass70skip; no guessed fix or timeout increase.
 - Detailed logs/decisions remain in ignored .work/six-platform-alpha/evidence and decisions.tsv.
+
+## 2026-10-21T17:20:02.323332+00:00 — Actual Mac journeys and restart environment repair
+
+- Final-byte Mac4201105b ZIP88be2c0a startup frame shows actual welcome. Functional2 measured four PASS journeys: startup, onboarding without model, real native picker cancel/reopen/select, OKF preview/cancel/apply and matter creation.359 original fixture files remained hash-identical. Document import/preview passed its layer; real-provider question and memory use remain blocked.
+- Measured restart FAIL exposed test-only LEGALWORK_WORKSPACES overriding persisted server.json; source registry and data stayed intact. Removed override; same owned profile then recovered both clients/four matters/document hash and retained Czech. Switched Slovak, restarted again and verified Slovak UI/native menu. Original failed receipt preserved separately from subsequent diagnostic proof.
+- Current exact b81 CI app/server/desktop stages reached only Electron fixture type errors; corrected two declarations without suppressions and reran exact typecheck. New runner evidence remains pending.
+- No original user profiles, real client inputs, public installers, legal authority or provider settings modified.

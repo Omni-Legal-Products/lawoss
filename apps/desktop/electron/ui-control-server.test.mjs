@@ -203,7 +203,7 @@ function readinessElement({ attributes = {}, style = {}, parentElement = null, d
 }
 
 async function shippingSnapshot(t, { readyState = 'complete', overlays = [], controls = [], occluded = false, control = true,
-  onAnimationFrame = () => {}, requestFrame = setImmediate, cancelFrame = clearImmediate } = {}) {
+  onAnimationFrame = (_frame = 0) => {}, requestFrame = (callback = () => {}) => setImmediate(callback), cancelFrame = clearImmediate } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'lawoss-ui-readiness-'));
   const previousDiscovery = process.env.LEGALWORK_UI_CONTROL_DISCOVERY;
   const document = {
@@ -268,7 +268,7 @@ test('shipping snapshot recomputes readiness after renderer frame turns instead 
 });
 
 test('shipping snapshot stays unavailable when renderer presentation does not advance', async t => {
-  const snapshot = await shippingSnapshot(t, { controls: [readinessElement()], requestFrame: () => 1, cancelFrame: () => {} });
+  const snapshot = await shippingSnapshot(t, { controls: [readinessElement()], requestFrame: () => setImmediate(() => {}) });
   assert.equal(snapshot.ok, false);
   assert.match(snapshot.error, /presentation|frame/i);
 });
