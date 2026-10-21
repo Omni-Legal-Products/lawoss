@@ -1265,3 +1265,9 @@ New focused viewer hook/source registry and mounted regression reuse existing na
 | Súbory | Zmena a dôvod |
 |---|---|
 | `apps/desktop/electron/main.mjs` | Pri `LAWOSS_DEV_MOCK_KEYCHAIN=1` na macOS pridá prepínač `use-mock-keychain` pred štartom appky. Dôvod: izolovaný testovací beh s presmerovaným `HOME` nemá klúčenku a macOS by ponúkol „Reset To Defaults“ skutočnej klúčenky používateľa. Bez premennej sa nič nemení. |
+
+### Chat s klientom po pridaní priečinka (2026-10-20, feat/chat-po-pridani)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/welcome-route.tsx` | Odovzdá `onOpenClientChat` z LAWOSS `lawoss/domains/onboarding/client-chat-open.ts` do `LawossWelcomePage` s predvoleným modelom z `local.prefs` (+1 import, +1 komentár, 1 riadok zmenený). „Toto som našiel“ potom pri klientovi ponúkne „Otvoriť chat s klientom“: po registrácii skontroluje AI hranice a model, nainštaluje skilly OKF, overí `/novy-spis` v engine a založí chat v priečinku klienta s pripravenou prvou správou; dokončenie onboardingu pristane v chate cez existujúce `completion.landing`. Rozhodnutie MČ 19. 10. 2026: po pridaní existujúceho priečinka klienta sa otvorí chat ku klientovi, tabuľka usporiadania ostane ako pokročilá voľba. |
