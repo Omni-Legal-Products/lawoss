@@ -1260,6 +1260,12 @@ Native embedded-child review controls stay blocked until the viewer opens the ex
 
 New focused viewer hook/source registry and mounted regression reuse existing native panels and owned browser lifecycle. Public synthetic screenshots and boundary notes: `lawoss/testing/evidence/pdf-visual-review/`. The merged EML subtree-readable contract is also preserved when review recomputes ancestor status; unsupported siblings still prevent completeness.
 
+### Izolovaný testovací beh na macOS bez klúčenky (2026-10-20, fix/dev-mock-keychain)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/desktop/electron/main.mjs` | Pri `LAWOSS_DEV_MOCK_KEYCHAIN=1` na macOS pridá prepínač `use-mock-keychain` pred štartom appky. Dôvod: izolovaný testovací beh s presmerovaným `HOME` nemá klúčenku a macOS by ponúkol „Reset To Defaults“ skutočnej klúčenky používateľa. Bez premennej sa nič nemení. |
+
 ### Pripojené priečinky klienta (2026-10-20, feat/pripojene-priecinky)
 
 Rozhodnutie MČ 19. 10. 2026: klient má jeden hlavný priečinok (OKF) a k nemu pripojené ďalšie, ktoré agent smie čítať; využije natívne povolené priečinky. Zoznam aj zápis sú natívne `listAuthorizedFolders` / `setAuthorizedFolders` projektu klienta (`permission.external_directory`), zámok firmy `tools.permissions` ako v Nastaveniach. Logika je v `apps/app/src/lawoss/lite/linked-folders.ts` a `linked-folders-view.tsx`; upstream súbory majú len tenké háky.
