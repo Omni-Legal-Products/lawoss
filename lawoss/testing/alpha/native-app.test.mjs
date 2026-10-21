@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, open, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { tmpdir, hostname } from 'node:os';
@@ -104,41 +104,28 @@ test('unsupported target refuses before profile mutation or spawn', async (t) =>
 
 test('a second macOS app instance refuses acceptance without stopping the existing process', { skip: process.platform !== 'darwin' }, async t => {
   const options = await fixture(t);
-  const compileStarted = performance.now();
-  try {
-    execFileSync('/usr/bin/clang', ['-x', 'c', '-o', options.layout.executable, '-'], {
-      input: '#include <stdio.h>\n#include <unistd.h>\nint main(void) { puts("ready"); fflush(stdout); sleep(60); return 0; }\n',
-      timeout: 10000, stdio: ['pipe', 'ignore', 'pipe'],
-    });
-  } catch (error) {
-    const output = { format: 'unavailable', arch: 'unknown', bytes: null };
-    try {
-      const file = await open(options.layout.executable, 'r');
-      try {
-        const info = await file.stat(), header = Buffer.alloc(8);
-        const { bytesRead } = await file.read(header, 0, header.length, 0);
-        output.bytes = Math.min(info.size, 16 * 1024 * 1024);
-        output.format = bytesRead === 8 && header.readUInt32LE(0) === 0xfeedfacf ? 'mach-o-64' : 'other';
-        if (output.format === 'mach-o-64') output.arch = ({ [0x01000007]: 'x64', [0x0100000c]: 'arm64' })[header.readUInt32LE(4)] ?? 'other';
-      } finally { await file.close(); }
-    } catch { /* Output inspection is diagnostic only; preserve the compiler error. */ }
-    try {
-      console.error(JSON.stringify({ kind: 'lawoss-native-fixture-compile-failure', phase: 'compiler',
-        elapsedMs: Math.round(performance.now() - compileStarted), code: error?.code === 'ETIMEDOUT' ? 'timeout' : 'other',
-        status: Number.isInteger(error?.status) && error.status >= 0 && error.status <= 255 ? error.status : null,
-        signal: error?.signal === null ? null : ['SIGTERM', 'SIGKILL'].includes(error?.signal) ? error.signal : 'other',
-        stderrBytes: Buffer.isBuffer(error?.stderr) ? Math.min(error.stderr.length, 65535) : null, output }));
-    } catch { /* Logging cannot replace the primary failure. */ }
-    throw error;
-  }
-  const existing = spawn(options.layout.executable, [], { stdio: ['ignore', 'pipe', 'ignore'] });
+  // Reuse the running test runtime as a real native image at this owned path.
+  // The owner guard does not need a C compiler or its partially written output.
+  await copyFile(process.execPath, options.layout.executable);
+  await chmod(options.layout.executable, 0o700);
+  assert.deepEqual(await readFile(options.layout.executable), await readFile(process.execPath));
+  const existing = spawn(options.layout.executable, ['-e', 'process.stdout.write("ready\\n");setTimeout(()=>{},60000)'], {
+    env: {}, stdio: ['ignore', 'pipe', 'ignore'],
+  });
   const closed = once(existing, 'close');
   try {
     await once(existing, 'spawn');
-    const [ready] = await once(existing.stdout, 'data');
+    const [ready] = await Promise.race([once(existing.stdout, 'data'), closed.then(() => {
+      throw new Error('native-owner-fixture-exited-before-ready');
+    })]);
     assert.equal(ready.toString(), 'ready\n');
+    assert.equal(execFileSync('/bin/ps', ['-p', String(existing.pid), '-o', 'comm='], {
+      encoding: 'utf8', timeout: 2000, maxBuffer: 8192,
+    }).trim(), options.layout.executable);
     await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 300 }), /installed-app-already-running/);
     process.kill(existing.pid, 0);
+    assert.equal(existing.exitCode, null);
+    assert.equal(existing.signalCode, null);
     await assert.rejects(readFile(join(options.profileRoot, '.alpha-native-app.lock')), { code: 'ENOENT' });
   } finally { existing.kill(); await closed; }
 });
