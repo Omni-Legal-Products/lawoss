@@ -10,7 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { validateBuildInfo } from '../../../apps/desktop/electron/build-info.mjs';
-import { validateLiveIdentity } from '../../../apps/desktop/scripts/release-acceptance-macos.mjs';
+import { validateLiveIdentity, validateLiveProcessIdentity } from '../../../apps/desktop/scripts/release-acceptance-macos.mjs';
 import { ownedProfile } from '../../../apps/desktop/scripts/release-acceptance.mjs';
 import { stopNativeChild } from '../isir/native/owned-process.mjs';
 import { launchWindowsJob } from './windows-job.mjs';
@@ -247,15 +247,27 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
   }
   async function observe(budget = 5000) {
     const deadline = performance.now() + budget;
-    const identity = await request('/build-info', {}, budget);
-    const remaining = Math.floor(deadline - performance.now());
-    if (remaining <= 0) throw blocked('shipping-control-request-timeout');
-    identity.snapshot = await request('/snapshot', {}, remaining);
-    if (performance.now() > deadline) throw blocked('shipping-control-request-timeout');
-    validateLiveIdentity(identity, { build, pid: child.pid, userData: env.LEGALWORK_ELECTRON_USERDATA, executable, rendererRoot });
-    assertInteractiveUi(identity.snapshot);
-    assertRunning();
-    return identity;
+    const remaining = () => {
+      const value = Math.floor(deadline - performance.now());
+      if (value <= 0) throw blocked('shipping-control-request-timeout');
+      return value;
+    };
+    for (;;) {
+      const identity = await request('/build-info', {}, remaining());
+      const expected = { build, pid: child.pid, userData: env.LEGALWORK_ELECTRON_USERDATA, executable, rendererRoot };
+      validateLiveProcessIdentity(identity, expected);
+      identity.snapshot = await request('/snapshot', {}, remaining());
+      remaining();
+      if (identity.snapshot?.ok === false && identity.snapshot.error === 'Renderer presentation is not available yet.') {
+        assertInteractiveUi(identity.snapshot);
+        await delay(Math.min(20, remaining()));
+        continue;
+      }
+      validateLiveIdentity(identity, expected);
+      assertInteractiveUi(identity.snapshot);
+      assertRunning();
+      return identity;
+    }
   }
   try {
     for (const name of ['userdata', 'runtime', 'workspace', 'home', 'config', 'data', 'cache', 'tmp']) await ownedDirectory(path.join(root, name));

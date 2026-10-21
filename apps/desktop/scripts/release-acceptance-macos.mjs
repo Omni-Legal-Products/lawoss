@@ -29,7 +29,7 @@ export async function compareInstalledTree(installerApp, installedApp) {
     if (JSON.stringify(await tree(installerApp)) !== JSON.stringify(await tree(installedApp)))
         throw new Error('Installed bundle tree or bytes differ from final installer');
 }
-export function validateLiveIdentity(observed, expected) {
+export function validateLiveProcessIdentity(observed, expected) {
     const b = observed.build, e = expected.build;
     if (observed.ok !== true || b?.provenance !== 'embedded' || b.legalworkDevMode !== false || b.version !== e.version || b.gitSha !== e.gitSha || b.buildEpoch !== e.buildEpoch || b.os !== e.platform || b.arch !== e.arch || b.channel !== e.channel)
         throw new Error('Live packaged IPC identity differs');
@@ -42,7 +42,12 @@ export function validateLiveIdentity(observed, expected) {
     catch {
         throw new Error('Expected the packaged file renderer');
     }
-    if (!renderer.startsWith(`${expected.rendererRoot}${sep}`) || observed.snapshot?.ok !== true || typeof observed.snapshot.route !== 'string')
+    if (!renderer.startsWith(`${expected.rendererRoot}${sep}`))
+        throw new Error('Packaged renderer or shipping snapshot unavailable');
+}
+export function validateLiveIdentity(observed, expected) {
+    validateLiveProcessIdentity(observed, expected);
+    if (observed.snapshot?.ok !== true || typeof observed.snapshot.route !== 'string')
         throw new Error('Packaged renderer or shipping snapshot unavailable');
 }
 async function verifyMacInstallation({ installedApp, asset, scratch }) {

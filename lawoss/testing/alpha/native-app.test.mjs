@@ -76,13 +76,14 @@ import { createServer } from 'node:http';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 let patch = ${JSON.stringify(wrong)};
+let presentation = null, snapshotCalls = 0;
 const token = 'private-fixture-token';
 const identity = () => ({ ok:true, build:{version:'1.2.3-alpha.1',gitSha:'${build.gitSha}',buildEpoch:'123',os:'${platform}',arch:'${process.arch}',channel:'alpha',provenance:'embedded',legalworkDevMode:false},process:{pid:process.pid,userData:process.env.LEGALWORK_ELECTRON_USERDATA,executable:${JSON.stringify(layout.executable)}},rendererUrl:${JSON.stringify(pathToFileURL(join(layout.rendererRoot, 'index.html')).href)},windowSourceId:null,...patch });
 const server=createServer(async (req,res)=>{
   if(req.headers.authorization!=='Bearer '+token){res.writeHead(401);res.end('{}');return;}
   if(req.url==='/build-info'){res.end(JSON.stringify(identity()));return;}
-  if(req.url==='/snapshot'){if(${stall}){res.writeHead(200);res.write('{');return;}res.end(JSON.stringify({ok:true,route:'/welcome',readiness:${JSON.stringify(readiness)}}));return;}
-  if(req.url==='/execute'){let raw='';for await(const chunk of req)raw+=chunk;const input=JSON.parse(raw);if(input.actionId==='fixture.identity')patch=input.args;res.end(JSON.stringify({ok:true,input}));return;}
+  if(req.url==='/snapshot'){snapshotCalls++;await writeFile(join(process.env.LEGALWORK_ELECTRON_USERDATA,'snapshot-count'),String(snapshotCalls));if(presentation && (presentation.remaining === -1 || presentation.remaining-- > 0)){if(presentation.identityAfterSnapshot)patch=presentation.identityAfterSnapshot;res.end(JSON.stringify({ok:false,error:presentation.error ?? 'Renderer presentation is not available yet.',readiness:Object.hasOwn(presentation,'readiness') ? presentation.readiness : ${JSON.stringify(readiness)}}));return;}if(${stall}){res.writeHead(200);res.write('{');return;}res.end(JSON.stringify({ok:true,route:'/welcome',readiness:${JSON.stringify(readiness)}}));return;}
+  if(req.url==='/execute'){let raw='';for await(const chunk of req)raw+=chunk;const input=JSON.parse(raw);if(input.actionId==='fixture.identity')patch=input.args;if(input.actionId==='fixture.presentation'){presentation=input.args;snapshotCalls=0;if(input.args.identity)patch=input.args.identity;}res.end(JSON.stringify({ok:true,input}));return;}
   res.writeHead(404);res.end('{}');
 });
 server.listen(0,'127.0.0.1',()=>setTimeout(()=>writeFile(join(process.env.LEGALWORK_ELECTRON_USERDATA,'legalwork-ui-control.json'),JSON.stringify({version:1,platform:'${platform}',baseUrl:'http://127.0.0.1:'+server.address().port,token}),{mode:0o600}),${delayedDiscovery ? 200 : 0}));
@@ -212,4 +213,51 @@ for (const [name, readiness] of [
 ]) test(`shipping IPC without usable UI cannot pass startup: ${name}`, { skip: process.platform === 'win32' }, async t => {
   const options = await fixture(t, { readiness });
   await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 400 }).then(options.own), /native-readiness-timeout/);
+});
+
+
+test('a transient presentation watchdog after launch recovers inside the observation budget', { skip: process.platform === 'win32' }, async t => {
+  const options = await fixture(t), app = options.own(await launchAlphaApp({ ...options, build }));
+  await app.execute('fixture.presentation', { remaining: 2 });
+  assert.equal((await app.observe()).snapshot.route, '/welcome');
+  assert.equal(await readFile(join(options.profileRoot, 'userdata/snapshot-count'), 'utf8'), '3');
+});
+
+test('persistent presentation delay cannot extend the original five-second observation budget', { skip: process.platform === 'win32', timeout: 8000 }, async t => {
+  const options = await fixture(t), app = options.own(await launchAlphaApp({ ...options, build }));
+  await app.execute('fixture.presentation', { remaining: -1 });
+  const started = performance.now();
+  await assert.rejects(app.observe(), { code: 'shipping-control-request-timeout' });
+  assert.ok(performance.now() - started < 8000);
+});
+
+for (const [name, identity, message] of [
+  ['foreign renderer', { rendererUrl: 'file:///foreign/index.html' }, /Packaged renderer/],
+  ['foreign PID', { process: { pid: 1, userData: '/foreign', executable: '/foreign' } }, /process or profile ownership differs/],
+  ['foreign build', { build: { provenance: 'development' } }, /IPC identity differs/],
+]) test(`presentation waiting never retries a ${name}`, { skip: process.platform === 'win32' }, async t => {
+  const options = await fixture(t), app = options.own(await launchAlphaApp({ ...options, build }));
+  await app.execute('fixture.presentation', { remaining: -1, identity });
+  const before = await readFile(join(options.profileRoot, 'userdata/snapshot-count'), 'utf8');
+  await assert.rejects(app.observe(), message);
+  assert.equal(await readFile(join(options.profileRoot, 'userdata/snapshot-count'), 'utf8'), before);
+});
+
+for (const [name, patch] of [
+  ['missing readiness', { readiness: null }],
+  ['non-finite readiness', { readiness: { documentReadyState: 'complete', bootOverlayVisible: false, interactiveControls: '3' } }],
+  ['different renderer error', { error: 'LegalWork control surface is not available yet.' }],
+]) test(`presentation waiting never retries ${name}`, { skip: process.platform === 'win32' }, async t => {
+  const options = await fixture(t), app = options.own(await launchAlphaApp({ ...options, build }));
+  await app.execute('fixture.presentation', { remaining: -1, ...patch });
+  await assert.rejects(app.observe());
+  assert.equal(await readFile(join(options.profileRoot, 'userdata/snapshot-count'), 'utf8'), '1');
+});
+
+
+test('identity drift during a presentation wait refuses before another snapshot is requested', { skip: process.platform === 'win32' }, async t => {
+  const options = await fixture(t), app = options.own(await launchAlphaApp({ ...options, build }));
+  await app.execute('fixture.presentation', { remaining: 1, identityAfterSnapshot: { process: { pid: 1, userData: '/foreign', executable: '/foreign' } } });
+  await assert.rejects(app.observe(), /process or profile ownership differs/);
+  assert.equal(await readFile(join(options.profileRoot, 'userdata/snapshot-count'), 'utf8'), '1');
 });

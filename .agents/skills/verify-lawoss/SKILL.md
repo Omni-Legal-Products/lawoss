@@ -30,7 +30,7 @@ For migration, stop the historical synthetic app, keep its passing `.alpha-accep
 
 ## Doctor
 
-The launch helper's `observe()` is the read-only doctor. It checks the owned child PID, executable, userData, embedded build identity, packaged `file:` renderer and live snapshot. Startup also waits for a complete document, no visible boot overlay and a usable control; a loading frame is incomplete. The runner invokes it before every capture; `execute()` invokes it before actions. Re-run it after a surprising response; reset or restart a wedged UI before proceeding.
+The launch helper's `observe()` is the read-only doctor. It checks the owned child PID, executable, userData, embedded build identity, packaged `file:` renderer and live snapshot. Startup also waits for a complete document, no visible boot overlay and a usable control; a loading frame is incomplete. The doctor waits through only the exact presentation-watchdog response with valid readiness, inside its existing five-second total budget. It revalidates build, process and packaged renderer before each attempt; other errors fail immediately. The runner invokes it before every capture; `execute()` invokes it before actions. Re-run it after a surprising response; reset or restart a wedged UI before proceeding.
 
 For a controlled diagnostic session, import `launchAlphaApp` from `lawoss/testing/alpha/native-app.mjs`, call it with `{installedApp, profileRoot, build}`, then use `observe()`, `execute(actionId, args)`, `capture(absoluteOutputPath)` and `stop()`. Keep the handle in the same process and use `try/finally` for `stop()`. Discovery tokens stay inside that handle.
 

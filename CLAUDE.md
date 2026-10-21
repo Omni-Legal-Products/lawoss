@@ -86,6 +86,7 @@ Rules:
 - Prefer functional patterns, short focused functions, DRY, KISS, and YAGNI.
 - Use pnpm. Never use npm or yarn.
 - A shipping-control response is not interactive readiness. Native startup proof requires a completed document, no visible boot overlay and a usable visible control; retain the original readiness deadline.
+- A finite presentation-watchdog response may be transient after startup. Wait only for that exact state inside the original observation budget; revalidate build, process and packaged renderer identity before every attempt, and reject other errors without retrying.
 - Native acceptance profiles compare canonical roots with platform-native path semantics and reject overlap before any directory creation. Keep leases until owned descendant cleanup is verified; alpha integrity receipts never satisfy publisher-signing or public-release gates.
 - Acceptance launchers must isolate storage without setting workspace-list overrides: those override persisted server configuration on relaunch and can hide correctly saved clients.
 - Resolve PowerShell utility cmdlets by module-qualified name inside isolated Windows acceptance supervisors. Unqualified discovery can exhaust the startup deadline; keep the app environment isolated and verify the complete native lifecycle after bootstrap changes.

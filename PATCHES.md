@@ -1379,3 +1379,5 @@ Rozsah alfy a nepodpísané Windows do bety vychádzajú zo [zápisu callu 19. 1
 | `apps/app/tests/lawoss-onboarding-typed-paths.test.ts`, `lawoss-onboarding-attach-existing.test.tsx` | Wiring kontrola volá nový picker a naďalej overuje `canonical: true`; behové locale/cancel/error regresie sú v novom LAWOSS teste. |
 
 | `.github/workflows/ci-alpha-windows-diagnostics.yml` | Samostatné x64/ARM64 syntetické lifecycle a Console transport testy bez QEMU/dependencies/secrets; urýchľuje diagnózu skutočných startup-timeout failures. Iba contents:read, existujúce povinné gates sa nemenia. |
+
+| `apps/desktop/scripts/release-acceptance-macos.mjs` | Nezmenenú validáciu buildu/PID/profilu/executable/file-renderer vyčlení do `validateLiveProcessIdentity`; pôvodné `validateLiveIdentity` zachová aj úplnú snapshot kontrolu. Alfa observer tak overí identitu pred každým čakaním na presne typovaný presentation-watchdog stav; podpis/release gates bez zmeny. |
