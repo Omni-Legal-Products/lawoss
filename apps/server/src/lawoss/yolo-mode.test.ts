@@ -98,7 +98,9 @@ test("on gives only the chat agent the allow rules; off restores the previous co
   await baseline(config, linked);
   const storedBefore = await readRuntimeOpencodeConfigText(config, GLOBAL_TOOL_PERMISSIONS_ID);
   const off = await engineConfig(config);
-  expect(off.permission).toMatchObject({ edit: "ask", legalwork_shell: "ask", bash: "deny", webfetch: "deny", legalwork_webfetch: "ask", external_directory: { [`${linked}/*`]: "allow" } });
+  expect(off.permission).toMatchObject({ edit: "ask", legalwork_shell: "ask", bash: "deny", webfetch: "deny", legalwork_webfetch: "ask" });
+  // A client's linked folder never reaches the shared engine file; the linked-folders plugin answers per chat.
+  expect(JSON.stringify(off.permission)).not.toContain(linked);
 
   expect(await writeYoloMode(config, true)).toEqual({ enabled: true, locked: false, source: "user" });
   const on = await engineConfig(config);
