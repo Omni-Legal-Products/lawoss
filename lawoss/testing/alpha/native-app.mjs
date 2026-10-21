@@ -1,19 +1,31 @@
 // Alpha-only adapter for an installed application. No debug port, renderer
 // replacement, or inherited provider credential is part of this launcher.
-import { execFileSync, spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, open, readFile, readlink, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { validateBuildInfo } from '../../../apps/desktop/electron/build-info.mjs';
 import { validateLiveIdentity } from '../../../apps/desktop/scripts/release-acceptance-macos.mjs';
 import { ownedProfile } from '../../../apps/desktop/scripts/release-acceptance.mjs';
 import { stopNativeChild } from '../isir/native/owned-process.mjs';
+import { launchWindowsJob } from './windows-job.mjs';
 
 function blocked(code) { return Object.assign(new Error(code), { code, status: 'blocked' }); }
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
+export class NativeAlphaLaunchError extends Error {
+  constructor(cause, nativeCleanup) {
+    super(cause.message, { cause });
+    this.code = cause.code;
+    this.status = cause.status;
+    this.nativeCleanup = nativeCleanup;
+  }
+}
 
 export function assertInteractiveUi(snapshot) {
   const readiness = snapshot?.readiness;
@@ -74,6 +86,28 @@ async function assertProfileTree(root) {
   await visit(root);
 }
 
+async function removeOwnedChromiumLease(root, pid) {
+  if (process.platform === 'win32' || !pid) return;
+  const userdata = path.join(root, 'userdata');
+  if ((await lstat(userdata)).isSymbolicLink() || await realpath(userdata) !== userdata) throw blocked('unsafe-profile');
+  const links = new Map();
+  for (const name of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
+    try {
+      const file = path.join(userdata, name);
+      if (!(await lstat(file)).isSymbolicLink()) throw blocked('chromium-lease-ownership-unverified');
+      links.set(name, await readlink(file));
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+  if (!links.size) return;
+  if (links.get('SingletonLock') !== `${hostname()}-${pid}`
+    || links.has('SingletonCookie') && !/^\d+$/.test(links.get('SingletonCookie'))
+    || links.has('SingletonSocket') && (!path.isAbsolute(links.get('SingletonSocket')) || path.basename(links.get('SingletonSocket')) !== 'SingletonSocket'))
+    throw blocked('chromium-lease-ownership-unverified');
+  // Only unlink metadata inside the owned profile, after descendant closure.
+  // Never follow or delete the socket's external target.
+  for (const name of links.keys()) await rm(path.join(userdata, name));
+}
+
 async function discoveryFile(filename) {
   const before = await lstat(filename);
   if (!before.isFile() || before.isSymbolicLink() || before.size > 16384 || (process.platform !== 'win32' && (before.uid !== process.getuid() || (before.mode & 0o077) !== 0))) throw blocked('unsafe-discovery');
@@ -119,27 +153,27 @@ async function captureOwnedWindow({ live, pid, output, temporaryRoot, env, asser
   const scratch = await mkdtemp(path.join(temporaryRoot, 'window-'));
   const format = process.platform === 'linux' ? 'xwd' : 'png';
   const temporary = path.join(scratch, `capture.${format}`);
-  const command = (executable, args) => execFileSync(executable, args, { env, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', timeout: 15000, maxBuffer: 16384 });
+  const command = async (executable, args) => (await promisify(execFile)(executable, args, { env, encoding: 'utf8', timeout: 15000, maxBuffer: 16384 })).stdout;
   let method;
   try {
     if (process.platform === 'darwin') {
-      command('/usr/sbin/screencapture', ['-x', '-l', match[1], temporary]);
+      await command('/usr/sbin/screencapture', ['-x', '-l', match[1], temporary]);
       method = 'macos-owned-window-screencapture';
     } else if (process.platform === 'linux') {
       if (!env.DISPLAY) throw blocked('native-x11-display-unavailable');
       const window = `0x${BigInt(match[1]).toString(16)}`;
-      const check = () => {
-        const owner = /^_NET_WM_PID\(CARDINAL\)\s*=\s*(\d+)\s*$/.exec(command('xprop', ['-id', window, '_NET_WM_PID']).trim());
+      const check = async () => {
+        const owner = /^_NET_WM_PID\(CARDINAL\)\s*=\s*(\d+)\s*$/.exec((await command('xprop', ['-id', window, '_NET_WM_PID'])).trim());
         if (!owner || Number(owner[1]) !== pid) throw blocked('native-window-owner-mismatch');
       };
-      check();
-      command('xwd', ['-silent', '-id', window, '-out', temporary]);
-      check();
+      await check();
+      await command('xwd', ['-silent', '-id', window, '-out', temporary]);
+      await check();
       method = 'x11-owned-window-xwd';
     } else if (process.platform === 'win32') {
       if (!env.SystemRoot) throw blocked('native-windows-system-root-unavailable');
       const helper = fileURLToPath(new URL('./capture-owned-window.ps1', import.meta.url));
-      command(path.join(env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', helper, '-WindowId', match[1], '-OwnerPid', String(pid), '-OutputPath', temporary]);
+      await command(path.join(env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', helper, '-WindowId', match[1], '-OwnerPid', String(pid), '-OutputPath', temporary]);
       method = 'windows-owned-window-printwindow';
     } else throw blocked('unsupported-native-platform');
     const info = await lstat(temporary);
@@ -161,7 +195,7 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
   validateBuildInfo(build);
   if (build.platform !== process.platform || build.arch !== process.arch) throw blocked('native-host-unavailable');
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 300000) throw blocked('invalid-readiness-budget');
-  await ownedProfile(profileRoot);
+  const profile = await ownedProfile(profileRoot);
   const source = nativeAppLayout(installedApp);
   const executable = await realpath(source.executable), resources = await realpath(source.resources), rendererRoot = await realpath(source.rendererRoot);
   if (!(await lstat(executable)).isFile()) throw blocked('invalid-installed-executable');
@@ -182,23 +216,27 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
     await lock.close();
     await rm(lockPath);
   };
-  let child, stopPromise, stopped = false, discovery, launchError, closed;
+  let child, windowsJob, windowsLaunchAttempted = false, stopPromise, stopped = false, discovery, launchError, closed;
   const env = nativeAppEnvironment(root);
   const stop = () => stopPromise ??= (async () => {
     stopped = true;
-    if (child) {
+    let method = 'no-child-started';
+    if (windowsLaunchAttempted) {
+      if (!windowsJob) throw blocked('windows-job-closure-unverified');
+      method = (await windowsJob.stop()).method;
+    } else if (child) {
       await stopNativeChild(child, 5000);
       await Promise.race([closed, delay(5000, undefined, { ref: false }).then(() => { throw blocked('native-child-close-unverified'); })]);
-      // taskkill /T and a child exit do not prove descendant lifetime closure.
-      // Keep the profile locked; callers must not turn this into native PASS.
-      if (process.platform === 'win32' && child.pid) throw blocked('windows-descendant-closure-unverified');
+      await removeOwnedChromiumLease(root, child.pid);
+      method = child.pid ? 'posix-owned-process-group' : 'no-child-started';
     }
     await releaseLock();
-    return { status: 'stopped', descendantClosure: 'verified', method: child?.pid ? 'posix-owned-process-group' : 'no-child-started' };
+    return { status: 'stopped', descendantClosure: 'verified', method };
   })().catch(async error => { await lock.close().catch(() => {}); throw error; });
   function assertRunning() {
     if (stopped) throw blocked('app-stopped');
     if (launchError) throw blocked('installed-app-spawn-failed');
+    if (windowsJob && !windowsJob.isRunning()) throw blocked('installed-app-exited-or-job-unavailable');
     if (child.exitCode !== null || child.signalCode !== null) throw blocked('installed-app-exited');
   }
   async function request(endpoint, options = {}, budget = 5000) {
@@ -223,10 +261,16 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
     for (const name of ['userdata', 'runtime', 'workspace', 'home', 'config', 'data', 'cache', 'tmp']) await ownedDirectory(path.join(root, name));
     const discoveryPath = path.join(root, 'userdata/legalwork-ui-control.json');
     await rm(discoveryPath, { force: true });
-    child = spawn(executable, [], { cwd: root, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env });
-    child.once('error', error => { launchError = error; });
-    child.stdout.resume(); child.stderr.resume();
-    closed = new Promise(resolveClosed => child.once('close', resolveClosed));
+    if (process.platform === 'win32') {
+      windowsLaunchAttempted = true;
+      windowsJob = await launchWindowsJob({ executable, cwd: root, env, timeoutMs: Math.min(timeoutMs, 15000) });
+      child = { pid: windowsJob.pid, exitCode: null, signalCode: null };
+    } else {
+      child = spawn(executable, [], { cwd: root, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env });
+      child.once('error', error => { launchError = error; });
+      child.stdout.resume(); child.stderr.resume();
+      closed = new Promise(resolveClosed => child.once('close', resolveClosed));
+    }
     const deadline = performance.now() + timeoutMs;
     while (performance.now() < deadline) {
       assertRunning();
@@ -251,8 +295,9 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
     }
     throw blocked('native-readiness-timeout');
   } catch (primary) {
-    try { await stop(); }
+    let cleanup;
+    try { cleanup = await stop(); }
     catch (cleanup) { throw new AggregateError([primary, cleanup], 'Native alpha startup failed; cleanup did not verify closure'); }
-    throw primary;
+    throw new NativeAlphaLaunchError(primary, { ...cleanup, profileRoot: profile.root, profileOwner: profile.owner });
   }
 }

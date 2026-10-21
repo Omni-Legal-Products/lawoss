@@ -24,9 +24,9 @@ node lawoss/testing/alpha/run.mjs --installed-app apps/desktop/dist-electron/mac
 
 Set `LAWOSS_ALPHA_SHA256` from the artifact producer's checksum. Confirm the actual version/filename before running; the example targets a local `0.0.0` build. For functional journeys, add `--manual --operator "$LAWOSS_ALPHA_OPERATOR"` in a real terminal and perform each prompted scenario. Noninteractive startup records remaining journeys as `blocked`. Exit codes are 0 PASS, 1 FAIL/error, 2 BLOCKED.
 
-Linux uses the installed executable plus its final `tar.gz` or AppImage. Windows needs a final NSIS payload adapter; an unsupported format is blocked. Native host architecture must match the build. Alpha integrity proof asserts no publisher signing and never unlocks public release promotion. Production acceptance remains [the release procedure](../../../docs/release-evidence.md).
+Linux uses the installed executable plus its final `tar.gz` or AppImage. Windows uses the installed `LAWOSS.exe` plus its final NSIS installer. Its archive tool must expose both NSIS and 7z handlers; set `ELECTRON_BUILDER_7ZIP_PATH` to a full 7-Zip executable when the packaging tool's standalone 7za lacks NSIS. Unsupported formats/layouts remain blocked. Native host architecture must match the build. Alpha integrity proof asserts no publisher signing and never unlocks public release promotion. Production acceptance remains [the release procedure](../../../docs/release-evidence.md).
 
-For migration, stop the historical synthetic app, keep its passing `.alpha-acceptance-baseline.json`, then prepare a separate profile using `--profile-kind migrated --migrate-from` with the old profile. Run the candidate with `--profile-kind migrated`. A current-version fresh profile is not a historical migration baseline. Safe relative links stay inside the copied profile; absolute or escaping links require a separate verified migration strategy and are refused before copying.
+For migration, stop the historical synthetic app, keep its passing `.alpha-acceptance-baseline.json` and original receipt/evidence, then prepare a separate profile using `--profile-kind migrated --migrate-from` with the old profile. Run the candidate with `--profile-kind migrated`. The runner rechecks the original receipt digest, all native evidence and a digest of the copied profile contents. An edited historical profile or current-version fresh profile cannot satisfy migration. Safe relative links stay inside the copied profile; absolute or escaping links require a separate verified migration strategy and are refused before copying.
 
 ## Doctor
 
@@ -55,6 +55,8 @@ PASS requires all six targets, both profile kinds, all core journeys, the same c
 ## Cleanup
 
 `run.mjs` stops only its owned child tree. Evidence survives cleanup. Failed or unverified process cleanup retains the profile lease; prove closure before removing a stale lease. A live or leased profile cannot be used as a migration source. Preserve normal LAWOSS profiles and application identity.
+
+Windows launches atomically inside a private kill-on-close Job Object. Cleanup requires zero job processes, the captured root handle's exit and successful supervisor closure. Helper death remains unverified. POSIX cleanup removes only the just-closed child's Chromium singleton links inside its synthetic profile; it never follows their external targets.
 
 ## Helpers
 

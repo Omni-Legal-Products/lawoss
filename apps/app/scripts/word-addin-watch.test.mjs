@@ -53,3 +53,20 @@ test('real configuration discovery watches CSS theme, Vite env, build identity a
     const before=runs;await mkdir(path.join(app,'dist-word-addin'));await writeFile(path.join(app,'dist-word-addin/output.js'),'build output');await new Promise(r=>setTimeout(r,40));assert.equal(runs,before,'output writes must not start a build loop');
   } finally {await watcher?.close();await rm(root,{recursive:true,force:true});}
 });
+
+test('unnamed directory notifications fingerprint only accepted build inputs',async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'word-watch-unnamed-'));let watcher,notify,runs=0;
+  try {
+    watcher=await startBuildWatch({directories:[{path:root,recursive:false,accept:name=>name==='package.json'}],debounceMs:10,
+      watchDirectory:(_root,_options,callback)=>{notify=callback;return {on(){},close(){}};},run:async()=>{runs++;}});
+    await until(()=>runs===1);
+    await writeFile(path.join(root,'output.js'),'unrelated build output');notify('rename',null);
+    await new Promise(r=>setTimeout(r,60));assert.equal(runs,1);
+    await writeFile(path.join(root,'package.json'),'input revision one');notify('rename',null);
+    await until(()=>runs===2);
+    notify('change','package.json');notify('rename',null);
+    await new Promise(r=>setTimeout(r,60));assert.equal(runs,2,'duplicate notifications for unchanged bytes coalesce');
+    await writeFile(path.join(root,'package.json'),'input revision two');notify('change',null);
+    await until(()=>runs===3);
+  } finally {await watcher?.close();await rm(root,{recursive:true,force:true});}
+});

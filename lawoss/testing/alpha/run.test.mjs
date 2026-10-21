@@ -4,8 +4,9 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { prepareAcceptanceProfile } from '../../../apps/desktop/scripts/release-acceptance.mjs';
+import { prepareAcceptanceProfile, ownedProfile } from '../../../apps/desktop/scripts/release-acceptance.mjs';
 import { runAlphaAcceptance } from './run.mjs';
+import { NativeAlphaLaunchError } from './native-app.mjs';
 
 const build = { schemaVersion: 1, product: 'lawoss-desktop', version: '1.0.0-alpha.1', gitSha: 'a'.repeat(40), buildEpoch: '123', platform: process.platform, arch: process.arch, channel: 'alpha', workflowRunUrl: '' };
 async function fixture(t) {
@@ -53,4 +54,30 @@ test('unowned profiles and active profile leases are rejected before installatio
   await assert.rejects(runAlphaAcceptance(options, adapters(events)), /EEXIST/);
   assert.deepEqual(events, []);
   assert.equal(await readFile(join(options.profileRoot, '.acceptance-running.lock'), 'utf8'), 'other run');
+});
+
+for (const historicalBuild of [{}, { version: '0.9.0-alpha.1' }]) test(`migration refuses an unevidenced copied baseline (${historicalBuild.version ?? 'missing version'})`, async t => {
+  const options = await fixture(t), source = await ownedProfile(options.profileRoot);
+  await writeFile(join(options.profileRoot, '.alpha-acceptance-baseline.json'), JSON.stringify({ status: 'pass', profileOwner: source.owner, build: historicalBuild }));
+  const migrated = join(options.profileRoot, '..', 'migrated');
+  await prepareAcceptanceProfile({ root: migrated, kind: 'migrated', migrateFrom: options.profileRoot });
+  const events = [];
+  const result = await runAlphaAcceptance({ ...options, profileRoot: migrated, profileKind: 'migrated' }, adapters(events));
+  assert.equal(result.status, 'blocked');
+  assert.deepEqual(events, []);
+  assert.match(result.reasons.join(' '), /baseline|historical|evidence/i);
+});
+
+test('a failed launch releases its acceptance lease only with matching verified native cleanup', async t => {
+  for (const matching of [true, false]) {
+    const options = await fixture(t), profile = await ownedProfile(options.profileRoot);
+    const result = await runAlphaAcceptance(options, { ...adapters([]), launch: async () => {
+      throw new NativeAlphaLaunchError(new Error('native-readiness-timeout'), { descendantClosure: 'verified',
+        profileRoot: profile.root, profileOwner: matching ? profile.owner : 'foreign-owner' });
+    } });
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.cleanup, matching ? 'verified' : 'unverified');
+    if (matching) await assert.rejects(readFile(join(profile.root, '.acceptance-running.lock')), { code: 'ENOENT' });
+    else assert.ok(await readFile(join(profile.root, '.acceptance-running.lock')));
+  }
 });

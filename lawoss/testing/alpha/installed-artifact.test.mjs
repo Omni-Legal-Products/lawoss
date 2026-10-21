@@ -86,8 +86,8 @@ posixTest('archive traversal, absolute paths, duplicates, hardlinks and escaping
         assert.equal(await readFile(join(f.installed, 'resources', 'app.asar'), 'utf8'), 'immutable application bytes');
     });
 });
-test('unsupported Windows NSIS cannot fabricate an alpha integrity pass', async () => {
-    await assert.rejects(verifyAlphaInstallation({ platform: 'win32', arch: 'x64', asset: 'candidate.exe', installedApp: 'LAWOSS.exe', expectedSha256: '0'.repeat(64) }), /NSIS.*unavailable/i);
+test('a nonexistent Windows NSIS cannot fabricate an alpha integrity pass', async () => {
+    await assert.rejects(verifyAlphaInstallation({ platform: 'win32', arch: 'x64', asset: 'candidate.exe', installedApp: 'LAWOSS.exe', expectedSha256: '0'.repeat(64) }), { code: 'ENOENT' });
 });
 posixTest('AppImage extraction refuses a foreign host before executing any artifact', async t => {
     const arch = process.arch === 'arm64' ? 'x64' : 'arm64', f = await fixture(t, { arch });

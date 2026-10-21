@@ -108,8 +108,22 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
     const argsJsonLiteral = jsonForJavaScript(args);
     if (command === "snapshot") {
       return evaluateLegalworkControl(`(async () => {
+        const readReadiness = ${readUiReadiness.toString()};
+        let readiness = readReadiness();
+        if (window.__legalworkControl && readiness.documentReadyState === "complete"
+          && !readiness.bootOverlayVisible && readiness.interactiveControls > 0) {
+          // DOM visibility can precede presentation. Cross a frame boundary,
+          // but leave stalled/background renderers unavailable within 250ms.
+          const presented = await new Promise(resolve => {
+            let frame;
+            const finish = ready => { clearTimeout(timer); cancelAnimationFrame(frame); resolve(ready); };
+            const timer = setTimeout(() => finish(false), 250);
+            frame = requestAnimationFrame(() => { frame = requestAnimationFrame(() => finish(true)); });
+          });
+          readiness = readReadiness();
+          if (!presented) return { ok: false, error: "Renderer presentation is not available yet.", readiness };
+        }
         const control = window.__legalworkControl;
-        const readiness = (${readUiReadiness.toString()})();
         if (!control) return { ok: false, error: "LegalWork control surface is not available yet.", readiness };
         return { ok: true, ...control.snapshot(), readiness };
       })()`);

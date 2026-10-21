@@ -199,7 +199,7 @@ async function tree(root) {
 export async function verifyAlphaInstallation({ platform, arch, asset, installedApp, expectedSha256 }) {
     if (!['x64', 'arm64'].includes(arch) || !/^[a-f0-9]{64}$/.test(expectedSha256 ?? ''))
         throw new Error('Expected architecture and final artifact SHA-256');
-    if (platform === 'win32') throw new Error('Windows NSIS alpha integrity adapter unavailable');
+    if (platform === 'win32') return (await import('./nsis-artifact.mjs')).verifyNsisInstallation({ arch, asset: resolve(asset), installedApp: resolve(installedApp), expectedSha256 });
     const appImage = asset.endsWith('.AppImage'), mac = platform === 'darwin', dmg = mac && asset.endsWith('.dmg');
     if ((!mac && (platform !== 'linux' || (!asset.endsWith('.tar.gz') && !appImage))) || (mac && !asset.endsWith('.zip') && !dmg))
         throw new Error('Unsupported alpha artifact platform or format');

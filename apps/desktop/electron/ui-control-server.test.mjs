@@ -202,7 +202,8 @@ function readinessElement({ attributes = {}, style = {}, parentElement = null, d
   return element;
 }
 
-async function shippingSnapshot(t, { readyState = 'complete', overlays = [], controls = [], occluded = false, control = true } = {}) {
+async function shippingSnapshot(t, { readyState = 'complete', overlays = [], controls = [], occluded = false, control = true,
+  onAnimationFrame = () => {}, requestFrame = setImmediate, cancelFrame = clearImmediate } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'lawoss-ui-readiness-'));
   const previousDiscovery = process.env.LEGALWORK_UI_CONTROL_DISCOVERY;
   const document = {
@@ -210,11 +211,14 @@ async function shippingSnapshot(t, { readyState = 'complete', overlays = [], con
     querySelectorAll: selector => selector.includes('data-legalwork-boot-overlay') ? overlays : controls,
     elementFromPoint: (x, y) => occluded ? {} : controls.find(element => { const r = element.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; }) ?? null,
   };
+  let frame = 0;
   const bridge = createUiControlServer({ appName: 'test', appIdentifier: 'test', getUserDataDir: () => root,
     getWindow: async () => ({ ...stubWindow(), webContents: { executeJavaScript: async expression => runInNewContext(expression, {
       document, window: { innerWidth: 1000, innerHeight: 800,
         __legalworkControl: control ? { snapshot: () => ({ route: '/welcome', readiness: { private: 'forged' } }) } : undefined },
       getComputedStyle: element => element.computedStyle,
+      requestAnimationFrame: callback => requestFrame(() => { onAnimationFrame(++frame); callback(frame); }),
+      cancelAnimationFrame: cancelFrame, setTimeout, clearTimeout,
     }) } }),
   });
   t.after(async () => {
@@ -226,7 +230,7 @@ async function shippingSnapshot(t, { readyState = 'complete', overlays = [], con
   await bridge.start();
   const { baseUrl, token } = JSON.parse(await readFile(path.join(root, 'legalwork-ui-control.json'), 'utf8'));
   assert.equal((await fetch(`${baseUrl}/snapshot`)).status, 401);
-  const response = await fetch(`${baseUrl}/snapshot`, { headers: { authorization: `Bearer ${token}` } });
+  const response = await fetch(`${baseUrl}/snapshot`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(2000) });
   assert.equal(response.status, 200);
   return response.json();
 }
@@ -254,6 +258,19 @@ test('shipping snapshot reports usable onboarding inputs without reading their c
   const snapshot = await shippingSnapshot(t, { controls: [readinessElement()] });
   assert.deepEqual(snapshot.readiness, { documentReadyState: 'complete', bootOverlayVisible: false, interactiveControls: 1 });
   assert.doesNotMatch(JSON.stringify(snapshot), /forged|private/);
+});
+
+test('shipping snapshot recomputes readiness after renderer frame turns instead of returning prepaint DOM state', async t => {
+  const overlay = readinessElement({ style: { opacity: '0' } });
+  const snapshot = await shippingSnapshot(t, { controls: [readinessElement()], overlays: [overlay],
+    onAnimationFrame: frame => { if (frame === 2) overlay.computedStyle.opacity = '1'; } });
+  assert.equal(snapshot.readiness.bootOverlayVisible, true);
+});
+
+test('shipping snapshot stays unavailable when renderer presentation does not advance', async t => {
+  const snapshot = await shippingSnapshot(t, { controls: [readinessElement()], requestFrame: () => 1, cancelFrame: () => {} });
+  assert.equal(snapshot.ok, false);
+  assert.match(snapshot.error, /presentation|frame/i);
 });
 
 test('readiness excludes hidden, disabled, readonly, inert and CSS-hidden controls and ancestors', async t => {

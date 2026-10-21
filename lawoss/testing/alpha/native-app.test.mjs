@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { tmpdir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
@@ -96,6 +96,18 @@ test('unsupported target refuses before profile mutation or spawn', async (t) =>
   await assert.rejects(launchAlphaApp({ installedApp, profileRoot, build: { ...build, arch: build.arch === 'arm64' ? 'x64' : 'arm64' } }), /native-host-unavailable/);
 });
 
+test('verified owned cleanup removes only that Chromium singleton lease and permits relaunch', { skip: process.platform === 'win32' }, async t => {
+  const options = await fixture(t), app = options.own(await launchAlphaApp({ ...options, build }));
+  const userdata = join(options.profileRoot, 'userdata');
+  await symlink(`${hostname()}-${app.pid}`, join(userdata, 'SingletonLock'));
+  await symlink('123456789', join(userdata, 'SingletonCookie'));
+  await symlink(join(tmpdir(), 'scoped_dirSynthetic', 'SingletonSocket'), join(userdata, 'SingletonSocket'));
+  await app.stop();
+  const again = options.own(await launchAlphaApp({ ...options, build }));
+  assert.equal((await again.observe()).snapshot.ok, true);
+  await again.stop();
+});
+
 test('direct diagnostic launch refuses an ordinary directory without synthetic ownership', async t => {
   const options = await fixture(t);
   await rm(join(options.profileRoot, '.lawoss-release-acceptance-profile.json'));
@@ -116,7 +128,12 @@ for (const [name, wrong] of [
   ['development renderer', { rendererUrl: 'http://127.0.0.1:5173/' }],
 ]) test(`readiness refuses ${name} and retains no active profile lock after owned cleanup`, { skip: process.platform === 'win32' }, async (t) => {
   const options = await fixture(t, { wrong });
-  await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 400 }), /native-readiness-timeout/);
+  await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 400 }), error => {
+    assert.match(error.message, /native-readiness-timeout/);
+    assert.equal(error.nativeCleanup?.descendantClosure, 'verified');
+    assert.equal(error.nativeCleanup?.profileRoot, options.profileRoot);
+    return true;
+  });
   await assert.rejects(readFile(join(options.profileRoot, '.alpha-native-app.lock')), { code: 'ENOENT' });
 });
 

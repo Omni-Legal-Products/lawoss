@@ -87,6 +87,8 @@ Rules:
 - Use pnpm. Never use npm or yarn.
 - A shipping-control response is not interactive readiness. Native startup proof requires a completed document, no visible boot overlay and a usable visible control; retain the original readiness deadline.
 - Native acceptance profiles compare canonical roots with platform-native path semantics and reject overlap before any directory creation. Keep leases until owned descendant cleanup is verified; alpha integrity receipts never satisfy publisher-signing or public-release gates.
+- Historical alpha migration requires the pinned original receipt, re-read native evidence and unchanged copied profile bytes. Carry verified failed-launch cleanup with its exact profile owner; remove Chromium singleton symlinks only after closing that owned process tree.
+- Filtered build watchers must fingerprint accepted inputs for unnamed filesystem events; output directory notifications must not bypass filename filters. Coalesce duplicate notifications without losing edits during a build.
 - Match verification runtimes to the active CI workflow and select exact executable paths when several versions are installed. Keep results from other local runtimes as supplemental evidence, not a substitute for the CI-matching gate.
 - Run filtered server Bun tests through `pnpm --filter legalwork-server exec bun test src/...` so the server bunfig/preload is loaded. Running server test paths from the repository root omits fixture-only upstream service opt-ins and can create unrelated authorization failures.
 - Pin Bun in `PATH` before running package build scripts; invoking a Bun binary by absolute path does not pin the shell commands inside `bun run`. Verify committed bundles by a second identical build.

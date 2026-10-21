@@ -7,6 +7,8 @@ import { createInterface } from 'node:readline/promises';
 import { ownedProfile } from '../../../apps/desktop/scripts/release-acceptance.mjs';
 import { validateBuildInfo } from '../../../apps/desktop/electron/build-info.mjs';
 import { ALPHA_SCENARIOS, summarizeAlphaCoverage, loadAlphaReceipt } from './coverage.mjs';
+import { verifyAlphaBaseline, writeAlphaBaseline } from './baseline.mjs';
+import { NativeAlphaLaunchError } from './native-app.mjs';
 
 const instructions = {
   onboarding: 'Complete Ty → AI (skip) → Folder on synthetic data; verify no provider fallback.',
@@ -40,11 +42,7 @@ export async function runAlphaAcceptance(options, adapters = {}) {
   try {
     await mkdir(evidenceRoot, { mode: 0o700 });
     if (build.platform !== process.platform || build.arch !== process.arch) throw new Error('Target host unavailable');
-    if (profileKind === 'migrated') {
-      const baseline = JSON.parse(await readFile(join(profileRoot, '.alpha-acceptance-baseline.json'), 'utf8'));
-      if (baseline.status !== 'pass' || baseline.profileOwner !== profile.migratedFrom?.owner || baseline.build?.version === build.version)
-        throw new Error('Supported old synthetic profile baseline is not proven');
-    }
+    if (profileKind === 'migrated') await verifyAlphaBaseline(profile, build);
     const verifyInstallation = adapters.verifyInstallation ?? (await import('./installed-artifact.mjs')).verifyAlphaInstallation;
     const launch = adapters.launch ?? (await import('./native-app.mjs')).launchAlphaApp;
     installation = await verifyInstallation({ platform: build.platform, arch: build.arch, asset, installedApp, expectedSha256 });
@@ -76,6 +74,8 @@ export async function runAlphaAcceptance(options, adapters = {}) {
       Object.assign(result, { status, evidence });
     }
   } catch (error) {
+    if (error instanceof NativeAlphaLaunchError && error.nativeCleanup?.descendantClosure === 'verified'
+      && error.nativeCleanup.profileRoot === profile.root && error.nativeCleanup.profileOwner === profile.owner) cleanup = 'verified';
     reasons.push(error instanceof Error ? error.message : 'Native alpha verification failed');
   } finally {
     reader?.close();
@@ -90,7 +90,7 @@ export async function runAlphaAcceptance(options, adapters = {}) {
   const receipt = { kind: 'lawoss-private-alpha', releaseEligible: false, status, build, assetSha256: expectedSha256,
     profile: profileKind, profileRoot: profile.root, profileOwner: profile.owner, installation, cleanup, scenarios, reasons, at: new Date().toISOString() };
   await writeFile(output, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
-  if (status === 'pass') await writeFile(join(profileRoot, '.alpha-acceptance-baseline.json'), JSON.stringify(receipt), { mode: 0o600 });
+  if (status === 'pass') await writeAlphaBaseline(profileRoot, output);
   return receipt;
 }
 

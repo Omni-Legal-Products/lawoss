@@ -1360,3 +1360,11 @@ Rozsah alfy a nepodpísané Windows do bety vychádzajú zo [zápisu callu 19. 1
 |---|---|
 | `apps/app/src/react-app/shell/loading-overlay.tsx` | Jeden read-only DOM marker na existujúcom boot overlay. Bez zmeny zobrazenia a ovládania. |
 | `apps/desktop/electron/ui-control-server.mjs`, `apps/desktop/electron/ui-control-server.test.mjs` | Existujúci autentifikovaný snapshot pridá konečný stav dokumentu, viditeľnosť boot overlay a počet použiteľných ovládacích prvkov. Nečíta popisky, text ani hodnoty; pôvodné polia a execute zostávajú. Alfa runner tak neuzná úvodný loading frame za úspešný štart. |
+
+#### Spoľahlivé alfa dôkazy a natívny lifecycle (2026-10-21)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/scripts/word-addin-watch.mjs`, `word-addin-watch.test.mjs` | Neoznačené fs.watch udalosti nesmú obísť filter vstupov. Fingerprint prijatých súborov odmietne build-output slučku; zostáva jeden serializovaný build a drain pri close. Reprodukcia z macOS CI, deterministický RED/GREEN. |
+| `apps/desktop/electron/ui-control-server.mjs`, `ui-control-server.test.mjs` | Pred pozitívnym snapshotom prejsť dva animačné rámce a znovu odčítať DOM. Stalled frame má 250ms watchdog a unavailable výsledok. Natívny compositor vyžaduje samostatný snímok, samotný DOM nie je dôkaz. |
+| `.github/workflows/ci-desktop-packaging.yml` | Windows alfa kontrakty používajú plný 7-Zip iba v ich kroku; standalone 7za nemusí vedieť NSIS. Natívne Job Object regresie bežia v existujúcej šesťcieľovej matici. Balíčky sa verejne nenahrávajú. |

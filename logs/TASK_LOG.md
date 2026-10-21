@@ -80,3 +80,12 @@ Toolchain mismatch found: prior local Bun1.4.0, CI1.4.2; previous source-suite r
 - Pinned Node24.21.0/Bun1.4.2: app2877pass2skip0fail; server3008pass81skip0fail; exact native helper glob379pass0skip0fail; focused PDF server9pass. App typecheck and root i18n audit exit0. Server/app/Office production builds exit0; Vite app50.42s, Office25.55s at CI6144MiB heap. Optional/runtime source skips do not establish VM or native Windows acceptance.
 - PR202 ordinary dev reconciliatione1b477a2 pushed; source tree was exactly identical before receipt changes and its watcher suite3/3 passed. Cancel requested for its own superseded desktop run39506866194 after new-head checks appeared.
 - Original PR200 failures remain historical and unclassified. One fresh exact52db9744 workflow39510917759 requests source plus packaging; no retry of a failed job snapshot and no weakened deadlines. PR201 Windows workflow39510914223 was admitted for42195bd0; final merge head requires its own PR checks.
+
+## 2026-10-21T16:53:41.893410+00:00 — Six-target alpha evidence followup
+
+- Exact Node24.21/Bun1.4.2; isolated worktree and profiles preserved. PR205 remains review-gated.
+- Historical migration now reopens pinned receipt and native images, checks independent owner/target/version and copied profile digest. Typed launch errors carry only matching verified cleanup; uncertain closure retains leases.
+- Windows NSIS verifier and atomic Job Object supervisor implemented in downstream helpers. Contracts pass on Mac; native Windows tests explicitly skipped locally. Full NSIS handler is required. No physical Windows proof.
+- Actual corrected Mac artifact48a/f3b16c52 shows welcome in delayed diagnostic capture; immediate native capture still showed Ready. Superseded startup result; shipping snapshot now waits two frames and must be rebuilt/retested.
+- CI39636278035 failed macOS Office watch output-loop assertion. Deterministic unnamed-event RED2!=1, GREEN4/4, independent fatal-close and edit-during-build probes pass. Previous server reload-watcher failure remained unreproduced in local10pass1skip and full3060pass70skip; no guessed fix or timeout increase.
+- Detailed logs/decisions remain in ignored .work/six-platform-alpha/evidence and decisions.tsv.
