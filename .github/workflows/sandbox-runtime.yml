@@ -123,7 +123,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 update
-          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 install -y ninja-build libglib2.0-dev libpixman-1-dev libslirp-dev python3-venv
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 install -y ninja-build libglib2.0-dev libpixman-1-dev libslirp-dev python3-venv binutils patchelf
           curl -fL https://download.qemu.org/qemu-11.1.2.tar.xz -o "$RUNNER_TEMP/qemu.tar.xz"
           echo "731b5681e4bb18be313231579b8efd0296c5b015fa36dc533874b639ba838016  $RUNNER_TEMP/qemu.tar.xz" | sha256sum -c -
           tar -xf "$RUNNER_TEMP/qemu.tar.xz" -C "$RUNNER_TEMP"
@@ -131,6 +131,9 @@ jobs:
           ./configure --prefix="$RUNNER_TEMP/qemu" --target-list=${{ matrix.qemu }}-softmmu --without-default-features --enable-tcg --enable-slirp
           make -j2
           make install
+      - name: Test relocated Linux runtime dependencies
+        if: runner.os == 'Linux'
+        run: node --test lawoss/packaging/linux-runtime-libraries.test.mjs
       - name: Bundle QEMU (macOS and Linux)
         if: runner.os != 'Windows'
         shell: bash

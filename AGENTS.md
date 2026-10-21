@@ -79,6 +79,7 @@ Rules:
 
 ## TypeScript and package management
 
+- Linux ELF runtime packaging must copy the complete non-glibc closure, patch only owned copies with $ORIGIN per ELF, and preserve source/license/hash provenance. Test relocation after hiding originals; manifest integrity alone is not loader or final AppImage acceptance.
 - Use strict TypeScript.
 - For synchronous Word LCS alignment, materialize immutable XML-derived keys once after the size admission check. Keep revision/formatting assertions at the real DOCX comparison boundary and preserve the existing size and test-time limits.
 - Static network guards must distinguish typed method declarations from calls while still scanning the complete method body. Preserve mutation regressions for real network calls when refining a classifier.

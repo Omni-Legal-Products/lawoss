@@ -1,6 +1,7 @@
 /** Bundle QEMU and its dependencies. No package manager is required at runtime. */
 import { assertMacOSMinimum } from './macos-compatibility.mjs';
 import { peImports } from './pe-imports.mjs';
+import { bundleLinuxRuntimeLibraries } from '../../lawoss/packaging/linux-runtime-libraries.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
@@ -61,13 +62,18 @@ function bundle(original) {
     }
   }
 }
-bundle(source);
+const linuxClosure = process.platform === 'linux'
+  ? bundleLinuxRuntimeLibraries({ source, destination, dependencyLicenses: process.env.SANDBOX_DEPENDENCY_LICENSES })
+  : null;
+if (linuxClosure) for (const file of linuxClosure.files) copied.set(file.name, file.original);
+else bundle(source);
 const notices = ['LegalWork protected execution runtime',
   'QEMU 11.1.2 source: https://download.qemu.org/qemu-11.1.2.tar.xz',
   'Build scripts and modifications: scripts/sandbox and apps/server/resources/agent-sandbox in the LegalWork source tree.',
   'Windows package sources: https://mirror.msys2.org/mingw/sources/',
   'Guest package copyrights remain in /usr/share/doc inside the guest.'];
 const sboms = [];
+if (linuxClosure) { notices.push(...linuxClosure.notices); sboms.push(...linuxClosure.sbom); }
 for (const directory of packageRoots) {
   notices.push(`\nPackage: ${basename(dirname(directory))} ${basename(directory)}`);
   for (const name of readdirSync(directory)) {
