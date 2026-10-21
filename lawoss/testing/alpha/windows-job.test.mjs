@@ -47,7 +47,7 @@ test('cleanup contract requires job zero, exact root exit and supervisor success
 });
 
 test('supervisor diagnostics project only exact completed checkpoint enums', () => {
-  for (const phase of ['entry', 'configured', 'compiled', 'created']) assert.equal(parseWindowsJobCheckpoint(`LAWOSS_WINDOWS_JOB_CHECKPOINT:${phase}`), phase);
+  for (const phase of ['entry', 'encoding', 'input-read', 'decoded', 'configured', 'compiled', 'created']) assert.equal(parseWindowsJobCheckpoint(`LAWOSS_WINDOWS_JOB_CHECKPOINT:${phase}`), phase);
   for (const line of ['raw private error', 'prefix LAWOSS_WINDOWS_JOB_CHECKPOINT:entry', 'LAWOSS_WINDOWS_JOB_CHECKPOINT:private', 'LAWOSS_WINDOWS_JOB_CHECKPOINT:compiled private', 'x'.repeat(10000)]) assert.equal(parseWindowsJobCheckpoint(line), null);
 });
 
@@ -139,4 +139,25 @@ for (const eof of [false, true]) test(`native Windows Console configuration prob
   catch { assert.fail(`Console configuration probe timed out; completed=${['probe-entry', 'probe-encoding', 'probe-read'].filter(marker => errorOutput.split(/\r?\n/).includes(marker)).join(',')}`); }
   assert.deepEqual(exit, { code: 0, signal: null });
   assert.ok(output.trim() === 'synthetic-configuration-consumed', 'Unexpected synthetic Console probe output');
+});
+
+for (const mode of ['read-only', 'pipeline', 'input-object', 'pinned-modules']) test(`native Windows JSON configuration probe (${mode})`, native, async t => {
+  const f = await nativeFixture(t), probe = path.join(f.root, 'json-probe.ps1');
+  const configuration = JSON.stringify({ schema: 1, nonce, executable: process.execPath, args: ['x'.repeat(4096)], cwd: f.root, env: f.env, timeoutMs: 15000 });
+  const decode = mode === 'read-only' ? '' : mode === 'input-object' ? '$decoded = ConvertFrom-Json -InputObject $line' : '$decoded = $line | ConvertFrom-Json';
+  await writeFile(probe, `[Console]::Error.WriteLine('probe-entry')\n[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false, $true)\n[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n[Console]::Error.WriteLine('probe-encoding')\n$line = [Console]::In.ReadLine()\n[Console]::Error.WriteLine('probe-read')\nif ($line.Length -ne ${configuration.length}) { exit 125 }\n${decode}\n[Console]::Error.WriteLine('probe-decoded')\n${mode === 'read-only' ? '' : 'if ($decoded.schema -ne 1) { exit 125 }'}\n[Console]::Out.WriteLine('synthetic-json-consumed')\n`);
+  const helper = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
+  const env = mode === 'pinned-modules' ? { ...f.env, PSModulePath: path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/Modules') } : f.env;
+  const child = spawn(helper, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe], { env, cwd: f.root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  let output = '', errorOutput = '', exit;
+  child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
+  child.stdout.on('data', chunk => { output = (output + chunk).slice(0, 1024); }); child.stderr.on('data', chunk => { errorOutput = (errorOutput + chunk).slice(-1024); });
+  child.once('error', () => { exit = { code: 'spawn-error', signal: null }; });
+  child.once('close', (code, signal) => { exit = { code, signal }; });
+  f.own({ stop: async () => { if (!exit) { child.stdin.destroy(); child.kill(); await until(() => exit, 1000); } } });
+  child.stdin.write(`${configuration}\n`);
+  try { await until(() => exit, 15000); }
+  catch { assert.fail(`JSON configuration probe ${mode} timed out; completed=${['probe-entry', 'probe-encoding', 'probe-read', 'probe-decoded'].filter(marker => errorOutput.split(/\r?\n/).includes(marker)).join(',')}`); }
+  assert.deepEqual(exit, { code: 0, signal: null });
+  assert.ok(output.trim() === 'synthetic-json-consumed', 'Unexpected synthetic JSON probe output');
 });

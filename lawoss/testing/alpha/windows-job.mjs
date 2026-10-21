@@ -49,7 +49,7 @@ export function assertWindowsJobCompletion(receipt, close, expected) {
 
 export function parseWindowsJobCheckpoint(line) {
   if (typeof line !== 'string' || line.length > 80) return null;
-  return /^LAWOSS_WINDOWS_JOB_CHECKPOINT:(entry|configured|compiled|created)$/.exec(line)?.[1] ?? null;
+  return /^LAWOSS_WINDOWS_JOB_CHECKPOINT:(entry|encoding|input-read|decoded|configured|compiled|created)$/.exec(line)?.[1] ?? null;
 }
 
 async function within(timeoutMs, predicate, code) {

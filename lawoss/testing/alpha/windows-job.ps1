@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:entry')
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false, $true)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+[Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:encoding')
 $nonce = ''
 $stage = 'job-start-failed'
 $job = $null
@@ -9,8 +10,10 @@ try {
   # The parent writes only this bounded configuration before waiting for ready.
   # The target receives neither this stdin nor the supervisor protocol stdout.
   $line = [Console]::In.ReadLine()
+  [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:input-read')
   if ($null -eq $line -or $line.Length -gt 131072) { throw 'configuration' }
   $configuration = $line | ConvertFrom-Json
+  [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:decoded')
   $nonce = [string]$configuration.nonce
   if ($configuration.schema -ne 1 -or $nonce -cnotmatch '^[a-f0-9]{64}$') { throw 'configuration' }
   [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:configured')
