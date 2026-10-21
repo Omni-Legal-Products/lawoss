@@ -72,5 +72,5 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
       else reject(new Error(`Office add-in build failed (${code??stopSignal}). Waiting for a source change.`));
     });
   })});
-  for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>{void watcher.close();});
+  for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>{void watcher.close();});
 }

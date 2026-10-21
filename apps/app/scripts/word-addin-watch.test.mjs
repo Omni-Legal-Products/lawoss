@@ -46,7 +46,7 @@ test('real configuration discovery watches CSS theme, Vite env, build identity a
     const app=path.join(root,'apps/app'),desktop=path.join(root,'apps/desktop'),shared=path.join(root,'packages/ui');
     for(const dir of [app,desktop,shared])await mkdir(dir,{recursive:true});
     let runs=0;watcher=await startBuildWatch({directories:wordAddinWatchDirectories(app),debounceMs:10,run:async()=>{runs++;}});
-    await until(()=>runs===1);
+    await until(()=>runs===1);await new Promise(r=>setTimeout(r,150)); // macOS FSEvents môže stratiť prvú udalosť v práve vytvorenom priečinku
     for(const file of [path.join(app,'tailwind.config.ts'),path.join(app,'.env.production.local'),path.join(desktop,'package.json'),path.join(shared,'package.json')]){
       const before=runs;await writeFile(file,'synthetic config');await until(()=>runs>before);await new Promise(r=>setTimeout(r,30));assert.equal(runs,before+1);
     }
