@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { runNativeStartupProbe, startupAssetName, ciStartupOptions } from './probe-startup-ci.mjs';
+import * as startupProbe from './probe-startup-ci.mjs';
 import { runAlphaAcceptance } from './run.mjs';
 import { ALPHA_SCENARIOS } from './coverage.mjs';
 
@@ -30,9 +31,11 @@ async function fixture(t, change = {}) {
     withArtifact: async (_options,use) => use({installedApp,installation,retain:()=>{state.retained=true;}}),
     launch: async ({profileRoot}) => {
       state.launched++; state.profileRoot=profileRoot;
+      if(change.launchFailure)throw change.launchFailure;
       const observe = async () => ({ok:true,build:{...build,os:build.platform,provenance:'embedded',legalworkDevMode:false},process:{pid:123,userData:join(profileRoot,'userdata'),executable},rendererUrl:pathToFileURL(join(resources,'app-dist/index.html')).href,snapshot:{ok:true,route:change.route ?? '/welcome',readiness:{documentReadyState:'complete',bootOverlayVisible:false,interactiveControls:1}}});
       return {pid:123,observe,capture:async path=>{
         state.captures++;
+        if(change.captureFailure)throw change.captureFailure;
         const bytes = Buffer.alloc(process.platform === 'linux' ? 100 : 24);
         if(process.platform==='linux')bytes.writeUInt32BE(7,4); else Buffer.from([137,80,78,71,13,10,26,10]).copy(bytes);
         if(change.invalidImage)bytes.fill(0);
@@ -103,6 +106,73 @@ test('all six final names are fixed and CLI refuses non-hosted use with finite e
   const result=spawnSync(process.execPath,[fileURLToPath(new URL('./probe-startup-ci.mjs',import.meta.url)),'--output-dir','/private/secret'],{encoding:'utf8',env:{...process.env,GITHUB_ACTIONS:'false'}});
   assert.equal(result.error,undefined);assert.equal(result.signal,null);
   assert.equal(result.status,1);assert.equal(result.stderr.includes('/private/secret'),false);assert.equal(JSON.parse(result.stderr).reason,'native-startup-unverified');
+  assert.deepEqual(JSON.parse(result.stderr).diagnostic,{phase:'preflight',errorCode:'unknown',cleanup:'not-observed'});
+});
+
+test('failure diagnostics locate actual guarded boundaries without publishing private errors',async t=>{
+  const secret='credential=private-token /private/client/profile pid=778899';
+  const failures=[
+    ['hash',{},async f=>writeFile(f.options.asset,'altered'), 'unknown','not-observed'],
+    ['embed',{embedded:{gitSha:'b'.repeat(40)}},null,'unknown','not-observed'],
+    ['launch',{launchFailure:Object.assign(new Error(secret),{code:'native-readiness-timeout'})},null,'native-readiness-timeout','unverified'],
+    ['welcome',{route:'/private/client'},null,'unknown','native-verified'],
+    ['capture',{captureFailure:Object.assign(new Error(secret),{code:'native-window-capture-unavailable'})},null,'native-window-capture-unavailable','native-verified'],
+    ['cleanup',{stopFails:true},null,'unknown','unverified'],
+    ['receipt-projection',{mutate:async receipt=>{receipt.status='pass';}},null,'unknown','native-verified'],
+  ];
+  for(const [phase,change,prepare,errorCode,cleanup] of failures)await t.test(phase,async t=>{
+    const f=await fixture(t,change);await prepare?.(f);
+    let observed;await assert.rejects(runNativeStartupProbe(f.options,f.adapters),error=>{observed=error;return true;});
+    const projection=startupProbe.startupFailureProjection?.(observed);
+    assert.deepEqual(projection,{kind:'lawoss-ci-native-startup',status:'failed',reason:'native-startup-unverified',diagnostic:{phase,errorCode,cleanup}});
+    assert.equal(JSON.stringify(projection).includes(secret),false);assert.equal(JSON.stringify(projection).includes(f.root),false);
+    if(phase!=='hash')assert.deepEqual(await readdir(f.options.outputDir),[]);
+  });
+});
+
+test('extraction and extractor cleanup preserve original error identity and report only closed observations',async t=>{
+  for(const cleanup of [false,true])await t.test(cleanup?'extractor cleanup':'extraction',async t=>{
+    const f=await fixture(t),original=f.adapters.withArtifact;
+    const primary=Object.assign(new Error('secret /private/client profile=owned'),{code:cleanup?'private-token':'EACCES'});
+    f.adapters.withArtifact=async(...args)=>{if(cleanup)await original(...args);throw primary;};
+    await assert.rejects(runNativeStartupProbe(f.options,f.adapters),error=>error===primary);
+    assert.deepEqual(startupProbe.startupFailureProjection?.(primary)?.diagnostic,{phase:cleanup?'cleanup':'extraction',errorCode:cleanup?'unknown':'EACCES',cleanup:cleanup?'native-verified':'not-observed'});
+    assert.deepEqual(await readdir(f.options.outputDir),[]);
+  });
+});
+
+test('caught private receipt reasons match only exact allowlisted codes and remain observations',async t=>{
+  for(const reason of ['native-readiness-timeout','native-readiness-timeout token=private','/private/token'])await t.test(reason,async t=>{
+    const f=await fixture(t,{mutate:async receipt=>{receipt.reasons.push(reason);}});
+    let caught;await assert.rejects(runNativeStartupProbe(f.options,f.adapters),error=>{caught=error;return true;});
+    assert.deepEqual(startupProbe.startupFailureProjection?.(caught)?.diagnostic,{phase:'receipt-projection',errorCode:reason==='native-readiness-timeout'?reason:'unknown',cleanup:'native-verified'});
+  });
+});
+
+test('failed publication reports the finite boundary and preserves foreign entries without a verified marker',async t=>{
+  const f=await fixture(t),original=f.adapters.withArtifact;
+  f.adapters.withArtifact=async(...args)=>{const result=await original(...args);await mkdir(join(f.options.outputDir,'startup.json'));return result;};
+  let caught;await assert.rejects(runNativeStartupProbe(f.options,f.adapters),error=>{caught=error;return true;});
+  assert.deepEqual(startupProbe.startupFailureProjection?.(caught)?.diagnostic,{phase:'publish',errorCode:'EEXIST',cleanup:'verified'});
+  assert.deepEqual(await readdir(f.options.outputDir),['startup.json']);
+});
+
+test('secondary cleanup failure does not relabel the first observed failure or release its lease',async t=>{
+  const f=await fixture(t,{captureFailure:Object.assign(new Error('secret /private/client'),{code:'native-window-owner-mismatch'}),stopFails:true});
+  let caught;await assert.rejects(runNativeStartupProbe(f.options,f.adapters),error=>{caught=error;return true;});
+  assert.deepEqual(startupProbe.startupFailureProjection?.(caught)?.diagnostic,{phase:'capture',errorCode:'native-window-owner-mismatch',cleanup:'unverified'});
+  assert.equal(f.state.retained,true);await access(join(f.state.profileRoot,'.acceptance-running.lock'));
+  assert.deepEqual(await readdir(f.options.outputDir),[]);
+});
+
+test('unregistered errors and hostile code accessors cannot leak text or replace the original failure',async t=>{
+  const secret='ENOENT token=private /private/profile pid=998877';
+  const error=new Error(secret);Object.defineProperty(error,'code',{get(){throw new Error(secret);}});
+  const f=await fixture(t);f.adapters.withArtifact=async()=>{throw error;};
+  await assert.rejects(runNativeStartupProbe(f.options,f.adapters),caught=>caught===error);
+  assert.deepEqual(startupProbe.startupFailureProjection?.(error)?.diagnostic,{phase:'extraction',errorCode:'unknown',cleanup:'not-observed'});
+  const unregistered=Object.assign(new Error(secret),{code:secret});
+  assert.deepEqual(startupProbe.startupFailureProjection?.(unregistered)?.diagnostic,{phase:'preflight',errorCode:'unknown',cleanup:'not-observed'});
 });
 
 test('symlinked output parent and native image refuse without following links', {skip:process.platform==='win32'?'Windows symlink privilege unavailable in hosted fixture':false},async t=>{
