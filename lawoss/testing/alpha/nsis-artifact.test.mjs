@@ -22,6 +22,7 @@ const streams = {
   "spoofed-listing": "H4sIAAAAAAAC/2NgYGB4v2/tPb/SnJzi/LQSz7zikhZ3BoZzbAwMSswMDW/n2PqLBIq03X+qHNgzVcj7uIeB4Q5DDwOhxYwizouSYnh5z27g2bBjw+zYafxbI3rtHbiluOsZ7Q/eyNB5c0FDaeMSs7Bpr6vPn9E5zbFiqth74+pv53Z+n1d83vL7uSnBrBemMs26sW7TU/78X41i22yZDeJ4W//6r3u4/YoUh3XD9px91//J/EneZ3JE4PiV00xnA/LvqR4/H7j72DfmVOVL12/Wef3I8r2xPbD+/DflVN1Zuzf6887x1dpVvtHEkUOxRcCJMPGf2V3Tv/Har+eSaUbc/H/Xrzwbtbas45Vsy/38G6fzpqx9b6dWsODvieYTelvfd20PcGIM/vPdsFvxyQT3BqN1H9Yd+ejYd+6TVkLe9Yt2Pao1Fbyf74TzylU+/H+DL/5k5PmqO+EC88KPv1h84jVP1cVmk3OP7e6c8BLd4b1bZmlP5blTnz8VyP6VOMphtOfSl20ujHmLkh6nrjM9eVOuTbhMUme2XMQR7hfHLNdVNj8+nbO7cNol7/7IvqlrX/WvPqe1wLf14847tb9sUu+Jz6w+t+drIPO6oHJTzcDZCfnXjPSDyn9O0+3WlP6su0x4j/yWn6qf39n4bshP38borj/7u+q3nVnpN49pq/1uapN49ONR6fOb7zcaPeSz+C24zvr8VO1p51WOfxar1Pw0/6DtuTLrx0rcv2OOuF47/biSQ+fUnKt3HlvqRrhVbpZc/uzyZZdFRqyfzcL7s6znnYx9XLZazm22p/Gqqz/sYtRPc9jOayvcPHd9euS2bRm/tlTejwy9/2e38c3Ue3nReqqntb8IZNslfzi76/Qi/Zt/Er+dmylmskYyTDvGON20c7N39FOtwJjNXydPeRoxL+q+/nLTM/feHjTRFbO8l1m9OfbjD0vdW1wPXzLq3TrDaC38fUX5p50cb+ZU7Egxu116W47T+ESU66FT4YtW/F4UPCtm+WUbUYn26m9S8z3OP9vhc8f43kXDYy+KL/btrvV1Lz9wcNqP3idZG5ws735wnCJe/1Mu1vfF7Clr2faafgzKWV5X0y/+lPXb/iV7lu1ZvCZ4m8Z9DXuNd6zVPRvnLfnDEsvMwGBetWe9ugwDy3W2PUFSQD4IKEMohquCmtNL84oT01IVUitKihIVEouSMzLLgLy8kqJK3ygGskEDA+UgwJWBIaUNU5ybiYEuIDM3t7QkMSknVSGxoCAnMzmxJDM/TyGpsiS1uFqpODkjNTcxLLWoGCioZKVgqKOgVFCUn1KaXALkKeUklucXF+umpBZnl+QXKAEly+BKlQz1jPSMdRNzCjIS9QxBcumZJcEZiSCpRCIBSFdSaWZOimtBfnIG2FAjY5BgQU5iSVp+US5IqDwzz9gIJAiKVpBAhZkJiJuckZiXl5oDtg/kCJBYeX5RdlpOfnlQaV5oEVhKqZaBodGYfV3uAfFbC2t89O4fUOGbWPRUjcv+TrJh8W+mSgvBqxdO+X1kXRF+J+d5vWbl5LjJth2vLcUrmqbWdW9x51p/6NisU0Vpf2ZOT68WXXlfvyP237czl0Od3s5cecHx6rUzwfJr43vsflqVsbNmO3349OZ8V8bO+oeRz7ctPhfz53PHNJmDNjbV14/Md1WrD4nkqPLbMeunkc2a+1fra2aYip/Iu/myR7LjhLtFcX+BatO2g33Xp8pKTFqvaHgmdM9rI+72n19S9uqeq7LsNOnStZNwtDghfuvJ9OzL8xNvcehrpIt5LJhVYy4387tpiVfGG+4L/7c4iImrsW6snHFAwWFDzy8eYPyLszVJM3I2/Gdg52ZkYFRmZmRkjWUQYGDgaTzFxfj7ULkJJCOlVhSkJpekpiik5ialpqQAGaV5mcCqKjEnJ7UIklyuHtn0CACq+ywIzgYAAA==",
   "compressed-uninstaller": "H4sIAAAAAAAC/2NgYGB4v2/tPb/SnJzi/LQSz7zikhZ3BoYLbAwMsswMDW/n2PqLBIq03X+6WGDr5Qgrt6bOg72OTYXJJg1JHiE9GRnbJKexhouVbZZnOpZk+o9BM0Onx75hfkKOiVhZhsjEiCDp5MSd+76fOfPOiClr6dHfZ+btLX639/md4nN7jZ9eYfii1mC2bXXOz8OvHRc05/4X6Jmu7Pj/sfYP3a9iTXwPeGfnf7Vn/z/jvK6hiyHvBofyldvfT3i8fENs8u95mwRfvc6xP1ZTeuzN7hX7k383bhI7d/fGYrZzaoL3dkfsUmwRcOIgTHT8b3Seou6Q/vgzz2n2efYf9quYvf76q27VdoGa/Ynmuzm33b+97bbqt5iPbF4aCW3/7Z4ZNMl8OrGox3uPdmHNjMXFe7hm3C80aS05037d6Hxt76OF4n+Wb//ZdT7qXXm8Y0WU92X3idc1eRbIe845Wrtj4lSpgtllll6SoudOff5UINo844DEsUrVl7kTmWLcrx47HZM9a7Ntz7E3xzamVF1T2tduN+fhrOsW+45s41+uyfxlxsOIm6v+rXi2ZtOWlUZ203f7z1c/85up+PzM7SKmD4xKwycLbdX8lqbzWal0ev7NTTM2Gt5Psjr2O3F2vNH7c5dFfm9Ln/30hevnfSfswt/y3M44WhG/TbVNY1/GXa7ftmFqNxjT7Y+VasfszPrpU2yTP3G60//HM57mbDfW27TgvGtMyl6bee1rXGdunlVts5z1tEa+2eQrNVWzukKXJdx7Jh1o+njmPcO87a8cS2ZuWRzW/a651KjnwuPMGSa3vZRPb9rqevn9jO9vQ7+e3W89ee+zt8ueBm3aw8Q/8Zkx2/011bq/Jp2VT32/J/PmNNPmLNbsZ2vUAss8V8eY9mSvK5xkJHM62PtvUVTzm7tydxYeZTpenZM/S7R/3uVFawXmyD3Yc1Zmk7Gh9972867XznW2c6ddXhNdrHJCIVmUUyued7Ff63KTfX79lVoGfN/fbLWbOO9s4cwd6Xt2W599Ufywb3etb1v5gX19L3qfZG1wsrx5rcbb9vfp7y+yfO4vydn6Yu7G6Y8SX7mXVwbOS/7PfUr7VPQpq9TuT1M/NT+K2+Au8brwlP97JgYG86o969VlGFjerdD3XAPkg4AyhGK4NT9pnm8UA9mggYFyEODKwJDShinOzcRAF5CZm1takpiUk6qQWFCQk5mcWJKZn6eQVFmSWlytVJyckZqbGJZaVAwUVLJSMNRRUCooyk8pTS4B8pRyEsvzi4t1U1KLs0vyC5SAkmVwpUqGekZ6xrqJOQUZiXqGILn0zJLgjESQVCKRAKQrqTQzJ8W1ID85A2yokTFIsCAnsSQtvygXJFSemWdsBBJMLIKoqTAzAXGTMxLz8lJzwPaBHAESK88vyk7LyS8PKs0LLQJLKdUyMDQas6/zX8q2dJJaxdpV1bHTzvBL/Si6pCbTuGeRd5D9TtfgGV9uxKinbGTascylfnV9eqhywrLidY+Z31YaP1K753m4qPLlI49FW0WXXIl621cpXSfFvvfJ76V+zBOZHXcylPTOilnxbUuEzCHVU1OucW8U5f+m1xLw9mLbq5TdM0pbdycWcJ6NW8p9aMoUs1PVRcHRx4LOvy+fo2YxdfIUgxgRiYxrm7Q97a0ObVQBxpU4WxMjI2fDagZ2bkYGRmVmRkbWWAYBBgaehn9cjJ2q/M4MDDOAqfLtqY2cDQYMLAdCN80yjOcIdFF+8c2q7WhpeMw7288e2pHZUb8Lck+X9a38LrPUTjldxDWQ9uineyXj9vot6wCbG9iv0AYAAA=="
 };
+const r0Streams = JSON.parse(await readFile(new URL('./fixtures/nsis-r0-streams.json', import.meta.url), 'utf8'));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const uninstaller = 'expected embedded uninstaller bytes';
 function pe(machine = 0x8664) {
@@ -39,11 +40,11 @@ async function fixture(t, variant = 'x64') {
   await writeFile(installedApp, pe(arch === 'arm64' ? 0xaa64 : 0x8664));
   await writeFile(join(installed, 'resources/app.asar'), 'immutable application bytes');
   await writeFile(join(installed, 'resources/build-info.json'), `{"schemaVersion": 1, "product": "lawoss-desktop", "version": "1.2.3-alpha.1", "gitSha": "${'a'.repeat(40)}", "buildEpoch": "123", "platform": "win32", "arch": "${arch}", "channel": "alpha", "workflowRunUrl": ""}`);
-  await writeFile(join(installed, 'Uninstall LAWOSS.exe'), variant === 'compressed-uninstaller' ? uninstaller.repeat(1000) : uninstaller);
+  await writeFile(join(installed, 'Uninstall LAWOSS.exe'), variant === 'compressed-uninstaller' || variant in r0Streams ? uninstaller.repeat(1000) : uninstaller);
   if (variant === 'x64') await writeFile(join(installed, 'uninstallerIcon.ico'), uninstaller);
   const asset = join(root, 'candidate.exe'), prefix = Buffer.alloc(512);
   pe(0x14c).copy(prefix);
-  const bytes = Buffer.concat([prefix, gunzipSync(Buffer.from(streams[variant], 'base64'))]);
+  const bytes = Buffer.concat([prefix, gunzipSync(Buffer.from(streams[variant] ?? r0Streams[variant], 'base64'))]);
   await writeFile(asset, bytes);
   return { root, installed, arch, installedApp, asset, expectedSha256: hash(bytes) };
 }
@@ -61,6 +62,15 @@ test('compressed outer uninstallers with unknown listed size are bounded and aut
   assert.equal((await verifyNsisInstallation(f)).status, 'verified');
   await writeFile(join(f.installed, 'Uninstall LAWOSS.exe'), 'changed');
   await assert.rejects(verifyNsisInstallation(f), /installed.*(tree|payload|bytes)/i);
+});
+
+test('real NSIS runtime-variable uninstaller paths authenticate the installed basename and reject ambiguous aliases', async t => {
+  const f = await fixture(t, 'r0-uninstaller');
+  assert.equal((await verifyNsisInstallation(f)).status, 'verified');
+  await writeFile(join(f.installed, 'Uninstall LAWOSS.exe'), 'changed');
+  await assert.rejects(verifyNsisInstallation(f), /installed.*(tree|payload|bytes)/i);
+  const ambiguous = await fixture(t, 'ambiguous-root-and-r0');
+  await assert.rejects(verifyNsisInstallation(ambiguous), /ambiguous.*uninstaller/i);
 });
 test('a different target archive, PE machine or embedded build target refuses verification', async t => {
   await t.test('wrong archive', async t => {

@@ -38,6 +38,8 @@ For a controlled diagnostic session, import `launchAlphaApp` from `lawoss/testin
 
 ## Drive
 
+Wait for the runner's `Owned app ready` prompt before calling a GUI tool. Tools such as Sky may launch a default-profile instance when called before the isolated process is ready. Before and immediately after the first GUI inspection, verify that the sole process executing this exact scratch-installed bundle is the runner's PID; recheck its doctor before typing or clicking. A second instance is a blocker, never an owner to terminate automatically. Compare the observed GUI page with the doctor's route and inspect the actual capture before accepting a journey; a screenshot of another or unchanged page invalidates the evidence even if the operator entered PASS.
+
 Use the normal native UI for onboarding, file pickers and document work. Existing shipping actions include `route.settings.general`, `route.settings.providers`, `route.settings.appearance`, `lawoss.lite.route.today` and `lawoss.lite.route.clients`; obtain the registered actions for the current UI rather than inventing IDs. Source changes to action registration require updating the affected map entry.
 
 Before writes, copy selected entries from the pinned [synthetic corpus](../../../SYNTHETIC_DATA.md) into a disposable workspace. Keep evaluator answers outside the selected source. Configure a synthetic provider explicitly when a scenario needs inference; preflight credentials/connectivity before any billable request. Skipped AI is a supported onboarding path, not a successful inference test.

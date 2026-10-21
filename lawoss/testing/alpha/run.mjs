@@ -58,7 +58,8 @@ export async function runAlphaAcceptance(options, adapters = {}) {
       }
       let status = result.scenario === 'startup' ? 'pass' : 'blocked';
       if (reader && result.scenario !== 'startup') {
-        const answer = await reader.question(`\n${result.scenario}: ${instructions[result.scenario]}\nAfter exercising it, record pass, fail or blocked: `);
+        await app.observe();
+        const answer = await reader.question(`\nOwned app ready: PID ${app.pid}; profile ${profile.root}.\n${result.scenario}: ${instructions[result.scenario]}\nAfter exercising it, record pass, fail or blocked: `);
         status = ['pass', 'fail', 'blocked'].includes(answer.trim()) ? answer.trim() : 'blocked';
       }
       const observed = await app.observe();

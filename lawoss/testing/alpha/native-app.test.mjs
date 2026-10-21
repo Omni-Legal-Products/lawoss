@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { execFileSync, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { tmpdir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -96,6 +98,24 @@ server.listen(0,'127.0.0.1',()=>setTimeout(()=>writeFile(join(process.env.LEGALW
 test('unsupported target refuses before profile mutation or spawn', async (t) => {
   const { installedApp, profileRoot } = await fixture(t);
   await assert.rejects(launchAlphaApp({ installedApp, profileRoot, build: { ...build, arch: build.arch === 'arm64' ? 'x64' : 'arm64' } }), /native-host-unavailable/);
+});
+
+test('a second macOS app instance refuses acceptance without stopping the existing process', { skip: process.platform !== 'darwin' }, async t => {
+  const options = await fixture(t);
+  execFileSync('/usr/bin/clang', ['-x', 'c', '-o', options.layout.executable, '-'], {
+    input: '#include <stdio.h>\n#include <unistd.h>\nint main(void) { puts("ready"); fflush(stdout); sleep(60); return 0; }\n',
+    timeout: 10000, stdio: ['pipe', 'ignore', 'pipe'],
+  });
+  const existing = spawn(options.layout.executable, [], { stdio: ['ignore', 'pipe', 'ignore'] });
+  const closed = once(existing, 'close');
+  try {
+    await once(existing, 'spawn');
+    const [ready] = await once(existing.stdout, 'data');
+    assert.equal(ready.toString(), 'ready\n');
+    await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 300 }), /installed-app-already-running/);
+    process.kill(existing.pid, 0);
+    await assert.rejects(readFile(join(options.profileRoot, '.alpha-native-app.lock')), { code: 'ENOENT' });
+  } finally { existing.kill(); await closed; }
 });
 
 test('verified owned cleanup removes only that Chromium singleton lease and permits relaunch', { skip: process.platform === 'win32' }, async t => {

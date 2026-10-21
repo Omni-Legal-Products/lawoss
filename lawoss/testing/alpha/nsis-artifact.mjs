@@ -134,10 +134,12 @@ function outerFiles(entries, arch) {
   const expected = `$PLUGINSDIR/app-${arch === 'arm64' ? 'arm64' : '64'}.7z`;
   const payloads = entries.filter(entry => /^\$PLUGINSDIR\/app-.*\.(?:7z|zip)$/i.test(entry.path));
   if (payloads.length !== 1 || payloads[0].path !== expected || payloads[0].kind !== 'file' || payloads[0].size === null) throw new Error('NSIS architecture payload is missing, ambiguous or has unknown size');
-  const extras = entries.filter(entry => ['Uninstall LAWOSS.exe', 'uninstallerIcon.ico'].includes(entry.path));
+  const rawExtras = entries.filter(entry => ['Uninstall LAWOSS.exe', '$R0/Uninstall LAWOSS.exe', 'uninstallerIcon.ico'].includes(entry.path));
+  const extras = rawExtras.map(entry => ({ ...entry, path: entry.path === '$R0/Uninstall LAWOSS.exe' ? 'Uninstall LAWOSS.exe' : entry.path }));
+  if (new Set(extras.map(entry => entry.path)).size !== extras.length) throw new Error('Ambiguous NSIS uninstaller layout');
   if (!extras.some(entry => entry.path === 'Uninstall LAWOSS.exe') || extras.some(entry => entry.kind !== 'file')) throw new Error('Unsupported NSIS uninstaller layout');
   for (const entry of entries) {
-    if (entry === payloads[0] || extras.includes(entry)) continue;
+    if (entry === payloads[0] || rawExtras.includes(entry)) continue;
     if (entry.path === '$PLUGINSDIR' && entry.kind === 'directory') continue;
     if (entry.kind === 'file' && /^\$PLUGINSDIR\/[^/]+\.(?:dll|ico|bmp)$/i.test(entry.path)) continue;
     throw new Error('Unsupported NSIS outer archive entry');

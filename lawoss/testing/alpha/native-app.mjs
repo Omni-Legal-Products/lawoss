@@ -18,6 +18,20 @@ import { launchWindowsJob } from './windows-job.mjs';
 function blocked(code) { return Object.assign(new Error(code), { code, status: 'blocked' }); }
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
+async function assertExclusiveMacExecutable(executable, ownedPid, budget = 2000) {
+  if (process.platform !== 'darwin') return;
+  let output;
+  try {
+    output = (await promisify(execFile)('/bin/ps', ['-axww', '-o', 'pid=,comm='], {
+      encoding: 'utf8', timeout: budget, maxBuffer: 4 * 1024 * 1024,
+    })).stdout;
+  } catch { throw blocked('installed-app-owner-census-unavailable'); }
+  for (const line of output.split('\n')) {
+    const row = /^\s*(\d+)\s+(.+)$/.exec(line);
+    if (row && row[2] === executable && Number(row[1]) !== ownedPid) throw blocked('installed-app-already-running');
+  }
+}
+
 export class NativeAlphaLaunchError extends Error {
   constructor(cause, nativeCleanup) {
     super(cause.message, { cause });
@@ -201,6 +215,7 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
   if (!(await lstat(executable)).isFile()) throw blocked('invalid-installed-executable');
   const embedded = validateBuildInfo(JSON.parse(await readFile(path.join(resources, 'build-info.json'), 'utf8')));
   if (Object.keys(build).some(key => embedded[key] !== build[key])) throw blocked('installed-build-identity-mismatch');
+  await assertExclusiveMacExecutable(executable);
   const profileInfo = await lstat(profileRoot);
   if (!profileInfo.isDirectory() || profileInfo.isSymbolicLink()) throw blocked('unsafe-profile');
   const root = await realpath(profileRoot), lockPath = path.join(root, '.alpha-native-app.lock');
@@ -253,6 +268,8 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
       return value;
     };
     for (;;) {
+      try { await assertExclusiveMacExecutable(executable, child.pid, Math.min(2000, remaining())); }
+      catch (error) { remaining(); throw error; }
       const identity = await request('/build-info', {}, remaining());
       const expected = { build, pid: child.pid, userData: env.LEGALWORK_ELECTRON_USERDATA, executable, rendererRoot };
       validateLiveProcessIdentity(identity, expected);
@@ -302,7 +319,10 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
             const live = await observe();
             return captureOwnedWindow({ live, pid: child.pid, output, temporaryRoot: env.TMPDIR, env, assertRunning });
           }, stop };
-      } catch { /* Retry discovery and renderer readiness inside the same budget. */ }
+      } catch (error) {
+        if (['installed-app-already-running', 'installed-app-owner-census-unavailable'].includes(error.code)) throw error;
+        /* Retry discovery and renderer readiness inside the same budget. */
+      }
       await delay(Math.max(1, Math.min(100, Math.floor(deadline - performance.now()))));
     }
     throw blocked('native-readiness-timeout');
