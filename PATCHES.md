@@ -1352,3 +1352,11 @@ Rozhodnutie MČ z 20. 10. 2026: jeden natívny prepínač „YOLO Mode“ v Nast
 | `apps/desktop/scripts/release-acceptance.mjs`, `apps/desktop/scripts/release-acceptance.test.mjs` | Pred vytvorením migračného profilu porovnať kanonické korene cez natívnu sémantiku ciest, odmietnuť symlink rodiča a prekrytie oboma smermi; sprístupniť existujúcu read-only kontrolu vlastníctva pre súkromnú alfa akceptáciu. |
 
 Rozsah alfy a nepodpísané Windows do bety vychádzajú zo [zápisu callu 19. 10.](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/main/meetings/2026-10-19-zapis-call-mc-vr.md). Nový harness v `lawoss/testing/alpha/` nevytvára podpisové ani verejné release schválenie.
+
+
+#### Pripravené IPC nie je pripravené používateľské rozhranie (2026-10-21)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/loading-overlay.tsx` | Jeden read-only DOM marker na existujúcom boot overlay. Bez zmeny zobrazenia a ovládania. |
+| `apps/desktop/electron/ui-control-server.mjs`, `apps/desktop/electron/ui-control-server.test.mjs` | Existujúci autentifikovaný snapshot pridá konečný stav dokumentu, viditeľnosť boot overlay a počet použiteľných ovládacích prvkov. Nečíta popisky, text ani hodnoty; pôvodné polia a execute zostávajú. Alfa runner tak neuzná úvodný loading frame za úspešný štart. |

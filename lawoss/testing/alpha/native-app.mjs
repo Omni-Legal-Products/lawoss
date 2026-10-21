@@ -15,6 +15,12 @@ import { stopNativeChild } from '../isir/native/owned-process.mjs';
 function blocked(code) { return Object.assign(new Error(code), { code, status: 'blocked' }); }
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
+export function assertInteractiveUi(snapshot) {
+  const readiness = snapshot?.readiness;
+  if (readiness?.documentReadyState !== 'complete' || readiness.bootOverlayVisible !== false
+    || !Number.isSafeInteger(readiness.interactiveControls) || readiness.interactiveControls < 1) throw blocked('native-ui-not-ready');
+}
+
 export function nativeAppLayout(installedApp, platform = process.platform) {
   if (!['darwin', 'linux', 'win32'].includes(platform)) throw blocked('unsupported-native-platform');
   const paths = platform === 'win32' ? path.win32 : path.posix;
@@ -209,6 +215,7 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
     identity.snapshot = await request('/snapshot', {}, remaining);
     if (performance.now() > deadline) throw blocked('shipping-control-request-timeout');
     validateLiveIdentity(identity, { build, pid: child.pid, userData: env.LEGALWORK_ELECTRON_USERDATA, executable, rendererRoot });
+    assertInteractiveUi(identity.snapshot);
     assertRunning();
     return identity;
   }

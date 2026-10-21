@@ -9,6 +9,37 @@ import { rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
+// Serialized into the existing read-only snapshot evaluation. Return only
+// finite DOM state and counts, never labels, input values, or document text.
+function readUiReadiness() {
+  const physicallyVisible = element => {
+    if (!element.isConnected) return false;
+    for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+      const style = getComputedStyle(ancestor);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || Number(style.opacity) === 0) return false;
+    }
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.bottom > 0 && rect.left < window.innerWidth && rect.top < window.innerHeight;
+  };
+  const usable = element => {
+    if (!physicallyVisible(element) || element.matches(':disabled') || element.readOnly || getComputedStyle(element).pointerEvents === 'none') return false;
+    for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+      if (ancestor.hasAttribute('hidden') || ancestor.hasAttribute('inert') || ancestor.getAttribute('aria-hidden') === 'true' || ancestor.getAttribute('aria-disabled') === 'true') return false;
+    }
+    const rect = element.getBoundingClientRect();
+    const x = (Math.max(0, rect.left) + Math.min(window.innerWidth, rect.right)) / 2;
+    const y = (Math.max(0, rect.top) + Math.min(window.innerHeight, rect.bottom)) / 2;
+    const hit = document.elementFromPoint(x, y);
+    return hit === element || (hit !== null && element.contains(hit));
+  };
+  return {
+    documentReadyState: ['loading', 'interactive', 'complete'].includes(document.readyState) ? document.readyState : 'unknown',
+    // Accessibility isolation does not change whether boot content is painted.
+    bootOverlayVisible: [...document.querySelectorAll('[data-legalwork-boot-overlay]')].some(physicallyVisible),
+    interactiveControls: [...document.querySelectorAll('button, input:not([type="hidden"]), select, textarea, a[href], [role="button"], [role="textbox"], [role="combobox"], [contenteditable="true"]')].filter(usable).length,
+  };
+}
+
 export function createUiControlServer({ appName, appIdentifier, getWindow, getUserDataDir }) {
   let uiControlServer = null;
   let uiControlDiscoveryPath = null;
@@ -78,8 +109,9 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
     if (command === "snapshot") {
       return evaluateLegalworkControl(`(async () => {
         const control = window.__legalworkControl;
-        if (!control) return { ok: false, error: "LegalWork control surface is not available yet." };
-        return { ok: true, ...control.snapshot() };
+        const readiness = (${readUiReadiness.toString()})();
+        if (!control) return { ok: false, error: "LegalWork control surface is not available yet.", readiness };
+        return { ok: true, ...control.snapshot(), readiness };
       })()`);
     }
     if (command === "actions") {

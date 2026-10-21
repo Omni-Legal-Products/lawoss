@@ -74,7 +74,8 @@ async function evidenceFixture(t) {
   const image = Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), Buffer.alloc(24)]);
   const observed = { ok: true, build: { provenance: 'embedded', legalworkDevMode: false, gitSha: sha, os: 'darwin', arch: 'x64', version: '1.0.0-alpha.1', buildEpoch: '123', channel: 'alpha' },
     process: { pid: 123, executable: '/apps/LAWOSS.app/Contents/MacOS/LAWOSS', userData: '/owned/userdata' },
-    rendererUrl: 'file:///apps/LAWOSS.app/Contents/Resources/app-dist/index.html', snapshot: { ok: true, route: '/welcome' } };
+    rendererUrl: 'file:///apps/LAWOSS.app/Contents/Resources/app-dist/index.html', snapshot: { ok: true, route: '/welcome',
+      readiness: { documentReadyState: 'complete', bootOverlayVisible: false, interactiveControls: 1 } } };
   for (const result of receipt.scenarios) {
     result.evidence = join(evidenceRoot, `${result.scenario}.json`);
     const capture = { path: join(evidenceRoot, `${result.scenario}.png`), sha256: createHash('sha256').update(image).digest('hex'),

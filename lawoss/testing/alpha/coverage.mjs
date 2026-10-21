@@ -3,6 +3,7 @@ import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateBuildInfo } from '../../../apps/desktop/electron/build-info.mjs';
+import { assertInteractiveUi } from './native-app.mjs';
 
 export const ALPHA_TARGETS = Object.freeze(['darwin-x64', 'darwin-arm64', 'linux-x64', 'linux-arm64', 'win32-x64', 'win32-arm64']);
 export const ALPHA_SCENARIOS = Object.freeze(['startup', 'onboarding', 'native-picker', 'okf', 'document', 'memory', 'client-isolation', 'restart', 'error-recovery', 'ai-state', 'locales']);
@@ -30,6 +31,7 @@ export async function loadAlphaReceipt(file) {
       || !Number.isSafeInteger(capture.ownerPid) || capture.ownerPid <= 0 || capture.ownerPid !== observed?.process?.pid)
       throw new Error('Invalid native capture evidence');
     const live = observed.build;
+    assertInteractiveUi(observed.snapshot);
     if (observed.ok !== true || live?.provenance !== 'embedded' || live.legalworkDevMode !== false || live.gitSha !== receipt.build.gitSha
       || live.os !== platform || live.arch !== receipt.build.arch || observed.snapshot?.ok !== true || typeof observed.snapshot.route !== 'string')
       throw new Error('Native evidence identity differs');

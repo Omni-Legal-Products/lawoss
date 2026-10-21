@@ -89,6 +89,7 @@ export function LoadingOverlay() {
 
   return (
     <div
+      data-legalwork-boot-overlay=""
       className={`fixed inset-0 z-[1000] flex items-center justify-center bg-dls-surface transition-opacity duration-[160ms] ${
         fading ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100"
       }`}

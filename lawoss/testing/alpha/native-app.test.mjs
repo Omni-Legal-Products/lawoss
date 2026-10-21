@@ -59,7 +59,7 @@ test('environment has explicit synthetic storage and preserves only native UI/sy
 
 // A real owned child implements only the shipping HTTP protocol. This fixture
 // tests launcher boundaries; it is not Electron or native acceptance evidence.
-async function fixture(t, { wrong = {}, stall = false, delayedDiscovery = false } = {}) {
+async function fixture(t, { wrong = {}, stall = false, delayedDiscovery = false, readiness = { documentReadyState: 'complete', bootOverlayVisible: false, interactiveControls: 1 } } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'alpha-native-protocol-')));
   let owned;
   t.after(async () => { try { await owned?.stop(); } finally { await rm(root, { recursive: true, force: true }); } });
@@ -80,7 +80,7 @@ const identity = () => ({ ok:true, build:{version:'1.2.3-alpha.1',gitSha:'${buil
 const server=createServer(async (req,res)=>{
   if(req.headers.authorization!=='Bearer '+token){res.writeHead(401);res.end('{}');return;}
   if(req.url==='/build-info'){res.end(JSON.stringify(identity()));return;}
-  if(req.url==='/snapshot'){if(${stall}){res.writeHead(200);res.write('{');return;}res.end(JSON.stringify({ok:true,route:'/welcome'}));return;}
+  if(req.url==='/snapshot'){if(${stall}){res.writeHead(200);res.write('{');return;}res.end(JSON.stringify({ok:true,route:'/welcome',readiness:${JSON.stringify(readiness)}}));return;}
   if(req.url==='/execute'){let raw='';for await(const chunk of req)raw+=chunk;const input=JSON.parse(raw);if(input.actionId==='fixture.identity')patch=input.args;res.end(JSON.stringify({ok:true,input}));return;}
   res.writeHead(404);res.end('{}');
 });
@@ -184,4 +184,14 @@ test('header-only snapshot cannot escape readiness deadline and cleanup drains t
   await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 400 }), /native-readiness-timeout/);
   assert.ok(performance.now() - started < 3500);
   await assert.rejects(readFile(join(options.profileRoot, '.alpha-native-app.lock')), { code: 'ENOENT' });
+});
+
+for (const [name, readiness] of [
+  ['boot overlay visible', { documentReadyState: 'complete', bootOverlayVisible: true, interactiveControls: 1 }],
+  ['document still loading', { documentReadyState: 'loading', bootOverlayVisible: false, interactiveControls: 1 }],
+  ['no interactive control', { documentReadyState: 'complete', bootOverlayVisible: false, interactiveControls: 0 }],
+  ['legacy missing UI readiness', null],
+]) test(`shipping IPC without usable UI cannot pass startup: ${name}`, { skip: process.platform === 'win32' }, async t => {
+  const options = await fixture(t, { readiness });
+  await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 400 }).then(options.own), /native-readiness-timeout/);
 });
