@@ -14,6 +14,7 @@ import { validateLiveIdentity, validateLiveProcessIdentity } from '../../../apps
 import { ownedProfile } from '../../../apps/desktop/scripts/release-acceptance.mjs';
 import { stopNativeChild } from '../isir/native/owned-process.mjs';
 import { launchWindowsJob } from './windows-job.mjs';
+import { createNativeLaunchDiagnostics } from './native-launch-diagnostics.mjs';
 
 function blocked(code) { return Object.assign(new Error(code), { code, status: 'blocked' }); }
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -232,6 +233,7 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
     await rm(lockPath);
   };
   let child, windowsJob, windowsLaunchAttempted = false, stopPromise, stopped = false, discovery, launchError, closed;
+  const launchDiagnostics = process.platform === 'win32' ? null : createNativeLaunchDiagnostics();
   const env = nativeAppEnvironment(root);
   const stop = () => stopPromise ??= (async () => {
     stopped = true;
@@ -303,6 +305,7 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
     } else {
       child = spawn(executable, [], { cwd: root, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env });
       child.once('error', error => { launchError = error; });
+      child.stderr.on('data', chunk => launchDiagnostics.stderr(chunk));
       child.stdout.resume(); child.stderr.resume();
       closed = new Promise(resolveClosed => child.once('close', resolveClosed));
     }
@@ -333,9 +336,14 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
     }
     throw blocked('native-readiness-timeout');
   } catch (primary) {
+    launchDiagnostics?.freeze(child);
     let cleanup;
     try { cleanup = await stop(); }
-    catch (cleanup) { throw new AggregateError([primary, cleanup], 'Native alpha startup failed; cleanup did not verify closure'); }
-    throw new NativeAlphaLaunchError(primary, { ...cleanup, profileRoot: profile.root, profileOwner: profile.owner });
+    catch (cleanup) {
+      const error = new AggregateError([primary, cleanup], 'Native alpha startup failed; cleanup did not verify closure');
+      launchDiagnostics?.associate(error);throw error;
+    }
+    const error = new NativeAlphaLaunchError(primary, { ...cleanup, profileRoot: profile.root, profileOwner: profile.owner });
+    launchDiagnostics?.associate(error);throw error;
   }
 }

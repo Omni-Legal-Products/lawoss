@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { launchAlphaApp, nativeAppLayout, nativeAppEnvironment } from './native-app.mjs';
 import { prepareAcceptanceProfile } from '../../../apps/desktop/scripts/release-acceptance.mjs';
+import { nativeLaunchDiagnostic } from './native-launch-diagnostics.mjs';
 
 const build = { schemaVersion: 1, product: 'lawoss-desktop', version: '1.2.3-alpha.1',
   gitSha: 'a'.repeat(40), buildEpoch: '123', platform: process.platform, arch: process.arch,
@@ -164,6 +165,18 @@ test('installed embedded identity must match the expected candidate before takin
   const options = await fixture(t);
   await writeFile(join(options.layout.resources, 'build-info.json'), JSON.stringify({ ...build, gitSha: 'b'.repeat(40) }));
   await assert.rejects(launchAlphaApp({ ...options, build }), /installed-build-identity-mismatch/);
+  await assert.rejects(readFile(join(options.profileRoot, '.alpha-native-app.lock')), { code: 'ENOENT' });
+});
+
+test('actual readiness timeout freezes non-exited status before cleanup terminates the owned protocol fixture', { skip: process.platform === 'win32' }, async t => {
+  const options = await fixture(t, { wrong: { rendererUrl: 'http://127.0.0.1:5173/' } });
+  let caught;await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 400 }), error => { caught = error; return true; });
+  assert.equal(caught.code, 'native-readiness-timeout');
+  assert.equal(caught.nativeCleanup.descendantClosure, 'verified');
+  assert.deepEqual(nativeLaunchDiagnostic(caught), { exitObserved: false, exitCode: null, signal: null,
+    stderr: { categories: ['unknown'], scannedBytes: 0, truncated: false } });
+  assert.equal(nativeLaunchDiagnostic(caught.cause), null);
+  assert.equal(nativeLaunchDiagnostic(new Error('PRIVATE', { cause: caught })), null);
   await assert.rejects(readFile(join(options.profileRoot, '.alpha-native-app.lock')), { code: 'ENOENT' });
 });
 

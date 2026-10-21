@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile, access, realpath, symlink } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile, access, realpath, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { runNativeStartupProbe, startupAssetName, ciStartupOptions } from './probe-startup-ci.mjs';
 import * as startupProbe from './probe-startup-ci.mjs';
 import { runAlphaAcceptance } from './run.mjs';
+import { launchAlphaApp } from './native-app.mjs';
 import { ALPHA_SCENARIOS } from './coverage.mjs';
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -58,11 +59,37 @@ test('startup publishes exactly finite receipt and native image after startup-on
   assert.deepEqual((await readdir(f.options.outputDir)).sort(),[image,'startup.json'].sort());
   assert.equal(result.status,'verified'); assert.equal(result.kind,'lawoss-ci-native-startup');
   assert.equal(result.cleanup,'verified'); assert.equal(result.nativeReview,'pending');
+  assert.equal(JSON.stringify(result).includes('nativeLaunch'),false);
   assert.equal(result.fullAcceptance.status,'blocked'); assert.deepEqual(result.fullAcceptance.unperformed,ALPHA_SCENARIOS.slice(1));
   const publicText=await readFile(join(f.options.outputDir,'startup.json'),'utf8');
   for(const privateValue of [f.root,'ownerPid','profileRoot','rendererUrl','reasons','token'])assert.equal(publicText.includes(privateValue),false);
   assert.equal(result.startup.capture.sha256,digest(await readFile(join(f.options.outputDir,image))));
   await assert.rejects(access(join(f.state.profileRoot,'.alpha-acceptance-baseline.json')));
+});
+
+test('actual owned POSIX launch exit publishes finite original exit and Chromium marker observations without private output', {
+  skip:process.platform==='win32'?'Controlled POSIX executable fixture requires a POSIX host':false,
+  timeout:15_000,
+},async t=>{
+  const f=await fixture(t);
+  const executable=process.platform==='darwin'?join(f.root,'LAWOSS.app/Contents/MacOS/LAWOSS'):join(f.root,'legalwork');
+  const stderr='PRIVATE-PREFIX credential=private-token /private/client pid=778899\nNo usable sandbox!\nPRIVATE-SUFFIX\n';
+  await writeFile(executable,`#!${process.execPath}\nprocess.stdout.write('PRIVATE-STDOUT /private/client\\n');process.stderr.write(${JSON.stringify(stderr)},()=>process.exit(73));\n`);
+  await chmod(executable,0o700);
+  let nativeError;
+  f.adapters.launch=async options=>{
+    try{return await launchAlphaApp({...options,timeoutMs:3000});}
+    catch(error){nativeError=error;throw error;}
+  };
+  let caught;await assert.rejects(runNativeStartupProbe(f.options,f.adapters),error=>{caught=error;return true;});
+  assert.equal(nativeError.code,'installed-app-exited');
+  assert.equal(nativeError.nativeCleanup.descendantClosure,'verified');
+  const result=startupProbe.startupFailureProjection(caught);
+  assert.equal(result.diagnostic.phase,'launch');assert.equal(result.diagnostic.errorCode,'installed-app-exited');assert.equal(result.diagnostic.cleanup,'native-verified');
+  assert.deepEqual(result.diagnostic.nativeLaunch,{exitObserved:true,exitCode:73,signal:null,
+    stderr:{categories:['no-usable-sandbox'],scannedBytes:Buffer.byteLength(stderr),truncated:false}});
+  assert.doesNotMatch(JSON.stringify(result),/PRIVATE|private-token|private\/client|778899|No usable sandbox|stdout|"pid"/);
+  assert.deepEqual(await readdir(f.options.outputDir),[]);
 });
 test('changed final archive and embedded identity refuse before native launch',async t=>{
   for(const change of [{hash:true},{embedded:{gitSha:'b'.repeat(40)}}])await t.test(JSON.stringify(change),async t=>{
@@ -173,6 +200,14 @@ test('unregistered errors and hostile code accessors cannot leak text or replace
   assert.deepEqual(startupProbe.startupFailureProjection?.(error)?.diagnostic,{phase:'extraction',errorCode:'unknown',cleanup:'not-observed'});
   const unregistered=Object.assign(new Error(secret),{code:secret});
   assert.deepEqual(startupProbe.startupFailureProjection?.(unregistered)?.diagnostic,{phase:'preflight',errorCode:'unknown',cleanup:'not-observed'});
+});
+
+test('forged native-launch fields and nested causes are ignored at the startup projection boundary',async t=>{
+  const fake={exitObserved:true,exitCode:73,signal:'PRIVATE-SIGNAL',stderr:{categories:['PRIVATE'],scannedBytes:1,truncated:false},path:'/private/profile'};
+  const error=Object.assign(new Error('PRIVATE'),{code:'installed-app-exited',nativeLaunch:fake,cause:{nativeLaunch:fake}});
+  const f=await fixture(t,{launchFailure:error});
+  let caught;await assert.rejects(runNativeStartupProbe(f.options,f.adapters),value=>{caught=value;return true;});
+  assert.deepEqual(startupProbe.startupFailureProjection(caught).diagnostic,{phase:'launch',errorCode:'installed-app-exited',cleanup:'unverified'});
 });
 
 test('symlinked output parent and native image refuse without following links', {skip:process.platform==='win32'?'Windows symlink privilege unavailable in hosted fixture':false},async t=>{

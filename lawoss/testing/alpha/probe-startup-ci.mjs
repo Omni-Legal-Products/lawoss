@@ -13,6 +13,7 @@ import { ALPHA_SCENARIOS } from './coverage.mjs';
 import { withExtractedAlphaArtifact, verifyAlphaInstallation } from './installed-artifact.mjs';
 import { assertInteractiveUi, launchAlphaApp, nativeAppLayout } from './native-app.mjs';
 import { runAlphaAcceptance } from './run.mjs';
+import { nativeLaunchDiagnostic } from './native-launch-diagnostics.mjs';
 
 const fail = () => { throw new Error('native-startup-unverified'); };
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -41,7 +42,14 @@ function errorCode(error) {
 }
 function startupDiagnostic() {
   let phase='preflight',firstFailure,receiptCode='unknown',cleanup='not-observed';
-  const record=error=>{const code=errorCode(error);firstFailure??={phase,errorCode:code==='unknown'?receiptCode:code};};
+  const record=error=>{
+    if(firstFailure)return;
+    const code=errorCode(error),native=nativeLaunchDiagnostic(error);
+    firstFailure=Object.freeze({phase,errorCode:code==='unknown'?receiptCode:code,...(native?{nativeLaunch:Object.freeze({
+      exitObserved:native.exitObserved,exitCode:native.exitCode,signal:native.signal,
+      stderr:Object.freeze({categories:Object.freeze([...native.stderr.categories]),scannedBytes:native.stderr.scannedBytes,truncated:native.stderr.truncated}),
+    })}:{})});
+  };
   return {
     stage(value){phase=value;},
     async at(value,use){phase=value;try{return await use();}catch(error){record(error);throw error;}},

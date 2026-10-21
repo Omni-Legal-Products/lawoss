@@ -79,6 +79,7 @@ Rules:
 
 ## TypeScript and package management
 
+- Freeze native startup exit/stderr observations before cleanup; publish only closed categories, bounded counts and signals. A cleanup kill or a marker is not crash-cause proof. Fixture duration is not an isolated cold-start measurement.
 - Linux ELF runtime packaging must copy the complete non-glibc closure, patch only owned copies with $ORIGIN per ELF, and preserve source/license/hash provenance. Test relocation after hiding originals; manifest integrity alone is not loader or final AppImage acceptance.
 - Use strict TypeScript.
 - For synchronous Word LCS alignment, materialize immutable XML-derived keys once after the size admission check. Keep revision/formatting assertions at the real DOCX comparison boundary and preserve the existing size and test-time limits.
