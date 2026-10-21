@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 import { runMacAcceptance } from './release-acceptance-macos.mjs';
 import { randomUUID } from 'node:crypto';
-import { cp, lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdir, readFile, readlink, readdir, realpath, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
+import pathApi from 'node:path';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { readPackagedBuildInfo } from '../electron/build-info.mjs';
 import { REQUIRED_NATIVE_SCENARIOS, sha256, validateReleaseEvidence } from '../../../scripts/release/release-evidence.mjs';
 const markerName = '.lawoss-release-acceptance-profile.json';
-async function ownedProfile(root, kind) {
+export async function ownedProfile(root, kind) {
     const path = resolve(root);
     const info = await lstat(path);
     if (!info.isDirectory() || info.isSymbolicLink() || path === homedir())
@@ -20,39 +21,66 @@ async function ownedProfile(root, kind) {
     catch {
         throw new Error('Refusing an unowned or normal profile');
     }
-    if (marker.schemaVersion !== 1 || marker.synthetic !== true || marker.root !== await realpath(path) || marker.kind !== kind || typeof marker.owner !== 'string')
+    if (marker.schemaVersion !== 1 || marker.synthetic !== true || marker.root !== await realpath(path) || !['fresh', 'migrated'].includes(marker.kind) || (kind !== undefined && marker.kind !== kind) || typeof marker.owner !== 'string')
         throw new Error('Acceptance profile ownership or kind differs');
     return marker;
+}
+export function assertSeparateProfileRoots(source, target, paths = pathApi) {
+    const contains = (parent, child) => {
+        const relative = paths.relative(parent, child);
+        return relative === '' || (!paths.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${paths.sep}`));
+    };
+    if (contains(source, target) || contains(target, source))
+        throw new Error('Migration target and source must be separate');
+}
+async function assertMigratableLinks(root) {
+    async function visit(directory) {
+        for (const name of await readdir(directory)) {
+            const entry = join(directory, name), info = await lstat(entry);
+            if (info.isSymbolicLink()) {
+                const link = await readlink(entry);
+                const relative = pathApi.relative(root, await realpath(entry));
+                if (pathApi.isAbsolute(link) || pathApi.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${pathApi.sep}`))
+                    throw new Error('Migration source link must remain relative and inside its independent profile');
+            } else if (info.isDirectory()) await visit(entry);
+        }
+    }
+    await visit(root);
 }
 export async function prepareAcceptanceProfile({ root, kind, migrateFrom }) {
     if (!['fresh', 'migrated'].includes(kind))
         throw new Error('Invalid profile kind');
     const path = resolve(root);
+    const parent = await lstat(dirname(path));
+    if (!parent.isDirectory() || parent.isSymbolicLink())
+        throw new Error('Acceptance target parent must be a physical directory');
+    const physicalTarget = join(await realpath(dirname(path)), basename(path));
     let source;
     let baseline;
     if (kind === 'migrated') {
         if (!migrateFrom)
             throw new Error('Migration requires an old synthetic profile');
         source = await ownedProfile(migrateFrom, 'fresh');
-        try {
-            await lstat(join(migrateFrom, '.acceptance-running.lock'));
-            throw new Error('Cannot copy a running profile');
-        }
-        catch (error) {
-            if (error.code !== 'ENOENT')
-                throw error;
+        for (const lease of ['.acceptance-running.lock', '.alpha-native-app.lock']) {
+            try {
+                await lstat(join(migrateFrom, lease));
+                throw new Error('Cannot copy a running profile');
+            }
+            catch (error) {
+                if (error.code !== 'ENOENT') throw error;
+            }
         }
         try {
             baseline = JSON.parse(await readFile(join(migrateFrom, '.native-acceptance-baseline.json'), 'utf8'));
         }
         catch { /* A missing historical baseline remains explicitly unverified. */ }
-        if (path === source.root || path.startsWith(`${source.root}/`))
-            throw new Error('Migration target must be separate');
+        assertSeparateProfileRoots(source.root, physicalTarget);
+        await assertMigratableLinks(source.root);
     }
     // Exclusive creation refuses to adopt any existing directory or ordinary user profile.
     await mkdir(path, { recursive: false, mode: 0o700 });
     if (source)
-        await cp(source.root, path, { recursive: true, force: false, errorOnExist: false, filter: src => basename(src) !== markerName });
+        await cp(source.root, path, { recursive: true, force: false, errorOnExist: false, verbatimSymlinks: true, filter: src => basename(src) !== markerName });
     const marker = { schemaVersion: 1, synthetic: true, root: await realpath(path), kind, owner: randomUUID(), migratedFrom: source ? { root: source.root, owner: source.owner, baseline: baseline ?? null } : null };
     await writeFile(join(path, markerName), `${JSON.stringify(marker, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
     return marker;

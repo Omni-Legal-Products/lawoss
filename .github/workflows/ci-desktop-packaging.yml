@@ -24,7 +24,7 @@ jobs:
     if: ${{ !inputs.runtime_provided }}
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
-      targets: linux-x64,win32-x64,win32-arm64,darwin-arm64
+      targets: linux-x64,linux-arm64,win32-x64,win32-arm64,darwin-x64,darwin-arm64
       run_tests: false
   package-smoke:
     name: Package and launch (${{ matrix.os }})
@@ -64,6 +64,20 @@ jobs:
             executable: win-arm64-unpacked/LAWOSS.exe
             asar: win-arm64-unpacked/resources/app.asar
             securityTarget: win-arm64-unpacked/LAWOSS.exe
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            platform: mac
+            arch: x64
+            executable: mac/LAWOSS.app/Contents/MacOS/LAWOSS
+            asar: mac/LAWOSS.app/Contents/Resources/app.asar
+            securityTarget: mac/LAWOSS.app
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            platform: linux
+            arch: arm64
+            executable: linux-arm64-unpacked/legalwork
+            asar: linux-arm64-unpacked/resources/app.asar
+            securityTarget: linux-arm64-unpacked/legalwork
     defaults:
       run:
         shell: bash
@@ -83,11 +97,15 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24.21.0
+      - name: Verify native runner architecture
+        run: node -e "if (process.arch !== '${{ matrix.arch }}') throw new Error('Desktop smoke requires native ${{ matrix.arch }} Node; got ' + process.arch)"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Test desktop platform coverage
+        run: node --test lawoss/testing/desktop-platform-matrix.test.mjs lawoss/testing/alpha/*.test.mjs
       - name: Test config migration, token-file migration and link policy
         run: node --test apps/desktop/electron/opencode-config-migration.test.mjs apps/desktop/electron/runtime.test.mjs apps/desktop/electron/ui-control-server.test.mjs apps/desktop/electron/safe-open.test.mjs
       - uses: actions/download-artifact@v4
@@ -152,7 +170,7 @@ jobs:
         run: node apps/desktop/scripts/check-packaged-server-imports.mjs "apps/desktop/dist-electron/${{ matrix.asar }}"
       - name: Verify Linux AppImage packaging
         if: runner.os == 'Linux'
-        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --x64 --publish never
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --${{ matrix.arch }} --publish never
       - name: Verify shipped fuses, Node and document tools
         run: pnpm --dir apps/desktop check:packaged-security "dist-electron/${{ matrix.securityTarget }}"
       - name: Run isolation probe with the packaged Node and VM

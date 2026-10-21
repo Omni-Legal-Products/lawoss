@@ -1342,3 +1342,13 @@ Rozhodnutie MČ z 20. 10. 2026: jeden natívny prepínač „YOLO Mode“ v Nast
 | `apps/app/src/react-app/shell/session-route.tsx` | `yoloTurnContext()` v skrytom kontexte správy (`systemReminderPart`), nie v systémovom prompte; pri vypnutom YOLO nič (+1 import, 1 riadok zmenený). Skilly podľa neho vedia, že smú presúvať bežnými nástrojmi. |
 | `lawoss/skills/roztried-spis/SKILL.md`, `SKILL.cs.md`, `lawoss/skills/usporiadaj-spis/SKILL.md`, `apps/app/src/lawoss/okf/bundled-skill-hashes.ts` | Výnimka „YOLO Mode“: len s pripomienkou „YOLO Mode is on“ a na výslovnú žiadosť advokáta smie agent presúvať a premenúvať priamo v pôvodnom priečinku bežnými nástrojmi; bez nej platia pravidlá ako doteraz. CLI `okf` sa nemení (`allowInPlace` ostáva len pre triedenie v appke). Nové hashe telies skillov. |
 | `apps/app/scripts/i18n-check.ts` | `lawoss.yolo.title` a `lawoss.yolo.badge` v `GERMAN_KEEPS_ENGLISH`: prepínač sa podľa rozhodnutia volá „YOLO Mode“ vo všetkých jazykoch (+1 riadok). |
+
+
+### Šesť natívnych cieľov a izolované akceptačné profily (2026-10-21)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `.github/workflows/ci-desktop-packaging.yml` | Pridať Intel macOS a ARM64 Linux, zodpovedajúci sandbox runtime a AppImage architektúru; pred závislosťami odmietnuť nesprávnu architektúru Node. Zachovať štyri existujúce názvy jobov a všetky natívne/bezpečnostné brány. |
+| `apps/desktop/scripts/release-acceptance.mjs`, `apps/desktop/scripts/release-acceptance.test.mjs` | Pred vytvorením migračného profilu porovnať kanonické korene cez natívnu sémantiku ciest, odmietnuť symlink rodiča a prekrytie oboma smermi; sprístupniť existujúcu read-only kontrolu vlastníctva pre súkromnú alfa akceptáciu. |
+
+Rozsah alfy a nepodpísané Windows do bety vychádzajú zo [zápisu callu 19. 10.](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/main/meetings/2026-10-19-zapis-call-mc-vr.md). Nový harness v `lawoss/testing/alpha/` nevytvára podpisové ani verejné release schválenie.
