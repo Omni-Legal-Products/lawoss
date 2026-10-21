@@ -1,4 +1,21 @@
 export const shellEn = {
+  "lawoss.yolo.title": "YOLO Mode",
+  "lawoss.yolo.description": "The agent works with files and commands on its own, without asking.",
+  "lawoss.yolo.state_off": "Off. The agent asks before actions according to the rules below.",
+  "lawoss.yolo.state_on": "On. In chat, the agent moves, renames, edits and deletes files and runs commands without asking, with your user account's full rights. “Ask first” rules below are skipped in chat; “Never allow” still applies. Internet access follows the rule below, AI boundaries still apply. Scheduled tasks still ask.",
+  "lawoss.yolo.state_locked": "Your organization manages tool permissions, so YOLO Mode stays off.",
+  "lawoss.yolo.applies": "Takes effect without restarting the app; a chat that is answering picks it up once its reply has finished.",
+  "lawoss.yolo.confirm_title": "Turn on YOLO Mode?",
+  "lawoss.yolo.confirm_body": "The agent will move, rename, edit and delete files and run commands without asking. It can read, change and send any file your user account can reach on this computer, not only client folders. Commands run with your full rights. Internet access is allowed unless you restrict it below. Scheduled tasks still ask.",
+  "lawoss.yolo.confirm_clients": "It can also read and change files in other clients' folders. Confidentiality between clients is not enforced in YOLO Mode.",
+  "lawoss.yolo.confirm_undo": "LAWOSS cannot undo these changes. Keep backups.",
+  "lawoss.yolo.confirm_on": "Turn on YOLO Mode",
+  "lawoss.yolo.confirm_cancel": "Cancel",
+  "lawoss.yolo.load_failed": "The YOLO Mode setting could not be loaded.",
+  "lawoss.yolo.save_failed": "The YOLO Mode setting could not be saved.",
+  "lawoss.yolo.host_only": "Change this setting in the desktop app.",
+  "lawoss.yolo.badge": "YOLO",
+  "lawoss.yolo.badge_title": "YOLO Mode is on: the agent changes files and runs commands without asking.",
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Something went wrong. Try again, or choose a different folder.",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): native Settings → AI switch and chat refusal.
@@ -352,6 +369,23 @@ export const shellEn = {
 type SlavicPluralKey = "lawoss.lite.due_in_days_few" | "lawoss.lite.due_in_days_many";
 
 export const shellCs = {
+  "lawoss.yolo.title": "YOLO Mode",
+  "lawoss.yolo.description": "Agent pracuje se soubory a příkazy sám, bez ptaní.",
+  "lawoss.yolo.state_off": "Vypnuto. Agent se před akcemi ptá podle pravidel níže.",
+  "lawoss.yolo.state_on": "Zapnuto. Agent v chatu bez ptaní přesouvá, přejmenovává, upravuje a maže soubory a spouští příkazy s plnými právy vašeho uživatelského účtu. Volby „Nejprve se zeptat“ níže se v chatu přeskočí, „Nikdy nepovolit“ platí dál. Internet se řídí pravidlem níže, hranice AI platí dál. Naplánované úlohy se ptají dál.",
+  "lawoss.yolo.state_locked": "Vaše organizace spravuje oprávnění nástrojů, proto YOLO Mode zůstává vypnutý.",
+  "lawoss.yolo.applies": "Projeví se bez restartu aplikace; chat, který právě odpovídá, změnu převezme po dokončení odpovědi.",
+  "lawoss.yolo.confirm_title": "Zapnout YOLO Mode?",
+  "lawoss.yolo.confirm_body": "Agent bude bez ptaní přesouvat, přejmenovávat, upravovat a mazat soubory a spouštět příkazy. Může číst, měnit a odesílat jakýkoli soubor, ke kterému má přístup váš uživatelský účet na tomto počítači, nejen složky klientů. Příkazy běží s vašimi plnými právy. Internet je povolený, pokud ho níže neomezíte. Naplánované úlohy se ptají dál.",
+  "lawoss.yolo.confirm_clients": "Může číst a měnit i soubory ve složkách jiných klientů. Důvěrnost mezi klienty se v YOLO Mode nehlídá.",
+  "lawoss.yolo.confirm_undo": "LAWOSS tyto změny neumí vrátit. Mějte zálohy.",
+  "lawoss.yolo.confirm_on": "Zapnout YOLO Mode",
+  "lawoss.yolo.confirm_cancel": "Zrušit",
+  "lawoss.yolo.load_failed": "Nastavení YOLO Mode se nepodařilo načíst.",
+  "lawoss.yolo.save_failed": "Nastavení YOLO Mode se nepodařilo uložit.",
+  "lawoss.yolo.host_only": "Toto nastavení změníte v desktopové aplikaci.",
+  "lawoss.yolo.badge": "YOLO",
+  "lawoss.yolo.badge_title": "YOLO Mode je zapnutý: agent bez ptaní mění soubory a spouští příkazy.",
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Něco se nepodařilo. Zkuste to znovu, nebo vyberte jinou složku.",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): natívny prepínač v Nastaveniach → AI a odmietnutie chatu.
@@ -704,6 +738,23 @@ export const shellCs = {
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
+  "lawoss.yolo.title": "YOLO Mode",
+  "lawoss.yolo.description": "Agent pracuje so súbormi a príkazmi sám, bez pýtania.",
+  "lawoss.yolo.state_off": "Vypnuté. Agent sa pred úkonmi pýta podľa pravidiel nižšie.",
+  "lawoss.yolo.state_on": "Zapnuté. Agent v chate bez pýtania presúva, premenúva, upravuje a maže súbory a spúšťa príkazy s plnými právami vášho používateľského účtu. Voľby „Najprv sa opýtať“ nižšie sa v chate preskočia, „Nikdy nepovoliť“ platí ďalej. Internet sa riadi pravidlom nižšie, AI hranice platia ďalej. Naplánované úlohy sa pýtajú ďalej.",
+  "lawoss.yolo.state_locked": "Vaša organizácia spravuje povolenia nástrojov, preto YOLO Mode ostáva vypnutý.",
+  "lawoss.yolo.applies": "Prejaví sa bez reštartu appky; chat, ktorý práve odpovedá, zmenu prevezme po dokončení odpovede.",
+  "lawoss.yolo.confirm_title": "Zapnúť YOLO Mode?",
+  "lawoss.yolo.confirm_body": "Agent bude bez pýtania presúvať, premenúvať, upravovať a mazať súbory a spúšťať príkazy. Môže čítať, meniť a odosielať akýkoľvek súbor, ku ktorému má prístup váš používateľský účet na tomto počítači, nielen priečinky klientov. Príkazy bežia s vašimi plnými právami. Internet je povolený, ak ho nižšie neobmedzíte. Naplánované úlohy sa pýtajú ďalej.",
+  "lawoss.yolo.confirm_clients": "Môže čítať a meniť aj súbory v priečinkoch iných klientov. Dôvernosť medzi klientmi sa v YOLO Mode nestráži.",
+  "lawoss.yolo.confirm_undo": "LAWOSS tieto zmeny nevie vrátiť. Majte zálohy.",
+  "lawoss.yolo.confirm_on": "Zapnúť YOLO Mode",
+  "lawoss.yolo.confirm_cancel": "Zrušiť",
+  "lawoss.yolo.load_failed": "Nastavenie YOLO Mode sa nepodarilo načítať.",
+  "lawoss.yolo.save_failed": "Nastavenie YOLO Mode sa nepodarilo uložiť.",
+  "lawoss.yolo.host_only": "Toto nastavenie zmeníte v desktopovej appke.",
+  "lawoss.yolo.badge": "YOLO",
+  "lawoss.yolo.badge_title": "YOLO Mode je zapnutý: agent bez pýtania mení súbory a spúšťa príkazy.",
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Niečo sa nepodarilo. Skúste to znova, alebo vyberte iný priečinok.",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): natívny prepínač v Nastaveniach → AI a odmietnutie chatu.
@@ -1056,6 +1107,23 @@ export const shellSk = {
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
+  "lawoss.yolo.title": "YOLO Mode",
+  "lawoss.yolo.description": "Der Agent arbeitet selbständig mit Dateien und Befehlen, ohne zu fragen.",
+  "lawoss.yolo.state_off": "Aus. Der Agent fragt vor Aktionen nach den Regeln unten.",
+  "lawoss.yolo.state_on": "An. Im Chat verschiebt, benennt um, bearbeitet und löscht der Agent Dateien und führt Befehle ohne Rückfrage aus, mit den vollen Rechten Ihres Benutzerkontos. Regeln „Erst fragen“ unten werden im Chat übersprungen, „Nie erlauben“ gilt weiter. Der Internetzugriff folgt der Regel unten, KI-Grenzen gelten weiter. Geplante Aufgaben fragen weiterhin.",
+  "lawoss.yolo.state_locked": "Ihre Organisation verwaltet die Werkzeugberechtigungen, daher bleibt YOLO Mode aus.",
+  "lawoss.yolo.applies": "Wirkt ohne Neustart der App; ein Chat, der gerade antwortet, übernimmt die Änderung nach seiner Antwort.",
+  "lawoss.yolo.confirm_title": "YOLO Mode einschalten?",
+  "lawoss.yolo.confirm_body": "Der Agent wird ohne Rückfrage Dateien verschieben, umbenennen, bearbeiten und löschen und Befehle ausführen. Er kann jede Datei lesen, ändern und senden, auf die Ihr Benutzerkonto auf diesem Computer zugreifen kann, nicht nur Mandantenordner. Befehle laufen mit Ihren vollen Rechten. Der Internetzugriff ist erlaubt, sofern Sie ihn unten nicht einschränken. Geplante Aufgaben fragen weiterhin.",
+  "lawoss.yolo.confirm_clients": "Er kann auch Dateien in Ordnern anderer Mandanten lesen und ändern. Die Vertraulichkeit zwischen Mandanten wird im YOLO Mode nicht geschützt.",
+  "lawoss.yolo.confirm_undo": "LAWOSS kann diese Änderungen nicht rückgängig machen. Halten Sie Sicherungskopien bereit.",
+  "lawoss.yolo.confirm_on": "YOLO Mode einschalten",
+  "lawoss.yolo.confirm_cancel": "Abbrechen",
+  "lawoss.yolo.load_failed": "Die Einstellung YOLO Mode konnte nicht geladen werden.",
+  "lawoss.yolo.save_failed": "Die Einstellung YOLO Mode konnte nicht gespeichert werden.",
+  "lawoss.yolo.host_only": "Ändern Sie diese Einstellung in der Desktop-App.",
+  "lawoss.yolo.badge": "YOLO",
+  "lawoss.yolo.badge_title": "YOLO Mode ist an: Der Agent ändert Dateien und führt Befehle aus, ohne zu fragen.",
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Etwas ist nicht gelungen. Versuchen Sie es erneut oder wählen Sie einen anderen Ordner.",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): Schalter in Einstellungen → KI und Chat-Ablehnung.

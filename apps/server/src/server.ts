@@ -1,4 +1,5 @@
 import { registerAiGovernanceRoutes } from "./lawoss/ai-governance-routes.js";
+import { registerYoloModeRoutes } from "./lawoss/yolo-mode.js";
 import { ProtectedDocumentRuntime } from "./lawoss/protected-ai/runtime.js";
 import { protectedGuestBundleFactory } from "./lawoss/protected-ai/bundle.js";
 import { registerProtectedDocumentProfileRoutes } from "./lawoss/protected-ai/profiles.js";
@@ -2055,6 +2056,7 @@ function createRoutes(
   });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerAiGovernanceRoutes({routes, config, jsonResponse, readJsonBodyLimited, getPublicEngineBinary: publicEngineBinary, pinnedEngineVersion: OPENCODE_VERSION});
+  registerYoloModeRoutes({routes, config, jsonResponse, readJsonBodyLimited});
   registerProtectedDocumentRoutes({routes, runtime: protectedDocuments, jsonResponse, readJsonBodyLimited});
   registerProtectedDocumentProfileRoutes({config, routes, jsonResponse});
   registerLawossDocumentRoutes({ routes, config, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });

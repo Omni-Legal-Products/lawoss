@@ -1306,3 +1306,20 @@ Engine číta jeden spoločný `OPENCODE_CONFIG` pre všetkých klientov, takže
 | Súbory | Zmena a dôvod |
 |---|---|
 | `apps/server/src/lawoss-workspace-memory-context.e2e.test.ts` | Fixture má dáta aplikácie (runtime) vo vlastnom priečinku `runtime/` (+1 komentár, +1 riadok, 1 zmenený): priečinok používateľa vnútri dát aplikácie sa už nepripojí (`linked_folder_app_data` oboma smermi). |
+
+### YOLO Mode pre agenta (2026-10-20, feat/yolo-mode)
+
+Rozhodnutie MČ z 20. 10. 2026: jeden natívny prepínač „YOLO Mode“ v Nastaveniach → Oprávnenia nástrojov, predvolene vypnutý. Stav je príznak `lawossYolo` v existujúcom riadku `__global_tool_permissions__` (upstream drží povolenia nástrojov ako jeden postoj zariadenia), logika v `apps/server/src/lawoss/yolo-mode.ts` a `apps/app/src/lawoss/domains/yolo/yolo-mode.tsx`. Uložené pravidlá používateľa sa neprepisujú; vypnutie vráti konfiguráciu enginu bajt po bajte.
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/runtime-opencode-config-store.ts` | Typ a normalizácia `lawossYolo: {enabled: true}` (+3 riadky). Poškodená hodnota sa zahodí, teda vypnuté. Zápis do riadku už dnes prepíše konfiguračný súbor enginu a zruší bežiace príkazy spravovaného shellu. |
+| `apps/server/src/legalwork-runtime-config.ts` | Pri zapnutom YOLO dostane len agent `legalwork` (chat) `permission` z `yoloPermissions` (+1 import, +2 riadky): `edit` a `bash` (v desktope `legalwork_shell`) `allow`, `external_directory: {"*": "allow"}`; zákazy advokáta (`deny`, aj vzory) ostávajú za povolením, „pýtať sa“ odpadne. Zdieľaná mapa, naplánované a ostatné agenty sa nemenia, takže naplánované behy sa pýtajú ďalej. `webfetch` ostáva podľa používateľa. Celozariadeniové, žiadne položky pre konkrétneho klienta (jeden súbor enginu pre všetkých klientov); kľúč priečinkov ostáva holé `*`, ktoré plugin pripojených priečinkov nechá. |
+| `apps/server/src/agent-sandbox/service.ts` | Spravovaný shell počíta schválenia sám zo stavu servera: rovnaký overlay (so zákazmi advokáta) na globálne povolenia a pri vypnutom chránenom prostredí na `external_directory` celého príkazu (+1 import, 2 riadky zmenené). Bez toho by `mv` v chate stále čakal na schválenie. Pravidlá agenta platia ďalej (berie sa prísnejšie), preto sa naplánovaný beh pýta. Chránené prostredie (VM) nemení pripojené priečinky. |
+| `apps/server/src/server.ts` | `registerYoloModeRoutes`: `GET /lawoss/yolo` (client) a `PUT /lawoss/yolo` (host-token, striktný boolean, 409 pri firemnom zámku) (+2 riadky). |
+| `apps/app/src/app/lib/legalwork-server.ts` | Klient `lawossYolo()` a `setLawossYolo(enabled)` (+3 riadky); odpoveď overuje modul LAWOSS. |
+| `apps/app/src/react-app/shell/settings-route.tsx` | Karta „safety“: `<YoloModeRow>` nad povoleniami nástrojov; po zmene rovnaký `reloadCoordinator.markReloadRequired("config", …)` ako panel povolení, takže engine sa prestaví bez reštartu appky, keď bežiace chaty dobehnú (+3 riadky). Onboarding (`permissions-step.tsx`) sa nemení. |
+| `apps/app/src/react-app/domains/session/surface/composer/composer.tsx` | Odznak `<YoloBadge />` za výberom správania modelu, viditeľný len pri zapnutom YOLO (+2 riadky). |
+| `apps/app/src/react-app/shell/session-route.tsx` | `yoloTurnContext()` v skrytom kontexte správy (`systemReminderPart`), nie v systémovom prompte; pri vypnutom YOLO nič (+1 import, 1 riadok zmenený). Skilly podľa neho vedia, že smú presúvať bežnými nástrojmi. |
+| `lawoss/skills/roztried-spis/SKILL.md`, `SKILL.cs.md`, `lawoss/skills/usporiadaj-spis/SKILL.md`, `apps/app/src/lawoss/okf/bundled-skill-hashes.ts` | Výnimka „YOLO Mode“: len s pripomienkou „YOLO Mode is on“ a na výslovnú žiadosť advokáta smie agent presúvať a premenúvať priamo v pôvodnom priečinku bežnými nástrojmi; bez nej platia pravidlá ako doteraz. CLI `okf` sa nemení (`allowInPlace` ostáva len pre triedenie v appke). Nové hashe telies skillov. |
+| `apps/app/scripts/i18n-check.ts` | `lawoss.yolo.title` a `lawoss.yolo.badge` v `GERMAN_KEEPS_ENGLISH`: prepínač sa podľa rozhodnutia volá „YOLO Mode“ vo všetkých jazykoch (+1 riadok). |

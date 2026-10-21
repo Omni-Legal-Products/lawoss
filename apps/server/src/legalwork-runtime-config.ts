@@ -87,6 +87,7 @@ import { repairRuntimeProviders } from "./runtime-provider-repair.js";
 import { externalOpencodeConfigDir } from "./lawoss/workspace-app-files.js";
 import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
 import { appendLawossToolDenials, LAWOSS_LOAD_WIKI_TOOLS } from "./lawoss/hidden-upstream-tools.js";
+import { yoloModeActive, yoloPermissions } from "./lawoss/yolo-mode.js";
 import { sandboxEngineAgents, sandboxEnginePermissions } from "./agent-sandbox/engine-policy.js";
 import { REVIEW_AGENT, reviewAgentConfig } from "./reviews/agent.js";
 
@@ -330,6 +331,8 @@ export async function buildLegalworkRuntimeConfigObject(
         mode: "primary",
         temperature: 0.2,
         prompt: agentPrompt,
+        // LAWOSS: „YOLO Mode" (lawoss/yolo-mode.ts) for the chat agent only; scheduled and other agents keep the shared map.
+        ...(config && await yoloModeActive(config) ? { permission: yoloPermissions(permission) } : {}),
       },
     },
     plugin: (await Promise.all([

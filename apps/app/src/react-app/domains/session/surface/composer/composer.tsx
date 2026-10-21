@@ -38,6 +38,7 @@ import { listRunningAppsForMention } from "./app-mentions";
 import { createPluginComposerMention, encodeComposerMentionValue, type ComposerMentionKind } from "./mention-encoding";
 import { pluginImportName } from "@/react-app/domains/settings/pages/plugin-import-presentation";
 import { getSlashCommandQuery } from "./slash-command";
+import { YoloBadge } from "@/lawoss/domains/yolo/yolo-mode";
 import { ComposerToolMenu, type ComposerConnector } from "./tool-menu";
 import type { ComposerToolSection } from "@/react-app/shell/workspace-routes";
 
@@ -1124,6 +1125,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                   onChange={props.onModelVariantChange}
                   disabled={props.busy}
                 />
+                <YoloBadge />
 
                 {props.onToggleFusion ? (
                   <span className="relative inline-flex">
