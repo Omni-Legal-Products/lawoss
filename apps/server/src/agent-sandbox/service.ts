@@ -10,6 +10,7 @@ import { listSkills } from "../skills.js";
 import { ApprovalService } from "../approvals.js";
 import { onOrgPolicyChange } from "../org-policy.js";
 import { orgPolicyPermissions } from "../org-policy-engine.js";
+import { applyYoloPermissions, yoloExternalDirectory, yoloModeActive } from "../lawoss/yolo-mode.js";
 import type { Actor, ApprovalRequest, ServerConfig, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
 import {
@@ -26,6 +27,8 @@ import { WikiStore } from "../wiki/store.js";
 import { WikiSync } from "../wiki/sync.js";
 import { assertWikiWorkspaceAccess, ownsWikis, wikiAgentCanAccess, wikiForDirectory } from "../wiki/access.js";
 import { buildWikiFilePolicy, wikiContentPath, wikiSafeSandboxMounts } from "../wiki/file-access-policy.js";
+// LAWOSS: do sandboxu len priečinky, ktoré pravidlá pripojených priečinkov dovolia (iný klient, prax, dáta aplikácie nie).
+import { linkableFolders } from "../lawoss/linked-folders.js";
 
 export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number };
 export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
@@ -148,7 +151,7 @@ export class AgentSandboxService {
         await ask("edit", "*", "Allow this command to change files on this computer? Sandboxing is off, so file access is not confined to shared folders.", [workspace.path], commandAction("edit"));
         await ask("webfetch", "*", "Allow this command to contact websites or the local network? Sandboxing is off, so individual requests cannot be restricted.", [], commandAction("webfetch"));
         await ask("external_directory", "*", "Allow this command to access folders outside the project? Sandboxing is off, so folder boundaries cannot be enforced.", [workspace.path],
-          restrictive([wholeCommandAction({ external_directory: runtimeExternalDirectory(runtime) }, "external_directory"), wholeAgentAction(agentRules, "external_directory")]));
+          restrictive([wholeCommandAction({ external_directory: await yoloModeActive(this.config) ? yoloExternalDirectory(runtimeExternalDirectory(runtime)) : runtimeExternalDirectory(runtime) }, "external_directory"), wholeAgentAction(agentRules, "external_directory")]));
         if (command.skills?.length) {
           const skills = await listSkills(workspace.path, true);
           for (const name of command.skills) {
@@ -163,7 +166,7 @@ export class AgentSandboxService {
       }
       const writeAction = commandAction("edit");
       const externalRules = runtimeExternalDirectory(runtime);
-      const sources = [...new Set(await Promise.all([workspace.path, ...authorizedFolders(externalRules), ...projectGrants.map(grant => grant.root)].map(source => ownWiki ? realpath(source).catch(() => { throw new ApiError(403, "wiki_project_mount_unavailable", "A shared folder is unavailable. Review this chat's project access."); }) : Promise.resolve(source))))];
+      const sources = [...new Set(await Promise.all([workspace.path, ...await linkableFolders(this.config, workspace, authorizedFolders(externalRules)), ...projectGrants.map(grant => grant.root)].map(source => ownWiki ? realpath(source).catch(() => { throw new ApiError(403, "wiki_project_mount_unavailable", "A shared folder is unavailable. Review this chat's project access."); }) : Promise.resolve(source))))];
       if (sources.length > 1 && Object.entries(externalRules).some(([pattern, action]) => pattern !== "*" && action === "deny")) {
         throw new ApiError(403, "sandbox_directory_scope", "A scoped folder denial cannot be enforced by sharing the whole folder. Choose narrower authorized folders.");
       }
@@ -289,7 +292,7 @@ export class AgentSandboxService {
       if (scopes.has("engine")) { this.approvals.forgetRemembered(workspace.id); controller.abort(new Error("Organization policy changed. Try again with the current permissions.")); }
     });
     try {
-      const { permission: permissions } = await orgPolicyPermissions(this.config, await readGlobalToolPermissions(this.config));
+      const { permission: permissions } = await orgPolicyPermissions(this.config, applyYoloPermissions(await readGlobalToolPermissions(this.config), await yoloModeActive(this.config)));
       const settings = await effectiveSandbox(this.config, workspace.id, lineage);
       dependencies = settings.dependencies;
       signal.throwIfAborted();

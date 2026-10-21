@@ -21,8 +21,10 @@ async function fixture(appFiles?: "outside") {
   const base = await realpath(await mkdtemp(join(tmpdir(), "lawoss-context-"))); roots.push(base);
   const root = join(base, "matter"), vault = join(base, "vault"); await mkdir(root); await mkdir(vault);
   process.env.LEGALWORK_DATA_DIR = join(base, "data"); process.env.LEGALWORK_TOKEN_STORE = join(base, "tokens.json");
+  // Dáta aplikácie (runtime) vo vlastnom priečinku: priečinok používateľa v nich sa nepripojí (lawoss/linked-folders).
+  await mkdir(join(base, "runtime"));
   await writeFile(join(vault, "memory.md"), "SECRET-SOURCE-BODY");
-  const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(base, "server.json"), token: "synthetic-client", hostToken: "synthetic-host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "synthetic", name: "Synthetic", preset: "starter", path: root, workspaceType: "local", ...(appFiles ? { appFiles } : {}) }], authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(base, "runtime", "server.json"), token: "synthetic-client", hostToken: "synthetic-host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "synthetic", name: "Synthetic", preset: "starter", path: root, workspaceType: "local", ...(appFiles ? { appFiles } : {}) }], authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   const server = await startServer(config); stops.push(() => server.stop());
   const url = `http://127.0.0.1:${server.port}/workspace/synthetic`, headers = { authorization: "Bearer synthetic-client", "content-type": "application/json" };
   const context = async () => { const response = await fetch(`${url}/lawoss/memory/context`, { headers }); expect(response.status).toBe(200); const text = await response.text(); expect(text).not.toContain("SECRET-SOURCE-BODY"); return JSON.parse(text); };

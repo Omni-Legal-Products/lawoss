@@ -242,9 +242,10 @@ describe("legalwork runtime config file", () => {
       if (permission.bash) break;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    // Global tool key + this workspace's own external_directory, merged.
+    // Global tool key; LAWOSS: the workspace's folder grants reach chats through the
+    // lawoss-linked-folders plugin, never the file shared by every client.
     expect(permission.bash).toBe("ask");
-    expect(permission.external_directory).toEqual({ "/tmp/shared/*": "allow" });
+    expect(permission.external_directory).toBeUndefined();
   });
 
   test("global personalisation rewrites the active workspace config", async () => {

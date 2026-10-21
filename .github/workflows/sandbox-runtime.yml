@@ -98,6 +98,9 @@ jobs:
           msystem: ${{ matrix.msystem }}
           path-type: inherit
           update: true
+          # ARM64 run39501263644 failed in optional cache-save paccache (127).
+          # Keep fresh installation/build/tests mandatory; bypass only the cache.
+          cache: ${{ matrix.arch != 'arm64' }}
           # setup-msys2 prunes its package cache with paccache after installation.
           install: pacman-contrib
       - name: Download QEMU packages with retries (Windows)

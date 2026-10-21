@@ -1,8 +1,10 @@
 import { registerAiGovernanceRoutes } from "./lawoss/ai-governance-routes.js";
+import { registerYoloModeRoutes } from "./lawoss/yolo-mode.js";
 import { ProtectedDocumentRuntime } from "./lawoss/protected-ai/runtime.js";
 import { protectedGuestBundleFactory } from "./lawoss/protected-ai/bundle.js";
 import { registerProtectedDocumentProfileRoutes } from "./lawoss/protected-ai/profiles.js";
 import { registerProtectedDocumentRoutes } from "./lawoss/protected-ai/routes.js";
+import { linkedFoldersMapRefresher, requireLinkableExternalDirectory, requireLinkableFolders } from "./lawoss/linked-folders.js";
 import { protectedEngineFetch, protectedSessionResponse, registerProtectedRuntime } from "./lawoss/protected-ai/dispatch.js";
 import { retainWikiAgentRuntime } from "./wiki/agent-access.js";
 import { createGovernedEngineFetch, governedOcrTransport, requireGovernedEngineDispatch, requireAiBoundariesAdmission } from "./lawoss/ai-governance-engine.js";
@@ -880,10 +882,14 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
     config,
     (workspaceId, bootstrap) => watcherHandle.withWorkspaceBootstrap(workspaceId, bootstrap),
   );
+  // LAWOSS: registrácia, odobratie a presun klienta hneď obnoví mapu pripojených priečinkov.
+  const linkedFoldersMap = linkedFoldersMapRefresher(config);
+  producerStops.push(linkedFoldersMap.stop);
   const restartReloadWatchers = () => {
     if (stopping) return;
     watcherHandle.close();
     watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
+    linkedFoldersMap.refresh();
   };
   // Tasks push and pull with the firm's account in the background (a no-op
   // while no firm is connected); each local write also asks for a round.
@@ -1382,13 +1388,28 @@ async function resolveProxyOpencodeDirectory(workspace: WorkspaceInfo, headers: 
 }
 
 function createOpencodeDirectoryFetch(directory: string, config: ServerConfig, workspaceId: string): typeof fetch {
-  const governedFetch = protectedEngineFetch(config, workspaceId, createGovernedEngineFetch(config, workspaceId));
+  const governedFetch = createGovernedEngineFetch(config, workspaceId);
+  const initializedFetch = Object.assign((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    const headers = request.headers;
+    if (request.method === "GET" && new URL(request.url).pathname === "/session") {
+      const readiness = new URL(request.url);
+      readiness.pathname = "/mcp";
+      readiness.search = "";
+      readiness.searchParams.set("directory", new URL(request.url).searchParams.get("directory") ?? directory);
+      const key = JSON.stringify([workspaceId, readiness.toString(), [...headers]]);
+      return abortable(sharedEngineResponse(key, signal => governedFetch(new Request(readiness, { headers, signal })), undefined, config), request.signal)
+        .then(() => { request.signal.throwIfAborted(); return governedFetch(request); });
+    }
+    return governedFetch(request);
+  }, { preconnect: fetch.preconnect });
+  const protectedFetch = protectedEngineFetch(config, workspaceId, initializedFetch);
   return Object.assign(
     (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const request = input instanceof Request ? input : new Request(input, init);
       const headers = new Headers(init?.headers ?? request.headers);
       headers.set("x-opencode-directory", buildOpencodeDirectoryHeader(directory));
-      return governedFetch(new Request(request, { headers }));
+      return protectedFetch(new Request(request, { headers }));
     },
     { preconnect: fetch.preconnect },
   );
@@ -2050,6 +2071,7 @@ function createRoutes(
   });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerAiGovernanceRoutes({routes, config, jsonResponse, readJsonBodyLimited, getPublicEngineBinary: publicEngineBinary, pinnedEngineVersion: OPENCODE_VERSION});
+  registerYoloModeRoutes({routes, config, jsonResponse, readJsonBodyLimited});
   registerProtectedDocumentRoutes({routes, runtime: protectedDocuments, jsonResponse, readJsonBodyLimited});
   registerProtectedDocumentProfileRoutes({config, routes, jsonResponse});
   registerLawossDocumentRoutes({ routes, config, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
@@ -2645,6 +2667,8 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const folders = parseAuthorizedFoldersPayload(body.folders, workspaceAppFilesRoot(config, workspace));
+    // LAWOSS: nový priečinok nesmie zasahovať do iného klienta ani do praxe (lawoss/linked-folders.ts).
+    await requireLinkableFolders(config, workspace, folders, readAuthorizedFoldersFromOpencodeConfig(mergeOpencodeConfigs(await readOpencodeConfig(workspaceAppFilesRoot(config, workspace)), await readRuntimeOpencodeConfig(config, workspace.id)), workspaceAppFilesRoot(config, workspace)).folders);
     const configPath = legalworkConfigPath(workspaceAppFilesRoot(config, workspace));
 
     await requireApproval(ctx, {
@@ -4449,6 +4473,8 @@ function createRoutes(
       await requireOrgPolicyToolsUnmanaged(config, Object.keys(permissionUpdate));
       if (Object.keys(permissionUpdate).length) {
         const { external_directory: externalDirectoryUpdate, ...toolPermissionUpdate } = permissionUpdate;
+        // LAWOSS: nové povolenie priečinka len ako natívny zoznam (lawoss/linked-folders.ts).
+        await requireLinkableExternalDirectory(config, workspace, externalDirectoryUpdate, ensurePlainObject(ensurePlainObject((await readRuntimeOpencodeConfig(config, workspace.id)).permission).external_directory));
 
         // Tool permissions are GLOBAL — one safety posture for every
         // workspace — so they merge into the reserved global row. A `null`

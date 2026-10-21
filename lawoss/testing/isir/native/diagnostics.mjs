@@ -509,8 +509,11 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
   // Pin only the first exact owning submission for each generation. General
   // network history is a rolling ring; polling must not erase this evidence.
   const generationPrompts=[],generationRuns=[];
+  const provisioning=[],provisioningRuns=[];
   let generationHostErrors=[],hostErrorsCaptured=false;
+  let provisioningHostErrors=[];
   let generationRun=null;
+  let provisioningRun=null;
   const readGenerationError=run=>{
     if(!enabled||!ci||mode!=='synthetic'||recoveryFrozen||typeof readGenerationResponseBody!=='function'||run.receipt.status<500||run.receipt.status>599)return;
     const row=run.receipt;
@@ -525,10 +528,10 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
       try{row.responseError=generationErrorShape(value);}catch{row.responseError={category:'unknown',shape:'unknown',name:null,code:null};}
     },()=>{if(!recoveryFrozen)row.responseError={category:'read-failed',shape:'unknown',name:null,code:null};});
   };
-  const observeNetworkEvent=event=>{
-    if(recoveryFrozen||!generationRun)return;
+  const observeRun=(event,run)=>{
+    if(recoveryFrozen||!run)return;
     try {
-      const run=generationRun,row=run.receipt,params=event?.params;
+      const row=run.receipt,params=event?.params;
       const elapsed=timestamp=>Number.isFinite(run.started)&&Number.isFinite(timestamp)&&timestamp>=run.started&&timestamp-run.started<=300?Math.round((timestamp-run.started)*1000):null;
       if(!row.issued){
         if(event?.method!=='Network.requestWillBeSent'||params?.request?.method!=='POST'||typeof params.requestId!=='string')return;
@@ -544,15 +547,19 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
           row.state='headers';
         } else if(event.method==='Network.loadingFinished'){
           const duration=elapsed(params.timestamp);if(duration!==null)row.completedElapsedMs=duration;
-          row.state='finished';generationRun=null;readGenerationError(run);
+          row.state='finished';readGenerationError(run);return true;
         } else if(event.method==='Network.loadingFailed'){
           const duration=elapsed(params.timestamp);if(duration!==null)row.completedElapsedMs=duration;
           const codes={'net::ERR_ABORTED':'aborted','net::ERR_CONNECTION_REFUSED':'connection-refused','net::ERR_CONNECTION_RESET':'connection-reset','net::ERR_TIMED_OUT':'timed-out'};
           row.failure=Object.hasOwn(codes,params.errorText)?codes[params.errorText]:params.canceled===true?'aborted':params.blockedReason?'blocked':'unknown';
-          row.state='failed';generationRun=null;
+          row.state='failed';return true;
         }
       }
     } catch { /* Diagnostic projection never changes the observed protocol. */ }
+  };
+  const observeNetworkEvent=event=>{
+    if(observeRun(event,provisioningRun))provisioningRun=null;
+    if(observeRun(event,generationRun))generationRun=null;
   };
   const endPrompt=role=>{
     const run=promptRuns[role];
@@ -582,6 +589,22 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
   };
   return {
     observeNetworkEvent,
+    provisioningStart(index,events,start,context){
+      if(recoveryFrozen||!Number.isInteger(index)||index<1||index>10||provisioning.some(row=>row.caseIndex===index))return;
+      try {
+        const origin=new URL(context.origin);
+        if(!['http:','https:'].includes(origin.protocol)||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash||
+          typeof context.workspaceId!=='string'||!context.workspaceId.length||context.workspaceId.length>512||
+          !Array.isArray(events)||!Number.isSafeInteger(start)||start<0||start>events.length)return;
+        const receipt={caseIndex:index,issued:false,route:null,state:'unissued',status:null,failure:null};
+        provisioning.push(receipt);
+        // This request precedes session creation; prompt-only observations cannot
+        // explain its failure. Keep the same exact-owner and first-response rules.
+        provisioningRun={receipt,origin:origin.origin,paths:new Map([[`/workspace/${encodeURIComponent(context.workspaceId)}/lawoss/documents/generation`,'generation']]),requestId:null};
+        provisioningRuns.push(provisioningRun);
+        for(let i=start;i<events.length&&provisioningRun;i++)observeNetworkEvent(events[i]);
+      } catch { /* Invalid ownership cannot fabricate a provisioning receipt. */ }
+    },
     generationStart(index,events,start,context){
       if(recoveryFrozen||!Number.isInteger(index)||index<1||index>10||generationPrompts.some(row=>row.caseIndex===index))return;
       try {
@@ -657,7 +680,7 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
     captureGenerationHostErrors(owners){
       if(!enabled||!ci||mode!=='synthetic'||!recoveryFrozen||hostErrorsCaptured)return;
       hostErrorsCaptured=true;
-      const runs=generationRuns.filter(run=>run.receipt.issued&&run.receipt.status>=500&&run.receipt.status<=599);
+      const runs=[...generationRuns,...provisioningRuns].filter(run=>run.receipt.issued&&run.receipt.status>=500&&run.receipt.status<=599);
       if(!runs.length)return;
       // Owned console envelopes are structural evidence, not authenticated
       // causes: a guest or arbitrary message can imitate text. Never publish
@@ -672,23 +695,25 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
           buffers.push(tail.subarray(Math.max(0,tail.length-256*1024)).toString('utf8').split(/\r?\n/));
         }}catch{}
       }}catch{}
-      generationHostErrors=runs.map(run=>{
+      const project=run=>{
         const matches=[],prefix=`[legalwork-server] Unhandled error: POST ${run.path} `;
         for(const lines of buffers)for(let i=0;i<lines.length;i++)if(lines[i].startsWith(prefix)){
           const block=[lines[i].slice(prefix.length),...lines.slice(i+1,i+33)];
           matches.push(generationHostError(block,0));
         }
         return {caseIndex:run.receipt.caseIndex,...(matches.length===1?matches[0]:{category:'unknown',name:'Error',code:null,phase:null,frames:[]})};
-      });
+      };
+      generationHostErrors=runs.filter(run=>generationRuns.includes(run)).map(project);
+      provisioningHostErrors=runs.filter(run=>provisioningRuns.includes(run)).map(project);
     },
     async write({events=[],error=null,cleanupErrors=[]}={}){
       if(!enabled)return;
-      const data={schema:6,generationPrompts,...(hostErrorsCaptured?{generationHostErrors}:{}),promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
+      const data={schema:6,generationPrompts,provisioning,...(hostErrorsCaptured?{generationHostErrors,provisioningHostErrors}:{}),promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
       await writeFile(outputFile,JSON.stringify(data,null,2),{mode:0o600});
     },
     failure(error){
       // Called first at the primary catch, before probes or cleanup can run.
-      if(!recoveryFrozen){recoveryStage=phase==='recovery'?recoveryStage??'unknown':null;recoveryFrozen=true;generationRun=null;for(const role of ['attachment','recovery'])endPrompt(role);}
+      if(!recoveryFrozen){recoveryStage=phase==='recovery'?recoveryStage??'unknown':null;recoveryFrozen=true;generationRun=null;provisioningRun=null;for(const role of ['attachment','recovery'])endPrompt(role);}
       return {phase,caseIndex,recoveryStage,error:errorMetadata(error)};
     },
   };

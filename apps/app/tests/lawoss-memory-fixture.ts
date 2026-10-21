@@ -27,8 +27,12 @@ export async function memoryFixture() {
   const prior = { data: process.env.LEGALWORK_DATA_DIR, tokens: process.env.LEGALWORK_TOKEN_STORE, runtimeDb: process.env.LEGALWORK_RUNTIME_DB };
   process.env.LEGALWORK_DATA_DIR = join(base, "data"); process.env.LEGALWORK_TOKEN_STORE = join(base, "tokens.json");
   // runtime.sqlite by inak vznikol vedľa server.json v `base` a server ho drží otvorený do konca
-  // procesu; Windows otvorený súbor nezmaže (EBUSY). Jeden súbor pre celý beh testov mimo `base`.
-  process.env.LEGALWORK_RUNTIME_DB = join(tmpdir(), `lawoss-ui-runtime-${process.pid}.sqlite`);
+  // procesu; Windows otvorený súbor nezmaže (EBUSY). Jeden súbor pre celý beh testov mimo `base`,
+  // vo vlastnom priečinku: jeho priečinok sú dáta aplikácie a priečinok používateľa v nich (napr. `vault`
+  // pod spoločným tmp) sa nepripojí (lawoss/linked-folders, `linked_folder_app_data`).
+  const runtimeDir = join(tmpdir(), `lawoss-ui-runtime-${process.pid}`);
+  await mkdir(runtimeDir, { recursive: true });
+  process.env.LEGALWORK_RUNTIME_DB = join(runtimeDir, "runtime.sqlite");
   const root = join(base, "office"), matter = join(root, "AK/S/A/Spisy/A"), vault = join(base, "vault");
   await mkdir(join(matter, ".lawoss"), { recursive: true }); await mkdir(vault);
   await writeFile(join(matter, "_memory.md"), "SYNTHETIC-A\nExisting memory\n");
