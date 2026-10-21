@@ -1368,3 +1368,12 @@ Rozsah alfy a nepodpísané Windows do bety vychádzajú zo [zápisu callu 19. 1
 | `apps/app/scripts/word-addin-watch.mjs`, `word-addin-watch.test.mjs` | Neoznačené fs.watch udalosti nesmú obísť filter vstupov. Fingerprint prijatých súborov odmietne build-output slučku; zostáva jeden serializovaný build a drain pri close. Reprodukcia z macOS CI, deterministický RED/GREEN. |
 | `apps/desktop/electron/ui-control-server.mjs`, `ui-control-server.test.mjs` | Pred pozitívnym snapshotom prejsť dva animačné rámce a znovu odčítať DOM. Stalled frame má 250ms watchdog a unavailable výsledok. Natívny compositor vyžaduje samostatný snímok, samotný DOM nie je dôkaz. |
 | `.github/workflows/ci-desktop-packaging.yml` | Windows alfa kontrakty používajú plný 7-Zip iba v ich kroku; standalone 7za nemusí vedieť NSIS. Natívne Job Object regresie bežia v existujúcej šesťcieľovej matici. Balíčky sa verejne nenahrávajú. |
+
+
+### Natívna alfa: lokalizácia pozorovaných chýb (2026-10-21)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/welcome-route.tsx` | Natívny onboarding picker používa LAWOSS `folder-picker.ts`: existujúci preklad `welcome.folder_select` sa načíta pri každom otvorení. Kanonická cesta a zrušenie výberu zostávajú zachované. Nahrádza anglický titulok pozorovaný v skutočnom českom dialógu. |
+| `apps/app/src/react-app/domains/session/panel/legalmemory-files-panel.tsx` | Typovaný `project_folder_unavailable` zobrazí existujúci `projectErrorMessage` vo výpise, koreňoch a hľadaní. Ostatné chyby a retry/query správanie sa nemenia. Oprava surovej anglickej správy pozorovanej v slovenskom natívnom paneli. |
+| `apps/app/tests/lawoss-onboarding-typed-paths.test.ts`, `lawoss-onboarding-attach-existing.test.tsx` | Wiring kontrola volá nový picker a naďalej overuje `canonical: true`; behové locale/cancel/error regresie sú v novom LAWOSS teste. |

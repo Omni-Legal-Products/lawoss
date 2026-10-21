@@ -97,7 +97,9 @@ describe("typed and pasted onboarding paths", () => {
     expect(route).toContain("isDesktopRuntime() ? canonicalPathOf(value, canonicalDirectoryPath) : Promise.resolve(value)");
     expect(route).toContain("registerWorkingFolder: async (path) => registerWorkingFolder(current, await workingFolderPath(path))");
     // Výber v dialógu ostáva cez pickDirectory s voľbou canonical.
-    expect(route).toContain('pickDirectory({ title: "Select LAWOSS folder", canonical: true })');
+    expect(route).toContain("pickOnboardingDirectory(pickDirectory)");
+    const picker = readFileSync(join(import.meta.dir, "../src/lawoss/domains/onboarding/folder-picker.ts"), "utf8");
+    expect(picker).toContain('pick({ title: t("welcome.folder_select"), canonical: true })');
     const bridge = source("apps/app/src/app/lib/desktop.ts");
     expect(bridge.match(/^ {2}canonicalDirectoryPath,$/gm)?.length).toBe(2);
     expect(source("packages/types/src/desktop-ipc.ts")).toContain("canonicalDirectoryPath: { args: [value: string]; result: string };");

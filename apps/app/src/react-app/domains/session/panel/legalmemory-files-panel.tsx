@@ -1,4 +1,5 @@
 import { useProjectFiles } from "../../workspace/project-file-context";
+import { projectErrorMessage } from "../../workspace/project-errors";
 import { useFileSelectionCollection, type FileSelectionItem } from "../../workspace/file-selection";
 /** @jsxImportSource react */
 import { StorageDriveTree } from "./storage-drive-tree";
@@ -66,6 +67,11 @@ type LegalMemoryFilesPanelProps = {
 };
 
 const folderKey = (sourceId: string, path: string) => `${sourceId}:${path}`;
+
+function describeDriveError(error: unknown, fallback: string) {
+  if (error instanceof LegalworkServerError && error.code === "project_folder_unavailable") return projectErrorMessage(error);
+  return error instanceof Error ? error.message : fallback;
+}
 
 export function LegalMemoryFilesPanel(props: LegalMemoryFilesPanelProps) {
   return <LegalMemoryFilesPanelContent key={`${props.client?.baseUrl}:${props.workspaceId}`} {...props} />;
@@ -206,7 +212,7 @@ function LegalMemoryFilesPanelContent({
           folders: existing?.folders ?? [],
           files: existing?.files ?? [],
           total: existing?.total ?? 0,
-          error: error instanceof Error ? error.message : t("legalmemory.folder_listing_failed"),
+          error: describeDriveError(error, t("legalmemory.folder_listing_failed")),
         });
         return next;
       });
@@ -234,7 +240,7 @@ function LegalMemoryFilesPanelContent({
         return [{ kind: "status", key: "search-loading", depth: 0, label: t("legalmemory.searching"), spinning: true }];
       }
       if (search.isError) {
-        return [{ kind: "status", key: "search-error", depth: 0, label: search.error instanceof Error ? search.error.message : t("legalmemory.search_failed") }];
+        return [{ kind: "status", key: "search-error", depth: 0, label: describeDriveError(search.error, t("legalmemory.search_failed")) }];
       }
       const files = search.data?.files ?? [];
       if (!files.length) return [{ kind: "status", key: "search-empty", depth: 0, label: t("legalmemory.no_matches") }];
@@ -410,7 +416,7 @@ function LegalMemoryFilesPanelContent({
           </div>
         ) : null}
         {storageRoots.data?.teamError ? <p role="alert" className="px-4 py-2 text-xs text-destructive">{storageRoots.data.teamError}</p> : null}
-        {storageRoots.isError ? <div role="alert" className="px-4 py-2 text-xs text-destructive">{storageRoots.error.message}<Button variant="ghost" size="sm" onClick={() => void storageRoots.refetch()}>{t("storage.retry")}</Button></div> : null}
+        {storageRoots.isError ? <div role="alert" className="px-4 py-2 text-xs text-destructive">{describeDriveError(storageRoots.error, t("storage.failed"))}<Button variant="ghost" size="sm" onClick={() => void storageRoots.refetch()}>{t("storage.retry")}</Button></div> : null}
         {storageRoots.isLoading && !hasStorage ? <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" />{t("storage.loading")}</div> : null}
 
         {notConfigured && hasStorage ? null : notConfigured ? (
@@ -428,8 +434,8 @@ function LegalMemoryFilesPanelContent({
               </div>
             ))}
           </div>
-        ) : initialError && hasStorage ? <p role="alert" className="px-4 py-2 text-xs text-destructive">{rootsQuery.error instanceof Error ? rootsQuery.error.message : t("legalmemory.load_failed")}</p> : initialError ? (
-          <PanelEmptyState icon={<AlertCircle />} title={t("legalmemory.unable_to_open")} description={rootsQuery.error instanceof Error ? rootsQuery.error.message : t("legalmemory.load_failed")}>
+        ) : initialError && hasStorage ? <p role="alert" className="px-4 py-2 text-xs text-destructive">{describeDriveError(rootsQuery.error, t("legalmemory.load_failed"))}</p> : initialError ? (
+          <PanelEmptyState icon={<AlertCircle />} title={t("legalmemory.unable_to_open")} description={describeDriveError(rootsQuery.error, t("legalmemory.load_failed"))}>
             <Button variant="outline" size="sm" onClick={() => void rootsQuery.refetch()}>{t("legalmemory.try_again")}</Button>
           </PanelEmptyState>
         ) : roots.length === 0 && hasStorage ? null : roots.length === 0 && !searchQuery ? (

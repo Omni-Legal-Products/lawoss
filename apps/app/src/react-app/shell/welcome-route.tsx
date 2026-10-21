@@ -20,6 +20,7 @@ import { markAllWhatsNewSeen } from "./whats-new";
 import { canonicalPathOf, withCanonicalPaths } from "@/lawoss/domains/onboarding/typed-paths";
 import { watchLegalworkConnection } from "@/lawoss/domains/onboarding/server-connection";
 import { registerOnboardedWorkspace } from "@/lawoss/domains/onboarding/register-clients";
+import { pickOnboardingDirectory } from "@/lawoss/domains/onboarding/folder-picker";
 import { openOnboardedClientChat } from "@/lawoss/domains/onboarding/client-chat-open";
 
 // 🟡 LAWOSS: napísané a vložené cesty idú na server v tvare ako vybrané v dialógu (Windows, typed-paths.ts); v prehliadači bez zmeny.
@@ -87,7 +88,7 @@ export function WelcomeRoute() {
   };
   // LAWOSS: tok z bočného panela po dokončenom onboardingu má „Zrušiť“ späť (prvá stránka histórie: domov).
   // 🟡 LAWOSS: „Otvoriť chat s klientom“ po pridaní priečinka (client-chat-open.ts); dokončenie pristane v chate (`landing`).
-  return <LawossWelcomePage api={client} initialStep={initialStep} initialRoot={new URLSearchParams(location.search).get("root") ?? undefined} hasCompletedOnboarding={local.prefs.hasCompletedOnboarding} onCancel={() => location.key === "default" ? navigate("/home") : navigate(-1)} pickDirectory={async () => { const result = await pickDirectory({ title: "Select LAWOSS folder", canonical: true }); return typeof result === "string" ? result : null; }} onOpenAiSettings={() => navigate("/settings/ai")} onRegister={async (result, completion) => (await register(result, completion)).registered?.client} onOpenClientChat={(request, skillLanguage) => openOnboardedClientChat(request, { skillLanguage, defaultModel: local.prefs.defaultModel })} onComplete={async (result, completion) => {
+  return <LawossWelcomePage api={client} initialStep={initialStep} initialRoot={new URLSearchParams(location.search).get("root") ?? undefined} hasCompletedOnboarding={local.prefs.hasCompletedOnboarding} onCancel={() => location.key === "default" ? navigate("/home") : navigate(-1)} pickDirectory={() => pickOnboardingDirectory(pickDirectory)} onOpenAiSettings={() => navigate("/settings/ai")} onRegister={async (result, completion) => (await register(result, completion)).registered?.client} onOpenClientChat={(request, skillLanguage) => openOnboardedClientChat(request, { skillLanguage, defaultModel: local.prefs.defaultModel })} onComplete={async (result, completion) => {
     const { status, registered } = await register(result, completion);
     const okf = status.profile?.okf?.enabled === true;
     const activeId = registered?.id;
