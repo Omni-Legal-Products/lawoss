@@ -1259,3 +1259,9 @@ Native embedded-child review controls stay blocked until the viewer opens the ex
 | `apps/app/src/react-app/domains/session/panel/{document-processing-panel,document-visual-review}.tsx`, locale files, `apps/app/tests/document-processing-panel.test.tsx` | Confirmation remains disabled until the matching loaded-viewer receipt; changed/replayed bytes retract/refuse it. Translation reasons use literal audited keys. |
 
 New focused viewer hook/source registry and mounted regression reuse existing native panels and owned browser lifecycle. Public synthetic screenshots and boundary notes: `lawoss/testing/evidence/pdf-visual-review/`. The merged EML subtree-readable contract is also preserved when review recomputes ancestor status; unsupported siblings still prevent completeness.
+
+### Izolovaný testovací beh na macOS bez klúčenky (2026-10-20, fix/dev-mock-keychain)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/desktop/electron/main.mjs` | Pri `LAWOSS_DEV_MOCK_KEYCHAIN=1` na macOS pridá prepínač `use-mock-keychain` pred štartom appky. Dôvod: izolovaný testovací beh s presmerovaným `HOME` nemá klúčenku a macOS by ponúkol „Reset To Defaults“ skutočnej klúčenky používateľa. Bez premennej sa nič nemení. |
