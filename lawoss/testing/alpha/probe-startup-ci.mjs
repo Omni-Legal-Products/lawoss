@@ -14,6 +14,7 @@ import { withExtractedAlphaArtifact, verifyAlphaInstallation } from './installed
 import { assertInteractiveUi, launchAlphaApp, nativeAppLayout } from './native-app.mjs';
 import { runAlphaAcceptance } from './run.mjs';
 import { nativeLaunchDiagnostic } from './native-launch-diagnostics.mjs';
+import { nativeReadinessDiagnostic } from './native-readiness-diagnostics.mjs';
 
 const fail = () => { throw new Error('native-startup-unverified'); };
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -44,11 +45,12 @@ function startupDiagnostic() {
   let phase='preflight',firstFailure,receiptCode='unknown',cleanup='not-observed';
   const record=error=>{
     if(firstFailure)return;
-    const code=errorCode(error),native=nativeLaunchDiagnostic(error);
+    const code=errorCode(error),native=nativeLaunchDiagnostic(error),readiness=nativeReadinessDiagnostic(error);
     firstFailure=Object.freeze({phase,errorCode:code==='unknown'?receiptCode:code,...(native?{nativeLaunch:Object.freeze({
       exitObserved:native.exitObserved,exitCode:native.exitCode,signal:native.signal,
       stderr:Object.freeze({categories:Object.freeze([...native.stderr.categories]),scannedBytes:native.stderr.scannedBytes,truncated:native.stderr.truncated}),
-    })}:{})});
+    })}:{}),...(readiness?{nativeReadiness:Object.freeze({attempts:readiness.attempts,attemptsCapped:readiness.attemptsCapped,
+      progress:readiness.progress,lastBoundary:readiness.lastBoundary,lastError:readiness.lastError})}:{})});
   };
   return {
     stage(value){phase=value;},

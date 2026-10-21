@@ -15,6 +15,7 @@ import { ownedProfile } from '../../../apps/desktop/scripts/release-acceptance.m
 import { stopNativeChild } from '../isir/native/owned-process.mjs';
 import { launchWindowsJob } from './windows-job.mjs';
 import { createNativeLaunchDiagnostics } from './native-launch-diagnostics.mjs';
+import { createNativeReadinessDiagnostics } from './native-readiness-diagnostics.mjs';
 
 function blocked(code) { return Object.assign(new Error(code), { code, status: 'blocked' }); }
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -234,6 +235,7 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
   };
   let child, windowsJob, windowsLaunchAttempted = false, stopPromise, stopped = false, discovery, launchError, closed;
   const launchDiagnostics = process.platform === 'win32' ? null : createNativeLaunchDiagnostics();
+  const readinessDiagnostics = createNativeReadinessDiagnostics();
   const env = nativeAppEnvironment(root);
   const stop = () => stopPromise ??= (async () => {
     stopped = true;
@@ -276,21 +278,36 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
       return value;
     };
     for (;;) {
+      readinessDiagnostics.boundary('process-owner');
       try { await assertExclusiveMacExecutable(executable, child.pid, Math.min(2000, remaining())); }
       catch (error) { remaining(); throw error; }
+      readinessDiagnostics.boundary('build-info');
       const identity = await request('/build-info', {}, remaining());
+      readinessDiagnostics.passed('build-info');
       const expected = { build, pid: child.pid, userData: env.LEGALWORK_ELECTRON_USERDATA, executable, rendererRoot };
+      readinessDiagnostics.boundary('process-identity');
       validateLiveProcessIdentity(identity, expected);
+      readinessDiagnostics.passed('process-identity');
+      readinessDiagnostics.boundary('snapshot');
       identity.snapshot = await request('/snapshot', {}, remaining());
+      readinessDiagnostics.passed('snapshot');
       remaining();
       if (identity.snapshot?.ok === false && identity.snapshot.error === 'Renderer presentation is not available yet.') {
+        readinessDiagnostics.boundary('interactive-ui');
         assertInteractiveUi(identity.snapshot);
+        readinessDiagnostics.boundary('presentation-wait');
         await delay(Math.min(20, remaining()));
         continue;
       }
+      readinessDiagnostics.boundary('renderer-identity');
       validateLiveIdentity(identity, expected);
+      readinessDiagnostics.passed('renderer-identity');
+      readinessDiagnostics.boundary('interactive-ui');
       assertInteractiveUi(identity.snapshot);
+      readinessDiagnostics.passed('interactive-ui');
+      readinessDiagnostics.boundary('process-running');
       assertRunning();
+      readinessDiagnostics.passed('ready');
       return identity;
     }
   }
@@ -311,9 +328,13 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
     }
     const deadline = performance.now() + timeoutMs;
     while (performance.now() < deadline) {
+      readinessDiagnostics.attempt();
+      readinessDiagnostics.boundary('process-running');
       assertRunning();
       try {
+        readinessDiagnostics.boundary('discovery');
         discovery = await discoveryFile(discoveryPath);
+        readinessDiagnostics.passed('discovery');
         await observe(Math.max(1, Math.min(5000, Math.floor(deadline - performance.now()))));
         return { pid: child.pid, observe: () => observe(),
           async execute(actionId, args = {}) {
@@ -329,6 +350,7 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
             return captureOwnedWindow({ live, pid: child.pid, output, temporaryRoot: env.TMPDIR, env, assertRunning });
           }, stop };
       } catch (error) {
+        readinessDiagnostics.failure(error);
         if (['installed-app-already-running', 'installed-app-owner-census-unavailable'].includes(error.code)) throw error;
         /* Retry discovery and renderer readiness inside the same budget. */
       }
@@ -337,13 +359,14 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
     throw blocked('native-readiness-timeout');
   } catch (primary) {
     launchDiagnostics?.freeze(child);
+    readinessDiagnostics.freeze();
     let cleanup;
     try { cleanup = await stop(); }
     catch (cleanup) {
       const error = new AggregateError([primary, cleanup], 'Native alpha startup failed; cleanup did not verify closure');
-      launchDiagnostics?.associate(error);throw error;
+      launchDiagnostics?.associate(error);readinessDiagnostics.associate(error);throw error;
     }
     const error = new NativeAlphaLaunchError(primary, { ...cleanup, profileRoot: profile.root, profileOwner: profile.owner });
-    launchDiagnostics?.associate(error);throw error;
+    launchDiagnostics?.associate(error);readinessDiagnostics.associate(error);throw error;
   }
 }

@@ -60,6 +60,7 @@ test('startup publishes exactly finite receipt and native image after startup-on
   assert.equal(result.status,'verified'); assert.equal(result.kind,'lawoss-ci-native-startup');
   assert.equal(result.cleanup,'verified'); assert.equal(result.nativeReview,'pending');
   assert.equal(JSON.stringify(result).includes('nativeLaunch'),false);
+  assert.equal(JSON.stringify(result).includes('nativeReadiness'),false);
   assert.equal(result.fullAcceptance.status,'blocked'); assert.deepEqual(result.fullAcceptance.unperformed,ALPHA_SCENARIOS.slice(1));
   const publicText=await readFile(join(f.options.outputDir,'startup.json'),'utf8');
   for(const privateValue of [f.root,'ownerPid','profileRoot','rendererUrl','reasons','token'])assert.equal(publicText.includes(privateValue),false);
@@ -89,6 +90,36 @@ test('actual owned POSIX launch exit publishes finite original exit and Chromium
   assert.deepEqual(result.diagnostic.nativeLaunch,{exitObserved:true,exitCode:73,signal:null,
     stderr:{categories:['no-usable-sandbox'],scannedBytes:Buffer.byteLength(stderr),truncated:false}});
   assert.doesNotMatch(JSON.stringify(result),/PRIVATE|private-token|private\/client|778899|No usable sandbox|stdout|"pid"/);
+  assert.deepEqual(await readdir(f.options.outputDir),[]);
+});
+
+test('actual owned POSIX child alive without discovery preserves finite readiness progress before cleanup', {
+  skip:process.platform==='win32'?'Controlled POSIX executable fixture requires a POSIX host':false,
+  timeout:15_000,
+},async t=>{
+  const f=await fixture(t);
+  const executable=process.platform==='darwin'?join(f.root,'LAWOSS.app/Contents/MacOS/LAWOSS'):join(f.root,'legalwork');
+  await writeFile(executable,`#!${process.execPath}\nimport {writeFileSync} from 'node:fs';import {join} from 'node:path';writeFileSync(join(process.env.LEGALWORK_ELECTRON_USERDATA,'fixture-alive'),'PRIVATE-LIVE');setInterval(()=>{},1000);\n`);
+  await chmod(executable,0o700);
+  let nativeError,ownedProfileRoot;
+  f.adapters.launch=async options=>{
+    ownedProfileRoot=options.profileRoot;
+    try{return await launchAlphaApp({...options,timeoutMs:1200});}
+    catch(error){nativeError=error;throw error;}
+  };
+  let caught;await assert.rejects(runNativeStartupProbe(f.options,f.adapters),error=>{caught=error;return true;});
+  assert.equal(await readFile(join(ownedProfileRoot,'userdata/fixture-alive'),'utf8'),'PRIVATE-LIVE');
+  assert.equal(nativeError.code,'native-readiness-timeout');assert.equal(nativeError.nativeCleanup.descendantClosure,'verified');
+  const result=startupProbe.startupFailureProjection(caught);
+  assert.equal(result.diagnostic.phase,'launch');assert.equal(result.diagnostic.errorCode,'native-readiness-timeout');assert.equal(result.diagnostic.cleanup,'native-verified');
+  assert.equal(result.diagnostic.nativeLaunch.exitObserved,false);
+  const readiness=result.diagnostic.nativeReadiness;
+  assert.ok(readiness,'Owned readiness retries must retain their finite observations');
+  assert.ok(Number.isInteger(readiness.attempts)&&readiness.attempts>0&&readiness.attempts<=128);
+  assert.equal(readiness.attemptsCapped,false);
+  assert.equal(readiness.progress,'none');assert.equal(readiness.lastBoundary,'discovery');assert.equal(readiness.lastError,'ENOENT');
+  assert.ok(Object.isFrozen(readiness));
+  assert.doesNotMatch(JSON.stringify(result),/PRIVATE|fixture-alive|private\/profile|"pid"|token|rendererUrl|baseUrl/);
   assert.deepEqual(await readdir(f.options.outputDir),[]);
 });
 test('changed final archive and embedded identity refuse before native launch',async t=>{
@@ -208,6 +239,14 @@ test('forged native-launch fields and nested causes are ignored at the startup p
   const f=await fixture(t,{launchFailure:error});
   let caught;await assert.rejects(runNativeStartupProbe(f.options,f.adapters),value=>{caught=value;return true;});
   assert.deepEqual(startupProbe.startupFailureProjection(caught).diagnostic,{phase:'launch',errorCode:'installed-app-exited',cleanup:'unverified'});
+});
+
+test('forged readiness fields and nested causes cannot create startup readiness observations',async t=>{
+  const fake={attempts:999999,progress:'PRIVATE',lastBoundary:'/private/profile',lastError:'PRIVATE'};
+  const error=Object.assign(new Error('PRIVATE'),{code:'native-readiness-timeout',nativeReadiness:fake,cause:{nativeReadiness:fake}});
+  const f=await fixture(t,{launchFailure:error});
+  let caught;await assert.rejects(runNativeStartupProbe(f.options,f.adapters),value=>{caught=value;return true;});
+  assert.deepEqual(startupProbe.startupFailureProjection(caught).diagnostic,{phase:'launch',errorCode:'native-readiness-timeout',cleanup:'unverified'});
 });
 
 test('symlinked output parent and native image refuse without following links', {skip:process.platform==='win32'?'Windows symlink privilege unavailable in hosted fixture':false},async t=>{

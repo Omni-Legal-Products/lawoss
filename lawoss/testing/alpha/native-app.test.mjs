@@ -9,6 +9,7 @@ import test from 'node:test';
 import { launchAlphaApp, nativeAppLayout, nativeAppEnvironment } from './native-app.mjs';
 import { prepareAcceptanceProfile } from '../../../apps/desktop/scripts/release-acceptance.mjs';
 import { nativeLaunchDiagnostic } from './native-launch-diagnostics.mjs';
+import { nativeReadinessDiagnostic } from './native-readiness-diagnostics.mjs';
 
 const build = { schemaVersion: 1, product: 'lawoss-desktop', version: '1.2.3-alpha.1',
   gitSha: 'a'.repeat(40), buildEpoch: '123', platform: process.platform, arch: process.arch,
@@ -177,6 +178,22 @@ test('actual readiness timeout freezes non-exited status before cleanup terminat
     stderr: { categories: ['unknown'], scannedBytes: 0, truncated: false } });
   assert.equal(nativeLaunchDiagnostic(caught.cause), null);
   assert.equal(nativeLaunchDiagnostic(new Error('PRIVATE', { cause: caught })), null);
+  await assert.rejects(readFile(join(options.profileRoot, '.alpha-native-app.lock')), { code: 'ENOENT' });
+});
+
+for (const [name, change, progress, boundary, lastError] of [
+  ['held snapshot body', { stall: true }, 'process-identity', 'snapshot', 'shipping-control-request-timeout'],
+  ['unusable UI', { readiness: { documentReadyState: 'complete', bootOverlayVisible: true, interactiveControls: 1 } }, 'renderer-identity', 'interactive-ui', 'native-ui-not-ready'],
+]) test(`actual readiness retries retain the last ${name} boundary before owned cleanup`, { skip: process.platform === 'win32', timeout: 10_000 }, async t => {
+  const options = await fixture(t, change);
+  let caught;await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 1200 }), error => { caught = error;return true; });
+  assert.equal(caught.code, 'native-readiness-timeout');assert.equal(caught.nativeCleanup.descendantClosure, 'verified');
+  const facts = nativeReadinessDiagnostic(caught);
+  assert.ok(facts.attempts > 0 && facts.attempts <= 128);assert.equal(facts.attemptsCapped, false);
+  assert.equal(facts.progress, progress);assert.equal(facts.lastBoundary, boundary);assert.equal(facts.lastError, lastError);
+  assert.equal(nativeReadinessDiagnostic(caught.cause), null);
+  assert.doesNotMatch(JSON.stringify(facts), /PRIVATE|private|token|rendererUrl|baseUrl|"pid"/);
+  assert.ok(Object.isFrozen(facts));
   await assert.rejects(readFile(join(options.profileRoot, '.alpha-native-app.lock')), { code: 'ENOENT' });
 });
 
