@@ -74,8 +74,9 @@ function applyAnalyticsIdentity(data: { analyticsDistinctId?: unknown; analytics
   setAnalyticsConsentOverride(data.analyticsEnabled === true);
 }
 
-// Reuse the paired bootstrap for timely desktop language and consent changes.
-const ANALYTICS_IDENTITY_POLL_MS = 2_500;
+// Reuse the paired bootstrap for desktop language and consent changes. Every response carries
+// pairing tokens, so poll sparingly; 15 s keeps a language switch visible without chatter.
+const ANALYTICS_IDENTITY_POLL_MS = 15_000;
 let analyticsIdentityPollStarted = false;
 function startAnalyticsIdentityPoll() {
   if (analyticsIdentityPollStarted) return;
