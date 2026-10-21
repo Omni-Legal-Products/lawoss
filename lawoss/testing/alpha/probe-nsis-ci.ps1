@@ -38,15 +38,30 @@ try {
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { validateBuildInfo } from './apps/desktop/electron/build-info.mjs';
-import { verifyNsisInstallation } from './lawoss/testing/alpha/nsis-artifact.mjs';
+import { parse7ZipListing, verifyNsisInstallation } from './lawoss/testing/alpha/nsis-artifact.mjs';
 const [asset, installed, arch, assetSha256, gitSha, version, output] = process.argv.slice(2);
 const build = validateBuildInfo(JSON.parse(await readFile(join(installed, 'resources/build-info.json'), 'utf8')));
 assert.equal(build.gitSha, gitSha);
 assert.equal(build.version, version);
 assert.equal(build.platform, 'win32');
 assert.equal(build.arch, arch);
-const installation = await verifyNsisInstallation({ asset, installedApp: join(installed, 'LAWOSS.exe'), arch, expectedSha256: assetSha256 });
+let installation;
+try {
+  installation = await verifyNsisInstallation({ asset, installedApp: join(installed, 'LAWOSS.exe'), arch, expectedSha256: assetSha256 });
+} catch (error) {
+  if (error.message === 'Unsupported NSIS uninstaller layout') {
+    const listing = execFileSync(process.env.ELECTRON_BUILDER_7ZIP_PATH,
+      ['l', '-slt', '-bd', '-bsp0', '-sccUTF-8', '-tNsis', '--', asset],
+      { encoding: 'utf8', timeout: 10000, maxBuffer: 32 * 1024 ** 2, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const entries = parse7ZipListing(listing, 'Nsis');
+    const projection = entries.slice(0, 48).map(({ path, kind, size }) => ({ path: path.slice(0, 128), kind, size }));
+    console.error(JSON.stringify({ kind: 'lawoss-nsis-layout-diagnostic', status: 'failed',
+      build, assetSha256, entryCount: entries.length, entries: projection }));
+  }
+  throw error;
+}
 await writeFile(output, JSON.stringify({
   kind: 'lawoss-real-nsis-installed-tree', status: 'verified', releaseEligible: false,
   build, installation, installerExitCode: 0, journeys: 'not-performed',
