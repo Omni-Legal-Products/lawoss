@@ -69,6 +69,7 @@ import type {
 import { analyticsSurface, captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { buildSessionPromptRequest, systemReminderPart } from "@/app/lib/system-reminder";
+import { yoloTurnContext } from "@/lawoss/domains/yolo/yolo-mode";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
 import {
@@ -1538,7 +1539,7 @@ export function SessionRoute() {
       cacheKey: targetSessionId,
       runtimeKey: scope.runtimeKey,
     });
-    const turnSystemContext = [envSystemContext, draft.modelContext, pluginContext]
+    const turnSystemContext = [envSystemContext, draft.modelContext, pluginContext, yoloTurnContext()]
       .filter((context): context is string => Boolean(context?.trim()))
       .join("\n\n");
     if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));

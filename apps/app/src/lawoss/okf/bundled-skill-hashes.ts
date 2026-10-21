@@ -63,4 +63,7 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "7a41fb0ed029f7dfa500eca5043bbe04fa8f5050bae6cf078054c76e3a903d8c", // lawoss/okf-pamat/SKILL.md @ win/g2-encoding (dočasný priečinok aj ako $env:TEMP v PowerShelli)
   "709fc65bed5675058a4800f90b047a40edd0342af412445cca208663febbcd0f", // lawoss/okf-pamat/SKILL.md @ #111 (fyzické cesty, interné aliasy a oddelené granty)
   "8f915b370fe784db367a2fcb523439f083bcd2ea9141e2c5112966d18a9cc5d0", // lawoss/skills/usporiadaj-spis/SKILL.md @ #111 (alias koreňa, zákaz symlinkov dokumentov)
+  "6c28a2343489363802528c4b1aa59c509856e76a0ac151b48f169f0515cfdd17", // lawoss/skills/usporiadaj-spis/SKILL.md @ feat/yolo-mode (výnimka YOLO Mode)
+  "20a2bceed2679f8db5b6f672a39856d243b852a835e80405b8a48ec6d75cba88", // lawoss/skills/roztried-spis/SKILL.md @ feat/yolo-mode (výnimka YOLO Mode)
+  "3f27ea3f7ac7a5f755896e30031084fee42829be934efd156e4a7d6f4f154162", // lawoss/skills/roztried-spis/SKILL.cs.md @ feat/yolo-mode (výjimka YOLO Mode)
 ]);

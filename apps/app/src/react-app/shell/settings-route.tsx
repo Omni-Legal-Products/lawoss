@@ -92,6 +92,7 @@ import { ShellCustomizationView } from "@/react-app/domains/settings/pages/shell
 import { GeneralSettingsView } from "@/react-app/domains/settings/pages/general-view";
 import { AuthorizedFoldersPanel } from "@/react-app/domains/settings/panels/authorized-folders-panel";
 import { ToolPermissionsPanel } from "@/react-app/domains/settings/panels/tool-permissions-panel";
+import { YoloModeRow } from "@/lawoss/domains/yolo/yolo-mode";
 import { SettingsStack } from "@/react-app/domains/settings/settings-section";
 import { AdvancedView } from "@/react-app/domains/settings/pages/advanced-view";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
@@ -2103,6 +2104,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "safety":
         return (
           <SettingsStack>
+            {/* LAWOSS: „YOLO Mode" over the permissions below (lawoss/domains/yolo/yolo-mode.tsx). */}
+            <YoloModeRow client={legalworkClient} onChanged={() => reloadCoordinator.markReloadRequired("config", { type: "config", name: "opencode.json", action: "updated" })} />
             <ToolPermissionsPanel
               legalworkServerClient={legalworkClient}
               legalworkServerStatus={routeLegalworkStatus}

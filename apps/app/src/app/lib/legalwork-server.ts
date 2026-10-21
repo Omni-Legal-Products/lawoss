@@ -1866,6 +1866,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     acknowledgeAiGuidance: (textVersion: string, jurisdiction: "CZ" | "SK") => requestJson<AiGovernanceView>(baseUrl, "/lawoss/ai-governance/acknowledge", {token, hostToken, method: "POST", body: {textVersion, jurisdiction}, timeoutMs: timeouts.config}),
     lawossOcr: () => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr", { token, hostToken, timeoutMs: timeouts.config }),
     setLawossOcr: (enabled: boolean) => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),
+    // LAWOSS: „YOLO Mode", validated by lawoss/domains/yolo/yolo-mode.tsx.
+    lawossYolo: () => requestJson<unknown>(baseUrl, "/lawoss/yolo", { token, hostToken, timeoutMs: timeouts.config }),
+    setLawossYolo: (enabled: boolean) => requestJson<unknown>(baseUrl, "/lawoss/yolo", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),
     downloadLawossOcrModel: () => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr/model", { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
     removeLawossOcrModel: () => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr/model", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
     // LAWOSS: LAWOSS Marketplace pre všetkých klientov a aktualizácie (lawoss/domains/marketplace/marketplace-api.ts).

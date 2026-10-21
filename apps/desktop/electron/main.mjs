@@ -614,6 +614,9 @@ if (extraLaunchArgs) {
 // Browser automation uses the per-tab broker, not Chromium's global listener.
 configureRemoteDebugging(app);
 configureFakeMediaForTests(app, envFlagEnabled("LEGALWORK_ELECTRON_FAKE_MEDIA"));
+// LAWOSS: izolovaný testovací beh (presmerovaný HOME) nemá klúčenku; bez tohto
+// macOS ponúkne „Reset To Defaults“ používateľovej skutočnej klúčenky. Len na požiadanie.
+if (process.platform === "darwin" && envFlagEnabled("LAWOSS_DEV_MOCK_KEYCHAIN")) app.commandLine.appendSwitch("use-mock-keychain");
 // System-audio loopback (Recorder tab) needs Chromium feature flags on
 // macOS/Linux before app-ready; Windows WASAPI loopback works out of the box.
 appendLoopbackFeatureFlags(app);

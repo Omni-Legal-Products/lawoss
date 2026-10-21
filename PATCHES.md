@@ -1265,3 +1265,67 @@ Native embedded-child review controls stay blocked until the viewer opens the ex
 | `apps/app/src/react-app/domains/session/panel/{document-processing-panel,document-visual-review}.tsx`, locale files, `apps/app/tests/document-processing-panel.test.tsx` | Confirmation remains disabled until the matching loaded-viewer receipt; changed/replayed bytes retract/refuse it. Translation reasons use literal audited keys. |
 
 New focused viewer hook/source registry and mounted regression reuse existing native panels and owned browser lifecycle. Public synthetic screenshots and boundary notes: `lawoss/testing/evidence/pdf-visual-review/`. The merged EML subtree-readable contract is also preserved when review recomputes ancestor status; unsupported siblings still prevent completeness.
+
+### Izolovaný testovací beh na macOS bez klúčenky (2026-10-20, fix/dev-mock-keychain)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/desktop/electron/main.mjs` | Pri `LAWOSS_DEV_MOCK_KEYCHAIN=1` na macOS pridá prepínač `use-mock-keychain` pred štartom appky. Dôvod: izolovaný testovací beh s presmerovaným `HOME` nemá klúčenku a macOS by ponúkol „Reset To Defaults“ skutočnej klúčenky používateľa. Bez premennej sa nič nemení. |
+
+### Chat s klientom po pridaní priečinka (2026-10-20, feat/chat-po-pridani)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/welcome-route.tsx` | Odovzdá `onOpenClientChat` z LAWOSS `lawoss/domains/onboarding/client-chat-open.ts` do `LawossWelcomePage` s predvoleným modelom z `local.prefs` (+1 import, +1 komentár, 1 riadok zmenený). „Toto som našiel“ potom pri klientovi ponúkne „Otvoriť chat s klientom“: po registrácii skontroluje AI hranice a model, nainštaluje skilly OKF, overí `/novy-spis` v engine a založí chat v priečinku klienta s pripravenou prvou správou; dokončenie onboardingu pristane v chate cez existujúce `completion.landing`. Rozhodnutie MČ 19. 10. 2026: po pridaní existujúceho priečinka klienta sa otvorí chat ku klientovi, tabuľka usporiadania ostane ako pokročilá voľba. |
+
+### Pripojené priečinky klienta (2026-10-20, feat/pripojene-priecinky)
+
+Rozhodnutie MČ 19. 10. 2026: klient má jeden hlavný priečinok (OKF) a k nemu pripojené ďalšie, ktoré agent smie čítať; využije natívne povolené priečinky. Zoznam aj zápis sú natívne `listAuthorizedFolders` / `setAuthorizedFolders` projektu klienta (`permission.external_directory`), zámok firmy `tools.permissions` ako v Nastaveniach. Logika je v `apps/app/src/lawoss/lite/linked-folders.ts` a `linked-folders-view.tsx`; upstream súbory majú len tenké háky.
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/shell-config.tsx` | `ProjectNavKey` + `projectLinkedFolders`, v `DEFAULT_PROJECT_ORDER` hneď za `projectDeadlines`, boolean v `ShellConfig` predvolene `true`. `LAWOSS_PROJECT_ITEMS` ho obsahuje a `readProjectOrder` dopĺňa chýbajúci kľúč za jeho predchodcu (Domov → Prípady → Lehoty → Pripojené priečinky) namiesto všetkých naraz za Domov. Dôvod: položka pod klientom sa dá vypnúť v natívnom prispôsobení panela ako Prípady a Lehoty. |
+| `apps/app/src/react-app/domains/session/sidebar/sidebar-customization.tsx` | Položka `SIDEBAR_ITEMS.projectLinkedFolders` (`lawoss.lite.linked_folders_title`, ikona `FolderSymlink`) pre prispôsobenie panela (+1 riadok, +1 import). |
+| `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Mapa položiek projektu vykreslí `ClientLinkedFoldersNavItem` (počet pripojených priečinkov klienta, klik otvorí Domov); projekt, ktorý nie je klient, alebo klient bez pripojených priečinkov nedostane nič (+1 riadok, +1 import). |
+
+#### Pripojené priečinky klienta, oprava 1 (2026-10-20, feat/pripojene-priecinky)
+
+Engine číta jeden spoločný `OPENCODE_CONFIG` pre všetkých klientov, takže povolenia priečinkov jedného klienta platili v chatoch všetkých. Priečinky klientov preto do spoločného súboru nejdú; plugin `apps/server/src/opencode-plugins/lawoss-linked-folders.ts` (mimo `extensions/`) odpovie na otázku `external_directory` len v chatoch toho klienta podľa mapy, ktorú server zapisuje vedľa súboru enginu (`apps/server/src/lawoss/linked-folders.ts`, pravidlá `linked-folders-rules.ts`).
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/legalwork-runtime-config.ts` | +1 import; `withoutClientFolderGrants(...)` okolo členských oprávnení pred `orgPolicyPermissions` (bez `<priečinok>/*: allow` riadku klienta; iné položky ostanú); plugin `lawoss-linked-folders` v zozname pluginov; `writeLegalworkRuntimeConfigFile` zapíše aj mapu pripojených priečinkov; `keepLegalworkRuntimeConfigFileFresh` pri zápise iného klienta obnoví len mapu (súbor nie). Dôvod: únik medzi klientmi cez spoločný súbor. |
+| `apps/server/src/server.ts` | +1 import, +2 riadky v `PUT /workspace/:id/authorized-folders`: `requireLinkableFolders` odmietne nový priečinok, ktorý (po `realpath`, NFC) leží v inom registrovanom lokálnom klientovi alebo ho obsahuje, alebo leží v koreni praxe z profilu či ho obsahuje (pamäť kancelárie `Office/`/`_kancelaria/` smie). Platí pre natívne Nastavenia aj priame API. |
+| `apps/server/package.json` | Do `build` pribudol `src/opencode-plugins/lawoss-linked-folders.ts` (zabalený plugin ako ostatné). |
+| `apps/server/src/legalwork-runtime-config.test.ts` | Očakávanie: spoločný súbor po zápise globálnych oprávnení už nenesie `external_directory` riadku pracovného priestoru (ide po chatoch). |
+| `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Položka `projectLinkedFolders` dostane `active` (otvorený Domov klienta), aby sa zvýraznila, keď Domov otvorila ona. |
+
+#### Pripojené priečinky klienta, oprava 2 (2026-10-20, feat/pripojene-priecinky)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/server.ts` | `PATCH /workspace/:id/config`: +2 riadky, nové `allow` v `external_directory` smie byť len holé `*` alebo `<absolútny priečinok>/*` cez tie isté pravidlá ako natívny zoznam (`requireLinkableExternalDirectory`). `startServer`: +3 riadky, `onWorkspacesChanged` (registrácia, odobratie, presun) obnoví mapu pripojených priečinkov (`linkedFoldersMapRefresher`, zápisy čaká zastavenie servera); import rozšírený. |
+| `apps/server/src/agent-sandbox/service.ts` | +1 import, 1 riadok: do sandboxu sa zdieľajú len priečinky, ktoré pravidlá pripojených priečinkov dovolia (`linkableFolders`: nie iný klient, prax ani priečinok s dátami aplikácie, nie relatívne; wiki má vlastné pravidlá a filter ju nemení). |
+
+#### Pripojené priečinky klienta, oprava 3 (2026-10-20, feat/pripojene-priecinky)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/lawoss-workspace-memory-context.e2e.test.ts` | Fixture má dáta aplikácie (runtime) vo vlastnom priečinku `runtime/` (+1 komentár, +1 riadok, 1 zmenený): priečinok používateľa vnútri dát aplikácie sa už nepripojí (`linked_folder_app_data` oboma smermi). |
+
+### YOLO Mode pre agenta (2026-10-20, feat/yolo-mode)
+
+Rozhodnutie MČ z 20. 10. 2026: jeden natívny prepínač „YOLO Mode“ v Nastaveniach → Oprávnenia nástrojov, predvolene vypnutý. Stav je príznak `lawossYolo` v existujúcom riadku `__global_tool_permissions__` (upstream drží povolenia nástrojov ako jeden postoj zariadenia), logika v `apps/server/src/lawoss/yolo-mode.ts` a `apps/app/src/lawoss/domains/yolo/yolo-mode.tsx`. Uložené pravidlá používateľa sa neprepisujú; vypnutie vráti konfiguráciu enginu bajt po bajte.
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/runtime-opencode-config-store.ts` | Typ a normalizácia `lawossYolo: {enabled: true}` (+3 riadky). Poškodená hodnota sa zahodí, teda vypnuté. Zápis do riadku už dnes prepíše konfiguračný súbor enginu a zruší bežiace príkazy spravovaného shellu. |
+| `apps/server/src/legalwork-runtime-config.ts` | Pri zapnutom YOLO dostane len agent `legalwork` (chat) `permission` z `yoloPermissions` (+1 import, +2 riadky): `edit` a `bash` (v desktope `legalwork_shell`) `allow`, `external_directory: {"*": "allow"}`; zákazy advokáta (`deny`, aj vzory) ostávajú za povolením, „pýtať sa“ odpadne. Zdieľaná mapa, naplánované a ostatné agenty sa nemenia, takže naplánované behy sa pýtajú ďalej. `webfetch` ostáva podľa používateľa. Celozariadeniové, žiadne položky pre konkrétneho klienta (jeden súbor enginu pre všetkých klientov); kľúč priečinkov ostáva holé `*`, ktoré plugin pripojených priečinkov nechá. |
+| `apps/server/src/agent-sandbox/service.ts` | Spravovaný shell počíta schválenia sám zo stavu servera: rovnaký overlay (so zákazmi advokáta) na globálne povolenia a pri vypnutom chránenom prostredí na `external_directory` celého príkazu (+1 import, 2 riadky zmenené). Bez toho by `mv` v chate stále čakal na schválenie. Pravidlá agenta platia ďalej (berie sa prísnejšie), preto sa naplánovaný beh pýta. Chránené prostredie (VM) nemení pripojené priečinky. |
+| `apps/server/src/server.ts` | `registerYoloModeRoutes`: `GET /lawoss/yolo` (client) a `PUT /lawoss/yolo` (host-token, striktný boolean, 409 pri firemnom zámku) (+2 riadky). |
+| `apps/app/src/app/lib/legalwork-server.ts` | Klient `lawossYolo()` a `setLawossYolo(enabled)` (+3 riadky); odpoveď overuje modul LAWOSS. |
+| `apps/app/src/react-app/shell/settings-route.tsx` | Karta „safety“: `<YoloModeRow>` nad povoleniami nástrojov; po zmene rovnaký `reloadCoordinator.markReloadRequired("config", …)` ako panel povolení, takže engine sa prestaví bez reštartu appky, keď bežiace chaty dobehnú (+3 riadky). Onboarding (`permissions-step.tsx`) sa nemení. |
+| `apps/app/src/react-app/domains/session/surface/composer/composer.tsx` | Odznak `<YoloBadge />` za výberom správania modelu, viditeľný len pri zapnutom YOLO (+2 riadky). |
+| `apps/app/src/react-app/shell/session-route.tsx` | `yoloTurnContext()` v skrytom kontexte správy (`systemReminderPart`), nie v systémovom prompte; pri vypnutom YOLO nič (+1 import, 1 riadok zmenený). Skilly podľa neho vedia, že smú presúvať bežnými nástrojmi. |
+| `lawoss/skills/roztried-spis/SKILL.md`, `SKILL.cs.md`, `lawoss/skills/usporiadaj-spis/SKILL.md`, `apps/app/src/lawoss/okf/bundled-skill-hashes.ts` | Výnimka „YOLO Mode“: len s pripomienkou „YOLO Mode is on“ a na výslovnú žiadosť advokáta smie agent presúvať a premenúvať priamo v pôvodnom priečinku bežnými nástrojmi; bez nej platia pravidlá ako doteraz. CLI `okf` sa nemení (`allowInPlace` ostáva len pre triedenie v appke). Nové hashe telies skillov. |
+| `apps/app/scripts/i18n-check.ts` | `lawoss.yolo.title` a `lawoss.yolo.badge` v `GERMAN_KEEPS_ENGLISH`: prepínač sa podľa rozhodnutia volá „YOLO Mode“ vo všetkých jazykoch (+1 riadok). |
