@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile, access, realpath, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { runNativeStartupProbe, startupAssetName, ciStartupOptions } from './probe-startup-ci.mjs';
 import { runAlphaAcceptance } from './run.mjs';
@@ -100,7 +100,8 @@ test('all six final names are fixed and CLI refuses non-hosted use with finite e
     const expected=platform==='darwin'?`lawoss-mac-${arch}-1.2.3.zip`:platform==='win32'?`lawoss-win-${arch}-1.2.3.exe`:`lawoss-linux-${arch==='x64'?'x86_64':arch}-1.2.3.AppImage`;
     assert.equal(startupAssetName(platform,arch,'1.2.3'),expected);
   }
-  const result=spawnSync(process.execPath,[new URL('./probe-startup-ci.mjs',import.meta.url).pathname,'--output-dir','/private/secret'],{encoding:'utf8',env:{...process.env,GITHUB_ACTIONS:'false'}});
+  const result=spawnSync(process.execPath,[fileURLToPath(new URL('./probe-startup-ci.mjs',import.meta.url)),'--output-dir','/private/secret'],{encoding:'utf8',env:{...process.env,GITHUB_ACTIONS:'false'}});
+  assert.equal(result.error,undefined);assert.equal(result.signal,null);
   assert.equal(result.status,1);assert.equal(result.stderr.includes('/private/secret'),false);assert.equal(JSON.parse(result.stderr).reason,'native-startup-unverified');
 });
 
