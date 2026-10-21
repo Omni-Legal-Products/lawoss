@@ -59,5 +59,6 @@ patchedDependencies:
   '@eigenpal/docx-editor-agents@1.8.3': patches/@eigenpal__docx-editor-agents@1.8.3.patch
   '@eigenpal/docx-editor-core@1.8.3': patches/@eigenpal__docx-editor-core@1.8.3.patch
   '@eigenpal/docx-editor-react@1.8.3': patches/@eigenpal__docx-editor-react@1.8.3.patch
+  app-builder-lib@26.16.1: patches/app-builder-lib@26.16.1.patch
   pptx-react-viewer@3.5.4: patches/pptx-react-viewer@3.5.4.patch
   smb3-client@0.2.0: patches/smb3-client@0.2.0.patch

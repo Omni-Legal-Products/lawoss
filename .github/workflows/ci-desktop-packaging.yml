@@ -247,9 +247,14 @@ jobs:
             sudo apt-get install -y --no-install-recommends x11-apps x11-utils
           fi
       - name: Verify final Linux AppImage native startup
+        id: final_linux_startup
         if: runner.os == 'Linux'
         timeout-minutes: 10
         run: xvfb-run -a node lawoss/testing/alpha/probe-startup-ci.mjs --output-dir "$RUNNER_TEMP/alpha-startup-${{ matrix.arch }}"
+      - name: Observe Linux sandbox prerequisites after failed native startup
+        if: failure() && runner.os == 'Linux' && steps.final_linux_startup.outcome == 'failure'
+        timeout-minutes: 3
+        run: node lawoss/testing/alpha/diagnose-linux-sandbox-ci.mjs
       # Only the finite receipt and synthetic welcome window, after verified
       # cleanup. Profiles, raw receipts and final distributions remain private.
       - name: Upload synthetic final-artifact native startup evidence
