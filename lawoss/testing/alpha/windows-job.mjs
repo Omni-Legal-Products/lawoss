@@ -47,6 +47,11 @@ export function assertWindowsJobCompletion(receipt, close, expected) {
   return { status: 'stopped', descendantClosure: 'verified', method: 'windows-atomic-job-object' };
 }
 
+export function parseWindowsJobCheckpoint(line) {
+  if (typeof line !== 'string' || line.length > 80) return null;
+  return /^LAWOSS_WINDOWS_JOB_CHECKPOINT:(entry|configured|compiled|created)$/.exec(line)?.[1] ?? null;
+}
+
 async function within(timeoutMs, predicate, code) {
   const deadline = performance.now() + timeoutMs;
   do {
@@ -72,12 +77,27 @@ export async function launchWindowsJob(input) {
     cwd, env: { ...supervisorEnv, SystemRoot: systemRoot }, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
   });
   let ready, state, receipt, close, fault, stopRequested = false, stopPromise, buffered = '', lastStateAt = 0;
+  let lastCheckpoint = 'none', diagnosticLine = '', diagnosticOverflow = false;
   const fail = code => { fault ??= blocked(code); child.kill(); };
   child.on('error', () => { fault ??= blocked('windows-job-supervisor-failed'); });
   child.stdin.on('error', () => { fault ??= blocked('windows-job-control-pipe-failed'); });
   child.stdout.on('error', () => fail('windows-job-supervisor-pipe-failed'));
   child.stderr.on('error', () => fail('windows-job-supervisor-pipe-failed'));
-  child.stderr.resume(); // Never publish compiler errors, environment, or app output.
+  // Discard every nonexact stderr line. A completed checkpoint is evidence of
+  // that boundary only, never proof that the following operation was entered.
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', chunk => {
+    for (let start = 0; start < chunk.length;) {
+      const end = chunk.indexOf('\n', start), piece = chunk.slice(start, end === -1 ? chunk.length : end);
+      if (!diagnosticOverflow) {
+        diagnosticLine += piece;
+        if (diagnosticLine.length > 256) { diagnosticOverflow = true; diagnosticLine = ''; }
+      }
+      if (end === -1) break;
+      if (!diagnosticOverflow) lastCheckpoint = parseWindowsJobCheckpoint(diagnosticLine.replace(/\r$/, '')) ?? lastCheckpoint;
+      diagnosticLine = ''; diagnosticOverflow = false; start = end + 1;
+    }
+  });
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', chunk => {
     buffered += chunk;
@@ -122,7 +142,7 @@ export async function launchWindowsJob(input) {
       if (ready && !state.rootRunning) throw blocked('windows-job-root-exited');
       return ready;
     }, 'windows-job-start-timeout');
-  } catch (error) { await cancel(); throw error; }
+  } catch (error) { error.lastCheckpoint = lastCheckpoint; await cancel(); throw error; }
   return {
     pid: ready.pid, supervisorPid: child.pid,
     isRunning: () => !fault && !close && !stopRequested && state.rootRunning && performance.now() - lastStateAt < 1000,

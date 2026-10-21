@@ -1,0 +1,35 @@
+name: Alpha Windows ownership diagnostics
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - lawoss/testing/alpha/windows-job.*
+      - .github/workflows/ci-alpha-windows-diagnostics.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpha-windows-ownership-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-contracts:
+    name: Native Windows ownership (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.21.0
+      - name: Run synthetic ownership and transport contracts
+        shell: pwsh
+        run: |
+          node --test lawoss/testing/alpha/windows-job.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

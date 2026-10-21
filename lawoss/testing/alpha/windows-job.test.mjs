@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { launchWindowsJob, validateWindowsJobOptions, parseWindowsJobFrame, assertWindowsJobCompletion } from './windows-job.mjs';
+import { launchWindowsJob, validateWindowsJobOptions, parseWindowsJobFrame, assertWindowsJobCompletion, parseWindowsJobCheckpoint } from './windows-job.mjs';
 
 const options = { executable: 'C:\\app\\LAWOSS.exe', args: ['space here', 'quote"', 'trailing\\', ''],
   cwd: 'C:\\owned', env: { SystemRoot: 'C:\\Windows', PATH: 'C:\\pinned-node', HOME: 'C:\\owned\\home' }, timeoutMs: 10000 };
@@ -43,6 +44,11 @@ test('cleanup contract requires job zero, exact root exit and supervisor success
     [{ ...stopped, rootExited: false }, { code: 0, signal: null }], [{ ...stopped, pid: 124 }, { code: 0, signal: null }],
     [stopped, undefined], [stopped, { code: 1, signal: null }], [stopped, { code: 0, signal: 'SIGTERM' }],
   ]) assert.throws(() => assertWindowsJobCompletion(receipt, close, { pid: 123, supervisorPid: 456 }), /windows-job-closure-unverified/);
+});
+
+test('supervisor diagnostics project only exact completed checkpoint enums', () => {
+  for (const phase of ['entry', 'configured', 'compiled', 'created']) assert.equal(parseWindowsJobCheckpoint(`LAWOSS_WINDOWS_JOB_CHECKPOINT:${phase}`), phase);
+  for (const line of ['raw private error', 'prefix LAWOSS_WINDOWS_JOB_CHECKPOINT:entry', 'LAWOSS_WINDOWS_JOB_CHECKPOINT:private', 'LAWOSS_WINDOWS_JOB_CHECKPOINT:compiled private', 'x'.repeat(10000)]) assert.equal(parseWindowsJobCheckpoint(line), null);
 });
 
 test('unavailable Windows host refuses without attempting a simulated native launch', { skip: process.platform === 'win32' }, async () => {
@@ -102,8 +108,8 @@ test('native Windows helper death kills its job but never yields a verified clea
 test('native Windows invalid executable and expired startup never become a running job', native, async t => {
   const f = await nativeFixture(t), invalid = path.join(f.root, 'invalid.exe');
   await writeFile(invalid, 'not a PE executable');
-  await assert.rejects(launchWindowsJob({ executable: invalid, cwd: f.root, env: f.env, timeoutMs: 15000 }), /windows-job-/);
-  await assert.rejects(launchWindowsJob({ executable: process.execPath, args: [f.leader], cwd: f.root, env: f.env, timeoutMs: 1 }), /windows-job-/);
+  await assert.rejects(launchWindowsJob({ executable: invalid, cwd: f.root, env: f.env, timeoutMs: 15000 }), { code: 'windows-job-start-failed' });
+  await assert.rejects(launchWindowsJob({ executable: process.execPath, args: [f.leader], cwd: f.root, env: f.env, timeoutMs: 1 }), { code: 'windows-job-start-timeout' });
 });
 
 test('native Windows preserves Unicode paths and literal argv while app output cannot enter control pipes', native, async t => {
@@ -115,4 +121,22 @@ test('native Windows preserves Unicode paths and literal argv while app output c
   assert.deepEqual(observed, { args, marker: 'syntetický' });
   assert.equal(job.isRunning(), true);
   assert.equal((await job.stop()).descendantClosure, 'verified');
+});
+
+for (const eof of [false, true]) test(`native Windows Console configuration probe with writer ${eof ? 'closed' : 'open'}`, native, async t => {
+  const f = await nativeFixture(t), probe = path.join(f.root, 'console-probe.ps1');
+  await writeFile(probe, `[Console]::Error.WriteLine('probe-entry')\n[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false, $true)\n[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n[Console]::Error.WriteLine('probe-encoding')\n$line = [Console]::In.ReadLine()\n[Console]::Error.WriteLine('probe-read')\nif ($line -cne 'synthetic-configuration') { exit 125 }\n[Console]::Out.WriteLine('synthetic-configuration-consumed')\n`);
+  const helper = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
+  const child = spawn(helper, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe], { env: f.env, cwd: f.root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  let output = '', errorOutput = '', exit;
+  child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
+  child.stdout.on('data', chunk => { output = (output + chunk).slice(0, 1024); }); child.stderr.on('data', chunk => { errorOutput = (errorOutput + chunk).slice(-1024); });
+  child.once('error', () => { exit = { code: 'spawn-error', signal: null }; });
+  child.once('close', (code, signal) => { exit = { code, signal }; });
+  f.own({ stop: async () => { if (!exit) { child.stdin.destroy(); child.kill(); await until(() => exit, 1000); } } });
+  if (eof) child.stdin.end('synthetic-configuration\n'); else child.stdin.write('synthetic-configuration\n');
+  try { await until(() => exit, 15000); }
+  catch { assert.fail(`Console configuration probe timed out; completed=${['probe-entry', 'probe-encoding', 'probe-read'].filter(marker => errorOutput.split(/\r?\n/).includes(marker)).join(',')}`); }
+  assert.deepEqual(exit, { code: 0, signal: null });
+  assert.ok(output.trim() === 'synthetic-configuration-consumed', 'Unexpected synthetic Console probe output');
 });

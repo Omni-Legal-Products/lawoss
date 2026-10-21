@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+[Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:entry')
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false, $true)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $nonce = ''
@@ -12,6 +13,7 @@ try {
   $configuration = $line | ConvertFrom-Json
   $nonce = [string]$configuration.nonce
   if ($configuration.schema -ne 1 -or $nonce -cnotmatch '^[a-f0-9]{64}$') { throw 'configuration' }
+  [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:configured')
   Add-Type @'
 using System;
 using System.Diagnostics;
@@ -159,8 +161,10 @@ public sealed class AlphaWindowsJob : IDisposable {
   }
 }
 '@
+  [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:compiled')
   $environment = @($configuration.env.PSObject.Properties | ForEach-Object { $_.Name + '=' + [string]$_.Value })
   $job = [AlphaWindowsJob]::Start([string]$configuration.executable, [string[]]@($configuration.args), [string]$configuration.cwd, [string[]]$environment)
+  [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:created')
   $stage = 'job-stop-failed'
   [AlphaWindowsJob]::Supervise($job, $nonce, [int]$configuration.timeoutMs)
   exit 0
