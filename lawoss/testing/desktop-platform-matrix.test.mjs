@@ -72,6 +72,11 @@ test('native packaging refuses a mismatched host and keeps architecture-specific
     'Verify Windows and macOS preview isolation', 'Verify Linux preview isolation']) step(name);
   // Synthetic diagnostics may be uploaded; unsigned installers must stay private.
   for (const upload of smoke.steps.filter(({ uses }) => uses?.startsWith('actions/upload-artifact@'))) {
-    assert.match(upload.with.path, /^\$\{\{ runner\.temp \}\}\/isir-[\w-]+\.json$/);
+    assert.match(upload.with.path, /^\$\{\{ runner\.temp \}\}\/(?:isir-[\w-]+|nsis-proof-\$\{\{ matrix\.arch \}\})\.json$/);
   }
+  const nsis = step('Verify actual Windows NSIS installation and final bytes');
+  assert.equal(nsis.if, "runner.os == 'Windows'");
+  assert.equal(nsis.shell, 'pwsh');
+  assert.match(nsis.run, /probe-nsis-ci\.ps1 -Arch '\$\{\{ matrix\.arch \}\}'/);
+  assert.ok(smoke.steps.indexOf(nsis) > smoke.steps.indexOf(step('Verify Windows installer packaging')));
 });

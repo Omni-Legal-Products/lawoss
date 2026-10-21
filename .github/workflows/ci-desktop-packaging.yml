@@ -202,11 +202,20 @@ jobs:
       - name: Verify Windows installer packaging
         if: runner.os == 'Windows'
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --${{ matrix.arch }} --publish never
-      # LAWOSS: nepodpísaný testovací inštalátor sa nenahráva ako artefakt behu; v public
-      # repe by ho stiahol ktokoľvek prihlásený (rozhodnutie Q06/U6). Overí sa len jeho vznik.
-      - name: Verify Windows test installer exists
+      # Only the finite integrity receipt is uploaded, never unsigned binaries.
+      - name: Verify actual Windows NSIS installation and final bytes
         if: runner.os == 'Windows'
-        run: ls apps/desktop/dist-electron/lawoss-win-${{ matrix.arch }}-*.exe
+        shell: pwsh
+        timeout-minutes: 7
+        run: ./lawoss/testing/alpha/probe-nsis-ci.ps1 -Arch '${{ matrix.arch }}' -Output "$env:RUNNER_TEMP/nsis-proof-${{ matrix.arch }}.json"
+      - name: Upload Windows installed-tree integrity receipt
+        if: runner.os == 'Windows' && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nsis-installed-tree-${{ matrix.arch }}
+          path: ${{ runner.temp }}/nsis-proof-${{ matrix.arch }}.json
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Verify Linux native modules
         if: runner.os == 'Linux'
         timeout-minutes: 2
