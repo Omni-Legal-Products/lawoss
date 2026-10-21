@@ -12,7 +12,7 @@ try {
   $line = [Console]::In.ReadLine()
   [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:input-read')
   if ($null -eq $line -or $line.Length -gt 131072) { throw 'configuration' }
-  $configuration = $line | ConvertFrom-Json
+  $configuration = Microsoft.PowerShell.Utility\ConvertFrom-Json -InputObject $line
   [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:decoded')
   $nonce = [string]$configuration.nonce
   if ($configuration.schema -ne 1 -or $nonce -cnotmatch '^[a-f0-9]{64}$') { throw 'configuration' }

@@ -141,27 +141,21 @@ for (const eof of [false, true]) test(`native Windows Console configuration prob
   assert.ok(output.trim() === 'synthetic-configuration-consumed', 'Unexpected synthetic Console probe output');
 });
 
-for (const mode of ['pipeline', 'closed-writer', 'qualified', 'explicit-import', 'trusted-bootstrap', 'dotnet-compiler']) test(`native Windows JSON configuration probe (${mode})`, native, async t => {
+test('native Windows qualified decoder consumes actual-size JSON while the private control writer stays open', native, async t => {
   const f = await nativeFixture(t), probe = path.join(f.root, 'json-probe.ps1');
   const configuration = JSON.stringify({ schema: 1, nonce, executable: process.execPath, args: ['x'.repeat(4096)], cwd: f.root, env: f.env, timeoutMs: 15000 });
-  const decode = mode === 'dotnet-compiler' ? `$null = [System.Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')\n$serializer = [System.Web.Script.Serialization.JavaScriptSerializer]::new()\n$decoded = $serializer.DeserializeObject($line)`
-    : mode === 'qualified' ? '$decoded = Microsoft.PowerShell.Utility\\ConvertFrom-Json -InputObject $line'
-      : mode === 'explicit-import' ? `Import-Module -Name ([System.IO.Path]::Combine($PSHOME, 'Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1'))\n[Console]::Error.WriteLine('probe-imported')\n$decoded = Microsoft.PowerShell.Utility\\ConvertFrom-Json -InputObject $line` : '$decoded = $line | ConvertFrom-Json';
-  const compile = mode === 'dotnet-compiler' ? `$provider = [Microsoft.CSharp.CSharpCodeProvider]::new()\n$parameters = [System.CodeDom.Compiler.CompilerParameters]::new()\n$parameters.GenerateInMemory = $true\n$parameters.GenerateExecutable = $false\n$null = $parameters.ReferencedAssemblies.Add('System.dll')\n$result = $provider.CompileAssemblyFromSource($parameters, [string[]]@('public static class AlphaCompileProbe { public static int Value() { return 1; } }'))\nif ($result.Errors.HasErrors -or $result.CompiledAssembly.GetType('AlphaCompileProbe').GetMethod('Value').Invoke($null, [object[]]@()) -ne 1) { exit 125 }\n$provider.Dispose()\n[Console]::Error.WriteLine('probe-compiled')` : '';
-  await writeFile(probe, `$ErrorActionPreference = 'Stop'\n[Console]::Error.WriteLine('probe-entry')\n[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false, $true)\n[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n[Console]::Error.WriteLine('probe-encoding')\n$line = [Console]::In.ReadLine()\n[Console]::Error.WriteLine('probe-read')\nif ($line.Length -ne ${configuration.length}) { exit 125 }\n${decode}\n[Console]::Error.WriteLine('probe-decoded')\nif ($decoded.schema -ne 1) { exit 125 }\n${compile}\n[Console]::Out.WriteLine('synthetic-json-consumed')\n`);
+  await writeFile(probe, `$ErrorActionPreference = 'Stop'\n[Console]::Error.WriteLine('probe-entry')\n[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false, $true)\n[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n[Console]::Error.WriteLine('probe-encoding')\n$line = [Console]::In.ReadLine()\n[Console]::Error.WriteLine('probe-read')\nif ($line.Length -ne ${configuration.length}) { exit 125 }\n$decoded = Microsoft.PowerShell.Utility\\ConvertFrom-Json -InputObject $line\n[Console]::Error.WriteLine('probe-decoded')\nif ($decoded.schema -ne 1 -or $decoded.args[0].Length -ne 4096) { exit 125 }\n[Console]::Out.WriteLine('synthetic-json-consumed')\n`);
   const helper = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
-  const bootstrap = Object.fromEntries(['SystemDrive', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432', 'ProgramData', 'COMSPEC', 'PATHEXT'].filter(key => typeof process.env[key] === 'string').map(key => [key, process.env[key]]));
-  const env = mode === 'trusted-bootstrap' ? { ...f.env, ...bootstrap, PSModulePath: path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/Modules') } : f.env;
-  const child = spawn(helper, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe], { env, cwd: f.root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(helper, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe], { env: f.env, cwd: f.root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
   let output = '', errorOutput = '', exit;
   child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
   child.stdout.on('data', chunk => { output = (output + chunk).slice(0, 1024); }); child.stderr.on('data', chunk => { errorOutput = (errorOutput + chunk).slice(-1024); });
   child.once('error', () => { exit = { code: 'spawn-error', signal: null }; });
   child.once('close', (code, signal) => { exit = { code, signal }; });
   f.own({ stop: async () => { if (!exit) { child.stdin.destroy(); child.kill(); await until(() => exit, 1000); } } });
-  if (mode === 'closed-writer') child.stdin.end(`${configuration}\n`); else child.stdin.write(`${configuration}\n`);
+  child.stdin.write(`${configuration}\n`);
   try { await until(() => exit, 15000); }
-  catch { assert.fail(`JSON configuration probe ${mode} timed out; completed=${['probe-entry', 'probe-encoding', 'probe-read', 'probe-imported', 'probe-decoded', 'probe-compiled'].filter(marker => errorOutput.split(/\r?\n/).includes(marker)).join(',')}`); }
+  catch { assert.fail(`Qualified JSON configuration timed out; completed=${['probe-entry', 'probe-encoding', 'probe-read', 'probe-decoded'].filter(marker => errorOutput.split(/\r?\n/).includes(marker)).join(',')}`); }
   assert.deepEqual(exit, { code: 0, signal: null });
   assert.ok(output.trim() === 'synthetic-json-consumed', 'Unexpected synthetic JSON probe output');
 });

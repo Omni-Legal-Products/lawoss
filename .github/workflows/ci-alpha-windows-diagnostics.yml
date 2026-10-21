@@ -31,5 +31,5 @@ jobs:
       - name: Run synthetic ownership and transport contracts
         shell: pwsh
         run: |
-          node --test --test-name-pattern 'contract|private supervisor|supervisor diagnostics|Console configuration|JSON configuration|invalid executable' lawoss/testing/alpha/windows-job.test.mjs
+          node --test lawoss/testing/alpha/windows-job.test.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
