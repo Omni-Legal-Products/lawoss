@@ -5,7 +5,7 @@ import { unzipSync } from "fflate";
 import PostalMime from "postal-mime";
 import { within } from "../reviews/storage.js";
 import { docxEvidence, prepareReviewEvidence } from "../reviews/evidence.js";
-import { inspectPdfText } from "../document-preparation/render.js";
+import { inspectPdfText, type PdfPageCoverage } from "../document-preparation/render.js";
 import type { EvidencePage } from "../reviews/chunks.js";
 import type { DocumentPreparation } from "../document-preparation/service.js";
 
@@ -56,7 +56,7 @@ export function officeText(bytes: Uint8Array, extension: string) {
     }).join("\t")).join("\n");
   }).join("\n\n");
 }
-export type CorpusText = { text: string; pages: EvidencePage[]; complete: boolean; extraction: "native" | "ocr"; hash: string; preparationPath?: string; issue?: string; attachments?: CorpusAttachment[] };
+export type CorpusText = { text: string; pages: EvidencePage[]; complete: boolean; extraction: "native" | "ocr"; hash: string; preparationPath?: string; issue?: string; attachments?: CorpusAttachment[]; pdfCoverage?: PdfPageCoverage[] };
 export async function extractCorpusText(workspace: string, path: string, preparation: DocumentPreparation, signal: AbortSignal, options: { retry?: boolean; attachments?: boolean } = {}): Promise<CorpusText> {
   signal.throwIfAborted();
   const root = await realpath(workspace), absolute = await realpath(resolve(root, path));
@@ -73,10 +73,12 @@ export async function extractCorpusText(workspace: string, path: string, prepara
   let needsOcr = [".png", ".jpg", ".jpeg", ".webp"].includes(extension);
   let extraction: "native" | "ocr" = "native";
   let attachments: CorpusAttachment[] | undefined;
+  let pdfCoverage: PdfPageCoverage[] | undefined;
   const requiredOcrPages = new Set<number>();
   if (extension === ".pdf") {
     const inspected = await inspectPdfText(bytes, signal);
-    pages = inspected.map((page, index) => ({ page: index + 1, text: page.text, source: "native", status: page.needsOcr ? "needs-review" : "complete" }));
+    pdfCoverage = inspected.map(({ page, nativeTextCoverage, visualReasons }) => ({ page, nativeTextCoverage, visualReasons }));
+    pages = inspected.map((page, index) => ({ page: index + 1, text: page.text, source: "native", status: page.needsOcr || page.visualReasons.length ? "needs-review" : "complete" }));
     inspected.forEach((page, index) => { if (page.needsOcr) requiredOcrPages.add(index + 1); });
     needsOcr = requiredOcrPages.size > 0;
   } else if (extension === ".eml") {
@@ -112,6 +114,10 @@ export async function extractCorpusText(workspace: string, path: string, prepara
       issue = error instanceof Error ? error.message : "Document preparation failed.";
     }
   }
+  // OCR cannot certify whether an unrecognized signature/path is decorative.
+  if (pdfCoverage?.some(page => page.visualReasons.length)) {
+    pages = pages.map(page => pdfCoverage!.some(coverage => coverage.page === page.page && coverage.visualReasons.length) ? { ...page, status: "needs-review" } : page);
+  }
   if (!pages.length && text) pages = [{ page: null, text, source: "native", status: "complete" }];
   complete = complete && pages.length > 0 && pages.every(page => page.status === "complete");
   text = pages.map(page => page.text).join("\n\n");
@@ -120,5 +126,5 @@ export async function extractCorpusText(workspace: string, path: string, prepara
   if (text.length > MAX_TEXT) throw new Error("Extracted text exceeds 2 million characters; narrow the source. Nothing was silently truncated.");
   signal.throwIfAborted();
   if (createHash("sha256").update(await readFile(absolute)).digest("hex") !== hash) throw new Error("The source changed during extraction. Retry this file.");
-  return { text, pages, complete, extraction, hash, preparationPath, issue, ...(options.attachments && attachments ? { attachments } : {}) };
+  return { text, pages, complete, extraction, hash, preparationPath, issue, ...(pdfCoverage ? { pdfCoverage } : {}), ...(options.attachments && attachments ? { attachments } : {}) };
 }

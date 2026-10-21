@@ -54,7 +54,8 @@ test("shared extraction detects additions on native PDFs and preserves OCR evide
   page.drawLine({ start: { x: 20, y: 100 }, end: { x: 130, y: 110 }, thickness: 2 });
   await writeFile(join(f.root, "annotated.pdf"), await pdf.save());
   const shared = await extractCorpusText(f.root, "annotated.pdf", f.preparation, signal());
-  expect(shared.complete).toBe(true); expect(shared.extraction).toBe("ocr"); expect(f.calls()).toBe(1);
+  expect(shared.complete).toBe(false); expect(shared.extraction).toBe("ocr"); expect(f.calls()).toBe(1);
+  expect(shared.pdfCoverage).toEqual([{ page: 1, nativeTextCoverage: "complete", visualReasons: ["drawn-paths"] }]);
   const agentMatches = documentMatches(shared, "annotated.pdf", "quarterly escrow");
   const ui = await settled(f, "quarterly escrow");
   expect(ui.items).toHaveLength(1); expect(ui.items[0].sources).toEqual(agentMatches.sources);
