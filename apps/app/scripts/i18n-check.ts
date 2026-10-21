@@ -11,6 +11,9 @@
  *
  * Run with `pnpm --filter @legalwork/app test:i18n`.
  */
+import { NATIVE_STRINGS } from "../../desktop/electron/native-locale.mjs";
+import { OFFICE_SHELL_COPY } from "../../server/src/word-addin-shell";
+import { presentationLocaleFailures } from "../../../scripts/check-presentation-locales.mjs";
 import en from "../src/i18n/locales/en";
 import de from "../src/i18n/locales/de";
 import sk from "../src/i18n/locales/sk";
@@ -377,6 +380,8 @@ for (const file of sourceFiles) {
 }
 
 /* ---------------------------------------------------------------- */
+
+failures.push(...presentationLocaleFailures({ app: LOCALES, native: NATIVE_STRINGS, office: OFFICE_SHELL_COPY }));
 
 if (failures.length) {
   console.error(`i18n check FAILED (${failures.length} problem(s)):\n`);

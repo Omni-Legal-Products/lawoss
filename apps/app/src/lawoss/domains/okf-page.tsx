@@ -1,9 +1,10 @@
+import { DiagnosticMessage, diagnosticText } from "../i18n/diagnostic-message";
 /** @jsxImportSource react */
 import { useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, Navigate } from "react-router-dom";
 import { useOptionalLocal } from "@/react-app/kernel/local-provider";
-import { t } from "@/i18n";
+import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import type { MatterTextKey } from "../i18n/matters";
 import { LawossLayout } from "../shell/layout";
@@ -124,8 +125,8 @@ export function OkfPageState(props: {
   /** Obsah namiesto „žiadny priečinok“ (stránka Klienti ponúkne „Pridať klienta“, rozhodnutie 19. 10. 2026). */
   noWorkspace?: ReactNode;
 }) {
-  const matterText = useMatterText().text;
-  const node = <>{props.workspace === null && props.firstRun ? null : props.notice}{okfStateNode(props, props.stateText ?? matterText)}</>;
+  const { text: matterText, locale } = useMatterText();
+  const node = <>{props.workspace === null && props.firstRun ? null : props.notice}{okfStateNode(props, props.stateText ?? matterText, locale)}</>;
   // „Skúsiť znova“ len tam, kde sa čaká alebo zlyhalo; pri načítaných veciach, prázdnej pamäti a bez priečinka nie je čo opakovať.
   const settled = !props.error && props.connection === "ready" && (props.workspace === null || Boolean(props.data && ((props.hasContent ?? hasMatters)(props.data) || !(props.data.problems.length || props.data.truncated))));
   return <>
@@ -134,10 +135,10 @@ export function OkfPageState(props: {
   </>;
 }
 
-function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText): ReactNode {
+function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText, locale: Language): ReactNode {
   const missingOnly = props.missingFolder && !(props.data && (props.hasContent ?? hasMatters)(props.data));
   if (missingOnly) return props.missingFolder;
-  if (props.error) return <div className="lw-status err" role="alert">{text("memoryError", { error: props.error instanceof Error ? props.error.message : String(props.error) })}</div>;
+  if (props.error) return <div className="lw-status err" role="alert"><DiagnosticMessage value={props.error} fallback={text("memoryError", { error: diagnosticText(props.error, locale) })} /></div>;
   if (props.connection === "loading") return <OkfSkeleton label={text("connectionLoading")} />;
   if (props.connection === "unavailable") return <div className="lw-status warn" role="alert">{text("serverUnavailable")}</div>;
   if (props.workspace === null && props.firstRun) return <Navigate to="/welcome" replace />;
@@ -154,7 +155,7 @@ function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText
   </>;
   if (props.data.problems.length || props.data.truncated) return <div className="lw-status err" role="alert">
     {text("incompleteRead")}
-    {props.rawProblems !== false && props.data.problems.slice(0, 3).map((problem, index) => <p key={`${problem.path}/${index}`}>{problem.path || props.workspace}: {problem.message}</p>)}
+    {props.rawProblems !== false && props.data.problems.slice(0, 3).map((problem, index) => <p key={`${problem.path}/${index}`}>{problem.path || props.workspace}: <DiagnosticMessage value={problem} /></p>)}
   </div>;
   if (props.okfOff) return <div className="lw-empty" data-lawoss-empty="off">
     <p>{text("okfOff")}</p>

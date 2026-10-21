@@ -42,6 +42,7 @@ export type HostWorkspaceAppFilesPolicy = {
 };
 
 export type EmbeddedServerOptions = CliArgs & {
+  getUiLocale?: ServerConfig["getUiLocale"];
   decryptLegacyConnectorSecrets?: ServerConfig["decryptLegacyConnectorSecrets"];
   /** Fallback only; explicit CLI, environment and file approval settings take precedence. */
   defaultApprovalMode?: ServerConfig["approval"]["mode"];
@@ -108,6 +109,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.decryptLegacyConnectorSecrets = options.decryptLegacyConnectorSecrets;
   config.agentSandboxEnabled = options.manageOpencode === true && !config.opencodeBaseUrl;
   config.requestHostApproval = options.requestHostApproval;
+  config.getUiLocale = options.getUiLocale;
   config.pickDirectory = options.pickDirectory ?? null;
   config.projectsDirectory = options.projectsDirectory;
   config.recorder = options.recorder ?? null;

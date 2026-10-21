@@ -1,3 +1,4 @@
+import { useLocale } from "@/i18n/use-locale";
 /** @jsxImportSource react */
 import { useState } from "react";
 import { CircleAlert, Info } from "lucide-react";
@@ -33,9 +34,9 @@ import { Spinner } from "../settings-section";
 import { useOrgPolicy } from "../../connections/org-policy";
 import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
-const RELEASE_CHANNEL_OPTIONS: { label: string; value: ReleaseChannel }[] = [
-  { label: "Stable", value: "stable" },
-  { label: "Alpha", value: "alpha" },
+const releaseChannelOptions = (): { label: string; value: ReleaseChannel }[] => [
+  { label: t("lawoss.shell.channel.stable"), value: "stable" },
+  { label: t("lawoss.shell.channel.alpha"), value: "alpha" },
 ];
 
 type UpdateDownloadProgressProps = {
@@ -143,6 +144,8 @@ export type UpdatesViewProps = {
 };
 
 export function UpdatesView(props: UpdatesViewProps) {
+  useLocale();
+  const RELEASE_CHANNEL_OPTIONS = releaseChannelOptions();
   const [confirmRestartOpen, setConfirmRestartOpen] = useState(false);
   const channelLocked = useOrgPolicy("updates.channel")?.locked === true;
   const autoCheckLocked = useOrgPolicy("updates.autoCheck")?.locked === true;

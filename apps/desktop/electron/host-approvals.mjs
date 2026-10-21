@@ -1,5 +1,6 @@
+import { nativeCopy } from "./native-locale.mjs";
 /** Present manual HTTP approvals only in the host's native main window. */
-export function createHostApprovalHandler({ getWindow, showMessageBox, showContextReview = undefined }) {
+export function createHostApprovalHandler({ getWindow, showMessageBox, showContextReview = undefined, getLocale = (_window) => "en" }) {
   const contextActions = new Set(["ai.public.synthetic", "ai.documents.synthetic", "ai.protected.synthetic", "ai.documents.protected", "ai.protected.document"]);
   let queue = Promise.resolve();
   return (request, signal) => {
@@ -12,23 +13,25 @@ export function createHostApprovalHandler({ getWindow, showMessageBox, showConte
       signal.addEventListener("abort", abort, { once: true });
       window.once("closed", abort);
       try {
+        const copy = nativeCopy(getLocale(window));
         const source = request.actor.type === "host"
-          ? "Host"
-          : `Connected client (app, agent or remote connection)${request.actor.clientId ? `: ${request.actor.clientId}` : ""}`;
+          ? copy.host
+          : `${copy.connected}${request.actor.clientId ? `: ${request.actor.clientId}` : ""}`;
         const options = {
           type: "question",
-          title: request.action === "ai.public.synthetic" ? "Public AI request" : "LegalWork approval",
-          message: request.action === "ai.public.synthetic" ? "Send this public synthetic model request?" : "Allow this workspace change?",
+          presentationKind: request.action === "ai.public.synthetic" ? "public" : "change",
+          title: request.action === "ai.public.synthetic" ? copy.publicTitle : copy.approvalTitle,
+          message: request.action === "ai.public.synthetic" ? copy.publicQuestion : copy.changeQuestion,
           detail: [
-            `Source: ${source}`,
-            ...(request.actor.scope ? [`Access: ${request.actor.scope}`] : []),
-            `Workspace: ${request.workspaceId}`,
-            `Action: ${request.action}`,
+            `${copy.source}: ${source}`,
+            ...(request.actor.scope ? [`${copy.access}: ${request.actor.scope}`] : []),
+            `${copy.workspace}: ${request.workspaceId}`,
+            `${copy.action}: ${request.action}`,
             request.summary,
             ...(request.description ? [request.description] : []),
-            ...(request.paths.length ? ["Paths:", ...request.paths] : []),
+            ...(request.paths.length ? [`${copy.paths}:`, ...request.paths] : []),
           ].join("\n"),
-          buttons: ["Deny", "Allow"],
+          buttons: [copy.deny, copy.allow],
           defaultId: 0,
           cancelId: 0,
           noLink: true,

@@ -1,3 +1,4 @@
+import { nativeCopy } from "./native-locale.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
@@ -6,9 +7,11 @@ import test from "node:test";
 // Replace only Electron's import so the real factory can run without a GUI.
 const source = readFileSync(new URL("./app-menu.mjs", import.meta.url), "utf8")
   .replace('import { BrowserWindow, Menu } from "electron";', "")
+  .replace('import { nativeCopy } from "./native-locale.mjs";', "")
   .replace("export function createApplicationMenu", "function createApplicationMenu");
 
-function fixture(platform) {
+function fixture(platform, initialLocale = "en") {
+  let locale = initialLocale;
   const popups = [];
   const visibility = [];
   const messages = [];
@@ -29,10 +32,10 @@ function fixture(platform) {
     getApplicationMenu: () => installed,
   };
   const BrowserWindow = { getFocusedWindow: () => window, getAllWindows: () => [window] };
-  const create = runInNewContext(`${source}\ncreateApplicationMenu`, { Menu, BrowserWindow, process: { platform } });
-  const menu = create({ appName: "LegalWork", getWindow: async () => window });
+  const create = runInNewContext(`${source}\ncreateApplicationMenu`, { nativeCopy, Menu, BrowserWindow, process: { platform } });
+  const menu = create({ appName: "LegalWork", getWindow: async () => window, getLocale: () => locale });
   menu.install();
-  return { menu, window, popups, visibility, messages, getInstalled: () => installed };
+  return { menu, window, popups, visibility, messages, getInstalled: () => installed, setLocale: value => { locale = value; menu.install(); } };
 }
 
 test("every Windows title-bar menu opens the installed submenu in the invoking window at its zoomed anchor", async () => {
@@ -76,4 +79,14 @@ test("menu popups reject invalid names, geometry, destroyed windows and other pl
   assert.equal(f.menu.popup({ isDestroyed: () => true }, "File", { x: 0, y: 44 }), false);
   assert.equal(fixture("linux").menu.popup(f.window, "File", { x: 0, y: 44 }), false);
   assert.equal(f.popups.length, 0);
+});
+
+test("native labels follow Czech and live language changes while Windows command identity stays stable", () => {
+  const f = fixture("win32", "cs");
+  assert.equal(f.getInstalled().items[0].label, "Soubor");
+  assert.equal(f.menu.popup(f.window, "File", { x: 1, y: 2 }), true);
+  f.setLocale("sk");
+  assert.equal(f.getInstalled().items[0].label, "Súbor");
+  f.setLocale("cs");
+  assert.equal(f.getInstalled().items[0].label, "Soubor");
 });

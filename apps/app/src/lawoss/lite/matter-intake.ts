@@ -1,3 +1,4 @@
+import { OkfDiagnostic } from "../../../../../lawoss/okf/diagnostics";
 /**
  * Přetažený nebo vybraný dokument → věc: originál do `00_K_zarazeni/IN-00N/<název>`
  * (vlastní složka na vstup, takže se nic nepřepíše) a řádek `pending` ve `VSTUPY.md`.
@@ -77,7 +78,7 @@ async function readRegister(client: IntakeClient, workspaceId: string, path: str
 
 function unregisteredOriginal(path: string, error: unknown): Error {
   const reason = error instanceof Error ? error.message : String(error);
-  return new Error(`Pôvodný súbor bol uložený do ${path}, ale nepodarilo sa ho zapísať do registra vstupov: ${reason}`);
+  return new OkfDiagnostic("okf.intake_unregistered", { path }, `Pôvodný súbor bol uložený do ${path}, ale nepodarilo sa ho zapísať do registra vstupov: ${reason}`);
 }
 
 async function inboxDirectory(client: IntakeClient, workspaceId: string, matterPath: string): Promise<string> {
@@ -85,7 +86,7 @@ async function inboxDirectory(client: IntakeClient, workspaceId: string, matterP
   try {
     const profile = parseWorkingProfile((await client.readWorkspaceFile(workspaceId, profilePath)).content);
     const inbox = profile.roles.inbox;
-    if (!inbox) throw new Error(`Pracovný profil ${PROFILE_FILE} nemá rolu inbox.`);
+    if (!inbox) throw new OkfDiagnostic("okf.inbox_missing", { path: PROFILE_FILE }, `Pracovný profil ${PROFILE_FILE} nemá rolu inbox.`);
     return inbox;
   } catch (error) {
     // Legacy matters without a snapshot retain the historical intake directory.
@@ -105,7 +106,7 @@ export async function saveDocumentsToMatter(
   const inbox = await inboxDirectory(client, workspaceId, matter.path);
   const saved: SavedInput[] = [];
   for (const file of files) {
-    if (file.size > MAX_INTAKE_BYTES) throw new Error(`file too large: ${file.name}`);
+    if (file.size > MAX_INTAKE_BYTES) throw new OkfDiagnostic("okf.file_too_large", { path: file.name }, `file too large: ${file.name}`);
     let register = await readRegister(client, workspaceId, registerPath);
     const originalId = nextInputId(register?.content ?? null);
     const name = safeFileName(file.name);

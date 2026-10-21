@@ -81,7 +81,10 @@ describe("matter UI language boundary", () => {
     );
     expect(render(empty)).toContain("does not yet contain any matters with memory");
     expect(render({ ...empty, truncated: true })).toContain("could not be read completely");
-    expect(render(undefined, new Error("pôvodná chyba EACCES"))).toContain("Could not load matter memory: pôvodná chyba EACCES");
+    const failed = render(undefined, new Error("pôvodná chyba EACCES"));
+    expect(failed).toContain("The operation could not be completed.");
+    expect(failed).toContain("Technical details (original text)");
+    expect(failed).toContain("pôvodná chyba EACCES");
     expect(render(undefined)).toContain("Loading matter memory");
   });
 });

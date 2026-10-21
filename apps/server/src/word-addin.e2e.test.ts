@@ -115,6 +115,22 @@ describe("word add-in hosting", () => {
     expect(api.headers.get("access-control-allow-origin")).toBe("*");
   });
 
+  test("paired bootstrap reads live host presentation locale and never accepts a caller override", async () => {
+    const root = await createTempRoot();
+    const config = baseConfig(root, { enabled: true, port: 45999, distPath: await createDistBundle(root), certPath: join(root, "missing.crt"), keyPath: join(root, "missing.key") });
+    let locale = "cs";
+    config.getUiLocale = () => locale;
+    const { baseUrl } = await startTestServer(config);
+    const headers = { "X-LegalWork-Office-Capability": "a".repeat(64) };
+    const read = async () => (await fetch(`${baseUrl}/word-addin/bootstrap?uiLocale=de`, { headers })).json() as Promise<{ uiLocale?: string }>;
+    expect((await read()).uiLocale).toBe("cs");
+    locale = "sk"; expect((await read()).uiLocale).toBe("sk");
+    locale = "unsupported"; expect((await read()).uiLocale).toBeUndefined();
+    const denied = await fetch(`${baseUrl}/word-addin/bootstrap`);
+    expect(denied.status).toBe(401);
+    expect(await denied.text()).not.toContain("uiLocale");
+  });
+
   test("serves shell, redirector, bundle, and assets with the right cache headers", async () => {
     const root = await createTempRoot();
     const dist = await createDistBundle(root);
@@ -141,7 +157,7 @@ describe("word add-in hosting", () => {
     const shell = await fetch(`${baseUrl}/word-addin/shell-v${WORD_ADDIN_SHELL_VERSION}.html`);
     expect(shell.status).toBe(200);
     expect(shell.headers.get("cache-control")).toContain("immutable");
-    expect(await shell.text()).toContain("Open LegalWork");
+    expect(await shell.text()).toContain("Open LAWOSS");
     const oldShell = await fetch(`${baseUrl}/word-addin/shell-v0.html`, { redirect: "manual" });
     expect(oldShell.status).toBe(302);
     expect(oldShell.headers.get("location")).toBe(`shell-v${WORD_ADDIN_SHELL_VERSION}.html`);

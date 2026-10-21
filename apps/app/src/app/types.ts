@@ -293,6 +293,8 @@ export type WorkspaceLegalworkConfig = {
 };
 
 export type SkillCard = {
+  /** Exact original bundled workflow, as verified by its host. Presentation only. */
+  bundledDisplayId?: string;
   name: string;
   path: string;
   description?: string;

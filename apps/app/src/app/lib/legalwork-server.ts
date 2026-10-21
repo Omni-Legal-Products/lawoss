@@ -596,6 +596,8 @@ export type LegalworkPluginItem = {
 };
 
 export type LegalworkSkillItem = {
+  /** Exact original bundled workflow, as verified by its host. Presentation only. */
+  bundledDisplayId?: string;
   name: string;
   path: string;
   description: string;
@@ -1997,7 +1999,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     reviewCitationPage: (workspaceId: string, citation: ReviewSourceReference, page?: number) => requestJson<ReviewSourcePage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(citation.reviewId)}/source/${encodeURIComponent(citation.documentId)}/${encodeURIComponent(citation.columnKey)}/${citation.citationIndex}?completedAt=${citation.completedAt}${page === undefined ? "" : `&page=${encodeURIComponent(page)}`}`, { token, hostToken }),
     reviewRecognitionPage: (workspaceId: string, reviewId: string, documentId: string, page?: number) => requestJson<ReviewRecognitionPage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/recognition/${encodeURIComponent(documentId)}${page === undefined ? "" : `?page=${encodeURIComponent(page)}`}`, { token, hostToken }),
     reviewSource: (workspaceId: string, reviewId: string, documentId: string, sourceHash?: string) => requestJson<{ path: string; sourceHash: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/source/${encodeURIComponent(documentId)}${sourceHash ? `?sourceHash=${encodeURIComponent(sourceHash)}` : ""}`, { token, hostToken }),
-    getProjectTemplates: () => requestJson<ProjectTemplateCatalog>(baseUrl, "/workspaces/project-templates", { token, hostToken }),
+    getProjectTemplates: (language?: "en" | "de" | "cs" | "sk") => requestJson<ProjectTemplateCatalog>(baseUrl, language ? `/workspaces/project-templates?language=${language}` : "/workspaces/project-templates", { token, hostToken }),
     saveProjectTemplates: (catalog: ProjectTemplateCatalog) => requestJson<ProjectTemplateCatalog>(baseUrl, "/workspaces/project-templates", { token, hostToken, method: "PUT", body: catalog }),
     getProjectDetails: (workspaceId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken }),
     updateProjectDetails: (workspaceId: string, payload: { revision: number; fields: ProjectField[] }) =>
@@ -2011,7 +2013,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     recoverOnboarding: (input: Parameters<NonNullable<OnboardingApi["recoverOnboarding"]>>[0]): Promise<unknown> => requestJson(baseUrl, "/lawoss/onboarding/recover", { token, hostToken, method: "POST", body: input, timeoutMs: 180_000 }),
     applyOnboarding: (input: Parameters<OnboardingApi["applyOnboarding"]>[0]): ReturnType<OnboardingApi["applyOnboarding"]> => requestJson(baseUrl, "/lawoss/onboarding/apply", { token, hostToken, method: "POST", body: input, timeoutMs: 180_000 }),
     lawossTriage: <T,>(path: TriageApiPath, body: unknown): Promise<T> => requestJson<T>(baseUrl, `/lawoss/triage/${path}`, { token, hostToken, method: "POST", body, timeoutMs: 600_000 }),
-    createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; registerExisting?: boolean; appFiles?: "inside" | "outside"; templateId?: string | null; templateLanguage?: "en" | "de"; projectFields?: ProjectField[]; remoteFolders?: RemoteFolderSelection[]; initializeFromFolders?: boolean; fromRemoteFolder?: boolean }) =>
+    createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; registerExisting?: boolean; appFiles?: "inside" | "outside"; templateId?: string | null; templateLanguage?: "en" | "de" | "cs" | "sk"; projectFields?: ProjectField[]; remoteFolders?: RemoteFolderSelection[]; initializeFromFolders?: boolean; fromRemoteFolder?: boolean }) =>
       requestJson<WorkspaceList>(baseUrl, "/workspaces/local", {
         token,
         hostToken,

@@ -40,7 +40,46 @@
  * Without a bump, existing installs keep rendering the old shell for up
  * to a year. Increment the number.
  */
-export const WORD_ADDIN_SHELL_VERSION = "6";
+export const WORD_ADDIN_SHELL_VERSION = "7";
+
+export const OFFICE_SHELL_COPY = {
+  "en": {
+    "connecting": "Connecting to LAWOSS…",
+    "offlineTitle": "LAWOSS is not running",
+    "offlineBody": "Start LAWOSS to use the add-in. This pane connects automatically when it is running.",
+    "open": "Open LAWOSS",
+    "retry": "Try again",
+    "pairingTitle": "Reopen the Office add-in",
+    "pairingBody": "Close and reopen this pane. If it still cannot connect, reinstall it in LAWOSS Office Add-ins settings."
+  },
+  "cs": {
+    "connecting": "Připojuji k LAWOSS…",
+    "offlineTitle": "LAWOSS není spuštěný",
+    "offlineBody": "Spusťte LAWOSS, abyste mohli používat doplněk. Panel se potom připojí automaticky.",
+    "open": "Otevřít LAWOSS",
+    "retry": "Zkusit znovu",
+    "pairingTitle": "Otevřete doplněk Office znovu",
+    "pairingBody": "Zavřete a znovu otevřete tento panel. Pokud se nepřipojí, přeinstalujte jej v nastavení Doplňky Office v LAWOSS."
+  },
+  "sk": {
+    "connecting": "Pripájam k LAWOSS…",
+    "offlineTitle": "LAWOSS nie je spustený",
+    "offlineBody": "Spustite LAWOSS, aby ste mohli používať doplnok. Panel sa potom pripojí automaticky.",
+    "open": "Otvoriť LAWOSS",
+    "retry": "Skúsiť znova",
+    "pairingTitle": "Otvorte doplnok Office znova",
+    "pairingBody": "Zatvorte a znova otvorte tento panel. Ak sa nepripojí, preinštalujte ho v nastaveniach Doplnky Office v LAWOSS."
+  },
+  "de": {
+    "connecting": "Verbindung zu LAWOSS…",
+    "offlineTitle": "LAWOSS ist nicht geöffnet",
+    "offlineBody": "Starten Sie LAWOSS, um das Add-in zu verwenden. Dieser Bereich verbindet sich dann automatisch.",
+    "open": "LAWOSS öffnen",
+    "retry": "Erneut versuchen",
+    "pairingTitle": "Office-Add-in erneut öffnen",
+    "pairingBody": "Schließen und öffnen Sie diesen Bereich erneut. Falls die Verbindung weiterhin fehlschlägt, installieren Sie ihn in den Office-Add-in-Einstellungen von LAWOSS erneut."
+  }
+};
 
 export function buildWordAddinShellHtml(): string {
   return `<!doctype html>
@@ -49,7 +88,7 @@ export function buildWordAddinShellHtml(): string {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>LegalWork</title>
+<title>LAWOSS</title>
 <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" defer onerror="this.remove()"></script>
 <style>
   /* Colors are the pane theme's computed dls tokens (deployment "web"),
@@ -89,32 +128,36 @@ export function buildWordAddinShellHtml(): string {
 <body>
   <div class="box" id="connecting">
     <div class="spinner"></div>
-    <p class="body" id="connecting-text">Connecting to LegalWork...</p>
+    <p class="body" id="connecting-text"></p>
   </div>
   <div class="box hidden" id="offline">
-    <p class="title" id="offline-title">LegalWork is not running</p>
-    <p class="body" id="offline-body">Start the LegalWork app to use the add-in. This pane connects automatically as soon as it is running.</p>
+    <p class="title" id="offline-title"></p>
+    <p class="body" id="offline-body"></p>
     <div class="row">
-      <button type="button" class="primary" id="open-btn">Open LegalWork</button>
-      <button type="button" class="ghost" id="retry-btn">Try again</button>
+      <button type="button" class="primary" id="open-btn"></button>
+      <button type="button" class="ghost" id="retry-btn"></button>
     </div>
     <p class="ver">v${WORD_ADDIN_SHELL_VERSION}</p>
   </div>
 <script>
-(function () {
+(async function () {
   "use strict";
-  // Match the app's locale behavior: English unless the user chose German
-  // in LegalWork (same-origin localStorage, readable offline). The OS
-  // language is deliberately ignored, like the app does.
-  var lang = "";
-  try { lang = localStorage.getItem("legalwork.language") || ""; } catch (e) { /* ignore */ }
-  if (lang === "de") {
-    document.getElementById("connecting-text").textContent = "Verbindung zu LegalWork...";
-    document.getElementById("offline-title").textContent = "LegalWork ist nicht geöffnet";
-    document.getElementById("offline-body").textContent =
-      "Starte die LegalWork-App, um das Add-in zu verwenden. Diese Ansicht verbindet sich automatisch, sobald die App läuft.";
-    document.getElementById("open-btn").textContent = "LegalWork öffnen";
-    document.getElementById("retry-btn").textContent = "Erneut versuchen";
+  var translations = ${JSON.stringify(OFFICE_SHELL_COPY)};
+  var currentCopy = translations.en;
+  function supported(value) { return typeof value === "string" && Object.prototype.hasOwnProperty.call(translations, value); }
+  function systemLanguage() {
+    var tags = typeof navigator !== "undefined" ? navigator.languages || [navigator.language] : [];
+    for (var i = 0; i < tags.length; i++) { var language = String(tags[i]).toLowerCase().split("-")[0]; if (supported(language)) return language; }
+    return "en";
+  }
+  function applyLanguage(language) {
+    currentCopy = translations[supported(language) ? language : systemLanguage()];
+    if (document.documentElement) document.documentElement.lang = supported(language) ? language : systemLanguage();
+    document.getElementById("connecting-text").textContent = currentCopy.connecting;
+    document.getElementById("offline-title").textContent = currentCopy.offlineTitle;
+    document.getElementById("offline-body").textContent = currentCopy.offlineBody;
+    document.getElementById("open-btn").textContent = currentCopy.open;
+    document.getElementById("retry-btn").textContent = currentCopy.retry;
   }
 
   var capability = "";
@@ -123,6 +166,18 @@ export function buildWordAddinShellHtml(): string {
     if (capability) sessionStorage.setItem("legalwork.officeCapability", capability);
     if (location.hash.indexOf("capability=") !== -1) history.replaceState(null, "", location.pathname + location.search);
   } catch (e) { /* retain the manifest capability when storage is unavailable */ }
+  try {
+    if (capability && typeof crypto !== "undefined" && crypto.subtle) {
+      var digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(capability));
+      var scope = Array.from(new Uint8Array(digest)).map(function (byte) { return byte.toString(16).padStart(2, "0"); }).join("");
+      var oldScope = localStorage.getItem("legalwork.officeLocaleScope");
+      if (oldScope && oldScope !== scope) localStorage.removeItem("legalwork.language");
+      localStorage.setItem("legalwork.officeLocaleScope", scope);
+    }
+  } catch (e) { /* Offline presentation remains available without storage. */ }
+  var lang = "";
+  try { lang = localStorage.getItem("legalwork.language") || ""; } catch (e) { /* use system */ }
+  applyLanguage(supported(lang) ? lang : systemLanguage());
   function pairedUrl(path) { return path + (capability ? "#capability=" + encodeURIComponent(capability) : ""); }
   var SHELL_VERSION = "${WORD_ADDIN_SHELL_VERSION}";
   var handedOff = false;
@@ -144,10 +199,16 @@ export function buildWordAddinShellHtml(): string {
   function handOff(bootstrap) {
     if (handedOff) return;
     if (bootstrap && bootstrap.pairingRequired) {
+      try { localStorage.removeItem("legalwork.language"); localStorage.removeItem("legalwork.officeLocaleScope"); } catch (e) { /* presentation cache only */ }
+      applyLanguage(systemLanguage());
       showOffline();
-      document.getElementById("offline-title").textContent = "Reopen the Office add-in";
-      document.getElementById("offline-body").textContent = "Close and reopen this pane. If it still cannot connect, reinstall it in LegalWork Office Add-ins settings.";
+      document.getElementById("offline-title").textContent = currentCopy.pairingTitle;
+      document.getElementById("offline-body").textContent = currentCopy.pairingBody;
       return;
+    }
+    if (bootstrap && supported(bootstrap.uiLocale)) {
+      applyLanguage(bootstrap.uiLocale);
+      try { localStorage.setItem("legalwork.language", bootstrap.uiLocale); } catch (e) { /* in-memory only */ }
     }
     handedOff = true;
     var current = bootstrap && bootstrap.shellVersion;
@@ -215,7 +276,7 @@ export function buildWordAddinRedirectorHtml(): string {
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>LegalWork</title>
+<title>LAWOSS</title>
 </head>
 <body>
 <script>

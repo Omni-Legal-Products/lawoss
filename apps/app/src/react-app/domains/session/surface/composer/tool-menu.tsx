@@ -5,6 +5,8 @@ import { mcpAuthEntryFromServer } from "@/app/mcp-connect-state";
 import type { McpServerEntry, McpStatusMap, SkillCard } from "@/app/types";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
+import { bundledPresentation } from "@/lawoss/i18n/bundled-presentation";
 import { ConnectorStatus, configuredConnectorState, PluginConnectorStatus, type ConnectorState } from "@/react-app/domains/settings/pages/connector-status";
 import { importedConnectorPlugin, pluginImportName, pluginImportSkillName } from "@/react-app/domains/settings/pages/plugin-import-presentation";
 import { pluginFileInstalledName } from "@/react-app/domains/settings/pages/plugin-package-contents";
@@ -40,6 +42,7 @@ export function ComposerToolMenu(props: {
   onSelectPlugin: (plugin: ImportedPlugin) => void;
   onConfigure: (section: ComposerToolSection) => void;
 }) {
+  useLocale();
   const [pluginId, setPluginId] = useState<string | null>(null);
   const plugins = props.plugins.filter(plugin => plugin.sourceKind === undefined || plugin.sourceKind === "plugin");
   const activePlugin = props.section === "plugins" ? plugins.find(plugin => plugin.pluginId === pluginId) : undefined;
@@ -52,12 +55,14 @@ export function ComposerToolMenu(props: {
 
   const renderSkill = (skill: SkillCard) => {
     const workflow = isWorkflowCard(skill);
+    const display = bundledPresentation(skill);
+    const description = display?.description ?? skill.description;
     const Icon = workflow ? Workflow : Blocks;
     return <button key={skill.name} type="button" className={itemClass} onClick={() => props.onSelectSkill(skill.name)}>
       <Icon size={16} className="mt-0.5 shrink-0 text-gray-9" />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-xs font-semibold">{workflow ? workflowDisplayName(skill.name) : pluginImportSkillName(skill)}</div>
-        {skill.description ? <div className="truncate text-xs text-gray-10">{skill.description}</div> : null}
+        <div className="truncate text-xs font-semibold">{display?.name ?? (workflow ? workflowDisplayName(skill.name) : pluginImportSkillName(skill))}</div>
+        {description ? <div className="truncate text-xs text-gray-10">{description}</div> : null}
       </div>
     </button>;
   };

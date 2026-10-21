@@ -42,3 +42,53 @@ test("shell authenticates bootstrap and preserves pairing through handoff even w
     if (!blockedStorage) expect(stored.get("legalwork.officeCapability")).toBe(capability);
   }
 });
+
+test("offline Office shell uses cached Czech, otherwise the supported system language", async () => {
+  for (const [cached, system, expected] of [["cs", "sk-SK", "LAWOSS není spuštěný"], ["system", "cs-CZ", "LAWOSS není spuštěný"], ["sk", "cs-CZ", "LAWOSS nie je spustený"]]) {
+    const elements = new Map<string, { textContent: string; addEventListener: () => void; classList: { add: () => void; remove: () => void } }>();
+    const element = (id: string) => { if (!elements.has(id)) elements.set(id, { textContent: "", addEventListener() {}, classList: { add() {}, remove() {} } }); return elements.get(id)!; };
+    runInNewContext(script(buildWordAddinShellHtml()), {
+      URLSearchParams, AbortController, setTimeout, clearTimeout, setInterval: () => 0, clearInterval,
+      navigator: { languages: [system] },
+      localStorage: { getItem: (key: string) => key === "legalwork.language" ? cached : null, setItem() {} },
+      sessionStorage: { getItem: () => "", setItem() {} }, history: { replaceState() {} },
+      location: { hash: "", pathname: "/word-addin/shell.html", search: "", replace() {} },
+      document: { documentElement: { lang: "" }, getElementById: element },
+      fetch: async () => { throw new Error("offline"); },
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(element("offline-title").textContent).toBe(expected);
+  }
+});
+
+test("shell invalidates a different pairing's cached language and clears presentation cache on 401", async () => {
+  for (const rejected of [false, true]) {
+    const capability = "d".repeat(64);
+    const values = new Map([["legalwork.language", "sk"], ["legalwork.officeLocaleScope", "old-pairing"]]);
+    const elements = new Map<string, { textContent: string; addEventListener(): void; classList: { add(): void; remove(): void } }>();
+    const element = (id: string) => {
+      if (!elements.has(id)) elements.set(id, { textContent: "", addEventListener() {}, classList: { add() {}, remove() {} } });
+      return elements.get(id)!;
+    };
+    await runInNewContext(script(buildWordAddinShellHtml()), {
+      crypto: globalThis.crypto, TextEncoder, Uint8Array, URLSearchParams, AbortController, setTimeout, clearTimeout, setInterval: () => 0, clearInterval,
+      navigator: { languages: ["cs-CZ"] },
+      localStorage: { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) },
+      sessionStorage: { getItem: () => "", setItem() {} }, history: { replaceState() {} },
+      location: { hash: `#capability=${capability}`, pathname: "/word-addin/shell-v7.html", search: "", replace() {} },
+      document: { documentElement: { lang: "" }, getElementById: element },
+      fetch: async () => { if (!rejected) throw new Error("offline"); return { ok: false, status: 401 }; },
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(element("offline-title").textContent).toBe(rejected ? "Otevřete doplněk Office znovu" : "LAWOSS není spuštěný");
+    expect(values.has("legalwork.language")).toBe(false);
+    expect(values.has("legalwork.officeLocaleScope")).toBe(!rejected);
+    expect([...values.values()]).not.toContain(capability);
+  }
+});
+
+test("shell shows neutral initial markup until its cached or system language is resolved", () => {
+  const markup = buildWordAddinShellHtml().split("<script>\n")[0];
+  expect(markup).not.toContain("Connecting to LegalWork");
+  expect(markup).not.toContain("LegalWork is not running");
+});

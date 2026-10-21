@@ -281,6 +281,9 @@ export type ExecResult = {
 };
 
 export type LocalSkillCard = {
+  bundledDisplayId?: string;
+  kind?: string;
+  workflowType?: string;
   name: string;
   path: string;
   description?: string;
@@ -534,6 +537,8 @@ export type DesktopCommandMap = {
 
   // App / bridge info
   appBuildInfo: { args: []; result: AppBuildInfo };
+  /** Presentation only; cannot change policy or grant permission. */
+  setUiLocale: { args: [locale: "en" | "de" | "cs" | "sk"]; result: boolean };
   getUiControlBridgeInfo: { args: []; result: UiControlBridgeInfo | null };
   getLegalworkUiMcpCommand: { args: []; result: string[] };
   getActaportMcpCommand: { args: []; result: string[] };

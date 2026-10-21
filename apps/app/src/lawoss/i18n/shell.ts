@@ -16,6 +16,14 @@ export const shellEn = {
   "lawoss.yolo.host_only": "Change this setting in the desktop app.",
   "lawoss.yolo.badge": "YOLO",
   "lawoss.yolo.badge_title": "YOLO Mode is on: the agent changes files and runs commands without asking.",
+  "lawoss.shell.channel.stable": "Stable",
+  "lawoss.shell.channel.alpha": "Alpha",
+  "lawoss.shell.menu.label": "Application menu",
+  "lawoss.shell.menu.file": "File",
+  "lawoss.shell.menu.edit": "Edit",
+  "lawoss.shell.menu.view": "View",
+  "lawoss.shell.menu.help": "Help",
+
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Something went wrong. Try again, or choose a different folder.",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): native Settings → AI switch and chat refusal.
@@ -386,6 +394,14 @@ export const shellCs = {
   "lawoss.yolo.host_only": "Toto nastavení změníte v desktopové aplikaci.",
   "lawoss.yolo.badge": "YOLO",
   "lawoss.yolo.badge_title": "YOLO Mode je zapnutý: agent bez ptaní mění soubory a spouští příkazy.",
+  "lawoss.shell.channel.stable": "Stabilní",
+  "lawoss.shell.channel.alpha": "Alfa",
+  "lawoss.shell.menu.label": "Nabídka aplikace",
+  "lawoss.shell.menu.file": "Soubor",
+  "lawoss.shell.menu.edit": "Úpravy",
+  "lawoss.shell.menu.view": "Zobrazení",
+  "lawoss.shell.menu.help": "Nápověda",
+
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Něco se nepodařilo. Zkuste to znovu, nebo vyberte jinou složku.",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): natívny prepínač v Nastaveniach → AI a odmietnutie chatu.
@@ -755,6 +771,14 @@ export const shellSk = {
   "lawoss.yolo.host_only": "Toto nastavenie zmeníte v desktopovej appke.",
   "lawoss.yolo.badge": "YOLO",
   "lawoss.yolo.badge_title": "YOLO Mode je zapnutý: agent bez pýtania mení súbory a spúšťa príkazy.",
+  "lawoss.shell.channel.stable": "Stabilný",
+  "lawoss.shell.channel.alpha": "Alfa",
+  "lawoss.shell.menu.label": "Ponuka aplikácie",
+  "lawoss.shell.menu.file": "Súbor",
+  "lawoss.shell.menu.edit": "Úpravy",
+  "lawoss.shell.menu.view": "Zobrazenie",
+  "lawoss.shell.menu.help": "Pomocník",
+
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Niečo sa nepodarilo. Skúste to znova, alebo vyberte iný priečinok.",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): natívny prepínač v Nastaveniach → AI a odmietnutie chatu.
@@ -1124,6 +1148,14 @@ export const shellDe = {
   "lawoss.yolo.host_only": "Ändern Sie diese Einstellung in der Desktop-App.",
   "lawoss.yolo.badge": "YOLO",
   "lawoss.yolo.badge_title": "YOLO Mode ist an: Der Agent ändert Dateien und führt Befehle aus, ohne zu fragen.",
+  "lawoss.shell.channel.stable": "Stabil",
+  "lawoss.shell.channel.alpha": "Alpha-Version",
+  "lawoss.shell.menu.label": "Anwendungsmenü",
+  "lawoss.shell.menu.file": "Datei",
+  "lawoss.shell.menu.edit": "Bearbeiten",
+  "lawoss.shell.menu.view": "Ansicht",
+  "lawoss.shell.menu.help": "Hilfe",
+
   // Onboarding (domains/onboarding): všeobecná chyba namiesto surovej správy servera.
   "lawoss.onboarding.error_generic": "Etwas ist nicht gelungen. Versuchen Sie es erneut oder wählen Sie einen anderen Ordner.",
   // AI hranice (lawoss/domains/ai/boundaries.tsx): Schalter in Einstellungen → KI und Chat-Ablehnung.

@@ -36,11 +36,11 @@ async function serverRequest(context: OpenCodeContext, route: string, body?: unk
   }
 }
 
-const templateArgs = z.object({ language: z.enum(["en", "de"]).optional().describe("Language for built-in template names and fields. Custom names stay unchanged.") });
+const templateArgs = z.object({ language: z.enum(["en", "de", "cs", "sk"]).optional().describe("Language for built-in template names and fields. Custom names stay unchanged.") });
 const createArgs = z.object({
   name: z.string().trim().min(1).max(120),
   templateId: z.string().min(1).max(100).nullable().optional().describe("Exact ID from legalwork_project_templates. Omit to use the default; null creates no metadata fields. Do not combine with projectFields."),
-  templateLanguage: z.enum(["en", "de"]).optional().describe("Language for the selected template's suggested fields. Use de for German."),
+  templateLanguage: z.enum(["en", "de", "cs", "sk"]).optional().describe("Language for the selected template's suggested fields. Use the user-selected UI language."),
   projectFields: projectFieldsSchema.optional().describe("Create your own metadata fields instead of a template. Each field has a unique id, label, type (text/number/date/select), value (null if unknown), and options for select. Dates use YYYY-MM-DD. Supply only known values. An empty array creates no fields. Omit templateId when providing this."),
 }).refine((input) => input.templateId === undefined || input.projectFields === undefined, "Choose either a template or your own fields.");
 

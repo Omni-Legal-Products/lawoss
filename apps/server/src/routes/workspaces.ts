@@ -1,3 +1,4 @@
+import { isProjectTemplateLocale } from "../project-schema.js";
 import { rebaseWorkspaceMemoryAuthority } from "../lawoss/workspace-reconnect-memory.js";
 import { rebindWorkspaceSessions } from "../lawoss/workspace-session-rebind.js";
 import { serializeWorkspaceMutation } from "../lawoss/workspace-registry-lock.js";
@@ -472,7 +473,8 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
   });
 
   addRoute(routes, "GET", "/workspaces/project-templates", "client", async (ctx) => {
-    const language = new URL(ctx.request.url).searchParams.get("language") === "de" ? "de" : "en";
+    const requested = new URL(ctx.request.url).searchParams.get("language");
+    const language = isProjectTemplateLocale(requested) ? requested : "en";
     return jsonResponse(localizeProjectTemplates(await readProjectTemplates(config), language));
   });
 

@@ -1,3 +1,4 @@
+import { useLocale } from "@/i18n/use-locale";
 /** @jsxImportSource react */
 import { useEffect } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
@@ -49,6 +50,7 @@ function WordChatScreen() {
  * workspace picker.
  */
 export function WordAddinRoot() {
+  useLocale();
   useEffect(() => {
     // The pane runs in Office's webview (no AppRoot), so it wires its own
     // analytics flush loop + error hooks. No app_opened here.

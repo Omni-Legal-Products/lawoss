@@ -45,7 +45,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { listLocalSkills } from "@/app/lib/desktop";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { isDesktopRuntime } from "@/app/utils";
-import { t } from "@/i18n";
+import { t, currentLocale, type Language } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
+import { bundledPresentation } from "@/lawoss/i18n/bundled-presentation";
+import type { SkillCard } from "@/app/types";
 import { WorkspaceIcon } from "@/react-app/design-system/workspace-icon";
 import {
   isWorkflowCard,
@@ -76,14 +79,17 @@ export type StartWorkflowDialogProps = {
 
 type WorkflowOption = { value: string; label: string };
 
-function toWorkflowOptions(entries: ReadonlyArray<{ name: string; kind?: string }>): WorkflowOption[] {
+type WorkflowEntry = Pick<SkillCard, "name" | "kind" | "description" | "bundledDisplayId" | "firm">;
+
+export function toWorkflowOptions(entries: ReadonlyArray<WorkflowEntry>, locale: Language = currentLocale()): WorkflowOption[] {
   return entries
     .filter(isWorkflowCard)
-    .map((entry) => ({ value: entry.name, label: workflowDisplayName(entry.name) }))
+    .map((entry) => ({ value: entry.name, label: bundledPresentation(entry, locale)?.name ?? workflowDisplayName(entry.name) }))
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
 export function StartWorkflowDialog(props: StartWorkflowDialogProps) {
+  const locale = useLocale();
   const open = props.mode !== null;
   const withWorkflow = props.mode === "workflow";
   const folderId = useId();
@@ -114,20 +120,18 @@ export function StartWorkflowDialog(props: StartWorkflowDialogProps) {
   const workflowsQuery = useQuery({
     queryKey: ["intake-workflow-library", globalLibrary ? "global" : (endpoint?.workspaceId ?? "")],
     enabled: withWorkflow && (globalLibrary || Boolean(endpoint)),
-    queryFn: async (): Promise<WorkflowOption[]> => {
+    queryFn: async (): Promise<WorkflowEntry[]> => {
       if (globalLibrary) {
         const { items: local } = await listLocalSkills("");
-        return toWorkflowOptions(
-          local.map((entry) => ({ name: entry.name, kind: (entry as { kind?: string }).kind })),
-        );
+        return local;
       }
       if (!endpoint) return [];
       const response = await endpoint.client.listSkills(endpoint.workspaceId, { includeGlobal: true });
-      return toWorkflowOptions(response.items);
+      return response.items;
     },
   });
 
-  const workflows = useMemo(() => workflowsQuery.data ?? [], [workflowsQuery.data]);
+  const workflows = useMemo(() => toWorkflowOptions(workflowsQuery.data ?? [], locale), [workflowsQuery.data, locale]);
 
   // Keep the selection valid as the library loads or changes.
   useEffect(() => {

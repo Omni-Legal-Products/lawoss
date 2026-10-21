@@ -1,3 +1,5 @@
+import { bundledPresentation } from "@/lawoss/i18n/bundled-presentation";
+import { useLocale } from "@/i18n/use-locale";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Bot, BookOpen, HardDrive, Users, ChevronDown, Download, Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Share2, Trash2, Wand2, Workflow } from "lucide-react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -45,6 +47,7 @@ export type WorkflowsViewProps = SkillsViewProps & {
 };
 
 export function WorkflowsView(props: WorkflowsViewProps) {
+  const locale = useLocale();
   const { extensions, workspaceId } = props;
   const [section, setSection] = useState<"workflows" | "prompts">("workflows");
   const [scope, setScope] = useState<"local" | "team">("local");
@@ -73,7 +76,8 @@ export function WorkflowsView(props: WorkflowsViewProps) {
   const matches = (name: string, description = "") => `${name} ${description}`.toLowerCase().includes(search);
   const filtered = workflowSkills.filter((skill) => {
     const draft = localDrafts.find((item) => item.name === skill.name && !item.isNew);
-    return matches(draft?.title || workflowDisplayName(skill.name), draft?.description ?? skill.description);
+    const copy = !draft || !workflowDirty(draft) ? bundledPresentation(skill, locale) : null;
+    return matches(copy?.name ?? draft?.title ?? workflowDisplayName(skill.name), copy?.description ?? draft?.description ?? skill.description);
   });
   const filteredDrafts = newDrafts.filter((draft) => matches(draft.title, draft.description));
   const entries: { skill: SkillCard | null; draft: WorkflowDraft | undefined }[] = [
@@ -124,8 +128,9 @@ export function WorkflowsView(props: WorkflowsViewProps) {
     }
   };
   const row = (skill: SkillCard | null, draft: WorkflowDraft | undefined) => {
-    const name = draft?.title || (skill ? workflowDisplayName(skill.name) : t("skills.new_workflow"));
-    const description = draft?.description ?? skill?.description ?? "";
+    const copy = skill && (!draft || !workflowDirty(draft)) ? bundledPresentation(skill, locale) : null;
+    const name = copy?.name ?? (draft?.title || (skill ? workflowDisplayName(skill.name) : t("skills.new_workflow")));
+    const description = copy?.description ?? draft?.description ?? skill?.description ?? "";
     const Icon = Workflow;
     // The firm's workflow follows its hub: members read it, but cannot change or remove it here.
     if (skill?.firm) {

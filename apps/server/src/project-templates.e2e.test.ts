@@ -39,6 +39,13 @@ test("humans and agents create projects from the same edited catalog, with custo
   try {
     const initial = projectTemplateCatalogSchema.parse(await (await request("/workspaces/project-templates?language=de")).json());
     expect(initial.templates.map((template) => template.name)).toEqual(["Akte", "Internes Projekt", "Vertrag & Transaktion", "Recherche & Analyse"]);
+    for (const [language, expected] of [["cs", "Právní spis"], ["sk", "Právny spis"]] as const) {
+      const response = await request(`/workspaces/project-templates?language=${language}`);
+      expect(response.status).toBe(200);
+      const localized = projectTemplateCatalogSchema.parse(await response.json());
+      expect(localized.templates[0]?.name).toBe(expected);
+      expect(localized.templates[0]?.fields.find(field => field.id === "client")?.label).toBe("Klient");
+    }
     const draft = { ...initial, defaultTemplateId: "company", templates: [...initial.templates, {
       id: "company", name: "Our company workflow", fields: [
         { id: "cost", label: "Agreed price", type: "number", value: 999 },

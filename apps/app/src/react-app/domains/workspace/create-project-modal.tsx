@@ -28,7 +28,7 @@ import { currentLocale, t } from "@/i18n";
 export type CreateProjectInput = {
   name: string;
   templateId: string | null;
-  templateLanguage: "en" | "de";
+  templateLanguage: "en" | "de" | "cs" | "sk";
   remoteFolders?: RemoteFolderSelection[];
   initializeFromFolders?: boolean;
   folderMode: "default" | "selected";

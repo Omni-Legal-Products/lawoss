@@ -1,3 +1,5 @@
+import { nativeBundledDisplayId } from "./bundled-workflow-presentation.mjs";
+import { acceptUiLocaleReport, createNativeLocaleState, nativeCopy } from "./native-locale.mjs";
 import { getAppBuildInfo } from './build-info.mjs';
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
@@ -136,6 +138,7 @@ app.on("will-quit", () => { void actaportConnection?.close(); });
 const APP_START_URL = process.env.LEGALWORK_ELECTRON_START_URL?.trim() || process.env.ELECTRON_START_URL?.trim();
 const APP_ROOT = app.isPackaged ? path.join(process.resourcesPath, "app-dist") : path.resolve(__dirname, "../../app/dist");
 const isAppUrl = createAppUrlMatcher({ devServerUrl: APP_START_URL, appRoot: APP_ROOT });
+const uiLocales = createNativeLocaleState(() => app.getPreferredSystemLanguages?.()[0] ?? app.getLocale?.() ?? "en");
 
 // Only LegalWork's own pages may use the desktop bridge. Browser tabs send
 // menu-overlay:dismiss so a click in a web page closes an open menu.
@@ -302,6 +305,7 @@ function runSystemPasteCommand(platform) {
 }
 
 async function showSupportLogsProgressWindow(parent) {
+  const copy = nativeCopy(uiLocales.forWindow(parent ?? mainWindow), DISPLAY_NAME);
   const dark = nativeTheme.shouldUseDarkColors;
   const background = dark ? "#0b0b0f" : "#ffffff";
   const foreground = dark ? "#f4f4f5" : "#18181b";
@@ -310,7 +314,7 @@ async function showSupportLogsProgressWindow(parent) {
   const progressWindow = new BrowserWindow({
     width: 360,
     height: 180,
-    title: "Collect Support Logs",
+    title: nativeCopy(uiLocales.forWindow(mainWindow)).support,
     show: false,
     resizable: false,
     minimizable: false,
@@ -345,8 +349,8 @@ async function showSupportLogsProgressWindow(parent) {
   <body>
     <main>
       <div class="spinner" aria-hidden="true"></div>
-      <div class="title">Collecting support logs</div>
-      <div class="body">This can take a few seconds.</div>
+      <div class="title">${copy.supportProgress}</div>
+      <div class="body">${copy.supportWait}</div>
     </main>
   </body>
 </html>`)}`);
@@ -370,7 +374,7 @@ async function collectSupportLogsAndReveal() {
   }
   const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
   const options = {
-    title: "Save Support Logs",
+    title: nativeCopy(uiLocales.forWindow(mainWindow)).support,
     defaultPath: path.join(defaultDir, defaultSupportBundleFileName()),
     filters: [{ name: "Text", extensions: ["txt"] }],
   };
@@ -409,16 +413,20 @@ async function collectSupportLogsAndReveal() {
 
 const applicationMenu = createApplicationMenu({
   appName: DISPLAY_NAME,
+  getLocale: window => uiLocales.forWindow(window === mainWindow || secondaryWindows.has(window) ? window : mainWindow),
   getWindow: () => createMainWindow(),
   collectSupportLogs: () => {
     void collectSupportLogsAndReveal().catch((error) => {
       dialog.showErrorBox(
-        "Collect Support Logs",
-        `Could not write the support bundle: ${error instanceof Error ? error.message : String(error)}`,
+        nativeCopy(uiLocales.forWindow(mainWindow)).support,
+        `${nativeCopy(uiLocales.forWindow(mainWindow)).supportFailed}\n\n${nativeCopy(uiLocales.forWindow(mainWindow)).details}: ${error instanceof Error ? error.message : String(error)}`,
       );
     });
   },
 });
+
+uiLocales.subscribe(() => applicationMenu.install());
+app.on("browser-window-focus", (_event, window) => { if (window === mainWindow || secondaryWindows.has(window)) applicationMenu.install(); });
 
 const uiControlServer = createUiControlServer({
   getUserDataDir: () => app.getPath("userData"),
@@ -1069,6 +1077,8 @@ function fitSkillName(raw) {
 const runtimeManager = createRuntimeManager({
   app,
   getApprovalWindow: () => mainWindow,
+  getUiLocale: window => uiLocales.forWindow(window ?? mainWindow),
+  subscribeUiLocale: uiLocales.subscribe,
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
   listLocalWorkspaces: async () => (await workspaceStore.readWorkspaceState()).workspaces.filter(workspace => workspace.workspaceType !== "remote"),
@@ -1109,7 +1119,9 @@ let runtimeDisposeInProgress = false;
 
 // The only non-app page the main window may show (allowed by name in the
 // navigation guard).
-const SHUTDOWN_SCREEN_URL = `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
+function shutdownScreenUrl(locale) {
+  const copy = nativeCopy(locale, DISPLAY_NAME);
+  return `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -1126,17 +1138,20 @@ const SHUTDOWN_SCREEN_URL = `data:text/html;charset=utf-8,${encodeURIComponent(`
   <body>
     <main>
       <div class="spinner" aria-hidden="true"></div>
-      <div class="title">Stopping ${DISPLAY_NAME} services</div>
-      <div class="body">Closing local workers and background services...</div>
+      <div class="title">${copy.stopping}</div>
+      <div class="body">${copy.closing}</div>
     </main>
   </body>
 </html>`)}`;
+}
+let SHUTDOWN_SCREEN_URL = shutdownScreenUrl("en");
 
 function showShutdownScreen() {
   const win = mainWindow;
   if (!win || win.isDestroyed()) return;
   try {
     win.show();
+    SHUTDOWN_SCREEN_URL = shutdownScreenUrl(uiLocales.forWindow(win));
     win.webContents.loadURL(SHUTDOWN_SCREEN_URL);
   } catch {
     // Ignore renderer teardown races during quit.
@@ -1520,6 +1535,7 @@ function extractTrigger(raw) {
 }
 
 async function listLocalSkills(projectDir) {
+  const globalRoots = new Set(await collectGlobalSkillRoots());
   // Empty projectDir → global skills only (workspace-independent). With a projectDir,
   // includes both project and global roots (collectSkillRoots handles the empty case).
   const seen = new Set();
@@ -1556,6 +1572,7 @@ async function listLocalSkills(projectDir) {
         path: skillDir,
         description,
         trigger: extractTrigger(raw) ?? undefined,
+        bundledDisplayId: nativeBundledDisplayId(name, raw, globalRoots.has(root)),
         // Saved corrections belong in Workflows, including older unprefixed packages.
         kind: await pathExists(path.join(skillDir, "legalwork-extension.json")) ? "workflow" : extractFrontmatterValue(raw, ["kind"]) ?? undefined,
         workflowType: extractFrontmatterValue(raw, ["workflow_type", "workflow-type", "workflowtype"]) ?? undefined,
@@ -2756,6 +2773,11 @@ const desktopCommandHandlers = {
       if (failure) return { ok: false, error: failure };
       return { ok: true };
   },
+  "setUiLocale": async (event, ...args) => acceptUiLocaleReport(event, args[0], {
+    fromWebContents: contents => BrowserWindow.fromWebContents(contents),
+    isAppWindow: window => window === mainWindow || secondaryWindows.has(window),
+    isAppUrl, state: uiLocales,
+  }),
   "__showApplicationMenu": async (event, ...args) => {
       return applicationMenu.popup(activeWindowFromEvent(event), args[0], args[1]);
   },

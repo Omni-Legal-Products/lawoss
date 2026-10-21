@@ -1,3 +1,5 @@
+import { useLocale } from "@/i18n/use-locale";
+import { applyOfficeUiLocale, clearOfficeUiLocale, prepareOfficeUiLocale } from "./ui-locale";
 /** @jsxImportSource react */
 import * as React from "react";
 import ReactDOM from "react-dom/client";
@@ -72,18 +74,21 @@ function applyAnalyticsIdentity(data: { analyticsDistinctId?: unknown; analytics
   setAnalyticsConsentOverride(data.analyticsEnabled === true);
 }
 
-// Re-read the identity every minute so a desktop consent change reaches an
-// already-open pane.
-const ANALYTICS_IDENTITY_POLL_MS = 60_000;
+// Reuse the paired bootstrap for desktop language and consent changes. Every response carries
+// pairing tokens, so poll sparingly; 15 s keeps a language switch visible without chatter.
+const ANALYTICS_IDENTITY_POLL_MS = 15_000;
 let analyticsIdentityPollStarted = false;
 function startAnalyticsIdentityPoll() {
   if (analyticsIdentityPollStarted) return;
   analyticsIdentityPollStarted = true;
   setInterval(() => {
     void fetch("/word-addin/bootstrap", { cache: "no-store", headers: officeBootstrapHeaders })
-      .then((response) => (response.ok ? (response.json() as Promise<Record<string, unknown>>) : null))
+      .then((response) => {
+        if (response.status === 401) clearOfficeUiLocale();
+        return response.ok ? response.json() as Promise<Record<string, unknown>> : null;
+      })
       .then((data) => {
-        if (data) applyAnalyticsIdentity(data);
+        if (data) { applyAnalyticsIdentity(data); applyOfficeUiLocale(data.uiLocale); }
       })
       .catch(() => undefined);
   }, ANALYTICS_IDENTITY_POLL_MS);
@@ -97,9 +102,11 @@ function startAnalyticsIdentityPoll() {
 async function connectToServer(): Promise<void> {
   const response = await fetch("/word-addin/bootstrap", { cache: "no-store", headers: officeBootstrapHeaders });
   if (!response.ok) {
+    if (response.status === 401) clearOfficeUiLocale();
     throw new Error(`Bootstrap failed with status ${response.status}`);
   }
   const data = (await response.json()) as {
+    uiLocale?: unknown;
     token?: unknown;
     hostToken?: unknown;
     analyticsDistinctId?: unknown;
@@ -118,6 +125,7 @@ async function connectToServer(): Promise<void> {
   // Adopt the desktop's analytics identity BEFORE analytics initializes; keep
   // polling for changes.
   applyAnalyticsIdentity(data);
+  applyOfficeUiLocale(data.uiLocale);
   startAnalyticsIdentityPoll();
   // Shell updates are handled by the shell itself (version check against
   // the bootstrap response + self-reload; see server word-addin-shell.ts).
@@ -141,7 +149,7 @@ function ConnectScreen({ state, onRetry }: { state: ConnectionState; onRetry: ()
             {t("word_addin.connect_error_body")}
           </p>
           {state.status === "error" ? (
-            <p className="max-w-xs break-all text-[11px] text-dls-secondary/80">{state.message}</p>
+            <details className="max-w-xs break-all text-[11px] text-dls-secondary/80"><summary>{t("lawoss.diagnostics.details")}</summary><p>{state.message}</p></details>
           ) : null}
           <div className="mt-1 flex items-center gap-2">
             <button
@@ -169,6 +177,7 @@ const platform = createDefaultPlatform();
 const queryClient = getReactQueryClient();
 
 function WordAddinApp() {
+  useLocale();
   const [state, setState] = React.useState<ConnectionState>({ status: "connecting" });
 
   const connect = React.useCallback(() => {
@@ -219,7 +228,7 @@ document.documentElement.classList.add("lw-word-pane");
 
 // Office.js must finish initializing before the app renders; outside Word
 // this resolves immediately and the pane behaves like a plain web client.
-void officeReady().finally(() => {
+void Promise.all([officeReady(), prepareOfficeUiLocale(officeCapability)]).finally(() => {
   seedWordPaneShellConfig();
   ReactDOM.createRoot(root).render(
     <React.StrictMode>

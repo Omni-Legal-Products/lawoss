@@ -449,7 +449,9 @@ export async function handleWordAddinRequest(input: {
       return jsonResponse({ code: "office_pairing_required", message: "Reopen the add-in from its installed manifest. Reinstall it in Office Add-ins settings if needed." }, 401);
     }
     const identity = getAnalyticsIdentity();
+    const uiLocale = config.getUiLocale?.();
     return jsonResponse({
+      ...(uiLocale && ["en", "de", "cs", "sk"].includes(uiLocale) ? { uiLocale } : {}),
       app: "legalwork-server",
       token: config.token,
       hostToken: config.hostToken,

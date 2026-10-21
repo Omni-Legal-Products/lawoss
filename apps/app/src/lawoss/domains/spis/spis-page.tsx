@@ -1,3 +1,4 @@
+import { DiagnosticMessage } from "../../i18n/diagnostic-message";
 import { okfRawFilesQueryOptions } from "../../okf/raw-files";
 import { revalidateScopeTarget } from "../../okf/scope-target";
 import { PracticeCoverage } from "../../okf/practice-coverage";
@@ -239,7 +240,7 @@ export function MatterCockpit({ cockpit, now, raw, scopePaths = [] }: { cockpit:
           {cockpit.unreadable.map((p) => (
             <div key={p.path}>
               <div className="lw-status warn">
-                <span className="lw-mono">{p.path}</span> — {p.message}
+                <span className="lw-mono">{p.path}</span> — <DiagnosticMessage value={p} />
               </div>
               <pre className="lw-raw">{raw[p.path] ?? text("rawLoading")}</pre>
             </div>
