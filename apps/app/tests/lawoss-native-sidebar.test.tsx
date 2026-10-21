@@ -473,12 +473,13 @@ describe("Prípady a Lehoty v natívnom prispôsobení panela", () => {
 
   test("uložené poradie starého profilu dostane Prípady a Lehoty za Domov, inak sa nemení", () => {
     const old = ["projectHome", "projectCalendar", "projectReviews", "projectTasks", "projectFiles", "projectSessions"];
-    expect(readConfig({ projectNavOrder: old }).projectNavOrder).toEqual(["projectHome", "projectMatters", "projectDeadlines", ...old.slice(1)]);
+    // Pripojené priečinky (lawoss-linked-folders.test.tsx) idú za Lehoty.
+    expect(readConfig({ projectNavOrder: old }).projectNavOrder).toEqual(["projectHome", "projectMatters", "projectDeadlines", "projectLinkedFolders", ...old.slice(1)]);
     const custom = ["projectFiles", "projectHome", "projectSessions"];
-    expect(readConfig({ projectNavOrder: custom }).projectNavOrder.slice(0, 5)).toEqual(["projectFiles", "projectHome", "projectMatters", "projectDeadlines", "projectSessions"]);
+    expect(readConfig({ projectNavOrder: custom }).projectNavOrder.slice(0, 6)).toEqual(["projectFiles", "projectHome", "projectMatters", "projectDeadlines", "projectLinkedFolders", "projectSessions"]);
     const moved = ["projectDeadlines", "projectHome", "projectSessions", "projectMatters"];
     const kept = readConfig({ projectNavOrder: moved, projectMatters: false });
-    expect(kept.projectNavOrder.slice(0, 4)).toEqual(moved);
+    expect(kept.projectNavOrder.filter((key) => key !== "projectLinkedFolders").slice(0, 4)).toEqual(moved);
     expect(kept.projectMatters).toBe(false);
   });
 

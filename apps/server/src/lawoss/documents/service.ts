@@ -22,6 +22,17 @@ function originalRecord(records: DocumentRecord[], record: DocumentRecord): Docu
   }
   return record;
 }
+function readableSubtree(records: DocumentRecord[], record: DocumentRecord): boolean {
+  const pending = [record], seen = new Set<string>();
+  while (pending.length) {
+    const current = pending.pop()!;
+    if (seen.has(current.id)) continue;
+    seen.add(current.id);
+    if (current.pages.some(page => page.text.trim())) return true;
+    pending.push(...records.filter(child => child.provenance.parentId === current.id));
+  }
+  return false;
+}
 /** One serialized worker bounds PDF rendering, OCR and portfolio expansion across workspaces. */
 export class LawossDocuments {
   private pending: Promise<unknown> = Promise.resolve();
@@ -84,7 +95,19 @@ export class LawossDocuments {
         for (const record of records) if (!record.provenance.parentId && !this.active.has(record.id)) await rm(join(directory, `scratch-${record.id}`), { recursive: true, force: true });
         await this.save(workspace, records);
       }
-      return records.map(record => this.active.has(originalRecord(records, record).id) ? { ...summary(record), status: "preparing", complete: false } : summary(record));
+      const hashes = new Map<string, string | undefined>();
+      const reviewedRoots = new Set(records.filter(item => item.visualReview).map(item => originalRecord(records, item).id));
+      for (const record of records.filter(item => reviewedRoots.has(item.id))) {
+        if (!hashes.has(record.path)) hashes.set(record.path, await this.source(workspace, record.path).then(source => source.hash, () => undefined));
+      }
+      return records.map(record => {
+        const original = originalRecord(records, record);
+        if (this.active.has(original.id)) return { ...summary(record), status: "preparing" as const, complete: false };
+        // A read-time overlay retracts stale decisions without rewriting review
+        // history or racing extraction's persisted mutation lifecycle.
+        if (hashes.has(original.path) && hashes.get(original.path) !== original.hash) return { ...summary(record), visualReview: undefined, pdfCoverage: undefined, readablePages: 0, complete: false, status: "partial" as const, issue: "Source has changed; prepare it again." };
+        return summary(record);
+      });
     });
   }
   async prepare(workspace: WorkspaceInfo, paths: string[]): Promise<DocumentSummary[]> {
@@ -112,7 +135,7 @@ export class LawossDocuments {
           const descendants = new Set([record.id]);
           for (const item of records) if (item.provenance.parentId && descendants.has(item.provenance.parentId)) descendants.add(item.id);
           for (let i = records.length - 1; i >= 0; i--) if (descendants.has(records[i].id) && records[i].id !== record.id) records.splice(i, 1);
-          record.pages = []; record.issue = undefined; record.extraction = undefined; record.complete = false; record.status = "uploaded";
+          record.pages = []; record.issue = undefined; record.extraction = undefined; record.pdfCoverage = undefined; record.visualReview = undefined; record.ownComplete = undefined; record.attachmentCoverageComplete = undefined; record.complete = false; record.status = "uploaded";
         } else {
           record = { id: randomUUID(), workspaceId: workspace.id, path: source.path, hash: source.hash, status: "uploaded", pages: [], complete: false, updatedAt: Date.now(), admittedAt: ++admittedAt, provenance: { sourcePath: source.path, depth: 0 } }; records.push(record);
         }
@@ -171,7 +194,8 @@ export class LawossDocuments {
     // Readability is accumulated only from this node's own recursive children.
     let complete = result.attachments ? (readable || result.attachments.length > 0) && result.pages.every(page => page.status === "complete") : result.complete;
     let issue = result.attachments?.length && complete ? undefined : result.issue;
-    await this.update(workspace, record.id, { pages: result.pages.map(({ page, text, source, status }) => ({ page, text, source, status })), extraction: result.extraction });
+    await this.update(workspace, record.id, { pages: result.pages.map(({ page, text, source, status }) => ({ page, text, source, status })), extraction: result.extraction, pdfCoverage: result.pdfCoverage, ownComplete: complete });
+    let attachmentCoverageComplete = true;
     if (extension === ".pdf" || result.attachments) {
       try {
         const { inspectPdfAttachments } = await import("../../document-preparation/render.js");
@@ -191,10 +215,10 @@ export class LawossDocuments {
           readable ||= extracted.readable;
           if (!extracted.complete) { complete = false; issue = "Some document attachments are unreadable or incomplete."; }
         }
-      } catch (error) { signal.throwIfAborted(); complete = false; issue = error instanceof Error ? error.message : "Portfolio discovery failed."; }
+      } catch (error) { signal.throwIfAborted(); complete = false; attachmentCoverageComplete = false; issue = error instanceof Error ? error.message : "Portfolio discovery failed."; }
     }
     signal.throwIfAborted();
-    await this.update(workspace, record.id, { status: record.provenance.depth === 0 ? "preparing" : complete ? "readable" : readable ? "partial" : "failed", complete: record.provenance.depth === 0 ? false : complete, issue }); return { complete, readable };
+    await this.update(workspace, record.id, { status: record.provenance.depth === 0 ? "preparing" : complete ? "readable" : readable ? "partial" : "failed", complete: record.provenance.depth === 0 ? false : complete, attachmentCoverageComplete, issue }); return { complete, readable };
   }
   async read(workspace: WorkspaceInfo, id: string, offset = 0, limit = LIMIT.read): Promise<DocumentRead> {
     z.string().uuid().parse(id); z.number().int().nonnegative().parse(offset); z.number().int().min(1).max(LIMIT.read).parse(limit);
@@ -218,6 +242,36 @@ export class LawossDocuments {
     const record=await this.lock(async()=>(await this.records(workspace)).find(item=>item.id===id));
     if(!record || record.hash!==fresh.hash || record.updatedAt!==fresh.updatedAt) throw new ApiError(409,"document_stale","Evidence changed during inspection.");
     return {...summary(record),pages:record.pages.map(({text,...page})=>page)};
+  }
+  async reviewDecorativePages(workspace: WorkspaceInfo, id: string, input: { expectedHash: string; expectedUpdatedAt: number; pages: number[]; confirmation: "decorative-only" }) {
+    return this.lock(async () => {
+      const records = await this.records(workspace), record = records.find(item => item.id === id);
+      if (!record) throw new ApiError(404, "document_missing", "Document record not found.");
+      const original = originalRecord(records, record);
+      if (this.active.has(original.id) || record.hash !== input.expectedHash || record.updatedAt !== input.expectedUpdatedAt || (await this.source(workspace, original.path)).hash !== original.hash)
+        throw new ApiError(409, "document_stale", "Source or preparation changed; reload before reviewing.");
+      const pending = record.pdfCoverage?.filter(page => page.visualReasons.length && !record.visualReview?.pages.includes(page.page)) ?? [];
+      if (!pending.length || new Set(input.pages).size !== input.pages.length || input.pages.length !== pending.length || pending.some(page => !input.pages.includes(page.page) || page.nativeTextCoverage !== "complete" || page.visualReasons.some(reason => reason !== "drawn-paths") || !record.pages.some(evidence => evidence.page === page.page && evidence.source === "native" && evidence.text.trim())) || new Set(record.pages.map(page => page.page).filter(page => page !== null)).size !== record.pdfCoverage?.length || record.pages.some(page => page.status !== "complete" && !(page.page === null && !page.text) && !pending.some(coverage => coverage.page === page.page)))
+        throw new ApiError(409, "document_visual_review", "This action only resolves decorative paths on pages with complete native text. Images, annotations, missing text and unreadable attachments still need preparation or review.");
+      record.visualReview = { sourceHash: record.hash, revision: record.updatedAt, reviewedAt: Math.max(Date.now(), record.updatedAt + 1), reviewer: "authenticated-host", pages: [...input.pages].sort((a, b) => a - b), confirmation: input.confirmation };
+      // Review changes coverage, never the available native or OCR evidence.
+      record.pages = record.pages.map(page => page.page !== null && input.pages.includes(page.page) ? { ...page, status: "complete" } : page);
+      // prepareReviewEvidence adds this empty, unnumbered incomplete marker;
+      // it contains no evidence and is superseded by exact numbered coverage.
+      record.pages = record.pages.filter(page => page.page !== null || page.text !== "");
+      record.ownComplete = record.pages.every(page => page.status === "complete");
+      let current: DocumentRecord | undefined = record;
+      while (current) {
+        current.complete = (current.ownComplete ?? current.complete) && current.attachmentCoverageComplete === true && records.filter(child => child.provenance.parentId === current!.id).every(child => child.complete);
+        current.status = current.complete ? "readable" : readableSubtree(records, current) ? "partial" : "failed";
+        current.issue = current.complete ? undefined : "Some document attachments are unreadable or incomplete.";
+        current.updatedAt = Math.max(Date.now(), current.updatedAt + 1);
+        current = records.find(parent => parent.id === current!.provenance.parentId);
+      }
+      if ((await this.source(workspace, original.path)).hash !== original.hash) throw new ApiError(409, "document_stale", "Source changed during review; reload.");
+      await this.save(workspace, records);
+      return summary(record);
+    });
   }
   async cancel(workspace: WorkspaceInfo, id: string) {
     const job = this.active.get(id); if (!job || job.workspaceId !== workspace.id) throw new ApiError(404, "document_job", "Active document preparation not found.");

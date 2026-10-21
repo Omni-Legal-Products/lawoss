@@ -335,6 +335,7 @@ function WorkspaceFilesPanelContent({
 
         {client && workspaceId ? <DocumentProcessingPanel key={selectionKey} client={client} workspaceId={workspaceId} projectId={selectedProjectId ?? projectId ?? workspaceId} workspaceRoot={workspaceRoot}
           folder={path} selectedPaths={selectedPaths} onSelectPaths={selectPaths} active={active} isRemote={isRemoteWorkspace} onGenerate={onGenerateDocuments}
+          onOpenSource={sourcePath => onOpenFile({ path: sourcePath, name: sourcePath.split("/").pop() ?? sourcePath, kind: "file" }, true)}
           fileVersion={JSON.stringify(data?.entries.map(entry => [entry.path, entry.updatedAt, entry.size]))} /> : null}
 
         {searchable && <div className="shrink-0 border-b border-border/70 px-3 py-2"><div className="relative"><Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" /><input maxLength={512} className="h-8 w-full rounded-lg border border-input bg-background pl-8 pr-8 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40" placeholder={t("project_browser.search_files")} aria-label={t("project_browser.search_files")} value={query} onChange={event => setQuery(event.target.value)} />{query && <Button variant="ghost" size="icon-xs" className="absolute right-1 top-1/2 -translate-y-1/2" onClick={() => setQuery("")} aria-label={t("legalmemory.clear_search")}><X className="size-3.5" /></Button>}</div></div>}

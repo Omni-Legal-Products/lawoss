@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Panel doplnku Office bez editorov xlsx/pptx (2026-10-20)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/vite.wordaddin.config.ts` | Plugin `lawoss-office-editor-stub` (`enforce: "pre"`) presmeruje importy `artifact-xlsx-editor` a `artifact-pptx-editor` na nový LAWOSS súbor `apps/app/src/lawoss/word-addin/office-editor-stub.tsx`. Ten má rovnaké props a namiesto editora ukáže lokalizovanú výzvu otvoriť súbor v aplikácii LAWOSS. Agentovi hneď vracia jasnú chybu namiesto minútového čakania na načítanie. Zmena platí pre `dev:word-addin` aj pre dodávaný `build:word-addin`. Desktopová aplikácia editory nemení. Dôvod: taskpane montuje celý `SessionRoute`, takže Rollup parsoval aj lazy editory (Univer ~15 MB, pptx-react-viewer ~14,6 MB kódu) a watch build po syncoch v0.2.4 a v0.2.9 padal na „JavaScript heap out of memory“. Meranie na `d12701a7`, Node 24.21, `vite build --watch`: 10 727 → 8 094 modulov, peak heapUsed 4,64 GB → 2,79 GB (predvolený limit 4 288 MB), prvý build (Vite „built in“) 39 s → 22 s. Zmenu správania schválil MČ 20. 10. 2026. |
+
 ## Studený štart enginu na Windows (2026-10-19)
 
 | Súbory | Downstream doplnenie a dôvod |
@@ -1230,6 +1236,76 @@ Rozhodnutie MČ 19. 10. 2026: klient = natívny projekt (registrovaný priečino
 | Súbory | Zmena a dôvod |
 |---|---|
 | `apps/app/src/react-app/shell/welcome-route.tsx` | Po dokončení onboardingu naviguje na `completion.landing`, ak ho dokončenie nesie, inak ako doteraz na domov priečinka (+1 komentár, 1 riadok zmenený). LAWOSS `FRESH_OFFICE_COMPLETION` (`lawoss/domains/onboarding/found-flow.ts`) ho nastaví pri „Začať nanovo“ na Klienti a prípady: nová kancelária sa ako pracovný priečinok neregistruje (každý klient je samostatný priečinok), advokát pristane pri „Pridať klienta“. Vetva `fix/test-kolo-2`, test vlastníka 19. 10. 2026. |
+
+### 2026-10-18 — PDF visual coverage and host review
+
+Approved repair scope: scenario repair plan; coordination proposal remains [PR #100](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/100). No calculator or Google feature implementation.
+
+| Upstream files | Small hook / preservation contract |
+|---|---|
+| `apps/server/src/document-preparation/render.ts`, `apps/server/src/corpus/extract.ts`, `apps/server/src/content-search.test.ts` | Add per-page native text/visual reasons; preserve OCR recognition and coordinates while visual uncertainty remains partial. Existing OCR regression retains its location assertions. |
+| `apps/app/src/app/lib/legalwork-server.ts`, `apps/app/src/react-app/domains/session/panel/{document-processing-panel,workspace-files-panel}.tsx` | Native document panel shows text vs visual coverage, opens the original viewer and submits explicit hash/revision-bound host confirmation. Host capability is a boolean; credentials remain closed over in the existing client. |
+| `apps/app/src/i18n/locales/{en,de,cs,sk}.ts`, `apps/app/tests/{document-processing-client.test.ts,document-processing-panel.test.tsx}` | Localized exact-source confirmation, bearer-only explanation, and native rendering/client regressions. |
+
+LAWOSS service/types/route additions remain under their existing document workflow. Host-only review cannot clear images, annotations, missing text, failed attachment discovery or unreviewed descendants. No source bytes or raw preparation evidence are edited.
+
+Native embedded-child review controls stay blocked until the viewer opens the exact decoded child bytes; a parent cover/email is not sufficient visual evidence. The source-container open action is labeled separately.
+
+### 2026-10-18 — exact displayed PDF source before attestation
+
+| Upstream files | Focused hook / regression contract |
+|---|---|
+| `apps/app/src/react-app/domains/session/artifacts/{artifact-panel,preview}.tsx` | Existing persistent PDF owner accepts an explicit fresh download into its exact binary query; immutable blob SHA and actual visible iframe load acknowledge the review-open request. Ordinary persistence, ownership and tab identity remain intact. |
+| `apps/app/src/react-app/domains/session/panel/{document-processing-panel,document-visual-review}.tsx`, locale files, `apps/app/tests/document-processing-panel.test.tsx` | Confirmation remains disabled until the matching loaded-viewer receipt; changed/replayed bytes retract/refuse it. Translation reasons use literal audited keys. |
+
+New focused viewer hook/source registry and mounted regression reuse existing native panels and owned browser lifecycle. Public synthetic screenshots and boundary notes: `lawoss/testing/evidence/pdf-visual-review/`. The merged EML subtree-readable contract is also preserved when review recomputes ancestor status; unsupported siblings still prevent completeness.
+
+### Izolovaný testovací beh na macOS bez klúčenky (2026-10-20, fix/dev-mock-keychain)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/desktop/electron/main.mjs` | Pri `LAWOSS_DEV_MOCK_KEYCHAIN=1` na macOS pridá prepínač `use-mock-keychain` pred štartom appky. Dôvod: izolovaný testovací beh s presmerovaným `HOME` nemá klúčenku a macOS by ponúkol „Reset To Defaults“ skutočnej klúčenky používateľa. Bez premennej sa nič nemení. |
+
+### Chat s klientom po pridaní priečinka (2026-10-20, feat/chat-po-pridani)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/welcome-route.tsx` | Odovzdá `onOpenClientChat` z LAWOSS `lawoss/domains/onboarding/client-chat-open.ts` do `LawossWelcomePage` s predvoleným modelom z `local.prefs` (+1 import, +1 komentár, 1 riadok zmenený). „Toto som našiel“ potom pri klientovi ponúkne „Otvoriť chat s klientom“: po registrácii skontroluje AI hranice a model, nainštaluje skilly OKF, overí `/novy-spis` v engine a založí chat v priečinku klienta s pripravenou prvou správou; dokončenie onboardingu pristane v chate cez existujúce `completion.landing`. Rozhodnutie MČ 19. 10. 2026: po pridaní existujúceho priečinka klienta sa otvorí chat ku klientovi, tabuľka usporiadania ostane ako pokročilá voľba. |
+
+### Pripojené priečinky klienta (2026-10-20, feat/pripojene-priecinky)
+
+Rozhodnutie MČ 19. 10. 2026: klient má jeden hlavný priečinok (OKF) a k nemu pripojené ďalšie, ktoré agent smie čítať; využije natívne povolené priečinky. Zoznam aj zápis sú natívne `listAuthorizedFolders` / `setAuthorizedFolders` projektu klienta (`permission.external_directory`), zámok firmy `tools.permissions` ako v Nastaveniach. Logika je v `apps/app/src/lawoss/lite/linked-folders.ts` a `linked-folders-view.tsx`; upstream súbory majú len tenké háky.
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/shell-config.tsx` | `ProjectNavKey` + `projectLinkedFolders`, v `DEFAULT_PROJECT_ORDER` hneď za `projectDeadlines`, boolean v `ShellConfig` predvolene `true`. `LAWOSS_PROJECT_ITEMS` ho obsahuje a `readProjectOrder` dopĺňa chýbajúci kľúč za jeho predchodcu (Domov → Prípady → Lehoty → Pripojené priečinky) namiesto všetkých naraz za Domov. Dôvod: položka pod klientom sa dá vypnúť v natívnom prispôsobení panela ako Prípady a Lehoty. |
+| `apps/app/src/react-app/domains/session/sidebar/sidebar-customization.tsx` | Položka `SIDEBAR_ITEMS.projectLinkedFolders` (`lawoss.lite.linked_folders_title`, ikona `FolderSymlink`) pre prispôsobenie panela (+1 riadok, +1 import). |
+| `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Mapa položiek projektu vykreslí `ClientLinkedFoldersNavItem` (počet pripojených priečinkov klienta, klik otvorí Domov); projekt, ktorý nie je klient, alebo klient bez pripojených priečinkov nedostane nič (+1 riadok, +1 import). |
+
+#### Pripojené priečinky klienta, oprava 1 (2026-10-20, feat/pripojene-priecinky)
+
+Engine číta jeden spoločný `OPENCODE_CONFIG` pre všetkých klientov, takže povolenia priečinkov jedného klienta platili v chatoch všetkých. Priečinky klientov preto do spoločného súboru nejdú; plugin `apps/server/src/opencode-plugins/lawoss-linked-folders.ts` (mimo `extensions/`) odpovie na otázku `external_directory` len v chatoch toho klienta podľa mapy, ktorú server zapisuje vedľa súboru enginu (`apps/server/src/lawoss/linked-folders.ts`, pravidlá `linked-folders-rules.ts`).
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/legalwork-runtime-config.ts` | +1 import; `withoutClientFolderGrants(...)` okolo členských oprávnení pred `orgPolicyPermissions` (bez `<priečinok>/*: allow` riadku klienta; iné položky ostanú); plugin `lawoss-linked-folders` v zozname pluginov; `writeLegalworkRuntimeConfigFile` zapíše aj mapu pripojených priečinkov; `keepLegalworkRuntimeConfigFileFresh` pri zápise iného klienta obnoví len mapu (súbor nie). Dôvod: únik medzi klientmi cez spoločný súbor. |
+| `apps/server/src/server.ts` | +1 import, +2 riadky v `PUT /workspace/:id/authorized-folders`: `requireLinkableFolders` odmietne nový priečinok, ktorý (po `realpath`, NFC) leží v inom registrovanom lokálnom klientovi alebo ho obsahuje, alebo leží v koreni praxe z profilu či ho obsahuje (pamäť kancelárie `Office/`/`_kancelaria/` smie). Platí pre natívne Nastavenia aj priame API. |
+| `apps/server/package.json` | Do `build` pribudol `src/opencode-plugins/lawoss-linked-folders.ts` (zabalený plugin ako ostatné). |
+| `apps/server/src/legalwork-runtime-config.test.ts` | Očakávanie: spoločný súbor po zápise globálnych oprávnení už nenesie `external_directory` riadku pracovného priestoru (ide po chatoch). |
+| `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Položka `projectLinkedFolders` dostane `active` (otvorený Domov klienta), aby sa zvýraznila, keď Domov otvorila ona. |
+
+#### Pripojené priečinky klienta, oprava 2 (2026-10-20, feat/pripojene-priecinky)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/server.ts` | `PATCH /workspace/:id/config`: +2 riadky, nové `allow` v `external_directory` smie byť len holé `*` alebo `<absolútny priečinok>/*` cez tie isté pravidlá ako natívny zoznam (`requireLinkableExternalDirectory`). `startServer`: +3 riadky, `onWorkspacesChanged` (registrácia, odobratie, presun) obnoví mapu pripojených priečinkov (`linkedFoldersMapRefresher`, zápisy čaká zastavenie servera); import rozšírený. |
+| `apps/server/src/agent-sandbox/service.ts` | +1 import, 1 riadok: do sandboxu sa zdieľajú len priečinky, ktoré pravidlá pripojených priečinkov dovolia (`linkableFolders`: nie iný klient, prax ani priečinok s dátami aplikácie, nie relatívne; wiki má vlastné pravidlá a filter ju nemení). |
+
+#### Pripojené priečinky klienta, oprava 3 (2026-10-20, feat/pripojene-priecinky)
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/server/src/lawoss-workspace-memory-context.e2e.test.ts` | Fixture má dáta aplikácie (runtime) vo vlastnom priečinku `runtime/` (+1 komentár, +1 riadok, 1 zmenený): priečinok používateľa vnútri dát aplikácie sa už nepripojí (`linked_folder_app_data` oboma smermi). |
 
 ### YOLO Mode pre agenta (2026-10-20, feat/yolo-mode)
 

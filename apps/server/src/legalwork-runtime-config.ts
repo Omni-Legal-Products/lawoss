@@ -69,6 +69,8 @@ import {
 import { buildPersonalizedAgentPrompt, withFirmInstructions } from "./personalization.js";
 import { buildOrgPolicyEngineLayer, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
 import { appliedOrgPolicy } from "./org-policy.js";
+// LAWOSS: pripojené priečinky klienta idú po chatoch (plugin lawoss-linked-folders), nie do spoločného súboru.
+import { withoutClientFolderGrants, writeLinkedFoldersMap } from "./lawoss/linked-folders.js";
 import { orgChatEngineIds } from "./org-policy-ai.js";
 import { allowedMemberConnectors } from "./org-policy-items.js";
 // The engine's built-in anonymous provider — always disabled: the free tier
@@ -281,8 +283,8 @@ export async function buildLegalworkRuntimeConfigObject(
   };
   // The firm's tool permissions apply over the member's own.
   const { permission } = config
-    ? await orgPolicyPermissions(config, { ...runtimeConfig.permission })
-    : { permission: { ...runtimeConfig.permission } };
+    ? await orgPolicyPermissions(config, withoutClientFolderGrants({ ...runtimeConfig.permission }))
+    : { permission: withoutClientFolderGrants({ ...runtimeConfig.permission }) };
   const instructionPermission = permission.legalwork_project_set_instructions === "deny" ? "deny" : "ask";
   // Append the specific rule after wildcard rules; approvals cannot be saved
   // for this tool, so every proposed instructions change is reviewed.
@@ -359,6 +361,7 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkToolOutputPluginPath(), config),
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
       bundledPluginSpec(legalworkPluginPath("lawoss-okf-handoff"), config),
+      bundledPluginSpec(legalworkPluginPath("lawoss-linked-folders"), config),
       // LAWOSS: wiki sa v alfe nenačíta (spec 0017 S1, lawoss/hidden-upstream-tools.ts).
       ...(LAWOSS_LOAD_WIKI_TOOLS ? [bundledPluginSpec(legalworkWikiToolsPluginPath(), config)] : []),
       bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
@@ -434,6 +437,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     await rename(tmp, path);
     // The firm's enforced layer is rewritten with it, before every reload.
     await writeOrgPolicyEngineLayer(config, await buildOrgPolicyEngineLayerFor(config, workspaceId));
+    await writeLinkedFoldersMap(config);
   };
   const previous = fileWriteQueue.get(path) ?? Promise.resolve();
   const next = previous.then(job, job);
@@ -457,14 +461,15 @@ export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, worksp
     if (runtimeDbPath(writeConfig) !== owner.path) return;
     // Global tool-permission, personalisation and connector writes affect
     // every workspace's derived config.
-    if (
+    const fileChanged = !(
       writtenWorkspaceId !== workspaceId &&
       writtenWorkspaceId !== GLOBAL_TOOL_PERMISSIONS_ID &&
       writtenWorkspaceId !== GLOBAL_PERSONALIZATION_ID &&
       writtenWorkspaceId !== GLOBAL_MCP_ID &&
       writtenWorkspaceId !== GLOBAL_PROVIDERS_ID
-    ) return;
-    const job = owner.run(() => writeLegalworkRuntimeConfigFile(config, workspaceId));
+    );
+    // LAWOSS: zápis iného klienta mení len mapu pripojených priečinkov pre plugin enginu.
+    const job = owner.run(async () => { if (fileChanged) await writeLegalworkRuntimeConfigFile(config, workspaceId); else await writeLinkedFoldersMap(config); });
     jobs.add(job);
     void job.then(() => jobs.delete(job), error => { failures.push(error); jobs.delete(job); });
   });

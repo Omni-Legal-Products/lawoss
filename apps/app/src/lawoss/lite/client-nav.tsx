@@ -33,6 +33,8 @@ import { ClientPickerDialog } from "./client-picker";
 import { clientGroupDirectory, clientNavAnchor, clientNavModel, type ClientOverviewState } from "./client-projects";
 import { clientToggle, focusedClientKey, matterToggle, routeFocus, type TreeClient, type TreeMatter } from "./client-tree";
 import { useClientTree } from "./client-tree-data";
+import { linkedFolderCount } from "./linked-folders";
+import { focusLinkedFolders, LinkedFoldersNavView, useLinkedFolders, useLinkedFoldersFocus } from "./linked-folders-view";
 import { clientDeadlinesLink, clientOverviewLink, LEHOTY_PATH, liteMatterLink, NEW_CLIENT_PATH } from "./links";
 import { matterUrgency, useMinuteTick } from "./live";
 import { comparable, within, type MatterConversation } from "./matter-conversations";
@@ -324,10 +326,10 @@ export function useLawossNewChat(): (openProjectId: string | null, create: (work
   return nav?.startNewChat ?? (() => false);
 }
 
-/** Stránka Projekty: Prípady a Lehoty len pri projektoch, ktoré sú klienti OKF. */
+/** Stránka Projekty: Prípady a Lehoty len pri projektoch, ktoré sú klienti OKF; Pripojené priečinky sú len ukazovateľ panela (Domov). */
 export function useClientProjectItem(): (key: string, workspaceId: string) => boolean {
   const nav = usePublishedClientNav();
-  return (key, workspaceId) => (key !== "projectMatters" && key !== "projectDeadlines") || Boolean(nav?.model.clients.has(workspaceId));
+  return (key, workspaceId) => key !== "projectLinkedFolders" && ((key !== "projectMatters" && key !== "projectDeadlines") || Boolean(nav?.model.clients.has(workspaceId)));
 }
 
 /** Položka „Prípady“ v natívnej mape položiek projektu. */
@@ -377,6 +379,27 @@ export function ClientDeadlinesNavItem({ workspaceId, className }: { workspaceId
       {hot ? <><span className="lw-nav-urgency" data-urgency="hot" aria-hidden /><span className="sr-only">{t("lawoss.lite.urgent", locale)}</span></> : null}
     </SidebarMenuSubButton>
   </SidebarMenuSubItem>;
+}
+
+/**
+ * Položka „Pripojené priečinky“ pod klientom: počet z natívneho zoznamu povolených priečinkov (bez pamäte
+ * kancelárie); klik otvorí Domov klienta so sekciou. Aktívna, kým je otvorený Domov tohto klienta zo sekcie.
+ */
+export function ClientLinkedFoldersNavItem({ workspaceId, className, active = false, onOpen }: { workspaceId: string; className?: string; active?: boolean; onOpen?: () => void }) {
+  const nav = use(ClientNavContext);
+  const locale = useLocale();
+  const client = Boolean(nav?.model.clients.has(workspaceId));
+  const { query } = useLinkedFolders(nav?.connection ?? null, workspaceId, client);
+  const focused = useLinkedFoldersFocus() === workspaceId;
+  // Domov klienta sa zatvoril (bol otvorený a už nie je): zvýraznenie sekcie sa zabudne.
+  const wasActive = useRef(active);
+  useEffect(() => {
+    if (wasActive.current && !active && focused) focusLinkedFolders(null);
+    wasActive.current = active;
+  }, [focused, active]);
+  if (!client) return null;
+  return <LinkedFoldersNavView locale={locale} count={linkedFolderCount(query.data?.folders ?? [], nav?.scope?.practiceRoot ?? null)} className={className}
+    active={active && focused} onOpen={() => { focusLinkedFolders(workspaceId); onOpen?.(); }} />;
 }
 
 type TreeActions = {

@@ -52,6 +52,7 @@ import type { TriageClient } from "../roztriedenie/api";
 import { FolderStep, ScreenHead } from "./folder-step";
 import { FoundScreen, OkfNotice } from "./found-screen";
 import { FRESH_OFFICE_COMPLETION } from "./found-flow";
+import type { ClientChatOutcome, ClientChatRequest } from "./client-chat";
 import { foundText } from "./found-text";
 import { unquotedTypedPath } from "./typed-paths";
 import { onboardingErrorMessage } from "./onboarding-errors";
@@ -539,6 +540,11 @@ type Props = {
    * Vráti klienta servera po aktivácii: usporiadanie aj značka dokončenia potom idú cez neho (review 6d).
    */
   onRegister?: (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => Promise<RegisteredApi | undefined>;
+  /**
+   * Chat s klientom po pridaní priečinka (MČ 19. 10. 2026, welcome-route); jazyk skillov je jazyk profilu.
+   * Bez neho „Toto som našiel“ chat neponúka.
+   */
+  onOpenClientChat?: (request: ClientChatRequest, skillLanguage: Language) => Promise<ClientChatOutcome>;
 };
 export function LawossWelcomePage({
   api,
@@ -549,6 +555,7 @@ export function LawossWelcomePage({
   onCancel,
   onComplete,
   onRegister,
+  onOpenClientChat,
   onOpenAiSettings,
   pickDirectory,
 }: Props) {
@@ -915,6 +922,7 @@ export function LawossWelcomePage({
                 onPickRoot={(path) => { setError(null); setFoundRoot(path); }}
                 onError={reportError}
                 onClearError={clearError}
+                onOpenChat={onOpenClientChat ? (request) => onOpenClientChat(request, identity.language) : undefined}
               />
             ) : (
               <FolderStep

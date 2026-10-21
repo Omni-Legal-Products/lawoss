@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent } from "react";
-import { BookOpen, Briefcase, CalendarClock, Users, CalendarDays, House, FolderOpen, LayoutGrid, Pin, Clock, TableProperties, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
+import { BookOpen, Briefcase, CalendarClock, FolderSymlink, Users, CalendarDays, House, FolderOpen, LayoutGrid, Pin, Clock, TableProperties, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
 import { LazyMotion, Reorder, domMax, useDragControls } from "motion/react";
 import { toast } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ export const SIDEBAR_ITEMS = {
   projectHome: { label: "projects.home", icon: House },
   projectMatters: { label: "lawoss.lite.project_matters", icon: Briefcase },
   projectDeadlines: { label: "lawoss.shell.deadlines", icon: CalendarClock },
+  projectLinkedFolders: { label: "lawoss.lite.linked_folders_title", icon: FolderSymlink },
   projectReviews: { label: "projects.tab_review", icon: TableProperties },
   projectTasks: { label: "projects.tasks", icon: ListTodo },
   projectFiles: { label: "projects.files", icon: Files },

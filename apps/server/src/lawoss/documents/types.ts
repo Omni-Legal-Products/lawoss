@@ -5,6 +5,9 @@ export const documentRecordSchema = z.object({
   status: z.enum(["uploaded", "preparing", "readable", "partial", "failed"]),
   extraction: z.enum(["native", "ocr"]).optional(), pages: z.array(documentPageSchema).max(2001),
   complete: z.boolean(), issue: z.string().optional(), updatedAt: z.number(), admittedAt: z.number().int().nonnegative().optional(),
+  ownComplete: z.boolean().optional(), attachmentCoverageComplete: z.boolean().optional(),
+  pdfCoverage: z.array(z.object({ page: z.number().int().positive(), nativeTextCoverage: z.enum(["complete", "missing", "damaged"]), visualReasons: z.array(z.enum(["images", "drawn-paths", "shading", "annotations"])) })).max(1000).optional(),
+  visualReview: z.object({ sourceHash: z.string().regex(/^[a-f0-9]{64}$/), revision: z.number(), reviewedAt: z.number(), reviewer: z.literal("authenticated-host"), pages: z.array(z.number().int().positive()).max(1000), confirmation: z.literal("decorative-only") }).optional(),
   provenance: z.object({ sourcePath: z.string(), parentId: z.string().uuid().optional(), parentHash: z.string().optional(), attachmentName: z.string().optional(), depth: z.number().int().nonnegative() }),
 });
 export type DocumentRecord = z.infer<typeof documentRecordSchema>;
