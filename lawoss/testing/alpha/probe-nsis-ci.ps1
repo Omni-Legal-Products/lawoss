@@ -1,6 +1,7 @@
 param(
   [Parameter(Mandatory = $true)][ValidateSet('x64', 'arm64')][string]$Arch,
-  [Parameter(Mandatory = $true)][string]$Output
+  [Parameter(Mandatory = $true)][string]$Output,
+  [switch]$NativeStartup
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -70,3 +71,8 @@ await writeFile(output, JSON.stringify({
 console.log('PASS real final NSIS installation and exact installed bytes; native journeys not performed');
 '@ | node --input-type=module - $asset $installed $Arch $assetHash $head $version $Output
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if ($NativeStartup) {
+  $startupOutput = Join-Path $env:RUNNER_TEMP ("alpha-startup-$Arch")
+  node lawoss/testing/alpha/probe-startup-ci.mjs --output-dir $startupOutput --installed-app (Join-Path $installed 'LAWOSS.exe')
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}

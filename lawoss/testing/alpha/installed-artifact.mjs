@@ -195,20 +195,17 @@ async function tree(root) {
     return result;
 }
 
-/** Private alpha payload integrity only; never supplies a public signing receipt. */
-export async function verifyAlphaInstallation({ platform, arch, asset, installedApp, expectedSha256 }) {
+/** Lend a digest-checked payload; retain only when an owned child failed verified cleanup. */
+export async function withExtractedAlphaArtifact({ platform, arch, asset, expectedSha256 }, use) {
     if (!['x64', 'arm64'].includes(arch) || !/^[a-f0-9]{64}$/.test(expectedSha256 ?? ''))
         throw new Error('Expected architecture and final artifact SHA-256');
-    if (platform === 'win32') return (await import('./nsis-artifact.mjs')).verifyNsisInstallation({ arch, asset: resolve(asset), installedApp: resolve(installedApp), expectedSha256 });
+    if (typeof use !== 'function') throw new Error('Expected an owned artifact consumer');
     const appImage = asset.endsWith('.AppImage'), mac = platform === 'darwin', dmg = mac && asset.endsWith('.dmg');
     if ((!mac && (platform !== 'linux' || (!asset.endsWith('.tar.gz') && !appImage))) || (mac && !asset.endsWith('.zip') && !dmg))
         throw new Error('Unsupported alpha artifact platform or format');
-    const installedInfo = await lstat(installedApp);
-    if (!(await lstat(asset)).isFile() || installedInfo.isSymbolicLink() || (mac ? !installedInfo.isDirectory() : !installedInfo.isFile() || basename(installedApp) !== 'legalwork'))
-        throw new Error('Expected physical final artifact and installed payload');
-    const installedRoot = await realpath(mac ? installedApp : dirname(installedApp));
+    if (!(await lstat(asset)).isFile()) throw new Error('Expected a physical final artifact');
     const scratch = await realpath(await mkdtemp(join(tmpdir(), 'lawoss-alpha-artifact-')));
-    let mount;
+    let mount, retained = false;
     try {
         // Verification/extraction use the same private copy, never a later mutable source path.
         const ownedAsset = join(scratch, `candidate${mac ? dmg ? '.dmg' : '.zip' : appImage ? '.AppImage' : '.tar.gz'}`);
@@ -226,11 +223,30 @@ export async function verifyAlphaInstallation({ platform, arch, asset, installed
         const payload = mac ? await macPayloadRoot(extracted, dmg) : await payloadRoot(extracted);
         if (mac) await macArchitecture(payload, arch);
         else await executableArchitecture(join(payload, 'legalwork'), arch);
+        await tree(payload); // Refuse escaping/broken links before lending an executable.
+        const installation = { status: 'verified', method: mac ? dmg ? 'sha256-dmg-installed-tree' : 'sha256-zip-installed-tree' : appImage ? 'sha256-appimage-installed-tree' : 'sha256-tar-installed-tree', signing: 'not-asserted', assetSha256: expectedSha256 };
+        return await use({ installedApp: mac ? payload : join(payload, 'legalwork'), installation, retain: () => { retained = true; } });
+    } finally {
+        if (!retained) {
+            if (mount) await promisify(execFile)('/usr/bin/hdiutil', ['detach', mount], { timeout: 30_000 });
+            await rm(scratch, { recursive: true, force: true });
+        }
+    }
+}
+
+/** Private alpha payload integrity only; never supplies a public signing receipt. */
+export async function verifyAlphaInstallation({ platform, arch, asset, installedApp, expectedSha256 }) {
+    if (!['x64', 'arm64'].includes(arch) || !/^[a-f0-9]{64}$/.test(expectedSha256 ?? ''))
+        throw new Error('Expected architecture and final artifact SHA-256');
+    if (platform === 'win32') return (await import('./nsis-artifact.mjs')).verifyNsisInstallation({ arch, asset: resolve(asset), installedApp: resolve(installedApp), expectedSha256 });
+    const installedInfo = await lstat(installedApp), mac = platform === 'darwin';
+    if (installedInfo.isSymbolicLink() || (mac ? !installedInfo.isDirectory() : !installedInfo.isFile() || basename(installedApp) !== 'legalwork'))
+        throw new Error('Expected a physical installed payload');
+    const installedRoot = await realpath(mac ? installedApp : dirname(installedApp));
+    return withExtractedAlphaArtifact({ platform, arch, asset, expectedSha256 }, async ({ installedApp: extracted, installation }) => {
+        const payload = mac ? extracted : dirname(extracted);
         if (JSON.stringify(await tree(payload)) !== JSON.stringify(await tree(installedRoot)))
             throw new Error('Installed payload tree or bytes differ from final artifact');
-        return { status: 'verified', method: mac ? dmg ? 'sha256-dmg-installed-tree' : 'sha256-zip-installed-tree' : appImage ? 'sha256-appimage-installed-tree' : 'sha256-tar-installed-tree', signing: 'not-asserted', assetSha256: expectedSha256 };
-    } finally {
-        if (mount) await promisify(execFile)('/usr/bin/hdiutil', ['detach', mount], { timeout: 30_000 });
-        await rm(scratch, { recursive: true, force: true });
-    }
+        return installation;
+    });
 }

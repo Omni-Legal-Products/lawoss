@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { gzipSync } from 'node:zlib';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { verifyAlphaInstallation } from './installed-artifact.mjs';
+import { verifyAlphaInstallation, withExtractedAlphaArtifact } from './installed-artifact.mjs';
 
 const desktopRequire = createRequire(new URL('../../../apps/desktop/package.json', import.meta.url));
 const builderRequire = createRequire(desktopRequire.resolve('electron-builder/package.json'));
@@ -122,6 +122,28 @@ async function macFixture(t) {
 posixTest('private macOS ZIP integrity accepts the exact app bundle without asserting signing', async t => {
     const f = await macFixture(t);
     assert.deepEqual(await verifyAlphaInstallation(f), { status: 'verified', method: 'sha256-zip-installed-tree', signing: 'not-asserted', assetSha256: f.expectedSha256 });
+});
+posixTest('guarded extraction lends the verified payload only inside its callback and removes it afterwards', async t => {
+    const f = await macFixture(t); let installed;
+    const result = await withExtractedAlphaArtifact(f, async ({ installedApp, installation }) => {
+        installed = installedApp;
+        assert.equal(JSON.parse(await readFile(join(installedApp, 'Contents/Resources/build-info.json'))).arch, 'arm64');
+        assert.equal(installation.signing, 'not-asserted');
+        return 'completed';
+    });
+    assert.equal(result, 'completed');
+    await assert.rejects(readFile(join(installed, 'Contents/Resources/build-info.json')), { code: 'ENOENT' });
+});
+posixTest('guarded extraction cleans failed consumers, refuses wrong hash before callback, and retains only on explicit ownership failure', async t => {
+    const f = await macFixture(t); let installed, called = false;
+    await assert.rejects(withExtractedAlphaArtifact({ ...f, expectedSha256: '0'.repeat(64) }, () => { called = true; }), /digest/i);
+    assert.equal(called, false);
+    await assert.rejects(withExtractedAlphaArtifact(f, async loan => { installed = loan.installedApp; throw new Error('consumer failure'); }), /consumer failure/);
+    await assert.rejects(readFile(join(installed, 'Contents/Resources/build-info.json')), { code: 'ENOENT' });
+    await assert.rejects(withExtractedAlphaArtifact(f, async loan => { installed = loan.installedApp; loan.retain(); throw new Error('owned stop unverified'); }), /owned stop unverified/);
+    assert.equal(JSON.parse(await readFile(join(installed, 'Contents/Resources/build-info.json'))).arch, 'arm64');
+    // This fixture never spawns an application; removing its explicitly retained scratch is safe.
+    await rm(dirname(dirname(installed)), { recursive: true, force: true });
 });
 posixTest('macOS ZIP rejects changed installed bytes and wrong target architecture', async t => {
     const f = await macFixture(t);

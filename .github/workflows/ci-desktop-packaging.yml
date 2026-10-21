@@ -180,7 +180,7 @@ jobs:
         run: node apps/desktop/scripts/check-packaged-server-imports.mjs "apps/desktop/dist-electron/${{ matrix.asar }}"
       - name: Verify Linux AppImage packaging
         if: runner.os == 'Linux'
-        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --${{ matrix.arch }} --publish never
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --${{ matrix.arch }} --prepackaged "dist-electron/${{ matrix.arch == 'arm64' && 'linux-arm64-unpacked' || 'linux-unpacked' }}" --publish never
       - name: Verify shipped fuses, Node and document tools
         run: pnpm --dir apps/desktop check:packaged-security "dist-electron/${{ matrix.securityTarget }}"
       - name: Run isolation probe with the packaged Node and VM
@@ -201,13 +201,13 @@ jobs:
         run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
       - name: Verify Windows installer packaging
         if: runner.os == 'Windows'
-        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --${{ matrix.arch }} --publish never
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --${{ matrix.arch }} --prepackaged "dist-electron/${{ matrix.arch == 'arm64' && 'win-arm64-unpacked' || 'win-unpacked' }}" --publish never
       # Only the finite integrity receipt is uploaded, never unsigned binaries.
       - name: Verify actual Windows NSIS installation and final bytes
         if: runner.os == 'Windows'
         shell: pwsh
-        timeout-minutes: 7
-        run: ./lawoss/testing/alpha/probe-nsis-ci.ps1 -Arch '${{ matrix.arch }}' -Output "$env:RUNNER_TEMP/nsis-proof-${{ matrix.arch }}.json"
+        timeout-minutes: 12
+        run: ./lawoss/testing/alpha/probe-nsis-ci.ps1 -Arch '${{ matrix.arch }}' -NativeStartup -Output "$env:RUNNER_TEMP/nsis-proof-${{ matrix.arch }}.json"
       - name: Upload Windows installed-tree integrity receipt
         if: runner.os == 'Windows' && !cancelled()
         uses: actions/upload-artifact@v4
@@ -228,6 +228,40 @@ jobs:
         if: runner.os == 'Linux'
         timeout-minutes: 3
         run: xvfb-run -a node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
+      # Final-distribution startup is separate from unpacked-app smoke. These
+      # private unsigned artifacts never enter the public artifact uploader.
+      - name: Build final macOS ZIP for native startup
+        if: runner.os == 'macOS'
+        timeout-minutes: 10
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --mac zip --${{ matrix.arch }} -c.mac.identity=- --prepackaged "dist-electron/${{ matrix.securityTarget }}" --publish never
+      - name: Verify final macOS ZIP native startup
+        if: runner.os == 'macOS'
+        timeout-minutes: 10
+        run: node lawoss/testing/alpha/probe-startup-ci.mjs --output-dir "$RUNNER_TEMP/alpha-startup-${{ matrix.arch }}"
+      - name: Install native Linux startup capture tools
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        run: |
+          if ! command -v xwd >/dev/null || ! command -v xprop >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends x11-apps x11-utils
+          fi
+      - name: Verify final Linux AppImage native startup
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        run: xvfb-run -a node lawoss/testing/alpha/probe-startup-ci.mjs --output-dir "$RUNNER_TEMP/alpha-startup-${{ matrix.arch }}"
+      # Only the finite receipt and synthetic welcome window, after verified
+      # cleanup. Profiles, raw receipts and final distributions remain private.
+      - name: Upload synthetic final-artifact native startup evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-final-startup-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/alpha-startup-${{ matrix.arch }}/startup.json
+            ${{ runner.temp }}/alpha-startup-${{ matrix.arch }}/startup.${{ runner.os == 'Linux' && 'xwd' || 'png' }}
+          if-no-files-found: error
+          retention-days: 7
 
   # A separate unmodified upstream rebuild can only diagnose the original RED.
   # Matrix aggregate failure also includes macOS: inspect Windows evidence first.
