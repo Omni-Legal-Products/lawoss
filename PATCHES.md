@@ -1,5 +1,20 @@
 # LAWOSS downstream patches
 
+## Pripojené priečinky klienta: agent, dokumenty, prax, cloud (alfa2 A3, 2026-10-22)
+
+Podklad: plán alfa2 úloha A3, nálezy N-10, N-16, N-18, N-19, N-20 (akceptácia 22. 10. 2026). Nové LAWOSS súbory: `apps/server/src/lawoss/linked-folder-survey.ts`, testy `apps/server/src/lawoss/documents/linked-folders.test.ts`, `apps/server/src/opencode-plugins/lawoss-linked-folders.test.ts`, `apps/server/src/lawoss/linked-folders-documents.integration.test.ts`.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/server.ts` | `PUT /workspace/:id/authorized-folders` prečíta voliteľné `lawossConfirmedPracticeLike` (najviac 50 reťazcov) a pošle ho do `requireLinkableFolders`; `LawossDocuments` dostane `documentLinkedFolders` (pripojené priečinky klienta, čítané pri každom prístupe). Dôvod: N-16 (prax sa pripojila bez otázky) a N-18/N-19 (príprava dokumentov odmietla vlastný pripojený priečinok rovnakou 403 ako cudzí). |
+| `apps/server/src/lawoss/documents/service.ts` | Tretí voliteľný parameter konštruktora (predvolene žiadne priečinky). Zdroj mimo koreňa klienta sa prijme len v práve pripojenom priečinku tohto klienta (kanonicky aj po `realpath`, odkaz von sa odmietne) a uloží sa s absolútnou kanonickou cestou, takže export a chránené prostredie, ktoré cestu riešia voči koreňu, ho odmietnu. Inak `403 document_folder_not_linked` skôr, než sa čokoľvek prečíta, bez mena iného klienta. |
+| `apps/server/src/opencode-plugins/legalwork-project-tools.ts` | Popis `lawoss_documents_prepare` a pevná veta systémového textu: okrem relatívnych ciest aj absolútne cesty v pripojených priečinkoch klienta. Dôvod: N-18, model posielal len cesty v koreni. |
+| `apps/app/src/app/lib/legalwork-server.ts` | `setAuthorizedFolders(workspaceId, folders, options?)`: voliteľné `lawossConfirmedPracticeLike` ide do tela PUT len keď je neprázdne. Dôvod: „Pripojiť aj tak“ po otázke pri priečinku, ktorý vyzerá ako prax (ľudská brána overená serverom pre presne ten priečinok). |
+| `apps/app/src/react-app/domains/workspace/project-remote-folders.tsx` | Tlačidlo a dialóg vzdialených priečinkov sa nevykreslí bez cloudového úložiska a bez pripojeného priečinka z cloudu. Dôvod: N-10, dve funkcie s rovnakým názvom a prázdny dialóg s neaktívnym tlačidlom. |
+| `apps/app/src/i18n/locales/{en,de}.ts` (+ zelené `sk.ts`, `cs.ts`) | `projects.remote.linked` / `projects.remote.link` = „Cloud folders“ / „Link a cloud folder“, „Cloud-Ordner“ / „Cloud-Ordner verknüpfen“, „Priečinky v cloude“, „Složky v cloudu“. Dôvod: N-10, lokálne „Pripojené priečinky“ klienta (rozhodnutie MČ 19. 10.) ostávajú jediné s týmto názvom. Pri syncu zachovať hodnoty. |
+
+Serverové pravidlá (bez upstream zásahu, `apps/server/src/lawoss/linked-folders.ts`): interný domovský priestor `lawoss-domov` vedľa `legalwork-workspaces.json` nie je klient a jeho rodič (userData) patrí k dátam aplikácie (N-20 vráti `linked_folder_app_data`); nový priečinok mimo klienta prejde prieskumom (`linked-folder-survey.ts`): značky OKF iného klienta alebo kancelárie odmietnu vždy (`linked_folder_other_client` / `linked_folder_practice`), podoba praxe (≥2 podpriečinky ako klienti s ≥2 vecami s kódom, rokom alebo spisovou značkou) vráti `409 linked_folder_practice_like` s menami a prejde len s potvrdením. Plugin `lawoss-linked-folders` posiela zoznam pripojených priečinkov klienta ako pripomienku `linked-folders` (aj chatu prípadu), nie do systémového promptu.
+
 ## Panel doplnku Office bez editorov xlsx/pptx (2026-10-20)
 
 | Súbory | Downstream doplnenie a dôvod |
