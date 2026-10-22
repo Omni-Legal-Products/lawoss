@@ -7,7 +7,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { toggledLeave, triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { friendlyError, TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
-import { addOkfFiles, answerClient, batchOffersChat, chatTarget, childPath, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientPath, createReorganizeFlow, retryFailed, workspaceResults, type Answer, type BatchItem, type FoundIdentity } from "./found-flow";
+import { addOkfFiles, answerClient, batchOffersChat, chatTarget, childPath, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientPath, createReorganizeFlow, practiceView, retryFailed, workspaceResults, type Answer, type BatchItem, type FoundIdentity } from "./found-flow";
 import { clientChatPrompt, type ClientChatOutcome, type ClientChatRequest, type ClientChatUnavailable } from "./client-chat";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
@@ -41,7 +41,8 @@ export function foundProposal(suggestion: OnboardingSuggestion): { key: Proposal
   if (isUncertainPractice(suggestion)) return { key: "practiceUncertain", level: "client" };
   if (suggestion.level === "practice") return { key: "practiceFound", level: "practice" };
   if (suggestion.level === "matter") return { key: "matterFound", level: "matter" };
-  if (suggestion.level === "client") return { key: "clientFound", level: "client" };
+  // Len obyčajné podpriečinky (najslabší signál, istota 0,5): appka netvrdí „Vyzerá to ako klient“ (N-9, R1 bod 1 P2).
+  if (suggestion.level === "client" && !(suggestion.signals.length === 1 && suggestion.signals[0] === "plain_directories")) return { key: "clientFound", level: "client" };
   return { key: "unknownFound", level: "client" };
 }
 
@@ -77,7 +78,9 @@ type ViewProps = {
   chat?: boolean;
 };
 
-export function FoundView({ text, busy, suggestion, level, scope, selected, onLevel, onScope, onToggle, onAll, onAnswer, onChangeFolder, onPickRoot, chat = false }: ViewProps) {
+export function FoundView({ text, busy, suggestion: proposed, level, scope, selected, onLevel, onScope, onToggle, onAll, onAnswer, onChangeFolder, onPickRoot, chat = false }: ViewProps) {
+  // Ručne zvolená „Celá prax“ ukáže kandidátov praxe aj pri návrhu klienta (N-9).
+  const suggestion = level === "practice" ? practiceView(proposed) : proposed;
   const yesDisabled = level === "practice" && scope === "practice";
   // Prax po klientoch bez označeného klienta: nie je čo urobiť, kancelária sa nezapíše.
   const nothingSelected = level === "practice" && scope === "client" && selected.length === 0;
@@ -363,8 +366,10 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     show: setPhase,
   }) : undefined;
 
-  const answer = (suggestion: OnboardingSuggestion, choice: Answer) => run(async () => {
+  const answer = (proposed: OnboardingSuggestion, choice: Answer) => run(async () => {
     await onAcknowledge();
+    // Pri ručne zvolenej praxi klienti a vzor z kandidátov praxe (N-9); úroveň a veta návrhu ostávajú.
+    const suggestion = level === "practice" ? practiceView(proposed) : proposed;
     if (level === "practice") {
       await connectPractice(api, suggestion.root, identity, suggestion, scope);
       if (scope === "practice") {
@@ -404,9 +409,14 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     return (
       <FoundView
         text={text} busy={busy} suggestion={phase.suggestion} level={level} scope={scope} selected={selected}
-        onLevel={setLevel} onScope={setScope}
+        onLevel={(next) => {
+          setLevel(next);
+          // Prepnutie na prax predvolí všetkých klientov praxe (inak by výber ostal prázdny a odpovede vypnuté).
+          if (next === "practice") setSelected(practiceView(phase.suggestion).clients.map(client => client.path));
+        }}
+        onScope={setScope}
         onToggle={(path) => setSelected((current) => current.includes(path) ? current.filter(item => item !== path) : [...current, path])}
-        onAll={(all) => setSelected(all ? phase.suggestion.clients.map(client => client.path) : [])}
+        onAll={(all) => setSelected(all ? practiceView(phase.suggestion).clients.map(client => client.path) : [])}
         onAnswer={(choice) => void answer(phase.suggestion, choice)}
         onChangeFolder={onChangeFolder}
         onPickRoot={onPickRoot}

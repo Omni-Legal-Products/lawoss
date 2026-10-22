@@ -155,6 +155,9 @@ export type OnboardingSuggestion = {
   signals: readonly string[];
   clientPattern?: string;
   clients: readonly { path: string; name: string }[];
+  /** Klienti a vzor pre ručnú opravu na „Celá prax“ (N-9); starší server ich neposiela. */
+  practiceCandidates?: readonly { path: string; name: string }[];
+  practicePattern?: string;
   complete: boolean;
   /** Priame podpriečinky s kanceláriou OKF (`<meno>/Office/okf.config`); advokát má zrejme pripojiť ten podpriečinok. */
   childOffices?: readonly string[];
