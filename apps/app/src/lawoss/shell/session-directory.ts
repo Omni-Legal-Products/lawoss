@@ -27,3 +27,8 @@ export function effectiveSessionDirectory(workspace: ClientFolder, session?: { d
   if (!root || !directory || workspace?.workspaceType === "remote") return root;
   return isWithinClientFolder(root, directory) ? directory : root;
 }
+
+/** The folder of one open chat, from its loaded snapshot (another chat's snapshot never counts); the client root until it loads. */
+export function chatDirectory(clientRoot: string, remote: boolean, sessionId: string, loaded?: { session: { id: string; directory?: string | null } } | null): string {
+  return effectiveSessionDirectory({ path: clientRoot, workspaceType: remote ? "remote" : "local" }, loaded?.session.id === sessionId ? loaded.session : null);
+}

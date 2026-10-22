@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { effectiveSessionDirectory, isWithinClientFolder } from "../src/lawoss/shell/session-directory";
+import { chatDirectory, effectiveSessionDirectory, isWithinClientFolder } from "../src/lawoss/shell/session-directory";
 import { sessionDirectoryWithinWorkspace, sessionsWithinWorkspace } from "../src/react-app/shell/use-workspace-route-state";
 import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 
@@ -38,4 +38,15 @@ test("zoznam a vybraný chat trasy používajú to isté pravidlo", () => {
   expect(sessionDirectoryWithinWorkspace(client, { directory: "/prax/Klient-A" })).toBe("/prax/Klient_A");
   expect(sessionsWithinWorkspace(client, [{ id: "a", directory: matter }, { id: "b", directory: "/prax/Klient_A2" }, { id: "c", directory: "/prax/Klient_A/x/../../Klient-A" }] as never))
     .toMatchObject([{ id: "a" }]);
+});
+
+test("karta chatu: priečinok z vlastného snapshotu, nikdy z cudzieho; koreň kým sa nenačíta", () => {
+  const snapshot = (id: string, directory: string) => ({ session: { id, directory } });
+  expect(chatDirectory("/prax/Klient_A", false, "ses_pripad", snapshot("ses_pripad", matter))).toBe(matter);
+  expect(chatDirectory("/prax/Klient_A", false, "ses_klient", snapshot("ses_klient", "/prax/Klient_A"))).toBe("/prax/Klient_A");
+  // Snapshot iného chatu (napr. práve vybraného prípadu) neplatí pre túto kartu.
+  expect(chatDirectory("/prax/Klient_A", false, "ses_klient", snapshot("ses_pripad", matter))).toBe("/prax/Klient_A");
+  expect(chatDirectory("/prax/Klient_A", false, "ses_pripad", null)).toBe("/prax/Klient_A");
+  expect(chatDirectory("/prax/Klient_A", false, "ses_cudzi", snapshot("ses_cudzi", "/prax/Klient-A/Spis"))).toBe("/prax/Klient_A");
+  expect(chatDirectory("/prax/Klient_A", true, "ses_pripad", snapshot("ses_pripad", matter))).toBe("/prax/Klient_A");
 });

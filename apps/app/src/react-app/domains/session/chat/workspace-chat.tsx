@@ -1,5 +1,5 @@
-import { ensureWorkspaceSessionSync, snapshotKey, trackWorkspaceSessionSync } from "../sync/session-sync";
-import { useEffect, useMemo } from "react";
+import { ensureWorkspaceSessionSync, snapshotKey, statusKey, trackWorkspaceSessionSync } from "../sync/session-sync";
+import { useEffect, useMemo, useRef } from "react";
 import { createClient } from "@/app/lib/opencode";
 import { useSessionInteractions } from "../sync/use-session-interactions";
 import { SessionSurface, type SessionSurfaceProps } from "../surface/session-surface";
@@ -12,7 +12,8 @@ import { resolveModelDisplayName } from "@/app/utils";
 import type { ModelRef } from "@/app/types";
 import type { LegalworkSessionSnapshot } from "@/app/lib/legalwork-server";
 import { useQueryCacheState } from "@/react-app/infra/query-cache-state";
-import { effectiveSessionDirectory } from "@/lawoss/shell/session-directory";
+import { chatDirectory } from "@/lawoss/shell/session-directory";
+import { getReactQueryClient } from "@/react-app/infra/query-client";
 
 /** Each open chat owns its approvals, questions and todos. Focusing a different
  * tab changes navigation, never the session to which an action is addressed. */
@@ -22,8 +23,14 @@ export function WorkspaceChat(props: SessionSurfaceProps & { clientRoot: string 
   // of a chat exist only in its folder's engine instance.
   const loadedKey = useMemo(() => snapshotKey(props.workspaceId, props.sessionId), [props.workspaceId, props.sessionId]);
   const loaded = useQueryCacheState<LegalworkSessionSnapshot | null>(loadedKey, null);
-  const directory = effectiveSessionDirectory({ path: props.clientRoot, workspaceType: props.isRemoteWorkspace ? "remote" : "local" },
-    loaded?.session.id === props.sessionId ? loaded.session : null);
+  const directory = chatDirectory(props.clientRoot, props.isRemoteWorkspace, props.sessionId, loaded);
+  // The status read is keyed by chat only; read it again in the chat's own folder once known.
+  const firstDirectory = useRef(directory);
+  useEffect(() => {
+    if (firstDirectory.current === directory) return;
+    firstDirectory.current = directory;
+    void getReactQueryClient().invalidateQueries({ queryKey: statusKey(props.workspaceId, props.sessionId) });
+  }, [directory, props.workspaceId, props.sessionId]);
   const client = useMemo(() => createClient(props.opencodeBaseUrl, directory || undefined,
     { token: props.legalworkToken, mode: "legalwork" }), [props.opencodeBaseUrl, directory, props.legalworkToken]);
   useEffect(() => {
