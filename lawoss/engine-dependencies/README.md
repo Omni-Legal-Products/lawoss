@@ -434,3 +434,24 @@ imports all runtime modules and verifies every loaded CommonJS physical path
 stays inside the relocated tree. It does not prepare user dependencies or fetch
 SDK packages. It restores the original stage after positive child close.
 Native Windows/Ubuntu CI and actual desktop packaging remain separate gates.
+
+
+### Captured managed SDK authority plan (S3)
+
+`managed-sdk-authority.mjs` exports the standalone read-only
+`planManagedSdkConfigRoles` API. Its private inputs are the closed product-code
+identity, eligible managed sandbox scope, one final environment/cwd/native-home/
+Global.state capture, explicit active-lifetime G/E root grants and the original
+deadline/signal. The caller must establish capture and grant provenance; a valid
+data shape, same UID or familiar path does not establish authority.
+
+The frozen result is `planned`, `incomplete` or `not-applicable`. It retains both
+G and E, every logical lease spelling, applicable extra P/H roles, physical
+identity/alias observations and absent-target suffixes under a granted ancestor.
+Existing dependency entries stay unadmitted; extra or ungranted roles keep
+coverage incomplete. The module creates no directories, locks or SDK planes and
+has no runtime caller. S4 must acquire leases and revalidate grants before any
+mutation; modeled Windows paths are not native ownership evidence.
+
+Focused verification uses the existing Node test runner:
+`node --test lawoss/engine-dependencies/config-roles.test.mjs lawoss/engine-dependencies/managed-sdk-authority.test.mjs lawoss/build/plugin-payload/product-identity.test.mjs`.

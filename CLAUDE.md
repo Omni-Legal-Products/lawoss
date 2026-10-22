@@ -79,6 +79,7 @@ Rules:
 
 ## TypeScript and package management
 
+- A captured SDK role plan is read-only private data, not mutation authority: retain both G/E and every logical alias, keep extra P/H/custom planes incomplete, and require real same-final-env capture plus active-lifetime grants before leased seeding. Never infer ownership from UID or path prefix.
 - Verify generated AppRun and desktop Exec arguments, not only Electron window settings: packaging must not silently add sandbox-disabling flags. Inspect every lockfile delta after a dependency patch and retain unrelated integrity pins.
 - Keep controlled child payloads off `node -e` argv; send them over the existing IPC channel while preserving real pipe-byte handshakes. Wall-clock retry integration tests prove progress and cleanup; deterministic collector sequences prove exact final boundary/error tuples.
 - Native executable ownership fixtures can copy the current test runtime instead of compiling a helper. Verify copied bytes, actual stdout readiness and the exact executable path from a bounded PID census; preserve refusal deadlines, liveness and owned close cleanup.
