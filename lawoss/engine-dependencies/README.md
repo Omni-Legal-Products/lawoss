@@ -499,7 +499,23 @@ Other callers retain the original public error fields and supervision behavior.
 Validated bounded projection diagnostics may refine a generic child failure.
 
 Worker and parent supplemental refusal/lifetime tests have independent review.
-Full source-layout admission, genuine32/64/64/64 execution and unchanged47
-retained-input replay remain unperformed. Changes to existing SDK-bound source
-require fresh source-bound compatibility proof. This is a CI fixture pipeline,
-separate from the future application SDK seeder and installed-app acceptance.
+A retained-input replay at `ac3e493edfe56c3dcb4bb02fdc90cbf8d1e21fe3` used the
+complete physical source/runtime-tools layout on Linux ARM64 with Node22.23.2:
+one actual projection checked32 archives and64 each of raw reads,
+representations, exact-byte fetches and fresh pacote reads; the unchanged47
+then passed with no skips. Both direct children closed with exit0, artifact
+admission followed projection close, owned cleanup completed and all inputs
+remained unchanged. The acquisition receipt is historical: this replay does
+not measure fresh network acquisition plus projection within300 seconds, or
+establish another platform, current all-six SDK compatibility or installed-app
+acceptance. Its evidence manifest SHA256 is
+`0df17d299d87d2264621bb1220accf544a8106a054ec66a5a87761d5e388ce1f`.
+
+Supplemental readiness tests use an independent monotonic5000ms bound and
+observe owning-operation and inner-child settlement. Early failure retains
+the original Error; release and actual child/fd joins precede restoration and
+cleanup. Focused real fault controls and32 covering cases passed independent
+review on macOS; deliberate inner failures prove error handling, not app
+success. Existing SDK-bound source changes still require fresh source-bound
+compatibility proof. This CI fixture pipeline remains separate from the future
+application SDK seeder and installed-app acceptance.
