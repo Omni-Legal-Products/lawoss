@@ -11,6 +11,7 @@ import { ensureDir } from "./utils.js";
 import { globalOpencodeConfigDir, globalSkillsDir } from "./workspace-files.js";
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { connectorConfigVariables } from "./connector-config.js";
+import { isPathWithin } from "./lawoss/path-within.js";
 import { readContentHash, readProvenance, withContentHash, withProvenance, type PluginProvenance } from "./lawoss/plugin-provenance.js";
 
 const OPENCODE_SKILL_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -603,7 +604,8 @@ export function resolveWorkspaceInstallPath(workspaceRoot: string, relativePath:
     ? resolve(globalSkillsDir(), normalized.slice(".opencode/skills/".length))
     : resolve(root, global ? normalized.slice(".opencode/".length) : normalized);
   const allowedRoot = global && normalized.startsWith(".opencode/skills/") ? resolve(globalSkillsDir()) : root;
-  if (candidate !== allowedRoot && !candidate.startsWith(`${allowedRoot}${process.platform === "win32" ? "\\" : "/"}`)) {
+  // 🟡 LAWOSS: koreň disku či zdieľania (`D:\`, `\\nas\share\`) už končí lomkou a prefix `${allowedRoot}\` odmietol každý súbor.
+  if (!isPathWithin(allowedRoot, candidate)) {
     throw new ApiError(400, "invalid_cloud_plugin_path", `Invalid cloud plugin path: ${relativePath}`);
   }
   return candidate;

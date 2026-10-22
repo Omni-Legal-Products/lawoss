@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path, { basename, join, parse } from "node:path";
+import { assertPluginDestination, resolveWorkspaceInstallPath } from "./cloud-plugins.js";
 import { childPathWithin } from "./lawoss/path-within.js";
 import { resolveWithinRoot } from "./paths.js";
 import { normalizeWorkspaceRelativePath, startServer } from "./server.js";
@@ -142,6 +143,26 @@ test("povolený koreň súborového systému (`/`, `C:\\`) pustí workspace pod 
   const f = await office();
   const { get, engine } = await serve(f.base, f.novak, [parse(f.base).root]);
   await expectContained({ get, engine, matterDirectory: join(f.novak, ...MATTER.split("/")), sibling: f.sibling });
+});
+
+// Súbory pluginu vo workspace (rozsah projektu): sync upstream v0.2.9 (#164) nahradil `isPathWithin`
+// prefixom `${allowedRoot}\` / `${allowedRoot}/`, ktorý pri koreni končiacom lomkou odmietol každý súbor.
+test("plugin vo workspace v koreni súborového systému (`/`, `C:\\`) a zdieľania sa nainštaluje, súrodenec Novak s.r.o nie", async () => {
+  const f = await office();
+  const skill = ".opencode/skills/okf/SKILL.md";
+  const shares = process.platform === "win32" ? ["\\\\localhost\\share\\", "\\\\localhost\\share"] : [];
+  for (const root of [parse(f.base).root, ...shares]) {
+    expect(resolveWorkspaceInstallPath(root, skill)).toBe(join(path.resolve(root), ".opencode", "skills", "okf", "SKILL.md"));
+    expect(resolveWorkspaceInstallPath(root, ".opencode/plugin-resources/okf-plugin")).toBe(join(path.resolve(root), ".opencode", "plugin-resources", "okf-plugin"));
+  }
+  // Kontrola pred zápisom a odinštalovaním (lstat na neexistujúcej ceste, nič nezapíše).
+  await assertPluginDestination(parse(f.base).root, skill);
+  expect(resolveWorkspaceInstallPath(f.novak, skill)).toBe(join(f.novak, ".opencode", "skills", "okf", "SKILL.md"));
+  // Kontrola obsiahnutia ostáva: na Windows je `\` oddeľovač, takže `..\..` vyjde z workspace.
+  const sibling = ".opencode/..\\..\\Novak s.r.o\\tajne.md";
+  if (process.platform === "win32") expect(() => resolveWorkspaceInstallPath(f.novak, sibling)).toThrow("Invalid cloud plugin path");
+  else expect(resolveWorkspaceInstallPath(f.novak, sibling)).toBe(join(f.novak, ".opencode", "..\\..\\Novak s.r.o\\tajne.md"));
+  expect(() => resolveWorkspaceInstallPath(f.novak, ".opencode/../../Novak s.r.o/tajne.md")).toThrow("Invalid cloud plugin path");
 });
 
 test("povolený priečinok Novak nepovolí súrodenca Novak s.r.o", async () => {
