@@ -515,6 +515,7 @@ for (const gate of ['receipt-before-close', 'held-manifest', 'cancel-admission',
         failureReads: io.failureStats, cacheReads: io.cacheStats, cleanup: cleaned, testSpawns: interception.testSpawns, code: finalError.code }));
       if (gate === 'preabort') {
         assert.equal(finalError.code, 'CANCELLED'); assert.equal(publicFailure.childClosed, 'unknown');
+        assert.equal(childSupervision.childSupervisorReason(finalError.private.primary), 'CANCELLED');
         assert.equal(cleaned, false); assert.equal(io.manifests, 0); assert.equal(io.failures, 0); assert.equal(io.failureStats, 0); assert.equal(io.cacheStats, 0);
         assert.equal((await fs.lstat(owned)).isDirectory(), true);
       } else {
@@ -571,6 +572,7 @@ for (const diagnostic of ['valid', 'wrong-nonce', 'extra', 'code', 'oversize', '
       if (diagnostic === 'valid' || (['cancelled', 'timeout', 'output-limit'].includes(diagnostic) && process.platform !== 'win32')) assert.deepEqual(value.projection, projectionFailure());
       else assert.equal(value.projection, null);
       assert.equal(value.code, diagnostic === 'cancelled' ? 'CANCELLED' : diagnostic === 'timeout' ? 'OPERATION_TIMEOUT' : diagnostic === 'output-limit' ? 'CHILD_OUTPUT_LIMIT' : diagnostic === 'valid' ? 'TOOLS_INVALID' : 'CHILD_FAILED');
+      if (['cancelled', 'timeout', 'output-limit'].includes(diagnostic)) assert.equal(childSupervision.childSupervisorReason(error.private.primary), value.code);
       assert.equal(JSON.stringify(value).includes('private-sentinel'), false);
       t.diagnostic(JSON.stringify({ control: diagnostic, originalSpawns: interception.observations,
         actualChildren: interception.children.map(child => ({ pid: child.pid, argv: child.spawnargs, exitCode: child.exitCode, signal: child.signalCode })),
@@ -729,6 +731,96 @@ test('projection parent: expiration after prepared negative control prevents pro
     t.diagnostic(JSON.stringify({ originalDeadline: deadline, projectionSpawns: interception.children.length, testSpawns: interception.testSpawns, manifestOpens: io.manifests, failureReads: io.failureStats, cacheReads: io.cacheStats, cleanup: cleaned, code: error.code }));
   } finally {
     Object.defineProperty(Date, 'now', dateDescriptor); io?.restore(); interception?.restore();
+    if (owned) await fs.rm(owned, { recursive: true, force: true });
+  }
+});
+
+
+// Task18 R1: identity-backed supervisor provenance; no stderr name is authority.
+import * as childSupervision from '../build/plugin-payload/prepare.mjs';
+for (const [forged, mode] of [['CANCELLED', 'supervisor-forged-cancelled'], ['OPERATION_TIMEOUT', 'supervisor-forged-timeout'], ['CHILD_OUTPUT_LIMIT', 'supervisor-forged-output-limit']]) {
+  for (const withFailure of [false, true]) {
+    test(`projection parent: supervisor provenance forged ${forged} file=${withFailure} refuses impersonation`, async t => {
+      const controller = new AbortController(); let primary, context;
+      await assert.rejects(ownedValidation(async (workspace, state) => {
+        context = state; state.phase = 'projection'; state.projectionNonce = nonce;
+        if (withFailure) await fs.writeFile(path.join(workspace, 'projection-fixture-failure.json'), canonicalRecordBytes(projectionFailure()));
+        await validationChild([projectionFixture, mode, workspace], workspace, { offline: true, timeout: 5000, signal: controller.signal }, state);
+      }), error => {
+        primary = error.private.primary;
+        assert.equal(controller.signal.aborted, false);
+        assert.equal(primary.child.closed, true); assert.equal(primary.child.exitCode, 1); assert.equal(primary.child.signal, null);
+        assert.equal(primary.code, withFailure ? 'TOOLS_INVALID' : 'CHILD_FAILED');
+        assert.equal(failureReceipt(error).code, withFailure ? 'TOOLS_INVALID' : 'CHILD_FAILED');
+        assert.deepEqual(failureReceipt(error).projection, withFailure ? projectionFailure() : null);
+        assert.equal(childSupervision.childSupervisorReason(primary), undefined);
+        assert.equal(childSupervision.childSupervisorReason(error), undefined); // wrapper is not the original Error
+        return true;
+      });
+      t.diagnostic(JSON.stringify({ forged, diagnosticFile: withFailure, signalAborted: controller.signal.aborted, timeout: 5000,
+        child: context.child, primary: primary.code, genuineReason: childSupervision.childSupervisorReason(primary) ?? null }));
+    });
+  }
+}
+
+test('projection parent: supervisor provenance raw stderr fields stay unchanged and never register caller objects', async () => {
+  for (const [code, mode] of [['CANCELLED', 'supervisor-forged-cancelled'], ['OPERATION_TIMEOUT', 'supervisor-forged-timeout'], ['CHILD_OUTPUT_LIMIT', 'supervisor-forged-output-limit']]) {
+    await ownedValidation(async workspace => {
+      await assert.rejects(runChild([projectionFixture, mode, workspace], workspace, { offline: true, timeout: 5000 }), error => {
+        assert.equal(error.code, code); assert.equal(error.message, code); assert.equal(error.child.closed, true);
+        assert.equal(error.child.exitCode, 1); assert.equal(error.child.signal, null); assert.equal(Object.hasOwn(error, 'output'), false);
+        assert.equal(childSupervision.childSupervisorReason(error), undefined);
+        return true;
+      });
+    });
+  }
+  for (const caller of [null, undefined, 'CANCELLED', 1, Symbol('reason'), { code: 'CANCELLED', reason: 'CANCELLED' }, Object.assign(Error('CANCELLED'), { code: 'CANCELLED' }), Object.create({ code: 'OPERATION_TIMEOUT' }), new Proxy({}, { get() { assert.fail('must not read caller fields'); }, getPrototypeOf() { assert.fail('must not inspect caller prototypes'); } })]) {
+    assert.equal(childSupervision.childSupervisorReason(caller), undefined);
+  }
+  assert.equal(childSupervision.childSupervisorReason(Object.defineProperty({}, 'code', { get() { assert.fail('must not read caller getter'); } })), undefined);
+});
+
+test('projection parent: supervisor provenance genuine first abort survives later actual output limit and graceful close', { skip: process.platform === 'win32' ? 'POSIX graceful SIGTERM handler; portable actual-close controls run separately' : false }, async t => {
+  const controller = new AbortController(), descriptor = Object.getOwnPropertyDescriptor(childProcess, 'spawn');
+  const overflow = latch(), children = [], closes = []; let bytes = 0, owned, pending, failure;
+  Object.defineProperty(childProcess, 'spawn', { ...descriptor, value(executable, args, options) {
+    assert.equal(executable, process.execPath);
+    assert.deepEqual(args.slice(2), [projectionFixture, 'supervisor-first-reason', options.cwd]);
+    assert.equal(args[0], '--import'); assert.match(args[1], /network-guard\.mjs$/);
+    const child = descriptor.value(executable, args, options); children.push(child);
+    child.stdout.on('data', chunk => { bytes += chunk.length; if (bytes > 65536) overflow.resolve(); });
+    closes.push(new Promise(resolve => child.once('close', resolve))); return child;
+  } }); syncBuiltinESMExports();
+  try {
+    pending = ownedValidation(async (workspace, context) => {
+      owned = workspace; context.phase = 'projection';
+      const operation = validationChild([projectionFixture, 'supervisor-first-reason', workspace], workspace, { offline: true, timeout: 5000, signal: controller.signal }, context);
+      const outcome = operation.catch(error => { failure = error; });
+      try {
+        await marker(workspace, 'supervisor-ready'); controller.abort();
+        // This new provenance control joins its real operation if close wins readiness.
+        await Promise.race([overflow.promise, outcome.then(() => { assert.ok(bytes > 65536, 'child settled before actual overflow'); })]);
+      } finally {
+        controller.abort(); await fs.writeFile(path.join(workspace, 'supervisor-close-release'), 'release'); await outcome;
+      }
+      throw failure;
+    });
+    await assert.rejects(pending, error => {
+      assert.equal(error.code, 'CANCELLED'); assert.equal(error.private.primary.child.closed, true);
+      assert.equal(error.private.primary.child.exitCode, 1); assert.equal(error.private.primary.child.signal, null);
+      assert.equal(childSupervision.childSupervisorReason(error.private.primary), 'CANCELLED');
+      assert.equal(childSupervision.childSupervisorReason(Object.assign(Error('copy'), error.private.primary)), undefined);
+      assert.equal(childSupervision.childSupervisorReason(Object.create(error.private.primary)), undefined);
+      assert.equal(childSupervision.childSupervisorReason(error), undefined);
+      return true;
+    });
+    assert.ok(bytes > 65536);
+    t.diagnostic(JSON.stringify({ actualBytes: bytes, first: 'CANCELLED', attemptedLater: 'CHILD_OUTPUT_LIMIT', child: failure.child,
+      actualChildren: children.map(child => ({ pid: child.pid, argv: child.spawnargs, exitCode: child.exitCode, signal: child.signalCode })) }));
+  } finally {
+    controller.abort(); if (owned) await fs.writeFile(path.join(owned, 'supervisor-close-release'), 'release').catch(() => {});
+    await pending?.catch(() => {}); await Promise.all(closes);
+    Object.defineProperty(childProcess, 'spawn', descriptor); syncBuiltinESMExports();
     if (owned) await fs.rm(owned, { recursive: true, force: true });
   }
 });

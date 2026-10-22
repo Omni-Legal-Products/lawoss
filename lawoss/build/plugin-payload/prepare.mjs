@@ -91,13 +91,24 @@ export async function transaction(workspace, outputName, operation) {
     if (currentAdmission?.ino === admissionIdentity.ino && currentAdmission.dev === admissionIdentity.dev && currentAdmission.isDirectory() && !currentAdmission.isSymbolicLink()) await rmdir(admission).catch(() => {});
   }
 }
+// Process-local identity provenance, never a child/caller-provided error field.
+/** @type {WeakMap<object, 'CANCELLED' | 'OPERATION_TIMEOUT' | 'CHILD_OUTPUT_LIMIT'>} */
+const childSupervisorReasons = new WeakMap();
+/** @param {unknown} error */
+export function childSupervisorReason(error) {
+  return error !== null && (typeof error === 'object' || typeof error === 'function') ? childSupervisorReasons.get(error) : undefined;
+}
 /**
  * @param {string[]} args
  * @param {string} workspace
  * @param {{ signal?: AbortSignal, offline?: boolean, timeout?: number, executable?: string, runtime?: string, json?: boolean, validationWorkspace?: string }} [options]
  */
 export async function runChild(args, workspace, { signal, offline = true, timeout = 180000, executable = process.execPath, runtime = 'node', json = true, validationWorkspace } = {}) {
-  if (signal?.aborted) fail('CANCELLED');
+  if (signal?.aborted) {
+    const error = Object.assign(new Error('CANCELLED'), { code: 'CANCELLED' });
+    childSupervisorReasons.set(error, 'CANCELLED');
+    throw error;
+  }
   if (!['node', 'bun'].includes(runtime) || !path.isAbsolute(executable)) fail('CHILD_INVALID');
   const denyNetwork = offline || networkDisabled();
   if (runtime === 'bun' && !denyNetwork) fail('CHILD_INVALID');
@@ -131,7 +142,11 @@ export async function runChild(args, workspace, { signal, offline = true, timeou
       let projection;
       try { projection = JSON.parse(diagnostics.trim()); } catch {}
       const safeCode = /^[A-Z_]{1,40}$/.test(projection?.code) ? projection.code : 'CHILD_FAILED';
-      if (reason || spawnError || code !== 0) reject(Object.assign(new Error(reason ?? safeCode), { code: reason ?? safeCode, child: { closed: true, exitCode: code, signal: child.signalCode, descendants: 'unknown' }, ...(!json ? { output } : {}) }));
+      if (reason || spawnError || code !== 0) {
+        const error = Object.assign(new Error(reason ?? safeCode), { code: reason ?? safeCode, child: { closed: true, exitCode: code, signal: child.signalCode, descendants: 'unknown' }, ...(!json ? { output } : {}) });
+        if (reason) childSupervisorReasons.set(error, reason);
+        reject(error);
+      }
       else { let result = output; if (json) { try { result = JSON.parse(output.trim()); } catch { result = undefined; } } resolve(result); }
     });
   });

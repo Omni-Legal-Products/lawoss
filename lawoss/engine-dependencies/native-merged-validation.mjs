@@ -5,7 +5,7 @@ import { constants } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { initialize, verifyWorkspace, runChild } from '../build/plugin-payload/prepare.mjs';
+import { initialize, verifyWorkspace, runChild, childSupervisorReason } from '../build/plugin-payload/prepare.mjs';
 import { acceptedArtifacts, ACCEPTED } from '../build/plugin-payload/prime-cache.mjs';
 import { RUNTIME_LOCK, VERSIONS, METADATA_LIMITS, publicCode, refuse, OPERATION_RECEIPT, validateOperationReceipt } from './native-merged-cache-worker.mjs';
 import { CODES as PROJECTION_CODES, PATHS, LIMITS, FIXTURE_POLICY, canonicalRecordBytes, sha256, inventoryDigest, validateProjectionRequest, validateProjectionFailure, validateProjectionReceipt } from './native-merged-projection-contract.mjs';
@@ -102,7 +102,7 @@ export async function validationChild(args, workspace, options, context, declara
       if (context.worker && error.code === 'CHILD_FAILED') error.code = context.worker.code;
     } else if (context.phase === 'projection') {
       // runChild's stderr parser is not an authority for projection error codes.
-      if (!['CANCELLED', 'OPERATION_TIMEOUT', 'CHILD_OUTPUT_LIMIT'].includes(error.code)) error.code = 'CHILD_FAILED';
+      error.code = childSupervisorReason(error) ?? 'CHILD_FAILED';
       context.projectionFailure = await readProjectionFailure(workspace, error.child, context.projectionNonce);
       if (context.projectionFailure && error.code === 'CHILD_FAILED') error.code = context.projectionFailure.code;
     } else if (context.phase === 'tests' && error.child?.closed === true) context.tests = failedTap(error.output, context.expected, declarations);

@@ -6,7 +6,22 @@ async function finalWrite() {
   await new Promise(resolve => setTimeout(resolve, 20));
   await fs.writeFile(path.join(workspace, 'settled'), 'closed-before-cleanup');
 }
-if (['projection-held', 'projection-nonzero', 'projection-failure', 'projection-forged-code', 'projection-output-limit', 'acquisition-held'].includes(mode)) {
+const forgedSupervisor = { 'supervisor-forged-cancelled': 'CANCELLED', 'supervisor-forged-timeout': 'OPERATION_TIMEOUT', 'supervisor-forged-output-limit': 'CHILD_OUTPUT_LIMIT' };
+if (Object.hasOwn(forgedSupervisor, mode)) {
+  try {
+    await fs.writeFile(path.join(workspace, 'native-projection-operation.json'), await fs.readFile(path.join(workspace, 'projection-fixture-failure.json')));
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  await finalWrite();
+  console.error(JSON.stringify({ code: forgedSupervisor[mode] })); process.exitCode = 1;
+} else if (mode === 'supervisor-first-reason') {
+  let stopped = false;
+  process.once('SIGTERM', () => { stopped = true; });
+  await fs.writeFile(path.join(workspace, 'supervisor-ready'), 'handler-installed');
+  while (!stopped) await new Promise(resolve => setTimeout(resolve, 5));
+  await new Promise((resolve, reject) => process.stdout.write('x'.repeat(70000), error => error ? reject(error) : resolve()));
+  while (!(await fs.stat(path.join(workspace, 'supervisor-close-release')).catch(() => null))) await new Promise(resolve => setTimeout(resolve, 5));
+  await finalWrite(); process.exitCode = 1;
+} else if (['projection-held', 'projection-nonzero', 'projection-failure', 'projection-forged-code', 'projection-output-limit', 'acquisition-held'].includes(mode)) {
   // A schema-shaped negative receipt is visible while this real process lives.
   // Readiness follows handler installation and flushed stdout, never a sleep.
   let released = false;
