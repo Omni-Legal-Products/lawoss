@@ -7,7 +7,7 @@ import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
 import { friendlyError, TriagePreviewView, TriageTopline, TriageUndoSummary } from "../src/lawoss/domains/roztriedenie/triage-page";
 import { LegalworkServerError } from "../src/app/lib/legalwork-server";
 import { MAX_TRIAGE_MATTERS } from "../../../lawoss/okf/src/triage/types";
-import { offersTriageEntry, plansPreview, triageApply, triageGrant, triageLink, triageTargetRoot, triagePlan, triageReplan, triageUndo, type TriageApiPath, type TriageClient, type TriagePreview } from "../src/lawoss/domains/roztriedenie/api";
+import { offersTriageEntry, plansPreview, triageApply, triageGrant, triageLink, triageTargetRoot, triagePlan, triageReplan, triageUndo, type TriageApiPath, type TriageClient, type TriagePreview, type TriageRun, type TriageStatus } from "../src/lawoss/domains/roztriedenie/api";
 import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
 
 const BANNED = /workspace|session|skill|\bMCP\b|\bOKF\b|opencode|plugin|treeDigest|fingerprint/i;
@@ -176,7 +176,7 @@ test("spotrebovaný súhlas na mieste nežiada náhľad, skúšobný klon áno (
 });
 
 describe("vrátenie po novom súhlase (rozhodnutie MČ 13. 10. 2026)", () => {
-  const run = (runId: string, state: "applied" | "undone" = "applied") => ({ runId, createdAt: "2026-10-13T10:00:00Z", state, moves: 3, matters: 1 });
+  const run = (runId: string, state: TriageRun["state"] = "applied") => ({ runId, createdAt: "2026-10-13T10:00:00Z", state, moves: 3, matters: 1 });
   test("na mieste sa ponúkne len beh, na ktorý sa spotreboval súhlas", async () => {
     const { undoableRun } = await import("../src/lawoss/domains/roztriedenie/api");
     const runs = [run("triage-20261013-110000-bbbbbb"), run("triage-20261013-100000-aaaaaa")];
@@ -186,6 +186,51 @@ describe("vrátenie po novom súhlase (rozhodnutie MČ 13. 10. 2026)", () => {
     expect(undoableRun({ trial: false, runs: [] })).toBeUndefined();
     expect(undoableRun(null)).toBeUndefined();
   });
+  // Word pri presune: súhlas je spotrebovaný a nový náhľad sa neponúka, preto „Vrátiť“ musí ostať aj tu.
+  test("na mieste sa ponúkne aj prerušený zápis alebo vrátenie toho behu, vrátený nie (NEW-1)", async () => {
+    const { undoableRun } = await import("../src/lawoss/domains/roztriedenie/api");
+    const named = (state: TriageRun["state"]) => undoableRun({ trial: true, mode: "in_place", root: "/k", canPlan: false, undoRunId: "triage-20261013-110000-bbbbbb", runs: [run("triage-20261013-110000-bbbbbb", state)] })?.runId;
+    for (const state of ["applied", "interrupted", "undoing", "planned"] as const) expect(named(state)).toBe("triage-20261013-110000-bbbbbb");
+    expect(named("undone")).toBeUndefined();
+    expect(undoableRun({ trial: true, mode: "in_place", root: "/k", canPlan: false, undoRunId: "triage-20261013-110000-bbbbbb", runs: [run("triage-20261013-100000-aaaaaa", "interrupted")] })).toBeUndefined();
+  });
+  // Word zamkne dokument až uprostred zápisu: Potvrdiť by skončilo 403, preto náhľad zmizne a „Vrátiť“ sa ukáže hneď.
+  test("po prerušenom zápise na mieste sa náhľad zahodí a ponúkne sa „Vrátiť“; zámok pred zápisom náhľad nechá (NEW-1)", async () => {
+    const { statusAfterFailedApply, undoableRun } = await import("../src/lawoss/domains/roztriedenie/api");
+    const calls: [string, unknown][] = [];
+    const answering = (status: TriageStatus): TriageClient => ({ lawossTriage: async <T,>(path: string, body: unknown) => { calls.push([path, body]); return status as T; } });
+    const interrupted = await statusAfterFailedApply(answering({ trial: true, mode: "in_place", root: "/k", canPlan: false, undoRunId: "triage-20261013-110000-bbbbbb", runs: [run("triage-20261013-110000-bbbbbb", "interrupted")] }), "/k");
+    expect(interrupted?.keepPreview).toBe(false);
+    expect(undoableRun(interrupted?.status ?? null)?.runId).toBe("triage-20261013-110000-bbbbbb");
+    expect(calls).toEqual([["status", { root: "/k" }]]);
+    // Sonda pred prvým zápisom súhlas nespotrebuje: po zatvorení Wordu stačí znova Potvrdiť. Skúšobný klon tiež.
+    expect((await statusAfterFailedApply(answering({ trial: true, mode: "in_place", root: "/k", canPlan: true, runs: [] }), "/k"))?.keepPreview).toBe(true);
+    expect((await statusAfterFailedApply(answering({ trial: true, mode: "trial", root: "/k (trial)", runs: [run("triage-20261013-110000-bbbbbb", "interrupted")] }), "/k (trial)"))?.keepPreview).toBe(true);
+    // Stav sa nenačíta: stránka ostane, ako bola.
+    expect(await statusAfterFailedApply({ lawossTriage: async () => { throw new Error("offline"); } }, "/k")).toBeNull();
+  });
+});
+
+test("dokument otvorený vo Worde: veta o zatvorení dokumentu, nie o nemožnom vrátení (NEW-2)", () => {
+  const quiet = spyOn(console, "warn").mockImplementation(() => undefined);
+  try {
+    // Hlášky jadra pri sonde pred zápisom a pred vrátením; EBUSY príde, keď Word dokument otvorí až uprostred behu.
+    const errors = [
+      new LegalworkServerError(409, "triage_locked", "Dokument je otvorený v inom programe (napríklad vo Worde): Zmluva o dielo.docx. Nič sa nepresunulo. Zatvorte ho a pripravte nový náhľad."),
+      new LegalworkServerError(409, "triage_locked", "Dokument je otvorený v inom programe (napríklad vo Worde): 01_Podklady/Zmluva o dielo.docx. Nič sa nepresunulo. Zatvorte ho a skúste vrátiť znova."),
+      new LegalworkServerError(400, "EBUSY", "EBUSY: resource busy or locked, unlink 'Zmluva o dielo.docx'"),
+    ];
+    for (const locale of ["sk", "cs", "en", "de"] as const) {
+      const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, locale, params);
+      expect(text("error_locked")).not.toBe("lawoss.triage.error_locked");
+      for (const error of errors) expect(friendlyError(error, text)).toBe(text("error_locked"));
+    }
+    expect(t("lawoss.triage.error_locked", "sk")).toBe("Niektorý z dokumentov je otvorený v inej aplikácii (napríklad vo Worde), preto sa nedá presunúť. Zatvorte ho a skúste to znova.");
+    expect(t("lawoss.triage.error_locked", "cs")).toBe("Některý z dokumentů je otevřený v jiné aplikaci (například ve Wordu), proto ho nelze přesunout. Zavřete ho a zkuste to znovu.");
+    // Skutočná výhrada pri vrátení ostáva pri svojej vete.
+    const sk = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, "sk", params);
+    expect(friendlyError(new LegalworkServerError(409, "triage_conflict", "Roztriedenie sa nedá vrátiť bez zásahu do zmenených súborov: 01_Podklady/x.pdf"), sk)).toBe(sk("error_undo", { paths: "01_Podklady/x.pdf" }));
+  } finally { quiet.mockRestore(); }
 });
 
 test("náhľad je čitateľný: odkiaľ ako meno priečinka, riadky zoskupené podľa prípadu (test 19. 10. 2026)", () => {

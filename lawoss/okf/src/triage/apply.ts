@@ -21,6 +21,9 @@ import { lockedForWrite, onlyLockedIssues, TRIAGE_DIR, TRIAGE_INSPECTION_LIMITS,
 import { MAX_TRIAGE_MATTERS, PLAN_SCHEMA, TOO_MANY_MATTERS_CODE, type TriageMove, type TriagePlan } from "./types.ts";
 
 export class TriageConflictError extends Error { readonly code = "triage_conflict"; }
+/** Dokument drží iný program (Word); po jeho zatvorení stačí to isté zopakovať. Appka má pre to vlastnú vetu. */
+export class TriageLockedError extends Error { readonly code = "triage_locked"; }
+const lockedError = (paths: readonly string[], next: string) => new TriageLockedError(`Dokument je otvorený v inom programe (napríklad vo Worde): ${paths.slice(0, 10).join(", ")}${paths.length > 10 ? " …" : ""}. Nič sa nepresunulo. ${next}`);
 /** Plán zakladá viac prípadov, než sa dá naraz; appka povie, že treba odškrtnúť niektoré priečinky. */
 export class TooManyMattersError extends Error { readonly code = TOO_MANY_MATTERS_CODE; }
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -216,7 +219,7 @@ export async function applyTriagePlan(input: unknown, options: TriageTargetOptio
       // Dokument otvorený vo Worde až po náhľade: zastaviť pred prvým zápisom, nie EBUSY uprostred behu.
       const locked: string[] = [];
       for (const move of plan.moves) if (await lockedForWrite(join(root, move.from), options.hooks)) locked.push(move.from);
-      if (locked.length) throw new TriageConflictError(`Dokument je otvorený v inom programe (napríklad vo Worde): ${locked.slice(0, 10).join(", ")}${locked.length > 10 ? " …" : ""}. Nič sa nepresunulo. Zatvorte ho a pripravte nový náhľad.`);
+      if (locked.length) throw lockedError(locked, "Zatvorte ho a pripravte nový náhľad.");
       const handle = await open(planPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
       try { await handle.writeFile(JSON.stringify(plan, null, 2) + "\n"); await handle.sync(); } finally { await handle.close(); }
       await durableDirectory(dir);
@@ -265,7 +268,7 @@ async function readRun(root: string, runId: string): Promise<{ plan: TriagePlan;
  * Vráti celý beh: dokumenty na pôvodné miesta, potom odstráni len to, čo beh sám vytvoril.
  * Najprv overí všetko; ak by vrátenie čokoľvek cudzie zmenilo, neurobí nič.
  */
-export async function undoTriage(rootInput: string, runId: string, options: TriageTargetOptions & { trialJournalDirectory?: string; keepChanged?: boolean } = {}): Promise<TriageUndoResult> {
+export async function undoTriage(rootInput: string, runId: string, options: TriageTargetOptions & { trialJournalDirectory?: string; keepChanged?: boolean; hooks?: TriageHooks } = {}): Promise<TriageUndoResult> {
   const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory, options);
   const root = clone.root;
   // Na mieste sa zmenený dokument ponecháva, ak volajúci nepovie výslovne inak; skúšobný klon ostáva všetko alebo nič.
@@ -308,6 +311,11 @@ export async function undoTriage(rootInput: string, runId: string, options: Tria
       else problems.push(dirname(item.move.from));
     }
     if (problems.length) throw new TriageConflictError(`Roztriedenie sa nedá vrátiť bez zásahu do zmenených súborov: ${[...new Set(problems)].slice(0, 10).join(", ")}${problems.length > 10 ? " …" : ""}`);
+    // Dokument otvorený vo Worde na novom mieste: zastaviť pred prvým zápisom, nie EBUSY uprostred vrátenia
+    // (dokument by ostal pod dvoma menami a beh v stave „undoing“).
+    const locked: string[] = [];
+    for (const item of pending) if (item.to !== null && await lockedForWrite(join(root, item.move.to), options.hooks)) locked.push(item.move.to);
+    if (locked.length) throw lockedError(locked, "Zatvorte ho a skúste vrátiť znova.");
     if (!events.some(event => event.t === "undo_started")) await appendEvent(eventsPath, { t: "undo_started" });
     let restoredCount = 0, removedCount = 0;
     for (const { move, from, to } of [...pending].reverse()) {

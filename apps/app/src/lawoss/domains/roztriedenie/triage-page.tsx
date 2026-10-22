@@ -15,7 +15,7 @@ import { installMissingOnboardingSkills } from "../onboarding/install-pack";
 import { ensureSkillAvailable, workspaceSkillEngine } from "../../okf/skill-availability";
 
 const ROZTRIED_SPIS_SKILL = "roztried-spis";
-import { plansPreview, toggledLeave, undoableRun, triageApply, triagePlan, triageReplan, triageStatus, triageTargetRoot, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus, type TriageUndoResult } from "./api";
+import { plansPreview, statusAfterFailedApply, toggledLeave, undoableRun, triageApply, triagePlan, triageReplan, triageStatus, triageTargetRoot, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus, type TriageUndoResult } from "./api";
 import { OFFICE_CONFIG_ENCODING_CODE } from "../../../../../../lawoss/okf/src/profile";
 import { MAX_TRIAGE_MATTERS, TOO_MANY_MATTERS_CODE } from "../../../../../../lawoss/okf/src/triage/types";
 import "../../lite/pages/okf-glass.css";
@@ -37,6 +37,8 @@ export function friendlyError(error: unknown, text: Text): string {
     if (error.code === OFFICE_CONFIG_ENCODING_CODE) return text("error_office_config");
     if (error.code === TOO_MANY_MATTERS_CODE) return text("error_too_many_matters", { max: MAX_TRIAGE_MATTERS });
     if (error.code === "stale_preview" || (error.code === "triage_conflict" && /zmenil/.test(error.message))) return text("error_changed");
+    // Word drží dokument: jadro zastaví pred zápisom (`triage_locked`), zámok uprostred behu príde ako surové EBUSY.
+    if (error.code === "triage_locked" || error.code === "EBUSY") return text("error_locked");
     if (error.code === "triage_conflict" && error.message.includes(": ")) return text("error_undo", { paths: error.message.slice(error.message.indexOf(": ") + 2) });
   }
   return text("error_generic");
@@ -162,7 +164,11 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
   async function confirm() {
     if (!client || !preview) return;
     const result = await run(text("applying"), () => triageApply(client, preview));
-    if (result && alive.current) { setPhase({ kind: "applied", runId: result.runId, moved: result.moved }); setPreview(null); setStatus(await triageStatus(client, root).catch(() => status)); }
+    if (!alive.current) return;
+    if (result) { setPhase({ kind: "applied", runId: result.runId, moved: result.moved }); setPreview(null); setStatus(await triageStatus(client, root).catch(() => status)); return; }
+    // Zápis zlyhal: pri prerušenom behu na mieste zmizne náhľad a „Vrátiť“ sa ukáže hneď, nie až po obnovení stránky.
+    const next = await statusAfterFailedApply(client, root);
+    if (next && alive.current) { setStatus(next.status); if (!next.keepPreview) setPreview(null); }
   }
   async function undo(runId: string) {
     if (!client) return;

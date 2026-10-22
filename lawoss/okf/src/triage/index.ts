@@ -7,7 +7,7 @@ import { newRunId } from "./apply.ts";
 import { scanTriage, type TriageTargetOptions } from "./scan.ts";
 import type { TriageClassification, TriageInventory, TriagePlan } from "./types.ts";
 
-export { applyTriagePlan, listTriageRuns, newRunId, parseTriagePlan, undoTriage, TooManyMattersError, TriageConflictError, type TriageApplyResult, type TriageRunStatus, type TriageUndoResult } from "./apply.ts";
+export { applyTriagePlan, listTriageRuns, newRunId, parseTriagePlan, undoTriage, TooManyMattersError, TriageConflictError, TriageLockedError, type TriageApplyResult, type TriageRunStatus, type TriageUndoResult } from "./apply.ts";
 export { ClassificationError, parseClassification } from "./classification.ts";
 export { buildTriagePlan, defaultLeaveInPlace, planFingerprint } from "./plan.ts";
 export { classifyByRules, findCaseNumber, folderHintRole, looksLikeArchiveFolder, TRIAGE_ROLES, type RuleCode, type TriageRole } from "./rules.ts";

@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-import { chmod, mkdtemp, mkdir, open, readFile, readdir, realpath, rm, symlink, truncate, writeFile } from "node:fs/promises";
+import { access, appendFile, chmod, link, mkdtemp, mkdir, open, readFile, readdir, realpath, rename, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
-import { applyTriagePlan, buildTriagePlan, folderHintRole, looksLikeArchiveFolder, MAX_TRIAGE_MATTERS, parseClassification, parseTriagePlan, grantInPlaceReorganize, IN_PLACE_MARKER, prepareTriage, replanTriage, scanTriage, TRIAGE_INSPECTION_LIMITS, TriageConflictError, TriageTooLargeError, TrialCloneError, undoTriage, verifyTriageTarget } from "../src/triage/index.ts";
+import { applyTriagePlan, buildTriagePlan, folderHintRole, listTriageRuns, looksLikeArchiveFolder, MAX_TRIAGE_MATTERS, parseClassification, parseTriagePlan, grantInPlaceReorganize, IN_PLACE_MARKER, prepareTriage, replanTriage, scanTriage, TRIAGE_INSPECTION_LIMITS, TriageConflictError, TriageLockedError, TriageTooLargeError, TrialCloneError, undoTriage, verifyTriageTarget, type TriagePlan } from "../src/triage/index.ts";
 import { HRON_FIXTURE, HRON_MATTERS, TRIAGE_FIXTURE, writeTriageFixture } from "./fixtures/triage-client.ts";
 import { holdWindowsFileLock } from "./windows-file-lock.ts";
 
@@ -528,7 +528,8 @@ test("dokument otvorený vo Worde až po náhľade zastaví zápis pred prvým p
   expect(plan.moves.some(move => move.from === LOCKED_DOCX)).toBe(true);
   const before = await documentsHash(root);
   const error = await applyTriagePlan(plan, { hooks: wordHooks([LOCKED_DOCX]), ...HOST }).then(() => undefined, (reason: unknown) => reason);
-  expect(error).toBeInstanceOf(TriageConflictError);
+  expect(error).toBeInstanceOf(TriageLockedError);
+  expect(error).toMatchObject({ code: "triage_locked" });
   expect(error instanceof Error ? error.message : "").toContain(LOCKED_DOCX);
   expect(error instanceof Error ? error.message : "").toContain("nový náhľad");
   expect(await documentsHash(root)).toBe(before);
@@ -565,6 +566,139 @@ test.skipIf(process.platform !== "win32")("Windows: dokument otvorený vo Worde 
   try {
     await expect(applyTriagePlan(plan, HOST)).rejects.toThrow(/nový náhľad/);
   } finally { await release(); }
+  expect(await documentsHash(root)).toBe(before);
+}, 60_000);
+
+/** Stav behu z denníka (`listTriageRuns`), ako ho vidí status servera. */
+async function runState(root: string, runId: string) { return (await listTriageRuns(root)).find(run => run.runId === runId)?.state; }
+const eventsFile = (root: string, plan: TriagePlan) => join(root, ".lawoss/triage/runs", plan.runId, "events.jsonl");
+/**
+ * Zápis prerušený EBUSY na `plan.moves[index]` (Word otvoril dokument až po sonde): pevný odkaz je hotový,
+ * pôvodné meno sa nezmazalo, ďalšie presuny sa nezačali. Vyrobí sa z hotového zápisu spätne.
+ */
+async function interruptApply(root: string, plan: TriagePlan, index: number) {
+  const current = plan.moves[index]!, later = new Set(plan.moves.slice(index + 1).map(move => move.id));
+  for (const move of plan.moves.slice(index + 1)) await rename(join(root, move.to), join(root, move.from));
+  await link(join(root, current.to), join(root, current.from));
+  const events = (await readFile(eventsFile(root, plan), "utf8")).split("\n").filter(Boolean).filter(line => {
+    const event = JSON.parse(line) as { t: string; id?: string };
+    return event.t !== "completed" && !(event.id && later.has(event.id)) && !(event.t === "moved" && event.id === current.id);
+  });
+  await writeFile(eventsFile(root, plan), events.map(line => `${line}\n`).join(""));
+}
+/** Vrátenie prerušené EBUSY na `plan.moves[index]`: neskoršie presuny sú späť (vracia sa od konca), tento má obe mená. */
+async function interruptUndo(root: string, plan: TriagePlan, index: number) {
+  const current = plan.moves[index]!;
+  let journal = `${JSON.stringify({ t: "undo_started" })}\n`;
+  for (const move of plan.moves.slice(index + 1).reverse()) {
+    await rename(join(root, move.to), join(root, move.from));
+    journal += `${JSON.stringify({ t: "restore_intent", id: move.id })}\n${JSON.stringify({ t: "restored", id: move.id })}\n`;
+  }
+  await link(join(root, current.to), join(root, current.from));
+  await appendFile(eventsFile(root, plan), `${journal}${JSON.stringify({ t: "restore_intent", id: current.id })}\n`);
+}
+
+test("dokument otvorený vo Worde na novom mieste zastaví vrátenie pred prvým zápisom (135-3)", async () => {
+  const root = await convertedClient();
+  const before = await documentsHash(root);
+  await grantInPlaceReorganize(root, NOW);
+  const { plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  await applyTriagePlan(plan, HOST);
+  const applied = await documentsHash(root);
+  const move = plan.moves[Math.floor(plan.moves.length / 2)]!;
+  const error = await undoTriage(root, plan.runId, { hooks: wordHooks([join(root, move.to)]), ...HOST }).then(() => undefined, (reason: unknown) => reason);
+  expect(error).toBeInstanceOf(TriageLockedError);
+  expect(error instanceof Error ? error.message : "").toContain(move.to);
+  expect(error instanceof Error ? error.message : "").toContain("vrátiť znova");
+  // Nič sa nepohlo a beh ostal zapísaný: appka ponúka „Vrátiť“ ďalej.
+  expect(await documentsHash(root)).toBe(applied);
+  expect(await runState(root, plan.runId)).toBe("applied");
+  expect(await undoTriage(root, plan.runId, HOST)).toMatchObject({ status: "undone", restored: plan.moves.length, kept: [] });
+  expect(await documentsHash(root)).toBe(before);
+});
+
+test("upravený dokument otvorený vo Worde vrátenie nezastaví, ostane na novom mieste", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  const { plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  await applyTriagePlan(plan, HOST);
+  const move = plan.moves[0]!;
+  await writeFile(join(root, move.to), "advokát to upravil a má to otvorené");
+  const result = await undoTriage(root, plan.runId, { hooks: wordHooks([join(root, move.to)]), ...HOST });
+  expect(result).toMatchObject({ status: "undone", restored: plan.moves.length - 1 });
+  expect(result.kept).toContain(move.to);
+  expect(await readFile(join(root, move.to), "utf8")).toBe("advokát to upravil a má to otvorené");
+});
+
+test("prerušené usporiadanie na mieste sa dá vrátiť, aj s dokumentom pod dvoma menami (NEW-1)", async () => {
+  const root = await convertedClient();
+  const before = await documentsHash(root);
+  await grantInPlaceReorganize(root, NOW);
+  const { plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  await applyTriagePlan(plan, HOST);
+  const index = Math.floor(plan.moves.length / 2), current = plan.moves[index]!;
+  await interruptApply(root, plan, index);
+  expect(await runState(root, plan.runId)).toBe("interrupted");
+  const interrupted = await documentsHash(root);
+  // Word drží ešte dokument, pri ktorom sa zápis zastavil: vrátenie nič nezmení.
+  await expect(undoTriage(root, plan.runId, { hooks: wordHooks([join(root, current.to)]), ...HOST })).rejects.toBeInstanceOf(TriageLockedError);
+  expect(await documentsHash(root)).toBe(interrupted);
+  expect(await runState(root, plan.runId)).toBe("interrupted");
+  expect(await undoTriage(root, plan.runId, HOST)).toMatchObject({ status: "undone", restored: index + 1, kept: [] });
+  expect(await documentsHash(root)).toBe(before);
+  expect(await runState(root, plan.runId)).toBe("undone");
+});
+
+test("prerušený zápis pred pevným odkazom (len move_intent) sa vráti; sonda nehľadá dokument na novom mieste, kde ešte nie je (NEW-1)", async () => {
+  const root = await convertedClient();
+  const before = await documentsHash(root);
+  await grantInPlaceReorganize(root, NOW);
+  const { plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  await applyTriagePlan(plan, HOST);
+  const index = Math.floor(plan.moves.length / 2), next = plan.moves[index + 1]!;
+  await interruptApply(root, plan, index);
+  // Ďalší presun sa začal len zápisom do denníka: dokument je ešte na pôvodnom mieste, nové meno neexistuje.
+  await appendFile(eventsFile(root, plan), `${JSON.stringify({ t: "move_intent", id: next.id })}\n`);
+  expect(await runState(root, plan.runId)).toBe("interrupted");
+  // Sonda na Windows otvára bez O_CREAT, chýbajúci súbor by skončil ENOENT; `access` to napodobní aj inde.
+  expect(await undoTriage(root, plan.runId, { hooks: { writeProbe: path => access(path) }, ...HOST })).toMatchObject({ status: "undone", restored: index + 2, kept: [] });
+  expect(await documentsHash(root)).toBe(before);
+  expect(await runState(root, plan.runId)).toBe("undone");
+});
+
+test("prerušené vrátenie na mieste sa dokončí; zámok ho pred dokončením zastaví bez zmeny (135-3, NEW-1)", async () => {
+  const root = await convertedClient();
+  const before = await documentsHash(root);
+  await grantInPlaceReorganize(root, NOW);
+  const { plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  await applyTriagePlan(plan, HOST);
+  const index = Math.floor(plan.moves.length / 2), current = plan.moves[index]!;
+  await interruptUndo(root, plan, index);
+  expect(await runState(root, plan.runId)).toBe("undoing");
+  const undoing = await documentsHash(root);
+  await expect(undoTriage(root, plan.runId, { hooks: wordHooks([join(root, current.to)]), ...HOST })).rejects.toBeInstanceOf(TriageLockedError);
+  expect(await documentsHash(root)).toBe(undoing);
+  expect(await undoTriage(root, plan.runId, HOST)).toMatchObject({ status: "undone", restored: index + 1, kept: [] });
+  expect(await documentsHash(root)).toBe(before);
+  expect(await runState(root, plan.runId)).toBe("undone");
+});
+
+// Skutočný zámok Windows ako Word na dokumente v novom mieste: pred opravou EBUSY uprostred vrátenia (135-3).
+test.skipIf(process.platform !== "win32")("Windows: dokument otvorený vo Worde na novom mieste zastaví vrátenie a po zatvorení sa vráti všetko", async () => {
+  const root = await convertedClient();
+  const before = await documentsHash(root);
+  await grantInPlaceReorganize(root, NOW);
+  const { plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  await applyTriagePlan(plan, HOST);
+  const applied = await documentsHash(root);
+  const move = plan.moves.find(item => item.from === LOCKED_DOCX);
+  if (!move) throw new Error("Plan should move the locked document.");
+  const release = await holdWindowsFileLock(join(root, move.to), "Read");
+  try {
+    await expect(undoTriage(root, plan.runId, HOST)).rejects.toBeInstanceOf(TriageLockedError);
+  } finally { await release(); }
+  expect(await documentsHash(root)).toBe(applied);
+  expect(await undoTriage(root, plan.runId, HOST)).toMatchObject({ status: "undone", restored: plan.moves.length });
   expect(await documentsHash(root)).toBe(before);
 }, 60_000);
 

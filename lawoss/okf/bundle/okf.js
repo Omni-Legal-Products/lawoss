@@ -4920,6 +4920,11 @@ class TriageConflictError extends Error {
   code = "triage_conflict";
 }
 
+class TriageLockedError extends Error {
+  code = "triage_locked";
+}
+var lockedError = (paths, next) => new TriageLockedError(`Dokument je otvorený v inom programe (napríklad vo Worde): ${paths.slice(0, 10).join(", ")}${paths.length > 10 ? " …" : ""}. Nič sa nepresunulo. ${next}`);
+
 class TooManyMattersError extends Error {
   code = TOO_MANY_MATTERS_CODE;
 }
@@ -5193,7 +5198,7 @@ async function applyTriagePlan(input, options = {}) {
         if (await lockedForWrite(join13(root, move.from), options.hooks))
           locked.push(move.from);
       if (locked.length)
-        throw new TriageConflictError(`Dokument je otvorený v inom programe (napríklad vo Worde): ${locked.slice(0, 10).join(", ")}${locked.length > 10 ? " …" : ""}. Nič sa nepresunulo. Zatvorte ho a pripravte nový náhľad.`);
+        throw lockedError(locked, "Zatvorte ho a pripravte nový náhľad.");
       const handle = await open9(planPath, constants11.O_WRONLY | constants11.O_CREAT | constants11.O_EXCL | constants11.O_NOFOLLOW, 384);
       try {
         await handle.writeFile(JSON.stringify(plan, null, 2) + `
@@ -5321,6 +5326,12 @@ async function undoTriage(rootInput, runId, options = {}) {
       }
     if (problems.length)
       throw new TriageConflictError(`Roztriedenie sa nedá vrátiť bez zásahu do zmenených súborov: ${[...new Set(problems)].slice(0, 10).join(", ")}${problems.length > 10 ? " …" : ""}`);
+    const locked = [];
+    for (const item of pending)
+      if (item.to !== null && await lockedForWrite(join13(root, item.move.to), options.hooks))
+        locked.push(item.move.to);
+    if (locked.length)
+      throw lockedError(locked, "Zatvorte ho a skúste vrátiť znova.");
     if (!events.some((event) => event.t === "undo_started"))
       await appendEvent2(eventsPath, { t: "undo_started" });
     let restoredCount = 0, removedCount = 0;
