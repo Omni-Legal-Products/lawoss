@@ -38,7 +38,7 @@ function constructorOptions(root, events, onStartupCheckpoint, failure) {
     desktopRoot: path.join(root, 'desktop'),
     listLocalWorkspacePaths: async () => [], listLocalWorkspaceAppFiles: async () => ({}),
     listLocalWorkspaces: async () => [], reconnectHostWorkspace: async () => null,
-    getApprovalWindow: () => null, onSidecarExit: () => {}, onStartupCheckpoint,
+    recorder: undefined, getApprovalWindow: () => null, onSidecarExit: () => {}, onStartupCheckpoint,
   };
 }
 it('runtime constructor checkpoints retain the original getPath order and completed boundaries', async t => {
