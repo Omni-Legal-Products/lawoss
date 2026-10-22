@@ -6,6 +6,8 @@ This file is the single source of truth for people and AI agents working in this
 
 ## Synthetic OKF test dataset
 
+- Synthetic native profiles must explicitly bind state as well as config/data/cache/temp storage and physically admit each directory before spawn. Preserve hostile ambient roots and unsafe preexisting entries; an environment fixture does not prove engine-native home/temp semantics or historical profile isolation.
+
 A complete prebuilt Slovak synthetic office is available for testing. **Download and reuse it; do not regenerate it for routine tests.** Read [the dataset guide](SYNTHETIC_DATA.md) for the pinned download, SHA-256, setup commands and coverage limits. The machine-readable catalog is [synthetic-dataset.json](synthetic-dataset.json).
 
 - Use this dataset for OKF onboarding, sorting, client/matter scaffolds, document parsing, memory and edge-case tests. Select relevant fixtures; do not load the entire corpus into context.

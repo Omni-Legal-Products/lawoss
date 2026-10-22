@@ -39,6 +39,13 @@ Ak úvodný census vlastníkov odmietne štart ešte pred profilovým zámkom a 
 cleanup dôkaz platí len pre žiadne nové deti tejto invokácie. Existujúca cudzia aplikácia
 zostáva samostatným vlastníkom a pôvodný dôvod odmietnutia sa zachová.
 
+Prospektívny natívny alfa runner viaže aj `XDG_STATE_HOME` na vlastný
+`profile/state` a tento fyzický adresár skontroluje pred child spawn. Ambientný
+state adresár sa nepreberá; existujúci súbor alebo alias sa neadoptuje. Kontrolované
+Node fixture overujú prenos prostredia a odmietnutie nebezpečného state vstupu.
+Staršie natívne výsledky tým nezískavajú dôkaz izolácie tohto nového prostredia;
+skutočný engine state a jeho natívne temp správanie ešte potrebujú čerstvé meranie.
+
 ## AI režimy v governance kandidátovi
 
 **AI hranice v alfe (rozhodnutie 20. 10. 2026):** alfa sa dodáva s prepínačom **AI hranice vypnutým**.
