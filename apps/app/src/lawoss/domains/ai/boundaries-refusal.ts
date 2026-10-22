@@ -7,6 +7,12 @@ const DENIED_CODE = "ai_transfer_denied";
 // `message`. Protected document generation also uses `ai_transfer_denied`, with other texts
 // and without the marker, and must not be described as AI hranice.
 const BOUNDARIES_MESSAGE = "Protected AI processing is unavailable";
+/**
+ * Language-neutral stand-in kept where an error is stored (component state, the
+ * session activity store). It is recognised again by `aiBoundariesRefusal`, so the
+ * sentence for the lawyer is produced at render time in the current language.
+ */
+export const AI_BOUNDARIES_STORED_MESSAGE = BOUNDARIES_MESSAGE;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
