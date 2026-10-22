@@ -5,7 +5,7 @@ import { constants } from 'node:fs';
 import { lstat, open, readdir, readlink, realpath, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
-import { promisify } from 'node:util';
+import { promisify, types } from 'node:util';
 
 const refuse = () => { throw Object.assign(new Error('linux-protected-install-refused'), {code:'linux-protected-install-refused'}); };
 const fail = () => { throw Object.assign(new Error('linux-protected-install-unverified'), {code:'linux-protected-install-unverified'}); };
@@ -60,13 +60,51 @@ function rootAccessSnapshot(value) {
     return Object.freeze({modeBits,otherRead,otherSearch});
   } catch {return undefined;}
 }
-export function linuxOperationFailure(operation,error,root,rootMetadata) {
+// Closed own-data records only. Reject even transparent/revoked proxies before
+// reflection, so optional metadata never executes foreign traps or getters.
+function linkRecord(value,keys) {
+  if(!value || typeof value!=='object' || types.isProxy(value))return undefined;
+  const prototype=Object.getPrototypeOf(value);
+  if(prototype!==Object.prototype && prototype!==null)return undefined;
+  const fields=Object.getOwnPropertyDescriptors(value),actual=Reflect.ownKeys(fields);
+  if(actual.length!==keys.length || !keys.every(key=>Object.hasOwn(fields,key) && Object.hasOwn(fields[key],'value')))return undefined;
+  return fields;
+}
+function linkResolutionSnapshot(value) {
+  try {
+    const fields=linkRecord(value,['entry','lexicalTarget']);
+    if(!fields)return undefined;
+    const entry=linkRecord(fields.entry.value,['scope','depth']),target=linkRecord(fields.lexicalTarget.value,['scope','depth']);
+    if(!entry || !target)return undefined;
+    const entryScope=entry.scope.value,entryDepth=entry.depth.value,targetScope=target.scope.value,targetDepth=target.depth.value;
+    const descendantDepth=depth=>Number.isInteger(depth) && depth>=1 && depth<=129;
+    if(entryScope!=='payload-descendant' || !descendantDepth(entryDepth) ||
+      !(targetScope==='payload-root' && targetDepth===0 || targetScope==='payload-descendant' && descendantDepth(targetDepth) || targetScope==='unknown' && targetDepth===null))return undefined;
+    return Object.freeze({entry:Object.freeze({scope:entryScope,depth:entryDepth}),lexicalTarget:Object.freeze({scope:targetScope,depth:targetDepth})});
+  } catch {return undefined;}
+}
+function linkCallsiteSnapshot(root,entry,target) {
+  if(!canonicalPosixPath(root) || root==='/' || !canonicalPosixPath(entry) || !entry.startsWith(`${root}/`))return undefined;
+  const depth=entry.slice(root.length+1).split('/').length;
+  if(depth<1 || depth>129)return undefined;
+  let scope='unknown',targetDepth=null;
+  if(canonicalPosixPath(target)) {
+    if(target===root){scope='payload-root';targetDepth=0;}
+    else if(target.startsWith(`${root}/`)) {
+      const components=target.slice(root.length+1).split('/').length;
+      if(components<=129){scope='payload-descendant';targetDepth=components;}
+    }
+  }
+  return Object.freeze({entry:Object.freeze({scope:'payload-descendant',depth}),lexicalTarget:Object.freeze({scope,depth:targetDepth})});
+}
+export function linuxOperationFailure(operation,error,root,rootMetadata,linkMetadata) {
   if(!installationOperations.has(operation))return undefined;
   let errorCode='unknown';
   try {const code=Object.getOwnPropertyDescriptor(error,'code')?.value;if(preflightCodes.has(code))errorCode=code;}catch { /* Observation cannot replace the primary. */ }
   const filesystem=operation==='tree-validation'?treeFilesystemFailure(error,root):undefined;
   const rootAccess=filesystem?rootAccessSnapshot(rootMetadata):undefined;
-  return Object.freeze({operation,errorCode,...(filesystem?{filesystem}:{}),...(rootAccess?{rootAccess}:{})});
+  const linkResolution=filesystem?.action==='realpath' && errorCode!=='unknown'?linkResolutionSnapshot(linkMetadata):undefined;
+  return Object.freeze({operation,errorCode,...(filesystem?{filesystem}:{}),...(rootAccess?{rootAccess}:{}),...(linkResolution?{linkResolution}:{})});
 }
 function toolRefusalSnapshot(value) {
   try {
@@ -144,7 +182,7 @@ async function protectedToolPreflight(label,onStep,onRefusal) {
   return await protectedEntry(physical,false,onRefusal);
 }
 /** Filesystem metadata validation only; does not execute or grant an application. */
-export async function validateProtectedLinuxTree(root,{onRootMetadata}={}) {
+export async function validateProtectedLinuxTree(root,{onRootMetadata,onLinkResolutionFailure}={}) {
   if(!isAbsolute(root) || resolve(root)!==root)fail();
   const info=await protectedAncestors(root);
   const modeBits=info.mode&0o777;
@@ -158,7 +196,19 @@ export async function validateProtectedLinuxTree(root,{onRootMetadata}={}) {
       if(info.uid!==0)fail();
       if(info.isSymbolicLink()) {
         const target=await readlink(path);
-        if(isAbsolute(target) || !inside(root,resolve(directory,target)) || !inside(root,await realpath(path)))fail();
+        if(isAbsolute(target))fail();
+        const lexicalTarget=resolve(directory,target);
+        if(!inside(root,lexicalTarget))fail();
+        let physicalTarget;
+        try {physicalTarget=await realpath(path);}
+        catch(error) {
+          try {
+            const snapshot=linkCallsiteSnapshot(root,path,lexicalTarget);
+            if(snapshot)noteRefusal(onLinkResolutionFailure,snapshot);
+          } catch { /* Snapshot construction cannot replace the original error. */ }
+          throw error;
+        }
+        if(!inside(root,physicalTarget))fail();
       } else if(info.isDirectory()) {await protectedEntry(path,true);await visit(path,depth+1);}
       else {await protectedEntry(path);if(info.mode&0o6000)fail();}
     }
@@ -225,7 +275,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
     const policy=linuxUsernsProfile(stage),policyFile=join(stage,'userns.profile');
     let stageIdentity,retained=false,policyState='not-required',stageState='not-created',primary;
     let restricted=false,policyOwned=false,policyUncertain=false,temporary,protectionVerified=false;
-    let preflight,preflightFailure,stageTrustRefusal,toolTrustRefusal,operation,operationFailure,rootMetadata;
+    let preflight,preflightFailure,stageTrustRefusal,toolTrustRefusal,operation,operationFailure,rootMetadata,linkMetadata;
     try {
       preflight='stage-ancestors';
       // Hosted image scripts make /opt world-writable. Select a fixed different
@@ -264,7 +314,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
       operation='tree-copy';
       await copyProtectedLinuxTree(dirname(source.installedApp),app,stageIdentity,value=>{operation=value;});
       operation='tree-validation';
-      await validateProtectedLinuxTree(app,{onRootMetadata:value=>{rootMetadata=value;}});
+      await validateProtectedLinuxTree(app,{onRootMetadata:value=>{rootMetadata=value;},onLinkResolutionFailure:value=>{linkMetadata=value;}});
       const installedApp=join(app,'legalwork');
       operation='installed-tree';
       const installation=await verifyAlphaInstallation({...artifact,installedApp});
@@ -288,7 +338,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
       }
       operation='native-use';
       return await use({installedApp,installation,retain(){retained=true;}});
-    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error,stageTrustRefusal,toolTrustRefusal);operationFailure=linuxOperationFailure(operation,error,app,rootMetadata);throw error;}
+    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error,stageTrustRefusal,toolTrustRefusal);operationFailure=linuxOperationFailure(operation,error,app,rootMetadata,linkMetadata);throw error;}
     finally {
       let cleanupFailure;
       try {

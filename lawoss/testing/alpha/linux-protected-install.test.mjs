@@ -812,3 +812,158 @@ test('actual ordinary non-hosted CLI refuses with finite output before creating 
   assert.deepEqual(JSON.parse(lines[0]), { kind: 'lawoss-ci-linux-protected-installation', status: 'refused', reason: 'native-hosted-nonroot-linux-required' });
   await assert.rejects(lstat(output), { code: 'ENOENT' });
 });
+
+// This ordinary isolated child executes the unchanged complete production source
+// against metadata only; modeled uid0/0755 is not native/root ownership proof.
+async function productionLinkResolutionFixture(moduleUrl) {
+  const assert=(await import('node:assert/strict')).default;
+  const fs=(await import('node:fs/promises')).default;
+  const nativeFs=(await import('node:fs')).default;
+  const childProcess=(await import('node:child_process')).default;
+  const nativePath=(await import('node:path')).default;
+  const {syncBuiltinESMExports}=await import('node:module');
+  const source=await fs.readFile(new URL(moduleUrl),'utf8');
+  const originalResolve=nativePath.resolve,originalFreeze=Object.freeze;
+  const root='/link-metadata/payload',directory=`${root}/nested`;
+  let unexpected=0,events=[],kind,entry,linkTarget,primary,validatorCases=0,projectionCases=0;
+  const reject=()=>{unexpected++;throw new Error('unexpected operation');};
+  for(const object of [nativeFs,fs,childProcess]) for(const key of Object.keys(object)) if(typeof object[key]==='function')Object.defineProperty(object,key,{value:reject,writable:true,configurable:true,enumerable:true});
+  nativePath.resolve=(...args)=>{if(args.length===2 && args[0]===directory && args[1]===linkTarget)events.push('resolve-target');return originalResolve(...args);};
+  const dir=()=>({uid:0,mode:0o755,isSymbolicLink:()=>false,isDirectory:()=>true});
+  fs.lstat=async filename=>{
+    if(![root,directory,'/link-metadata','/',entry].includes(filename))return reject();
+    events.push(filename===entry?'lstat-entry':'lstat-directory');
+    if(filename===entry)return {get uid(){events.push('uid-entry');return kind==='owner'?1:0;},isSymbolicLink(){events.push('symlink-entry');return true;}};
+    if(kind==='ancestor' && filename==='/link-metadata')return {...dir(),uid:1};
+    if(kind==='type' && filename===root)return {...dir(),isDirectory:()=>false};
+    return dir();
+  };
+  fs.readdir=async filename=>{
+    if(filename===root){events.push('readdir-root');return ['nested'];}
+    if(filename===directory){events.push('readdir-directory');return [entry.slice(directory.length+1)];}
+    return reject();
+  };
+  fs.readlink=async filename=>{
+    if(filename!==entry)return reject();events.push('readlink');
+    if(kind==='readlink')throw primary;return linkTarget;
+  };
+  fs.realpath=async filename=>{
+    if(filename===root){events.push('realpath-root');return kind==='canonical'?'/different':root;}
+    if(filename!==entry)return reject();events.push('realpath-entry');
+    if(kind==='success')return `${root}/resolved`;
+    if(kind==='physical')return '/outside';
+    if(kind==='construction')Object.freeze=()=>{throw new Error('snapshot construction');};
+    throw primary;
+  };
+  syncBuiltinESMExports();
+  const production=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+  async function run(caseKind,expectedSnapshot) {
+    kind=caseKind;events=[];entry=`${directory}/link`;linkTarget='target/leaf';
+    if(kind==='root-target')linkTarget='..';
+    if(kind==='deep-target')linkTarget=Array(130).fill('d').join('/');
+    if(kind==='long-target')linkTarget='x'.repeat(4097);
+    if(kind==='control-entry')entry=`${directory}/line\nentry`;
+    if(kind==='long-entry')entry=`${directory}/${'x'.repeat(4097)}`;
+    if(kind==='absolute')linkTarget='/outside';
+    if(kind==='lexical')linkTarget='../../outside';
+    primary=Object.assign(new Error('private original'),{code:'EACCES',syscall:kind==='readlink'?'readlink':'realpath',path:`${root}/error-component`});
+    const descriptors=Object.getOwnPropertyDescriptors(primary),roots=[],snapshots=[];
+    let caught,value;
+    try {
+      value=await production.validateProtectedLinuxTree(kind==='noncanonical'?`${root}/../payload`:root,{
+        onRootMetadata(metadata){roots.push(metadata);},
+        onLinkResolutionFailure(metadata){snapshots.push(metadata);if(kind==='observer')throw new Error('observer');},
+      });
+    } catch(error){caught=error;} finally {Object.freeze=originalFreeze;}
+    validatorCases++;
+    if(kind==='success'){assert.equal(caught,undefined);assert.equal(value,undefined);}
+    else if(['absolute','lexical','physical','owner','ancestor','type','canonical','noncanonical'].includes(kind))assert.equal(caught.code,'linux-protected-install-unverified');
+    else {assert.equal(caught,primary);assert.deepEqual(Object.getOwnPropertyDescriptors(primary),descriptors);}
+    if(expectedSnapshot){
+      assert.deepEqual(snapshots,[expectedSnapshot]);
+      for(const object of [snapshots[0],snapshots[0].entry,snapshots[0].lexicalTarget])assert.equal(Object.isFrozen(object),true);
+      assert.throws(()=>{snapshots[0].entry.depth=9;},TypeError);
+      const observation=production.linuxOperationFailure('tree-validation',caught,root,roots[0],snapshots[0]);
+      assert.deepEqual(observation.linkResolution,expectedSnapshot);
+      assert.notEqual(observation.linkResolution,snapshots[0]);assert.notEqual(observation.linkResolution.entry,snapshots[0].entry);
+      assert.deepEqual(observation.filesystem,{action:'realpath',scope:'payload-descendant',depth:1});
+      assert.deepEqual(observation.rootAccess,{modeBits:493,otherRead:true,otherSearch:true});
+    } else assert.deepEqual(snapshots,[]);
+    if(!['ancestor','type','canonical','noncanonical'].includes(kind))assert.deepEqual(roots,[{modeBits:493,otherRead:true,otherSearch:true}]);
+    else assert.deepEqual(roots,[]);
+    if(kind==='failure')assert.deepEqual(events.slice(-6),['lstat-entry','uid-entry','symlink-entry','readlink','resolve-target','realpath-entry']);
+    const reached=['failure','root-target','deep-target','long-target','long-entry','control-entry','observer','construction','success','physical'].includes(kind);
+    assert.equal(events.filter(value=>value==='realpath-entry').length,reached?1:0);
+    assert.equal(events.filter(value=>value==='resolve-target').length,reached || kind==='lexical'?1:0);
+    assert.equal(events.filter(value=>value==='readlink').length,['owner','ancestor','type','canonical','noncanonical'].includes(kind)?0:1);
+    assert.equal(events.filter(value=>value==='lstat-entry').length,['ancestor','type','canonical','noncanonical'].includes(kind)?0:1);
+    assert.equal(unexpected,0);
+  }
+  const expected={entry:{scope:'payload-descendant',depth:2},lexicalTarget:{scope:'payload-descendant',depth:3}};
+  await run('failure',expected);
+  await run('observer',expected);
+  await run('root-target',{entry:expected.entry,lexicalTarget:{scope:'payload-root',depth:0}});
+  for(const caseKind of ['deep-target','long-target'])await run(caseKind,{entry:expected.entry,lexicalTarget:{scope:'unknown',depth:null}});
+  for(const caseKind of ['long-entry','control-entry','construction','readlink','absolute','lexical','physical','owner','ancestor','type','canonical','noncanonical','success'])await run(caseKind);
+
+  const error={code:'EACCES',syscall:'realpath',path:`${root}/error-component`};
+  const rootMetadata={modeBits:493,otherRead:true,otherSearch:true};
+  const baseline={operation:'tree-validation',errorCode:'EACCES',filesystem:{action:'realpath',scope:'payload-descendant',depth:1},rootAccess:rootMetadata};
+  assert.deepEqual(production.linuxOperationFailure('tree-validation',error,root,rootMetadata),baseline);
+  for(const entryDepth of [1,2,129])for(const [scope,depth] of [['payload-root',0],['payload-descendant',1],['payload-descendant',129],['unknown',null]]){
+    const input={entry:{scope:'payload-descendant',depth:entryDepth},lexicalTarget:{scope,depth}};
+    const value=production.linuxOperationFailure('tree-validation',error,root,rootMetadata,input);
+    assert.deepEqual(value,{...baseline,linkResolution:input});
+    assert.notEqual(value.linkResolution,input);assert.notEqual(value.linkResolution.entry,input.entry);assert.notEqual(value.linkResolution.lexicalTarget,input.lexicalTarget);
+    for(const part of [value,value.linkResolution,value.linkResolution.entry,value.linkResolution.lexicalTarget])assert.equal(Object.isFrozen(part),true);
+    input.entry.depth=7;assert.equal(value.linkResolution.entry.depth,entryDepth);
+    assert.doesNotMatch(JSON.stringify(value),/private|link-metadata|component/);projectionCases++;
+  }
+  const nullPrototype=Object.assign(Object.create(null),{entry:Object.assign(Object.create(null),expected.entry),lexicalTarget:Object.assign(Object.create(null),expected.lexicalTarget)});
+  assert.deepEqual(production.linuxOperationFailure('tree-validation',error,root,rootMetadata,nullPrototype).linkResolution,expected);projectionCases++;
+  let traps=0;
+  const trap=()=>{traps++;throw new Error('must not inspect');};
+  const handler={get:trap,ownKeys:trap,getOwnPropertyDescriptor:trap,getPrototypeOf:trap};
+  const proxy=new Proxy(expected,handler),transparent=new Proxy(expected,{}),revoked=Proxy.revocable(expected,{});revoked.revoke();
+  const nestedProxy=new Proxy(expected.entry,handler),nestedRevoked=Proxy.revocable(expected.lexicalTarget,{});nestedRevoked.revoke();
+  const accessor={get entry(){traps++;return expected.entry;},lexicalTarget:expected.lexicalTarget};
+  const inherited=Object.create(expected),custom=Object.assign(Object.create({private:true}),expected);
+  const bad=[undefined,null,1,'private',[],{},new String('private'),inherited,custom,accessor,proxy,transparent,revoked.proxy,
+    {...expected,entry:nestedProxy},{...expected,entry:new Proxy(expected.entry,{})},{...expected,lexicalTarget:nestedRevoked.proxy},
+    {...expected,lexicalTarget:new Proxy(expected.lexicalTarget,handler)},
+    {...expected,private:'value'},{...expected,[Symbol('private')]:true},
+    {...expected,entry:{...expected.entry,private:true}},
+    {...expected,entry:{get scope(){traps++;return 'payload-descendant';},depth:2}},
+    {...expected,lexicalTarget:Object.create(expected.lexicalTarget)},
+    {...expected,lexicalTarget:{...expected.lexicalTarget,[Symbol('private')]:true}}];
+  for(const depth of [undefined,'2',NaN,Infinity,-1,0,130,1.5,true,null,{},new Number(2)])bad.push({...expected,entry:{scope:'payload-descendant',depth}});
+  for(const entry of [{scope:'payload-root',depth:0},{scope:'unknown',depth:null},[],null,{scope:new String('payload-descendant'),depth:2}])bad.push({...expected,entry});
+  for(const lexicalTarget of [{scope:'payload-root',depth:1},{scope:'payload-descendant',depth:0},{scope:'payload-descendant',depth:130},{scope:'unknown',depth:0},{scope:'unknown',depth:'null'},{scope:'other',depth:3},{scope:'payload-descendant',depth:NaN},{scope:'payload-descendant',depth:1.5},[],null])bad.push({...expected,lexicalTarget});
+  for(const input of bad){assert.deepEqual(production.linuxOperationFailure('tree-validation',error,root,rootMetadata,input),baseline);projectionCases++;}
+  assert.equal(traps,0);
+  for(const [operation,context,errorValue] of [
+    ['tree-copy',root,error],['unknown',root,error],['tree-validation','/',error],['tree-validation',`${root}/..`,error],
+    ...['readlink','scandir','unknown'].map(syscall=>['tree-validation',root,{...error,syscall}]),
+    ['tree-validation',root,{...error,code:'unknown'}],
+  ]){
+    const result=production.linuxOperationFailure(operation,errorValue,context,rootMetadata,proxy);
+    assert.equal(result?.linkResolution,undefined);projectionCases++;
+  }
+  assert.equal(traps,0);
+  assert.deepEqual(production.linuxPreflightFailure('mkdir-entry',{code:'linux-protected-install-unverified'},undefined,{predicate:'owner'}),{boundary:'tool-trust',tool:'mkdir',check:'entry',errorCode:'linux-protected-install-unverified',toolTrust:{predicate:'owner'}});
+  assert.equal(unexpected,0);
+  console.log(JSON.stringify({validatorCases,projectionCases,unexpectedOperations:unexpected,proxyTraps:traps,source:'unchanged-full-module',metadata:'modeled-only'}));
+}
+
+test('link-resolution actual validator separates cached entry lexical target and original error path', t => {
+  const child=spawnSync(process.execPath,['--input-type=module'],{
+    input:`await (${productionLinkResolutionFixture.toString()})(${JSON.stringify(new URL('./linux-protected-install.mjs',import.meta.url).href)});`,
+    encoding:'utf8',timeout:10000,maxBuffer:65536,
+  });
+  assert.equal(child.error,undefined);assert.equal(child.signal,null);assert.equal(child.status,0,child.stderr);
+  assert.equal(child.stderr,'');
+  const result=JSON.parse(child.stdout);
+  assert.equal(result.validatorCases,18);assert.equal(result.projectionCases,71);
+  t.diagnostic(JSON.stringify(result));
+  assert.deepEqual({...result,validatorCases:0,projectionCases:0},{validatorCases:0,projectionCases:0,unexpectedOperations:0,proxyTraps:0,source:'unchanged-full-module',metadata:'modeled-only'});
+});
