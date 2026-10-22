@@ -10,40 +10,16 @@ import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { validateProductSdkCapsuleArchive as safeList } from './product-capsule-format.mjs';
 import { transaction, verifyWorkspace } from './prepare.mjs';
-import { canonical, inventory, SDK_LOCK_SHA256, sdkConsumerMode, verifyBuildPayload } from './validate.mjs';
+import { canonical, inventory, verifyBuildPayload } from './validate.mjs';
+import { admitProductSdkCapsuleIdentity as identityData } from './product-capsule-identity.mjs';
 
-const MiB = 1024 * 1024;
 const verifierNames = ['validate.mjs', 'notices.mjs', 'sdk/package.json', 'sdk/package-lock.json',
   'sdk/notices/index.json', 'sdk/notices/THIRD_PARTY_NOTICES.md', 'sdk/notices/licenses/opencode-MIT.txt',
   'sdk/notices/licenses/msgpackr-extract-MIT.txt', 'sdk/notices/licenses/kubernetes-Apache-2.0.txt'].sort();
 const bad = (code = 'PRODUCT_SDK_CAPSULE_INVALID') => { throw Object.assign(new Error(code), { code }); };
-const hex = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const same = (a, b) => a.dev === b.dev && a.ino === b.ino;
 const physicalSame = (a, b) => same(a, b) && ['size', 'mtimeNs', 'ctimeNs'].every(key => a[key] === b[key]);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-function fields(value, names) {
-  if (!value || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) bad();
-  const descriptors = Object.getOwnPropertyDescriptors(value), keys = Reflect.ownKeys(descriptors);
-  if (keys.length !== names.length || keys.some(key => !names.includes(key))) bad();
-  return Object.fromEntries(names.map(name => {
-    const field = descriptors[name];
-    if (!field || !Object.hasOwn(field, 'value') || !field.enumerable) bad();
-    return [name, field.value];
-  }));
-}
-function identityData(value) {
-  const result = fields(value, ['schema', 'kind', 'status', 'manifestSha256', 'target', 'lockSha256',
-    'inputSha256', 'sourceSetSha256', 'consumerMode', 'verifierSha256', 'capsule']);
-  const platform = result.target && Object.getOwnPropertyDescriptor(result.target, 'platform')?.value;
-  result.target = Object.freeze(fields(result.target, platform === 'linux' ? ['platform', 'arch', 'libc'] : ['platform', 'arch']));
-  result.capsule = Object.freeze(fields(result.capsule, ['format', 'file', 'sha256', 'bytes']));
-  if (result.schema !== 1 || result.kind !== 'lawoss-product-sdk-capsule' || result.status !== 'verified' ||
-    !['manifestSha256', 'inputSha256', 'sourceSetSha256', 'verifierSha256'].every(name => hex(result[name])) ||
-    result.lockSha256 !== SDK_LOCK_SHA256 || sdkConsumerMode(result.target, result.lockSha256) !== result.consumerMode ||
-    result.capsule.format !== 'tar+gzip' || result.capsule.file !== 'payload.tgz' || !hex(result.capsule.sha256) ||
-    !Number.isSafeInteger(result.capsule.bytes) || result.capsule.bytes < 1 || result.capsule.bytes > 270 * MiB) bad();
-  return Object.freeze(result);
-}
 async function absent(file) {
   try { await lstat(file); return false; } catch (error) { if (error.code === 'ENOENT') return true; throw error; }
 }
