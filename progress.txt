@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- Treat true request EOF, local stdout finish/end callback, and parent-observed child/pipe closure as separate ownership barriers; remembered finish survives runtime property resets, while private real-close observations gate fixture cleanup.
 - Preserve failure provenance with an Error-keyed finite projection and original short-circuit operands; keep invocation/lexical-target/error.path contexts distinct without extra IO.
 - Verify new tests against the original CI command. Keep experimental flags confined to bounded actual-runtime test children rather than changing the existing caller or skipping assertions.
 - Separate source-boundary call observations from completed checkpoints and freeze them before cancellation; distinguish child-relative from parent-delivery clocks.
@@ -1231,3 +1232,9 @@ ActualNSIS737/run39656432934 proves literal $R0/Uninstall LAWOSS.exe (SHA6e1c6d4
 - Parent maintained .agents/skills/verify-lawoss/SKILL.md and features/startup-recovery.md for reviewed toolTrust/linkResolution/Windows CALL/SDK tuple fields and Ready-only visual-review limit. Main skill points to the scenario's diagnostic reference; invocation/frontmatter/user journeys/gates unchanged.
 - pstack maintain-verification-skill unavailable in this session (tool discovery empty, CLI absent); used direct project-skill maintenance with writing-for-agents guidance and source/reference checks. No tool invocation claimed. Source fields/API names and relative links checked; first QA guessed helper name was corrected to actual createWindowsJobDiagnosticProjector before acceptance. No production/test change or functional rerun.
 - No runtime/native acceptance, action registration, launcher/provider/profile/CI/source change. Original failed/blocked receipts keep their meaning; schema/source references are documentation evidence only.
+
+## 2026-10-22T22:28:11.910345+00:00 — Task29 B1 closed decoder entry
+- Source7fcb456694dc70c6dfa73739431889eca435eb5d exactly4NEWwire/entry/test/bundlefixture paths; trueEOF/canonicalboundedframes/allowlistederrors, abort-and-join decoder and localfinish+endcallback. ExistingA/P/SDK27/lease/defaults unchanged.
+- ActualbundledNode22.23.2 finalnewfile20PASS0FAIL0SKIP; sameBun1.4.2CJSworker actualNode24 unsupported-before-mutation, Node22 inertinventory/resourcesunchanged/malformedrefusal/allactualchild+pipecloses. FirstunsupportedCLIflag/stdout-propertyreset/strict-prototype test failures retained with corrections, no hidden retry/relabel.
+- FreshastraHIGHspecPASS/qualityApproved/no findings; root32proof23protected4Git/exactpatch+21reviewinputs2outputsverified, evidence sdk-stage-decoder-entry/ + sdk-stage-decoder-entry-review/. ParentAGENTS/CLAUDEidentical reusableEOF/finish/realcloseguidance. Docs-onlymirror/diff checks; no functional test repeat because no executable change.
+- PrivateCJScompositionnotappASAR/channel/launchauthentication; B2supervisor/lease/productioncapture/native6fresh+migrated11/human gates remain separate. First485dCI unchanged/live; SDK6receipt53+6/162bindings and npm2fresh47PASS scopedproof, x64cold15sFAIL preserved. No push/merge/publicrelease/profile/provider action.
