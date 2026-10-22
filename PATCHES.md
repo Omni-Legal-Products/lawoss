@@ -6,6 +6,12 @@
 | --- | --- |
 | `apps/app/vite.wordaddin.config.ts` | Plugin `lawoss-office-editor-stub` (`enforce: "pre"`) presmeruje importy `artifact-xlsx-editor` a `artifact-pptx-editor` na nový LAWOSS súbor `apps/app/src/lawoss/word-addin/office-editor-stub.tsx`. Ten má rovnaké props a namiesto editora ukáže lokalizovanú výzvu otvoriť súbor v aplikácii LAWOSS. Agentovi hneď vracia jasnú chybu namiesto minútového čakania na načítanie. Zmena platí pre `dev:word-addin` aj pre dodávaný `build:word-addin`. Desktopová aplikácia editory nemení. Dôvod: taskpane montuje celý `SessionRoute`, takže Rollup parsoval aj lazy editory (Univer ~15 MB, pptx-react-viewer ~14,6 MB kódu) a watch build po syncoch v0.2.4 a v0.2.9 padal na „JavaScript heap out of memory“. Meranie na `d12701a7`, Node 24.21, `vite build --watch`: 10 727 → 8 094 modulov, peak heapUsed 4,64 GB → 2,79 GB (predvolený limit 4 288 MB), prvý build (Vite „built in“) 39 s → 22 s. Zmenu správania schválil MČ 20. 10. 2026. |
 
+## Natívny test PTY na Windows ARM (2026-10-22)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/desktop/scripts/native-modules-regression.mjs` | Na Windows sa riadok `done\r` pre `set /p` po prvom zápise opakuje každú sekundu, kým `cmd.exe` beží (`process.kill(pid, 0)`). Po jeho skončení sa už nepíše: `onExit` z node-pty príde až ~1 s po ňom, takže bez tejto kontroly by bežný beh poslal druhý riadok. Ak `cmd.exe` neskončil do 1 s po prvom riadku (riadok sa stratil, prečítal sa neskoro alebo `cmd.exe` skončil pomaly), pošle sa ďalší a test vypíše `NOTE: Windows PTY sent N input lines before cmd.exe exited`. Príkaz, limit 10 s, asercie (exit 0, výstup obsahuje `native-pty-ok`) ani macOS/Linux sa nemenia. Dôvod: PR #208, beh 39816882781, job 119964634195 (`windows-11-arm`, 2026-10-22): `native-pty-ok` prišlo, ale jediný riadok sa do 10 s neprečítal (vo výstupe chýba jeho echo). Opakovanie jobu (attempt 2, job 119999946086) prešlo; PTY časť testu trvala 1,10 s, celý krok ~2,5 s. Prečo sa riadok stratil, nie je overené. |
+
 ## Pamäť opakovaného Office buildu (2026-10-21)
 
 | Súbory | Downstream doplnenie a dôvod |
