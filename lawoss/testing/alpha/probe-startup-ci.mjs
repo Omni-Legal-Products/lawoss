@@ -81,6 +81,24 @@ export function startupFailureProjection(error) {
   return {kind:'lawoss-ci-native-startup',status:'failed',reason:'native-startup-unverified',
     diagnostic:failureDiagnostics.get(error)??{phase:'preflight',errorCode:errorCode(error),cleanup:'not-observed'}};
 }
+async function observeDocumentsAfterFailure(failure, options) {
+  if (!options || process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true' || process.env.RUNNER_ENVIRONMENT !== 'github-hosted') return;
+  // Import and spawn only after original failure projection and verified owned
+  // cleanup. This never warms the original final-artifact startup attempt.
+  const { shouldRunWindowsDocumentsProbe, runWindowsDocumentsProbe } = await import('./windows-documents-probe.mjs');
+  if (!shouldRunWindowsDocumentsProbe(failure)) return;
+  await runWindowsDocumentsProbe({ temporaryRoot: options.temporaryRoot, expectedBuild: options.expectedBuild,
+    originalFailure: failure, output: join(options.temporaryRoot, `windows-documents-probe-${process.arch}.json`) });
+}
+export async function reportStartupFailure(error, options, afterFailure = observeDocumentsAfterFailure) {
+  const failure = startupFailureProjection(error);
+  console.error(JSON.stringify(failure));
+  process.exitCode = 1;
+  try { await afterFailure(failure, options); }
+  catch { console.error(JSON.stringify({ kind: 'lawoss-windows-documents-diagnostic', status: 'incomplete', reason: 'probe-unavailable' })); }
+  finally { process.exitCode = 1; }
+  return failure;
+}
 async function hashFile(file) {
   if (!(await lstat(file)).isFile()) fail();
   const hash=createHash('sha256'); for await(const bytes of createReadStream(file))hash.update(bytes); return hash.digest('hex');
@@ -237,6 +255,7 @@ async function startupOptions(args,{environment,repoRoot},diagnostic) {
   return {asset,expectedSha256:await hashFile(asset),expectedBuild,outputDir,temporaryRoot,...(flags['--installed-app']?{installedApp:resolve(flags['--installed-app'])}:{})};
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href) {
-  try {const result=await runNativeStartupProbe(await ciStartupOptions(process.argv.slice(2)));console.log(JSON.stringify(result));}
-  catch(error) {console.error(JSON.stringify(startupFailureProjection(error)));process.exitCode=1;}
+  let options;
+  try {options=await ciStartupOptions(process.argv.slice(2));const result=await runNativeStartupProbe(options);console.log(JSON.stringify(result));}
+  catch(error) {await reportStartupFailure(error,options);}
 }

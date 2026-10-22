@@ -51,3 +51,25 @@ before each final prepackaged AppImage/NSIS/ZIP command. Development/null/no-SDK
 returns development, never verified release identity. These static checks and
 inert FileMatcher/ASAR fixtures do not establish installed startup or managed
 G/E provisioning; keep their receipts separate from native acceptance evidence.
+
+
+After the original hosted Windows final-artifact launch fails with verified
+native closure, discovery ENOENT and home-returned without documents-returned,
+the CLI may run a separate three-case Documents diagnostic. It first emits the
+unchanged primary projection and sets exit1; supplemental failure cannot clear
+that status. Each fresh case uses the existing Job Object with separate15s
+start/observation/stop limits: unchanged alpha environment, owned home/Documents
+present, then explicit owned Documents override as a diagnostic control only.
+The pinned repository Electron43.7.5 fixture records actual ready state and one
+getPath sequence, not product startup. Returned paths are classified lexically
+without following outside-root values; nonce-bound private records publish via
+owned pending-to-final rename. The public JSON contains only fixed outcomes,
+source/executable hashes, original finite boundary and verified/unverified stop.
+An unavailable case keeps the aggregate incomplete. Unknown closure retains the
+fixture and prevents later children. The original90s readiness and12min NSIS
+step stay unchanged. Natural Documents lookup, registry/OneDrive configuration,
+normal-user startup and an OS cause remain unverified until actual evidence.
+The exact finite Documents JSON upload cannot include profiles, raw logs or
+broader paths. Its read-only installed Electron package metadata permits package
+store hardlinks with bounded physical/digest postflight; private fixture records
+and the executable retain their single-link admission.

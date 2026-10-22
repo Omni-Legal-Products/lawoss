@@ -297,3 +297,27 @@ test('CI preflight refuses unhosted, invalid flags, output escapes, and wrong so
   // A fixture outside any Git checkout cannot establish current source provenance.
   await assert.rejects(ciStartupOptions(['--output-dir',f.options.outputDir,...(process.platform==='win32'?['--installed-app',f.options.installedApp]:[])],{environment,repoRoot:f.root}));
 });
+
+test('failure-only Documents observer runs after original projection and exit1 and cannot mask either', async () => {
+  const primary = Object.assign(new Error('PRIVATE_ORIGINAL_FAILURE'), { code: 'native-readiness-timeout' });
+  const expected = startupProbe.startupFailureProjection(primary), lines = [], previousError = console.error, previousExitCode = process.exitCode;
+  console.error = line => lines.push(line);
+  try {
+    let calls = 0;
+    const result = await startupProbe.reportStartupFailure(primary, { privatePath: 'PRIVATE_PATH' }, async (failure, options) => {
+      calls++;
+      assert.deepEqual(JSON.parse(lines[0]), expected);
+      assert.equal(process.exitCode, 1);
+      assert.equal(options.privatePath, 'PRIVATE_PATH');
+      assert.deepEqual(failure, expected);
+      throw new Error('PRIVATE_DIAGNOSTIC_FAILURE');
+    });
+    assert.equal(calls, 1); assert.deepEqual(result, expected); assert.equal(process.exitCode, 1);
+    assert.deepEqual(JSON.parse(lines[0]), expected);
+    assert.deepEqual(JSON.parse(lines[1]), { kind: 'lawoss-windows-documents-diagnostic', status: 'incomplete', reason: 'probe-unavailable' });
+    assert.equal(lines.some(line => line.includes('PRIVATE')), false);
+    assert.equal(primary.message, 'PRIVATE_ORIGINAL_FAILURE');
+    await startupProbe.reportStartupFailure(primary, undefined, async () => { process.exitCode = 0; });
+    assert.equal(process.exitCode, 1);
+  } finally { console.error = previousError; process.exitCode = previousExitCode; }
+});
