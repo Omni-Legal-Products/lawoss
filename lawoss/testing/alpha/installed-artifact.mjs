@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { validateBuildInfo } from '../../../apps/desktop/electron/build-info.mjs';
+import { assertMachOArchitecture } from './macho-architecture.mjs';
 
 async function fileHash(path) {
     const hash = createHash('sha256');
@@ -135,7 +136,7 @@ async function macArchitecture(app, arch) {
     if (build.platform !== 'darwin' || build.arch !== arch) throw new Error('macOS embedded architecture differs');
     const executable = join(app, 'Contents/MacOS/LAWOSS');
     if (!(await lstat(executable)).isFile()) throw new Error('Expected physical packaged Mac executable');
-    if (process.platform === 'darwin') await promisify(execFile)('/usr/bin/lipo', [executable, '-verify_arch', arch === 'x64' ? 'x86_64' : 'arm64'], { timeout: 10_000 });
+    await assertMachOArchitecture(executable, arch);
 }
 async function payloadRoot(extracted) {
     const names = await readdir(extracted);

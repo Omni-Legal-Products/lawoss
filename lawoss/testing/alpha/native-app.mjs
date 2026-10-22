@@ -234,7 +234,11 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
   if (!(await lstat(executable)).isFile()) throw blocked('invalid-installed-executable');
   const embedded = validateBuildInfo(JSON.parse(await readFile(path.join(resources, 'build-info.json'), 'utf8')));
   if (Object.keys(build).some(key => embedded[key] !== build[key])) throw blocked('installed-build-identity-mismatch');
-  await assertExclusiveMacExecutable(executable);
+  try { await assertExclusiveMacExecutable(executable); }
+  catch (cause) {
+    throw new NativeAlphaLaunchError(cause, { status: 'stopped', descendantClosure: 'verified',
+      method: 'no-child-started', profileRoot: profile.root, profileOwner: profile.owner });
+  }
   const profileInfo = await lstat(profileRoot);
   if (!profileInfo.isDirectory() || profileInfo.isSymbolicLink()) throw blocked('unsafe-profile');
   const root = await realpath(profileRoot), lockPath = path.join(root, '.alpha-native-app.lock');

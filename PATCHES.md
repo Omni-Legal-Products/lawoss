@@ -1359,6 +1359,16 @@ Rozhodnutie MČ z 20. 10. 2026: jeden natívny prepínač „YOLO Mode“ v Nast
 
 Rozsah alfy a nepodpísané Windows do bety vychádzajú zo [zápisu callu 19. 10.](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/main/meetings/2026-10-19-zapis-call-mc-vr.md). Nový harness v `lawoss/testing/alpha/` nevytvára podpisové ani verejné release schválenie.
 
+Privátny harness navyše nahrádza externé `lipo` pri admission architektúry obmedzeným
+čítaním Mach-O hlavičiek (najviac 4128 B, rovnaká fyzická identita pred/po čítaní).
+Generic x64/ARM64 thin64 a canonical FAT32/FAT64 prechádzajú uzavretou kontrolou;
+iné subtype/capability varianty sa odmietnu. Nejde o úplnú ekvivalenciu `lipo`, podpis
+ani natívnu akceptáciu. Dôvodom je pôvodný Intel CI timeout na inertnej 32 B fixture;
+jeho systémová príčina zostáva neznáma. Ostatné digest/tree/build-identity gates ostávajú.
+Úvodné macOS census odmietnutie pred profilovým zámkom/spawn zachová pôvodný guard
+error ako cause a doplní iba vlastnený `no-child-started` cleanup tuple. Nezatvára ani
+nepreukazuje zánik už existujúcej cudzej aplikácie; neskorší supervisor a deadlines sa nemenia.
+
 
 #### Pripravené IPC nie je pripravené používateľské rozhranie (2026-10-21)
 

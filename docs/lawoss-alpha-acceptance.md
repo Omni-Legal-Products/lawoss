@@ -32,6 +32,13 @@ overí `codesign` a Gatekeeper, spustí ju s izolovaným profilom a číta živ�
 UI-control. Rozhranie CDP ani runtime fuses sa nemenia. Bez manuálne dokončených
 nativných scenárov runner zapíše `blocked` a skončí nenulovo.
 
+Súkromný alfa extractor kontroluje podporované Mach-O hlavičky priamo z obmedzeného
+čítania toho istého fyzického súboru. Podporuje iba generic x64/ARM64 thin64 a overené
+FAT32/FAT64 rozloženia; úspešná kontrola nenahrádza podpis ani skutočný natívny štart.
+Ak úvodný census vlastníkov odmietne štart ešte pred profilovým zámkom a spawn,
+cleanup dôkaz platí len pre žiadne nové deti tejto invokácie. Existujúca cudzia aplikácia
+zostáva samostatným vlastníkom a pôvodný dôvod odmietnutia sa zachová.
+
 ## AI režimy v governance kandidátovi
 
 **AI hranice v alfe (rozhodnutie 20. 10. 2026):** alfa sa dodáva s prepínačom **AI hranice vypnutým**.

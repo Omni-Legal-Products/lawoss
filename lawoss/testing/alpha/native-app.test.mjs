@@ -6,8 +6,8 @@ import { tmpdir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { assertCaptureBinding, assertInteractiveUi, launchAlphaApp, nativeAppLayout, nativeAppEnvironment } from './native-app.mjs';
-import { prepareAcceptanceProfile } from '../../../apps/desktop/scripts/release-acceptance.mjs';
+import { assertCaptureBinding, assertInteractiveUi, launchAlphaApp, NativeAlphaLaunchError, nativeAppLayout, nativeAppEnvironment } from './native-app.mjs';
+import { ownedProfile, prepareAcceptanceProfile } from '../../../apps/desktop/scripts/release-acceptance.mjs';
 import { nativeLaunchDiagnostic } from './native-launch-diagnostics.mjs';
 import { nativeReadinessDiagnostic } from './native-readiness-diagnostics.mjs';
 
@@ -125,11 +125,26 @@ test('a second macOS app instance refuses acceptance without stopping the existi
     assert.equal(execFileSync('/bin/ps', ['-p', String(existing.pid), '-o', 'comm='], {
       encoding: 'utf8', timeout: 2000, maxBuffer: 8192,
     }).trim(), options.layout.executable);
-    await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 300 }), /installed-app-already-running/);
+    const profile = await ownedProfile(options.profileRoot);
+    let refusal;
+    await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 300 }), error => {
+      refusal = error;
+      return error.code === 'installed-app-already-running';
+    });
     process.kill(existing.pid, 0);
     assert.equal(existing.exitCode, null);
     assert.equal(existing.signalCode, null);
     await assert.rejects(readFile(join(options.profileRoot, '.alpha-native-app.lock')), { code: 'ENOENT' });
+    assert.ok(refusal instanceof NativeAlphaLaunchError);
+    assert.ok(refusal.cause instanceof Error);
+    assert.notEqual(refusal.cause, refusal);
+    assert.equal(refusal.cause.code, 'installed-app-already-running');
+    assert.equal(refusal.code, refusal.cause.code);
+    assert.equal(refusal.message, refusal.cause.message);
+    assert.equal(refusal.status, 'blocked');
+    assert.equal(refusal.status, refusal.cause.status);
+    assert.deepEqual(refusal.nativeCleanup, { status: 'stopped', descendantClosure: 'verified',
+      method: 'no-child-started', profileRoot: profile.root, profileOwner: profile.owner });
   } finally { existing.kill(); await closed; }
 });
 
@@ -148,7 +163,11 @@ test('verified owned cleanup removes only that Chromium singleton lease and perm
 test('direct diagnostic launch refuses an ordinary directory without synthetic ownership', async t => {
   const options = await fixture(t);
   await rm(join(options.profileRoot, '.lawoss-release-acceptance-profile.json'));
-  await assert.rejects(launchAlphaApp({ ...options, build }).then(options.own), /unowned|profile/i);
+  await assert.rejects(launchAlphaApp({ ...options, build }).then(options.own), error => {
+    assert.equal(error instanceof NativeAlphaLaunchError, false);
+    assert.equal(error.nativeCleanup, undefined);
+    return /unowned|profile/i.test(error.message);
+  });
   await assert.rejects(readFile(join(options.profileRoot, '.alpha-native-app.lock')), { code: 'ENOENT' });
 });
 

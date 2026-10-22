@@ -94,11 +94,11 @@ posixTest('AppImage extraction refuses a foreign host before executing any artif
     const asset = join(f.root, 'candidate.AppImage'); await copyFile(f.asset, asset);
     await assert.rejects(verifyAlphaInstallation({ ...f, asset }), /matching native Linux host/i);
 });
-async function macFixture(t) {
+async function macFixture(t, header) {
     const root = await mkdtemp(join(tmpdir(), 'lawoss-alpha-mac-artifact-test-'));
     t.after(() => rm(root, { recursive: true, force: true }));
     const installedApp = join(root, 'LAWOSS.app'), arch = 'arm64';
-    const macho = Buffer.alloc(32); macho.writeUInt32LE(0xfeedfacf); macho.writeUInt32LE(0x0100000c, 4); macho.writeUInt32LE(2, 12);
+    const macho = header ?? Buffer.from('cffaedfe0c000001000000000200000000000000000000000000000000000000', 'hex');
     const build = { schemaVersion: 1, product: 'lawoss-desktop', version: '1.2.3', gitSha: 'a'.repeat(40), buildEpoch: '123', platform: 'darwin', arch, channel: 'alpha', workflowRunUrl: '' };
     const files = {
         'LAWOSS.app/': [Buffer.alloc(0), 0o040755],
@@ -122,6 +122,20 @@ async function macFixture(t) {
 posixTest('private macOS ZIP integrity accepts the exact app bundle without asserting signing', async t => {
     const f = await macFixture(t);
     assert.deepEqual(await verifyAlphaInstallation(f), { status: 'verified', method: 'sha256-zip-installed-tree', signing: 'not-asserted', assetSha256: f.expectedSha256 });
+});
+posixTest('matching macOS archive and installed bytes still require the actual supported architecture header', async t => {
+    const valid = Buffer.from('cffaedfe0c000001000000000200000000000000000000000000000000000000', 'hex');
+    const mutations = {
+        'wrong-CPU-with-correct-build-info': bytes => { bytes.writeUInt32LE(0x01000007, 4); bytes.writeUInt32LE(3, 8); },
+        'unsupported-arm64e': bytes => { bytes.writeUInt32LE(2, 8); },
+        'capability-flag': bytes => { bytes.writeUInt32LE(0x80000000, 8); },
+        'not-an-executable': bytes => { bytes.writeUInt32LE(1, 12); },
+        truncated: bytes => bytes.subarray(0, 31),
+    };
+    for (const [name, mutate] of Object.entries(mutations)) await t.test(name, async t => {
+        const bytes = Buffer.from(valid), changed = mutate(bytes), f = await macFixture(t, changed ?? bytes);
+        await assert.rejects(verifyAlphaInstallation(f), { code: 'macho-architecture-unverified' });
+    });
 });
 posixTest('guarded extraction lends the verified payload only inside its callback and removes it afterwards', async t => {
     const f = await macFixture(t); let installed;
