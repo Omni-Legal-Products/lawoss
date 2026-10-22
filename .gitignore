@@ -78,3 +78,9 @@ apps/server/resources/agent-sandbox/runtime/
 
 # Generated for each target after version stamping.
 apps/desktop/resources/build-info.json
+
+# Private owned SDK generations, archives and cooperating build lease.
+/apps/desktop/resources/.plugin-sdk-build/
+/apps/desktop/resources/..plugin-sdk-build.previous-*/
+/apps/desktop/resources/..plugin-sdk-build.generation.lock
+/apps/desktop/electron/generated/plugin-sdk/

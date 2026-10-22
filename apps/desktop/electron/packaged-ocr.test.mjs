@@ -74,13 +74,25 @@ async function sidecarFixture(t, platform, arch) {
   const signed = [];
   const pruned = [];
   const module = { exports: {} };
-  vm.runInNewContext(await readFile(new URL("../scripts/electron-after-pack.cjs", import.meta.url), "utf8"), {
+  const hookSource = await readFile(new URL("../scripts/electron-after-pack.cjs", import.meta.url), "utf8");
+  // VM custom dynamic import needs an experimental Node flag. Replace only the
+  // literal adapter load with this fixture's existing closed dependency stub;
+  // the real hook/module loader and SDK adapter have separate integration tests.
+  const fixtureSource = hookSource.replace('await import("../../../lawoss/build/plugin-payload/desktop-packaging.mjs")',
+    'require("../../../lawoss/build/plugin-payload/desktop-packaging.mjs")');
+  assert.equal(hookSource.split('await import("../../../lawoss/build/plugin-payload/desktop-packaging.mjs")').length - 1, 1);
+  assert.notEqual(fixtureSource, hookSource);
+  vm.runInNewContext(fixtureSource, {
     module,
     process: { env: {} },
     require(name) {
       if (name === "node:fs") return fs;
       if (name === "node:path") return path;
       if (name === "electron-builder") return { Arch };
+      if (name === "../../../lawoss/build/plugin-payload/desktop-packaging.mjs") return {
+        desktopProductSdkTarget: (platform, arch) => ({ platform, arch }),
+        verifyDesktopProductSdkPackaging: async () => {},
+      };
       if (name === "./packaged-ocr.cjs") return { pruneOcrRuntime: (...args) => pruned.push(args) };
       if (name === "node:child_process") return { spawnSync: (...args) => { signed.push(args); return { status: 0 }; } };
       throw new Error(`Unexpected hook dependency: ${name}`);

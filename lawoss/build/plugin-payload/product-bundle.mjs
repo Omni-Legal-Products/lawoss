@@ -15,6 +15,10 @@ const sources = ['validate.mjs', 'prepare.mjs', 'worker.mjs', 'import-check.mjs'
   'sdk/notices/index.json', 'sdk/notices/THIRD_PARTY_NOTICES.md',
   'sdk/notices/licenses/opencode-MIT.txt', 'sdk/notices/licenses/msgpackr-extract-MIT.txt',
   'sdk/notices/licenses/kubernetes-Apache-2.0.txt'];
+export async function currentProductSdkSourceSetSha256() {
+  const binding = Object.fromEntries(await Promise.all(sources.map(async name => [name, sha256(await readFile(new URL(name, import.meta.url)))])));
+  return sha256(canonical(binding));
+}
 const refuse = () => fail('PRODUCT_SDK_BUNDLE_INVALID');
 const equal = (a, b) => canonical(a) === canonical(b);
 const hex = (value, length = 64) => typeof value === 'string' && new RegExp(`^[a-f0-9]{${length}}$`).test(value);

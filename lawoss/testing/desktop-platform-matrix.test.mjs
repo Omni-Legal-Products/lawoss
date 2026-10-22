@@ -42,6 +42,14 @@ function assertPublicUploads(job) {
   ]);
   for (const upload of job.steps.filter(({ uses }) => uses?.startsWith('actions/upload-artifact@'))) {
     const paths = upload.with.path.trim().split(/\r?\n/);
+    if (paths.length === 1 && paths[0] === '${{ runner.temp }}/windows-documents-probe-${{ matrix.arch }}.json') {
+      assert.equal(upload.name, 'Upload finite Windows Documents diagnostic');
+      assert.equal(upload.if, "runner.os == 'Windows' && !cancelled()");
+      assert.equal(upload.with.name, 'windows-documents-probe-${{ matrix.arch }}');
+      assert.equal(upload.with['if-no-files-found'], 'ignore');
+      assert.equal(upload.with['retention-days'], 7);
+      continue;
+    }
     if (paths.length === 1 && metadata.has(paths[0])) continue;
     assert.deepEqual(paths, startupPaths, 'Only the two explicit fresh synthetic startup files may be published');
     assert.equal(upload.if, 'success()');
@@ -187,5 +195,26 @@ test('final archive mutation regressions reject rebuilding the inspected payload
     const builder = changed.steps.find(candidate => candidate.name === name);
     builder.run = builder.run.replace(/ --prepackaged "[^"]+"/, '');
     assert.throws(() => assertFinalStartup(changed), undefined, name);
+  }
+});
+
+
+test('Windows Documents diagnostic publishes only its exact finite JSON after the unchanged NSIS gate', () => {
+  const uploadName = 'Upload finite Windows Documents diagnostic';
+  const upload = smoke.steps.find(candidate => candidate.name === uploadName);
+  assert.ok(upload);
+  assert.ok(smoke.steps.indexOf(upload) > smoke.steps.indexOf(step('Verify actual Windows NSIS installation and final bytes')));
+  assertPublicUploads(smoke);
+  for (const mutate of [
+    upload => upload.with.path = '${{ runner.temp }}/windows-documents-probe-${{ matrix.arch }}.*',
+    upload => upload.with.path += '\n${{ runner.temp }}/windows-documents-private/**',
+    upload => upload.with.path = '${{ runner.temp }}/windows-documents-private/profile.json',
+    upload => upload.if = 'success()',
+    upload => upload.with['if-no-files-found'] = 'error',
+    upload => upload.with['retention-days'] = 90,
+  ]) {
+    const changed = structuredClone(smoke);
+    mutate(changed.steps.find(candidate => candidate.name === uploadName));
+    assert.throws(() => assertPublicUploads(changed));
   }
 });

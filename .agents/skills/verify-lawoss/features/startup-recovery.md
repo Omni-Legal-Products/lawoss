@@ -41,3 +41,13 @@ After Linux installation preflight, `operationFailure` freezes the existing fail
 After the same original root/ancestor/canonical checks pass, a failed tree validation may also carry `rootAccess`: permission `modeBits` (0..511), `otherRead` and `otherSearch`. They come only from the root's already-read metadata, before the original directory read; observer failures cannot replace validation. This is mode observation, not ACL/effective-access or root-cause proof. The first bc4 Linux x64 failure localized `scandir` to the payload root but predates this field, so its actual mode remains unknown. Preserve the original failure and do not infer a permission repair from a modeled owner-transfer mechanism.
 
 The final-artifact startup probe binds its existing before/captured/after observations and retained evidence observation to the same native window source ID and renderer `performance.timeOrigin`. A same-URL document reload or changed window refuses publication. The public capture records only a finite verified/same/same binding; exact IDs and time origin stay in private evidence. No requests, retries or deadlines are added. This correspondence check does not prove compositor presentation or clear visual review: inspect the actual pixels, preserve Connecting-only images and keep their original pending receipt. Older receipts remain unchanged.
+
+
+The desktop SDK build gate compares the current owned generation's complete
+private identity with actual packed ASAR code, public BuildInfo, current SDK
+source set and capsule resources. CI requires explicit SDK mode, invokes this
+before original afterPack early returns, and repeats the CLI gate immediately
+before each final prepackaged AppImage/NSIS/ZIP command. Development/null/no-SDK
+returns development, never verified release identity. These static checks and
+inert FileMatcher/ASAR fixtures do not establish installed startup or managed
+G/E provisioning; keep their receipts separate from native acceptance evidence.

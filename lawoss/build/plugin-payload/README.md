@@ -364,7 +364,7 @@ installed build tools. The actual-container regressions in
 `packaged-identity.test.mjs` additionally require the installed desktop builder.
 These identity primitives do not themselves admit an SDK capsule or establish
 installed startup. The composed static gate below performs resource admission;
-binding it into the real desktop build is still a separate pending step.
+the desktop build wiring described below composes it with these checks.
 
 `prepareProductSdkPackaging({ desktopRoot, target, supplier, applicationBuild })`
 composes the owned generation, supplier, capsule and generated private module.
@@ -377,9 +377,9 @@ An error retains the generation marker and evidence while closing our lease FD.
 The child cap does not establish Windows descendant closure on failure.
 
 The return includes the capsule resource and `application-code/identity.mjs`
-under the same archived generation. This remains a standalone preparation API:
-actual desktop build/file-copy/ASAR/resource-gate wiring and runtime use are
-pending. Native integration receipts must distinguish a modeled desktop root
+under the same archived generation. The desktop adapter below now calls this
+preparation API; product runtime use is still pending. Native integration receipts
+must distinguish a modeled desktop root
 from a real packaged app. Packaging fixtures run only after tools installation,
 separately from the unchanged53/6 native compatibility selection.
 
@@ -413,5 +413,48 @@ their workspace and never repair or retry cleanup.
 Run `product-capsule-validation.test.mjs` with the installed pinned SDK tools.
 `packaged-resource.test.mjs` additionally uses the installed desktop builder for
 real ASAR fixtures. These are static build checks, including inert foreign data;
-real desktop file mappings, post-sign/prepackaged hooks and runtime integration
-remain pending. No test fixture stands in for six-target native startup.
+actual builder FileSet mapping is tested separately below. Full native desktop
+build/signing and runtime integration need their own evidence. No test fixture
+stands in for six-target native startup.
+
+
+## Desktop build wiring
+
+`desktop-packaging.mjs` connects preparation and admission to the desktop build.
+`build:electron` defaults to explicit `without-sdk`, including supported
+crossbuilds. SDK production requires `--sdk-mode native` plus explicit
+`--sdk-consumer-node`, `--sdk-pnpm-cli`, `--sdk-head` and `--sdk-checkout` inputs.
+A native failure never falls back to an SDK-free package. The existing writer's
+BuildInfo result is used unchanged; only its null development result selects
+the separate development identity.
+
+The pinned builder maps only the current owned generation's
+`application-code/identity.mjs` to `electron/generated/plugin-sdk/identity.mjs`
+inside ASAR. A stale broad source module is excluded. Only `payload.tgz` and the
+verifier closure are SDK extraResources; caches, ownership markers, raw SDK trees
+and compatibility proofs are not published. The `afterPack` hook asynchronously
+imports the adapter and checks it before the existing prerequisite checks and
+sidecar early returns. The checked source identity must equal the complete
+actual-ASAR identity, current source set, expected build and target.
+
+Since `--prepackaged` skips that hook, all three CI final-distribution commands
+are immediately preceded by the same gate CLI:
+
+```sh
+node apps/desktop/scripts/check-packaged-plugin-sdk.mjs \
+  --asar <packaged-resources>/app.asar --target <one-of-six-triples> --mode sdk
+```
+
+Shipping wrappers derive BuildInfo from the current checkout, version, target,
+commit epoch, channel and workflow URL, using the existing release-source
+predicate. CI independently requires SDK mode and supplies actual native Node22
+and pinned pnpm inputs before building under Node24. Actual-ASAR/adapter tests
+run after native preparation installs the SDK tools and before original native
+ISIR gates. The separate original53/6 compatibility gate stays unchanged.
+
+Run `desktop-packaging.test.mjs` with both the installed desktop builder and SDK
+build tools. It exercises actual pinned FileMatchers/copyFiles plus ASAR with
+inert data, rejects source/code/resource mismatches and omitted final gates,
+and preserves the original18 sidecar assertions. Those fixtures do not establish
+full desktop build/signing, installed startup, managed config provisioning or
+six-target acceptance. The private SDK resource is not yet consumed at runtime.
