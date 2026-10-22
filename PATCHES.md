@@ -1,5 +1,12 @@
 # LAWOSS downstream patches
 
+## Podporovaný ARM runner pre privátnu alfu (2026-10-22)
+
+| Súbory | Downstream doplnenie a hranica dôkazu |
+| --- | --- |
+| `.github/workflows/{plugin-sdk-runtime,ci-tests,ci-desktop-packaging,ci-okf,ci-okf-pamat,alpha-macos-aarch64}.yml` | Sedem ARM runner hodnôt mení `macos-14` na pripnutý `macos-15`, podporovaný nástupca pred oznámeným koncom macOS14 runnerov 2.11.2026. Zachováva všetkých šesť cieľov, Intel runner, action/tool piny, testy, deadlines a finite uploads. Existujúci platform-matrix test aktualizuje iba očakávaný ARM runner. Nejde o dôkaz vykonania na novom hoste ani o príčinu starých queued/cancelled jobov. Verejný release workflow ostáva mimo privátneho scope a jeho macos14 vyžaduje samostatnú údržbu. |
+
+
 ## SDK pod dodávaným Node22 na šiestich cieľoch (2026-10-22)
 
 | Súbory | Downstream doplnenie a dôvod |

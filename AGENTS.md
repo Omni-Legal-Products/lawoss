@@ -79,6 +79,7 @@ Rules:
 
 ## TypeScript and package management
 
+- Static imports from checked JavaScript build scripts bring their transitive modules under checkJs. Keep precise tuples/options/guarded key types and run the original Electron typecheck; do not hide imports or disable checking to bypass the build contract.
 - A captured SDK role plan is read-only private data, not mutation authority: retain both G/E and every logical alias, keep extra P/H/custom planes incomplete, and require real same-final-env capture plus active-lifetime grants before leased seeding. Never infer ownership from UID or path prefix.
 - Verify generated AppRun and desktop Exec arguments, not only Electron window settings: packaging must not silently add sandbox-disabling flags. Inspect every lockfile delta after a dependency patch and retain unrelated integrity pins.
 - Keep controlled child payloads off `node -e` argv; send them over the existing IPC channel while preserving real pipe-byte handshakes. Wall-clock retry integration tests prove progress and cleanup; deterministic collector sequences prove exact final boundary/error tuples.
