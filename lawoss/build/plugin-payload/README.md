@@ -244,3 +244,27 @@ acquisition counts/bytes, separate Node/Bun observations and bounded failed stag
 raw output or user/provider data is uploaded. Local offline tests are source and
 synthetic-stream evidence only; Windows, Bun, native cold replay and application
 startup/production integration remain unverified until their separate gates run.
+
+## Read-only product bundle admission
+
+`inspectProductSdkBundle` in `product-bundle.mjs` statically admits an explicit
+`payloadRoot` using `expectedManifestSha256`, `expectedTarget`,
+`acceptedLockSha256` and `compatibilityBinding`. The trusted build caller must
+independently authenticate that full schema-2 native producer/Node22 consumer
+summary. An adjacent manifest or summary cannot provide its own authority.
+
+Admission requires the exact accepted inputs, notices, bounded physical inventory,
+target capability and all 27 current compatibility source hashes. It returns a
+frozen finite identity; it never imports target SDK/native code or writes files.
+Caller data is snapshotted with aggregate value/text limits and repeated-object
+refusal before copying. The separate build-only static verifier supports accepted
+foreign target bytes; both existing producer and runtime host gates remain strict.
+
+Run `node --test lawoss/build/plugin-payload/product-bundle.test.mjs` for inert
+format/data regressions. These fixtures do not prove genuine native compatibility.
+The six-target SDK workflow runs them separately before the unchanged genuine
+producer/consumer entry. A source change invalidates older compatibility bindings;
+fresh native proof is required before a product build caller can use them.
+
+This is S1 only. No resources publication, digest transport, profile seeding,
+engine startup hook or application first-launch improvement is implemented here.

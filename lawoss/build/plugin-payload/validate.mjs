@@ -161,7 +161,17 @@ export async function verifyRuntimePayload(root, manifestSha256) {
   return verify(root, undefined, 'v24.21.0', manifestSha256);
 }
 
-async function verify(root, Arborist, producerNode, manifestSha256) {
+// Build-only static admission of independently accepted target bytes. This is
+// separate from both executing-host gates above and never loads target code.
+export async function verifyBuildPayload(root, manifestSha256, requestedTarget) {
+  if (typeof manifestSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(manifestSha256)) fail('PAYLOAD_INVALID');
+  sdkConsumerMode(requestedTarget, SDK_LOCK_SHA256);
+  const fields = Object.getOwnPropertyDescriptors(requestedTarget);
+  const target = Object.freeze(Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value])));
+  return verify(root, undefined, 'v24.21.0', manifestSha256, target);
+}
+
+async function verify(root, Arborist, producerNode, manifestSha256, requestedTarget) {
   try {
     const stat = await lstat(path.join(root, 'payload-manifest.json'));
     if (!stat.isFile() || stat.nlink !== 1 || stat.size > 8 * 1024 * 1024) fail('PAYLOAD_INVALID');
@@ -172,8 +182,11 @@ async function verify(root, Arborist, producerNode, manifestSha256) {
     const lockBytes = await readFile(path.join(root, 'package-lock.json'));
     const acceptedBytes = await readFile(new URL('./sdk/package-lock.json', import.meta.url));
     const lock = validateInputs(JSON.parse(inputBytes), JSON.parse(lockBytes));
-    if (manifest.schema !== 1 || manifest.sdk.name !== '@opencode-ai/plugin' || manifest.sdk.version !== '1.18.29' || manifest.sdk.integrity !== SDK_INTEGRITY || manifest.node !== producerNode || manifest.arborist !== '9.4.0' || manifest.scripts !== false || manifest.target.platform !== process.platform || manifest.target.arch !== process.arch || manifest.lockSha256 !== sha256(lockBytes) || manifest.lockSha256 !== sha256(acceptedBytes) || manifest.inputSha256 !== sha256(inputBytes) || manifest.inputSha256 !== sha256(await readFile(new URL('./sdk/package.json', import.meta.url)))) fail('PAYLOAD_INVALID');
-    if (process.platform === 'linux' && manifest.target.libc !== (process.report.getReport().header.glibcVersionRuntime ? 'glibc' : 'musl')) fail('PAYLOAD_INVALID');
+    const target = requestedTarget ?? { platform: process.platform, arch: process.arch,
+      ...(process.platform === 'linux' ? { libc: process.report.getReport().header.glibcVersionRuntime ? 'glibc' : 'musl' } : {}) };
+    if (manifest.schema !== 1 || manifest.sdk.name !== '@opencode-ai/plugin' || manifest.sdk.version !== '1.18.29' || manifest.sdk.integrity !== SDK_INTEGRITY || manifest.node !== producerNode || manifest.arborist !== '9.4.0' || manifest.scripts !== false || manifest.target.platform !== target.platform || manifest.target.arch !== target.arch || manifest.lockSha256 !== sha256(lockBytes) || manifest.lockSha256 !== sha256(acceptedBytes) || manifest.inputSha256 !== sha256(inputBytes) || manifest.inputSha256 !== sha256(await readFile(new URL('./sdk/package.json', import.meta.url)))) fail('PAYLOAD_INVALID');
+    if (target.platform === 'linux' && manifest.target.libc !== target.libc) fail('PAYLOAD_INVALID');
+    if (requestedTarget !== undefined && !equal(manifest.target, target)) fail('PAYLOAD_INVALID');
     if (!equal(manifest.imports?.imports, IMPORTS) || !['loaded', 'fallback', 'absent'].includes(manifest.imports?.native)) fail('PAYLOAD_INVALID');
     if (manifestSha256 !== undefined) assertTargetSdkProbe(manifest.imports, manifest.target, manifest.lockSha256);
     if (!Array.isArray(manifest.closure) || !Array.isArray(manifest.inertOptional) || new Set([...manifest.closure, ...manifest.inertOptional]).size !== Object.keys(lock.packages).length || !equal([...manifest.closure, ...manifest.inertOptional].sort(), Object.keys(lock.packages).sort())) fail('PAYLOAD_INVALID');
