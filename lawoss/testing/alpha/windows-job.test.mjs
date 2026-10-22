@@ -158,16 +158,34 @@ test('native Windows qualified decoder consumes actual-size JSON while the priva
   const configuration = JSON.stringify({ schema: 1, nonce, executable: process.execPath, args: ['x'.repeat(4096)], cwd: f.root, env: f.env, timeoutMs: 15000 });
   await writeFile(probe, `$ErrorActionPreference = 'Stop'\n[Console]::Error.WriteLine('probe-entry')\n[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false, $true)\n[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n[Console]::Error.WriteLine('probe-encoding')\n$line = [Console]::In.ReadLine()\n[Console]::Error.WriteLine('probe-read')\nif ($line.Length -ne ${configuration.length}) { exit 125 }\n$decoded = Microsoft.PowerShell.Utility\\ConvertFrom-Json -InputObject $line\n[Console]::Error.WriteLine('probe-decoded')\nif ($decoded.schema -ne 1 -or $decoded.args[0].Length -ne 4096) { exit 125 }\n[Console]::Out.WriteLine('synthetic-json-consumed')\n`);
   const helper = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
+  const started = performance.now(), checkpoints = { 'probe-entry': null, 'probe-encoding': null, 'probe-read': null, 'probe-decoded': null };
   const child = spawn(helper, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe], { env: f.env, cwd: f.root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-  let output = '', errorOutput = '', exit;
+  let output = '', errorOutput = '', exit, spawnErrorObserved = false, closeObserved = false;
   child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
-  child.stdout.on('data', chunk => { output = (output + chunk).slice(0, 1024); }); child.stderr.on('data', chunk => { errorOutput = (errorOutput + chunk).slice(-1024); });
-  child.once('error', () => { exit = { code: 'spawn-error', signal: null }; });
-  child.once('close', (code, signal) => { exit = { code, signal }; });
+  child.stdout.on('data', chunk => { output = (output + chunk).slice(0, 1024); });
+  child.stderr.on('data', chunk => {
+    errorOutput = (errorOutput + chunk).slice(-1024);
+    const lines = errorOutput.split(/\r?\n/).slice(0, -1);
+    for (const marker of Object.keys(checkpoints)) if (checkpoints[marker] === null && lines.includes(marker)) {
+      checkpoints[marker] = Math.min(60000, Math.round(performance.now() - started));
+    }
+  });
+  child.once('error', () => { spawnErrorObserved = true; exit = { code: 'spawn-error', signal: null }; });
+  child.once('close', (code, signal) => { closeObserved = true; exit = { code, signal }; });
   f.own({ stop: async () => { if (!exit) { child.stdin.destroy(); child.kill(); await until(() => exit, 1000); } } });
   child.stdin.write(`${configuration}\n`);
-  try { await until(() => exit, 15000); }
-  catch { assert.fail(`Qualified JSON configuration timed out; completed=${['probe-entry', 'probe-encoding', 'probe-read', 'probe-decoded'].filter(marker => errorOutput.split(/\r?\n/).includes(marker)).join(',')}`); }
-  assert.deepEqual(exit, { code: 0, signal: null });
-  assert.ok(output.trim() === 'synthetic-json-consumed', 'Unexpected synthetic JSON probe output');
+  try {
+    try { await until(() => exit, 15000); }
+    catch { assert.fail(`Qualified JSON configuration timed out; completed=${['probe-entry', 'probe-encoding', 'probe-read', 'probe-decoded'].filter(marker => errorOutput.split(/\r?\n/).includes(marker)).join(',')}`); }
+    assert.deepEqual(exit, { code: 0, signal: null });
+    assert.ok(output.trim() === 'synthetic-json-consumed', 'Unexpected synthetic JSON probe output');
+  } finally {
+    // Parent-observed pipe delivery times, not durations inside PowerShell.
+    // Freeze before t.after cleanup; never publish input, output or identifiers.
+    const elapsed = Math.round(performance.now() - started);
+    t.diagnostic(JSON.stringify({ kind: 'lawoss-cold-windows-json-probe', elapsedMs: Math.min(60000, elapsed), elapsedCapped: elapsed > 60000,
+      checkpointObservedMs: checkpoints, closeObserved, spawnError: spawnErrorObserved,
+      exitCode: Number.isInteger(exit?.code) && exit.code >= 0 && exit.code <= 255 ? exit.code : null,
+      signal: exit?.signal === null ? null : ['SIGTERM', 'SIGKILL'].includes(exit?.signal) ? exit.signal : 'unknown' }));
+  }
 });

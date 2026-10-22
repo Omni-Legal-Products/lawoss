@@ -15,6 +15,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  cold-json:
+    name: Cold Windows JSON probe (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.21.0
+      # An independent fresh runner: never warm the ownership suite's helper.
+      - name: Run only the existing qualified decoder probe
+        shell: pwsh
+        run: |
+          node --test --test-name-pattern='^native Windows qualified decoder consumes actual-size JSON while the private control writer stays open$' lawoss/testing/alpha/windows-job.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   native-contracts:
     name: Native Windows ownership (${{ matrix.os }})
     strategy:
