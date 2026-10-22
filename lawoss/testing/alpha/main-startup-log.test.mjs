@@ -21,6 +21,8 @@ async function fixture(t) {
 test('owned startup phases use exact whole lines and remain boundary observations only', async t => {
   const f = await fixture(t), observer = await createMainStartupLogDiagnostic(f.profile);
   const text = entry('WARN [lawoss-alpha-startup] main-configured')
+    + entry('WARN [lawoss-alpha-startup] icons-entered')
+    + entry('WARN [lawoss-alpha-startup] single-instance-rejected')
     + entry('WARN [lawoss-alpha-startup] ready-entered')
     + entry('WARN [lawoss-alpha-startup] actaport-environment-entered')
     + entry('WARN [lawoss-alpha-startup] runtime-prepare-returned PRIVATE')
@@ -28,7 +30,7 @@ test('owned startup phases use exact whole lines and remain boundary observation
     + entry('WARN [lawoss-alpha-startup] PRIVATE /path token=secret');
   await writeFile(f.current, text);
   assert.deepEqual((await observer.read()).current, slot('read',
-    ['startup-main-configured', 'startup-ready-entered', 'startup-actaport-environment-entered'], Buffer.byteLength(text)));
+    ['startup-main-configured', 'startup-icons-entered', 'startup-single-instance-rejected', 'startup-ready-entered', 'startup-actaport-environment-entered'], Buffer.byteLength(text)));
 });
 
 test('owned physical logs expose only exact finite categories and frozen observations', async t => {

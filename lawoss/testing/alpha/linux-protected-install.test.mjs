@@ -7,12 +7,33 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { assertHostedLinuxContext, linuxPreflightFailure, linuxUsernsProfile, validateProtectedLinuxTree } from './linux-protected-install.mjs';
+import * as protectedInstall from './linux-protected-install.mjs';
 
 const environment = { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted' };
 const context = { platform: 'linux', arch: 'x64', uid: 1000, euid: 1000, environment };
 const stage = `/var/lib/lawoss-ci-${'a'.repeat(32)}`;
 const refused = { code: 'linux-protected-install-refused' };
 const unverified = { code: 'linux-protected-install-unverified' };
+
+test('protected installation freezes the failed post-preflight operation before an unrelated cleanup error', () => {
+  const primary = Object.assign(new Error('private payload path'), { code: 'EACCES' });
+  const observed = protectedInstall.linuxOperationFailure?.('tree-validation', primary);
+  primary.code = 'EPERM';
+  assert.deepEqual(observed, { operation: 'tree-validation', errorCode: 'EACCES' });
+  assert.equal(Object.isFrozen(observed), true);
+  assert.equal(protectedInstall.linuxOperationFailure?.(undefined, primary), undefined);
+  assert.equal(protectedInstall.linuxOperationFailure?.('/private/path', primary), undefined);
+});
+
+test('post-preflight observations cannot read accessors, inherited codes or arbitrary error text', () => {
+  let codeReads=0,messageReads=0;
+  const error = Object.create({ code: 'EACCES' });
+  Object.defineProperty(error, 'message', { get() { messageReads++;throw new Error('Private text read'); } });
+  Object.defineProperty(error, 'code', { get() { codeReads++;throw new Error('Accessor read'); } });
+  assert.deepEqual(protectedInstall.linuxOperationFailure?.('installed-tree', error), { operation: 'installed-tree', errorCode: 'unknown' });
+  assert.deepEqual(protectedInstall.linuxOperationFailure?.('tree-copy', Object.create({ code: 'EACCES' })), { operation: 'tree-copy', errorCode: 'unknown' });
+  assert.equal(codeReads,0);assert.equal(messageReads,0);
+});
 
 test('protected Linux preflight publishes a finite failed guard without changing the original error', () => {
   const error = Object.assign(new Error('private source and command content'), { code: 'EACCES' });

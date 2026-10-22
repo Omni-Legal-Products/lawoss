@@ -568,10 +568,12 @@ function resolveArchitectureInfo() {
   });
 }
 
+alphaStartupCheckpoint('icons-entered');
 const APP_ICON_PATH = resolveAppIconPath();
 const APP_ICON_IMAGE = APP_ICON_PATH ? nativeImage.createFromPath(APP_ICON_PATH) : null;
 const APP_ICON_DARK_PATH = resolveAppIconPath({ dark: true });
 const APP_ICON_DARK_IMAGE = APP_ICON_DARK_PATH ? nativeImage.createFromPath(APP_ICON_DARK_PATH) : null;
+alphaStartupCheckpoint('icons-returned');
 
 // macOS only: the dock icon is the one surface we can repaint at runtime, so
 // the ink-plate variant is used while the system is in dark mode. Falls back
@@ -862,6 +864,7 @@ const appTray = new AppTray({
     app.quit();
   },
 });
+alphaStartupCheckpoint('services-returned');
 
 function trayShortcutLabel(status) {
   if (!status.registered) return null;
@@ -1118,6 +1121,7 @@ const runtimeManager = createRuntimeManager({
   // stops/restarts are filtered out inside the runtime manager.
   onSidecarExit: (detail) => relayAppError("sidecar_exit", { name: "Error" }, "sidecar", detail?.exitCode ?? null),
 });
+alphaStartupCheckpoint('runtime-manager-returned');
 
 let runtimeDisposedForQuit = false;
 let runtimeDisposeInProgress = false;
@@ -3052,9 +3056,12 @@ ipcMain.on("legalwork:audio:overlay-hide", () => {
 registerMigrationIpc({ app, ipcMain });
 const { ensureAutoUpdater } = registerUpdaterIpc({ app, ipcMain, getMainWindow: () => mainWindow });
 
+alphaStartupCheckpoint('single-instance-entered');
 if (!app.requestSingleInstanceLock()) {
+  alphaStartupCheckpoint('single-instance-rejected');
   app.quit();
 } else {
+  alphaStartupCheckpoint('single-instance-acquired');
   app.on("before-quit", (event) => {
     // Lets the window 'close' handler distinguish quit from close-to-hide.
     appIsQuitting = true;
@@ -3088,6 +3095,7 @@ if (!app.requestSingleInstanceLock()) {
     queueDeepLinks([url]);
   });
 
+  alphaStartupCheckpoint('ready-registering');
   app.whenReady().then(async () => {
     alphaStartupCheckpoint('ready-entered');
     alphaStartupCheckpoint('actaport-bundle-entered');
@@ -3272,6 +3280,7 @@ if (!app.requestSingleInstanceLock()) {
     // channel explicitly, avoiding stale stable-feed results for alpha users.
     void ensureAutoUpdater();
   });
+  alphaStartupCheckpoint('ready-registered');
 
   app.on("activate", async () => {
     if (BrowserWindow.getAllWindows().length === 0) {

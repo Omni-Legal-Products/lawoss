@@ -150,3 +150,19 @@ it('a failed diagnostic writer cannot replace application control flow or retry 
   assert.doesNotThrow(() => { checkpoint('ui-control-entered'); checkpoint('ui-control-entered'); });
   assert.equal(calls, 1);
 });
+
+it('pre-ready checkpoints distinguish completed module initialization from lock refusal and callback registration', () => {
+  const messages = [];
+  const checkpoint = createAlphaStartupCheckpoints({ platform: 'win32', optIn: '1', isolated: true, write: value => messages.push(value) });
+  checkpoint('icons-entered'); checkpoint('icons-returned'); checkpoint('services-returned');
+  checkpoint('runtime-manager-returned'); checkpoint('single-instance-entered');
+  checkpoint('single-instance-rejected'); checkpoint('single-instance-acquired');
+  checkpoint('ready-registering'); checkpoint('ready-registered');
+  assert.deepEqual(messages, [
+    '[lawoss-alpha-startup] icons-entered', '[lawoss-alpha-startup] icons-returned',
+    '[lawoss-alpha-startup] services-returned', '[lawoss-alpha-startup] runtime-manager-returned',
+    '[lawoss-alpha-startup] single-instance-entered', '[lawoss-alpha-startup] single-instance-rejected',
+    '[lawoss-alpha-startup] single-instance-acquired', '[lawoss-alpha-startup] ready-registering',
+    '[lawoss-alpha-startup] ready-registered',
+  ]);
+});

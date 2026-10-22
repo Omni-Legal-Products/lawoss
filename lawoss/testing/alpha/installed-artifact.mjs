@@ -205,7 +205,7 @@ export async function withExtractedAlphaArtifact({ platform, arch, asset, expect
         throw new Error('Unsupported alpha artifact platform or format');
     if (!(await lstat(asset)).isFile()) throw new Error('Expected a physical final artifact');
     const scratch = await realpath(await mkdtemp(join(tmpdir(), 'lawoss-alpha-artifact-')));
-    let mount, retained = false;
+    let mount, retained = false, failed = false, primary;
     try {
         // Verification/extraction use the same private copy, never a later mutable source path.
         const ownedAsset = join(scratch, `candidate${mac ? dmg ? '.dmg' : '.zip' : appImage ? '.AppImage' : '.tar.gz'}`);
@@ -226,10 +226,20 @@ export async function withExtractedAlphaArtifact({ platform, arch, asset, expect
         await tree(payload); // Refuse escaping/broken links before lending an executable.
         const installation = { status: 'verified', method: mac ? dmg ? 'sha256-dmg-installed-tree' : 'sha256-zip-installed-tree' : appImage ? 'sha256-appimage-installed-tree' : 'sha256-tar-installed-tree', signing: 'not-asserted', assetSha256: expectedSha256 };
         return await use({ installedApp: mac ? payload : join(payload, 'legalwork'), installation, retain: () => { retained = true; } });
+    } catch (error) {
+        failed = true;
+        primary = error;
+        throw error;
     } finally {
         if (!retained) {
-            if (mount) await promisify(execFile)('/usr/bin/hdiutil', ['detach', mount], { timeout: 30_000 });
-            await rm(scratch, { recursive: true, force: true });
+            try {
+                // Never remove a mounted payload after an unverified detach.
+                if (mount) await promisify(execFile)('/usr/bin/hdiutil', ['detach', mount], { timeout: 30_000 });
+                await rm(scratch, { recursive: true, force: true });
+            } catch (cleanup) {
+                if (failed) throw new AggregateError([primary, cleanup], 'Artifact operation and cleanup failed', { cause: primary });
+                throw cleanup;
+            }
         }
     }
 }

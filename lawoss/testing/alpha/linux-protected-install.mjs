@@ -24,6 +24,14 @@ for(const tool of ['sudo','mkdir','cp','install','rm','cat','parser']) {
 const preflightCodes = new Set(['ENOENT','EACCES','EPERM','ELOOP','ENOTDIR','linux-protected-install-refused','linux-protected-install-unverified']);
 const stageAncestors = new Set(['var-lib','var','root']);
 const stagePredicates = new Set(['symlink','owner','writable','type','canonical']);
+const installationOperations = new Set(['stage-create','stage-bind','tree-copy','tree-validation','root-mode','installed-tree',
+  'policy-input','policy-install','policy-validation','policy-load','policy-presence-after-load','native-use']);
+export function linuxOperationFailure(operation,error) {
+  if(!installationOperations.has(operation))return undefined;
+  let errorCode='unknown';
+  try {const code=Object.getOwnPropertyDescriptor(error,'code')?.value;if(preflightCodes.has(code))errorCode=code;}catch { /* Observation cannot replace the primary. */ }
+  return Object.freeze({operation,errorCode});
+}
 export function linuxPreflightFailure(step,error,refusal) {
   const observation=preflightSteps.get(step);
   if(!observation)return undefined;
@@ -125,7 +133,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
     const policy=linuxUsernsProfile(stage),policyFile=join(stage,'userns.profile');
     let stageIdentity,retained=false,policyState='not-required',stageState='not-created',primary;
     let restricted=false,policyOwned=false,policyUncertain=false,temporary,protectionVerified=false;
-    let preflight,preflightFailure,stageTrustRefusal;
+    let preflight,preflightFailure,stageTrustRefusal,operation,operationFailure;
     try {
       preflight='stage-ancestors';
       // Hosted image scripts make /opt world-writable. Select a fixed different
@@ -162,28 +170,40 @@ export async function withProtectedLinuxArtifact(artifact,use) {
       // Failure may occur after mkdir had an effect. Never adopt or delete an
       // unbound stage, and never describe an ambiguous creation as absent.
       stageState='creation-uncertain';
+      operation='stage-create';
       await privileged('/usr/bin/mkdir',['--mode=0755','--',stage]);
+      operation='stage-bind';
       stageIdentity=await protectedEntry(stage,true);stageState='created';
+      operation='tree-copy';
       await privileged('/usr/bin/cp',['--recursive','--no-dereference','--preserve=mode','--no-preserve=ownership,xattr','--',`${dirname(source.installedApp)}/.`,app]);
+      operation='tree-validation';
       await validateProtectedLinuxTree(app);
+      operation='root-mode';
       if(((await lstat(app)).mode&0o7777)!==((await lstat(dirname(source.installedApp))).mode&0o7777))fail();
       const installedApp=join(app,'legalwork');
+      operation='installed-tree';
       const installation=await verifyAlphaInstallation({...artifact,installedApp});
       stageState='protected';protectionVerified=true;
       if(restricted) {
+        operation='policy-input';
         temporary=await mkdtemp(join(tmpdir(),'lawoss-ci-userns-policy-'));
         const input=join(temporary,'policy');await writeFile(input,policy.text,{flag:'wx',mode:0o600});
+        operation='policy-install';
         await privileged('/usr/bin/install',['--owner=0','--group=0','--mode=0644','--',input,policyFile]);
+        operation='policy-validation';
         await protectedEntry(policyFile);
         if(await boundedText(policyFile,4096)!==policy.text || await policyPresent(policy.name))fail();
         // A timed out/ambiguous add can still have loaded a kernel policy.
         policyUncertain=true;policyState='loading-uncertain';
+        operation='policy-load';
         await privileged('/usr/sbin/apparmor_parser',['--add','--skip-cache',policyFile]);
+        operation='policy-presence-after-load';
         if(!await policyPresent(policy.name))fail();
         policyOwned=true;policyUncertain=false;policyState='loaded';
       }
+      operation='native-use';
       return await use({installedApp,installation,retain(){retained=true;}});
-    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error,stageTrustRefusal);throw error;}
+    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error,stageTrustRefusal);operationFailure=linuxOperationFailure(operation,error);throw error;}
     finally {
       let cleanupFailure;
       try {
@@ -207,7 +227,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
       console.log(JSON.stringify({kind:'lawoss-ci-linux-protected-installation',assetSha256:artifact.expectedSha256,
         protection:protectionVerified?'verified':'not-verified',policy:policyState,
         installationCleanup:stageState,retentionRequested:retained,
-        policyPresenceIsNotAttachmentProof:true,...(preflightFailure?{preflight:preflightFailure}:{})}));
+        policyPresenceIsNotAttachmentProof:true,...(preflightFailure?{preflight:preflightFailure}:{}),...(operationFailure?{operationFailure}:{})}));
       if(!primary && (cleanupFailure || retained || policyUncertain))fail();
     }
   });

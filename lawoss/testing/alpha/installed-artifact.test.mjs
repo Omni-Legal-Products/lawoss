@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { gzipSync } from 'node:zlib';
@@ -138,12 +138,49 @@ posixTest('guarded extraction cleans failed consumers, refuses wrong hash before
     const f = await macFixture(t); let installed, called = false;
     await assert.rejects(withExtractedAlphaArtifact({ ...f, expectedSha256: '0'.repeat(64) }, () => { called = true; }), /digest/i);
     assert.equal(called, false);
-    await assert.rejects(withExtractedAlphaArtifact(f, async loan => { installed = loan.installedApp; throw new Error('consumer failure'); }), /consumer failure/);
+    const primary = new Error('consumer failure');
+    await assert.rejects(withExtractedAlphaArtifact(f, async loan => { installed = loan.installedApp; throw primary; }), error => error === primary);
     await assert.rejects(readFile(join(installed, 'Contents/Resources/build-info.json')), { code: 'ENOENT' });
-    await assert.rejects(withExtractedAlphaArtifact(f, async loan => { installed = loan.installedApp; loan.retain(); throw new Error('owned stop unverified'); }), /owned stop unverified/);
+    const retainedFailure = new Error('owned stop unverified');
+    await assert.rejects(withExtractedAlphaArtifact(f, async loan => { installed = loan.installedApp; loan.retain(); throw retainedFailure; }), error => error === retainedFailure);
     assert.equal(JSON.parse(await readFile(join(installed, 'Contents/Resources/build-info.json'))).arch, 'arm64');
     // This fixture never spawns an application; removing its explicitly retained scratch is safe.
     await rm(dirname(dirname(installed)), { recursive: true, force: true });
+});
+for (const consumerFails of [true, false]) test(`guarded extraction ${consumerFails ? 'preserves primary and cleanup failures together' : 'still rejects cleanup-only failure'}`, {
+    skip: process.platform === 'win32' || process.getuid?.() === 0 ? 'Requires ordinary-user POSIX directory permissions' : false,
+}, async t => {
+    const f = await fixture(t, { wrapped: false }), primary = new Error('consumer failure');
+    let scratch, readonlyDirectory;
+    t.after(async () => {
+        // Restore only this test's extracted fixture after all failure assertions.
+        if (readonlyDirectory) await chmod(readonlyDirectory, 0o755);
+        if (scratch) await rm(scratch, { recursive: true, force: true });
+    });
+    await assert.rejects(withExtractedAlphaArtifact(f, async ({ installedApp }) => {
+        scratch = dirname(dirname(installedApp));
+        readonlyDirectory = join(dirname(installedApp), 'resources');
+        // The pinned tar extractor adds owner-write permission to directories.
+        // Make only this test-owned extracted directory readonly to exercise real rm failure.
+        await chmod(readonlyDirectory, 0o555);
+        assert.equal((await lstat(readonlyDirectory)).mode & 0o7777, 0o555);
+        if (consumerFails) throw primary;
+        return 'completed';
+    }), error => {
+        if (consumerFails) {
+            assert.ok(error instanceof AggregateError);
+            assert.equal(error.message, 'Artifact operation and cleanup failed');
+            assert.equal(error.cause, primary);
+            assert.equal(error.errors.length, 2);
+            assert.equal(error.errors[0], primary);
+            assert.equal(error.errors[1].code, 'EACCES');
+        } else {
+            assert.equal(error instanceof AggregateError, false);
+            assert.equal(error.code, 'EACCES');
+        }
+        return true;
+    });
+    assert.equal(await readFile(join(readonlyDirectory, 'app.asar'), 'utf8'), 'immutable application bytes');
 });
 posixTest('macOS ZIP rejects changed installed bytes and wrong target architecture', async t => {
     const f = await macFixture(t);

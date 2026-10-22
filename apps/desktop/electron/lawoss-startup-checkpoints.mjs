@@ -1,6 +1,8 @@
 // Private synthetic startup observations; returned is not an operation-success claim.
 export const alphaStartupPhases = Object.freeze([
-  'main-configured', 'ready-entered',
+  'main-configured', 'icons-entered', 'icons-returned', 'services-returned', 'runtime-manager-returned',
+  'single-instance-entered', 'single-instance-rejected', 'single-instance-acquired',
+  'ready-registering', 'ready-registered', 'ready-entered',
   'actaport-bundle-entered', 'actaport-bundle-returned',
   'actaport-environment-entered', 'actaport-environment-returned',
   'runtime-prepare-entered', 'runtime-prepare-returned',
