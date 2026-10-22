@@ -470,5 +470,24 @@ body hashes, not a claim of lexical JSON preservation.
 The fixed cache adapter has actual full/corgi offline byte-readback coverage
 with public cacache and pinned make-fetch-happen. A shared URL key does not
 prove both representations. These supplemental tests do not execute the
-original47 or repair the active cache: worker, parent sequencing, unchanged
-raw evidence and genuine retained-input replay remain separate work.
+original47 or repair the active cache.
+
+The offline projection worker now builds a separately labelled fixture from
+an independently copied raw cache. It requires actual Node22.23.2, the fixed
+network guard, the original acquisition deadline and all32 archive/SRI,
+64 representation,64 exact-byte fetch and64 fresh pacote checks. Raw evidence
+stays unchanged. Fixed bounded records bind the nonce, source fingerprint,
+physical identities, inventories and byte totals. Runtime-tool source metadata
+may have stable shared links; owned cache/records and SDK/build inputs retain
+their single-link requirements. Canonical hashes preserve every finite opaque
+JSON Number, while control schemas require bounded safe integers.
+
+`verifyProjectionArtifacts` performs read-only content admission after the
+parent has independently observed direct-child close and exit0. Worker stdout
+and a manifest cannot attest that close. Cancellation joins started operations
+and descriptor closes; the worker never recursively deletes the workspace.
+The parent integration and its shared300s budget remain separate work. Initial
+46 supplemental tests and the focused31-test fix run have independent review;
+full source-layout admission, genuine32/64/64/64 execution and unchanged47
+retained-input replay remain unperformed. This is a CI fixture worker, not the
+future application SDK seeder or installed-app acceptance.
