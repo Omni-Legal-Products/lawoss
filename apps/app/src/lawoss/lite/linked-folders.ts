@@ -11,6 +11,7 @@
  * tohto klienta (plugin `lawoss-linked-folders` na serveri); server zápis kontroluje znova kanonicky.
  */
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { t, type Language } from "@/i18n";
 import { normalizeAuthorizedFolderPath } from "@/react-app/domains/settings/panels/authorized-folders-panel-state";
 import { comparable, within } from "./matter-conversations";
 import { withoutLawossHome } from "../home-workspace";
@@ -33,6 +34,17 @@ export function serverRefusal(error: unknown): LinkRefusal | null {
   const code = error && typeof error === "object" && "code" in error ? error.code : null;
   return code === "linked_folder_other_client" ? "other_client" : code === "linked_folder_practice" ? "practice_root"
     : code === "linked_folder_app_data" ? "app_data" : code === "linked_folder_relative" ? "missing" : null;
+}
+
+/**
+ * Text odmietnutia servera pre upstream panel Nastavenia → Povolené priečinky (review m1): rovnaké texty ako
+ * na Domove klienta; priečinok podobný praxi sa tam potvrdiť nedá, text odkáže na prehľad klienta. Iná chyba `null`.
+ */
+export function linkedFolderServerMessage(error: unknown, locale?: Language): string | null {
+  const code = error && typeof error === "object" && "code" in error ? error.code : null;
+  if (code === "linked_folder_practice_like") return t("lawoss.lite.linked_folders_refuse_practice_like_settings", locale);
+  const reason = serverRefusal(error);
+  return reason ? t(LINK_REFUSAL_TEXT[reason], locale) : null;
 }
 
 export type LinkScope = {

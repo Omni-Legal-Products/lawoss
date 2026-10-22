@@ -33,7 +33,9 @@ function PracticeLikeConfirm({ locale, outcome, busy, onConfirm, onCancel }: { l
   const title = t("lawoss.lite.linked_folders_practice_like_title", locale);
   return <div className="lw-status warn mt-2 space-y-2" role="alertdialog" aria-label={title} data-lawoss-linked-folders-practice-like="">
     <p className="text-sm font-medium">{title}</p>
-    <p className="text-xs">{t("lawoss.lite.linked_folders_practice_like_body", locale, { name: folderName(outcome.folder), clients: outcome.clients.join(", ") })}</p>
+    <p className="text-xs">{outcome.clients.length
+      ? t("lawoss.lite.linked_folders_practice_like_body", locale, { name: folderName(outcome.folder), clients: outcome.clients.join(", ") })
+      : t("lawoss.lite.linked_folders_practice_like_body_unknown", locale, { name: folderName(outcome.folder) })}</p>
     <div className="flex flex-wrap gap-2">
       <Button type="button" size="sm" autoFocus disabled={busy} onClick={onCancel} data-lawoss-linked-folders-practice-like-cancel="">{t("lawoss.lite.linked_folders_practice_like_cancel", locale)}</Button>
       <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onConfirm} data-lawoss-linked-folders-practice-like-confirm="">{t("lawoss.lite.linked_folders_practice_like_confirm", locale)}</Button>

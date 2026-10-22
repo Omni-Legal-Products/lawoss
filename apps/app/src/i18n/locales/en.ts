@@ -981,10 +981,10 @@ export default {
   "projects.remote.next_page": "Next page",
   "projects.remote.use_folder": "Use this folder",
   "projects.remote.linked": "Cloud folders",
-  "projects.remote.sharing_hint": "Each team member needs their own access to linked folders. Unlinking a folder leaves its files untouched.",
+  "projects.remote.sharing_hint": "Each team member needs their own access to cloud folders. Unlinking a folder leaves its files untouched.",
   "projects.remote.unlink": "Unlink folder",
   "projects.remote.available": "Accessible with your connection",
-  "projects.remote.pending": "Project setup is pending. Start a session to finish setting up from the linked folders.",
+  "projects.remote.pending": "Client setup is pending. Start a chat to finish setting it up from the cloud folders.",
   "projects.remote.refresh": "Refresh",
   "projects.remote.link": "Link a cloud folder",
 
