@@ -33,6 +33,20 @@ test('owned startup phases use exact whole lines and remain boundary observation
     ['startup-main-configured', 'startup-icons-entered', 'startup-single-instance-rejected', 'startup-ready-entered', 'startup-actaport-environment-entered'], Buffer.byteLength(text)));
 });
 
+test('owned physical logs expose all seven exact runtime constructor checkpoints without interpreting them as success', async t => {
+  const f = await fixture(t), observer = await createMainStartupLogDiagnostic(f.profile);
+  const phases = ['runtime-manager-entered', 'runtime-state-returned', 'runtime-user-data-returned',
+    'runtime-home-returned', 'runtime-documents-returned', 'runtime-sidecars-returned', 'runtime-office-returned'];
+  const text = phases.map(phase => entry(`WARN [lawoss-alpha-startup] ${phase}`)).join('')
+    + entry('WARN [lawoss-alpha-startup] runtime-documents-returned PRIVATE')
+    + entry('ERROR [lawoss-alpha-startup] runtime-office-returned')
+    + entry('WARN [lawoss-alpha-startup] PRIVATE /path token=secret');
+  await writeFile(f.current, text);
+  const result = await observer.read();
+  assert.deepEqual(result.current, slot('read', phases.map(phase => `startup-${phase}`), Buffer.byteLength(text)));
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE|secret|path|token/);
+});
+
 test('owned physical logs expose only exact finite categories and frozen observations', async t => {
   const f = await fixture(t), observer = await createMainStartupLogDiagnostic(f.profile);
   const text = entry('ERROR [main] Uncaught exception: PRIVATE /path token=SECRET')

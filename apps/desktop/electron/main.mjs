@@ -1084,6 +1084,7 @@ function fitSkillName(raw) {
 
 const runtimeManager = createRuntimeManager({
   app,
+  onStartupCheckpoint: alphaStartupCheckpoint,
   getApprovalWindow: () => mainWindow,
   getUiLocale: window => uiLocales.forWindow(window ?? mainWindow),
   subscribeUiLocale: uiLocales.subscribe,

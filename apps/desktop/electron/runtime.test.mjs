@@ -28,6 +28,65 @@ import {
   usesExternalWorkspaceAppFiles,
 } from "./runtime.mjs";
 
+function constructorOptions(root, events, onStartupCheckpoint, failure) {
+  return {
+    app: { isPackaged: true, getPath(key) {
+      events.push(`path:${key}`);
+      if (key === 'documents' && failure) throw failure;
+      return path.join(root, key);
+    } },
+    desktopRoot: path.join(root, 'desktop'),
+    listLocalWorkspacePaths: async () => [], listLocalWorkspaceAppFiles: async () => ({}),
+    listLocalWorkspaces: async () => [], reconnectHostWorkspace: async () => null,
+    getApprovalWindow: () => null, onSidecarExit: () => {}, onStartupCheckpoint,
+  };
+}
+it('runtime constructor checkpoints retain the original getPath order and completed boundaries', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'lawoss-runtime-constructor-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const events = [];
+  const manager = createRuntimeManager(constructorOptions(root, events, phase => events.push(phase)));
+  assert.equal(typeof manager.engineStart, 'function');
+  assert.deepEqual(events, [
+    'runtime-manager-entered', 'runtime-state-returned',
+    'path:userData', 'runtime-user-data-returned', 'path:home', 'runtime-home-returned',
+    'path:documents', 'runtime-documents-returned', 'path:exe', 'runtime-sidecars-returned',
+    'path:userData', 'runtime-office-returned',
+  ]);
+});
+it('runtime constructor preserves the exact original documents error even when observers throw', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'lawoss-runtime-constructor-error-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  for (const observerThrows of [false, true]) {
+    const events = [], primary = Object.assign(new Error('private controlled Documents error'), { code: 'SYNTHETIC_DOCUMENTS_ERROR' });
+    assert.throws(() => createRuntimeManager(constructorOptions(root, events, phase => {
+      events.push(phase);
+      if (observerThrows) throw new Error('private observer error');
+    }, primary)), error => error === primary);
+    assert.deepEqual(events, [
+      'runtime-manager-entered', 'runtime-state-returned',
+      'path:userData', 'runtime-user-data-returned', 'path:home', 'runtime-home-returned', 'path:documents',
+    ]);
+  }
+});
+it('runtime constructor observer failures preserve the default result shape and original calls', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'lawoss-runtime-constructor-observer-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const ordinaryCalls = [], observedCalls = [], observations = [];
+  const ordinary = createRuntimeManager(constructorOptions(root, ordinaryCalls));
+  const observed = createRuntimeManager(constructorOptions(root, observedCalls, (...args) => {
+    observations.push(args); throw new Error('private observer error');
+  }));
+  assert.deepEqual(ordinaryCalls, ['path:userData', 'path:home', 'path:documents', 'path:exe', 'path:userData']);
+  assert.deepEqual(observedCalls, ordinaryCalls);
+  assert.deepEqual(Object.keys(observed), Object.keys(ordinary));
+  assert.ok(Object.values(observed).every(value => typeof value === 'function'));
+  assert.deepEqual(observations, [
+    ['runtime-manager-entered'], ['runtime-state-returned'], ['runtime-user-data-returned'],
+    ['runtime-home-returned'], ['runtime-documents-returned'], ['runtime-sidecars-returned'], ['runtime-office-returned'],
+  ]);
+});
+
 it("engine doctor bounds actual probes and preserves primary startup failures", { timeout: 20_000 }, async () => {
   // Builtin ESM bindings are process-wide: isolate the adapter and restore it
   // inside the fixture, without sharing it with other runtime tests.

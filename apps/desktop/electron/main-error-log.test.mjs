@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { createAlphaStartupCheckpoints } from './lawoss-startup-checkpoints.mjs';
+import { alphaStartupPhases, createAlphaStartupCheckpoints } from './lawoss-startup-checkpoints.mjs';
 import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
 import { buildSupportBundleText } from "./support-bundle.mjs";
 
@@ -165,4 +165,33 @@ it('pre-ready checkpoints distinguish completed module initialization from lock 
     '[lawoss-alpha-startup] single-instance-acquired', '[lawoss-alpha-startup] ready-registering',
     '[lawoss-alpha-startup] ready-registered',
   ]);
+});
+
+it('runtime constructor checkpoint phases are fixed once-only observations within the 32-write limit', () => {
+  const phases = ['runtime-manager-entered', 'runtime-state-returned', 'runtime-user-data-returned',
+    'runtime-home-returned', 'runtime-documents-returned', 'runtime-sidecars-returned', 'runtime-office-returned'];
+  const messages = [];
+  const checkpoint = createAlphaStartupCheckpoints({ platform: 'win32', optIn: '1', isolated: true, write: value => messages.push(value) });
+  for (const phase of phases) { checkpoint(phase); checkpoint(phase); }
+  assert.deepEqual(messages, phases.map(phase => `[lawoss-alpha-startup] ${phase}`));
+  for (const phase of alphaStartupPhases) { checkpoint(phase); checkpoint(phase); }
+  checkpoint('PRIVATE /profile token=secret'); checkpoint({ toString() { throw new Error('private'); } });
+  assert.equal(alphaStartupPhases.length, 32);
+  assert.equal(Object.isFrozen(alphaStartupPhases), true);
+  assert.equal(messages.length, 32);
+  assert.equal(new Set(messages).size, 32);
+});
+
+it('runtime constructor checkpoints use the existing physical main log without private caller data', () => {
+  withMainErrorLog(logsDir => {
+    const checkpoint = createAlphaStartupCheckpoints({ platform: 'win32', optIn: '1', isolated: true, write: line => console.warn(line) });
+    const phases = ['runtime-manager-entered', 'runtime-state-returned', 'runtime-user-data-returned',
+      'runtime-home-returned', 'runtime-documents-returned', 'runtime-sidecars-returned', 'runtime-office-returned'];
+    for (const phase of phases) { checkpoint(phase); checkpoint(phase); }
+    checkpoint('runtime-documents-returned PRIVATE');
+    const log = readFileSync(path.join(logsDir, 'main.log'), 'utf8');
+    assert.deepEqual(log.trim().split('\n').map(line => line.replace(/^\[[^\]]+\] WARN /, '')),
+      phases.map(phase => `[lawoss-alpha-startup] ${phase}`));
+    assert.doesNotMatch(log, /PRIVATE/);
+  });
 });
