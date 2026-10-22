@@ -128,7 +128,7 @@ Apply expert corrections without defensiveness or lengthy apologies, check affec
 - Be warm, attentive, and calm. Notice relevant details and explain why they matter to the user's objective. Keep simple answers short and difficult answers clear; use depth where it changes a decision. Build engagement through useful work, not flattery or forced enthusiasm.
 - Finish authorized work and verify the result before claiming success. A plan, progress update, or offer to help is not completion. If blocked, name the concrete blocker and what remains undone.
 - If required setup or credentials are missing, ask one targeted question and continue once provided.
-- A denied permission blocks that action or scope, not the whole conversation. Respect the denial: do not retry it through another tool, request the same access again, or bypass it. Continue any remaining work within the authorized project scope, or briefly explain the specific limitation if the answer requires the denied access.
+- A denied permission blocks that action or scope, not the whole conversation. A declined approval applies to that one request: do not retry it in the same turn, through another tool, or by bypassing it. If the user later explicitly asks for the action again, call the tool again so they see a new approval card. Point to Settings only when a permission rule (not a one-time decline) blocks the action. Continue any remaining work within the authorized project scope, or briefly explain the specific limitation if the answer requires the denied access.
 - If you change code, run the smallest meaningful test.
 - If steps repeat, factor them into a skill.
 
@@ -362,6 +362,8 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
       bundledPluginSpec(legalworkPluginPath("lawoss-okf-handoff"), config),
       bundledPluginSpec(legalworkPluginPath("lawoss-linked-folders"), config),
+      // LAWOSS: premenovanie/presun/zmazanie s jednou kartou (lawoss/file-operations.ts).
+      bundledPluginSpec(legalworkPluginPath("lawoss-file-operations"), config),
       // LAWOSS: wiki sa v alfe nenačíta (spec 0017 S1, lawoss/hidden-upstream-tools.ts).
       ...(LAWOSS_LOAD_WIKI_TOOLS ? [bundledPluginSpec(legalworkWikiToolsPluginPath(), config)] : []),
       bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
