@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
 import { suggestOnboardingLevel } from "../src/onboarding/suggest.ts";
+import { inspectCardLevel } from "../src/onboarding/classify.ts";
+import { INSIDE_OFFICE_MESSAGE_PREFIX, OFFICE_EXISTS_MESSAGE } from "../src/onboarding/messages.ts";
 
 const paths: string[] = [];
 afterEach(async () => { await Promise.all(paths.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -57,7 +59,60 @@ test("existujúci AGENTS.md alebo CLAUDE.md v koreni praxe sa neprepíše ani ne
 test("prax, ktorá už kanceláriu má, sa odmietne", async () => {
   const root = await directory("okf-practice-office-");
   await mkdir(join(root, "Office"));
-  await expect(planOnboarding(parseOnboardingRequest(practice(root)))).rejects.toThrow(/kanceláriu/);
+  await expect(planOnboarding(parseOnboardingRequest(practice(root)))).rejects.toThrow(OFFICE_EXISTS_MESSAGE);
+});
+
+/** Tvar dátovej sady v1 (`02_OKF_kancelaria`, pieskovisko 4-usporiadana-kancelaria): Office bez okf.config. */
+async function legacyOffice(memory = true): Promise<string> {
+  const root = await directory("okf-practice-legacy-");
+  await mkdir(join(root, "Office", ...(memory ? ["memory"] : [])), { recursive: true });
+  await writeFile(join(root, "Office", "AGENTS.md"), "# Kancelária\n");
+  await writeFile(join(root, "Office", "CLAUDE.md"), "# Kancelária\n");
+  if (memory) await writeFile(join(root, "Office", "memory", "RULE-SYN-01.md"), "pravidlo\n");
+  for (const client of ["C001-syn-alfa-s-r-o", "C002-syn-beta-a-s"]) {
+    await mkdir(join(root, "Klienti", client, "Spisy", "M001-spor"), { recursive: true });
+    await writeFile(join(root, "Klienti", client, "client.md"), `---\ntype: klient\ntitle: "${client}"\nclient_type: po\n---\n`);
+    await writeFile(join(root, "Klienti", client, "Spisy", "M001-spor", "matter.md"), "---\ntype: spis\ntitle: Spor\n---\n");
+  }
+  return root;
+}
+const snapshot = async (root: string, paths: string[]) => Object.fromEntries(await Promise.all(paths.map(async path => [path, await readFile(join(root, path), "utf8")])));
+
+test("kancelária bez okf.config sa doplní: len okf.config a pokyny praxe, existujúce súbory ostanú (N-14)", async () => {
+  const root = await legacyOffice();
+  const kept = ["Office/AGENTS.md", "Office/CLAUDE.md", "Office/memory/RULE-SYN-01.md", "Klienti/C001-syn-alfa-s-r-o/client.md"];
+  const before = await snapshot(root, kept);
+  expect(await inspectCardLevel(root)).toMatchObject({ level: "unknown" });
+  const preview = await planOnboarding(parseOnboardingRequest(practice(root, { clientPattern: "Klienti/*" })));
+  if (preview.mode !== "new") throw new Error("Expected create preview.");
+  expect(preview.plan.operations.map(operation => operation.path)).toEqual(["Office/okf.config", "AGENTS.md", "CLAUDE.md"]);
+  await applyOnboarding(preview, await options());
+  expect(await snapshot(root, kept)).toEqual(before);
+  expect(await readFile(join(root, "Office/okf.config"), "utf8")).toContain('client_path: "Klienti/*"');
+  // Po doplnení je priečinok autoritatívne kanceláriou (profil `officeRoot` ho prijme).
+  expect(await inspectCardLevel(root)).toMatchObject({ level: "office" });
+  expect(await suggestOnboardingLevel(root)).toMatchObject({ level: "practice", marked: true, signals: ["office_config"] });
+  // Hotoví klienti OKF sa len doplnia, nič sa neprepíše.
+  for (const client of ["C001-syn-alfa-s-r-o", "C002-syn-beta-a-s"]) {
+    const clientRoot = join(root, "Klienti", client);
+    const card = await readFile(join(clientRoot, "client.md"), "utf8");
+    const convert = await planOnboarding(parseOnboardingRequest({ action: "existing", root: clientRoot, mode: "convert", title: client, clientType: "po", language: "sk", jurisdiction: "sk", date: "2026-10-22", confirmUnknownClient: true }));
+    await applyOnboarding(convert, await options());
+    expect(await readFile(join(clientRoot, "client.md"), "utf8")).toBe(card);
+  }
+});
+
+test("kancelária bez okf.config a bez memory dostane aj memory; holý Office alebo Office bez kariet klientov sa odmietne", async () => {
+  const root = await legacyOffice(false);
+  const preview = await planOnboarding(parseOnboardingRequest(practice(root, { clientPattern: "Klienti/*" })));
+  if (preview.mode !== "new") throw new Error("Expected create preview.");
+  expect(preview.plan.operations.map(operation => operation.path)).toEqual(["Office/okf.config", "Office/memory", "Office/memory/.keep", "AGENTS.md", "CLAUDE.md"]);
+  const noCards = await directory("okf-practice-legacy-nocards-");
+  await mkdir(join(noCards, "Office"), { recursive: true });
+  await writeFile(join(noCards, "Office", "AGENTS.md"), "x");
+  await mkdir(join(noCards, "Klienti", "A"), { recursive: true });
+  await expect(planOnboarding(parseOnboardingRequest(practice(noCards, { clientPattern: "Klienti/*" })))).rejects.toThrow(OFFICE_EXISTS_MESSAGE);
+  expect(await readdir(join(noCards, "Office"))).toEqual(["AGENTS.md"]);
 });
 
 test("priečinok vnútri existujúcej kancelárie sa ako prax odmietne a nič sa nezapíše", async () => {
@@ -68,7 +123,7 @@ test("priečinok vnútri existujúcej kancelárie sa ako prax odmietne a nič sa
     const clients = join(root, "Klienti");
     for (const name of ["Alfa s. r. o.", "Beta a. s.", "Gama s.r.o.", "Delta k. s.", "Epsilon v. o. s."]) await mkdir(join(clients, name, "2024-01 Zmluva"), { recursive: true });
     for (const target of [clients, join(clients, "Alfa s. r. o.")]) {
-      await expect(planOnboarding(parseOnboardingRequest(practice(target)))).rejects.toThrow(/súčasťou kancelárie/);
+      await expect(planOnboarding(parseOnboardingRequest(practice(target)))).rejects.toThrow(INSIDE_OFFICE_MESSAGE_PREFIX);
       expect((await suggestOnboardingLevel(target)).level).not.toBe("practice");
     }
     expect((await readdir(clients)).sort()).toEqual(["Alfa s. r. o.", "Beta a. s.", "Delta k. s.", "Epsilon v. o. s.", "Gama s.r.o."]);

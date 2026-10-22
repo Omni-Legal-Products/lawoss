@@ -39,7 +39,7 @@ import {
   writeOnboardingProgress,
 } from "./onboarding-state";
 import { OnboardingAiPanel } from "./ai-step";
-import { markOnboardingCompleted, openingStep } from "./resume";
+import { markOnboardingCompleted, openingStep, resumeFound } from "./resume";
 import { visibleExistingClientModes } from "../../feature-flags";
 import { clientTitleOf, resolveOpenClient, type OpenClientReader } from "../../okf/open-client";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -622,12 +622,19 @@ export function LawossWelcomePage({
           typeof window === "undefined"
             ? DEFAULT_ONBOARDING_PROGRESS
             : readOnboardingProgress(window.localStorage);
-        setStep(
-          visibleOnboardingStep(
-            openingStep(initialStep, status.profile, saved.step, hasCompletedOnboarding),
-            status.profile !== null,
-          ),
+        const opening = visibleOnboardingStep(
+          openingStep(initialStep, status.profile, saved.step, hasCompletedOnboarding),
+          status.profile !== null,
         );
+        setStep(opening);
+        // Obnova po prerušení otvorí naposledy vybraný priečinok, nie znova výber (M1, 22. 10. 2026).
+        const resumed = resumeFound(opening, status.profile, initialRoot, status.foundRootMissing);
+        if (resumed && "root" in resumed) setFoundRoot(resumed.root);
+        // Zmiznutý priečinok: krok Priečinok s krátkou vetou (zmaže ju ďalšia akcia) a uložený priečinok sa zabudne.
+        if (resumed && "missing" in resumed) {
+          setError(foundText(locale)("resumeFolderMissing", { name: folderName(resumed.missing) }));
+          void api.updateOnboardingProfile({ foundRoot: null }).then(setProfile, (reason: unknown) => console.warn("[lawoss] onboarding resume folder", reason));
+        }
       })
       .catch(() => {
         if (cancelled) return;
@@ -806,6 +813,15 @@ export function LawossWelcomePage({
   const identity = { lawyerName: base.lawyerName, jurisdiction: base.jurisdiction, language: base.language };
   // Krok Priečinok a „Toto som našiel“ vykresľujú vlastné obrazovky s navigáciou pri nadpise.
   const folderScreen = (step === "folder" || step === "found") && triage !== null;
+  /**
+   * Vybraný priečinok sa uloží do profilu na obnovu po prerušení (M1); tok z bočného panela po dokončenom
+   * onboardingu obnovu nemá. Zlyhaný zápis výber nezastaví, obnova len nebude vedieť priečinok.
+   */
+  const rememberFoundRoot = (root: string | null) => {
+    if (sidebarFlow || !profile) return;
+    void api.updateOnboardingProfile(root ? { foundRoot: root, step: "found" } : { foundRoot: null })
+      .then(setProfile, (reason: unknown) => console.warn("[lawoss] onboarding resume folder", reason));
+  };
   const backNav = sidebarFlow ? (
     <button type="button" className="lw-btn" disabled={busy} onClick={onCancel}>
       {tr("cancel")}
@@ -918,8 +934,8 @@ export function LawossWelcomePage({
                   if (registered) registeredApi.current = registered;
                   return registered;
                 }}
-                onChangeFolder={() => { setError(null); setFoundRoot(null); }}
-                onPickRoot={(path) => { setError(null); setFoundRoot(path); }}
+                onChangeFolder={() => { setError(null); setFoundRoot(null); rememberFoundRoot(null); }}
+                onPickRoot={(path) => { setError(null); setFoundRoot(path); rememberFoundRoot(path); }}
                 onError={reportError}
                 onClearError={clearError}
                 onOpenChat={onOpenClientChat ? (request) => onOpenClientChat(request, identity.language) : undefined}
@@ -934,12 +950,14 @@ export function LawossWelcomePage({
                 onFound={(root) => {
                   setError(null);
                   setFoundRoot(root);
+                  rememberFoundRoot(root);
                 }}
                 onAcknowledge={() => acknowledgeOkf()}
                 // R7: „Začať nanovo“ nezaregistruje koreň kancelárie ako pracovný priečinok (rozhodnutie 19. 10. 2026);
                 // advokát pristane na Klienti a prípady pri „Pridať klienta“.
                 onFreshDone={(result) => complete(result, FRESH_OFFICE_COMPLETION)}
                 onError={reportError}
+                onClearError={clearError}
               />
             )
           ) : null}

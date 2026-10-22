@@ -45,3 +45,23 @@ test("Začať nanovo na zdieľanom disku: upozornenie s Pokračovať a Zrušiť 
   expect(html).toMatch(/class="lw-btn"[^>]*>Zrušiť</);
   expect(renderToStaticMarkup(<FreshCloudNoticeView text={foundText("sk")} kind="cloud" onContinue={() => undefined} onCancel={() => undefined} />)).toContain("Priečinok je v cloudovom úložisku.");
 });
+
+test("nová akcia kroku Priečinok najprv zmaže starú chybu (N-4: neprázdny priečinok, potom úspech)", async () => {
+  const { folderAction } = await import("../src/lawoss/domains/onboarding/folder-step");
+  const { FRESH_NOT_EMPTY } = await import("../src/lawoss/domains/onboarding/onboarding-errors");
+  const events: string[] = [];
+  const deps = (result: string | "not_empty" | null) => ({
+    clear: () => events.push("clear"),
+    work: async () => { events.push("work"); return result; },
+    report: (reason: unknown) => events.push(`error:${reason instanceof Error ? reason.message : String(reason)}`),
+    done: (value: string) => events.push(`done:${value}`),
+  });
+  await folderAction(deps("not_empty"));
+  await folderAction(deps("kancelaria"));
+  expect(events).toEqual(["clear", "work", `error:${FRESH_NOT_EMPTY}`, "clear", "work", "done:kancelaria"]);
+  // Zrušený výber nič nehlási, ale starú chybu zmaže; zlyhanie sa ohlási.
+  events.length = 0;
+  await folderAction(deps(null));
+  await folderAction({ ...deps("x"), work: async () => { throw new Error("boom"); } });
+  expect(events).toEqual(["clear", "work", "clear", "error:boom"]);
+});

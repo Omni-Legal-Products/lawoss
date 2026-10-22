@@ -31,6 +31,8 @@ export type OnboardingProfile = {
   clientRoot?: string;
   subjectRoot?: string;
   matterRoot?: string;
+  /** Priečinok vybraný v kroku „Toto som našiel“; obnova po prerušení ho otvorí znova (M1). */
+  foundRoot?: string;
   /** Server-persisted marker for an active trial-clone client workspace. */
   trial?: boolean;
   okf?: OkfChoice;
@@ -42,6 +44,8 @@ export type OnboardingProfile = {
 export type OnboardingStatus = {
   profile: OnboardingProfile | null;
   capabilities: { map: boolean; trialClone: boolean };
+  /** Uložený `foundRoot` už neexistuje (presunutý, premenovaný); obnova ponúkne výber priečinka (M1). */
+  foundRootMissing?: boolean;
 };
 
 export type OfficePlanRequest = {
@@ -155,6 +159,9 @@ export type OnboardingSuggestion = {
   signals: readonly string[];
   clientPattern?: string;
   clients: readonly { path: string; name: string }[];
+  /** Klienti a vzor pre ručnú opravu na „Celá prax“ (N-9); starší server ich neposiela. */
+  practiceCandidates?: readonly { path: string; name: string }[];
+  practicePattern?: string;
   complete: boolean;
   /** Priame podpriečinky s kanceláriou OKF (`<meno>/Office/okf.config`); advokát má zrejme pripojiť ten podpriečinok. */
   childOffices?: readonly string[];
@@ -163,8 +170,9 @@ export type OnboardingSuggestion = {
 export type OnboardingApi = {
   onboardingStatus(): Promise<OnboardingStatus>;
   updateOnboardingProfile(
-    profile: Omit<Partial<OnboardingProfile>, "subjectRoot"> & {
+    profile: Omit<Partial<OnboardingProfile>, "subjectRoot" | "foundRoot"> & {
       subjectRoot?: string | null;
+      foundRoot?: string | null;
     },
   ): Promise<OnboardingProfile>;
   classifyOnboarding(input: {

@@ -8,19 +8,28 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 import { realpath } from "../canonical-path.ts";
 import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
 import { findAncestorOffice, VOLATILE_ENTRY } from "./classify.ts";
-import { hasLegalForm, isBareDate, looksLikeMatterName } from "./suggest-patterns.ts";
+import { hasLegalForm, isBareDate, looksLikeMatterName, startsWithMatterWord } from "./suggest-patterns.ts";
 
 export type SuggestedLevel = "practice" | "client" | "matter" | "unknown";
-export type SuggestionSignal = "office_config" | "client_card" | "matter_card" | "legal_form_children" | "matter_named_children" | "letter_buckets" | "matter_named_root" | "documents_only" | "plain_directories" | "empty" | "inside_office";
+export type SuggestionSignal = "office_config" | "office_without_config" | "client_card" | "matter_card" | "legal_form_children" | "matter_named_children" | "coded_hierarchy" | "letter_buckets" | "matter_named_root" | "documents_only" | "plain_directories" | "empty" | "inside_office";
 export type SuggestedClient = { path: string; name: string };
-/** `childOffices`: priame podpriečinky s kanceláriou OKF (`<meno>/Office/okf.config`); pole je len keď nejaký je. */
-export type OnboardingSuggestion = { root: string; level: SuggestedLevel; marked: boolean; score: number; signals: SuggestionSignal[]; clientPattern?: string; clients: SuggestedClient[]; complete: boolean; childOffices?: string[] };
+/**
+ * `childOffices`: priame podpriečinky s kanceláriou OKF (`<meno>/Office/okf.config`); pole je len keď nejaký je.
+ * `practiceCandidates` a `practicePattern`: klienti a vzor pre prípad, že advokát návrh ručne opraví na „Celá prax“
+ * (N-9, 22. 10. 2026). Sú v každom návrhu; `clients` ostáva len pre návrh praxe, aby sa nezmenil jeho význam.
+ */
+export type OnboardingSuggestion = { root: string; level: SuggestedLevel; marked: boolean; score: number; signals: SuggestionSignal[]; clientPattern?: string; clients: SuggestedClient[]; practiceCandidates: SuggestedClient[]; practicePattern: string; complete: boolean; childOffices?: string[] };
 export type SurveyEntry = { path: string; kind: "file" | "directory" };
 export type FolderSurvey = { root: string; complete: boolean; entries: SurveyEntry[] };
 
 /** Prvé prahy (spec, otvorená otázka 1); doladia sa na anonymizovanom strome reálnej praxe. */
 export const PRACTICE_MIN_CLIENTS = 5;
 export const PRACTICE_MIN_RATIO = 0.5;
+/** Kódovaná hierarchia (C002/M004…) je štrukturálny signál: stačia dvaja klienti (N-9, prax s tromi klientmi). */
+export const CODED_MIN_CLIENTS = 2;
+const CODED_SCORE = 0.8;
+/** Kancelária OKF bez okf.config (Office/ s AGENTS.md, CLAUDE.md alebo memory/ a karty klientov v Klienti/*). */
+const LEGACY_OFFICE_SCORE = 0.9;
 /** Istota slabého návrhu (rovnaká ako pri obyčajných priečinkoch): advokát sa má rozhodnúť sám. */
 const WEAK_SCORE = 0.5;
 const SURVEY_DEPTH = 4;
@@ -28,7 +37,25 @@ const SURVEY_ENTRIES = 50_000;
 const CLIENT_CARDS = new Set(["client.md", "klient.md"]);
 const MATTER_CARDS = new Set(["matter.md", "spis.md", "project.md", "projekt.md"]);
 const OFFICE_DIRS = ["Office", "_kancelaria"];
+const OFFICE_EVIDENCE = new Set(["agents.md", "claude.md", "memory"]);
+const CLIENTS_DIR = "Klienti";
 const LETTER = /^\p{Lu}$/u;
+/**
+ * Interný kód na začiatku mena („C002 Hron…“, „M004 Vyúčtovanie…“, „C001-syn-…“): prefix z 1 až 3 veľkých písmen
+ * a 3 až 5 číslic. Dvojciferné sekcie („D01 Podania“, „K-01“, „Q01“) kódom klienta ani veci nie sú.
+ */
+const CODE = /^(\p{Lu}{1,3})[-_ ]?(\d{3,5})(?=$|[\s_.,-])/u;
+/** Rok (FY2023, SP-2023-01, IMG_2023) nie je číslo klienta ani veci. */
+const YEAR = /^(?:19|20)\d{2}$/;
+/** Mená súborov fotoaparátov a telefónov („IMG_0001“, „DSC 001“, „MVI_0123“). */
+const CAMERA_PREFIXES = new Set(["IMG", "DSC", "PIC", "MVI", "VID", "MOV", "PXL", "SAM", "DJI"]);
+type Code = { prefix: string; rest: string };
+const codeOf = (name: string): Code | undefined => {
+  const match = CODE.exec(name);
+  const [whole, prefix, digits] = match ?? [];
+  if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix)) return undefined;
+  return { prefix, rest: name.slice(whole.length).replace(/^[\s_.,-]+/, "") };
+};
 
 /** Meno z relatívnej cesty položky prieskumu, tá sa skladá cez „/“ na každej platforme. Koreň je natívna cesta, preto `basename`. */
 const nameOf = (path: string): string => path.split("/").pop() ?? path;
@@ -85,6 +112,35 @@ function matchPattern(index: ChildIndex, pattern: string): SuggestedClient[] {
   return level.filter(Boolean).map(path => ({ path, name: nameOf(path) }));
 }
 
+/**
+ * Kódovaná hierarchia (R1 bod 1A): aspoň dvaja kandidáti na klienta s kódom jedného prefixu (C002, C017, C022),
+ * kódovaní tvoria väčšinu kandidátov a každý z nich má podpriečinok s kódom iného prefixu (M004…). Iný prefix
+ * na druhej úrovni odlíši prax od klienta s číslovanými vecami (M001…M003 so súbormi). Ak sa kódovaní pomenúvajú
+ * slovom veci („M001 Spor“, „M002 Zmluva“), sú to veci jedného klienta, nie klienti (review A4, I-1).
+ */
+function codedHierarchy(index: ChildIndex, candidates: readonly SurveyEntry[]): boolean {
+  const coded = candidates.flatMap(candidate => { const code = codeOf(nameOf(candidate.path)); return code ? [{ candidate, code }] : []; });
+  if (coded.length < CODED_MIN_CLIENTS || coded.length * 2 < candidates.length) return false;
+  const prefixes = new Set(coded.map(({ code }) => code.prefix));
+  const [prefix] = prefixes;
+  if (prefixes.size !== 1 || !prefix) return false;
+  if (coded.filter(({ code }) => startsWithMatterWord(code.rest)).length * 2 >= coded.length) return false;
+  return coded.every(({ candidate }) => childrenOf(index, candidate.path).some(entry => {
+    const child = entry.kind === "directory" ? codeOf(nameOf(entry.path)) : undefined;
+    return child !== undefined && child.prefix !== prefix;
+  }));
+}
+
+/**
+ * Kancelária OKF bez `okf.config` (napr. založená skillom OKF alebo ručne, dátová sada v1): priečinok Office
+ * s obsahom OKF a aspoň jeden klient s kartou v `Klienti/*`. Iba návrh; značkou kancelárie sa stane až zápisom
+ * `okf.config` po potvrdení advokátom (holý Office bez okf.config kanceláriou nie je, classify.ts).
+ */
+function legacyOffice(index: ChildIndex): boolean {
+  const office = OFFICE_DIRS.some(name => childrenOf(index, name).some(entry => OFFICE_EVIDENCE.has(nameOf(entry.path).toLowerCase())));
+  return office && childrenOf(index, CLIENTS_DIR).some(client => client.kind === "directory" && childrenOf(index, client.path).some(entry => entry.kind === "file" && CLIENT_CARDS.has(nameOf(entry.path).toLowerCase())));
+}
+
 export async function suggestOnboardingLevel(root: string): Promise<OnboardingSuggestion> {
   const survey = await surveyFolder(root);
   const index = indexChildren(survey.entries);
@@ -92,19 +148,8 @@ export async function suggestOnboardingLevel(root: string): Promise<OnboardingSu
   // Kancelária vnorená o úroveň nižšie (MČ 19. 10. 2026): advokát má zrejme pripojiť priamo ten podpriečinok.
   const files = new Set(survey.entries.filter(entry => entry.kind === "file").map(entry => entry.path));
   const childOffices = top.filter(entry => entry.kind === "directory" && OFFICE_DIRS.some(office => files.has(`${entry.path}/${office}/okf.config`))).map(entry => nameOf(entry.path));
-  const base = { root: survey.root, complete: survey.complete, clients: [], ...(childOffices.length ? { childOffices } : {}) };
-  const topFiles = top.filter(entry => entry.kind === "file").map(entry => nameOf(entry.path).toLowerCase());
-  if (topFiles.some(name => CLIENT_CARDS.has(name))) return { ...base, level: "client", marked: true, score: 1, signals: ["client_card"] };
-  if (topFiles.some(name => MATTER_CARDS.has(name))) return { ...base, level: "matter", marked: true, score: 1, signals: ["matter_card"] };
-  const office = OFFICE_DIRS.find(name => survey.entries.some(entry => entry.path === `${name}/okf.config` && entry.kind === "file"));
-  if (office) {
-    const config = await readFile(join(survey.root, office, "okf.config")).then(decodeText, () => "");
-    const clientPattern = /^client_path:\s*["']?([^"'\r\n]+?)["']?\s*$/m.exec(config)?.[1] ?? "Klienti/*";
-    return { ...base, level: "practice", marked: true, score: 1, signals: ["office_config"], clientPattern, clients: matchPattern(index, clientPattern) };
-  }
-  if (!top.length) return { ...base, level: "unknown", marked: false, score: 0, signals: ["empty"] };
-
-  const dirs = top.filter(entry => entry.kind === "directory");
+  // Priečinky kancelárie nie sú klienti; ostatné priečinky najvyššej úrovne sú kandidáti (pri písmenách o úroveň nižšie).
+  const dirs = top.filter(entry => entry.kind === "directory" && !OFFICE_DIRS.includes(nameOf(entry.path)));
   const buckets = dirs.filter(entry => LETTER.test(nameOf(entry.path)));
   const bucketed = buckets.length >= PRACTICE_MIN_CLIENTS && buckets.length >= dirs.length * 0.8;
   const candidates = bucketed ? buckets.flatMap(bucket => childrenOf(index, bucket.path).filter(entry => entry.kind === "directory")) : dirs;
@@ -112,26 +157,53 @@ export async function suggestOnboardingLevel(root: string): Promise<OnboardingSu
   // protistrany; holý rok či dátum je archív. Ani jeden sa nepočíta za klienta, v menovateli ostávajú.
   const matterNamed = candidates.filter(candidate => looksLikeMatterName(nameOf(candidate.path)));
   const clientCandidates = candidates.filter(candidate => !looksLikeMatterName(nameOf(candidate.path)) && !isBareDate(nameOf(candidate.path)));
+  const heuristicClients = clientCandidates.map(candidate => ({ path: candidate.path, name: nameOf(candidate.path) }));
+  const heuristicPattern = bucketed ? "*/*" : "*";
+  // Kandidáti pre ručnú opravu na „Celá prax“: priečinok Klienti (štruktúra OKF), inak kandidáti heuristiky.
+  const klienti = dirs.some(entry => nameOf(entry.path) === CLIENTS_DIR);
+  const practice = klienti ? { practiceCandidates: matchPattern(index, `${CLIENTS_DIR}/*`), practicePattern: `${CLIENTS_DIR}/*` } : { practiceCandidates: heuristicClients, practicePattern: heuristicPattern };
+  const base = { root: survey.root, complete: survey.complete, clients: [], ...practice, ...(childOffices.length ? { childOffices } : {}) };
+  const topFiles = top.filter(entry => entry.kind === "file").map(entry => nameOf(entry.path).toLowerCase());
+  if (topFiles.some(name => CLIENT_CARDS.has(name))) return { ...base, level: "client", marked: true, score: 1, signals: ["client_card"] };
+  if (topFiles.some(name => MATTER_CARDS.has(name))) return { ...base, level: "matter", marked: true, score: 1, signals: ["matter_card"] };
+  const office = OFFICE_DIRS.find(name => survey.entries.some(entry => entry.path === `${name}/okf.config` && entry.kind === "file"));
+  if (office) {
+    const config = await readFile(join(survey.root, office, "okf.config")).then(decodeText, () => "");
+    const clientPattern = /^client_path:\s*["']?([^"'\r\n]+?)["']?\s*$/m.exec(config)?.[1] ?? "Klienti/*";
+    const clients = matchPattern(index, clientPattern);
+    return { ...base, level: "practice", marked: true, score: 1, signals: ["office_config"], clientPattern, clients, practiceCandidates: clients, practicePattern: clientPattern };
+  }
+  if (legacyOffice(index)) {
+    if (await findAncestorOffice(survey.root)) return { ...base, level: "unknown", marked: false, score: 0, signals: ["inside_office"] };
+    const clients = matchPattern(index, `${CLIENTS_DIR}/*`);
+    return { ...base, level: "practice", marked: false, score: LEGACY_OFFICE_SCORE, signals: ["office_without_config"], clientPattern: `${CLIENTS_DIR}/*`, clients, practiceCandidates: clients, practicePattern: `${CLIENTS_DIR}/*` };
+  }
+  if (!top.length) return { ...base, level: "unknown", marked: false, score: 0, signals: ["empty"] };
+
   const legal = clientCandidates.filter(candidate => hasLegalForm(nameOf(candidate.path)));
   const withMatters = clientCandidates.filter(candidate => childrenOf(index, candidate.path).some(entry => entry.kind === "directory" && looksLikeMatterName(nameOf(entry.path))));
   const clientish = new Set([...legal, ...withMatters].map(candidate => candidate.path));
   const ratio = candidates.length ? clientish.size / candidates.length : 0;
   // Prevažujú mená vecí: typický jeden klient (spec P4), nie prax.
   const mattersDominate = matterNamed.length * 2 > candidates.length;
-  if (!mattersDominate && clientCandidates.length >= PRACTICE_MIN_CLIENTS && ratio >= PRACTICE_MIN_RATIO) {
+  const coded = !bucketed && codedHierarchy(index, clientCandidates);
+  const byNames = clientCandidates.length >= PRACTICE_MIN_CLIENTS && ratio >= PRACTICE_MIN_RATIO;
+  if (!mattersDominate && (byNames || coded)) {
     // Vnútri existujúcej kancelárie nová prax nevznikne (planPracticeOffice ju odmietne); návrh nechá úroveň na advokátovi.
     if (await findAncestorOffice(survey.root)) return { ...base, level: "unknown", marked: false, score: 0, signals: ["inside_office"] };
     const signals: SuggestionSignal[] = [];
+    if (coded) signals.push("coded_hierarchy");
     if (bucketed) signals.push("letter_buckets");
     if (legal.length) signals.push("legal_form_children");
     if (withMatters.length) signals.push("matter_named_children");
     // Jediný signál sú podpriečinky pomenované ako veci: rovnako vyzerá klient s datovanými verziami vecí
     // („Kúpna zmluva/2024-01 návrh“). Prax sa len ponúkne s nízkou istotou, rozhodne advokát.
-    const score = signals.length === 1 && signals[0] === "matter_named_children" ? Math.min(round(ratio), WEAK_SCORE) : round(ratio);
-    return { ...base, level: "practice", marked: false, score, signals, clientPattern: bucketed ? "*/*" : "*", clients: clientCandidates.map(candidate => ({ path: candidate.path, name: nameOf(candidate.path) })) };
+    const score = coded ? Math.max(round(ratio), CODED_SCORE) : signals.length === 1 && signals[0] === "matter_named_children" ? Math.min(round(ratio), WEAK_SCORE) : round(ratio);
+    return { ...base, level: "practice", marked: false, score, signals, clientPattern: heuristicPattern, clients: heuristicClients, practiceCandidates: heuristicClients, practicePattern: heuristicPattern };
   }
   if (looksLikeMatterName(basename(survey.root))) return { ...base, level: "matter", marked: false, score: 0.8, signals: ["matter_named_root"] };
   if (dirs.some(entry => looksLikeMatterName(nameOf(entry.path)))) return { ...base, level: "client", marked: false, score: 0.8, signals: ["matter_named_children"] };
-  if (!dirs.length) return { ...base, level: "matter", marked: false, score: 0.5, signals: ["documents_only"] };
-  return { ...base, level: "client", marked: false, score: 0.5, signals: ["plain_directories"] };
+  // Len dokumenty: ani jeden priečinok (ani holý Office, ten necháva rozhodnutie na advokátovi).
+  if (!top.some(entry => entry.kind === "directory")) return { ...base, level: "matter", marked: false, score: 0.5, signals: ["documents_only"] };
+  return { ...base, level: "client", marked: false, score: WEAK_SCORE, signals: ["plain_directories"] };
 }

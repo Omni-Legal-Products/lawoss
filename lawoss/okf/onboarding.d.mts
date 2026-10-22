@@ -41,7 +41,11 @@ export interface OnboardingSuggestion {
   signals: string[];
   clientPattern?: string;
   clients: SuggestedClient[];
+  /** Klienti a vzor pre ručnú opravu na „Celá prax“; sú v každom návrhu (N-9). */
+  practiceCandidates: SuggestedClient[];
+  practicePattern: string;
   complete: boolean;
+  childOffices?: string[];
 }
 export function suggestOnboardingLevel(root: string): Promise<OnboardingSuggestion>;
 export function grantInPlaceReorganize(root: string, now?: Date): Promise<void>;

@@ -1355,13 +1355,28 @@ var looksLikeMatterName = (name) => !isBareDate(name) && (MATTER_DATE.test(name)
 // src/onboarding/suggest.ts
 var PRACTICE_MIN_CLIENTS = 5;
 var PRACTICE_MIN_RATIO = 0.5;
+var CODED_MIN_CLIENTS = 2;
+var CODED_SCORE = 0.8;
+var LEGACY_OFFICE_SCORE = 0.9;
 var WEAK_SCORE = 0.5;
 var SURVEY_DEPTH = 4;
 var SURVEY_ENTRIES = 50000;
 var CLIENT_CARDS = new Set(["client.md", "klient.md"]);
 var MATTER_CARDS = new Set(["matter.md", "spis.md", "project.md", "projekt.md"]);
 var OFFICE_DIRS = ["Office", "_kancelaria"];
+var OFFICE_EVIDENCE = new Set(["agents.md", "claude.md", "memory"]);
+var CLIENTS_DIR = "Klienti";
 var LETTER = /^\p{Lu}$/u;
+var CODE = /^(\p{Lu}{1,3})[-_ ]?(\d{3,5})(?=$|[\s_.,-])/u;
+var YEAR = /^(?:19|20)\d{2}$/;
+var CAMERA_PREFIXES = new Set(["IMG", "DSC", "PIC", "MVI", "VID", "MOV", "PXL", "SAM", "DJI"]);
+var codeOf = (name) => {
+  const match = CODE.exec(name);
+  const [whole, prefix, digits] = match ?? [];
+  if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix))
+    return;
+  return { prefix, rest: name.slice(whole.length).replace(/^[\s_.,-]+/, "") };
+};
 var nameOf = (path) => path.split("/").pop() ?? path;
 var indexChildren = (entries) => {
   const index = new Map;
@@ -1424,13 +1439,45 @@ function matchPattern(index, pattern) {
   }
   return level.filter(Boolean).map((path) => ({ path, name: nameOf(path) }));
 }
+function codedHierarchy(index, candidates) {
+  const coded = candidates.flatMap((candidate) => {
+    const code = codeOf(nameOf(candidate.path));
+    return code ? [{ candidate, code }] : [];
+  });
+  if (coded.length < CODED_MIN_CLIENTS || coded.length * 2 < candidates.length)
+    return false;
+  const prefixes = new Set(coded.map(({ code }) => code.prefix));
+  const [prefix] = prefixes;
+  if (prefixes.size !== 1 || !prefix)
+    return false;
+  if (coded.filter(({ code }) => startsWithMatterWord(code.rest)).length * 2 >= coded.length)
+    return false;
+  return coded.every(({ candidate }) => childrenOf(index, candidate.path).some((entry) => {
+    const child = entry.kind === "directory" ? codeOf(nameOf(entry.path)) : undefined;
+    return child !== undefined && child.prefix !== prefix;
+  }));
+}
+function legacyOffice(index) {
+  const office = OFFICE_DIRS.some((name) => childrenOf(index, name).some((entry) => OFFICE_EVIDENCE.has(nameOf(entry.path).toLowerCase())));
+  return office && childrenOf(index, CLIENTS_DIR).some((client) => client.kind === "directory" && childrenOf(index, client.path).some((entry) => entry.kind === "file" && CLIENT_CARDS.has(nameOf(entry.path).toLowerCase())));
+}
 async function suggestOnboardingLevel(root) {
   const survey = await surveyFolder(root);
   const index = indexChildren(survey.entries);
   const top = childrenOf(index, "");
   const files = new Set(survey.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));
   const childOffices = top.filter((entry) => entry.kind === "directory" && OFFICE_DIRS.some((office) => files.has(`${entry.path}/${office}/okf.config`))).map((entry) => nameOf(entry.path));
-  const base = { root: survey.root, complete: survey.complete, clients: [], ...childOffices.length ? { childOffices } : {} };
+  const dirs = top.filter((entry) => entry.kind === "directory" && !OFFICE_DIRS.includes(nameOf(entry.path)));
+  const buckets = dirs.filter((entry) => LETTER.test(nameOf(entry.path)));
+  const bucketed = buckets.length >= PRACTICE_MIN_CLIENTS && buckets.length >= dirs.length * 0.8;
+  const candidates = bucketed ? buckets.flatMap((bucket) => childrenOf(index, bucket.path).filter((entry) => entry.kind === "directory")) : dirs;
+  const matterNamed = candidates.filter((candidate) => looksLikeMatterName(nameOf(candidate.path)));
+  const clientCandidates = candidates.filter((candidate) => !looksLikeMatterName(nameOf(candidate.path)) && !isBareDate(nameOf(candidate.path)));
+  const heuristicClients = clientCandidates.map((candidate) => ({ path: candidate.path, name: nameOf(candidate.path) }));
+  const heuristicPattern = bucketed ? "*/*" : "*";
+  const klienti = dirs.some((entry) => nameOf(entry.path) === CLIENTS_DIR);
+  const practice = klienti ? { practiceCandidates: matchPattern(index, `${CLIENTS_DIR}/*`), practicePattern: `${CLIENTS_DIR}/*` } : { practiceCandidates: heuristicClients, practicePattern: heuristicPattern };
+  const base = { root: survey.root, complete: survey.complete, clients: [], ...practice, ...childOffices.length ? { childOffices } : {} };
   const topFiles = top.filter((entry) => entry.kind === "file").map((entry) => nameOf(entry.path).toLowerCase());
   if (topFiles.some((name) => CLIENT_CARDS.has(name)))
     return { ...base, level: "client", marked: true, score: 1, signals: ["client_card"] };
@@ -1440,41 +1487,46 @@ async function suggestOnboardingLevel(root) {
   if (office) {
     const config = await readFile(join2(survey.root, office, "okf.config")).then(decodeText, () => "");
     const clientPattern = /^client_path:\s*["']?([^"'\r\n]+?)["']?\s*$/m.exec(config)?.[1] ?? "Klienti/*";
-    return { ...base, level: "practice", marked: true, score: 1, signals: ["office_config"], clientPattern, clients: matchPattern(index, clientPattern) };
+    const clients = matchPattern(index, clientPattern);
+    return { ...base, level: "practice", marked: true, score: 1, signals: ["office_config"], clientPattern, clients, practiceCandidates: clients, practicePattern: clientPattern };
+  }
+  if (legacyOffice(index)) {
+    if (await findAncestorOffice(survey.root))
+      return { ...base, level: "unknown", marked: false, score: 0, signals: ["inside_office"] };
+    const clients = matchPattern(index, `${CLIENTS_DIR}/*`);
+    return { ...base, level: "practice", marked: false, score: LEGACY_OFFICE_SCORE, signals: ["office_without_config"], clientPattern: `${CLIENTS_DIR}/*`, clients, practiceCandidates: clients, practicePattern: `${CLIENTS_DIR}/*` };
   }
   if (!top.length)
     return { ...base, level: "unknown", marked: false, score: 0, signals: ["empty"] };
-  const dirs = top.filter((entry) => entry.kind === "directory");
-  const buckets = dirs.filter((entry) => LETTER.test(nameOf(entry.path)));
-  const bucketed = buckets.length >= PRACTICE_MIN_CLIENTS && buckets.length >= dirs.length * 0.8;
-  const candidates = bucketed ? buckets.flatMap((bucket) => childrenOf(index, bucket.path).filter((entry) => entry.kind === "directory")) : dirs;
-  const matterNamed = candidates.filter((candidate) => looksLikeMatterName(nameOf(candidate.path)));
-  const clientCandidates = candidates.filter((candidate) => !looksLikeMatterName(nameOf(candidate.path)) && !isBareDate(nameOf(candidate.path)));
   const legal = clientCandidates.filter((candidate) => hasLegalForm(nameOf(candidate.path)));
   const withMatters = clientCandidates.filter((candidate) => childrenOf(index, candidate.path).some((entry) => entry.kind === "directory" && looksLikeMatterName(nameOf(entry.path))));
   const clientish = new Set([...legal, ...withMatters].map((candidate) => candidate.path));
   const ratio = candidates.length ? clientish.size / candidates.length : 0;
   const mattersDominate = matterNamed.length * 2 > candidates.length;
-  if (!mattersDominate && clientCandidates.length >= PRACTICE_MIN_CLIENTS && ratio >= PRACTICE_MIN_RATIO) {
+  const coded = !bucketed && codedHierarchy(index, clientCandidates);
+  const byNames = clientCandidates.length >= PRACTICE_MIN_CLIENTS && ratio >= PRACTICE_MIN_RATIO;
+  if (!mattersDominate && (byNames || coded)) {
     if (await findAncestorOffice(survey.root))
       return { ...base, level: "unknown", marked: false, score: 0, signals: ["inside_office"] };
     const signals = [];
+    if (coded)
+      signals.push("coded_hierarchy");
     if (bucketed)
       signals.push("letter_buckets");
     if (legal.length)
       signals.push("legal_form_children");
     if (withMatters.length)
       signals.push("matter_named_children");
-    const score = signals.length === 1 && signals[0] === "matter_named_children" ? Math.min(round(ratio), WEAK_SCORE) : round(ratio);
-    return { ...base, level: "practice", marked: false, score, signals, clientPattern: bucketed ? "*/*" : "*", clients: clientCandidates.map((candidate) => ({ path: candidate.path, name: nameOf(candidate.path) })) };
+    const score = coded ? Math.max(round(ratio), CODED_SCORE) : signals.length === 1 && signals[0] === "matter_named_children" ? Math.min(round(ratio), WEAK_SCORE) : round(ratio);
+    return { ...base, level: "practice", marked: false, score, signals, clientPattern: heuristicPattern, clients: heuristicClients, practiceCandidates: heuristicClients, practicePattern: heuristicPattern };
   }
   if (looksLikeMatterName(basename2(survey.root)))
     return { ...base, level: "matter", marked: false, score: 0.8, signals: ["matter_named_root"] };
   if (dirs.some((entry) => looksLikeMatterName(nameOf(entry.path))))
     return { ...base, level: "client", marked: false, score: 0.8, signals: ["matter_named_children"] };
-  if (!dirs.length)
+  if (!top.some((entry) => entry.kind === "directory"))
     return { ...base, level: "matter", marked: false, score: 0.5, signals: ["documents_only"] };
-  return { ...base, level: "client", marked: false, score: 0.5, signals: ["plain_directories"] };
+  return { ...base, level: "client", marked: false, score: WEAK_SCORE, signals: ["plain_directories"] };
 }
 
 // src/onboarding/plan.ts
@@ -2425,6 +2477,8 @@ var LOCALIZED_TEMPLATES = { cs: CS_TEMPLATES, sk: TEMPLATES, en: EN_TEMPLATES };
 
 // src/onboarding/messages.ts
 var UNSAFE_FOLDER_NAME_MESSAGE = "A safe non-empty folder name is required.";
+var OFFICE_EXISTS_MESSAGE = "Tento priečinok už kanceláriu má (Office/), ale nedá sa doplniť.";
+var INSIDE_OFFICE_MESSAGE_PREFIX = "Tento priečinok je už súčasťou kancelárie";
 var LOCKED_FILES_MESSAGE_PREFIX = "Files are open in another application:";
 var LOCKED_FILE_CODE = "locked_file";
 function incompleteInspectionMessage(message, issues) {
@@ -3189,7 +3243,7 @@ This folder is a law practice organised by OKF (open client folder framework). T
 `;
 
 // src/onboarding/entities.ts
-import { lstat as lstat5, readFile as readFile3 } from "node:fs/promises";
+import { lstat as lstat5, readdir as readdir4, readFile as readFile3 } from "node:fs/promises";
 import { createHash as createHash4 } from "node:crypto";
 import { basename as basename5, join as join8, relative as relative4, resolve as resolve6, sep as sep5 } from "node:path";
 
@@ -3399,17 +3453,54 @@ async function planOffice(request) {
   const names = await topLevelNames(request.parent);
   return { mode: "new", appFiles: "inside", target, plan: await rootPlan(request.parent, [directory(name), file(`${name}/okf.config`, officeConfig(request)), directory(`${name}/memory`), file(`${name}/memory/.keep`, ""), directory("Klienti"), file("Klienti/.keep", ""), ...practiceInstructions(names, request.language, "Klienti/*", "client")]) };
 }
+var OFFICE_DIR_NAMES2 = ["Office", "_kancelaria"];
+var OFFICE_EVIDENCE2 = ["agents.md", "claude.md", "memory"];
+var CLIENT_CARD_NAMES = ["client.md", "klient.md"];
+var lowerNames = async (path) => new Set((await readdir4(path).catch(() => [])).map((name) => name.toLowerCase()));
+var realDirectory = async (path) => (await lstat5(path).catch(() => {
+  return;
+}))?.isDirectory() ?? false;
+async function incompleteOffice(root) {
+  const top = new Set(await readdir4(root));
+  const present = OFFICE_DIR_NAMES2.filter((name) => top.has(name));
+  const [name] = present;
+  if (present.length !== 1 || !name)
+    return;
+  const officePath = join8(root, name);
+  if (!await realDirectory(officePath))
+    return;
+  const officeNames = await lowerNames(officePath);
+  if (officeNames.has("okf.config") || !OFFICE_EVIDENCE2.some((entry) => officeNames.has(entry)))
+    return;
+  const clients = join8(root, "Klienti");
+  if (!await realDirectory(clients))
+    return;
+  const carded = async (client) => {
+    if (!await realDirectory(join8(clients, client)))
+      return false;
+    const names = await lowerNames(join8(clients, client));
+    return CLIENT_CARD_NAMES.some((card) => names.has(card));
+  };
+  if (!(await Promise.all((await readdir4(clients).catch(() => [])).map(carded))).some(Boolean))
+    return;
+  return { name, memory: await realDirectory(join8(officePath, "memory")) };
+}
 async function planPracticeOffice(request) {
   const clientPath = safeClientPattern(request.clientPattern);
   const root = await realpath(request.root);
   const names = await topLevelNames(root);
-  if (names.has("office") || names.has("_kancelaria"))
-    throw new Error("Tento priečinok už kanceláriu má (Office/). Pripojte ho ako kanceláriu.");
+  const hasOffice = OFFICE_DIR_NAMES2.some((name) => names.has(name.toLowerCase()));
+  const existing = hasOffice ? await incompleteOffice(root) : undefined;
+  if (hasOffice && !existing)
+    throw new Error(OFFICE_EXISTS_MESSAGE);
   const outer = await findAncestorOffice(root);
   if (outer)
-    throw new Error(`Tento priečinok je už súčasťou kancelárie (${outer}). Pripojte celú kanceláriu, nie jej časť.`);
+    throw new Error(`${INSIDE_OFFICE_MESSAGE_PREFIX} (${outer}). Pripojte celú kanceláriu, nie jej časť.`);
   const office = { parent: root, title: request.title, jurisdiction: request.jurisdiction, language: request.language, lawyerName: request.lawyerName };
-  return { mode: "new", appFiles: "inside", target: root, plan: await rootPlan(root, [directory("Office"), file("Office/okf.config", officeConfig(office, clientPath, request.scope)), directory("Office/memory"), file("Office/memory/.keep", ""), ...practiceInstructions(names, request.language, clientPath, request.scope)]) };
+  const config = (name) => file(`${name}/okf.config`, officeConfig(office, clientPath, request.scope));
+  const memory = (name) => [directory(`${name}/memory`), file(`${name}/memory/.keep`, "")];
+  const officeOperations = existing ? [config(existing.name), ...existing.memory ? [] : memory(existing.name)] : [directory("Office"), config("Office"), ...memory("Office")];
+  return { mode: "new", appFiles: "inside", target: root, plan: await rootPlan(root, [...officeOperations, ...practiceInstructions(names, request.language, clientPath, request.scope)]) };
 }
 async function planNewClient(request) {
   const name = safeSegment(request.name), target = join8(request.parent, name), language = request.language ?? "sk";
@@ -4202,7 +4293,7 @@ import { dirname as dirname9, join as join14, resolve as resolve12 } from "node:
 
 // src/triage/files.ts
 import { constants as constants10 } from "node:fs";
-import { lstat as lstat11, mkdir as mkdir5, open as open8, readdir as readdir4 } from "node:fs/promises";
+import { lstat as lstat11, mkdir as mkdir5, open as open8, readdir as readdir5 } from "node:fs/promises";
 import { join as join12 } from "node:path";
 
 // src/triage/scan.ts
@@ -4551,7 +4642,7 @@ async function listClassificationFiles(root) {
   const dir = await triageSubdirectory(root, "classifications", false);
   if (!dir)
     return [];
-  return (await readdir4(dir)).filter((name) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.json$/.test(name)).sort().reverse().map((name) => join12(dir, name));
+  return (await readdir5(dir)).filter((name) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.json$/.test(name)).sort().reverse().map((name) => join12(dir, name));
 }
 
 // src/triage/index.ts
@@ -4914,7 +5005,7 @@ function buildTriagePlan(inventory, options) {
 // src/triage/apply.ts
 import { createHash as createHash8 } from "node:crypto";
 import { constants as constants11 } from "node:fs";
-import { appendFile, copyFile as copyFile2, link, lstat as lstat12, mkdir as mkdir6, open as open9, readdir as readdir5, readFile as readFile7, rmdir as rmdir3 } from "node:fs/promises";
+import { appendFile, copyFile as copyFile2, link, lstat as lstat12, mkdir as mkdir6, open as open9, readdir as readdir6, readFile as readFile7, rmdir as rmdir3 } from "node:fs/promises";
 import { dirname as dirname8, isAbsolute as isAbsolute9, join as join13, resolve as resolve11 } from "node:path";
 class TriageConflictError extends Error {
   code = "triage_conflict";
@@ -4928,7 +5019,7 @@ var missing4 = (error) => error instanceof Error && ("code" in error) && error.c
 var errorCode5 = (error) => error instanceof Error && ("code" in error) ? String(error.code) : "";
 var isClutter = (name) => VOLATILE_ENTRY.test(name) || /^\.ds_store$/i.test(name);
 async function removeClutter(directory) {
-  for (const name of await readdir5(directory))
+  for (const name of await readdir6(directory))
     if (isClutter(name))
       await unlinkFile(join13(directory, name));
 }
@@ -5306,7 +5397,7 @@ async function undoTriage(rootInput, runId, options = {}) {
         if (state === "other")
           problems.push(operation.path);
         if (state === "ours" && operation.kind === "directory") {
-          for (const name of await readdir5(join13(root, operation.path)))
+          for (const name of await readdir6(join13(root, operation.path)))
             if (!isClutter(name) && !owned.has(`${operation.path}/${name}`.toLocaleLowerCase()))
               problems.push(`${operation.path}/${name}`);
         }
@@ -5340,7 +5431,7 @@ async function undoTriage(rootInput, runId, options = {}) {
       const full = join13(root, operation.path);
       if (keepChanged) {
         const state = await operationState(root, operation);
-        if (state === "other" || state === "ours" && operation.kind === "directory" && (await readdir5(full)).some((name) => !isClutter(name))) {
+        if (state === "other" || state === "ours" && operation.kind === "directory" && (await readdir6(full)).some((name) => !isClutter(name))) {
           kept.push(operation.path);
           continue;
         }
@@ -5384,7 +5475,7 @@ async function listTriageRuns(rootInput) {
     const state = await lstat12(runs);
     if (!state.isDirectory() || state.isSymbolicLink())
       return [];
-    names = await readdir5(runs);
+    names = await readdir6(runs);
   } catch (error) {
     if (missing4(error))
       return [];
