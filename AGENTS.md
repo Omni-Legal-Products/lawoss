@@ -79,6 +79,8 @@ Rules:
 
 ## TypeScript and package management
 
+- Runtime bundles must close source-relative accepted data over exact checked bytes and fixed source pins. Exercise the actual emitted bundle without repository-side data; preserve default callers and distinguish bundle closure from trusted worker/ASAR and launch authority.
+
 - A trusted setup action may expose a package alias or store hardlinks. Normalize its explicit complete package into a fresh owned canonical tool tree before a caller requiring independent executable files; preserve strict admission, source bytes, sibling distribution files and uncertain outputs. Do not treat a modeled copy or version command as hosted/native build proof.
 
 - Static imports from checked JavaScript build scripts bring their transitive modules under checkJs. Keep precise tuples/options/guarded key types and run the original Electron typecheck; do not hide imports or disable checking to bypass the build contract.

@@ -488,3 +488,20 @@ Mac ARM64 check copied all468 files of the existing real pnpm11.4.0 package with
 equal bytes/modes and ran its normalized CLI `--version` successfully, preserving
 the source inventory. The action layout in that check was modeled; actual hosted
 action layout, Windows behavior and native SDK/build proof remain separate gates.
+
+### Embedded runtime metadata prerequisite
+
+`createEmbeddedRuntimePayloadVerifier` synchronously snapshots two bounded
+primitive metadata strings with fixed accepted input/lock byte hashes and full
+existing semantic validation. Its frozen closure requires actual Node22.23.2,
+the executing supported target and an external manifest digest. It reuses the
+complete original inventory, import/native-mode and fixed notice predicates.
+Existing producer/build/runtime wrappers and their default source-relative reads
+retain their original call contracts and ordering.
+
+The same-file implementation remains inside the27-source binding. An actual
+self-contained Bun-built module was exercised under genuine Node22 with inert
+payload data and no adjacent SDK metadata files; unexpected CLI arguments did
+not initialize a workspace. This proves metadata closure for that fixture,
+not worker authentication, ASAR binding, G/E provisioning or engine launch.
+Changed verifier bytes require fresh final-source native compatibility evidence.
