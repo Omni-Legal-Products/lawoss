@@ -81,6 +81,8 @@ Rules:
 
 ## TypeScript and package management
 
+- Keep raw ASAR header traversal POSIX-based and use host-native spelling only at pinned API arguments. Await the actual fixture output writer close before reading or renaming archives; preserve primary and cleanup errors together and never explain an original failure solely from a green rerun.
+
 - Preserve exact native 64-bit filesystem identities for equality/uniqueness checks. Convert only proven bounded sizes to JSON Numbers, and ensure negative identity fixtures really change their input rather than relying on potentially rounded integer addition.
 
 - Runtime bundles must close source-relative accepted data over exact checked bytes and fixed source pins. Exercise the actual emitted bundle without repository-side data; preserve default callers and distinguish bundle closure from trusted worker/ASAR and launch authority.

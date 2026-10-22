@@ -520,3 +520,20 @@ The portable archive-path case observes a real second file's exact metadata
 after actual extraction, while retaining the source bytes, strict refusal and
 cleanup checks. A separate physical rename case runs on supported hosts; a
 Windows rename capability skip cannot pass the portable identity case.
+
+### Native ASAR member spelling and completed fixture archives
+
+The private identity reader keeps POSIX archive-header keys and converts only
+its fixed member argument to the host-native spelling required by pinned ASAR
+3.4.1. It retains cache clearing, exact identity matching and all physical checks.
+The original Windows x64/ARM64 integration failures remain recorded; local
+actual-ASAR tests do not establish Windows completion.
+
+The ASAR test fixture observes the pinned cloned filesystem wrapper's exact
+output writer and waits for actual close before returning or renaming an archive.
+The library's returned stream is not a writable-completion promise. Controlled
+barriers demonstrate the old early return and the corrected close ordering.
+Primary and descriptor-restoration failures are preserved together; successful
+restoration and both dual-error paths have focused coverage. The original first
+48/49 local failure remains unattributed. Later local passes close the demonstrated
+fixture risk without establishing that it caused that original failure.
