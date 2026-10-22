@@ -492,7 +492,7 @@ test('the bound static verifier inventory is checked again before payload public
 test('the pinned tar version is checked before its implementation can execute', async t => {
   const f = await capsule(t), privateModuleRoot = path.join(f.f.buildParent, 'private-validator-copy');
   await mkdir(privateModuleRoot);
-  for (const name of ['product-capsule-validation.mjs', 'prepare.mjs', 'validate.mjs', 'notices.mjs']) {
+  for (const name of ['product-capsule-validation.mjs', 'product-capsule-format.mjs', 'prepare.mjs', 'validate.mjs', 'notices.mjs']) {
     await writeFile(path.join(privateModuleRoot, name), await sourceBytes(`./${name}`));
   }
   await cp(new URL('./sdk', import.meta.url), path.join(privateModuleRoot, 'sdk'), { recursive: true });
