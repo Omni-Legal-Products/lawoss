@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Kanonický pnpm vstup privátneho SDK buildu (2026-10-22)
+
+| Súbory | Downstream doplnenie a hranica dôkazu |
+| --- | --- |
+| `.github/workflows/ci-desktop-packaging.yml` | Tenký prípravný krok odovzdá explicitný výstup pripnutej pnpm setup akcie do Green `desktop-pnpm-input.mjs`. Celý pnpm11.4.0 balík vrátane distribúcie kopíruje ako inertné dáta do čerstvého vlastneného RUNNER_TEMP stromu; pôvodný SDK build dostane nezávislý single-link kanonický CLI. Zdrojový alias a store hardlinky sa nemenia, vnútorné linky sa odmietajú, neistý výstup sa ponechá. Pôvodné strict preparer guards, šesť cieľov,53/6 SDK výber, zdroje/lock, deadlines a ďalšie gates zostávajú. Päť prvých b063 package pokusov odmietlo dodaný pnpm pred SDK child; vnútorný člen zloženej podmienky nebol zmeraný.182 zdrojových regresií a skutočný lokálny pnpm11.4.0 `--version` z468 skopírovaných súborov nie sú hosted/native SDK ani kompletný package dôkaz. |
+
 ## Podporovaný ARM runner pre privátnu alfu (2026-10-22)
 
 | Súbory | Downstream doplnenie a hranica dôkazu |

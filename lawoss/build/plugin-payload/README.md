@@ -472,3 +472,19 @@ Electron `checkJs` contract. Keep exact JSDoc tuples/options and guarded key
 narrowing; run `pnpm --filter @legalwork/desktop typecheck:electron` with the
 repository's pinned toolchain. Annotating sources still changes compatibility
 source hashes and requires fresh native evidence for the final source set.
+
+### Pinned desktop pnpm caller input
+
+The private packaging workflow passes the pinned setup action's explicit install
+root to `prepareDesktopPnpmInput`. It copies the complete pnpm11.4.0 package,
+including sibling distribution files, into a fresh owned canonical tool tree.
+Source package aliases and read-only store hardlinks are admitted as inputs;
+destination files must be independent single links. Internal links are refused.
+Unknown or failed output trees are retained. The original SDK preparer keeps its
+strict physical-file checks, tool versions, source binding and child lifetime.
+
+Controlled caller tests preserve the original wrong-consumer refusal. A separate
+Mac ARM64 check copied all468 files of the existing real pnpm11.4.0 package with
+equal bytes/modes and ran its normalized CLI `--version` successfully, preserving
+the source inventory. The action layout in that check was modeled; actual hosted
+action layout, Windows behavior and native SDK/build proof remain separate gates.

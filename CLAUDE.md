@@ -79,6 +79,8 @@ Rules:
 
 ## TypeScript and package management
 
+- A trusted setup action may expose a package alias or store hardlinks. Normalize its explicit complete package into a fresh owned canonical tool tree before a caller requiring independent executable files; preserve strict admission, source bytes, sibling distribution files and uncertain outputs. Do not treat a modeled copy or version command as hosted/native build proof.
+
 - Static imports from checked JavaScript build scripts bring their transitive modules under checkJs. Keep precise tuples/options/guarded key types and run the original Electron typecheck; do not hide imports or disable checking to bypass the build contract.
 - A captured SDK role plan is read-only private data, not mutation authority: retain both G/E and every logical alias, keep extra P/H/custom planes incomplete, and require real same-final-env capture plus active-lifetime grants before leased seeding. Never infer ownership from UID or path prefix.
 - Verify generated AppRun and desktop Exec arguments, not only Electron window settings: packaging must not silently add sandbox-disabling flags. Inspect every lockfile delta after a dependency patch and retain unrelated integrity pins.
