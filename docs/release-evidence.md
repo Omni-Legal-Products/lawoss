@@ -131,7 +131,7 @@ No command here grants publication, signing, or external-send authority.
 Each source target preserves `release-candidate-<run-id>-<attempt>-<platform>-<arch>` for 30 days
 before its public acceptance gate. This artifact includes the actual final installer, target updater files,
 checksums, original target evidence, and `release-candidate.json`. A failed public gate does not discard the installer.
-Unsigned internal Windows candidates remain in the existing private draft path and are not uploaded as public Actions artifacts.
+Unsigned internal Windows and macOS candidates (`allow_unsigned_internal`) remain in the existing private draft path and are not uploaded as public Actions artifacts.
 
 Download the exact candidate from its original run and install that artifact. Complete the native runner for
 fresh and migrated profiles for each installer in the evidence. Keep the original candidate files unchanged.
