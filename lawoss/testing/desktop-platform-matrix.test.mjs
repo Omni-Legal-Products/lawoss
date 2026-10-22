@@ -16,7 +16,7 @@ const expected = [
   ['win', 'x64', 'windows-2022', 'x86_64-pc-windows-msvc', 'win-unpacked', 'LAWOSS.exe'],
   ['win', 'arm64', 'windows-11-arm', 'aarch64-pc-windows-msvc', 'win-arm64-unpacked', 'LAWOSS.exe'],
   ['mac', 'x64', 'macos-15-intel', 'x86_64-apple-darwin', 'mac/LAWOSS.app', 'Contents/MacOS/LAWOSS'],
-  ['mac', 'arm64', 'macos-14', 'aarch64-apple-darwin', 'mac-arm64/LAWOSS.app', 'Contents/MacOS/LAWOSS'],
+  ['mac', 'arm64', 'macos-15', 'aarch64-apple-darwin', 'mac-arm64/LAWOSS.app', 'Contents/MacOS/LAWOSS'],
 ];
 const step = (name) => {
   const found = smoke.steps.find((candidate) => candidate.name === name);
