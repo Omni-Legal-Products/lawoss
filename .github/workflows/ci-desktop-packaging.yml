@@ -141,14 +141,23 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then archive="$(cygpath -u "$archive")"; fi
           tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
 
+      - name: Prepare canonical pinned pnpm input for desktop SDK
+        env:
+          LAWOSS_PRODUCT_SDK_PNPM_DEST: ${{ steps.desktop-pnpm.outputs.dest }}
+        run: >-
+          node --input-type=module -e "import { prepareDesktopPnpmInput } from './lawoss/build/plugin-payload/desktop-pnpm-input.mjs';
+          import fs from 'node:fs/promises'; import path from 'node:path';
+          if(process.version!=='v24.21.0')throw new Error('DESKTOP_PNPM_INPUT_INVALID');
+          const outputRoot=path.join(await fs.realpath(process.env.RUNNER_TEMP),'lawoss-desktop-sdk-pnpm');
+          const {pnpmCli}=await prepareDesktopPnpmInput({installRoot:process.env.LAWOSS_PRODUCT_SDK_PNPM_DEST,outputRoot});
+          await fs.appendFile(process.env.GITHUB_ENV,'LAWOSS_PRODUCT_SDK_PNPM_CLI='+pnpmCli+'\n')"
       - name: Build desktop app and native dependencies
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          LAWOSS_PRODUCT_SDK_PNPM_DEST: ${{ steps.desktop-pnpm.outputs.dest }}
         run: >-
           pnpm --filter @legalwork/desktop build:electron --sdk-mode native
           --sdk-consumer-node "$LAWOSS_PRODUCT_SDK_CONSUMER_NODE"
-          --sdk-pnpm-cli "$LAWOSS_PRODUCT_SDK_PNPM_DEST/node_modules/pnpm/bin/pnpm.mjs"
+          --sdk-pnpm-cli "$LAWOSS_PRODUCT_SDK_PNPM_CLI"
           --sdk-head "$LAWOSS_PR_HEAD" --sdk-checkout "$LAWOSS_CHECKOUT_SHA"
       # Native supplier admission installed the pinned SDK tools before these
       # build-only inert-data/actual-ASAR tests; root pnpm install alone does not.
