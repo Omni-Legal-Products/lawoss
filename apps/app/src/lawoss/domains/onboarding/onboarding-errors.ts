@@ -104,10 +104,10 @@ const clientUnavailable: Record<Language, string> = {
  * „Vybrať iný priečinok“ na tej istej obrazovke.
  */
 const officeExists: Record<Language, string> = {
-  sk: "V tomto priečinku už je priečinok kancelárie (Office alebo _kancelaria), ale chýba v ňom nastavenie kancelárie a pomocné súbory LAWOSS, takže ho nedoplním. Pripojte ho v „Toto je“ ako klienta, alebo tlačidlom „Vybrať iný priečinok“ zvoľte priečinok, ktorý celú prax obsahuje.",
-  cs: "V této složce už je složka kanceláře (Office nebo _kancelaria), ale chybí v ní nastavení kanceláře a pomocné soubory LAWOSS, takže ji nedoplním. Připojte ji v „Tohle je“ jako klienta, nebo tlačítkem „Vybrat jinou složku“ zvolte složku, která obsahuje celou praxi.",
-  en: "This folder already has an office folder (Office or _kancelaria), but it lacks the office settings and LAWOSS helper files, so I will not complete it. Add it as a client under “This is”, or use “Choose another folder” to pick the folder that contains the whole practice.",
-  de: "Dieser Ordner enthält bereits einen Kanzleiordner (Office oder _kancelaria), aber ohne Kanzleieinstellungen und LAWOSS-Hilfsdateien, daher ergänze ich ihn nicht. Fügen Sie ihn unter „Das ist“ als Mandanten hinzu oder wählen Sie mit „Anderen Ordner wählen“ den Ordner, der die ganze Kanzlei enthält.",
+  sk: "V tomto priečinku už je priečinok kancelárie (Office alebo _kancelaria), ktorý sa nedá doplniť na kanceláriu LAWOSS. Pripojte priečinok v „Toto je“ ako klienta, alebo tlačidlom „Vybrať iný priečinok“ zvoľte priečinok, ktorý celú prax obsahuje.",
+  cs: "V této složce už je složka kanceláře (Office nebo _kancelaria), kterou nelze doplnit na kancelář LAWOSS. Připojte složku v „Tohle je“ jako klienta, nebo tlačítkem „Vybrat jinou složku“ zvolte složku, která obsahuje celou praxi.",
+  en: "This folder already has an office folder (Office or _kancelaria) that cannot be completed into a LAWOSS office. Add the folder as a client under “This is”, or use “Choose another folder” to pick the folder that contains the whole practice.",
+  de: "Dieser Ordner enthält bereits einen Kanzleiordner (Office oder _kancelaria), der sich nicht zu einer LAWOSS-Kanzlei ergänzen lässt. Fügen Sie den Ordner unter „Das ist“ als Mandanten hinzu oder wählen Sie mit „Anderen Ordner wählen“ den Ordner, der die ganze Kanzlei enthält.",
 };
 const insideOffice: Record<Language, string> = {
   sk: "Tento priečinok je už súčasťou kancelárie LAWOSS. Tlačidlom „Vybrať iný priečinok“ zvoľte celú kanceláriu (priečinok, v ktorom je Office), nie jej časť.",

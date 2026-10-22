@@ -188,6 +188,7 @@ export async function suggestOnboardingLevel(root: string): Promise<OnboardingSu
   }
   if (looksLikeMatterName(basename(survey.root))) return { ...base, level: "matter", marked: false, score: 0.8, signals: ["matter_named_root"] };
   if (dirs.some(entry => looksLikeMatterName(nameOf(entry.path)))) return { ...base, level: "client", marked: false, score: 0.8, signals: ["matter_named_children"] };
-  if (!dirs.length) return { ...base, level: "matter", marked: false, score: 0.5, signals: ["documents_only"] };
+  // Len dokumenty: ani jeden priečinok (ani holý Office, ten necháva rozhodnutie na advokátovi).
+  if (!top.some(entry => entry.kind === "directory")) return { ...base, level: "matter", marked: false, score: 0.5, signals: ["documents_only"] };
   return { ...base, level: "client", marked: false, score: WEAK_SCORE, signals: ["plain_directories"] };
 }

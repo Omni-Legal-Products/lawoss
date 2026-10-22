@@ -212,6 +212,8 @@ test("každý návrh klienta alebo veci nesie kandidátov praxe pre ručnú voľ
   expect(matters.level).toBe("client");
   expect(matters.practiceCandidates.map(client => client.path)).toEqual(["Faktúry"]);
   expect((await suggestOnboardingLevel(await tree(["zmluva.docx"]))).practiceCandidates).toEqual([]);
+  // Holý Office s dokumentmi nie je „len dokumenty“ (prípad), rozhodnutie ostáva na advokátovi.
+  expect(await suggestOnboardingLevel(await tree(["Office/", "zmluva.docx"]))).toMatchObject({ level: "client", signals: ["plain_directories"], practiceCandidates: [] });
   // Priečinok kancelárie nie je kandidát na klienta; pri Klienti/ sa berú klienti z neho.
   const office = await suggestOnboardingLevel(await tree(["Office/", "Klienti/A/", "Klienti/B/", "Archív/"]));
   expect(office).toMatchObject({ practicePattern: "Klienti/*" });

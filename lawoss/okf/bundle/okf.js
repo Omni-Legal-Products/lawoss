@@ -1511,7 +1511,7 @@ async function suggestOnboardingLevel(root) {
     return { ...base, level: "matter", marked: false, score: 0.8, signals: ["matter_named_root"] };
   if (dirs.some((entry) => looksLikeMatterName(nameOf(entry.path))))
     return { ...base, level: "client", marked: false, score: 0.8, signals: ["matter_named_children"] };
-  if (!dirs.length)
+  if (!top.some((entry) => entry.kind === "directory"))
     return { ...base, level: "matter", marked: false, score: 0.5, signals: ["documents_only"] };
   return { ...base, level: "client", marked: false, score: WEAK_SCORE, signals: ["plain_directories"] };
 }
