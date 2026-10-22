@@ -32,12 +32,21 @@ Node24.21.0 with `LAWOSS_PR_HEAD` and `LAWOSS_CHECKOUT_SHA` set to exact40hex
 identities. It creates a fresh owned `.work/runtime-consumer-validation` workspace;
 existing workspaces and summaries are refused. It installs only the frozen
 standalone tools using genuine pnpm11.4.0 and private configuration/store, runs
-46 producer units, acquires all32 accepted tarballs once, prepares/verifies the
-genuine payload offline, then requires all5 consumer integrations under Node22.
+47 producer units, acquires all32 accepted tarballs once, prepares/verifies the
+genuine payload offline, then requires all6 consumer integrations under Node22.
 The consumer imports all10 SDK entries with network denied and checks native
-acceleration. It also rejects corrupted files, replacement receipts, mismatched
+acceleration. A corrupted native-binary fixture must remain refused and expose
+only the existing loader boundary and allowlisted code. It also rejects corrupted files, replacement receipts, mismatched
 targets/producers and missing digest/native proof. No skips count as acceptance.
 Source, both executables and the complete payload are rechecked afterward.
+
+When the existing strict producer consumer-check fails, `producerProbe` may
+report only closed primitive import/native/guard/roundtrip observations and a
+fixed native loader scope/code. Accessors, paths, raw errors and command output
+are excluded. The `msgpackr-load` scope covers the existing outer require and
+roundtrip block; it does not identify an exact failed inner call. Success probe
+JSON and strict native-loaded acceptance are unchanged. Historical ARM failures
+without this tuple remain unknown; a missing native-loaded proof is not PASS.
 
 Only `.work/runtime-consumer-summary.json` is published by the separate
 `plugin-sdk-runtime.yml` six-native-target matrix. This finite summary carries

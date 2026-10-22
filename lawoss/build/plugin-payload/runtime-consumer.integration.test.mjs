@@ -5,6 +5,7 @@ import { cp, readFile, writeFile, mkdir, mkdtemp, realpath, rm } from 'node:fs/p
 import path from 'node:path';
 import * as payload from './validate.mjs';
 import { initialize, runChild } from './prepare.mjs';
+import { assertRuntimeConsumerProbe } from './runtime-consumer-validation.mjs';
 
 // Explicit native integration gate: supply a genuine, previously built payload.
 // A missing fixture is a failure, never a skipped proof of runtime compatibility.
@@ -87,4 +88,26 @@ test('the verified payload really imports and loads native acceleration under sh
   } finally { await rm(probe, { force: true }); }
   assert.deepEqual(result, { imports: payload.IMPORTS, native: 'loaded', guard: true, roundtrip: true });
   assert.deepEqual(await payload.verifyRuntimePayload(fixture.destination, fixture.digest), before);
+});
+
+test('an actual corrupted native binary stays refused and reports only its fixed loader boundary', async t => {
+  const fixture = await copy(t);
+  const manifest = JSON.parse(fixture.bytes);
+  const binaries = manifest.files.filter(record => record.path.startsWith('node_modules/@msgpackr-extract/') && record.path.endsWith('.node'));
+  assert.ok(binaries.length > 0, 'the genuine native-positive fixture contains its applicable binary');
+  for (const record of binaries) await writeFile(path.join(fixture.destination, record.path), 'invalid native fixture');
+  await assert.rejects(payload.verifyRuntimePayload(fixture.destination, fixture.digest), { code: 'PAYLOAD_INVALID' });
+  const probe = path.join(fixture.destination, '.payload-import-check.mjs');
+  let result;
+  try {
+    await writeFile(probe, await readFile(new URL('./import-check.mjs', import.meta.url)), { flag: 'wx' });
+    result = await runChild([probe, fixture.destination], fixture.workspace, { timeout: 60000, signal: t.signal });
+  } finally { await rm(probe, { force: true }); }
+  assert.equal(result.native, 'fallback');
+  assert.equal(result.roundtrip, true);
+  assert.deepEqual(result.nativeFailure, { stage: 'extract-load', code: 'ERR_DLOPEN_FAILED' });
+  let observation;
+  assert.throws(() => assertRuntimeConsumerProbe(result, value => { observation = value; }), { code: 'CONSUMER_INVALID' });
+  assert.deepEqual(observation.nativeFailure, { stage: 'extract-load', code: 'ERR_DLOPEN_FAILED' });
+  assert.doesNotMatch(JSON.stringify(result.nativeFailure), /invalid native fixture|node_modules|private|\.node/);
 });

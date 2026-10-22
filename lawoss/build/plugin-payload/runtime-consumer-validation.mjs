@@ -8,7 +8,7 @@ import { initialize, prepare, runChild } from './prepare.mjs';
 import { primeAcceptedCache, ACCEPTED } from './prime-cache.mjs';
 import { assertConsumer, testCounts } from './native-validation.mjs';
 import { preflightTools } from './tools-preflight.mjs';
-import { verifyPayload, sha256, fail } from './validate.mjs';
+import { verifyPayload, sha256, fail, IMPORTS } from './validate.mjs';
 import { validatePnpm } from '../../engine-dependencies/package-runtime.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -25,6 +25,34 @@ export function runtimeConsumerFailureCode(error) {
     const code = error?.code;
     return typeof code === 'string' && /^[A-Z_]{1,40}$/.test(code) ? code : 'VALIDATION_FAILED';
   } catch { return 'VALIDATION_FAILED'; }
+}
+const ownData = (value, key) => {
+  try { return Object.getOwnPropertyDescriptor(value, key)?.value; } catch { return undefined; }
+};
+const loaderCodes = new Set(['MODULE_NOT_FOUND', 'ERR_MODULE_NOT_FOUND', 'ERR_DLOPEN_FAILED', 'ERR_DLOPEN_DISABLED', 'unknown']);
+// The existing assertion remains authoritative. A synchronous failure observer
+// receives primitives only; neither probe getters nor observer errors replace it.
+export function assertRuntimeConsumerProbe(value, onFailure) {
+  try { assertConsumer(value); }
+  catch (primary) {
+    try {
+      const imports = ownData(value, 'imports');
+      const complete = Array.isArray(imports) && ownData(imports, 'length') === IMPORTS.length &&
+        IMPORTS.every((spec, index) => ownData(imports, String(index)) === spec);
+      const native = ownData(value, 'native');
+      const boolean = name => { const result = ownData(value, name); return typeof result === 'boolean' ? result : 'unknown'; };
+      const failure = ownData(value, 'nativeFailure');
+      const stage = ownData(failure, 'stage'), code = ownData(failure, 'code');
+      const validFailure = (['extract-load', 'msgpackr-load'].includes(stage) && loaderCodes.has(code)) ||
+        (stage === 'native-state' && code === 'not-enabled');
+      const nativeFailure = validFailure ? Object.freeze({ stage, code }) : undefined;
+      const observation = Object.freeze({ imports: imports === undefined ? 'unknown' : complete ? 'complete' : 'incomplete',
+        native: ['loaded', 'fallback', 'absent'].includes(native) ? native : 'unknown',
+        guard: boolean('guard'), roundtrip: boolean('roundtrip'), ...(nativeFailure ? { nativeFailure } : {}) });
+      if (typeof onFailure === 'function') onFailure(observation);
+    } catch { /* Preserve the exact original assertion or probe exception. */ }
+    throw primary;
+  }
 }
 async function executable(input) {
   if (typeof input !== 'string' || !path.isAbsolute(input)) fail('EXECUTABLE_INVALID');
@@ -78,7 +106,7 @@ export async function validateRuntimeConsumer(consumerNode, pnpmCli) {
     const producerTap = await runChild(['--test', '--test-reporter=tap', ...[
       'prepare.test.mjs', 'prime-cache.test.mjs', 'native-validation.test.mjs', 'runtime-consumer.test.mjs',
     ].map(name => path.join(HERE, name))], workspace, { json: false });
-    summary.tests.producer = testCounts(producerTap, 46);
+    summary.tests.producer = testCounts(producerTap, 47);
 
     stage = 'acquisition';
     const acquired = await primeAcceptedCache({ workspace });
@@ -92,7 +120,7 @@ export async function validateRuntimeConsumer(consumerNode, pnpmCli) {
     const payload = await prepare({ workspace });
     const require = createRequire(new URL('./tools/package.json', import.meta.url));
     const before = await verifyPayload(payload, require('@npmcli/arborist'));
-    assertConsumer(before.imports);
+    assertRuntimeConsumerProbe(before.imports, observation => { summary.producerProbe = observation; });
     summary.payloadManifestSha256 = sha256(await readFile(path.join(payload, 'payload-manifest.json')));
     summary.assertions.producerVerified = true;
     summary.assertions.nativeLoaded = true;
@@ -100,7 +128,7 @@ export async function validateRuntimeConsumer(consumerNode, pnpmCli) {
     stage = 'consumer';
     const consumerTap = await runChild(['--test', '--test-reporter=tap', path.join(HERE, 'runtime-consumer.integration.test.mjs')],
       workspace, { executable: consumer.path, json: false, timeout: 120000, validationWorkspace: workspace });
-    summary.tests.consumer = testCounts(consumerTap, 5);
+    summary.tests.consumer = testCounts(consumerTap, 6);
     summary.assertions.consumerVerified = true;
 
     stage = 'postflight';

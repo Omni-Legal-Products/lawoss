@@ -4,7 +4,7 @@
 
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
-| `.github/workflows/plugin-sdk-runtime.yml` | Samostatná natívna matica macOS/Linux/Windows × x64/ARM64 overuje skutočný Node24 SDK payload pod presným Node22.23.2. Pripnuté action SHA a pnpm11.4.0, izolované frozen nástroje, jednorazová akvizícia32 prijatých tarballov, offline replay,46 producer a5 consumer testov bez preskočení. Publikuje iba konečný súhrn s hashmi; žiadny SDK strom/profil. Existujúci Windows/Bun lane a desktopové povinné brány ostávajú. Nie je to produkčný startup hook ani dôkaz dokončenej alfy. |
+| `.github/workflows/plugin-sdk-runtime.yml` | Samostatná natívna matica macOS/Linux/Windows × x64/ARM64 overuje skutočný Node24 SDK payload pod presným Node22.23.2. Pripnuté action SHA a pnpm11.4.0, izolované frozen nástroje, jednorazová akvizícia32 prijatých tarballov, offline replay,47 producer a6 consumer testov bez preskočení. Publikuje iba konečný súhrn s hashmi; žiadny SDK strom/profil. Existujúci Windows/Bun lane a desktopové povinné brány ostávajú. Nie je to produkčný startup hook ani dôkaz dokončenej alfy. |
 
 ## Panel doplnku Office bez editorov xlsx/pptx (2026-10-20)
 
