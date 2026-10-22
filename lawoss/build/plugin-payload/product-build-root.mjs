@@ -29,7 +29,7 @@ async function owned(root) {
 }
 async function idle(root) {
   // Only known SDK admission locations; do not scan payloads, profiles or caches.
-  for (const parts of [[], ['supplier'], ['supplier', 'runtime-consumer-validation'], ['runtime-consumer-validation'], ['publication']]) {
+  for (const parts of [[], ['supplier'], ['supplier', 'runtime-consumer-validation'], ['runtime-consumer-validation'], ['publication'], ['verification']]) {
     let directory = root, missing = false;
     for (const part of parts) {
       directory = path.join(directory, part);
@@ -103,4 +103,12 @@ export async function completeProductSdkBuildRoot(generation) {
     throw primary;
   }
   await release(state, true);
+}
+
+/** Close our descriptor on failure; the unresolved on-disk marker stays put. */
+export async function retainFailedProductSdkBuildRoot(generation) {
+  const state = generations.get(generation);
+  if (!state) invalid();
+  generations.delete(generation);
+  await release(state, false);
 }

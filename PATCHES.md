@@ -1439,3 +1439,5 @@ profile install or engine hook is introduced. The existing `plugin-sdk-runtime.y
 static-test step also runs the new publisher fixtures; the genuine native53/6 entry
 and finite-summary-only upload remain byte-identical. Cross-target fixtures are data
 proof, with an explicit Windows/root skip for the POSIX permission-failure case.
+
+Standalone SDK preparation now composes explicit accepted/native/without-sdk suppliers, owned generations and a closed private application-code module. Pure identity tests run before the original native entry; capsule/preparation tests run after its exact tools installation. Actual ASAR-reader regressions require the installed desktop builder. No desktop build hook, resource copy mapping or runtime seeding is introduced by these primitives.

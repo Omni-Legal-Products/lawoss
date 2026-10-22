@@ -311,6 +311,8 @@ Unknown roots or leases are refused. Only `completeProductSdkBuildRoot(capabilit
 releases that generation after ownership rechecks. The caller must first settle
 every child; this filesystem helper does not prove process closure. Uncertain
 operations retain their marker. POSIX metadata does not prove Windows ACL privacy.
+On failure, `retainFailedProductSdkBuildRoot(capability)` closes this process's
+descriptor without unlinking the unresolved marker or permitting a new generation.
 
 `publishProductSdkResource({ ...input, transport: 'tar+gzip' })` publishes
 `payload.tgz` and the same static verifier closure. Its frozen private identity
@@ -331,3 +333,43 @@ The workflow runs output-parent/build-root tests separately from the unchanged
 has installed its exact tools. A portable archive positive runs on every host;
 the POSIX link/mode fixture is explicitly skipped on Windows. A local signing
 proof never substitutes for six-target installed-application acceptance.
+
+## Private code identity and static ASAR reader
+
+`createProductSdkIdentityModule` writes one closed generated module format for
+an explicit SDK/without-SDK mode, the complete application BuildInfo, target and
+optional capsule identity. `readProductSdkIdentityModule` parses that exact
+format as bounded plain data, freezes its nested objects and never evaluates it.
+Neither formatting nor parsing authenticates a compatibility proof or grants
+authority to adjacent resource metadata.
+
+`readPackagedProductSdkIdentity` reads the fixed module member from an actual
+physical `app.asar` using the pinned builder's asar3.4.1 parser. It bounds the
+header allocation and member range/size first, refuses links/unpacked code,
+clears parser caches and checks the supplied build/mode/target and physical
+archive/root postflight. The caller exclusively controls this build tree;
+multiple pathname opens do not provide hostile-writer atomicity.
+
+`node --test lawoss/build/plugin-payload/product-identity.test.mjs` needs no
+installed build tools. The actual-container regressions in
+`packaged-identity.test.mjs` additionally require the installed desktop builder.
+These primitives do not yet bind a real desktop build caller to its resources,
+admit an SDK capsule or establish installed startup. The final packaging gate
+must compose those separate checks before it can report success.
+
+`prepareProductSdkPackaging({ desktopRoot, target, supplier, applicationBuild })`
+composes the owned generation, supplier, capsule and generated private module.
+Supplier modes are explicit `accepted`, `native` and `without-sdk`; accepted
+foreign data never executes on the build host. Native mode requires a matching
+host and Node24, exact producer/consumer/pnpm physical identities and explicit
+head/checkout SHAs. It runs the original validator as a fresh isolated child,
+admits its complete proof after normal close and rechecks the executable bytes.
+An error retains the generation marker and evidence while closing our lease FD.
+The child cap does not establish Windows descendant closure on failure.
+
+The return includes the capsule resource and `application-code/identity.mjs`
+under the same archived generation. This remains a standalone preparation API:
+actual desktop build/file-copy/ASAR/resource-gate wiring and runtime use are
+pending. Native integration receipts must distinguish a modeled desktop root
+from a real packaged app. Packaging fixtures run only after tools installation,
+separately from the unchanged53/6 native compatibility selection.

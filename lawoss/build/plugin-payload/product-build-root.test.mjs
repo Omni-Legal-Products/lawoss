@@ -7,6 +7,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { initialize, verifyWorkspace } from './prepare.mjs';
 import { freshProductSdkBuildRoot, completeProductSdkBuildRoot } from './product-build-root.mjs';
+import * as buildRoot from './product-build-root.mjs';
 
 async function fixture(t) {
   const parent = await realpath(await mkdtemp(path.join(tmpdir(), 'lawoss-sdk-generation-')));
@@ -202,4 +203,32 @@ test('completion of a substituted generation root leaves both roots and its unre
   assert.deepEqual(await readFile(path.join(previous, '.owner.json')), originalOwner);
   assert.deepEqual(await readFile(path.join(f.root, '.owner.json')), replacementOwner);
   await assert.rejects(freshProductSdkBuildRoot(f.root), { code: 'EEXIST' });
+});
+
+test('retaining a failed generation closes its capability while preserving the exact unresolved lease and root', async t => {
+  const f = await fixture(t), generation = await freshProductSdkBuildRoot(f.root);
+  const lease = path.join(f.parent, '..plugin-sdk-build.generation.lock');
+  const before = await lstat(lease), owner = await readFile(path.join(f.root, '.owner.json'));
+  await writeFile(path.join(f.root, 'failed-evidence'), 'preserve failed producer evidence');
+  await assert.rejects(buildRoot.retainFailedProductSdkBuildRoot({ ...generation }), invalid);
+  await buildRoot.retainFailedProductSdkBuildRoot(generation);
+  assert.equal((await lstat(lease)).ino, before.ino);
+  assert.deepEqual(await readFile(path.join(f.root, '.owner.json')), owner);
+  assert.equal(await readFile(path.join(f.root, 'failed-evidence'), 'utf8'), 'preserve failed producer evidence');
+  await assert.rejects(buildRoot.retainFailedProductSdkBuildRoot(generation), invalid);
+  await assert.rejects(completeProductSdkBuildRoot(generation), invalid);
+  await assert.rejects(freshProductSdkBuildRoot(f.root), { code: 'EEXIST' });
+});
+
+test('a retained capsule-verification admission prevents rotation of the build generation', async t => {
+  const f = await fixture(t); await initialize(f.root);
+  const verification = path.join(f.root, 'verification'); await initialize(verification);
+  const admission = path.join(verification, '.admit-payload'); await mkdir(admission);
+  const before = await lstat(f.root), marker = await lstat(admission);
+  let escaped;
+  try {
+    await assert.rejects(async () => { escaped = await freshProductSdkBuildRoot(f.root); }, invalid);
+    assert.equal((await lstat(f.root)).ino, before.ino);
+    assert.equal((await lstat(admission)).ino, marker.ino);
+  } finally { if (escaped) await completeProductSdkBuildRoot(escaped); }
 });
