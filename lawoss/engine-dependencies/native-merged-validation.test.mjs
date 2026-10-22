@@ -662,9 +662,12 @@ test('projection parent: unchanged absolute deadline reduces actual supervisor r
       owned = workspace;
       context.phase = 'acquisition';
       const child = validationChild([projectionFixture, 'acquisition-held', workspace], workspace, { offline: true, timeout: 300000 }, context);
-      const acquisition = child.catch(() => {});
+      let acquisitionError, acquisitionSettled = false;
+      const acquisition = child.then(() => { acquisitionSettled = true; }, error => { acquisitionError = error; acquisitionSettled = true; });
       try {
-        await marker(workspace, 'projection-ready');
+        await marker(workspace, 'projection-ready', () => {
+          if (acquisitionSettled) throw acquisitionError ?? Error('owned acquisition completed before fixture readiness');
+        });
         // Controlled clock advance while the actual acquisition child is held.
         Object.defineProperty(Date, 'now', { ...dateDescriptor, value: () => deadline - 12345 });
         await fs.writeFile(path.join(workspace, 'projection-release'), 'release');
