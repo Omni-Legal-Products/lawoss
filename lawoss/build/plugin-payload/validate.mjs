@@ -10,6 +10,39 @@ export const SDK_LOCK_SHA256 = '59f4b854ddab534533fd878c5a7c325a7a1bc3382294d681
 export const DIRECT = { zod: '4.1.8', effect: '4.0.0-beta.83', '@ai-sdk/provider': '3.0.8', '@opencode-ai/sdk': '1.18.29' };
 export const PEERS = { '@opentui/core': '>=0.4.5', '@opentui/solid': '>=0.4.5', '@opentui/keymap': '>=0.4.5' };
 export const fail = code => { throw Object.assign(new Error(code), { code }); };
+// Build-only failure metadata. Own data is structural evidence, not authenticated
+// error provenance. Never read accessors, messages, paths or arbitrary fields.
+// Observers are synchronous; thrown callbacks cannot change the primary refusal.
+const buildFailureGuards = new Set(['manifest-digest', 'requested-target', 'manifest-stat', 'manifest-read',
+  'manifest-parse', 'inputs', 'manifest-identity', 'imports', 'closure', 'inventory', 'notices',
+  'files-equality', 'physical', 'inventory-stat', 'inventory-limit', 'inventory-read',
+  'inventory-symlink', 'inventory-nlink', 'inventory-identity', 'inventory-type',
+  'options', 'binding', 'root', 'input-stat', 'payload', 'root-recheck']);
+const buildFailureCodes = new Set(['PAYLOAD_INVALID', 'CONSUMER_TARGET_UNSUPPORTED', 'INPUT_INVALID',
+  'TREE_UNSAFE', 'TREE_LIMIT', 'NOTICES_INVALID', 'PHYSICAL_INVALID', 'PRODUCT_SDK_BUNDLE_INVALID',
+  'ENOENT', 'EACCES', 'EPERM', 'ENOTDIR', 'ELOOP', 'EIO']);
+const buildFailureProjections = new WeakSet();
+export function observeBuildFailure(observer, guard, error) {
+  if (typeof observer !== 'function' || !buildFailureGuards.has(guard)) return;
+  let code = 'unknown';
+  try {
+    const value = error && Object.getOwnPropertyDescriptor(error, 'code')?.value;
+    if (typeof value === 'string' && buildFailureCodes.has(value)) code = value;
+  } catch {}
+  const projection = Object.freeze({ guard, code });
+  buildFailureProjections.add(projection);
+  try { observer(projection); } catch {}
+}
+// Only locally registered immutable projections can be given a fixed call-site
+// context. Registration proves the projection's origin, not the error's origin.
+export function withBuildFailureContext(observer, context) {
+  if (typeof observer !== 'function' || !['source-admission', 'copied-admission',
+    'capsule-original', 'capsule-roundtrip'].includes(context)) return undefined;
+  return projection => {
+    if (!buildFailureProjections.has(projection)) return;
+    try { observer(Object.freeze({ context, ...projection })); } catch {}
+  };
+}
 export const canonical = value => JSON.stringify(sort(value));
 function sort(value) {
   if (Array.isArray(value)) return value.map(sort);
@@ -86,7 +119,8 @@ export function unchangedGraph(before, tree) {
   if (!equal(before, snapshot(tree))) fail('GRAPH_DRIFT');
 }
 
-export async function inventory(root) {
+export async function inventory(root, onFailure) {
+  let guard = 'inventory-stat';
   const records = [];
   let bytes = 0;
   let entries = 0;
@@ -94,25 +128,39 @@ export async function inventory(root) {
   const canonicalRoot = await realpath(root);
   async function visit(relative) {
     const full = path.join(root, relative);
+    guard = 'inventory-stat';
     const stat = await lstat(full);
+    guard = 'inventory-limit';
     if (++entries > 30000 || relative.split('/').length > 64 || bytes > 256 * 1024 * 1024) fail('TREE_LIMIT');
     if (stat.isDirectory()) {
+      guard = 'inventory-read';
       for (const name of (await readdir(full)).sort()) await visit(relative ? `${relative}/${name}` : name);
     } else if (stat.isSymbolicLink()) {
+      guard = 'inventory-symlink';
       const target = await readlink(full);
       const resolved = await realpath(full);
       if (!relative.includes('/.bin/') || path.isAbsolute(target) || !resolved.startsWith(`${canonicalRoot}${path.sep}`)) fail('TREE_UNSAFE');
       records.push({ path: relative, link: target });
     } else if (stat.isFile()) {
-      if (stat.nlink !== 1 || identities.has(`${stat.dev}:${stat.ino}`)) fail('TREE_UNSAFE');
+      guard = 'inventory-nlink';
+      if (stat.nlink !== 1) fail('TREE_UNSAFE');
+      guard = 'inventory-identity';
+      if (identities.has(`${stat.dev}:${stat.ino}`)) fail('TREE_UNSAFE');
       identities.add(`${stat.dev}:${stat.ino}`);
       bytes += stat.size;
+      guard = 'inventory-limit';
       if (bytes > 256 * 1024 * 1024 || stat.size > 32 * 1024 * 1024) fail('TREE_LIMIT');
+      guard = 'inventory-read';
       records.push({ path: relative, bytes: stat.size, executable: !!(stat.mode & 0o111), sha256: sha256(await readFile(full)) });
-    } else fail('TREE_UNSAFE');
+    } else {
+      guard = 'inventory-type';
+      fail('TREE_UNSAFE');
+    }
   }
-  await visit('');
-  return records;
+  try {
+    await visit('');
+    return records;
+  } catch (error) { observeBuildFailure(onFailure, guard, error); throw error; }
 }
 
 export async function validatePhysical(root, lock, applicable, Arborist) {
@@ -163,41 +211,57 @@ export async function verifyRuntimePayload(root, manifestSha256) {
 
 // Build-only static admission of independently accepted target bytes. This is
 // separate from both executing-host gates above and never loads target code.
-export async function verifyBuildPayload(root, manifestSha256, requestedTarget) {
-  if (typeof manifestSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(manifestSha256)) fail('PAYLOAD_INVALID');
-  sdkConsumerMode(requestedTarget, SDK_LOCK_SHA256);
-  const fields = Object.getOwnPropertyDescriptors(requestedTarget);
-  const target = Object.freeze(Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value])));
-  return verify(root, undefined, 'v24.21.0', manifestSha256, target);
+export async function verifyBuildPayload(root, manifestSha256, requestedTarget, onFailure) {
+  let guard = 'manifest-digest', target;
+  try {
+    if (typeof manifestSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(manifestSha256)) fail('PAYLOAD_INVALID');
+    guard = 'requested-target';
+    sdkConsumerMode(requestedTarget, SDK_LOCK_SHA256);
+    const fields = Object.getOwnPropertyDescriptors(requestedTarget);
+    target = Object.freeze(Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value])));
+  } catch (error) { observeBuildFailure(onFailure, guard, error); throw error; }
+  return verify(root, undefined, 'v24.21.0', manifestSha256, target, onFailure);
 }
 
-async function verify(root, Arborist, producerNode, manifestSha256, requestedTarget) {
+async function verify(root, Arborist, producerNode, manifestSha256, requestedTarget, onFailure) {
+  let guard = 'manifest-stat';
   try {
     const stat = await lstat(path.join(root, 'payload-manifest.json'));
     if (!stat.isFile() || stat.nlink !== 1 || stat.size > 8 * 1024 * 1024) fail('PAYLOAD_INVALID');
+    guard = 'manifest-read';
     const manifestBytes = await readFile(path.join(root, 'payload-manifest.json'));
+    guard = 'manifest-digest';
     if (manifestBytes.length > 8 * 1024 * 1024 || (manifestSha256 !== undefined && sha256(manifestBytes) !== manifestSha256)) fail('PAYLOAD_INVALID');
+    guard = 'manifest-parse';
     const manifest = JSON.parse(manifestBytes);
+    guard = 'inputs';
     const inputBytes = await readFile(path.join(root, 'package.json'));
     const lockBytes = await readFile(path.join(root, 'package-lock.json'));
     const acceptedBytes = await readFile(new URL('./sdk/package-lock.json', import.meta.url));
     const lock = validateInputs(JSON.parse(inputBytes), JSON.parse(lockBytes));
     const target = requestedTarget ?? { platform: process.platform, arch: process.arch,
       ...(process.platform === 'linux' ? { libc: process.report.getReport().header.glibcVersionRuntime ? 'glibc' : 'musl' } : {}) };
+    guard = 'manifest-identity';
     if (manifest.schema !== 1 || manifest.sdk.name !== '@opencode-ai/plugin' || manifest.sdk.version !== '1.18.29' || manifest.sdk.integrity !== SDK_INTEGRITY || manifest.node !== producerNode || manifest.arborist !== '9.4.0' || manifest.scripts !== false || manifest.target.platform !== target.platform || manifest.target.arch !== target.arch || manifest.lockSha256 !== sha256(lockBytes) || manifest.lockSha256 !== sha256(acceptedBytes) || manifest.inputSha256 !== sha256(inputBytes) || manifest.inputSha256 !== sha256(await readFile(new URL('./sdk/package.json', import.meta.url)))) fail('PAYLOAD_INVALID');
     if (target.platform === 'linux' && manifest.target.libc !== target.libc) fail('PAYLOAD_INVALID');
     if (requestedTarget !== undefined && !equal(manifest.target, target)) fail('PAYLOAD_INVALID');
+    guard = 'imports';
     if (!equal(manifest.imports?.imports, IMPORTS) || !['loaded', 'fallback', 'absent'].includes(manifest.imports?.native)) fail('PAYLOAD_INVALID');
     if (manifestSha256 !== undefined) assertTargetSdkProbe(manifest.imports, manifest.target, manifest.lockSha256);
+    guard = 'closure';
     if (!Array.isArray(manifest.closure) || !Array.isArray(manifest.inertOptional) || new Set([...manifest.closure, ...manifest.inertOptional]).size !== Object.keys(lock.packages).length || !equal([...manifest.closure, ...manifest.inertOptional].sort(), Object.keys(lock.packages).sort())) fail('PAYLOAD_INVALID');
     for (const location of manifest.inertOptional) if (!lock.packages[location]?.optional) fail('PAYLOAD_INVALID');
-    const files = (await inventory(root)).filter(record => record.path !== 'payload-manifest.json');
+    guard = 'inventory';
+    const files = (await inventory(root, onFailure)).filter(record => record.path !== 'payload-manifest.json');
+    guard = 'notices';
     assertSupplementalNotices(files);
+    guard = 'files-equality';
     if (!equal(files, manifest.files)) fail('PAYLOAD_INVALID');
     if (Arborist) {
+      guard = 'physical';
       const licenses = await validatePhysical(root, lock, manifest.closure, Arborist);
       if (!equal(licenses, manifest.licenses)) fail('PAYLOAD_INVALID');
     }
     return manifest;
-  } catch { fail('PAYLOAD_INVALID'); }
+  } catch (error) { observeBuildFailure(onFailure, guard, error); fail('PAYLOAD_INVALID'); }
 }

@@ -3,7 +3,7 @@
 // supply that authority. This module never imports SDK code or writes a payload.
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { canonical, fail, sha256, SDK_LOCK_SHA256, sdkConsumerMode, verifyBuildPayload } from './validate.mjs';
+import { canonical, fail, sha256, SDK_LOCK_SHA256, sdkConsumerMode, verifyBuildPayload, observeBuildFailure } from './validate.mjs';
 
 // Exact source set retained by the existing native runtime compatibility gate.
 const sources = ['validate.mjs', 'prepare.mjs', 'worker.mjs', 'import-check.mjs',
@@ -80,25 +80,32 @@ async function sourceBinding(binding, target, digest, lock, mode) {
 }
 
 /** Authenticate an explicit bundle as data, never as a runtime or startup proof. */
-export async function inspectProductSdkBundle(options) {
+export async function inspectProductSdkBundle(options, onFailure) {
+  let guard = 'options';
   try {
     const { payloadRoot, expectedManifestSha256, expectedTarget, acceptedLockSha256, compatibilityBinding } = options;
     const target = data(expectedTarget), binding = data(compatibilityBinding);
     if (JSON.stringify(binding).length > 65536 || !hex(expectedManifestSha256) || acceptedLockSha256 !== SDK_LOCK_SHA256 ||
       typeof payloadRoot !== 'string' || payloadRoot.length > 4096 || !path.isAbsolute(payloadRoot)) refuse();
+    guard = 'requested-target';
     const mode = sdkConsumerMode(target, acceptedLockSha256);
+    guard = 'binding';
     await sourceBinding(binding, target, expectedManifestSha256, acceptedLockSha256, mode);
+    guard = 'root';
     const root = await lstat(payloadRoot);
     if (!root.isDirectory() || root.isSymbolicLink() || await realpath(payloadRoot) !== payloadRoot) refuse();
+    guard = 'input-stat';
     for (const name of ['package.json', 'package-lock.json']) {
       const stat = await lstat(path.join(payloadRoot, name));
       if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size > 1024 * 1024) refuse();
     }
-    const manifest = await verifyBuildPayload(payloadRoot, expectedManifestSha256, target);
+    guard = 'payload';
+    const manifest = await verifyBuildPayload(payloadRoot, expectedManifestSha256, target, onFailure);
+    guard = 'root-recheck';
     const after = await lstat(payloadRoot);
     if (!after.isDirectory() || after.isSymbolicLink() || after.dev !== root.dev || after.ino !== root.ino) refuse();
     return Object.freeze({ schema: 1, kind: 'lawoss-product-sdk-bundle', status: 'verified',
       manifestSha256: expectedManifestSha256, target, lockSha256: manifest.lockSha256,
       inputSha256: manifest.inputSha256, sourceSetSha256: sha256(canonical(binding.sources)), consumerMode: mode });
-  } catch { refuse(); }
+  } catch (error) { observeBuildFailure(onFailure, guard, error); refuse(); }
 }

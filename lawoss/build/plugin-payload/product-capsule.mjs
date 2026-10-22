@@ -5,12 +5,14 @@ import { lstat, mkdir, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { canonical, inventory, verifyBuildPayload } from './validate.mjs';
+import { canonical, inventory, verifyBuildPayload, withBuildFailureContext } from './validate.mjs';
 
-export async function createProductSdkCapsule(stage, bundle) {
+export async function createProductSdkCapsule(stage, bundle, onFailure) {
   const payload = path.join(stage, 'payload');
-  await verifyBuildPayload(payload, bundle.manifestSha256, bundle.target);
-  const before = await inventory(payload);
+  const originalFailure = withBuildFailureContext(onFailure, 'capsule-original');
+  const roundtripFailure = withBuildFailureContext(onFailure, 'capsule-roundtrip');
+  await verifyBuildPayload(payload, bundle.manifestSha256, bundle.target, originalFailure);
+  const before = await inventory(payload, originalFailure);
   // Use the existing exact tools lock, resolving through its direct Arborist
   // dependency under pnpm isolation. Default directory publication loads none.
   const require = createRequire(new URL('./tools/package.json', import.meta.url));
@@ -29,9 +31,9 @@ export async function createProductSdkCapsule(stage, bundle) {
   const roundtrip = path.join(stage, '.capsule-roundtrip');
   await mkdir(roundtrip);
   await tar.x({ file: archive, cwd: roundtrip, strict: true, umask: 0 });
-  await verifyBuildPayload(roundtrip, bundle.manifestSha256, bundle.target);
-  if (canonical(await inventory(roundtrip)) !== canonical(before) ||
-      canonical(await inventory(payload)) !== canonical(before)) throw new Error('SDK_CAPSULE_INVALID');
+  await verifyBuildPayload(roundtrip, bundle.manifestSha256, bundle.target, roundtripFailure);
+  if (canonical(await inventory(roundtrip, roundtripFailure)) !== canonical(before) ||
+      canonical(await inventory(payload, originalFailure)) !== canonical(before)) throw new Error('SDK_CAPSULE_INVALID');
   const digest = createHash('sha256');
   for await (const chunk of createReadStream(archive)) digest.update(chunk);
   const after = await lstat(archive);

@@ -2,6 +2,7 @@ import './network-guard.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, createWriteStream } from 'node:fs';
+import fsPromises from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createHash } from 'node:crypto';
@@ -14,7 +15,8 @@ import { canonical, inventory, verifyBuildPayload } from './validate.mjs';
 import { initialize } from './prepare.mjs';
 import { extractAndVerifyProductSdkCapsule } from './product-capsule-validation.mjs';
 import { gzipSync, gunzipSync, createGzip } from 'node:zlib';
-import { createRequire } from 'node:module';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
+import { createProductSdkCapsule } from './product-capsule.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const sources = ['validate.mjs', 'prepare.mjs', 'worker.mjs', 'import-check.mjs',
@@ -85,7 +87,18 @@ async function publication(t) {
 }
 
 async function capsule(t) {
-  const f = await publication(t), result = await publishProductSdkResource({ ...f, transport: 'tar+gzip' });
+  const f = await publication(t), failures = [];
+  let result;
+  try {
+    result = await publishProductSdkResource({ ...f, transport: 'tar+gzip' }, event => {
+      if (failures.length < 3) failures.push(event);
+    });
+  } catch (error) {
+    // Expected-valid setup only. Fixed registered projections, never raw errors;
+    // retain the first inner predicate before rethrowing the original failure.
+    console.error(JSON.stringify({ kind: 'sdk-build-failure', failures }));
+    throw error;
+  }
   const workspace = path.join(f.buildParent, 'verification-workspace');
   await initialize(workspace);
   return { f, ...result, workspace };
@@ -473,4 +486,94 @@ for (const entry of [
 ]) test(`portable admission refuses reserved aliases and Windows-illegal name ${JSON.stringify(entry.path)} before writes`, async t => {
   const f = await capsule(t);
   await refusedBeforeWrites(await replaceArchive(f, tarBytes([entry])));
+});
+
+// Failure diagnostics exercise the same publisher/capsule callers as fixture setup.
+test('publisher failure diagnostics identify source admission and preserve refusal', async t => {
+  const f = await publication(t), events = [];
+  await writeFile(path.join(f.payloadRoot, 'node_modules/inert.js'), 'changed source');
+  await assert.rejects(publishProductSdkResource({ ...f, transport: 'tar+gzip' }, event => events.push(event)),
+    { code: 'PRODUCT_SDK_BUNDLE_INVALID' });
+  assert.deepEqual(events, [
+    { context: 'source-admission', guard: 'files-equality', code: 'PAYLOAD_INVALID' },
+    { context: 'source-admission', guard: 'payload', code: 'PAYLOAD_INVALID' },
+  ]);
+  assert.deepEqual(await readdir(f.buildParent), []);
+});
+
+test('publisher failure diagnostics identify copied admission before owned cleanup', async t => {
+  const f = await publication(t), events = [], original = fsPromises.cp;
+  const descriptor = Object.getOwnPropertyDescriptor(fsPromises, 'cp');
+  Object.defineProperty(fsPromises, 'cp', { ...descriptor, value: async (...args) => {
+    await original(...args);
+    await writeFile(path.join(args[1], 'node_modules/inert.js'), 'changed copy');
+  } });
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(publishProductSdkResource({ ...f, transport: 'tar+gzip' }, event => events.push(event)),
+      { code: 'PRODUCT_SDK_BUNDLE_INVALID' });
+  } finally { Object.defineProperty(fsPromises, 'cp', descriptor); syncBuiltinESMExports(); }
+  assert.deepEqual(events, [
+    { context: 'copied-admission', guard: 'files-equality', code: 'PAYLOAD_INVALID' },
+    { context: 'copied-admission', guard: 'payload', code: 'PAYLOAD_INVALID' },
+  ]);
+  assert.deepEqual(await readdir(f.buildParent), []);
+});
+
+test('capsule original failure is observed without replacing its strict error', async t => {
+  const f = await publication(t), stage = path.join(f.buildParent, 'owned-stage'), events = [];
+  await mkdir(stage);
+  await cp(f.payloadRoot, path.join(stage, 'payload'), { recursive: true });
+  await writeFile(path.join(stage, 'payload/node_modules/inert.js'), 'changed original');
+  await assert.rejects(createProductSdkCapsule(stage, { manifestSha256: f.expectedManifestSha256, target: f.expectedTarget },
+    event => { events.push(event); throw new Error('observer failure'); }), { code: 'PAYLOAD_INVALID' });
+  assert.deepEqual(events, [{ context: 'capsule-original', guard: 'files-equality', code: 'PAYLOAD_INVALID' }]);
+  assert.deepEqual(await readdir(stage), ['payload']);
+});
+
+test('capsule roundtrip failure is observed before publisher cleanup and retains its original code', async t => {
+  const f = await publication(t), events = [], descriptor = Object.getOwnPropertyDescriptor(tar, 'x'), original = tar.x;
+  Object.defineProperty(tar, 'x', { configurable: true, value: async options => {
+    await original(options);
+    await writeFile(path.join(options.cwd, 'node_modules/inert.js'), 'changed roundtrip');
+  } });
+  try {
+    await assert.rejects(publishProductSdkResource({ ...f, transport: 'tar+gzip' }, event => events.push(event)),
+      { code: 'PAYLOAD_INVALID' });
+  } finally { Object.defineProperty(tar, 'x', descriptor); }
+  assert.deepEqual(events, [{ context: 'capsule-roundtrip', guard: 'files-equality', code: 'PAYLOAD_INVALID' }]);
+  assert.deepEqual(await readdir(f.buildParent), []);
+});
+
+test('successful capsule publication emits no failure diagnostics and keeps its output shape', async t => {
+  const f = await publication(t), events = [];
+  const result = await publishProductSdkResource({ ...f, transport: 'tar+gzip' }, event => events.push(event));
+  assert.deepEqual(events, []);
+  assert.deepEqual(Object.keys(result).sort(), ['identity', 'privateIdentityModule', 'resourceRoot']);
+});
+
+test('expected-valid capsule setup logs only bounded failure metadata and rethrows the original error', async t => {
+  const tarDescriptor = Object.getOwnPropertyDescriptor(tar, 'x'), original = tar.x;
+  const consoleDescriptor = Object.getOwnPropertyDescriptor(console, 'error'), output = [];
+  const primary = new Error('private primary failure text must not be logged');
+  Object.defineProperty(console, 'error', { ...consoleDescriptor, value: text => output.push(text) });
+  try {
+    Object.defineProperty(tar, 'x', { configurable: true, value: () => { throw primary; } });
+    await assert.rejects(capsule(t), error => error === primary);
+    assert.deepEqual(output.splice(0).map(text => JSON.parse(text)), [{ kind: 'sdk-build-failure', failures: [] }]);
+    Object.defineProperty(tar, 'x', { configurable: true, value: async options => {
+      await original(options);
+      await writeFile(path.join(options.cwd, 'node_modules/inert.js'), 'changed roundtrip');
+    } });
+    await assert.rejects(capsule(t), { code: 'PAYLOAD_INVALID' });
+    assert.deepEqual(output.splice(0).map(text => JSON.parse(text)), [{ kind: 'sdk-build-failure', failures: [
+      { context: 'capsule-roundtrip', guard: 'files-equality', code: 'PAYLOAD_INVALID' },
+    ] }]);
+    Object.defineProperty(tar, 'x', tarDescriptor);
+    await capsule(t);
+    assert.deepEqual(output, []);
+  } finally {
+    Object.defineProperty(tar, 'x', tarDescriptor);
+    Object.defineProperty(console, 'error', consoleDescriptor);
+  }
 });

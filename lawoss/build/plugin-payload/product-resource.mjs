@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inspectProductSdkBundle } from './product-bundle.mjs';
 import { createProductSdkCapsule } from './product-capsule.mjs';
-import { canonical, inventory, sha256, verifyBuildPayload } from './validate.mjs';
+import { canonical, inventory, sha256, verifyBuildPayload, withBuildFailureContext } from './validate.mjs';
 
 const closure = ['validate.mjs', 'notices.mjs', 'sdk/package.json', 'sdk/package-lock.json',
   'sdk/notices/index.json', 'sdk/notices/THIRD_PARTY_NOTICES.md',
@@ -38,7 +38,7 @@ async function removeStage(stage, identity) {
 }
 
 /** Returns private code identity as text; publication alone grants no runtime authority. */
-export async function publishProductSdkResource(options) {
+export async function publishProductSdkResource(options, onFailure) {
   const { buildParent, outputName, payloadRoot, transport = 'directory' } = options;
   if (!['directory', 'tar+gzip'].includes(transport) ||
     typeof buildParent !== 'string' || !path.isAbsolute(buildParent) || path.resolve(buildParent) !== buildParent || buildParent.length > 4096 ||
@@ -49,7 +49,9 @@ export async function publishProductSdkResource(options) {
   if (!await absent(destination)) invalid();
   // The complete trusted S1 contract is evaluated before any copy or stage.
   const admission = { ...options, payloadRoot };
-  const bundle = await inspectProductSdkBundle(admission);
+  const sourceFailure = withBuildFailureContext(onFailure, 'source-admission');
+  const copiedFailure = withBuildFailureContext(onFailure, 'copied-admission');
+  const bundle = await inspectProductSdkBundle(admission, sourceFailure);
   const source = await lstat(payloadRoot);
   const contents = [];
   for (const name of closure) {
@@ -76,16 +78,16 @@ export async function publishProductSdkResource(options) {
       await mkdir(path.dirname(path.join(verifier, name)), { recursive: true });
       await writeFile(path.join(verifier, name), bytes, { flag: 'wx', mode });
     }
-    const verified = await inspectProductSdkBundle({ ...admission, payloadRoot: path.join(stage, 'payload') });
+    const verified = await inspectProductSdkBundle({ ...admission, payloadRoot: path.join(stage, 'payload') }, copiedFailure);
     if (canonical(verified) !== canonical(bundle)) invalid();
     const expectedVerifier = contents.map(([name, bytes, mode]) => ({ path: name, bytes: bytes.length,
       executable: !!(mode & 0o111), sha256: sha256(bytes) })).sort((a, b) => a.path < b.path ? -1 : 1);
     const verifierFiles = await inventory(verifier);
     if (canonical(verifierFiles) !== canonical(expectedVerifier)) invalid();
-    await verifyBuildPayload(path.join(stage, 'payload'), bundle.manifestSha256, bundle.target);
-    const capsule = transport === 'tar+gzip' ? await createProductSdkCapsule(stage, bundle) : null;
+    await verifyBuildPayload(path.join(stage, 'payload'), bundle.manifestSha256, bundle.target, copiedFailure);
+    const capsule = transport === 'tar+gzip' ? await createProductSdkCapsule(stage, bundle, onFailure) : null;
     // Re-read source admission and verifier inputs after copying, before rename.
-    if (!same(source, await lstat(payloadRoot)) || canonical(await inspectProductSdkBundle(admission)) !== canonical(bundle)) invalid();
+    if (!same(source, await lstat(payloadRoot)) || canonical(await inspectProductSdkBundle(admission, sourceFailure)) !== canonical(bundle)) invalid();
     for (const [name, bytes] of contents) if (!bytes.equals(await readFile(new URL(name, import.meta.url)))) invalid();
     await unchanged(buildParent, parent);
     await unchanged(stage, stageIdentity);

@@ -2,11 +2,14 @@ import './network-guard.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile, link } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { inspectProductSdkBundle } from './product-bundle.mjs';
-import { verifyPayload, verifyRuntimePayload } from './validate.mjs';
+import { verifyPayload, verifyRuntimePayload, verifyBuildPayload } from './validate.mjs';
+import * as validation from './validate.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const sources = ['validate.mjs', 'prepare.mjs', 'worker.mjs', 'import-check.mjs',
@@ -195,4 +198,98 @@ test('static SDK identity stops at its aggregate text and key budget before late
       compatibilityBinding: { ...oversized, later } }), code);
     assert.equal(laterVisits, 0);
   }
+});
+
+// These tests catch lost first predicates while keeping the real rejection oracle.
+test('failure diagnostics retain files-equality before the bundle catch translation', async t => {
+  const f = await fixture(t), events = [];
+  await writeFile(path.join(f.payloadRoot, 'node_modules/inert.js'), 'changed inert data');
+  await assert.rejects(inspectProductSdkBundle(f, event => events.push(event)), code);
+  assert.deepEqual(events, [
+    { guard: 'files-equality', code: 'PAYLOAD_INVALID' },
+    { guard: 'payload', code: 'PAYLOAD_INVALID' },
+  ]);
+  for (const event of events) assert.equal(Object.isFrozen(event), true);
+  await assert.rejects(inspectProductSdkBundle(f), code);
+  await assert.rejects(verifyBuildPayload(f.payloadRoot, f.expectedManifestSha256, f.expectedTarget),
+    { code: 'PAYLOAD_INVALID' });
+  await assert.rejects(inspectProductSdkBundle(f, () => { throw new Error('observer must not replace refusal'); }), code);
+});
+
+test('failure diagnostics distinguish a real hardlink inventory refusal from file equality', async t => {
+  const f = await fixture(t), events = [];
+  await link(path.join(f.payloadRoot, 'node_modules/inert.js'), path.join(f.payloadRoot, 'node_modules/shared.js'));
+  await assert.rejects(inspectProductSdkBundle(f, event => events.push(event)), code);
+  assert.deepEqual(events, [
+    { guard: 'inventory-nlink', code: 'TREE_UNSAFE' },
+    { guard: 'inventory', code: 'TREE_UNSAFE' },
+    { guard: 'payload', code: 'PAYLOAD_INVALID' },
+  ]);
+  await assert.rejects(inspectProductSdkBundle(f), code);
+});
+
+test('failure diagnostics retain manifest and target admission guards and stay silent on success', async t => {
+  const f = await fixture(t), events = [];
+  await inspectProductSdkBundle(f, event => events.push(event));
+  assert.deepEqual(events, []);
+  await assert.rejects(verifyBuildPayload(f.payloadRoot, '0'.repeat(64), f.expectedTarget,
+    event => events.push(event)), { code: 'PAYLOAD_INVALID' });
+  assert.deepEqual(events.splice(0), [{ guard: 'manifest-digest', code: 'PAYLOAD_INVALID' }]);
+  await assert.rejects(verifyBuildPayload(f.payloadRoot, f.expectedManifestSha256, { platform: 'win32', arch: 'ia32' },
+    event => events.push(event)), { code: 'CONSUMER_TARGET_UNSUPPORTED' });
+  assert.deepEqual(events.splice(0), [{ guard: 'requested-target', code: 'CONSUMER_TARGET_UNSUPPORTED' }]);
+  await assert.rejects(verifyBuildPayload(f.payloadRoot, f.expectedManifestSha256, { platform: 'win32', arch: 'x64' },
+    event => events.push(event)), { code: 'PAYLOAD_INVALID' });
+  assert.deepEqual(events, [{ guard: 'manifest-identity', code: 'PAYLOAD_INVALID' }]);
+});
+
+test('failure projection never invokes forged error getters or emits arbitrary data', () => {
+  assert.equal(typeof validation.observeBuildFailure, 'function');
+  let reads = 0;
+  const events = [];
+  const observer = event => events.push(event);
+  for (const error of [null, 'private arbitrary text', { code: 'private arbitrary text' },
+    Object.create({ code: 'TREE_UNSAFE' }),
+    { get code() { reads++; throw new Error('private getter'); } },
+    new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('private trap'); } }),
+  ]) validation.observeBuildFailure(observer, 'inventory', error);
+  assert.equal(reads, 0);
+  assert.deepEqual(events, Array.from({ length: 6 }, () => ({ guard: 'inventory', code: 'unknown' })));
+  validation.observeBuildFailure(observer, 'inventory', { code: 'TREE_UNSAFE', path: 'private path', message: 'private text' });
+  assert.deepEqual(events.at(-1), { guard: 'inventory', code: 'TREE_UNSAFE' });
+  validation.observeBuildFailure(observer, 'private guard', { code: 'TREE_UNSAFE' });
+  assert.equal(events.length, 7);
+  assert.doesNotThrow(() => validation.observeBuildFailure(() => { throw new Error('observer failure'); }, 'inventory', null));
+});
+
+test('failure context accepts only registered projections and fixed contexts without inspecting forgeries', () => {
+  let reads = 0;
+  const events = [], observer = validation.withBuildFailureContext(event => events.push(event), 'copied-admission');
+  const forgery = { get guard() { reads++; return 'files-equality'; }, get code() { reads++; return 'PAYLOAD_INVALID'; } };
+  observer(forgery);
+  observer({ guard: 'files-equality', code: 'PAYLOAD_INVALID' });
+  assert.equal(reads, 0);
+  assert.deepEqual(events, []);
+  validation.observeBuildFailure(observer, 'files-equality', { code: 'PAYLOAD_INVALID' });
+  assert.deepEqual(events, [{ context: 'copied-admission', guard: 'files-equality', code: 'PAYLOAD_INVALID' }]);
+  assert.equal(Object.isFrozen(events[0]), true);
+  assert.equal(validation.withBuildFailureContext(() => {}, 'private context'), undefined);
+});
+
+test('forged failures and throwing observers cannot grant admission or replace the original inventory error', async t => {
+  const f = await fixture(t), descriptor = Object.getOwnPropertyDescriptor(fsPromises, 'lstat');
+  let reads = 0;
+  const primary = { get code() { reads++; throw new Error('private getter'); } };
+  Object.defineProperty(fsPromises, 'lstat', { ...descriptor, value: async () => { throw primary; } });
+  syncBuiltinESMExports();
+  const events = [];
+  try {
+    await assert.rejects(verifyBuildPayload(f.payloadRoot, f.expectedManifestSha256, f.expectedTarget, event => {
+      events.push(event); throw new Error('observer failure');
+    }), { code: 'PAYLOAD_INVALID' });
+    await assert.rejects(validation.inventory(f.payloadRoot, () => { throw new Error('observer failure'); }),
+      error => error === primary);
+  } finally { Object.defineProperty(fsPromises, 'lstat', descriptor); syncBuiltinESMExports(); }
+  assert.equal(reads, 0);
+  assert.deepEqual(events, [{ guard: 'manifest-stat', code: 'unknown' }]);
 });
