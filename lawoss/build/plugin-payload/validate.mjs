@@ -233,14 +233,14 @@ async function verify(root, Arborist, producerNode, manifestSha256, requestedTar
     guard = 'manifest-digest';
     if (manifestBytes.length > 8 * 1024 * 1024 || (manifestSha256 !== undefined && sha256(manifestBytes) !== manifestSha256)) fail('PAYLOAD_INVALID');
     guard = 'manifest-parse';
-    const manifest = JSON.parse(manifestBytes);
+    const manifest = JSON.parse(manifestBytes.toString('utf8'));
     guard = 'inputs';
     const inputBytes = await readFile(path.join(root, 'package.json'));
     const lockBytes = await readFile(path.join(root, 'package-lock.json'));
     const acceptedBytes = await readFile(new URL('./sdk/package-lock.json', import.meta.url));
-    const lock = validateInputs(JSON.parse(inputBytes), JSON.parse(lockBytes));
+    const lock = validateInputs(JSON.parse(inputBytes.toString('utf8')), JSON.parse(lockBytes.toString('utf8')));
     const target = requestedTarget ?? { platform: process.platform, arch: process.arch,
-      ...(process.platform === 'linux' ? { libc: process.report.getReport().header.glibcVersionRuntime ? 'glibc' : 'musl' } : {}) };
+      ...(process.platform === 'linux' ? { libc: /** @type {{ header: { glibcVersionRuntime?: string } }} */ (process.report.getReport()).header.glibcVersionRuntime ? 'glibc' : 'musl' } : {}) };
     guard = 'manifest-identity';
     if (manifest.schema !== 1 || manifest.sdk.name !== '@opencode-ai/plugin' || manifest.sdk.version !== '1.18.29' || manifest.sdk.integrity !== SDK_INTEGRITY || manifest.node !== producerNode || manifest.arborist !== '9.4.0' || manifest.scripts !== false || manifest.target.platform !== target.platform || manifest.target.arch !== target.arch || manifest.lockSha256 !== sha256(lockBytes) || manifest.lockSha256 !== sha256(acceptedBytes) || manifest.inputSha256 !== sha256(inputBytes) || manifest.inputSha256 !== sha256(await readFile(new URL('./sdk/package.json', import.meta.url)))) fail('PAYLOAD_INVALID');
     if (target.platform === 'linux' && manifest.target.libc !== target.libc) fail('PAYLOAD_INVALID');

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const SOURCE = fileURLToPath(new URL('./sdk/notices/', import.meta.url));
 const PREFIX = 'third-party-notices/';
+/** @type {[name: string, bytes: number, digest: string][]} */
 const files = [
   ['THIRD_PARTY_NOTICES.md', 3292, 'e36e91109824c1f80cf5f7816bc08a45e9e46c02446a2c2ed8b9ffbefc1493d2'],
   ['index.json', 16157, '1821bb360c65a48984f491a994dd189d505a3a623dd8c329acfef93a05167293'],
@@ -55,11 +56,12 @@ async function sourceBytes(name, size, digest) {
 // or deletes an existing destination, and reads every fixed input before writing.
 export async function writeSupplementalNotices(stage) {
   try {
-    for (const [directory, entries] of [[SOURCE, ['THIRD_PARTY_NOTICES.md', 'index.json', 'licenses']],
-      [path.join(SOURCE, 'licenses'), files.slice(2).map(([name]) => path.posix.basename(name))]]) {
+    for (const [directory, entries] of /** @type {[directory: string, entries: string[]][]} */ ([[SOURCE, ['THIRD_PARTY_NOTICES.md', 'index.json', 'licenses']],
+      [path.join(SOURCE, 'licenses'), files.slice(2).map(([name]) => path.posix.basename(name))]])) {
       const stat = await lstat(directory);
       if (!stat.isDirectory() || stat.isSymbolicLink() || JSON.stringify((await readdir(directory)).sort()) !== JSON.stringify(entries.sort())) refuse();
     }
+    /** @type {[name: string, bytes: Buffer][]} */
     const contents = [];
     for (const [name, size, digest] of files) contents.push([name, await sourceBytes(name, size, digest)]);
     const destination = path.join(stage, 'third-party-notices');

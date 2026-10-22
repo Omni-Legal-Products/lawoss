@@ -39,7 +39,8 @@ function data(value, depth = 0, budget = { values: 0, text: 0, active: new WeakS
   if (keys.length > 64 || keys.some(key => typeof key !== 'string')) refuse();
   budget.active.add(value);
   const result = {};
-  for (const key of keys) {
+  // The preceding own-key guard has already refused every symbol.
+  for (const key of /** @type {string[]} */ (keys)) {
     const field = descriptors[key];
     if (!field.enumerable || !Object.hasOwn(field, 'value') || (budget.text += key.length) > 65536) refuse();
     Object.defineProperty(result, key, { enumerable: true, value: data(field.value, depth + 1, budget) });
@@ -80,7 +81,7 @@ async function physicalFile(file, limit, retain = false) {
 }
 async function nativeInputs(supplier, initial, root) {
   if (initial.target.platform !== process.platform || initial.target.arch !== process.arch ||
-    (process.platform === 'linux' && !process.report.getReport().header.glibcVersionRuntime)) refuse('PRODUCT_SDK_NATIVE_TARGET_MISMATCH');
+    (process.platform === 'linux' && !/** @type {{ header: { glibcVersionRuntime?: string } }} */ (process.report.getReport()).header.glibcVersionRuntime)) refuse('PRODUCT_SDK_NATIVE_TARGET_MISMATCH');
   if (process.version !== 'v24.21.0') refuse('PRODUCT_SDK_NATIVE_RUNTIME_INVALID');
   if (![supplier.headSha, supplier.checkoutSha].every(value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value)) ||
     supplier.checkoutSha !== initial.applicationBuild.gitSha) refuse();

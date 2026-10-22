@@ -20,7 +20,8 @@ function snapshot(value, depth = 0, budget = { values: 0, text: 0, active: new W
   if (keys.length > 16 || keys.some(key => typeof key !== 'string')) invalid();
   budget.active.add(value);
   const result = {};
-  for (const key of keys) {
+  // The preceding own-key guard has already refused every symbol.
+  for (const key of /** @type {string[]} */ (keys)) {
     const field = fields[key];
     if (!field.enumerable || !Object.hasOwn(field, 'value') || (budget.text += key.length) > 16384) invalid();
     Object.defineProperty(result, key, { enumerable: true, value: snapshot(field.value, depth + 1, budget) });

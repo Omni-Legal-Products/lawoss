@@ -16,7 +16,7 @@ function inputData(input) {
   const keys = ['resourcesRoot', 'target', 'expectedMode', 'applicationBuild', 'validationParent'];
   if (!input || ![Object.prototype, null].includes(Object.getPrototypeOf(input))) invalid();
   const fields = Object.getOwnPropertyDescriptors(input), actual = Reflect.ownKeys(fields);
-  if (actual.length !== keys.length || actual.some(key => !keys.includes(key))) invalid();
+  if (actual.length !== keys.length || actual.some(key => !/** @type {ReadonlyArray<PropertyKey>} */ (keys).includes(key))) invalid();
   return Object.fromEntries(keys.map(key => {
     const field = fields[key];
     if (!field.enumerable || !Object.hasOwn(field, 'value')) invalid();

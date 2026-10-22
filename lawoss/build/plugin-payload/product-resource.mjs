@@ -53,6 +53,7 @@ export async function publishProductSdkResource(options, onFailure) {
   const copiedFailure = withBuildFailureContext(onFailure, 'copied-admission');
   const bundle = await inspectProductSdkBundle(admission, sourceFailure);
   const source = await lstat(payloadRoot);
+  /** @type {[name: string, bytes: Buffer, mode: number][]} */
   const contents = [];
   for (const name of closure) {
     const file = fileURLToPath(new URL(name, import.meta.url)), stat = await lstat(file);

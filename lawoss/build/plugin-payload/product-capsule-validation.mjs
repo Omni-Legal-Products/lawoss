@@ -84,7 +84,8 @@ function linkTarget(name, raw) {
   return safeName(target);
 }
 async function safeList(handle, size, tar) {
-  const nodes = new Map([['', { kind: 'Directory', explicit: false }]]), aliases = new Map([['', '']]);
+  /** @typedef {{ kind: 'Directory' | 'File' | 'SymbolicLink', explicit: boolean, target?: string }} ArchiveNode */
+  const nodes = new Map(/** @type {[string, ArchiveNode][]} */ ([['', { kind: 'Directory', explicit: false }]])), aliases = new Map([['', '']]);
   let entries = 0, bytes = 0, metadata = 0, metadataEntries = 0, eof = false, ended = false;
   const parser = new tar.Parser({ strict: true, maxMetaEntrySize: 65536, brotli: false, zstd: false });
   let remainder = Buffer.alloc(0), trailing = 0;
@@ -144,6 +145,7 @@ async function safeList(handle, size, tar) {
       const previous = nodes.get(name);
       if (previous?.explicit || (previous && entry.type !== 'Directory')) bad();
       const kind = entry.type === 'OldFile' ? 'File' : entry.type;
+      /** @type {ArchiveNode} */
       const value = { kind, explicit: true };
       if (kind === 'SymbolicLink') {
         if (!name.includes('/.bin/') || entry.header.linkpath !== entry.linkpath) bad();
