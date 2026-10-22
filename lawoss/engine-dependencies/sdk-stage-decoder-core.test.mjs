@@ -463,3 +463,101 @@ test('a branded local signal cannot override its native aborted state with an ow
   await assert.rejects(decoder()(f.request, { signal: controller.signal }), { code: 'STAGE_ABORTED' });
   assert.equal(getters, 0); assert.deepEqual(await readdir(f.stage), []);
 });
+
+for (const replacement of ['stage', 'parent', 'resource', 'capsule', 'verifier-file']) test(`R1 final actual close rejects ${replacement} changes before success`, async t => {
+  const f = await setup(t), held = deferred(), release = deferred(), events = [];
+  let source, closing = false, reached = false, settled = false;
+  await observeOpen(t, (file, handle) => {
+    if (file !== f.capsule) return;
+    source = handle; const close = handle.close.bind(handle);
+    handle.close = async () => {
+      if (!closing && handle.fd !== -1) { closing = true; reached = true; events.push('source-close-held'); held.resolve(); await release.promise; }
+      await close(); if (handle.fd === -1 && !events.includes('source-closed')) events.push('source-closed');
+    };
+  });
+  const pending = decoder()(f.request);
+  const observed = pending.then(() => { settled = true; held.resolve(); }, () => { settled = true; held.resolve(); });
+  let successor;
+  try {
+    await held.promise; assert.equal(reached, true); assert.equal(settled, false); assert.notEqual(source.fd, -1);
+    if (['stage', 'parent', 'resource'].includes(replacement)) {
+      const target = replacement === 'stage' ? f.stage : replacement === 'parent' ? f.parent : f.resourceRoot;
+      await rename(target, target + '-retained'); await mkdir(target, { mode: 0o700 });
+      successor = path.join(target, 'successor'); await writeFile(successor, 'keep successor bytes');
+    } else {
+      const target = replacement === 'capsule' ? f.capsule : path.join(f.verifier, 'notices.mjs');
+      await writeFile(target, await readFile(target));
+    }
+    await new Promise(resolve => setImmediate(resolve)); assert.equal(settled, false);
+    release.resolve();
+    await assert.rejects(pending, { code: ['stage', 'parent'].includes(replacement) ? 'STAGE_OWNERSHIP_UNCERTAIN' : 'STAGE_RESOURCE_INVALID' });
+    await observed; assert.equal(source.fd, -1); assert.deepEqual(events, ['source-close-held', 'source-closed']);
+    if (successor) assert.equal(await readFile(successor, 'utf8'), 'keep successor bytes');
+    t.diagnostic(JSON.stringify({ finding: 'R1', replacement, events, sourceFd: source.fd, settled }));
+  } finally { release.resolve(); await observed; }
+});
+
+for (const replacement of ['verifier', 'resource']) test(`R2 held hash renews ${replacement} ancestors before any named descendant access`, async t => {
+  const f = await setup(t), held = deferred(), release = deferred(), originalStat = fsp.lstat;
+  const target = replacement === 'verifier' ? f.verifier : f.resourceRoot;
+  const leaf = replacement === 'verifier' ? path.join(f.verifier, 'notices.mjs') : f.capsule;
+  let changed = false, reached = false, redirectedStats = 0, redirectedOpens = 0;
+  fsp.lstat = async (file, ...args) => { if (changed && String(file).startsWith(target + path.sep)) redirectedStats++; return originalStat(file, ...args); };
+  syncBuiltinESMExports();
+  t.after(() => { fsp.lstat = originalStat; syncBuiltinESMExports(); });
+  await observeOpen(t, (file, handle) => {
+    if (changed && file.startsWith(target + path.sep)) redirectedOpens++;
+    if (file !== leaf) return;
+    const read = handle.read.bind(handle);
+    handle.read = async (...args) => { const result = await read(...args); if (!reached) { reached = true; held.resolve(); await release.promise; } return result; };
+  });
+  const pending = decoder()(f.request), observed = pending.then(() => held.resolve(), () => held.resolve());
+  try {
+    await held.promise; assert.equal(reached, true);
+    await rename(target, path.join(f.parent, 'retained-' + replacement));
+    await symlink(path.join(f.parent, 'retained-' + replacement), target); changed = true;
+    release.resolve(); await assert.rejects(pending, { code: 'STAGE_RESOURCE_INVALID' }); await observed;
+    assert.equal(redirectedStats, 0); assert.equal(redirectedOpens, 0);
+    t.diagnostic(JSON.stringify({ finding: 'R2', replacement, redirectedStats, redirectedOpens }));
+  } finally { release.resolve(); await observed; }
+});
+
+test('R3 distinct real write and copy-descriptor close failures retain both errors after actual close', async t => {
+  const f = await setup(t), held = deferred(), release = deferred(), primaryFault = new Error('real-copy-write-primary'), closeFault = new Error('real-copy-close-cleanup');
+  const events = []; let copyHandle, source, closeEntered = false, settled = false;
+  await observeOpen(t, (file, handle) => {
+    if (file === f.capsule) {
+      source = handle; const close = handle.close.bind(handle);
+      handle.close = async () => { await close(); if (!events.includes('source-closed')) events.push('source-closed'); };
+    }
+    if (file !== path.join(f.stage, '.capsule-input.tgz')) return;
+    copyHandle = handle; const close = handle.close.bind(handle), create = handle.createWriteStream.bind(handle);
+    handle.close = async () => {
+      if (closeEntered || handle.fd === -1) return close();
+      closeEntered = true; events.push('copy-close-held'); held.resolve(); await release.promise;
+      await close(); events.push('copy-descriptor-closed'); throw closeFault;
+    };
+    handle.createWriteStream = options => {
+      const output = create(options), write = output._write;
+      output._write = function (chunk, encoding, done) {
+        write.call(this, chunk, encoding, error => { events.push('real-write-completed'); done(error ?? primaryFault); });
+      };
+      output.once('close', () => events.push('writable-close')); return output;
+    };
+  });
+  const pending = decoder()(f.request), observed = pending.then(() => { settled = true; held.resolve(); }, () => { settled = true; held.resolve(); });
+  try {
+    await held.promise; assert.equal(closeEntered, true); assert.equal(settled, false); assert.notEqual(copyHandle.fd, -1); assert.notEqual(source.fd, -1);
+    await new Promise(resolve => setImmediate(resolve)); assert.equal(settled, false);
+    release.resolve();
+    await assert.rejects(pending, error => {
+      assert.equal(error.code, 'STAGE_COPY_FAILED'); assert.equal(error.cause, primaryFault);
+      assert.deepEqual(error.cleanupErrors, [closeFault]);
+      assert.equal(copyHandle.fd, -1); assert.equal(source.fd, -1); return true;
+    });
+    await observed; assert.deepEqual(await readdir(f.stage), ['.capsule-input.tgz']);
+    assert.ok(events.indexOf('copy-descriptor-closed') < events.indexOf('writable-close'));
+    assert.ok(events.indexOf('writable-close') < events.indexOf('source-closed'));
+    t.diagnostic(JSON.stringify({ finding: 'R3', events, primaryRetained: true, cleanupRetained: true, copyFd: copyHandle.fd, sourceFd: source.fd }));
+  } finally { release.resolve(); await observed; }
+});

@@ -68,9 +68,16 @@ export function createProductSdkStageDecoder(configuration) {
     const contains = (a, b) => { const relative = path.relative(a, b); return !relative || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`)); };
     if (path.dirname(stage) !== parent || contains(resource, stage) || contains(stage, resource)) fail('STAGE_OWNERSHIP_UNCERTAIN');
 
-    let phase = 'STAGE_RESOURCE_INVALID', handle, primary, result;
+    let phase = 'STAGE_RESOURCE_INVALID', handle, primary, before;
+    const file = path.join(resource, 'payload.tgz'), verifierRoot = path.join(resource, 'verifier');
     const cleanupErrors = [];
     const chains = new Map(), resources = new Map();
+    function phaseError(cause) {
+      const code = Object.getOwnPropertyDescriptor(cause ?? {}, 'code')?.value;
+      return archiveCodes.has(code) || ['STAGE_ABORTED', 'STAGE_DEADLINE', 'STAGE_RESOURCE_INVALID', 'STAGE_OWNERSHIP_UNCERTAIN',
+        'STAGE_COPY_FAILED', 'STAGE_EXTRACT_FAILED', 'STAGE_VERIFY_FAILED', 'STAGE_CLEANUP_UNCERTAIN'].includes(code)
+        ? cause : Object.assign(new Error(phase, { cause }), { code: phase });
+    }
     async function ancestry(root, expected, code) {
       const names = [], parsed = path.parse(root);
       let current = parsed.root;
@@ -105,25 +112,25 @@ export function createProductSdkStageDecoder(configuration) {
       }
       return hash.digest('hex');
     }
+    async function verifierAncestry(relative, observed = resources) {
+      await ancestry(resource, request.resourceIdentity, 'STAGE_RESOURCE_INVALID');
+      const parts = relative.split('/').slice(0, -1);
+      for (let index = 0; index <= parts.length; index++) {
+        const full = path.join(verifierRoot, ...parts.slice(0, index));
+        const stat = await step(lstat(full, { bigint: true }));
+        if (!stat.isDirectory() || stat.isSymbolicLink() || !same(observed.get(full), stat)) fail('STAGE_RESOURCE_INVALID');
+      }
+    }
     async function verifyResource() {
       await ancestry(resource, request.resourceIdentity, 'STAGE_RESOURCE_INVALID');
       if (canonical((await step(readdir(resource))).sort()) !== canonical(['payload.tgz', 'verifier'])) fail('STAGE_RESOURCE_INVALID');
       const root = path.join(resource, 'verifier'), records = [], observed = new Map();
-      async function verifierAncestry(relative) {
-        await ancestry(resource, request.resourceIdentity, 'STAGE_RESOURCE_INVALID');
-        const parts = relative.split('/').slice(0, -1);
-        for (let index = 0; index <= parts.length; index++) {
-          const full = path.join(root, ...parts.slice(0, index));
-          const stat = await step(lstat(full, { bigint: true }));
-          if (!stat.isDirectory() || stat.isSymbolicLink() || !same(observed.get(full), stat)) fail('STAGE_RESOURCE_INVALID');
-        }
-      }
       const dirs = ['', ...new Set(verifierNames.flatMap(name => {
         const parts = name.split('/'); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join('/'));
       }))];
       // Check every directory/ancestor before descending; no resource JS is loaded.
       for (const relative of dirs) {
-        if (relative) await verifierAncestry(relative);
+        if (relative) await verifierAncestry(relative, observed);
         else await ancestry(resource, request.resourceIdentity, 'STAGE_RESOURCE_INVALID');
         const full = path.join(root, relative);
         const stat = await step(lstat(full, { bigint: true }));
@@ -134,16 +141,19 @@ export function createProductSdkStageDecoder(configuration) {
       }
       let total = 0n;
       for (const name of verifierNames) {
-        await verifierAncestry(name);
+        await verifierAncestry(name, observed);
         const full = path.join(root, name), before = await step(lstat(full, { bigint: true }));
         total += before.size;
         if (!before.isFile() || before.nlink !== 1n || before.size > 32n * 1024n * 1024n || total > 256n * 1024n * 1024n || (resources.has(full) && !physicalSame(resources.get(full), before))) fail('STAGE_RESOURCE_INVALID');
         let dataHandle, error;
         try {
+          await verifierAncestry(name, observed);
           dataHandle = await open(full, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)); check();
           if (!physicalSame(before, await step(dataHandle.stat({ bigint: true })))) fail('STAGE_RESOURCE_INVALID');
           const sha256 = await hashHandle(dataHandle, Number(before.size));
-          if (!physicalSame(before, await step(dataHandle.stat({ bigint: true }))) || !physicalSame(before, await step(lstat(full, { bigint: true })))) fail('STAGE_RESOURCE_INVALID');
+          if (!physicalSame(before, await step(dataHandle.stat({ bigint: true })))) fail('STAGE_RESOURCE_INVALID');
+          await verifierAncestry(name, observed);
+          if (!physicalSame(before, await step(lstat(full, { bigint: true })))) fail('STAGE_RESOURCE_INVALID');
           records.push({ path: name, bytes: Number(before.size), executable: !!(before.mode & 0o111n), sha256 });
           observed.set(full, before);
         } catch (cause) { error = cause; throw cause; }
@@ -157,7 +167,7 @@ export function createProductSdkStageDecoder(configuration) {
       if (digest(canonical(records)) !== request.sdkIdentity.verifierSha256) fail('STAGE_RESOURCE_INVALID');
       for (const [full, before] of observed) {
         const relative = path.relative(root, full);
-        if (relative) await verifierAncestry(relative);
+        if (relative) await verifierAncestry(relative, observed);
         else await ancestry(resource, request.resourceIdentity, 'STAGE_RESOURCE_INVALID');
         const after = await step(lstat(full, { bigint: true }));
         if (before.isDirectory() ? !same(before, after) || !after.isDirectory() : !physicalSame(before, after)) fail('STAGE_RESOURCE_INVALID');
@@ -170,16 +180,21 @@ export function createProductSdkStageDecoder(configuration) {
       phase = 'STAGE_OWNERSHIP_UNCERTAIN'; await ownedStage(true); check();
       phase = 'STAGE_RESOURCE_INVALID';
       await ancestry(resource, request.resourceIdentity, 'STAGE_RESOURCE_INVALID');
-      const file = path.join(resource, 'payload.tgz'), before = await step(lstat(file, { bigint: true }));
+      before = await step(lstat(file, { bigint: true }));
       if (!before.isFile() || before.nlink !== 1n || before.size !== BigInt(request.sdkIdentity.capsule.bytes)) fail(phase);
+      await ancestry(resource, request.resourceIdentity, 'STAGE_RESOURCE_INVALID');
       handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)); check();
       async function sourceUnchanged(hash = false) {
         await ancestry(resource, request.resourceIdentity, 'STAGE_RESOURCE_INVALID');
-        const opened = await step(handle.stat({ bigint: true })), named = await step(lstat(file, { bigint: true }));
+        const opened = await step(handle.stat({ bigint: true }));
+        await ancestry(resource, request.resourceIdentity, 'STAGE_RESOURCE_INVALID');
+        const named = await step(lstat(file, { bigint: true }));
         if (!opened.isFile() || opened.nlink !== 1n || named.nlink !== 1n || !physicalSame(before, opened) || !physicalSame(before, named)) fail('STAGE_RESOURCE_INVALID');
         if (hash) {
           if (await hashHandle(handle, request.sdkIdentity.capsule.bytes) !== request.sdkIdentity.capsule.sha256 ||
-            !physicalSame(before, await step(handle.stat({ bigint: true }))) || !physicalSame(before, await step(lstat(file, { bigint: true })))) fail('STAGE_RESOURCE_INVALID');
+            !physicalSame(before, await step(handle.stat({ bigint: true })))) fail('STAGE_RESOURCE_INVALID');
+          await ancestry(resource, request.resourceIdentity, 'STAGE_RESOURCE_INVALID');
+          if (!physicalSame(before, await step(lstat(file, { bigint: true })))) fail('STAGE_RESOURCE_INVALID');
         }
       }
       await sourceUnchanged(true); check();
@@ -195,6 +210,17 @@ export function createProductSdkStageDecoder(configuration) {
         copyStat = await copyHandle.stat({ bigint: true });
         check();
         output = copyHandle.createWriteStream({ autoClose: true });
+        // Native WriteStream._destroy waits for its outstanding write before
+        // closing the descriptor. Its callback can replace an operation error
+        // with a distinct close error: retain both channels before pipeline
+        // reduces them to one rejection, and preserve the original operation.
+        const destroy = output._destroy;
+        output._destroy = function (operationError, done) {
+          destroy.call(this, operationError, closeError => {
+            if (operationError && closeError && closeError !== operationError) cleanupErrors.push(closeError);
+            done(operationError ?? closeError);
+          });
+        };
         closed = new Promise(resolve => output.once('close', resolve));
         const hash = createHash('sha256'); let bytes = 0;
         const tap = new Transform({ transform(chunk, encoding, done) {
@@ -254,14 +280,8 @@ export function createProductSdkStageDecoder(configuration) {
         canonical(manifest.target) !== canonical(request.sdkIdentity.target) || sdkConsumerMode(manifest.target, manifest.lockSha256) !== request.sdkIdentity.consumerMode) fail(phase);
       phase = 'STAGE_RESOURCE_INVALID'; await sourceUnchanged(true); await verifyResource(); await sourceUnchanged(); check();
       phase = 'STAGE_OWNERSHIP_UNCERTAIN'; await ownedStage(); check();
-      result = admitStageDecodeResult({ schema: 1, kind: 'lawoss-sdk-stage-result', status: 'verified-stage', generation: request.generation,
-        stageIdentity: request.stageGrant.identity, capsuleSha256: request.sdkIdentity.capsule.sha256,
-        manifestSha256: request.sdkIdentity.manifestSha256, verifierSha256: request.sdkIdentity.verifierSha256 }, request);
     } catch (cause) {
-      const code = Object.getOwnPropertyDescriptor(cause ?? {}, 'code')?.value;
-      primary = archiveCodes.has(code) || ['STAGE_ABORTED', 'STAGE_DEADLINE', 'STAGE_RESOURCE_INVALID', 'STAGE_OWNERSHIP_UNCERTAIN',
-        'STAGE_COPY_FAILED', 'STAGE_EXTRACT_FAILED', 'STAGE_VERIFY_FAILED', 'STAGE_CLEANUP_UNCERTAIN'].includes(code)
-        ? cause : Object.assign(new Error(phase, { cause }), { code: phase });
+      primary = phaseError(cause);
     } finally {
       if (handle) try { await handle.close(); } catch (cleanup) {
         if (primary) cleanupErrors.push(cleanup);
@@ -272,7 +292,33 @@ export function createProductSdkStageDecoder(configuration) {
       if (cleanupErrors.length) Object.defineProperty(primary, 'cleanupErrors', { value: Object.freeze(cleanupErrors) });
       throw primary;
     }
-    check();
-    return result;
+    try {
+      check();
+      phase = 'STAGE_OWNERSHIP_UNCERTAIN'; await ownedStage();
+      phase = 'STAGE_RESOURCE_INVALID';
+      await ancestry(resource, request.resourceIdentity, 'STAGE_RESOURCE_INVALID');
+      if (canonical((await step(readdir(resource))).sort()) !== canonical(['payload.tgz', 'verifier'])) fail(phase);
+      // Final close may have awaited arbitrary owned I/O. Retain the previously
+      // hashed physical observations and revalidate names after that close,
+      // without reopening descriptors or reusing pre-close ownership as success.
+      for (const [full, captured] of resources) {
+        const relative = path.relative(verifierRoot, full);
+        if (relative) await verifierAncestry(relative);
+        else await ancestry(resource, request.resourceIdentity, 'STAGE_RESOURCE_INVALID');
+        const current = await step(lstat(full, { bigint: true }));
+        if (captured.isDirectory()) {
+          if (!current.isDirectory() || !same(captured, current)) fail(phase);
+          const children = new Set(verifierNames.filter(name => !relative || name.startsWith(`${relative}/`)).map(name => name.slice(relative ? relative.length + 1 : 0).split('/')[0]));
+          if (canonical((await step(readdir(full))).sort()) !== canonical([...children].sort())) fail(phase);
+        } else if (!current.isFile() || current.nlink !== 1n || !physicalSame(captured, current)) fail(phase);
+      }
+      await ancestry(resource, request.resourceIdentity, 'STAGE_RESOURCE_INVALID');
+      const current = await step(lstat(file, { bigint: true }));
+      if (!current.isFile() || current.nlink !== 1n || !physicalSame(before, current)) fail(phase);
+      phase = 'STAGE_OWNERSHIP_UNCERTAIN'; await ownedStage(); check();
+      return admitStageDecodeResult({ schema: 1, kind: 'lawoss-sdk-stage-result', status: 'verified-stage', generation: request.generation,
+        stageIdentity: request.stageGrant.identity, capsuleSha256: request.sdkIdentity.capsule.sha256,
+        manifestSha256: request.sdkIdentity.manifestSha256, verifierSha256: request.sdkIdentity.verifierSha256 }, request);
+    } catch (cause) { throw phaseError(cause); }
   });
 }
