@@ -56,8 +56,11 @@ test('environment has explicit synthetic storage and preserves only native UI/sy
   assert.equal(windows.LOCALAPPDATA, 'C:\\owned\\data');
   assert.equal(windows.TEMP, 'C:\\owned\\tmp');
   assert.equal(windows.DISPLAY, undefined);
+  assert.equal(windows.LAWOSS_ALPHA_STARTUP_CHECKPOINTS, '1');
   const mac = nativeAppEnvironment('/owned', { platform: 'darwin', environment: ambient });
   assert.equal(mac.LAWOSS_DEV_MOCK_KEYCHAIN, '1');
+  assert.equal(mac.LAWOSS_ALPHA_STARTUP_CHECKPOINTS, undefined);
+  assert.equal(linux.LAWOSS_ALPHA_STARTUP_CHECKPOINTS, undefined);
   assert.equal(linux.LAWOSS_DEV_MOCK_KEYCHAIN, undefined);
   assert.equal(windows.LAWOSS_DEV_MOCK_KEYCHAIN, undefined);
 });

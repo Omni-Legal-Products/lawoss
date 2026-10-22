@@ -73,7 +73,7 @@ export function nativeAppEnvironment(root, { platform = process.platform, enviro
   return { ...inherited, HOME: home,
     // Synthetic acceptance must not prompt for or read the real login keychain.
     ...(platform === 'darwin' ? { LAWOSS_DEV_MOCK_KEYCHAIN: '1' } : {}),
-    ...(platform === 'win32' ? { USERPROFILE: home, APPDATA: config, LOCALAPPDATA: data } : {}),
+    ...(platform === 'win32' ? { USERPROFILE: home, APPDATA: config, LOCALAPPDATA: data, LAWOSS_ALPHA_STARTUP_CHECKPOINTS: '1' } : {}),
     TMPDIR: temp, TMP: temp, TEMP: temp,
     XDG_CONFIG_HOME: config, XDG_DATA_HOME: data, XDG_CACHE_HOME: paths.join(root, 'cache'),
     NODE_OPTIONS: '', ELECTRON_RUN_AS_NODE: '', LEGALWORK_DEV_MODE: '0',

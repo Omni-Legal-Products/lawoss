@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { createAlphaStartupCheckpoints } from './lawoss-startup-checkpoints.mjs';
 import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
 import { buildSupportBundleText } from "./support-bundle.mjs";
 
@@ -120,4 +121,32 @@ describe("logWindowErrors", () => {
       assert.match(log, /ERROR \[window\] Renderer process gone: \{ reason: 'crashed', exitCode: 5 \}/);
     });
   });
+});
+
+it('startup observations require the explicit isolated Windows alpha opt-in', () => {
+  const messages = [];
+  for (const input of [
+    { platform: 'darwin', optIn: '1', isolated: true },
+    { platform: 'linux', optIn: '1', isolated: true },
+    { platform: 'win32', optIn: 'true', isolated: true },
+    { platform: 'win32', optIn: '1', isolated: false },
+  ]) createAlphaStartupCheckpoints({ ...input, write: value => messages.push(value) })('main-configured');
+  assert.deepEqual(messages, []);
+});
+
+it('startup observations are finite exact phases, once each, and never serialize caller data', () => {
+  const messages = [];
+  const checkpoint = createAlphaStartupCheckpoints({ platform: 'win32', optIn: '1', isolated: true, write: value => messages.push(value) });
+  checkpoint('main-configured'); checkpoint('ready-entered'); checkpoint('ready-entered');
+  checkpoint('actaport-environment-entered'); checkpoint('actaport-environment-returned');
+  checkpoint('PRIVATE /profile token=secret'); checkpoint({ toString() { throw new Error('private'); } });
+  assert.deepEqual(messages, ['[lawoss-alpha-startup] main-configured', '[lawoss-alpha-startup] ready-entered',
+    '[lawoss-alpha-startup] actaport-environment-entered', '[lawoss-alpha-startup] actaport-environment-returned']);
+});
+
+it('a failed diagnostic writer cannot replace application control flow or retry a phase', () => {
+  let calls = 0;
+  const checkpoint = createAlphaStartupCheckpoints({ platform: 'win32', optIn: '1', isolated: true, write: () => { calls++; throw new Error('private'); } });
+  assert.doesNotThrow(() => { checkpoint('ui-control-entered'); checkpoint('ui-control-entered'); });
+  assert.equal(calls, 1);
 });

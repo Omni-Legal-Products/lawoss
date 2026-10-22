@@ -2,6 +2,7 @@
 import { constants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { alphaStartupPhases } from '../../../apps/desktop/electron/lawoss-startup-checkpoints.mjs';
 
 const markerName = '.lawoss-release-acceptance-profile.json';
 const tailLimit = 65536, markerLimit = 16384;
@@ -63,8 +64,11 @@ function categories(bytes, truncated) {
     if (!match || !Number.isFinite(Date.parse(match[1])) || new Date(match[1]).toISOString() !== match[1]) continue;
     for (const [prefix, category] of definitions)
       if (match[2] === prefix || match[2].startsWith(`${prefix} `)) found.add(category);
+    for (const phase of alphaStartupPhases)
+      if (match[2] === `WARN [lawoss-alpha-startup] ${phase}`) found.add(`startup-${phase}`);
   }
-  return found.size ? definitions.map(([, category]) => category).filter(category => found.has(category)) : ['unknown'];
+  return found.size ? [...definitions.map(([, category]) => category), ...alphaStartupPhases.map(phase => `startup-${phase}`)]
+    .filter(category => found.has(category)) : ['unknown'];
 }
 
 /** Bind before launch, then observe only once after the original failure's cleanup. */

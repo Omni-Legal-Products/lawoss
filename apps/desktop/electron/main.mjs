@@ -44,6 +44,7 @@ import { architectureInfo, findArchitectureDownload, normalizeRuntimeArch, resol
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
+import { createAlphaStartupCheckpoints } from "./lawoss-startup-checkpoints.mjs";
 import {
   ELECTRON_UPDATER_FEEDS,
   registerUpdaterIpc,
@@ -499,6 +500,10 @@ if (userDataOverride) {
 // After setName/setPath: the logs folder derives from the app name (macOS)
 // or userData (Windows/Linux).
 installMainErrorLog(() => app.getPath("logs"));
+const alphaStartupCheckpoint = createAlphaStartupCheckpoints({ platform: process.platform,
+  optIn: process.env.LAWOSS_ALPHA_STARTUP_CHECKPOINTS, isolated: Boolean(userDataOverride),
+  write: phase => console.warn(phase) });
+alphaStartupCheckpoint('main-configured');
 
 // Resolve and cache the app icon (reused for BrowserWindow + mac dock).
 // Packaged builds ship icons via electron-builder config, but for `dev:electron`
@@ -3084,9 +3089,14 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    alphaStartupCheckpoint('ready-entered');
+    alphaStartupCheckpoint('actaport-bundle-entered');
     await prepareActaportMcpRuntime().catch(() => console.warn("Actaport MCP bundle unavailable. Rebuild LegalWork to enable Actaport."));
+    alphaStartupCheckpoint('actaport-bundle-returned');
     // Recreate the private token bridge before workspace engines reconnect saved MCP entries.
+    alphaStartupCheckpoint('actaport-environment-entered');
     await getActaportConnection().environment();
+    alphaStartupCheckpoint('actaport-environment-returned');
     // Serve recording audio to <audio> elements. The element loads this URL
     // natively (no async JS between the click and play()), so first-play works
     // within the user gesture, and Range requests stream the file for seeking.
@@ -3142,14 +3152,19 @@ if (!app.requestSingleInstanceLock()) {
     pinWindowsProcessQoS([process.pid]);
     installMediaPermissionHandlers(session, () => mainWindow, { isLoopbackCaptureArmed });
     applicationMenu.install();
+    alphaStartupCheckpoint('runtime-prepare-entered');
     await runtimeManager.prepareFreshRuntime().catch(() => undefined);
+    alphaStartupCheckpoint('runtime-prepare-returned');
 
     // Use Tauri's existing workspace state file as canonical so rollback and
     // Electron see the same workspace list. Import the short-lived
     // Electron-only filename only when the shared file is missing.
+    alphaStartupCheckpoint('workspace-migrate-entered');
     await workspaceStore.migrateLegacyElectronWorkspaceStateIfNeeded();
+    alphaStartupCheckpoint('workspace-migrate-returned');
 
     let installedWorkflowRoot = path.join(globalOpencodeRoot(), "skills");
+    alphaStartupCheckpoint('opencode-config-entered');
     try {
       const prepared = await runtimeManager.prepareOpencodeConfig();
       if (prepared) {
@@ -3177,9 +3192,11 @@ if (!app.requestSingleInstanceLock()) {
     } catch (error) {
       console.warn("[skills] Could not migrate the Windows OpenCode config", error);
     }
+    alphaStartupCheckpoint('opencode-config-returned');
 
     // Repair workflows imported by older builds before OpenCode discovers its
     // global skill library. Leave files we cannot safely normalize untouched.
+    alphaStartupCheckpoint('workflows-migrate-entered');
     try {
       const result = await migrateInstalledWorkflows(installedWorkflowRoot);
       if (result.migrated) console.info(`[skills] Repaired ${result.migrated} installed workflow(s)`);
@@ -3189,6 +3206,7 @@ if (!app.requestSingleInstanceLock()) {
     } catch (error) {
       console.warn("[skills] Could not scan installed workflows for repair", error);
     }
+    alphaStartupCheckpoint('workflows-migrate-returned');
 
     // Remove the analytics identity file persisted by earlier builds (the
     // identity is now in-memory only).
@@ -3198,9 +3216,11 @@ if (!app.requestSingleInstanceLock()) {
     } catch {
       // Best-effort cleanup only.
     }
+    alphaStartupCheckpoint('ui-control-entered');
     await uiControlServer.start().catch((error) => {
       console.warn("[ui-control] failed to start", error);
     });
+    alphaStartupCheckpoint('ui-control-returned');
     void ensureRuntimeBootstrap();
 
     queueDeepLinks(forwardedDeepLinks(process.argv));

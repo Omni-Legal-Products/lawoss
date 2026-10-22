@@ -18,6 +18,19 @@ async function fixture(t) {
   return { temporary, profile, logs, current: join(logs, 'main.log'), previous: join(logs, 'main.old.log') };
 }
 
+test('owned startup phases use exact whole lines and remain boundary observations only', async t => {
+  const f = await fixture(t), observer = await createMainStartupLogDiagnostic(f.profile);
+  const text = entry('WARN [lawoss-alpha-startup] main-configured')
+    + entry('WARN [lawoss-alpha-startup] ready-entered')
+    + entry('WARN [lawoss-alpha-startup] actaport-environment-entered')
+    + entry('WARN [lawoss-alpha-startup] runtime-prepare-returned PRIVATE')
+    + entry('ERROR [lawoss-alpha-startup] ui-control-returned')
+    + entry('WARN [lawoss-alpha-startup] PRIVATE /path token=secret');
+  await writeFile(f.current, text);
+  assert.deepEqual((await observer.read()).current, slot('read',
+    ['startup-main-configured', 'startup-ready-entered', 'startup-actaport-environment-entered'], Buffer.byteLength(text)));
+});
+
 test('owned physical logs expose only exact finite categories and frozen observations', async t => {
   const f = await fixture(t), observer = await createMainStartupLogDiagnostic(f.profile);
   const text = entry('ERROR [main] Uncaught exception: PRIVATE /path token=SECRET')
