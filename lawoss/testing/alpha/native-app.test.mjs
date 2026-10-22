@@ -6,7 +6,7 @@ import { tmpdir, hostname } from 'node:os';
 import { dirname, isAbsolute, join, win32 } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { assertCaptureBinding, assertInteractiveUi, launchAlphaApp, NativeAlphaLaunchError, nativeAppLayout, nativeAppEnvironment } from './native-app.mjs';
+import { assertCaptureBinding, assertInteractiveUi, launchAlphaApp, NativeAlphaLaunchError, nativeOwnerCensusDiagnostic, nativeAppLayout, nativeAppEnvironment } from './native-app.mjs';
 import { ownedProfile, prepareAcceptanceProfile } from '../../../apps/desktop/scripts/release-acceptance.mjs';
 import { nativeLaunchDiagnostic } from './native-launch-diagnostics.mjs';
 import { nativeReadinessDiagnostic } from './native-readiness-diagnostics.mjs';
@@ -157,6 +157,98 @@ test('unsupported target refuses before profile mutation or spawn', async (t) =>
   await assert.rejects(launchAlphaApp({ installedApp, profileRoot, build: { ...build, arch: build.arch === 'arm64' ? 'x64' : 'arm64' } }), /native-host-unavailable/);
 });
 
+// Controlled execFile failure model; no extra ps or installed application runs.
+test('initial census execFile failure model preserves registered facts through the known wrapper', { skip: process.platform !== 'darwin' }, async t => {
+  const options = await fixture(t), profile = await ownedProfile(options.profileRoot);
+  const child = spawn(process.execPath, ['--input-type=module'], { env: {}, stdio: ['pipe', 'pipe', 'pipe'] });
+  const closed = once(child, 'close');
+  let stdout = '', stderr = '';
+  child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk; });
+  child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk; });
+  child.stdin.end(`
+import assert from 'node:assert/strict';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+let calls = 0;
+childProcess.execFile = (command, args, options, callback) => {
+  calls++;
+  assert.equal(command, '/bin/ps');
+  assert.deepEqual(args, ['-axww', '-o', 'pid=,comm=']);
+  assert.deepEqual(options, { encoding: 'utf8', timeout: 2000, maxBuffer: 4 * 1024 * 1024 });
+  const raw = Object.assign(new Error('PRIVATE exec failure /private/path pid=123'), {
+    code: 'EPERM', signal: null, killed: true, stdout: 'PRIVATE stdout', stderr: 'PRIVATE stderr',
+  });
+  queueMicrotask(() => callback(raw, 'PRIVATE stdout', 'PRIVATE stderr'));
+};
+syncBuiltinESMExports();
+const module = await import(${JSON.stringify(new URL('./native-app.mjs', import.meta.url).href)});
+let refusal;
+try { await module.launchAlphaApp(${JSON.stringify({ installedApp: options.installedApp, profileRoot: options.profileRoot, build, timeoutMs: 300 })}); }
+catch (error) { refusal = error; }
+assert.ok(refusal instanceof module.NativeAlphaLaunchError);
+assert.equal(calls, 1);
+assert.equal(refusal.code, 'installed-app-owner-census-unavailable');
+assert.equal(refusal.message, refusal.code);
+assert.equal(refusal.status, 'blocked');
+assert.equal(refusal.cause.code, refusal.code);
+assert.equal(refusal.cause.message, refusal.message);
+assert.equal(refusal.cause.status, refusal.status);
+assert.deepEqual(Object.getOwnPropertyNames(refusal.cause).sort(), ['code', 'message', 'stack', 'status']);
+process.stdout.write(JSON.stringify({ diagnostic: module.nativeOwnerCensusDiagnostic?.(refusal) ?? null,
+  causeDiagnostic: module.nativeOwnerCensusDiagnostic?.(refusal.cause) ?? null, cleanup: refusal.nativeCleanup }));
+`);
+  const [code, signal] = await closed;
+  assert.equal(code, 0);
+  assert.equal(signal, null);
+  assert.equal(stderr, '');
+  const result = JSON.parse(stdout);
+  const diagnostic = { stage: 'initial-pre-lock', category: 'spawn-reported', code: 'EPERM', exitCode: null, signal: null, killed: true };
+  assert.deepEqual(result.diagnostic, diagnostic);
+  assert.deepEqual(result.causeDiagnostic, diagnostic);
+  assert.deepEqual(result.cleanup, { status: 'stopped', descendantClosure: 'verified', method: 'no-child-started',
+    profileRoot: profile.root, profileOwner: profile.owner });
+  await assert.rejects(readFile(join(options.profileRoot, '.alpha-native-app.lock')), { code: 'ENOENT' });
+});
+
+test('foreign-owner diagnostic model logs only finite facts and retains the original failing oracle', { skip: process.platform !== 'darwin' }, async () => {
+  const child = spawn(process.execPath, ['--test-name-pattern=^a second macOS app instance', '--input-type=module'], {
+    env: {}, stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const closed = once(child, 'close');
+  let stdout = '', stderr = '';
+  child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk; });
+  child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk; });
+  child.stdin.end(`
+import assert from 'node:assert/strict';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+let calls = 0;
+childProcess.execFile = (command, args, options, callback) => {
+  calls++;
+  assert.equal(command, '/bin/ps');
+  assert.deepEqual(args, ['-axww', '-o', 'pid=,comm=']);
+  assert.deepEqual(options, { encoding: 'utf8', timeout: 2000, maxBuffer: 4 * 1024 * 1024 });
+  queueMicrotask(() => callback(Object.assign(new Error('PRIVATE_CENSUS_PAYLOAD'), { code: 'ENOBUFS' }),
+    'PRIVATE_CENSUS_STDOUT', 'PRIVATE_CENSUS_STDERR'));
+};
+syncBuiltinESMExports();
+process.on('beforeExit', () => assert.equal(calls, 1));
+await import(${JSON.stringify(new URL('./native-app.test.mjs', import.meta.url).href)});
+`);
+  const [code, signal] = await closed;
+  assert.equal(code, 1, 'the original exact expected-error assertion must still fail');
+  assert.equal(signal, null);
+  const output = stdout + stderr;
+  const lines = output.split('\n').filter(line => line.includes('LAWOSS_OWNER_CENSUS_DIAGNOSTIC '));
+  assert.equal(lines.length, 1);
+  assert.deepEqual(JSON.parse(lines[0].split('LAWOSS_OWNER_CENSUS_DIAGNOSTIC ')[1]), {
+    stage: 'initial-pre-lock', category: 'buffer-reported', code: 'ENOBUFS', exitCode: null, signal: null, killed: null,
+  });
+  assert.match(output, /installed-app-owner-census-unavailable/);
+  assert.match(output, /validation function is expected to return "true"/);
+  assert.doesNotMatch(output, /PRIVATE_CENSUS_/);
+});
+
 test('a second macOS app instance refuses acceptance without stopping the existing process', { skip: process.platform !== 'darwin' }, async t => {
   const options = await fixture(t);
   // Reuse the running test runtime as a real native image at this owned path.
@@ -181,6 +273,10 @@ test('a second macOS app instance refuses acceptance without stopping the existi
     let refusal;
     await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 300 }), error => {
       refusal = error;
+      if (error.code !== 'installed-app-already-running') {
+        const diagnostic = nativeOwnerCensusDiagnostic(error);
+        if (diagnostic) console.error('LAWOSS_OWNER_CENSUS_DIAGNOSTIC ' + JSON.stringify(diagnostic));
+      }
       return error.code === 'installed-app-already-running';
     });
     process.kill(existing.pid, 0);

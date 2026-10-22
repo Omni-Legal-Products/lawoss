@@ -16,6 +16,12 @@ import { stopNativeChild } from '../isir/native/owned-process.mjs';
 import { launchWindowsJob } from './windows-job.mjs';
 import { createNativeLaunchDiagnostics } from './native-launch-diagnostics.mjs';
 import { createNativeReadinessDiagnostics } from './native-readiness-diagnostics.mjs';
+import { createOwnerCensusRefusal, ownerCensusRefusalDiagnostic } from './native-owner-census-diagnostics.mjs';
+
+const ownerCensusWrappers = new WeakMap();
+export function nativeOwnerCensusDiagnostic(error) {
+  return ownerCensusWrappers.get(error) ?? ownerCensusRefusalDiagnostic(error);
+}
 
 function blocked(code) { return Object.assign(new Error(code), { code, status: 'blocked' }); }
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -27,7 +33,7 @@ async function assertExclusiveMacExecutable(executable, ownedPid, budget = 2000)
     output = (await promisify(execFile)('/bin/ps', ['-axww', '-o', 'pid=,comm='], {
       encoding: 'utf8', timeout: budget, maxBuffer: 4 * 1024 * 1024,
     })).stdout;
-  } catch { throw blocked('installed-app-owner-census-unavailable'); }
+  } catch (error) { throw createOwnerCensusRefusal(error, ownedPid === undefined ? 'initial-pre-lock' : 'observe'); }
   for (const line of output.split('\n')) {
     const row = /^\s*(\d+)\s+(.+)$/.exec(line);
     if (row && row[2] === executable && Number(row[1]) !== ownedPid) throw blocked('installed-app-already-running');
@@ -40,6 +46,8 @@ export class NativeAlphaLaunchError extends Error {
     this.code = cause.code;
     this.status = cause.status;
     this.nativeCleanup = nativeCleanup;
+    const diagnostic = ownerCensusRefusalDiagnostic(cause);
+    if (diagnostic) ownerCensusWrappers.set(this, diagnostic);
   }
 }
 
