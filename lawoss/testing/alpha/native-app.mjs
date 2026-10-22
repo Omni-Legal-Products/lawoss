@@ -49,6 +49,23 @@ export function assertInteractiveUi(snapshot) {
     || !Number.isSafeInteger(readiness.interactiveControls) || readiness.interactiveControls < 1) throw blocked('native-ui-not-ready');
 }
 
+function captureIdentity(live) {
+  const windowSourceId = live?.windowSourceId;
+  const documentTimeOrigin = live?.snapshot?.readiness?.documentTimeOrigin;
+  if (typeof windowSourceId !== 'string' || windowSourceId.length > 128 || !/^window:[1-9]\d*:\d+$/.test(windowSourceId)) throw blocked('owned-window-unavailable');
+  if (live?.snapshot?.windowSourceId !== windowSourceId || !Number.isFinite(documentTimeOrigin)
+    || documentTimeOrigin <= 0 || documentTimeOrigin > Number.MAX_SAFE_INTEGER) throw blocked('native-capture-identity-unavailable');
+  return { windowSourceId, documentTimeOrigin };
+}
+
+export function assertCaptureBinding(before, capture, after = before) {
+  const initial = captureIdentity(before), final = captureIdentity(after);
+  for (const key of ['windowSourceId', 'documentTimeOrigin']) {
+    if (initial[key] !== capture?.[key] || initial[key] !== final[key]) throw blocked('native-capture-identity-changed');
+  }
+  return Object.freeze({ status: 'verified', window: 'same', document: 'same' });
+}
+
 export function nativeAppLayout(installedApp, platform = process.platform) {
   if (!['darwin', 'linux', 'win32'].includes(platform)) throw blocked('unsupported-native-platform');
   const paths = platform === 'win32' ? path.win32 : path.posix;
@@ -199,7 +216,7 @@ async function captureOwnedWindow({ live, pid, output, temporaryRoot, env, asser
     assertRunning();
     // Exclusive publication never replaces an existing evidence artifact.
     await writeFile(output, bytes, { flag: 'wx', mode: 0o600 });
-    return { path: output, sha256: sha256(bytes), format, method, ownerPid: pid };
+    return { path: output, sha256: sha256(bytes), format, method, ownerPid: pid, ...captureIdentity(live) };
   } catch (error) {
     if (error.status === 'blocked' || error.code === 'EEXIST') throw error;
     throw blocked('native-window-capture-unavailable');
@@ -347,6 +364,7 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
           async capture(output) {
             if (typeof output !== 'string' || !path.isAbsolute(output)) throw blocked('invalid-capture-path');
             const live = await observe();
+            captureIdentity(live);
             return captureOwnedWindow({ live, pid: child.pid, output, temporaryRoot: env.TMPDIR, env, assertRunning });
           }, stop };
       } catch (error) {

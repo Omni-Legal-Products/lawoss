@@ -11,7 +11,7 @@ import { prepareAcceptanceProfile, ownedProfile } from '../../../apps/desktop/sc
 import { validateLiveIdentity } from '../../../apps/desktop/scripts/release-acceptance-macos.mjs';
 import { ALPHA_SCENARIOS } from './coverage.mjs';
 import { withExtractedAlphaArtifact, verifyAlphaInstallation } from './installed-artifact.mjs';
-import { assertInteractiveUi, launchAlphaApp, nativeAppLayout } from './native-app.mjs';
+import { assertCaptureBinding, assertInteractiveUi, launchAlphaApp, nativeAppLayout } from './native-app.mjs';
 import { runAlphaAcceptance } from './run.mjs';
 import { nativeLaunchDiagnostic } from './native-launch-diagnostics.mjs';
 import { nativeReadinessDiagnostic } from './native-readiness-diagnostics.mjs';
@@ -34,6 +34,7 @@ const observedCodes = new Set([
   'shipping-control-request-timeout','shipping-control-request-failed','shipping-control-invalid-json','shipping-control-response-too-large',
   'owned-window-unavailable','native-x11-display-unavailable','native-window-owner-mismatch',
   'native-windows-system-root-unavailable','native-window-capture-unavailable','invalid-native-window-capture',
+  'native-capture-identity-unavailable','native-capture-identity-changed',
   'native-child-close-unverified','chromium-lease-ownership-unverified',
   'windows-job-start-timeout','windows-job-start-failed','windows-job-stop-failed','windows-job-closure-unverified',
 ]);
@@ -159,6 +160,7 @@ async function nativeStartupProbe(options,adapters,diagnostic) {
             const capture=await diagnostic.at('capture',()=>app.capture(path));
             diagnostic.stage('welcome');
             const after=await app.observe();welcome(after);validateLiveIdentity(after,{...expected,pid:app.pid});
+            assertCaptureBinding(before,capture,after);
             return capture;
           })};
         },
@@ -186,11 +188,12 @@ async function nativeStartupProbe(options,adapters,diagnostic) {
     const format=build.platform==='linux'?'xwd':'png',file=`startup.${format}`,capture=evidence.capture;
     if(!capture || capture.ownerPid!==launchedPid || !Number.isSafeInteger(capture.ownerPid) || capture.ownerPid<1 || capture.path!==join(`${receiptFile}.evidence`,file) || capture.format!==format || capture.method!==captureMethods[build.platform])fail();
     validateLiveIdentity(evidence.observed,{...expected,pid:capture.ownerPid});
+    const binding=assertCaptureBinding(evidence.observed,capture);
     const bytes=await boundedFile(capture.path,64*1024**2);
     if(digest(bytes)!==capture.sha256 || (format==='png' ? bytes.length<24 || !bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) : bytes.length<100 || bytes.readUInt32BE(4)!==7))fail();
     diagnostic.stage('receipt-projection');
     const result={bytes,receipt:{schemaVersion:1,kind:'lawoss-ci-native-startup',status:'verified',releaseEligible:false,build,assetSha256:expectedSha256,installation,
-      startup:{status:'verified',route:'/welcome',capture:{file,sha256:capture.sha256,format,method:capture.method}},cleanup:'verified',nativeReview:'pending',
+      startup:{status:'verified',route:'/welcome',capture:{file,sha256:capture.sha256,format,method:capture.method,binding}},cleanup:'verified',nativeReview:'pending',
       fullAcceptance:{status:'blocked',unperformed:ALPHA_SCENARIOS.slice(1)},at:new Date().toISOString()}};
     diagnostic.stage('cleanup');
     return result;

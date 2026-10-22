@@ -33,6 +33,7 @@ function readUiReadiness() {
     return hit === element || (hit !== null && element.contains(hit));
   };
   return {
+    documentTimeOrigin: performance.timeOrigin,
     documentReadyState: ['loading', 'interactive', 'complete'].includes(document.readyState) ? document.readyState : 'unknown',
     // Accessibility isolation does not change whether boot content is painted.
     bootOverlayVisible: [...document.querySelectorAll('[data-legalwork-boot-overlay]')].some(physicallyVisible),
@@ -101,7 +102,9 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
       if (win.isMinimized()) win.restore();
       win.focus();
     }
-    return win.webContents.executeJavaScript(expression, options.focus === true);
+    const result = await win.webContents.executeJavaScript(expression, options.focus === true);
+    return options.snapshot === true ? { ...result,
+      windowSourceId: typeof win.getMediaSourceId === "function" ? win.getMediaSourceId() : null } : result;
   }
 
   async function runLegalworkControlCommand(command, args = {}) {
@@ -126,7 +129,7 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
         const control = window.__legalworkControl;
         if (!control) return { ok: false, error: "LegalWork control surface is not available yet.", readiness };
         return { ok: true, ...control.snapshot(), readiness };
-      })()`);
+      })()`, { snapshot: true });
     }
     if (command === "actions") {
       return evaluateLegalworkControl(`(async () => {

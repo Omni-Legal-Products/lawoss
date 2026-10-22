@@ -33,7 +33,7 @@ async function fixture(t, change = {}) {
     launch: async ({profileRoot}) => {
       state.launched++; state.profileRoot=profileRoot;
       if(change.launchFailure)throw change.launchFailure;
-      const observe = async () => ({ok:true,build:{...build,os:build.platform,provenance:'embedded',legalworkDevMode:false},process:{pid:123,userData:join(profileRoot,'userdata'),executable},rendererUrl:pathToFileURL(join(resources,'app-dist/index.html')).href,snapshot:{ok:true,route:change.route ?? '/welcome',readiness:{documentReadyState:'complete',bootOverlayVisible:false,interactiveControls:1}}});
+      const observe = async () => ({ok:true,windowSourceId:state.captures && change.afterWindow ? 'window:43:0' : 'window:42:0',build:{...build,os:build.platform,provenance:'embedded',legalworkDevMode:false},process:{pid:123,userData:join(profileRoot,'userdata'),executable},rendererUrl:pathToFileURL(join(resources,'app-dist/index.html')).href,snapshot:{ok:true,windowSourceId:state.captures && change.afterWindow ? 'window:43:0' : 'window:42:0',route:change.route ?? '/welcome',readiness:{documentReadyState:'complete',bootOverlayVisible:false,interactiveControls:1,documentTimeOrigin:state.captures && change.afterDocument ? 1700000000001.5 : 1700000000000.5}}});
       return {pid:123,observe,capture:async path=>{
         state.captures++;
         if(change.captureFailure)throw change.captureFailure;
@@ -41,7 +41,7 @@ async function fixture(t, change = {}) {
         if(process.platform==='linux')bytes.writeUInt32BE(7,4); else Buffer.from([137,80,78,71,13,10,26,10]).copy(bytes);
         if(change.invalidImage)bytes.fill(0);
         await writeFile(path,bytes,{flag:'wx'});
-        return {path,sha256:digest(bytes),format:process.platform === 'linux' ? 'xwd':'png',method:change.method ?? method,ownerPid:change.ownerPid ?? 123};
+        return {path,sha256:digest(bytes),format:process.platform === 'linux' ? 'xwd':'png',method:change.method ?? method,ownerPid:change.ownerPid ?? 123,...(change.omitBinding ? {} : {windowSourceId:change.captureWindow ?? 'window:42:0',documentTimeOrigin:change.captureDocument ?? 1700000000000.5})};
       },stop:async()=>{if(change.stopFails)throw new Error('private profile /private/token secret');}};
     },
     runAcceptance: async (options,ports) => {
@@ -59,14 +59,29 @@ test('startup publishes exactly finite receipt and native image after startup-on
   assert.deepEqual((await readdir(f.options.outputDir)).sort(),[image,'startup.json'].sort());
   assert.equal(result.status,'verified'); assert.equal(result.kind,'lawoss-ci-native-startup');
   assert.equal(result.cleanup,'verified'); assert.equal(result.nativeReview,'pending');
+  assert.deepEqual(result.startup.capture.binding,{status:'verified',window:'same',document:'same'});
   assert.equal(JSON.stringify(result).includes('nativeLaunch'),false);
   assert.equal(JSON.stringify(result).includes('nativeReadiness'),false);
   assert.equal(JSON.stringify(result).includes('mainLog'),false);
   assert.equal(result.fullAcceptance.status,'blocked'); assert.deepEqual(result.fullAcceptance.unperformed,ALPHA_SCENARIOS.slice(1));
   const publicText=await readFile(join(f.options.outputDir,'startup.json'),'utf8');
-  for(const privateValue of [f.root,'ownerPid','profileRoot','rendererUrl','reasons','token'])assert.equal(publicText.includes(privateValue),false);
+  for(const privateValue of [f.root,'ownerPid','profileRoot','rendererUrl','reasons','token','windowSourceId','documentTimeOrigin','window:42:0','1700000000000.5'])assert.equal(publicText.includes(privateValue),false);
   assert.equal(result.startup.capture.sha256,digest(await readFile(join(f.options.outputDir,image))));
   await assert.rejects(access(join(f.state.profileRoot,'.alpha-acceptance-baseline.json')));
+});
+
+test('capture refuses changed window or reloaded same-URL document and missing binding',async t=>{
+  for(const [name,change] of Object.entries({
+    'replaced window':{afterWindow:true},'same URL new document':{afterDocument:true},
+    'different captured window':{captureWindow:'window:99:0'},
+    'different captured document':{captureDocument:1700000000099.5},
+    'missing capture binding':{omitBinding:true},
+  }))await t.test(name,async t=>{
+    const f=await fixture(t,change);
+    await assert.rejects(runNativeStartupProbe(f.options,f.adapters));
+    assert.equal(f.state.captures,1,'refusal must follow the actual bounded capture seam');
+    assert.deepEqual(await readdir(f.options.outputDir),[],'a mismatched capture cannot publish a verified receipt or image');
+  });
 });
 
 test('actual owned POSIX launch exit publishes finite original exit and Chromium marker observations without private output', {
@@ -153,6 +168,8 @@ test('missing, altered, foreign-owned or malformed capture and partial receipt c
     startupblocked:{mutate:async r=>{r.scenarios[0].status='blocked';}},
     missingcase:{mutate:async r=>{r.scenarios.pop();}},
     forgedpid:{mutate:async r=>{const path=r.scenarios[0].evidence,e=JSON.parse(await readFile(path));e.capture.ownerPid=999;e.observed.process.pid=999;await writeFile(path,JSON.stringify(e));}},
+    forgedDocument:{mutate:async r=>{const path=r.scenarios[0].evidence,e=JSON.parse(await readFile(path));e.observed.snapshot.readiness.documentTimeOrigin++;await writeFile(path,JSON.stringify(e));}},
+    forgedWindow:{mutate:async r=>{const path=r.scenarios[0].evidence,e=JSON.parse(await readFile(path));e.observed.windowSourceId='window:99:0';e.observed.snapshot.windowSourceId='window:99:0';await writeFile(path,JSON.stringify(e));}},
   }))await t.test(name,async t=>{
     const f=await fixture(t,change);await assert.rejects(runNativeStartupProbe(f.options,f.adapters));assert.deepEqual(await readdir(f.options.outputDir),[]);
   });

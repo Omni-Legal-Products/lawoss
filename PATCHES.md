@@ -1365,7 +1365,7 @@ Rozsah alfy a nepodpísané Windows do bety vychádzajú zo [zápisu callu 19. 1
 | Súbory | Zmena a dôvod |
 |---|---|
 | `apps/app/src/react-app/shell/loading-overlay.tsx` | Jeden read-only DOM marker na existujúcom boot overlay. Bez zmeny zobrazenia a ovládania. |
-| `apps/desktop/electron/ui-control-server.mjs`, `apps/desktop/electron/ui-control-server.test.mjs` | Existujúci autentifikovaný snapshot pridá konečný stav dokumentu, viditeľnosť boot overlay a počet použiteľných ovládacích prvkov. Nečíta popisky, text ani hodnoty; pôvodné polia a execute zostávajú. Alfa runner tak neuzná úvodný loading frame za úspešný štart. |
+| `apps/desktop/electron/ui-control-server.mjs`, `apps/desktop/electron/ui-control-server.test.mjs` | Existujúci autentifikovaný snapshot pridá konečný stav dokumentu, viditeľnosť boot overlay a počet použiteľných ovládacích prvkov. Nečíta popisky, text ani hodnoty; pôvodné polia a execute zostávajú. Alfa runner tak neuzná úvodný loading frame za úspešný štart. Snapshot teraz viaže readiness na `performance.timeOrigin` daného dokumentu a source ID presného okna použitého pri shipping evaluácii. CI porovná existujúce before/captured/after pozorovania, aj pôvodné evidence observation; pri inom okne, reload rovnakého URL alebo chýbajúcom binding odmietne publikáciu. Public receipt obsahuje iba finite same-window/same-document výsledok, bez ID či time origin. Nepridáva request, retry ani timeout a nepreukazuje príčinu historického Connecting obrazu či správne compositor pixely. |
 
 #### Spoľahlivé alfa dôkazy a natívny lifecycle (2026-10-21)
 

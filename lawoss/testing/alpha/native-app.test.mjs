@@ -6,7 +6,7 @@ import { tmpdir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { assertInteractiveUi, launchAlphaApp, nativeAppLayout, nativeAppEnvironment } from './native-app.mjs';
+import { assertCaptureBinding, assertInteractiveUi, launchAlphaApp, nativeAppLayout, nativeAppEnvironment } from './native-app.mjs';
 import { prepareAcceptanceProfile } from '../../../apps/desktop/scripts/release-acceptance.mjs';
 import { nativeLaunchDiagnostic } from './native-launch-diagnostics.mjs';
 import { nativeReadinessDiagnostic } from './native-readiness-diagnostics.mjs';
@@ -337,4 +337,27 @@ test('identity drift during a presentation wait refuses before another snapshot 
   await app.execute('fixture.presentation', { remaining: 1, identityAfterSnapshot: { process: { pid: 1, userData: '/foreign', executable: '/foreign' } } });
   await assert.rejects(app.observe(), /process or profile ownership differs/);
   assert.equal(await readFile(join(options.profileRoot, 'userdata/snapshot-count'), 'utf8'), '1');
+});
+
+// The same packaged URL can survive a reload; it is not a document identity.
+test('capture binding requires the same native window and finite renderer time origin', () => {
+  const identity = () => ({windowSourceId:'window:42:0',rendererUrl:'file:///fixture/index.html',
+    snapshot:{windowSourceId:'window:42:0',readiness:{documentTimeOrigin:1700000000000.5}}});
+  const captured = {windowSourceId:'window:42:0',documentTimeOrigin:1700000000000.5};
+  const stable=assertCaptureBinding(identity(),captured,identity());
+  assert.deepEqual(stable,{status:'verified',window:'same',document:'same'});
+  assert.equal(Object.isFrozen(stable),true);
+  for(const value of [undefined,null,0,-1,NaN,Infinity,'1700000000000.5',Number.MAX_SAFE_INTEGER+1]) {
+    const live=identity();live.snapshot.readiness.documentTimeOrigin=value;
+    assert.throws(()=>assertCaptureBinding(live,captured),{code:'native-capture-identity-unavailable'});
+  }
+  for(const windowSourceId of [null,undefined,'window:0:0','window:42:0 private','private-token','x'.repeat(129)]) {
+    const live=identity();live.windowSourceId=windowSourceId;live.snapshot.windowSourceId=windowSourceId;
+    assert.throws(()=>assertCaptureBinding(live,captured),{code:'owned-window-unavailable'});
+  }
+  const other=identity();other.snapshot.windowSourceId='window:43:0';
+  assert.throws(()=>assertCaptureBinding(other,captured),{code:'native-capture-identity-unavailable'});
+  const reloaded=identity();reloaded.snapshot.readiness.documentTimeOrigin++;
+  assert.throws(()=>assertCaptureBinding(identity(),captured,reloaded),{code:'native-capture-identity-changed'});
+  assert.throws(()=>assertCaptureBinding(identity(),{}),{code:'native-capture-identity-changed'});
 });
