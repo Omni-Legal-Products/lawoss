@@ -7,6 +7,8 @@ import { freshFolderFlow, startFreshFolder, type FoundIdentity } from "./found-f
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
 import { FRESH_NOT_EMPTY } from "./onboarding-errors";
+import { DocumentsChoiceView } from "./wizard/documents-step";
+import type { WizardText } from "./wizard/wizard-text";
 
 type Text = (key: FoundTextKey, params?: Record<string, string | number>) => string;
 
@@ -106,10 +108,15 @@ type Props = {
   onClearError: () => void;
   /** Späť alebo Zrušiť od volajúceho, zobrazené pri nadpise. */
   nav?: ReactNode;
+  /**
+   * Sprievodca po krokoch (C1): obrazovka „Vaše dokumenty“ s príkladmi výsledku; „Začať nanovo“ po zápise
+   * rovno pokračuje (súhrn ukáže krok „Toto sme našli“). `resume` ponúkne naposledy vybraný priečinok.
+   */
+  wizard?: { text: WizardText; resume?: { name: string; onContinue: () => void } };
 };
 
 /** „Začať nanovo“: prázdny vybraný priečinok dostane kanceláriu, `AGENTS.md` praxe a `Klienti/`. */
-export function FolderStep({ api, identity, text, pickDirectory, onFound, onAcknowledge, onFreshDone, onError, onClearError, nav }: Props) {
+export function FolderStep({ api, identity, text, pickDirectory, onFound, onAcknowledge, onFreshDone, onError, onClearError, nav, wizard }: Props) {
   const [busy, setBusy] = useState(false);
   const [fresh, setFresh] = useState<OnboardingApplyResult | null>(null);
   // Otázka pred zápisom do zdieľaného alebo cloudového priečinka; odpoveď dokončí čakajúci `confirm`.
@@ -128,7 +135,7 @@ export function FolderStep({ api, identity, text, pickDirectory, onFound, onAckn
           start: (parent) => startFreshFolder(api, parent, identity, onAcknowledge),
         }),
         report: onError,
-        done: setFresh,
+        done: wizard ? (result) => void finish(result) : setFresh,
       });
     } finally {
       setBusy(false);
@@ -147,5 +154,6 @@ export function FolderStep({ api, identity, text, pickDirectory, onFound, onAckn
   };
   if (cloudAsk) return <FreshCloudNoticeView text={text} kind={cloudAsk.kind} onContinue={() => cloudAsk.answer(true)} onCancel={() => cloudAsk.answer(false)} />;
   if (fresh) return <FreshDoneView text={text} busy={busy} onFinish={() => void finish(fresh)} nav={nav} />;
+  if (wizard) return <DocumentsChoiceView text={wizard.text} found={text} busy={busy} nav={nav} resume={wizard.resume} onConnect={() => void connect()} onFresh={() => void startFresh()} />;
   return <FolderChoiceView text={text} busy={busy} onConnect={() => void connect()} onFresh={() => void startFresh()} nav={nav} />;
 }

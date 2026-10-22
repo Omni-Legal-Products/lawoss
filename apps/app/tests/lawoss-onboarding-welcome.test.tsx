@@ -29,10 +29,10 @@ const page = (initialStep: OnboardingStep, extra: { initialRoot?: string; comple
   );
 
 describe("LAWOSS welcome flow", () => {
-  test("onboarding má tri kroky a krok Priečinok ponúkne obe voľby", () => {
+  test("onboarding má šesť krokov a krok Dokumenty ponúkne obe voľby (C1)", () => {
     const html = page("folder");
     expect(html).toContain('data-lawoss-onboarding-step="folder"');
-    expect(html).toContain("repeat(3, minmax(0, 1fr))");
+    expect(html).toContain("repeat(6, minmax(0, 1fr))");
     expect(html).not.toContain("grid-cols-5");
     expect(html).toContain("Connect an existing folder");
     expect(html).toContain("Start fresh");
@@ -40,7 +40,7 @@ describe("LAWOSS welcome flow", () => {
 
   test("krok AI sa dá preskočiť", () => {
     const html = page("ai");
-    expect(html).toMatch(/Continue without a model|>Continue</);
+    expect(html).toMatch(/Continue without AI|>Continue</);
   });
 
   test("staré kroky (voľba OKF, kancelária, balíky) sa otvoria ako krok Priečinok", () => {

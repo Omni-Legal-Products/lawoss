@@ -31,8 +31,9 @@ const profileSchema = z.strictObject({
   foundRoot: z.string().min(1).max(4096).optional(),
   trial: z.boolean().optional(),
   okf: okfChoiceSchema.optional(),
-  // Nový tok (spec 2026-10-08): identity, ai, folder, found, done. Staré hodnoty ostávajú pre uložené profily alfa testerov.
-  step: z.enum(["identity", "ai", "folder", "found", "okf", "office", "packs", "client", "matter", "done"]).optional(),
+  // Sprievodca alfa 2 (C1, 22. 10. 2026): identity → folder → found → ai → approvals → ready. Staré hodnoty
+  // ostávajú pre uložené profily alfa testerov; `done` ostáva pre formuláre klienta a veci z bočného panela.
+  step: z.enum(["identity", "ai", "folder", "found", "approvals", "ready", "okf", "office", "packs", "client", "matter", "done"]).optional(),
   // Dokončenie nastavenia praxe (#96): trvalá značka, `step` sa po dokončení ďalej mení (napr. „+ Nová vec“).
   completedAt: z.iso.datetime().optional(),
 });

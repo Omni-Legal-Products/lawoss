@@ -33,12 +33,23 @@ import {
   DEFAULT_ONBOARDING_PROGRESS,
   needsOkfAcknowledgement,
   okfChoice,
+  patchOnboardingProgress,
   readOnboardingProgress,
   visibleOnboardingStep,
   visibleOnboardingSteps,
-  writeOnboardingProgress,
+  type FoundChoice,
+  type WizardConnected,
 } from "./onboarding-state";
-import { OnboardingAiPanel } from "./ai-step";
+import { OnboardingAiPanel, useOnboardingModel } from "./ai-step";
+import { useOrgPolicy } from "@/react-app/domains/connections/org-policy";
+import { wizardText } from "./wizard/wizard-text";
+import { WizardProgress } from "./wizard/wizard-frame";
+import { OfficeStep } from "./wizard/office-step";
+import { AssistantStep } from "./wizard/assistant-step";
+import { ApprovalsStepView } from "./wizard/approvals-step";
+import { agentSummary, useAgentMode } from "./wizard/agent-mode";
+import { ReadyStep, type ReadyStepProps } from "./wizard/ready-step";
+import { ConnectedTree, WizardConnectedView } from "./wizard/found-step";
 import { markOnboardingCompleted, openingStep, resumeFound } from "./resume";
 import { visibleExistingClientModes } from "../../feature-flags";
 import { clientTitleOf, resolveOpenClient, type OpenClientReader } from "../../okf/open-client";
@@ -59,9 +70,6 @@ import { onboardingErrorMessage } from "./onboarding-errors";
 
 export { onboardingErrorMessage };
 
-/** Jazyky rozhrania v poradí LAWOSS (SK, CS, EN, DE) s pôvodnými názvami namiesto kódov. */
-const UI_LANGUAGE_ORDER: readonly Language[] = ["sk", "cs", "en", "de"];
-const UI_LANGUAGES = UI_LANGUAGE_ORDER.flatMap((code) => LANGUAGE_OPTIONS.filter((option) => option.value === code));
 
 /** Názvy priečinka kancelárie, ktorého `Klienti` ležia vedľa neho (nie vo vnútri). */
 const OFFICE_FOLDER_NAMES: ReadonlySet<string> = new Set(["office", "_kancelaria"]);
@@ -561,9 +569,17 @@ export function LawossWelcomePage({
 }: Props) {
   const locale = useLocale();
   const tr = welcomeText(locale);
+  const wiz = wizardText(locale);
+  // Tok z bočného panela (Pridať priečinok, Usporiadať podľa OKF, nový klient či vec) po dokončenom
+  // onboardingu nie je hlavná cesta: bez hlavičky krokov a bez Späť (viedlo by na krok Kancelária), so Zrušiť.
+  const sidebarFlow = hasCompletedOnboarding && (initialStep !== undefined || initialRoot !== undefined);
   const [profile, setProfile] = useState<OnboardingProfile | null>(null);
   // Staré kroky (voľba OKF, kancelária, balíky) vedú na Priečinok už pri prvom vykreslení, nie až po načítaní profilu.
-  const [step, setStep] = useState<OnboardingStep>(visibleOnboardingStep(initialStep ?? "identity"));
+  // Priečinok z odkazu (`?root=`) v hlavnej ceste otvorí rovno krok „Toto sme našli“.
+  const [step, setStep] = useState<OnboardingStep>(() => {
+    const first = visibleOnboardingStep(initialStep ?? "identity");
+    return initialRoot && !sidebarFlow && first === "folder" ? "found" : first;
+  });
   const [preview, setPreview] = useState<{
     request: Pick<OnboardingPlanRequest, "action">;
     value: OnboardingPreview;
@@ -577,6 +593,9 @@ export function LawossWelcomePage({
   const [clientFolderError, setClientFolderError] = useState(false);
   // Vybraný priečinok kroku Priečinok; kým je prázdny, krok ponúka pripojiť existujúci alebo začať nanovo.
   const [foundRoot, setFoundRoot] = useState<string | null>(initialRoot ?? null);
+  // Voľby „Toto sme našli“ a to, čo krok pripojil (C1): z úložiska prehliadača, prežijú Späť aj obnovenie.
+  const [savedChoice, setSavedChoice] = useState<FoundChoice | undefined>(undefined);
+  const [connected, setConnected] = useState<WizardConnected | undefined>(undefined);
   const found = foundText(locale);
   // „+ Nová vec“ mimo prvého onboardingu: formulár počká, kým sa zistí otvorený klient.
   const [openClientPending, setOpenClientPending] = useState(initialStep === "matter");
@@ -591,6 +610,7 @@ export function LawossWelcomePage({
     [locale],
   );
   const clearError = useCallback(() => setError(null), []);
+  const storage = () => (typeof window === "undefined" ? null : window.localStorage);
   useEffect(() => {
     let cancelled = false;
     setOpenClientPending(initialStep === "matter");
@@ -626,13 +646,19 @@ export function LawossWelcomePage({
           openingStep(initialStep, status.profile, saved.step, hasCompletedOnboarding),
           status.profile !== null,
         );
-        setStep(opening);
+        setStep(initialRoot && !sidebarFlow && opening === "folder" ? "found" : opening);
+        // Sprievodca: voľby a pripojenie z úložiska prehliadača (tok z bočného panela ich nepoužíva).
+        if (!sidebarFlow) {
+          setSavedChoice(saved.found);
+          setConnected(saved.connected);
+        }
         // Obnova po prerušení otvorí naposledy vybraný priečinok, nie znova výber (M1, 22. 10. 2026).
         const resumed = resumeFound(opening, status.profile, initialRoot, status.foundRootMissing);
         if (resumed && "root" in resumed) setFoundRoot(resumed.root);
         // Zmiznutý priečinok: krok Priečinok s krátkou vetou (zmaže ju ďalšia akcia) a uložený priečinok sa zabudne.
         if (resumed && "missing" in resumed) {
           setError(foundText(locale)("resumeFolderMissing", { name: folderName(resumed.missing) }));
+          if (opening === "found") setStep("folder");
           void api.updateOnboardingProfile({ foundRoot: null }).then(setProfile, (reason: unknown) => console.warn("[lawoss] onboarding resume folder", reason));
         }
       })
@@ -649,7 +675,14 @@ export function LawossWelcomePage({
   const finish = async (current: OnboardingProfile | null, result?: OnboardingApplyResult, completion?: OnboardingCompletion) => {
     const marked = await markOnboardingCompleted(registeredApi.current ?? api, current);
     if (marked) setProfile(marked);
+    // Po dokončení nie je čo obnovovať: voľby a pripojenie sprievodcu sa zabudnú.
+    if (!sidebarFlow) patchOnboardingProgress(storage(), { found: undefined, connected: undefined });
     await onComplete(result, completion);
+  };
+  const register = async (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => {
+    const registered = await onRegister?.(result, completion);
+    if (registered) registeredApi.current = registered;
+    return registered;
   };
   const savedClientRoot = profile?.clientRoot;
   useEffect(() => {
@@ -675,11 +708,8 @@ export function LawossWelcomePage({
     setBusy(true);
     setError(null);
     try {
-      if (typeof window !== "undefined")
-        writeOnboardingProgress(window.localStorage, {
-          lane: "detailed",
-          step: next,
-        });
+      // Len krok; voľby a pripojenie sprievodcu v úložisku ostávajú (návrat bez straty údajov).
+      patchOnboardingProgress(storage(), { lane: "detailed", step: next });
       const saved = await api.updateOnboardingProfile({ ...patch, step: next });
       setProfile(saved);
       setStep(next);
@@ -694,8 +724,13 @@ export function LawossWelcomePage({
   const previewSection = useRef<HTMLElement | null>(null);
   // Nový krok začína hore; inak by po dlhom náhľade ostal posunutý a jeho nadpis by nebolo vidieť.
   const scrollArea = useRef<HTMLDivElement | null>(null);
+  // Po prechode na iný krok sa fokus presunie na jeho obsah (čítačka oznámi nový krok, Tab pokračuje odtiaľ).
+  const panel = useRef<HTMLElement | null>(null);
+  const firstStep = useRef(true);
   useEffect(() => {
     scrollArea.current?.scrollTo?.({ top: 0 });
+    if (firstStep.current) { firstStep.current = false; return; }
+    panel.current?.querySelector<HTMLElement>("h2")?.focus?.();
   }, [step]);
   useEffect(() => {
     if (!preview) return;
@@ -797,13 +832,11 @@ export function LawossWelcomePage({
     }
   };
   const steps = visibleOnboardingSteps();
-  // „Toto som našiel“ je obrazovka kroku Priečinok, v hlavičke preto svieti Priečinok.
-  const idx = steps.indexOf(step === "found" ? "folder" : step);
-  // Tok z bočného panela (Pridať priečinok, Usporiadať podľa OKF, nový klient či vec) po dokončenom
-  // onboardingu nie je hlavná cesta: bez hlavičky krokov a bez Späť (viedlo by na krok Ty), so Zrušiť.
-  const sidebarFlow = hasCompletedOnboarding && (initialStep !== undefined || initialRoot !== undefined);
+  const idx = steps.indexOf(step);
   // Formuláre klienta a veci z bočného panela nie sú na hlavnej ceste a hlavičku krokov nemajú.
   const mainPath = !sidebarFlow && step !== "client" && step !== "matter";
+  // Sprievodca po krokoch (C1) beží na hlavnej ceste s klientom roztriedenia; inak pôvodný tok.
+  const wizard = mainPath && triage !== null;
   const base = profile ?? {
     version: 1,
     lawyerName: "",
@@ -811,8 +844,8 @@ export function LawossWelcomePage({
     language: locale,
   };
   const identity = { lawyerName: base.lawyerName, jurisdiction: base.jurisdiction, language: base.language };
-  // Krok Priečinok a „Toto som našiel“ vykresľujú vlastné obrazovky s navigáciou pri nadpise.
-  const folderScreen = (step === "folder" || step === "found") && triage !== null;
+  // Tok z bočného panela: krok Priečinok a „Toto som našiel“ vykresľujú vlastné obrazovky s navigáciou pri nadpise.
+  const folderScreen = !wizard && (step === "folder" || step === "found") && triage !== null;
   /**
    * Vybraný priečinok sa uloží do profilu na obnovu po prerušení (M1); tok z bočného panela po dokončenom
    * onboardingu obnovu nemá. Zlyhaný zápis výber nezastaví, obnova len nebude vedieť priečinok.
@@ -822,6 +855,44 @@ export function LawossWelcomePage({
     void api.updateOnboardingProfile(root ? { foundRoot: root, step: "found" } : { foundRoot: null })
       .then(setProfile, (reason: unknown) => console.warn("[lawoss] onboarding resume folder", reason));
   };
+  /** Nový priečinok: staré voľby a pripojenie patria inému priečinku a zabudnú sa. */
+  const forgetConnection = () => {
+    setSavedChoice(undefined);
+    setConnected(undefined);
+    patchOnboardingProgress(storage(), { found: undefined, connected: undefined });
+  };
+  const chooseFoundRoot = (root: string) => {
+    setError(null);
+    if (root !== foundRoot || connected?.kind === "fresh") forgetConnection();
+    setFoundRoot(root);
+    rememberFoundRoot(root);
+    if (wizard) void move("found");
+  };
+  const changeFolder = () => {
+    setError(null);
+    setFoundRoot(null);
+    rememberFoundRoot(null);
+    forgetConnection();
+    if (wizard) void move("folder");
+  };
+  /**
+   * Krok „Toto sme našli“ pripojil priečinok: zapamätá sa (návrat, obnova, súhrn), priečinok sa zaregistruje,
+   * aby krok AI a schvaľovania videl pracovný priečinok, a sprievodca pokračuje krokom AI asistent.
+   * Zlyhaná registrácia nezastaví sprievodcu; dokončenie ju zopakuje a chybu vtedy ohlási.
+   */
+  const onConnected = async (next: WizardConnected, result?: OnboardingApplyResult, completion?: OnboardingCompletion) => {
+    setConnected(next);
+    patchOnboardingProgress(storage(), { connected: next });
+    if (next.kind !== "fresh") await register(result, completion).catch((reason: unknown) => console.warn("[lawoss] onboarding early registration", reason));
+    await move("ai");
+  };
+  const agent = useAgentMode(api, wizard && (step === "approvals" || step === "ready"));
+  const firmPermissions = useOrgPolicy("tools.permissions");
+  const backTo = (target: OnboardingStep) => (
+    <button type="button" className="lw-btn" disabled={busy} onClick={() => void move(target)}>
+      {wiz("back")}
+    </button>
+  );
   const backNav = sidebarFlow ? (
     <button type="button" className="lw-btn" disabled={busy} onClick={onCancel}>
       {tr("cancel")}
@@ -829,11 +900,73 @@ export function LawossWelcomePage({
   ) : (
     <Button
       variant="ghost"
-      onClick={() => void move(steps[Math.max(0, idx - 1)])}
+      onClick={() => void move(steps[Math.max(0, idx - 1)] ?? "identity")}
     >
       {tr("back")}
     </Button>
   );
+  const wizardFolder = (
+    <FolderStep
+      api={api}
+      identity={identity}
+      text={found}
+      nav={backTo("identity")}
+      pickDirectory={pickDirectory}
+      wizard={{ text: wiz, resume: foundRoot ? { name: folderName(foundRoot), onContinue: () => void move("found") } : undefined }}
+      onFound={chooseFoundRoot}
+      onAcknowledge={() => acknowledgeOkf()}
+      // R7: „Začať nanovo“ nezaregistruje koreň kancelárie ako pracovný priečinok (rozhodnutie 19. 10. 2026);
+      // sprievodca ukáže novú kanceláriu v kroku „Toto sme našli“ a na konci ponúkne pridať prvého klienta.
+      onFreshDone={async (result) => {
+        const root = result.root ?? profile?.officeRoot;
+        if (!root) { await complete(result, FRESH_OFFICE_COMPLETION); return; }
+        setFoundRoot(null);
+        setSavedChoice(undefined);
+        const next: WizardConnected = { kind: "fresh", root, result };
+        setConnected(next);
+        patchOnboardingProgress(storage(), { found: undefined, connected: next });
+        await move("found");
+      }}
+      onError={reportError}
+      onClearError={clearError}
+    />
+  );
+  const wizardFound = connected && (connected.kind === "fresh" || connected.root === foundRoot) ? (
+    <WizardConnectedView
+      text={wiz}
+      busy={busy}
+      title={wiz("foundTitle")}
+      lead={connected.kind === "fresh" ? wiz("foundFreshLead") : wiz("foundConnectedLead")}
+      tree={<ConnectedTree text={wiz} connected={connected} />}
+      nav={<>{backTo("folder")}{connected.kind === "fresh" ? null : <button type="button" className="lw-btn" disabled={busy} onClick={changeFolder}>{found("changeFolder")}</button>}</>}
+      onContinue={() => void move("ai")}
+    />
+  ) : foundRoot && triage ? (
+    <FoundScreen
+      api={api}
+      triage={triage}
+      identity={identity}
+      text={found}
+      root={foundRoot}
+      onAcknowledge={() => acknowledgeOkf({ step: "found" })}
+      onDone={async (result, completion) => {
+        setCompletedResult(result);
+        await finish(profile, result, completion);
+      }}
+      onRegister={register}
+      onChangeFolder={changeFolder}
+      onPickRoot={chooseFoundRoot}
+      onError={reportError}
+      onClearError={clearError}
+      wizard={{
+        text: wiz,
+        initial: savedChoice,
+        back: backTo("folder"),
+        onChoice: (choice) => { setSavedChoice(choice); patchOnboardingProgress(storage(), { found: choice }); },
+        onConnected,
+      }}
+    />
+  ) : wizardFolder;
   return (
     <DirectoryPickerContext.Provider value={pickDirectory}>
       {/* Koreň appky má overflow: hidden; bez vlastnej posúvateľnej oblasti by náhľad zmien a jeho
@@ -842,7 +975,7 @@ export function LawossWelcomePage({
       {/* Okno bez systémovej lišty: bez tohto pásu sa počas onboardingu nedá posunúť (rovnaký pás ako v Page). */}
       <div aria-hidden className="fixed inset-x-0 top-0 z-20 h-10 mac:titlebar-drag" />
       <main
-        className="lw-onb-main mx-auto min-h-full max-w-3xl px-6 py-12"
+        className="lw-onb-main mx-auto min-h-full max-w-3xl px-4 py-12 sm:px-6"
         data-lawoss-onboarding-step={step}
       >
         <header>
@@ -852,26 +985,8 @@ export function LawossWelcomePage({
             <span className="sr-only">LAWOSS</span>
           </p>
           <h1 className="lw-onb-title">{tr("title")}</h1>
-          {mainPath ? (
-            <ol
-              className="lw-onb-steps"
-              style={{
-                gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))`,
-              }}
-            >
-              {steps.map((item, i) => (
-                <li
-                  key={item}
-                  data-state={i < idx ? "done" : i === idx ? "current" : "next"}
-                  aria-current={i === idx ? "step" : undefined}
-                >
-                  <span className="lw-onb-step-bar" />
-                  <span className="lw-onb-step-label">
-                    {i + 1}. {tr(item)}
-                  </span>
-                </li>
-              ))}
-            </ol>
+          {mainPath && idx >= 0 ? (
+            <WizardProgress text={wiz} steps={steps} current={idx} disabled={busy} onGo={wizard ? (target) => void move(target) : undefined} />
           ) : null}
         </header>
         {error ? (
@@ -882,12 +997,13 @@ export function LawossWelcomePage({
             {error}
           </p>
         ) : null}
-        <section className="lw-onb-panel grid gap-5">
+        <section ref={panel} className="lw-onb-panel grid gap-5">
           {step === "identity" ? (
-            <Identity
+            <OfficeStep
               base={base}
               locale={locale}
-              tr={tr}
+              text={wiz}
+              jurisdictionLabels={{ sk: tr("jurisdictionSk"), cz: tr("jurisdictionCz") }}
               busy={busy}
               onSave={async (next) => {
                 setBusy(true);
@@ -895,7 +1011,7 @@ export function LawossWelcomePage({
                 try {
                   setLanguagePreference(next.language);
                   setProfile(await api.updateOnboardingProfile(next));
-                  await move("ai");
+                  await move("folder");
                 } catch (reason) {
                   setError(onboardingErrorMessage(reason, locale));
                 } finally {
@@ -904,17 +1020,66 @@ export function LawossWelcomePage({
               }}
             />
           ) : null}
+          {wizard && step === "folder" ? wizardFolder : null}
+          {wizard && step === "found" ? wizardFound : null}
           {step === "ai" ? (
-            <>
-              <h2 className="text-xl font-semibold">{tr("ai")}</h2>
-              <p className="text-muted-foreground">{tr("aiText")}</p>
-              <OnboardingAiPanel
+            wizard ? (
+              <AssistantStep
+                text={wiz}
                 locale={locale}
                 busy={busy}
+                nav={backTo("found")}
                 onOpenAiSettings={onOpenAiSettings}
-                onContinue={() => void move("folder")}
+                onContinue={() => void move("approvals")}
               />
-            </>
+            ) : (
+              <>
+                <h2 className="text-xl font-semibold">{tr("ai")}</h2>
+                <p className="text-muted-foreground">{tr("aiText")}</p>
+                <OnboardingAiPanel
+                  locale={locale}
+                  busy={busy}
+                  onOpenAiSettings={onOpenAiSettings}
+                  onContinue={() => void move("folder")}
+                />
+              </>
+            )
+          ) : null}
+          {wizard && step === "approvals" ? (
+            <ApprovalsStepView
+              text={wiz}
+              locale={locale}
+              state={agent.state}
+              canWrite={agent.canWrite}
+              saving={agent.saving}
+              failed={agent.failed}
+              firmManaged={firmPermissions !== null}
+              busy={busy}
+              nav={backTo("ai")}
+              onYolo={(enabled) => void agent.setYolo(enabled)}
+              onAsk={() => void agent.askBeforeChanges()}
+              onContinue={() => void move("ready")}
+            />
+          ) : null}
+          {wizard && step === "ready" ? (
+            <ReadyStepLive
+              text={wiz}
+              found={found}
+              connected={connected}
+              agent={agentSummary(agent.state)}
+              busy={busy}
+              nav={backTo("approvals")}
+              triage={registeredApi.current ?? triage}
+              onRegister={register}
+              onOpenChat={onOpenClientChat ? (request) => onOpenClientChat(request, identity.language) : undefined}
+              onFinish={async (result, completion) => {
+                setCompletedResult(result);
+                await finish(profile, result, completion);
+              }}
+              onGo={(target) => void move(target)}
+              onError={reportError}
+              onClearError={clearError}
+            />
           ) : null}
           {folderScreen && triage ? (
             foundRoot ? (
@@ -929,11 +1094,7 @@ export function LawossWelcomePage({
                   setCompletedResult(result);
                   await finish(profile, result, completion);
                 }}
-                onRegister={async (result, completion) => {
-                  const registered = await onRegister?.(result, completion);
-                  if (registered) registeredApi.current = registered;
-                  return registered;
-                }}
+                onRegister={register}
                 onChangeFolder={() => { setError(null); setFoundRoot(null); rememberFoundRoot(null); }}
                 onPickRoot={(path) => { setError(null); setFoundRoot(path); rememberFoundRoot(path); }}
                 onError={reportError}
@@ -1106,11 +1267,11 @@ export function LawossWelcomePage({
             ) : null}
           </section>
         ) : null}
-        {/* Počas obrazovky „Toto som našiel“ päta nie je: bežiaci zápis by sa dal potichu opustiť;
-            obrazovka má vlastné „Vybrať iný priečinok“, vypnuté počas zápisu. Krok Priečinok má Späť
-            pri nadpise (pod veľkými voľbami by bolo až po rolovaní). */}
+        {/* Sprievodca má navigáciu pri nadpise každého kroku. V toku z bočného panela počas obrazovky „Toto som
+            našiel“ päta nie je: bežiaci zápis by sa dal potichu opustiť; obrazovka má vlastné „Vybrať iný
+            priečinok“, vypnuté počas zápisu. Krok Priečinok má Späť pri nadpise. */}
         {/* Formulár prípadu má Zrušiť a Teraz preskočiť pri nadpise (test 19. 10. 2026); kým sa hľadá klient, ostáva päta. */}
-        {step !== "identity" && step !== "done" && !(step === "matter" && !openClientPending) && !foundRoot && !folderScreen ? (
+        {!wizard && step !== "identity" && step !== "done" && !(step === "matter" && !openClientPending) && !foundRoot && !folderScreen ? (
           <footer className="mt-8 flex justify-between">
             {backNav}
             {step === "client" || step === "matter" ? (
@@ -1128,69 +1289,13 @@ export function LawossWelcomePage({
     </DirectoryPickerContext.Provider>
   );
 }
-export function Identity({
-  base,
-  locale,
-  tr,
-  busy,
-  onSave,
-}: {
-  base: OnboardingProfile;
-  locale: Language;
-  tr: (key: string) => string;
-  busy: boolean;
-  onSave: (
-    value: Pick<OnboardingProfile, "lawyerName" | "jurisdiction" | "language">,
-  ) => Promise<void>;
-}) {
-  const [name, setName] = useState(base.lawyerName);
-  const [jurisdiction, setJurisdiction] = useState(base.jurisdiction);
-  const [language, setLanguage] = useState<Language>(base.language ?? locale);
-  return (
-    <>
-      {field(
-        tr("lawyer"),
-        <Input value={name} onChange={(e) => setName(e.target.value)} />,
-      )}
-      {field(
-        tr("jurisdiction"),
-        <select
-          className="lw-onb-select"
-          value={jurisdiction}
-          onChange={(e) => setJurisdiction(e.target.value as "sk" | "cz")}
-        >
-          <option value="sk">{tr("jurisdictionSk")}</option>
-          <option value="cz">{tr("jurisdictionCz")}</option>
-        </select>,
-      )}
-      {field(
-        tr("language"),
-        <select
-          className="lw-onb-select"
-          value={language}
-          onChange={(e) => {
-            const next = e.target.value as Language;
-            setLanguage(next);
-            // Rozhranie sa prepne hneď (rodič číta useLocale), nie až po uložení.
-            setLanguagePreference(next);
-          }}
-        >
-          {UI_LANGUAGES.map((x) => (
-            <option key={x.value} value={x.value}>{x.nativeName}</option>
-          ))}
-        </select>,
-      )}
-      <Button
-        disabled={busy || !name.trim()}
-        onClick={() =>
-          void onSave({ lawyerName: name, jurisdiction, language })
-        }
-      >
-        {tr("save")}
-      </Button>
-    </>
-  );
+
+/** Krok Pripravené so živým stavom modelu (rovnaký zdroj ako krok AI asistent). */
+function ReadyStepLive(props: Omit<ReadyStepProps, "model">) {
+  const model = useOnboardingModel();
+  return <ReadyStep {...props} model={model} />;
 }
+
 /** Rodičovský priečinok cesty (aj vloženej v úvodzovkách); kópia skúšobného klonu vznikne predvolene vedľa originálu. */
 export function parentFolderOf(path: string): string {
   const trimmed = unquotedTypedPath(path).replace(/[\\/]+$/, "");

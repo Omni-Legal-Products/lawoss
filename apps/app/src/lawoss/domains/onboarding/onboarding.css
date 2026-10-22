@@ -71,3 +71,160 @@
 .lw-onb-choice h3 { font-size: 1.05rem; font-weight: 600; }
 .lw-onb-choice p { color: var(--muted-foreground, #9aa4ae); font-size: 0.92rem; }
 .lw-onb-choice .lw-btn { justify-self: start; }
+
+/* ── Sprievodca po krokoch (C1, alfa 2) ──────────────────────────────────────────────────────────────
+   Ilustrácie v štýle TaskIllustration: vlastný akcent (premenná `--lw-illustration-accent` je inak len
+   v upstream session-surfaces.css). Stav nikdy len farbou: každý odznak má ikonu aj slovo. */
+.lw-onb { --lw-illustration-accent: var(--lw-gold); }
+.lw-wiz-illustration { width: 100%; max-width: 168px; height: auto; display: block; }
+
+.lw-wiz-progress { margin-top: 22px; }
+.lw-wiz-progress .lw-onb-steps { margin-top: 0; }
+.lw-wiz-progress-count { display: none; margin: 0 0 8px; font-size: 12px; color: var(--lw-text-secondary); }
+.lw-onb-step-link { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer; border-radius: var(--lw-radius-sm); }
+.lw-onb-step-link:hover .lw-onb-step-label { color: var(--lw-text-primary); text-decoration: underline; text-underline-offset: 3px; }
+.lw-onb-step-link:focus-visible { outline: 2px solid color-mix(in srgb, var(--lw-gold) 70%, transparent); outline-offset: 3px; }
+.lw-onb-step-link:disabled { cursor: default; }
+.lw-onb-step-check { display: inline-block; width: 12px; height: 12px; margin-inline-end: 3px; vertical-align: -1px; color: var(--lw-success); }
+@media (max-width: 640px) {
+  .lw-wiz-progress-count { display: block; }
+  .lw-onb-steps li:not([data-state="current"]) .lw-onb-step-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
+
+.lw-wiz-screen { display: grid; gap: 20px; min-width: 0; }
+.lw-wiz-screen h2:focus { outline: none; }
+.lw-wiz-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.lw-wiz-nav { display: flex; flex-wrap: wrap; gap: 8px; }
+.lw-wiz-intro { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; }
+.lw-wiz-lead { color: var(--lw-text-secondary); font-size: 15px; line-height: 1.5; }
+.lw-wiz-art { width: 168px; }
+@media (max-width: 560px) {
+  .lw-wiz-intro { grid-template-columns: minmax(0, 1fr); }
+  .lw-wiz-art { width: 128px; }
+}
+
+.lw-wiz-details { border-top: 1px solid var(--lw-border-subtle, var(--lw-border)); padding-top: 12px; }
+.lw-wiz-details > summary { cursor: pointer; font-size: 13.5px; font-weight: 500; color: var(--lw-text-secondary); }
+.lw-wiz-details > summary:hover { color: var(--lw-text-primary); }
+.lw-wiz-details > summary:focus-visible { outline: 2px solid color-mix(in srgb, var(--lw-gold) 70%, transparent); outline-offset: 2px; border-radius: var(--lw-radius-sm); }
+.lw-wiz-details-body { margin-top: 12px; font-size: 13.5px; color: var(--lw-text-secondary); }
+
+.lw-wiz-form { display: grid; gap: 18px; }
+.lw-wiz-field { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.lw-wiz-label { font-size: 13.5px; font-weight: 600; color: var(--lw-text-primary); padding: 0; }
+.lw-wiz-hint { font-size: 12.5px; color: var(--lw-text-tertiary); }
+.lw-wiz-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.lw-wiz-chip { position: relative; }
+.lw-wiz-chip input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.lw-wiz-chip span { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 14px; border: 1px solid var(--lw-border); border-radius: 999px; font-size: 14px; color: var(--lw-text-secondary); background: color-mix(in srgb, var(--lw-text-primary) 2%, transparent); }
+.lw-wiz-chip input:checked + span { border-color: var(--lw-gold); color: var(--lw-text-primary); font-weight: 600; background: color-mix(in srgb, var(--lw-gold) 12%, transparent); }
+.lw-wiz-chip input:checked + span::before { content: "✓"; color: var(--lw-gold); }
+.lw-wiz-chip input:focus-visible + span { outline: 2px solid color-mix(in srgb, var(--lw-gold) 70%, transparent); outline-offset: 2px; }
+.lw-wiz-chip input:disabled + span { opacity: 0.6; }
+.lw-wiz-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+
+.lw-wiz-resume { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--lw-gold) 35%, transparent); border-radius: var(--lw-radius-lg); background: color-mix(in srgb, var(--lw-gold) 6%, transparent); font-size: 14px; }
+.lw-wiz-choice h3 { display: flex; align-items: center; gap: 8px; }
+.lw-wiz-choice h3 svg { color: var(--lw-gold); flex: none; }
+.lw-wiz-choice .lw-wiz-illustration { max-width: 132px; }
+.lw-wiz-example { margin: 0; padding: 10px 12px; border: 1px dashed var(--lw-border); border-radius: var(--lw-radius-md); background: color-mix(in srgb, var(--lw-text-primary) 2%, transparent); }
+.lw-wiz-example figcaption { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--lw-text-tertiary); margin-bottom: 6px; }
+.lw-wiz-example ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--lw-text-secondary); }
+.lw-wiz-example li { display: flex; align-items: center; gap: 6px; }
+.lw-wiz-example svg { color: var(--lw-gold); }
+
+/* Strom „Toto sme našli“. */
+.lw-wiz-tree { max-height: 420px; overflow: auto; padding: 12px 14px; border: 1px solid var(--lw-border-subtle, var(--lw-border)); border-radius: var(--lw-radius-lg); background: color-mix(in srgb, var(--lw-text-primary) 2%, transparent); }
+.lw-wiz-tree ul { margin: 0; padding: 0; list-style: none; }
+.lw-wiz-tree ul ul { margin-inline-start: 11px; padding-inline-start: 14px; border-inline-start: 1px solid var(--lw-border); }
+.lw-wiz-tree-row { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 3px 0; }
+.lw-wiz-tree-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--lw-gold); flex: none; }
+.lw-wiz-tree-icon { display: inline-flex; color: var(--lw-gold); flex: none; }
+.lw-wiz-tree-name { min-width: 0; flex: 1; font-size: 14px; overflow-wrap: anywhere; }
+.lw-wiz-tree-name small { display: block; font-size: 12px; color: var(--lw-text-tertiary); }
+.lw-wiz-tree-more { padding: 3px 0 3px 2px; font-size: 12.5px; color: var(--lw-text-tertiary); }
+.lw-wiz-adds { display: grid; gap: 8px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--lw-gold) 30%, transparent); border-radius: var(--lw-radius-lg); }
+.lw-wiz-adds h3 { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
+.lw-wiz-adds h3 svg { color: var(--lw-gold); }
+.lw-wiz-keeps { display: flex; align-items: flex-start; gap: 8px; font-size: 13.5px; color: var(--lw-text-primary); }
+.lw-wiz-keeps svg { color: var(--lw-success); margin-top: 2px; }
+
+/* Odznak stavu: ikona + slovo, tón len doplnok. */
+.lw-wiz-badge { display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 2px 8px; border: 1px solid var(--lw-border); border-radius: 999px; font-size: 12px; font-weight: 500; color: var(--lw-text-secondary); white-space: nowrap; }
+.lw-wiz-badge[data-tone="ok"] { border-color: color-mix(in srgb, var(--lw-success) 55%, transparent); color: var(--lw-success); background: var(--lw-success-soft); }
+.lw-wiz-badge[data-tone="missing"] { border-color: color-mix(in srgb, var(--lw-danger) 45%, transparent); color: var(--lw-danger); background: var(--lw-danger-soft); }
+.lw-wiz-badge[data-tone="warn"] { border-color: color-mix(in srgb, var(--lw-warning) 55%, transparent); color: var(--lw-warning); background: var(--lw-warning-soft); }
+
+/* Voľby ako karty (rozsah praxe, režim agenta). */
+.lw-wiz-cards { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.lw-wiz-card-option { display: flex; gap: 10px; align-items: flex-start; padding: 14px; border: 1px solid var(--lw-border); border-radius: var(--lw-radius-lg); cursor: pointer; background: color-mix(in srgb, var(--lw-text-primary) 2%, transparent); }
+.lw-wiz-card-option:has(input:checked) { border-color: var(--lw-gold); background: color-mix(in srgb, var(--lw-gold) 8%, transparent); }
+.lw-wiz-card-option:has(input:focus-visible) { outline: 2px solid color-mix(in srgb, var(--lw-gold) 70%, transparent); outline-offset: 2px; }
+.lw-wiz-card-option:has(input:disabled) { cursor: default; opacity: 0.75; }
+.lw-wiz-card-option input { margin-top: 3px; accent-color: var(--lw-gold); flex: none; }
+.lw-wiz-card-option > span { display: grid; gap: 4px; min-width: 0; }
+.lw-wiz-card-option strong { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 14px; }
+.lw-wiz-card-option small { font-size: 12.5px; color: var(--lw-text-secondary); line-height: 1.45; }
+.lw-wiz-card-yolo { border-style: dashed; }
+.lw-wiz-card-yolo:has(input:checked) { border-color: var(--lw-danger); background: var(--lw-danger-soft); }
+.lw-wiz-tag { padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--lw-success); border: 1px solid color-mix(in srgb, var(--lw-success) 50%, transparent); }
+.lw-wiz-warn-text { display: inline-flex; align-items: center; gap: 4px; color: var(--lw-danger) !important; font-weight: 600; }
+.lw-wiz-confirm { display: grid; gap: 8px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--lw-danger) 45%, transparent); border-radius: var(--lw-radius-lg); background: var(--lw-danger-soft); font-size: 13.5px; }
+.lw-btn.lw-btn-danger { border-color: var(--lw-danger); color: var(--lw-danger); font-weight: 600; }
+.lw-btn.lw-btn-danger:hover { background: var(--lw-danger-soft); }
+.lw-wiz-note, .lw-wiz-state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13.5px; color: var(--lw-text-secondary); }
+.lw-wiz-note[data-tone="warn"] { padding: 10px 12px; border: 1px solid var(--lw-warning); border-radius: var(--lw-radius-md); background: var(--lw-warning-soft); color: var(--lw-text-primary); }
+.lw-wiz-note svg, .lw-wiz-state > span { display: inline-flex; }
+.lw-wiz-state[data-tone="ok"] > span { color: var(--lw-success); }
+.lw-wiz-state[data-tone="missing"] > span, .lw-wiz-state[data-tone="warn"] > span { color: var(--lw-warning); }
+
+/* Diagramy toku: v širokom okne vedľa seba, v úzkom pod sebou so šípkou nadol. */
+.lw-wiz-figure { margin: 0; display: grid; gap: 8px; }
+.lw-wiz-figure figcaption { font-size: 12.5px; color: var(--lw-text-tertiary); }
+.lw-wiz-flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; margin: 0; padding: 0; list-style: none; counter-reset: lw-flow; }
+.lw-wiz-flow-item { display: flex; align-items: center; gap: 6px; flex: 1 1 0; min-width: 0; }
+.lw-wiz-flow-arrow { width: 20px; height: 20px; flex: none; color: var(--lw-text-tertiary); }
+.lw-wiz-flow-node { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 6px; min-width: 0; padding: 12px 8px; border: 1px solid var(--lw-border); border-radius: var(--lw-radius-lg); background: var(--lw-surface); text-align: center; }
+.lw-wiz-flow-node[data-emphasis="true"] { border: 2px solid var(--lw-gold); }
+.lw-wiz-flow-icon { display: inline-flex; color: var(--lw-gold); }
+.lw-wiz-flow-label { font-size: 13px; font-weight: 500; line-height: 1.3; overflow-wrap: anywhere; }
+@media (max-width: 560px) {
+  .lw-wiz-flow { flex-direction: column; }
+  .lw-wiz-flow-item { flex-direction: column; align-items: stretch; }
+  .lw-wiz-flow-arrow { align-self: center; transform: rotate(90deg); }
+  .lw-wiz-flow-node { flex-direction: row; justify-content: flex-start; text-align: start; }
+}
+
+.lw-wiz-providers { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.lw-wiz-provider { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--lw-border); border-radius: var(--lw-radius-lg); }
+.lw-wiz-provider > svg { color: var(--lw-gold); flex: none; }
+.lw-wiz-provider strong { display: block; font-size: 14px; }
+.lw-wiz-provider small { display: block; font-size: 12.5px; color: var(--lw-text-secondary); }
+.lw-wiz-provider[data-connected="false"] { border-style: dashed; }
+
+/* Ukážka karty schválenia (statická). */
+.lw-wiz-approval { margin: 0; display: grid; gap: 6px; justify-items: start; }
+.lw-wiz-approval-card { width: min(100%, 420px); display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--lw-border-strong); border-radius: var(--lw-radius-lg); background: var(--lw-surface); box-shadow: var(--lw-shadow-sm); }
+.lw-wiz-approval-title { display: flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; }
+.lw-wiz-approval-title svg { color: var(--lw-gold); }
+.lw-wiz-approval-change { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-family: var(--lw-font-mono); font-size: 12px; color: var(--lw-text-secondary); overflow-wrap: anywhere; }
+.lw-wiz-approval-from { text-decoration: line-through; color: var(--lw-text-tertiary); }
+.lw-wiz-approval-buttons { display: flex; gap: 8px; }
+.lw-wiz-fake-btn { padding: 4px 12px; border: 1px solid var(--lw-border); border-radius: 999px; font-size: 12.5px; color: var(--lw-text-secondary); }
+.lw-wiz-fake-btn.primary { border-color: transparent; background: var(--lw-metal); color: var(--lw-on-gold); font-weight: 600; }
+.lw-wiz-approval figcaption { font-size: 12.5px; color: var(--lw-text-tertiary); }
+
+/* Súhrn „Pripravené“. */
+.lw-wiz-summary { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; border: 1px solid var(--lw-border-subtle, var(--lw-border)); border-radius: var(--lw-radius-lg); }
+.lw-wiz-summary li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 14px; }
+.lw-wiz-summary li + li { border-top: 1px solid var(--lw-border-subtle, var(--lw-border)); }
+.lw-wiz-summary-label { flex: 0 0 140px; font-size: 13px; font-weight: 600; }
+.lw-wiz-summary-value { flex: 1 1 160px; min-width: 0; font-size: 14px; color: var(--lw-text-secondary); overflow-wrap: anywhere; }
+.lw-wiz-first { display: grid; gap: 10px; padding: 16px; border: 1px solid color-mix(in srgb, var(--lw-gold) 35%, transparent); border-radius: var(--lw-radius-lg); background: color-mix(in srgb, var(--lw-gold) 5%, transparent); }
+.lw-wiz-first .lw-btn svg { width: 16px; height: 16px; }
+@media (max-width: 560px) {
+  .lw-wiz-summary-label { flex-basis: 100%; }
+  .lw-onb-panel { padding: 18px 16px; }
+}
+/* Dlhé mená klientov v tlačidlách sa v úzkom okne zalomia (inak by tlačidlo pretieklo cez okraj). */
+.lw-onb .lw-wiz-screen .lw-btn { white-space: normal; height: auto; min-height: 36px; padding-block: 7px; max-width: 100%; text-align: start; line-height: 1.3; }

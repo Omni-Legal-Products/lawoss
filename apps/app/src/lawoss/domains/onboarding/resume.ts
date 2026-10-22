@@ -29,13 +29,16 @@ export function openingStep(
   return profile?.step ?? savedStep;
 }
 
+/** Kroky sprievodcu od „Toto sme našli“ ďalej; návrat na „Toto sme našli“ z nich potrebuje vybraný priečinok (C1). */
+const AFTER_FOLDER: ReadonlySet<OnboardingStep> = new Set(["found", "ai", "approvals", "ready"]);
+
 /**
- * Obnova kroku „Toto som našiel“ (M1, 22. 10. 2026): len pri obnovenom kroku `found` bez priečinka z adresy
- * (`?root=` má prednosť). `root` otvorí obrazovku s uloženým priečinkom; `missing` (priečinok medzitým zmizol)
- * nechá krok Priečinok s krátkou vetou; `null` znamená bežný výber priečinka.
+ * Obnova kroku „Toto som našiel“ (M1, 22. 10. 2026): pri obnovenom kroku `found` alebo neskoršom kroku sprievodcu
+ * (C1) bez priečinka z adresy (`?root=` má prednosť). `root` otvorí obrazovku s uloženým priečinkom; `missing`
+ * (priečinok medzitým zmizol) nechá krok Priečinok s krátkou vetou; `null` znamená bežný výber priečinka.
  */
 export function resumeFound(step: OnboardingStep, profile: OnboardingProfile | null, initialRoot?: string, foundRootMissing = false): { root: string } | { missing: string } | null {
-  if (step !== "found" || initialRoot || !profile?.foundRoot) return null;
+  if (!AFTER_FOLDER.has(step) || initialRoot || !profile?.foundRoot) return null;
   return foundRootMissing ? { missing: profile.foundRoot } : { root: profile.foundRoot };
 }
 
