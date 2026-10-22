@@ -294,7 +294,12 @@ test('only the externally authenticated target, lock and exact identity shape ar
 
 test('an unowned, aliased or overlapping workspace is never adopted', async t => {
   const f = await capsule(t), ownerFile = path.join(f.workspace, '.owner.json'), original = await readFile(ownerFile);
-  const owner = JSON.parse(original); await writeFile(ownerFile, JSON.stringify({ ...owner, ino: owner.ino + 1 }));
+  const owner = JSON.parse(original), changedIno = owner.ino === 0 ? 1 : 0;
+  assert.notEqual(changedIno, owner.ino);
+  await writeFile(ownerFile, JSON.stringify({ ...owner, ino: changedIno }));
+  const changedOwner = JSON.parse(await readFile(ownerFile, 'utf8'));
+  assert.equal(changedOwner.ino, changedIno);
+  assert.notEqual(changedOwner.ino, owner.ino);
   await assert.rejects(extractAndVerifyProductSdkCapsule(f), { code: 'WORKSPACE_INVALID' });
   await writeFile(ownerFile, original);
   await assert.rejects(extractAndVerifyProductSdkCapsule({ ...f, workspace: f.resourceRoot }));
@@ -409,20 +414,65 @@ test('nested compressed input is refused before the tar parser can bypass the ou
 
 test('authenticated source archive content and physical path must remain unchanged through extraction', async t => {
   const { writeFileSync, renameSync } = await import('node:fs');
-  for (const mutation of ['bytes', 'inode']) {
+  for (const mutation of ['bytes', 'physical-observation', 'physical-rename']) await t.test(mutation, {
+    skip: mutation === 'physical-rename' && process.platform === 'win32'
+      ? 'supplementary rename over an open archive is unavailable on Windows; portable physical observation still runs' : false,
+  }, async t => {
     const f = await capsule(t), archive = path.join(f.resourceRoot, 'payload.tgz');
     const originalBytes = await readFile(archive), descriptor = Object.getOwnPropertyDescriptor(tar, 'x'), original = tar.x;
-    let extractions = 0;
-    Object.defineProperty(tar, 'x', { configurable: true, value: options => {
-      original(options); extractions++;
-      if (mutation === 'bytes') writeFileSync(archive, Buffer.alloc(originalBytes.length, 0));
-      else { writeFileSync(`${archive}.replacement`, originalBytes); renameSync(`${archive}.replacement`, archive); }
-    } });
-    try { await assert.rejects(extractAndVerifyProductSdkCapsule(f), { code: 'PRODUCT_SDK_CAPSULE_INVALID' }); }
-    finally { Object.defineProperty(tar, 'x', descriptor); }
+    const lstatDescriptor = Object.getOwnPropertyDescriptor(fsPromises, 'lstat'), originalLstat = fsPromises.lstat;
+    const before = await lstat(archive, { bigint: true });
+    // A real separate same-byte file, outside the authenticated two-entry root.
+    // The portable case controls one path observation, not a Windows rename.
+    const replacement = path.join(f.f.buildParent, 'source-replacement.tgz');
+    let replacementStat;
+    if (mutation !== 'bytes') {
+      await writeFile(replacement, originalBytes);
+      assert.deepEqual(await readFile(replacement), originalBytes);
+      replacementStat = await lstat(replacement, { bigint: true });
+      assert.notEqual(`${before.dev}:${before.ino}`, `${replacementStat.dev}:${replacementStat.ino}`);
+    }
+    let extractions = 0, pathObservations = 0;
+    try {
+      Object.defineProperty(tar, 'x', { configurable: true, value: options => {
+        original(options); extractions++;
+        if (mutation === 'bytes') writeFileSync(archive, Buffer.alloc(originalBytes.length, 0));
+        else if (mutation === 'physical-rename') renameSync(replacement, archive);
+      } });
+      if (mutation === 'physical-observation') {
+        Object.defineProperty(fsPromises, 'lstat', { ...lstatDescriptor, value: async (file, options) => {
+          const stat = await originalLstat(file, options);
+          if (extractions === 1 && file === archive && options?.bigint === true) {
+            pathObservations++;
+            return replacementStat;
+          }
+          return stat;
+        } });
+        syncBuiltinESMExports();
+      }
+      await assert.rejects(extractAndVerifyProductSdkCapsule(f), { code: 'PRODUCT_SDK_CAPSULE_INVALID' });
+    } finally {
+      Object.defineProperty(tar, 'x', descriptor);
+      Object.defineProperty(fsPromises, 'lstat', lstatDescriptor);
+      syncBuiltinESMExports();
+    }
     assert.equal(extractions, 1);
     assert.deepEqual((await readdir(f.workspace)).sort(), emptyWorkspace);
-  }
+    assert.deepEqual((await readdir(f.resourceRoot)).sort(), ['payload.tgz', 'verifier']);
+    if (mutation === 'physical-observation') {
+      assert.equal(pathObservations, 1);
+      assert.deepEqual(await readFile(archive), originalBytes);
+      const after = await lstat(archive, { bigint: true }), retained = await lstat(replacement, { bigint: true });
+      assert.equal(`${after.dev}:${after.ino}`, `${before.dev}:${before.ino}`);
+      assert.deepEqual(retained, replacementStat);
+      assert.deepEqual(await readFile(replacement), originalBytes);
+    } else if (mutation === 'physical-rename') {
+      const after = await lstat(archive, { bigint: true });
+      assert.equal(`${after.dev}:${after.ino}`, `${replacementStat.dev}:${replacementStat.ino}`);
+      assert.notEqual(`${after.dev}:${after.ino}`, `${before.dev}:${before.ino}`);
+      assert.deepEqual(await readFile(archive), originalBytes);
+    }
+  });
 });
 
 test('the bound static verifier inventory is checked again before payload publication', async t => {

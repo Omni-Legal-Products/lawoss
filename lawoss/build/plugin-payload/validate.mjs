@@ -123,16 +123,16 @@ export function unchangedGraph(before, tree) {
 export async function inventory(root, onFailure) {
   let guard = 'inventory-stat';
   const records = [];
-  let bytes = 0;
+  let bytes = 0n;
   let entries = 0;
   const identities = new Set();
   const canonicalRoot = await realpath(root);
   async function visit(relative) {
     const full = path.join(root, relative);
     guard = 'inventory-stat';
-    const stat = await lstat(full);
+    const stat = await lstat(full, { bigint: true });
     guard = 'inventory-limit';
-    if (++entries > 30000 || relative.split('/').length > 64 || bytes > 256 * 1024 * 1024) fail('TREE_LIMIT');
+    if (++entries > 30000 || relative.split('/').length > 64 || bytes > 256n * 1024n * 1024n) fail('TREE_LIMIT');
     if (stat.isDirectory()) {
       guard = 'inventory-read';
       for (const name of (await readdir(full)).sort()) await visit(relative ? `${relative}/${name}` : name);
@@ -144,15 +144,15 @@ export async function inventory(root, onFailure) {
       records.push({ path: relative, link: target });
     } else if (stat.isFile()) {
       guard = 'inventory-nlink';
-      if (stat.nlink !== 1) fail('TREE_UNSAFE');
+      if (stat.nlink !== 1n) fail('TREE_UNSAFE');
       guard = 'inventory-identity';
       if (identities.has(`${stat.dev}:${stat.ino}`)) fail('TREE_UNSAFE');
       identities.add(`${stat.dev}:${stat.ino}`);
       bytes += stat.size;
       guard = 'inventory-limit';
-      if (bytes > 256 * 1024 * 1024 || stat.size > 32 * 1024 * 1024) fail('TREE_LIMIT');
+      if (bytes > 256n * 1024n * 1024n || stat.size > 32n * 1024n * 1024n) fail('TREE_LIMIT');
       guard = 'inventory-read';
-      records.push({ path: relative, bytes: stat.size, executable: !!(stat.mode & 0o111), sha256: sha256(await readFile(full)) });
+      records.push({ path: relative, bytes: Number(stat.size), executable: !!(stat.mode & 0o111n), sha256: sha256(await readFile(full)) });
     } else {
       guard = 'inventory-type';
       fail('TREE_UNSAFE');
