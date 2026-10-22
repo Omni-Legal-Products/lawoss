@@ -458,3 +458,10 @@ inert data, rejects source/code/resource mismatches and omitted final gates,
 and preserves the original18 sidecar assertions. Those fixtures do not establish
 full desktop build/signing, installed startup, managed config provisioning or
 six-target acceptance. The private SDK resource is not yet consumed at runtime.
+
+
+### Build-only failure observations
+
+The optional synchronous failure observer on `verifyBuildPayload` and the build-only bundle/publisher/capsule APIs reports frozen closed guard/code categories. Publisher contexts distinguish source admission, copied admission, capsule original and capsule roundtrip. It observes the original operation before error translation, adds no filesystem reads or retries and cannot replace the original failure when it throws. Own primitive error codes are structural observations, not authenticated OS causes.
+
+The expected-valid capsule test fixture prints at most three events only when setup fails, then rethrows the same error. Successful fixtures stay silent. Producer/runtime default callers do not enable the observer. Changes to `validate.mjs`, including diagnostics, invalidate prior source-bound compatibility evidence; refresh native producer/consumer proof for the final source set before claiming current compatibility.
