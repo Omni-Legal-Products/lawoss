@@ -92,7 +92,7 @@ export function nativeAppEnvironment(root, { platform = process.platform, enviro
     ...(platform === 'darwin' ? { LAWOSS_DEV_MOCK_KEYCHAIN: '1' } : {}),
     ...(platform === 'win32' ? { USERPROFILE: home, APPDATA: config, LOCALAPPDATA: data, LAWOSS_ALPHA_STARTUP_CHECKPOINTS: '1' } : {}),
     TMPDIR: temp, TMP: temp, TEMP: temp,
-    XDG_CONFIG_HOME: config, XDG_DATA_HOME: data, XDG_CACHE_HOME: paths.join(root, 'cache'),
+    XDG_CONFIG_HOME: config, XDG_DATA_HOME: data, XDG_CACHE_HOME: paths.join(root, 'cache'), XDG_STATE_HOME: paths.join(root, 'state'),
     NODE_OPTIONS: '', ELECTRON_RUN_AS_NODE: '', LEGALWORK_DEV_MODE: '0',
     LEGALWORK_ELECTRON_USERDATA: paths.join(root, 'userdata'), LEGALWORK_DATA_DIR: paths.join(root, 'runtime'),
     LEGALWORK_SERVER_CONFIG: paths.join(root, 'runtime/server.json'), LEGALWORK_RUNTIME_DB: paths.join(root, 'runtime/runtime.db'),
@@ -333,7 +333,7 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
     }
   }
   try {
-    for (const name of ['userdata', 'runtime', 'workspace', 'home', 'config', 'data', 'cache', 'tmp']) await ownedDirectory(path.join(root, name));
+    for (const name of ['userdata', 'runtime', 'workspace', 'home', 'config', 'data', 'cache', 'tmp', 'state']) await ownedDirectory(path.join(root, name));
     const discoveryPath = path.join(root, 'userdata/legalwork-ui-control.json');
     await rm(discoveryPath, { force: true });
     if (process.platform === 'win32') {

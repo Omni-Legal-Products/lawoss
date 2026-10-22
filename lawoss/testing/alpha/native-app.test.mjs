@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, link, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { tmpdir, hostname } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, win32 } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { assertCaptureBinding, assertInteractiveUi, launchAlphaApp, NativeAlphaLaunchError, nativeAppLayout, nativeAppEnvironment } from './native-app.mjs';
@@ -32,7 +32,8 @@ test('layout uses the installed bundle on macOS and the actual executable on Lin
 test('environment has explicit synthetic storage and preserves only native UI/system necessities', () => {
   const ambient = { PATH: '/pinned-node:/usr/bin', DISPLAY: ':42', XAUTHORITY: '/owned/Xauthority',
     WAYLAND_DISPLAY: 'wayland-0', XDG_RUNTIME_DIR: '/run/user/1', DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/bus',
-    HOME: '/private', OPENAI_API_KEY: 'private-key', NODE_OPTIONS: '--import=private',
+    HOME: '/private', TEST_HOME: '/private/engine-test-home', OPENAI_API_KEY: 'private-key', NODE_OPTIONS: '--import=private',
+    XDG_STATE_HOME: '/private/state', xDg_StAtE_hOmE: 'C:\\private\\mixed-state',
     ELECTRON_RUN_AS_NODE: '1', ELECTRON_EXTRA_LAUNCH_ARGS: '--remote-debugging-port=9222',
     LEGALWORK_UI_CONTROL_DISCOVERY: '/private/discovery', OPENCODE_CONFIG: 'private', LEGALWORK_WORKSPACES: '/private/workspaces',
     SystemRoot: 'C:\\Windows', WINDIR: 'C:\\Windows', APPDATA: 'private', USERPROFILE: 'private',
@@ -42,6 +43,8 @@ test('environment has explicit synthetic storage and preserves only native UI/sy
   for (const key of ['DISPLAY', 'XAUTHORITY', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS']) assert.equal(linux[key], ambient[key]);
   assert.equal(linux.HOME, '/owned/home');
   assert.equal(linux.TMPDIR, '/owned/tmp');
+  assert.equal(linux.XDG_STATE_HOME, '/owned/state');
+  assert.equal(isAbsolute(linux.XDG_STATE_HOME), true);
   assert.equal(linux.LEGALWORK_ELECTRON_USERDATA, '/owned/userdata');
   assert.equal(linux.LEGALWORK_SERVER_CONFIG, '/owned/runtime/server.json');
   assert.equal(linux.NODE_OPTIONS, '');
@@ -55,9 +58,18 @@ test('environment has explicit synthetic storage and preserves only native UI/sy
   assert.equal(windows.APPDATA, 'C:\\owned\\config');
   assert.equal(windows.LOCALAPPDATA, 'C:\\owned\\data');
   assert.equal(windows.TEMP, 'C:\\owned\\tmp');
+  assert.equal(windows.XDG_STATE_HOME, 'C:\\owned\\state');
+  assert.equal(win32.isAbsolute(windows.XDG_STATE_HOME), true);
   assert.equal(windows.DISPLAY, undefined);
   assert.equal(windows.LAWOSS_ALPHA_STARTUP_CHECKPOINTS, '1');
   const mac = nativeAppEnvironment('/owned', { platform: 'darwin', environment: ambient });
+  assert.equal(mac.XDG_STATE_HOME, '/owned/state');
+  assert.equal(isAbsolute(mac.XDG_STATE_HOME), true);
+  for (const env of [linux, windows, mac]) {
+    assert.deepEqual(Object.keys(env).filter(key => key.toLowerCase() === 'xdg_state_home'), ['XDG_STATE_HOME']);
+    assert.equal(env.OPENAI_API_KEY, undefined);
+    assert.equal(env.TEST_HOME, undefined);
+  }
   assert.equal(mac.LAWOSS_DEV_MOCK_KEYCHAIN, '1');
   assert.equal(mac.LAWOSS_ALPHA_STARTUP_CHECKPOINTS, undefined);
   assert.equal(linux.LAWOSS_ALPHA_STARTUP_CHECKPOINTS, undefined);
@@ -65,9 +77,47 @@ test('environment has explicit synthetic storage and preserves only native UI/sy
   assert.equal(windows.LAWOSS_DEV_MOCK_KEYCHAIN, undefined);
 });
 
+test('returned environment confines a real Node child state write and preserves hostile ambient state', async t => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'alpha-state-environment-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const profile = join(root, 'owned'), state = join(profile, 'state'), outside = join(root, 'ambient-state');
+  await mkdir(state, { recursive: true });
+  await mkdir(outside);
+  const sentinel = Buffer.from('preserve ambient state\n');
+  await writeFile(join(outside, 'sentinel'), sentinel);
+  const outsideBefore = await lstat(join(outside, 'sentinel'), { bigint: true });
+  const env = nativeAppEnvironment(profile, { environment: {
+    XDG_STATE_HOME: outside, xDg_StAtE_hOmE: outside, OPENAI_API_KEY: 'private-key', HOME: outside,
+  } });
+  const child = spawn(process.execPath, ['--input-type=module'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const closed = once(child, 'close');
+  let stdout = '', stderr = '';
+  child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk; });
+  child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk; });
+  child.stdin.end(`
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+const state = process.env.XDG_STATE_HOME ?? null;
+if (state) await writeFile(join(state, 'node-state-sentinel'), 'synthetic state\\n', { flag: 'wx', mode: 0o600 });
+process.stdout.write(JSON.stringify({ state, credential: process.env.OPENAI_API_KEY ?? null,
+  stateKeys: Object.keys(process.env).filter(key => key.toLowerCase() === 'xdg_state_home') }));
+`);
+  const [code, signal] = await closed;
+  assert.equal(code, 0);
+  assert.equal(signal, null);
+  assert.equal(stderr, '');
+  assert.deepEqual(JSON.parse(stdout), { state, credential: null, stateKeys: ['XDG_STATE_HOME'] });
+  assert.equal(await readFile(join(state, 'node-state-sentinel'), 'utf8'), 'synthetic state\n');
+  assert.deepEqual(await readdir(state), ['node-state-sentinel']);
+  assert.deepEqual(await readdir(outside), ['sentinel']);
+  assert.deepEqual(await readFile(join(outside, 'sentinel')), sentinel);
+  const outsideAfter = await lstat(join(outside, 'sentinel'), { bigint: true });
+  for (const key of ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs']) assert.equal(outsideAfter[key], outsideBefore[key]);
+});
+
 // A real owned child implements only the shipping HTTP protocol. This fixture
 // tests launcher boundaries; it is not Electron or native acceptance evidence.
-async function fixture(t, { wrong = {}, stall = false, delayedDiscovery = false, readiness = { documentReadyState: 'complete', bootOverlayVisible: false, interactiveControls: 1 } } = {}) {
+async function fixture(t, { wrong = {}, stall = false, delayedDiscovery = false, stateProbe = false, readiness = { documentReadyState: 'complete', bootOverlayVisible: false, interactiveControls: 1 } } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'alpha-native-protocol-')));
   let owned;
   t.after(async () => { try { await owned?.stop(); } finally { await rm(root, { recursive: true, force: true }); } });
@@ -82,6 +132,8 @@ async function fixture(t, { wrong = {}, stall = false, delayedDiscovery = false,
 import { createServer } from 'node:http';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+${stateProbe ? `await writeFile(join(process.env.LEGALWORK_ELECTRON_USERDATA, 'fixture-child-started'), 'started', { flag: 'wx' });
+await writeFile(join(process.env.XDG_STATE_HOME, 'fixture-state-sentinel'), JSON.stringify({ state: process.env.XDG_STATE_HOME }), { flag: 'wx' });` : ''}
 let patch = ${JSON.stringify(wrong)};
 let presentation = null, snapshotCalls = 0;
 const token = 'private-fixture-token';
@@ -255,6 +307,61 @@ test('symlinked storage cannot redirect writes outside the owned profile', { ski
   await symlink(options.root, join(options.profileRoot, 'userdata'));
   await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 5000 }), /unsafe-profile/);
 });
+
+test('launcher prepares owned state before its protocol child writes and closes normally', { skip: process.platform === 'win32' }, async t => {
+  const options = await fixture(t, { stateProbe: true });
+  const app = options.own(await launchAlphaApp({ ...options, build, timeoutMs: 5000 }));
+  const state = join(options.profileRoot, 'state'), info = await lstat(state);
+  assert.equal(info.isDirectory(), true);
+  assert.equal(info.isSymbolicLink(), false);
+  assert.deepEqual(JSON.parse(await readFile(join(state, 'fixture-state-sentinel'), 'utf8')), { state });
+  assert.equal(await readFile(join(options.profileRoot, 'userdata/fixture-child-started'), 'utf8'), 'started');
+  assert.equal((await app.stop()).descendantClosure, 'verified');
+  await assert.rejects(readFile(join(options.profileRoot, '.alpha-native-app.lock')), { code: 'ENOENT' });
+});
+
+for (const kind of ['in-profile link', 'regular file', 'hardlinked file']) {
+  test(`launcher refuses ${kind} at state before child or discovery mutation and retains unknown entries`, { skip: process.platform === 'win32' }, async t => {
+    const options = await fixture(t, { stateProbe: true });
+    const state = join(options.profileRoot, 'state'), target = join(options.profileRoot, 'unknown-state-target');
+    const contents = 'retain unknown state';
+    if (kind === 'in-profile link') {
+      await mkdir(target);
+      await writeFile(join(target, 'sentinel'), contents);
+      await symlink(target, state);
+    } else if (kind === 'hardlinked file') {
+      await writeFile(target, contents);
+      await link(target, state);
+    } else await writeFile(state, contents);
+    const before = await lstat(state, { bigint: true });
+    await mkdir(join(options.profileRoot, 'userdata'));
+    const discovery = join(options.profileRoot, 'userdata/legalwork-ui-control.json');
+    await writeFile(discovery, 'retain stale discovery');
+    await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 5000 }).then(options.own), error => {
+      assert.equal(error.code, kind === 'hardlinked file' ? 'unsafe-profile-entry' : 'unsafe-profile');
+      if (kind !== 'hardlinked file') {
+        assert.ok(error instanceof NativeAlphaLaunchError);
+        assert.equal(error.nativeCleanup.method, 'no-child-started');
+        assert.equal(error.nativeCleanup.descendantClosure, 'verified');
+      }
+      return true;
+    });
+    const after = await lstat(state, { bigint: true });
+    // Admission may read a link; access time is not a mutation of its identity or bytes.
+    for (const key of ['dev', 'ino', 'mode', 'nlink', 'size', 'mtimeNs', 'ctimeNs']) assert.equal(after[key], before[key]);
+    assert.equal(await readFile(discovery, 'utf8'), 'retain stale discovery');
+    await assert.rejects(readFile(join(options.profileRoot, 'userdata/fixture-child-started')), { code: 'ENOENT' });
+    await assert.rejects(readFile(join(options.profileRoot, '.alpha-native-app.lock')), { code: 'ENOENT' });
+    if (kind === 'in-profile link') {
+      assert.equal(await readlink(state), target);
+      assert.deepEqual(await readdir(target), ['sentinel']);
+      assert.equal(await readFile(join(target, 'sentinel'), 'utf8'), contents);
+    } else {
+      assert.equal(await readFile(state, 'utf8'), contents);
+      if (kind === 'hardlinked file') assert.equal(await readFile(target, 'utf8'), contents);
+    }
+  });
+}
 
 test('a nested migrated profile link cannot redirect application writes outside its root', { skip: process.platform === 'win32' }, async (t) => {
   const options = await fixture(t);
