@@ -7,6 +7,7 @@ export const INPUT = Object.freeze({ name: 'lawoss-plugin-sdk-payload', version:
 export const REGISTRY = 'https://registry.npmjs.org/';
 export const SDK_INTEGRITY = 'sha512-IhF83EU4I/ASgWwvm0FIh1O3a8ZVuCLqPrCbmSHdSYq7GHxIYe773i6dHqcbrzCzvlG/lP2H+dyTQ+xPAwFpbw==';
 export const SDK_LOCK_SHA256 = '59f4b854ddab534533fd878c5a7c325a7a1bc3382294d68111cff005920a4053';
+const SDK_INPUT_SHA256 = '4129dbab935b7ee959557c6b6e4c5dea29e93f77c41ec9c056a379426b0e2536';
 export const DIRECT = { zod: '4.1.8', effect: '4.0.0-beta.83', '@ai-sdk/provider': '3.0.8', '@opencode-ai/sdk': '1.18.29' };
 export const PEERS = { '@opentui/core': '>=0.4.5', '@opentui/solid': '>=0.4.5', '@opentui/keymap': '>=0.4.5' };
 export const fail = code => { throw Object.assign(new Error(code), { code }); };
@@ -209,6 +210,34 @@ export async function verifyRuntimePayload(root, manifestSha256) {
   return verify(root, undefined, 'v24.21.0', manifestSha256);
 }
 
+// Exact source metadata for a future authenticated application-code worker.
+// This factory neither authenticates its caller/channel nor admits a launch.
+export function createEmbeddedRuntimePayloadVerifier(metadata) {
+  let acceptedInputText, acceptedLockText;
+  try {
+    if (!metadata || Object.getPrototypeOf(metadata) !== Object.prototype) fail('INPUT_INVALID');
+    const fields = Object.getOwnPropertyDescriptors(metadata);
+    const keys = Reflect.ownKeys(fields);
+    if (keys.length !== 2 || !keys.includes('acceptedInputText') || !keys.includes('acceptedLockText') ||
+      !Object.hasOwn(fields.acceptedInputText, 'value') || !Object.hasOwn(fields.acceptedLockText, 'value')) fail('INPUT_INVALID');
+    acceptedInputText = fields.acceptedInputText.value;
+    acceptedLockText = fields.acceptedLockText.value;
+    if (typeof acceptedInputText !== 'string' || typeof acceptedLockText !== 'string' ||
+      acceptedInputText.length > 16 * 1024 || acceptedLockText.length > 256 * 1024 ||
+      Buffer.byteLength(acceptedInputText, 'utf8') > 16 * 1024 || Buffer.byteLength(acceptedLockText, 'utf8') > 256 * 1024 ||
+      sha256(acceptedInputText) !== SDK_INPUT_SHA256 || sha256(acceptedLockText) !== SDK_LOCK_SHA256) fail('INPUT_INVALID');
+    validateInputs(JSON.parse(acceptedInputText), JSON.parse(acceptedLockText));
+  } catch { fail('INPUT_INVALID'); }
+  const acceptedMetadata = Object.freeze({ acceptedInputText, acceptedLockText });
+  return Object.freeze(async (root, externalManifestSha256) => {
+    if (process.version !== 'v22.23.2' || process.versions.bun) fail('PAYLOAD_RUNTIME_UNSUPPORTED');
+    if (typeof externalManifestSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(externalManifestSha256)) fail('PAYLOAD_INVALID');
+    sdkConsumerMode({ platform: process.platform, arch: process.arch,
+      ...(process.platform === 'linux' ? { libc: /** @type {{ header: { glibcVersionRuntime?: string } }} */ (process.report.getReport()).header.glibcVersionRuntime ? 'glibc' : 'musl' } : {}) }, SDK_LOCK_SHA256);
+    return verify(root, undefined, 'v24.21.0', externalManifestSha256, undefined, undefined, acceptedMetadata);
+  });
+}
+
 // Build-only static admission of independently accepted target bytes. This is
 // separate from both executing-host gates above and never loads target code.
 export async function verifyBuildPayload(root, manifestSha256, requestedTarget, onFailure) {
@@ -223,7 +252,8 @@ export async function verifyBuildPayload(root, manifestSha256, requestedTarget, 
   return verify(root, undefined, 'v24.21.0', manifestSha256, target, onFailure);
 }
 
-async function verify(root, Arborist, producerNode, manifestSha256, requestedTarget, onFailure) {
+/** @param {{ acceptedInputText: string, acceptedLockText: string }} [acceptedMetadata] */
+async function verify(root, Arborist, producerNode, manifestSha256, requestedTarget, onFailure, acceptedMetadata) {
   let guard = 'manifest-stat';
   try {
     const stat = await lstat(path.join(root, 'payload-manifest.json'));
@@ -237,12 +267,12 @@ async function verify(root, Arborist, producerNode, manifestSha256, requestedTar
     guard = 'inputs';
     const inputBytes = await readFile(path.join(root, 'package.json'));
     const lockBytes = await readFile(path.join(root, 'package-lock.json'));
-    const acceptedBytes = await readFile(new URL('./sdk/package-lock.json', import.meta.url));
+    const acceptedBytes = acceptedMetadata ? acceptedMetadata.acceptedLockText : await readFile(new URL('./sdk/package-lock.json', import.meta.url));
     const lock = validateInputs(JSON.parse(inputBytes.toString('utf8')), JSON.parse(lockBytes.toString('utf8')));
     const target = requestedTarget ?? { platform: process.platform, arch: process.arch,
       ...(process.platform === 'linux' ? { libc: /** @type {{ header: { glibcVersionRuntime?: string } }} */ (process.report.getReport()).header.glibcVersionRuntime ? 'glibc' : 'musl' } : {}) };
     guard = 'manifest-identity';
-    if (manifest.schema !== 1 || manifest.sdk.name !== '@opencode-ai/plugin' || manifest.sdk.version !== '1.18.29' || manifest.sdk.integrity !== SDK_INTEGRITY || manifest.node !== producerNode || manifest.arborist !== '9.4.0' || manifest.scripts !== false || manifest.target.platform !== target.platform || manifest.target.arch !== target.arch || manifest.lockSha256 !== sha256(lockBytes) || manifest.lockSha256 !== sha256(acceptedBytes) || manifest.inputSha256 !== sha256(inputBytes) || manifest.inputSha256 !== sha256(await readFile(new URL('./sdk/package.json', import.meta.url)))) fail('PAYLOAD_INVALID');
+    if (manifest.schema !== 1 || manifest.sdk.name !== '@opencode-ai/plugin' || manifest.sdk.version !== '1.18.29' || manifest.sdk.integrity !== SDK_INTEGRITY || manifest.node !== producerNode || manifest.arborist !== '9.4.0' || manifest.scripts !== false || manifest.target.platform !== target.platform || manifest.target.arch !== target.arch || manifest.lockSha256 !== sha256(lockBytes) || manifest.lockSha256 !== sha256(acceptedBytes) || manifest.inputSha256 !== sha256(inputBytes) || manifest.inputSha256 !== sha256(acceptedMetadata ? acceptedMetadata.acceptedInputText : await readFile(new URL('./sdk/package.json', import.meta.url)))) fail('PAYLOAD_INVALID');
     if (target.platform === 'linux' && manifest.target.libc !== target.libc) fail('PAYLOAD_INVALID');
     if (requestedTarget !== undefined && !equal(manifest.target, target)) fail('PAYLOAD_INVALID');
     guard = 'imports';
