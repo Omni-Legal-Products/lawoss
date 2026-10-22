@@ -445,3 +445,51 @@ for (const stream of ['stdin', 'stdout', 'stderr']) test(`modeled ${stream} tran
     assert.equal((await pending.promise).error.code, 'STAGE_PROTOCOL_INVALID');
   });
 });
+
+test('I1 actual post-close missing capsule reports ownership uncertainty after child/pipe/write barrier', async t => {
+  const f = await fixture(t), capsule = path.join(f.resourceRoot, 'payload.tgz'), observed = { closed: false, writeCallback: false, finish: false };
+  await realSpawn(f, async ({ captured, events }) => {
+    await holdStat(file => observed.closed && file === capsule, async gate => {
+      const pending = outcome(runOwnedStageDecoder(options(f))), child = await startCaptured(pending, captured);
+      child.once('close', () => { observed.closed = true; }); await gate.entered;
+      for (const event of ['close', 'stdin:close', 'stdout:close', 'stderr:close']) assert.ok(events.some(e => e.event === event), event);
+      assert.equal(observed.writeCallback, true); assert.equal(observed.finish, true); assert.equal(pending.settled, false);
+      await rename(capsule, capsule + '.retained'); gate.release();
+      const actual = await pending.promise; events.push({ event: 'settlement', at: performance.now(), code: actual.error?.code });
+      diagnostic(t, [...events, { event: 'actual-native-request-write-progress', writeCallback: observed.writeCallback, finish: observed.finish }]);
+      assert.equal(actual.error?.code, 'STAGE_OWNERSHIP_UNCERTAIN'); assert.equal(actual.error.cause, undefined);
+      closedBeforeSettlement(events); assert.equal((await readFile(capsule + '.retained')).toString(), 'synthetic inert capsule');
+    });
+  }, (original, executable, argv, settings) => {
+    const child = original(executable, argv, settings), end = child.stdin.end.bind(child.stdin);
+    child.stdin.once('finish', () => { observed.finish = true; });
+    // Observe the actual native end callback without delaying/replacing it.
+    child.stdin.end = (frame, callback) => end(frame, error => { observed.writeCallback = true; callback(error); });
+    return child;
+  });
+});
+
+test('I1 actual preflight missing worker remains launch mismatch without starting a child', async t => {
+  const f = await fixture(t); await rename(f.launch.workerPath, f.launch.workerPath + '.retained'); let spawns = 0;
+  await patchedSpawn(() => { spawns++; throw new Error('forbidden preflight spawn'); }, async () => {
+    await assert.rejects(runOwnedStageDecoder(options(f)), { code: 'STAGE_LAUNCH_MISMATCH' });
+    assert.equal(spawns, 0); assert.ok(await lstat(f.launch.workerPath + '.retained'));
+  });
+});
+
+for (const reason of ['abort', 'deadline']) test(`I1 actual native post-close missing path preserves earlier ${reason}`, async t => {
+  const f = await fixture(t), abort = new AbortController(), observed = { closed: false }, capsule = path.join(f.resourceRoot, 'payload.tgz');
+  if (reason === 'deadline') f.request.deadline = Date.now() + 650;
+  await realSpawn(f, async ({ captured, events }) => {
+    await holdStat(file => observed.closed && file === capsule, async gate => {
+      const pending = outcome(runOwnedStageDecoder(options(f, abort.signal))), child = await startCaptured(pending, captured);
+      child.once('close', () => { observed.closed = true; }); await gate.entered;
+      await rename(capsule, capsule + '.retained');
+      if (reason === 'abort') abort.abort(); else await pause(Math.max(0, f.request.deadline - Date.now() + 20));
+      assert.equal(pending.settled, false, 'native ownership observation is still pending'); gate.release();
+      const actual = await pending.promise; events.push({ event: 'settlement', at: performance.now(), code: actual.error?.code });
+      assert.equal(actual.error?.code, reason === 'abort' ? 'STAGE_ABORTED' : 'STAGE_DEADLINE'); assert.equal(actual.error.cause, undefined);
+      closedBeforeSettlement(events); diagnostic(t, events); assert.ok(await lstat(capsule + '.retained'));
+    });
+  });
+});

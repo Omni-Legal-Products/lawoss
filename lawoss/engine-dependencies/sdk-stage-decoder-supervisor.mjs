@@ -255,7 +255,12 @@ export async function runOwnedStageDecoder(value) {
       throw fault(owner.candidate.code);
     }
     if (owner.closedExit.code !== 0 || owner.closedExit.signal !== null) throw fault('STAGE_CHILD_FAILED');
-    await boundaries(true); live();
+    try { await boundaries(true); }
+    catch (error) {
+      if (localErrors.has(error)) throw error;
+      throw freeze('STAGE_OWNERSHIP_UNCERTAIN', error);
+    }
+    live();
     return Object.freeze({ schema: 1, kind: 'lawoss-sdk-closed-stage', result: owner.candidate, exitCode: 0, signal: null });
   } catch (error) {
     if (!owner.failure) {
