@@ -126,6 +126,18 @@ Signál ani killed samostatne nepreukazujú timeout. Kontrolované lokálne prí
 neobjasňujú pôvodné Intel CI zlyhanie; jeho príčina ostáva neznáma do nového
 natívneho pozorovania. Očakávané odmietnutia nevytvárajú diagnostický výpis.
 
+## Chránený Linux inštalačný kontajner
+
+Len novo vytvorený, výlučne vlastnený inštalačný koreň má explicitnú politiku
+root-owned0755. Jeho presná fyzická identita sa kontroluje pred aj po zmene
+práv; zdrojový koreň a každý vnútorný súbor, adresár a link zachovávajú pôvodné
+bytes a práva. Aplikácia sa naďalej spúšťa ako bežný používateľ a pôvodné
+AppArmor, sandbox, integrita a cleanup podmienky zostávajú povinné.
+
+Skutočný Linux metadata test pod bežným UID nepreukazuje štart finálneho
+AppImage. Dve pôvodné chyby inertných launch fixtures v obmedzenom Linux
+kontajneri zostávajú zaznamenané; hostiteľský macOS PASS ich príčinu neurčuje.
+
 ## Ďalšie kroky
 
 Pred publikáciou dokončite všetky povinné scenáre pre rovnaký digest na oboch profiloch.
