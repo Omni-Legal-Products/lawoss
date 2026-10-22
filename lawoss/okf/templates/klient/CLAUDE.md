@@ -26,3 +26,5 @@ Každý nový podklad alebo správu najprv zaznamenaj do `VSTUPY.md` konkrétnej
 `_STATUS.md`, `memory/index.md` a `memory/log.md` sú projekcie. `MEMORY.md` je starší archív, nie druhá aktívna pamäť. Originály a rešerše sú pracovné podklady v príslušných priečinkoch, nie archív pamäte. Pri zmene `AGENTS.md` udržuj `CLAUDE.md` obsahovo zhodný.
 
 Odoslanie, podpis alebo podanie vyžaduje výslovné potvrdenie človeka. Citácie právnych predpisov a judikatúry overuj v dostupných MCP zdrojoch; uveď zdroj a limity. Údaje o subjekte nehádaj.
+
+Každé podstatné tvrdenie zo súborov uveď s odkazom na súbor, ktorý ho obsahuje, ako Markdown odkaz s cestou relatívnou ku koreňu priečinka otvoreného v LAWOSS (pri prípade klienta je to priečinok klienta), napríklad `[poznamky.txt](Spisy/M001-najom/01_Podklady/poznamky.txt)`. Odkazuj na súbor, v ktorom si fakt naozaj prečítal, nie na kartu, prehľad ani iný metadátový súbor, ak fakt nie je v ňom. Pri zhrnutí viacerých súborov uveď každý z nich. Ak si nie si istý, povedz, ktoré súbory si skontroloval.

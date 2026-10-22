@@ -88,3 +88,31 @@ test("native checkpoint keeps manual phase, notes and stale date across first sy
   await hooks.event!({ event: { type: "session.idle", properties: { sessionID: "ses_manual" } } });
   expect(readFileSync(join(root, ".lawoss/handoff/ses_manual.md"), "utf8")).toBe(checkpoint);
 });
+
+describe("pevné pravidlo citácií v systémovom texte (alfa 2 B1, N-15)", () => {
+  const citation = (system: string[]) => system.filter((line) => line.includes("Markdown link to the exact file"));
+  test("úspech aj zlyhanie checkpointu nesú tú istú vetu a text je stály medzi ťahmi", async () => {
+    const good = fixture(); const goodHooks = await LawossOkfHandoff({ directory: good });
+    const broken = fixture(); writeFileSync(join(broken, "memory/broken.md"), "not an OKF record");
+    const brokenHooks = await LawossOkfHandoff({ directory: broken });
+    const turns = { ok1: { system: [] as string[] }, ok2: { system: [] as string[] }, failed1: { system: [] as string[] }, failed2: { system: [] as string[] } };
+    await goodHooks["experimental.chat.system.transform"]!({ sessionID: "ses_cite" }, turns.ok1);
+    await goodHooks["experimental.chat.system.transform"]!({ sessionID: "ses_cite" }, turns.ok2);
+    await brokenHooks["experimental.chat.system.transform"]!({ sessionID: "ses_cite" }, turns.failed1);
+    await brokenHooks["experimental.chat.system.transform"]!({ sessionID: "ses_cite" }, turns.failed2);
+    expect(turns.ok2.system).toEqual(turns.ok1.system);
+    expect(turns.failed2.system).toEqual(turns.failed1.system);
+    expect(turns.failed1.system[0]).toContain("FAILED");
+    const [rule] = citation(turns.ok1.system);
+    expect(rule).toBeDefined();
+    expect(citation(turns.failed1.system)).toEqual([rule!]);
+    for (const phrase of ["not a card, overview or other metadata file", "_STATUS.md", "cite each one", "say which files you checked"]) expect(rule).toContain(phrase);
+  });
+  test("natívny režim pridá vetu aj mimo pamäte prípadu", async () => {
+    const root = mkdtempSync(join(tmpdir(), "okf-cite-")); roots.push(root);
+    const hooks = await LawossOkfHandoff({ directory: root }, { mode: "native" });
+    const output = { system: [] as string[] };
+    await hooks["experimental.chat.system.transform"]!({ sessionID: "ses_native" }, output);
+    expect(citation(output.system)).toHaveLength(1);
+  });
+});

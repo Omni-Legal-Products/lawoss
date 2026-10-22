@@ -1,6 +1,13 @@
 import { nativeAgentHeaders, resolveHostMemoryContext } from "./host-memory-grants.mjs";
 import { createHandoff } from "./checkpoint.mjs";
 
+/**
+ * Pevný text pre každý ťah (alfa 2 B1, N-15): tvrdenie zo súborov odkazuje na súbor, ktorý fakt
+ * obsahuje. Nemení sa medzi ťahmi ani pri zlyhaní checkpointu, takže nerozbije cache promptu.
+ * Neexportuje sa: OpenCode volá každý export modulu pluginu.
+ */
+const CITATION_RULE = "Back each substantive claim taken from the user's files with a Markdown link to the exact file that contains it, using a path relative to the client or project folder opened in LAWOSS (for example [notes.txt](Spisy/M001-lease/01_Inputs/notes.txt)), so the user can open it. Link the file where you actually read the fact, not a card, overview or other metadata file (matter.md, client.md, _STATUS.md, index.md) unless the fact is written there. When a summary draws on several files, cite each one. If you are not sure which file supports a claim, say which files you checked.";
+
 /** Native lifecycle hooks; native mode refreshes authenticated host permissions. */
 export async function LawossOkfHandoff(input, { mode = "standalone" } = {}) {
   let handoff = mode === "native" ? null : createHandoff(input.directory);
@@ -41,6 +48,7 @@ export async function LawossOkfHandoff(input, { mode = "standalone" } = {}) {
       output.system.push(result.ok
         ? `This workspace uses persisted matter memory at ${handoff.root}. A derived checkpoint is available at ${result.path}. Read current persisted memory with /okf-pamat before substantive work; the checkpoint does not include facts that were never recorded. Record work through the normal approval and revision gates before the final answer.`
         : "Memory handoff FAILED for this session. The previous checkpoint is not current. Read the matter directly; do not treat incomplete context as empty or verified.");
+      output.system.push(CITATION_RULE);
     },
   };
 }

@@ -26,3 +26,5 @@ First register each new source document or message in the specific matter’s `V
 `_STATUS.md`, `memory/index.md` and `memory/log.md` are projections. `MEMORY.md` is a legacy archive, not a second active memory. Originals and research are working materials in their respective folders, not a memory archive. Keep `CLAUDE.md` identical to `AGENTS.md` whenever the latter changes.
 
 Sending, signing or filing requires explicit human confirmation. Verify citations to legislation and case law using the available MCP sources; state the source and limitations. Do not guess entity details.
+
+Back every substantive claim taken from files with a Markdown link to the file that contains it, using a path relative to the root of the folder opened in LAWOSS (for a client's case, the client folder), for example `[notes.txt](Spisy/M001-lease/01_Inputs/notes.txt)`. Link the file in which you actually read the fact, not the card, an overview or another metadata file unless the fact is in it. When summarising several files, cite each of them. If you are unsure, say which files you checked.
