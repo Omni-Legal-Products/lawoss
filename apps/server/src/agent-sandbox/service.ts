@@ -4,7 +4,7 @@ import { within } from "./files.js";
 import { withFileEditorHandoff } from "../file-editor-handoff.js";
 import { sandboxPaths } from "./paths.js";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, posix } from "node:path";
 import { realpath } from "node:fs/promises";
 import { listSkills } from "../skills.js";
 import { ApprovalService } from "../approvals.js";
@@ -30,7 +30,8 @@ import { buildWikiFilePolicy, wikiContentPath, wikiSafeSandboxMounts } from "../
 // LAWOSS: do sandboxu len priečinky, ktoré pravidlá pripojených priečinkov dovolia (iný klient, prax, dáta aplikácie nie).
 import { linkableFolders } from "../lawoss/linked-folders.js";
 
-export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number };
+// LAWOSS: `folder` (set by the server, never by the model) is the chat's folder below the workspace root; it defaults the working directory.
+export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; folder?: string[]; skills?: string[]; write: boolean; timeoutMs: number };
 export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
 
 function restrictive(actions: PermissionAction[]): PermissionAction {
@@ -160,7 +161,7 @@ export class AgentSandboxService {
             await ask("skill", name, `Allow this command to use the installed skill ${name}?`, [skill.path]);
           }
         }
-        const cwd = command.workdir || workspace.path;
+        const cwd = command.workdir || (command.folder?.length ? join(workspace.path, ...command.folder) : workspace.path);
         if (!isAbsolute(cwd)) throw new ApiError(400, "command_directory", "Use an absolute folder path on this computer.");
         return { ...await withFileEditorHandoff(command, () => { signal.throwIfAborted(); return runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, signal }); }), sandbox: "host" };
       }
@@ -206,7 +207,7 @@ export class AgentSandboxService {
         const checked = await validateMounts([{ ...mount, target: "/workspace" }], wikiContentPath(wikiPolicy, mount.source) ? [] : wikiPolicy.runtimeRoots);
         safeMounts.push({ ...checked[0], target: mount.target });
       }
-      const cwd = sandboxPaths(command.workdir || "/workspace", safeMounts);
+      const cwd = sandboxPaths(command.workdir || posix.join("/workspace", ...command.folder ?? []), safeMounts);
       if (!cwd.startsWith("/")) throw new ApiError(400, "sandbox_directory", "Use /workspace or an authorized sandbox folder.");
       const result = await withFileEditorHandoff(command, () => { executionSignal.throwIfAborted(); return this.backend.run({ command: sandboxPaths(command.command, safeMounts), cwd, mounts: safeMounts,
         timeoutMs: command.timeoutMs, signal: executionSignal,

@@ -1,4 +1,6 @@
 import { realpath } from "node:fs/promises";
+import { relative, sep } from "node:path";
+import { isPathWithin } from "./path-within.js";
 import type { WorkspaceInfo } from "../types.js";
 import { workspaceListsSession } from "./session-list-scope.js";
 import { workspaceOwnsSession } from "./workspace-history.js";
@@ -23,6 +25,21 @@ export async function workspaceReadsSession(workspace: WorkspaceInfo, session: {
   if (workspace.workspaceType !== "local") return workspaceOwnsSession(workspace, session);
   const root = withoutExtendedPrefix(workspace.directory?.trim() || workspace.path);
   return workspaceListsSession(workspace, [root, await realpath(root).catch(() => root)], session);
+}
+
+/**
+ * LAWOSS: the folder of a chat below its workspace root as path segments (`[]` for the root, for
+ * a remote worker or for a historical chat outside the current root). A case chat lives in a
+ * case subfolder; its managed shell defaults there, as the engine's own tools do.
+ */
+export async function sessionFolder(workspace: WorkspaceInfo, session: { directory?: string | null }): Promise<string[]> {
+  const directory = session.directory?.normalize("NFC");
+  if (workspace.workspaceType !== "local" || !directory) return [];
+  const root = withoutExtendedPrefix(workspace.directory?.trim() || workspace.path);
+  for (const candidate of [root, await realpath(root).catch(() => root)].map((path) => path.normalize("NFC"))) {
+    if (isPathWithin(candidate, directory)) return relative(candidate, directory).split(sep).filter(Boolean);
+  }
+  return [];
 }
 
 /** Electron can persist Windows folders as `\\?\C:\...`; the engine stores `C:\...`. */

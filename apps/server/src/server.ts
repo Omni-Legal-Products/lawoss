@@ -15,7 +15,7 @@ import { LawossDocuments } from "./lawoss/documents/service.js";
 import { registerLawossDocumentRoutes } from "./routes/lawoss-documents.js";
 import { engineCurrentProject, engineProjectWorktree, scopeSessionListQuery, workspaceListsSession } from "./lawoss/session-list-scope.js";
 import { assertEngineRouteScoped, scopeProjectList } from "./lawoss/engine-route-scope.js";
-import { sessionOwnershipChecked, workspaceReadsSession } from "./lawoss/session-ownership.js";
+import { sessionFolder, sessionOwnershipChecked, workspaceReadsSession } from "./lawoss/session-ownership.js";
 import { sessionInfoSchema } from "./session-read-model.js";
 import { historicalWorkspaceSessions } from "./lawoss/workspace-history-sessions.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
@@ -1019,7 +1019,15 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents, scheduledTasks, wikiStore, wikiSync, protectedDocuments, runtimeOptions.publicEngineBinary, runtimeOptions.onboardingApplyCheckpoint);
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) =>
     unwrapOpencodeResult(await createDirectoryOpencodeClient(config, workspace, directory).session.get({ sessionID }, { signal }), "/session"));
+  // LAWOSS: a case chat lives in a subfolder of its client workspace (session-ownership.ts).
+  const sandboxOwnsSession = async (workspace: WorkspaceInfo, session: { id: string; directory: string }) => {
+    if (sessionOwnershipChecked(workspace)) return workspaceReadsSession(workspace, session);
+    const directory = resolveOpencodeDirectory(workspace);
+    return !!directory && resolve(session.directory) === resolve(directory);
+  };
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
+    sessionFolder: async (workspace, sessionID) => sessionFolder(workspace,
+      unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.get({ sessionID }, { signal: AbortSignal.timeout(10000) }), "/session")),
     sessionLineage: async (workspace, sessionID) => {
       const client = createWorkspaceOpencodeClient(config, workspace);
       const lineage: string[] = [];
@@ -1028,8 +1036,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
         if (lineage.includes(id) || lineage.length >= 64) throw new ApiError(400, "sandbox_session", "Invalid chat ancestry.");
         const currentId: string = id;
         const session = unwrapOpencodeResult(await client.session.get({ sessionID: currentId }, { signal: AbortSignal.timeout(10000) }), "/session");
-        const directory = resolveOpencodeDirectory(workspace);
-        if (!directory || resolve(session.directory) !== resolve(directory)) throw new ApiError(403, "sandbox_session", "This chat belongs to a different workspace.");
+        if (!(await sandboxOwnsSession(workspace, session))) throw new ApiError(403, "sandbox_session", "This chat belongs to a different workspace.");
         lineage.push(id);
         id = session.parentID;
       }
@@ -1038,8 +1045,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
     agentRules: async (workspace, sessionID, agentName) => {
       const client = createWorkspaceOpencodeClient(config, workspace);
       const session = unwrapOpencodeResult(await client.session.get({ sessionID }), "/session");
-      const directory = resolveOpencodeDirectory(workspace);
-      if (!directory || resolve(session.directory) !== resolve(directory)) {
+      if (!(await sandboxOwnsSession(workspace, session))) {
         throw new ApiError(403, "sandbox_session", "The command session belongs to a different workspace.");
       }
       const agents = unwrapOpencodeResult(await client.app.agents(), "/agent");

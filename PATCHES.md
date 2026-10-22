@@ -1,5 +1,12 @@
 # LAWOSS downstream patches
 
+## Chat prípadu: front, sandbox a priečinok nástrojov (2026-10-22, N-17)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/routes/sessions.ts`, `apps/server/src/server.ts` | Front správ (`queueClient` → `queueSession`) a sandbox (`sessionLineage`, `agentRules`) uznajú pri lokálnom priečinku rozhovor, ktorého `directory` leží v priečinku klienta (`workspaceReadsSession`, rovnako ako proxy priečinka), nie len presnú zhodu s koreňom. Vzdialený worker bez histórie ostáva pri presnej zhode. Cudzí rozhovor dostane ďalej 404 `session_not_found` (front) a 403 `sandbox_session` (sandbox). `POST …/queue` zapíše overený pôvod rozhovoru (`grantWikiAgentSession`) s priečinkom rozhovoru (podpriečinok prípadu), lebo nástroje pluginov hlásia priečinok, v ktorom engine rozhovor spúšťa, a server ho porovnáva presne. Dôvod: N-17/G3 z akceptácie 22. 10. 2026 – nový chat pod prípadom M001 odmietol prvú správu („This chat does not belong to the project.“, sandbox 403), chat klienta fungoval. Pri syncu zachovať. |
+| `apps/server/src/routes/agent-sandbox.ts`, `apps/server/src/agent-sandbox/service.ts` | Nová voľba `sessionFolder` (priečinok rozhovoru pod koreňom, `lawoss/session-ownership.ts`). Spravovaný shell (`legalwork_shell`) bez `workdir` beží v priečinku rozhovoru (pri prípade `…/Spisy/M001`, v sandboxe `/workspace/Spisy/M001`), nie v koreni klienta; pripomienka nastavení sandboxu hlási ten istý `cwd`. Pole `folder` v `SandboxCommand` dopĺňa server, HTTP vstup ho nepripustí (`commandSchema` je strict). Dôvod: engine 1.18.29 spúšťa vstavané nástroje v `session.directory` (overené skutočným volaním), spravovaný shell bral koreň priečinka. Regresia: `apps/server/src/lawoss/session-list-isolation.e2e.test.ts` (engine na skúšku aj skutočný) a voliteľne `apps/server/src/lawoss/matter-chat-engine.integration.test.ts` (skutočný engine, `read` aj `legalwork_shell` cez server). Pri syncu zachovať. |
+
 ## Panel doplnku Office bez editorov xlsx/pptx (2026-10-20)
 
 | Súbory | Downstream doplnenie a dôvod |

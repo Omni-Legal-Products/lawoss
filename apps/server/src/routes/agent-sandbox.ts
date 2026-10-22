@@ -2,6 +2,7 @@ import { sandboxSyncStatus, saveSandboxDefault } from "../agent-sandbox/sync.js"
 import { webInputSchema } from "../agent-sandbox/web.js";
 import { hostShell } from "../agent-sandbox/host.js";
 import { z } from "zod";
+import { join, posix } from "node:path";
 import { ApiError } from "../errors.js";
 import type { ServerConfig, WorkspaceInfo, TokenScope } from "../types.js";
 import type { AgentSandboxService, AgentPermissionRule } from "../agent-sandbox/service.js";
@@ -25,6 +26,8 @@ export function registerAgentSandboxRoutes(options: {
   sandbox: AgentSandboxService;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
   sessionLineage: (workspace: WorkspaceInfo, sessionID: string) => Promise<string[]>;
+  /** LAWOSS: the chat's folder below the workspace root (a case chat's subfolder), checked after its lineage. */
+  sessionFolder: (workspace: WorkspaceInfo, sessionID: string) => Promise<string[]>;
   agentRules: (workspace: WorkspaceInfo, sessionID: string, agent: string) => Promise<AgentPermissionRule[]>;
   requireClientScope: (ctx: RequestContext, scope: TokenScope) => void;
   readJsonBodyLimited: (request: Request, bytes: number) => Promise<Record<string, unknown>>;
@@ -50,8 +53,9 @@ export function registerAgentSandboxRoutes(options: {
     const workspace = await options.resolveWorkspace(config, ctx.params.id);
     const lineage = await options.sessionLineage(workspace, ctx.params.sessionId);
     const { dependencies: _, ...settings } = await effectiveSandbox(config, workspace.id, lineage);
+    const folder = await options.sessionFolder(workspace, ctx.params.sessionId);
     return jsonResponse({ ...settings, supported: config.agentSandboxEnabled === true, application: await applicationSandbox(config),
-      platform: settings.enabled ? "linux" : process.platform, shell: settings.enabled ? "Bash" : hostShell(), cwd: settings.enabled ? "/workspace" : workspace.path });
+      platform: settings.enabled ? "linux" : process.platform, shell: settings.enabled ? "Bash" : hostShell(), cwd: settings.enabled ? posix.join("/workspace", ...folder) : folder.length ? join(workspace.path, ...folder) : workspace.path });
   });
   addRoute(routes, "PATCH", "/workspace/:id/sandbox/session/:sessionId", "host-token", async (ctx) => {
     assertWritable();
@@ -92,6 +96,7 @@ export function registerAgentSandboxRoutes(options: {
     const workspace = await options.resolveWorkspace(config, ctx.params.id);
     const lineage = await options.sessionLineage(workspace, input.sessionID);
     const rules = await options.agentRules(workspace, input.sessionID, input.agent);
-    return jsonResponse(await sandbox.run(workspace, input, ctx.actor ?? { type: "remote", scope: "viewer" }, ctx.request.signal, rules, lineage));
+    const folder = input.workdir ? [] : await options.sessionFolder(workspace, input.sessionID);
+    return jsonResponse(await sandbox.run(workspace, { ...input, folder }, ctx.actor ?? { type: "remote", scope: "viewer" }, ctx.request.signal, rules, lineage));
   });
 }

@@ -73,7 +73,8 @@ function fakeEngine(folders: Office) {
       if (subscriber.directory === null || subscriber.directory === directory)
         subscriber.controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ directory, payload: { type: "session.created", properties: { info: { title, directory } } } })}\n\n`));
   };
-  const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+  const prompts: { session: string; header: string }[] = [];
+  const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
     requests.push(`${request.method} ${url.pathname}`);
     const header = decodeURIComponent(request.headers.get("x-opencode-directory") ?? "");
@@ -87,6 +88,12 @@ function fakeEngine(folders: Office) {
     if (byId && byId[1] !== "status") {
       if (!row) return Response.json({ name: "NotFoundError" }, { status: 404 });
       if (!byId[2]) return Response.json(info(row));
+      // Doručenie z frontu správ: engine vráti ukončenú odpoveď asistenta na správu `messageID`.
+      if (byId[2] === "/message" && request.method === "POST") {
+        const { messageID } = z.object({ messageID: z.string() }).passthrough().parse(await request.json());
+        prompts.push({ session: byId[1]!, header });
+        return Response.json({ info: { id: `msg_odpoved_${byId[1]}`, role: "assistant", sessionID: byId[1], parentID: messageID, finish: "stop", time: { created: 1, completed: 2 } }, parts: [] });
+      }
       if (byId[2] === "/message") return Response.json([{ info: { id: `msg_${byId[1]}`, sessionID: byId[1], role: "user" }, parts: [{ type: "text", text: `${row.title}: obsah` }] }]);
       return Response.json([]);
     }
@@ -101,7 +108,7 @@ function fakeEngine(folders: Office) {
     return Response.json(selected.map(info));
   } });
   cleanups.push(() => engine.stop(true));
-  return { url: `http://127.0.0.1:${engine.port}`, queries, requests, project, ids, create };
+  return { url: `http://127.0.0.1:${engine.port}`, queries, requests, project, ids, create, prompts };
 }
 
 /** Skutočný engine v izolovanom HOME/XDG; rozhovory založí cez jeho API v priečinkoch klientov. */
@@ -134,7 +141,7 @@ async function realEngine(bin: string, folders: Office) {
   };
   const ids: Record<string, string> = {};
   for (const [title, key] of titles) ids[title] = await create(folders[key], title);
-  return { url, queries: undefined, requests: undefined, project: undefined, ids, create };
+  return { url, queries: undefined, requests: undefined, project: undefined, ids, create, prompts: undefined };
 }
 
 async function serve(folders: Office, engineUrl: string, extra: Record<string, string> = {}) {
@@ -346,5 +353,64 @@ for (const [name, bin] of engines) {
     check("/project/current", (await get(`${a}/project/current`)).status, 200);
     check("vlastný rozhovor", (await get(`${a}/session/${engine.ids["A koreň"]}`)).status, 200);
     expect(observed).toEqual(expected);
+  }, 60_000);
+}
+
+for (const [name, bin] of engines) {
+  test(`${name}: chat prípadu klienta A prijme a doručí správu cez front; chaty klienta B (aj prípadu) nie`, async () => {
+    const folders = await office();
+    const engine = bin ? await realEngine(bin, folders) : fakeEngine(folders);
+    const { get, config } = await serve(folders, engine.url);
+    const id = engine.ids;
+    const own = id["A koreň"]!, matter = id["A vec"]!, foreign = id["B tajné"]!, foreignMatter = id["B spis tajný"]!;
+    const queue = (session: string, body?: unknown) => get(`/workspace/klient-a/sessions/${session}/queue`, body ? { method: "POST", body: JSON.stringify(body) } : {});
+    const sandbox = (session: string) => get(`/workspace/klient-a/sandbox/session/${session}`);
+    const cwd = z.object({ cwd: z.string() }).passthrough();
+    const enqueue = (text: string) => ({ type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text, parts: [], attachments: [], editor: { mentions: {}, pasteParts: [] } },
+      execution: { kind: "prompt", model: { providerID: "test", modelID: "test" }, parts: [{ type: "text", text }] } });
+
+    // Chat prípadu (podpriečinok klienta) aj chat klienta: front sa číta a dá sa ovládať (N-17).
+    for (const session of [matter, own]) {
+      expect({ session, status: (await queue(session)).status }).toEqual({ session, status: 200 });
+      expect({ session, status: (await queue(session, { type: "pause", paused: true })).status }).toEqual({ session, status: 200 });
+      expect({ session, status: (await queue(session, { type: "pause", paused: false })).status }).toEqual({ session, status: 200 });
+    }
+    // Nastavenia vykonávania chatu prípadu: shell začína v priečinku prípadu, chat klienta v koreni klienta.
+    const matterSandbox = await sandbox(matter);
+    expect(matterSandbox.status).toBe(200);
+    expect(cwd.parse(matterSandbox.body).cwd).toBe(folders.matterA);
+    expect(cwd.parse((await sandbox(own)).body).cwd).toBe(folders.clientA);
+
+    // Cudzí klient (súrodenec `Klient-A` ku `Klient_A`) a jeho prípad ostávajú odmietnuté.
+    for (const session of [foreign, foreignMatter]) {
+      expect({ session, status: (await queue(session)).status }).toEqual({ session, status: 404 });
+      expect({ session, status: (await queue(session, { type: "pause", paused: true })).status }).toEqual({ session, status: 404 });
+      expect({ session, status: (await queue(session, enqueue("cudzí"))).status }).toEqual({ session, status: 404 });
+      expect({ session, status: (await sandbox(session)).status }).toEqual({ session, status: 403 });
+    }
+
+    if (engine.prompts) {
+      // Prvá správa v chate prípadu odíde do enginu a front sa vyprázdni.
+      const first = enqueue("Prvá správa v prípade");
+      expect((await queue(matter, first)).status).toBe(200);
+      const state = z.object({ entries: z.array(z.unknown()), completedIds: z.array(z.string()) }).passthrough();
+      for (let attempt = 0; attempt < 200 && !state.parse((await queue(matter)).body).completedIds.includes(first.id); attempt++) await Bun.sleep(10);
+      expect(state.parse((await queue(matter)).body)).toMatchObject({ entries: [], completedIds: [first.id] });
+      expect(engine.prompts.map((prompt) => prompt.session)).toEqual([matter]);
+      // Chat klienta doručuje ďalej.
+      const second = enqueue("Správa v chate klienta");
+      expect((await queue(own, second)).status).toBe(200);
+      for (let attempt = 0; attempt < 200 && !state.parse((await queue(own)).body).completedIds.includes(second.id); attempt++) await Bun.sleep(10);
+      expect(engine.prompts.map((prompt) => prompt.session)).toEqual([matter, own]);
+
+      // AI hranice zapnuté: správa do chatu prípadu dostane typové odmietnutie AI hraníc, nie 404, a do enginu nejde.
+      const restore = await enforceAiBoundaries(config);
+      cleanups.push(restore);
+      expect(await queue(matter, enqueue("s hranicami"))).toMatchObject({ status: 403, body: { code: "ai_transfer_denied", details: { source: AI_BOUNDARIES_DENIAL_SOURCE } } });
+      expect((await queue(foreignMatter, enqueue("s hranicami"))).status).toBe(404);
+      expect(engine.prompts).toHaveLength(2);
+      // Do cudzieho rozhovoru nešla žiadna požiadavka okrem metadát.
+      expect(engine.requests.filter((request) => request.includes(`/session/${foreign}/`) || request.includes(`/session/${foreignMatter}/`))).toEqual([]);
+    }
   }, 60_000);
 }
