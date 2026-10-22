@@ -294,3 +294,40 @@ and real owned-filesystem regressions. A fixture copying foreign-target data doe
 not execute that target's SDK. The POSIX permission-failure case is explicitly
 inapplicable on Windows/root; genuine compatibility remains the separate native
 producer/Node22 entry.
+
+## Fresh build generations and signing-safe data capsules
+
+`validateRuntimeConsumer(node, pnpm, { outputParent })` optionally writes its
+fixed workspace and summary names under an already initialized SDK workspace.
+Explicit parent admission and existing-output refusal precede tool probes and
+writes; its identity is checked again before child initialization and summary
+publication. Omission keeps the original default path. The CLI accepts the exact
+optional pair `--output-parent ABS`. Existing outputs are never refreshed.
+
+`freshProductSdkBuildRoot(root)` holds a cooperating generation lease and returns
+an opaque frozen capability. A previous positively owned, idle root is renamed
+whole into a unique sibling archive and rechecked; all previous bytes remain.
+Unknown roots or leases are refused. Only `completeProductSdkBuildRoot(capability)`
+releases that generation after ownership rechecks. The caller must first settle
+every child; this filesystem helper does not prove process closure. Uncertain
+operations retain their marker. POSIX metadata does not prove Windows ACL privacy.
+
+`publishProductSdkResource({ ...input, transport: 'tar+gzip' })` publishes
+`payload.tgz` and the same static verifier closure. Its frozen private identity
+also binds archive format, fixed filename, byte count and SHA-256. The default
+`directory` transport remains available; unknown transports refuse before staging.
+The archive uses tar7.5.22 from the existing pinned build-tools closure. A genuine
+roundtrip must pass the original manifest and complete SDK inventory before the
+expanded staged copy is removed. SDK code is never executed by publication.
+
+The data archive keeps original native SDK bytes away from the macOS signer's
+individual Mach-O signing pass, while the enclosing app seals the archive.
+This build-only creator is not an admission/extraction API for untrusted runtime
+archives. Actual asar identity binding, bounded runtime extraction, dependency
+seeding and engine startup remain separate unimplemented integration steps.
+
+The workflow runs output-parent/build-root tests separately from the unchanged
+53 producer and 6 consumer selection. Capsule tests run after that genuine entry
+has installed its exact tools. A portable archive positive runs on every host;
+the POSIX link/mode fixture is explicitly skipped on Windows. A local signing
+proof never substitutes for six-target installed-application acceptance.

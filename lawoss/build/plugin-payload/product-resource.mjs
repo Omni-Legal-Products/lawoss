@@ -7,6 +7,7 @@ import { cp, lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm, unlink
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inspectProductSdkBundle } from './product-bundle.mjs';
+import { createProductSdkCapsule } from './product-capsule.mjs';
 import { canonical, inventory, sha256, verifyBuildPayload } from './validate.mjs';
 
 const closure = ['validate.mjs', 'notices.mjs', 'sdk/package.json', 'sdk/package-lock.json',
@@ -38,8 +39,9 @@ async function removeStage(stage, identity) {
 
 /** Returns private code identity as text; publication alone grants no runtime authority. */
 export async function publishProductSdkResource(options) {
-  const { buildParent, outputName, payloadRoot } = options;
-  if (typeof buildParent !== 'string' || !path.isAbsolute(buildParent) || path.resolve(buildParent) !== buildParent || buildParent.length > 4096 ||
+  const { buildParent, outputName, payloadRoot, transport = 'directory' } = options;
+  if (!['directory', 'tar+gzip'].includes(transport) ||
+    typeof buildParent !== 'string' || !path.isAbsolute(buildParent) || path.resolve(buildParent) !== buildParent || buildParent.length > 4096 ||
     typeof outputName !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(outputName) ||
     typeof payloadRoot !== 'string' || !path.isAbsolute(payloadRoot) ||
     inside(payloadRoot, buildParent) || inside(buildParent, payloadRoot)) invalid();
@@ -81,14 +83,16 @@ export async function publishProductSdkResource(options) {
     const verifierFiles = await inventory(verifier);
     if (canonical(verifierFiles) !== canonical(expectedVerifier)) invalid();
     await verifyBuildPayload(path.join(stage, 'payload'), bundle.manifestSha256, bundle.target);
+    const capsule = transport === 'tar+gzip' ? await createProductSdkCapsule(stage, bundle) : null;
     // Re-read source admission and verifier inputs after copying, before rename.
     if (!same(source, await lstat(payloadRoot)) || canonical(await inspectProductSdkBundle(admission)) !== canonical(bundle)) invalid();
     for (const [name, bytes] of contents) if (!bytes.equals(await readFile(new URL(name, import.meta.url)))) invalid();
     await unchanged(buildParent, parent);
     await unchanged(stage, stageIdentity);
     if (!await absent(destination)) invalid();
-    const identity = Object.freeze({ ...bundle, kind: 'lawoss-product-sdk-resource', verifierSha256: sha256(canonical(verifierFiles)) });
-    const privateIdentityModule = `// Generated private build identity; include inside trusted application code.\nconst identity = ${JSON.stringify(identity)};\nObject.freeze(identity.target);\nexport default Object.freeze(identity);\n`;
+    const identity = Object.freeze({ ...bundle, kind: capsule ? 'lawoss-product-sdk-capsule' : 'lawoss-product-sdk-resource',
+      verifierSha256: sha256(canonical(verifierFiles)), ...(capsule ? { capsule } : {}) });
+    const privateIdentityModule = `// Generated private build identity; include inside trusted application code.\nconst identity = ${JSON.stringify(identity)};\nObject.freeze(identity.target);\n${capsule ? 'Object.freeze(identity.capsule);\n' : ''}export default Object.freeze(identity);\n`;
     publishing = true;
     await rename(stage, destination);
     if (!same(stageIdentity, await lstat(destination))) invalid();
