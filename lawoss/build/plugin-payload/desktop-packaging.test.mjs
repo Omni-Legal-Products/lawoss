@@ -1,6 +1,10 @@
 import './network-guard.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn, spawnSync } from 'node:child_process';
+import { createStageWireDecoder, encodeStageWireFrame, admitStageError } from '../../engine-dependencies/sdk-stage-decoder-wire.mjs';
+import { admitStageDecodeResult } from '../../engine-dependencies/sdk-stage-decoder-contract.mjs';
+import { verifyPackagedProductSdkStageWorker } from './packaged-identity.mjs';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile, lstat, readdir, cp } from 'node:fs/promises';
@@ -13,6 +17,83 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const require = createRequire(new URL('../../../apps/desktop/package.json', import.meta.url));
 const builder = createRequire(createRequire(require.resolve('electron-builder')).resolve('app-builder-lib'));
 const asar = builder('@electron/asar');
+const asarFs = createRequire(builder.resolve('@electron/asar/package.json'))('./lib/wrapped-fs').default;
+async function createAsarAndWaitForClose(source, destination, options, gate) {
+ // Top-level node:test cases are serial; the pinned wrapper descriptor is held only for this exact destination.
+ const descriptor = Object.getOwnPropertyDescriptor(asarFs, 'createWriteStream');
+ const original = descriptor.value;
+ let writer, closed = false, writerError, endDescriptor;
+ let resolveClosed;
+ const closedEvent = new Promise(resolve => { resolveClosed = resolve; });
+ let resolveWriterFailure;
+ const writerFailure = new Promise(resolve => { resolveWriterFailure = resolve; });
+ const captureWriterError = error => {
+  if (!writerError) { writerError = error; resolveWriterFailure(error); }
+ };
+ let restoreError;
+ let creatorError;
+ let completion;
+ const restore = () => {
+  try { Object.defineProperty(asarFs, 'createWriteStream', descriptor); }
+  catch (error) { restoreError = error; }
+ };
+ Object.defineProperty(asarFs, 'createWriteStream', { ...descriptor, value: function(file, ...args) {
+  const stream = Reflect.apply(original, this, [file, ...args]);
+  if (file !== destination) return stream;
+  writer = stream;
+  if (gate) { gate.writer = stream; gate.writerClosed = false; }
+  stream.on('error', captureWriterError);
+  stream.once('close', () => {
+   closed = true;
+   stream.off('error', captureWriterError);
+   if (gate) gate.writerClosed = true;
+   if (endDescriptor) Object.defineProperty(stream, 'end', endDescriptor);
+   else delete stream.end;
+   resolveClosed({ error: writerError });
+  });
+  if (gate?.release) {
+   endDescriptor = Object.getOwnPropertyDescriptor(stream, 'end');
+   const end = stream.end;
+   stream.end = function(...endArgs) {
+    gate.endRequested.resolve();
+    gate.release.promise.then(() => {
+     try {
+      if (gate.failOnEnd) stream.destroy(gate.failOnEnd);
+      else end.apply(stream, endArgs);
+     }
+     catch (error) { captureWriterError(error); stream.destroy(error); }
+    });
+    return stream;
+   };
+  }
+  return stream;
+ } });
+ try {
+  const creatorDone = Promise.resolve().then(() => asar.createPackageWithOptions(source, destination, options))
+   .then(value => ({ value }), error => ({ error }));
+  const first = await Promise.race([
+   creatorDone.then(result => ({ kind: 'creator', ...result })),
+   writerFailure.then(error => ({ kind: 'writer', error }))
+  ]);
+  if (first.error) creatorError = first.error;
+  if (first.kind === 'writer' || first.error) {
+   if (writer && !closed) writer.destroy();
+  }
+  if (writer) {
+   completion = await closedEvent;
+  }
+ } finally {
+  // The descriptor is restored only after an observed writer has settled.
+  restore();
+ }
+ const primaryError = creatorError ?? completion?.error ?? (!writer ? new Error(`Pinned ASAR did not create the expected archive writer: ${destination}`) : undefined);
+ if (primaryError && restoreError) {
+  throw new AggregateError([primaryError, restoreError], 'ASAR archive creation and writer restoration failed', { cause: primaryError });
+ }
+ if (primaryError) throw primaryError;
+ if (restoreError) throw restoreError;
+}
+
 const target = { platform: 'win32', arch: 'arm64' };
 const applicationBuild = { schemaVersion: 1, product: 'lawoss-desktop', version: '1.0.0', gitSha: 'a'.repeat(40),
   buildEpoch: '1700000000', platform: 'win32', arch: 'arm64', channel: 'stable', workflowRunUrl: '' };
@@ -21,13 +102,14 @@ async function desktop(t) {
   t.after(() => rm(base, { recursive: true, force: true }));
   const desktopRoot = path.join(base, 'desktop'); await mkdir(path.join(desktopRoot, 'resources'), { recursive: true });
   const resourcesRoot = path.join(base, 'packaged-resources'); await mkdir(resourcesRoot);
-  return { base, desktopRoot, resourcesRoot, target, applicationBuild };
+  return { base, desktopRoot, resourcesRoot, target, applicationBuild, workerBunPath: process.env.LAWOSS_TEST_BUN };
 }
 async function packed(f, prepared) {
   const source = path.join(f.base, 'app-code');
   const folder = path.join(source, 'electron/generated/plugin-sdk'); await mkdir(folder, { recursive: true });
   await writeFile(path.join(folder, 'identity.mjs'), await readFile(prepared.identityModulePath));
-  await asar.createPackage(source, path.join(f.resourcesRoot, 'app.asar'));
+  if (prepared.identity.worker) await cp(path.join(prepared.applicationCodeRoot, 'worker.cjs'), path.join(folder, 'worker.cjs'));
+  await createAsarAndWaitForClose(source, path.join(f.resourcesRoot, 'app.asar'), {});
   await writeFile(path.join(f.resourcesRoot, 'build-info.json'), JSON.stringify(f.applicationBuild));
   if(prepared.resourceRoot) await cp(prepared.resourceRoot, path.join(f.resourcesRoot, 'plugin-sdk'), { recursive: true });
 }
@@ -180,14 +262,17 @@ test('native crossbuild refuses rather than falling back to without-sdk', async 
 });
 
 test('actual pinned builder FileSets place only current private identity in ASAR and capsule closure in resources', async t => {
-  const f = await desktop(t), bundle = await fixture(t);
+  const f = await desktop(t);
+  f.target = { platform: process.platform, arch: process.arch, ...(process.platform === 'linux' ? { libc: 'glibc' } : {}) };
+  f.applicationBuild = { ...applicationBuild, platform: process.platform, arch: process.arch };
+  const bundle = await fixture(t, f.target, process.platform === 'win32' && process.arch === 'arm64' ? 'fallback' : 'loaded');
   const prepared = await prepareDesktopProductSdkPackaging({ ...f, supplier: { mode: 'accepted', payloadRoot: bundle.payloadRoot,
     expectedManifestSha256: bundle.expectedManifestSha256, acceptedLockSha256: bundle.acceptedLockSha256, compatibilityBinding: bundle.compatibilityBinding } });
   const config = require('yaml').parse(await readFile(new URL('../../../apps/desktop/electron-builder.yml', import.meta.url), 'utf8'));
   const { getFileMatchers, copyFiles } = builder('./fileMatcher.js');
   assert.equal(builder('../package.json').version, '26.16.1');
   const identityMapping = config.files.find(item => typeof item === 'object' && item.to === 'electron/generated/plugin-sdk');
-  assert.deepEqual(identityMapping, { from: 'resources/.plugin-sdk-build/application-code', to: 'electron/generated/plugin-sdk', filter: ['identity.mjs'] });
+  assert.deepEqual(identityMapping, { from: 'resources/.plugin-sdk-build/application-code', to: 'electron/generated/plugin-sdk', filter: ['identity.mjs', 'worker.cjs'] });
   const resourceMapping = config.extraResources.find(item => item.to === 'plugin-sdk');
   assert.deepEqual(resourceMapping, { from: 'resources/.plugin-sdk-build/publication/plugin-sdk', to: 'plugin-sdk', filter: ['payload.tgz', 'verifier/**'] });
   const rogue = path.join(f.desktopRoot, 'electron/generated/plugin-sdk'); await mkdir(rogue, { recursive: true });
@@ -197,13 +282,28 @@ test('actual pinned builder FileSets place only current private identity in ASAR
   const options = { macroExpander: value => value, customBuildOptions: {}, globalOutDir: path.join(f.desktopRoot, 'dist-electron'), defaultSrc: f.desktopRoot };
   await copyFiles(getFileMatchers(config, 'files', applicationCode, options), null, false);
   const codeRecords = await inventory(applicationCode);
-  assert.deepEqual(codeRecords.map(item => item.path), ['electron/generated/plugin-sdk/identity.mjs']);
+  assert.deepEqual(codeRecords.map(item => item.path), ['electron/generated/plugin-sdk/identity.mjs', 'electron/generated/plugin-sdk/worker.cjs']);
   assert.deepEqual(await readFile(path.join(applicationCode, codeRecords[0].path)), await readFile(prepared.identityModulePath));
-  await asar.createPackage(applicationCode, path.join(f.resourcesRoot, 'app.asar'));
-  await writeFile(path.join(f.resourcesRoot, 'build-info.json'), JSON.stringify(applicationBuild));
+  await createAsarAndWaitForClose(applicationCode, path.join(f.resourcesRoot, 'app.asar'), {});
+  await writeFile(path.join(f.resourcesRoot, 'build-info.json'), JSON.stringify(f.applicationBuild));
   await copyFiles(getFileMatchers({ extraResources: [resourceMapping] }, 'extraResources', f.resourcesRoot, options), null, false);
   assert.deepEqual((await inventory(path.join(f.resourcesRoot, 'plugin-sdk'))).map(item => item.path), (await inventory(prepared.resourceRoot)).map(item => item.path));
   assert.equal((await verifyDesktopProductSdkPackaging({ ...f, expectedMode: 'sdk' })).status, 'verified');
+  await executeCheckedAsarWorker(t, f, prepared, bundle);
+  const workerFile = path.join(prepared.applicationCodeRoot, 'worker.cjs'), originalWorker = await readFile(workerFile);
+  await mkdir(path.join(f.resourcesRoot, 'node'));
+  await writeFile(path.join(f.resourcesRoot, 'node/runtime.json'), JSON.stringify({ version: 'v22.23.2', worker: { sha256: 'a'.repeat(64) } }));
+  assert.equal((await verifyDesktopProductSdkPackaging({ ...f, expectedMode: 'sdk' })).status, 'verified');
+  await rm(workerFile);
+  await assert.rejects(verifyDesktopProductSdkPackaging({ ...f, expectedMode: 'sdk' }));
+  await writeFile(workerFile, originalWorker);
+  await writeFile(workerFile, Buffer.concat([originalWorker, Buffer.from('\n// altered')]));
+  await assert.rejects(verifyDesktopProductSdkPackaging({ ...f, expectedMode: 'sdk' }));
+  await writeFile(workerFile, originalWorker);
+  await writeFile(prepared.identityModulePath, createProductSdkIdentityModule({ ...prepared.identity, worker: { ...prepared.identity.worker, sha256: 'a'.repeat(64) } }));
+  await assert.rejects(verifyDesktopProductSdkPackaging({ ...f, expectedMode: 'sdk' }));
+  await writeFile(prepared.identityModulePath, createProductSdkIdentityModule(prepared.identity));
+
   // The same real matcher exposes an omitted resource instead of silently
   // treating electron-builder's missing-from skip as successful SDK admission.
   await rm(path.join(f.resourcesRoot, 'plugin-sdk'), { recursive: true });
@@ -295,7 +395,7 @@ async function tupleModule(options = {}) {
   const build = options.current === undefined ? { privateValue, side: 'current' } : options.current;
   const prepared = options.sameBuild ? build : options.prepared === undefined ? { privateValue, side: 'prepared' } : options.prepared;
   const sourceTarget = options.sourceTarget ?? target;
-  const identity = { sdk: options.sourceSet ? { sourceSetSha256: 'prepared' } : null };
+  const identity = { schema: 2, worker: { bytes: 1, sha256: 'a'.repeat(64) }, sdk: options.sourceSet ? { sourceSetSha256: 'prepared' } : null };
   Object.defineProperty(identity, 'mode', { enumerable: true, get() { calls.push('mode'); if (options.modeError) throw options.modeError; return options.sourceMode ?? 'sdk'; } });
   Object.defineProperty(identity, 'target', { enumerable: true, get() { calls.push('target'); if (options.targetError) throw options.targetError; return sourceTarget; } });
   Object.defineProperty(identity, 'applicationBuild', { get() {
@@ -307,13 +407,14 @@ async function tupleModule(options = {}) {
   const operands = [];
   let canonicalCount = 0;
   const mocks = {
+    'node:crypto': { createHash() { return { update() {}, digest() { return 'a'.repeat(64); } }; } },
     'node:child_process': { execFileSync() { calls.push('epoch'); return '1700000000'; } },
     'node:fs': { constants: { O_RDONLY: 0, O_NOFOLLOW: 1 }, readFileSync() { calls.push('version'); return '{"version":"1.0.0"}'; } },
     'node:fs/promises': {
-      async lstat(name) { calls.push('lstat'); if (name.endsWith('.generation.lock')) throw Object.assign(new Error(), { code: 'ENOENT' }); return name.endsWith('identity.mjs') ? file : directory; },
+      async lstat(name) { calls.push('lstat'); if (name.endsWith('.generation.lock')) throw Object.assign(new Error(), { code: 'ENOENT' }); if (name.endsWith('worker.cjs')) { if (options.sourceMode === 'without-sdk' || options.sourceMode === 'development') throw Object.assign(new Error(), { code: 'ENOENT' }); return { ...file, dev: 1n, ino: 3n, size: 1n, nlink: 1n }; } return name.endsWith('identity.mjs') ? file : directory; },
       async realpath(name) { calls.push('realpath'); return name; },
       async readFile() { calls.push('owner'); return '{"token":"private"}'; },
-      async open() { calls.push('open'); return { async stat() { calls.push('stat'); return file; }, async read(bytes) { calls.push('read'); bytes[0] = 120; return { bytesRead: 1 }; }, async close() { calls.push('close'); } }; },
+      async open(name) { calls.push('open'); let read = false; return { async stat() { calls.push('stat'); return name.endsWith('worker.cjs') ? { ...file, dev: 1n, ino: 3n, size: 1n, nlink: 1n } : file; }, async read(bytes) { calls.push('read'); bytes[0] = 120; if (name.endsWith('worker.cjs') && read) return { bytesRead: 0 }; read = true; return { bytesRead: 1 }; }, async close() { calls.push('close'); } }; },
     },
     'node:url': { fileURLToPath: (await import('node:url')).fileURLToPath },
     'node:path': { default: path },
@@ -323,7 +424,7 @@ async function tupleModule(options = {}) {
     },
     './product-packaging.mjs': { prepareProductSdkPackaging() { throw new Error('unexpected prepare'); } },
     './product-identity.mjs': { readProductSdkIdentityModule() { calls.push('identity'); return identity; } },
-    './packaged-identity.mjs': { readPackagedProductSdkIdentity() { calls.push('packed'); if (options.success) return identity; throw later; } },
+    './packaged-identity.mjs': { verifyPackagedProductSdkStageWorker() {}, readPackagedProductSdkIdentity() { calls.push('packed'); if (options.success) return identity; throw later; } },
     './packaged-resource.mjs': { verifyPackagedProductSdk() { calls.push('verify-packed'); if (options.success) return Object.freeze({ status: 'verified' }); throw new Error('unexpected verify'); } },
     './product-bundle.mjs': { currentProductSdkSourceSetSha256() { calls.push('source-set'); throw later; } },
     './prepare.mjs': { verifyWorkspace() { calls.push('workspace'); } },
@@ -419,7 +520,7 @@ test('tuple diagnostic keeps null operands distinct and leaves derivation and no
   assert.equal(later.namespace.desktopSdkPackagingFailureDiagnostic(later.error), undefined);
   const success = await tupleModule({ sameBuild: true, success: true });
   assert.equal(success.error, undefined);
-  assert.equal(success.calls.filter(value => value === 'identity').length, 2);
+  assert.equal(success.calls.filter(value => value === 'identity').length, 3);
   assert.equal(success.calls.filter(value => value === 'packed').length, 2);
   assert.equal(success.calls.filter(value => value === 'verify-packed').length, 1);
   assert.equal(success.namespace.desktopSdkPackagingFailureDiagnostic(success.error), undefined);
@@ -462,4 +563,142 @@ test('tuple diagnostic also binds a real owned-generation fixture refusal', asyn
   assert.equal(diagnostic.firstFailedPredicate, 'sourceModeMatches');
   assert.equal(diagnostic.applicationBuildMatches, 'not-reached');
   assert.ok(Object.isFrozen(diagnostic));
+});
+
+
+test('current SDK shipping refuses a matching legacy identity without a worker', async t => {
+  const f = await desktop(t), bundle = await fixture(t);
+  const prepared = await prepareDesktopProductSdkPackaging({ ...f, workerBunPath: process.env.LAWOSS_TEST_BUN,
+    supplier: { mode: 'accepted', payloadRoot: bundle.payloadRoot, expectedManifestSha256: bundle.expectedManifestSha256,
+      acceptedLockSha256: bundle.acceptedLockSha256, compatibilityBinding: bundle.compatibilityBinding } });
+  const { worker, ...legacy } = prepared.identity;
+  legacy.schema = 1;
+  await writeFile(prepared.identityModulePath, createProductSdkIdentityModule(legacy));
+  await packed(f, prepared);
+  await assert.rejects(verifyDesktopProductSdkPackaging({ ...f, expectedMode: 'sdk' }));
+});
+
+async function childRoundtrip(f, executable, bytes, hold) {
+  const events = [], errors = [], stdout = [], stderr = [];
+  let outBytes = 0, errBytes = 0, exit, signal, stdinFinished = false, stdoutEOF = false, stderrEOF = false;
+  const child = spawn(executable, [f.worker], { cwd: f.codeDirectory, env: { PATH: path.dirname(executable) }, stdio: ['pipe', 'pipe', 'pipe'] });
+  const closure = f.retainChild(child);
+  const closed = new Promise(resolve => child.once('close', (code, term) => { events.push('child-close'); resolve({ code, term }); }));
+  const pipeCloses = ['stdin', 'stdout', 'stderr'].map(name => new Promise(resolve => child[name].once('close', () => { events.push(`${name}-close`); resolve(); })));
+  child.on('error', error => errors.push(error.code ?? 'child-error'));
+  child.on('exit', (code, term) => { exit = code; signal = term; events.push('exit'); });
+  child.stdin.on('error', error => errors.push(error.code ?? 'stdin-error')); child.stdin.on('finish', () => { stdinFinished = true; events.push('stdin-finish'); });
+  for (const [name, chunks, cap] of [['stdout', stdout, 4100], ['stderr', stderr, 4096]]) {
+    let retained = 0;
+    child[name].on('data', chunk => {
+      if (name === 'stdout') outBytes = Math.min(4101, outBytes + chunk.length); else errBytes = Math.min(4097, errBytes + chunk.length);
+      const remaining = cap - retained;
+      if (remaining > 0) { const copy = Buffer.from(chunk.subarray(0, remaining)); chunks.push(copy); retained += copy.length; }
+    });
+    child[name].on('error', error => errors.push(error.code ?? `${name}-error`));
+    child[name].on('end', () => { events.push(`${name}-end`); if (name === 'stdout') stdoutEOF = true; else stderrEOF = true; });
+  }
+  let timedOut = false;
+  const watchdog = setTimeout(() => { timedOut = true; child.stdin.destroy(); child.kill('SIGKILL'); }, 15000);
+  try {
+    child.stdin.write(bytes);
+    if (hold) await hold(child, () => ({ outBytes, errBytes, exit }));
+    child.stdin.end();
+    const close = await closed; await Promise.all(pipeCloses);
+    return { exit, signal, close, stdinFinished, stdoutEOF, stderrEOF, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr), outBytes, errBytes, errors, events, timedOut, closure };
+  } finally {
+    // Never drop an alive race loser or remove its fixture on a failed assertion.
+    if (!closure.close) { child.stdin.destroy(); child.kill('SIGKILL'); await closed; await Promise.all(pipeCloses); }
+    clearTimeout(watchdog);
+  }
+}
+
+function assertClosed(run, expectedExit) {
+  assert.equal(run.timedOut, false); assert.deepEqual(run.errors, []);
+  assert.equal(run.exit, expectedExit); assert.equal(run.signal, null); assert.deepEqual(run.close, { code: expectedExit, term: null });
+  assert.equal(run.stdinFinished, true); assert.equal(run.stdoutEOF, true); assert.equal(run.stderrEOF, true);
+  assert.deepEqual(run.closure, { close: true, stdin: true, stdout: true, stderr: true }); assert.equal(run.errBytes, 0);
+  assert.ok(run.events.indexOf('exit') < run.events.indexOf('child-close'));
+}
+
+
+async function executeCheckedAsarWorker(t, f, prepared, bundle) {
+  assert.equal(process.version, 'v22.23.2');
+  const node24 = process.env.LAWOSS_TEST_NODE24;
+  assert.ok(node24 && path.isAbsolute(node24));
+  const version = spawnSync(node24, ['--version'], { encoding: 'utf8', timeout: 10000, maxBuffer: 65536 });
+  assert.ifError(version.error); assert.equal(version.status, 0); assert.equal(version.stdout.trim(), 'v24.21.0');
+  const observed = await verifyPackagedProductSdkStageWorker({ resourcesRoot: f.resourcesRoot, expectedWorker: prepared.identity.worker });
+  assert.equal(observed.status, 'verified');
+  const archive = path.join(f.resourcesRoot, 'app.asar');
+  asar.uncache(archive);
+  const bytes = asar.extractFile(archive, path.join('electron', 'generated', 'plugin-sdk', 'worker.cjs'), false);
+  asar.uncache(archive);
+  assert.equal(bytes.length, prepared.identity.worker.bytes); assert.equal(hash(bytes), prepared.identity.worker.sha256);
+  const codeDirectory = path.join(f.base, 'isolated-code'); await mkdir(codeDirectory, { mode: 0o700 });
+  const worker = path.join(codeDirectory, 'worker.cjs'); await writeFile(worker, bytes, { mode: 0o600, flag: 'wx' });
+  const parent = path.join(f.base, 'stage-parent'), stage = path.join(parent, 'stage');
+  await mkdir(parent, { mode: 0o700 }); await mkdir(stage, { mode: 0o700 });
+  const physical = async file => { const stat = await lstat(file, { bigint: true }); return { dev: String(stat.dev), ino: String(stat.ino) }; };
+  const resourceRoot = path.join(f.resourcesRoot, 'plugin-sdk');
+  const request = { schema: 1, kind: 'lawoss-sdk-stage-decode', generation: 'a'.repeat(32), resourceRoot,
+    resourceIdentity: await physical(resourceRoot), stageGrant: { path: stage, identity: await physical(stage), parent: { path: parent, ...await physical(parent) } },
+    sdkIdentity: prepared.identity.sdk, deadline: Date.now() + 60000 };
+  const parse = bytes => { const parser = createStageWireDecoder('terminal'); parser.push(bytes); return parser.finish(); };
+  const children = [];
+  const driver = { worker, codeDirectory, retainChild(child) {
+    const state = { close: false, stdin: false, stdout: false, stderr: false }; children.push(state);
+    child.once('close', () => { state.close = true; });
+    for (const name of ['stdin', 'stdout', 'stderr']) child[name].once('close', () => { state[name] = true; });
+    return state;
+  } };
+  const resourceBefore = await inventory(resourceRoot);
+  const negative = await childRoundtrip(driver, node24, encodeStageWireFrame(request, 'request'));
+  assertClosed(negative, 1);
+  assert.equal(admitStageError(parse(negative.stdout), request.generation).code, 'STAGE_RUNTIME_UNSUPPORTED');
+  assert.deepEqual(await readdir(stage), []); assert.deepEqual(await inventory(resourceRoot), resourceBefore);
+  const positive = await childRoundtrip(driver, process.execPath, encodeStageWireFrame(request, 'request'));
+  assertClosed(positive, 0);
+  const result = admitStageDecodeResult(parse(positive.stdout), request);
+  assert.deepEqual(await inventory(stage), await inventory(bundle.payloadRoot));
+  assert.deepEqual(await inventory(resourceRoot), resourceBefore);
+  assert.deepEqual(await readdir(codeDirectory), ['worker.cjs']);
+  assert.ok(children.every(state => Object.values(state).every(Boolean)));
+  const graph = JSON.parse(await readFile(path.join(prepared.applicationCodeRoot, 'worker-closure.json'), 'utf8'));
+  const toolsRequire = createRequire(new URL('./tools/package.json', import.meta.url));
+  const arboristMetadata = await realpath(toolsRequire.resolve('@npmcli/arborist/package.json'));
+  const tarMetadata = await realpath(createRequire(arboristMetadata).resolve('tar/package.json'));
+  const inputBindings = await Promise.all([...Object.keys(graph.inputs).map(name => path.resolve(prepared.applicationCodeRoot, name)),
+    ...['tools/package.json', 'tools/pnpm-lock.yaml', 'sdk/package.json', 'sdk/package-lock.json'].map(name => new URL(name, import.meta.url)),
+    arboristMetadata, tarMetadata].map(async file => { const bytes = await readFile(file); return { file: String(file), bytes: bytes.length, sha256: hash(bytes) }; }));
+  const record = { synthetic: true, applicationCodeRoot: prepared.applicationCodeRoot, inputBindings, scope: 'Dormant shipped worker closure only; no production Node binding or runtime caller',
+    sourceIdentity: prepared.identity, worker: observed, archiveSha256: hash(await readFile(archive)),
+    graph,
+    node22: { path: process.execPath, version: process.version, sha256: hash(await readFile(process.execPath)) },
+    node24: { path: node24, version: version.stdout.trim(), sha256: hash(await readFile(node24)) },
+    bun: { path: process.env.LAWOSS_TEST_BUN, version: '1.4.2', sha256: hash(await readFile(process.env.LAWOSS_TEST_BUN)) },
+    negative: { ...negative, stdout: parse(negative.stdout), stderr: '' }, positive: { ...positive, stdout: result, stderr: '' },
+    stagedInventory: await inventory(stage), resourceInventory: resourceBefore };
+  if (process.env.LAWOSS_TASK32_EVIDENCE) {
+    const output = process.env.LAWOSS_TASK32_EVIDENCE;
+    await writeFile(path.join(output, 'actual-artifact-provenance.json'), JSON.stringify(record, null, 2));
+    await writeFile(path.join(output, 'actual-worker.cjs'), bytes);
+    await cp(archive, path.join(output, 'actual-app.asar'));
+    await cp(prepared.identityModulePath, path.join(output, 'actual-identity.mjs'));
+    await cp(path.join(prepared.applicationCodeRoot, 'worker-entry.mjs'), path.join(output, 'actual-wrapper.mjs'));
+  }
+  t.diagnostic(JSON.stringify(record));
+}
+
+test('without-sdk and development refuse stale source and packed workers without needing Bun', async t => {
+  for (const build of [null, applicationBuild]) {
+    const f = await desktop(t); f.applicationBuild = build; delete f.workerBunPath;
+    const prepared = await prepareDesktopProductSdkPackaging(f); await packed(f, prepared);
+    assert.ok(await verifyDesktopProductSdkPackaging(f));
+    const source = path.join(prepared.applicationCodeRoot, 'worker.cjs'); await writeFile(source, 'stale');
+    await assert.rejects(verifyDesktopProductSdkPackaging(f)); await rm(source);
+    await writeFile(path.join(f.base, 'app-code/electron/generated/plugin-sdk/worker.cjs'), 'stale');
+    await createAsarAndWaitForClose(path.join(f.base, 'app-code'), path.join(f.resourcesRoot, 'app.asar'), {});
+    await assert.rejects(verifyDesktopProductSdkPackaging(f));
+  }
 });

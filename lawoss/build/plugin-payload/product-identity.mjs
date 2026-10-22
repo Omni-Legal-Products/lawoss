@@ -32,8 +32,14 @@ function snapshot(value, depth = 0, budget = { values: 0, text: 0, active: new W
 function admit(input) {
   try {
     const value = snapshot(input);
-    shape(value, ['schema', 'kind', 'mode', 'applicationBuild', 'target', 'sdk']);
-    if (value.schema !== 1 || value.kind !== 'lawoss-product-sdk-packaging' || !['sdk', 'without-sdk', 'development'].includes(value.mode)) invalid();
+    shape(value, ['schema', 'kind', 'mode', 'applicationBuild', 'target', 'sdk', ...(value.schema === 2 ? ['worker'] : [])]);
+    if (value.schema === 2) {
+      if (value.mode !== 'sdk') invalid();
+      shape(value.worker, ['format', 'file', 'bytes', 'sha256', 'compositionSha256']);
+      if (value.worker.format !== 'cjs' || value.worker.file !== 'worker.cjs' || !Number.isSafeInteger(value.worker.bytes) ||
+        value.worker.bytes < 1 || value.worker.bytes > 16 * 1024 * 1024 || !hex(value.worker.sha256) || !hex(value.worker.compositionSha256)) invalid();
+    }
+    if (![1, 2].includes(value.schema) || value.kind !== 'lawoss-product-sdk-packaging' || !['sdk', 'without-sdk', 'development'].includes(value.mode)) invalid();
     const mode = sdkConsumerMode(value.target, SDK_LOCK_SHA256);
     if (value.mode === 'development') {
       if (value.applicationBuild !== null || value.sdk !== null) invalid();
@@ -57,14 +63,17 @@ const prefix = '// Generated private LAWOSS SDK packaging identity.\nconst ident
 const suffix = ';\nObject.freeze(identity.applicationBuild);\nObject.freeze(identity.target);\nif (identity.sdk) {\n  Object.freeze(identity.sdk.target);\n  Object.freeze(identity.sdk.capsule);\n  Object.freeze(identity.sdk);\n}\nexport default Object.freeze(identity);\n';
 
 export function createProductSdkIdentityModule(input) {
-  return prefix + JSON.stringify(admit(input)) + suffix;
+  const value = admit(input);
+  return prefix + JSON.stringify(value) + (value.schema === 2 ? suffix.replace('export default', 'Object.freeze(identity.worker);\nexport default') : suffix);
 }
 
 /** Parse the closed generated format as data, without importing/evaluating it. */
 export function readProductSdkIdentityModule(text) {
   try {
-    if (typeof text !== 'string' || text.length > 65536 || !text.startsWith(prefix) || !text.endsWith(suffix)) invalid();
-    const value = admit(JSON.parse(text.slice(prefix.length, -suffix.length)));
+    if (typeof text !== 'string' || text.length > 65536 || !text.startsWith(prefix)) invalid();
+    const ending = text.endsWith(suffix) ? suffix : suffix.replace('export default', 'Object.freeze(identity.worker);\nexport default');
+    if (!text.endsWith(ending)) invalid();
+    const value = admit(JSON.parse(text.slice(prefix.length, -ending.length)));
     if (createProductSdkIdentityModule(value) !== text) invalid();
     return value;
   } catch { invalid(); }

@@ -70,3 +70,19 @@ test('development is an explicit null-build mode that cannot carry SDK authority
     { ...input, sdk: identity().sdk }, { ...input, target: { platform: 'win32', arch: 'ia32' } },
   ]) assert.throws(() => createProductSdkIdentityModule(bad), invalid);
 });
+
+test('schema2 worker binding is exact, bounded, frozen and distinct from legacy compatibility', async () => {
+  const worker = { format: 'cjs', file: 'worker.cjs', bytes: 123, sha256: hash, compositionSha256: hash };
+  const input = { ...identity(), schema: 2, worker };
+  const text = createProductSdkIdentityModule(input), parsed = readProductSdkIdentityModule(text);
+  assert.deepEqual(parsed, input); assert.equal(Object.isFrozen(parsed.worker), true);
+  assert.equal(Object.isFrozen((await import(`data:text/javascript,${encodeURIComponent(text)}`)).default.worker), true);
+  assert.equal(readProductSdkIdentityModule(createProductSdkIdentityModule(identity())).schema, 1);
+  for (const change of [ { format: 'esm' }, { file: '../worker.cjs' }, { bytes: 0 }, { bytes: 16 * 1024 * 1024 + 1 },
+    { bytes: 1.5 }, { sha256: hash.toUpperCase() }, { compositionSha256: '' }, { extra: true } ]) {
+    assert.throws(() => createProductSdkIdentityModule({ ...input, worker: { ...worker, ...change } }), invalid);
+  }
+  for (const bad of [{ ...input, schema: 1 }, { ...input, mode: 'without-sdk', sdk: null }, { ...identity(), schema: 2 }]) {
+    assert.throws(() => createProductSdkIdentityModule(bad), invalid);
+  }
+});

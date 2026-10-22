@@ -1,6 +1,10 @@
 import './network-guard.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile, lstat, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -107,7 +111,7 @@ async function accepted(t) {
   input.supplier = { mode: 'accepted', payloadRoot: bundle.payloadRoot,
     expectedManifestSha256: bundle.expectedManifestSha256, acceptedLockSha256: bundle.acceptedLockSha256,
     compatibilityBinding: bundle.compatibilityBinding };
-  return input;
+  return { ...input, workerBunPath: process.env.LAWOSS_TEST_BUN };
 }
 
 test('accepted bundle is copied as a capsule and bound into private application code without executing SDK data', async t => {
@@ -235,7 +239,7 @@ test('own-data admission refuses getters, extra fields, malformed builds and ove
   assert.deepEqual(await readdir(path.join(input.desktopRoot, 'resources')), []);
 });
 
-test('native source identity must be explicit and bind the application checkout before executable reads', async t => {
+nativeTest('native source identity must be explicit and bind the application checkout before executable reads', async t => {
   const input = await desktop(t);
   input.target = { platform: process.platform, arch: process.arch, ...(process.platform === 'linux' ? { libc: 'glibc' } : {}) };
   input.applicationBuild = { ...build, platform: process.platform, arch: process.arch };
@@ -247,7 +251,7 @@ test('native source identity must be explicit and bind the application checkout 
   }
 });
 
-test('original CLI wrong-consumer failure closes normally but retains the failed generation and exact finite summary', async t => {
+nativeTest('original CLI wrong-consumer failure closes normally but retains the failed generation and exact finite summary', async t => {
   const input = await desktop(t);
   input.target = { platform: process.platform, arch: process.arch, ...(process.platform === 'linux' ? { libc: 'glibc' } : {}) };
   input.applicationBuild = { ...build, platform: process.platform, arch: process.arch };
@@ -257,6 +261,7 @@ test('original CLI wrong-consumer failure closes normally but retains the failed
   const cli = path.join(pnpmRoot, 'bin/pnpm.mjs');
   await writeFile(cli, "throw new Error('Inert pnpm must not execute');\n");
   const originalCli = await readFile(cli);
+  input.workerBunPath = process.env.LAWOSS_TEST_BUN;
   input.supplier = { mode: 'native', consumerNode: await realpath(process.execPath), pnpmCli: cli,
     headSha: 'b'.repeat(40), checkoutSha: build.gitSha };
   await assert.rejects(prepareProductSdkPackaging(input), { code: 'PRODUCT_SDK_NATIVE_CHILD_FAILED' });
@@ -280,7 +285,7 @@ test('original CLI wrong-consumer failure closes normally but retains the failed
   assert.equal((await lstat(path.join(root, 'supplier/runtime-consumer-validation/.owner.json'))).isFile(), true);
 });
 
-test('native admission rejects malformed metadata without exposing its text or creating a generation', async t => {
+nativeTest('native admission rejects malformed metadata without exposing its text or creating a generation', async t => {
   const input = await desktop(t);
   input.target = { platform: process.platform, arch: process.arch, ...(process.platform === 'linux' ? { libc: 'glibc' } : {}) };
   input.applicationBuild = { ...build, platform: process.platform, arch: process.arch };
@@ -315,4 +320,46 @@ test('null build refuses accepted and native suppliers before any filesystem adm
     { mode: 'native', consumerNode: '/absent', pnpmCli: '/absent', headSha: 'a'.repeat(40), checkoutSha: 'b'.repeat(40) },
   ]) await assert.rejects(prepareProductSdkPackaging({ desktopRoot: '/absent-lawoss-no-filesystem-read',
     target, applicationBuild: null, supplier }), { code: 'PRODUCT_SDK_PACKAGING_INVALID' });
+});
+
+test('SDK requires explicit genuine Bun before generation mutation, never downgrades', async t => {
+  const input = await accepted(t);
+  for (const workerBunPath of [undefined, 'bun', process.execPath]) {
+    await assert.rejects(prepareProductSdkPackaging({ ...input, workerBunPath }), { code: 'PRODUCT_SDK_WORKER_INVALID' });
+    assert.deepEqual(await readdir(path.join(input.desktopRoot, 'resources')), []);
+  }
+});
+
+// Preserve the three existing Node24-only native admission refusals while the
+// focused suite runs on Node22. No successful supplier/preparer is invoked.
+function nativeTest(name, fn) {
+  if (process.version === 'v24.21.0') return test(name, fn);
+  return test(name, t => {
+    const node = process.env.LAWOSS_TEST_NODE24;
+    assert.ok(node && path.isAbsolute(node), 'explicit LAWOSS_TEST_NODE24 required');
+    const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+    const result = spawnSync(node, ['--test', '--test-reporter=tap', '--test-name-pattern=' + name, fileURLToPath(import.meta.url)], {
+      env, encoding: 'utf8', timeout: 30000, maxBuffer: 262144,
+    });
+    assert.ifError(result.error); assert.equal(result.signal, null); assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /# tests 1\n/); assert.match(result.stdout, /# pass 1\n/);
+    t.diagnostic(result.stdout);
+  });
+}
+
+
+test('real compiler failure retains the owned generation and capsule without publishing private identity', async t => {
+  const input = await accepted(t), write = fsPromises.writeFile;
+  fsPromises.writeFile = async function(file, bytes, ...options) {
+    return write.call(this, file, typeof file === 'string' && file.endsWith('/worker-entry.mjs') ? String(bytes) + '\nconst = invalid;' : bytes, ...options);
+  };
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(prepareProductSdkPackaging(input), { code: 'PRODUCT_SDK_WORKER_COMPILER_FAILED' });
+  } finally { fsPromises.writeFile = write; syncBuiltinESMExports(); }
+  const parent = path.join(input.desktopRoot, 'resources'), root = path.join(parent, '.plugin-sdk-build');
+  assert.ok((await lstat(path.join(parent, '..plugin-sdk-build.generation.lock'))).isFile());
+  assert.ok((await lstat(path.join(root, 'publication/plugin-sdk/payload.tgz'))).isFile());
+  await assert.rejects(lstat(path.join(root, 'application-code/identity.mjs')), { code: 'ENOENT' });
+  await assert.rejects(prepareProductSdkPackaging({ ...input, supplier: { mode: 'without-sdk' } }), { code: 'EEXIST' });
 });

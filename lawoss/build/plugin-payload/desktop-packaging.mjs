@@ -1,5 +1,6 @@
 // Build-only desktop adapter. Explicit caller inputs select the supplier; only
 // the current owned generation supplies the private digest compared to actual ASAR.
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { constants } from 'node:fs';
 import { lstat, open, readFile, realpath } from 'node:fs/promises';
@@ -9,7 +10,7 @@ import path from 'node:path';
 import { createBuildInfo, assertReleaseSource } from '../../../scripts/release/build-info.mjs';
 import { prepareProductSdkPackaging } from './product-packaging.mjs';
 import { readProductSdkIdentityModule } from './product-identity.mjs';
-import { readPackagedProductSdkIdentity } from './packaged-identity.mjs';
+import { readPackagedProductSdkIdentity, verifyPackagedProductSdkStageWorker } from './packaged-identity.mjs';
 import { verifyPackagedProductSdk } from './packaged-resource.mjs';
 import { currentProductSdkSourceSetSha256 } from './product-bundle.mjs';
 import { verifyWorkspace } from './prepare.mjs';
@@ -66,8 +67,8 @@ export function parseDesktopSdkBuildArguments(args) {
 }
 
 /** applicationBuild is the existing writer's result, never adjacent SDK metadata. */
-export async function prepareDesktopProductSdkPackaging({ desktopRoot = DESKTOP_ROOT, target, applicationBuild, supplier = { mode: 'without-sdk' } }) {
-  return prepareProductSdkPackaging({ desktopRoot, target, applicationBuild, supplier });
+export async function prepareDesktopProductSdkPackaging({ desktopRoot = DESKTOP_ROOT, target, applicationBuild, supplier = { mode: 'without-sdk' }, workerBunPath = undefined }) {
+  return prepareProductSdkPackaging({ desktopRoot, target, applicationBuild, supplier, workerBunPath });
 }
 async function sourceIdentity(desktopRoot, expectedOwner) {
   const parent = path.join(desktopRoot, 'resources'), root = path.join(parent, '.plugin-sdk-build');
@@ -94,6 +95,32 @@ async function sourceIdentity(desktopRoot, expectedOwner) {
   finally {
     try { await handle.close(); }
     catch (cleanup) { if (primary) throw new AggregateError([primary, cleanup], 'Desktop SDK identity and close failed', { cause: primary }); throw cleanup; }
+  }
+}
+
+async function sourceWorker(source, expected) {
+  const file = path.join(source.root, 'application-code/worker.cjs');
+  if (expected === null) { if (!await absent(file)) invalid(); return null; }
+  const before = await lstat(file, { bigint: true });
+  const sameFile = (a, b) => ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs', 'nlink'].every(key => a[key] === b[key]);
+  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n || before.size !== BigInt(expected.bytes) || await realpath(file) !== file) invalid();
+  const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  let primary;
+  try {
+    if (!sameFile(before, await handle.stat({ bigint: true }))) invalid();
+    const digest = createHash('sha256'), bytes = Buffer.alloc(65536); let total = 0;
+    while (true) {
+      const { bytesRead } = await handle.read(bytes, 0, Math.min(bytes.length, expected.bytes + 1 - total), null);
+      if (!bytesRead) break;
+      total += bytesRead; if (total > expected.bytes) invalid(); digest.update(bytes.subarray(0, bytesRead));
+    }
+    if (total !== expected.bytes || digest.digest('hex') !== expected.sha256 || !sameFile(before, await handle.stat({ bigint: true })) ||
+      !sameFile(before, await lstat(file, { bigint: true })) || await realpath(file) !== file) invalid();
+    return before;
+  } catch (error) { primary = error; throw error; }
+  finally {
+    try { await handle.close(); }
+    catch (cleanup) { if (primary) throw new AggregateError([primary, cleanup], 'Worker source and close failed', { cause: primary }); throw cleanup; }
   }
 }
 
@@ -125,14 +152,25 @@ export async function verifyDesktopProductSdkPackaging({ desktopRoot = DESKTOP_R
       throw originalError;
     }
   }
+  if (mode === 'sdk' && (source.identity.schema !== 2 || !source.identity.worker)) invalid();
+  const worker = mode === 'sdk' ? source.identity.worker : null;
+  const workerFile = await sourceWorker(source, worker);
+  const archiveFile = await lstat(path.join(resourcesRoot, 'app.asar'), { bigint: true });
   if (source.identity.sdk && source.identity.sdk.sourceSetSha256 !== await currentProductSdkSourceSetSha256()) invalid();
   const binding = { resourcesRoot, target, expectedMode: mode, applicationBuild };
   const packed = await readPackagedProductSdkIdentity(binding);
   if (!equal(source.identity, packed)) invalid();
+  await verifyPackagedProductSdkStageWorker({ resourcesRoot, expectedWorker: worker });
   const result = await verifyPackagedProductSdk({ ...binding, validationParent: source.root });
   const finalSource = await sourceIdentity(desktopRoot, source.owner);
   const finalPacked = await readPackagedProductSdkIdentity(binding);
   if (!unchanged(source.file, finalSource.file) || !equal(source.identity, finalSource.identity) || !equal(source.identity, finalPacked) ||
     (source.identity.sdk && source.identity.sdk.sourceSetSha256 !== await currentProductSdkSourceSetSha256())) invalid();
+  const finalWorker = await sourceWorker(finalSource, worker);
+  await verifyPackagedProductSdkStageWorker({ resourcesRoot, expectedWorker: worker });
+  const finalArchive = await lstat(path.join(resourcesRoot, 'app.asar'), { bigint: true });
+  if (['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'].some(key => archiveFile[key] !== finalArchive[key] || (workerFile && workerFile[key] !== finalWorker[key]))) invalid();
+  const lastSource = await sourceIdentity(desktopRoot, source.owner);
+  if (!equal(source.identity, lastSource.identity) || !unchanged(source.file, lastSource.file)) invalid();
   return result;
 }

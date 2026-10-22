@@ -7,7 +7,8 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { renameSync, symlinkSync } from 'node:fs';
 import { createProductSdkIdentityModule } from './product-identity.mjs';
-import { readPackagedProductSdkIdentity } from './packaged-identity.mjs';
+import { createHash } from 'node:crypto';
+import { readPackagedProductSdkIdentity, verifyPackagedProductSdkStageWorker } from './packaged-identity.mjs';
 const r = createRequire(new URL('../../../apps/desktop/package.json', import.meta.url));
 const builder = createRequire(createRequire(r.resolve('electron-builder')).resolve('app-builder-lib'));
 const asar = builder('@electron/asar');
@@ -315,4 +316,37 @@ test('actual asar development null identity requires explicit development expect
  assert.deepEqual(await readPackagedProductSdkIdentity(development), input);
  for (const expectedMode of ['without-sdk', 'sdk']) await assert.rejects(readPackagedProductSdkIdentity({ ...development, expectedMode }), code);
  await assert.rejects(readPackagedProductSdkIdentity({ ...f, expectedMode: 'development' }), code);
+});
+
+test('fixed worker reader matches actual bytes and refuses absent, altered, linked, unpacked and oversized members', async t => {
+ const f = await fixture(t), resourcesRoot = f.resourcesRoot;
+ const workerName = 'electron/generated/plugin-sdk/worker.cjs';
+ const bytes = Buffer.from('"use strict"; process.exitCode = 0;\n');
+ const expectedWorker = { format: 'cjs', file: 'worker.cjs', bytes: bytes.length,
+  sha256: createHash('sha256').update(bytes).digest('hex'), compositionSha256: 'a'.repeat(64) };
+ assert.deepEqual(await verifyPackagedProductSdkStageWorker({ resourcesRoot, expectedWorker: null }), { status: 'absent' });
+ await assert.rejects(verifyPackagedProductSdkStageWorker({ resourcesRoot, expectedWorker }), code);
+ await writeFile(path.join(f.source, workerName), bytes);
+ await replaceArchiveFromSource(f.source, resourcesRoot);
+ assert.deepEqual(await verifyPackagedProductSdkStageWorker({ resourcesRoot, expectedWorker }), { status: 'verified', ...expectedWorker });
+ await assert.rejects(verifyPackagedProductSdkStageWorker({ resourcesRoot, expectedWorker: null }), code);
+ await assert.rejects(verifyPackagedProductSdkStageWorker({ resourcesRoot, expectedWorker: { ...expectedWorker, sha256: 'b'.repeat(64) } }), code);
+ const archive = path.join(resourcesRoot, 'app.asar'), original = await readFile(archive);
+ asar.uncache(archive); const raw = asar.getRawHeader(archive); asar.uncache(archive);
+ const pickle = asarPackage('chromium-pickle-js');
+ for (const change of [{ link: 'electron/generated/plugin-sdk/identity.mjs' }, { unpacked: true }, { size: 16 * 1024 * 1024 + 1 }, { offset: '9999999999999999' }, { size: 0 }]) {
+  const header = structuredClone(raw.header);
+  Object.assign(header.files.electron.files.generated.files['plugin-sdk'].files['worker.cjs'], change);
+  const encoded = pickle.createEmpty(); encoded.writeString(JSON.stringify(header)); const headerBytes = encoded.toBuffer();
+  const size = pickle.createEmpty(); size.writeUInt32(headerBytes.length);
+  await writeFile(archive, Buffer.concat([size.toBuffer(), headerBytes, original.subarray(8 + raw.headerSize)]));
+  await assert.rejects(verifyPackagedProductSdkStageWorker({ resourcesRoot, expectedWorker }), code);
+  await assert.rejects(verifyPackagedProductSdkStageWorker({ resourcesRoot, expectedWorker: null }), code);
+ }
+ await writeFile(archive, original.subarray(0, original.length - 1));
+ await assert.rejects(verifyPackagedProductSdkStageWorker({ resourcesRoot, expectedWorker }), code);
+ const changed = Buffer.from(original); changed[changed.length - 1] ^= 1; await writeFile(archive, changed);
+ await assert.rejects(verifyPackagedProductSdkStageWorker({ resourcesRoot, expectedWorker }), code);
+ await writeFile(archive, original);
+ assert.equal((await verifyPackagedProductSdkStageWorker({ resourcesRoot, expectedWorker })).status, 'verified');
 });

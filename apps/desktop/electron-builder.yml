@@ -21,6 +21,7 @@ files:
     to: electron/generated/plugin-sdk
     filter:
       - identity.mjs
+      - worker.cjs
   - server/**/*
   - "!server/dist/opencode-plugins/**"
   - package.json

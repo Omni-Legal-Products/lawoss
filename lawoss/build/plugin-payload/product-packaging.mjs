@@ -11,6 +11,7 @@ import { createProductSdkIdentityModule, readProductSdkIdentityModule } from './
 import { inspectProductSdkBundle } from './product-bundle.mjs';
 import { publishProductSdkResource } from './product-resource.mjs';
 import { childEnvironment, initialize } from './prepare.mjs';
+import { buildProductSdkStageWorker, admitProductSdkWorkerBun } from './product-stage-worker.mjs';
 import { canonical, SDK_LOCK_SHA256 } from './validate.mjs';
 
 const error = code => Object.assign(new Error(code), { code });
@@ -160,7 +161,7 @@ async function physical(directory) {
 }
 
 export async function prepareProductSdkPackaging(options) {
-  const input = fields(options, ['desktopRoot', 'target', 'supplier', 'applicationBuild']);
+  const input = fields(options, ['desktopRoot', 'target', 'supplier', 'applicationBuild', ...(Object.hasOwn(options, 'workerBunPath') ? ['workerBunPath'] : [])]);
   const initial = readProductSdkIdentityModule(createProductSdkIdentityModule({ schema: 1,
     kind: 'lawoss-product-sdk-packaging', mode: input.applicationBuild === null ? 'development' : 'without-sdk', applicationBuild: input.applicationBuild,
     target: input.target, sdk: null }));
@@ -182,6 +183,7 @@ export async function prepareProductSdkPackaging(options) {
     await inspectProductSdkBundle(bundle);
     if (inside(root, supplier.payloadRoot) || inside(supplier.payloadRoot, root)) refuse();
   } else if (supplier.mode === 'native') inputs = await nativeInputs(supplier, initial, root);
+  const workerTool = supplier.mode !== 'without-sdk' ? await admitProductSdkWorkerBun(input.workerBunPath) : null;
   if (!same(parentIdentity, await physical(parent))) refuse();
   const generation = await freshProductSdkBuildRoot(root);
   // After generation admission, any failure intentionally retains its lease and
@@ -195,10 +197,16 @@ export async function prepareProductSdkPackaging(options) {
       await mkdir(buildParent, { mode: 0o700 });
       const published = await publishProductSdkResource({ ...bundle, buildParent, outputName: 'plugin-sdk', transport: 'tar+gzip' });
       resourceRoot = published.resourceRoot;
-      identity = readProductSdkIdentityModule(createProductSdkIdentityModule({ ...initial, mode: 'sdk', sdk: published.identity }));
+      identity = { ...initial, mode: 'sdk', sdk: published.identity };
     }
     const applicationCodeRoot = path.join(generation.root, 'application-code');
     await mkdir(applicationCodeRoot, { mode: 0o700 });
+    if (workerTool) {
+      const worker = await buildProductSdkStageWorker({ applicationCodeRoot, bunPath: input.workerBunPath });
+      const finalTool = await admitProductSdkWorkerBun(input.workerBunPath);
+      if (workerTool.sha256 !== finalTool.sha256 || ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'].some(key => workerTool.stat[key] !== finalTool.stat[key])) refuse();
+      identity = readProductSdkIdentityModule(createProductSdkIdentityModule({ ...identity, schema: 2, worker }));
+    }
     const identityModulePath = path.join(applicationCodeRoot, 'identity.mjs');
     await writeFile(identityModulePath, createProductSdkIdentityModule(identity), { flag: 'wx', mode: 0o600 });
     completionStarted = true; // Completion consumes and closes its capability even on failure.

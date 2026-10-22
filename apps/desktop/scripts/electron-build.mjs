@@ -23,7 +23,7 @@ const applicationBuild = writeBuildInfoForCheckout({root: repoRoot, out: resolve
     ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : '',
   release: identityVersion !== '0.0.0'});
 const sdkTarget = identityTarget ? targetFromTriple(identityTarget) : { platform: process.platform, arch: process.arch };
-await prepareDesktopProductSdkPackaging({ target: desktopProductSdkTarget(sdkTarget.platform, sdkTarget.arch), applicationBuild, supplier: sdkSupplier });
+await prepareDesktopProductSdkPackaging({ target: desktopProductSdkTarget(sdkTarget.platform, sdkTarget.arch), applicationBuild, supplier: sdkSupplier, workerBunPath: process.env.LAWOSS_PRODUCT_SDK_BUN_BINARY });
 
 const pnpmCmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const nodeCmd = process.execPath;
