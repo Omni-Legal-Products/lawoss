@@ -14,6 +14,8 @@ Pred uložením súboru čítaj `PRACOVNY-PROFIL.md`: určuje skutočné prieči
 
 Vec `advisory` v režime `ongoing` môže mať opakované zadania a termíny bez súdneho konania. Pracuj len s jej úlohami a vstupmi; spoločné firemné údaje čítaj z klienta. Uzavretie jedného zadania neuzatvára priebežnú vec.
 
+Hodnoty `view:procedural`, `view:corporate`, `view:ip` a `view:base` v poli `tags` karty sú voľba prehľadu prípadu od používateľa. Zachovaj ich a bez jeho pokynu ich nemeň ani nemaž.
+
 <!-- okf:protokol-zapisu:v2 -->
 ## Protokol zápisu
 

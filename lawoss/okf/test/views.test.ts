@@ -13,7 +13,7 @@ import { parseRecord } from "../../okf-pamat/src/record.ts";
 import { readManualStatus } from "../../okf-pamat/src/manual-status.ts";
 import { parseFrontmatter } from "../src/core.ts";
 import type { MatterInput } from "../read.ts";
-import { areaFamilies, buildMatterViews, cardList, deadlinesRecorded, recordState, setCardViewTags, viewTagsLine, type MatterViews, type SectionId, type ViewBlock } from "../views.ts";
+import { areaFamilies, buildMatterViews, cardList, deadlineCoverage, recordState, recordsDeadlines, resolveDocument, setCardViewTags, viewTagsLine, type MatterViews, type SectionId, type ViewBlock } from "../views.ts";
 
 const TODAY = "2026-10-23";
 
@@ -80,7 +80,8 @@ describe("odvodenie oblasti a typu práce", () => {
     const procedural = block(v, "procedural");
     expect(items(procedural, "court")[0]).toMatchObject({ label: "SYN testový súd", source: { file: "Klienti/C001/Spisy/M001/matter.md", field: "sud", updated: "2026-10-17" } });
     expect(items(procedural, "case_number")[0]?.label).toBe("SYN-M001/2026");
-    expect(items(procedural, "evidence")[0]).toMatchObject({ state: "proposed", source: { file: "Klienti/C001/Spisy/M001/memory/M-E1.md", field: "procedural_status" } });
+    // Navrhnutý dôkaz nie je „Návrh“ na schválenie: vlastná značka, bez stavu.
+    expect(items(procedural, "evidence")[0]).toMatchObject({ tags: ["evidence:proposed"], source: { file: "Klienti/C001/Spisy/M001/memory/M-E1.md", field: "procedural_status" } });
     // Žiadne lehoty v záznamoch → neevidované, nikdy prázdny zoznam „žiadne“.
     expect(sectionOf(procedural, "deadlines")).toMatchObject({ status: "not_recorded" });
     expect(sectionOf(procedural, "hearings")?.status).toBe("not_recorded");
@@ -91,16 +92,18 @@ describe("odvodenie oblasti a typu práce", () => {
   test("spoločný základ: klient, strany s rolou, zodpovedná osoba, dokument s cestou, úkony z logu", () => {
     const v = buildMatterViews(matter("Klienti/C001/Spisy/M001", M001_CARD, M001_RECORDS), TODAY);
     expect(items(v.base, "client")[0]).toMatchObject({ label: "SYN Tatran Automatika, s. r. o.", source: { file: "Klienti/C001/client.md", field: "title" } });
-    expect(items(v.base, "parties").map((p) => [p.label, p.tag])).toEqual([["SYN Tatran Automatika, s. r. o.", "role:client"], ["SYN Partner 001, s. r. o.", "role:counterparty"]]);
+    expect(items(v.base, "parties").map((p) => [p.label, p.tags])).toEqual([["SYN Tatran Automatika, s. r. o.", ["role:client"]], ["SYN Partner 001, s. r. o.", ["role:counterparty"]]]);
     expect(items(v.base, "responsible")[0]).toMatchObject({ label: "SYN Advokát 01", source: { field: "advokat" } });
-    expect(items(v.base, "documents")[0]).toMatchObject({ label: "01-zmluva.docx", document: "Klienti/C001/Spisy/M001/01_Podklady/IN-001/01-zmluva.docx", state: "proposed" });
+    expect(items(v.base, "documents")[0]).toMatchObject({ label: "01-zmluva.docx", document: "Klienti/C001/Spisy/M001/01_Podklady/IN-001/01-zmluva.docx" });
+    expect(items(v.base, "documents")[0]?.state).toBeUndefined();
     const actions = items(v.base, "actions");
-    expect(actions[0]).toMatchObject({ state: "executed", tag: "request", source: { section: "History" } });
+    expect(actions[0]).toMatchObject({ state: "executed", tags: ["request"], source: { section: "History" } });
     // Rovnaký riadok histórie viacerých záznamov je jedna položka s počtom.
     expect(actions).toHaveLength(1);
-    expect(sectionOf(v.base, "phase")?.status).toBe("not_recorded");
-    // Úloha s termínom je relevantný dátum aj pri procesnom bloku; lehoty sú v ňom.
-    expect(items(v.base, "dates").map((d) => d.label)).toEqual(["Vyžiadať chýbajúcu prílohu"]);
+    expect(v.strip.find((s) => s.id === "phase")?.status).toBe("not_recorded");
+    expect(v.strip.find((s) => s.id === "status")).toMatchObject({ status: "recorded", items: [{ label: "aktívny" }] });
+    // Termíny majú odborné bloky; základ ich pri rozpoznanom type nezdvojuje.
+    expect(sectionOf(v.base, "dates")).toBeUndefined();
   });
 
   test("M003 korporátny (advisory + obchodné spoločnosti): subjekty, vzťahy, listiny, schválenia", () => {
@@ -113,9 +116,11 @@ describe("odvodenie oblasti a typu práce", () => {
     expect(v.families).toEqual(["corporate"]);
     const corporate = block(v, "corporate");
     expect(items(corporate, "entities").map((e) => e.label)).toContain("SYN Tatran Automatika, s. r. o.");
-    expect(items(corporate, "ownership")[0]).toMatchObject({ label: "SYN Partner 001, s. r. o. → SYN Tatran Automatika, s. r. o.", tag: "relation:shareholder", detail: "30 %" });
-    expect(items(corporate, "instruments")[0]).toMatchObject({ state: "proposed", tag: "draft" });
-    expect(items(corporate, "corp_decisions")[0]).toMatchObject({ state: "proposed", tag: "requirement" });
+    expect(items(corporate, "ownership")[0]).toMatchObject({ label: "SYN Partner 001, s. r. o. → SYN Tatran Automatika, s. r. o.", tags: ["relation:shareholder"], detail: "30 %" });
+    expect(items(corporate, "instruments")[0]).toMatchObject({ state: "proposed", tags: ["instrument:draft", "form:certified_signature"] });
+    // Otvorená požiadavka nie je návrh na schválenie.
+    expect(items(corporate, "corp_decisions")[0]).toMatchObject({ tags: ["type:requirement", "fulfillment:open"] });
+    expect(items(corporate, "corp_decisions")[0]?.state).toBeUndefined();
     expect(items(corporate, "change")[0]).toMatchObject({ label: "Vysporiadanie odchádzajúceho spoločníka", source: { field: "description" } });
   });
 
@@ -125,7 +130,7 @@ describe("odvodenie oblasti a typu práce", () => {
     expect(v.families).toEqual(["corporate"]);
     for (const s of block(v, "corporate")?.sections ?? []) if (s.id !== "change") expect(s.status).toBe("not_recorded");
     expect(sectionOf(v.base, "responsible")).toMatchObject({ status: "not_recorded", where: { file: "Klienti/C004/Spisy/M012/matter.md", field: "advokat" } });
-    expect(sectionOf(v.base, "dates")?.status).toBe("not_recorded");
+    expect(sectionOf(block(v, "corporate"), "milestones")?.status).toBe("not_recorded");
     expect(v.deadlinesRecorded).toBe(false);
   });
 
@@ -137,10 +142,10 @@ describe("odvodenie oblasti a typu práce", () => {
     ]), TODAY);
     expect(v.families).toEqual(["ip"]);
     const ip = block(v, "ip");
-    expect(items(ip, "rights")[0]).toMatchObject({ label: "Slovná ochranná známka SYN HRON", tag: "right:trademark", source: { file: "Klienti/C002/Spisy/M006/memory/M6-IP1.md", field: "right_kind" } });
+    expect(items(ip, "rights")[0]).toMatchObject({ label: "Slovná ochranná známka SYN HRON", tags: ["right:trademark", "right_status:registered"], source: { file: "Klienti/C002/Spisy/M006/memory/M6-IP1.md", field: "right_kind" } });
     expect(items(ip, "owners")[0]?.label).toBe("SYN Tatran Automatika, s. r. o.");
     expect(items(ip, "territories").map((t) => t.label)).toEqual(["SK", "EÚ"]);
-    expect(items(ip, "registrations").map((r) => [r.tag, r.label, r.date])).toEqual([["application", "SYN-POZ-0001", "2024-03-01"], ["registration", "SYN-ZAP-0001", "2024-09-01"]]);
+    expect(items(ip, "registrations").map((r) => [r.tags, r.label, r.date])).toEqual([[["application"], "SYN-POZ-0001", "2024-03-01"], [["registration"], "SYN-ZAP-0001", "2024-09-01"]]);
     expect(items(ip, "renewals")[0]).toMatchObject({ label: "Obnova zápisu", date: "2034-03-01", source: { field: "deadlines" } });
     expect(items(ip, "licences")[0]).toMatchObject({ label: "Licenčná zmluva SYN", state: "executed" });
     expect(sectionOf(ip, "disputes")?.status).toBe("not_recorded");
@@ -154,7 +159,7 @@ describe("odvodenie oblasti a typu práce", () => {
       { id: "M66-MAT", type: "matter", title: "Použitie fotografií", fields: { area: '["autorské právo"]' }, history: ["2026-10-01 [filing] - Podaná žaloba (syntetické).", "2026-10-17 [request] - Zaradenie."] },
     ]), TODAY);
     expect(v.families).toEqual(["procedural", "ip"]);
-    expect(items(block(v, "ip"), "disputes")[0]).toMatchObject({ tag: "procedural_link", label: "SYN-M066/2026" });
+    expect(items(block(v, "ip"), "disputes")[0]).toMatchObject({ tags: ["procedural_link"], label: "SYN-M066/2026" });
     expect(items(block(v, "procedural"), "filings")[0]).toMatchObject({ label: "Podaná žaloba (syntetické).", state: "executed", date: "2026-10-01" });
     expect(v.reasons.some((r) => r.via === "history" && r.value === "filing")).toBe(true);
   });
@@ -205,13 +210,68 @@ describe("rozpory a stav návrh / schválené / vykonané", () => {
     const input = matter("Klienti/C001/Spisy/M001", M001_CARD, M001_RECORDS);
     input.manualStatus = readManualStatus("---\nmanual_updated: 2026-10-01\n---\n\n> **Fáza:** Čaká sa na vyjadrenie protistrany\n> **Ďalší krok:** _(čo sa má stať)_\n", input.records, TODAY);
     const v = buildMatterViews(input, TODAY);
-    expect(items(v.base, "phase")[0]).toMatchObject({ label: "Čaká sa na vyjadrenie protistrany", flags: ["stale"], source: { file: "Klienti/C001/Spisy/M001/_STATUS.md", section: "Fáza", updated: "2026-10-01" } });
-    expect(sectionOf(v.base, "next_step")?.status).toBe("not_recorded");
+    expect(v.strip.find((s) => s.id === "phase")).toMatchObject({ status: "recorded" });
+    const phase = v.strip.find((s) => s.id === "phase");
+    expect(phase?.status === "recorded" ? phase.items[0] : undefined).toMatchObject({ label: "Čaká sa na vyjadrenie protistrany", flags: ["stale"], source: { file: "Klienti/C001/Spisy/M001/_STATUS.md", section: "Fáza", updated: "2026-10-01" } });
+    expect(v.strip.find((s) => s.id === "next_step")?.status).toBe("not_recorded");
   });
 
   test("lehoty: prázdne pole deadlines je evidencia, chýbajúce pole nie", () => {
-    expect(deadlinesRecorded([{ records: [record({ id: "A", type: "task", title: "x" })] }])).toBe(false);
-    expect(deadlinesRecorded([{ records: [record({ id: "A", type: "task", title: "x", fields: { deadlines: "[]" } })] }])).toBe(true);
+    expect(recordsDeadlines({ path: "M", records: [record({ id: "A", type: "task", title: "x" })] })).toBe(false);
+    expect(recordsDeadlines({ path: "M", records: [record({ id: "A", type: "task", title: "x", fields: { deadlines: "[]" } })] })).toBe(true);
+  });
+
+  test("I-5b: pokrytie lehôt po prípadoch — jeden evidujúci prípad nerobí evidovanými ostatné", () => {
+    const withDeadlines = { path: "A", records: [record({ id: "A1", type: "task", title: "x", fields: { deadlines: '["2026-11-01 Lehota"]' } })] };
+    const without = { path: "B", records: [record({ id: "B1", type: "task", title: "y" })] };
+    expect(deadlineCoverage([withDeadlines, without, { ...without, path: "C" }])).toEqual({ recorded: 1, unrecorded: 2 });
+    expect(deadlineCoverage([withDeadlines])).toEqual({ recorded: 1, unrecorded: 0 });
+  });
+
+  test("I-1: záznamy kancelárie nezapínajú bloky, nie sú stranami, úlohami ani úkonmi a nerobia lehoty evidovanými", () => {
+    const office: Rec[] = [
+      { id: "OF-R1", type: "decision", title: "Pravidlo kancelárie", fields: { deadlines: "[]" }, history: ["2026-10-01 [decision] - Rozhodnutie kancelárie.", "2026-10-02 [filing] - Podanie kancelárie."] },
+      { id: "OF-S1", type: "subject", title: "SYN Kancelária", fields: { role: '"client"' } },
+      { id: "OF-T1", type: "task", title: "Úloha kancelárie", fields: { state: '"pending"', due: '"2026-11-01"' } },
+      { id: "OF-D1", type: "task", title: "Lehota kancelárie", fields: { deadlines: '["2026-11-02 Termín kancelárie"]' } },
+    ];
+    const input = matter("Klienti/C003/Spisy/M100", { matter_kind: "advisory", oblast_prava: '["pracovné právo"]' }, [{ id: "M-S9", type: "subject", title: "SYN Klient" }, ...office]);
+    input.recordFiles = { ...input.recordFiles, ...Object.fromEntries(office.map((r) => [r.id, `Office/memory/${r.id}.md`])) };
+    const v = buildMatterViews(input, TODAY);
+    expect(v.families).toEqual([]);
+    expect(v.reasons).toEqual([]);
+    expect(items(v.base, "parties").map((p) => p.label)).toEqual(["SYN Klient"]);
+    expect(JSON.stringify(v)).not.toContain("Úloha kancelárie");
+    expect(JSON.stringify(v)).not.toContain("Rozhodnutie kancelárie");
+    expect(v.deadlinesRecorded).toBe(false);
+    expect(recordsDeadlines(input)).toBe(false);
+    // Lehota kancelárie ostane viditeľná, ale označená ako kancelárska.
+    expect(items(v.base, "dates").find((d) => d.label === "Termín kancelárie")).toMatchObject({ tags: ["scope:office"], source: { file: "Office/memory/OF-D1.md" } });
+  });
+
+  test("I-6: História AI návrhu nie je vykonaný úkon a blok Konanie nezapína", () => {
+    const v = buildMatterViews(matter("Klienti/C001/Spisy/M200", { matter_kind: "advisory" }, [
+      { id: "AI-1", type: "decision", title: "Návrh podania", fields: { generated: "{ by: agent, at: 2026-10-20 }" }, history: ["2026-10-20 [filing] - Podaná žaloba (tvrdenie agenta)."] },
+    ]), TODAY);
+    expect(v.families).toEqual([]);
+    expect(items(v.base, "actions")[0]).toMatchObject({ label: "Podaná žaloba (tvrdenie agenta).", state: "proposed" });
+    const forced = buildMatterViews(matter("Klienti/C001/Spisy/M200", { matter_kind: "dispute" }, [
+      { id: "AI-1", type: "decision", title: "Návrh podania", fields: { generated: "{ by: agent, at: 2026-10-20 }" }, history: ["2026-10-20 [filing] - Podaná žaloba (tvrdenie agenta)."] },
+    ]), TODAY);
+    expect(items(block(forced, "procedural"), "filings")[0]?.state).toBe("proposed");
+  });
+
+  test("I-4: odkaz na dokument len v priečinku prípadu alebo jeho klienta", () => {
+    const roots = ["Klienti/C001/Spisy/M001", "Klienti/C001"];
+    const file = "Klienti/C001/Spisy/M001/memory/E1.md";
+    expect(resolveDocument(file, "../01_Podklady/x.pdf", roots)).toBe("Klienti/C001/Spisy/M001/01_Podklady/x.pdf");
+    expect(resolveDocument(file, "../../../01_Podklady/spolocne.pdf", roots)).toBe("Klienti/C001/01_Podklady/spolocne.pdf");
+    expect(resolveDocument(file, "../../../../C002-iny/Spisy/M006/01_Podklady/x.pdf", roots)).toBeUndefined();
+    expect(resolveDocument(file, "../../../../../Office/memory/RULE.md", roots)).toBeUndefined();
+    expect(resolveDocument(file, "/etc/passwd", roots)).toBeUndefined();
+    const v = buildMatterViews(matter("Klienti/C001/Spisy/M001", M001_CARD, [{ id: "E9", type: "evidence", title: "Cudzí", fields: { "sources:\n  - title": '"x.pdf"\n    resource: "../../../../C002/Spisy/M006/x.pdf"' } }]), TODAY);
+    expect(items(v.base, "documents")[0]).toMatchObject({ label: "x.pdf" });
+    expect(items(v.base, "documents")[0]?.document).toBeUndefined();
   });
 });
 
@@ -223,6 +283,13 @@ describe("oprava typu zápisom do poľa tags karty", () => {
     expect(viewTagsLine(CARD, ["ip", "procedural"])).toBe('tags: ["klient-vip","view:procedural","view:ip"]');
     expect(setCardViewTags(next, null)).toBe(CARD.replace('tags: ["klient-vip"]', 'tags: ["klient-vip"]'));
     expect(setCardViewTags(CARD, [])).toContain('tags: ["klient-vip","view:base"]');
+  });
+  test("automatické rozpoznanie bez štítkov view:* kartu nemení; tags ako reťazec a s komentárom", () => {
+    const plain = "---\ntype: spis\ntitle: X\n---\n";
+    expect(setCardViewTags(plain, null)).toBe(plain);
+    expect(cardList('"view:ip"')).toEqual(["view:ip"]);
+    expect(cardList('["a"] # poznámka')).toEqual(["a"]);
+    expect(cardList("[a, b] # poznámka")).toEqual(["a", "b"]);
   });
   test("karta bez tags dostane riadok pred koncom frontmatteru; CRLF a BOM ostanú", () => {
     const crlf = "﻿---\r\ntype: spis\r\ntitle: X\r\n---\r\nbody\r\n";
@@ -245,6 +312,7 @@ function copyMatter(client: string, prefix: string): { root: string; rel: string
   const clientDir = readdirSync(join(SANDBOX, "Klienti")).find((name) => name.startsWith(client));
   if (!clientDir) throw new Error(`chýba ${client}`);
   cpSync(join(SANDBOX, "Klienti", clientDir), join(root, "Klienti", clientDir), { recursive: true });
+  cpSync(join(SANDBOX, "Office"), join(root, "Office"), { recursive: true });
   const matterDir = readdirSync(join(root, "Klienti", clientDir, "Spisy")).find((name) => name.startsWith(prefix));
   if (!matterDir) throw new Error(`chýba ${prefix}`);
   return { root, rel: `Klienti/${clientDir}/Spisy/${matterDir}` };
@@ -255,11 +323,14 @@ function loadMatter(root: string, rel: string): MatterInput {
   const dir = join(root, rel);
   const memory = join(dir, "memory");
   const files = existsSync(memory) ? readdirSync(memory).filter((f) => f.endsWith(".md") && !["index.md", "log.md"].includes(f)).sort() : [];
-  const records = files.map((f) => parseRecord(readFileSync(join(memory, f), "utf8")));
+  const officeMemory = join(root, "Office", "memory");
+  const officeFiles = existsSync(officeMemory) ? readdirSync(officeMemory).filter((f) => f.endsWith(".md") && !["index.md", "log.md"].includes(f)).sort() : [];
+  const records = [...files.map((f) => parseRecord(readFileSync(join(memory, f), "utf8"))), ...officeFiles.map((f) => parseRecord(readFileSync(join(officeMemory, f), "utf8")))];
+  const paths = [...files.map((f) => `${rel}/memory/${f}`), ...officeFiles.map((f) => `Office/memory/${f}`)];
   const clientRel = rel.split("/").slice(0, 2).join("/");
   const input: MatterInput = {
     path: rel, cardPath: `${rel}/matter.md`, cardFrontmatter: parseFrontmatter(readFileSync(join(dir, "matter.md"), "utf8")) ?? {},
-    records, recordFiles: Object.fromEntries(records.map((r, i) => [r.id, `${rel}/memory/${files[i]}`])), scopePaths: [rel, clientRel],
+    records, recordFiles: Object.fromEntries(records.map((r, i) => [r.id, paths[i]])), scopePaths: [rel, clientRel, "Office"],
     clientCardPath: `${clientRel}/client.md`,
   };
   const clientTitle = parseFrontmatter(readFileSync(join(root, clientRel, "client.md"), "utf8"))?.title;
@@ -276,7 +347,9 @@ describe.skipIf(!existsSync(SANDBOX))("syntetická kancelária (dočasná kópia
     expect(m001.conflicts).toEqual([]);
     expect(m001.deadlinesRecorded).toBe(false);
     expect(sectionOf(block(m001, "procedural"), "deadlines")?.status).toBe("not_recorded");
-    expect(sectionOf(m001.base, "phase")?.status).toBe("not_recorded");
+    expect(m001.strip.find((s) => s.id === "phase")?.status).toBe("not_recorded");
+    // Riadky RULE-SYN-01 kancelárie sa do posledných úkonov nepočítajú.
+    expect(JSON.stringify(m001)).not.toContain("RULE-SYN-01");
     expect(families("C001", "M003").families).toEqual(["corporate"]);
     expect(families("C002", "M006").families).toEqual(["ip"]);
     expect(families("C022", "M066").families).toEqual(["procedural", "ip"]);
@@ -285,7 +358,7 @@ describe.skipIf(!existsSync(SANDBOX))("syntetická kancelária (dočasná kópia
     // Bez pamäte: strany len z karty (protistrana), lehoty a úkony neevidované.
     expect(items(m012.base, "parties").every((p) => p.source.file.endsWith("/matter.md"))).toBe(true);
     expect(sectionOf(m012.base, "actions")?.status).toBe("not_recorded");
-    expect(sectionOf(m012.base, "dates")?.status).toBe("not_recorded");
+    expect(sectionOf(block(m012, "corporate"), "milestones")?.status).toBe("not_recorded");
   });
 
   test("zmena súboru v kópii: rozpor súdu, podanie v logu, IP záznam a lehota obnovy", () => {
@@ -303,8 +376,10 @@ describe.skipIf(!existsSync(SANDBOX))("syntetická kancelária (dočasná kópia
     const v = buildMatterViews(loadMatter(root, rel), TODAY);
     expect(v.conflicts.map((c) => c.field)).toEqual(["court"]);
     expect(items(block(v, "procedural"), "filings")[0]).toMatchObject({ state: "executed", date: "2026-10-21" });
-    expect(items(block(v, "ip"), "rights")[0]).toMatchObject({ label: "Fotografie kampane SYN", tag: "right:copyright" });
-    expect(items(block(v, "ip"), "renewals")[0]?.date).toBe("2026-11-15");
+    expect(items(block(v, "ip"), "rights")[0]).toMatchObject({ label: "Fotografie kampane SYN", tags: ["right:copyright"] });
+    // Výzva nie je obnova: ostáva v lehotách prípadu, nie v termínoch obnovy.
+    expect(items(block(v, "procedural"), "deadlines")[0]?.date).toBe("2026-11-15");
+    expect(sectionOf(block(v, "ip"), "renewals")?.status).toBe("not_recorded");
     expect(v.deadlinesRecorded).toBe(true);
     // Originál pieskoviska ostal nedotknutý.
     expect(readFileSync(join(SANDBOX, rel, "matter.md"), "utf8")).toContain('sud: "SYN testový súd"');

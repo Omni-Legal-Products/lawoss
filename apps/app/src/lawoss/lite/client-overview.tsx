@@ -13,9 +13,9 @@ import { useLocale } from "@/i18n/use-locale";
 import { SectionHeading, Surface } from "@/react-app/design-system/surface";
 import { cn } from "@/lib/utils";
 import { isOfficeFile, recordKey, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
-import { buildMatterViews, deadlinesRecorded } from "../../../../../lawoss/okf/views";
+import { buildMatterViews, deadlineCoverage } from "../../../../../lawoss/okf/views";
 import { familyNames } from "./matter-views";
-import { dayClass, formatDay, today } from "../okf/read-model";
+import { canActOnSource, dayClass, formatDay, today } from "../okf/read-model";
 import { deadlineText, urgencyOf } from "../okf/view-rules";
 import { clientDeadlines, clientGroupDirectory, ownerOfFolder } from "./client-projects";
 import { useClientNavData, usePublishedClientNav, type PublishedClientNav } from "./client-nav";
@@ -62,19 +62,21 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
   return <div className="space-y-4">
     <ClientOverviewView workspaceId={workspaceId} locale={locale} todayIso={todayIso} matters={own.matters}
       deadlines={[...own.overdue, ...own.upcomingDeadlines]} soon={own.totals.deadlinesWithin7Days} partial={data.coverage.status !== "complete"}
-      deadlinesRecorded={deadlinesRecorded(ownInputs)} kinds={kinds} />
+      deadlineEvidence={deadlineCoverage(ownInputs)} readFailed={!canActOnSource(data, workspaceId)} kinds={kinds} />
     <LinkedFolders connection={nav.connection} workspaceId={workspaceId} practiceRoot={scope.practiceRoot ?? null} otherClients={otherClients} locale={locale} />
   </div>;
 }
 
-export function ClientOverviewView({ workspaceId, locale, todayIso, matters, deadlines, soon, partial = false, deadlinesRecorded: recorded = true, kinds = {} }: {
+export function ClientOverviewView({ workspaceId, locale, todayIso, matters, deadlines, soon, partial = false, deadlineEvidence, readFailed = false, kinds = {} }: {
   workspaceId: string; locale: Language; todayIso: string; matters: readonly MatterOverview[]; deadlines: readonly UpcomingDeadline[];
   /** Lehoty do 7 dní, spočítané ako register (`totals.deadlinesWithin7Days`). */
   soon: number;
   /** Pokrytie praxe nie je úplné (#168): prehľad to povie, aby „žiadne lehoty“ neznelo ako istota. */
   partial?: boolean;
-  /** Žiadny prípad klienta nemá v záznamoch pole lehôt: „neevidované“, nie „žiadne“. */
-  deadlinesRecorded?: boolean;
+  /** Koľko prípadov klienta lehoty eviduje: bez evidencie „neevidované“, nie „žiadne“. */
+  deadlineEvidence?: { recorded: number; unrecorded: number };
+  /** Zdroj klienta sa nepodarilo čerstvo prečítať: lehoty sú „nenačítané“. */
+  readFailed?: boolean;
   /** Rozpoznaný typ práce podľa cesty prípadu (napr. „Konanie · Duševné vlastníctvo“). */
   kinds?: Readonly<Record<string, string>>;
 }) {
@@ -92,12 +94,11 @@ export function ClientOverviewView({ workspaceId, locale, todayIso, matters, dea
     <SectionHeading title={title} />
     {partial ? <p className="lw-status warn" role="alert" data-lawoss-client-overview-partial="">{t("lawoss.practice.incomplete", locale)}</p> : null}
     <dl className="grid grid-cols-2 gap-3 @min-[640px]/project-page:grid-cols-4">
-      {stats.map((stat) => <Surface key={stat.key} className="rounded-xl px-4 py-3">
+      {stats.map((stat) => <Surface key={stat.key} className="rounded-xl px-4 py-3" title={stat.key === "tasks" ? t("lawoss.lite.client_overview_tasks_hint", locale) : undefined}>
         <dt className="text-xs text-muted-foreground">{stat.label}</dt>
         <dd className="mt-1 text-xl font-semibold tabular-nums">{stat.value}</dd>
       </Surface>)}
     </dl>
-    <p className="text-xs text-muted-foreground" data-lawoss-client-overview-tasks-hint="">{t("lawoss.lite.client_overview_tasks_hint", locale)}</p>
     <div className="grid grid-cols-1 gap-4 @min-[640px]/project-page:grid-cols-2">
       <Surface className="rounded-xl p-4">
         <h3 className="text-sm font-medium">{mattersLabel}</h3>
@@ -116,8 +117,10 @@ export function ClientOverviewView({ workspaceId, locale, todayIso, matters, dea
       </Surface>
       <Surface className="rounded-xl p-4">
         <h3 className="text-sm font-medium">{t("lawoss.lite.client_overview_deadlines", locale)}</h3>
-        {deadlines.length === 0 ? <p className="mt-2 text-xs text-muted-foreground" data-lawoss-deadlines={recorded ? undefined : "unrecorded"}>
-          {recorded ? t("lawoss.lite.client_overview_no_deadlines", locale) : <>{t("lawoss.lite.deadlines_unrecorded", locale)} {t("lawoss.lite.deadlines_unrecorded_hint", locale)}</>}
+        {deadlines.length === 0 ? <p className="mt-2 text-xs text-muted-foreground" data-lawoss-deadlines={readFailed ? "not_loaded" : deadlineEvidence && deadlineEvidence.recorded === 0 ? "unrecorded" : undefined}>
+          {readFailed ? t("lawoss.lite.deadlines_not_loaded", locale)
+            : deadlineEvidence && deadlineEvidence.recorded === 0 ? <>{t("lawoss.lite.deadlines_unrecorded", locale)} {t("lawoss.lite.deadlines_unrecorded_hint", locale)}</>
+            : t("lawoss.lite.client_overview_no_deadlines", locale)}
         </p> : <ul className="mt-2 space-y-1">
           {deadlines.slice(0, DEADLINE_LIMIT).map((d, index) => <li key={`${d.matter.path}/${d.recordId}/${d.date}/${index}`}>
             <Link to={liteDeadlineLink(d.matter.path, d.recordId, d.date)} className="flex min-w-0 items-baseline gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/60">
@@ -126,6 +129,8 @@ export function ClientOverviewView({ workspaceId, locale, todayIso, matters, dea
             </Link>
           </li>)}
         </ul>}
+        {!readFailed && deadlineEvidence && deadlineEvidence.recorded > 0 && deadlineEvidence.unrecorded > 0
+          ? <p className="mt-2 px-2 text-xs text-muted-foreground" data-lawoss-deadlines="partial">{t("lawoss.lite.deadlines_partial_note", locale, { count: deadlineEvidence.unrecorded })}</p> : null}
         <Link to={clientDeadlinesLink(workspaceId)} className="mt-2 inline-flex px-2 text-xs text-muted-foreground underline-offset-2 hover:underline">{t("lawoss.lite.client_deadlines_all", locale)}</Link>
       </Surface>
     </div>
