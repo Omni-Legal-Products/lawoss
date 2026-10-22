@@ -1427,3 +1427,15 @@ a príčina ostávajú neznáme, kým ich nový natívny beh skutočne nezmeria.
 | Súbory upstreamu | Zmena a dôvod |
 |---|---|
 | `apps/desktop/electron/main.mjs`, `main-error-log.test.mjs`, nový `lawoss-startup-checkpoints.mjs` | Iba explicitne zapnutý izolovaný Windows alfa profil zaznamená dvadsaťpäť pevných once-only checkpointov do existujúceho privátneho main.log. Deväť pre-ready checkpointov navyše rozlišuje ikony, služby/runtime, single-instance lock a registráciu callbacku po skutočnom ARM pozorovaní len main-configured. Hooky nemenia pôvodné await/catch, počet lock volaní, bootstrap, logger alebo deadlines. Returned po obslúženej chybe nie je úspech. Tri regresie sú v existujúcom CI test entry; downstream alpha reader publikuje len presné celé marker riadky ako uzavreté kategórie po overenom cleanup. Dôvod: fb16 Windows x64 skutočný NSIS installed-tree PASS, potom discovery ENOENT/readiness timeout a lazy main.log missing; príčina neznáma, žiadna runtime oprava ani nový natívny PASS sa netvrdí. |
+
+
+#### SDK build resource publication primitive (2026-10-22)
+
+`lawoss/build/plugin-payload/product-resource.mjs` publishes a separately admitted SDK
+and nine-file static verifier under an explicitly controlled build parent. Copied
+and source identities are rechecked; generated private code identity text still
+requires a trusted packaging caller and actual app-code binding. No desktop caller,
+profile install or engine hook is introduced. The existing `plugin-sdk-runtime.yml`
+static-test step also runs the new publisher fixtures; the genuine native53/6 entry
+and finite-summary-only upload remain byte-identical. Cross-target fixtures are data
+proof, with an explicit Windows/root skip for the POSIX permission-failure case.

@@ -266,5 +266,31 @@ The six-target SDK workflow runs them separately before the unchanged genuine
 producer/consumer entry. A source change invalidates older compatibility bindings;
 fresh native proof is required before a product build caller can use them.
 
-This is S1 only. No resources publication, digest transport, profile seeding,
-engine startup hook or application first-launch improvement is implemented here.
+This S1 admission does not install into a profile or start the engine.
+
+## Owned build resource publication
+
+`publishProductSdkResource` in `product-resource.mjs` takes the full trusted S1
+input plus an explicit canonical `buildParent` and one-component `outputName`.
+It refuses existing outputs, overlapping paths and unowned parents. Under a
+publisher lease it copies the SDK with its validated relative links and modes,
+adds the nine-file static verifier closure, rechecks copied and source bytes,
+then renames its own same-parent stage. Failures preserve primary/cleanup errors;
+uncertain publication or replaced ownership retains the affected entries.
+
+The caller must exclusively control the build parent. The lease coordinates this
+publisher; Node's directory rename has no atomic no-replace guarantee against
+other same-UID writers. Windows POSIX mode fields do not establish ACL privacy.
+
+The frozen result includes `privateIdentityModule` text containing the payload,
+target, accepted lock/source and verifier identity. A future trusted build caller
+must put this identity inside application code and bind it to the actual final
+resource. An adjacent JSON file, manifest or environment variable cannot grant
+that authority. This standalone S2 publication primitive has no desktop packaging
+caller, actual app.asar binding, profile seeding or engine startup hook yet.
+
+Run both `product-bundle.test.mjs` and `product-resource.test.mjs` for inert data
+and real owned-filesystem regressions. A fixture copying foreign-target data does
+not execute that target's SDK. The POSIX permission-failure case is explicitly
+inapplicable on Windows/root; genuine compatibility remains the separate native
+producer/Node22 entry.
