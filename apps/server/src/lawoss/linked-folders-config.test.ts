@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { buildLegalworkRuntimeConfigObject, keepLegalworkRuntimeConfigFileFresh, legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "../legalwork-runtime-config.js";
 import { readRuntimeOpencodeConfig, runtimeStorageDir, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
-import { linkableFolders, linkedFoldersMapPath, writeLinkedFoldersMap } from "./linked-folders.js";
+import { documentLinkedFolders, linkableFolders, linkedFoldersMapPath, writeLinkedFoldersMap } from "./linked-folders.js";
 import { parseLinkedFoldersMap } from "./linked-folders-rules.js";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
@@ -51,7 +51,7 @@ async function practice() {
   const practiceRoot = join(root, "prax");
   for (const folder of [join(client, "Spisy", "Uhrada"), other, join(linked, "Rok 2026"), join(practiceRoot, "_kancelaria"), join(practiceRoot, "Vzory")]) await mkdir(folder, { recursive: true });
   const config: ServerConfig = {
-    host: "127.0.0.1", port: 0, configPath: join(root, "server.json"), token: CLIENT_TOKEN, hostToken: "owt_linked_folders_host",
+    host: "127.0.0.1", port: 0, configPath: join(root, "server", "server.json"), token: CLIENT_TOKEN, hostToken: "owt_linked_folders_host",
     approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"],
     workspaces: [
       { id: "ws_client", name: "Tatran", path: client, preset: "starter", workspaceType: "local" },
@@ -222,5 +222,139 @@ describe("pripojené priečinky klienta: oprava 2", () => {
     const workspace = config.workspaces.find((entry) => entry.id === "ws_client");
     if (!workspace) throw new Error("fixture");
     expect(await linkableFolders(config, workspace, [other, "relative", runtimeStorageDir(config), linked])).toEqual([linked]);
+  });
+});
+
+describe("pripojené priečinky klienta: alfa2 A3 (N-16, N-20)", () => {
+  const putConfirmed = (config: ServerConfig, workspaceId: string, folders: string[], confirmed: string[]) => fetch(`http://127.0.0.1:${config.port}/workspace/${workspaceId}/authorized-folders`, {
+    method: "PUT", headers: { authorization: `Bearer ${CLIENT_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ folders, lawossConfirmedPracticeLike: confirmed }),
+  });
+  /** Ako `3-neusporiadana-prax`: klienti s kódom a vecami s kódom, bez značiek OKF (syntetické mená). */
+  const practiceLike = async (root: string) => {
+    const folder = join(root, "Neusporiadaná prax");
+    for (const [client, matters] of [["C902 SYN Alfa servis", ["M910 Reklamácia", "M911 Nájom skladu"]], ["C903 SYN Beta, a. s.", ["M920 Dodávky", "M921 Spor o dielo"]], ["C904 SYN Gama", ["M930 Dedičstvo", "M931 Mzdy"]]] as const) {
+      for (const matter of matters) await mkdir(join(folder, client, matter), { recursive: true });
+    }
+    return folder;
+  };
+
+  test("N-20: userData s interným domovským priestorom je dáta aplikácie, nie iný klient; domov nie je klient v mape", async () => {
+    const { root, config, put, readMap } = await practice();
+    const userData = join(root, "LAWOSS-test-profil", "userdata");
+    const home = join(userData, "lawoss-domov");
+    await mkdir(home, { recursive: true });
+    await writeFile(join(userData, "legalwork-workspaces.json"), "{}");
+    config.workspaces.push({ id: "ws_home", name: "LAWOSS", path: home, preset: "starter", workspaceType: "local" });
+    expect(await code(await put("ws_client", [userData]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+    expect(await code(await put("ws_client", [home]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+    expect(await code(await put("ws_client", [join(root, "LAWOSS-test-profil")]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+    await writeLinkedFoldersMap(config);
+    expect((await readMap())?.clients.map((entry) => entry.root)).not.toContain(home);
+  });
+
+  test("I1: userData desktopu aj priečinok konfigurácie servera sú dáta aplikácie aj na starom profile bez domovského priestoru", async () => {
+    const { root, config, put } = await practice();
+    const userData = join(root, "Library", "LAWOSS");
+    await mkdir(join(userData, "lawoss-onboarding"), { recursive: true });
+    await mkdir(join(root, "server"), { recursive: true });
+    const previous = process.env.LAWOSS_USER_DATA;
+    process.env.LAWOSS_USER_DATA = userData;
+    try {
+      expect(await code(await put("ws_client", [userData]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+      expect(await code(await put("ws_client", [join(userData, "lawoss-onboarding")]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+      expect(await code(await put("ws_client", [join(root, "Library")]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+      expect(await code(await put("ws_client", [join(root, "server")]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+      // Domovský priestor v userData je dáta aplikácie aj bez legalwork-workspaces.json vedľa neho.
+      const home = join(userData, "lawoss-domov");
+      await mkdir(home);
+      config.workspaces.push({ id: "ws_home", name: "LAWOSS", path: home, preset: "starter", workspaceType: "local" });
+      expect(await code(await put("ws_client", [userData]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+    } finally {
+      if (previous === undefined) delete process.env.LAWOSS_USER_DATA; else process.env.LAWOSS_USER_DATA = previous;
+    }
+  });
+
+  test("N-20: priečinok s menom lawoss-domov bez súboru appky ostáva ako predtým (iný klient), nie dáta aplikácie", async () => {
+    const { root, config, put } = await practice();
+    const fake = join(root, "Dokumenty", "lawoss-domov");
+    await mkdir(fake, { recursive: true });
+    config.workspaces.push({ id: "ws_fake", name: "Domov", path: fake, preset: "starter", workspaceType: "local" });
+    expect(await code(await put("ws_client", [join(root, "Dokumenty")]))).toEqual({ status: 409, code: "linked_folder_other_client" });
+  });
+
+  test("N-16: značky OKF kancelárie alebo klienta odmietnu priečinok vždy (aj bez profilu praxe)", async () => {
+    const { root, put } = await practice();
+    const office = join(root, "Iná kancelária");
+    await mkdir(join(office, "Office"), { recursive: true });
+    await writeFile(join(office, "Office", "okf.config"), "office: Iná\n");
+    await mkdir(join(office, "Klienti", "C777", "Spisy"), { recursive: true });
+    await writeFile(join(office, "Klienti", "C777", "client.md"), "# C777\n");
+    expect(await code(await put("ws_client", [office]))).toEqual({ status: 409, code: "linked_folder_practice" });
+    // V kancelárii (predok s okf.config): prax.
+    expect(await code(await put("ws_client", [join(office, "Klienti")]))).toEqual({ status: 409, code: "linked_folder_practice" });
+    // Bez okf.config (ako syntetická 4-usporiadana-kancelaria): obsahuje kartu klienta do hĺbky 2, teda iného klienta.
+    const unmarked = join(root, "Kancelária bez okf.config");
+    await mkdir(join(unmarked, "Office"), { recursive: true });
+    await mkdir(join(unmarked, "Klienti", "C778"), { recursive: true });
+    await writeFile(join(unmarked, "Klienti", "C778", "client.md"), "# C778\n");
+    expect(await code(await put("ws_client", [unmarked]))).toEqual({ status: 409, code: "linked_folder_other_client" });
+    expect(await code(await put("ws_client", [join(office, "Klienti", "C777")]))).toEqual({ status: 409, code: "linked_folder_other_client" });
+    expect(await code(await put("ws_client", [join(office, "Klienti", "C777", "Spisy")]))).toEqual({ status: 409, code: "linked_folder_other_client" });
+    const loose = join(root, "Voľný klient");
+    await mkdir(loose, { recursive: true });
+    await writeFile(join(loose, "klient.md"), "# Voľný\n");
+    expect(await code(await put("ws_client", [loose]))).toEqual({ status: 409, code: "linked_folder_other_client" });
+  });
+
+  test("N-16: priečinok, ktorý vyzerá ako prax, potrebuje potvrdenie toho istého priečinka; potvrdenie neobíde značky OKF", async () => {
+    const { root, config, put } = await practice();
+    const folder = await practiceLike(root);
+    const refused = await put("ws_client", [folder]);
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ code: "linked_folder_practice_like", details: { folder, clients: ["C902 SYN Alfa servis", "C903 SYN Beta, a. s.", "C904 SYN Gama"] } });
+    expect(await code(await putConfirmed(config, "ws_client", [folder], [join(root, "iný")]))).toEqual({ status: 409, code: "linked_folder_practice_like" });
+    expect((await putConfirmed(config, "ws_client", [folder], [folder])).status).toBe(200);
+    const marked = join(root, "Prax so značkou");
+    await mkdir(join(marked, "C1", "M1"), { recursive: true });
+    await writeFile(join(marked, "C1", "client.md"), "# C1\n");
+    expect(await code(await putConfirmed(config, "ws_client", [folder, marked], [marked]))).toEqual({ status: 409, code: "linked_folder_other_client" });
+  });
+
+  test("N-16 bez falošných poplachov: protistrany s právnou formou, roky, podklady, jeden klient s vecami, vlastný podpriečinok", async () => {
+    const { root, client, put } = await practice();
+    const parties = join(root, "Protistrany");
+    for (const name of ["Alfa s. r. o.", "Beta a. s."]) { await mkdir(join(parties, name), { recursive: true }); await writeFile(join(parties, name, "zmluva.pdf"), "x"); }
+    const years = join(root, "Zmluvy");
+    for (const name of ["2023", "2024"]) await mkdir(join(years, name, "Faktúry"), { recursive: true });
+    const sources = join(root, "Podklady");
+    for (const name of ["Faktúry", "Korešpondencia"]) await mkdir(join(sources, name, "2024"), { recursive: true });
+    const single = join(root, "Jeden klient");
+    for (const matter of ["M001 Spor", "M002 Nájom"]) await mkdir(join(single, "C100 Delta", matter), { recursive: true });
+    expect((await put("ws_client", [parties, years, sources, single])).status).toBe(200);
+    expect((await put("ws_client", [join(client, "Spisy")])).status).toBe(200);
+  });
+
+  test("pamäť kancelárie s okf.config ostáva pripojiteľná pre klienta praxe", async () => {
+    const { practiceRoot, put, writeProfile } = await practice();
+    await writeProfile();
+    await writeFile(join(practiceRoot, "_kancelaria", "okf.config"), "office: Prax\n");
+    expect((await put("ws_client", [join(practiceRoot, "_kancelaria")])).status).toBe(200);
+    expect(await code(await put("ws_client", [join(practiceRoot, "_kancelaria"), join(practiceRoot, "Vzory")]))).toEqual({ status: 409, code: "linked_folder_practice" });
+  });
+
+  test("pamäť kancelárie s okf.config aj bez profilu praxe; ostatné priečinky praxe sa odmietnu podľa okf.config", async () => {
+    const { practiceRoot, put } = await practice();
+    await writeFile(join(practiceRoot, "_kancelaria", "okf.config"), "office: Prax\n");
+    expect((await put("ws_client", [join(practiceRoot, "_kancelaria")])).status).toBe(200);
+    expect(await code(await put("ws_client", [join(practiceRoot, "_kancelaria"), join(practiceRoot, "Vzory")]))).toEqual({ status: 409, code: "linked_folder_practice" });
+  });
+
+  test("príprava dokumentov: pripojené priečinky len vlastného klienta, nie iného ani pri firme", async () => {
+    const { config, linked, put } = await practice();
+    expect((await put("ws_client", [linked])).status).toBe(200);
+    const [own, other] = ["ws_client", "ws_other"].map((id) => config.workspaces.find((entry) => entry.id === id));
+    if (!own || !other) throw new Error("fixture");
+    expect(await documentLinkedFolders(config, own)).toEqual([linked]);
+    expect(await documentLinkedFolders(config, other)).toEqual([]);
   });
 });

@@ -6,6 +6,8 @@ import { sandboxSettingsSchema, sandboxSyncSchema, type SandboxSettings } from "
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
 import { connectorConfigVariables } from "./connector-config.js";
+import { withLawossToolDefaults } from "./lawoss/tool-permission-defaults.js";
+import { appliedOrgPolicy } from "./org-policy.js";
 
 export type RuntimeOpencodeConfig = {
   /** Informational read acknowledgment; never a permission or provider profile. */
@@ -243,7 +245,8 @@ export async function readGlobalToolPermissions(config: ServerConfig): Promise<R
   const globalConfig = await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID);
   const permission = isRecord(globalConfig.permission) ? { ...globalConfig.permission } : {};
   delete permission.external_directory;
-  return permission;
+  // LAWOSS: nenastavené edit/bash sa pýtajú, ak o nich nerozhoduje firma (lawoss/tool-permission-defaults.ts).
+  return withLawossToolDefaults(permission, Object.keys((await appliedOrgPolicy(config, "tools.permissions"))?.value ?? {}));
 }
 
 /**

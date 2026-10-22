@@ -58,6 +58,8 @@ export type EmbeddedServerOptions = CliArgs & {
   projectsDirectory?: string;
   /** Native folder-picker hook, forwarded to ServerConfig.pickDirectory. */
   pickDirectory?: ServerConfig["pickDirectory"];
+  /** LAWOSS: OS Trash hook, forwarded to ServerConfig.trashItem (lawoss/file-operations.ts). */
+  trashItem?: ServerConfig["trashItem"];
   /** Desktop recorder hook, forwarded to Office add-in API routes. */
   recorder?: ServerConfig["recorder"];
   /** Outside-mode policy supplied by the embedding host before workspace initialization. */
@@ -111,6 +113,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.requestHostApproval = options.requestHostApproval;
   config.getUiLocale = options.getUiLocale;
   config.pickDirectory = options.pickDirectory ?? null;
+  config.trashItem = options.trashItem ?? null;
   config.projectsDirectory = options.projectsDirectory;
   config.recorder = options.recorder ?? null;
 

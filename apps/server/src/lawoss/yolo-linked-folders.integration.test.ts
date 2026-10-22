@@ -217,7 +217,7 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("YOLO Mode a prip
     // Presun z A do L sa pýta v chate (príkaz spravovaného shellu), advokát odmietne: nič sa nepresunie.
     expect([...off.result.move.prompts, ...off.result.approvals]).toContain("sandbox.bash");
     expect(off.result.shellCalls).toEqual([`mv zmluva.txt '${linked}/zmluva.txt'`]);
-    expect(off.result.move.tools).toEqual([{ tool: "legalwork_shell", status: "error", output: expect.stringContaining("sandbox_permission_denied") }]);
+    expect(off.result.move.tools).toEqual([{ tool: "legalwork_shell", status: "error", output: expect.stringContaining("sandbox_permission_declined") }]);
     expect((await readFile(join(clientA, "zmluva.txt"))).equals(contract)).toBe(true);
     expect(await exists(join(linked, "zmluva.txt"))).toBe(false);
 
@@ -247,7 +247,7 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("YOLO Mode a prip
 
     // 3. YOLO zapnutý, plánovaný beh: pýta sa pred príkazom, nič sa nepresunie.
     expect([...on.result.scheduled.prompts, ...on.result.scheduled.approvals]).toContain("sandbox.bash");
-    expect(on.result.scheduled.tools).toEqual([{ tool: "legalwork_shell", status: "error", output: expect.stringContaining("sandbox_permission_denied") }]);
+    expect(on.result.scheduled.tools).toEqual([{ tool: "legalwork_shell", status: "error", output: expect.stringContaining("sandbox_permission_declined") }]);
     expect((await readFile(join(clientA, "dodatok.txt"))).equals(addendum)).toBe(true);
     expect(await exists(join(linked, "dodatok.txt"))).toBe(false);
 

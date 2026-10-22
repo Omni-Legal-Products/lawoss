@@ -1,7 +1,7 @@
 import { protectedRuntimeForSession } from "../lawoss/protected-ai/dispatch.js";
 import { requireGovernedEngineDispatch } from "../lawoss/ai-governance-engine.js";
 import { workspaceOwnsSession } from "../lawoss/workspace-history.js";
-import { sessionOwnershipChecked, workspaceReadsSession } from "../lawoss/session-ownership.js";
+import { joinSessionFolder, sessionFolder, sessionOwnershipChecked, workspaceReadsSession } from "../lawoss/session-ownership.js";
 import type { SessionViewPreview } from "@legalwork/types/views";
 import { beginSessionDeletion, withSessionExecution } from "../session-execution-gate.js";
 import { REVIEW_RECOVERY_PROMPT } from "../reviews/recover-empty-review-response.js";
@@ -95,11 +95,19 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     }
   }
   async function queueClient(workspace: WorkspaceInfo, sessionID: string) {
+    return (await queueSession(workspace, sessionID)).client;
+  }
+  async function queueSession(workspace: WorkspaceInfo, sessionID: string) {
     const client = createWorkspaceOpencodeClient(config, workspace);
     const session = unwrapOpencodeResult(await client.session.get({ sessionID }), "session");
     // The protected owner already validates this registered workspace, selected
     // case and source binding. A child-case chat need not equal the project root.
-    if (protectedRuntimeForSession(config, workspace.id, sessionID)) return client;
+    if (protectedRuntimeForSession(config, workspace.id, sessionID)) return { client, session };
+    // LAWOSS: a case chat lives in a subfolder of its client; the engine runs it there.
+    if (sessionOwnershipChecked(workspace)) {
+      if (!(await workspaceReadsSession(workspace, session))) throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
+      return { client, session };
+    }
     const directory = workspace.directory?.trim() || (workspace.workspaceType === "local" ? workspace.path : unwrapOpencodeResult(await client.path.get(), "path").directory);
     const normalize = async (path: string) => {
       const clean = path.replace(/^\\\\\?\\/, "").replace(/^\/\/\?\//, "");
@@ -107,7 +115,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       return /^[a-z]:[\\/]|^\\\\/i.test(clean) ? win32.normalize(clean).replace(/[\\/]+$/, "").toLowerCase() : posix.normalize(clean).replace(/\/$/, "");
     };
     if (!directory || !session.directory || await normalize(directory) !== await normalize(session.directory)) throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
-    return client;
+    return { client, session };
   }
   const messageQueue = registerMessageQueue(config, {
     confirmed: async (workspaceId, sessionID, entry) => {
@@ -185,7 +193,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       const parsed = queueActionSchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024 * 1024));
       if (!parsed.success) throw new ApiError(400, "invalid_queue_action", "Invalid message queue action.");
       // Reject stale/deleted or cross-workspace sessions before storing executable work.
-      const client = await queueClient(workspace, ctx.params.sessionId);
+      const { client, session } = await queueSession(workspace, ctx.params.sessionId);
       const protectedRuntime = protectedRuntimeForSession(config, workspace.id, ctx.params.sessionId);
       if (parsed.data.type === "enqueue") {
         if (protectedRuntime) await protectedRuntime.admitQueued({workspaceId: workspace.id, sessionId: ctx.params.sessionId, execution: parsed.data.execution});
@@ -196,9 +204,11 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       }
       // Queued prompts bypass the public engine proxy. Refresh their authenticated
       // origin here too, including an existing chat resumed after server restart.
+      const folder = await sessionFolder(workspace, session);
       if (!protectedRuntime) await grantWikiAgentSession(config, {
         sessionId: ctx.params.sessionId,
-        directory: workspace.directory?.trim() || workspace.path,
+        // LAWOSS: the chat's own folder (a case subfolder), the directory its tools claim.
+        directory: joinSessionFolder(workspace, folder, workspace.directory?.trim() || workspace.path),
         scope: ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer",
     });
     return jsonResponse(await messageQueue.act(workspace.id, ctx.params.sessionId, parsed.data));

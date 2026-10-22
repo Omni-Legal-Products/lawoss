@@ -1,6 +1,6 @@
 // LAWOSS: okf.config z Windows (Poznámkový blok, PowerShell 5.1) číta appka cez server rovnako ako CLI OKF.
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeText } from "./lawoss/workspace-text.js";
@@ -67,5 +67,21 @@ test("iné súbory ostávajú UTF-8 ako v upstreame: BOM v Markdowne zostane", a
   try {
     await writeFile(join(server.root, "poznamka.md"), ENCODINGS["UTF-8 with BOM"]!("# Poznámka\n"));
     expect((await server.read("poznamka.md")).content).toBe("﻿# Poznámka\n");
+  } finally { await server.stop(); }
+});
+
+// Karta prípadu na zdieľanom disku kancelárie: podmienený zápis (oprava typu prehľadu, alfa2 C2) nesmie zúžiť práva na 0600.
+test.skipIf(process.platform === "win32")("podmienený zápis zachová práva existujúceho súboru; zmenený obsah je 409 bez zápisu", async () => {
+  const server = await serve();
+  try {
+    const card = join(server.root, "matter.md");
+    await writeFile(card, "---\ntype: spis\ntags: []\n---\n");
+    await chmod(card, 0o664);
+    const { content } = await server.read("matter.md");
+    const next = content.replace("tags: []", 'tags: ["view:ip"]');
+    expect((await server.save("matter.md", next, content)).status).toBe(200);
+    expect((await stat(card)).mode & 0o777).toBe(0o664);
+    expect((await server.save("matter.md", content, content)).status).toBe(409);
+    expect(await readFile(card, "utf8")).toBe(next);
   } finally { await server.stop(); }
 });
