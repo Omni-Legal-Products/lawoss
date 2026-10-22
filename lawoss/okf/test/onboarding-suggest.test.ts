@@ -178,3 +178,58 @@ test("kancelária OKF v priamom podpriečinku sa ohlási (MČ 19. 10.: Neusporia
   // Bez kancelárie v podpriečinku pole nie je (staré tvary návrhu ostávajú rovnaké).
   expect(await suggestOnboardingLevel(await tree(["A/", "B/"]))).not.toHaveProperty("childOffices");
 });
+
+// N-9 (akceptácia 22. 10. 2026): malá prax s internými kódmi klientov a vecí (pieskovisko 3-neusporiadana-prax).
+test("prax s tromi kódovanými klientmi (C0xx/M0xx) je prax so signálom coded_hierarchy", async () => {
+  const root = await tree(["C002 SYN Hron Technológie, a. s./M004 Vyúčtovanie nájmu/doc.pdf", "C017 SYN Zuzana Šimková/M049 Reklamácia čerpadla/doc.pdf", "C022 SYN Michal Ľupták servis/M064 Odmena za služby/doc.pdf"]);
+  const suggestion = await suggestOnboardingLevel(root);
+  expect(suggestion).toMatchObject({ level: "practice", marked: false, clientPattern: "*", practicePattern: "*" });
+  expect(suggestion.signals).toContain("coded_hierarchy");
+  expect(suggestion.score).toBeGreaterThanOrEqual(0.8);
+  expect(suggestion.clients.map(client => client.path)).toEqual(["C002 SYN Hron Technológie, a. s.", "C017 SYN Zuzana Šimková", "C022 SYN Michal Ľupták servis"]);
+  expect(suggestion.practiceCandidates).toEqual(suggestion.clients);
+});
+test("kódovaná hierarchia: negatívne prípady ostávajú klientom", async () => {
+  // Štyri právne formy bez podpriečinkov, tematické priečinky klienta, jeden klient s číslovanými vecami so súbormi, holý Office.
+  for (const paths of [
+    ["Alfa s. r. o./", "Beta a. s./", "Gama s.r.o./", "Delta k. s./"],
+    ["Zmluvy/2024-01/zmluva.pdf", "Korešpondencia/2024-02/list.pdf"],
+    ["M001 Spor/žaloba.pdf", "M002 Zmluva/zmluva.pdf", "M003 Nájom/nájom.pdf"],
+    ["Office/", "Klienti/A/"],
+    // Rovnaký prefix na oboch úrovniach nie je prax.
+    ["C001 Alfa/C010 podklady/", "C002 Beta/C020 podklady/"],
+  ]) {
+    const suggestion = await suggestOnboardingLevel(await tree(paths));
+    expect(suggestion.level).not.toBe("practice");
+    expect(suggestion.signals).not.toContain("coded_hierarchy");
+  }
+});
+test("každý návrh klienta alebo veci nesie kandidátov praxe pre ručnú voľbu (N-9)", async () => {
+  const plain = await suggestOnboardingLevel(await tree(["A/", "B/"]));
+  expect(plain).toMatchObject({ level: "client", signals: ["plain_directories"], clients: [], practicePattern: "*" });
+  expect(plain.practiceCandidates.map(client => client.path)).toEqual(["A", "B"]);
+  const matters = await suggestOnboardingLevel(await tree(["2024-03 Kúpna zmluva/zmluva.docx", "Faktúry/"]));
+  expect(matters.level).toBe("client");
+  expect(matters.practiceCandidates.map(client => client.path)).toEqual(["Faktúry"]);
+  expect((await suggestOnboardingLevel(await tree(["zmluva.docx"]))).practiceCandidates).toEqual([]);
+  // Priečinok kancelárie nie je kandidát na klienta; pri Klienti/ sa berú klienti z neho.
+  const office = await suggestOnboardingLevel(await tree(["Office/", "Klienti/A/", "Klienti/B/", "Archív/"]));
+  expect(office).toMatchObject({ practicePattern: "Klienti/*" });
+  expect(office.practiceCandidates.map(client => client.path)).toEqual(["Klienti/A", "Klienti/B"]);
+});
+
+// N-14 (akceptácia 22. 10. 2026): kancelária OKF bez okf.config (dátová sada v1, pieskovisko 4-usporiadana-kancelaria).
+test("kancelária bez okf.config (Office s obsahom OKF a Klienti s kartami) je prax so vzorom Klienti/*", async () => {
+  const root = await tree(["Office/AGENTS.md", "Office/memory/x.md", "Klienti/A/client.md", "Klienti/B/client.md", "Klienti/C/"]);
+  const suggestion = await suggestOnboardingLevel(root);
+  expect(suggestion).toMatchObject({ level: "practice", marked: false, score: 0.9, signals: ["office_without_config"], clientPattern: "Klienti/*", practicePattern: "Klienti/*" });
+  expect(suggestion.clients.map(client => client.path)).toEqual(["Klienti/A", "Klienti/B", "Klienti/C"]);
+  // Kódované mená klientov (C001-syn-…) nesmú zvoliť inú vetvu.
+  const coded = await suggestOnboardingLevel(await tree(["Office/CLAUDE.md", "Klienti/C001-syn-alfa-s-r-o/client.md", "Klienti/C001-syn-alfa-s-r-o/Spisy/M001-spor/matter.md", "Klienti/C002-syn-beta/klient.md"]));
+  expect(coded.signals).toEqual(["office_without_config"]);
+});
+test("holý Office bez obsahu OKF alebo Klienti bez kariet nie je kancelária bez okf.config", async () => {
+  for (const paths of [["Office/", "Klienti/A/client.md"], ["Office/AGENTS.md", "Klienti/A/", "Klienti/B/zmluva.pdf"]]) {
+    expect((await suggestOnboardingLevel(await tree(paths))).signals).not.toContain("office_without_config");
+  }
+});

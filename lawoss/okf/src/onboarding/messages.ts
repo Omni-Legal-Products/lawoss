@@ -1,6 +1,13 @@
 /** Onboarding errors the app localizes. Portable: no Node imports, the app reads it at build time. */
 export const UNSAFE_FOLDER_NAME_MESSAGE = "A safe non-empty folder name is required.";
 /**
+ * Prax už má priečinok kancelárie (`Office/`, `_kancelaria/`), ktorý sa nedá dokončiť (bez obsahu OKF, odkaz,
+ * dva priečinky kancelárie). Appka vysvetlí ďalší krok v jazyku rozhrania (N-14, 22. 10. 2026).
+ */
+export const OFFICE_EXISTS_MESSAGE = "Tento priečinok už kanceláriu má (Office/), ale nedá sa doplniť.";
+/** Prefix chyby praxe vnútri existujúcej kancelárie; za ním nasleduje cesta kancelárie v zátvorke. */
+export const INSIDE_OFFICE_MESSAGE_PREFIX = "Tento priečinok je už súčasťou kancelárie";
+/**
  * Prefix chyby neúplnej inšpekcie so zamknutým súborom (Word, Outlook či antivírus na Windows).
  * Nasleduje zoznam „<cesta>: <kód>“ oddelený „; “; appka z neho vyberie cesty s kódom
  * `locked_file` a vysvetlí ich v jazyku rozhrania.
