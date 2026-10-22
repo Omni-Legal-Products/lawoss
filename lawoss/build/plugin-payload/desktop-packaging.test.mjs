@@ -286,9 +286,11 @@ test('the final gate CLI requires explicit target/mode and prints only a finite 
 
 // Load the unchanged complete production module; only its existing imports are
 // intercepted. No copied guard or rewritten function participates in these tests.
+const tupleModuleUrl = new URL('./desktop-packaging.mjs', import.meta.url);
+const tupleHookUrl = new URL('../../../apps/desktop/scripts/electron-after-pack.cjs', import.meta.url);
 async function tupleModule(options = {}) {
   const vm = await import('node:vm');
-  const source = await readFile(new URL('./desktop-packaging.mjs', import.meta.url), 'utf8');
+  const source = await readFile(tupleModuleUrl, 'utf8');
   const calls = [], privateValue = 'PRIVATE_TUPLE_SENTINEL';
   const build = options.current === undefined ? { privateValue, side: 'current' } : options.current;
   const prepared = options.sameBuild ? build : options.prepared === undefined ? { privateValue, side: 'prepared' } : options.prepared;
@@ -332,7 +334,7 @@ async function tupleModule(options = {}) {
     } },
   };
   const context = vm.createContext({ Buffer, URL, process: { getuid: () => 7, env: {} } });
-  const module = new vm.SourceTextModule(source, { context, initializeImportMeta(meta) { meta.url = new URL('./desktop-packaging.mjs', import.meta.url).href; } });
+  const module = new vm.SourceTextModule(source, { context, initializeImportMeta(meta) { meta.url = tupleModuleUrl.href; } });
   await module.link(name => {
     assert.ok(Object.hasOwn(mocks, name), 'closed existing import');
     const entries = Object.entries(mocks[name]);
@@ -347,7 +349,30 @@ async function tupleModule(options = {}) {
 }
 const tupleKeys = ['schemaVersion', 'stage', 'firstFailedPredicate', 'modeAllowed', 'sourceModeMatches', 'targetMatches', 'applicationBuildMatches', 'preparedBuildInfoNull', 'currentBuildInfoNull'];
 
-test('tuple diagnostic records only completed initial predicates with private frozen error identity', async () => {
+// The original CI caller has no VM flag. Keep each fixed VM case isolated in a
+// bounded actual-Node child; no whole-test-file import, recursion or skipped test.
+async function runTupleVmCase(runCase) {
+  const { spawnSync } = await import('node:child_process');
+  const child = spawnSync(process.execPath, ['--experimental-vm-modules', '--input-type=module'], {
+    input: `import assert from 'node:assert/strict';
+      import { readFile } from 'node:fs/promises';
+      import path from 'node:path';
+      const target = ${JSON.stringify(target)};
+      const tupleModuleUrl = new URL(${JSON.stringify(tupleModuleUrl.href)});
+      const tupleHookUrl = new URL(${JSON.stringify(tupleHookUrl.href)});
+      const tupleKeys = ${JSON.stringify(tupleKeys)};
+      const tupleModule = ${tupleModule.toString()};
+      await (${runCase.toString()})();
+      process.stdout.write(JSON.stringify({ status: 'passed', source: 'unchanged-full-module' }) + '\\n');`,
+    encoding: 'utf8', timeout: 10000, maxBuffer: 65536,
+  });
+  assert.equal(child.error, undefined); assert.equal(child.signal, null);
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(child.stdout, '{"status":"passed","source":"unchanged-full-module"}\n');
+  assert.match(child.stderr, /^\(node:\d+\) ExperimentalWarning: VM Modules is an experimental feature and might change at any time\n\(Use `node --trace-warnings \.\.\.` to show where the warning was created\)\n$/);
+}
+
+test('tuple diagnostic records only completed initial predicates with private frozen error identity', () => runTupleVmCase(async () => {
   const predicates = ['modeAllowed', 'sourceModeMatches', 'targetMatches', 'applicationBuildMatches'];
   const cases = [{ mode: 'private' }, { sourceMode: 'without-sdk' }, { sourceTarget: { private: true } }, {}];
   for (let index = 0; index < cases.length; index++) {
@@ -371,9 +396,9 @@ test('tuple diagnostic records only completed initial predicates with private fr
     assert.deepEqual(result.operands, index < 2 ? [] : index === 2 ? [result.sourceTarget, target] : [result.sourceTarget, target, result.prepared, result.build]);
     assert.deepEqual(result.calls.slice(0, 12), ['lstat', 'realpath', 'workspace', 'lstat', 'owner', 'lstat', 'realpath', 'open', 'stat', 'read', 'stat', 'lstat']);
   }
-});
+}));
 
-test('tuple diagnostic keeps null operands distinct and leaves derivation and non-guard errors unregistered', async () => {
+test('tuple diagnostic keeps null operands distinct and leaves derivation and non-guard errors unregistered', () => runTupleVmCase(async () => {
   for (const [prepared, current, left, right] of [[null, {}, 'null', 'non-null'], [{}, null, 'non-null', 'null']]) {
     const result = await tupleModule({ prepared, current });
     const d = result.namespace.desktopSdkPackagingFailureDiagnostic(result.error);
@@ -398,11 +423,11 @@ test('tuple diagnostic keeps null operands distinct and leaves derivation and no
   assert.equal(success.calls.filter(value => value === 'packed').length, 2);
   assert.equal(success.calls.filter(value => value === 'verify-packed').length, 1);
   assert.equal(success.namespace.desktopSdkPackagingFailureDiagnostic(success.error), undefined);
-});
+}));
 
-test('real afterPack tuple channel contains observer serialization and sink errors before all later actions', async () => {
+test('real afterPack tuple channel contains observer serialization and sink errors before all later actions', () => runTupleVmCase(async () => {
   const vm = await import('node:vm');
-  const hookSource = await readFile(new URL('../../../apps/desktop/scripts/electron-after-pack.cjs', import.meta.url), 'utf8');
+  const hookSource = await readFile(tupleHookUrl, 'utf8');
   const source = hookSource.replace('await import("../../../lawoss/build/plugin-payload/desktop-packaging.mjs")', 'require("../../../lawoss/build/plugin-payload/desktop-packaging.mjs")');
   const result = await tupleModule({});
   const diagnostic = result.namespace.desktopSdkPackagingFailureDiagnostic(result.error);
@@ -425,7 +450,7 @@ test('real afterPack tuple channel contains observer serialization and sink erro
     assert.deepEqual(calls, kind === 'success' ? ['target', 'verify', 'exists'] : ['target', 'verify']);
     assert.deepEqual(writes, kind === 'registered' ? [JSON.stringify(diagnostic) + '\n'] : []);
   }
-});
+}));
 
 
 test('tuple diagnostic also binds a real owned-generation fixture refusal', async t => {
