@@ -20,6 +20,11 @@ const invalid = () => { throw Object.assign(new Error('DESKTOP_SDK_PACKAGING_INV
 const same = (a, b) => a.dev === b.dev && a.ino === b.ino;
 const unchanged = (a, b) => same(a, b) && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
 const equal = (a, b) => canonical(a) === canonical(b);
+const initialTupleFailures = new WeakMap();
+/** Read-only private Error-identity lookup; unknown failures have no projection. */
+export function desktopSdkPackagingFailureDiagnostic(error) {
+  return initialTupleFailures.get(error);
+}
 async function absent(file) {
   try { await lstat(file); return false; } catch (error) { if (error.code === 'ENOENT') return true; throw error; }
 }
@@ -99,8 +104,27 @@ async function sourceIdentity(desktopRoot, expectedOwner) {
 export async function verifyDesktopProductSdkPackaging({ desktopRoot = DESKTOP_ROOT, resourcesRoot, target, applicationBuild = desktopApplicationBuildInfo({ desktopRoot, target }), expectedMode }) {
   const source = await sourceIdentity(desktopRoot);
   const mode = expectedMode ?? source.identity.mode;
-  if (!['sdk', 'without-sdk', 'development'].includes(mode) || source.identity.mode !== mode ||
-    !equal(source.identity.target, target) || !equal(source.identity.applicationBuild, applicationBuild)) invalid();
+  let preparedBuild;
+  /** @type {(boolean | undefined)[]} */
+  const refusal = [undefined, undefined, undefined, undefined];
+  if ((refusal[0] = !['sdk', 'without-sdk', 'development'].includes(mode)) || (refusal[1] = source.identity.mode !== mode) ||
+    (refusal[2] = !equal(source.identity.target, target)) || (refusal[3] = !equal((preparedBuild = source.identity.applicationBuild), applicationBuild))) {
+    try { invalid(); }
+    catch (originalError) {
+      try {
+        const state = value => value === undefined ? 'not-reached' : value ? 'fail' : 'pass';
+        initialTupleFailures.set(originalError, Object.freeze({
+          schemaVersion: 1, stage: 'desktop-sdk-initial-tuple',
+          firstFailedPredicate: refusal[0] ? 'modeAllowed' : refusal[1] ? 'sourceModeMatches' : refusal[2] ? 'targetMatches' : 'applicationBuildMatches',
+          modeAllowed: state(refusal[0]), sourceModeMatches: state(refusal[1]),
+          targetMatches: state(refusal[2]), applicationBuildMatches: state(refusal[3]),
+          preparedBuildInfoNull: refusal[3] === undefined ? 'not-reached' : preparedBuild === null ? 'null' : 'non-null',
+          currentBuildInfoNull: refusal[3] === undefined ? 'not-reached' : applicationBuild === null ? 'null' : 'non-null',
+        }));
+      } catch { /* Diagnostics cannot replace the original refusal. */ }
+      throw originalError;
+    }
+  }
   if (source.identity.sdk && source.identity.sdk.sourceSetSha256 !== await currentProductSdkSourceSetSha256()) invalid();
   const binding = { resourcesRoot, target, expectedMode: mode, applicationBuild };
   const packed = await readPackagedProductSdkIdentity(binding);

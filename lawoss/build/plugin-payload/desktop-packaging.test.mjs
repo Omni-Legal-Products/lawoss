@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile, lstat, readdir, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { prepareDesktopProductSdkPackaging, verifyDesktopProductSdkPackaging, desktopProductSdkTarget, parseDesktopSdkBuildArguments } from './desktop-packaging.mjs';
+import { prepareDesktopProductSdkPackaging, verifyDesktopProductSdkPackaging, desktopProductSdkTarget, parseDesktopSdkBuildArguments, desktopSdkPackagingFailureDiagnostic } from './desktop-packaging.mjs';
 import { createProductSdkIdentityModule } from './product-identity.mjs';
 import { canonical, inventory } from './validate.mjs';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -281,4 +281,160 @@ test('the final gate CLI requires explicit target/mode and prints only a finite 
   assert.equal(result.stdout, '');
   assert.deepEqual(JSON.parse(result.stderr), { status: 'failed', code: 'DESKTOP_SDK_PACKAGING_FAILED' });
   assert.equal(result.stderr.includes('PRIVATE_SENTINEL'), false);
+});
+
+
+// Load the unchanged complete production module; only its existing imports are
+// intercepted. No copied guard or rewritten function participates in these tests.
+async function tupleModule(options = {}) {
+  const vm = await import('node:vm');
+  const source = await readFile(new URL('./desktop-packaging.mjs', import.meta.url), 'utf8');
+  const calls = [], privateValue = 'PRIVATE_TUPLE_SENTINEL';
+  const build = options.current === undefined ? { privateValue, side: 'current' } : options.current;
+  const prepared = options.sameBuild ? build : options.prepared === undefined ? { privateValue, side: 'prepared' } : options.prepared;
+  const sourceTarget = options.sourceTarget ?? target;
+  const identity = { sdk: options.sourceSet ? { sourceSetSha256: 'prepared' } : null };
+  Object.defineProperty(identity, 'mode', { enumerable: true, get() { calls.push('mode'); if (options.modeError) throw options.modeError; return options.sourceMode ?? 'sdk'; } });
+  Object.defineProperty(identity, 'target', { enumerable: true, get() { calls.push('target'); if (options.targetError) throw options.targetError; return sourceTarget; } });
+  Object.defineProperty(identity, 'applicationBuild', { get() {
+    calls.push('prepared-build'); if (options.getterError) throw options.getterError; return prepared;
+  } });
+  const directory = { dev: 1, ino: 2, uid: 7, mode: 0o700, isDirectory: () => true, isSymbolicLink: () => false };
+  const file = { dev: 1, ino: 3, size: 1, mtimeMs: 1, ctimeMs: 1, nlink: 1, isFile: () => true, isSymbolicLink: () => false };
+  const later = options.laterError ?? new Error('PRIVATE_LATER');
+  const operands = [];
+  let canonicalCount = 0;
+  const mocks = {
+    'node:child_process': { execFileSync() { calls.push('epoch'); return '1700000000'; } },
+    'node:fs': { constants: { O_RDONLY: 0, O_NOFOLLOW: 1 }, readFileSync() { calls.push('version'); return '{"version":"1.0.0"}'; } },
+    'node:fs/promises': {
+      async lstat(name) { calls.push('lstat'); if (name.endsWith('.generation.lock')) throw Object.assign(new Error(), { code: 'ENOENT' }); return name.endsWith('identity.mjs') ? file : directory; },
+      async realpath(name) { calls.push('realpath'); return name; },
+      async readFile() { calls.push('owner'); return '{"token":"private"}'; },
+      async open() { calls.push('open'); return { async stat() { calls.push('stat'); return file; }, async read(bytes) { calls.push('read'); bytes[0] = 120; return { bytesRead: 1 }; }, async close() { calls.push('close'); } }; },
+    },
+    'node:url': { fileURLToPath: (await import('node:url')).fileURLToPath },
+    'node:path': { default: path },
+    '../../../scripts/release/build-info.mjs': {
+      assertReleaseSource() { calls.push('assert-release'); if (options.defaultError) throw options.defaultError; return 'a'.repeat(40); },
+      createBuildInfo() { calls.push('create-build'); return build; },
+    },
+    './product-packaging.mjs': { prepareProductSdkPackaging() { throw new Error('unexpected prepare'); } },
+    './product-identity.mjs': { readProductSdkIdentityModule() { calls.push('identity'); return identity; } },
+    './packaged-identity.mjs': { readPackagedProductSdkIdentity() { calls.push('packed'); if (options.success) return identity; throw later; } },
+    './packaged-resource.mjs': { verifyPackagedProductSdk() { calls.push('verify-packed'); if (options.success) return Object.freeze({ status: 'verified' }); throw new Error('unexpected verify'); } },
+    './product-bundle.mjs': { currentProductSdkSourceSetSha256() { calls.push('source-set'); throw later; } },
+    './prepare.mjs': { verifyWorkspace() { calls.push('workspace'); } },
+    './validate.mjs': { sdkConsumerMode() { throw new Error('unexpected target'); }, SDK_LOCK_SHA256: 'fixed', canonical(value) {
+      calls.push(['canonical-target-left', 'canonical-target-right', 'canonical-build-left', 'canonical-build-right'][canonicalCount] ?? 'canonical-later'); operands.push(value);
+      if (++canonicalCount === options.canonicalThrowAt) throw options.canonicalError;
+      return JSON.stringify(value);
+    } },
+  };
+  const context = vm.createContext({ Buffer, URL, process: { getuid: () => 7, env: {} } });
+  const module = new vm.SourceTextModule(source, { context, initializeImportMeta(meta) { meta.url = new URL('./desktop-packaging.mjs', import.meta.url).href; } });
+  await module.link(name => {
+    assert.ok(Object.hasOwn(mocks, name), 'closed existing import');
+    const entries = Object.entries(mocks[name]);
+    return new vm.SyntheticModule(entries.map(([key]) => key), function () { for (const [key, value] of entries) this.setExport(key, value); }, { context });
+  });
+  await module.evaluate();
+  const input = { desktopRoot: '/synthetic/desktop', resourcesRoot: '/synthetic/resources', target, expectedMode: options.mode ?? 'sdk' };
+  if (!options.omitBuild) input.applicationBuild = build;
+  let error;
+  try { await module.namespace.verifyDesktopProductSdkPackaging(input); } catch (caught) { error = caught; }
+  return { namespace: module.namespace, error, calls, later, identity, operands, prepared, build, sourceTarget };
+}
+const tupleKeys = ['schemaVersion', 'stage', 'firstFailedPredicate', 'modeAllowed', 'sourceModeMatches', 'targetMatches', 'applicationBuildMatches', 'preparedBuildInfoNull', 'currentBuildInfoNull'];
+
+test('tuple diagnostic records only completed initial predicates with private frozen error identity', async () => {
+  const predicates = ['modeAllowed', 'sourceModeMatches', 'targetMatches', 'applicationBuildMatches'];
+  const cases = [{ mode: 'private' }, { sourceMode: 'without-sdk' }, { sourceTarget: { private: true } }, {}];
+  for (let index = 0; index < cases.length; index++) {
+    const result = await tupleModule(cases[index]);
+    assert.equal(typeof result.namespace.desktopSdkPackagingFailureDiagnostic, 'function');
+    const get = result.namespace.desktopSdkPackagingFailureDiagnostic, diagnostic = get(result.error);
+    assert.equal(result.error.code, 'DESKTOP_SDK_PACKAGING_INVALID');
+    assert.deepEqual(Object.keys(diagnostic), tupleKeys);
+    assert.equal(diagnostic.schemaVersion, 1); assert.equal(diagnostic.stage, 'desktop-sdk-initial-tuple');
+    assert.equal(diagnostic.firstFailedPredicate, predicates[index]);
+    predicates.forEach((key, position) => assert.equal(diagnostic[key], position < index ? 'pass' : position === index ? 'fail' : 'not-reached'));
+    assert.equal(diagnostic.preparedBuildInfoNull, index === 3 ? 'non-null' : 'not-reached');
+    assert.equal(diagnostic.currentBuildInfoNull, index === 3 ? 'non-null' : 'not-reached');
+    assert.equal(get(result.error), diagnostic); assert.equal(get(new Error()), undefined); assert.equal(get(null), undefined);
+    assert.ok(Object.isFrozen(diagnostic)); assert.equal(JSON.stringify(diagnostic).includes('PRIVATE'), false);
+    assert.equal(result.calls.filter(value => value === 'prepared-build').length, index === 3 ? 1 : 0);
+    assert.equal(result.calls.includes('packed'), false); assert.equal(result.calls.includes('source-set'), false);
+    assert.deepEqual(result.calls.filter(value => value.startsWith('canonical')), index < 2 ? [] : index === 2 ? ['canonical-target-left', 'canonical-target-right'] : ['canonical-target-left', 'canonical-target-right', 'canonical-build-left', 'canonical-build-right']);
+    assert.equal(result.calls.includes('version'), false);
+    assert.deepEqual(result.calls.filter(value => ['mode', 'target', 'prepared-build'].includes(value)), index === 0 ? [] : index === 1 ? ['mode'] : index === 2 ? ['mode', 'target'] : ['mode', 'target', 'prepared-build']);
+    assert.deepEqual(result.operands, index < 2 ? [] : index === 2 ? [result.sourceTarget, target] : [result.sourceTarget, target, result.prepared, result.build]);
+    assert.deepEqual(result.calls.slice(0, 12), ['lstat', 'realpath', 'workspace', 'lstat', 'owner', 'lstat', 'realpath', 'open', 'stat', 'read', 'stat', 'lstat']);
+  }
+});
+
+test('tuple diagnostic keeps null operands distinct and leaves derivation and non-guard errors unregistered', async () => {
+  for (const [prepared, current, left, right] of [[null, {}, 'null', 'non-null'], [{}, null, 'non-null', 'null']]) {
+    const result = await tupleModule({ prepared, current });
+    const d = result.namespace.desktopSdkPackagingFailureDiagnostic(result.error);
+    assert.equal(d.preparedBuildInfoNull, left); assert.equal(d.currentBuildInfoNull, right);
+  }
+  const both = await tupleModule({ prepared: null, current: null });
+  assert.equal(both.error, both.later); assert.equal(both.namespace.desktopSdkPackagingFailureDiagnostic(both.error), undefined);
+  for (const kind of ['getterError', 'modeError', 'targetError', 'defaultError', ...[1, 2, 3, 4].map(String)]) {
+    const sentinel = new Error('PRIVATE_EXCEPTION');
+    const result = await tupleModule(kind === 'defaultError' ? { defaultError: sentinel, omitBuild: true } : ['getterError', 'modeError', 'targetError'].includes(kind) ? { [kind]: sentinel } : { canonicalThrowAt: Number(kind), canonicalError: sentinel });
+    assert.equal(result.error, sentinel); assert.equal(result.namespace.desktopSdkPackagingFailureDiagnostic(result.error), undefined);
+  }
+  const derived = await tupleModule({ omitBuild: true });
+  assert.deepEqual(derived.calls.slice(0, 4), ['version', 'assert-release', 'epoch', 'create-build']);
+  for (const key of ['version', 'assert-release', 'epoch', 'create-build']) assert.equal(derived.calls.filter(call => call === key).length, 1);
+  const later = await tupleModule({ sameBuild: true, sourceSet: true });
+  assert.equal(later.error, later.later); assert.equal(later.calls.at(-1), 'source-set');
+  assert.equal(later.namespace.desktopSdkPackagingFailureDiagnostic(later.error), undefined);
+  const success = await tupleModule({ sameBuild: true, success: true });
+  assert.equal(success.error, undefined);
+  assert.equal(success.calls.filter(value => value === 'identity').length, 2);
+  assert.equal(success.calls.filter(value => value === 'packed').length, 2);
+  assert.equal(success.calls.filter(value => value === 'verify-packed').length, 1);
+  assert.equal(success.namespace.desktopSdkPackagingFailureDiagnostic(success.error), undefined);
+});
+
+test('real afterPack tuple channel contains observer serialization and sink errors before all later actions', async () => {
+  const vm = await import('node:vm');
+  const hookSource = await readFile(new URL('../../../apps/desktop/scripts/electron-after-pack.cjs', import.meta.url), 'utf8');
+  const source = hookSource.replace('await import("../../../lawoss/build/plugin-payload/desktop-packaging.mjs")', 'require("../../../lawoss/build/plugin-payload/desktop-packaging.mjs")');
+  const result = await tupleModule({});
+  const diagnostic = result.namespace.desktopSdkPackagingFailureDiagnostic(result.error);
+  for (const kind of ['registered', 'unknown', 'accessor', 'serialization', 'sink', 'success']) {
+    const primary = new Error('PRIVATE_PRIMARY'), writes = [], calls = [], module = { exports: {} };
+    vm.runInNewContext(source, { module, process: { stderr: { write(line) { if (kind === 'sink') throw new Error('sink'); writes.push(line); } } }, require(name) {
+      if (name === 'node:path') return path;
+      if (name === 'node:fs') return { existsSync() { calls.push('exists'); return false; } };
+      if (name === 'electron-builder') return { Arch: {} };
+      if (name === './packaged-ocr.cjs') return { pruneOcrRuntime() { calls.push('prune'); } };
+      if (name.endsWith('/desktop-packaging.mjs')) return {
+        desktopProductSdkTarget() { calls.push('target'); return target; },
+        async verifyDesktopProductSdkPackaging() { calls.push('verify'); if (kind !== 'success') throw primary; },
+        desktopSdkPackagingFailureDiagnostic(error) { assert.equal(error, primary); if (kind === 'accessor') throw new Error('accessor'); return kind === 'unknown' ? undefined : kind === 'serialization' ? { get value() { throw new Error('serialization'); } } : diagnostic; },
+      };
+      throw new Error('unexpected import');
+    } });
+    if (kind === 'success') await assert.rejects(module.exports({ appOutDir: '/synthetic', electronPlatformName: 'linux', arch: 'x64', packager: { appInfo: {} } }), /Missing packaged Node runtime/);
+    else await assert.rejects(module.exports({ appOutDir: '/synthetic', electronPlatformName: 'linux', arch: 'x64', packager: { appInfo: {} } }), error => error === primary);
+    assert.deepEqual(calls, kind === 'success' ? ['target', 'verify', 'exists'] : ['target', 'verify']);
+    assert.deepEqual(writes, kind === 'registered' ? [JSON.stringify(diagnostic) + '\n'] : []);
+  }
+});
+
+
+test('tuple diagnostic also binds a real owned-generation fixture refusal', async t => {
+  const f = await desktop(t);
+  await prepareDesktopProductSdkPackaging({ ...f, supplier: { mode: 'without-sdk' } });
+  let primary;
+  await assert.rejects(verifyDesktopProductSdkPackaging({ ...f, expectedMode: 'sdk' }), error => { primary = error; return error.code === 'DESKTOP_SDK_PACKAGING_INVALID'; });
+  const diagnostic = desktopSdkPackagingFailureDiagnostic(primary);
+  assert.equal(diagnostic.firstFailedPredicate, 'sourceModeMatches');
+  assert.equal(diagnostic.applicationBuildMatches, 'not-reached');
+  assert.ok(Object.isFrozen(diagnostic));
 });
