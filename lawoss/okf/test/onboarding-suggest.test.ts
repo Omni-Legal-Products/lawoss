@@ -243,3 +243,26 @@ test("holý Office bez obsahu OKF alebo Klienti bez kariet nie je kancelária be
     expect((await suggestOnboardingLevel(await tree(paths))).signals).not.toContain("office_without_config");
   }
 });
+
+test("náhľad stromu: prípady a počty súborov z prieskumu, kancelária aj jeden klient (C1)", async () => {
+  const office = await tree([
+    "Office/AGENTS.md",
+    "Klienti/C001-syn-tatran/client.md",
+    "Klienti/C001-syn-tatran/Spisy/M001-uhrada/",
+    "Klienti/C001-syn-tatran/Spisy/M003-spolocnik/",
+    "Klienti/C002-syn-hron/client.md",
+    "Klienti/C002-syn-hron/01_Podklady/zmluva.pdf",
+  ]);
+  const suggestion = await suggestOnboardingLevel(office);
+  const unit = (path: string) => suggestion.units.find(item => item.path === path);
+  expect(unit("Klienti/C001-syn-tatran")).toMatchObject({ matters: [{ path: "Spisy/M001-uhrada", name: "M001-uhrada" }, { path: "Spisy/M003-spolocnik", name: "M003-spolocnik" }], matterCount: 2, files: 1 });
+  // Hĺbka prieskumu (4) končí pri prípadoch: počet súborov pod nimi je len dolná hranica.
+  expect(unit("Klienti/C001-syn-tatran")?.exact).toBe(false);
+  expect(unit("Klienti/C002-syn-hron")).toMatchObject({ matters: [], matterCount: 0, files: 2, exact: true });
+
+  // Jeden klient bez Spisy/: prípady podľa kódu, karty alebo mena veci; pracovné priečinky nie.
+  const client = await tree(["M004 Vyúčtovanie/a.pdf", "Zmluva/matter.md", "2024-03 Kúpna zmluva/", "01_Podklady/b.pdf", "Pošta/"]);
+  const root = (await suggestOnboardingLevel(client)).units.find(item => item.path === "");
+  expect(root?.matters.map(matter => matter.name).sort()).toEqual(["2024-03 Kúpna zmluva", "M004 Vyúčtovanie", "Zmluva"]);
+  expect(root).toMatchObject({ files: 3, exact: true });
+});
