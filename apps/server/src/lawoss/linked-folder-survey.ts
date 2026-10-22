@@ -2,8 +2,9 @@
  * LAWOSS: prieskum priečinka pred pripojením ku klientovi (alfa2 A3, N-16; rozhodnutie MČ 22. 10. 2026).
  *
  * - Tvrdé odmietnutie, keď priečinok nesie značky OKF iného klienta alebo kancelárie: `client.md`/`klient.md`
- *   v ňom alebo v jeho predkovi (patrí klientovi), v priamom podpriečinku (obsahuje klientov), `okf.config`
- *   v ňom, v jeho `Office/`/`_kancelaria/`, v takom priečinku priameho podpriečinka alebo predka (prax).
+ *   v ňom alebo v jeho predkovi (patrí klientovi), v podpriečinku do hĺbky 2 (obsahuje klientov, napr.
+ *   `Klienti/C001/client.md`), `okf.config` v ňom, v jeho `Office/`/`_kancelaria/`, v takom priečinku priameho
+ *   podpriečinka alebo predka (prax).
  * - Mäkké potvrdenie, keď priečinok len vyzerá ako prax: aspoň dva priame podpriečinky, z ktorých každý má aspoň
  *   dva podpriečinky pomenované ako veci (kód `M049 …`, `SYN-0001`, rok na začiatku, spisová značka). Právna
  *   forma sama nie je signál: priečinky protistrán ju nesú tiež.
@@ -19,7 +20,7 @@ export type LinkedFolderSurvey = { kind: "practice" | "other_client" } | { kind:
 
 const CLIENT_CARDS = ["client.md", "klient.md"];
 const OFFICE_DIRS = ["Office", "_kancelaria"];
-const LIMIT = { children: 400, grandchildren: 200, ancestors: 32, clients: 5 };
+const LIMIT = { children: 400, grandchildren: 200, ancestors: 32, clients: 5, nestedCards: 2000 };
 
 /** Kód veci alebo klienta na začiatku názvu: `M049 …`, `C001-syn-…`, `SYN-0001`. */
 const CODE = /^[A-Z]{1,3}[-_]?\d{2,}(?![\p{L}\d])/u;
@@ -64,11 +65,17 @@ export async function surveyLinkedFolder(folder: string, ownRoot: string | null)
 
   const children = (await entries(folder, LIMIT.children)).filter((entry) => entry.directory);
   const clients: string[] = [];
+  let nestedCards = LIMIT.nestedCards;
   for (const child of children) {
     const path = join(folder, child.name);
     const inside = await entries(path, LIMIT.grandchildren);
-    if (inside.some((entry) => entry.file && CLIENT_CARDS.includes(entry.name.toLowerCase()))) return { kind: "practice" };
+    // Obsahuje klienta (jeho kartu): ako priečinok, ktorý obsahuje registrovaného klienta.
+    if (inside.some((entry) => entry.file && CLIENT_CARDS.includes(entry.name.toLowerCase()))) return { kind: "other_client" };
     if (inside.some((entry) => entry.directory && OFFICE_DIRS.includes(entry.name)) && await hasOfficeConfig(path)) return { kind: "practice" };
+    for (const grandchild of inside.filter((entry) => entry.directory)) {
+      if (nestedCards-- <= 0) break;
+      if (await hasClientCard(join(path, grandchild.name))) return { kind: "other_client" };
+    }
     if (inside.filter((entry) => entry.directory && looksLikeMatter(entry.name)).length >= 2) clients.push(child.name);
   }
   return clients.length >= 2 ? { kind: "practice_like", clients: clients.sort((a, b) => a.localeCompare(b)).slice(0, LIMIT.clients) } : null;

@@ -268,7 +268,14 @@ describe("pripojené priečinky klienta: alfa2 A3 (N-16, N-20)", () => {
     await mkdir(join(office, "Klienti", "C777", "Spisy"), { recursive: true });
     await writeFile(join(office, "Klienti", "C777", "client.md"), "# C777\n");
     expect(await code(await put("ws_client", [office]))).toEqual({ status: 409, code: "linked_folder_practice" });
+    // V kancelárii (predok s okf.config): prax.
     expect(await code(await put("ws_client", [join(office, "Klienti")]))).toEqual({ status: 409, code: "linked_folder_practice" });
+    // Bez okf.config (ako syntetická 4-usporiadana-kancelaria): obsahuje kartu klienta do hĺbky 2, teda iného klienta.
+    const unmarked = join(root, "Kancelária bez okf.config");
+    await mkdir(join(unmarked, "Office"), { recursive: true });
+    await mkdir(join(unmarked, "Klienti", "C778"), { recursive: true });
+    await writeFile(join(unmarked, "Klienti", "C778", "client.md"), "# C778\n");
+    expect(await code(await put("ws_client", [unmarked]))).toEqual({ status: 409, code: "linked_folder_other_client" });
     expect(await code(await put("ws_client", [join(office, "Klienti", "C777")]))).toEqual({ status: 409, code: "linked_folder_other_client" });
     expect(await code(await put("ws_client", [join(office, "Klienti", "C777", "Spisy")]))).toEqual({ status: 409, code: "linked_folder_other_client" });
     const loose = join(root, "Voľný klient");
@@ -288,7 +295,7 @@ describe("pripojené priečinky klienta: alfa2 A3 (N-16, N-20)", () => {
     const marked = join(root, "Prax so značkou");
     await mkdir(join(marked, "C1", "M1"), { recursive: true });
     await writeFile(join(marked, "C1", "client.md"), "# C1\n");
-    expect(await code(await putConfirmed(config, "ws_client", [folder, marked], [marked]))).toEqual({ status: 409, code: "linked_folder_practice" });
+    expect(await code(await putConfirmed(config, "ws_client", [folder, marked], [marked]))).toEqual({ status: 409, code: "linked_folder_other_client" });
   });
 
   test("N-16 bez falošných poplachov: protistrany s právnou formou, roky, podklady, jeden klient s vecami, vlastný podpriečinok", async () => {
