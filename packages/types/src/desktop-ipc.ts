@@ -933,6 +933,10 @@ export interface HostApprovalRequest {
   sessionID?: string;
   description?: string;
   paths: string[];
+  /** LAWOSS: the exact command a managed-shell card approves, shown on the card. */
+  command?: string;
+  /** LAWOSS: the command runs on this computer, so the one card covers files, internet and outside folders. */
+  hostWide?: boolean;
   createdAt: number;
   actor: { type: "remote" | "host"; clientId?: string; scope?: string };
   network?: {

@@ -34,6 +34,13 @@ import { joinSessionFolder } from "../lawoss/session-ownership.js";
 // LAWOSS: `folder` (set by the server, never by the model) is the chat's folder below the workspace root; it defaults the working directory.
 export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; folder?: string[]; skills?: string[]; write: boolean; timeoutMs: number };
 export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
+type PermissionStep = { permission: string; pattern: string; override?: PermissionAction };
+
+// LAWOSS (alfa 2, N-21): a rule and a one-time decline read differently to the model.
+const PERMISSION_RULE_MESSAGE = (permission: string) => `${permission} is blocked by your permissions: a rule in the user's Settings, not a one-time decision. Nothing ran. Only the user can change that rule in Settings.`;
+export const PERMISSION_TIMEOUT_MESSAGE = "No one answered the approval card in time. Nothing ran and nothing changed. Tell the user, and run the tool again only if they ask.";
+export const PERMISSION_CANCELLED_MESSAGE = "The approval card was closed before anyone answered (the chat stopped or the app is closing). Nothing ran and nothing changed.";
+export const PERMISSION_DECLINED_MESSAGE = "The user declined this one request. Nothing ran and nothing changed. Do not retry it now or through another tool. If the user later explicitly asks for it again, call the tool again so they see a new approval card.";
 
 function restrictive(actions: PermissionAction[]): PermissionAction {
   return actions.includes("deny") ? "deny" : actions.includes("ask") ? "ask" : "allow";
@@ -72,7 +79,7 @@ function agentAction(rules: AgentPermissionRule[], permission: string, pattern: 
   return action;
 }
 
-function authorizedFolders(entries: Record<string, unknown>): string[] {
+export function authorizedFolders(entries: Record<string, unknown>): string[] {
   const folders: string[] = [];
   for (const [pattern, action] of Object.entries(entries)) {
     if (action !== "allow" || !pattern.endsWith("/*")) continue;
@@ -114,7 +121,7 @@ export class AgentSandboxService {
   async run(workspace: WorkspaceInfo, command: SandboxCommand, actor: Actor, parentSignal: AbortSignal,
     agentRules: AgentPermissionRule[] = [], lineage: string[] = command.sessionID ? [command.sessionID] : []): Promise<SandboxResult & { sandbox: "host" | "virtual-machine" }> {
     if (this.config.readOnly && command.write) throw new ApiError(403, "read_only", "This server permits read-only sandbox commands.");
-    return this.withPolicy(workspace, command, actor, parentSignal, agentRules, lineage, async ({ settings, permissions, signal, ask, authorizeNetwork }) => {
+    return this.withPolicy(workspace, command, actor, parentSignal, agentRules, lineage, async ({ settings, permissions, signal, ask, askOnce, authorizeNetwork }) => {
       const networkMode = settings.networkMode;
       const runtime = await readRuntimeOpencodeConfig(this.config, workspace.id);
       const wikiStore = new WikiStore(this.config);
@@ -146,14 +153,17 @@ export class AgentSandboxService {
         }
       }
       const commandAction = (tool: string) => restrictive([wholeCommandAction(permissions, tool), wholeAgentAction(agentRules, tool)]);
-      await ask("bash", command.command, `Run this command ${settings.enabled ? "in the protected environment" : "on this computer"}?\n\n${command.command}`, [workspace.path], commandAction("bash"));
       if (!settings.enabled) {
         if (this.config.readOnly) throw new ApiError(403, "read_only", "Unprotected commands cannot guarantee read-only access. Enable sandboxing first.");
-        await ask("read", "*", "Allow this command to read files on this computer? Sandboxing is off.", [workspace.path], commandAction("read"));
-        await ask("edit", "*", "Allow this command to change files on this computer? Sandboxing is off, so file access is not confined to shared folders.", [workspace.path], commandAction("edit"));
-        await ask("webfetch", "*", "Allow this command to contact websites or the local network? Sandboxing is off, so individual requests cannot be restricted.", [], commandAction("webfetch"));
-        await ask("external_directory", "*", "Allow this command to access folders outside the project? Sandboxing is off, so folder boundaries cannot be enforced.", [workspace.path],
-          restrictive([wholeCommandAction({ external_directory: await yoloModeActive(this.config) ? yoloExternalDirectory(runtimeExternalDirectory(runtime)) : runtimeExternalDirectory(runtime) }, "external_directory"), wholeAgentAction(agentRules, "external_directory")]));
+        // LAWOSS: on this computer a command can read, change, go online and leave the project whatever
+        // it declares, so one card covers all of it (earlier: a separate card for each capability).
+        await askOnce([
+          { permission: "bash", pattern: command.command, override: commandAction("bash") },
+          { permission: "read", pattern: "*", override: commandAction("read") },
+          { permission: "edit", pattern: "*", override: commandAction("edit") },
+          { permission: "webfetch", pattern: "*", override: commandAction("webfetch") },
+          { permission: "external_directory", pattern: "*", override: restrictive([wholeCommandAction({ external_directory: await yoloModeActive(this.config) ? yoloExternalDirectory(runtimeExternalDirectory(runtime)) : runtimeExternalDirectory(runtime) }, "external_directory"), wholeAgentAction(agentRules, "external_directory")]) },
+        ], `Run this command on this computer?\n\n${command.command}\n\nSandboxing is off, so this one approval covers everything the command does: reading and changing files, contacting websites and accessing folders outside the project.`, [workspace.path], { command: command.command, hostWide: true });
         if (command.skills?.length) {
           const skills = await listSkills(workspace.path, true);
           for (const name of command.skills) {
@@ -166,6 +176,7 @@ export class AgentSandboxService {
         if (!isAbsolute(cwd)) throw new ApiError(400, "command_directory", "Use an absolute folder path on this computer.");
         return { ...await withFileEditorHandoff(command, () => { signal.throwIfAborted(); return runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, signal }); }), sandbox: "host" };
       }
+      await ask("bash", command.command, `Run this command in the protected environment?\n\n${command.command}`, [workspace.path], commandAction("bash"));
       const writeAction = commandAction("edit");
       const externalRules = runtimeExternalDirectory(runtime);
       const sources = [...new Set(await Promise.all([workspace.path, ...await linkableFolders(this.config, workspace, authorizedFolders(externalRules)), ...projectGrants.map(grant => grant.root)].map(source => ownWiki ? realpath(source).catch(() => { throw new ApiError(403, "wiki_project_mount_unavailable", "A shared folder is unavailable. Review this chat's project access."); }) : Promise.resolve(source))))];
@@ -271,6 +282,7 @@ export class AgentSandboxService {
       permissions: Record<string, unknown>;
       signal: AbortSignal;
       ask: (permission: string, pattern: string, summary: string, paths: string[], override?: PermissionAction, reviewable?: boolean, network?: ApprovalRequest["network"]) => Promise<void>;
+      askOnce: (steps: PermissionStep[], summary: string, paths: string[], card?: Pick<ApprovalRequest, "command" | "hostWide">) => Promise<void>;
       authorizeNetwork: (request: OutboundRequest) => Promise<boolean>;
     }) => Promise<T>): Promise<T> {
     const controller = new AbortController();
@@ -298,17 +310,37 @@ export class AgentSandboxService {
       const settings = await effectiveSandbox(this.config, workspace.id, lineage);
       dependencies = settings.dependencies;
       signal.throwIfAborted();
+      // A rule decides without asking; a denial never reaches a card.
+      const decide = (step: PermissionStep): PermissionAction => {
+        const action = restrictive([step.override ?? permissionAction(permissions, step.permission, step.pattern), agentAction(agentRules, step.permission, step.pattern)]);
+        if (action === "deny") throw new ApiError(403, "sandbox_permission_denied", PERMISSION_RULE_MESSAGE(step.permission));
+        return action;
+      };
+      const confirm = async (permission: string, key: unknown, summary: string, paths: string[], network?: ApprovalRequest["network"], card: Pick<ApprovalRequest, "command" | "hostWide"> = {}) => {
+        const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
+          action: `sandbox.${permission}`, summary, paths, sessionID: operation.sessionID, description: operation.description,
+          ...(network ? { network } : {}), ...card }, signal, true,
+          // LAWOSS: a card that covers this whole computer (folders of other clients too) is never remembered.
+          operation.sessionID && !card.hostWide ? JSON.stringify([workspace.id, operation.sessionID, permission, key, paths, network, permissions, agentRules, settings.enabled, settings.networkMode]) : undefined);
+        // LAWOSS: a one-time decline is not a rule; the model may show a new card on a later explicit request.
+        // No answer (timeout) or a cancelled card is reported as such, not as the user's decision.
+        if (!result.allowed) throw result.reason === "denied" ? new ApiError(403, "sandbox_permission_declined", PERMISSION_DECLINED_MESSAGE)
+          : result.reason === "timeout" ? new ApiError(403, "sandbox_permission_timeout", PERMISSION_TIMEOUT_MESSAGE)
+          : new ApiError(403, "sandbox_permission_cancelled", PERMISSION_CANCELLED_MESSAGE);
+      };
       const ask = async (permission: string, pattern: string, summary: string, paths: string[], override?: PermissionAction, reviewable = true, network?: ApprovalRequest["network"]) => {
         signal.throwIfAborted();
-        const action = restrictive([override ?? permissionAction(permissions, permission, pattern), agentAction(agentRules, permission, pattern)]);
-        if (action === "deny") throw new ApiError(403, "sandbox_permission_denied", `${permission} is blocked by your permissions.`);
-        if (action === "ask") {
-          if (!reviewable) throw new ApiError(403, "sandbox_review_limit", "This request is too large to review in the approval dialog. Send a smaller request.");
-          const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
-            action: `sandbox.${permission}`, summary, paths, sessionID: operation.sessionID, description: operation.description,
-            ...(network ? { network } : {}) }, signal, true, operation.sessionID ? JSON.stringify([workspace.id, operation.sessionID, permission, pattern, paths, network, permissions, agentRules, settings.enabled, settings.networkMode]) : undefined);
-          if (!result.allowed) throw new ApiError(403, "sandbox_permission_denied", "Sandbox permission was declined.");
+        if (decide({ permission, pattern, override }) === "ask") {
+          if (!reviewable) throw new ApiError(403, "sandbox_review_limit", "This request is too large to review in the approval dialog. Nothing ran. Send a smaller request.");
+          await confirm(permission, pattern, summary, paths, network);
         }
+        signal.throwIfAborted();
+      };
+      // LAWOSS: one card for one command. Every step is decided first; the first step that asks names the card.
+      const askOnce = async (steps: PermissionStep[], summary: string, paths: string[], card: Pick<ApprovalRequest, "command" | "hostWide"> = {}) => {
+        signal.throwIfAborted();
+        const asking = steps.filter((step) => decide(step) === "ask");
+        if (asking.length) await confirm(asking[0].permission, asking.map(({ permission, pattern }) => [permission, pattern]), summary, paths, undefined, card);
         signal.throwIfAborted();
       };
       const authorizeNetwork = async (request: OutboundRequest) => {
@@ -326,7 +358,7 @@ export class AgentSandboxService {
           body: bodyFormat === "text" ? text : request.bodyBase64, bodyFormat, bodyBytes: request.bodyBytes });
         return true;
       };
-      return await work({ settings, permissions, signal, ask, authorizeNetwork });
+      return await work({ settings, permissions, signal, ask, askOnce, authorizeNetwork });
     } finally {
       unsubscribeSandbox();
       unsubscribe();

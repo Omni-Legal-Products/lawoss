@@ -105,7 +105,7 @@ test("on gives only the chat agent the allow rules; off restores the previous co
   expect(await writeYoloMode(config, true)).toEqual({ enabled: true, locked: false, source: "user" });
   const on = await engineConfig(config);
   // Desktop engines run commands through the managed shell; host bash stays denied.
-  expect(on.agent.legalwork?.permission).toEqual({ edit: "allow", external_directory: { "*": "allow" }, legalwork_shell: "allow", bash: "deny", webfetch: "deny", websearch: "deny" });
+  expect(on.agent.legalwork?.permission).toEqual({ edit: "allow", external_directory: { "*": "allow" }, lawoss_file_change: "allow", legalwork_shell: "allow", bash: "deny", webfetch: "deny", websearch: "deny" });
   // Every other agent, scheduled runs included, keeps the lawyer's rules: the shared map is unchanged.
   expect(on.permission).toEqual(off.permission);
   expect(on.agent["legalwork-scheduled-all"]).toEqual(off.agent["legalwork-scheduled-all"]);
@@ -183,7 +183,8 @@ test("the managed shell on this computer moves a file without approval only whil
   const move = () => service.run(config.workspaces[0], { command: "mv zmluva.txt 01_Zmluva.txt", sessionID: "ses_1", write: true, timeoutMs: 10000 },
     { type: "host" }, AbortSignal.timeout(15000));
 
-  await expect(move()).rejects.toMatchObject({ code: "sandbox_permission_denied" });
+  // The lawyer declines the card: a one-time decision, not a rule.
+  await expect(move()).rejects.toMatchObject({ code: "sandbox_permission_declined" });
   expect(asked).toEqual(["sandbox.bash"]);
   expect(await readFile(join(matter, "zmluva.txt"), "utf8")).toBe("text");
 
@@ -197,7 +198,7 @@ test("the managed shell on this computer moves a file without approval only whil
   await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current, permission: { edit: "ask", bash: "ask", webfetch: "ask" } }));
   asked.length = 0;
   await expect(service.run(config.workspaces[0], { command: "mv 01_Zmluva.txt zmluva.txt", sessionID: "ses_1", write: true, timeoutMs: 10000 },
-    { type: "host" }, AbortSignal.timeout(15000))).rejects.toMatchObject({ code: "sandbox_permission_denied" });
+    { type: "host" }, AbortSignal.timeout(15000))).rejects.toMatchObject({ code: "sandbox_permission_declined" });
   expect(asked).toEqual(["sandbox.webfetch"]);
   expect(await readFile(join(matter, "01_Zmluva.txt"), "utf8")).toBe("text");
 
@@ -205,7 +206,7 @@ test("the managed shell on this computer moves a file without approval only whil
   await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current, permission: { edit: "ask", bash: "ask" } }));
   asked.length = 0;
   await expect(service.run(config.workspaces[0], { command: "mv 01_Zmluva.txt zmluva.txt", sessionID: "ses_2", write: true, timeoutMs: 10000 },
-    { type: "host" }, AbortSignal.timeout(15000), [{ permission: "bash", pattern: "*", action: "ask" }])).rejects.toMatchObject({ code: "sandbox_permission_denied" });
+    { type: "host" }, AbortSignal.timeout(15000), [{ permission: "bash", pattern: "*", action: "ask" }])).rejects.toMatchObject({ code: "sandbox_permission_declined" });
   expect(asked).toEqual(["sandbox.bash"]);
 
   // A command rule the lawyer forbade still refuses, without asking.

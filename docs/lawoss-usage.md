@@ -31,6 +31,15 @@ Pri delegovaní si urobte krátku kontrolu v štyroch krokoch: čo delegujete, a
 - Pri práci v otvorenom Worde nechajte otvorený LAWOSS panel. Nástroje `word_*` pracujú s dokumentom, ktorý používateľ vidí; pred úpravou si overia presný textový kotviaci úsek.
 - Pri právnych záveroch vyžadujte označenie zdroja, dátumu a jurisdikcie. Nezamieňajte návrh modelu za overenú právnu autoritu.
 
+## Schvaľovanie zmien súborov
+
+- Kým je YOLO Mode vypnutý, agent sa pred každou zmenou súborov a pred každým príkazom v počítači opýta kartou v chate. Platí to aj na čistom profile: nenastavené „Úprava súborov“ a „Príkazy v počítači“ znamenajú „najprv sa opýtať“. Vedome vypnutý prepínač (povoliť) ostáva v platnosti.
+- Premenovanie, presun, kópiu, nový priečinok a zmazanie robí agent nástrojom, ktorý ukáže jednu kartu so zoznamom zmien („pôvodná → nová“, „Do Koša: …“). Po schválení vykoná presne tento zoznam; ak sa medzitým súbory zmenili (aj ich obsah), nevykoná nič. Existujúci súbor nikdy neprepíše.
+- Zmazané položky idú do Koša v počítači, odkiaľ ich obnovíte. Ak Kôš nie je dostupný (napr. sieťový disk), ostanú v skrytom priečinku `.lawoss-kos` v koreni klienta alebo pripojeného priečinka. Tieto karty sa pýtajú vždy mimo YOLO, aj keď ste vypli „Pýtať sa pred úpravou súborov“.
+- Zamietnutie platí pre tú jednu žiadosť a nič sa nezmení. Keď to neskôr v tom istom chate výslovne zadáte znova, agent ukáže novú kartu.
+- „Povoliť do konca konverzácie“ sa neponúka pri karte na priečinok mimo klienta, pri natívnej úprave súboru ani pri príkaze v počítači: engine by si súhlas pamätal pre všetky chaty klienta, resp. príkaz siaha aj mimo klienta. Pripojené priečinky klienta kartu nepotrebujú.
+- Plánovaná úloha nad všetkými klientmi („všetky projekty“), ktorá mení súbory alebo spúšťa príkazy, sa zastaví na karte a čaká na schválenie. YOLO Mode platí len pre chat, nie pre plánované úlohy.
+
 ## Nový spis a OKF
 
 Pri zakladaní spisu vyplňte aspoň predmet, názov, jurisdikciu a identifikáciu protistrany, ak je známa. Pred zápisom si pozrite náhľad a overte, že cesta a názvy súborov patria správnemu spisu. Rozšírené OKF rozhodnutia používajte podľa tímového checklistu; nič z neho sa nepovažuje za schválené, kým tím nezapíše rozhodnutie.

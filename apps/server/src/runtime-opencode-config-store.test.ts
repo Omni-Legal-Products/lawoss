@@ -350,7 +350,9 @@ describe("runtime OpenCode config store", () => {
         await readGlobalToolPermissions(config),
       );
       // Stale workspace `bash`/`edit` do not leak through; folders survive.
+      // LAWOSS: the unset global `edit` is the default "ask" (lawoss/tool-permission-defaults.ts), not the stale allow.
       expect(merged.permission).toEqual({
+        edit: "ask",
         bash: "ask",
         external_directory: { "/tmp/shared/*": "allow" },
       });

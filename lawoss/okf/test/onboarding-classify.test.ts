@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, open, readFile, readdir, realpath, rm, symlink, writeFi
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { inspectOnboardingParent, inspectOnboardingRoot } from "../src/onboarding/classify.ts";
+import { findOfficeConfigs, inspectOnboardingParent, inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { planClientConversion } from "../src/onboarding/plan.ts";
 import { incompleteInspectionMessage, LOCKED_FILES_MESSAGE_PREFIX } from "../src/onboarding/messages.ts";
 import { holdWindowsFileLock } from "./windows-file-lock.ts";
@@ -129,6 +129,16 @@ test('an opened client stays a confirmed client despite app files with symlinks 
   expect(result).toMatchObject({ level: 'client', confidence: 'confirmed', complete: true });
   expect(result.entries).toContainEqual(expect.objectContaining({ path: '.opencode', kind: 'directory' }));
   expect(result.entries.some(entry => entry.path.startsWith('.opencode/'))).toBe(false);
+});
+
+test("the client's Trash folder (.lawoss-kos) is app data: neither its contents nor an office in it count", async () => {
+  const root = await fixture({ 'client.md': card('client'), 'Spisy/.keep': '',
+    '.lawoss-kos/2026-10-22T20-00-00-000Z-abcd1234/Stara-kancelaria/Office/okf.config': 'version: 1\n',
+    '.lawoss-kos/2026-10-22T20-00-00-000Z-abcd1234/zmluva.txt': 'SYN' });
+  const result = await inspectOnboardingRoot(root);
+  expect(result).toMatchObject({ level: 'client', confidence: 'confirmed', complete: true });
+  expect(result.entries.some(entry => entry.path.startsWith('.lawoss-kos/'))).toBe(false);
+  expect(await findOfficeConfigs(root)).toEqual({ complete: true, offices: [] });
 });
 
 // Windows a Office zakladajú tieto súbory samy (otvorený dokument vo Worde, Prieskumník);
