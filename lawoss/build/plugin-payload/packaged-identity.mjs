@@ -51,7 +51,7 @@ export async function readPackagedProductSdkIdentity({ resourcesRoot, target, ex
         !/^(?:0|[1-9]\d{0,15})$/.test(node.offset)) invalid();
       const offset = Number(node.offset);
       if (!Number.isSafeInteger(offset) || offset + node.size > before.size - 8 - headerSize) invalid();
-      bytes = asar.extractFile(archive, filename, false);
+      bytes = asar.extractFile(archive, path.join(...filename.split('/')), false);
       if (bytes.length !== node.size) invalid();
     } finally { asar.uncache(archive); }
     const text = bytes.toString('utf8');

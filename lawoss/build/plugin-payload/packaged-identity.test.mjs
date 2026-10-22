@@ -42,7 +42,7 @@ test('executable identity text inside actual asar is refused without evaluation'
 });
 test('unpacked identity is refused even when the external bytes match the generated module', async t => {
  const f = await fixture(t, undefined, { unpack: 'identity.mjs' });
- assert.equal(asar.statFile(path.join(f.resourcesRoot, 'app.asar'), filename).unpacked, true);
+ assert.equal(asar.statFile(path.join(f.resourcesRoot, 'app.asar'), path.join(...filename.split('/'))).unpacked, true);
  await assert.rejects(readPackagedProductSdkIdentity(f), code);
 });
 test('changing the asar at the same path cannot reuse a cached private identity', async t => {
