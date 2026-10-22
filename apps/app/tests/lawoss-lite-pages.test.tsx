@@ -85,7 +85,7 @@ describe("stránky LAWOSS-lite", () => {
   });
   test("Dnes: prázdné stavy", () => {
     const out = html(<TodayView model={{ deadlines: [], tasks: [], inputs: [], recent: [] }} locale="en" />);
-    expect(out).toContain("No deadlines in the next 14 days.");
+    expect(out).toContain("No recorded deadlines in the next 14 days.");
     expect(out).toContain("No open tasks.");
     expect(out).toContain("Nothing waiting to be filed.");
   });
