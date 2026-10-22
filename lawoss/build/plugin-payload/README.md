@@ -543,3 +543,19 @@ Source identity is recomputed at final packaging gates. The known generated
 normal compilation does not turn a clean 0.0.0 build into null development
 identity. Other untracked files and modified tracked sources still refuse;
 this adds no source-cleanliness exception or SDK identity fallback.
+
+### Shared capsule format admission
+
+`product-capsule-format.mjs` exports the existing bounded read-only archive
+admission as `validateProductSdkCapsuleArchive(handle, size, tar)`. The build
+caller retains its pinned parser, physical checks, nine-resource verifier and
+extraction transaction. The factored predicates and limits are byte-identical
+to their original implementation. The module has only Node builtin imports and
+no preparation, workspace or CLI behavior.
+
+Standalone tests and an isolated Bun bundle under bundled Node22 verify this
+module closure. They do not authenticate a runtime worker or authorize writes.
+The module remains outside the27-source SDK set; application-code authentication,
+child supervision, parent leases and paired publication require separate work.
+Copied validator fixtures include the transitive shared module while retaining
+the original incorrect-parser-version refusal.
