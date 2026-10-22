@@ -13,6 +13,7 @@
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { normalizeAuthorizedFolderPath } from "@/react-app/domains/settings/panels/authorized-folders-panel-state";
 import { comparable, within } from "./matter-conversations";
+import { withoutLawossHome } from "../home-workspace";
 
 export type LinkRefusal = "own" | "contains_client" | "other_client" | "practice_root" | "app_data" | "missing" | "duplicate";
 
@@ -85,7 +86,8 @@ type Workspace = { path?: string | null; workspaceType?: string | null };
 export function otherClientFolders(clientRoot: string, workspaces: readonly Workspace[], groupFolders: readonly string[]): string[] {
   const own = comparableFolder(clientRoot);
   const candidates = [
-    ...workspaces.flatMap((w) => w.workspaceType !== "remote" && w.path ? [w.path] : []),
+    // Interný domovský priestor appky nie je klient (N-20): userData odmietne server ako dáta aplikácie.
+    ...withoutLawossHome(workspaces).flatMap((w) => w.workspaceType !== "remote" && w.path ? [w.path] : []),
     ...groupFolders,
   ];
   const seen = new Set<string>();

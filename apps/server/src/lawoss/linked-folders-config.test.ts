@@ -320,6 +320,13 @@ describe("pripojené priečinky klienta: alfa2 A3 (N-16, N-20)", () => {
     expect(await code(await put("ws_client", [join(practiceRoot, "_kancelaria"), join(practiceRoot, "Vzory")]))).toEqual({ status: 409, code: "linked_folder_practice" });
   });
 
+  test("pamäť kancelárie s okf.config aj bez profilu praxe; ostatné priečinky praxe sa odmietnu podľa okf.config", async () => {
+    const { practiceRoot, put } = await practice();
+    await writeFile(join(practiceRoot, "_kancelaria", "okf.config"), "office: Prax\n");
+    expect((await put("ws_client", [join(practiceRoot, "_kancelaria")])).status).toBe(200);
+    expect(await code(await put("ws_client", [join(practiceRoot, "_kancelaria"), join(practiceRoot, "Vzory")]))).toEqual({ status: 409, code: "linked_folder_practice" });
+  });
+
   test("príprava dokumentov: pripojené priečinky len vlastného klienta, nie iného ani pri firme", async () => {
     const { config, linked, put } = await practice();
     expect((await put("ws_client", [linked])).status).toBe(200);

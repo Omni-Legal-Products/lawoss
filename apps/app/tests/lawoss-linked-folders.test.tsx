@@ -101,6 +101,16 @@ describe("model: čo sa smie pripojiť", () => {
     expect(otherClientFolders("/prax/Klienti/Šťastný", workspaces, ["/prax/Klienti/Novák", "/prax/Klienti/Šťastný"])).toEqual(["/prax/Klienti/Hron", "/prax/Klienti/Novák"]);
   });
 
+  test("N-20: interný domovský priestor nie je iný klient; userData rozhodne server (dáta aplikácie)", () => {
+    const workspaces = [
+      { id: "home", path: "/Users/ana/LAWOSS-test-profil/userdata/lawoss-domov", workspaceType: "local" as const },
+      { id: "hron", path: "/prax/Klienti/Hron", workspaceType: "local" as const },
+    ];
+    const others = otherClientFolders("/prax/Klienti/Šťastný", workspaces, []);
+    expect(others).toEqual(["/prax/Klienti/Hron"]);
+    expect(linkRefusal("/Users/ana/LAWOSS-test-profil/userdata", scope({ otherClients: others }))).toBeNull();
+  });
+
   test("pamäť kancelárie (pripojila ju LAWOSS) sa nedá odpojiť a nepočíta sa; koreň praxe ňou nie je", () => {
     expect(isOfficeGrant("/prax/_kancelaria", "/prax")).toBe(true);
     expect(isOfficeGrant("/prax/Office", "/prax")).toBe(true);

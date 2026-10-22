@@ -58,10 +58,12 @@ export async function surveyLinkedFolder(folder: string, ownRoot: string | null)
   const foreignAncestors = ancestors(folder).filter((ancestor) => !ownRoot || !isPathWithin(ancestor, ownRoot));
   for (const ancestor of foreignAncestors) if (await hasClientCard(ancestor)) return { kind: "other_client" };
   if (await hasClientCard(folder)) return { kind: "other_client" };
-  if (await hasOfficeConfig(folder)) return { kind: "practice" };
-  // Predok s kanceláriou: priečinok leží v praxi (aj keď nie je v profile). Prax vlastného klienta tiež, okrem jej pamäte.
+  // Pamäť kancelárie vlastnej praxe (`Office/` vedľa priečinka s klientom) sa pripája aj bez profilu praxe.
   const ownOffice = ownRoot !== null && OFFICE_DIRS.includes(basename(folder)) && isPathWithin(dirname(folder), ownRoot);
-  if (!ownOffice) for (const ancestor of ancestors(folder)) if (await hasOfficeConfig(ancestor)) return { kind: "practice" };
+  if (ownOffice) return null;
+  if (await hasOfficeConfig(folder)) return { kind: "practice" };
+  // Predok s kanceláriou: priečinok leží v praxi (aj keď nie je v profile), aj v praxi vlastného klienta.
+  for (const ancestor of ancestors(folder)) if (await hasOfficeConfig(ancestor)) return { kind: "practice" };
 
   const children = (await entries(folder, LIMIT.children)).filter((entry) => entry.directory);
   const clients: string[] = [];
