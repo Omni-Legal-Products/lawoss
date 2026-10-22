@@ -18,18 +18,34 @@ import { Surface } from "@/react-app/design-system/surface";
 import { changeOrgPolicySetting, useOrgPolicy } from "@/react-app/domains/connections/org-policy";
 import type { OkfConnection } from "../okf/connection";
 import {
-  LINK_REFUSAL_TEXT, linkFolder, linkedFolderRows, linkedFoldersPolicy, linkedFoldersWriter, serverRefusal, unlinkFolder,
-  type LinkRefusal, type LinkedFolderRow, type LinkScope, type SaveResult,
+  LINK_REFUSAL_TEXT, confirmLinkFolder, linkFolder, linkedFolderRows, linkedFoldersPolicy, linkedFoldersWriter, serverRefusal, unlinkFolder,
+  type LinkRefusal, type LinkedFolderRow, type LinkScope, type PracticeLike, type SaveResult,
 } from "./linked-folders";
 
 /** `unavailable`: projekt klienta nie je na tomto počítači (vzdialený) alebo nie je spojenie. */
 export type LinkedFoldersViewState = "loading" | "ready" | "error" | "unavailable";
-type Outcome = { kind: "refused"; reason: LinkRefusal } | { kind: SaveResult } | { kind: "failed" } | null;
+type Outcome = { kind: "refused"; reason: LinkRefusal } | { kind: SaveResult } | { kind: "failed" } | PracticeLike | null;
+
+const folderName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() || path;
+
+/** Otázka pri priečinku, ktorý vyzerá ako prax: predvolene „Nepripojiť“, pripojiť len výslovne. */
+function PracticeLikeConfirm({ locale, outcome, busy, onConfirm, onCancel }: { locale: Language; outcome: PracticeLike; busy?: boolean; onConfirm?: () => void; onCancel?: () => void }) {
+  const title = t("lawoss.lite.linked_folders_practice_like_title", locale);
+  return <div className="lw-status warn mt-2 space-y-2" role="alertdialog" aria-label={title} data-lawoss-linked-folders-practice-like="">
+    <p className="text-sm font-medium">{title}</p>
+    <p className="text-xs">{t("lawoss.lite.linked_folders_practice_like_body", locale, { name: folderName(outcome.folder), clients: outcome.clients.join(", ") })}</p>
+    <div className="flex flex-wrap gap-2">
+      <Button type="button" size="sm" autoFocus disabled={busy} onClick={onCancel} data-lawoss-linked-folders-practice-like-cancel="">{t("lawoss.lite.linked_folders_practice_like_cancel", locale)}</Button>
+      <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onConfirm} data-lawoss-linked-folders-practice-like-confirm="">{t("lawoss.lite.linked_folders_practice_like_confirm", locale)}</Button>
+    </div>
+  </div>;
+}
 
 /** Sekcia „Pripojené priečinky“: zoznam, Pripojiť priečinok, Odpojiť; zamknuté firmou len na čítanie. */
 export function LinkedFoldersView(props: {
   locale: Language; state: LinkedFoldersViewState; rows: readonly LinkedFolderRow[]; locked: boolean; canLink: boolean;
   busy?: boolean; outcome?: Outcome; onLink?: () => void; onUnlink?: (path: string) => void;
+  onConfirmPracticeLike?: () => void; onCancelPracticeLike?: () => void;
 }) {
   const { locale, rows, outcome } = props;
   const title = t("lawoss.lite.linked_folders_title", locale);
@@ -64,6 +80,7 @@ export function LinkedFoldersView(props: {
             </Button>}
         </li>)}
       </ul>}
+    {outcome?.kind === "confirm" ? <PracticeLikeConfirm locale={locale} outcome={outcome} busy={props.busy} onConfirm={props.onConfirmPracticeLike} onCancel={props.onCancelPracticeLike} /> : null}
     {outcome?.kind === "refused" ? <p className="lw-status warn mt-2" role="alert" data-lawoss-linked-folders-refusal={outcome.reason}>{t(LINK_REFUSAL_TEXT[outcome.reason], locale)}</p> : null}
     {outcome?.kind === "failed" ? <p className="lw-status warn mt-2" role="alert">{t("lawoss.lite.linked_folders_save_error", locale)}</p> : null}
     {outcome?.kind === "declined" ? <p className="lw-status warn mt-2" role="alert" data-lawoss-linked-folders-declined="">{t("lawoss.lite.linked_folders_declined", locale)}</p> : null}
@@ -71,16 +88,21 @@ export function LinkedFoldersView(props: {
   </Surface>;
 }
 
-/** Položka pod klientom v bočnom paneli: názov a počet; bez pripojených priečinkov sa neukáže. */
+/**
+ * Položka pod klientom v bočnom paneli: názov a počet. Bez pripojených priečinkov sa ukáže tiež (N-10), s akciou
+ * „Pripojiť priečinok“; klik otvorí Domov klienta so sekciou a tlačidlom Pripojiť priečinok.
+ */
 export function LinkedFoldersNavView({ locale, count, active = false, className, onOpen }: {
   locale: Language; count: number; active?: boolean; className?: string; onOpen?: () => void;
 }) {
-  if (count <= 0) return null;
+  const add = t("lawoss.lite.linked_folders_link", locale);
   return <SidebarMenuSubItem>
-    <SidebarMenuSubButton className={className} isActive={active} aria-current={active ? "page" : undefined} data-lawoss-project-linked-folders="" onClick={onOpen}>
+    <SidebarMenuSubButton className={className} isActive={active} aria-current={active ? "page" : undefined} data-lawoss-project-linked-folders="" onClick={onOpen}
+      title={count > 0 ? undefined : add}>
       <FolderSymlink className="size-4" strokeWidth={1.5} />
       <span className="min-w-0 flex-1 truncate">{t("lawoss.lite.linked_folders_title", locale)}</span>
-      <span data-lawoss-project-linked-folders-count="" className="shrink-0 text-xs tabular-nums text-muted-foreground">{count}</span>
+      {count > 0 ? <span data-lawoss-project-linked-folders-count="" className="shrink-0 text-xs tabular-nums text-muted-foreground">{count}</span>
+        : <span data-lawoss-project-linked-folders-add="" className="flex shrink-0 items-center text-muted-foreground"><Plus aria-hidden className="size-3.5" /><span className="sr-only">{add}</span></span>}
     </SidebarMenuSubButton>
   </SidebarMenuSubItem>;
 }
@@ -137,8 +159,14 @@ export function LinkedFolders({ connection, workspaceId, practiceRoot, otherClie
   const [outcome, setOutcome] = useState<Outcome>(null);
   const focused = useLinkedFoldersFocus() === workspaceId;
   const section = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (focused) section.current?.scrollIntoView({ block: "start", behavior: "smooth" }); }, [focused]);
   const linked = query.data?.folders ?? [];
+  const empty = query.data !== undefined && linked.length === 0;
+  useEffect(() => {
+    if (!focused) return;
+    section.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    // Z panela pri nule: hlavná akcia je pripojiť prvý priečinok.
+    if (empty) section.current?.querySelector<HTMLButtonElement>("[data-lawoss-linked-folders-link]")?.focus({ preventScroll: true });
+  }, [focused, empty]);
   const clientRoot = connection?.workspaces.find((w) => w.id === workspaceId)?.path ?? "";
   const scope: Omit<LinkScope, "linked"> = { clientRoot, practiceRoot, otherClients };
 
@@ -162,10 +190,19 @@ export function LinkedFolders({ connection, workspaceId, practiceRoot, otherClie
     return result.kind === "cancelled" ? null : result;
   });
   const onUnlink = (path: string) => void run(async (writer) => ({ kind: await unlinkFolder(writer.current, path, writer.save) }));
+  const onConfirmPracticeLike = () => {
+    if (outcome?.kind !== "confirm") return;
+    const folder = outcome.folder;
+    void run(async (writer) => {
+      const result = await confirmLinkFolder({ scope, current: writer.current, save: writer.save }, folder);
+      return result.kind === "cancelled" ? null : result;
+    });
+  };
 
   const state: LinkedFoldersViewState = !endpoint ? "unavailable" : query.isError ? "error" : query.data ? "ready" : "loading";
   return <div ref={section} data-lawoss-linked-folders-focused={focused ? "" : undefined}>
     <LinkedFoldersView locale={locale} state={state} rows={linkedFolderRows(linked, practiceRoot)} locked={policy.locked}
-      canLink={isDesktopRuntime()} busy={busy} outcome={outcome} onLink={onLink} onUnlink={onUnlink} />
+      canLink={isDesktopRuntime()} busy={busy} outcome={outcome} onLink={onLink} onUnlink={onUnlink}
+      onConfirmPracticeLike={onConfirmPracticeLike} onCancelPracticeLike={() => setOutcome(null)} />
   </div>;
 }
