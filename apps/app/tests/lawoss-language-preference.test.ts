@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { bootstrapLawoss } from "../../../lawoss/theme/bootstrap";
-import { currentLanguagePreference, currentLocale, initLocale, LANGUAGE_PREF_KEY, setFirmLanguage, setLanguagePreference, setLocale, subscribeLocale } from "../src/i18n";
+import { currentLanguagePreference, currentLocale, detectSystemLanguage, initLocale, LANGUAGE_PREF_KEY, setFirmLanguage, setLanguagePreference, setLocale, subscribeLocale } from "../src/i18n";
 import { EXPERIMENT_VIEWS } from "../src/lawoss/experiments/registry";
 
 const originalDescriptors = new Map(["window", "document", "navigator"].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -138,4 +138,33 @@ test("unavailable preference storage does not prevent an immediate language chan
   expect(() => setLocale("sk")).not.toThrow();
   expect(currentLocale()).toBe("sk");
   expect(htmlLanguage).toBe("sk");
+});
+
+// N-2 (akceptácia 22. 10. 2026): Mac s „en-US, sk-SK“ začínal po anglicky.
+test("SK alebo CS kdekoľvek v zozname systému má prednosť, inak prvý podporovaný, bez podporovaného slovenčina", () => {
+  for (const [list, expected] of [
+    [["en-US", "sk-SK"], "sk"],
+    [["en-US", "cs-CZ"], "cs"],
+    [["de-DE", "en-US", "cs"], "cs"],
+    [["de-DE"], "de"],
+    [["en-US"], "en"],
+    [["fr-FR"], "sk"],
+    [["fr-FR", "en-GB"], "en"],
+    [[], "sk"],
+  ] as const) {
+    languages = [...list];
+    expect(detectSystemLanguage()).toBe(expected);
+  }
+});
+
+test("čistý profil na systéme „en-US, sk-SK“ začne po slovensky; jazyk kancelárie a výslovná voľba majú prednosť (#201)", () => {
+  languages = ["en-US", "sk-SK"];
+  expect(initLocale()).toBe("sk");
+  expect(currentLanguagePreference()).toBe("system");
+  setFirmLanguage("en");
+  expect(currentLocale()).toBe("en");
+  setFirmLanguage(null);
+  expect(currentLocale()).toBe("sk");
+  setLanguagePreference("en");
+  expect(initLocale()).toBe("en");
 });

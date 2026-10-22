@@ -1,5 +1,5 @@
 import { nativeBundledDisplayId } from "./bundled-workflow-presentation.mjs";
-import { acceptUiLocaleReport, createNativeLocaleState, nativeCopy } from "./native-locale.mjs";
+import { acceptUiLocaleReport, createNativeLocaleState, nativeCopy, preferredSystemLocale } from "./native-locale.mjs";
 import { getAppBuildInfo } from './build-info.mjs';
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
@@ -138,7 +138,7 @@ app.on("will-quit", () => { void actaportConnection?.close(); });
 const APP_START_URL = process.env.LEGALWORK_ELECTRON_START_URL?.trim() || process.env.ELECTRON_START_URL?.trim();
 const APP_ROOT = app.isPackaged ? path.join(process.resourcesPath, "app-dist") : path.resolve(__dirname, "../../app/dist");
 const isAppUrl = createAppUrlMatcher({ devServerUrl: APP_START_URL, appRoot: APP_ROOT });
-const uiLocales = createNativeLocaleState(() => app.getPreferredSystemLanguages?.()[0] ?? app.getLocale?.() ?? "en");
+const uiLocales = createNativeLocaleState(() => preferredSystemLocale(app.getPreferredSystemLanguages?.() ?? [app.getLocale?.() ?? "en"]));
 
 // Only LegalWork's own pages may use the desktop bridge. Browser tabs send
 // menu-overlay:dismiss so a click in a web page closes an open menu.

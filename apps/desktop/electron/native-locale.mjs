@@ -263,6 +263,15 @@ export function normalizeUiLocale(value) {
   const language = value.toLowerCase().split("-")[0];
   return Object.hasOwn(NATIVE_STRINGS, language) ? language : null;
 }
+/**
+ * Jazyk natívneho menu pred prvým hlásením renderera, rovnakým pravidlom ako voľba „Systém“ v appke
+ * (apps/app/src/lawoss/i18n/system-language.ts, N-2 22. 10. 2026): SK/CS kdekoľvek v zozname systému,
+ * inak prvý podporovaný jazyk, inak slovenčina.
+ */
+export function preferredSystemLocale(languages) {
+  const supported = (Array.isArray(languages) ? languages : []).map(normalizeUiLocale).filter(Boolean);
+  return supported.find(language => language === "sk" || language === "cs") ?? supported[0] ?? "sk";
+}
 export function nativeCopy(locale = "en", app = "LAWOSS") {
   const strings = NATIVE_STRINGS[normalizeUiLocale(locale) ?? "en"];
   return Object.fromEntries(Object.entries(strings).map(([key, value]) => [key, value.replaceAll("{app}", app)]));

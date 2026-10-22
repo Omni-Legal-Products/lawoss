@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { acceptUiLocaleReport, createNativeLocaleState, NATIVE_STRINGS } from "./native-locale.mjs";
+import { acceptUiLocaleReport, createNativeLocaleState, NATIVE_STRINGS, preferredSystemLocale } from "./native-locale.mjs";
 
 test("presentation reports require an owning ordinary app main frame and an exact supported locale", () => {
   const window = { isDestroyed: () => false };
@@ -29,4 +29,13 @@ test("native presentation catalogs have complete nonempty keys", () => {
     assert.deepEqual(Object.keys(NATIVE_STRINGS[locale]).sort(), Object.keys(NATIVE_STRINGS.en).sort());
     for (const value of Object.values(NATIVE_STRINGS[locale])) assert.ok(value.trim());
   }
+});
+
+test("natívne menu pred hlásením renderera: SK/CS kdekoľvek v zozname systému, inak prvý podporovaný, inak slovenčina", () => {
+  assert.equal(preferredSystemLocale(["en-US", "sk-SK"]), "sk");
+  assert.equal(preferredSystemLocale(["en-US", "cs-CZ"]), "cs");
+  assert.equal(preferredSystemLocale(["de-DE"]), "de");
+  assert.equal(preferredSystemLocale(["en-US"]), "en");
+  assert.equal(preferredSystemLocale(["fr-FR"]), "sk");
+  assert.equal(preferredSystemLocale(undefined), "sk");
 });

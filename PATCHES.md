@@ -1342,3 +1342,12 @@ Rozhodnutie MČ z 20. 10. 2026: jeden natívny prepínač „YOLO Mode“ v Nast
 | `apps/app/src/react-app/shell/session-route.tsx` | `yoloTurnContext()` v skrytom kontexte správy (`systemReminderPart`), nie v systémovom prompte; pri vypnutom YOLO nič (+1 import, 1 riadok zmenený). Skilly podľa neho vedia, že smú presúvať bežnými nástrojmi. |
 | `lawoss/skills/roztried-spis/SKILL.md`, `SKILL.cs.md`, `lawoss/skills/usporiadaj-spis/SKILL.md`, `apps/app/src/lawoss/okf/bundled-skill-hashes.ts` | Výnimka „YOLO Mode“: len s pripomienkou „YOLO Mode is on“ a na výslovnú žiadosť advokáta smie agent presúvať a premenúvať priamo v pôvodnom priečinku bežnými nástrojmi; bez nej platia pravidlá ako doteraz. CLI `okf` sa nemení (`allowInPlace` ostáva len pre triedenie v appke). Nové hashe telies skillov. |
 | `apps/app/scripts/i18n-check.ts` | `lawoss.yolo.title` a `lawoss.yolo.badge` v `GERMAN_KEEPS_ENGLISH`: prepínač sa podľa rozhodnutia volá „YOLO Mode“ vo všetkých jazykoch (+1 riadok). |
+
+### Systémový jazyk SK/CS pre čistý profil (2026-10-22, alfa2/a4-onboarding-prax)
+
+Akceptácia 22. 10. 2026, nález N-2: Mac so zoznamom jazykov „en-US, sk-SK“ začínal onboarding po anglicky. Mení sa len význam voľby „Systém“; poradie jazyk kancelárie → osobná voľba → systém (#201) ostáva.
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/i18n/index.ts` | `detectSystemLanguage` zbiera všetky podporované jazyky zo zoznamu systému a vyberie podľa LAWOSS `preferredSystemLanguage` (`apps/app/src/lawoss/i18n/system-language.ts`): SK/CS kdekoľvek v zozname, inak prvý podporovaný, bez podporovaného `sk` namiesto `en` (+1 import, +2/−1 riadky v cykle, návrat a komentár funkcie). Pri syncu zachovať. |
+| `apps/desktop/electron/main.mjs` | Záložný jazyk natívneho menu pred prvým hlásením renderera cez `preferredSystemLocale(app.getPreferredSystemLanguages())` z LAWOSS `native-locale.mjs` namiesto prvej položky zoznamu (1 import rozšírený, 1 riadok). |
