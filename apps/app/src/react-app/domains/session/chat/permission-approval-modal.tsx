@@ -432,6 +432,8 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               <div className="text-[13px] font-medium leading-5 text-dls-text">{network?.action ?? presentation.title}</div>
               <div className="mt-0.5 text-[12px] leading-5 text-dls-secondary">{network?.description ?? presentation.message}</div>
               {host?.description && !network?.search ? <div className="mt-1 text-[12px] leading-5 text-dls-secondary">{t("sandbox.approval_task", undefined, { description: host.description })}</div> : null}
+              {/* LAWOSS: one card per command on this computer – say what it covers (lawoss/i18n/shell.ts). */}
+              {host?.hostWide && !network ? <div className="mt-1 text-[12px] leading-5 text-dls-text">{t("lawoss.shell_card.host_wide")}</div> : null}
               {presentation.note ? (
                 <div className="mt-1 text-[12px] leading-5 text-dls-secondary">{presentation.note}</div>
               ) : null}
@@ -480,6 +482,10 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
         ) : null}
 
         <div className="border-t border-dls-border px-4 py-3">
+          {host?.command && !network ? <div className="mb-3">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">{t("session.permission_detail_command")}</div>
+            <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-dls-border bg-dls-hover/55 px-2.5 py-1.5 font-mono text-[12px] leading-5 text-dls-text">{host.command}</pre>
+          </div> : null}
           {network ? <div className="space-y-3 text-[12px] leading-5">
             {network.search ? <div>
               <div className="mb-1.5 font-medium text-dls-secondary">{t("sandbox.approval_search_query")}</div>

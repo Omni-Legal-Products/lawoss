@@ -256,6 +256,7 @@ export const shellEn = {
   "lawoss.lite.conversation_untitled": "Untitled conversation",
   "lawoss.lite.permission_command": "command run on this computer",
   "lawoss.lite.permission_other": "action by the assistant",
+  "lawoss.shell_card.host_wide": "The command runs directly on this computer. This one approval covers everything it does: reading and changing files, internet access and folders outside this client.",
   // lawoss_files (lawoss/lite/file-operation-card.ts): jedna karta na zmenu súborov.
   "lawoss.files.title_rename": "Rename?",
   "lawoss.files.title_move": "Move?",
@@ -648,6 +649,7 @@ export const shellCs = {
   "lawoss.lite.conversation_untitled": "Chat bez názvu",
   "lawoss.lite.permission_command": "příkaz v počítači",
   "lawoss.lite.permission_other": "akce asistenta",
+  "lawoss.shell_card.host_wide": "Příkaz běží přímo v tomto počítači. Toto jedno schválení pokrývá vše, co udělá: čtení a změny souborů, přístup na internet a ke složkám mimo tohoto klienta.",
   // lawoss_files (lawoss/lite/file-operation-card.ts): jedna karta na zmenu súborov.
   "lawoss.files.title_rename": "Přejmenovat?",
   "lawoss.files.title_move": "Přesunout?",
@@ -1039,6 +1041,7 @@ export const shellSk = {
   "lawoss.lite.conversation_untitled": "Chat bez názvu",
   "lawoss.lite.permission_command": "príkaz v počítači",
   "lawoss.lite.permission_other": "akcia asistenta",
+  "lawoss.shell_card.host_wide": "Príkaz beží priamo v tomto počítači. Toto jedno schválenie pokrýva všetko, čo urobí: čítanie a zmeny súborov, prístup na internet a k priečinkom mimo tohto klienta.",
   // lawoss_files (lawoss/lite/file-operation-card.ts): jedna karta na zmenu súborov.
   "lawoss.files.title_rename": "Premenovať?",
   "lawoss.files.title_move": "Presunúť?",
@@ -1430,6 +1433,7 @@ export const shellDe = {
   "lawoss.lite.conversation_untitled": "Gespräch ohne Titel",
   "lawoss.lite.permission_command": "Befehl auf diesem Computer",
   "lawoss.lite.permission_other": "Aktion des Assistenten",
+  "lawoss.shell_card.host_wide": "Der Befehl läuft direkt auf diesem Computer. Diese eine Freigabe umfasst alles, was er tut: Dateien lesen und ändern, Internetzugriff und Ordner außerhalb dieses Mandanten.",
   // lawoss_files (lawoss/lite/file-operation-card.ts): jedna karta na zmenu súborov.
   "lawoss.files.title_rename": "Umbenennen?",
   "lawoss.files.title_move": "Verschieben?",

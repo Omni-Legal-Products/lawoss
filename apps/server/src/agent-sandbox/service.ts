@@ -159,7 +159,7 @@ export class AgentSandboxService {
           { permission: "edit", pattern: "*", override: commandAction("edit") },
           { permission: "webfetch", pattern: "*", override: commandAction("webfetch") },
           { permission: "external_directory", pattern: "*", override: restrictive([wholeCommandAction({ external_directory: await yoloModeActive(this.config) ? yoloExternalDirectory(runtimeExternalDirectory(runtime)) : runtimeExternalDirectory(runtime) }, "external_directory"), wholeAgentAction(agentRules, "external_directory")]) },
-        ], `Run this command on this computer?\n\n${command.command}\n\nSandboxing is off, so this one approval covers everything the command does: reading and changing files, contacting websites and accessing folders outside the project.`, [workspace.path]);
+        ], `Run this command on this computer?\n\n${command.command}\n\nSandboxing is off, so this one approval covers everything the command does: reading and changing files, contacting websites and accessing folders outside the project.`, [workspace.path], { command: command.command, hostWide: true });
         if (command.skills?.length) {
           const skills = await listSkills(workspace.path, true);
           for (const name of command.skills) {
@@ -278,7 +278,7 @@ export class AgentSandboxService {
       permissions: Record<string, unknown>;
       signal: AbortSignal;
       ask: (permission: string, pattern: string, summary: string, paths: string[], override?: PermissionAction, reviewable?: boolean, network?: ApprovalRequest["network"]) => Promise<void>;
-      askOnce: (steps: PermissionStep[], summary: string, paths: string[]) => Promise<void>;
+      askOnce: (steps: PermissionStep[], summary: string, paths: string[], card?: Pick<ApprovalRequest, "command" | "hostWide">) => Promise<void>;
       authorizeNetwork: (request: OutboundRequest) => Promise<boolean>;
     }) => Promise<T>): Promise<T> {
     const controller = new AbortController();
@@ -312,10 +312,10 @@ export class AgentSandboxService {
         if (action === "deny") throw new ApiError(403, "sandbox_permission_denied", PERMISSION_RULE_MESSAGE(step.permission));
         return action;
       };
-      const confirm = async (permission: string, key: unknown, summary: string, paths: string[], network?: ApprovalRequest["network"]) => {
+      const confirm = async (permission: string, key: unknown, summary: string, paths: string[], network?: ApprovalRequest["network"], card: Pick<ApprovalRequest, "command" | "hostWide"> = {}) => {
         const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
           action: `sandbox.${permission}`, summary, paths, sessionID: operation.sessionID, description: operation.description,
-          ...(network ? { network } : {}) }, signal, true, operation.sessionID ? JSON.stringify([workspace.id, operation.sessionID, permission, key, paths, network, permissions, agentRules, settings.enabled, settings.networkMode]) : undefined);
+          ...(network ? { network } : {}), ...card }, signal, true, operation.sessionID ? JSON.stringify([workspace.id, operation.sessionID, permission, key, paths, network, permissions, agentRules, settings.enabled, settings.networkMode]) : undefined);
         // LAWOSS: a one-time decline is not a rule; the model may show a new card on a later explicit request.
         if (!result.allowed) throw new ApiError(403, "sandbox_permission_declined", PERMISSION_DECLINED_MESSAGE);
       };
@@ -328,10 +328,10 @@ export class AgentSandboxService {
         signal.throwIfAborted();
       };
       // LAWOSS: one card for one command. Every step is decided first; the first step that asks names the card.
-      const askOnce = async (steps: PermissionStep[], summary: string, paths: string[]) => {
+      const askOnce = async (steps: PermissionStep[], summary: string, paths: string[], card: Pick<ApprovalRequest, "command" | "hostWide"> = {}) => {
         signal.throwIfAborted();
         const asking = steps.filter((step) => decide(step) === "ask");
-        if (asking.length) await confirm(asking[0].permission, asking.map(({ permission, pattern }) => [permission, pattern]), summary, paths);
+        if (asking.length) await confirm(asking[0].permission, asking.map(({ permission, pattern }) => [permission, pattern]), summary, paths, undefined, card);
         signal.throwIfAborted();
       };
       const authorizeNetwork = async (request: OutboundRequest) => {

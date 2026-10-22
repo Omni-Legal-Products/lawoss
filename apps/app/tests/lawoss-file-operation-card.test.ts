@@ -53,4 +53,15 @@ describe("lawoss_files card", () => {
       permission: engineCard({ permission: "external_directory", patterns: ["/Klienti/C001/*"], always: ["/Klienti/C001/*"] }), respondPermission: () => {} }));
     expect(buttons(outside)).toEqual([t("session.deny"), t("session.allow_once")]);
   });
+
+  test("the one managed-shell card shows the command and what it covers outside Details", () => {
+    const permission = engineCard({ id: "host:req_1", permission: "bash", patterns: ["/Klienti/C001"], protocol: "host", metadata: { description: "Premenuj poznámky", summary: "Run this command on this computer?" },
+      host: { id: "req_1", workspaceId: "ws", sessionID: "ses_1", action: "sandbox.bash", summary: "Run this command on this computer?", description: "Premenuj poznámky",
+        paths: ["/Klienti/C001"], command: "mv poznamky.txt SYN-overenie.txt", hostWide: true, canRemember: true, createdAt: 1, actor: { type: "host" } } });
+    const main = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, { permission, respondPermission: () => {} })).split("<details")[0];
+    expect(main).toContain("mv poznamky.txt SYN-overenie.txt");
+    expect(main).toContain(t("lawoss.shell_card.host_wide"));
+    expect(t("lawoss.shell_card.host_wide", "sk")).toContain("Toto jedno schválenie pokrýva");
+    expect(buttons(main)).toEqual([t("session.deny"), t("session.allow_once"), t("session.allow_for_session")]);
+  });
 });

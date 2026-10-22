@@ -167,6 +167,8 @@ const WORKSPACE_TOOL_ROUTES: readonly ToolRule[] = [
   { methods: WRITE, route: /^(?:storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|skills|skills\/(?!hub\/)[^/]+\/resources)$/ },
   { methods: READ, route: /^sandbox\/session\/([^/]+)$/, ownSession: true },
   { methods: WRITE, route: /^sandbox\/(?:execute|web)$/ },
+  // LAWOSS: lawoss_files (lawoss/file-operations.ts); the change itself is bound to this chat below.
+  { methods: WRITE, route: /^lawoss\/files\/(?:plan|apply)$/ },
   { methods: ["GET", "POST"], route: /^wiki-suggestions$/ },
   { methods: ["GET", "PUT"], route: /^wiki-suggestions\/[^/]+$/ },
   { methods: WRITE, route: /^view-generations\/([^/]+)$/, ownSession: true },
@@ -292,7 +294,7 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
       throw new ApiError(403, "wiki_agent_session_mismatch", "Use this route only for this chat.");
     if (tool.workspaceId !== undefined && own?.id !== tool.workspaceId && !(tool.crossProject && allProjects))
       throw new ApiError(403, "wiki_agent_workspace_denied", "Use project tools only in this session's own workspace.");
-    if (/^\/workspace\/[^/]+\/sandbox\/(?:execute|web)$/.test(pathname)
+    if (/^\/workspace\/[^/]+\/(?:sandbox\/(?:execute|web)|lawoss\/files\/apply)$/.test(pathname)
       && z.object({ sessionID: z.string() }).parse(await request.clone().json()).sessionID !== sessionId)
       throw new ApiError(403, "wiki_agent_session_mismatch", "Use this session's execution settings and approvals.");
     // A scheduled run reaching every project is granted only by a person, never by an agent.

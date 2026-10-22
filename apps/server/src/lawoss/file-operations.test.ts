@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { closeRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
+import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
 import { applyFileOperations, planFileOperations, publicPlan } from "./file-operations.js";
 
 const roots: string[] = [];
@@ -116,20 +117,31 @@ test("another client's folder, the client folder itself and app configuration ar
   expect(await readFile(join(other, "tajne.txt"), "utf8")).toBe("SYN iny klient");
 });
 
-test("the engine route needs a collaborator and refuses writes on a read-only server", async () => {
+test("only the chat's own tool credential reaches the routes; the change is bound to that chat", async () => {
   const { config, client } = await office();
   const server = await startServer(config);
   stops.push(() => server.stop());
-  const post = (route: string, body: unknown) => fetch(`http://127.0.0.1:${server.port}/workspace/ws_c001/lawoss/files/${route}`, {
-    method: "POST", headers: { authorization: "Bearer owt_files_client", "content-type": "application/json" }, body: JSON.stringify(body) });
+  await grantWikiAgentSession(config, { sessionId: "ses_1", directory: client, scope: "collaborator" });
+  const agent = { "x-legalwork-wiki-agent-token": await ensureWikiAgentToken(config), "x-legalwork-wiki-agent-session": "ses_1",
+    "x-legalwork-wiki-agent-directory": encodeURIComponent(client) };
+  const post = (route: string, body: unknown, headers: Record<string, string>) => fetch(`http://127.0.0.1:${server.port}/workspace/ws_c001/lawoss/files/${route}`, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body) });
   const operations = [{ operation: "move", from: join(client, "poznamky.txt"), to: join(client, "x.txt") }];
-  const planned = await post("plan", { operations });
+  // A client token has its own file routes with their own approvals; it cannot skip a card here.
+  const bearer = await post("plan", { operations }, { authorization: "Bearer owt_files_client" });
+  expect(bearer.status).toBe(403);
+  expect(await bearer.json()).toMatchObject({ code: "file_operation_agent_only" });
+  const planned = await post("plan", { operations }, agent);
   expect(planned.status).toBe(200);
   const { operations: approved } = await planned.json();
-  expect((await post("plan", { operations: [] })).status).toBe(400);
+  expect((await post("plan", { operations: [] }, agent)).status).toBe(400);
+  // The apply names the chat that showed the card.
+  expect((await post("apply", { operations, approved, sessionID: "ses_other" }, agent)).status).toBe(403);
   config.readOnly = true;
-  expect((await post("apply", { operations, approved })).status).toBe(403);
+  expect((await post("apply", { operations, approved, sessionID: "ses_1" }, agent)).status).toBe(403);
   config.readOnly = false;
-  const applied = await post("apply", { operations, approved, sessionID: "ses_1" });
+  expect(await readFile(join(client, "poznamky.txt"), "utf8")).toBe("SYN poznamky");
+  const applied = await post("apply", { operations, approved, sessionID: "ses_1" }, agent);
   expect(await applied.json()).toMatchObject({ complete: true, results: [{ status: "done", to: "x.txt" }] });
+  expect(await readFile(join(client, "x.txt"), "utf8")).toBe("SYN poznamky");
 });

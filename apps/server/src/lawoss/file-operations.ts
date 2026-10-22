@@ -18,7 +18,7 @@ import { withFileEditorHandoff } from "../file-editor-handoff.js";
 import { readRuntimeOpencodeConfig, runtimeExternalDirectory } from "../runtime-opencode-config-store.js";
 import { authorizedFolders } from "../agent-sandbox/service.js";
 import { addRoute, type RequestContext, type Route } from "../routes/registry.js";
-import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
+import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { isSensitiveWorkspacePath, resolveWorkspaceFilePath } from "./filesystem-boundary.js";
 import { linkableFolders } from "./linked-folders.js";
 import { isPathWithin } from "./path-within.js";
@@ -181,6 +181,11 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
   });
 }
 
+/** The engine's chat credential (wiki/agent-access.ts) or the desktop host itself. */
+function engineAgent(actor: Actor | undefined): boolean {
+  return actor?.type === "host" || actor?.type === "remote" && actor.clientId?.startsWith("wiki-agent:") === true;
+}
+
 export function registerFileOperationRoutes(options: {
   routes: Route[]; config: ServerConfig;
   jsonResponse: (data: unknown, status?: number) => Response;
@@ -192,6 +197,8 @@ export function registerFileOperationRoutes(options: {
   const route = (suffix: string, action: (workspace: WorkspaceInfo, body: Record<string, unknown>) => Promise<unknown>) =>
     addRoute(routes, "POST", `/workspace/:id/lawoss/files/${suffix}`, "client", async (ctx) => {
       options.requireClientScope(ctx, "collaborator");
+      // The approval is the engine card the chat's tool showed; another client token has its own file routes.
+      if (!engineAgent(ctx.actor)) throw new ApiError(403, "file_operation_agent_only", "Only a chat's file tool, after the user's approval, can use this route.");
       const workspace = await options.resolveWorkspace(config, ctx.params.id);
       try { return jsonResponse(await action(workspace, await options.readJsonBodyLimited(ctx.request, 512 * 1024))); }
       catch (error) { if (error instanceof z.ZodError) throw new ApiError(400, "file_operation_input", `Send 1–${MAX_FILE_OPERATIONS} operations: move/copy {from, to}, create_folder/delete {path}.`); throw error; }
