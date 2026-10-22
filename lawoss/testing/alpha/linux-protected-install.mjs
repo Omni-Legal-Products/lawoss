@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, open, readdir, readlink, realpath, writeFile, mkdtemp, rm } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 
@@ -17,7 +17,7 @@ export function assertHostedLinuxContext({platform=process.platform,arch=process
 }
 export function linuxUsernsProfile(stage) {
   if(typeof stage!=='string' || stage.length!==47 || !/^\/opt\/lawoss-ci-[a-f0-9]{32}$/.test(stage))refuse();
-  const name=basename(stage),executable=join(stage,'app/legalwork');
+  const name=posix.basename(stage),executable=posix.join(stage,'app/legalwork');
   return {name,executable,text:`abi <abi/4.0>,\ninclude <tunables/global>\nprofile ${name} ${executable} flags=(unconfined) {\n  userns,\n}\n`};
 }
 async function protectedEntry(path,directory=false) {
