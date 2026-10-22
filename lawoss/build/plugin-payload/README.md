@@ -505,3 +505,18 @@ payload data and no adjacent SDK metadata files; unexpected CLI arguments did
 not initialize a workspace. This proves metadata closure for that fixture,
 not worker authentication, ASAR binding, G/E provisioning or engine launch.
 Changed verifier bytes require fresh final-source native compatibility evidence.
+
+### Exact inventory identities
+
+Inventory reads native device/inode/link count/size/mode as BigInt. Exact
+duplicate identities and real hardlinks still refuse at their original guards;
+accepted byte counts become JSON-safe Numbers only after the original bounds.
+The isolated two-file regression distinguishes IDs2^53 and2^53+1 without
+weakening duplicate detection. It models precision and does not measure the
+historical Windows IDs. Other ownership helpers are outside this correction.
+
+Capsule refusal fixtures guarantee that an owner inode field actually changes.
+The portable archive-path case observes a real second file's exact metadata
+after actual extraction, while retaining the source bytes, strict refusal and
+cleanup checks. A separate physical rename case runs on supported hosts; a
+Windows rename capability skip cannot pass the portable identity case.
