@@ -9,7 +9,7 @@ import { isDesktopRuntime } from "@/app/utils";
 import { resolveLegalworkConnection } from "./legalwork-connection";
 import { installMissingOnboardingSkills } from "@/lawoss/domains/onboarding/install-pack";
 import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork";
-import { homeRoute } from "./workspace-routes";
+import { onboardingLanding } from "@/lawoss/domains/onboarding/landing";
 import { writeActiveWorkspaceId } from "./session-memory";
 import { useLocal } from "../kernel/local-provider";
 import { LawossWelcomePage } from "@/lawoss/domains/onboarding/lawoss-welcome-page";
@@ -98,6 +98,7 @@ export function WelcomeRoute() {
     }
     local.setPrefs((previous) => ({ ...previous, documentAuthor: authorAfterOnboarding(previous.documentAuthor, status.profile?.lawyerName), hasCompletedOnboarding: true }));
     // 🟡 LAWOSS: „Začať nanovo“ pristane na Klienti a prípady (`completion.landing`, test 19. 10. 2026).
-    navigate(completion?.landing ?? (activeId ? homeRoute(activeId) : "/home"), { replace: true });
+    // 🟡 LAWOSS: bez výslovného cieľa prehľad klienta (`onboardingLanding`), nie všeobecný Domov (22. 10. 2026).
+    navigate(onboardingLanding(completion, activeId), { replace: true });
   }} />;
 }

@@ -84,11 +84,21 @@ describe("connecting an existing client folder", () => {
 
   test("a fresh office lands on Klienti a prípady without registering the office root (19. 10. 2026)", () => {
     const route = readFileSync(join(import.meta.dir, "../src/react-app/shell/welcome-route.tsx"), "utf8");
-    expect(route).toContain("navigate(completion?.landing ?? (activeId ? homeRoute(activeId) : \"/home\"), { replace: true });");
+    expect(route).toContain("navigate(onboardingLanding(completion, activeId), { replace: true });");
     const page = readFileSync(join(import.meta.dir, "../src/lawoss/domains/onboarding/lawoss-welcome-page.tsx"), "utf8");
     expect(page).toContain("onFreshDone={(result) => complete(result, FRESH_OFFICE_COMPLETION)}");
     // Zbalená voľba klienta sa otvorí len pri chybe priečinka klienta, nie pri inej chybe stránky.
     expect(page).toContain("chooserOpen={clientFolderError}");
+  });
+
+  test("landing after onboarding: explicit target first, else the client overview, never the generic Domov (22. 10. 2026)", async () => {
+    const { onboardingLanding } = await import("../src/lawoss/domains/onboarding/landing");
+    const { FRESH_OFFICE_COMPLETION } = await import("../src/lawoss/domains/onboarding/found-flow");
+    expect(onboardingLanding({ landing: "/workspace/ws_1/session/s_1" }, "ws_1")).toBe("/workspace/ws_1/session/s_1");
+    expect(onboardingLanding(FRESH_OFFICE_COMPLETION, undefined)).toBe("/klienti");
+    expect(onboardingLanding({ clients: [] }, "ws_18439f42b43c")).toBe("/workspace/ws_18439f42b43c/project");
+    expect(onboardingLanding(undefined, "ws_1")).toBe("/workspace/ws_1/project");
+    expect(onboardingLanding(undefined, undefined)).toBe("/home");
   });
 
   test("Klienti without any client folder yet (fresh office) offer Pridať klienta instead of opening a folder", () => {
