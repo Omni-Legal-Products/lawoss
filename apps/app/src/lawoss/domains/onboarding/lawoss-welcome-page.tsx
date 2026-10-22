@@ -39,7 +39,7 @@ import {
   writeOnboardingProgress,
 } from "./onboarding-state";
 import { OnboardingAiPanel } from "./ai-step";
-import { markOnboardingCompleted, openingStep, resumedFoundRoot } from "./resume";
+import { markOnboardingCompleted, openingStep, resumeFound } from "./resume";
 import { visibleExistingClientModes } from "../../feature-flags";
 import { clientTitleOf, resolveOpenClient, type OpenClientReader } from "../../okf/open-client";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -628,8 +628,13 @@ export function LawossWelcomePage({
         );
         setStep(opening);
         // Obnova po prerušení otvorí naposledy vybraný priečinok, nie znova výber (M1, 22. 10. 2026).
-        const resumed = resumedFoundRoot(opening, status.profile, initialRoot);
-        if (resumed) setFoundRoot(resumed);
+        const resumed = resumeFound(opening, status.profile, initialRoot, status.foundRootMissing);
+        if (resumed && "root" in resumed) setFoundRoot(resumed.root);
+        // Zmiznutý priečinok: krok Priečinok s krátkou vetou (zmaže ju ďalšia akcia) a uložený priečinok sa zabudne.
+        if (resumed && "missing" in resumed) {
+          setError(foundText(locale)("resumeFolderMissing", { name: folderName(resumed.missing) }));
+          void api.updateOnboardingProfile({ foundRoot: null }).then(setProfile, (reason: unknown) => console.warn("[lawoss] onboarding resume folder", reason));
+        }
       })
       .catch(() => {
         if (cancelled) return;

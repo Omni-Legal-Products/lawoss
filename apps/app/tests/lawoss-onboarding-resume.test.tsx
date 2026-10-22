@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import type { OnboardingProfile } from "../src/lawoss/domains/onboarding/api";
-import { markOnboardingCompleted, onboardingIncomplete, openingStep, resumedFoundRoot } from "../src/lawoss/domains/onboarding/resume";
+import { markOnboardingCompleted, onboardingIncomplete, openingStep, resumeFound } from "../src/lawoss/domains/onboarding/resume";
 import { OnboardingResumeCardView } from "../src/lawoss/domains/onboarding/resume-card";
 import { OkfPageState } from "../src/lawoss/domains/okf-page";
 import { OfficeProfileView } from "../src/lawoss/domains/settings/office-profile-view";
@@ -58,12 +58,22 @@ describe("návrat k nedokončenému nastaveniu praxe (#96)", () => {
     const profile: OnboardingProfile = { ...base, step: "found", foundRoot: "/x/3-neusporiadana-prax" };
     const step = openingStep(undefined, profile, "identity", false);
     expect(step).toBe("found");
-    expect(resumedFoundRoot(step, profile)).toBe("/x/3-neusporiadana-prax");
+    expect(resumeFound(step, profile)).toEqual({ root: "/x/3-neusporiadana-prax" });
     // `?root=` z adresy má prednosť; iný krok ani profil bez priečinka nič neobnoví.
-    expect(resumedFoundRoot(step, profile, "/iny")).toBeNull();
-    expect(resumedFoundRoot("folder", profile)).toBeNull();
-    expect(resumedFoundRoot("found", { ...base, step: "found" })).toBeNull();
-    expect(resumedFoundRoot("found", null)).toBeNull();
+    expect(resumeFound(step, profile, "/iny")).toBeNull();
+    expect(resumeFound("folder", profile)).toBeNull();
+    expect(resumeFound("found", { ...base, step: "found" })).toBeNull();
+    expect(resumeFound("found", null)).toBeNull();
+  });
+
+  test("zmiznutý priečinok obnovy vráti krok Priečinok s preloženou vetou (review A4, minor 4)", async () => {
+    const profile: OnboardingProfile = { ...base, step: "found", foundRoot: "/x/Presunutá prax" };
+    expect(resumeFound("found", profile, undefined, true)).toEqual({ missing: "/x/Presunutá prax" });
+    const { foundText } = await import("../src/lawoss/domains/onboarding/found-text");
+    expect(foundText("sk")("resumeFolderMissing", { name: "Presunutá prax" })).toBe("Priečinok „Presunutá prax“ z prerušeného nastavenia sa nenašiel (možno bol presunutý alebo premenovaný). Vyberte ho znova.");
+    for (const locale of ["cs", "en", "de"] as const) expect(foundText(locale)("resumeFolderMissing", { name: "Presunutá prax" })).toContain("Presunutá prax");
+    const page = (await import("node:fs")).readFileSync(new URL("../src/lawoss/domains/onboarding/lawoss-welcome-page.tsx", import.meta.url), "utf8");
+    expect(page).toContain("resumeFound(opening, status.profile, initialRoot, status.foundRootMissing)");
   });
 
   test("dokončenie zmaže priečinok obnovy aj pri už dokončenom profile", async () => {

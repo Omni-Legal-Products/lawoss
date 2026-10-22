@@ -288,7 +288,9 @@ test("vybraný priečinok kroku Toto som našiel sa uloží na obnovu, overí pr
   await mkdir(join(found, "C002 Hron"), { recursive: true }); await mkdir(gone);
   await f.success("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", step: "found", foundRoot: found });
   await f.restartFromDisk();
-  expect((await f.success("status")).profile).toMatchObject({ step: "found", foundRoot: found });
+  const restored = await f.success("status");
+  expect(restored.profile).toMatchObject({ step: "found", foundRoot: found });
+  expect(restored.foundRootMissing).toBeUndefined();
   // Bez kontroly úrovne: obyčajný priečinok (nie klient ani kancelária) sa uložiť dá; nič sa doň nezapíše.
   expect(await readdir(found)).toEqual(["C002 Hron"]);
   // Výslovný zápis chýbajúceho alebo relatívneho priečinka sa odmietne.
@@ -300,7 +302,9 @@ test("vybraný priečinok kroku Toto som našiel sa uloží na obnovu, overí pr
   await f.success("profile", { foundRoot: gone });
   await rm(gone, { recursive: true });
   await f.success("profile", { step: "folder" });
-  expect((await f.success("status")).profile).toMatchObject({ step: "folder", foundRoot: gone });
+  const status = await f.success("status");
+  expect(status.profile).toMatchObject({ step: "folder", foundRoot: gone });
+  expect(status.foundRootMissing).toBe(true);
   const cleared = await f.success("profile", { foundRoot: null });
   expect(cleared.foundRoot).toBeUndefined();
   expect((await f.success("status")).profile.foundRoot).toBeUndefined();

@@ -30,11 +30,13 @@ export function openingStep(
 }
 
 /**
- * Priečinok, ktorý obnova otvorí na obrazovke „Toto som našiel“ (M1, 22. 10. 2026): len pri obnovenom kroku
- * `found` bez priečinka z adresy (`?root=` má prednosť). Inak `null` a krok Priečinok ponúkne výber.
+ * Obnova kroku „Toto som našiel“ (M1, 22. 10. 2026): len pri obnovenom kroku `found` bez priečinka z adresy
+ * (`?root=` má prednosť). `root` otvorí obrazovku s uloženým priečinkom; `missing` (priečinok medzitým zmizol)
+ * nechá krok Priečinok s krátkou vetou; `null` znamená bežný výber priečinka.
  */
-export function resumedFoundRoot(step: OnboardingStep, profile: OnboardingProfile | null, initialRoot?: string): string | null {
-  return step === "found" && !initialRoot && profile?.foundRoot ? profile.foundRoot : null;
+export function resumeFound(step: OnboardingStep, profile: OnboardingProfile | null, initialRoot?: string, foundRootMissing = false): { root: string } | { missing: string } | null {
+  if (step !== "found" || initialRoot || !profile?.foundRoot) return null;
+  return foundRootMissing ? { missing: profile.foundRoot } : { root: profile.foundRoot };
 }
 
 /**

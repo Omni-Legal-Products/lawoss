@@ -44,6 +44,8 @@ export type OnboardingProfile = {
 export type OnboardingStatus = {
   profile: OnboardingProfile | null;
   capabilities: { map: boolean; trialClone: boolean };
+  /** Uložený `foundRoot` už neexistuje (presunutý, premenovaný); obnova ponúkne výber priečinka (M1). */
+  foundRootMissing?: boolean;
 };
 
 export type OfficePlanRequest = {

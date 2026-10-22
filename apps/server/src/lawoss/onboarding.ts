@@ -129,7 +129,12 @@ export function registerOnboardingRoutes(options: {
       throw new ApiError(400, "onboarding_failed", error instanceof Error ? error.message : "Onboarding failed.");
     }
   });
-  route("GET", "status", async () => ({ profile: await readProfile(), capabilities: { map: true, trialClone: true } }));
+  route("GET", "status", async () => {
+    const profile = await readProfile();
+    // Obnova po prerušení (M1): zmiznutý priečinok kroku „Toto som našiel“ appka ohlási a vráti výber priečinka.
+    const foundRootMissing = profile?.foundRoot ? await missingDirectory(profile.foundRoot) : false;
+    return { profile, capabilities: { map: true, trialClone: true }, ...(foundRootMissing ? { foundRootMissing: true } : {}) };
+  });
   // Prehľad praxe (N1, MČ 16. 10. 2026): pamäť kancelárie v koreni praxe číta len hostiteľ, agent ju má cez grant.
   route("GET", "office-memory", async ctx => {
     const expected = new URL(ctx.request.url).searchParams.get("expectedPracticeRoot");
