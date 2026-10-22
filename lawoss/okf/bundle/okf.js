@@ -926,7 +926,7 @@ async function findOfficeConfigs(root, limits = {}) {
   return { complete: true, offices: offices.sort() };
 }
 var OFFICE_CONFIG = /(?:^|\/)(?:Office|_kancelaria)\/okf\.config$/;
-var APP_FILE_DIRECTORIES = new Set([".opencode"]);
+var APP_FILE_DIRECTORIES = new Set([".opencode", ".lawoss-kos"]);
 var MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
 var VOLATILE_ENTRY = /^(?:~\$.*|~WRL\d+\.tmp|thumbs\.db|desktop\.ini)$/i;
 var LOCK_CODES = new Set(["EBUSY", "EPERM", "EACCES"]);

@@ -50,8 +50,12 @@ describe("lawoss_files card", () => {
     expect(t("lawoss.files.title_batch", { count: 2, lng: "sk" })).toBe("Vykonať 2 zmeny súborov?");
     expect(t("lawoss.files.title_batch", { count: 5, lng: "sk" })).toBe("Vykonať 5 zmien súborov?");
     expect(t("lawoss.files.title_batch", { count: 3, lng: "cs" })).toBe("Provést 3 změny souborů?");
-    expect(t("lawoss.files.line_trash_folder", { path: "X", count: 1, lng: "sk" })).toBe("Do Koša priečinok: X (vnútri 1 položka)");
-    expect(t("lawoss.files.line_trash_folder_large", { path: "X", limit: "1000", lng: "sk" })).toBe("Do Koša priečinok: X (vnútri 1000+ položiek)");
+    expect(t("lawoss.files.line_trash_folder", { path: "X", count: 1, lng: "sk" })).toBe("Do Koša priečinok: X s 1 položkou");
+    expect(t("lawoss.files.line_trash_folder", { path: "X", count: 3, lng: "sk" })).toBe("Do Koša priečinok: X s 3 položkami");
+    expect(t("lawoss.files.line_trash_folder", { path: "X", count: 5, lng: "sk" })).toBe("Do Koša priečinok: X s 5 položkami");
+    expect(t("lawoss.files.line_trash_folder", { path: "X", count: 1, lng: "cs" })).toBe("Do Koše složku: X s 1 položkou");
+    expect(t("lawoss.files.line_trash_folder", { path: "X", count: 4, lng: "cs" })).toBe("Do Koše složku: X s 4 položkami");
+    expect(t("lawoss.files.line_trash_folder_large", { path: "X", limit: "1000", lng: "sk" })).toBe("Do Koša priečinok: X s najmenej 1000 položkami");
     expect(t("lawoss.files.title_trash", "sk")).toBe("Presunúť do Koša?");
     // A move to another folder is not called a rename.
     expect(fileOperationCard({ lawossFiles: [{ operation: "move", kind: "file", from: "a.txt", to: "Archiv/a.txt" }] })?.title).toBe(t("lawoss.files.title_move"));

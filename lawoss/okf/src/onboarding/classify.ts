@@ -139,7 +139,8 @@ const OFFICE_CONFIG = /(?:^|\/)(?:Office|_kancelaria)\/okf\.config$/;
  * Mení ich engine, nie advokát, takže nepatria do identity klienta ani veci; bez tohto pravidla
  * nešlo pridať vec k už otvorenému klientovi (D1 2026-10-05).
  */
-const APP_FILE_DIRECTORIES = new Set([".opencode"]);
+// `.lawoss-kos`: Kôš klienta, kam nástroj `lawoss_files` presúva zmazané položky bez systémového Koša (alfa 2, A1).
+const APP_FILE_DIRECTORIES = new Set([".opencode", ".lawoss-kos"]);
 export const MEMORY_FILES: ReadonlySet<string> = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
 /**
  * Prchavé artefakty Windows a Office: vlastnícky súbor otvoreného dokumentu Wordu (`~$zmluva.docx`),
