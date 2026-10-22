@@ -9,7 +9,7 @@ import { normalizeDirectoryPath } from "@/app/utils";
 type ClientFolder = { path?: string | null; workspaceType?: string | null } | null | undefined;
 
 /** Comparable spelling: NFC, `/` separators, no trailing slash, platform case rules. */
-function comparable(path: string): string {
+export function comparable(path: string): string {
   return normalizeDirectoryPath(path.normalize("NFC"));
 }
 
@@ -31,4 +31,15 @@ export function effectiveSessionDirectory(workspace: ClientFolder, session?: { d
 /** The folder of one open chat, from its loaded snapshot (another chat's snapshot never counts); the client root until it loads. */
 export function chatDirectory(clientRoot: string, remote: boolean, sessionId: string, loaded?: { session: { id: string; directory?: string | null } } | null): string {
   return effectiveSessionDirectory({ path: clientRoot, workspaceType: remote ? "remote" : "local" }, loaded?.session.id === sessionId ? loaded.session : null);
+}
+
+/**
+ * The folder for sending to a chat directly through the engine: only that chat's own loaded
+ * snapshot decides; `null` while it is unknown (never another chat's folder, never the root
+ * fallback of a case chat). A remote worker always uses its root.
+ */
+export function chatSendDirectory(clientRoot: string, remote: boolean, sessionId: string, loaded?: { session: { id: string; directory?: string | null } } | null): string | null {
+  if (remote) return clientRoot.trim();
+  if (!sessionId || loaded?.session.id !== sessionId) return null;
+  return chatDirectory(clientRoot, false, sessionId, loaded);
 }

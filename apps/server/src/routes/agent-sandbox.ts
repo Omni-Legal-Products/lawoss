@@ -2,7 +2,8 @@ import { sandboxSyncStatus, saveSandboxDefault } from "../agent-sandbox/sync.js"
 import { webInputSchema } from "../agent-sandbox/web.js";
 import { hostShell } from "../agent-sandbox/host.js";
 import { z } from "zod";
-import { join, posix } from "node:path";
+import { posix } from "node:path";
+import { joinSessionFolder } from "../lawoss/session-ownership.js";
 import { ApiError } from "../errors.js";
 import type { ServerConfig, WorkspaceInfo, TokenScope } from "../types.js";
 import type { AgentSandboxService, AgentPermissionRule } from "../agent-sandbox/service.js";
@@ -55,7 +56,7 @@ export function registerAgentSandboxRoutes(options: {
     const { dependencies: _, ...settings } = await effectiveSandbox(config, workspace.id, lineage);
     const folder = await options.sessionFolder(workspace, ctx.params.sessionId);
     return jsonResponse({ ...settings, supported: config.agentSandboxEnabled === true, application: await applicationSandbox(config),
-      platform: settings.enabled ? "linux" : process.platform, shell: settings.enabled ? "Bash" : hostShell(), cwd: settings.enabled ? posix.join("/workspace", ...folder) : folder.length ? join(workspace.path, ...folder) : workspace.path });
+      platform: settings.enabled ? "linux" : process.platform, shell: settings.enabled ? "Bash" : hostShell(), cwd: settings.enabled ? posix.join("/workspace", ...folder) : joinSessionFolder(workspace, folder, workspace.path) });
   });
   addRoute(routes, "PATCH", "/workspace/:id/sandbox/session/:sessionId", "host-token", async (ctx) => {
     assertWritable();

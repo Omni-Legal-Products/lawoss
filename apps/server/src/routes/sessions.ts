@@ -1,7 +1,7 @@
 import { protectedRuntimeForSession } from "../lawoss/protected-ai/dispatch.js";
 import { requireGovernedEngineDispatch } from "../lawoss/ai-governance-engine.js";
 import { workspaceOwnsSession } from "../lawoss/workspace-history.js";
-import { sessionFolder, sessionOwnershipChecked, workspaceReadsSession } from "../lawoss/session-ownership.js";
+import { joinSessionFolder, sessionFolder, sessionOwnershipChecked, workspaceReadsSession } from "../lawoss/session-ownership.js";
 import type { SessionViewPreview } from "@legalwork/types/views";
 import { beginSessionDeletion, withSessionExecution } from "../session-execution-gate.js";
 import { REVIEW_RECOVERY_PROMPT } from "../reviews/recover-empty-review-response.js";
@@ -16,7 +16,7 @@ import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { historicalWorkspaceSessions } from "../lawoss/workspace-history-sessions.js";
 import { ApiError } from "../errors.js";
 import { canonicalFilePath } from "../file-write-lock.js";
-import { join, posix, win32 } from "node:path";
+import { posix, win32 } from "node:path";
 import { applySessionUsageLimits, deleteSessionUsageLimits, recordSessionUsageLimit } from "../session-usage-limits.js";
 import { applySessionProviderFailures, deleteSessionProviderFailures, providerFailureWitnessSchema, recordSessionProviderFailure } from "../session-provider-failures.js";
 import { authenticateWikiAgentRequest } from "../wiki/agent-access.js";
@@ -204,11 +204,11 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       }
       // Queued prompts bypass the public engine proxy. Refresh their authenticated
       // origin here too, including an existing chat resumed after server restart.
-      const root = workspace.directory?.trim() || workspace.path, folder = await sessionFolder(workspace, session);
+      const folder = await sessionFolder(workspace, session);
       if (!protectedRuntime) await grantWikiAgentSession(config, {
         sessionId: ctx.params.sessionId,
         // LAWOSS: the chat's own folder (a case subfolder), the directory its tools claim.
-        directory: folder.length ? join(root, ...folder) : root,
+        directory: joinSessionFolder(workspace, folder, workspace.directory?.trim() || workspace.path),
         scope: ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer",
     });
     return jsonResponse(await messageQueue.act(workspace.id, ctx.params.sessionId, parsed.data));

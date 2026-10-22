@@ -29,6 +29,7 @@ import { assertWikiWorkspaceAccess, ownsWikis, wikiAgentCanAccess, wikiForDirect
 import { buildWikiFilePolicy, wikiContentPath, wikiSafeSandboxMounts } from "../wiki/file-access-policy.js";
 // LAWOSS: do sandboxu len priečinky, ktoré pravidlá pripojených priečinkov dovolia (iný klient, prax, dáta aplikácie nie).
 import { linkableFolders } from "../lawoss/linked-folders.js";
+import { joinSessionFolder } from "../lawoss/session-ownership.js";
 
 // LAWOSS: `folder` (set by the server, never by the model) is the chat's folder below the workspace root; it defaults the working directory.
 export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; folder?: string[]; skills?: string[]; write: boolean; timeoutMs: number };
@@ -161,7 +162,7 @@ export class AgentSandboxService {
             await ask("skill", name, `Allow this command to use the installed skill ${name}?`, [skill.path]);
           }
         }
-        const cwd = command.workdir || (command.folder?.length ? join(workspace.path, ...command.folder) : workspace.path);
+        const cwd = command.workdir || joinSessionFolder(workspace, command.folder ?? [], workspace.path);
         if (!isAbsolute(cwd)) throw new ApiError(400, "command_directory", "Use an absolute folder path on this computer.");
         return { ...await withFileEditorHandoff(command, () => { signal.throwIfAborted(); return runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, signal }); }), sandbox: "host" };
       }

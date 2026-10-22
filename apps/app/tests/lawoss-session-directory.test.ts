@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { chatDirectory, effectiveSessionDirectory, isWithinClientFolder } from "../src/lawoss/shell/session-directory";
+import { chatDirectory, chatSendDirectory, effectiveSessionDirectory, isWithinClientFolder } from "../src/lawoss/shell/session-directory";
 import { sessionDirectoryWithinWorkspace, sessionsWithinWorkspace } from "../src/react-app/shell/use-workspace-route-state";
-import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
+import type { RouteSession, RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 
 const client: RouteWorkspace = { id: "klient-a", name: "Klient_A", displayNameResolved: "Klient_A", path: "/prax/Klient_A", preset: "starter", workspaceType: "local" };
 const matter = "/prax/Klient_A/Spisy/M001-Úhrada";
@@ -36,8 +36,9 @@ test("zhoda nezávisí od NFC/NFD, oddeľovačov a koncovej lomky; vyberie pravo
 test("zoznam a vybraný chat trasy používajú to isté pravidlo", () => {
   expect(sessionDirectoryWithinWorkspace(client, { directory: matter })).toBe(matter);
   expect(sessionDirectoryWithinWorkspace(client, { directory: "/prax/Klient-A" })).toBe("/prax/Klient_A");
-  expect(sessionsWithinWorkspace(client, [{ id: "a", directory: matter }, { id: "b", directory: "/prax/Klient_A2" }, { id: "c", directory: "/prax/Klient_A/x/../../Klient-A" }] as never))
-    .toMatchObject([{ id: "a" }]);
+  const session = (id: string, directory: string): RouteSession => ({ id, title: id, slug: id, projectID: "global", directory, version: "1", time: { created: 1, updated: 2 } });
+  const sessions: RouteSession[] = [session("a", matter), session("b", "/prax/Klient_A2"), session("c", "/prax/Klient_A/x/../../Klient-A")];
+  expect(sessionsWithinWorkspace(client, sessions).map((item) => item.id)).toEqual(["a"]);
 });
 
 test("karta chatu: priečinok z vlastného snapshotu, nikdy z cudzieho; koreň kým sa nenačíta", () => {
@@ -49,4 +50,17 @@ test("karta chatu: priečinok z vlastného snapshotu, nikdy z cudzieho; koreň k
   expect(chatDirectory("/prax/Klient_A", false, "ses_pripad", null)).toBe("/prax/Klient_A");
   expect(chatDirectory("/prax/Klient_A", false, "ses_cudzi", snapshot("ses_cudzi", "/prax/Klient-A/Spis"))).toBe("/prax/Klient_A");
   expect(chatDirectory("/prax/Klient_A", true, "ses_pripad", snapshot("ses_pripad", matter))).toBe("/prax/Klient_A");
+});
+
+test("priame odoslanie: len vlastný načítaný priečinok cieľového chatu, inak nič (nie priečinok vybraného chatu, nie koreň namiesto prípadu)", () => {
+  const snapshot = (id: string, directory: string) => ({ session: { id, directory } });
+  expect(chatSendDirectory("/prax/Klient_A", false, "ses_pripad", snapshot("ses_pripad", matter))).toBe(matter);
+  expect(chatSendDirectory("/prax/Klient_A", false, "ses_klient", snapshot("ses_klient", "/prax/Klient_A"))).toBe("/prax/Klient_A");
+  // Cieľová karta nie je vybraný chat: snapshot vybraného prípadu neplatí, ani koreň ako náhrada.
+  expect(chatSendDirectory("/prax/Klient_A", false, "ses_klient", snapshot("ses_pripad", matter))).toBeNull();
+  expect(chatSendDirectory("/prax/Klient_A", false, "ses_pripad", null)).toBeNull();
+  expect(chatSendDirectory("/prax/Klient_A", false, "", snapshot("", matter))).toBeNull();
+  // Priečinok mimo klienta nikdy: koreň klienta (server ho aj tak overí).
+  expect(chatSendDirectory("/prax/Klient_A", false, "ses_cudzi", snapshot("ses_cudzi", "/prax/Klient-A/Spis"))).toBe("/prax/Klient_A");
+  expect(chatSendDirectory("/remote/Klient_A", true, "ses_pripad", null)).toBe("/remote/Klient_A");
 });

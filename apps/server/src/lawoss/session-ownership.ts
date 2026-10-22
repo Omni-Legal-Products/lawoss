@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { relative, resolve, sep } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { isPathWithin } from "./path-within.js";
 import type { WorkspaceInfo } from "../types.js";
 import { workspaceListsSession } from "./session-list-scope.js";
@@ -35,7 +35,7 @@ export async function workspaceReadsSession(workspace: WorkspaceInfo, session: {
 export async function sessionFolder(workspace: WorkspaceInfo, session: { directory?: string | null }): Promise<string[]> {
   if (workspace.workspaceType !== "local" || !session.directory) return [];
   const directory = session.directory.normalize("NFC");
-  const root = withoutExtendedPrefix(workspace.directory?.trim() || workspace.path);
+  const root = sessionFolderRoot(workspace);
   for (const candidate of [root, await realpath(root).catch(() => root)].map((path) => path.normalize("NFC"))) {
     if (!isPathWithin(candidate, directory)) continue;
     // Matched in NFC; the segments keep the engine's own spelling (byte-exact file systems).
@@ -43,6 +43,16 @@ export async function sessionFolder(workspace: WorkspaceInfo, session: { directo
     return depth ? resolve(session.directory).split(sep).filter(Boolean).slice(-depth) : [];
   }
   return [];
+}
+
+/** LAWOSS: the one base a chat folder is computed against and joined to (front grant, sandbox). */
+export function sessionFolderRoot(workspace: WorkspaceInfo): string {
+  return withoutExtendedPrefix(workspace.directory?.trim() || workspace.path);
+}
+
+/** The absolute folder of a chat: `folder` joined to `sessionFolderRoot`; a root chat keeps `rootSpelling` as before. */
+export function joinSessionFolder(workspace: WorkspaceInfo, folder: readonly string[], rootSpelling: string): string {
+  return folder.length ? join(sessionFolderRoot(workspace), ...folder) : rootSpelling;
 }
 
 /** Electron can persist Windows folders as `\\?\C:\...`; the engine stores `C:\...`. */

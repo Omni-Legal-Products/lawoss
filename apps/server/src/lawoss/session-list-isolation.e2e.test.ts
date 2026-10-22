@@ -8,6 +8,7 @@ import type { ServerConfig } from "../types.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
 import { enforceAiBoundaries } from "./test-support/ai-boundaries.js";
 import { AI_BOUNDARIES_DENIAL_SOURCE } from "@legalwork/types/ai-governance";
+import { ensureWikiAgentToken } from "../wiki/agent-access.js";
 
 /**
  * Výpis rozhovorov cez proxy priečinka (`/workspace/:id/opencode/session`) nesmie ukázať
@@ -190,7 +191,7 @@ async function serve(folders: Office, engineUrl: string, extra: Record<string, s
     const listed = status === 200 ? z.array(sessionSchema).parse(body).map((session) => session.title).sort() : [];
     return { status, listed };
   };
-  return Object.assign(list, { get, sse, config });
+  return Object.assign(list, { get, sse, config, base: `http://127.0.0.1:${server.port}` });
 }
 
 const engines = [["engine na skúšku (výber 1.18.29)", undefined], ...(binary ? [["skutočný engine", binary] as const] : [])] as const;
@@ -360,7 +361,7 @@ for (const [name, bin] of engines) {
   test(`${name}: chat prípadu klienta A prijme a doručí správu cez front; chaty klienta B (aj prípadu) nie`, async () => {
     const folders = await office();
     const engine = bin ? await realEngine(bin, folders) : fakeEngine(folders);
-    const { get, config } = await serve(folders, engine.url);
+    const { get, config, base } = await serve(folders, engine.url);
     const id = engine.ids;
     const own = id["A koreň"]!, matter = id["A vec"]!, foreign = id["B tajné"]!, foreignMatter = id["B spis tajný"]!;
     const queue = (session: string, body?: unknown) => get(`/workspace/klient-a/sessions/${session}/queue`, body ? { method: "POST", body: JSON.stringify(body) } : {});
@@ -397,6 +398,20 @@ for (const [name, bin] of engines) {
       for (let attempt = 0; attempt < 200 && !state.parse((await queue(matter)).body).completedIds.includes(first.id); attempt++) await Bun.sleep(10);
       expect(state.parse((await queue(matter)).body)).toMatchObject({ entries: [], completedIds: [first.id] });
       expect(engine.prompts.map((prompt) => prompt.session)).toEqual([matter]);
+      // Doručenie ide cez klienta workspace (hlavička = koreň klienta); engine spustí chat v jeho priečinku.
+      expect(engine.prompts.map((prompt) => prompt.header)).toEqual([folders.clientA]);
+      // Overený pôvod chatu prípadu (grant z frontu) je priečinok prípadu: nástroj s priečinkom prípadu prejde,
+      // s koreňom klienta nie. Bez toho by každý LAWOSS nástroj v chate prípadu padol (wiki_agent_directory_mismatch).
+      const token = await ensureWikiAgentToken(config);
+      // Ako plugin v engine: bez tokenu servera, len s overeným pôvodom chatu.
+      const tool = async (directory: string) => {
+        const response = await fetch(`${base}/workspaces`, { headers: { "x-legalwork-wiki-agent-token": token, "x-legalwork-wiki-agent-session": matter, "x-legalwork-wiki-agent-directory": encodeURIComponent(directory) } });
+        return { status: response.status, body: await response.json().catch(() => null) };
+      };
+      const granted = await tool(folders.matterA);
+      expect(granted.status).toBe(200);
+      expect(z.object({ items: z.array(z.object({ id: z.string() }).passthrough()) }).passthrough().parse(granted.body).items.map((item) => item.id)).toEqual(["klient-a"]);
+      expect(await tool(folders.clientA)).toMatchObject({ status: 403, body: { code: "wiki_agent_directory_mismatch" } });
       // Chat klienta doručuje ďalej.
       const second = enqueue("Správa v chate klienta");
       expect((await queue(own, second)).status).toBe(200);

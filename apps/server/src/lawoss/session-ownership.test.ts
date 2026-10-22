@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WorkspaceInfo } from "../types.js";
-import { sessionFolder } from "./session-ownership.js";
+import { joinSessionFolder, sessionFolder, sessionFolderRoot } from "./session-ownership.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
 
 const roots: string[] = [];
@@ -29,4 +29,17 @@ test("priečinok chatu pod koreňom klienta: prípad, koreň, súrodenec, odkaz,
   expect(await sessionFolder(local(client), { directory: join(client, "..", "Klient-A") })).toEqual([]);
   expect(await sessionFolder(local(client), { directory: null })).toEqual([]);
   expect(await sessionFolder({ ...local(client), workspaceType: "remote" }, { directory: matter })).toEqual([]);
+});
+
+test("jeden základ pre priečinok chatu: počíta sa aj pripája k `directory || path`; koreňový chat ponechá doterajší zápis", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "lawoss-session-folder-root-")));
+  roots.push(base);
+  const configured = join(base, "nakonfigurovany"), legacy = join(base, "povodny"), matter = join(configured, "Spisy", "M002");
+  for (const folder of [matter, legacy]) await mkdir(folder, { recursive: true });
+  const workspace: WorkspaceInfo = { id: "a", name: "A", path: legacy, directory: configured, preset: "starter", workspaceType: "local" };
+  const folder = await sessionFolder(workspace, { directory: matter });
+  expect(folder).toEqual(["Spisy", "M002"]);
+  expect(sessionFolderRoot(workspace)).toBe(configured);
+  expect(joinSessionFolder(workspace, folder, legacy)).toBe(matter);
+  expect(joinSessionFolder(workspace, [], legacy)).toBe(legacy);
 });
