@@ -340,3 +340,52 @@ test("a settled close rejection remains a failed drain observation", async (t) =
   await assert.rejects(stableRead(file, 64, { scope }));
   assert.equal(await scope.drain(), "failed");
 });
+
+
+import { fileURLToPath } from "node:url";
+import { pinnedInputs } from "./native-merged-projection-files.mjs";
+// Model only the same BigInt nlink on before/fd/after observations of real
+// pinned source bytes. No hardlinks to repository or user files are created.
+async function withSourceLinkObservation(file, operation) {
+  const originalOpen = Object.getOwnPropertyDescriptor(mutableFS, "open");
+  const originalLstat = Object.getOwnPropertyDescriptor(mutableFS, "lstat");
+  const linked = stat => new Proxy(stat, {
+    get(target, key) { return key === "nlink" ? 2n : Reflect.get(target, key); },
+  });
+  try {
+    Object.defineProperty(mutableFS, "lstat", { ...originalLstat, value: async (...args) => {
+      const stat = await originalLstat.value(...args);
+      return args[0] === file ? linked(stat) : stat;
+    } });
+    Object.defineProperty(mutableFS, "open", { ...originalOpen, value: async (...args) => {
+      const handle = await originalOpen.value(...args);
+      if (args[0] === file) {
+        const stat = handle.stat.bind(handle);
+        handle.stat = async (...options) => linked(await stat(...options));
+      }
+      return handle;
+    } });
+    syncBuiltinESMExports();
+    return await operation();
+  } finally {
+    Object.defineProperty(mutableFS, "open", originalOpen);
+    Object.defineProperty(mutableFS, "lstat", originalLstat);
+    syncBuiltinESMExports();
+    assert.deepEqual(Object.getOwnPropertyDescriptor(mutableFS, "open"), originalOpen);
+    assert.deepEqual(Object.getOwnPropertyDescriptor(mutableFS, "lstat"), originalLstat);
+  }
+}
+test("pinned runtime lock admits stable source nlink2 while SDK/build inputs remain single-link", async () => {
+  assert.equal((await pinnedInputs()).records.length, 32);
+  const runtimeLock = fileURLToPath(new URL("./runtime-tools/pnpm-lock.yaml", import.meta.url));
+  await withSourceLinkObservation(runtimeLock, async () => {
+    assert.equal((await pinnedInputs()).records.length, 32);
+  });
+  for (const relative of ["../build/plugin-payload/sdk/package-lock.json", "../build/plugin-payload/tools/pnpm-lock.yaml"]) {
+    const strictInput = fileURLToPath(new URL(relative, import.meta.url));
+    await withSourceLinkObservation(strictInput, async () => {
+      await assert.rejects(pinnedInputs(), { code: "WORKSPACE_INVALID" });
+    });
+  }
+  assert.equal((await pinnedInputs()).records.length, 32);
+});

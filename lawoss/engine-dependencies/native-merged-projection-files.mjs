@@ -327,7 +327,9 @@ export async function pinnedInputs({ scope } = {}) {
   const definitions = [["sdkInputSha256", "lawoss/build/plugin-payload/sdk/package.json"], ["sdkLockSha256", "lawoss/build/plugin-payload/sdk/package-lock.json"], ["toolsLockSha256", "lawoss/build/plugin-payload/tools/pnpm-lock.yaml"], ["runtimeLockSha256", "lawoss/engine-dependencies/runtime-tools/pnpm-lock.yaml"], ["publicManifestSha256", "lawoss/build/plugin-payload/sdk/public-package-manifests.json"]];
   const buffers = {};
   for (const [key, relative] of definitions) {
-    const read = await stableRead(path.join(base, relative), LIMITS.sourceFile, { scope });
+    const read = await stableRead(path.join(base, relative), LIMITS.sourceFile, {
+      scope, singleLink: relative !== "lawoss/engine-dependencies/runtime-tools/pnpm-lock.yaml",
+    });
     need(read.sha256 === INPUTS[key], "INPUT_DRIFT");
     buffers[key] = read.data;
   }

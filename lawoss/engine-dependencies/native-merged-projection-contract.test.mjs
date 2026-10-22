@@ -12,7 +12,7 @@ test("canonical domains sort keys, preserve array order, and include exactly one
 `);
   assert.equal(inventoryDigest([{ path: "a", bytes: 1, sha256: "a".repeat(64) }]), hash(Buffer.from('[{"bytes":1,"path":"a","sha256":"' + "a".repeat(64) + `"}]
 `)));
-  for (const v of [NaN, 1 / 0, 2 ** 53, undefined, new Date])
+  for (const v of [NaN, 1 / 0, undefined, new Date])
     assert.throws(() => canonicalRecordBytes(v));
 });
 test("identities retain unsigned decimal BigInts beyond the safe Number boundary", () => {
@@ -41,7 +41,7 @@ test("request binds unchanged acquisition canonical digest and exact closed keys
   const raw = acquisition();
   const row = { schema: 1, policy: "accepted-version-fixture-v1", nonce: "12345678-1234-4234-8234-123456789abc", deadline: Date.now() + 1000, rawAcquisition: raw, rawAcquisitionSha256: hash(canonicalRecordBytes(raw)), sourceInventorySha256: "a".repeat(64) };
   assert.equal(validateProjectionRequest(row), row);
-  for (const bad of [{ ...row, extra: true }, { ...row, rawAcquisitionSha256: hash(Buffer.from(JSON.stringify(raw))) }, { ...row, nonce: row.nonce.toUpperCase() }])
+  for (const bad of [{ ...row, extra: true }, { ...row, rawAcquisitionSha256: hash(Buffer.from(JSON.stringify(raw))) }, { ...row, nonce: row.nonce.toUpperCase() }, { ...row, deadline: 2 ** 53 }])
     assert.throws(() => validateProjectionRequest(bad));
 });
 test("failure projection cannot leak exception getters or arbitrary public payload", () => {
@@ -71,7 +71,7 @@ test("closed manifest rejects duplicate/missing rows, wrong totals/pins, unknown
   }, (v) => {
     v.sourceInventory.pop();
     v.sourcesSha256 = hash(canonicalRecordBytes(v.sourceInventory));
-  }, (v) => v.rawInventory.push({ path: "manifest.json", bytes: 1, sha256: "a".repeat(64) }), (v) => v.childClosed = true, (v) => v.runtime.semver = "7.8.4", (v) => v.workspaceIdentity.ino = "-1"];
+  }, (v) => v.rawInventory.push({ path: "manifest.json", bytes: 1, sha256: "a".repeat(64) }), (v) => v.childClosed = true, (v) => v.runtime.semver = "7.8.4", (v) => v.counts.projectedMetadataBytes = 2 ** 53, (v) => v.workspaceIdentity.ino = "-1"];
   for (const mutate of mutations) {
     const bad = structuredClone(row);
     mutate(bad);
@@ -81,12 +81,13 @@ test("closed manifest rejects duplicate/missing rows, wrong totals/pins, unknown
 test("success record rejects unknown close claims, bad byte caps and arbitrary public fields", () => {
   const row = { schema: 1, phase: "projection", status: "complete", kind: "derived-accepted-version-fixture", policy: "accepted-version-fixture-v1", nonce: "12345678-1234-4234-8234-123456789abc", requestSha256: "a".repeat(64), rawAcquisitionSha256: "a".repeat(64), sourceInventorySha256: "a".repeat(64), manifestSha256: "a".repeat(64), rawCacheSha256: "a".repeat(64), derivedCacheSha256: "a".repeat(64), node: "v22.23.2", platform: process.platform, ...COUNTS, archiveBytes: 32, rawMetadataBytes: 64, projectedMetadataBytes: 64 };
   assert.equal(validateProjectionReceipt(row), row);
-  for (const v of [{ ...row, childClosed: true }, { ...row, url: "private" }, { ...row, archives: 31 }, { ...row, archiveBytes: 256 * 1024 * 1024 + 1 }, { ...row, nonce: null }])
+  for (const v of [{ ...row, childClosed: true }, { ...row, url: "private" }, { ...row, archives: 31 }, { ...row, archiveBytes: 256 * 1024 * 1024 + 1 }, { ...row, nonce: null }, { ...row, names: 2 ** 53 }, { ...row, archiveBytes: 2 ** 53 }])
     assert.throws(() => validateProjectionReceipt(v));
 });
 test("fixed inventories enforce path ordering, storage crosscaps and source single-file bounds", () => {
   for (const rows of [[{ path: "../a", bytes: 1, sha256: "a".repeat(64) }], [{ path: "tmp/file", bytes: 1, sha256: "a".repeat(64) }], [{ path: "index-v5/aa/bb/" + "c".repeat(60), bytes: 262145, sha256: "a".repeat(64) }], Array.from({ length: 7 }, (_, i) => ({ path: "content-v2/sha512/aa/bb/" + String(i).padStart(124, "0"), bytes: 64 * 1024 * 1024, sha256: "a".repeat(64) }))])
     assert.throws(() => validateInventory(rows));
+  assert.throws(() => validateInventory([{ path: "source", bytes: 2 ** 53, sha256: "a".repeat(64) }], { source: true }));
   assert.throws(() => validateInventory([{ path: "source", bytes: 2 * 1024 * 1024 + 1, sha256: "a".repeat(64) }], { source: true }));
 });
 test("canonical retained values preserve finite fractional JSON fields and publicCode refuses hostile descriptors", () => {
@@ -109,5 +110,34 @@ test("crosslinks reject forged nonce/root, raw totals and canonical request/mani
     const bad = structuredClone(bundle);
     mutate(bad);
     assert.throws(() => validateProjectionLinks(bad));
+  }
+});
+
+import { projectAcceptedMetadata } from "./native-merged-cache-projection.mjs";
+import { sha256 } from "./native-merged-projection-contract.mjs";
+test("Task16 finite opaque values reach the worker retained-value hashing domain unchanged", () => {
+  const record = records[0];
+  const approved = {
+    name: record.name, version: record.version,
+    dist: { tarball: record.resolved, integrity: record.integrity },
+    opaqueMetric: 1e20, opaqueFraction: 1.25,
+  };
+  const raw = { name: record.name, versions: { [record.version]: approved } };
+  const projected = projectAcceptedMetadata(raw, record);
+  assert.deepEqual(projected.versions[record.version], approved);
+  assert.equal(projected.versions[record.version].opaqueMetric, 1e20);
+  // Same expression used by the production worker; expected bytes are ordered
+  // independently and retain the original finite JSON values, with one LF.
+  const actual = sha256(canonicalRecordBytes(projected.versions[record.version]));
+  const expected = Buffer.from(JSON.stringify({
+    dist: { integrity: record.integrity, tarball: record.resolved },
+    name: record.name, opaqueFraction: 1.25, opaqueMetric: 1e20, version: record.version,
+  }) + "\n");
+  assert.equal(actual, createHash("sha256").update(expected).digest("hex"));
+  for (const value of [NaN, Infinity, -Infinity]) {
+    assert.throws(() => projectAcceptedMetadata({ name: record.name, versions: {
+      [record.version]: { ...approved, opaqueMetric: value },
+    } }, record), { code: "INPUT_DRIFT" });
+    assert.throws(() => canonicalRecordBytes({ opaqueMetric: value }), { code: "RECEIPT_INVALID" });
   }
 });

@@ -53,7 +53,8 @@ export function canonicalRecordBytes(value) {
     if (v === null || typeof v === "string" || typeof v === "boolean")
       return v;
     if (typeof v === "number") {
-      need(Number.isFinite(v) && Math.abs(v) <= Number.MAX_SAFE_INTEGER);
+      // Opaque metadata admits all finite Numbers; control schemas bound integers.
+      need(Number.isFinite(v));
       return v;
     }
     need(object(v) || Array.isArray(v));
