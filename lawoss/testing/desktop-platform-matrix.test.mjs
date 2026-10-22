@@ -72,7 +72,7 @@ function assertFinalStartup(job, source = nsisSource) {
   assert.ok(job.steps.indexOf(mac) > job.steps.indexOf(zip));
   const linux = required('Verify final Linux AppImage native startup', "runner.os == 'Linux'");
   assert.equal(linux['timeout-minutes'], 10, 'Outer batch must fit the existing archive operation budgets');
-  assert.equal(linux.run, 'xvfb-run -a node lawoss/testing/alpha/probe-startup-ci.mjs --output-dir "$RUNNER_TEMP/alpha-startup-${{ matrix.arch }}"');
+  assert.equal(linux.run, 'xvfb-run -a node lawoss/testing/alpha/probe-linux-protected-startup-ci.mjs --output-dir "$RUNNER_TEMP/alpha-startup-${{ matrix.arch }}"');
   const prerequisites = required('Install native Linux startup capture tools', "runner.os == 'Linux'");
   assert.match(prerequisites.run, /command -v xwd/);
   assert.match(prerequisites.run, /command -v xprop/);
@@ -164,6 +164,10 @@ test('final-artifact mutation regressions reject missing, disabled and suppresse
   const missingOptIn = structuredClone(smoke);
   missingOptIn.steps.find(candidate => candidate.name === 'Verify actual Windows NSIS installation and final bytes').run = missingOptIn.steps.find(candidate => candidate.name === 'Verify actual Windows NSIS installation and final bytes').run.replace(' -NativeStartup', '');
   assert.throws(() => assertFinalStartup(missingOptIn));
+  const writableLinuxExtraction = structuredClone(smoke);
+  const linux = writableLinuxExtraction.steps.find(candidate => candidate.name === 'Verify final Linux AppImage native startup');
+  linux.run = linux.run.replace('probe-linux-protected-startup-ci.mjs', 'probe-startup-ci.mjs');
+  assert.throws(() => assertFinalStartup(writableLinuxExtraction), undefined, 'Hosted Linux must use the protected installation route');
 });
 
 test('publication mutation regressions reject archives, private profiles and broad startup globs', () => {

@@ -61,6 +61,7 @@ test('startup publishes exactly finite receipt and native image after startup-on
   assert.equal(result.cleanup,'verified'); assert.equal(result.nativeReview,'pending');
   assert.equal(JSON.stringify(result).includes('nativeLaunch'),false);
   assert.equal(JSON.stringify(result).includes('nativeReadiness'),false);
+  assert.equal(JSON.stringify(result).includes('mainLog'),false);
   assert.equal(result.fullAcceptance.status,'blocked'); assert.deepEqual(result.fullAcceptance.unperformed,ALPHA_SCENARIOS.slice(1));
   const publicText=await readFile(join(f.options.outputDir,'startup.json'),'utf8');
   for(const privateValue of [f.root,'ownerPid','profileRoot','rendererUrl','reasons','token'])assert.equal(publicText.includes(privateValue),false);
@@ -99,7 +100,7 @@ test('actual owned POSIX child alive without discovery preserves finite readines
 },async t=>{
   const f=await fixture(t);
   const executable=process.platform==='darwin'?join(f.root,'LAWOSS.app/Contents/MacOS/LAWOSS'):join(f.root,'legalwork');
-  await writeFile(executable,`#!${process.execPath}\nimport {writeFileSync} from 'node:fs';import {join} from 'node:path';writeFileSync(join(process.env.LEGALWORK_ELECTRON_USERDATA,'fixture-alive'),'PRIVATE-LIVE');setInterval(()=>{},1000);\n`);
+  await writeFile(executable,`#!${process.execPath}\nimport {mkdirSync,writeFileSync} from 'node:fs';import {join} from 'node:path';const root=process.env.LEGALWORK_ELECTRON_USERDATA;writeFileSync(join(root,'fixture-alive'),'PRIVATE-LIVE');mkdirSync(join(root,'logs'));writeFileSync(join(root,'logs/main.log'),'[2026-10-22T00:00:00.000Z] ERROR [main] Unhandled rejection: PRIVATE-TOKEN /private/client pid=778899\\n');setInterval(()=>{},1000);\n`);
   await chmod(executable,0o700);
   let nativeError,ownedProfileRoot;
   f.adapters.launch=async options=>{
@@ -119,6 +120,9 @@ test('actual owned POSIX child alive without discovery preserves finite readines
   assert.equal(readiness.attemptsCapped,false);
   assert.equal(readiness.progress,'none');assert.equal(readiness.lastBoundary,'discovery');assert.equal(readiness.lastError,'ENOENT');
   assert.ok(Object.isFrozen(readiness));
+  assert.ok(result.diagnostic.mainLog,'Verified native closure must retain a bounded private main-log observation');
+  assert.ok(JSON.stringify(result.diagnostic.mainLog).includes('main-unhandled-rejection'));
+  assert.ok(Object.isFrozen(result.diagnostic.mainLog));
   assert.doesNotMatch(JSON.stringify(result),/PRIVATE|fixture-alive|private\/profile|"pid"|token|rendererUrl|baseUrl/);
   assert.deepEqual(await readdir(f.options.outputDir),[]);
 });
@@ -133,7 +137,9 @@ test('wrong welcome route refuses before native capture',async t=>{
   assert.equal(f.state.captures,0);assert.deepEqual(await readdir(f.options.outputDir),[]);
 });
 test('unverified cleanup retains the owned extraction and profile lease and publishes nothing',async t=>{
-  const f=await fixture(t,{stopFails:true});await assert.rejects(runNativeStartupProbe(f.options,f.adapters));
+  const f=await fixture(t,{stopFails:true});let caught;
+  await assert.rejects(runNativeStartupProbe(f.options,f.adapters),error=>{caught=error;return true;});
+  assert.equal('mainLog' in startupProbe.startupFailureProjection(caught).diagnostic,false);
   assert.equal(f.state.retained,true);await access(join(f.state.profileRoot,'.acceptance-running.lock'));
   assert.deepEqual(await readdir(f.options.outputDir),[]);
 });

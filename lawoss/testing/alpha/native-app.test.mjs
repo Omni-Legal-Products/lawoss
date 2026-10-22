@@ -6,7 +6,7 @@ import { tmpdir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { launchAlphaApp, nativeAppLayout, nativeAppEnvironment } from './native-app.mjs';
+import { assertInteractiveUi, launchAlphaApp, nativeAppLayout, nativeAppEnvironment } from './native-app.mjs';
 import { prepareAcceptanceProfile } from '../../../apps/desktop/scripts/release-acceptance.mjs';
 import { nativeLaunchDiagnostic } from './native-launch-diagnostics.mjs';
 import { nativeReadinessDiagnostic } from './native-readiness-diagnostics.mjs';
@@ -273,9 +273,12 @@ for (const [name, readiness] of [
   ['document still loading', { documentReadyState: 'loading', bootOverlayVisible: false, interactiveControls: 1 }],
   ['no interactive control', { documentReadyState: 'complete', bootOverlayVisible: false, interactiveControls: 0 }],
   ['legacy missing UI readiness', null],
-]) test(`shipping IPC without usable UI cannot pass startup: ${name}`, { skip: process.platform === 'win32' }, async t => {
-  const options = await fixture(t, { readiness });
-  await assert.rejects(launchAlphaApp({ ...options, build, timeoutMs: 400 }).then(options.own), /native-readiness-timeout/);
+]) test(`UI readiness validator refuses ${name}`, () => {
+  assert.throws(() => assertInteractiveUi({ readiness }), { code: 'native-ui-not-ready' });
+});
+
+test('UI readiness validator accepts a completed document with no overlay and an interactive control', () => {
+  assert.doesNotThrow(() => assertInteractiveUi({ readiness: { documentReadyState: 'complete', bootOverlayVisible: false, interactiveControls: 1 } }));
 });
 
 

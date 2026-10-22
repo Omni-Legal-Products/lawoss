@@ -15,6 +15,7 @@ import { assertInteractiveUi, launchAlphaApp, nativeAppLayout } from './native-a
 import { runAlphaAcceptance } from './run.mjs';
 import { nativeLaunchDiagnostic } from './native-launch-diagnostics.mjs';
 import { nativeReadinessDiagnostic } from './native-readiness-diagnostics.mjs';
+import { createMainStartupLogDiagnostic } from './main-startup-log.mjs';
 
 const fail = () => { throw new Error('native-startup-unverified'); };
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -42,7 +43,7 @@ function errorCode(error) {
   try {const code=knownCode(error?.code);return code!=='unknown'?code:knownCode(error?.message);}catch{return 'unknown';}
 }
 function startupDiagnostic() {
-  let phase='preflight',firstFailure,receiptCode='unknown',cleanup='not-observed';
+  let phase='preflight',firstFailure,receiptCode='unknown',cleanup='not-observed',mainLogReader;
   const record=error=>{
     if(firstFailure)return;
     const code=errorCode(error),native=nativeLaunchDiagnostic(error),readiness=nativeReadinessDiagnostic(error);
@@ -63,10 +64,15 @@ function startupDiagnostic() {
       if(Array.isArray(receipt?.reasons))receiptCode=receipt.reasons.map(knownCode).find(code=>code!=='unknown')??'unknown';
     },
     complete(){cleanup='verified';},
-    remember(error){
+    mainLog(reader){mainLogReader=reader;},
+    async remember(error){
       record(error);
+      // Read private logs only after the original launch failed and native closure
+      // was verified. This cannot extend or retry the native readiness operation.
+      const mainLog=firstFailure?.phase==='launch' && cleanup==='native-verified' && mainLogReader
+        ? await mainLogReader.read() : undefined;
       if(error!==null && (typeof error==='object' || typeof error==='function'))
-        failureDiagnostics.set(error,Object.freeze({...firstFailure,cleanup}));
+        failureDiagnostics.set(error,Object.freeze({...firstFailure,cleanup,...(mainLog?{mainLog}:{})}));
     },
   };
 }
@@ -112,7 +118,7 @@ export function startupAssetName(platform,arch,version) {
 export async function runNativeStartupProbe(options,adapters={}) {
   const diagnostic=startupDiagnostic();
   try{return await nativeStartupProbe(options,adapters,diagnostic);}
-  catch(error){diagnostic.remember(error);throw error;}
+  catch(error){await diagnostic.remember(error);throw error;}
 }
 async function nativeStartupProbe(options,adapters,diagnostic) {
   const {asset,expectedSha256,installedApp}=options;
@@ -129,6 +135,7 @@ async function nativeStartupProbe(options,adapters,diagnostic) {
   const profileRoot=join(privateRoot,'profile'),receiptFile=join(privateRoot,'fresh-receipt.json');
   await prepareAcceptanceProfile({root:profileRoot,kind:'fresh'});
   const profile=await ownedProfile(profileRoot,'fresh');
+  diagnostic.mainLog(await createMainStartupLogDiagnostic(profile));
   const withArtifact=adapters.withArtifact ?? (process.platform==='win32'
     ? async (artifact,use)=>{if(!installedApp)fail();const installation=await verifyAlphaInstallation({...artifact,installedApp});return use({installedApp,installation,retain:()=>{}});}
     : withExtractedAlphaArtifact);
@@ -205,7 +212,7 @@ async function nativeStartupProbe(options,adapters,diagnostic) {
 export async function ciStartupOptions(args,{environment=process.env,repoRoot=fileURLToPath(new URL('../../../',import.meta.url))}={}) {
   const diagnostic=startupDiagnostic();
   try{return await startupOptions(args,{environment,repoRoot},diagnostic);}
-  catch(error){diagnostic.remember(error);throw error;}
+  catch(error){await diagnostic.remember(error);throw error;}
 }
 async function startupOptions(args,{environment,repoRoot},diagnostic) {
   if(environment.GITHUB_ACTIONS!=='true' || environment.RUNNER_ENVIRONMENT!=='github-hosted' || !isAbsolute(environment.RUNNER_TEMP??''))fail();

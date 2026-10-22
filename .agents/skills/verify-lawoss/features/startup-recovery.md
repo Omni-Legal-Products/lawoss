@@ -26,4 +26,8 @@ Startup is not all-feature acceptance. Keep failing cleanup leases. Windows desc
 
 For Linux AppImage, verify the final AppRun and desktop-entry arguments as well as the direct installed binary. The pinned builder regression covers actual generated launcher policy and preserves explicit caller arguments; it does not prove native sandbox availability. A SUID-helper failure remains FAIL until a supported installation and actual sandbox-enabled startup succeed. A metadata-verified capture still needs visual review of the native pixels.
 
+The hosted Linux probe now lends an exact-byte/mode root-protected installation to the same acceptance core and, where required, adds only the exact executable's userns policy. Root application launches and global policy changes remain refused. Treat root-tree/copy contract tests separately from positive native startup; confirm owned policy/stage teardown before any success marker.
+
+For missing Windows discovery, inspect the failure-only finite `mainLog` categories after verified native closure. Discovery precedes runtime bootstrap and main-window creation; log observations can narrow the earlier boundary but cannot authenticate a root cause. Raw logs remain private.
+
 Keep Windows cold prerequisite results separate from installed startup: the isolated JSON probe uses another fresh runner and cannot warm the original ownership suite. Its checkpoint delivery timings do not identify the cause of a startup timeout.
