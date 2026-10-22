@@ -87,6 +87,7 @@ Rules:
 
 - Preserve exact native 64-bit filesystem identities for equality/uniqueness checks. Convert only proven bounded sizes to JSON Numbers, and ensure negative identity fixtures really change their input rather than relying on potentially rounded integer addition.
 
+- Bind dormant generated workers to the current packaging generation and fixed ASAR member, with explicit trusted compiler inputs and joined compiler/pipe close. Keep legacy data-format parsing separate from current shipping admission and production launch authority.
 - Runtime bundles must close source-relative accepted data over exact checked bytes and fixed source pins. Exercise the actual emitted bundle without repository-side data; preserve default callers and distinguish bundle closure from trusted worker/ASAR and launch authority.
 
 - A trusted setup action may expose a package alias or store hardlinks. Normalize its explicit complete package into a fresh owned canonical tool tree before a caller requiring independent executable files; preserve strict admission, source bytes, sibling distribution files and uncertain outputs. Do not treat a modeled copy or version command as hosted/native build proof.

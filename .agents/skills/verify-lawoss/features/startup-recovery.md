@@ -51,12 +51,18 @@ The final-artifact startup probe binds its existing before/captured/after observ
 
 The desktop SDK build gate compares the current owned generation's complete
 private identity with actual packed ASAR code, public BuildInfo, current SDK
-source set and capsule resources. CI requires explicit SDK mode, invokes this
-before original afterPack early returns, and repeats the CLI gate immediately
+source set and capsule resources. Current SDK shipping additionally requires
+schema2 and the exact fixed `electron/generated/plugin-sdk/worker.cjs` member,
+bound to that generation's bounded source bytes; legacy schema1 parsing alone
+cannot pass this gate. The build takes an explicit trusted Bun1.4.2 executable
+and joins compiler/pipe closure before completing the generation. Without-SDK
+and development modes require absent source/packed worker and no compiler.
+CI invokes the gate before original afterPack early returns and immediately
 before each final prepackaged AppImage/NSIS/ZIP command. Development/null/no-SDK
-returns development, never verified release identity. These static checks and
-inert FileMatcher/ASAR fixtures do not establish installed startup or managed
-G/E provisioning; keep their receipts separate from native acceptance evidence.
+is never verified release identity. These checks and actual inert FileMatcher/
+ASAR worker fixtures prove build provenance only: final embedded Node signing
+identity, authenticated runtime launch and managed G/E provisioning remain
+separate requirements. Keep this evidence separate from native acceptance.
 
 
 An initial desktop SDK mode/target/applicationBuild refusal may produce one closed hook stderr record: first failed predicate, reached/pass/fail states, and prepared/current BuildInfo null states only when that comparison completed. The record is privately keyed to the original Error; earlier getter/canonical/default failures and later source-set/resource refusals have no fabricated tuple record. Hook logging retains the same error and precedes all later mutation; the public CLI stays unchanged. These observations explain a reached guard, without asserting a dirty file, target mismatch, repair or native acceptance.
