@@ -172,6 +172,27 @@ export async function readWorkspaceMemory(
     clientTitles.set(clientPath, pending);
     return pending;
   };
+  // Oblasti kancelárie (`areas` v okf.config) pre prehľad podľa oblasti; jeden súbor sa číta raz.
+  const officeAreaReads = new Map<string, Promise<MatterInput["officeAreas"]>>();
+  const officeAreas = (officePath: string): Promise<MatterInput["officeAreas"]> => {
+    let pending = officeAreaReads.get(officePath);
+    if (!pending) {
+      pending = (async () => {
+        if (!(await list(officePath)).some((e) => e.name === "okf.config" && e.kind === "file")) return undefined;
+        const file = `${officePath}/okf.config`;
+        const areas = parseMemoryFrontmatter((await readFile(file)).content).get("areas");
+        const labels = Array.isArray(areas) ? areas.filter((a): a is string => typeof a === "string" && a.trim() !== "") : [];
+        return labels.length ? { areas: labels, file } : undefined;
+      })().catch((e: unknown) => {
+        // Rovnaký súbor môže nahlásiť aj čítanie `client_path`; jeden problém na súbor.
+        const path = `${officePath}/okf.config`;
+        if (!problems.some((p) => p.path === path)) problems.push({ path, message: message(e), ...diagnosticFields(e), scope: "office" });
+        return undefined;
+      });
+      officeAreaReads.set(officePath, pending);
+    }
+    return pending;
+  };
   const readBundle = (dir: string): Promise<Bundle> => {
     let pending = bundles.get(dir);
     if (!pending) {
@@ -250,6 +271,8 @@ export async function readWorkspaceMemory(
           } catch (e) { problems.push({ path: `${officePath}/okf.config`, message: message(e), ...diagnosticFields(e) }); }
         }
         scopePaths.push(officePath);
+        const areas = await officeAreas(officePath);
+        if (areas) input.officeAreas = areas;
         break;
       }
     }
@@ -264,6 +287,8 @@ export async function readWorkspaceMemory(
     if (clientPath !== undefined) {
       const title = await clientTitle(clientPath);
       if (title) input.clientTitle = title;
+      const card = (await list(clientPath)).find((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
+      if (card) input.clientCardPath = childPath(clientPath, card.name);
     }
     if (clientPath !== undefined && (await list(clientPath)).some((entry) => entry.name === "VSTUPY.md" && entry.kind === "file")) {
       const intakePath = childPath(clientPath, "VSTUPY.md");
