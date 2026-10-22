@@ -40,7 +40,8 @@ async function office() {
   await writeFile(join(linked, "podklad.pdf"), "SYN pdf");
   await writeFile(join(other, "tajne.txt"), "SYN iny klient");
   const config: ServerConfig = {
-    host: "127.0.0.1", port: 0, configPath: join(root, "server.json"), token: "owt_files_client", hostToken: "owt_files_host",
+    // The app's own config folder is app data (linked-folders rules): keep it apart from the office.
+    host: "127.0.0.1", port: 0, configPath: join(root, "private", "server.json"), token: "owt_files_client", hostToken: "owt_files_host",
     approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"],
     workspaces: [
       { id: "ws_c001", name: "C001", path: client, preset: "starter", workspaceType: "local" },

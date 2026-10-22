@@ -14,6 +14,8 @@ Před uložením souboru čti `PRACOVNY-PROFIL.md`: určuje skutečné složky, 
 
 Věc `advisory` v režimu `ongoing` může mít opakovaná zadání a termíny bez soudního řízení. Pracuj pouze s jejími úkoly a vstupy; společné firemní údaje čti z klienta. Uzavření jednoho zadání neuzavírá průběžnou věc.
 
+Hodnoty `view:procedural`, `view:corporate`, `view:ip` a `view:base` v poli `tags` karty jsou volba přehledu případu od uživatele. Zachovej je a bez jeho pokynu je neměň ani nemaž.
+
 <!-- okf:protokol-zapisu:v2 -->
 ## Protokol zápisu
 

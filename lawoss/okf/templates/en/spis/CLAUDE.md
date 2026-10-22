@@ -14,6 +14,8 @@ Before saving a file, read `PRACOVNY-PROFIL.md`: it defines the actual folders, 
 
 An `advisory` matter in `ongoing` mode may contain recurring assignments and deadlines without court proceedings. Work only with its tasks and inputs; read shared company information from the client. Closing one assignment does not close the ongoing matter.
 
+The values `view:procedural`, `view:corporate`, `view:ip` and `view:base` in the card's `tags` field are the user's choice of case overview. Keep them and do not change or remove them without the user's instruction.
+
 <!-- okf:protokol-zapisu:v2 -->
 ## Write protocol
 
