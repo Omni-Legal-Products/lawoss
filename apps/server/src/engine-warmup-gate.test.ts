@@ -1,5 +1,99 @@
 import { expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { abortable, cachedEngineResponse, sharedEngineResponse } from "./engine-warmup-gate.js";
+
+test("zrušený volajúci pozoruje neskoré zlyhanie aj pri zrušení pred vytvorením obalu", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warmup-preabort-rejection-"));
+  const script = join(directory, "late-rejection.ts");
+  try {
+    await Bun.write(script, `
+      import { abortable } from ${JSON.stringify(new URL("./engine-warmup-gate.ts", import.meta.url).href)};
+      const caller = new AbortController();
+      const reason = new Error("CALLER_CANCELLED");
+      let rejectShared;
+      const shared = new Promise((_, reject) => { rejectShared = reject; });
+      if (process.argv[2] === "before") caller.abort(reason);
+      const wrapped = abortable(shared, caller.signal);
+      if (process.argv[2] === "after") caller.abort(reason);
+      await wrapped.then(
+        () => { throw new Error("unexpected caller success"); },
+        (error) => { if (error !== reason) throw new Error("caller reason identity changed"); },
+      );
+      console.log("caller-reason-identity: true");
+      rejectShared(new Error("SHARED_LATE_REJECTION"));
+      await Promise.resolve();
+      console.log("shared-rejected-after-cancellation");
+    `);
+    for (const mode of ["before", "after"]) {
+      const child = Bun.spawn([process.execPath, script, mode], {
+        cwd: directory,
+        env: { TMPDIR: directory, TEMP: directory, TMP: directory },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exit, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      expect({ mode, exit, stderr }).toEqual({ mode, exit: 0, stderr: "" });
+      expect(stdout).toBe("caller-reason-identity: true\nshared-rejected-after-cancellation\n");
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+for (const outcome of ["resolve", "reject"] as const) test(`predčasné zrušenie nezmení zdieľanú prácu ani jej výsledok: ${outcome}`, async () => {
+  let resolveStart!: (response: Response) => void;
+  let rejectStart!: (error: Error) => void;
+  const started = new Promise<Response>((resolve, reject) => {
+    resolveStart = resolve;
+    rejectStart = reject;
+  });
+  let entered!: () => void;
+  const admitted = new Promise<void>((resolve) => { entered = resolve; });
+  let upstream!: AbortSignal;
+  const shared = sharedEngineResponse(`http://127.0.0.1:9/preaborted-${outcome}`, (signal) => {
+    upstream = signal;
+    entered();
+    return started;
+  }, 1_000, {});
+  const caller = new AbortController();
+  const reason = new Error("caller cancelled before admission");
+  caller.abort(reason);
+  try {
+    await expect(abortable(shared, caller.signal)).rejects.toBe(reason);
+    await admitted;
+    expect(upstream.aborted).toBe(false);
+    const active = abortable(shared, new AbortController().signal);
+    if (outcome === "reject") {
+      const failure = new Error("original shared failure");
+      rejectStart(failure);
+      await expect(active).rejects.toBe(failure);
+      await expect(shared).rejects.toBe(failure);
+    } else {
+      resolveStart(new Response("ready"));
+      const cached = await active;
+      expect(cached).toBe(await shared);
+      expect(await cachedEngineResponse(cached).text()).toBe("ready");
+    }
+    expect(upstream.aborted).toBe(false);
+  } finally {
+    resolveStart(new Response("cleanup"));
+    await shared.catch(() => {});
+  }
+});
+
+test("bez signálu vracia pôvodný Promise", async () => {
+  const value = {};
+  const shared = Promise.resolve(value);
+  expect(abortable(shared)).toBe(shared);
+  expect(abortable(shared, null)).toBe(shared);
+  expect(await shared).toBe(value);
+});
 
 test("súbežné GET /mcp zdieľajú jeden štart a prerušenie volajúceho ho nezruší", async () => {
   let calls = 0;
