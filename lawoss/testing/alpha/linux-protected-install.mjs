@@ -50,12 +50,23 @@ function treeFilesystemFailure(error,root) {
   } catch { /* Paths are lexical observations only, never filesystem proof. */ }
   return Object.freeze({action,scope,depth});
 }
-export function linuxOperationFailure(operation,error,root) {
+function rootAccessSnapshot(value) {
+  try {
+    if(!value || typeof value!=='object')return undefined;
+    const fields=Object.getOwnPropertyDescriptors(value),keys=Reflect.ownKeys(fields);
+    if(keys.length!==3 || !['modeBits','otherRead','otherSearch'].every(key=>Object.hasOwn(fields,key) && Object.hasOwn(fields[key],'value')))return undefined;
+    const modeBits=fields.modeBits.value,otherRead=fields.otherRead.value,otherSearch=fields.otherSearch.value;
+    if(!Number.isInteger(modeBits) || modeBits<0 || modeBits>0o777 || otherRead!==!!(modeBits&0o004) || otherSearch!==!!(modeBits&0o001))return undefined;
+    return Object.freeze({modeBits,otherRead,otherSearch});
+  } catch {return undefined;}
+}
+export function linuxOperationFailure(operation,error,root,rootMetadata) {
   if(!installationOperations.has(operation))return undefined;
   let errorCode='unknown';
   try {const code=Object.getOwnPropertyDescriptor(error,'code')?.value;if(preflightCodes.has(code))errorCode=code;}catch { /* Observation cannot replace the primary. */ }
   const filesystem=operation==='tree-validation'?treeFilesystemFailure(error,root):undefined;
-  return Object.freeze({operation,errorCode,...(filesystem?{filesystem}:{})});
+  const rootAccess=filesystem?rootAccessSnapshot(rootMetadata):undefined;
+  return Object.freeze({operation,errorCode,...(filesystem?{filesystem}:{}),...(rootAccess?{rootAccess}:{})});
 }
 export function linuxPreflightFailure(step,error,refusal) {
   const observation=preflightSteps.get(step);
@@ -93,16 +104,21 @@ async function protectedEntry(path,directory=false,observe) {
   return info;
 }
 async function protectedAncestors(path,observe) {
+  let rootInfo;
   for(let current=resolve(path);;current=dirname(current)) {
-    await protectedEntry(current,true,observe?predicate=>noteRefusal(observe,current,predicate):undefined);
+    const info=await protectedEntry(current,true,observe?predicate=>noteRefusal(observe,current,predicate):undefined);
+    rootInfo??=info;
     if(dirname(current)===current)break;
   }
   if(await realpath(path)!==resolve(path)) {noteRefusal(observe,path,'canonical');fail();}
+  return rootInfo;
 }
 /** Filesystem metadata validation only; does not execute or grant an application. */
-export async function validateProtectedLinuxTree(root) {
+export async function validateProtectedLinuxTree(root,{onRootMetadata}={}) {
   if(!isAbsolute(root) || resolve(root)!==root)fail();
-  await protectedAncestors(root);
+  const info=await protectedAncestors(root);
+  const modeBits=info.mode&0o777;
+  noteRefusal(onRootMetadata,Object.freeze({modeBits,otherRead:!!(modeBits&0o004),otherSearch:!!(modeBits&0o001)}));
   let count=0;
   async function visit(directory,depth=0) {
     if(depth>128)fail();
@@ -158,7 +174,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
     const policy=linuxUsernsProfile(stage),policyFile=join(stage,'userns.profile');
     let stageIdentity,retained=false,policyState='not-required',stageState='not-created',primary;
     let restricted=false,policyOwned=false,policyUncertain=false,temporary,protectionVerified=false;
-    let preflight,preflightFailure,stageTrustRefusal,operation,operationFailure;
+    let preflight,preflightFailure,stageTrustRefusal,operation,operationFailure,rootMetadata;
     try {
       preflight='stage-ancestors';
       // Hosted image scripts make /opt world-writable. Select a fixed different
@@ -202,7 +218,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
       operation='tree-copy';
       await privileged('/usr/bin/cp',['--recursive','--no-dereference','--preserve=mode','--no-preserve=ownership,xattr','--',`${dirname(source.installedApp)}/.`,app]);
       operation='tree-validation';
-      await validateProtectedLinuxTree(app);
+      await validateProtectedLinuxTree(app,{onRootMetadata:value=>{rootMetadata=value;}});
       operation='root-mode';
       if(((await lstat(app)).mode&0o7777)!==((await lstat(dirname(source.installedApp))).mode&0o7777))fail();
       const installedApp=join(app,'legalwork');
@@ -228,7 +244,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
       }
       operation='native-use';
       return await use({installedApp,installation,retain(){retained=true;}});
-    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error,stageTrustRefusal);operationFailure=linuxOperationFailure(operation,error,app);throw error;}
+    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error,stageTrustRefusal);operationFailure=linuxOperationFailure(operation,error,app,rootMetadata);throw error;}
     finally {
       let cleanupFailure;
       try {

@@ -15,6 +15,84 @@ const stage = `/var/lib/lawoss-ci-${'a'.repeat(32)}`;
 const refused = { code: 'linux-protected-install-refused' };
 const unverified = { code: 'linux-protected-install-unverified' };
 
+test('failed tree validation freezes only admitted root permission bits', () => {
+  const root='/PRIVATE/app', primary=Object.assign(new Error('private'),{code:'EACCES',syscall:'scandir',path:root});
+  const metadata={modeBits:0o700,otherRead:false,otherSearch:false};
+  const observed=protectedInstall.linuxOperationFailure('tree-validation',primary,root,metadata);
+  assert.deepEqual(observed,{operation:'tree-validation',errorCode:'EACCES',
+    filesystem:{action:'scandir',scope:'payload-root',depth:0},rootAccess:metadata});
+  metadata.modeBits=0o755;
+  assert.equal(observed.rootAccess.modeBits,0o700);
+  assert.equal(Object.isFrozen(observed.rootAccess),true);
+  assert.equal(primary.code,'EACCES');
+  assert.doesNotMatch(JSON.stringify(observed),/PRIVATE|private|uid|owner|acl|effective/);
+});
+
+test('root access projection accepts only closed consistent own data and bounded mode bits', () => {
+  const root='/payload/app',error={code:'EACCES'};
+  for(const metadata of [
+    {modeBits:0,otherRead:false,otherSearch:false},
+    {modeBits:0o004,otherRead:true,otherSearch:false},
+    {modeBits:0o001,otherRead:false,otherSearch:true},
+    {modeBits:0o755,otherRead:true,otherSearch:true},
+    {modeBits:0o777,otherRead:true,otherSearch:true},
+  ])assert.deepEqual(protectedInstall.linuxOperationFailure('tree-validation',error,root,metadata).rootAccess,metadata);
+  let reads=0;
+  const accessor={otherRead:false,otherSearch:false};Object.defineProperty(accessor,'modeBits',{enumerable:true,get(){reads++;return 0o700;}});
+  for(const metadata of [undefined,null,{},accessor,Object.create({modeBits:0o700,otherRead:false,otherSearch:false}),
+    {modeBits:-1,otherRead:false,otherSearch:false},{modeBits:0o1000,otherRead:false,otherSearch:false},
+    {modeBits:1.5,otherRead:false,otherSearch:false},{modeBits:'448',otherRead:false,otherSearch:false},
+    {modeBits:NaN,otherRead:false,otherSearch:false},{modeBits:0o700,otherRead:true,otherSearch:false},
+    {modeBits:0o700,otherRead:false,otherSearch:1},{modeBits:0o700,otherRead:false,otherSearch:false,path:'/private'},
+    {...{modeBits:0o700,otherRead:false,otherSearch:false},[Symbol('private')]:true},
+  ])assert.equal(Object.hasOwn(protectedInstall.linuxOperationFailure('tree-validation',error,root,metadata),'rootAccess'),false);
+  assert.equal(reads,0);
+});
+
+test('root metadata is never inspected for unrelated operations or invalid root context', () => {
+  let reads=0;
+  const metadata=new Proxy({}, {ownKeys(){reads++;throw new Error('Do not inspect unrelated metadata');}});
+  for(const operation of [undefined,'private','tree-copy','root-mode','native-use']) {
+    const result=protectedInstall.linuxOperationFailure(operation,{code:'EACCES'},'/payload/app',metadata);
+    assert.equal(result && Object.hasOwn(result,'rootAccess'),result?false:undefined);
+  }
+  for(const root of [undefined,'relative','/','/payload/../app','/payload/app/'])
+    assert.deepEqual(protectedInstall.linuxOperationFailure('tree-validation',{code:'EACCES'},root,metadata),{operation:'tree-validation',errorCode:'EACCES'});
+  assert.equal(reads,0);
+});
+
+test('root metadata observer is not called before actual ownership and ancestor guards pass', async t => {
+  const {payload}=await temporaryTree(t);
+  let observations=0;
+  await assert.rejects(validateProtectedLinuxTree(payload,{onRootMetadata(){observations++;throw new Error('Observer must not run');}}),unverified);
+  assert.equal(observations,0);
+});
+
+test('root access projection preserves the exact actual ordinary-user scandir error', {
+  skip:process.platform==='win32' || !(process.getuid?.()>0 && process.geteuid?.()>0)
+    ? 'Ordinary POSIX owned fixture only; this does not claim root-owned admission' : false,
+}, async t => {
+  const root=await realpath(await mkdtemp(path.join(tmpdir(),'lawoss-root-mode-error-')));
+  t.after(()=>rm(root,{recursive:true,force:true}));
+  let primary,fields,observed;
+  try {
+    await chmod(root,0o000);
+    const info=await lstat(root),modeBits=info.mode&0o777;
+    await assert.rejects(async()=>{
+      try {await readdir(root);}
+      catch(error){
+        primary=error;fields=Object.getOwnPropertyDescriptors(error);
+        observed=protectedInstall.linuxOperationFailure('tree-validation',error,root,
+          {modeBits,otherRead:!!(modeBits&0o004),otherSearch:!!(modeBits&0o001)});
+        throw error;
+      }
+    },error=>error===primary && error.code==='EACCES');
+    assert.deepEqual(observed.rootAccess,{modeBits:0,otherRead:false,otherSearch:false});
+    assert.deepEqual(observed.filesystem,{action:'scandir',scope:'payload-root',depth:0});
+    assert.deepEqual(Object.getOwnPropertyDescriptors(primary),fields);
+  } finally {await chmod(root,0o700);}
+});
+
 test('protected installation freezes the failed post-preflight operation before an unrelated cleanup error', () => {
   const primary = Object.assign(new Error('private payload path'), { code: 'EACCES' });
   const observed = protectedInstall.linuxOperationFailure?.('tree-validation', primary);
@@ -323,6 +401,17 @@ test('explicit owned Linux metadata container verifies protected files and refus
   await mkdir(app, { mode: 0o755 });
   await writeFile(executable, 'Inert root-owned metadata fixture; never execute.\n', { mode: 0o755 });
   assert.equal(await validateProtectedLinuxTree(root), undefined);
+
+  await t.test('admitted root metadata uses its actual cached mode and throwing observers cannot change success', async () => {
+    const observations=[];
+    await chmod(root,0o700);
+    try {
+      assert.equal(await validateProtectedLinuxTree(root,{onRootMetadata(value){observations.push(value);throw new Error('Ignore observer exception');}}),undefined);
+      assert.deepEqual(observations,[{modeBits:0o700,otherRead:false,otherSearch:false}]);
+      assert.equal(Object.isFrozen(observations[0]),true);
+      assert.deepEqual(Object.keys(observations[0]),['modeBits','otherRead','otherSearch']);
+    } finally {await chmod(root,0o755);}
+  });
 
   await t.test('group-writable regular payload refuses verification', async () => {
     await chmod(executable, 0o775);
