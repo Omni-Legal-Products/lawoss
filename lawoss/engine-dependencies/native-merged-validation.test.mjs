@@ -357,10 +357,11 @@ async function negativeProjection(workspace, deadline = Date.now() + 300000) {
   await fs.writeFile(path.join(workspace, 'projection-fixture-receipt.json'), JSON.stringify(receipt));
   return { request, sources };
 }
-async function marker(workspace, name) {
-  const limit = Date.now() + 5000;
+async function marker(workspace, name, checkPending = () => {}) {
+  const limit = process.hrtime.bigint() + 5_000_000_000n;
   while (!(await fs.stat(path.join(workspace, name)).catch(() => null))) {
-    if (Date.now() >= limit) assert.fail('owned fixture readiness: ' + name);
+    checkPending();
+    if (process.hrtime.bigint() >= limit) assert.fail('owned fixture readiness: ' + name);
     await new Promise(resolve => setTimeout(resolve, 5));
   }
 }
@@ -542,7 +543,7 @@ for (const diagnostic of ['valid', 'wrong-nonce', 'extra', 'code', 'oversize', '
   test('projection parent: actual closed failure ' + diagnostic + ' preserves original context and primary', async t => {
     const deadline = Date.now() + 300000, controller = new AbortController(), emitted = [];
     const dateDescriptor = Object.getOwnPropertyDescriptor(Date, 'now');
-    let owned, interception, io, pending, error, context;
+    let owned, interception, io, pending, error, context, settled = false;
     try {
       pending = ownedValidation(async (workspace, state) => {
         owned = workspace; context = state;
@@ -557,9 +558,11 @@ for (const diagnostic of ['valid', 'wrong-nonce', 'extra', 'code', 'oversize', '
         io = interceptOpen(workspace);
         return parentProjection.projectionThenTests(workspace, state, prepared, await fixedPlan(), { signal: controller.signal, onProjection() { assert.fail('failure cannot publish'); } });
       });
-      const outcome = pending.catch(failure => { error = failure; });
-      while (!owned || !interception) await new Promise(resolve => setImmediate(resolve));
-      await marker(owned, 'projection-ready');
+      const outcome = pending.catch(failure => { error = failure; }).finally(() => { settled = true; });
+      const checkPending = () => { if (settled) throw error ?? Error('owned operation completed before fixture readiness'); };
+      while ((!owned || !interception) && !settled) await new Promise(resolve => setImmediate(resolve));
+      checkPending();
+      await marker(owned, 'projection-ready', checkPending);
       if (diagnostic === 'cancelled') controller.abort();
       else if (diagnostic === 'output-limit') await fs.writeFile(path.join(owned, 'projection-output-release'), 'release');
       else if (!['timeout', 'output-limit'].includes(diagnostic)) await fs.writeFile(path.join(owned, 'projection-release'), 'release');
@@ -579,11 +582,11 @@ for (const diagnostic of ['valid', 'wrong-nonce', 'extra', 'code', 'oversize', '
         positiveClose: context.child.closed, manifestOpens: io.manifests, failureReads: io.failureStats, testSpawns: interception.testSpawns,
         primary: error.private.primary.code, publicCode: value.code, admittedFailure: value.projection !== null }));
     } finally {
-      Object.defineProperty(Date, 'now', dateDescriptor);
       if (owned) await fs.writeFile(path.join(owned, 'projection-release'), 'release').catch(() => {});
       controller.abort(); await pending?.catch(() => {});
       if (interception) await Promise.all(interception.closes);
       io?.restore(); interception?.restore();
+      Object.defineProperty(Date, 'now', dateDescriptor);
       if (owned) await fs.rm(owned, { recursive: true, force: true });
     }
   });
@@ -653,26 +656,34 @@ test('projection parent: unchanged absolute deadline reduces actual supervisor r
   const deadline = Date.now() + 300000, dateDescriptor = Object.getOwnPropertyDescriptor(Date, 'now');
   const timeoutDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'setTimeout');
   const timeouts = [];
-  let owned, pending, interception, io;
+  let owned, pending, interception, io, failure, settled = false;
   try {
     pending = ownedValidation(async (workspace, context) => {
       owned = workspace;
       context.phase = 'acquisition';
       const child = validationChild([projectionFixture, 'acquisition-held', workspace], workspace, { offline: true, timeout: 300000 }, context);
-      await marker(workspace, 'projection-ready');
-      // Controlled clock advance while the actual acquisition child is held.
-      Object.defineProperty(Date, 'now', { ...dateDescriptor, value: () => deadline - 12345 });
-      await fs.writeFile(path.join(workspace, 'projection-release'), 'release');
-      retainAcquisition(await child, context, () => {});
+      const acquisition = child.catch(() => {});
+      try {
+        await marker(workspace, 'projection-ready');
+        // Controlled clock advance while the actual acquisition child is held.
+        Object.defineProperty(Date, 'now', { ...dateDescriptor, value: () => deadline - 12345 });
+        await fs.writeFile(path.join(workspace, 'projection-release'), 'release');
+        retainAcquisition(await child, context, () => {});
+      } finally {
+        await fs.writeFile(path.join(workspace, 'projection-release'), 'release').catch(() => {});
+        await acquisition;
+      }
       await fs.unlink(path.join(workspace, 'projection-ready')); await fs.unlink(path.join(workspace, 'projection-release'));
       const prepared = await negativeProjection(workspace, deadline);
       interception = interceptProjection('projection-nonzero', deadline); io = interceptOpen(workspace);
       Object.defineProperty(globalThis, 'setTimeout', { ...timeoutDescriptor, value(fn, ms, ...args) { timeouts.push(ms); return timeoutDescriptor.value(fn, ms, ...args); } });
       return parentProjection.projectionThenTests(workspace, context, prepared, await fixedPlan());
     });
-    const outcome = pending.catch(error => error);
-    while (!interception) await new Promise(resolve => setImmediate(resolve));
-    await marker(owned, 'projection-ready');
+    const outcome = pending.catch(error => { failure = error; return error; }).finally(() => { settled = true; });
+    const checkPending = () => { if (settled) throw failure ?? Error('owned operation completed before fixture readiness'); };
+    while (!interception && !settled) await new Promise(resolve => setImmediate(resolve));
+    checkPending();
+    await marker(owned, 'projection-ready', checkPending);
     await fs.writeFile(path.join(owned, 'projection-release'), 'release');
     const error = await outcome;
     assert.equal(error.code, 'CHILD_FAILED'); assert.equal(interception.testSpawns, 0);
@@ -680,9 +691,9 @@ test('projection parent: unchanged absolute deadline reduces actual supervisor r
     assert.deepEqual(timeouts.filter(ms => ms > 1000), [12345]);
     t.diagnostic(JSON.stringify({ originalDeadline: deadline, originalSpawns: interception.observations, actualArgv: interception.children[0].spawnargs, supervisorTimeouts: timeouts.filter(ms => ms > 1000), code: error.code }));
   } finally {
-    Object.defineProperty(Date, 'now', dateDescriptor); Object.defineProperty(globalThis, 'setTimeout', timeoutDescriptor);
     if (owned) await fs.writeFile(path.join(owned, 'projection-release'), 'release').catch(() => {});
     await pending?.catch(() => {}); if (interception) await Promise.all(interception.closes);
+    Object.defineProperty(Date, 'now', dateDescriptor); Object.defineProperty(globalThis, 'setTimeout', timeoutDescriptor);
     io?.restore(); interception?.restore(); if (owned) await fs.rm(owned, { recursive: true, force: true });
   }
 });
