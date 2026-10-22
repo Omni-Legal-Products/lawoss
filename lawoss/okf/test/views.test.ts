@@ -57,8 +57,11 @@ describe("odvodenie oblasti a typu práce", () => {
     expect(areaFamilies("Obchodní korporace")).toEqual(["corporate"]);
     expect(areaFamilies("obchodné záväzky")).toEqual([]);
     expect(areaFamilies("IP")).toEqual(["ip"]);
-    // „spor“ len na začiatku slova, nie vnútri iného slova
-    expect(areaFamilies("sporiteľne a úvery")).toEqual(["procedural"]);
+    // Krátke slová len celé: „spor“, „IP“ áno; „sporiteľne“, „IPO“ nie.
+    expect(areaFamilies("sporiteľne a úvery")).toEqual([]);
+    expect(areaFamilies("IPO poradenstvo")).toEqual([]);
+    expect(areaFamilies("obchodný spor")).toEqual(["procedural"]);
+    expect(areaFamilies("sporové konanie")).toEqual(["procedural"]);
     expect(areaFamilies("rozpory v účtovníctve")).toEqual([]);
   });
 

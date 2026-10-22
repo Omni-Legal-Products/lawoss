@@ -211,9 +211,9 @@ const AREA_KEYWORDS: Record<ViewFamily, readonly string[]> = {
 };
 
 export function areaFamilies(area: string): ViewFamily[] {
-  // Slová oddelené medzerou; kľúčové slovo musí začínať slovo („spor“ áno, „rozpory“ nie).
-  const text = ` ${fold(area).replace(/[^\p{L}\p{N}&]+/gu, " ")}`;
-  return VIEW_FAMILIES.filter((family) => AREA_KEYWORDS[family].some((kw) => text.includes(` ${kw}`)));
+    // Krátke kľúčové slová (≤ 4 znaky: „ip“, „spor“) musia byť celé slovo, dlhšie kmene stačí na začiatku slova.
+  const text = ` ${fold(area).replace(/[^\p{L}\p{N}&]+/gu, " ")} `;
+  return VIEW_FAMILIES.filter((family) => AREA_KEYWORDS[family].some((kw) => text.includes(kw.length <= 4 ? ` ${kw} ` : ` ${kw}`)));
 }
 
 const VIEW_TAG = /^view:(procedural|corporate|ip|base)$/;

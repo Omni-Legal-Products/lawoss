@@ -157,7 +157,7 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
     conversations={conversations.items} conversationsComplete={conversations.status !== "ready" || conversations.complete}
     conversationsError={conversations.status === "error" ? conversations.retry ?? (() => {}) : undefined} onContinue={(c) => void onContinue(c)}
     onFiles={(files) => void onFiles(files)} saved={saved} modelGap={modelGap} sourceReady={sourceReady}
-    views={views} onOpenSource={(file) => { openScopeFile(scope, file, navigate); }}
+    views={views} onOpenSource={scope ? (file) => { openScopeFile(scope, file, navigate); } : undefined}
     viewsEdit={matter.cardPath ? { cardFile: matter.cardPath, tags: input?.cardFrontmatter?.tags, disabled: !sourceReady, onSave: onSaveViews } : undefined}
     scopePaths={input?.scopePaths}
     existingMemorySources={input?.existingMemorySources}
