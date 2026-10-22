@@ -11,8 +11,10 @@
  * tohto klienta (plugin `lawoss-linked-folders` na serveri); server zápis kontroluje znova kanonicky.
  */
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { t, type Language } from "@/i18n";
 import { normalizeAuthorizedFolderPath } from "@/react-app/domains/settings/panels/authorized-folders-panel-state";
 import { comparable, within } from "./matter-conversations";
+import { withoutLawossHome } from "../home-workspace";
 
 export type LinkRefusal = "own" | "contains_client" | "other_client" | "practice_root" | "app_data" | "missing" | "duplicate";
 
@@ -32,6 +34,17 @@ export function serverRefusal(error: unknown): LinkRefusal | null {
   const code = error && typeof error === "object" && "code" in error ? error.code : null;
   return code === "linked_folder_other_client" ? "other_client" : code === "linked_folder_practice" ? "practice_root"
     : code === "linked_folder_app_data" ? "app_data" : code === "linked_folder_relative" ? "missing" : null;
+}
+
+/**
+ * Text odmietnutia servera pre upstream panel Nastavenia → Povolené priečinky (review m1): rovnaké texty ako
+ * na Domove klienta; priečinok podobný praxi sa tam potvrdiť nedá, text odkáže na prehľad klienta. Iná chyba `null`.
+ */
+export function linkedFolderServerMessage(error: unknown, locale?: Language): string | null {
+  const code = error && typeof error === "object" && "code" in error ? error.code : null;
+  if (code === "linked_folder_practice_like") return t("lawoss.lite.linked_folders_refuse_practice_like_settings", locale);
+  const reason = serverRefusal(error);
+  return reason ? t(LINK_REFUSAL_TEXT[reason], locale) : null;
 }
 
 export type LinkScope = {
@@ -85,7 +98,8 @@ type Workspace = { path?: string | null; workspaceType?: string | null };
 export function otherClientFolders(clientRoot: string, workspaces: readonly Workspace[], groupFolders: readonly string[]): string[] {
   const own = comparableFolder(clientRoot);
   const candidates = [
-    ...workspaces.flatMap((w) => w.workspaceType !== "remote" && w.path ? [w.path] : []),
+    // Interný domovský priestor appky nie je klient (N-20): userData odmietne server ako dáta aplikácie.
+    ...withoutLawossHome(workspaces).flatMap((w) => w.workspaceType !== "remote" && w.path ? [w.path] : []),
     ...groupFolders,
   ];
   const seen = new Set<string>();
@@ -132,7 +146,27 @@ export function linkedFoldersPolicy(entry: FirmEntry): { managed: boolean; locke
 }
 
 export type SaveResult = "saved" | "declined";
-export type LinkResult = { kind: "cancelled" } | { kind: "refused"; reason: LinkRefusal } | { kind: SaveResult };
+/** Server: priečinok vyzerá ako prax (≥2 podpriečinky ako klienti s prípadmi). Pripojí sa len po potvrdení advokáta. */
+export type PracticeLike = { kind: "confirm"; folder: string; clients: string[] };
+export type LinkResult = { kind: "cancelled" } | { kind: "refused"; reason: LinkRefusal } | { kind: SaveResult } | PracticeLike;
+type Save = (folders: string[], confirmedPracticeLike?: string[]) => Promise<SaveResult>;
+
+/** Mäkké odmietnutie servera (`linked_folder_practice_like`) s menami podpriečinkov, ktoré vyzerajú ako klienti. */
+export function serverPracticeLike(error: unknown, folder: string): PracticeLike | null {
+  if (!error || typeof error !== "object" || !("code" in error) || error.code !== "linked_folder_practice_like") return null;
+  const details = "details" in error && error.details && typeof error.details === "object" ? error.details : null;
+  const clients = details && "clients" in details && Array.isArray(details.clients) ? details.clients.filter((name): name is string => typeof name === "string") : [];
+  return { kind: "confirm", folder, clients };
+}
+
+async function saveOrConfirm(save: Save, folders: string[], folder: string, confirmed?: string[]): Promise<LinkResult> {
+  try { return { kind: await save(folders, confirmed) }; }
+  catch (error) {
+    const practiceLike = confirmed ? null : serverPracticeLike(error, folder);
+    if (practiceLike) return practiceLike;
+    throw error;
+  }
+}
 
 /**
  * Pripojenie: výber priečinka, čerstvý natívny zoznam (súbežná zmena inde sa nestratí), kontrola a uloženie
@@ -142,14 +176,25 @@ export async function linkFolder(deps: {
   pick: () => Promise<string | null>;
   scope: Omit<LinkScope, "linked">;
   current: () => Promise<readonly string[]>;
-  save: (folders: string[]) => Promise<SaveResult>;
+  save: Save;
 }): Promise<LinkResult> {
   const picked = await deps.pick();
   if (picked === null) return { kind: "cancelled" };
+  return addFolder(deps, picked);
+}
+
+/** Pridanie do čerstvého zoznamu; `confirmed` = advokát potvrdil priečinok, ktorý vyzerá ako prax (ľudská brána). */
+async function addFolder(deps: { scope: Omit<LinkScope, "linked">; current: () => Promise<readonly string[]>; save: Save }, picked: string, confirmed = false): Promise<LinkResult> {
   const linked = await deps.current();
   const reason = linkRefusal(picked, { ...deps.scope, linked });
   if (reason) return { kind: "refused", reason };
-  return { kind: await deps.save([...linked, normalizeAuthorizedFolderPath(picked)]) };
+  const folder = normalizeAuthorizedFolderPath(picked);
+  return saveOrConfirm(deps.save, [...linked, folder], folder, confirmed ? [folder] : undefined);
+}
+
+/** „Pripojiť aj tak“ po otázke: zoznam sa prečíta znova a server znova odmietne značky OKF iného klienta či kancelárie. */
+export function confirmLinkFolder(deps: { scope: Omit<LinkScope, "linked">; current: () => Promise<readonly string[]>; save: Save }, folder: string): Promise<LinkResult> {
+  return addFolder(deps, folder, true);
 }
 
 /** Odpojenie: čerstvý natívny zoznam bez priečinka; ostatné položky ostanú v pôvodnom tvare. */
@@ -169,8 +214,8 @@ export function linkedFoldersWriter(deps: {
 }) {
   return {
     current: async (): Promise<readonly string[]> => (await deps.client.listAuthorizedFolders(deps.workspaceId)).folders,
-    save: async (folders: string[]): Promise<SaveResult> => {
-      const write = async () => { await deps.client.setAuthorizedFolders(deps.workspaceId, folders); };
+    save: async (folders: string[], confirmedPracticeLike?: string[]): Promise<SaveResult> => {
+      const write = async () => { await deps.client.setAuthorizedFolders(deps.workspaceId, folders, confirmedPracticeLike ? { lawossConfirmedPracticeLike: confirmedPracticeLike } : undefined); };
       if (!deps.managed) {
         await write();
         return "saved";

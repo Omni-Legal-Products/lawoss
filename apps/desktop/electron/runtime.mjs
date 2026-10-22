@@ -1438,6 +1438,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // Inject user env vars so the server and managed OpenCode inherit them.
     const serverEnv = await buildChildEnv({});
     Object.assign(process.env, serverEnv);
+    // LAWOSS: server chráni userData ako dáta aplikácie (pripojené priečinky klienta, alfa2 A3).
+    process.env.LAWOSS_USER_DATA = userDataDir;
 
     // Once the embedded server has a persisted registry, it is the source of
     // truth. Do not pass Electron's legacy workspace list as CLI workspaces or
