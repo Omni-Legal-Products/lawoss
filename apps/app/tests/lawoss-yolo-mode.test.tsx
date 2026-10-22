@@ -38,7 +38,7 @@ test("switching on only asks for an in-page confirmation; switching off saves at
     "Môže čítať, meniť a odosielať akýkoľvek súbor, ku ktorému má prístup váš používateľský účet na tomto počítači, nielen priečinky klientov.",
     "Príkazy bežia s vašimi plnými právami.", "Internet je povolený, ak ho nižšie neobmedzíte.", "Naplánované úlohy sa pýtajú ďalej.",
     "Môže čítať a meniť aj súbory v priečinkoch iných klientov. Dôvernosť medzi klientmi sa v YOLO Mode nestráži.",
-    "LAWOSS tieto zmeny nevie vrátiť. Majte zálohy.",
+    "Zmazané súbory nájdete v Koši. Úpravy obsahu a príkazy LAWOSS vrátiť nevie, majte zálohy.",
     "Zapnúť YOLO Mode", "Zrušiť",
   ]) expect(html).toContain(text);
   // The switch stays off until the confirmation is accepted.

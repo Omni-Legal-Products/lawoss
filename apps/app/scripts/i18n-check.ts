@@ -18,6 +18,7 @@ import en from "../src/i18n/locales/en";
 import de from "../src/i18n/locales/de";
 import sk from "../src/i18n/locales/sk";
 import cs from "../src/i18n/locales/cs";
+import { termsDe, termsEn } from "../src/lawoss/i18n/terms";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { LANGUAGES, LANGUAGE_OPTIONS, matchLanguageTag, type Language } from "../src/i18n";
@@ -25,8 +26,8 @@ import { LANGUAGES, LANGUAGE_OPTIONS, matchLanguageTag, type Language } from "..
 type Dict = Record<string, string>;
 
 const LOCALES: Record<Language, Dict> = {
-  en: en as Dict,
-  de: de as Dict,
+  en: { ...(en as Dict), ...termsEn },
+  de: { ...(de as Dict), ...termsDe },
   sk: sk as Dict,
   cs: cs as Dict,
 };
@@ -47,6 +48,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "plugin_create.kind", "plugin_create.name",
   "composer.plugin_pill", // Plugin is the same product term in both languages.
   "workspace.overview", // Home is the shared navigation label in both languages.
+  "content_search.sessions", "tasks.sessions_count", // LAWOSS terms: "Chats" is the same word in English and German.
   "scheduled.name", // Identical German and English noun.
   "projects.schema.priority_normal", "projects.schema.budget", // Identical German and English terms.
   "review.status", // Identical German and English noun.

@@ -144,7 +144,7 @@ describe("Prípady projektu: model a položka v paneli", () => {
     expect(projectNodes([], model, "tatran")).toEqual([]);
     const value = navValue(model, [], { open: { tatran: true } });
     expect(html(<ClientNavTestProvider value={value}><ul><ClientMattersNavItem workspaceId="ine" /><ClientDeadlinesNavItem workspaceId="ine" /></ul></ClientNavTestProvider>)).toContain("<ul></ul>");
-    expect(html(<ClientNavTestProvider value={value}><ul><ClientMattersNavItem workspaceId="tatran" /></ul></ClientNavTestProvider>)).toContain("No matters yet");
+    expect(html(<ClientNavTestProvider value={value}><ul><ClientMattersNavItem workspaceId="tatran" /></ul></ClientNavTestProvider>)).toContain("No cases yet");
   });
 
   test("jeden klient: Prípady = jeho uzol; klik prepne jeho uzol (zbalený nič nečíta)", () => {
@@ -392,9 +392,9 @@ describe("bočný panel (natívny AppSidebar, vykreslený)", () => {
       expect(out).not.toContain(">root<");
       expect(out).not.toContain(">legacy<");
       expect(out).not.toContain("Pinned Projects");
-      expect(out).toContain('aria-label="Clients and matters"');
+      expect(out).toContain('aria-label="Clients and cases"');
       // SSR je vždy Pokročilý režim: „+“ ostáva natívne vytvorenie projektu (bežný režim vedie na Pridať klienta).
-      expect(out).toContain('aria-label="Create project"');
+      expect(out).toContain('aria-label="Create client"');
     } finally { useProjectFavoritesStore.setState({ favoriteIds: [] }); }
   });
 
@@ -507,7 +507,7 @@ describe("Prípady klienta: zobrazenie", () => {
 
   test("Prípady zbalené: žiadna vec; rozbalené: veci klienta s odkazom na prehľad veci", () => {
     const closed = html(<ClientMattersView nodes={tree()} open={false} locale="en" />);
-    expect(closed).toContain("Matters");
+    expect(closed).toContain("Cases");
     expect(closed).toMatch(/<button(?=[^>]*data-lawoss-project-matters="")(?=[^>]*aria-expanded="false")[^>]*>/);
     expect(closed).not.toContain("Úhrada dodávok");
     const open = html(<ClientMattersView nodes={tree({}, { [clientToggle("client:Tatran")]: true })} open locale="en" />);

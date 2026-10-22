@@ -263,7 +263,7 @@ test("fix round 2: nad limit prípadov náhľad vopred povie, čo odškrtnúť, 
     expect(t("lawoss.triage.stat_matters_new", locale, { count: 2 })).toContain("2");
     expect(t("lawoss.triage.error_too_many_matters", locale, { max: 100 })).not.toContain("—");
   }
-  expect(t("lawoss.triage.matter_keep_folder", "de")).toBe("Als Akte anlegen");
+  expect(t("lawoss.triage.matter_keep_folder", "de")).toBe("Als Fall anlegen");
   expect(t("lawoss.triage.stat_matters", "sk")).toBe("Prípady");
 });
 

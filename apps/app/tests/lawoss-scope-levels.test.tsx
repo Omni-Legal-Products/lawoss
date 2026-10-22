@@ -58,7 +58,7 @@ describe("9: úrovne rozsahu vec / klient / kancelária", () => {
 
   test("Lite detail veci: úrovne pri cestách a klientsky vstup označený ako klient", () => {
     const out = renderToStaticMarkup(<MemoryRouter><LiteMatterView matter={cockpit.matter} cockpit={cockpit} busy={null} error={null} onAction={() => {}} scopePaths={paths} /></MemoryRouter>);
-    expect(out).toContain('data-lawoss-scope="matter"><b>Matter</b> Klienti/ACME/Spisy/A');
+    expect(out).toContain('data-lawoss-scope="matter"><b>Case</b> Klienti/ACME/Spisy/A');
     expect(out).toContain('data-lawoss-scope="client"><b>Client</b> Klienti/ACME<');
     expect(out).toContain('data-lawoss-scope="office"><b>Office</b> Office');
     expect(out).toMatch(/data-lawoss-scope="client">.*IN-7.*<span class="lw-ref">Client<\/span>/);

@@ -127,7 +127,7 @@ describe("dynamické pohľady z OKF", () => {
     // Klient bez vecí má kartu s výzvou na novú vec, nie prázdny zoznam.
     const lonely = html(<ClientsView locale="en" groups={[{ key: "client:Prázdny", client: "Prázdny s. r. o.", matters: [] }]} />);
     expect(lonely).toContain("Prázdny s. r. o.");
-    expect(lonely).toContain("No matters yet.");
+    expect(lonely).toContain("No cases yet.");
     expect(lonely).toContain('href="/welcome?continue=matter"');
     expect(clients).toContain("Novák");
     expect(clients).toContain('data-urgency="near"');

@@ -153,6 +153,6 @@ describe("stránka Věc", () => {
     const out = renderToStaticMarkup(<MemoryRouter><LiteMatterView matter={m} cockpit={null} busy={null} error={null} onAction={() => {}} onFiles={() => {}} saved="a.pdf (IN-001)" /></MemoryRouter>);
     expect(out).toContain('data-lawoss-lite="intake-input"');
     expect(out).toContain("You can also drag documents here.");
-    expect(out).toContain("Saved to the matter: a.pdf (IN-001)");
+    expect(out).toContain("Saved to the case: a.pdf (IN-001)");
   });
 });

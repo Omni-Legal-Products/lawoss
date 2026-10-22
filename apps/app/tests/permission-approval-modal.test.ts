@@ -142,7 +142,7 @@ describe("permission approval modal helpers", () => {
       respondPermission: () => {},
     }));
     const html = render("Use short paragraphs. <script>alert('test')</script>");
-    expect(html).toContain("Update project instructions?");
+    expect(html).toContain("Update client instructions?");
     expect(html).toContain("Current instructions");
     expect(html).toContain("Formal English");
     expect(html).toContain("Proposed instructions");

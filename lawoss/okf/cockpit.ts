@@ -262,7 +262,7 @@ function obal(matter: MatterOverview, jurisdiction: string | undefined): Cockpit
       field("Spisová značka", matter.matterRef, "nie je v karte ani v zázname"),
       field("Súd / orgán", matter.court, "nie je v karte ani v zázname"),
     ] : []),
-    field("Jurisdikcia", jurisdiction, "záznam veci chýba"),
+    field("Jurisdikcia", jurisdiction, "záznam prípadu chýba"),
     field("Stav konania", matter.state, "nie je v karte ani v zázname"),
   ];
 }
@@ -290,7 +290,7 @@ export function attention(
   const rows: AttentionRow[] = [];
   if (input.manualStatus && input.manualStatus.state !== "dated") {
     rows.push({ id: "status:manual", kind: "nález", state: input.manualStatus.state === "stale" ? "nespracované" : "chýba údaj",
-      title: "Ručný stav veci", detail: input.manualStatus.message,
+      title: "Ručný stav prípadu", detail: input.manualStatus.message,
       file: input.path ? `${input.path}/_STATUS.md` : "_STATUS.md" });
   }
   for (const row of pendingInputs(input)) {
@@ -371,7 +371,7 @@ export function attention(
       id: "nalez:pamäť",
       kind: "nález",
       state: "chýba údaj",
-      title: "Vec nemá pamäť",
+      title: "Prípad nemá pamäť",
       detail: "priečinok memory/ je prázdny alebo chýba — cockpit nemá čo čítať",
       file: `${matter.path}/${MEMORY_DIR}/`,
     });

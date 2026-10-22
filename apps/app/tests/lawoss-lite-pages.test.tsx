@@ -57,7 +57,7 @@ describe("stránky LAWOSS-lite", () => {
   test("Dnes a Klienti: jediný vstup „+ New matter“, žádný duplicitní „New client“ (final review I4)", () => {
     for (const out of [html(<TodayView model={model} locale="en" />), html(<ClientsView groups={[]} />)]) {
       expect(out.split(href(NEW_MATTER_PATH)).length - 1).toBe(1);
-      expect(out).toContain("+ New matter");
+      expect(out).toContain("+ New case");
       expect(out).not.toContain("New client");
     }
   });
@@ -154,11 +154,11 @@ describe("stavy stránek LAWOSS-lite", () => {
   test("celé lite stránky při startu: načítání a znovu, bez technických pojmů", () => {
     for (const Page of [TodayPage, ClientsPage, LiteMatterPage]) {
       const out = renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}><MemoryRouter><Page /></MemoryRouter></QueryClientProvider>);
-      expect(out).toContain("Loading your matters…");
+      expect(out).toContain("Loading your cases…");
       expect(out).toContain("Try again");
       // Navigace LawossLayout je pro chrome (lite shell řeší Task 6); kontrolujeme obsah stránky.
       const sheet = out.slice(out.indexOf('<section class="lw-sheet">'));
-      expect(sheet).toContain("Loading your matters…");
+      expect(sheet).toContain("Loading your cases…");
       expect(sheet).not.toMatch(BANNED);
     }
   });
@@ -171,13 +171,13 @@ describe("stavy stránek LAWOSS-lite", () => {
   });
   test("načítání / bez připojení / bez složky / prázdná složka / chyba", () => {
     const cases: [Partial<StateProps>, string][] = [
-      [{ connection: "loading" }, "Loading your matters…"],
-      [{ data: undefined }, "Loading your matters…"],
-      [{ connection: "unavailable" }, "Your matters could not be loaded."],
+      [{ connection: "loading" }, "Loading your cases…"],
+      [{ data: undefined }, "Loading your cases…"],
+      [{ connection: "unavailable" }, "Your cases could not be loaded."],
       [{ workspace: null }, "No office folder is open."],
-      [{}, "The office folder has no matters yet."],
-      [{ error: new Error("workspace ws-1 unreachable") }, "Your matters could not be loaded."],
-      [{ data: { ...empty, problems: [{ path: "AK", message: "Přístup odepřen" }] } }, "Your matters could not be loaded."],
+      [{}, "The office folder has no cases yet."],
+      [{ error: new Error("workspace ws-1 unreachable") }, "Your cases could not be loaded."],
+      [{ data: { ...empty, problems: [{ path: "AK", message: "Přístup odepřen" }] } }, "Your cases could not be loaded."],
     ];
     for (const [props, expected] of cases) {
       const out = lite(props);
@@ -186,15 +186,15 @@ describe("stavy stránek LAWOSS-lite", () => {
       expect(out.replace(/<details>[\s\S]*?<\/details>/g, "")).not.toMatch(BANNED);
     }
     expect(lite({ workspace: null })).toContain("Open the office folder");
-    expect(lite({})).toContain("New matter");
+    expect(lite({})).toContain("New case");
   });
   test("bez OKF prázdná stránka vysvětlí proč a nabídne zapnutí, bez „Try again“ (D1 2026-10-04)", () => {
     const retry = <button type="button">Try again</button>;
     const off = html(<OkfPageState {...base} okfOff retry={retry} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>);
-    expect(off).toContain("built from matter organisation, which is off");
+    expect(off).toContain("built from case organisation, which is off");
     expect(off).toContain('href="/welcome?continue=folder"');
-    expect(off).toContain("Turn on matter organisation");
-    expect(off).not.toContain("The office folder has no matters yet.");
+    expect(off).toContain("Turn on case organisation");
+    expect(off).not.toContain("The office folder has no cases yet.");
     expect(off).not.toContain("Try again");
     // Odkaz na trasu zapnutí smí obsahovat „okf“; čtený text ne.
     expect(off.replace(/<[^>]+>/g, " ")).not.toMatch(BANNED);

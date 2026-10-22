@@ -85,7 +85,7 @@ export const projectTemplateStrings = {
     "projects.schema.effective_date": "Vertragsbeginn"
   },
   "cs": {
-    "projects.templates.legal_matter": "Právní spis",
+    "projects.templates.legal_matter": "Právní případ",
     "projects.templates.internal": "Interní projekt",
     "projects.templates.administration": "Provoz",
     "projects.templates.research": "Výzkum a analýza",
@@ -127,7 +127,7 @@ export const projectTemplateStrings = {
     "projects.schema.effective_date": "Datum účinnosti"
   },
   "sk": {
-    "projects.templates.legal_matter": "Právny spis",
+    "projects.templates.legal_matter": "Právny prípad",
     "projects.templates.internal": "Interný projekt",
     "projects.templates.administration": "Prevádzka",
     "projects.templates.research": "Výskum a analýza",
