@@ -10,56 +10,56 @@ import { assertHostedLinuxContext, linuxPreflightFailure, linuxUsernsProfile, va
 
 const environment = { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted' };
 const context = { platform: 'linux', arch: 'x64', uid: 1000, euid: 1000, environment };
-const stage = `/opt/lawoss-ci-${'a'.repeat(32)}`;
+const stage = `/var/lib/lawoss-ci-${'a'.repeat(32)}`;
 const refused = { code: 'linux-protected-install-refused' };
 const unverified = { code: 'linux-protected-install-unverified' };
 
 test('protected Linux preflight publishes a finite failed guard without changing the original error', () => {
   const error = Object.assign(new Error('private source and command content'), { code: 'EACCES' });
-  assert.deepEqual(linuxPreflightFailure('opt-ancestors', error), {
-    boundary: 'opt-trust', tool: null, check: 'ancestors', errorCode: 'EACCES',
+  assert.deepEqual(linuxPreflightFailure('stage-ancestors', error), {
+    boundary: 'stage-trust', tool: null, check: 'ancestors', errorCode: 'EACCES',
   });
   assert.equal(error.message, 'private source and command content');
   assert.equal(error.code, 'EACCES');
 });
 
-test('protected Linux opt trust identifies only the fixed ancestor and its first rejected predicate', () => {
-  assert.deepEqual(linuxPreflightFailure('opt-ancestors', unverified, {
-    ancestor:'opt',predicate:'owner',path:'/private/source',uid:1000,mode:511,
+test('protected Linux stage trust identifies only the fixed ancestor and its first rejected predicate', () => {
+  assert.deepEqual(linuxPreflightFailure('stage-ancestors', unverified, {
+    ancestor:'var-lib',predicate:'owner',path:'/private/source',uid:1000,mode:511,
   }), {
-    boundary:'opt-trust',tool:null,check:'ancestors',errorCode:'linux-protected-install-unverified',
-    optTrust:{ancestor:'opt',predicate:'owner'},
+    boundary:'stage-trust',tool:null,check:'ancestors',errorCode:'linux-protected-install-unverified',
+    stageTrust:{ancestor:'var-lib',predicate:'owner'},
   });
 });
 
-test('protected Linux opt trust accepts only reachable finite ancestor predicates and freezes them', () => {
-  for(const ancestor of ['opt','root'])for(const predicate of ['symlink','owner','writable','type','canonical']) {
-    if(ancestor==='root' && predicate==='canonical')continue;
-    const result=linuxPreflightFailure('opt-ancestors',unverified,{ancestor,predicate});
-    assert.deepEqual(result.optTrust,{ancestor,predicate});
-    assert.equal(Object.isFrozen(result.optTrust),true);
-    assert.throws(()=>{result.optTrust.predicate='private';},TypeError);
+test('protected Linux stage trust accepts only reachable finite ancestor predicates and freezes them', () => {
+  for(const ancestor of ['var-lib','var','root'])for(const predicate of ['symlink','owner','writable','type','canonical']) {
+    if(ancestor!=='var-lib' && predicate==='canonical')continue;
+    const result=linuxPreflightFailure('stage-ancestors',unverified,{ancestor,predicate});
+    assert.deepEqual(result.stageTrust,{ancestor,predicate});
+    assert.equal(Object.isFrozen(result.stageTrust),true);
+    assert.throws(()=>{result.stageTrust.predicate='private';},TypeError);
   }
-  for(const refusal of [undefined,null,{}, {ancestor:'/opt',predicate:'owner'},
-    {ancestor:'root',predicate:'canonical'}, {ancestor:'opt/private',predicate:'type'},
-    {ancestor:'opt',predicate:'owner\n'}, {ancestor:new String('opt'),predicate:'owner'},
-    {ancestor:'opt',predicate:{}}, {get ancestor(){throw Error('private');}},
-    {ancestor:'opt',get predicate(){throw Error('private');}}]) {
-    assert.equal(linuxPreflightFailure('opt-ancestors',unverified,refusal).optTrust,undefined);
+  for(const refusal of [undefined,null,{}, {ancestor:'/var/lib',predicate:'owner'},
+    {ancestor:'root',predicate:'canonical'}, {ancestor:'var',predicate:'canonical'}, {ancestor:'var-lib/private',predicate:'type'},
+    {ancestor:'var-lib',predicate:'owner\n'}, {ancestor:new String('var-lib'),predicate:'owner'},
+    {ancestor:'var-lib',predicate:{}}, {get ancestor(){throw Error('private');}},
+    {ancestor:'var-lib',get predicate(){throw Error('private');}}]) {
+    assert.equal(linuxPreflightFailure('stage-ancestors',unverified,refusal).stageTrust,undefined);
   }
 });
 
-test('protected Linux opt trust never reads unrelated refusal or private metadata', () => {
+test('protected Linux stage trust never reads unrelated refusal or private metadata', () => {
   const unreadable={get ancestor(){assert.fail('Unrelated refusal must not be read');}};
   for(const step of [undefined,'cat-entry','parser-ancestors']) {
-    assert.equal(linuxPreflightFailure(step,unverified,unreadable)?.optTrust,undefined);
+    assert.equal(linuxPreflightFailure(step,unverified,unreadable)?.stageTrust,undefined);
   }
-  assert.equal(linuxPreflightFailure('opt-ancestors',{code:'ENOENT'},unreadable).optTrust,undefined);
-  const refusal={ancestor:'opt',predicate:'owner'};
+  assert.equal(linuxPreflightFailure('stage-ancestors',{code:'ENOENT'},unreadable).stageTrust,undefined);
+  const refusal={ancestor:'var-lib',predicate:'owner'};
   for(const key of ['path','uid','mode','message','token'])Object.defineProperty(refusal,key,{
     enumerable:true,get(){assert.fail('Private metadata must not be read');},
   });
-  assert.deepEqual(linuxPreflightFailure('opt-ancestors',unverified,refusal).optTrust,{ancestor:'opt',predicate:'owner'});
+  assert.deepEqual(linuxPreflightFailure('stage-ancestors',unverified,refusal).stageTrust,{ancestor:'var-lib',predicate:'owner'});
 });
 
 test('protected Linux preflight distinguishes each fixed tool and guard call site', () => {
@@ -96,7 +96,7 @@ test('protected Linux preflight distinguishes each fixed tool and guard call sit
 test('protected Linux preflight omits completed, absent and unrecognized observations without reading an error', () => {
   const error = { get code() { assert.fail('No preflight failure must not inspect error content'); } };
   for (const step of [undefined, null, '', 'complete', 'toString', '__proto__', 'constructor',
-    'sudo-entry/private/secret', 'parser-entry\n', '/usr/bin/cat-entry', 1, {}, new String('opt-ancestors')]) {
+    'sudo-entry/private/secret', 'parser-entry\n', '/usr/bin/cat-entry', 1, {}, new String('stage-ancestors')]) {
     assert.equal(linuxPreflightFailure(step, error), undefined);
   }
 });
@@ -142,7 +142,7 @@ test('protected Linux installation requires an ordinary user on an explicit host
 
 test('user namespace profile grants only the exact protected staging executable', () => {
   for (const suffix of ['a'.repeat(32), '0123456789abcdef'.repeat(2)]) {
-    const root = `/opt/lawoss-ci-${suffix}`, name = `lawoss-ci-${suffix}`, executable = `${root}/app/legalwork`;
+    const root = `/var/lib/lawoss-ci-${suffix}`, name = `lawoss-ci-${suffix}`, executable = `${root}/app/legalwork`;
     assert.deepEqual(linuxUsernsProfile(root), {
       name, executable,
       text: `abi <abi/4.0>,\ninclude <tunables/global>\nprofile ${name} ${executable} flags=(unconfined) {\n  userns,\n}\n`,
@@ -152,12 +152,12 @@ test('user namespace profile grants only the exact protected staging executable'
 
 test('user namespace profile refuses alternate, writable temporary and injected paths', () => {
   for (const root of [
-    undefined, null, 42, '', '/opt', '/tmp', `/tmp/lawoss-ci-${'a'.repeat(32)}`,
-    `/home/runner/lawoss-ci-${'a'.repeat(32)}`, `/opt/lawoss-ci-${'a'.repeat(31)}`,
-    `/opt/lawoss-ci-${'a'.repeat(33)}`, `/opt/lawoss-ci-${'A'.repeat(32)}`,
-    `${stage}/`, `${stage}/app`, `${stage}/../other`, `/opt/../opt/lawoss-ci-${'a'.repeat(32)}`,
-    `/opt//lawoss-ci-${'a'.repeat(32)}`, `${stage}\n`, `${stage}\0`, `${stage} *`,
-    `/opt/lawoss-ci-${'*'.repeat(32)}`, `/opt/lawoss-ci-${'?'.repeat(32)}`,
+    undefined, null, 42, '', '/var/lib', '/var', '/opt', `/opt/lawoss-ci-${'a'.repeat(32)}`, '/tmp', `/tmp/lawoss-ci-${'a'.repeat(32)}`,
+    `/home/runner/lawoss-ci-${'a'.repeat(32)}`, `/var/lib/lawoss-ci-${'a'.repeat(31)}`,
+    `/var/lib/lawoss-ci-${'a'.repeat(33)}`, `/var/lib/lawoss-ci-${'A'.repeat(32)}`,
+    `${stage}/`, `${stage}/app`, `${stage}/../other`, `/var/lib/../lib/lawoss-ci-${'a'.repeat(32)}`,
+    `/var/lib//lawoss-ci-${'a'.repeat(32)}`, `${stage}\n`, `${stage}\0`, `${stage} *`,
+    `/var/lib/lawoss-ci-${'*'.repeat(32)}`, `/var/lib/lawoss-ci-${'?'.repeat(32)}`,
     `${stage} { userns, }`, `${stage}\nprofile injected /** flags=(unconfined) { userns, }`,
   ]) assert.throws(() => linuxUsernsProfile(root), refused);
 });
@@ -194,7 +194,7 @@ test('an actual symbolic-link root refuses protected-tree verification', { skip:
 
 const ownedMetadataContainer = process.platform === 'linux' && process.getuid?.() === 0 && process.env.LAWOSS_OWNED_METADATA_CONTAINER === '1';
 test('explicit owned Linux metadata container verifies protected files and refuses unsafe mutations', { skip: !ownedMetadataContainer }, async t => {
-  const root = `/opt/lawoss-ci-${randomBytes(16).toString('hex')}`;
+  const root = `/var/lib/lawoss-ci-${randomBytes(16).toString('hex')}`;
   await mkdir(root, { mode: 0o755 });
   t.after(() => rm(root, { recursive: true, force: true }));
   const app = path.join(root, 'app'), executable = path.join(app, 'legalwork');

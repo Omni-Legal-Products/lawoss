@@ -12,7 +12,7 @@ const fail = () => { throw Object.assign(new Error('linux-protected-install-unve
 const inside = (root,path) => { const rel=relative(root,path);return rel==='' || !isAbsolute(rel) && rel!=='..' && !rel.startsWith(`..${sep}`); };
 const same = (a,b) => a.dev===b.dev && a.ino===b.ino;
 const preflightSteps = new Map([
-  ['opt-ancestors', {boundary:'opt-trust',tool:null,check:'ancestors'}],
+  ['stage-ancestors', {boundary:'stage-trust',tool:null,check:'ancestors'}],
   ['restriction-read', {boundary:'userns-restriction',tool:null,check:'read'}],
   ['initial-policy-presence', {boundary:'initial-policy-presence',tool:null,check:'presence'}],
 ]);
@@ -22,28 +22,28 @@ for(const tool of ['sudo','mkdir','cp','install','rm','cat','parser']) {
   }
 }
 const preflightCodes = new Set(['ENOENT','EACCES','EPERM','ELOOP','ENOTDIR','linux-protected-install-refused','linux-protected-install-unverified']);
-const optAncestors = new Set(['opt','root']);
-const optPredicates = new Set(['symlink','owner','writable','type','canonical']);
+const stageAncestors = new Set(['var-lib','var','root']);
+const stagePredicates = new Set(['symlink','owner','writable','type','canonical']);
 export function linuxPreflightFailure(step,error,refusal) {
   const observation=preflightSteps.get(step);
   if(!observation)return undefined;
   let errorCode='unknown';
   try {const code=error?.code;if(preflightCodes.has(code))errorCode=code;} catch { /* Diagnostic access cannot replace the primary failure. */ }
-  let optTrust;
-  if(step==='opt-ancestors' && errorCode==='linux-protected-install-unverified') {
+  let stageTrust;
+  if(step==='stage-ancestors' && errorCode==='linux-protected-install-unverified') {
     try {
       const ancestor=refusal?.ancestor,predicate=refusal?.predicate;
-      if(optAncestors.has(ancestor) && optPredicates.has(predicate) && !(ancestor==='root' && predicate==='canonical'))optTrust=Object.freeze({ancestor,predicate});
+      if(stageAncestors.has(ancestor) && stagePredicates.has(predicate) && !(ancestor!=='var-lib' && predicate==='canonical'))stageTrust=Object.freeze({ancestor,predicate});
     } catch { /* Refusal metadata cannot replace the primary failure. */ }
   }
-  return Object.freeze({...observation,errorCode,...(optTrust?{optTrust}:{})});
+  return Object.freeze({...observation,errorCode,...(stageTrust?{stageTrust}:{})});
 }
 export function assertHostedLinuxContext({platform=process.platform,arch=process.arch,uid=process.getuid?.(),euid=process.geteuid?.(),environment=process.env}={}) {
   if(platform!=='linux' || !['x64','arm64'].includes(arch) || !Number.isSafeInteger(uid) || uid<=0 || !Number.isSafeInteger(euid) || euid<=0
     || environment?.GITHUB_ACTIONS!=='true' || environment?.RUNNER_ENVIRONMENT!=='github-hosted')refuse();
 }
 export function linuxUsernsProfile(stage) {
-  if(typeof stage!=='string' || stage.length!==47 || !/^\/opt\/lawoss-ci-[a-f0-9]{32}$/.test(stage))refuse();
+  if(typeof stage!=='string' || stage.length!==51 || !/^\/var\/lib\/lawoss-ci-[a-f0-9]{32}$/.test(stage))refuse();
   const name=posix.basename(stage),executable=posix.join(stage,'app/legalwork');
   return {name,executable,text:`abi <abi/4.0>,\ninclude <tunables/global>\nprofile ${name} ${executable} flags=(unconfined) {\n  userns,\n}\n`};
 }
@@ -121,17 +121,19 @@ export async function withProtectedLinuxArtifact(artifact,use) {
   if(artifact.platform!=='linux' || artifact.arch!==process.arch || !artifact.asset.endsWith('.AppImage'))refuse();
   const {withExtractedAlphaArtifact,verifyAlphaInstallation}=await import('./installed-artifact.mjs');
   return withExtractedAlphaArtifact(artifact,async source=>{
-    const stage=`/opt/lawoss-ci-${randomBytes(16).toString('hex')}`,app=join(stage,'app');
+    const stage=`/var/lib/lawoss-ci-${randomBytes(16).toString('hex')}`,app=join(stage,'app');
     const policy=linuxUsernsProfile(stage),policyFile=join(stage,'userns.profile');
     let stageIdentity,retained=false,policyState='not-required',stageState='not-created',primary;
     let restricted=false,policyOwned=false,policyUncertain=false,temporary,protectionVerified=false;
-    let preflight,preflightFailure,optTrustRefusal;
+    let preflight,preflightFailure,stageTrustRefusal;
     try {
-      preflight='opt-ancestors';
-      await protectedAncestors('/opt',(ancestor,predicate)=>{
-        // This observer runs only for the two fixed initial ancestors, before
+      preflight='stage-ancestors';
+      // Hosted image scripts make /opt world-writable. Select a fixed different
+      // parent; never repair shared permissions or relax protected ancestry.
+      await protectedAncestors('/var/lib',(ancestor,predicate)=>{
+        // This observer runs only for the three fixed initial ancestors, before
         // the same original refusal. Never retain an arbitrary filesystem path.
-        optTrustRefusal={ancestor:ancestor==='/opt'?'opt':ancestor==='/'?'root':'unknown',predicate};
+        stageTrustRefusal={ancestor:ancestor==='/var/lib'?'var-lib':ancestor==='/var'?'var':ancestor==='/'?'root':'unknown',predicate};
       });
       // Fixed tools and their canonical targets must also be root protected.
       for(const tool of ['/usr/bin/sudo','/usr/bin/mkdir','/usr/bin/cp','/usr/bin/install','/usr/bin/rm','/usr/bin/cat']) {
@@ -181,7 +183,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
         policyOwned=true;policyUncertain=false;policyState='loaded';
       }
       return await use({installedApp,installation,retain(){retained=true;}});
-    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error,optTrustRefusal);throw error;}
+    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error,stageTrustRefusal);throw error;}
     finally {
       let cleanupFailure;
       try {
