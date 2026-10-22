@@ -29,6 +29,7 @@ import {
 } from "@/app/lib/workspace-endpoint";
 import type { WorkspaceConnectionState } from "@/app/types";
 import { normalizeDirectoryPath } from "@/app/utils";
+import { effectiveSessionDirectory, isWithinClientFolder } from "@/lawoss/shell/session-directory";
 import { t } from "@/i18n";
 import {
   diagnoseRemoteWorkspaceTaskLoadFailure,
@@ -74,25 +75,15 @@ export type UseWorkspaceRouteStateInput = {
 
 /** A local session may run in a matter folder, but it remains owned by its client workspace. */
 export function sessionDirectoryWithinWorkspace(workspace: RouteWorkspace | null | undefined, session?: Pick<RouteSession, "directory"> | null) {
-  const root = workspace?.path?.trim() ?? "";
-  const directory = session?.directory?.trim() ?? "";
-  if (!root || !directory || workspace?.workspaceType === "remote") return root;
-  const normalizedRoot = normalizeDirectoryPath(root);
-  const normalizedDirectory = normalizeDirectoryPath(directory);
-  if (normalizedDirectory === normalizedRoot || normalizedDirectory.startsWith(`${normalizedRoot}/`)) return directory;
-  return root;
+  return effectiveSessionDirectory(workspace, session);
 }
 
 /** Keep sessions in client subdirectories, while rejecting an untrusted escaped directory. */
 export function sessionsWithinWorkspace(workspace: RouteWorkspace, sessions: RouteSession[]) {
   if (workspace.workspaceType === "remote") return sessions;
-  const root = normalizeDirectoryPath(workspace.path ?? "");
-  if (!root) return sessions;
-  return sessions.filter((session) => {
-    const directory = session?.directory?.trim() ?? "";
-    const normalizedDirectory = normalizeDirectoryPath(directory);
-    return normalizedDirectory === root || normalizedDirectory.startsWith(`${root}/`);
-  });
+  const root = workspace.path?.trim() ?? "";
+  if (!normalizeDirectoryPath(root)) return sessions;
+  return sessions.filter((session) => isWithinClientFolder(root, session?.directory ?? ""));
 }
 
 /** Metadata refreshes must not replace the selected workspace's transport. */
@@ -211,6 +202,9 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   }, []);
   const removedSessionIdsRef = useRef(new Set<string>());
   const loadedSessionRef = useRef<{ workspaceId: string; session: RouteSession } | null>(null);
+  // LAWOSS: the selected chat's own folder from its loaded snapshot. A case chat is not in the
+  // client's chat list, yet its events, status and permission requests live in the case folder.
+  const [loadedSessionDirectory, setLoadedSessionDirectory] = useState<{ workspaceId: string; sessionId: string; directory: string } | null>(null);
   useEffect(() => {
     const loaded = loadedSessionRef.current;
     if (loaded?.workspaceId !== selectedWorkspaceId || loaded?.session.id !== selectedSessionId) {
@@ -220,6 +214,12 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const handleRuntimeSessionLoaded = useCallback((session: RouteSession) => {
     const workspace = workspacesRef.current.find(item => item.id === selectedWorkspaceId);
     if (!workspace || session.id !== selectedSessionId || removedSessionIdsRef.current.has(session.id)) return;
+    if (workspace.workspaceType !== "remote" && isWithinClientFolder(workspace.path ?? "", session.directory ?? "")) {
+      const directory = session.directory.trim();
+      setLoadedSessionDirectory(current => current?.workspaceId === selectedWorkspaceId && current.sessionId === session.id && current.directory === directory
+        ? current : { workspaceId: selectedWorkspaceId, sessionId: session.id, directory });
+    }
+    // The client's chat list keeps root chats; a case chat is listed under its case.
     if (workspace.workspaceType !== "remote" && normalizeDirectoryPath(session.directory) !== normalizeDirectoryPath(workspace.path ?? "")) return;
     loadedSessionRef.current = { workspaceId: selectedWorkspaceId, session };
     setSessionsByWorkspaceId(current => {
@@ -840,7 +840,9 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const selectedSession = selectedSessionId
     ? (sessionsByWorkspaceId[selectedWorkspaceId] ?? []).find((session) => session?.id === selectedSessionId) ?? null
     : null;
-  const selectedSessionDirectory = sessionDirectoryWithinWorkspace(selectedWorkspace, selectedSession);
+  const loadedDirectory = loadedSessionDirectory?.workspaceId === selectedWorkspaceId && loadedSessionDirectory.sessionId === selectedSessionId
+    ? loadedSessionDirectory.directory : null;
+  const selectedSessionDirectory = sessionDirectoryWithinWorkspace(selectedWorkspace, selectedSession ?? (loadedDirectory ? { directory: loadedDirectory } : null));
   // Single source of truth for the selected workspace's server URL/token/id.
   // For remote workspaces this is the worker that owns the workspace; for
   // local workspaces it's the user's local LegalWork server.

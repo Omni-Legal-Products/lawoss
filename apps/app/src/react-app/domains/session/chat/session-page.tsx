@@ -1586,6 +1586,7 @@ export function SessionPage(props: SessionPageProps) {
             }}
             renderChat={(sessionId, active) => props.surface ? <WorkspaceChat
               {...props.surface!}
+              clientRoot={props.selectedWorkspaceRoot}
               active={active}
               client={props.legalworkServerClient!}
               environmentClient={props.environmentClient}
