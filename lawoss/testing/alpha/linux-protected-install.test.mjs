@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { chmod, link, lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { chmod, link, lstat, mkdir, mkdtemp, readFile, readlink, readdir, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -33,6 +33,107 @@ test('post-preflight observations cannot read accessors, inherited codes or arbi
   assert.deepEqual(protectedInstall.linuxOperationFailure?.('installed-tree', error), { operation: 'installed-tree', errorCode: 'unknown' });
   assert.deepEqual(protectedInstall.linuxOperationFailure?.('tree-copy', Object.create({ code: 'EACCES' })), { operation: 'tree-copy', errorCode: 'unknown' });
   assert.equal(codeReads,0);assert.equal(messageReads,0);
+});
+
+test('tree filesystem projection preserves an actual ordinary-user readdir EACCES', {
+  skip: process.platform === 'win32' || !(process.getuid?.() > 0 && process.geteuid?.() > 0)
+    ? 'Requires ordinary-user POSIX directory permissions; no root-positive claim' : false,
+}, async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'lawoss-tree-error-')));
+  const denied = path.join(root, 'PRIVATE-denied');
+  await mkdir(denied);
+  let primary, originalFields, observation;
+  try {
+    await chmod(denied, 0o000);
+    await assert.rejects(async () => {
+      try { await readdir(denied); }
+      catch (error) {
+        primary = error;
+        originalFields = Object.getOwnPropertyDescriptors(error);
+        observation = protectedInstall.linuxOperationFailure('tree-validation', error, denied);
+        throw error;
+      }
+    }, error => error === primary && error.code === 'EACCES');
+    assert.deepEqual(observation, { operation:'tree-validation',errorCode:'EACCES',
+      filesystem:{action:'scandir',scope:'payload-root',depth:0} });
+    assert.deepEqual(Object.getOwnPropertyDescriptors(primary), originalFields);
+    assert.doesNotMatch(JSON.stringify(observation), /PRIVATE|denied|path|syscall/);
+  } finally {
+    await chmod(denied, 0o700);
+    await rm(root, { recursive:true,force:true });
+  }
+});
+
+test('tree filesystem projection reports only allowlisted actions and bounded lexical scopes', () => {
+  const root = '/PRIVATE-PAYLOAD/app';
+  for (const action of ['scandir','lstat','realpath','readlink']) {
+    for (const [filename,scope,depth] of [
+      [root,'payload-root',0], [`${root}/nested/file`,'payload-descendant',2],
+      [`${root}/${Array(129).fill('n').join('/')}`,'payload-descendant',129],
+      [`${root}/${Array(130).fill('n').join('/')}`,'unknown',null],
+      ['/PRIVATE-PAYLOAD','payload-ancestor',null], ['/','payload-ancestor',null],
+      ['/PRIVATE-PAYLOAD/app-sibling/file','unknown',null], ['/elsewhere','unknown',null],
+    ]) {
+      const value = protectedInstall.linuxOperationFailure('tree-validation', {code:'EACCES',syscall:action,path:filename}, root);
+      assert.deepEqual(value, {operation:'tree-validation',errorCode:'EACCES',filesystem:{action,scope,depth}});
+      assert.equal(Object.isFrozen(value),true);assert.equal(Object.isFrozen(value.filesystem),true);
+    }
+  }
+});
+
+test('tree filesystem projection refuses invalid context and ignores unrelated operations without reading private fields', () => {
+  let reads=0;
+  const error={code:'EACCES',get path(){reads++;return '/private';},get syscall(){reads++;return 'scandir';}};
+  for (const root of [undefined,null,{},42,'','/','relative','/root/','/root//app','/root/../app',
+    '/root/./app','/root\napp','/root\u007fapp','/root\u0085app','/root\\app',`/${'x'.repeat(4096)}`]) {
+    assert.deepEqual(protectedInstall.linuxOperationFailure('tree-validation',error,root),{operation:'tree-validation',errorCode:'EACCES'});
+  }
+  const unrelated=new Proxy(error,{getOwnPropertyDescriptor(target,key){
+    if(key==='path' || key==='syscall')reads++;
+    return Reflect.getOwnPropertyDescriptor(target,key);
+  }});
+  for (const operation of ['tree-copy','installed-tree','native-use']) {
+    assert.deepEqual(protectedInstall.linuxOperationFailure(operation,unrelated,'/payload/app'),{operation,errorCode:'EACCES'});
+  }
+  assert.equal(reads,0);
+});
+
+test('tree filesystem projection rejects malformed paths and never infers an action from error text', () => {
+  const root='/payload/app';
+  for (const filename of [undefined,null,{},42,'relative','/payload/app/','/payload//app/file',
+    '/payload/app/../other','/payload/app/./file','/payload/app/PRIVATE\nfile','/payload/app/PRIVATE\u007ffile',
+    '/payload/app/PRIVATE\u0085file','/payload/app/PRIVATE\\file',`/${'x'.repeat(4096)}`]) {
+    assert.deepEqual(protectedInstall.linuxOperationFailure('tree-validation',{code:'EACCES',syscall:'scandir',path:filename},root).filesystem,
+      {action:'scandir',scope:'unknown',depth:null});
+  }
+  for (const action of [undefined,null,{},42,'SCANDIR','scandir\n','open','scandir /PRIVATE']) {
+    assert.deepEqual(protectedInstall.linuxOperationFailure('tree-validation',{code:'EACCES',syscall:action,path:root},root).filesystem,
+      {action:'unknown',scope:'payload-root',depth:0});
+  }
+  assert.deepEqual(protectedInstall.linuxOperationFailure('tree-validation',new Error('EACCES scandir /payload/app'),root).filesystem,
+    {action:'unknown',scope:'unknown',depth:null});
+});
+
+test('tree filesystem projection uses own data only and freezes fields before later error changes', () => {
+  let reads=0;
+  const root='/payload/app',error=Object.create({syscall:'scandir',path:root});
+  error.code='EACCES';
+  for (const key of ['syscall','path','message','cause','stack']) Object.defineProperty(error,key,{get(){reads++;return key==='syscall'?'scandir':root;}});
+  assert.deepEqual(protectedInstall.linuxOperationFailure('tree-validation',error,root),{operation:'tree-validation',errorCode:'EACCES',
+    filesystem:{action:'unknown',scope:'unknown',depth:null}});
+  assert.deepEqual(protectedInstall.linuxOperationFailure('tree-validation',Object.create({code:'EACCES',syscall:'scandir',path:root}),root),
+    {operation:'tree-validation',errorCode:'unknown',filesystem:{action:'unknown',scope:'unknown',depth:null}});
+  assert.equal(reads,0);
+  const original={code:'EACCES',syscall:'scandir',path:root,private:'SECRET'};
+  const result=protectedInstall.linuxOperationFailure('tree-validation',original,root);
+  original.code='EPERM';original.syscall='readlink';original.path='/elsewhere';
+  assert.equal(JSON.stringify(result),'{"operation":"tree-validation","errorCode":"EACCES","filesystem":{"action":"scandir","scope":"payload-root","depth":0}}');
+  assert.throws(()=>{result.filesystem.scope='PRIVATE';},TypeError);
+  const coercible={toString(){reads++;return root;}};
+  assert.deepEqual(protectedInstall.linuxOperationFailure('tree-validation',{code:'EACCES',syscall:coercible,path:coercible},root).filesystem,
+    {action:'unknown',scope:'unknown',depth:null});
+  assert.deepEqual(protectedInstall.linuxOperationFailure('tree-validation',error,coercible),{operation:'tree-validation',errorCode:'EACCES'});
+  assert.equal(reads,0);
 });
 
 test('protected Linux preflight publishes a finite failed guard without changing the original error', () => {

@@ -1369,6 +1369,12 @@ jeho systémová príčina zostáva neznáma. Ostatné digest/tree/build-identit
 error ako cause a doplní iba vlastnený `no-child-started` cleanup tuple. Nezatvára ani
 nepreukazuje zánik už existujúcej cudzej aplikácie; neskorší supervisor a deadlines sa nemenia.
 
+Pri Linux `tree-validation` zlyhaní doplní existujúci `operationFailure` iba konečný
+syscall/lexikálny scope/depth z vlastných dátových properties pôvodnej chyby. Bez
+raw cesty, getterov, nového FS čítania, zmeny validátora alebo oprávnení. Dôvodom sú
+oba prvé d794 AppImage pokusy s EACCES pred policy/native launch; konkrétna akcia
+a príčina ostávajú neznáme, kým ich nový natívny beh skutočne nezmeria.
+
 
 #### Pripravené IPC nie je pripravené používateľské rozhranie (2026-10-21)
 

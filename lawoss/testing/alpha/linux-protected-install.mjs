@@ -26,11 +26,36 @@ const stageAncestors = new Set(['var-lib','var','root']);
 const stagePredicates = new Set(['symlink','owner','writable','type','canonical']);
 const installationOperations = new Set(['stage-create','stage-bind','tree-copy','tree-validation','root-mode','installed-tree',
   'policy-input','policy-install','policy-validation','policy-load','policy-presence-after-load','native-use']);
-export function linuxOperationFailure(operation,error) {
+const filesystemActions = new Set(['scandir','lstat','realpath','readlink']);
+function canonicalPosixPath(value) {
+  return typeof value==='string' && value.length<=4096 && !/[\\\x00-\x1f\x7f-\x9f]/.test(value)
+    && posix.isAbsolute(value) && posix.normalize(value)===value && (value==='/' || !value.endsWith('/'));
+}
+function treeFilesystemFailure(error,root) {
+  if(!canonicalPosixPath(root) || root==='/')return undefined;
+  let action='unknown',scope='unknown',depth=null;
+  try {
+    const syscall=Object.getOwnPropertyDescriptor(error,'syscall')?.value;
+    if(typeof syscall==='string' && syscall.length<=8 && filesystemActions.has(syscall))action=syscall;
+  } catch { /* Never invoke an error getter or replace the primary. */ }
+  try {
+    const filename=Object.getOwnPropertyDescriptor(error,'path')?.value;
+    if(canonicalPosixPath(filename)) {
+      if(filename===root) {scope='payload-root';depth=0;}
+      else if(filename.startsWith(`${root}/`)) {
+        const components=filename.slice(root.length+1).split('/').length;
+        if(components<=129) {scope='payload-descendant';depth=components;}
+      } else if(filename==='/' || root.startsWith(`${filename}/`))scope='payload-ancestor';
+    }
+  } catch { /* Paths are lexical observations only, never filesystem proof. */ }
+  return Object.freeze({action,scope,depth});
+}
+export function linuxOperationFailure(operation,error,root) {
   if(!installationOperations.has(operation))return undefined;
   let errorCode='unknown';
   try {const code=Object.getOwnPropertyDescriptor(error,'code')?.value;if(preflightCodes.has(code))errorCode=code;}catch { /* Observation cannot replace the primary. */ }
-  return Object.freeze({operation,errorCode});
+  const filesystem=operation==='tree-validation'?treeFilesystemFailure(error,root):undefined;
+  return Object.freeze({operation,errorCode,...(filesystem?{filesystem}:{})});
 }
 export function linuxPreflightFailure(step,error,refusal) {
   const observation=preflightSteps.get(step);
@@ -203,7 +228,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
       }
       operation='native-use';
       return await use({installedApp,installation,retain(){retained=true;}});
-    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error,stageTrustRefusal);operationFailure=linuxOperationFailure(operation,error);throw error;}
+    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error,stageTrustRefusal);operationFailure=linuxOperationFailure(operation,error,app);throw error;}
     finally {
       let cleanupFailure;
       try {
