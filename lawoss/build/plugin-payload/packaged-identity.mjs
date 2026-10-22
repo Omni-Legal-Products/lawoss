@@ -14,8 +14,8 @@ export async function readPackagedProductSdkIdentity({ resourcesRoot, target, ex
   try {
     // Snapshot expected caller data with the same bounded format admission.
     const expected = readProductSdkIdentityModule(createProductSdkIdentityModule({ schema: 1,
-      kind: 'lawoss-product-sdk-packaging', mode: 'without-sdk', applicationBuild, target, sdk: null }));
-    if (!['sdk', 'without-sdk'].includes(expectedMode) || typeof resourcesRoot !== 'string' || resourcesRoot.length > 4096 ||
+      kind: 'lawoss-product-sdk-packaging', mode: expectedMode === 'development' ? 'development' : 'without-sdk', applicationBuild, target, sdk: null }));
+    if (!['sdk', 'without-sdk', 'development'].includes(expectedMode) || typeof resourcesRoot !== 'string' || resourcesRoot.length > 4096 ||
       !path.isAbsolute(resourcesRoot) || path.resolve(resourcesRoot) !== resourcesRoot) invalid();
     const root = await lstat(resourcesRoot);
     if (!root.isDirectory() || root.isSymbolicLink() || await realpath(resourcesRoot) !== resourcesRoot) invalid();

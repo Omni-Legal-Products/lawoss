@@ -89,3 +89,12 @@ test('an ancestor replaced by a same-inode symlink during asar reading refuses p
  finally { asar.extractFile = original; }
  assert.equal(replacements, 1);
 });
+
+test('actual asar development null identity requires explicit development expectation', async t => {
+ const input = { ...identity(), mode: 'development', applicationBuild: null };
+ const f = await fixture(t, createProductSdkIdentityModule(input));
+ const development = { ...f, applicationBuild: null, expectedMode: 'development' };
+ assert.deepEqual(await readPackagedProductSdkIdentity(development), input);
+ for (const expectedMode of ['without-sdk', 'sdk']) await assert.rejects(readPackagedProductSdkIdentity({ ...development, expectedMode }), code);
+ await assert.rejects(readPackagedProductSdkIdentity({ ...f, expectedMode: 'development' }), code);
+});

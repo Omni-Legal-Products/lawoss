@@ -58,3 +58,15 @@ test('generated module freezes nested identity when trusted application code imp
   assert.equal(Object.isFrozen(imported.default.sdk.capsule), true);
   assert.equal(Object.isFrozen(imported.default.applicationBuild), true);
 });
+
+test('development is an explicit null-build mode that cannot carry SDK authority', async () => {
+  const input = { ...identity('without-sdk'), mode: 'development', applicationBuild: null };
+  const module = createProductSdkIdentityModule(input);
+  assert.deepEqual(readProductSdkIdentityModule(module), input);
+  assert.deepEqual((await import(`data:text/javascript,${encodeURIComponent(module)}`)).default, input);
+  for (const bad of [
+    { ...input, mode: 'without-sdk' }, { ...input, mode: 'sdk' },
+    { ...input, applicationBuild: identity().applicationBuild },
+    { ...input, sdk: identity().sdk }, { ...input, target: { platform: 'win32', arch: 'ia32' } },
+  ]) assert.throws(() => createProductSdkIdentityModule(bad), invalid);
+});

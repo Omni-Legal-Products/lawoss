@@ -343,6 +343,15 @@ format as bounded plain data, freezes its nested objects and never evaluates it.
 Neither formatting nor parsing authenticates a compatibility proof or grants
 authority to adjacent resource metadata.
 
+The separate `development` mode requires exactly `applicationBuild: null` and
+`sdk: null`, while still validating the complete supported target. It preserves
+the existing development build-info writer's literal `null` result; it cannot
+carry SDK authority. The preparer accepts this only with an explicit
+`without-sdk` supplier, rejecting SDK suppliers before filesystem admission.
+Both packaged readers require an explicit development expectation. The composed
+gate checks public literal null and absent SDK resources, stages no SDK tools,
+and returns `status: 'development'`, never verified release identity.
+
 `readPackagedProductSdkIdentity` reads the fixed module member from an actual
 physical `app.asar` using the pinned builder's asar3.4.1 parser. It bounds the
 header allocation and member range/size first, refuses links/unpacked code,

@@ -300,3 +300,19 @@ test('native admission rejects malformed metadata without exposing its text or c
   }
   assert.deepEqual(await readdir(path.join(input.desktopRoot, 'resources')), []);
 });
+
+test('null development build permits only explicit without-sdk and writes no release claim', async t => {
+  const input = { ...await desktop(t), applicationBuild: null };
+  const result = await prepareProductSdkPackaging(input);
+  assert.deepEqual(result.identity, { schema: 1, kind: 'lawoss-product-sdk-packaging', mode: 'development',
+    applicationBuild: null, target, sdk: null });
+  assert.equal(result.resourceRoot, null);
+  assert.deepEqual(readProductSdkIdentityModule(await readFile(result.identityModulePath, 'utf8')), result.identity);
+});
+test('null build refuses accepted and native suppliers before any filesystem admission or generation', async () => {
+  for (const supplier of [
+    { mode: 'accepted', payloadRoot: '/absent', expectedManifestSha256: 'a'.repeat(64), acceptedLockSha256: 'b'.repeat(64), compatibilityBinding: {} },
+    { mode: 'native', consumerNode: '/absent', pnpmCli: '/absent', headSha: 'a'.repeat(40), checkoutSha: 'b'.repeat(40) },
+  ]) await assert.rejects(prepareProductSdkPackaging({ desktopRoot: '/absent-lawoss-no-filesystem-read',
+    target, applicationBuild: null, supplier }), { code: 'PRODUCT_SDK_PACKAGING_INVALID' });
+});

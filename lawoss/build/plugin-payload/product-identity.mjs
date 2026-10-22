@@ -32,9 +32,13 @@ function admit(input) {
   try {
     const value = snapshot(input);
     shape(value, ['schema', 'kind', 'mode', 'applicationBuild', 'target', 'sdk']);
-    if (value.schema !== 1 || value.kind !== 'lawoss-product-sdk-packaging' || !['sdk', 'without-sdk'].includes(value.mode)) invalid();
-    validateBuildInfo(value.applicationBuild);
+    if (value.schema !== 1 || value.kind !== 'lawoss-product-sdk-packaging' || !['sdk', 'without-sdk', 'development'].includes(value.mode)) invalid();
     const mode = sdkConsumerMode(value.target, SDK_LOCK_SHA256);
+    if (value.mode === 'development') {
+      if (value.applicationBuild !== null || value.sdk !== null) invalid();
+      return value;
+    }
+    validateBuildInfo(value.applicationBuild);
     if (value.applicationBuild.platform !== value.target.platform || value.applicationBuild.arch !== value.target.arch) invalid();
     if (value.mode === 'without-sdk') { if (value.sdk !== null) invalid(); return value; }
     const sdk = value.sdk;

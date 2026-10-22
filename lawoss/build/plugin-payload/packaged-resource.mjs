@@ -77,8 +77,8 @@ async function workspaceIdentity(root, expected) {
 export async function verifyPackagedProductSdk(options) {
   const input = inputData(options);
   const expected = readProductSdkIdentityModule(createProductSdkIdentityModule({ schema: 1,
-    kind: 'lawoss-product-sdk-packaging', mode: 'without-sdk', target: input.target, applicationBuild: input.applicationBuild, sdk: null }));
-  if (!['sdk', 'without-sdk'].includes(input.expectedMode)) invalid();
+    kind: 'lawoss-product-sdk-packaging', mode: input.expectedMode === 'development' ? 'development' : 'without-sdk', target: input.target, applicationBuild: input.applicationBuild, sdk: null }));
+  if (!['sdk', 'without-sdk', 'development'].includes(input.expectedMode)) invalid();
   const binding = { resourcesRoot: input.resourcesRoot, target: expected.target,
     expectedMode: input.expectedMode, applicationBuild: expected.applicationBuild };
   const resourceIdentity = await physical(input.resourcesRoot);
@@ -86,7 +86,7 @@ export async function verifyPackagedProductSdk(options) {
   await publicBuild(input.resourcesRoot, expected.applicationBuild);
   const resourceRoot = path.join(input.resourcesRoot, 'plugin-sdk');
   let workspace, parentIdentity, owner;
-  if (input.expectedMode === 'without-sdk') {
+  if (input.expectedMode !== 'sdk') {
     if (!await absent(resourceRoot)) invalid();
   } else {
     const validationParent = input.validationParent;
@@ -115,6 +115,6 @@ export async function verifyPackagedProductSdk(options) {
     await workspaceIdentity(input.validationParent, parentIdentity);
     if (!await absent(workspace)) invalid();
   } else if (!await absent(resourceRoot)) invalid();
-  return Object.freeze({ status: 'verified', mode: identity.mode, target: expected.target, applicationBuild: expected.applicationBuild,
+  return Object.freeze({ status: identity.mode === 'development' ? 'development' : 'verified', mode: identity.mode, target: expected.target, applicationBuild: expected.applicationBuild,
     ...(identity.mode === 'sdk' ? { manifestSha256: identity.sdk.manifestSha256, capsuleSha256: identity.sdk.capsule.sha256 } : {}) });
 }

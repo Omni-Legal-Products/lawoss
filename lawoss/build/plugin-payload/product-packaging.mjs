@@ -161,13 +161,14 @@ async function physical(directory) {
 export async function prepareProductSdkPackaging(options) {
   const input = fields(options, ['desktopRoot', 'target', 'supplier', 'applicationBuild']);
   const initial = readProductSdkIdentityModule(createProductSdkIdentityModule({ schema: 1,
-    kind: 'lawoss-product-sdk-packaging', mode: 'without-sdk', applicationBuild: input.applicationBuild,
+    kind: 'lawoss-product-sdk-packaging', mode: input.applicationBuild === null ? 'development' : 'without-sdk', applicationBuild: input.applicationBuild,
     target: input.target, sdk: null }));
   const supplier = data(input.supplier);
   if (supplier.mode === 'without-sdk') fields(supplier, ['mode']);
   else if (supplier.mode === 'accepted') fields(supplier, ['mode', 'payloadRoot', 'expectedManifestSha256', 'acceptedLockSha256', 'compatibilityBinding']);
   else if (supplier.mode === 'native') fields(supplier, ['mode', 'consumerNode', 'pnpmCli', 'headSha', 'checkoutSha']);
   else refuse();
+  if (initial.mode === 'development' && supplier.mode !== 'without-sdk') refuse();
   const desktopRoot = input.desktopRoot;
   if (typeof desktopRoot !== 'string' || desktopRoot.length > 4096 || !path.isAbsolute(desktopRoot) || path.resolve(desktopRoot) !== desktopRoot) refuse();
   await physical(desktopRoot);

@@ -315,3 +315,18 @@ test('real owned-directory cleanup EACCES cannot publish success or delete the v
   assert.equal((await lstat(payload)).isDirectory(), true);
   assert.equal((await lstat(path.join(f.input.resourcesRoot, 'app.asar'))).isFile(), true);
 });
+
+test('development actual asar and literal public null return development without reading validation parent', async t => {
+  const identity = { ...withoutSdk(), mode: 'development', applicationBuild: null };
+  const f = await packaged(t, identity);
+  f.input.applicationBuild = null;
+  await writeFile(path.join(f.input.resourcesRoot, 'build-info.json'), 'null\n');
+  assert.deepEqual(await verifyPackagedProductSdk(f.input), { status: 'development', mode: 'development', target, applicationBuild: null });
+  await assert.rejects(lstat(f.input.validationParent), { code: 'ENOENT' });
+  for (const expectedMode of ['without-sdk', 'sdk']) await assert.rejects(verifyPackagedProductSdk({ ...f.input, expectedMode }));
+  await writeFile(path.join(f.input.resourcesRoot, 'build-info.json'), JSON.stringify(applicationBuild));
+  await assert.rejects(verifyPackagedProductSdk(f.input));
+  await writeFile(path.join(f.input.resourcesRoot, 'build-info.json'), 'null\n');
+  await mkdir(path.join(f.input.resourcesRoot, 'plugin-sdk'));
+  await assert.rejects(verifyPackagedProductSdk(f.input), { code: 'PACKAGED_SDK_RESOURCE_INVALID' });
+});
