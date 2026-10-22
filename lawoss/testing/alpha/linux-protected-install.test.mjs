@@ -273,6 +273,9 @@ test('protected Linux preflight distinguishes each fixed tool and guard call sit
     ['cp-realpath', 'tool-trust', 'cp', 'realpath'],
     ['cp-ancestors', 'tool-trust', 'cp', 'ancestors'],
     ['cp-entry', 'tool-trust', 'cp', 'entry'],
+    ['chmod-realpath', 'tool-trust', 'chmod', 'realpath'],
+    ['chmod-ancestors', 'tool-trust', 'chmod', 'ancestors'],
+    ['chmod-entry', 'tool-trust', 'chmod', 'entry'],
     ['install-realpath', 'tool-trust', 'install', 'realpath'],
     ['install-ancestors', 'tool-trust', 'install', 'ancestors'],
     ['install-entry', 'tool-trust', 'install', 'entry'],
@@ -471,6 +474,142 @@ test('explicit owned Linux metadata container verifies protected files and refus
     assert.equal(await validateProtectedLinuxTree(destination), undefined);
   });
   assert.equal(await validateProtectedLinuxTree(root), undefined);
+});
+
+// Removing the production root policy must break ordinary-user traversal after
+// GNU cp preserves a 0700 extraction root. This child models only sudo dispatch;
+// copy/chmod, root ownership and uid/gid 65534 access are real Linux operations.
+async function productionCopyContainerFixture(moduleUrl) {
+  const assert = (await import('node:assert/strict')).default;
+  const childProcess = (await import('node:child_process')).default;
+  const { syncBuiltinESMExports } = await import('node:module');
+  const { readFile, writeFile, mkdir, mkdtemp, lstat, readdir, readlink, symlink, chmod, rename, rm } = await import('node:fs/promises');
+  const { createHash } = await import('node:crypto');
+  const path = (await import('node:path')).default;
+  const originalExecFile = childProcess.execFile;
+  let afterCopy, afterChmod, chmodCalls=0;
+  childProcess.execFile = (tool,args,options,callback) => {
+    assert.equal(tool,'/usr/bin/sudo');
+    assert.deepEqual(args.slice(0,2),['--non-interactive','--']);
+    assert.ok(['/usr/bin/mkdir','/usr/bin/cp','/usr/bin/chmod'].includes(args[2]));
+    if(args[2]==='/usr/bin/chmod')chmodCalls++;
+    return originalExecFile(args[2],args.slice(3),options,(error,stdout,stderr)=>{
+      const after=args[2]==='/usr/bin/cp'?afterCopy:args[2]==='/usr/bin/chmod'?afterChmod:undefined;
+      if(error || !after)return callback(error,stdout,stderr);
+      Promise.resolve().then(after).then(()=>callback(null,stdout,stderr),callback);
+    });
+  };
+  syncBuiltinESMExports();
+  // Expose the private operation only in this isolated in-memory test module.
+  // Production exports, routes and invocation authority remain unchanged.
+  const sourceText=await readFile(new URL(moduleUrl),'utf8');
+  const production=await import(`data:text/javascript;base64,${Buffer.from(`${sourceText}\nexport { copyProtectedLinuxTree };`).toString('base64')}`);
+  const root=await mkdtemp('/var/lib/lawoss-copy-policy-');
+  await chmod(root,0o755); // Owned outer fixture ancestry, never the copied app root.
+  const source=path.join(root,'source');
+  await mkdir(source,{mode:0o700});
+  await mkdir(path.join(source,'nested'),{mode:0o755});
+  await writeFile(path.join(source,'legalwork'),'Inert data; never execute.\n',{mode:0o755});
+  await writeFile(path.join(source,'nested','data'),'Preserve exact bytes 🐎\n',{mode:0o744});
+  await symlink('nested/data',path.join(source,'internal-link'));
+  async function inventory(directory) {
+    const entries=[];
+    async function visit(relative='') {
+      const filename=path.join(directory,relative),info=await lstat(filename);
+      const type=info.isSymbolicLink()?'link':info.isDirectory()?'directory':'file';
+      entries.push({relative,type,mode:info.mode&0o7777,uid:info.uid,gid:info.gid,
+        ...(type==='link'?{target:await readlink(filename)}:type==='file'?{sha256:createHash('sha256').update(await readFile(filename)).digest('hex')}:{})});
+      if(type==='directory')for(const name of (await readdir(filename)).sort())await visit(path.join(relative,name));
+    }
+    await visit();return entries;
+  }
+  const original=await inventory(source),sourceIdentity=await lstat(source);
+  function ordinaryReader(app,expected) {
+    const reader=childProcess.spawnSync(process.execPath,['--input-type=module'],{
+      uid:65534,gid:65534,encoding:'utf8',timeout:10000,maxBuffer:4096,
+      input:`import { validateProtectedLinuxTree } from ${JSON.stringify(moduleUrl)};
+        import { readFile } from 'node:fs/promises';
+        if(process.getuid()!==65534 || process.getgid()!==65534)process.exit(9);
+        try {await validateProtectedLinuxTree(${JSON.stringify(app)});await readFile(${JSON.stringify(path.join(app,'internal-link'))});console.log('readable');}
+        catch(error){if(${JSON.stringify(expected)}==='EACCES' && (error.path!==${JSON.stringify(app)} || error.syscall!=='scandir'))process.exit(8);console.log(error.code);process.exit(3);}`,
+    });
+    assert.equal(reader.error,undefined);assert.equal(reader.signal,null);assert.equal(reader.stderr,'');
+    assert.equal(reader.status,expected==='readable'?0:3,reader.stdout);assert.equal(reader.stdout.trim(),expected);
+  }
+  async function createCase(label) {
+    const stage=path.join(root,label);await mkdir(stage,{mode:0o755});
+    return {stage,app:path.join(stage,'app'),identity:await lstat(stage)};
+  }
+  try {
+    const good=await createCase('good');
+    let beforeCopyObserved=false,copiedIdentity;
+    afterCopy=async()=>{
+      copiedIdentity=await lstat(good.app);
+      assert.equal(copiedIdentity.uid,0);
+      assert.equal((await lstat(good.app)).mode&0o7777,0o700);
+      ordinaryReader(good.app,'EACCES');beforeCopyObserved=true;
+    };
+    await production.copyProtectedLinuxTree(source,good.app,good.identity,()=>{});
+    assert.equal(beforeCopyObserved,true);
+    assert.equal((await lstat(good.app)).mode&0o7777,0o755);
+    assert.equal(chmodCalls,1);
+    const installedIdentity=await lstat(good.app);
+    assert.equal(installedIdentity.uid,0);assert.equal(installedIdentity.ino,copiedIdentity.ino);assert.equal(installedIdentity.dev,copiedIdentity.dev);
+    ordinaryReader(good.app,'readable');
+    assert.deepEqual((await inventory(good.app)).slice(1),original.slice(1));
+    assert.deepEqual(await inventory(source),original);
+    assert.equal((await lstat(source)).ino,sourceIdentity.ino);
+    assert.equal((await lstat(source)).uid,sourceIdentity.uid);
+
+    const writable=await createCase('writable'),beforeWritable=chmodCalls;
+    afterCopy=()=>chmod(writable.app,0o777);
+    await assert.rejects(production.copyProtectedLinuxTree(source,writable.app,writable.identity,()=>{}),{code:'linux-protected-install-unverified'});
+    assert.equal(chmodCalls,beforeWritable);
+    assert.equal((await lstat(writable.app)).mode&0o7777,0o777);
+
+    const substituted=await createCase('substituted'),beforeSubstitution=chmodCalls;
+    afterCopy=async()=>{await rename(substituted.app,`${substituted.app}-original`);await mkdir(substituted.app,{mode:0o700});};
+    await assert.rejects(production.copyProtectedLinuxTree(source,substituted.app,substituted.identity,()=>{}),{code:'linux-protected-install-unverified'});
+    assert.equal(chmodCalls,beforeSubstitution);
+    assert.equal((await lstat(substituted.app)).mode&0o7777,0o700);
+    assert.equal((await lstat(`${substituted.app}-original`)).isDirectory(),true);
+
+    const preexisting=await createCase('preexisting'),beforeExisting=chmodCalls;
+    afterCopy=undefined;
+    await mkdir(preexisting.app,{mode:0o700});
+    await writeFile(path.join(preexisting.app,'unknown'),'Do not adopt.');
+    await assert.rejects(production.copyProtectedLinuxTree(source,preexisting.app,preexisting.identity,()=>{}),{code:'linux-protected-install-unverified'});
+    assert.equal(chmodCalls,beforeExisting);
+    assert.equal(await readFile(path.join(preexisting.app,'unknown'),'utf8'),'Do not adopt.');
+
+    const wrongMode=await createCase('wrong-mode');
+    afterChmod=()=>chmod(wrongMode.app,0o750);
+    await assert.rejects(production.copyProtectedLinuxTree(source,wrongMode.app,wrongMode.identity,()=>{}),{code:'linux-protected-install-unverified'});
+    assert.equal((await lstat(wrongMode.app)).mode&0o7777,0o750);
+    afterChmod=undefined;
+
+    const unsafe=await createCase('unsafe');afterCopy=undefined;
+    await chmod(path.join(source,'nested','data'),0o777);
+    await production.copyProtectedLinuxTree(source,unsafe.app,unsafe.identity,()=>{});
+    ordinaryReader(unsafe.app,'linux-protected-install-unverified');
+    assert.equal((await lstat(path.join(unsafe.app,'nested','data'))).mode&0o7777,0o777);
+    await chmod(path.join(source,'nested','data'),0o744);
+    assert.deepEqual(await inventory(source),original);
+    console.log(JSON.stringify({sudo:'modeled-exact-prefix',tools:'genuine-GNU',readerUid:65534,readerGid:65534,
+      before:'EACCES',after:'readable',sourceRootMode:'0700',installedRootMode:'0755',descendants:'unchanged',unsafeRoot:'refused',substitution:'refused',unsafeDescendant:'refused'}));
+  } finally {await rm(root,{recursive:true,force:true});}
+}
+
+test('production copy root policy makes only the owned 0700 container readable to an actual ordinary Linux user', { skip: !ownedMetadataContainer }, () => {
+  const child=spawnSync(process.execPath,['--input-type=module'],{
+    input:`await (${productionCopyContainerFixture.toString()})(${JSON.stringify(new URL('./linux-protected-install.mjs',import.meta.url).href)});`,
+    encoding:'utf8',timeout:30000,maxBuffer:65536,
+  });
+  assert.equal(child.error,undefined);assert.equal(child.signal,null);
+  assert.equal(child.status,0,child.stderr);
+  assert.equal(child.stderr,'');
+  assert.deepEqual(JSON.parse(child.stdout),{sudo:'modeled-exact-prefix',tools:'genuine-GNU',readerUid:65534,readerGid:65534,
+    before:'EACCES',after:'readable',sourceRootMode:'0700',installedRootMode:'0755',descendants:'unchanged',unsafeRoot:'refused',substitution:'refused',unsafeDescendant:'refused'});
 });
 
 const actualHostedLinuxUser = process.platform === 'linux' && ['x64', 'arm64'].includes(process.arch) && Number.isSafeInteger(process.getuid?.()) && process.getuid() > 0 && process.env.GITHUB_ACTIONS === 'true' && process.env.RUNNER_ENVIRONMENT === 'github-hosted';

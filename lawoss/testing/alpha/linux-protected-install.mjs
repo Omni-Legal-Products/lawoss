@@ -16,7 +16,7 @@ const preflightSteps = new Map([
   ['restriction-read', {boundary:'userns-restriction',tool:null,check:'read'}],
   ['initial-policy-presence', {boundary:'initial-policy-presence',tool:null,check:'presence'}],
 ]);
-for(const tool of ['sudo','mkdir','cp','install','rm','cat','parser']) {
+for(const tool of ['sudo','mkdir','cp','chmod','install','rm','cat','parser']) {
   for(const check of ['realpath','ancestors','entry']) {
     preflightSteps.set(`${tool}-${check}`,{boundary:tool==='parser'?'parser-trust':'tool-trust',tool,check});
   }
@@ -152,6 +152,27 @@ async function privileged(tool,args) {
     timeout:120000,maxBuffer:65536,encoding:'utf8',env:{PATH:'/usr/sbin:/usr/bin:/sbin:/bin',LANG:'C',LC_ALL:'C'},
   })).stdout;} catch {fail();}
 }
+async function copyProtectedLinuxTree(sourceRoot,app,stageIdentity,onOperation) {
+  async function appRootIdentity() {
+    await protectedAncestors(app);
+    const info=await lstat(app,{bigint:true});
+    if(!info.isDirectory() || info.uid!==0n || (info.mode&0o022n)!==0n)fail();
+    return info;
+  }
+  if(!same(stageIdentity,await protectedAncestors(dirname(app))))fail();
+  // Exclusive creation binds this container before cp can preserve source mode.
+  // Never merge into or adopt an existing app entry, even inside an owned stage.
+  await privileged('/usr/bin/mkdir',['--mode=0755','--',app]);
+  const appIdentity=await appRootIdentity();
+  await privileged('/usr/bin/cp',['--recursive','--no-dereference','--preserve=mode','--no-preserve=ownership,xattr','--',`${sourceRoot}/.`,app]);
+  onOperation('root-mode');
+  if(!same(appIdentity,await appRootIdentity()) || !same(stageIdentity,await protectedEntry(dirname(app),true)))fail();
+  // Explicit installation-container policy replaces extraction-root mode equality.
+  // Only this bound root becomes 0755; source and descendant metadata stay exact.
+  await privileged('/usr/bin/chmod',['0755','--',app]);
+  const installedRoot=await appRootIdentity();
+  if(!same(appIdentity,installedRoot) || !same(stageIdentity,await protectedEntry(dirname(app),true)) || (installedRoot.mode&0o7777n)!==0o755n)fail();
+}
 async function policyPresent(name) {
   // Kernel policy listing requires AppArmor policy-view privilege. Read only
   // this fixed file; retain bounded text privately and return one boolean.
@@ -185,7 +206,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
         stageTrustRefusal={ancestor:ancestor==='/var/lib'?'var-lib':ancestor==='/var'?'var':ancestor==='/'?'root':'unknown',predicate};
       });
       // Fixed tools and their canonical targets must also be root protected.
-      for(const tool of ['/usr/bin/sudo','/usr/bin/mkdir','/usr/bin/cp','/usr/bin/install','/usr/bin/rm','/usr/bin/cat']) {
+      for(const tool of ['/usr/bin/sudo','/usr/bin/mkdir','/usr/bin/cp','/usr/bin/chmod','/usr/bin/install','/usr/bin/rm','/usr/bin/cat']) {
         const label=posix.basename(tool);
         preflight=`${label}-realpath`;
         const physical=await realpath(tool);
@@ -216,11 +237,9 @@ export async function withProtectedLinuxArtifact(artifact,use) {
       operation='stage-bind';
       stageIdentity=await protectedEntry(stage,true);stageState='created';
       operation='tree-copy';
-      await privileged('/usr/bin/cp',['--recursive','--no-dereference','--preserve=mode','--no-preserve=ownership,xattr','--',`${dirname(source.installedApp)}/.`,app]);
+      await copyProtectedLinuxTree(dirname(source.installedApp),app,stageIdentity,value=>{operation=value;});
       operation='tree-validation';
       await validateProtectedLinuxTree(app,{onRootMetadata:value=>{rootMetadata=value;}});
-      operation='root-mode';
-      if(((await lstat(app)).mode&0o7777)!==((await lstat(dirname(source.installedApp))).mode&0o7777))fail();
       const installedApp=join(app,'legalwork');
       operation='installed-tree';
       const installation=await verifyAlphaInstallation({...artifact,installedApp});
