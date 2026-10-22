@@ -6,6 +6,7 @@
  */
 import { ChevronRight, MoreHorizontal } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { SidebarMenuSub, SidebarMenuSubButton } from "@/components/ui/sidebar";
@@ -15,6 +16,7 @@ import { clientDeadlines, clientGroupDirectory, ownerOfFolder } from "./client-p
 import { cardTitle, clientGroupOfProject, clientLabel, clientRowDeadline, groupOfDirectory, matterOfDirectory } from "./client-row";
 import { rowDeadlineText } from "./client-row-text";
 import { useClientNav, type PublishedClientNav } from "./client-nav";
+import { LEHOTY_PATH } from "./links";
 
 type ProjectRef = { id: string; path?: string | null };
 export type ClientRow = { label: string; tooltip?: string; status?: { text: string; urgency: string } };
@@ -61,11 +63,13 @@ export function ClientRowStatusLine({ status }: { status: NonNullable<ClientRow[
   return <span className="block truncate text-xs text-muted-foreground" data-lawoss-row-status="" data-urgency={status.urgency}>{status.text}</span>;
 }
 
-/** Bežný režim: zriedkavé položky klienta pod „Viac“; otvorené, keď je v nich otvorená stránka. */
-export function ClientMoreNavItem({ active = false, className, children }: { active?: boolean; className?: string; children: ReactNode }) {
+/** Bežný režim: zriedkavé položky klienta pod „Viac“; otvorené, keď je v nich otvorená stránka (aj Lehoty klienta). */
+export function ClientMoreNavItem({ active = false, workspaceId, className, children }: { active?: boolean; workspaceId?: string; className?: string; children: ReactNode }) {
   const locale = useLocale();
+  const { pathname, search } = useLocation();
+  const onDeadlines = Boolean(workspaceId) && pathname === LEHOTY_PATH && new URLSearchParams(search).get("klient") === workspaceId;
   const [chosen, setChosen] = useState<boolean | null>(null);
-  const open = chosen ?? active;
+  const open = chosen ?? (active || onDeadlines);
   return <li className="min-w-0" data-lawoss-project-more-item="">
     <SidebarMenuSubButton className={className} aria-expanded={open} data-lawoss-project-more="" onClick={() => setChosen(!open)}>
       <MoreHorizontal className="size-4" strokeWidth={1.5} />

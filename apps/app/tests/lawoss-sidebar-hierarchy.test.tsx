@@ -18,6 +18,7 @@ import type { ClientGroup } from "../src/lawoss/lite/today-model";
 import { addDays, today, type OkfReadResult, type OkfScope } from "../src/lawoss/okf/read-model";
 import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 import { shellCs, shellDe, shellEn, shellSk } from "../src/lawoss/i18n/shell";
+import { clientDeadlinesLink } from "../src/lawoss/lite/links";
 
 const source = (path: string) => readFileSync(join(import.meta.dir, "../src", path), "utf8");
 /** Prítomnosť atribútu `data-active` (natívny kontrakt), nie trieda `data-active:…`. */
@@ -193,6 +194,9 @@ describe("bežný režim: krátky zoznam pod klientom, Viac a accordion", () => 
     const open = html(<ul><ClientMoreNavItem active><li>Lehoty</li></ClientMoreNavItem></ul>);
     expect(open).toContain("Lehoty");
     expect(open).toMatch(/aria-expanded="true"[^>]*data-lawoss-project-more=""/);
+    // Lehoty klienta (jediná položka pod Viac s vlastnou trasou) otvoria Viac len pre svojho klienta.
+    expect(html(<ul><ClientMoreNavItem workspaceId="tatran"><li>Lehoty</li></ClientMoreNavItem></ul>, clientDeadlinesLink("tatran"))).toContain("Lehoty");
+    expect(html(<ul><ClientMoreNavItem workspaceId="ine"><li>Lehoty</li></ClientMoreNavItem></ul>, clientDeadlinesLink("tatran"))).not.toContain("Lehoty");
     expect([shellSk, shellCs, shellEn, shellDe].map((d) => d["lawoss.lite.nav_more"])).toEqual(["Viac", "Více", "More", "Mehr"]);
     expect([shellSk, shellCs, shellEn, shellDe].every((d) => d["lawoss.lite.client_folder_tooltip"].includes("{path}"))).toBe(true);
   });

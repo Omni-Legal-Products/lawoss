@@ -1176,7 +1176,7 @@ function WorkspaceSidebarGroup({
                   // LAWOSS (B3): bežný režim – krátky zoznam, zvyšok (aj Pracovný priestor) pod „Viac“; Pokročilý natívne.
                   const moreActive = isSelected && ["calendar", "reviews", "tasks", "workspace"].includes(ctx.activeProjectFeature ?? "");
                   return <>{projectNav.main.map(key => <React.Fragment key={key}>{!projectNav.lite && (key === "projectFiles" || (!projectNavItems.includes("projectFiles") && key === "projectSessions")) && workbench(true)}{item(key)}</React.Fragment>)}
-                  {projectNav.lite && <ClientMoreNavItem className={PROJECT_FEATURE_CLASS} active={moreActive}>{workbench(false)}{projectNav.more.map(key => <React.Fragment key={key}>{item(key)}</React.Fragment>)}</ClientMoreNavItem>}</>; })()}
+                  {projectNav.lite && <ClientMoreNavItem className={PROJECT_FEATURE_CLASS} active={moreActive} workspaceId={workspace.id}>{workbench(false)}{projectNav.more.map(key => <React.Fragment key={key}>{item(key)}</React.Fragment>)}</ClientMoreNavItem>}</>; })()}
                 </SidebarMenuSub>}
                 {!config.collapseProjectSessions && <RecentProjectSessions group={group} loading={showInitialLoading} />}
               </div>
