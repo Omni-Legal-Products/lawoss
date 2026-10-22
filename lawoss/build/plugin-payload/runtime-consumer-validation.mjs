@@ -8,7 +8,7 @@ import { initialize, prepare, runChild } from './prepare.mjs';
 import { primeAcceptedCache, ACCEPTED } from './prime-cache.mjs';
 import { assertConsumer, testCounts } from './native-validation.mjs';
 import { preflightTools } from './tools-preflight.mjs';
-import { verifyPayload, sha256, fail, IMPORTS } from './validate.mjs';
+import { verifyPayload, sha256, fail, IMPORTS, assertTargetSdkProbe } from './validate.mjs';
 import { validatePnpm } from '../../engine-dependencies/package-runtime.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -32,8 +32,13 @@ const ownData = (value, key) => {
 const loaderCodes = new Set(['MODULE_NOT_FOUND', 'ERR_MODULE_NOT_FOUND', 'ERR_DLOPEN_FAILED', 'ERR_DLOPEN_DISABLED', 'unknown']);
 // The existing assertion remains authoritative. A synchronous failure observer
 // receives primitives only; neither probe getters nor observer errors replace it.
-export function assertRuntimeConsumerProbe(value, onFailure) {
-  try { assertConsumer(value); }
+export function assertRuntimeConsumerProbe(value, onFailure, binding) {
+  try {
+    // Binding comes only from the verified producer manifest. Without it retain
+    // the original strict native-loaded assertion (including the old Bun lane).
+    if (binding !== undefined) return assertTargetSdkProbe(value, binding.target, binding.lockSha256);
+    assertConsumer(value);
+  }
   catch (primary) {
     try {
       const imports = ownData(value, 'imports');
@@ -64,11 +69,11 @@ async function executable(input) {
 
 export async function validateRuntimeConsumer(consumerNode, pnpmCli) {
   const summary = {
-    schema: 1, kind: 'plugin-sdk-runtime-consumer', status: 'failed', failedStage: 'admission', code: null,
+    schema: 2, kind: 'plugin-sdk-runtime-consumer', status: 'failed', failedStage: 'admission', code: null,
     headSha: null, checkoutSha: null, target: { platform: process.platform, arch: process.arch },
     accepted: ACCEPTED, sources: null, producer: null, consumer: null,
-    acquisition: null, tests: { producer: null, consumer: null }, payloadManifestSha256: null,
-    assertions: { producerVerified: false, nativeLoaded: false, consumerVerified: false, unchanged: false },
+    acquisition: null, tests: { producer: null, consumer: null }, payloadManifestSha256: null, consumerMode: null,
+    assertions: { producerVerified: false, nativeLoaded: false, nativeCapability: false, consumerVerified: false, unchanged: false },
     scope: 'dependency compatibility only; no product hook, engine startup or installed-application acceptance',
   };
   let stage = 'admission';
@@ -106,7 +111,7 @@ export async function validateRuntimeConsumer(consumerNode, pnpmCli) {
     const producerTap = await runChild(['--test', '--test-reporter=tap', ...[
       'prepare.test.mjs', 'prime-cache.test.mjs', 'native-validation.test.mjs', 'runtime-consumer.test.mjs',
     ].map(name => path.join(HERE, name))], workspace, { json: false });
-    summary.tests.producer = testCounts(producerTap, 47);
+    summary.tests.producer = testCounts(producerTap, 49);
 
     stage = 'acquisition';
     const acquired = await primeAcceptedCache({ workspace });
@@ -120,10 +125,13 @@ export async function validateRuntimeConsumer(consumerNode, pnpmCli) {
     const payload = await prepare({ workspace });
     const require = createRequire(new URL('./tools/package.json', import.meta.url));
     const before = await verifyPayload(payload, require('@npmcli/arborist'));
-    assertRuntimeConsumerProbe(before.imports, observation => { summary.producerProbe = observation; });
+    summary.consumerMode = assertRuntimeConsumerProbe(before.imports, observation => { summary.producerProbe = observation; }, {
+      target: before.target, lockSha256: before.lockSha256,
+    });
     summary.payloadManifestSha256 = sha256(await readFile(path.join(payload, 'payload-manifest.json')));
     summary.assertions.producerVerified = true;
-    summary.assertions.nativeLoaded = true;
+    summary.assertions.nativeLoaded = before.imports.native === 'loaded';
+    summary.assertions.nativeCapability = true;
 
     stage = 'consumer';
     const consumerTap = await runChild(['--test', '--test-reporter=tap', path.join(HERE, 'runtime-consumer.integration.test.mjs')],

@@ -5,6 +5,7 @@ import path from 'node:path';
 export const INPUT = Object.freeze({ name: 'lawoss-plugin-sdk-payload', version: '1.0.0', private: true, dependencies: Object.freeze({ '@opencode-ai/plugin': '1.18.29' }) });
 export const REGISTRY = 'https://registry.npmjs.org/';
 export const SDK_INTEGRITY = 'sha512-IhF83EU4I/ASgWwvm0FIh1O3a8ZVuCLqPrCbmSHdSYq7GHxIYe773i6dHqcbrzCzvlG/lP2H+dyTQ+xPAwFpbw==';
+export const SDK_LOCK_SHA256 = '59f4b854ddab534533fd878c5a7c325a7a1bc3382294d68111cff005920a4053';
 export const DIRECT = { zod: '4.1.8', effect: '4.0.0-beta.83', '@ai-sdk/provider': '3.0.8', '@opencode-ai/sdk': '1.18.29' };
 export const PEERS = { '@opentui/core': '>=0.4.5', '@opentui/solid': '>=0.4.5', '@opentui/keymap': '>=0.4.5' };
 export const fail = code => { throw Object.assign(new Error(code), { code }); };
@@ -16,6 +17,27 @@ function sort(value) {
 }
 export const sha256 = value => createHash('sha256').update(value).digest('hex');
 const equal = (a, b) => canonical(a) === canonical(b);
+// Capabilities of this exact accepted closure, not a generic architecture rule.
+// WinARM has no prebuild; LinuxARM's accepted prebuilds are musl-only. The
+// upstream codec keeps its JavaScript implementation when native is unavailable.
+const consumerModes = new Map([
+  ['darwin/arm64', 'native-loaded'], ['darwin/x64', 'native-loaded'],
+  ['linux/x64/glibc', 'native-loaded'], ['win32/x64', 'native-loaded'],
+  ['linux/arm64/glibc', 'javascript-fallback'], ['win32/arm64', 'javascript-fallback'],
+]);
+export function sdkConsumerMode(target, lockSha256) {
+  try {
+    if (lockSha256 !== SDK_LOCK_SHA256 || !target || typeof target !== 'object' || Array.isArray(target)) fail('CONSUMER_TARGET_UNSUPPORTED');
+    const fields = Object.getOwnPropertyDescriptors(target);
+    const platform = fields.platform?.value, arch = fields.arch?.value, libc = fields.libc?.value;
+    const keys = platform === 'linux' ? ['arch', 'libc', 'platform'] : ['arch', 'platform'];
+    if (!['darwin', 'linux', 'win32'].includes(platform) || !['x64', 'arm64'].includes(arch) ||
+      !equal(Object.keys(fields).sort(), keys) || (platform === 'linux' && libc !== 'glibc')) fail('CONSUMER_TARGET_UNSUPPORTED');
+    const mode = consumerModes.get([platform, arch, ...(platform === 'linux' ? [libc] : [])].join('/'));
+    if (!mode) fail('CONSUMER_TARGET_UNSUPPORTED');
+    return mode;
+  } catch { fail('CONSUMER_TARGET_UNSUPPORTED'); }
+}
 const maps = ['dependencies', 'optionalDependencies', 'peerDependencies', 'peerDependenciesMeta', 'engines', 'os', 'cpu', 'libc'];
 export function validateInputs(input, lock) {
   if (!equal(input, INPUT) || !lock || lock.name !== INPUT.name || lock.version !== INPUT.version || lock.lockfileVersion !== 3 || !lock.packages || Object.keys(lock.packages).length < 6 || Object.keys(lock.packages).length > 256) fail('INPUT_INVALID');
@@ -118,6 +140,12 @@ export const IMPORTS = [
   '@opencode-ai/plugin/v2/effect/plugin', '@opencode-ai/plugin/v2/effect/integration',
   'zod', 'effect', '@ai-sdk/provider', '@opencode-ai/sdk',
 ];
+export function assertTargetSdkProbe(value, target, lockSha256) {
+  const mode = sdkConsumerMode(target, lockSha256);
+  const expectedNative = mode === 'native-loaded' ? 'loaded' : 'fallback';
+  if (!equal(value?.imports, IMPORTS) || value.native !== expectedNative || value.guard !== true || value.roundtrip !== true) fail('CONSUMER_INVALID');
+  return mode;
+}
 // The producer gate remains bound to the executing build runtime.
 export async function verifyPayload(root, Arborist) {
   return verify(root, Arborist, process.version);
@@ -146,7 +174,7 @@ async function verify(root, Arborist, producerNode, manifestSha256) {
     if (manifest.schema !== 1 || manifest.sdk.name !== '@opencode-ai/plugin' || manifest.sdk.version !== '1.18.29' || manifest.sdk.integrity !== SDK_INTEGRITY || manifest.node !== producerNode || manifest.arborist !== '9.4.0' || manifest.scripts !== false || manifest.target.platform !== process.platform || manifest.target.arch !== process.arch || manifest.lockSha256 !== sha256(lockBytes) || manifest.lockSha256 !== sha256(acceptedBytes) || manifest.inputSha256 !== sha256(inputBytes) || manifest.inputSha256 !== sha256(await readFile(new URL('./sdk/package.json', import.meta.url)))) fail('PAYLOAD_INVALID');
     if (process.platform === 'linux' && manifest.target.libc !== (process.report.getReport().header.glibcVersionRuntime ? 'glibc' : 'musl')) fail('PAYLOAD_INVALID');
     if (!equal(manifest.imports?.imports, IMPORTS) || !['loaded', 'fallback', 'absent'].includes(manifest.imports?.native)) fail('PAYLOAD_INVALID');
-    if (manifestSha256 !== undefined && (manifest.imports.native !== 'loaded' || manifest.imports.guard !== true || manifest.imports.roundtrip !== true)) fail('PAYLOAD_INVALID');
+    if (manifestSha256 !== undefined) assertTargetSdkProbe(manifest.imports, manifest.target, manifest.lockSha256);
     if (!Array.isArray(manifest.closure) || !Array.isArray(manifest.inertOptional) || new Set([...manifest.closure, ...manifest.inertOptional]).size !== Object.keys(lock.packages).length || !equal([...manifest.closure, ...manifest.inertOptional].sort(), Object.keys(lock.packages).sort())) fail('PAYLOAD_INVALID');
     for (const location of manifest.inertOptional) if (!lock.packages[location]?.optional) fail('PAYLOAD_INVALID');
     const files = (await inventory(root)).filter(record => record.path !== 'payload-manifest.json');

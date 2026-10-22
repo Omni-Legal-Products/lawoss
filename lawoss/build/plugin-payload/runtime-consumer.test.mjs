@@ -1,13 +1,57 @@
 import './network-guard.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { verifyRuntimePayload } from './validate.mjs';
+import * as validation from './validate.mjs';
+const { verifyRuntimePayload } = validation;
 import * as runtime from './runtime-consumer-validation.mjs';
 const { runtimeConsumerFailureCode } = runtime;
 
 test('the consumer verifier refuses the build runtime before reading a payload', async () => {
   assert.equal(process.version, 'v24.21.0');
   await assert.rejects(verifyRuntimePayload('must-not-be-read', '0'.repeat(64)), { code: 'PAYLOAD_RUNTIME_UNSUPPORTED' });
+});
+
+test('the exact SDK lock distinguishes optional acceleration from six-target functionality', () => {
+  const lock = '59f4b854ddab534533fd878c5a7c325a7a1bc3382294d68111cff005920a4053';
+  const cases = [
+    [{ platform: 'darwin', arch: 'arm64' }, 'native-loaded'],
+    [{ platform: 'darwin', arch: 'x64' }, 'native-loaded'],
+    [{ platform: 'linux', arch: 'x64', libc: 'glibc' }, 'native-loaded'],
+    [{ platform: 'win32', arch: 'x64' }, 'native-loaded'],
+    [{ platform: 'linux', arch: 'arm64', libc: 'glibc' }, 'javascript-fallback'],
+    [{ platform: 'win32', arch: 'arm64' }, 'javascript-fallback'],
+  ];
+  for (const [target, expected] of cases) assert.equal(validation.sdkConsumerMode(target, lock), expected);
+  for (const target of [undefined, {}, { platform: 'linux', arch: 'arm64', libc: 'musl' },
+    { platform: 'linux', arch: 'arm64' }, { platform: 'win32', arch: 'ia32' },
+    { platform: 'darwin', arch: 'arm64', libc: 'glibc' },
+    { platform: 'linux/arm64', arch: 'glibc' }, { platform: 'win32/x64', arch: '' },
+    { platform: 'linux', arch: 'arm64/glibc', libc: '' }]) {
+    assert.throws(() => validation.sdkConsumerMode(target, lock), { code: 'CONSUMER_TARGET_UNSUPPORTED' });
+  }
+  assert.throws(() => validation.sdkConsumerMode(cases[4][0], '0'.repeat(64)), { code: 'CONSUMER_TARGET_UNSUPPORTED' });
+});
+
+test('target-bound JavaScript compatibility still requires every import, guard and real roundtrip', async () => {
+  const { IMPORTS } = validation;
+  const lock = '59f4b854ddab534533fd878c5a7c325a7a1bc3382294d68111cff005920a4053';
+  const fallback = { imports: IMPORTS, native: 'fallback', guard: true, roundtrip: true };
+  for (const target of [{ platform: 'linux', arch: 'arm64', libc: 'glibc' }, { platform: 'win32', arch: 'arm64' }]) {
+    assert.equal(validation.assertTargetSdkProbe(fallback, target, lock), 'javascript-fallback');
+    assert.equal(runtime.assertRuntimeConsumerProbe(fallback, () => assert.fail('Expected compatibility is not a failure'), {
+      target, lockSha256: lock,
+    }), 'javascript-fallback');
+    for (const patch of [{ imports: IMPORTS.slice(1) }, { native: 'absent' }, { native: 'loaded' }, { guard: false }, { roundtrip: false }]) {
+      assert.throws(() => validation.assertTargetSdkProbe({ ...fallback, ...patch }, target, lock), { code: 'CONSUMER_INVALID' });
+    }
+    // The original, untargeted assertion never turns a fallback into native PASS.
+    assert.throws(() => runtime.assertRuntimeConsumerProbe(fallback), { code: 'CONSUMER_INVALID' });
+  }
+  for (const target of [{ platform: 'darwin', arch: 'arm64' }, { platform: 'darwin', arch: 'x64' },
+    { platform: 'linux', arch: 'x64', libc: 'glibc' }, { platform: 'win32', arch: 'x64' }]) {
+    assert.throws(() => validation.assertTargetSdkProbe(fallback, target, lock), { code: 'CONSUMER_INVALID' });
+    assert.equal(validation.assertTargetSdkProbe({ ...fallback, native: 'loaded' }, target, lock), 'native-loaded');
+  }
 });
 
 test('runtime consumer rejection preserves the strict gate and reports only primitive probe facts', async () => {

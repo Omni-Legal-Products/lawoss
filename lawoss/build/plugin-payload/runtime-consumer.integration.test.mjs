@@ -13,6 +13,18 @@ const workspace = process.env.PAYLOAD_VALIDATION_WORKSPACE;
 assert.ok(workspace && path.isAbsolute(workspace), 'PAYLOAD_VALIDATION_WORKSPACE must contain a genuine payload');
 const root = path.join(workspace, 'payload');
 assert.equal(process.version, 'v22.23.2', 'run with the Node shipped by LAWOSS');
+// Golden target expectations come from the accepted archive/loader inspection,
+// independently of the policy function being exercised. These are native tests
+// only when this file actually runs on that target; unit model cases are not.
+const nativeStates = new Map([
+  ['darwin/arm64', 'loaded'], ['darwin/x64', 'loaded'], ['linux/x64/glibc', 'loaded'],
+  ['win32/x64', 'loaded'], ['linux/arm64/glibc', 'fallback'], ['win32/arm64', 'fallback'],
+]);
+const targetKey = [process.platform, process.arch, ...(process.platform === 'linux'
+  ? [process.report.getReport().header.glibcVersionRuntime ? 'glibc' : 'musl'] : [])].join('/');
+const expectedNative = nativeStates.get(targetKey);
+assert.ok(expectedNative, 'the native test must run on a supported product target');
+const expectedMode = expectedNative === 'loaded' ? 'native-loaded' : 'javascript-fallback';
 
 async function copy(t) {
   const base = new URL('./.work/test-fixtures/', import.meta.url);
@@ -32,7 +44,7 @@ test('shipped Node verifies a Node24-produced payload against the build-bound ma
   const bytes = await readFile(path.join(root, 'payload-manifest.json'));
   const manifest = JSON.parse(bytes);
   assert.equal(manifest.node, 'v24.21.0');
-  assert.equal(manifest.imports.native, 'loaded');
+  assert.equal(manifest.imports.native, expectedNative);
   const result = await payload.verifyRuntimePayload(root, payload.sha256(bytes));
   assert.deepEqual(result, manifest);
   assert.deepEqual(await readFile(path.join(root, 'payload-manifest.json')), bytes);
@@ -52,13 +64,13 @@ test('changed package bytes and a self-consistent replacement receipt cannot rep
   assert.equal(await readFile(target, 'utf8'), 'untrusted replacement', 'admission never repairs or rewrites content');
 });
 
-test('consumer admission retains the exact producer, native target and positive native import contract', async t => {
+test('consumer admission retains the exact producer, actual target and its required import contract', async t => {
   const fixture = await copy(t);
   for (const mutate of [
     manifest => { manifest.node = 'v22.23.2'; },
     manifest => { manifest.target.arch = process.arch === 'x64' ? 'arm64' : 'x64'; },
     manifest => { manifest.target.platform = process.platform === 'win32' ? 'linux' : 'win32'; },
-    manifest => { manifest.imports.native = 'fallback'; },
+    manifest => { manifest.imports.native = expectedNative === 'loaded' ? 'fallback' : 'loaded'; },
     manifest => { manifest.imports.guard = false; },
     manifest => { manifest.imports.roundtrip = false; },
   ]) {
@@ -77,7 +89,7 @@ test('runtime admission requires an external digest and does not relax the origi
   await assert.rejects(payload.verifyPayload(root), { code: 'PAYLOAD_INVALID' });
 });
 
-test('the verified payload really imports and loads native acceleration under shipped Node with network denied', async t => {
+test('the verified payload performs all imports and its target codec path under shipped Node with network denied', async t => {
   const fixture = await copy(t);
   const before = await payload.verifyRuntimePayload(fixture.destination, fixture.digest);
   const probe = path.join(fixture.destination, '.payload-import-check.mjs');
@@ -86,23 +98,37 @@ test('the verified payload really imports and loads native acceleration under sh
     await writeFile(probe, await readFile(new URL('./import-check.mjs', import.meta.url)), { flag: 'wx' });
     result = await runChild([probe, fixture.destination], fixture.workspace, { timeout: 60000, signal: t.signal });
   } finally { await rm(probe, { force: true }); }
-  assert.deepEqual(result, { imports: payload.IMPORTS, native: 'loaded', guard: true, roundtrip: true });
+  const required = { imports: payload.IMPORTS, native: expectedNative, guard: true, roundtrip: true };
+  assert.deepEqual({ imports: result.imports, native: result.native, guard: result.guard, roundtrip: result.roundtrip }, required);
+  if (expectedNative === 'loaded') assert.deepEqual(result, required, 'native-positive success JSON remains unchanged');
+  assert.equal(assertRuntimeConsumerProbe(result, () => assert.fail('Supported target functionality is not a failure'), {
+    target: before.target, lockSha256: before.lockSha256,
+  }), expectedMode);
   assert.deepEqual(await payload.verifyRuntimePayload(fixture.destination, fixture.digest), before);
 });
 
-test('an actual corrupted native binary stays refused and reports only its fixed loader boundary', async t => {
+test('corrupted target payload stays refused and required native targets retain the fixed loader boundary', async t => {
   const fixture = await copy(t);
   const manifest = JSON.parse(fixture.bytes);
   const binaries = manifest.files.filter(record => record.path.startsWith('node_modules/@msgpackr-extract/') && record.path.endsWith('.node'));
-  assert.ok(binaries.length > 0, 'the genuine native-positive fixture contains its applicable binary');
-  for (const record of binaries) await writeFile(path.join(fixture.destination, record.path), 'invalid native fixture');
+  if (expectedNative === 'loaded') {
+    assert.ok(binaries.length > 0, 'the genuine native-positive fixture contains its applicable binary');
+    for (const record of binaries) await writeFile(path.join(fixture.destination, record.path), 'invalid native fixture');
+  } else {
+    const tool = 'node_modules/@opencode-ai/plugin/dist/tool.js';
+    assert.ok(manifest.files.some(record => record.path === tool));
+    await writeFile(path.join(fixture.destination, tool), "throw new Error('synthetic corrupt SDK fixture');\n");
+  }
   await assert.rejects(payload.verifyRuntimePayload(fixture.destination, fixture.digest), { code: 'PAYLOAD_INVALID' });
   const probe = path.join(fixture.destination, '.payload-import-check.mjs');
   let result;
   try {
     await writeFile(probe, await readFile(new URL('./import-check.mjs', import.meta.url)), { flag: 'wx' });
-    result = await runChild([probe, fixture.destination], fixture.workspace, { timeout: 60000, signal: t.signal });
+    const operation = runChild([probe, fixture.destination], fixture.workspace, { timeout: 60000, signal: t.signal });
+    if (expectedNative === 'loaded') result = await operation;
+    else await assert.rejects(operation, { code: 'IMPORT_FAILED' });
   } finally { await rm(probe, { force: true }); }
+  if (expectedNative !== 'loaded') return; // Executed refusal assertion above, never a skipped case.
   assert.equal(result.native, 'fallback');
   assert.equal(result.roundtrip, true);
   assert.deepEqual(result.nativeFailure, { stage: 'extract-load', code: 'ERR_DLOPEN_FAILED' });

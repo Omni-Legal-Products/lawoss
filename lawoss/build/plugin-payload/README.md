@@ -16,8 +16,8 @@ are recorded, and source-license collection remains a redistribution follow-up.
 
 `verifyRuntimePayload(root, manifestSha256)` is a separate read-only verifier
 for the product's exact **Node 22.23.2**. It requires a payload produced by
-**Node 24.21.0**, the same native platform/architecture/libc, positive guarded
-imports/native acceleration/roundtrip, the accepted input/full lock, and the
+**Node 24.21.0**, the same native platform/architecture/libc, all10 guarded
+imports, a real roundtrip, the exact target codec mode, the accepted input/full lock, and the
 complete unchanged file inventory. The original `verifyPayload` producer gate
 still binds the receipt to its executing Node version.
 
@@ -32,21 +32,43 @@ Node24.21.0 with `LAWOSS_PR_HEAD` and `LAWOSS_CHECKOUT_SHA` set to exact40hex
 identities. It creates a fresh owned `.work/runtime-consumer-validation` workspace;
 existing workspaces and summaries are refused. It installs only the frozen
 standalone tools using genuine pnpm11.4.0 and private configuration/store, runs
-47 producer units, acquires all32 accepted tarballs once, prepares/verifies the
+49 producer units, acquires all32 accepted tarballs once, prepares/verifies the
 genuine payload offline, then requires all6 consumer integrations under Node22.
-The consumer imports all10 SDK entries with network denied and checks native
-acceleration. A corrupted native-binary fixture must remain refused and expose
-only the existing loader boundary and allowlisted code. It also rejects corrupted files, replacement receipts, mismatched
-targets/producers and missing digest/native proof. No skips count as acceptance.
+The consumer imports all10 SDK entries with network denied and checks the exact
+target codec mode. The four native-loaded targets require a corrupted native-binary
+fixture to remain refused and expose only the existing loader boundary and
+allowlisted code. The two fallback targets instead corrupt a real required SDK
+module and require import refusal. It also rejects corrupted files, replacement
+receipts, mismatched targets/producers and missing digest/capability proof. No skips count as acceptance.
 Source, both executables and the complete payload are rechecked afterward.
 
-When the existing strict producer consumer-check fails, `producerProbe` may
+The capability table binds to accepted lock SHA256
+`59f4b854ddab534533fd878c5a7c325a7a1bc3382294d68111cff005920a4053`:
+
+| Target | Required codec mode |
+| --- | --- |
+| macOS x64 / ARM64, Linux glibc x64, Windows x64 | `native-loaded` |
+| Linux glibc ARM64, Windows ARM64 | `javascript-fallback` |
+
+The accepted msgpackr2.1.0 README and implementation describe native extraction
+as optional string-parsing acceleration. The accepted ARM64 Linux3.0.4 package
+has only musl-tagged prebuilds, and no Windows ARM64 prebuild is accepted. Thus
+these two targets must explicitly report a functional JavaScript codec; this is
+not a native-acceleration PASS. Unknown targets, malformed tuples and any changed
+lock are refused. Every target still requires full physical integrity, all imports,
+guard and roundtrip. Schema2 reports `consumerMode` and truthful `nativeLoaded`
+(false for fallback); `nativeCapability` means the exact target contract passed.
+The original unbound strict assertion and existing Windows x64/Bun lane stay strict.
+
+When a producer consumer-check fails, `producerProbe` may
 report only closed primitive import/native/guard/roundtrip observations and a
 fixed native loader scope/code. Accessors, paths, raw errors and command output
 are excluded. The `msgpackr-load` scope covers the existing outer require and
 roundtrip block; it does not identify an exact failed inner call. Success probe
-JSON and strict native-loaded acceptance are unchanged. Historical ARM failures
-without this tuple remain unknown; a missing native-loaded proof is not PASS.
+JSON is unchanged. Historical ARM failures without this tuple remain unknown;
+source inspection does not identify their failed field. Native execution of the
+new candidate on all six targets, actual engine/Bun use and representative fallback
+workload performance remain separate proof obligations.
 
 Only `.work/runtime-consumer-summary.json` is published by the separate
 `plugin-sdk-runtime.yml` six-native-target matrix. This finite summary carries
