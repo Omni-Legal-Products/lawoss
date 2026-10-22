@@ -455,3 +455,20 @@ mutation; modeled Windows paths are not native ownership evidence.
 
 Focused verification uses the existing Node test runner:
 `node --test lawoss/engine-dependencies/config-roles.test.mjs lawoss/engine-dependencies/managed-sdk-authority.test.mjs lawoss/build/plugin-payload/product-identity.test.mjs`.
+
+## Accepted-version metadata fixture policy
+
+`native-merged-cache-projection.mjs` is a pure prerequisite for a derived
+offline test cache. The owner must first admit exact SDK lock/public-manifest
+bytes and pinned npm APIs. Projection preserves accepted-version JSON values,
+keeps only that candidate and existing matching tags, and checks the complete
+32-package graph against the lock and available27 public manifests. Five
+foreign native manifests remain absent; only the three witnessed optional
+plugin peers may be missing. Source whitespace is represented by separate raw
+body hashes, not a claim of lexical JSON preservation.
+
+The fixed cache adapter has actual full/corgi offline byte-readback coverage
+with public cacache and pinned make-fetch-happen. A shared URL key does not
+prove both representations. These supplemental tests do not execute the
+original47 or repair the active cache: worker, parent sequencing, unchanged
+raw evidence and genuine retained-input replay remain separate work.
