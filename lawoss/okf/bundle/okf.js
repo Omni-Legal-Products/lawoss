@@ -1367,8 +1367,16 @@ var OFFICE_DIRS = ["Office", "_kancelaria"];
 var OFFICE_EVIDENCE = new Set(["agents.md", "claude.md", "memory"]);
 var CLIENTS_DIR = "Klienti";
 var LETTER = /^\p{Lu}$/u;
-var CODE = /^(\p{Lu}{1,3})[-_ ]?\d{2,5}(?=$|[\s_.,-])/u;
-var codePrefix = (name) => CODE.exec(name)?.[1];
+var CODE = /^(\p{Lu}{1,3})[-_ ]?(\d{3,5})(?=$|[\s_.,-])/u;
+var YEAR = /^(?:19|20)\d{2}$/;
+var CAMERA_PREFIXES = new Set(["IMG", "DSC", "PIC", "MVI", "VID", "MOV", "PXL", "SAM", "DJI"]);
+var codeOf = (name) => {
+  const match = CODE.exec(name);
+  const [whole, prefix, digits] = match ?? [];
+  if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix))
+    return;
+  return { prefix, rest: name.slice(whole.length).replace(/^[\s_.,-]+/, "") };
+};
 var nameOf = (path) => path.split("/").pop() ?? path;
 var indexChildren = (entries) => {
   const index = new Map;
@@ -1432,16 +1440,21 @@ function matchPattern(index, pattern) {
   return level.filter(Boolean).map((path) => ({ path, name: nameOf(path) }));
 }
 function codedHierarchy(index, candidates) {
-  const coded = candidates.filter((candidate) => codePrefix(nameOf(candidate.path)) !== undefined);
+  const coded = candidates.flatMap((candidate) => {
+    const code = codeOf(nameOf(candidate.path));
+    return code ? [{ candidate, code }] : [];
+  });
   if (coded.length < CODED_MIN_CLIENTS || coded.length * 2 < candidates.length)
     return false;
-  const prefixes = new Set(coded.map((candidate) => codePrefix(nameOf(candidate.path))));
-  if (prefixes.size !== 1)
-    return false;
+  const prefixes = new Set(coded.map(({ code }) => code.prefix));
   const [prefix] = prefixes;
-  return coded.every((candidate) => childrenOf(index, candidate.path).some((entry) => {
-    const child = entry.kind === "directory" ? codePrefix(nameOf(entry.path)) : undefined;
-    return child !== undefined && child !== prefix;
+  if (prefixes.size !== 1 || !prefix)
+    return false;
+  if (coded.filter(({ code }) => startsWithMatterWord(code.rest)).length * 2 >= coded.length)
+    return false;
+  return coded.every(({ candidate }) => childrenOf(index, candidate.path).some((entry) => {
+    const child = entry.kind === "directory" ? codeOf(nameOf(entry.path)) : undefined;
+    return child !== undefined && child.prefix !== prefix;
   }));
 }
 function legacyOffice(index) {

@@ -198,6 +198,14 @@ test("kódovaná hierarchia: negatívne prípady ostávajú klientom", async () 
     ["Office/", "Klienti/A/"],
     // Rovnaký prefix na oboch úrovniach nie je prax.
     ["C001 Alfa/C010 podklady/", "C002 Beta/C020 podklady/"],
+    // Review A4, I-1: jeden klient s číslovanými vecami a sekciami, roky, fiškálne roky, fotky.
+    ["M001 Spor/D01 Podania/", "M002 Zmluva/D02 Drafty/", "M003 Exekúcia/D01 x/"],
+    ["M001 Spor/D001 Podania/", "M002 Zmluva/D002 Drafty/", "M003 Exekúcia/D001 x/"],
+    ["SP-2023-01 Novák/K-01 Korešpondencia/", "SP-2023-02 Hraško/K-02 Podania/"],
+    ["FY2023/Q01 Faktúry/", "FY2024/Q02 Faktúry/"],
+    ["IMG_2023 Leto/DSC 001 Pláž/", "IMG_2024 Zima/DSC 002 Hory/"],
+    ["2023/A001 x/", "2024/A002 y/"],
+    ["IMG_0001 Leto/DSC_0002 Pláž/", "IMG_0003 Zima/DSC_0004 Hory/"],
   ]) {
     const suggestion = await suggestOnboardingLevel(await tree(paths));
     expect(suggestion.level).not.toBe("practice");

@@ -8,7 +8,7 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 import { realpath } from "../canonical-path.ts";
 import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
 import { findAncestorOffice, VOLATILE_ENTRY } from "./classify.ts";
-import { hasLegalForm, isBareDate, looksLikeMatterName } from "./suggest-patterns.ts";
+import { hasLegalForm, isBareDate, looksLikeMatterName, startsWithMatterWord } from "./suggest-patterns.ts";
 
 export type SuggestedLevel = "practice" | "client" | "matter" | "unknown";
 export type SuggestionSignal = "office_config" | "office_without_config" | "client_card" | "matter_card" | "legal_form_children" | "matter_named_children" | "coded_hierarchy" | "letter_buckets" | "matter_named_root" | "documents_only" | "plain_directories" | "empty" | "inside_office";
@@ -40,9 +40,22 @@ const OFFICE_DIRS = ["Office", "_kancelaria"];
 const OFFICE_EVIDENCE = new Set(["agents.md", "claude.md", "memory"]);
 const CLIENTS_DIR = "Klienti";
 const LETTER = /^\p{Lu}$/u;
-/** Interný kód na začiatku mena („C002 Hron…“, „M004 Vyúčtovanie…“, „C001-syn-…“): prefix z 1 až 3 veľkých písmen a 2 až 5 číslic. */
-const CODE = /^(\p{Lu}{1,3})[-_ ]?\d{2,5}(?=$|[\s_.,-])/u;
-const codePrefix = (name: string): string | undefined => CODE.exec(name)?.[1];
+/**
+ * Interný kód na začiatku mena („C002 Hron…“, „M004 Vyúčtovanie…“, „C001-syn-…“): prefix z 1 až 3 veľkých písmen
+ * a 3 až 5 číslic. Dvojciferné sekcie („D01 Podania“, „K-01“, „Q01“) kódom klienta ani veci nie sú.
+ */
+const CODE = /^(\p{Lu}{1,3})[-_ ]?(\d{3,5})(?=$|[\s_.,-])/u;
+/** Rok (FY2023, SP-2023-01, IMG_2023) nie je číslo klienta ani veci. */
+const YEAR = /^(?:19|20)\d{2}$/;
+/** Mená súborov fotoaparátov a telefónov („IMG_0001“, „DSC 001“, „MVI_0123“). */
+const CAMERA_PREFIXES = new Set(["IMG", "DSC", "PIC", "MVI", "VID", "MOV", "PXL", "SAM", "DJI"]);
+type Code = { prefix: string; rest: string };
+const codeOf = (name: string): Code | undefined => {
+  const match = CODE.exec(name);
+  const [whole, prefix, digits] = match ?? [];
+  if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix)) return undefined;
+  return { prefix, rest: name.slice(whole.length).replace(/^[\s_.,-]+/, "") };
+};
 
 /** Meno z relatívnej cesty položky prieskumu, tá sa skladá cez „/“ na každej platforme. Koreň je natívna cesta, preto `basename`. */
 const nameOf = (path: string): string => path.split("/").pop() ?? path;
@@ -102,17 +115,19 @@ function matchPattern(index: ChildIndex, pattern: string): SuggestedClient[] {
 /**
  * Kódovaná hierarchia (R1 bod 1A): aspoň dvaja kandidáti na klienta s kódom jedného prefixu (C002, C017, C022),
  * kódovaní tvoria väčšinu kandidátov a každý z nich má podpriečinok s kódom iného prefixu (M004…). Iný prefix
- * na druhej úrovni odlíši prax od klienta s číslovanými vecami (M001…M003 so súbormi).
+ * na druhej úrovni odlíši prax od klienta s číslovanými vecami (M001…M003 so súbormi). Ak sa kódovaní pomenúvajú
+ * slovom veci („M001 Spor“, „M002 Zmluva“), sú to veci jedného klienta, nie klienti (review A4, I-1).
  */
 function codedHierarchy(index: ChildIndex, candidates: readonly SurveyEntry[]): boolean {
-  const coded = candidates.filter(candidate => codePrefix(nameOf(candidate.path)) !== undefined);
+  const coded = candidates.flatMap(candidate => { const code = codeOf(nameOf(candidate.path)); return code ? [{ candidate, code }] : []; });
   if (coded.length < CODED_MIN_CLIENTS || coded.length * 2 < candidates.length) return false;
-  const prefixes = new Set(coded.map(candidate => codePrefix(nameOf(candidate.path))));
-  if (prefixes.size !== 1) return false;
+  const prefixes = new Set(coded.map(({ code }) => code.prefix));
   const [prefix] = prefixes;
-  return coded.every(candidate => childrenOf(index, candidate.path).some(entry => {
-    const child = entry.kind === "directory" ? codePrefix(nameOf(entry.path)) : undefined;
-    return child !== undefined && child !== prefix;
+  if (prefixes.size !== 1 || !prefix) return false;
+  if (coded.filter(({ code }) => startsWithMatterWord(code.rest)).length * 2 >= coded.length) return false;
+  return coded.every(({ candidate }) => childrenOf(index, candidate.path).some(entry => {
+    const child = entry.kind === "directory" ? codeOf(nameOf(entry.path)) : undefined;
+    return child !== undefined && child.prefix !== prefix;
   }));
 }
 
