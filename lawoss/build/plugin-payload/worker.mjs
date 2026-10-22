@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { INPUT, REGISTRY, SDK_INTEGRITY, validateInputs, validateGraph, unchangedGraph, inventory, validatePhysical, sha256, fail } from './validate.mjs';
 import { verifyWorkspace, candidatePreflight } from './prepare.mjs';
+import { writeSupplementalNotices } from './notices.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(path.join(HERE, 'tools/package.json'));
 const tool = require('@npmcli/arborist/package.json');
@@ -53,6 +54,8 @@ try {
   phase = 'physical';
   if (sha256(await readFile(path.join(stage, 'package.json'))) !== sha256(INPUT_BYTES) || sha256(await readFile(path.join(stage, 'package-lock.json'))) !== sha256(lockBytes)) fail('INPUT_DRIFT');
   const licenses = await validatePhysical(stage, lock, applicable, Arborist);
+  phase = 'notices';
+  await writeSupplementalNotices(stage);
   const files = await inventory(stage);
   const target = { platform: process.platform, arch: process.arch };
   if (process.platform === 'linux') target.libc = process.report.getReport().header.glibcVersionRuntime ? 'glibc' : 'musl';

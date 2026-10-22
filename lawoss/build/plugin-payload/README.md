@@ -9,8 +9,21 @@ provider, profile, packaging workflow or supported target matrix.
 optional packages. `sdk/provenance.json` records every version/integrity, declared
 license, available license-file hash, and observed **darwin/arm64** artifact.
 `sdk/public-package-manifests.json` retains actual installed package manifests.
-Four published packages omit a separate license file; their declared licenses
-are recorded, and source-license collection remains a redistribution follow-up.
+Several published packages omit a separate license file. `sdk/notices/` supplies
+three original source notice texts for nine exact artifacts, including all six
+foreign/native optional packages. Its index binds tarball URL/SRI, source revision,
+license hash and attribution method; it preserves separate POSIX/Windows publisher
+revisions. Plugin/SDK attribution uses complete metadata and selected byte-identical
+source comparisons; Kubernetes attribution uses declared SPDX and the generator's
+upstream source. These methods and their limits are explicit, without invented
+copyright or NOTICE text or a full-build attestation claim.
+
+The worker includes the five fixed files under `third-party-notices/` alongside
+all unchanged package LICENSE/COPYING/NOTICE files. Source input hashes and exact
+payload inventory are both mandatory: missing, changed, linked, executable or extra
+notice files refuse admission. An existing destination is never adopted or repaired.
+This supplies source notice data; product packaging must retain it, and a software
+license compatibility assessment is not implied.
 
 ## Shipped Node consumer admission
 
@@ -32,7 +45,7 @@ Node24.21.0 with `LAWOSS_PR_HEAD` and `LAWOSS_CHECKOUT_SHA` set to exact40hex
 identities. It creates a fresh owned `.work/runtime-consumer-validation` workspace;
 existing workspaces and summaries are refused. It installs only the frozen
 standalone tools using genuine pnpm11.4.0 and private configuration/store, runs
-49 producer units, acquires all32 accepted tarballs once, prepares/verifies the
+53 producer units, acquires all32 accepted tarballs once, prepares/verifies the
 genuine payload offline, then requires all6 consumer integrations under Node22.
 The consumer imports all10 SDK entries with network denied and checks the exact
 target codec mode. The four native-loaded targets require a corrupted native-binary

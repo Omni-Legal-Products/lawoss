@@ -1,0 +1,240 @@
+{
+  "schema": 1,
+  "kind": "lawoss-sdk-supplemental-notices",
+  "lockSha256": "59f4b854ddab534533fd878c5a7c325a7a1bc3382294d68111cff005920a4053",
+  "noticeFiles": [
+    {
+      "file": "licenses/opencode-MIT.txt",
+      "sha256": "625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b",
+      "bytes": 1065,
+      "spdx": "MIT"
+    },
+    {
+      "file": "licenses/msgpackr-extract-MIT.txt",
+      "sha256": "d00470775464c789c7ac04cfba3bf1b79ef149790eb72556d1c51d8f50c8e7f3",
+      "bytes": 1065,
+      "spdx": "MIT"
+    },
+    {
+      "file": "licenses/kubernetes-Apache-2.0.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358,
+      "spdx": "Apache-2.0"
+    }
+  ],
+  "packages": [
+    {
+      "name": "@opencode-ai/plugin",
+      "version": "1.18.29",
+      "resolved": "https://registry.npmjs.org/@opencode-ai/plugin/-/plugin-1.18.29.tgz",
+      "integrity": "sha512-IhF83EU4I/ASgWwvm0FIh1O3a8ZVuCLqPrCbmSHdSYq7GHxIYe773i6dHqcbrzCzvlG/lP2H+dyTQ+xPAwFpbw==",
+      "spdx": "MIT",
+      "registryMetadataUrl": "https://registry.npmjs.org/%40opencode-ai%2Fplugin/1.18.29",
+      "noticeFile": "licenses/opencode-MIT.txt",
+      "noticeSha256": "625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b",
+      "sourceRepository": "anomalyco/opencode",
+      "sourceRevision": "16747470f976aca3d362ad730bcd3fe82ecc2c9a",
+      "sourceUrl": "https://raw.githubusercontent.com/anomalyco/opencode/16747470f976aca3d362ad730bcd3fe82ecc2c9a/LICENSE",
+      "sourceGitBlobSha1": "6439474beed8e0271df9862eff97ffd70ec2464c",
+      "associationMethod": "source-content-correspondence",
+      "associationDetails": {
+        "packageMetadata": "Exact name/version and complete manifest reconstructed from pinned source, export rewrite and workspace/catalog resolutions.",
+        "runtimeFiles": [
+          {
+            "publishedPath": "dist/tool.js",
+            "publishedSha256": "a01230d42fa1055ddb4b378e0128f156e2db07f6f6eadbf2da174eb634380b16",
+            "sourceSha256": "f7914ce59e6598c75b1a7f14133246902681c681478d5a6c8466e1b555d52afd",
+            "sourceUrl": "https://raw.githubusercontent.com/anomalyco/opencode/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/plugin/src/tool.ts"
+          },
+          {
+            "publishedPath": "dist/example-workspace.js",
+            "publishedSha256": "57aa0216a504b7264f21b5691ad548e42c44b9b17cf53ae04d57f8bd46d4a68c",
+            "sourceSha256": "f5f4ab86642bfc24369b4c16bad68cbf00958c7d43c2c34b4dc8173ffa1032c5",
+            "sourceUrl": "https://raw.githubusercontent.com/anomalyco/opencode/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/plugin/src/example-workspace.ts"
+          }
+        ],
+        "comparisonCompiler": "TypeScript 5.9.3; pinned release catalog declares 5.8.2. Selected outputs match exactly.",
+        "scope": "Reasonably corroborated source attribution; selected-file correspondence, without a cryptographic publisher attestation or full-tarball reproduction."
+      }
+    },
+    {
+      "name": "@opencode-ai/sdk",
+      "version": "1.18.29",
+      "resolved": "https://registry.npmjs.org/@opencode-ai/sdk/-/sdk-1.18.29.tgz",
+      "integrity": "sha512-4CS+FoLPkymTlcga8jxivGDDb2AbWMIIl3b8+myoe2wtv/1ANYCErslgz1xy5hTVHymWE6CtVNKzRuPU0ED57A==",
+      "spdx": "MIT",
+      "registryMetadataUrl": "https://registry.npmjs.org/%40opencode-ai%2Fsdk/1.18.29",
+      "noticeFile": "licenses/opencode-MIT.txt",
+      "noticeSha256": "625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b",
+      "sourceRepository": "anomalyco/opencode",
+      "sourceRevision": "16747470f976aca3d362ad730bcd3fe82ecc2c9a",
+      "sourceUrl": "https://raw.githubusercontent.com/anomalyco/opencode/16747470f976aca3d362ad730bcd3fe82ecc2c9a/LICENSE",
+      "sourceGitBlobSha1": "6439474beed8e0271df9862eff97ffd70ec2464c",
+      "associationMethod": "source-content-correspondence",
+      "associationDetails": {
+        "packageMetadata": "Exact name/version and complete manifest reconstructed from pinned source, export rewrite and workspace/catalog resolutions.",
+        "runtimeFiles": [
+          {
+            "publishedPath": "dist/v2/client.js",
+            "publishedSha256": "e6472daf9077817e86079cecaeaf5abd44a3a0e9d4d9ccabba9e2712b0686807",
+            "sourceSha256": "5e83409189665b1d1145dbcf80aca18936978f16c61ea7841f56bb9393546ba6",
+            "sourceUrl": "https://raw.githubusercontent.com/anomalyco/opencode/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/sdk/js/src/v2/client.ts"
+          },
+          {
+            "publishedPath": "dist/error-interceptor.js",
+            "publishedSha256": "4e73fad50ec7cea030097d7b7d4fa4b57f39d29abb7b922aed301a4228f77dc5",
+            "sourceSha256": "534a6cf498458f91c6375a80a53602fc9f09048e53f42b03138ba2e27a35bbfa",
+            "sourceUrl": "https://raw.githubusercontent.com/anomalyco/opencode/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/sdk/js/src/error-interceptor.ts"
+          }
+        ],
+        "comparisonCompiler": "TypeScript 5.9.3; pinned release catalog declares 5.8.2. Selected outputs match exactly.",
+        "scope": "Reasonably corroborated source attribution; selected-file correspondence, without a cryptographic publisher attestation or full-tarball reproduction."
+      }
+    },
+    {
+      "name": "kubernetes-types",
+      "version": "1.30.0",
+      "resolved": "https://registry.npmjs.org/kubernetes-types/-/kubernetes-types-1.30.0.tgz",
+      "integrity": "sha512-Dew1okvhM/SQcIa2rcgujNndZwU8VnSapDgdxlYoB84ZlpAD43U6KLAFqYo17ykSFGHNPrg0qry0bP+GJd9v7Q==",
+      "spdx": "Apache-2.0",
+      "registryMetadataUrl": "https://registry.npmjs.org/kubernetes-types/1.30.0",
+      "noticeFile": "licenses/kubernetes-Apache-2.0.txt",
+      "noticeSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "sourceRepository": "kubernetes/kubernetes",
+      "sourceRevision": "v1.30.0",
+      "sourceTreeSha1": "7c48c2bd72b9bf5c44d21d7338cc7bea77d0ad2a",
+      "sourceUrl": "https://api.github.com/repos/kubernetes/kubernetes/git/blobs/d645695673349e3947e8e5ae42332d0ac3164cd7",
+      "sourceGitBlobSha1": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+      "associationMethod": "publisher-declared-license-and-generator-upstream",
+      "associationDetails": {
+        "publisherSourceRepository": "silverlyra/kubernetes-types",
+        "publisherSourceRevision": "a46eb94629404af98a6758cd843b31816237d7d0",
+        "publisherSourceUrl": "https://github.com/silverlyra/kubernetes-types/tree/a46eb94629404af98a6758cd843b31816237d7d0",
+        "packageMetadata": "Publisher metadata declares Apache-2.0. Exact package manifest reconstruction and byte-identical README match the source generator assets.",
+        "upstreamLink": "Generator and update workflow identify versioned kubernetes/kubernetes OpenAPI input; this copy is the v1.30.0 upstream LICENSE.",
+        "scope": "No publisher-specific standalone NOTICE/copyright file occurs in the inspected complete source tree. No notice was invented; the exact generation input and additional upstream notice applicability are not attested."
+      }
+    },
+    {
+      "name": "@msgpackr-extract/msgpackr-extract-darwin-arm64",
+      "version": "3.0.4",
+      "resolved": "https://registry.npmjs.org/@msgpackr-extract/msgpackr-extract-darwin-arm64/-/msgpackr-extract-darwin-arm64-3.0.4.tgz",
+      "integrity": "sha512-LCkGo6JDfaBhgST7UpPWgNgLINpcpabaHfyz5OBx75nUYxBsaEPxjnyNjWpeb/xBup/682QnBfRBy2/LvPutZQ==",
+      "spdx": "MIT",
+      "registryMetadataUrl": "https://registry.npmjs.org/%40msgpackr-extract%2Fmsgpackr-extract-darwin-arm64/3.0.4",
+      "noticeFile": "licenses/msgpackr-extract-MIT.txt",
+      "noticeSha256": "d00470775464c789c7ac04cfba3bf1b79ef149790eb72556d1c51d8f50c8e7f3",
+      "sourceRepository": "kriszyp/msgpackr-extract",
+      "sourceRevision": "71def7bd969e5c88d2c918e0d81ee2ba3155d19c",
+      "sourceUrl": "https://raw.githubusercontent.com/kriszyp/msgpackr-extract/71def7bd969e5c88d2c918e0d81ee2ba3155d19c/LICENSE",
+      "sourceGitBlobSha1": "97f48aa82439758947d14d8ea6926a29df9ff678",
+      "associationMethod": "publisher-declared-git-head",
+      "associationDetails": {
+        "binding": "Exact published-version metadata matches the accepted tarball URL and SRI and declares this repository/gitHead.",
+        "notice": "License bytes were independently retrieved at both the five-package POSIX revision and the distinct Windows x64 revision; contents match.",
+        "scope": "Publisher-asserted revision association; native binaries were not reproducibly rebuilt."
+      }
+    },
+    {
+      "name": "@msgpackr-extract/msgpackr-extract-darwin-x64",
+      "version": "3.0.4",
+      "resolved": "https://registry.npmjs.org/@msgpackr-extract/msgpackr-extract-darwin-x64/-/msgpackr-extract-darwin-x64-3.0.4.tgz",
+      "integrity": "sha512-zExlW9zUJKZH/tOtVMttwjKa4Xm/3KcNjnE3dPN92uCktwavMxpgCA3MoJK/DOnTWsQgo224OaST27/mPNAf+w==",
+      "spdx": "MIT",
+      "registryMetadataUrl": "https://registry.npmjs.org/%40msgpackr-extract%2Fmsgpackr-extract-darwin-x64/3.0.4",
+      "noticeFile": "licenses/msgpackr-extract-MIT.txt",
+      "noticeSha256": "d00470775464c789c7ac04cfba3bf1b79ef149790eb72556d1c51d8f50c8e7f3",
+      "sourceRepository": "kriszyp/msgpackr-extract",
+      "sourceRevision": "71def7bd969e5c88d2c918e0d81ee2ba3155d19c",
+      "sourceUrl": "https://raw.githubusercontent.com/kriszyp/msgpackr-extract/71def7bd969e5c88d2c918e0d81ee2ba3155d19c/LICENSE",
+      "sourceGitBlobSha1": "97f48aa82439758947d14d8ea6926a29df9ff678",
+      "associationMethod": "publisher-declared-git-head",
+      "associationDetails": {
+        "binding": "Exact published-version metadata matches the accepted tarball URL and SRI and declares this repository/gitHead.",
+        "notice": "License bytes were independently retrieved at both the five-package POSIX revision and the distinct Windows x64 revision; contents match.",
+        "scope": "Publisher-asserted revision association; native binaries were not reproducibly rebuilt."
+      }
+    },
+    {
+      "name": "@msgpackr-extract/msgpackr-extract-linux-arm",
+      "version": "3.0.4",
+      "resolved": "https://registry.npmjs.org/@msgpackr-extract/msgpackr-extract-linux-arm/-/msgpackr-extract-linux-arm-3.0.4.tgz",
+      "integrity": "sha512-Tg3yX65f5GbtXLkrYEHE5oibZG9epyYWas7FogTTEJeDEF9JlXJzKgXaNhT3UXlTOeA+AfZpYZYZ0uPj7Cfquw==",
+      "spdx": "MIT",
+      "registryMetadataUrl": "https://registry.npmjs.org/%40msgpackr-extract%2Fmsgpackr-extract-linux-arm/3.0.4",
+      "noticeFile": "licenses/msgpackr-extract-MIT.txt",
+      "noticeSha256": "d00470775464c789c7ac04cfba3bf1b79ef149790eb72556d1c51d8f50c8e7f3",
+      "sourceRepository": "kriszyp/msgpackr-extract",
+      "sourceRevision": "71def7bd969e5c88d2c918e0d81ee2ba3155d19c",
+      "sourceUrl": "https://raw.githubusercontent.com/kriszyp/msgpackr-extract/71def7bd969e5c88d2c918e0d81ee2ba3155d19c/LICENSE",
+      "sourceGitBlobSha1": "97f48aa82439758947d14d8ea6926a29df9ff678",
+      "associationMethod": "publisher-declared-git-head",
+      "associationDetails": {
+        "binding": "Exact published-version metadata matches the accepted tarball URL and SRI and declares this repository/gitHead.",
+        "notice": "License bytes were independently retrieved at both the five-package POSIX revision and the distinct Windows x64 revision; contents match.",
+        "scope": "Publisher-asserted revision association; native binaries were not reproducibly rebuilt."
+      }
+    },
+    {
+      "name": "@msgpackr-extract/msgpackr-extract-linux-arm64",
+      "version": "3.0.4",
+      "resolved": "https://registry.npmjs.org/@msgpackr-extract/msgpackr-extract-linux-arm64/-/msgpackr-extract-linux-arm64-3.0.4.tgz",
+      "integrity": "sha512-dgX0P/9wGPJeHFBG+ZmhgE6bmtMt7NP5CRBGyyktpopdk/mW4POnrpQsSLtKI1dwpc+pPLuXHDh6vvskyQE/sw==",
+      "spdx": "MIT",
+      "registryMetadataUrl": "https://registry.npmjs.org/%40msgpackr-extract%2Fmsgpackr-extract-linux-arm64/3.0.4",
+      "noticeFile": "licenses/msgpackr-extract-MIT.txt",
+      "noticeSha256": "d00470775464c789c7ac04cfba3bf1b79ef149790eb72556d1c51d8f50c8e7f3",
+      "sourceRepository": "kriszyp/msgpackr-extract",
+      "sourceRevision": "71def7bd969e5c88d2c918e0d81ee2ba3155d19c",
+      "sourceUrl": "https://raw.githubusercontent.com/kriszyp/msgpackr-extract/71def7bd969e5c88d2c918e0d81ee2ba3155d19c/LICENSE",
+      "sourceGitBlobSha1": "97f48aa82439758947d14d8ea6926a29df9ff678",
+      "associationMethod": "publisher-declared-git-head",
+      "associationDetails": {
+        "binding": "Exact published-version metadata matches the accepted tarball URL and SRI and declares this repository/gitHead.",
+        "notice": "License bytes were independently retrieved at both the five-package POSIX revision and the distinct Windows x64 revision; contents match.",
+        "scope": "Publisher-asserted revision association; native binaries were not reproducibly rebuilt."
+      }
+    },
+    {
+      "name": "@msgpackr-extract/msgpackr-extract-linux-x64",
+      "version": "3.0.4",
+      "resolved": "https://registry.npmjs.org/@msgpackr-extract/msgpackr-extract-linux-x64/-/msgpackr-extract-linux-x64-3.0.4.tgz",
+      "integrity": "sha512-8TNXMEjJc3QEy7R/x1INhgiU+XakDAFUzBhaz7+Rbrs8NH5UQeHQxxmzsSBJGyV6I1jW79undiQm8tOI+D+8FQ==",
+      "spdx": "MIT",
+      "registryMetadataUrl": "https://registry.npmjs.org/%40msgpackr-extract%2Fmsgpackr-extract-linux-x64/3.0.4",
+      "noticeFile": "licenses/msgpackr-extract-MIT.txt",
+      "noticeSha256": "d00470775464c789c7ac04cfba3bf1b79ef149790eb72556d1c51d8f50c8e7f3",
+      "sourceRepository": "kriszyp/msgpackr-extract",
+      "sourceRevision": "71def7bd969e5c88d2c918e0d81ee2ba3155d19c",
+      "sourceUrl": "https://raw.githubusercontent.com/kriszyp/msgpackr-extract/71def7bd969e5c88d2c918e0d81ee2ba3155d19c/LICENSE",
+      "sourceGitBlobSha1": "97f48aa82439758947d14d8ea6926a29df9ff678",
+      "associationMethod": "publisher-declared-git-head",
+      "associationDetails": {
+        "binding": "Exact published-version metadata matches the accepted tarball URL and SRI and declares this repository/gitHead.",
+        "notice": "License bytes were independently retrieved at both the five-package POSIX revision and the distinct Windows x64 revision; contents match.",
+        "scope": "Publisher-asserted revision association; native binaries were not reproducibly rebuilt."
+      }
+    },
+    {
+      "name": "@msgpackr-extract/msgpackr-extract-win32-x64",
+      "version": "3.0.4",
+      "resolved": "https://registry.npmjs.org/@msgpackr-extract/msgpackr-extract-win32-x64/-/msgpackr-extract-win32-x64-3.0.4.tgz",
+      "integrity": "sha512-CmCXPQrkbwExx3j946/PtHWHbYJiCRBRDl4BlkRQcJB/YOwQxJRTpoo7aTsortjgoJ1x7opzTSxn7C+ASSLVjQ==",
+      "spdx": "MIT",
+      "registryMetadataUrl": "https://registry.npmjs.org/%40msgpackr-extract%2Fmsgpackr-extract-win32-x64/3.0.4",
+      "noticeFile": "licenses/msgpackr-extract-MIT.txt",
+      "noticeSha256": "d00470775464c789c7ac04cfba3bf1b79ef149790eb72556d1c51d8f50c8e7f3",
+      "sourceRepository": "kriszyp/msgpackr-extract",
+      "sourceRevision": "d735f3057015d3f67747e0dfbb22adf01abfe5fb",
+      "sourceUrl": "https://raw.githubusercontent.com/kriszyp/msgpackr-extract/d735f3057015d3f67747e0dfbb22adf01abfe5fb/LICENSE",
+      "sourceGitBlobSha1": "97f48aa82439758947d14d8ea6926a29df9ff678",
+      "associationMethod": "publisher-declared-git-head",
+      "associationDetails": {
+        "binding": "Exact published-version metadata matches the accepted tarball URL and SRI and declares this repository/gitHead.",
+        "notice": "License bytes were independently retrieved at both the five-package POSIX revision and the distinct Windows x64 revision; contents match.",
+        "scope": "Publisher-asserted revision association; native binaries were not reproducibly rebuilt."
+      }
+    }
+  ],
+  "scope": "Supplemental source notice copies for nine exact accepted packages; retain alongside unchanged original package license and notice files. Source-collection methods and residual uncertainty are recorded without a legal compatibility assessment."
+}

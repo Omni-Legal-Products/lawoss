@@ -18,7 +18,10 @@ const sources = ['validate.mjs', 'prepare.mjs', 'worker.mjs', 'import-check.mjs'
   '../../engine-dependencies/package-runtime.mjs',
   'runtime-consumer-validation.mjs', 'runtime-consumer.test.mjs',
   'runtime-consumer.integration.test.mjs', 'tools/package.json', 'tools/pnpm-lock.yaml',
-  'sdk/package.json', 'sdk/package-lock.json'];
+  'sdk/package.json', 'sdk/package-lock.json', 'notices.mjs', 'notices.test.mjs',
+  'sdk/notices/index.json', 'sdk/notices/THIRD_PARTY_NOTICES.md',
+  'sdk/notices/licenses/opencode-MIT.txt', 'sdk/notices/licenses/msgpackr-extract-MIT.txt',
+  'sdk/notices/licenses/kubernetes-Apache-2.0.txt'];
 const sourceHashes = async () => Object.fromEntries(await Promise.all(sources.map(async name => [name, sha256(await readFile(path.join(HERE, name)))])));
 export function runtimeConsumerFailureCode(error) {
   try {
@@ -109,9 +112,9 @@ export async function validateRuntimeConsumer(consumerNode, pnpmCli) {
 
     stage = 'producer-tests';
     const producerTap = await runChild(['--test', '--test-reporter=tap', ...[
-      'prepare.test.mjs', 'prime-cache.test.mjs', 'native-validation.test.mjs', 'runtime-consumer.test.mjs',
+      'prepare.test.mjs', 'prime-cache.test.mjs', 'native-validation.test.mjs', 'runtime-consumer.test.mjs', 'notices.test.mjs',
     ].map(name => path.join(HERE, name))], workspace, { json: false });
-    summary.tests.producer = testCounts(producerTap, 49);
+    summary.tests.producer = testCounts(producerTap, 53);
 
     stage = 'acquisition';
     const acquired = await primeAcceptedCache({ workspace });

@@ -45,6 +45,9 @@ test('shipped Node verifies a Node24-produced payload against the build-bound ma
   const manifest = JSON.parse(bytes);
   assert.equal(manifest.node, 'v24.21.0');
   assert.equal(manifest.imports.native, expectedNative);
+  assert.equal(manifest.files.filter(record => record.path.startsWith('third-party-notices/')).length, 5);
+  const notices = JSON.parse(await readFile(path.join(root, 'third-party-notices/index.json')));
+  assert.equal(notices.lockSha256, manifest.lockSha256);
   const result = await payload.verifyRuntimePayload(root, payload.sha256(bytes));
   assert.deepEqual(result, manifest);
   assert.deepEqual(await readFile(path.join(root, 'payload-manifest.json')), bytes);

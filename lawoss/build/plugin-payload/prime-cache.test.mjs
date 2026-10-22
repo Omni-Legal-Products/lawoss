@@ -175,7 +175,7 @@ test('unchanged accepted hashes gate precedes transport and incomplete receipt c
   await assert.rejects(primeAcceptedCache({ workspace }), { code: 'EEXIST' });
   assert.deepEqual(await readdir(path.join(workspace, 'cache')), []);
   const source = path.join(workspace, 'home/source'); await mkdir(source);
-  for (const name of ['prime-cache.mjs', 'prime-transfer.mjs', 'prepare.mjs', 'validate.mjs', 'sdk/package.json', 'sdk/package-lock.json', 'tools/pnpm-lock.yaml']) {
+  for (const name of ['prime-cache.mjs', 'prime-transfer.mjs', 'prepare.mjs', 'validate.mjs', 'notices.mjs', 'sdk/package.json', 'sdk/package-lock.json', 'tools/pnpm-lock.yaml']) {
     await mkdir(path.dirname(path.join(source, name)), { recursive: true });
     await cp(new URL('./' + name, import.meta.url), path.join(source, name));
   }

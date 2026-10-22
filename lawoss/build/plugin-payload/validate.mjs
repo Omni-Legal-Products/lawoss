@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { lstat, readFile, readdir, readlink, realpath } from 'node:fs/promises';
 import path from 'node:path';
+import { assertSupplementalNotices } from './notices.mjs';
 
 export const INPUT = Object.freeze({ name: 'lawoss-plugin-sdk-payload', version: '1.0.0', private: true, dependencies: Object.freeze({ '@opencode-ai/plugin': '1.18.29' }) });
 export const REGISTRY = 'https://registry.npmjs.org/';
@@ -178,6 +179,7 @@ async function verify(root, Arborist, producerNode, manifestSha256) {
     if (!Array.isArray(manifest.closure) || !Array.isArray(manifest.inertOptional) || new Set([...manifest.closure, ...manifest.inertOptional]).size !== Object.keys(lock.packages).length || !equal([...manifest.closure, ...manifest.inertOptional].sort(), Object.keys(lock.packages).sort())) fail('PAYLOAD_INVALID');
     for (const location of manifest.inertOptional) if (!lock.packages[location]?.optional) fail('PAYLOAD_INVALID');
     const files = (await inventory(root)).filter(record => record.path !== 'payload-manifest.json');
+    assertSupplementalNotices(files);
     if (!equal(files, manifest.files)) fail('PAYLOAD_INVALID');
     if (Arborist) {
       const licenses = await validatePhysical(root, lock, manifest.closure, Arborist);
