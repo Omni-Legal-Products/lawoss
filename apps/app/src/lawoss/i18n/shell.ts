@@ -456,6 +456,10 @@ export const shellEn = {
   "lawoss.lite.deadlines_unrecorded_hint": "Deadlines come from the deadlines field in the case records. If a case has a deadline, add it in the case chat.",
   "lawoss.lite.client_overview_tasks": "Open tasks from cases",
   "lawoss.lite.client_overview_tasks_hint": "From the case files, the same list as Today. App tasks are under Tasks.",
+  "lawoss.lite.ov_right_trademark": "trademark",
+  "lawoss.lite.ov_right_copyright": "copyright",
+  "lawoss.lite.ov_right_patent": "patent",
+  "lawoss.lite.ov_right_design": "design",
   // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
   "lawoss.word_addin.editor_unavailable_title": "Open in the LAWOSS app",
   "lawoss.word_addin.editor_unavailable_description": "The add-in pane cannot open spreadsheets and presentations. Open {name} in the LAWOSS app."
@@ -924,6 +928,10 @@ export const shellCs = {
   "lawoss.lite.deadlines_unrecorded_hint": "Lhůty se čtou z pole deadlines v záznamech případů. Má-li případ lhůtu, doplňte ji v chatu případu.",
   "lawoss.lite.client_overview_tasks": "Otevřené úkoly z případů",
   "lawoss.lite.client_overview_tasks_hint": "Ze souborů případů, stejný seznam jako Dnes. Úkoly aplikace jsou v části Úkoly.",
+  "lawoss.lite.ov_right_trademark": "ochranná známka",
+  "lawoss.lite.ov_right_copyright": "autorské právo",
+  "lawoss.lite.ov_right_patent": "patent",
+  "lawoss.lite.ov_right_design": "průmyslový vzor",
   // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
   "lawoss.word_addin.editor_unavailable_title": "Otevřete v aplikaci LAWOSS",
   "lawoss.word_addin.editor_unavailable_description": "Panel doplňku neotevírá tabulky a prezentace. Soubor {name} otevřete v aplikaci LAWOSS."
@@ -1389,6 +1397,10 @@ export const shellSk = {
   "lawoss.lite.deadlines_unrecorded_hint": "Lehoty sa čítajú z poľa deadlines v záznamoch prípadov. Ak má prípad lehotu, doplňte ju v chate prípadu.",
   "lawoss.lite.client_overview_tasks": "Otvorené úlohy z prípadov",
   "lawoss.lite.client_overview_tasks_hint": "Zo súborov prípadov, rovnaký zoznam ako Dnes. Úlohy aplikácie sú v časti Úlohy.",
+  "lawoss.lite.ov_right_trademark": "ochranná známka",
+  "lawoss.lite.ov_right_copyright": "autorské právo",
+  "lawoss.lite.ov_right_patent": "patent",
+  "lawoss.lite.ov_right_design": "dizajn",
   // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
   "lawoss.word_addin.editor_unavailable_title": "Otvorte v aplikácii LAWOSS",
   "lawoss.word_addin.editor_unavailable_description": "Panel doplnku neotvára tabuľky a prezentácie. Súbor {name} otvorte v aplikácii LAWOSS."
@@ -1852,6 +1864,10 @@ export const shellDe = {
   "lawoss.lite.deadlines_unrecorded_hint": "Fristen stammen aus dem Feld deadlines in den Falleinträgen. Hat ein Fall eine Frist, ergänzen Sie sie im Chat des Falls.",
   "lawoss.lite.client_overview_tasks": "Offene Aufgaben aus Fällen",
   "lawoss.lite.client_overview_tasks_hint": "Aus den Falldateien, dieselbe Liste wie Heute. App-Aufgaben finden Sie unter Aufgaben.",
+  "lawoss.lite.ov_right_trademark": "Marke",
+  "lawoss.lite.ov_right_copyright": "Urheberrecht",
+  "lawoss.lite.ov_right_patent": "Patent",
+  "lawoss.lite.ov_right_design": "Design",
   // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
   "lawoss.word_addin.editor_unavailable_title": "In der LAWOSS-App öffnen",
   "lawoss.word_addin.editor_unavailable_description": "Der Add-in-Bereich öffnet keine Tabellen und Präsentationen. Öffnen Sie {name} in der LAWOSS-App."

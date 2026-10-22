@@ -342,7 +342,7 @@ function cardOrRecord(ctx: Ctx, key: string, cardFields: readonly string[], reco
 function partyItems(ctx: Ctx, conflicts: ViewConflict[]): ViewItem[] {
   const items: ViewItem[] = [];
   for (const r of ctx.live) {
-    if (r.type === "subject") items.push({ key: `party:${fileOf(ctx, r)}`, label: r.title, ...(r.role ? { tag: `role:${r.role}` } : {}), ...(r.person_type ? { detail: r.person_type } : {}), source: recordSource(ctx, r, { field: "role" }) });
+    if (r.type === "subject") items.push({ key: `party:${fileOf(ctx, r)}`, label: r.title, ...(r.role ? { tag: `role:${r.role}` } : {}), source: recordSource(ctx, r, { field: "role" }) });
     (r.participants ?? []).forEach((p, i) => {
       const name = p.name?.trim();
       if (name) items.push({ key: `participant:${fileOf(ctx, r)}:${i}`, label: name, ...(p.role ? { detail: p.role } : {}), source: recordSource(ctx, r, { field: "participants" }) });
@@ -367,7 +367,7 @@ function documentItems(ctx: Ctx): ViewItem[] {
     (r.sources ?? []).forEach((s, i) => {
       if (!s.resource && !s.title) return;
       const document = resolveDocument(ctx.input.recordFiles?.[r.id], s.resource);
-      out.push(withState({ key: `doc:${fileOf(ctx, r)}:${i}`, label: s.title ?? s.resource ?? r.title, detail: r.title, ...(r.evidence_kind ? { tag: r.evidence_kind } : {}),
+      out.push(withState({ key: `doc:${fileOf(ctx, r)}:${i}`, label: s.title ?? s.resource ?? r.title, detail: r.title,
         ...(r.origin_date ? { date: r.origin_date } : {}), source: recordSource(ctx, r, { field: "sources" }), ...(document ? { document } : {}) }, recordState(r)));
     });
   }
@@ -412,7 +412,7 @@ function baseBlock(ctx: Ctx, conflicts: ViewConflict[], procedural: boolean, eve
 function proceduralBlock(ctx: Ctx, events: DatedEvent[], court?: ViewItem, caseNumber?: ViewItem): ViewBlock {
   const ofKind = (kind: string) => events.filter((e) => e.kind === kind).map((e) => eventItem(ctx, e));
   const evidence = ctx.live.filter((r) => r.type === "evidence").map((r) => withState({ key: `evidence:${fileOf(ctx, r)}`, label: r.title,
-    ...(r.evidence_kind ? { tag: r.evidence_kind } : {}), ...(r.origin_date ? { date: r.origin_date } : {}), source: recordSource(ctx, r, { field: "procedural_status" }) }, recordState(r)));
+    ...(r.origin_date ? { date: r.origin_date } : {}), source: recordSource(ctx, r, { field: "procedural_status" }) }, recordState(r)));
   return { family: "procedural", sections: [
     section("court", court ? [court] : [], { file: ctx.cardFile, field: "sud" }),
     section("case_number", caseNumber ? [caseNumber] : [], { file: ctx.cardFile, field: "spisova_znacka" }),
@@ -442,7 +442,7 @@ function corporateBlock(ctx: Ctx): ViewBlock {
     ]),
   ];
   const changeText = clean(ctx.card.subject) ?? clean(ctx.card.description);
-  const change: ViewItem[] = changeText ? [{ key: "change", label: changeText, ...(clean(ctx.card.matter_kind) ? { tag: `kind:${clean(ctx.card.matter_kind)}` } : {}), source: cardSource(ctx, ctx.card.subject && clean(ctx.card.subject) ? "subject" : "description") }] : [];
+  const change: ViewItem[] = changeText ? [{ key: "change", label: changeText, source: cardSource(ctx, ctx.card.subject && clean(ctx.card.subject) ? "subject" : "description") }] : [];
   const decisions = ctx.live.filter((r) => r.type === "decision" || r.type === "requirement").map((r) => withState({
     key: `decision:${fileOf(ctx, r)}`, label: r.title, tag: r.type, ...(r.demanded_from ? { detail: ctx.titleOf(r.demanded_from) } : {}),
     source: recordSource(ctx, r, { field: r.type === "requirement" ? "fulfillment_status" : "verified" }),

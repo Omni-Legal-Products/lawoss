@@ -46,6 +46,8 @@ const TAG_TEXT: Record<string, string> = {
   application: "lawoss.lite.ov_tag_application", registration: "lawoss.lite.ov_tag_registration", procedural_link: "lawoss.lite.ov_tag_procedural_link",
   filing: "lawoss.lite.ov_event_filing", hearing: "lawoss.lite.ov_event_hearing", decision: "lawoss.lite.ov_event_decision", delivery: "lawoss.lite.ov_event_delivery",
   request: "lawoss.lite.ov_event_request", call: "lawoss.lite.ov_event_call", email: "lawoss.lite.ov_event_email",
+  "right:trademark": "lawoss.lite.ov_right_trademark", "right:copyright": "lawoss.lite.ov_right_copyright",
+  "right:patent": "lawoss.lite.ov_right_patent", "right:design": "lawoss.lite.ov_right_design",
 };
 const tagText = (tag: string | undefined, locale: Language): string | undefined => {
   if (!tag || tag === "task") return undefined;
