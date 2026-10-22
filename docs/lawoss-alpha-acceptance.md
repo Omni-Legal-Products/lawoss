@@ -117,6 +117,15 @@ API kľúče ani discovery token UI-control.
 `draft`, `built`, `signed`, `tested`, `published` a `delivered` sú samostatné stavy.
 Po zmene finálnych bytes, podpise alebo novom builde sa pôvodný runtime výsledok neprenesie.
 
+## Pozorovanie zlyhania macOS census
+
+Neočakávané odmietnutie kontroly vlastníka pred spustením môže uchovať iba
+uzavreté registrované fakty o fáze, kóde, exit kóde, signáli a killed príznaku.
+Pôvodná chyba, bezpečnostná podmienka, 2000ms/4MiB limit a cleanup zostávajú.
+Signál ani killed samostatne nepreukazujú timeout. Kontrolované lokálne prípady
+neobjasňujú pôvodné Intel CI zlyhanie; jeho príčina ostáva neznáma do nového
+natívneho pozorovania. Očakávané odmietnutia nevytvárajú diagnostický výpis.
+
 ## Ďalšie kroky
 
 Pred publikáciou dokončite všetky povinné scenáre pre rovnaký digest na oboch profiloch.
