@@ -68,7 +68,20 @@ export function linuxOperationFailure(operation,error,root,rootMetadata) {
   const rootAccess=filesystem?rootAccessSnapshot(rootMetadata):undefined;
   return Object.freeze({operation,errorCode,...(filesystem?{filesystem}:{}),...(rootAccess?{rootAccess}:{})});
 }
-export function linuxPreflightFailure(step,error,refusal) {
+function toolRefusalSnapshot(value) {
+  try {
+    if(!value || typeof value!=='object')return undefined;
+    const fields=Object.getOwnPropertyDescriptors(value),keys=Reflect.ownKeys(fields);
+    if(!Object.hasOwn(fields,'predicate') || !Object.hasOwn(fields.predicate,'value'))return undefined;
+    const predicate=fields.predicate.value;
+    if(['symlink','owner','writable'].includes(predicate) && keys.length===1)return Object.freeze({predicate});
+    if(predicate!=='type' || keys.length!==2 || !Object.hasOwn(fields,'typeDetail') || !Object.hasOwn(fields.typeDetail,'value'))return undefined;
+    const typeDetail=fields.typeDetail.value;
+    if(typeDetail==='non-regular' || typeDetail==='link-count')return Object.freeze({predicate,typeDetail});
+  } catch { /* Reflection failures omit diagnostics without changing the guard. */ }
+  return undefined;
+}
+export function linuxPreflightFailure(step,error,refusal,toolRefusal) {
   const observation=preflightSteps.get(step);
   if(!observation)return undefined;
   let errorCode='unknown';
@@ -80,7 +93,8 @@ export function linuxPreflightFailure(step,error,refusal) {
       if(stageAncestors.has(ancestor) && stagePredicates.has(predicate) && !(ancestor!=='var-lib' && predicate==='canonical'))stageTrust=Object.freeze({ancestor,predicate});
     } catch { /* Refusal metadata cannot replace the primary failure. */ }
   }
-  return Object.freeze({...observation,errorCode,...(stageTrust?{stageTrust}:{})});
+  const toolTrust=observation.check==='entry' && errorCode==='linux-protected-install-unverified'?toolRefusalSnapshot(toolRefusal):undefined;
+  return Object.freeze({...observation,errorCode,...(stageTrust?{stageTrust}:{}),...(toolTrust?{toolTrust}:{})});
 }
 export function assertHostedLinuxContext({platform=process.platform,arch=process.arch,uid=process.getuid?.(),euid=process.geteuid?.(),environment=process.env}={}) {
   if(platform!=='linux' || !['x64','arm64'].includes(arch) || !Number.isSafeInteger(uid) || uid<=0 || !Number.isSafeInteger(euid) || euid<=0
@@ -98,9 +112,10 @@ async function protectedEntry(path,directory=false,observe) {
   const info=await lstat(path);
   // Same short-circuit predicates and cached lstat record as admission originally
   // used; no additional filesystem read or permission change for diagnostics.
+  let typeDetail;
   const predicate=info.isSymbolicLink()?'symlink':info.uid!==0?'owner':(info.mode&0o022)!==0?'writable':
-    (directory?!info.isDirectory():!info.isFile() || info.nlink!==1)?'type':undefined;
-  if(predicate) {noteRefusal(observe,predicate);fail();}
+    (directory?!info.isDirectory():!info.isFile()?(typeDetail='non-regular',true):info.nlink!==1?(typeDetail='link-count',true):false)?'type':undefined;
+  if(predicate) {noteRefusal(observe,predicate,typeDetail);fail();}
   return info;
 }
 async function protectedAncestors(path,observe) {
@@ -112,6 +127,21 @@ async function protectedAncestors(path,observe) {
   }
   if(await realpath(path)!==resolve(path)) {noteRefusal(observe,path,'canonical');fail();}
   return rootInfo;
+}
+const toolPaths=new Map([
+  ['sudo','/usr/bin/sudo'],['mkdir','/usr/bin/mkdir'],['cp','/usr/bin/cp'],['chmod','/usr/bin/chmod'],
+  ['install','/usr/bin/install'],['rm','/usr/bin/rm'],['cat','/usr/bin/cat'],['parser','/usr/sbin/apparmor_parser'],
+]);
+// Private fixed-tool metadata sequence only; observers grant no execution authority.
+async function protectedToolPreflight(label,onStep,onRefusal) {
+  const tool=toolPaths.get(label);
+  if(!tool)fail();
+  noteRefusal(onStep,`${label}-realpath`);
+  const physical=await realpath(tool);
+  noteRefusal(onStep,`${label}-ancestors`);
+  await protectedAncestors(dirname(physical));
+  noteRefusal(onStep,`${label}-entry`);
+  return await protectedEntry(physical,false,onRefusal);
 }
 /** Filesystem metadata validation only; does not execute or grant an application. */
 export async function validateProtectedLinuxTree(root,{onRootMetadata}={}) {
@@ -195,7 +225,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
     const policy=linuxUsernsProfile(stage),policyFile=join(stage,'userns.profile');
     let stageIdentity,retained=false,policyState='not-required',stageState='not-created',primary;
     let restricted=false,policyOwned=false,policyUncertain=false,temporary,protectionVerified=false;
-    let preflight,preflightFailure,stageTrustRefusal,operation,operationFailure,rootMetadata;
+    let preflight,preflightFailure,stageTrustRefusal,toolTrustRefusal,operation,operationFailure,rootMetadata;
     try {
       preflight='stage-ancestors';
       // Hosted image scripts make /opt world-writable. Select a fixed different
@@ -206,24 +236,19 @@ export async function withProtectedLinuxArtifact(artifact,use) {
         stageTrustRefusal={ancestor:ancestor==='/var/lib'?'var-lib':ancestor==='/var'?'var':ancestor==='/'?'root':'unknown',predicate};
       });
       // Fixed tools and their canonical targets must also be root protected.
-      for(const tool of ['/usr/bin/sudo','/usr/bin/mkdir','/usr/bin/cp','/usr/bin/chmod','/usr/bin/install','/usr/bin/rm','/usr/bin/cat']) {
-        const label=posix.basename(tool);
-        preflight=`${label}-realpath`;
-        const physical=await realpath(tool);
-        preflight=`${label}-ancestors`;
-        await protectedAncestors(dirname(physical));
-        preflight=`${label}-entry`;
-        await protectedEntry(physical);
+      for(const label of ['sudo','mkdir','cp','chmod','install','rm','cat']) {
+        toolTrustRefusal=undefined;
+        await protectedToolPreflight(label,value=>{preflight=value;},(predicate,typeDetail)=>{
+          toolTrustRefusal=typeDetail?{predicate,typeDetail}:{predicate};
+        });
       }
       preflight='restriction-read';
       restricted=await usernsRestriction();
       if(restricted) {
-        preflight='parser-realpath';
-        const parser=await realpath('/usr/sbin/apparmor_parser');
-        preflight='parser-ancestors';
-        await protectedAncestors(dirname(parser));
-        preflight='parser-entry';
-        await protectedEntry(parser);
+        toolTrustRefusal=undefined;
+        await protectedToolPreflight('parser',value=>{preflight=value;},(predicate,typeDetail)=>{
+          toolTrustRefusal=typeDetail?{predicate,typeDetail}:{predicate};
+        });
         preflight='initial-policy-presence';
         if(await policyPresent(policy.name))fail();
         policyState='not-loaded';
@@ -263,7 +288,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
       }
       operation='native-use';
       return await use({installedApp,installation,retain(){retained=true;}});
-    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error,stageTrustRefusal);operationFailure=linuxOperationFailure(operation,error,app,rootMetadata);throw error;}
+    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error,stageTrustRefusal,toolTrustRefusal);operationFailure=linuxOperationFailure(operation,error,app,rootMetadata);throw error;}
     finally {
       let cleanupFailure;
       try {

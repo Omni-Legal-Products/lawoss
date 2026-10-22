@@ -15,6 +15,189 @@ const stage = `/var/lib/lawoss-ci-${'a'.repeat(32)}`;
 const refused = { code: 'linux-protected-install-refused' };
 const unverified = { code: 'linux-protected-install-unverified' };
 
+const toolRefusals = [{predicate:'symlink'},{predicate:'owner'},{predicate:'writable'},
+  {predicate:'type',typeDetail:'non-regular'},{predicate:'type',typeDetail:'link-count'}];
+
+test('tool-entry observation freezes only five closed shapes on exact eligible steps', () => {
+  for(const tool of ['sudo','mkdir','cp','chmod','install','rm','cat','parser']) for(const input of toolRefusals) {
+    const mutable={...input},error=Object.assign(new Error('private message'),unverified);
+    const descriptors=Object.getOwnPropertyDescriptors(error);
+    const value=linuxPreflightFailure(`${tool}-entry`,error,{ancestor:'var-lib',predicate:'owner'},mutable);
+    assert.deepEqual(value,{boundary:tool==='parser'?'parser-trust':'tool-trust',tool,check:'entry',errorCode:unverified.code,toolTrust:input});
+    assert.equal(Object.isFrozen(value),true);assert.equal(Object.isFrozen(value.toolTrust),true);
+    mutable.predicate='private';assert.deepEqual(value.toolTrust,input);
+    assert.deepEqual(Object.getOwnPropertyDescriptors(error),descriptors);
+    assert.doesNotMatch(JSON.stringify(value),/private|Stats|path|uid|mode|nlink/);
+  }
+});
+
+test('tool-entry observation rejects malformed own data without getters or unrelated inspection', () => {
+  let reads=0;
+  const accessor={};Object.defineProperty(accessor,'predicate',{get(){reads++;return 'owner';},enumerable:true});
+  const detailAccessor={predicate:'type'};Object.defineProperty(detailAccessor,'typeDetail',{get(){reads++;return 'non-regular';},enumerable:true});
+  const throws=new Proxy({}, {ownKeys(){reads++;throw new Error('private');}});
+  for(const input of [undefined,null,1,'owner',[],{},Object.create({predicate:'owner'}),accessor,detailAccessor,
+    {predicate:new String('owner')},{predicate:'unknown'},{predicate:'type'},{predicate:'type',typeDetail:'other'},
+    {predicate:'owner',typeDetail:'non-regular'},{predicate:'owner',path:'/private'},
+    {predicate:'type',typeDetail:'link-count',nlink:2},{predicate:'owner',[Symbol('private')]:true}]) {
+    assert.equal(Object.hasOwn(linuxPreflightFailure('mkdir-entry',unverified,undefined,input),'toolTrust'),false);
+  }
+  assert.equal(reads,0);
+  assert.equal(Object.hasOwn(linuxPreflightFailure('mkdir-entry',unverified,undefined,throws),'toolTrust'),false);
+  assert.equal(reads,1);reads=0;
+  const unrelated=new Proxy({}, {get(){reads++;throw 0;},ownKeys(){reads++;throw 0;},getOwnPropertyDescriptor(){reads++;throw 0;}});
+  for(const step of [undefined,'unknown','mkdir-entry-more','mkdir-realpath','mkdir-ancestors','restriction-read','initial-policy-presence','stage-ancestors']) {
+    const value=linuxPreflightFailure(step,unverified,undefined,unrelated);
+    assert.equal(value && Object.hasOwn(value,'toolTrust'),value?false:undefined);
+  }
+  for(const code of ['ENOENT','EACCES','EPERM','ELOOP','ENOTDIR','linux-protected-install-refused','unknown']) {
+    const value=linuxPreflightFailure('mkdir-entry',{code},unrelated,unrelated);
+    assert.equal(Object.hasOwn(value,'toolTrust'),false);
+  }
+  for(const input of toolRefusals) {
+    const value=linuxPreflightFailure('mkdir-entry',unverified,unrelated,input);
+    assert.deepEqual(value.toolTrust,input);
+  }
+  assert.equal(reads,0);
+  assert.deepEqual(linuxPreflightFailure('stage-ancestors',unverified,{ancestor:'var-lib',predicate:'type'},unrelated),
+    {boundary:'stage-trust',tool:null,check:'ancestors',errorCode:unverified.code,stageTrust:{ancestor:'var-lib',predicate:'type'}});
+  assert.equal(reads,0);
+  assert.deepEqual(linuxPreflightFailure('mkdir-entry',unverified),{boundary:'tool-trust',tool:'mkdir',check:'entry',errorCode:unverified.code});
+});
+
+// Entirely metadata-modeled: exact production bytes, no installer, no native tool.
+async function productionToolMetadataFixture(moduleUrl,guardOnly) {
+  const assert=(await import('node:assert/strict')).default;
+  const fs=(await import('node:fs/promises')).default;
+  const nativeFs=(await import('node:fs')).default;
+  const childProcess=(await import('node:child_process')).default;
+  const {syncBuiltinESMExports}=await import('node:module');
+  const source=await fs.readFile(new URL(moduleUrl),'utf8');
+  const labels=['sudo','mkdir','cp','chmod','install','rm','cat','parser'];
+  const logical=['/usr/bin/sudo','/usr/bin/mkdir','/usr/bin/cp','/usr/bin/chmod','/usr/bin/install','/usr/bin/rm','/usr/bin/cat','/usr/sbin/apparmor_parser'];
+  const targets=labels.map(label=>`/lawoss-metadata-fixture/bin/${label}`);
+  const ancestors=['/lawoss-metadata-fixture/bin','/lawoss-metadata-fixture','/'];
+  let unexpected=0,events=[],record,refusedAncestor=false,canonical=false,realpathError,lstatError;
+  const reject=()=>{unexpected++;throw new Error('unexpected operation');};
+  // Deny all other filesystem and subprocess functions before source import.
+  for(const object of [nativeFs,fs,childProcess]) for(const key of Object.keys(object)) if(typeof object[key]==='function')Object.defineProperty(object,key,{value:reject,writable:true,configurable:true,enumerable:true});
+  const directory=()=>({isSymbolicLink:()=>false,uid:0,mode:0o755,isDirectory:()=>true});
+  fs.lstat=async filename=>{
+    if(!targets.includes(filename) && !ancestors.includes(filename))return reject();
+    events.push(`lstat:${filename}`);
+    if(targets.includes(filename)) {if(lstatError)throw lstatError;return record;}
+    if(refusedAncestor && filename==='/lawoss-metadata-fixture')return {...directory(),uid:1};
+    return directory();
+  };
+  fs.realpath=async filename=>{
+    if(!logical.includes(filename) && !ancestors.includes(filename))return reject();
+    events.push(`realpath:${filename}`);
+    if(realpathError)throw realpathError;
+    if(logical.includes(filename))return targets[logical.indexOf(filename)];
+    return canonical?'/unexpected-canonical-result':filename;
+  };
+  syncBuiltinESMExports();
+  const production=await import(`data:text/javascript;base64,${Buffer.from(`${source}\nexport { protectedEntry${guardOnly?'':', protectedToolPreflight'} };`).toString('base64')}`);
+  function input(kind) {
+    const fields={symlink:false,uid:0,mode:0o755,isFile:true,nlink:1,isDirectory:true};
+    Object.assign(fields,{
+      symlink:{symlink:true},owner:{uid:1},writable:{mode:0o777},'non-regular':{isFile:false},
+      'link-zero':{nlink:0},'link-many':{nlink:2},directory:{isDirectory:false},
+    }[kind]);
+    return {
+      isSymbolicLink(){events.push('symlink');return fields.symlink;},
+      get uid(){events.push('uid');return fields.uid;},
+      get mode(){events.push('mode');return fields.mode;},
+      isFile(){events.push('isFile');return fields.isFile;},
+      get nlink(){events.push('nlink');return fields.nlink;},
+      isDirectory(){events.push('isDirectory');return fields.isDirectory;},
+    };
+  }
+  const cases=[
+    ['symlink',['symlink'],['symlink',undefined]],
+    ['owner',['symlink','uid'],['owner',undefined]],
+    ['writable',['symlink','uid','mode'],['writable',undefined]],
+    ['non-regular',['symlink','uid','mode','isFile'],['type','non-regular']],
+    ['link-zero',['symlink','uid','mode','isFile','nlink'],['type','link-count']],
+    ['link-many',['symlink','uid','mode','isFile','nlink'],['type','link-count']],
+    ['directory',['symlink','uid','mode','isDirectory'],['type',undefined]],
+    ['admitted',['symlink','uid','mode','isFile','nlink'],undefined],
+  ];
+  let guards=0,helpers=0;
+  for(const [kind,reads,expected] of cases) {
+    record=input(kind);events=[];const observations=[];
+    const error=await production.protectedEntry(targets[1],kind==='directory',(predicate,typeDetail)=>{observations.push([predicate,typeDetail]);throw new Error('observer');}).then(value=>{assert.equal(value,record);return null;},error=>error);
+    assert.deepEqual(events,[`lstat:${targets[1]}`,...reads]);
+    assert.deepEqual(observations,expected?[expected]:[]);
+    if(expected)assert.equal(error.code,'linux-protected-install-unverified');else assert.equal(error,null);
+    guards++;
+  }
+  lstatError=Object.assign(new Error('private lstat'),{code:'EACCES'});events=[];
+  await assert.rejects(production.protectedEntry(targets[1],false,()=>reject()),error=>error===lstatError);
+  assert.deepEqual(events,[`lstat:${targets[1]}`]);lstatError=undefined;guards++;
+  if(!guardOnly) {
+    const expectedPrefix=index=>[`step:${labels[index]}-realpath`,`realpath:${logical[index]}`,
+      `step:${labels[index]}-ancestors`,...ancestors.map(value=>`lstat:${value}`),
+      'realpath:/lawoss-metadata-fixture/bin',`step:${labels[index]}-entry`,`lstat:${targets[index]}`];
+    for(let index=0;index<labels.length;index++)for(const [kind,reads,expected] of cases.filter(value=>value[0]!=='directory')) {
+      record=input(kind);events=[];let step,refusal;
+      const error=await production.protectedToolPreflight(labels[index],value=>{step=value;events.push(`step:${value}`);},(predicate,typeDetail)=>{
+        refusal=typeDetail?{predicate,typeDetail}:{predicate};
+      }).then(()=>null,error=>error);
+      assert.deepEqual(events,[...expectedPrefix(index),...reads]);
+      if(expected) {
+        const descriptors=Object.getOwnPropertyDescriptors(error);
+        const result=production.linuxPreflightFailure(step,error,undefined,refusal);
+        assert.deepEqual(result.toolTrust,expected[1]?{predicate:expected[0],typeDetail:expected[1]}:{predicate:expected[0]});
+        assert.equal(result.boundary,labels[index]==='parser'?'parser-trust':'tool-trust');
+        assert.equal(result.tool,labels[index]);assert.equal(result.check,'entry');
+        assert.equal(Object.isFrozen(result.toolTrust),true);
+        assert.deepEqual(Object.getOwnPropertyDescriptors(error),descriptors);
+        refusal.predicate='private';assert.notEqual(result.toolTrust.predicate,'private');
+        assert.doesNotMatch(JSON.stringify(result),/private|fixture|uid|mode|nlink/);
+      } else {assert.equal(error,null);assert.equal(refusal,undefined);}
+      helpers++;
+    }
+    // Step/refusal callbacks can throw on both admission and each refusal.
+    for(const kind of ['admitted','symlink','owner','writable','non-regular','link-zero']) {
+      record=input(kind);events=[];let refusal;
+      const error=await production.protectedToolPreflight('mkdir',()=>{throw new Error('step observer');},(...args)=>{refusal=args;throw new Error('refusal observer');}).then(()=>null,error=>error);
+      if(kind==='admitted')assert.equal(error,null);else {assert.equal(error.code,'linux-protected-install-unverified');assert.ok(refusal);}
+      assert.equal(events.filter(value=>value===`lstat:${targets[1]}`).length,1);helpers++;
+    }
+    realpathError=Object.assign(new Error('private realpath'),{code:'ELOOP'});events=[];
+    await assert.rejects(production.protectedToolPreflight('mkdir',()=>{throw 1;},()=>reject()),error=>error===realpathError);
+    assert.deepEqual(events,[`realpath:${logical[1]}`]);realpathError=undefined;helpers++;
+    lstatError=Object.assign(new Error('private entry lstat'),{code:'EPERM'});record=input('admitted');events=[];
+    await assert.rejects(production.protectedToolPreflight('mkdir',()=>{throw 1;},()=>reject()),error=>error===lstatError);
+    assert.deepEqual(events,[`realpath:${logical[1]}`,...ancestors.map(value=>`lstat:${value}`),'realpath:/lawoss-metadata-fixture/bin',`lstat:${targets[1]}`]);
+    lstatError=undefined;helpers++;
+    for(const rejection of ['ancestor','canonical']) {
+      refusedAncestor=rejection==='ancestor';canonical=rejection==='canonical';events=[];let step,refusal;
+      const error=await production.protectedToolPreflight('mkdir',value=>{step=value;},value=>{refusal=value;}).then(()=>null,error=>error);
+      assert.equal(error.code,'linux-protected-install-unverified');assert.equal(step,'mkdir-ancestors');assert.equal(refusal,undefined);
+      assert.equal(events.includes(`lstat:${targets[1]}`),false);
+      assert.equal(Object.hasOwn(production.linuxPreflightFailure(step,error,undefined,refusal),'toolTrust'),false);
+      helpers++;
+    }
+    refusedAncestor=false;canonical=false;events=[];
+    await assert.rejects(production.protectedToolPreflight('unrecognized'),{code:'linux-protected-install-unverified'});
+    assert.deepEqual(events,[]);helpers++;
+  }
+  assert.equal(unexpected,0);
+  console.log(JSON.stringify({guardCases:guards,helperCases:helpers,unexpectedOperations:unexpected,source:'unaltered-plus-private-exports',metadata:'modeled-only'}));
+}
+
+for(const guardOnly of [true,false]) test(`tool-entry ${guardOnly?'guard preserves cached predicate order':'production helper executes all fixed tool metadata paths'}`, () => {
+  const child=spawnSync(process.execPath,['--input-type=module'],{
+    input:`await (${productionToolMetadataFixture.toString()})(${JSON.stringify(new URL('./linux-protected-install.mjs',import.meta.url).href)},${guardOnly});`,
+    encoding:'utf8',timeout:10000,maxBuffer:65536,
+  });
+  assert.equal(child.error,undefined);assert.equal(child.signal,null);assert.equal(child.status,0,child.stderr);
+  assert.equal(child.stderr,'');
+  assert.deepEqual(JSON.parse(child.stdout),{guardCases:9,helperCases:guardOnly?0:67,unexpectedOperations:0,source:'unaltered-plus-private-exports',metadata:'modeled-only'});
+});
+
 test('failed tree validation freezes only admitted root permission bits', () => {
   const root='/PRIVATE/app', primary=Object.assign(new Error('private'),{code:'EACCES',syscall:'scandir',path:root});
   const metadata={modeBits:0o700,otherRead:false,otherSearch:false};
