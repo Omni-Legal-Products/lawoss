@@ -63,6 +63,18 @@ test('supervisor diagnostics project only exact completed checkpoint enums', () 
   for (const line of ['raw private error', 'prefix LAWOSS_WINDOWS_JOB_CHECKPOINT:entry', 'LAWOSS_WINDOWS_JOB_CHECKPOINT:private', 'LAWOSS_WINDOWS_JOB_CHECKPOINT:compiled private', 'x'.repeat(10000)]) assert.equal(parseWindowsJobCheckpoint(line), null);
 });
 
+test('checkpoint observers receive only exact phases and cannot change parser results', () => {
+  const phases = ['entry', 'encoding', 'input-read', 'decoded', 'configured', 'compiled', 'created'];
+  const observed = [];
+  for (const phase of phases) assert.equal(parseWindowsJobCheckpoint(`LAWOSS_WINDOWS_JOB_CHECKPOINT:${phase}`, value => observed.push(value)), phase);
+  assert.deepEqual(observed, phases);
+  for (const line of [undefined, null, 42, 'raw private error', 'prefix LAWOSS_WINDOWS_JOB_CHECKPOINT:entry', 'LAWOSS_WINDOWS_JOB_CHECKPOINT:private', 'LAWOSS_WINDOWS_JOB_CHECKPOINT:compiled private', 'LAWOSS_WINDOWS_JOB_CHECKPOINT:entry\n', 'x'.repeat(10000)]) {
+    assert.equal(parseWindowsJobCheckpoint(line, value => observed.push(value)), null);
+  }
+  assert.deepEqual(observed, phases);
+  for (const phase of phases) assert.equal(parseWindowsJobCheckpoint(`LAWOSS_WINDOWS_JOB_CHECKPOINT:${phase}`, () => { throw new Error('observer failure'); }), phase);
+});
+
 test('unavailable Windows host refuses without attempting a simulated native launch', { skip: process.platform === 'win32' }, async () => {
   await assert.rejects(launchWindowsJob(options), /windows-job-host-unavailable/);
 });
@@ -88,7 +100,19 @@ async function nativeFixture(t, { exitLeader = false } = {}) {
 }
 
 test('native Windows job stops root and detached grandchild before returning verified closure', native, async t => {
-  const f = await nativeFixture(t), job = f.own(await launchWindowsJob({ executable: process.execPath, args: [f.leader], cwd: f.root, env: f.env, timeoutMs: 15000 }));
+  const f = await nativeFixture(t);
+  const checkpointFirstObservedMs = { entry: null, encoding: null, 'input-read': null, decoded: null, configured: null, compiled: null, created: null };
+  let job, outcome = 'failed';
+  const started = performance.now();
+  try {
+    job = f.own(await launchWindowsJob({ executable: process.execPath, args: [f.leader], cwd: f.root, env: f.env, timeoutMs: 15000 }, phase => {
+      if (Object.hasOwn(checkpointFirstObservedMs, phase) && checkpointFirstObservedMs[phase] === null) checkpointFirstObservedMs[phase] = Math.min(60000, Math.max(0, Math.round(performance.now() - started)));
+    }));
+    outcome = 'ready';
+  } finally {
+    const elapsed = Math.max(0, Math.round(performance.now() - started));
+    t.diagnostic(JSON.stringify({ kind: 'lawoss-windows-job-launch-observer', timingSemantics: 'parent-observed-checkpoint-delivery', snapshotBoundary: 'observer-released-before-cancel-or-ready-return', checkpointFirstObservedMs, elapsedMs: Math.min(60000, elapsed), elapsedCapped: elapsed > 60000, elapsedMayIncludeInternalCancellation: outcome === 'failed', outcome }));
+  }
   const pids = await until(async () => { try { return JSON.parse(await readFile(f.receipt, 'utf8')); } catch { return false; } });
   assert.equal(job.pid, pids.root); assert.notEqual(job.pid, job.supervisorPid); assert.equal(job.isRunning(), true);
   assert.equal(exists(pids.grandchild), true);

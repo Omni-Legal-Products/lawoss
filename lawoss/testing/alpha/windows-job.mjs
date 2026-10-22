@@ -47,9 +47,13 @@ export function assertWindowsJobCompletion(receipt, close, expected) {
   return { status: 'stopped', descendantClosure: 'verified', method: 'windows-atomic-job-object' };
 }
 
-export function parseWindowsJobCheckpoint(line) {
+export function parseWindowsJobCheckpoint(line, onCheckpoint) {
   if (typeof line !== 'string' || line.length > 80) return null;
-  return /^LAWOSS_WINDOWS_JOB_CHECKPOINT:(entry|encoding|input-read|decoded|configured|compiled|created)$/.exec(line)?.[1] ?? null;
+  const phase = /^LAWOSS_WINDOWS_JOB_CHECKPOINT:(entry|encoding|input-read|decoded|configured|compiled|created)$/.exec(line)?.[1] ?? null;
+  if (phase !== null && typeof onCheckpoint === 'function') {
+    try { onCheckpoint(phase); } catch { /* Observation cannot change the supervisor result. */ }
+  }
+  return phase;
 }
 
 async function within(timeoutMs, predicate, code) {
@@ -62,7 +66,8 @@ async function within(timeoutMs, predicate, code) {
   throw blocked(code);
 }
 
-export async function launchWindowsJob(input) {
+// The optional synchronous observer receives only existing completed phases.
+export async function launchWindowsJob(input, onCheckpoint) {
   const options = validateWindowsJobOptions(input);
   if (process.platform !== 'win32') throw blocked('windows-job-host-unavailable');
   const executable = await realpath(options.executable), cwd = await realpath(options.cwd);
@@ -94,7 +99,7 @@ export async function launchWindowsJob(input) {
         if (diagnosticLine.length > 256) { diagnosticOverflow = true; diagnosticLine = ''; }
       }
       if (end === -1) break;
-      if (!diagnosticOverflow) lastCheckpoint = parseWindowsJobCheckpoint(diagnosticLine.replace(/\r$/, '')) ?? lastCheckpoint;
+      if (!diagnosticOverflow) lastCheckpoint = parseWindowsJobCheckpoint(diagnosticLine.replace(/\r$/, ''), onCheckpoint) ?? lastCheckpoint;
       diagnosticLine = ''; diagnosticOverflow = false; start = end + 1;
     }
   });
@@ -142,7 +147,8 @@ export async function launchWindowsJob(input) {
       if (ready && !state.rootRunning) throw blocked('windows-job-root-exited');
       return ready;
     }, 'windows-job-start-timeout');
-  } catch (error) { error.lastCheckpoint = lastCheckpoint; await cancel(); throw error; }
+  } catch (error) { error.lastCheckpoint = lastCheckpoint; onCheckpoint = undefined; await cancel(); throw error; }
+  onCheckpoint = undefined;
   return {
     pid: ready.pid, supervisorPid: child.pid,
     isRunning: () => !fault && !close && !stopRequested && state.rootRunning && performance.now() - lastStateAt < 1000,
