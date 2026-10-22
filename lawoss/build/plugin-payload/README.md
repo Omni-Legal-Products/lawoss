@@ -12,6 +12,42 @@ license, available license-file hash, and observed **darwin/arm64** artifact.
 Four published packages omit a separate license file; their declared licenses
 are recorded, and source-license collection remains a redistribution follow-up.
 
+## Shipped Node consumer admission
+
+`verifyRuntimePayload(root, manifestSha256)` is a separate read-only verifier
+for the product's exact **Node 22.23.2**. It requires a payload produced by
+**Node 24.21.0**, the same native platform/architecture/libc, positive guarded
+imports/native acceleration/roundtrip, the accepted input/full lock, and the
+complete unchanged file inventory. The original `verifyPayload` producer gate
+still binds the receipt to its executing Node version.
+
+The expected manifest digest must come from a trusted build identity, not from
+the adjacent receipt. This interface neither authenticates a caller-provided
+digest nor stabilizes a mutable tree after validation. It performs no copying,
+SDK imports, installation, engine launch or application-profile mutation.
+Production digest transport and config-root provisioning remain unwired.
+
+`runtime-consumer-validation.mjs ABSOLUTE_NODE22 ABSOLUTE_PNPM11_CLI` runs under
+Node24.21.0 with `LAWOSS_PR_HEAD` and `LAWOSS_CHECKOUT_SHA` set to exact40hex
+identities. It creates a fresh owned `.work/runtime-consumer-validation` workspace;
+existing workspaces and summaries are refused. It installs only the frozen
+standalone tools using genuine pnpm11.4.0 and private configuration/store, runs
+46 producer units, acquires all32 accepted tarballs once, prepares/verifies the
+genuine payload offline, then requires all5 consumer integrations under Node22.
+The consumer imports all10 SDK entries with network denied and checks native
+acceleration. It also rejects corrupted files, replacement receipts, mismatched
+targets/producers and missing digest/native proof. No skips count as acceptance.
+Source, both executables and the complete payload are rechecked afterward.
+
+Only `.work/runtime-consumer-summary.json` is published by the separate
+`plugin-sdk-runtime.yml` six-native-target matrix. This finite summary carries
+hashes, counts and fixed failure information; it excludes paths, private caches,
+package trees, installer output and raw errors. The entry waits for each owned
+direct child close through `runChild`; this is not a universal descendant-tree
+proof. This lane establishes dependency compatibility only. Product shipping,
+licenses, Bun consumption, engine readiness and actual installed journeys remain
+separate acceptance gates. It does not modify the engine's audit/config policy.
+
 Build tools and SDK dependencies are separate closures. Acquire tools with the
 committed tools manifest/lock, explicit dev-dependency inclusion, disabled scripts,
 an explicit public registry,

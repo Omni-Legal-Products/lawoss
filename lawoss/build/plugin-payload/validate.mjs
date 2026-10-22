@@ -118,18 +118,35 @@ export const IMPORTS = [
   '@opencode-ai/plugin/v2/effect/plugin', '@opencode-ai/plugin/v2/effect/integration',
   'zod', 'effect', '@ai-sdk/provider', '@opencode-ai/sdk',
 ];
+// The producer gate remains bound to the executing build runtime.
 export async function verifyPayload(root, Arborist) {
+  return verify(root, Arborist, process.version);
+}
+
+// Read-only consumer admission. The caller supplies the digest from its trusted
+// build identity, never from the adjacent, potentially replaceable receipt.
+// This does not install dependencies, import SDK code or admit an engine launch.
+export async function verifyRuntimePayload(root, manifestSha256) {
+  if (process.version !== 'v22.23.2' || process.versions.bun) fail('PAYLOAD_RUNTIME_UNSUPPORTED');
+  if (typeof manifestSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(manifestSha256)) fail('PAYLOAD_INVALID');
+  return verify(root, undefined, 'v24.21.0', manifestSha256);
+}
+
+async function verify(root, Arborist, producerNode, manifestSha256) {
   try {
     const stat = await lstat(path.join(root, 'payload-manifest.json'));
     if (!stat.isFile() || stat.nlink !== 1 || stat.size > 8 * 1024 * 1024) fail('PAYLOAD_INVALID');
-    const manifest = JSON.parse(await readFile(path.join(root, 'payload-manifest.json')));
+    const manifestBytes = await readFile(path.join(root, 'payload-manifest.json'));
+    if (manifestBytes.length > 8 * 1024 * 1024 || (manifestSha256 !== undefined && sha256(manifestBytes) !== manifestSha256)) fail('PAYLOAD_INVALID');
+    const manifest = JSON.parse(manifestBytes);
     const inputBytes = await readFile(path.join(root, 'package.json'));
     const lockBytes = await readFile(path.join(root, 'package-lock.json'));
     const acceptedBytes = await readFile(new URL('./sdk/package-lock.json', import.meta.url));
     const lock = validateInputs(JSON.parse(inputBytes), JSON.parse(lockBytes));
-    if (manifest.schema !== 1 || manifest.sdk.name !== '@opencode-ai/plugin' || manifest.sdk.version !== '1.18.29' || manifest.sdk.integrity !== SDK_INTEGRITY || manifest.node !== process.version || manifest.arborist !== '9.4.0' || manifest.scripts !== false || manifest.target.platform !== process.platform || manifest.target.arch !== process.arch || manifest.lockSha256 !== sha256(lockBytes) || manifest.lockSha256 !== sha256(acceptedBytes) || manifest.inputSha256 !== sha256(inputBytes) || manifest.inputSha256 !== sha256(await readFile(new URL('./sdk/package.json', import.meta.url)))) fail('PAYLOAD_INVALID');
+    if (manifest.schema !== 1 || manifest.sdk.name !== '@opencode-ai/plugin' || manifest.sdk.version !== '1.18.29' || manifest.sdk.integrity !== SDK_INTEGRITY || manifest.node !== producerNode || manifest.arborist !== '9.4.0' || manifest.scripts !== false || manifest.target.platform !== process.platform || manifest.target.arch !== process.arch || manifest.lockSha256 !== sha256(lockBytes) || manifest.lockSha256 !== sha256(acceptedBytes) || manifest.inputSha256 !== sha256(inputBytes) || manifest.inputSha256 !== sha256(await readFile(new URL('./sdk/package.json', import.meta.url)))) fail('PAYLOAD_INVALID');
     if (process.platform === 'linux' && manifest.target.libc !== (process.report.getReport().header.glibcVersionRuntime ? 'glibc' : 'musl')) fail('PAYLOAD_INVALID');
     if (!equal(manifest.imports?.imports, IMPORTS) || !['loaded', 'fallback', 'absent'].includes(manifest.imports?.native)) fail('PAYLOAD_INVALID');
+    if (manifestSha256 !== undefined && (manifest.imports.native !== 'loaded' || manifest.imports.guard !== true || manifest.imports.roundtrip !== true)) fail('PAYLOAD_INVALID');
     if (!Array.isArray(manifest.closure) || !Array.isArray(manifest.inertOptional) || new Set([...manifest.closure, ...manifest.inertOptional]).size !== Object.keys(lock.packages).length || !equal([...manifest.closure, ...manifest.inertOptional].sort(), Object.keys(lock.packages).sort())) fail('PAYLOAD_INVALID');
     for (const location of manifest.inertOptional) if (!lock.packages[location]?.optional) fail('PAYLOAD_INVALID');
     const files = (await inventory(root)).filter(record => record.path !== 'payload-manifest.json');

@@ -23,6 +23,45 @@ test('protected Linux preflight publishes a finite failed guard without changing
   assert.equal(error.code, 'EACCES');
 });
 
+test('protected Linux opt trust identifies only the fixed ancestor and its first rejected predicate', () => {
+  assert.deepEqual(linuxPreflightFailure('opt-ancestors', unverified, {
+    ancestor:'opt',predicate:'owner',path:'/private/source',uid:1000,mode:511,
+  }), {
+    boundary:'opt-trust',tool:null,check:'ancestors',errorCode:'linux-protected-install-unverified',
+    optTrust:{ancestor:'opt',predicate:'owner'},
+  });
+});
+
+test('protected Linux opt trust accepts only reachable finite ancestor predicates and freezes them', () => {
+  for(const ancestor of ['opt','root'])for(const predicate of ['symlink','owner','writable','type','canonical']) {
+    if(ancestor==='root' && predicate==='canonical')continue;
+    const result=linuxPreflightFailure('opt-ancestors',unverified,{ancestor,predicate});
+    assert.deepEqual(result.optTrust,{ancestor,predicate});
+    assert.equal(Object.isFrozen(result.optTrust),true);
+    assert.throws(()=>{result.optTrust.predicate='private';},TypeError);
+  }
+  for(const refusal of [undefined,null,{}, {ancestor:'/opt',predicate:'owner'},
+    {ancestor:'root',predicate:'canonical'}, {ancestor:'opt/private',predicate:'type'},
+    {ancestor:'opt',predicate:'owner\n'}, {ancestor:new String('opt'),predicate:'owner'},
+    {ancestor:'opt',predicate:{}}, {get ancestor(){throw Error('private');}},
+    {ancestor:'opt',get predicate(){throw Error('private');}}]) {
+    assert.equal(linuxPreflightFailure('opt-ancestors',unverified,refusal).optTrust,undefined);
+  }
+});
+
+test('protected Linux opt trust never reads unrelated refusal or private metadata', () => {
+  const unreadable={get ancestor(){assert.fail('Unrelated refusal must not be read');}};
+  for(const step of [undefined,'cat-entry','parser-ancestors']) {
+    assert.equal(linuxPreflightFailure(step,unverified,unreadable)?.optTrust,undefined);
+  }
+  assert.equal(linuxPreflightFailure('opt-ancestors',{code:'ENOENT'},unreadable).optTrust,undefined);
+  const refusal={ancestor:'opt',predicate:'owner'};
+  for(const key of ['path','uid','mode','message','token'])Object.defineProperty(refusal,key,{
+    enumerable:true,get(){assert.fail('Private metadata must not be read');},
+  });
+  assert.deepEqual(linuxPreflightFailure('opt-ancestors',unverified,refusal).optTrust,{ancestor:'opt',predicate:'owner'});
+});
+
 test('protected Linux preflight distinguishes each fixed tool and guard call site', () => {
   const cases = [
     ['sudo-realpath', 'tool-trust', 'sudo', 'realpath'],

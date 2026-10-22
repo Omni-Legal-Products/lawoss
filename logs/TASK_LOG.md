@@ -271,3 +271,12 @@ ActualNSIS737/run39656432934 proves literal $R0/Uninstall LAWOSS.exe (SHA6e1c6d4
 - Actualruntime: onefullisolatedsyntheticnative attempt failedinitialMCP300002ms,0cases. Newinstance-request/engine.mcp and validprivateengineLog window confirmed; causeunknown.
 - Teardown: exit1, ownedcleanupreceiptcleanedtrue; actual8PIDabsence, normalprofileabsent/globalDBunchanged, all53inputs+1852compiledoutputs unchanged. Ignoredprivateevidence/snapshot61a32f70 retained; no baseline or upload.
 - Mapmaintenance: startupscopeonly; fullfivefeature/six-targetlivecoverage remainsblocked, goalACTIVE. No publicrelease/merge/CIrerun/secret/provider use.
+
+## 2026-10-22T03:50:54.377104+00:00 — Six-target dependency consumer and Linux guard follow-up
+
+- Source: localfe2 base, remote bd CI distinct. Pinned engine install predicate source-compatible with verified dependency tree; exact physical/root provenance remains product responsibility.
+- Current local proof: genuine SDK build+Node22 imports,46 producer units; full entry final receipt tracked in .work/six-platform-alpha/evidence/sdk-runtime-consumer. Source review correction RED retained. Native six-target CI pending publication.
+- Primary CI: old6a8 MacIntel final ZIP startup SUCCESS with readable1292×932 onboarding PNG/verified cleanup, not full journeys. bdWinARM initial request300016ms TimeoutError/0cases, cleanup completed. bdUbuntu sandbox2TimeoutErrors/0PASS, exact await unknown. bdLinuxARM finalAppImage first tuple opt-trust/ancestors/unverified, no stage/policy/launch. Parent validated artifact manifests, originals retained.
+- Linux diagnostic tests:228total219PASS0FAIL9SKIP (8Windows+1explicitmetadata-container); no native Linux security-policy execution claimed. No user-profile/native-app operations this change; no merge/release/manual CI rerun.
+
+- Final SDK native entry on fresh owned MacARM workspace PASS11.813s:46producer+5consumer/0FAIL0SKIP; full physical closure/native imports/unchanged payload/source/executables. Summarya8e86b73, payloadmanifest1f285e3f; consumer SHA matches actual bundled Node and source-pinned archive metadata. Original45/5 first workspace+summary preserved by identity-verified rename. SDK code review44246c1f PASS after real RED/fix; Linux4786da2f patch reviewc5e38a93 PASS; all reviewed source hashes parent-verified. Source-only verification-map correction remains partial coverage, not a completed five-feature live pass.

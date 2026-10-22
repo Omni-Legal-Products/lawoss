@@ -22,12 +22,21 @@ for(const tool of ['sudo','mkdir','cp','install','rm','cat','parser']) {
   }
 }
 const preflightCodes = new Set(['ENOENT','EACCES','EPERM','ELOOP','ENOTDIR','linux-protected-install-refused','linux-protected-install-unverified']);
-export function linuxPreflightFailure(step,error) {
+const optAncestors = new Set(['opt','root']);
+const optPredicates = new Set(['symlink','owner','writable','type','canonical']);
+export function linuxPreflightFailure(step,error,refusal) {
   const observation=preflightSteps.get(step);
   if(!observation)return undefined;
   let errorCode='unknown';
   try {const code=error?.code;if(preflightCodes.has(code))errorCode=code;} catch { /* Diagnostic access cannot replace the primary failure. */ }
-  return Object.freeze({...observation,errorCode});
+  let optTrust;
+  if(step==='opt-ancestors' && errorCode==='linux-protected-install-unverified') {
+    try {
+      const ancestor=refusal?.ancestor,predicate=refusal?.predicate;
+      if(optAncestors.has(ancestor) && optPredicates.has(predicate) && !(ancestor==='root' && predicate==='canonical'))optTrust=Object.freeze({ancestor,predicate});
+    } catch { /* Refusal metadata cannot replace the primary failure. */ }
+  }
+  return Object.freeze({...observation,errorCode,...(optTrust?{optTrust}:{})});
 }
 export function assertHostedLinuxContext({platform=process.platform,arch=process.arch,uid=process.getuid?.(),euid=process.geteuid?.(),environment=process.env}={}) {
   if(platform!=='linux' || !['x64','arm64'].includes(arch) || !Number.isSafeInteger(uid) || uid<=0 || !Number.isSafeInteger(euid) || euid<=0
@@ -38,17 +47,24 @@ export function linuxUsernsProfile(stage) {
   const name=posix.basename(stage),executable=posix.join(stage,'app/legalwork');
   return {name,executable,text:`abi <abi/4.0>,\ninclude <tunables/global>\nprofile ${name} ${executable} flags=(unconfined) {\n  userns,\n}\n`};
 }
-async function protectedEntry(path,directory=false) {
+function noteRefusal(observe,...args) {
+  try {observe?.(...args);}catch { /* Observation cannot change admission or its original exception. */ }
+}
+async function protectedEntry(path,directory=false,observe) {
   const info=await lstat(path);
-  if(info.isSymbolicLink() || info.uid!==0 || (info.mode&0o022)!==0 || (directory?!info.isDirectory():!info.isFile() || info.nlink!==1))fail();
+  // Same short-circuit predicates and cached lstat record as admission originally
+  // used; no additional filesystem read or permission change for diagnostics.
+  const predicate=info.isSymbolicLink()?'symlink':info.uid!==0?'owner':(info.mode&0o022)!==0?'writable':
+    (directory?!info.isDirectory():!info.isFile() || info.nlink!==1)?'type':undefined;
+  if(predicate) {noteRefusal(observe,predicate);fail();}
   return info;
 }
-async function protectedAncestors(path) {
+async function protectedAncestors(path,observe) {
   for(let current=resolve(path);;current=dirname(current)) {
-    await protectedEntry(current,true);
+    await protectedEntry(current,true,observe?predicate=>noteRefusal(observe,current,predicate):undefined);
     if(dirname(current)===current)break;
   }
-  if(await realpath(path)!==resolve(path))fail();
+  if(await realpath(path)!==resolve(path)) {noteRefusal(observe,path,'canonical');fail();}
 }
 /** Filesystem metadata validation only; does not execute or grant an application. */
 export async function validateProtectedLinuxTree(root) {
@@ -109,10 +125,14 @@ export async function withProtectedLinuxArtifact(artifact,use) {
     const policy=linuxUsernsProfile(stage),policyFile=join(stage,'userns.profile');
     let stageIdentity,retained=false,policyState='not-required',stageState='not-created',primary;
     let restricted=false,policyOwned=false,policyUncertain=false,temporary,protectionVerified=false;
-    let preflight,preflightFailure;
+    let preflight,preflightFailure,optTrustRefusal;
     try {
       preflight='opt-ancestors';
-      await protectedAncestors('/opt');
+      await protectedAncestors('/opt',(ancestor,predicate)=>{
+        // This observer runs only for the two fixed initial ancestors, before
+        // the same original refusal. Never retain an arbitrary filesystem path.
+        optTrustRefusal={ancestor:ancestor==='/opt'?'opt':ancestor==='/'?'root':'unknown',predicate};
+      });
       // Fixed tools and their canonical targets must also be root protected.
       for(const tool of ['/usr/bin/sudo','/usr/bin/mkdir','/usr/bin/cp','/usr/bin/install','/usr/bin/rm','/usr/bin/cat']) {
         const label=posix.basename(tool);
@@ -161,7 +181,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
         policyOwned=true;policyUncertain=false;policyState='loaded';
       }
       return await use({installedApp,installation,retain(){retained=true;}});
-    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error);throw error;}
+    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error,optTrustRefusal);throw error;}
     finally {
       let cleanupFailure;
       try {
