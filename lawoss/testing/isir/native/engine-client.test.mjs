@@ -90,6 +90,50 @@ test('native readiness rejects unsuccessful or malformed instance responses befo
   }
 });
 
+test('cold readiness observes its original budget and complete HTTP body without exposing request identity', async t => {
+  t.mock.timers.enable({apis:['Date'],now:1000});
+  let arrive, headers, response, pending;
+  const arrived=new Promise(resolve=>{arrive=resolve;});
+  const headersObserved=new Promise(resolve=>{headers=resolve;});
+  const server=createServer((req,res)=>{
+    assert.equal(req.url,'/workspace/private-workspace/opencode/mcp');
+    assert.equal(req.headers.authorization,'Bearer private-owner');
+    response=res;res.writeHead(200,{'content-type':'application/json'});res.write('{');arrive();
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const stages=[],deadlines=[];
+  const request=createNativeEngineClient({baseUrl:`http://127.0.0.1:${server.address().port}`,ownerToken:'private-owner'},'private-workspace');
+  try {
+    pending=request.ready({observe:stage=>{stages.push(stage);if(stage==='headers')headers();},onDeadline:value=>deadlines.push(value)});
+    await arrived;
+    assert.deepEqual(deadlines,[301000]);
+    await headersObserved;
+    assert.deepEqual(stages,['request','headers'],'A partial body does not prove readiness');
+    t.mock.timers.tick(120000);
+    response.end('}');
+    assert.deepEqual(await pending,{});
+    assert.deepEqual(stages,['request','headers','body','verified']);
+    assert.doesNotMatch(JSON.stringify({stages,deadlines}),/private|127\.0|authorization|workspace/);
+  } finally {
+    response?.end('}');server.closeAllConnections();await pending?.catch(()=>{});
+    await new Promise(resolve=>server.close(resolve));
+  }
+});
+
+test('cold readiness diagnostic observers cannot replace the original transport failure or request deadline', async () => {
+  const original=new DOMException('Synthetic transport deadline','TimeoutError');
+  let calls=0;
+  const request=createNativeEngineClient({baseUrl:'http://127.0.0.1:4321',ownerToken:'synthetic-owner'},'ws_native_1',async(_url,options,timeout)=>{
+    calls++;
+    assert.equal(timeout,300_000);
+    assert.ok(options.signal instanceof AbortSignal);
+    throw original;
+  });
+  const failObserver=()=>{throw new Error('Synthetic diagnostic failure');};
+  await assert.rejects(request.ready({observe:failObserver,onDeadline:failObserver}),error=>error===original);
+  assert.equal(calls,1);
+});
+
 test('native provider discovery waits for the production workspace reload to finish', async () => {
   let completeReload;
   let reloadStarted;

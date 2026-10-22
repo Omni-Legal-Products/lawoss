@@ -26,7 +26,7 @@ function endpoint(url) {
   if (/\/prompt_async$/.test(pathname)) return 'prompt';
   if (/\/sessions?\/[^/]+\/snapshot$/.test(pathname)) return 'snapshot';
   if (/\/files\/(?:list|raw|content)$/.test(pathname)) return 'files';
-  const fixed = new Map([['/path','engine.path'],['/global/health','engine.health'],['/provider','provider'],['/instance/dispose','engine.dispose'],['/auth/isir-native','synthetic.auth'],['/json/list','cdp.targets'],['/experimental/session','engine.sessions'],['/','ui']]);
+  const fixed = new Map([['/path','engine.path'],['/mcp','engine.mcp'],['/global/health','engine.health'],['/provider','provider'],['/instance/dispose','engine.dispose'],['/auth/isir-native','synthetic.auth'],['/json/list','cdp.targets'],['/experimental/session','engine.sessions'],['/','ui']]);
   const enginePath=pathname.replace(/^\/workspace\/[^/]+\/opencode(?=\/|$)/,'');
   if(fixed.has(enginePath))return fixed.get(enginePath);
   if (/\/workspace\/[^/]+\/engine\/reload$/.test(pathname))return 'engine.reload';
@@ -575,7 +575,7 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
   }));
   let startupDropped=0,ownedProcessesDropped=0,ownedStopAttempt=0;
   const observationStarted=performance.now();
-  const startupStages=['request','headers','body','verified'];
+  const startupStages=['request','headers','body','verified','instance-request','instance-headers','instance-body','instance-verified'];
   const processStages=['capture','term-signal','term-wait','kill-signal','kill-wait','signal-recheck'];
   const phases=['setup','startup','configure-provider','native-case','preparation-admission','generation','extra-cases','relaunch','recovery','complete'];
   const request=async(url,options={},timeout=30_000,probeCaseIndex=null)=>{

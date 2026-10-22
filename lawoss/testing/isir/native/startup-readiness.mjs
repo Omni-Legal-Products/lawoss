@@ -45,10 +45,10 @@ export async function awaitDirectoryInstance({ request, baseUrl, headers, direct
 }
 
 /** Cold provisioning and selected-instance proof are separate production phases. */
-export async function awaitNativeStartup({ engineRequest, request, serverInfo, workspace, observe, onDeadline = () => {} }) {
-  await engineRequest.ready();
+export async function awaitNativeStartup({ engineRequest, request, serverInfo, workspace, observe, onDeadline }) {
+  await engineRequest.ready({ observe: stage => observe?.(`instance-${stage}`), onDeadline });
   const started = performance.now(), deadline = Date.now() + 90_000;
-  onDeadline(deadline);
+  onDeadline?.(deadline);
   const receipt = await awaitDirectoryInstance({
     request: (url, options) => request(url, options, Math.max(1, deadline - Date.now())),
     baseUrl: `${serverInfo.baseUrl}/workspace/${encodeURIComponent(workspace.id)}/opencode`,

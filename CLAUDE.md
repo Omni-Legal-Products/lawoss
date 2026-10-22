@@ -94,6 +94,7 @@ Rules:
 - Prefer functional patterns, short focused functions, DRY, KISS, and YAGNI.
 - Use pnpm. Never use npm or yarn.
 - A shipping-control response is not interactive readiness. Native startup proof requires a completed document, no visible boot overlay and a usable visible control; retain the original readiness deadline.
+- Observe initial cold MCP readiness separately from selected-directory proof. Keep its original request/body contract and 300s limit, start the separate 90s directory budget only after readiness, and retain the initial diagnostic window on failure; passive observers cannot replace the transport error or establish a cause.
 - A finite presentation-watchdog response may be transient after startup. Wait only for that exact state inside the original observation budget; revalidate build, process and packaged renderer identity before every attempt, and reject other errors without retrying.
 - Classify an owned HTTP deadline across both response headers and body consumption. Preserve the original total budget and unrelated transport errors; test genuinely stalled headers and bodies rather than accepting generic abort exceptions.
 - Final-artifact CI startup proof uses the same guarded archive, owned fresh profile, live identity and native capture as alpha acceptance. Publish only finite metadata and the empty synthetic welcome image; retain pending visual review and ten unperformed journeys rather than turning startup into full acceptance or a migration baseline.

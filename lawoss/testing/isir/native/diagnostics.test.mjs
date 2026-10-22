@@ -76,9 +76,13 @@ test('workspace engine proxy diagnostics keep typed endpoints without workspace 
   const result = summarizeNetwork([
     { method:'Network.requestWillBeSent',params:{requestId:'synthetic',timestamp:1,request:{url:'http://127.0.0.1:999/workspace/private-id/opencode/global/health'}} },
     { method:'Network.requestWillBeSent',params:{requestId:'reload',timestamp:2,request:{url:'http://127.0.0.1:999/workspace/private-id/engine/reload'}} },
+    { method:'Network.requestWillBeSent',params:{requestId:'cold',timestamp:3,request:{url:'http://127.0.0.1:999/workspace/private-id/opencode/mcp?directory=private-path'}} },
+    { method:'Network.requestWillBeSent',params:{requestId:'unrelated',timestamp:4,request:{url:'http://127.0.0.1:999/private-id/mcp'}} },
   ]);
   assert.equal(result.requests[0].endpoint, 'engine.health');
   assert.equal(result.requests[1].endpoint, 'engine.reload');
+  assert.equal(result.requests[2].endpoint, 'engine.mcp');
+  assert.equal(result.requests[3].endpoint, 'other');
   assert.doesNotMatch(JSON.stringify(result), /private-id|127\.0/);
 });
 

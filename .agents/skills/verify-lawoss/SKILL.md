@@ -52,6 +52,8 @@ Only a launch failure with verified native closure may add `mainLog`: finite cur
 
 ## Doctor
 
+For development-native ISIR diagnostics, distinguish initial cold MCP readiness from installed startup: `engine.mcp` plus `instance-request/headers/body/verified` observes the existing 300s gate, before the separate 90s selected-directory proof. A failure keeps its initial log window; health, installed dependency files and completed bootstrap spans do not establish readiness or a cause. See [startup and recovery](features/startup-recovery.md).
+
 The launch helper's `observe()` is the read-only doctor. It checks the owned child PID, executable, userData, embedded build identity, packaged `file:` renderer and live snapshot. Startup also waits for a complete document, no visible boot overlay and a usable control; a loading frame is incomplete. The doctor waits through only the exact presentation-watchdog response with valid readiness, inside its existing five-second total budget. It revalidates build, process and packaged renderer before each attempt; other errors fail immediately. The runner invokes it before every capture; `execute()` invokes it before actions. Re-run it after a surprising response; reset or restart a wedged UI before proceeding.
 
 For a controlled diagnostic session, import `launchAlphaApp` from `lawoss/testing/alpha/native-app.mjs`, call it with `{installedApp, profileRoot, build}`, then use `observe()`, `execute(actionId, args)`, `capture(absoluteOutputPath)` and `stop()`. Keep the handle in the same process and use `try/finally` for `stop()`. Discovery tokens stay inside that handle.

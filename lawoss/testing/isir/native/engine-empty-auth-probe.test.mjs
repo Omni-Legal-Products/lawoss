@@ -53,8 +53,9 @@ function assertIntegratedHarness(source,startup) {
   assert.ok(source.includes('readQuitAcceptance:()=>readNativeQuitAcceptance(appChild.isirNativeQuitAcceptance)'));
   assert.match(source,/await awaitNativeStartup\(\{engineRequest,request:nativeFetch,serverInfo,workspace:workspaces\[0\]/);
   assert.ok(!/liveEngine\.(?:opencodeUsername|opencodePassword)/.test(source));
-  assert.ok(startup.includes('await engineRequest.ready();'));
-  assert.ok(startup.indexOf('await engineRequest.ready();')<startup.indexOf('deadline = Date.now() + 90_000'));
+  const ready=startup.match(/await engineRequest\.ready\([^;\n]*\);/);
+  assert.ok(ready);
+  assert.ok(ready.index<startup.indexOf('deadline = Date.now() + 90_000'));
   assert.ok(startup.indexOf('deadline = Date.now() + 90_000')<startup.indexOf('const receipt = await awaitDirectoryInstance'));
   assert.match(startup,/await response\.json\(\)/);
   assert.ok(source.lastIndexOf('verifyNativeEngineRuntime')<source.indexOf('diagnostics.phase("complete")'));
@@ -65,7 +66,8 @@ test('integrated harness keeps early producer admission and cold-to-selected sco
   assertIntegratedHarness(source,startup);
   assert.throws(()=>assertIntegratedHarness(source.replace('await applyProducer(env, emptyAuthProbe, preparedEngine.expectedHash);',''),startup));
   assert.throws(()=>assertIntegratedHarness(source.replace('await awaitNativeStartup({engineRequest','await awaitNativeStartup({wrongRequest'),startup));
-  assert.throws(()=>assertIntegratedHarness(source,startup.replace('await engineRequest.ready();','')));
+  assert.throws(()=>assertIntegratedHarness(source,startup.replace(/await engineRequest\.ready\([^;\n]*\);/,'')));
+  assert.throws(()=>assertIntegratedHarness(source,startup.replace('await engineRequest.ready(', 'engineRequest.ready(')));
 });
 function assertFrozenAdmissions(source) {
   for(const name of ['windows-engine-baseline','windows-engine-compile-monitor','windows-engine-empty-auth-probe']){

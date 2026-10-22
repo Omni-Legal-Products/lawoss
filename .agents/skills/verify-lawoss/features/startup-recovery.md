@@ -33,3 +33,5 @@ For a protected Linux preflight failure, use the finite `preflight` boundary/too
 For missing Windows discovery, inspect the failure-only finite `mainLog` categories after verified native closure. Discovery precedes runtime bootstrap and main-window creation; log observations can narrow the earlier boundary but cannot authenticate a root cause. Raw logs remain private.
 
 Keep Windows cold prerequisite results separate from installed startup: the isolated JSON probe uses another fresh runner and cannot warm the original ownership suite. Its checkpoint delivery timings do not identify the cause of a startup timeout.
+
+Development-native ISIR startup has a separate cold MCP readiness gate: `engine.mcp` and `instance-request/headers/body/verified` describe its existing 300s request, before the 90s selected-directory `request/headers/body/verified` proof. A health response does not complete either gate. Initial readiness failures retain their diagnostic log window; finite log observations and completed bootstrap spans do not establish the cause, native closure or installed-alpha acceptance.

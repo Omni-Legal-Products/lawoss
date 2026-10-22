@@ -263,3 +263,11 @@ ActualNSIS737/run39656432934 proves literal $R0/Uninstall LAWOSS.exe (SHA6e1c6d4
 - NewprojectionAPI RED missingexport (log58146624)→GREEN59f94c58; actualhistoricalfailure is separate red evidence, notfixedbydiagnostic. Testscoverall24fixedtuples, exact/suffixspoof codes, absent/completed/unknown stage omission withoutreadingerror, privategetterexclusion and frozenoutput. Focused13total12PASS0FAIL1explicitcontainerSKIP; normalNode24.21 full232total223PASS0FAIL9SKIP/25.873s SHA8c4c94a997f9f49c07c7c99c0fa80b89dafbafecf41aab9be5552a7613f9ff4f.8Windows-only+1explicitmetadata-containerSKIP. No actualprivilegedorchestration/native/kernel proof frompuretests.
 - Frozen2filepatcha50fef0f reviewedindependently; actualLinuxjob remainsrequired forwhichguard. Scope-onlyverify-lawoss/startupmap, mirroredAGENTS/CLAUDE andPATCHES updated. Fullmaintenancecoverage stillblocked6targets×fresh/migrated×11journeys/model/migrationbaseline/physicalWindows; goalACTIVE. No newapp/GUI/provider/policy/container actions thissourcechange. Current6a8 package39706244256 live; no manualrerun/cancel/merge/release.
 - Frozen2file reviewb5f24262PASS independently verified exacta50fef0f/current88634298+3da03ba4, no testexecution byreviewer. Parent rehashed actual061ARM manifest/sourcecheckoutand10PASSmarkers, summary5bef973e confirms equivalent outer states only, NOTsameinnerguard. DynamicwhichguardstillpendingnewCI.
+
+## 2026-10-22T03:02:54.859885+00:00 — Cold readiness observability
+
+- Source: bd4974df + reviewed frozen3e23138e; fixed/mapped MCP cold gate, preserved native requests/security and300s→90s oracles.
+- Tests:85focusedPASS; final393nativePASS/0FAIL/0SKIP. Original392/1staticadmission failure retained; rejectmissing/unawaitedreadiness mutations remain.
+- Actualruntime: onefullisolatedsyntheticnative attempt failedinitialMCP300002ms,0cases. Newinstance-request/engine.mcp and validprivateengineLog window confirmed; causeunknown.
+- Teardown: exit1, ownedcleanupreceiptcleanedtrue; actual8PIDabsence, normalprofileabsent/globalDBunchanged, all53inputs+1852compiledoutputs unchanged. Ignoredprivateevidence/snapshot61a32f70 retained; no baseline or upload.
+- Mapmaintenance: startupscopeonly; fullfivefeature/six-targetlivecoverage remainsblocked, goalACTIVE. No publicrelease/merge/CIrerun/secret/provider use.
