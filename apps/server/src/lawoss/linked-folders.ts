@@ -13,7 +13,7 @@
  */
 import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { ApiError } from "../errors.js";
 import { appliedOrgPolicy } from "../org-policy.js";
 import { readRuntimeOpencodeConfig, runtimeExternalDirectory, runtimeStorageDir } from "../runtime-opencode-config-store.js";
@@ -64,8 +64,18 @@ const localWorkspaces = (config: ServerConfig): WorkspaceInfo[] => config.worksp
  */
 async function appHomeDataDir(workspace: WorkspaceInfo): Promise<string | null> {
   if (workspace.workspaceType === "remote" || !workspace.path || basename(workspace.path) !== "lawoss-domov") return null;
-  const parent = dirname(workspace.path);
-  return await access(join(parent, "legalwork-workspaces.json")).then(() => existingCanonical(parent), () => null);
+  const parent = await existingCanonical(dirname(workspace.path));
+  if (parent && parent === await desktopUserData()) return parent;
+  return await access(join(dirname(workspace.path), "legalwork-workspaces.json")).then(() => parent, () => null);
+}
+
+/**
+ * Electron userData desktopu (`LAWOSS_USER_DATA`, nastaví `apps/desktop/electron/runtime.mjs` pred štartom servera):
+ * dáta aplikácie aj na profile, ktorý domovský priestor nemá (starší profil s klientmi). Len absolútna cesta.
+ */
+async function desktopUserData(): Promise<string | null> {
+  const value = process.env.LAWOSS_USER_DATA?.trim();
+  return value && isAbsolute(value) ? existingCanonical(value) : null;
 }
 
 /** Klienti: lokálne priestory bez interného domovského priestoru appky. */
@@ -74,11 +84,15 @@ async function clientWorkspaces(config: ServerConfig): Promise<WorkspaceInfo[]> 
   return home.filter((entry) => entry.home === null).map((entry) => entry.workspace);
 }
 
-/** Dáta aplikácie: úložisko runtime (súbor enginu, mapa, pluginy) a userData s domovským priestorom. */
+/**
+ * Dáta aplikácie: úložisko runtime (súbor enginu, mapa, pluginy), priečinok konfigurácie servera (tokeny),
+ * Electron userData (zoznam priečinkov, profil) a userData s domovským priestorom.
+ */
 async function appDataDirs(config: ServerConfig): Promise<string[]> {
   const runtime = await existingCanonical(runtimeStorageDir(config)) ?? runtimeStorageDir(config);
+  const configDir = config.configPath && isAbsolute(config.configPath) ? await existingCanonical(dirname(config.configPath)) : null;
   const homes = await Promise.all(localWorkspaces(config).map(appHomeDataDir));
-  return [...new Set([runtime, ...homes.filter((dir): dir is string => dir !== null)])];
+  return [...new Set([runtime, configDir, await desktopUserData(), ...homes].filter((dir): dir is string => dir !== null))];
 }
 
 /** Rozsah pravidiel pre jeden pracovný priestor: jeho koreň, ostatní registrovaní, prax a dáta aplikácie. */

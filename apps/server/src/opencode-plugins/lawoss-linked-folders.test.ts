@@ -35,8 +35,11 @@ async function chat(directory: string) {
     await hooks["chat.message"]({ sessionID }, output);
     return output.parts.map((part) => ("text" in part && typeof part.text === "string" ? part.text : "")).join("\n");
   };
-  const system: string[] = [];
-  await hooks["experimental.chat.system.transform"]({}, { system });
+  const system = async () => {
+    const output: string[] = [];
+    await hooks["experimental.chat.system.transform"]({}, { system: output });
+    return output.join("\n");
+  };
   return { send, system };
 }
 
@@ -56,7 +59,7 @@ test("chat klienta aj chat prípadu dostanú pripojené priečinky klienta; chat
   expect(b).not.toContain("Tatran");
 });
 
-test("pripomienka len pri zmene; po odpojení raz „už nie sú“; bez priečinkov žiadna; systémový text je pevný", async () => {
+test("pripomienka len pri zmene; po odpojení raz „už nie sú“; bez priečinkov žiadna", async () => {
   const { clientA, writeMap } = await fixture();
   const session = await chat(clientA);
   expect(await session.send("ses_1")).toContain("pripojeny-A");
@@ -65,7 +68,19 @@ test("pripomienka len pri zmene; po odpojení raz „už nie sú“; bez prieči
   expect(await session.send("ses_1")).toContain("no linked folders any more");
   expect(await session.send("ses_1")).toBe("");
   expect(await (await chat(clientA)).send("ses_2")).toBe("");
-  const again = await chat(clientA);
-  expect(again.system).toEqual(session.system);
-  expect(session.system.join("")).not.toContain("pripojeny-A");
+});
+
+test("systémový text je pevný: nemení sa so zoznamom pripojených priečinkov ani medzi klientmi a prípadmi", async () => {
+  const { clientA, matterA, clientB, linkedA, writeMap } = await fixture();
+  const a = await chat(clientA);
+  const texts = [await a.system()];
+  await writeMap([]);
+  texts.push(await a.system());
+  await writeMap([linkedA, join(linkedA, "..", "iný")]);
+  texts.push(await a.system(), await (await chat(matterA)).system(), await (await chat(clientB)).system());
+  // Zmena zoznamu sa medzitým v pripomienke prejaví (kontrola, že mapa sa naozaj zmenila).
+  expect(await a.send("ses_s")).toContain("- iný:");
+  expect(new Set(texts).size).toBe(1);
+  expect(texts[0]).toContain("linked-folders reminder");
+  expect(texts[0]).not.toContain("pripojeny-A");
 });

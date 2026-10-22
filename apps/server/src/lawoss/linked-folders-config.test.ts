@@ -51,7 +51,7 @@ async function practice() {
   const practiceRoot = join(root, "prax");
   for (const folder of [join(client, "Spisy", "Uhrada"), other, join(linked, "Rok 2026"), join(practiceRoot, "_kancelaria"), join(practiceRoot, "Vzory")]) await mkdir(folder, { recursive: true });
   const config: ServerConfig = {
-    host: "127.0.0.1", port: 0, configPath: join(root, "server.json"), token: CLIENT_TOKEN, hostToken: "owt_linked_folders_host",
+    host: "127.0.0.1", port: 0, configPath: join(root, "server", "server.json"), token: CLIENT_TOKEN, hostToken: "owt_linked_folders_host",
     approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"],
     workspaces: [
       { id: "ws_client", name: "Tatran", path: client, preset: "starter", workspaceType: "local" },
@@ -250,6 +250,28 @@ describe("pripojené priečinky klienta: alfa2 A3 (N-16, N-20)", () => {
     expect(await code(await put("ws_client", [join(root, "LAWOSS-test-profil")]))).toEqual({ status: 409, code: "linked_folder_app_data" });
     await writeLinkedFoldersMap(config);
     expect((await readMap())?.clients.map((entry) => entry.root)).not.toContain(home);
+  });
+
+  test("I1: userData desktopu aj priečinok konfigurácie servera sú dáta aplikácie aj na starom profile bez domovského priestoru", async () => {
+    const { root, config, put } = await practice();
+    const userData = join(root, "Library", "LAWOSS");
+    await mkdir(join(userData, "lawoss-onboarding"), { recursive: true });
+    await mkdir(join(root, "server"), { recursive: true });
+    const previous = process.env.LAWOSS_USER_DATA;
+    process.env.LAWOSS_USER_DATA = userData;
+    try {
+      expect(await code(await put("ws_client", [userData]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+      expect(await code(await put("ws_client", [join(userData, "lawoss-onboarding")]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+      expect(await code(await put("ws_client", [join(root, "Library")]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+      expect(await code(await put("ws_client", [join(root, "server")]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+      // Domovský priestor v userData je dáta aplikácie aj bez legalwork-workspaces.json vedľa neho.
+      const home = join(userData, "lawoss-domov");
+      await mkdir(home);
+      config.workspaces.push({ id: "ws_home", name: "LAWOSS", path: home, preset: "starter", workspaceType: "local" });
+      expect(await code(await put("ws_client", [userData]))).toEqual({ status: 409, code: "linked_folder_app_data" });
+    } finally {
+      if (previous === undefined) delete process.env.LAWOSS_USER_DATA; else process.env.LAWOSS_USER_DATA = previous;
+    }
   });
 
   test("N-20: priečinok s menom lawoss-domov bez súboru appky ostáva ako predtým (iný klient), nie dáta aplikácie", async () => {
