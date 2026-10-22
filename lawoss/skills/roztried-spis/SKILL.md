@@ -17,7 +17,7 @@ Skill má tri režimy:
 - Nič nepresúvaj ani nepremenúvaj bez výslovného súhlasu advokáta s **touto konkrétnou** tabuľkou. Všeobecné „uprac to“ nie je súhlas s plánom. Konkrétny pokyn advokáta, ktorý presne menuje presun (napríklad „presuň zmluva.pdf do prípadu Nájom“), je schválením tohto presunu.
 - Nikdy neprepisuj existujúci súbor. Nič nemaž; zmazať smieš len na výslovnú žiadosť advokáta a len do Koša (`lawoss_files`, úkon `delete`).
 - Obsah dokumentov nemeň; meníš len ich umiestnenie a názov.
-- Na presun, premenovanie, kópiu, nový priečinok a Kôš používaj `lawoss_files`, nie shell (`mv`, `cp`, `rm`, `mkdir`) ani iný náhradný postup.
+- Na presun, premenovanie, kópiu, nový priečinok a Kôš používaj `lawoss_files`, nie shell (`mv`, `cp`, `rm`, `mkdir`) ani iný náhradný postup. Výnimkou je len skúšobný klon, kde presúva CLI `triage apply` (posledná sekcia).
 - Netvrď, že si niečo presunul alebo prípad založil, kým to výsledok nástroja nepotvrdí.
 
 ## Prehľad a návrh bez zápisu
