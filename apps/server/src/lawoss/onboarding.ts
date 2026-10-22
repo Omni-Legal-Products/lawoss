@@ -10,6 +10,7 @@ import { registerLocalProject } from "../routes/workspaces.js";
 import { addRoute, type RequestContext, type Route } from "../routes/registry.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { externalAppFilesRoot } from "./workspace-app-files.js";
+import { registrationName } from "./client-card-title.js";
 import { registerTriageRoutes } from "./triage.js";
 import { readOfficeMemory } from "./office-memory.js";
 import { executeOnboarding, inspectCardLevel, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, suggestOnboardingLevel, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
@@ -258,7 +259,7 @@ export function registerOnboardingRoutes(options: {
       await canonicalDirectory(clientRoot);
       const prior = config.workspaces.find(workspace => workspace.path === clientRoot);
       const appFiles = ticket.preview.action === "matter" || ticket.preview.action === "subject" ? prior?.appFiles ?? result.appFiles : result.appFiles;
-      const { workspace } = await registerLocalProject(config, { folderPath: clientRoot, name: prior?.name ?? ticket.name, preset: "starter", registerExisting: true, appFiles });
+      const { workspace } = await registerLocalProject(config, { folderPath: clientRoot, name: prior?.name ?? await registrationName(clientRoot, ticket.name), preset: "starter", registerExisting: true, appFiles });
       checkpoint("register-done");
       if (ticket.officeMemoryRoot && !(await lstat(join(storage, `${input.id}.office-grant.json`)).then(() => true).catch(error => { if (missing(error)) return false; throw error; }))) {
         checkpoint("office-grant-enter");

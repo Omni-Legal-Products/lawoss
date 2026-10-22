@@ -342,6 +342,21 @@ test("hotová kancelária bez okf.config: návrh praxe, doplnenie kancelárie a 
   expect(f.config.workspaces).toHaveLength(2);
 });
 
+test("registrácia klienta dostane názov z karty client.md, nie slug priečinka; vlastné meno ostáva (B3, N-22)", async () => {
+  const f = await fixture(), root = join(f.base, "kancelaria-b3");
+  const cards: Record<string, string | null> = { "C001-syn-alfa-s-r-o": "SYN Alfa, s. r. o.", "C002-syn-beta-a-s": "SYN Beta, a. s.", "C003-bez-karty": null };
+  for (const [client, title] of Object.entries(cards)) {
+    await mkdir(join(root, "Klienti", client), { recursive: true });
+    if (title) await writeFile(join(root, "Klienti", client, "client.md"), `---\ntype: klient\ntitle: "${title}"\n---\n`);
+  }
+  const register = (client: string, title: string) => f.apply({ action: "existing", root: join(root, "Klienti", client), mode: "convert", title, confirmUnknownClient: true, ...common });
+  await register("C001-syn-alfa-s-r-o", "C001-syn-alfa-s-r-o");
+  await register("C002-syn-beta-a-s", "Môj klient Beta");
+  await register("C003-bez-karty", "C003-bez-karty");
+  const names = Object.fromEntries(f.config.workspaces.map((w) => [w.path.split("/").pop(), w.name]));
+  expect(names).toEqual({ "C001-syn-alfa-s-r-o": "SYN Alfa, s. r. o.", "C002-syn-beta-a-s": "Môj klient Beta", "C003-bez-karty": "C003-bez-karty" });
+});
+
 test("suggest navrhne prax z mien priečinkov a nič nezapíše", async () => {
   const f = await fixture(), root = join(f.base, "kancelaria");
   for (const name of ["Alfa s. r. o.", "Beta a. s.", "Gama s.r.o.", "Delta k. s.", "Novák Ján/2024-03 Kúpna zmluva"]) await mkdir(join(root, name), { recursive: true });
