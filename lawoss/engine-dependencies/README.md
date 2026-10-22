@@ -486,8 +486,20 @@ JSON Number, while control schemas require bounded safe integers.
 parent has independently observed direct-child close and exit0. Worker stdout
 and a manifest cannot attest that close. Cancellation joins started operations
 and descriptor closes; the worker never recursively deletes the workspace.
-The parent integration and its shared300s budget remain separate work. Initial
-46 supplemental tests and the focused31-test fix run have independent review;
-full source-layout admission, genuine32/64/64/64 execution and unchanged47
-retained-input replay remain unperformed. This is a CI fixture worker, not the
-future application SDK seeder or installed-app acceptance.
+The native validation parent now sequences raw acquisition, offline projection,
+read-only admission and exclusive derived-cache preload within one original
+300-second allowance. Its fixed three suites retain their source-derived
+8+25+14=47 tests and separate 180-second timeout. CLI output is three finite JSON
+lines: original acquisition, admitted projection and test result. Earlier
+receipts survive a later refusal; uncertain child close retains the workspace.
+
+Supervisor cancellation, timeout and output-limit reasons use private Error
+identity in `prepare.mjs`; stderr code spelling cannot supply that provenance.
+Other callers retain the original public error fields and supervision behavior.
+Validated bounded projection diagnostics may refine a generic child failure.
+
+Worker and parent supplemental refusal/lifetime tests have independent review.
+Full source-layout admission, genuine32/64/64/64 execution and unchanged47
+retained-input replay remain unperformed. Changes to existing SDK-bound source
+require fresh source-bound compatibility proof. This is a CI fixture pipeline,
+separate from the future application SDK seeder and installed-app acceptance.
