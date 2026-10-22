@@ -6,13 +6,86 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { assertHostedLinuxContext, linuxUsernsProfile, validateProtectedLinuxTree } from './linux-protected-install.mjs';
+import { assertHostedLinuxContext, linuxPreflightFailure, linuxUsernsProfile, validateProtectedLinuxTree } from './linux-protected-install.mjs';
 
 const environment = { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted' };
 const context = { platform: 'linux', arch: 'x64', uid: 1000, euid: 1000, environment };
 const stage = `/opt/lawoss-ci-${'a'.repeat(32)}`;
 const refused = { code: 'linux-protected-install-refused' };
 const unverified = { code: 'linux-protected-install-unverified' };
+
+test('protected Linux preflight publishes a finite failed guard without changing the original error', () => {
+  const error = Object.assign(new Error('private source and command content'), { code: 'EACCES' });
+  assert.deepEqual(linuxPreflightFailure('opt-ancestors', error), {
+    boundary: 'opt-trust', tool: null, check: 'ancestors', errorCode: 'EACCES',
+  });
+  assert.equal(error.message, 'private source and command content');
+  assert.equal(error.code, 'EACCES');
+});
+
+test('protected Linux preflight distinguishes each fixed tool and guard call site', () => {
+  const cases = [
+    ['sudo-realpath', 'tool-trust', 'sudo', 'realpath'],
+    ['sudo-ancestors', 'tool-trust', 'sudo', 'ancestors'],
+    ['sudo-entry', 'tool-trust', 'sudo', 'entry'],
+    ['mkdir-realpath', 'tool-trust', 'mkdir', 'realpath'],
+    ['mkdir-ancestors', 'tool-trust', 'mkdir', 'ancestors'],
+    ['mkdir-entry', 'tool-trust', 'mkdir', 'entry'],
+    ['cp-realpath', 'tool-trust', 'cp', 'realpath'],
+    ['cp-ancestors', 'tool-trust', 'cp', 'ancestors'],
+    ['cp-entry', 'tool-trust', 'cp', 'entry'],
+    ['install-realpath', 'tool-trust', 'install', 'realpath'],
+    ['install-ancestors', 'tool-trust', 'install', 'ancestors'],
+    ['install-entry', 'tool-trust', 'install', 'entry'],
+    ['rm-realpath', 'tool-trust', 'rm', 'realpath'],
+    ['rm-ancestors', 'tool-trust', 'rm', 'ancestors'],
+    ['rm-entry', 'tool-trust', 'rm', 'entry'],
+    ['cat-realpath', 'tool-trust', 'cat', 'realpath'],
+    ['cat-ancestors', 'tool-trust', 'cat', 'ancestors'],
+    ['cat-entry', 'tool-trust', 'cat', 'entry'],
+    ['parser-realpath', 'parser-trust', 'parser', 'realpath'],
+    ['parser-ancestors', 'parser-trust', 'parser', 'ancestors'],
+    ['parser-entry', 'parser-trust', 'parser', 'entry'],
+    ['restriction-read', 'userns-restriction', null, 'read'],
+    ['initial-policy-presence', 'initial-policy-presence', null, 'presence'],
+  ];
+  for (const [step, boundary, tool, check] of cases) {
+    assert.deepEqual(linuxPreflightFailure(step, { code: 'ENOENT' }), { boundary, tool, check, errorCode: 'ENOENT' });
+  }
+});
+
+test('protected Linux preflight omits completed, absent and unrecognized observations without reading an error', () => {
+  const error = { get code() { assert.fail('No preflight failure must not inspect error content'); } };
+  for (const step of [undefined, null, '', 'complete', 'toString', '__proto__', 'constructor',
+    'sudo-entry/private/secret', 'parser-entry\n', '/usr/bin/cat-entry', 1, {}, new String('opt-ancestors')]) {
+    assert.equal(linuxPreflightFailure(step, error), undefined);
+  }
+});
+
+test('protected Linux preflight accepts only exact closed error codes', () => {
+  for (const code of ['ENOENT', 'EACCES', 'EPERM', 'ELOOP', 'ENOTDIR', 'linux-protected-install-refused', 'linux-protected-install-unverified']) {
+    assert.equal(linuxPreflightFailure('parser-realpath', { code }).errorCode, code);
+  }
+  for (const error of [null, undefined, 'ENOENT', { code: 'ENOENT/private/secret' }, { code: 'EACCES\n' },
+    { code: 'linux-protected-install-unverified-private' }, { code: 1 }, { code: {} }, { code: Symbol('ENOENT') },
+    { get code() { throw new Error('private diagnostic getter'); } }]) {
+    assert.equal(linuxPreflightFailure('parser-realpath', error).errorCode, 'unknown');
+  }
+});
+
+test('protected Linux preflight freezes finite fields and never serializes private exception content', () => {
+  let codeReads = 0;
+  const error = { get code() { codeReads++; return 'linux-protected-install-unverified'; } };
+  for (const key of ['message', 'stack', 'cause', 'path', 'pid', 'token', 'stdout', 'stderr']) {
+    Object.defineProperty(error, key, { enumerable: true, get() { assert.fail(`Private ${key} must not be read`); } });
+  }
+  const result = linuxPreflightFailure('initial-policy-presence', error);
+  assert.equal(codeReads, 1);
+  assert.equal(JSON.stringify(result), '{"boundary":"initial-policy-presence","tool":null,"check":"presence","errorCode":"linux-protected-install-unverified"}');
+  assert.equal(Object.isFrozen(result), true);
+  assert.throws(() => { result.errorCode = 'cleanup'; }, TypeError);
+  assert.equal(result.errorCode, 'linux-protected-install-unverified');
+});
 
 test('protected Linux installation requires an ordinary user on an explicit hosted supported Linux runner', () => {
   for (const arch of ['x64', 'arm64']) assert.doesNotThrow(() => assertHostedLinuxContext({ ...context, arch }));

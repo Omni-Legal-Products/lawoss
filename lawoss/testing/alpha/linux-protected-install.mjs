@@ -11,6 +11,24 @@ const refuse = () => { throw Object.assign(new Error('linux-protected-install-re
 const fail = () => { throw Object.assign(new Error('linux-protected-install-unverified'), {code:'linux-protected-install-unverified'}); };
 const inside = (root,path) => { const rel=relative(root,path);return rel==='' || !isAbsolute(rel) && rel!=='..' && !rel.startsWith(`..${sep}`); };
 const same = (a,b) => a.dev===b.dev && a.ino===b.ino;
+const preflightSteps = new Map([
+  ['opt-ancestors', {boundary:'opt-trust',tool:null,check:'ancestors'}],
+  ['restriction-read', {boundary:'userns-restriction',tool:null,check:'read'}],
+  ['initial-policy-presence', {boundary:'initial-policy-presence',tool:null,check:'presence'}],
+]);
+for(const tool of ['sudo','mkdir','cp','install','rm','cat','parser']) {
+  for(const check of ['realpath','ancestors','entry']) {
+    preflightSteps.set(`${tool}-${check}`,{boundary:tool==='parser'?'parser-trust':'tool-trust',tool,check});
+  }
+}
+const preflightCodes = new Set(['ENOENT','EACCES','EPERM','ELOOP','ENOTDIR','linux-protected-install-refused','linux-protected-install-unverified']);
+export function linuxPreflightFailure(step,error) {
+  const observation=preflightSteps.get(step);
+  if(!observation)return undefined;
+  let errorCode='unknown';
+  try {const code=error?.code;if(preflightCodes.has(code))errorCode=code;} catch { /* Diagnostic access cannot replace the primary failure. */ }
+  return Object.freeze({...observation,errorCode});
+}
 export function assertHostedLinuxContext({platform=process.platform,arch=process.arch,uid=process.getuid?.(),euid=process.geteuid?.(),environment=process.env}={}) {
   if(platform!=='linux' || !['x64','arm64'].includes(arch) || !Number.isSafeInteger(uid) || uid<=0 || !Number.isSafeInteger(euid) || euid<=0
     || environment?.GITHUB_ACTIONS!=='true' || environment?.RUNNER_ENVIRONMENT!=='github-hosted')refuse();
@@ -91,18 +109,34 @@ export async function withProtectedLinuxArtifact(artifact,use) {
     const policy=linuxUsernsProfile(stage),policyFile=join(stage,'userns.profile');
     let stageIdentity,retained=false,policyState='not-required',stageState='not-created',primary;
     let restricted=false,policyOwned=false,policyUncertain=false,temporary,protectionVerified=false;
+    let preflight,preflightFailure;
     try {
+      preflight='opt-ancestors';
       await protectedAncestors('/opt');
       // Fixed tools and their canonical targets must also be root protected.
       for(const tool of ['/usr/bin/sudo','/usr/bin/mkdir','/usr/bin/cp','/usr/bin/install','/usr/bin/rm','/usr/bin/cat']) {
-        const physical=await realpath(tool);await protectedAncestors(dirname(physical));await protectedEntry(physical);
+        const label=posix.basename(tool);
+        preflight=`${label}-realpath`;
+        const physical=await realpath(tool);
+        preflight=`${label}-ancestors`;
+        await protectedAncestors(dirname(physical));
+        preflight=`${label}-entry`;
+        await protectedEntry(physical);
       }
+      preflight='restriction-read';
       restricted=await usernsRestriction();
       if(restricted) {
-        const parser=await realpath('/usr/sbin/apparmor_parser');await protectedAncestors(dirname(parser));await protectedEntry(parser);
+        preflight='parser-realpath';
+        const parser=await realpath('/usr/sbin/apparmor_parser');
+        preflight='parser-ancestors';
+        await protectedAncestors(dirname(parser));
+        preflight='parser-entry';
+        await protectedEntry(parser);
+        preflight='initial-policy-presence';
         if(await policyPresent(policy.name))fail();
         policyState='not-loaded';
       }
+      preflight=undefined;
       // Failure may occur after mkdir had an effect. Never adopt or delete an
       // unbound stage, and never describe an ambiguous creation as absent.
       stageState='creation-uncertain';
@@ -127,7 +161,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
         policyOwned=true;policyUncertain=false;policyState='loaded';
       }
       return await use({installedApp,installation,retain(){retained=true;}});
-    } catch(error) {primary=error;throw error;}
+    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error);throw error;}
     finally {
       let cleanupFailure;
       try {
@@ -151,7 +185,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
       console.log(JSON.stringify({kind:'lawoss-ci-linux-protected-installation',assetSha256:artifact.expectedSha256,
         protection:protectionVerified?'verified':'not-verified',policy:policyState,
         installationCleanup:stageState,retentionRequested:retained,
-        policyPresenceIsNotAttachmentProof:true}));
+        policyPresenceIsNotAttachmentProof:true,...(preflightFailure?{preflight:preflightFailure}:{})}));
       if(!primary && (cleanupFailure || retained || policyUncertain))fail();
     }
   });

@@ -28,6 +28,8 @@ For Linux AppImage, verify the final AppRun and desktop-entry arguments as well 
 
 The hosted Linux probe now lends an exact-byte/mode root-protected installation to the same acceptance core and, where required, adds only the exact executable's userns policy. Root application launches and global policy changes remain refused. Treat root-tree/copy contract tests separately from positive native startup; confirm owned policy/stage teardown before any success marker.
 
+For a protected Linux preflight failure, use the finite `preflight` boundary/tool/check and exact outer error code. A pre-creation failure does not establish a native launch or policy load; default `not-required` is not a measured restriction decision. Subprocess failures remain the existing generic protected-installation error. Preserve unknown causes and the original exception; this observation never grants installation or startup acceptance.
+
 For missing Windows discovery, inspect the failure-only finite `mainLog` categories after verified native closure. Discovery precedes runtime bootstrap and main-window creation; log observations can narrow the earlier boundary but cannot authenticate a root cause. Raw logs remain private.
 
 Keep Windows cold prerequisite results separate from installed startup: the isolated JSON probe uses another fresh runner and cannot warm the original ownership suite. Its checkpoint delivery timings do not identify the cause of a startup timeout.
