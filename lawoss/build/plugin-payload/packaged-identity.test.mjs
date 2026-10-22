@@ -40,6 +40,24 @@ function deferred() {
  const promise = new Promise(r => { resolve = r; });
  return { promise, resolve };
 }
+function failNextAsarDescriptorRestore(descriptor, failure) {
+ const nativeDefineProperty = Object.defineProperty;
+ let consumed = false;
+ Object.defineProperty = function(target, property, nextDescriptor) {
+  if (!consumed && target === asarFs && property === 'createWriteStream' && nextDescriptor.value === descriptor.value) {
+   consumed = true;
+   throw failure;
+  }
+  return Reflect.apply(nativeDefineProperty, Object, [target, property, nextDescriptor]);
+ };
+ return {
+  consumed: () => consumed,
+  recover() {
+   Object.defineProperty = nativeDefineProperty;
+   Reflect.apply(nativeDefineProperty, Object, [asarFs, 'createWriteStream', descriptor]);
+  }
+ };
+}
 async function createAsarAndWaitForClose(source, destination, options, gate) {
  // Top-level node:test cases are serial; the pinned wrapper descriptor is held only for this exact destination.
  const descriptor = Object.getOwnPropertyDescriptor(asarFs, 'createWriteStream');
@@ -108,9 +126,11 @@ async function createAsarAndWaitForClose(source, destination, options, gate) {
   // The descriptor is restored only after an observed writer has settled.
   restore();
  }
- if (creatorError) throw creatorError;
- if (!writer) throw new Error(`Pinned ASAR did not create the expected archive writer: ${destination}`);
- if (completion.error) throw completion.error;
+ const primaryError = creatorError ?? completion?.error ?? (!writer ? new Error(`Pinned ASAR did not create the expected archive writer: ${destination}`) : undefined);
+ if (primaryError && restoreError) {
+  throw new AggregateError([primaryError, restoreError], 'ASAR archive creation and writer restoration failed', { cause: primaryError });
+ }
+ if (primaryError) throw primaryError;
  if (restoreError) throw restoreError;
 }
 test('fixture does not return an archive while its actual writer is unfinished', async t => {
@@ -180,6 +200,51 @@ test('creator failure before opening an archive propagates without waiting and r
  const options = new Proxy({}, { get(_target, property) { if (property === 'globOptions') throw failure; } });
  const descriptor = Object.getOwnPropertyDescriptor(asarFs, 'createWriteStream');
  await assert.rejects(createAsarAndWaitForClose(root, path.join(root, 'app.asar'), options), error => error === failure);
+ assert.deepEqual(Object.getOwnPropertyDescriptor(asarFs, 'createWriteStream'), descriptor);
+});
+test('creator and descriptor restoration failures are both preserved', async t => {
+ const root = await realpath(await mkdtemp(path.join(tmpdir(), 'lawoss-asar-dual-creator-error-')));
+ t.after(() => rm(root, { recursive: true, force: true }));
+ const failure = new Error('controlled pre-writer creator failure');
+ const restoreFailure = new Error('controlled ASAR descriptor restoration failure');
+ const options = new Proxy({}, { get(_target, property) { if (property === 'globOptions') throw failure; } });
+ const descriptor = Object.getOwnPropertyDescriptor(asarFs, 'createWriteStream');
+ const injection = failNextAsarDescriptorRestore(descriptor, restoreFailure);
+ let observed;
+ try {
+  await createAsarAndWaitForClose(root, path.join(root, 'app.asar'), options);
+ } catch (error) { observed = error; }
+ finally { injection.recover(); }
+ assert.equal(injection.consumed(), true);
+ assert.ok(observed instanceof AggregateError);
+ assert.deepEqual(observed.errors, [failure, restoreFailure]);
+ assert.equal(observed.cause, failure);
+ assert.deepEqual(Object.getOwnPropertyDescriptor(asarFs, 'createWriteStream'), descriptor);
+});
+test('writer and descriptor restoration failures are both preserved', async t => {
+ const root = await realpath(await mkdtemp(path.join(tmpdir(), 'lawoss-asar-dual-writer-error-')));
+ t.after(() => rm(root, { recursive: true, force: true }));
+ const source = path.join(root, 'source');
+ await mkdir(path.join(source, path.dirname(filename)), { recursive: true });
+ await writeFile(path.join(source, filename), createProductSdkIdentityModule(identity()));
+ const destination = path.join(root, 'app.asar');
+ const descriptor = Object.getOwnPropertyDescriptor(asarFs, 'createWriteStream');
+ const failure = Object.assign(new Error('controlled ASAR writer failure'), { code: 'EWRITER' });
+ const restoreFailure = new Error('controlled ASAR descriptor restoration failure');
+ const gate = { endRequested: deferred(), release: deferred(), failOnEnd: failure };
+ const injection = failNextAsarDescriptorRestore(descriptor, restoreFailure);
+ const creation = createAsarAndWaitForClose(source, destination, {}, gate);
+ await gate.endRequested.promise;
+ gate.release.resolve();
+ let observed;
+ try { await creation; }
+ catch (error) { observed = error; }
+ finally { injection.recover(); }
+ assert.equal(gate.writerClosed, true);
+ assert.equal(injection.consumed(), true);
+ assert.ok(observed instanceof AggregateError);
+ assert.deepEqual(observed.errors, [failure, restoreFailure]);
+ assert.equal(observed.cause, failure);
  assert.deepEqual(Object.getOwnPropertyDescriptor(asarFs, 'createWriteStream'), descriptor);
 });
 test('actual asar private identity is read as frozen data and matched to the expected build', async t => {
