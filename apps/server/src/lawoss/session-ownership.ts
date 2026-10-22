@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { relative, sep } from "node:path";
+import { relative, resolve, sep } from "node:path";
 import { isPathWithin } from "./path-within.js";
 import type { WorkspaceInfo } from "../types.js";
 import { workspaceListsSession } from "./session-list-scope.js";
@@ -33,11 +33,14 @@ export async function workspaceReadsSession(workspace: WorkspaceInfo, session: {
  * case subfolder; its managed shell defaults there, as the engine's own tools do.
  */
 export async function sessionFolder(workspace: WorkspaceInfo, session: { directory?: string | null }): Promise<string[]> {
-  const directory = session.directory?.normalize("NFC");
-  if (workspace.workspaceType !== "local" || !directory) return [];
+  if (workspace.workspaceType !== "local" || !session.directory) return [];
+  const directory = session.directory.normalize("NFC");
   const root = withoutExtendedPrefix(workspace.directory?.trim() || workspace.path);
   for (const candidate of [root, await realpath(root).catch(() => root)].map((path) => path.normalize("NFC"))) {
-    if (isPathWithin(candidate, directory)) return relative(candidate, directory).split(sep).filter(Boolean);
+    if (!isPathWithin(candidate, directory)) continue;
+    // Matched in NFC; the segments keep the engine's own spelling (byte-exact file systems).
+    const depth = relative(candidate, directory).split(sep).filter(Boolean).length;
+    return depth ? resolve(session.directory).split(sep).filter(Boolean).slice(-depth) : [];
   }
   return [];
 }
