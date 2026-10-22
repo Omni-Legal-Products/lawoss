@@ -33,6 +33,7 @@ apps/desktop/native/audiotap/.build/
 # Bun build artifacts
 *.bun-build
 apps/server/cli
+/scripts/sandbox/probe.mjs
 
 # pnpm store
 .pnpm-store/
