@@ -6380,7 +6380,7 @@ export default {
   "workspace.open_workspace": "Otevřít pracovní prostor",
   "workspace.opening_hint": "Platí pro nové karty. Otevřené karty zůstanou na místě; kdykoli je můžete přetáhnout kamkoli.",
   "workspace.opening_profile": "Profil otevírání",
-  "workspace.overview": "Domů",
+  "workspace.overview": "Přehled",
   "workspace.preview_hint": "Náhled: dvojitým kliknutím ponecháte otevřené",
   "workspace.remove_failed": "Tohoto klienta se nepodařilo odebrat.",
   "workspace.return_to": "Vrátit se na {name}",

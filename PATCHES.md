@@ -1,5 +1,14 @@
 # LAWOSS downstream patches
 
+## Bočný panel: čitateľné mená, Klient → Prípady → Chaty, kompaktný bežný režim (alfa2 B3, 2026-10-23)
+
+Podklad: plán alfa2 úloha B3, nález N-22 a „Sidebar: klienti, prípady a chaty“ (akceptácia 22. 10. 2026). Nové LAWOSS súbory: `apps/app/src/lawoss/lite/client-row.ts` (čistý model: meno, lehota v riadku, kontext chatu, krátky zoznam, accordion), `client-row-text.ts`, `client-row-view.tsx`, `apps/server/src/lawoss/client-card-title.ts`; testy `apps/app/tests/lawoss-sidebar-hierarchy.test.tsx`, `apps/server/src/lawoss/client-card-title.test.ts`. Zelené zmeny: `client-nav.tsx`, `client-tree.ts` (stav veci), `shell.ts` (Viac, bublinka priečinka), `sk.ts`/`cs.ts` `workspace.overview` = „Prehľad“/„Přehled“ (Domov klienta už nie je druhý „Domov“), server `lawoss/onboarding.ts` (registrácia z onboardingu dostane `title` z `client.md`/`klient.md`, ak volajúci poslal len meno priečinka; existujúce registrácie sa nepremenúvajú).
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | `WorkspaceHeader`, `PinnedProjectRow`: meno z `useClientProjectRow` (karta klienta → upravený priečinok; meno od používateľa a neklient natívne), priečinok v `title`, druhý riadok s najbližšou lehotou zo súborov (len pri úplnom čítaní) v existujúcom slote stavu. `GlobalSessionRow` (Nedávne, pripnuté): pod názvom `ChatContextLabel` „Klient · Prípad“. `expandWorkspace`/`toggleWorkspaceExpanded` cez `expandedAfter` (bežný režim accordion, Pokročilý natívne). `WorkspaceSidebarGroup`: `liteProjectNav` – bežný režim Prehľad, Prípady, Chaty, Súbory, Pripojené priečinky a ostatné (Lehoty, Tabuľková kontrola, Úlohy, Kalendár, Pracovný priestor) pod „Viac“; mapa položiek je v IIFE bez zmeny riadkov položiek; riadok klienta aktívny podľa trasy (`useClientRowActive`); natívne Chaty nie sú aktívne, keď je otvorený chat vo veci (`useMatterChatOpen`). Dôvod: N-22 (slugy, 8 položiek, rozbalený klient vytlačí ostatných, nejasný kontext chatu). Natívny kontrakt ostáva: šípka projektu vlastní rozbalenie, `data-active` len pri otvorenej položke (predok má `data-lawoss-ancestor`). |
+| `apps/app/src/react-app/domains/session/chat/session-page.tsx` | +1 import, +1 riadok: hlavička Prehľadu klienta (`ProjectHome name`) používa to isté meno ako bočný panel (`useClientDisplayName`). Dôvod: N-22, G1-04 ukazoval slug priečinka. |
+
 ## Pripojené priečinky klienta: agent, dokumenty, prax, cloud (alfa2 A3, 2026-10-22)
 
 Podklad: plán alfa2 úloha A3, nálezy N-10, N-16, N-18, N-19, N-20 (akceptácia 22. 10. 2026). Nové LAWOSS súbory: `apps/server/src/lawoss/linked-folder-survey.ts`, testy `apps/server/src/lawoss/documents/linked-folders.test.ts`, `apps/server/src/opencode-plugins/lawoss-linked-folders.test.ts`, `apps/server/src/lawoss/linked-folders-documents.integration.test.ts`.

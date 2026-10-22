@@ -398,6 +398,24 @@ describe("bočný panel (natívny AppSidebar, vykreslený)", () => {
     } finally { useProjectFavoritesStore.setState({ favoriteIds: [] }); }
   });
 
+  test("B3: klient so slugom priečinka má v hlavičke názov z karty, priečinok v bublinke, lehotu a kontext chatu", () => {
+    const slug = "C001-syn-tatran-automatika-s-r-o", card = "SYN Tatran Automatika, s. r. o.";
+    const client = ws(slug, `/prax/Klienti/${slug}`);
+    const m = { ...matter(`Klienti/${slug}/Spisy/Uhrada`, "Úhrada dodávok"), deadlines: [deadline("2099-01-15")] };
+    const groups: ClientGroup[] = [{ key: `client:Klienti/${slug}`, client: card, matters: [m] }];
+    const scope: OkfScope = { anchor: client, members: [{ workspace: client, prefix: `Klienti/${slug}` }], practiceRoot: "/prax" };
+    const model = clientNavModel([client], "/prax", readyOverview(scope, groups));
+    const upcoming = m.deadlines.map((d) => ({ ...d, matter: { path: m.path, title: m.title } }));
+    const data: OkfReadResult = { matters: [m], upcomingDeadlines: upcoming, overdue: [], totals: { matters: 1, deadlinesWithin7Days: 0, openTasks: 0, overdue: 0, records: 1 },
+      problems: [], truncated: false, inputs: [], clients: [{ path: `Klienti/${slug}`, title: card }], coverage: { status: "complete", scopeKey: "k", sources: [] } };
+    const session = { id: "s1", title: "Návrh odpovede", directory: `/prax/Klienti/${slug}/Spisy/Uhrada`, time: { created: 1, updated: 2 } };
+    const out = sidebar(navValue(model, [], { scope, data, groups }), [{ workspace: client, sessions: [session], status: "ready" } as WorkspaceSessionGroup]);
+    expect(out).toContain(`title="Folder: /prax/Klienti/${slug}">${card.replace(/,/g, ",")}</span>`);
+    expect(out).not.toContain(`>${slug}<`);
+    expect(out).toMatch(/data-lawoss-row-status=""[^>]*>next deadline /);
+    expect(out).toContain(`>${card} · Úhrada dodávok</span>`);
+  });
+
   test("bežný režim: + vedie na Pridať klienta (vetva podľa režimu)", () => {
     // SSR nevie vykresliť bežný režim (snapshot režimu je vždy Pokročilý); vetva je v zdrojovom kóde.
     const sidebarSource = source("react-app/domains/session/sidebar/app-sidebar.tsx");

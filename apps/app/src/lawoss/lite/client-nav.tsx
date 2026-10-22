@@ -39,6 +39,8 @@ import { clientDeadlinesLink, clientOverviewLink, LEHOTY_PATH, liteMatterLink, N
 import { matterUrgency, useMinuteTick } from "./live";
 import { comparable, within, type MatterConversation } from "./matter-conversations";
 import { groupByClient } from "./today-model";
+import { rowDeadline } from "./client-row";
+import { ANCESTOR_CLASS, rowDeadlineText } from "./client-row-text";
 import { useUiMode } from "./ui-mode";
 
 /**
@@ -151,6 +153,13 @@ const subscribePublished = (listener: () => void) => { publishedListeners.add(li
 /** To, čo bočný panel práve vie o klientoch; mimo panela (samostatné okno) `null`. */
 export function usePublishedClientNav(): PublishedClientNav | null {
   return useSyncExternalStore(subscribePublished, () => published, () => null);
+}
+
+/** Dáta panela pre riadky (meno klienta, stav, kontext chatu): v paneli jeho kontext, inde zverejnený stav. */
+export function useClientNav(): (PublishedClientNav & { focused?: string | null }) | null {
+  const nav = use(ClientNavContext);
+  const shared = usePublishedClientNav();
+  return nav ?? shared;
 }
 
 type ClientNavValue = PublishedClientNav & {
@@ -332,6 +341,17 @@ export function useClientProjectItem(): (key: string, workspaceId: string) => bo
   return (key, workspaceId) => key !== "projectLinkedFolders" && ((key !== "projectMatters" && key !== "projectDeadlines") || Boolean(nav?.model.clients.has(workspaceId)));
 }
 
+/**
+ * Otvorený chat leží vo veci tohto projektu (strom ho priradil podľa priečinka): natívne „Chaty“ (chaty klienta bez
+ * prípadu) sa vtedy neoznačia ako aktívne, aktívny je chat pod Prípady → vec.
+ */
+export function useMatterChatOpen(workspaceId: string): boolean {
+  const nav = use(ClientNavContext);
+  const { pathname, search } = useLocation();
+  if (!nav || !routeFocus(pathname, search).session) return false;
+  return projectNodes(nav.tree.nodes, nav.model, workspaceId)?.some((node) => node.matters.some((m) => m.current)) ?? false;
+}
+
 /** Položka „Prípady“ v natívnej mape položiek projektu. */
 export function ClientMattersNavItem({ workspaceId, className }: { workspaceId: string; className?: string }) {
   const nav = use(ClientNavContext);
@@ -423,8 +443,10 @@ export function ClientMattersView(props: {
   const grouped = nodes.length > 1;
   const empty = nodes.every((node) => node.matters.length === 0);
   const actions: TreeActions = { onToggle: props.onToggle, onOpenConversation: props.onOpenConversation, onNewConversation: props.onNewConversation };
+  // Predok otvoreného prípadu alebo jeho chatu: Prípady sú zvýraznené, aby bolo vidieť, kam otvorená vec patrí.
+  const ancestor = nodes.some((node) => node.matters.some((m) => m.current));
   return <li className="min-w-0" data-lawoss-project-matters-item="">
-    <SidebarMenuSubButton className={props.className} aria-expanded={props.open} data-lawoss-project-matters="" onClick={props.onToggleOpen}>
+    <SidebarMenuSubButton className={cn(props.className, ancestor && ANCESTOR_CLASS)} aria-expanded={props.open} data-lawoss-project-matters="" data-lawoss-ancestor={ancestor ? "" : undefined} onClick={props.onToggleOpen}>
       <Briefcase className="size-4" strokeWidth={1.5} />
       <span className="min-w-0 flex-1 truncate">{t("lawoss.lite.project_matters", locale)}</span>
       <ChevronRight aria-hidden className={cn("size-3.5 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none", props.open && "rotate-90")} />
@@ -447,11 +469,12 @@ type Page = ReturnType<typeof routeFocus>;
 function ClientNode({ node, page, locale, chats, ...actions }: { node: TreeClient; page: Page; locale: Language; chats: boolean } & TreeActions) {
   const title = node.title || t("lawoss.lite.client_unnamed", locale);
   const here = page.client === node.key;
+  const ancestor = !here && node.current;
   return <li className="relative min-w-0">
     <div className="flex min-w-0 items-center gap-0.5">
       <TreeToggle kind="client" name={title} expanded={node.expanded} locale={locale} onToggle={() => actions.onToggle?.(clientToggle(node.key), node.expanded)} />
-      <SidebarMenuSubButton size="sm" isActive={here} className="h-7 min-w-0 flex-1 ps-1.5 pe-1.5"
-        render={<Link to={clientOverviewLink(node.key)} aria-current={here ? "page" : undefined} data-lawoss-tree-client={node.key} title={title} />}>
+      <SidebarMenuSubButton size="sm" isActive={here} className={cn("h-7 min-w-0 flex-1 ps-1.5 pe-1.5", ancestor && ANCESTOR_CLASS)}
+        render={<Link to={clientOverviewLink(node.key)} aria-current={here ? "page" : undefined} data-lawoss-tree-client={node.key} data-lawoss-ancestor={ancestor ? "" : undefined} title={title} />}>
         <span className="truncate">{title}</span>
       </SidebarMenuSubButton>
     </div>
@@ -465,15 +488,21 @@ function ClientNode({ node, page, locale, chats, ...actions }: { node: TreeClien
 
 function MatterNode({ matter, page, locale, onToggle, onOpenConversation, onNewConversation }: { matter: TreeMatter; page: Page; locale: Language } & TreeActions) {
   const here = page.matter === matter.path;
+  // Otvorený chat tejto veci: vec je predok (zvýraznená inak než otvorená stránka veci).
+  const ancestor = !here && matter.current;
   const now = today();
+  const status = matterRowStatus(matter, now, locale);
   // Obyčajné <li>, nie SidebarMenuSubItem: jeho group-hover by zvýraznil všetky vnorené chaty naraz.
   return <li className="relative min-w-0">
     <div className="flex min-w-0 items-center gap-0.5">
       <TreeToggle kind="matter" name={matter.title} expanded={matter.expanded} locale={locale} onToggle={() => onToggle?.(matterToggle(matter.path), matter.expanded)} />
       {/* Link, nie NavLink: všetky veci zdieľajú cestu /vec, líšia sa len `?vec=`. */}
-      <SidebarMenuSubButton size="sm" isActive={here} className="h-7 min-w-0 flex-1 ps-1.5 pe-1.5"
-        render={<Link to={liteMatterLink(matter.path)} aria-current={here ? "page" : undefined} data-lawoss-tree-matter="" title={matter.title} />}>
-        <span className="truncate">{matter.title}</span>
+      <SidebarMenuSubButton size="sm" isActive={here} className={cn("min-w-0 flex-1 ps-1.5 pe-1.5", status ? "h-auto min-h-7 py-1" : "h-7", ancestor && ANCESTOR_CLASS)}
+        render={<Link to={liteMatterLink(matter.path)} aria-current={here ? "page" : undefined} data-lawoss-tree-matter="" data-lawoss-ancestor={ancestor ? "" : undefined} title={status ? `${matter.title} · ${status.text}` : matter.title} />}>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">{matter.title}</span>
+          {status ? <span className="block truncate text-2xs text-muted-foreground" data-lawoss-row-status="" data-urgency={status.urgency}>{status.text}</span> : null}
+        </span>
         {urgencyDot(matter, now, locale)}
       </SidebarMenuSubButton>
     </div>
@@ -535,6 +564,13 @@ function conversationLabel(conversation: MatterConversation, locale: Language): 
   if (!conversation.updated) return t("lawoss.lite.conversation_untitled", locale);
   const date = new Intl.DateTimeFormat(locale, { day: "numeric", month: "numeric" }).format(new Date(conversation.updated));
   return t("lawoss.lite.tree_conversation_on", locale, { date });
+}
+
+/** Stav veci v riadku: stav z karty (doslovne) a najbližšia relevantná lehota; nič z toho = `null`. */
+export function matterRowStatus(matter: Pick<TreeMatter, "deadlines" | "state">, todayIso: string, locale: Language): { text: string; urgency?: string } | null {
+  const deadline = rowDeadline(matter.deadlines, todayIso);
+  const parts = [matter.state?.trim(), deadline ? rowDeadlineText(deadline, locale) : undefined].filter((part): part is string => Boolean(part));
+  return parts.length ? { text: parts.join(" · "), urgency: deadline?.urgency } : null;
 }
 
 /** Bod pri veci: červený, keď lehota horí, zlatý, keď sa blíži; inak nič. */
