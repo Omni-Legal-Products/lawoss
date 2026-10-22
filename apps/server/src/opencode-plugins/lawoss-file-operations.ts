@@ -14,12 +14,13 @@ import { z } from "zod";
 import { resolveWorkspaceId, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 const pathArg = z.string().min(1).max(4096);
-const operation = z.discriminatedUnion("operation", [
-  z.object({ operation: z.literal("move").describe("Rename or move a file or folder."), from: pathArg, to: pathArg }),
-  z.object({ operation: z.literal("copy"), from: pathArg, to: pathArg }),
-  z.object({ operation: z.literal("create_folder"), path: pathArg }),
-  z.object({ operation: z.literal("delete").describe("Delete a file or a folder with its contents."), path: pathArg }),
-]);
+// A flat object, not a union: every provider's tool schema accepts it (Gemini and OpenAI reject some anyOf shapes).
+const operation = z.object({
+  operation: z.enum(["move", "copy", "create_folder", "delete"]).describe("move renames or moves; delete removes a file or a folder with its contents."),
+  from: pathArg.optional().describe("move/copy: the existing file or folder."),
+  to: pathArg.optional().describe("move/copy: the new path; it must not exist yet."),
+  path: pathArg.optional().describe("create_folder/delete: the folder to create or the file/folder to delete."),
+});
 const args = z.object({
   operations: z.array(operation).min(1).max(50).describe("Changes in order, 1–50. Paths are relative to the chat's folder or absolute inside this client's folder or its linked folders."),
   description: z.string().max(300).optional().describe("Briefly say why, in the user's language."),
@@ -57,9 +58,14 @@ export const LawossFileOperations = async () => ({
         if (!context.ask) throw new Error("File changes need the user's approval, but approval requests are unavailable.");
         const directory = context.directory;
         const absolute = (value: string) => isAbsolute(value) ? value : resolve(directory, value);
-        const operations = input.operations.map((item) => item.operation === "move" || item.operation === "copy"
-          ? { operation: item.operation, from: absolute(item.from), to: absolute(item.to) }
-          : { operation: item.operation, path: absolute(item.path) });
+        const operations = input.operations.map((item) => {
+          if (item.operation === "move" || item.operation === "copy") {
+            if (!item.from || !item.to) throw new Error(`${item.operation} needs both from and to. Nothing was changed.`);
+            return { operation: item.operation, from: absolute(item.from), to: absolute(item.to) };
+          }
+          if (!item.path) throw new Error(`${item.operation} needs path. Nothing was changed.`);
+          return { operation: item.operation, path: absolute(item.path) };
+        });
         const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
         const plan = z.object({ operations: z.array(z.unknown()) }).parse(await post(context, workspace, "plan", { operations }));
         await context.ask({ permission: "edit", patterns: visiblePaths(plan), always: [],

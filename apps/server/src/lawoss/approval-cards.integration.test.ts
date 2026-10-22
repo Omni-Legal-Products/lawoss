@@ -56,6 +56,7 @@ test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engin
   let engineBase = "";
   let call: { tool: string; args: Record<string, unknown> } = { tool: "", args: {} };
   const toolResults: string[] = [];
+  let advertised: unknown;
   const fixture = Bun.serve({ port: 0, idleTimeout: 120, async fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === "/workspaces") return Response.json({ items: [{ id: workspace.id, path: matter }] });
@@ -83,7 +84,8 @@ test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engin
       return Response.json({ code: error instanceof ApiError ? error.code : "failed", error: error instanceof Error ? error.message : String(error) }, { status: error instanceof ApiError ? error.status : 500 });
     }
     // The model: on each new user message call the tool once; after the tool result, answer in text.
-    const input = z.object({ messages: z.array(z.object({ role: z.string(), content: z.unknown() })), tools: z.array(z.object({ function: z.object({ name: z.string() }) })).optional() }).parse(await request.json());
+    const input = z.object({ messages: z.array(z.object({ role: z.string(), content: z.unknown() })), tools: z.array(z.object({ function: z.object({ name: z.string(), parameters: z.unknown().optional() }) })).optional() }).parse(await request.json());
+    advertised ??= input.tools?.find(tool => tool.function.name === "lawoss_files")?.function.parameters;
     const last = input.messages.at(-1);
     if (last?.role === "tool") toolResults.push(typeof last.content === "string" ? last.content : JSON.stringify(last.content));
     const invoke = last?.role === "user" && (input.tools ?? []).some(tool => tool.function.name === call.tool);
@@ -199,6 +201,10 @@ test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engin
       expect((await readdir(matter)).sort()).toEqual(["02_Zmluva.txt", "SYN-overenie.txt"]);
       evidence.yolo = { cards: cards.length, hostCards: hostCards.length, files: (await readdir(matter)).sort() };
     } finally { await yolo.stop(); }
+    // The wire schema the model sees: a flat object every provider accepts (no anyOf/oneOf).
+    expect(JSON.stringify(advertised)).toContain('"operations"');
+    expect(JSON.stringify(advertised)).not.toMatch(/anyOf|oneOf/);
+    evidence.schema = advertised;
     console.log(JSON.stringify(evidence));
   } finally {
     fixture.stop(true); service.stop();
