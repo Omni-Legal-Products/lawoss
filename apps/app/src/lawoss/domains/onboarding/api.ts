@@ -31,6 +31,8 @@ export type OnboardingProfile = {
   clientRoot?: string;
   subjectRoot?: string;
   matterRoot?: string;
+  /** Priečinok vybraný v kroku „Toto som našiel“; obnova po prerušení ho otvorí znova (M1). */
+  foundRoot?: string;
   /** Server-persisted marker for an active trial-clone client workspace. */
   trial?: boolean;
   okf?: OkfChoice;
@@ -166,8 +168,9 @@ export type OnboardingSuggestion = {
 export type OnboardingApi = {
   onboardingStatus(): Promise<OnboardingStatus>;
   updateOnboardingProfile(
-    profile: Omit<Partial<OnboardingProfile>, "subjectRoot"> & {
+    profile: Omit<Partial<OnboardingProfile>, "subjectRoot" | "foundRoot"> & {
       subjectRoot?: string | null;
+      foundRoot?: string | null;
     },
   ): Promise<OnboardingProfile>;
   classifyOnboarding(input: {

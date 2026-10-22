@@ -17,7 +17,7 @@ type PathApi = Pick<OnboardingApi, "classifyOnboarding" | "planOnboarding" | "up
 /** Iba polia s cestou priečinka; názov, titul, subjekt, oblasť, pamäť ani kotvu identity nemeníme. */
 const CLASSIFY_PATHS = ["root"] as const;
 const PLAN_PATHS = ["parent", "root", "cloneParent", "clientRoot"] as const;
-const PROFILE_PATHS = ["officeRoot", "clientRoot", "subjectRoot", "matterRoot"] as const;
+const PROFILE_PATHS = ["officeRoot", "clientRoot", "subjectRoot", "matterRoot", "foundRoot"] as const;
 
 /**
  * Cesta bez okrajov a úvodzoviek z „Kopírovať ako cestu“ (jedna na začiatku, jedna na konci, ako

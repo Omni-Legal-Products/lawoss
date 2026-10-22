@@ -27,6 +27,8 @@ const profileSchema = z.strictObject({
   officeRoot: z.string().min(1).max(4096).optional(), clientRoot: z.string().min(1).max(4096).optional(),
   subjectRoot: z.string().min(1).max(4096).optional(),
   matterRoot: z.string().min(1).max(4096).optional(),
+  // Priečinok vybraný v kroku „Toto som našiel“ pre obnovu po prerušení (M1, 22. 10. 2026); len údaj appky, nie oprávnenie.
+  foundRoot: z.string().min(1).max(4096).optional(),
   trial: z.boolean().optional(),
   okf: okfChoiceSchema.optional(),
   // Nový tok (spec 2026-10-08): identity, ai, folder, found, done. Staré hodnoty ostávajú pre uložené profily alfa testerov.
@@ -140,8 +142,8 @@ export function registerOnboardingRoutes(options: {
     return read;
   });
   route("POST", "profile", async ctx => {
-    const rawPatch = profileSchema.partial().extend({ subjectRoot: z.string().min(1).max(4096).nullable().optional() }).parse(await body(ctx));
-    const patch = { ...rawPatch, ...(rawPatch.subjectRoot === null ? { subjectRoot: undefined, matterRoot: undefined } : {}) };
+    const rawPatch = profileSchema.partial().extend({ subjectRoot: z.string().min(1).max(4096).nullable().optional(), foundRoot: z.string().min(1).max(4096).nullable().optional() }).parse(await body(ctx));
+    const patch = { ...rawPatch, ...(rawPatch.subjectRoot === null ? { subjectRoot: undefined, matterRoot: undefined } : {}), ...(rawPatch.foundRoot === null ? { foundRoot: undefined } : {}) };
     const change = async () => {
       const previous = await readProfile();
       const changesClient = patch.clientRoot !== undefined && patch.clientRoot !== previous?.clientRoot;
@@ -159,6 +161,12 @@ export function registerOnboardingRoutes(options: {
         const identity = await inspectCardLevel(path);
         const mappedClient = key === "clientRoot" && config.workspaces.some(workspace => workspace.path === path && workspace.appFiles === "outside");
         if (!mappedClient && identity.level !== level) throw new ApiError(400, "invalid_scope", `Selected ${key} does not identify a ${level}.`);
+      }
+      // Vybraný priečinok obnovy sa overí len pri zápise (existujúci kanonický priečinok, úroveň nie); uložený,
+      // ktorý medzitým zmizol, inú zmenu profilu neblokuje a obrazovka ho pri obnove ohlási.
+      if (patch.foundRoot) {
+        if (await missingDirectory(patch.foundRoot)) throw new ApiError(400, "folder_missing", "Selected foundRoot folder does not exist.", { key: "foundRoot", name: basename(patch.foundRoot) });
+        await canonicalDirectory(patch.foundRoot);
       }
       if (profile.matterRoot && (!profile.clientRoot || !inside(profile.clientRoot, profile.matterRoot))) throw new ApiError(400, "invalid_scope", "Matter must be within the selected client.");
       if (profile.subjectRoot && (!profile.clientRoot || !inside(profile.clientRoot, profile.subjectRoot))) throw new ApiError(400, "invalid_scope", "Subject must be within the selected client.");

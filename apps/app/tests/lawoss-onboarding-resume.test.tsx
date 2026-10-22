@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import type { OnboardingProfile } from "../src/lawoss/domains/onboarding/api";
-import { markOnboardingCompleted, onboardingIncomplete, openingStep } from "../src/lawoss/domains/onboarding/resume";
+import { markOnboardingCompleted, onboardingIncomplete, openingStep, resumedFoundRoot } from "../src/lawoss/domains/onboarding/resume";
 import { OnboardingResumeCardView } from "../src/lawoss/domains/onboarding/resume-card";
 import { OkfPageState } from "../src/lawoss/domains/okf-page";
 import { OfficeProfileView } from "../src/lawoss/domains/settings/office-profile-view";
@@ -52,6 +52,27 @@ describe("návrat k nedokončenému nastaveniu praxe (#96)", () => {
     await markOnboardingCompleted(api, { ...base, completedAt: "2026-10-01T00:00:00.000Z" }, now);
     await markOnboardingCompleted(api, null, now);
     expect(calls).toHaveLength(1);
+  });
+
+  test("obnova po prerušení otvorí naposledy vybraný priečinok (M1, 22. 10. 2026)", () => {
+    const profile: OnboardingProfile = { ...base, step: "found", foundRoot: "/x/3-neusporiadana-prax" };
+    const step = openingStep(undefined, profile, "identity", false);
+    expect(step).toBe("found");
+    expect(resumedFoundRoot(step, profile)).toBe("/x/3-neusporiadana-prax");
+    // `?root=` z adresy má prednosť; iný krok ani profil bez priečinka nič neobnoví.
+    expect(resumedFoundRoot(step, profile, "/iny")).toBeNull();
+    expect(resumedFoundRoot("folder", profile)).toBeNull();
+    expect(resumedFoundRoot("found", { ...base, step: "found" })).toBeNull();
+    expect(resumedFoundRoot("found", null)).toBeNull();
+  });
+
+  test("dokončenie zmaže priečinok obnovy aj pri už dokončenom profile", async () => {
+    const calls: unknown[] = [];
+    const api = { updateOnboardingProfile: async (patch: Partial<OnboardingProfile> | { foundRoot: null }) => { calls.push(patch); return base; } };
+    const now = new Date("2026-10-22T10:00:00.000Z");
+    await markOnboardingCompleted(api, { ...base, foundRoot: "/x" }, now);
+    await markOnboardingCompleted(api, { ...base, completedAt: "2026-10-01T00:00:00.000Z", foundRoot: "/x" }, now);
+    expect(calls).toEqual([{ completedAt: "2026-10-22T10:00:00.000Z", foundRoot: null }, { foundRoot: null }]);
   });
 
   test("zlyhaný zápis značky nezablokuje dokončenie", async () => {
