@@ -105,7 +105,7 @@ test("on gives only the chat agent the allow rules; off restores the previous co
   expect(await writeYoloMode(config, true)).toEqual({ enabled: true, locked: false, source: "user" });
   const on = await engineConfig(config);
   // Desktop engines run commands through the managed shell; host bash stays denied.
-  expect(on.agent.legalwork?.permission).toEqual({ edit: "allow", external_directory: { "*": "allow" }, legalwork_shell: "allow", bash: "deny", webfetch: "deny", websearch: "deny" });
+  expect(on.agent.legalwork?.permission).toEqual({ edit: "allow", external_directory: { "*": "allow" }, lawoss_file_change: "allow", legalwork_shell: "allow", bash: "deny", webfetch: "deny", websearch: "deny" });
   // Every other agent, scheduled runs included, keeps the lawyer's rules: the shared map is unchanged.
   expect(on.permission).toEqual(off.permission);
   expect(on.agent["legalwork-scheduled-all"]).toEqual(off.agent["legalwork-scheduled-all"]);

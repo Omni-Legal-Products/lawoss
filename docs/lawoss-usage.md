@@ -34,9 +34,10 @@ Pri delegovaní si urobte krátku kontrolu v štyroch krokoch: čo delegujete, a
 ## Schvaľovanie zmien súborov
 
 - Kým je YOLO Mode vypnutý, agent sa pred každou zmenou súborov a pred každým príkazom v počítači opýta kartou v chate. Platí to aj na čistom profile: nenastavené „Úprava súborov“ a „Príkazy v počítači“ znamenajú „najprv sa opýtať“. Vedome vypnutý prepínač (povoliť) ostáva v platnosti.
-- Premenovanie, presun, kópiu, nový priečinok a zmazanie robí agent nástrojom, ktorý ukáže jednu kartu so zoznamom zmien („pôvodná → nová“, „Zmazať …“). Po schválení vykoná presne tento zoznam; ak sa medzitým súbory zmenili, nevykoná nič. Existujúci súbor nikdy neprepíše.
+- Premenovanie, presun, kópiu, nový priečinok a zmazanie robí agent nástrojom, ktorý ukáže jednu kartu so zoznamom zmien („pôvodná → nová“, „Do Koša: …“). Po schválení vykoná presne tento zoznam; ak sa medzitým súbory zmenili (aj ich obsah), nevykoná nič. Existujúci súbor nikdy neprepíše.
+- Zmazané položky idú do Koša v počítači, odkiaľ ich obnovíte. Ak Kôš nie je dostupný (napr. sieťový disk), ostanú v skrytom priečinku `.lawoss-kos` v koreni klienta alebo pripojeného priečinka. Tieto karty sa pýtajú vždy mimo YOLO, aj keď ste vypli „Pýtať sa pred úpravou súborov“.
 - Zamietnutie platí pre tú jednu žiadosť a nič sa nezmení. Keď to neskôr v tom istom chate výslovne zadáte znova, agent ukáže novú kartu.
-- Karta na priečinok mimo klienta neponúka „Povoliť do konca konverzácie“: engine by si súhlas pamätal pre všetky chaty klienta. Pripojené priečinky klienta karta nepotrebuje.
+- „Povoliť do konca konverzácie“ sa neponúka pri karte na priečinok mimo klienta, pri natívnej úprave súboru ani pri príkaze v počítači: engine by si súhlas pamätal pre všetky chaty klienta, resp. príkaz siaha aj mimo klienta. Pripojené priečinky klienta kartu nepotrebujú.
 - Plánovaná úloha nad všetkými klientmi („všetky projekty“), ktorá mení súbory alebo spúšťa príkazy, sa zastaví na karte a čaká na schválenie. YOLO Mode platí len pre chat, nie pre plánované úlohy.
 
 ## Nový spis a OKF

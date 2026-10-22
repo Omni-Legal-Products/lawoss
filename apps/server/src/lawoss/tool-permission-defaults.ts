@@ -21,3 +21,31 @@ export function withLawossToolDefaults(own: Record<string, unknown>, firmTools: 
   for (const [tool, action] of Object.entries(LAWOSS_TOOL_DEFAULTS)) if (!Object.hasOwn(own, tool) && !firmTools.includes(tool)) defaults[tool] = action;
   return { ...defaults, ...own };
 }
+
+/** The permission `lawoss_files` asks with (opencode-plugins/lawoss-file-operations.ts). */
+export const FILE_CHANGE_PERMISSION = "lawoss_file_change";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The rule for `lawoss_files`, derived from the edit rule in effect: a forbidden edit (also through
+ * a later `*` denial) stays forbidden and the lawyer's denied patterns follow; otherwise every change
+ * asks, or (YOLO, chat agent only) is allowed. Its own key, so an engine "always" granted on a native
+ * edit card (`edit` + `*`, kept for every chat of the client) never covers moves and Trash.
+ * An explicit `edit: allow` does not silence these cards: moving and deleting stay human-gated outside YOLO.
+ */
+export function fileChangeRule(permission: Record<string, unknown>, yolo: boolean): unknown {
+  let edit: unknown = "allow";
+  for (const [name, rule] of Object.entries(permission)) if (name === "*" || name === "edit") edit = rule;
+  if (edit === "deny" || (isRecord(edit) && edit["*"] === "deny")) return "deny";
+  const denied = isRecord(edit) ? Object.entries(edit).filter(([pattern, action]) => pattern !== "*" && action === "deny") : [];
+  const base = yolo ? "allow" : "ask";
+  return denied.length ? { "*": base, ...Object.fromEntries(denied) } : base;
+}
+
+/** An agent's own map with the file-change rule last, so a copied `*` cannot silence `lawoss_files`. */
+export function withFileChangeRule(agent: string | Record<string, unknown>, permission: Record<string, unknown>): Record<string, unknown> {
+  return { ...(typeof agent === "string" ? { "*": agent } : agent), [FILE_CHANGE_PERMISSION]: fileChangeRule(permission, false) };
+}

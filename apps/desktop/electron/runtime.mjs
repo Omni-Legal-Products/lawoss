@@ -1526,6 +1526,11 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
         const selected = result.canceled ? null : (result.filePaths[0] ?? null);
         return selected && pickOptions?.existingOnly ? canonicalRealpath(selected) : selected;
       },
+      // 🟡 LAWOSS: lawoss_files presúva zmazané položky do systémového Koša (obnoviteľné).
+      trashItem: async (itemPath) => {
+        const { shell } = await import("electron");
+        await shell.trashItem(itemPath);
+      },
       recorder,
       // Word/Excel/PowerPoint add-in listener — enabled via the Office Add-ins
       // settings tab; null when not installed so the listener stays off.

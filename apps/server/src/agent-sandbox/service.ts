@@ -36,6 +36,8 @@ type PermissionStep = { permission: string; pattern: string; override?: Permissi
 
 // LAWOSS (alfa 2, N-21): a rule and a one-time decline read differently to the model.
 const PERMISSION_RULE_MESSAGE = (permission: string) => `${permission} is blocked by your permissions: a rule in the user's Settings, not a one-time decision. Nothing ran. Only the user can change that rule in Settings.`;
+export const PERMISSION_TIMEOUT_MESSAGE = "No one answered the approval card in time. Nothing ran and nothing changed. Tell the user, and run the tool again only if they ask.";
+export const PERMISSION_CANCELLED_MESSAGE = "The approval card was closed before anyone answered (the chat stopped or the app is closing). Nothing ran and nothing changed.";
 export const PERMISSION_DECLINED_MESSAGE = "The user declined this one request. Nothing ran and nothing changed. Do not retry it now or through another tool. If the user later explicitly asks for it again, call the tool again so they see a new approval card.";
 
 function restrictive(actions: PermissionAction[]): PermissionAction {
@@ -315,9 +317,14 @@ export class AgentSandboxService {
       const confirm = async (permission: string, key: unknown, summary: string, paths: string[], network?: ApprovalRequest["network"], card: Pick<ApprovalRequest, "command" | "hostWide"> = {}) => {
         const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
           action: `sandbox.${permission}`, summary, paths, sessionID: operation.sessionID, description: operation.description,
-          ...(network ? { network } : {}), ...card }, signal, true, operation.sessionID ? JSON.stringify([workspace.id, operation.sessionID, permission, key, paths, network, permissions, agentRules, settings.enabled, settings.networkMode]) : undefined);
+          ...(network ? { network } : {}), ...card }, signal, true,
+          // LAWOSS: a card that covers this whole computer (folders of other clients too) is never remembered.
+          operation.sessionID && !card.hostWide ? JSON.stringify([workspace.id, operation.sessionID, permission, key, paths, network, permissions, agentRules, settings.enabled, settings.networkMode]) : undefined);
         // LAWOSS: a one-time decline is not a rule; the model may show a new card on a later explicit request.
-        if (!result.allowed) throw new ApiError(403, "sandbox_permission_declined", PERMISSION_DECLINED_MESSAGE);
+        // No answer (timeout) or a cancelled card is reported as such, not as the user's decision.
+        if (!result.allowed) throw result.reason === "denied" ? new ApiError(403, "sandbox_permission_declined", PERMISSION_DECLINED_MESSAGE)
+          : result.reason === "timeout" ? new ApiError(403, "sandbox_permission_timeout", PERMISSION_TIMEOUT_MESSAGE)
+          : new ApiError(403, "sandbox_permission_cancelled", PERMISSION_CANCELLED_MESSAGE);
       };
       const ask = async (permission: string, pattern: string, summary: string, paths: string[], override?: PermissionAction, reviewable = true, network?: ApprovalRequest["network"]) => {
         signal.throwIfAborted();

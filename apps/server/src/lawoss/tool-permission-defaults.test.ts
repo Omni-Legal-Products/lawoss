@@ -10,7 +10,7 @@ import {
   closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, readGlobalToolPermissions, readRuntimeOpencodeConfigText, writeRuntimeOpencodeConfig,
 } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
-import { withLawossToolDefaults } from "./tool-permission-defaults.js";
+import { fileChangeRule, withLawossToolDefaults } from "./tool-permission-defaults.js";
 import { writeYoloMode } from "./yolo-mode.js";
 
 /**
@@ -45,10 +45,18 @@ async function setup() {
 }
 
 /** The managed shell on this computer (protected execution off); every card answered by `reply()`. */
-function shell(config: ServerConfig, reply: () => "allow" | "deny" | "always") {
-  const asked: Array<{ action: string; summary: string; paths: string[] }> = [];
+function shell(config: ServerConfig, reply: () => "allow" | "deny" | "always" | "none") {
+  const asked: Array<{ action: string; summary: string; paths: string[]; command?: string; hostWide?: boolean; canRemember?: boolean }> = [];
+  const seen = new Set<string>();
   const approvals: ApprovalService = new ApprovalService(config.approval, undefined, () => queueMicrotask(() => {
-    for (const request of approvals.list()) { asked.push({ action: request.action, summary: request.summary, paths: request.paths ?? [] }); approvals.respond(request.id, reply()); }
+    for (const request of approvals.list()) {
+      if (seen.has(request.id)) continue;
+      seen.add(request.id);
+      asked.push({ action: request.action, summary: request.summary, paths: request.paths ?? [], command: request.command, hostWide: request.hostWide, canRemember: request.canRemember });
+      const answer = reply();
+      // "always" is refused on a card that cannot be remembered; the person then allows once.
+      if (answer !== "none" && approvals.respond(request.id, answer) === null) approvals.respond(request.id, "allow");
+    }
   }));
   const service = new AgentSandboxService(config, approvals, { status: async () => ({ available: true }), prepare: async () => "fixture",
     run: async () => { throw new Error("The protected environment is off in this test."); } });
@@ -73,6 +81,33 @@ test("unset edit and bash ask; the lawyer's own rule, a wildcard and a firm-styl
   expect(withLawossToolDefaults({ bash: { "*": "ask", "rm *": "deny" } }).bash).toEqual({ "*": "ask", "rm *": "deny" });
   // A tool the firm rules on gets no default: the firm's rule applies as before (org-policy-engine.ts).
   expect(withLawossToolDefaults({}, ["bash"])).toEqual({ edit: "ask" });
+});
+
+test("lawoss_files has its own rule: a forbidden edit stays forbidden, otherwise it asks, YOLO allows", () => {
+  expect(fileChangeRule({}, false)).toBe("ask");
+  // An explicit edit allow does not silence moves and the Trash outside YOLO.
+  expect(fileChangeRule({ edit: "allow" }, false)).toBe("ask");
+  expect(fileChangeRule({ edit: "deny" }, false)).toBe("deny");
+  expect(fileChangeRule({ edit: "deny" }, true)).toBe("deny");
+  expect(fileChangeRule({ "*": "deny" }, true)).toBe("deny");
+  expect(fileChangeRule({ "*": "deny", edit: "ask" }, false)).toBe("ask");
+  expect(fileChangeRule({ edit: { "*": "ask", "Zmluvy/*": "deny" } }, true)).toEqual({ "*": "allow", "Zmluvy/*": "deny" });
+  expect(fileChangeRule({}, true)).toBe("allow");
+});
+
+test("the engine file carries the lawoss_files rule after any wildcard, for chats and scheduled runs", async () => {
+  const { config } = await setup();
+  expect((await engineFile(config)).permission.lawoss_file_change).toBe("ask");
+  // A broad allow of the lawyer's still leaves file changes asking, also in the copied scheduled map.
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "allow", edit: "allow" } }));
+  const broad = await engineFile(config);
+  const keys = Object.keys(broad.permission);
+  expect(keys.indexOf("lawoss_file_change")).toBeGreaterThan(keys.indexOf("*"));
+  const scheduled = broad.agent["legalwork-scheduled-all"]?.permission ?? {};
+  expect(scheduled.lawoss_file_change).toBe("ask");
+  expect(Object.keys(scheduled).indexOf("lawoss_file_change")).toBeGreaterThan(Object.keys(scheduled).indexOf("*"));
+  await writeYoloMode(config, true);
+  expect((await engineFile(config)).agent.legalwork?.permission?.lawoss_file_change).toBe("allow");
 });
 
 test("a clean profile asks in the engine file, in Settings and for scheduled all-projects runs; stored allow is respected", async () => {
@@ -128,15 +163,25 @@ test("a read-only command asks once and never separately about changing files", 
   expect(asked.map((card) => card.action)).toEqual(["sandbox.bash"]);
 });
 
-test("allow for the conversation on the one card covers the same command in that chat only", async () => {
+test("the one card for this whole computer shows the command and is never remembered for the conversation", async () => {
   const { matter, config } = await setup();
   await writeFile(join(matter, "a.txt"), "a");
   const { asked, run } = shell(config, () => "always");
   await run("cat a.txt", false);
   await run("cat a.txt", false);
-  expect(asked).toHaveLength(1);
-  await run("cat a.txt", false, "ses_2");
+  // It covers folders outside this client, so "always" is not offered and every run asks.
   expect(asked).toHaveLength(2);
+  expect(asked[0]).toMatchObject({ command: "cat a.txt", hostWide: true, canRemember: false });
+});
+
+test("an unanswered card is reported as a timeout, not as the user's decline", async () => {
+  const { matter, config } = await setup();
+  await writeFile(join(matter, "a.txt"), "a");
+  const { run } = shell(config, () => "none");
+  const error = await run("mv a.txt b.txt").catch((value: unknown) => value);
+  expect(error).toMatchObject({ code: "sandbox_permission_timeout" });
+  expect(String(Reflect.get(Object(error), "message"))).not.toContain("declined");
+  expect(await readFile(join(matter, "a.txt"), "utf8")).toBe("a");
 });
 
 test("a rule refuses without a card and reads as a rule; YOLO on a clean profile shows no card", async () => {

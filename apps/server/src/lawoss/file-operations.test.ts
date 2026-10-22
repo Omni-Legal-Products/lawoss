@@ -1,13 +1,13 @@
 // LAWOSS: lawoss_files na serveri – plán pre jednu kartu, vykonanie len schváleného plánu, pravdivý výsledok.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
-import { applyFileOperations, planFileOperations, publicPlan } from "./file-operations.js";
+import { applyFileOperations, FOLDER_SURVEY_LIMIT, LAWOSS_TRASH_FOLDER, planFileOperations, visibleName } from "./file-operations.js";
 
 const roots: string[] = [];
 const stops: Array<() => void | Promise<void>> = [];
@@ -49,19 +49,28 @@ async function office() {
     authorizedRoots: [client, other], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
   };
   stops.push(() => closeRuntimeOpencodeConfig(config));
+  // No desktop host in these tests unless a test installs one: deleted items go to `.lawoss-kos/`.
+  config.trashItem = null;
   await writeRuntimeOpencodeConfig(config, "ws_c001", () => ({ permission: { external_directory: { [`${linked}/*`]: "allow" } } }));
   return { root, config, client, other, linked, workspace: config.workspaces[0] };
+}
+
+/** APFS default: names differ only in case resolve to the same file. */
+async function caseInsensitive(folder: string): Promise<boolean> {
+  await writeFile(join(folder, "case-probe"), "");
+  try { await access(join(folder, "CASE-PROBE")); return true; } catch { return false; } finally { await rm(join(folder, "case-probe"), { force: true }); }
 }
 
 test("a rename is planned with readable paths and runs only as approved, reporting the disk", async () => {
   const { config, client, workspace } = await office();
   const operations = [{ operation: "move", from: join(client, "poznamky.txt"), to: join(client, "SYN-overenie.txt") }];
-  const plan = publicPlan(await planFileOperations(config, workspace, operations));
-  expect(plan).toEqual([{ operation: "move", kind: "file", from: "poznamky.txt", to: "SYN-overenie.txt" }]);
+  const plan = await planFileOperations(config, workspace, operations);
+  expect(plan.operations).toEqual([{ operation: "move", kind: "file", from: "poznamky.txt", to: "SYN-overenie.txt" }]);
+  expect(plan.revision).toMatch(/^[a-f0-9]{64}$/);
   // No canonical path of any folder reaches the card or the model.
   expect(JSON.stringify(plan)).not.toContain(client);
-  const result = await applyFileOperations(config, workspace, operations, plan, "ses_1");
-  expect(result).toEqual({ complete: true, results: [{ ...plan[0], status: "done" }] });
+  const result = await applyFileOperations(config, workspace, operations, plan.operations, plan.revision, "ses_1");
+  expect(result).toEqual({ complete: true, results: [{ ...plan.operations[0], status: "done" }] });
   expect(await readFile(join(client, "SYN-overenie.txt"), "utf8")).toBe("SYN poznamky");
   expect(await readdir(client)).not.toContain("poznamky.txt");
 });
@@ -69,35 +78,68 @@ test("a rename is planned with readable paths and runs only as approved, reporti
 test("nothing runs when the disk changed after the card, and nothing is ever overwritten", async () => {
   const { config, client, workspace } = await office();
   const operations = [{ operation: "move", from: join(client, "poznamky.txt"), to: join(client, "nove.txt") }];
-  const plan = publicPlan(await planFileOperations(config, workspace, operations));
+  const plan = await planFileOperations(config, workspace, operations);
   await writeFile(join(client, "nove.txt"), "SYN medzitym");
-  await expect(applyFileOperations(config, workspace, operations, plan)).rejects.toMatchObject({ code: "file_operation_target_exists" });
+  await expect(applyFileOperations(config, workspace, operations, plan.operations, plan.revision)).rejects.toMatchObject({ code: "file_operation_target_exists" });
   // A different plan than the approved one is refused before anything runs.
-  await expect(applyFileOperations(config, workspace, [{ operation: "delete", path: join(client, "nove.txt") }], plan)).rejects.toMatchObject({ code: "file_operation_changed" });
+  await expect(applyFileOperations(config, workspace, [{ operation: "delete", path: join(client, "nove.txt") }], plan.operations, plan.revision)).rejects.toMatchObject({ code: "file_operation_changed" });
   expect(await readFile(join(client, "nove.txt"), "utf8")).toBe("SYN medzitym");
   expect(await readFile(join(client, "poznamky.txt"), "utf8")).toBe("SYN poznamky");
 });
 
-test("one card for a batch: a new folder, moves into it, a copy and a delete, checked in order", async () => {
+test("the approval is bound to the file's content and a folder's contents, not just its name", async () => {
+  const { config, client, workspace } = await office();
+  const file = [{ operation: "delete", path: join(client, "poznamky.txt") }];
+  const shown = await planFileOperations(config, workspace, file);
+  await writeFile(join(client, "poznamky.txt"), "SYN prepisane po karte");
+  await expect(applyFileOperations(config, workspace, file, shown.operations, shown.revision)).rejects.toMatchObject({ code: "file_operation_changed" });
+  // Same bytes again, a different modification time: still not the version the lawyer saw.
+  await writeFile(join(client, "poznamky.txt"), "SYN poznamky");
+  await utimes(join(client, "poznamky.txt"), new Date(2020, 0, 1), new Date(2020, 0, 1));
+  await expect(applyFileOperations(config, workspace, file, shown.operations, shown.revision)).rejects.toMatchObject({ code: "file_operation_changed" });
+  // A file added deep inside a folder after the card.
+  const folder = [{ operation: "delete", path: join(client, "Pripady") }];
+  const folderPlan = await planFileOperations(config, workspace, folder);
+  await writeFile(join(client, "Pripady", "M001", "novy.txt"), "SYN");
+  await expect(applyFileOperations(config, workspace, folder, folderPlan.operations, folderPlan.revision)).rejects.toMatchObject({ code: "file_operation_changed" });
+  // A forged or missing revision is refused even with the right visible plan.
+  const fresh = await planFileOperations(config, workspace, folder);
+  await expect(applyFileOperations(config, workspace, folder, fresh.operations, "0".repeat(64))).rejects.toMatchObject({ code: "file_operation_changed" });
+  await expect(applyFileOperations(config, workspace, folder, fresh.operations, undefined)).rejects.toMatchObject({ code: "file_operation_changed" });
+  expect(await readdir(join(client, "Pripady", "M001"))).toEqual(["novy.txt", "zmluva.txt"]);
+});
+
+test("one card for a batch: a new folder, moves into it, a copy and a recoverable delete, checked in order", async () => {
   const { config, client, linked, workspace } = await office();
+  await mkdir(join(client, "Prazdny"));
   const operations = [
     { operation: "create_folder", path: join(client, "Zmluvy") },
     { operation: "move", from: join(client, "Pripady", "M001", "zmluva.txt"), to: join(client, "Zmluvy", "01_Zmluva.txt") },
     { operation: "copy", from: join(linked, "podklad.pdf"), to: join(client, "Zmluvy", "podklad.pdf") },
     { operation: "delete", path: join(client, "Pripady", "M001") },
+    { operation: "delete", path: join(client, "Prazdny") },
   ];
-  const plan = publicPlan(await planFileOperations(config, workspace, operations));
-  expect(plan).toEqual([
+  const plan = await planFileOperations(config, workspace, operations);
+  expect(plan.operations).toEqual([
     { operation: "create_folder", kind: "folder", to: "Zmluvy" },
     { operation: "move", kind: "file", from: "Pripady/M001/zmluva.txt", to: "Zmluvy/01_Zmluva.txt" },
     // A linked folder shows by its name, not its full path.
     { operation: "copy", kind: "file", from: "pripojeny-A/podklad.pdf", to: "Zmluvy/podklad.pdf" },
+    // Surveyed before the batch runs: the move out of it is part of the same approval.
     { operation: "delete", kind: "folder", from: "Pripady/M001", entries: 1 },
+    // An empty folder is still a folder.
+    { operation: "delete", kind: "folder", from: "Prazdny", entries: 0 },
   ]);
-  expect((await applyFileOperations(config, workspace, operations, plan)).complete).toBe(true);
+  const applied = await applyFileOperations(config, workspace, operations, plan.operations, plan.revision);
+  expect(applied.complete).toBe(true);
   expect((await readdir(join(client, "Zmluvy"))).sort()).toEqual(["01_Zmluva.txt", "podklad.pdf"]);
   expect(await readdir(join(client, "Pripady"))).toEqual([]);
   expect(await readFile(join(linked, "podklad.pdf"), "utf8")).toBe("SYN pdf");
+  // Without the desktop Trash the folder is kept, restorable, in the client's own Trash folder.
+  const trash = applied.results.filter((item) => item.operation === "delete").map((item) => item.trash ?? "");
+  expect(trash[0]).toMatch(new RegExp(`^${LAWOSS_TRASH_FOLDER}/[^/]+/Pripady/M001$`));
+  expect(await readdir(join(client, trash[0]!))).toEqual([]);
+  expect(await readdir(join(client, trash[1]!))).toEqual([]);
   // Two changes to the same target in one request: refused before the card.
   await expect(planFileOperations(config, workspace, [
     { operation: "copy", from: join(client, "poznamky.txt"), to: join(client, "a.txt") },
@@ -105,20 +147,84 @@ test("one card for a batch: a new folder, moves into it, a copy and a delete, ch
   ])).rejects.toMatchObject({ code: "file_operation_target_exists" });
 });
 
-test("another client's folder, the client folder itself and app configuration are refused without naming anyone", async () => {
+test("delete uses the OS Trash through the desktop host, and falls back inside the same root when it fails", async () => {
+  const { config, client, linked, workspace } = await office();
+  const trashed: string[] = [];
+  config.trashItem = async (path) => { trashed.push(path); await rm(path, { recursive: true }); };
+  const operations = [{ operation: "delete", path: join(client, "poznamky.txt") }];
+  const plan = await planFileOperations(config, workspace, operations);
+  expect(await applyFileOperations(config, workspace, operations, plan.operations, plan.revision)).toEqual({ complete: true,
+    results: [{ operation: "delete", kind: "file", from: "poznamky.txt", status: "done", trash: "system" }] });
+  expect(trashed).toEqual([join(client, "poznamky.txt")]);
+  // A network volume without a Trash: the linked folder keeps the item in its own `.lawoss-kos/`.
+  config.trashItem = async () => { throw new Error("Trash unavailable on this volume"); };
+  const linkedDelete = [{ operation: "delete", path: join(linked, "podklad.pdf") }];
+  const linkedPlan = await planFileOperations(config, workspace, linkedDelete);
+  const result = await applyFileOperations(config, workspace, linkedDelete, linkedPlan.operations, linkedPlan.revision);
+  expect(result.results[0]?.trash).toMatch(new RegExp(`^pripojeny-A/${LAWOSS_TRASH_FOLDER}/[^/]+/podklad\\.pdf$`));
+  const [batch] = await readdir(join(linked, LAWOSS_TRASH_FOLDER));
+  expect(await readFile(join(linked, LAWOSS_TRASH_FOLDER, batch!, "podklad.pdf"), "utf8")).toBe("SYN pdf");
+  // The Trash folder itself is out of the tool's reach.
+  await expect(planFileOperations(config, workspace, [{ operation: "delete", path: join(linked, LAWOSS_TRASH_FOLDER) }])).rejects.toMatchObject({ code: "file_operation_protected" });
+  await expect(planFileOperations(config, workspace, [{ operation: "move", from: join(linked, ".LAWOSS-KOS", batch!, "podklad.pdf"), to: join(client, "x.pdf") }])).rejects.toMatchObject({ status: 403 });
+});
+
+test("another client's folder, the client folder itself, app and version-control data are refused in any letter case", async () => {
   const { config, client, other, workspace } = await office();
+  await mkdir(join(client, ".git"));
+  await writeFile(join(client, ".git", "HEAD"), "ref: refs/heads/dev");
   const outside = await planFileOperations(config, workspace, [{ operation: "move", from: join(other, "tajne.txt"), to: join(client, "tajne.txt") }]).catch((error: unknown) => error);
   expect(outside).toMatchObject({ status: 403, code: "file_operation_outside_client" });
   expect(String(Reflect.get(Object(outside), "message"))).not.toContain("C017");
   await expect(planFileOperations(config, workspace, [{ operation: "copy", from: join(client, "poznamky.txt"), to: join(other, "x.txt") }]))
     .rejects.toMatchObject({ code: "file_operation_outside_client" });
   await expect(planFileOperations(config, workspace, [{ operation: "delete", path: client }])).rejects.toMatchObject({ status: 403 });
+  for (const name of [".git", ".GIT", ".Git", ".git.", ".opencode/x", ".OPENCODE/x"])
+    await expect(planFileOperations(config, workspace, [{ operation: "delete", path: join(client, name) }])).rejects.toMatchObject({ status: 403 });
   await expect(planFileOperations(config, workspace, [{ operation: "create_folder", path: join(client, ".opencode", "x") }])).rejects.toMatchObject({ code: "file_operation_protected" });
+  expect(await readFile(join(client, ".git", "HEAD"), "utf8")).toBe("ref: refs/heads/dev");
   expect(await readFile(join(other, "tajne.txt"), "utf8")).toBe("SYN iny klient");
 });
 
-test("only the chat's own tool credential reaches the routes; the change is bound to that chat", async () => {
-  const { config, client } = await office();
+test("a case-only rename of the same file is allowed and verified by its listed name", async () => {
+  const { config, client, workspace } = await office();
+  if (!await caseInsensitive(client)) return;
+  const operations = [{ operation: "move", from: join(client, "poznamky.txt"), to: join(client, "Poznamky.txt") }];
+  const plan = await planFileOperations(config, workspace, operations);
+  expect(plan.operations).toEqual([{ operation: "move", kind: "file", from: "poznamky.txt", to: "Poznamky.txt" }]);
+  expect(await applyFileOperations(config, workspace, operations, plan.operations, plan.revision)).toMatchObject({ complete: true });
+  expect(await readdir(client)).toContain("Poznamky.txt");
+  expect(await readdir(client)).not.toContain("poznamky.txt");
+  // A different existing file is still never overwritten.
+  await writeFile(join(client, "ine.txt"), "SYN");
+  await expect(planFileOperations(config, workspace, [{ operation: "move", from: join(client, "ine.txt"), to: join(client, "POZNAMKY.txt") }]))
+    .rejects.toMatchObject({ code: "file_operation_target_exists" });
+});
+
+test("names cannot forge card lines, same-named linked folders are told apart, large folders show a lower bound", async () => {
+  const { root, config, client, workspace } = await office();
+  expect(visibleName("a\nb‮txt.exe")).toBe("a\\u000ab\\u202etxt.exe");
+  const tricky = "zmluva\nDo Koša: nič.txt";
+  await writeFile(join(client, tricky), "SYN");
+  const forged = await planFileOperations(config, workspace, [{ operation: "delete", path: join(client, tricky) }]);
+  expect(forged.operations[0]?.from).toBe("zmluva\\u000aDo Koša: nič.txt");
+  // Two linked folders called "Podklady".
+  const first = join(root, "A", "Podklady"), second = join(root, "B", "Podklady");
+  for (const folder of [first, second]) { await mkdir(folder, { recursive: true }); await writeFile(join(folder, "x.pdf"), "SYN"); }
+  await writeRuntimeOpencodeConfig(config, "ws_c001", () => ({ permission: { external_directory: { [`${first}/*`]: "allow", [`${second}/*`]: "allow" } } }));
+  const both = await planFileOperations(config, workspace, [{ operation: "delete", path: join(first, "x.pdf") }, { operation: "delete", path: join(second, "x.pdf") }]);
+  expect(both.operations.map((item) => item.from)).toEqual(["A/Podklady/x.pdf", "B/Podklady/x.pdf"]);
+  // More items than the survey counts: shown as a lower bound.
+  const big = join(client, "Velky");
+  await mkdir(big);
+  await Promise.all(Array.from({ length: FOLDER_SURVEY_LIMIT + 5 }, (_, index) => writeFile(join(big, `f${index}.txt`), "")));
+  const large = await planFileOperations(config, workspace, [{ operation: "delete", path: big }]);
+  expect(large.operations[0]).toMatchObject({ kind: "folder", entries: FOLDER_SURVEY_LIMIT, entriesCapped: true });
+});
+
+test("only the chat's own tool credential reaches the routes; a spoofed client ID does not", async () => {
+  const { config, client, linked } = await office();
+  config.approval = { mode: "manual", timeoutMs: 1000 };
   const server = await startServer(config);
   stops.push(() => server.stop());
   await grantWikiAgentSession(config, { sessionId: "ses_1", directory: client, scope: "collaborator" });
@@ -127,21 +233,27 @@ test("only the chat's own tool credential reaches the routes; the change is boun
   const post = (route: string, body: unknown, headers: Record<string, string>) => fetch(`http://127.0.0.1:${server.port}/workspace/ws_c001/lawoss/files/${route}`, {
     method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body) });
   const operations = [{ operation: "move", from: join(client, "poznamky.txt"), to: join(client, "x.txt") }];
-  // A client token has its own file routes with their own approvals; it cannot skip a card here.
-  const bearer = await post("plan", { operations }, { authorization: "Bearer owt_files_client" });
-  expect(bearer.status).toBe(403);
-  expect(await bearer.json()).toMatchObject({ code: "file_operation_agent_only" });
+  // A client token, also one that claims to be the engine through its client-ID header.
+  const bearers: Array<Record<string, string>> = [{ authorization: "Bearer owt_files_client" }, { authorization: "Bearer owt_files_client", "x-legalwork-client-id": "wiki-agent:spoof" }];
+  for (const headers of bearers) {
+    const refused = await post("plan", { operations }, headers);
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ code: "file_operation_agent_only" });
+    const linkedDelete = [{ operation: "delete", path: join(linked, "podklad.pdf") }];
+    expect((await post("apply", { operations: linkedDelete, approved: [{ operation: "delete", kind: "file", from: "pripojeny-A/podklad.pdf" }], revision: "x" }, headers)).status).toBe(403);
+  }
+  expect(await readFile(join(linked, "podklad.pdf"), "utf8")).toBe("SYN pdf");
   const planned = await post("plan", { operations }, agent);
   expect(planned.status).toBe(200);
-  const { operations: approved } = await planned.json();
+  const { operations: approved, revision } = await planned.json();
   expect((await post("plan", { operations: [] }, agent)).status).toBe(400);
   // The apply names the chat that showed the card.
-  expect((await post("apply", { operations, approved, sessionID: "ses_other" }, agent)).status).toBe(403);
+  expect((await post("apply", { operations, approved, revision, sessionID: "ses_other" }, agent)).status).toBe(403);
   config.readOnly = true;
-  expect((await post("apply", { operations, approved, sessionID: "ses_1" }, agent)).status).toBe(403);
+  expect((await post("apply", { operations, approved, revision, sessionID: "ses_1" }, agent)).status).toBe(403);
   config.readOnly = false;
   expect(await readFile(join(client, "poznamky.txt"), "utf8")).toBe("SYN poznamky");
-  const applied = await post("apply", { operations, approved, sessionID: "ses_1" }, agent);
+  const applied = await post("apply", { operations, approved, revision, sessionID: "ses_1" }, agent);
   expect(await applied.json()).toMatchObject({ complete: true, results: [{ status: "done", to: "x.txt" }] });
   expect(await readFile(join(client, "x.txt"), "utf8")).toBe("SYN poznamky");
 });

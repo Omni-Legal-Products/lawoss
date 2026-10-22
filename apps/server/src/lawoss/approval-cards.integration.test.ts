@@ -11,7 +11,7 @@ import { AgentSandboxService, type AgentPermissionRule } from "../agent-sandbox/
 import { buildLegalworkRuntimeConfigObject } from "../legalwork-runtime-config.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, readRuntimeOpencodeConfigText } from "../runtime-opencode-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
-import { applyFileOperations, planFileOperations, publicPlan } from "./file-operations.js";
+import { applyFileOperations, LAWOSS_TRASH_FOLDER, planFileOperations } from "./file-operations.js";
 import { writeYoloMode } from "./yolo-mode.js";
 
 /**
@@ -21,6 +21,8 @@ import { writeYoloMode } from "./yolo-mode.js";
  *   shows a new card; approved → renamed;
  * - `lawoss_files` rename: exactly one engine card (`edit`, readable plan, no "always");
  *   rejected → unchanged; a new request in the same chat → new card; approved → renamed, truthful result;
+ * - "always" on a native edit card in chat A (engine keeps it for every chat of the client) does not
+ *   approve `lawoss_files` in chat B: exactly one own card; approved delete goes to the Trash folder;
  * - YOLO on → `lawoss_files` renames without any card.
  * Opt-in: needs the built server plugins and an engine binary.
  *   pnpm --filter legalwork-server build
@@ -74,11 +76,11 @@ test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engin
       }
       if (path === "/workspace/matter/lawoss/files/plan") {
         const body = z.object({ operations: z.unknown() }).parse(await request.json());
-        return Response.json({ operations: publicPlan(await planFileOperations(config, workspace, body.operations)) });
+        return Response.json(await planFileOperations(config, workspace, body.operations));
       }
       if (path === "/workspace/matter/lawoss/files/apply") {
-        const body = z.object({ operations: z.unknown(), approved: z.unknown(), sessionID: z.string() }).parse(await request.json());
-        return Response.json(await applyFileOperations(config, workspace, body.operations, body.approved, body.sessionID));
+        const body = z.object({ operations: z.unknown(), approved: z.unknown(), revision: z.string(), sessionID: z.string() }).parse(await request.json());
+        return Response.json(await applyFileOperations(config, workspace, body.operations, body.approved, body.revision, body.sessionID));
       }
     } catch (error) {
       return Response.json({ code: error instanceof ApiError ? error.code : "failed", error: error instanceof Error ? error.message : String(error) }, { status: error instanceof ApiError ? error.status : 500 });
@@ -115,9 +117,10 @@ test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engin
       try { ready = (await fetch(engineBase + "/global/health", { signal: AbortSignal.timeout(1000) })).ok; } catch { await Bun.sleep(100); }
     }
     if (!ready) { child.kill("SIGKILL"); throw new Error("Engine did not start: " + (child.exitCode !== null ? await logs : "timed out")); }
-    const session = z.object({ id: z.string() }).parse(await (await fetch(engineBase + "/session", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json());
-    /** One user turn; every engine card is recorded and answered by `reply`. */
-    const turn = async (text: string, reply: (ask: EngineAsk) => "once" | "reject") => {
+    const newChat = async () => z.object({ id: z.string() }).parse(await (await fetch(engineBase + "/session", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json());
+    let session = await newChat();
+    /** One user turn in the current chat; every engine card is recorded and answered by `reply`. */
+    const turn = async (text: string, reply: (ask: EngineAsk) => "once" | "reject" | "always") => {
       const cards: EngineAsk[] = [];
       const accepted = await fetch(`${engineBase}/session/${session.id}/prompt_async`, { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ agent: "legalwork", model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text }] }) });
@@ -134,7 +137,7 @@ test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engin
       }
       return cards;
     };
-    return { turn, stop: async () => { child.kill("SIGKILL"); await child.exited; } };
+    return { turn, switchChat: async () => { session = await newChat(); }, stop: async () => { child.kill("SIGKILL"); await child.exited; } };
   };
 
   const evidence: Record<string, unknown> = {};
@@ -172,7 +175,8 @@ test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engin
     try {
       const rejected = await files.turn("Premenuj zmluva.txt na 01_Zmluva.txt.", () => "reject");
       expect(rejected).toHaveLength(1);
-      expect(rejected[0]).toMatchObject({ permission: "edit", patterns: ["zmluva.txt", "01_Zmluva.txt"], always: [] });
+      // Its own permission: an "always" on a native edit card (kept for every chat of the client) never covers it.
+      expect(rejected[0]).toMatchObject({ permission: "lawoss_file_change", patterns: ["zmluva.txt", "01_Zmluva.txt"], always: [] });
       expect(rejected[0].metadata?.lawossFiles).toEqual([{ operation: "move", kind: "file", from: "zmluva.txt", to: "01_Zmluva.txt" }]);
       expect(hostCards).toEqual([]);
       expect((await readdir(matter)).sort()).toEqual(["SYN-overenie.txt", "zmluva.txt"]);
@@ -180,7 +184,7 @@ test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engin
 
       const approved = await files.turn("Skús to znova, schválim to.", () => "once");
       expect(approved).toHaveLength(1);
-      expect(approved[0].permission).toBe("edit");
+      expect(approved[0].permission).toBe("lawoss_file_change");
       expect((await readdir(matter)).sort()).toEqual(["01_Zmluva.txt", "SYN-overenie.txt"]);
       expect(await readFile(join(matter, "01_Zmluva.txt"), "utf8")).toBe("SYN zmluva");
       const approvedResult = toolResults.at(-1) ?? "";
@@ -190,7 +194,33 @@ test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engin
         rejectedResult: rejectedResult.slice(0, 300), approvedCards: approved.length, approvedResult: approvedResult.slice(0, 300), files: (await readdir(matter)).sort() };
     } finally { await files.stop(); }
 
-    // 3. YOLO on: the same tool renames without any card.
+    // 3. Review C2: "always" on a native edit card in chat A must not approve lawoss_files in chat B.
+    await writeFile(join(matter, "dodatok.txt"), "SYN dodatok");
+    const crossChat = await engine("cross-chat");
+    try {
+      call = { tool: "write", args: { filePath: join(matter, "poznamka.md"), content: "SYN poznamka" } };
+      const chatA = await crossChat.turn("Zapíš poznámku.", () => "always");
+      expect(chatA.map(card => ({ permission: card.permission, always: card.always }))).toEqual([{ permission: "edit", always: ["*"] }]);
+      expect(await readFile(join(matter, "poznamka.md"), "utf8")).toBe("SYN poznamka");
+      await crossChat.switchChat();
+      call = { tool: "lawoss_files", args: { operations: [{ operation: "delete", path: "dodatok.txt" }] } };
+      const chatB = await crossChat.turn("Zmaž dodatok.txt.", () => "reject");
+      // Exactly one card, its own, and nothing moved.
+      expect(chatB.map(card => ({ permission: card.permission, always: card.always }))).toEqual([{ permission: "lawoss_file_change", always: [] }]);
+      expect(chatB[0]?.metadata?.lawossFiles).toEqual([{ operation: "delete", kind: "file", from: "dodatok.txt" }]);
+      expect(await readFile(join(matter, "dodatok.txt"), "utf8")).toBe("SYN dodatok");
+      // Approved in the same chat: recoverable, kept in the client's own Trash folder (no desktop host here).
+      const approvedB = await crossChat.turn("Áno, zmaž ho.", () => "once");
+      expect(approvedB.map(card => card.permission)).toEqual(["lawoss_file_change"]);
+      const trashResult = toolResults.at(-1) ?? "";
+      expect(trashResult).toContain(`"trash":"${LAWOSS_TRASH_FOLDER}/`);
+      const [batch] = await readdir(join(matter, LAWOSS_TRASH_FOLDER));
+      expect(await readFile(join(matter, LAWOSS_TRASH_FOLDER, batch!, "dodatok.txt"), "utf8")).toBe("SYN dodatok");
+      evidence.crossChat = { chatA: chatA.map(card => ({ permission: card.permission, always: card.always })),
+        chatB: chatB.map(card => ({ permission: card.permission, always: card.always, metadata: card.metadata })), approvedB: approvedB.length, trashResult: trashResult.slice(0, 300) };
+    } finally { await crossChat.stop(); }
+
+    // 4. YOLO on: the same tool renames without any card.
     await writeYoloMode(config, true);
     call = { tool: "lawoss_files", args: { operations: [{ operation: "move", from: "01_Zmluva.txt", to: "02_Zmluva.txt" }] } };
     const yolo = await engine("yolo");
@@ -198,8 +228,9 @@ test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engin
       const cards = await yolo.turn("Premenuj 01_Zmluva.txt na 02_Zmluva.txt.", () => "reject");
       expect(cards).toEqual([]);
       expect(hostCards).toEqual([]);
-      expect((await readdir(matter)).sort()).toEqual(["02_Zmluva.txt", "SYN-overenie.txt"]);
-      evidence.yolo = { cards: cards.length, hostCards: hostCards.length, files: (await readdir(matter)).sort() };
+      const visible = (await readdir(matter)).filter(name => !name.startsWith(".")).sort();
+      expect(visible).toEqual(["02_Zmluva.txt", "SYN-overenie.txt", "poznamka.md"]);
+      evidence.yolo = { cards: cards.length, hostCards: hostCards.length, files: visible };
     } finally { await yolo.stop(); }
     // The wire schema the model sees: a flat object every provider accepts (no anyOf/oneOf).
     expect(JSON.stringify(advertised)).toContain('"operations"');

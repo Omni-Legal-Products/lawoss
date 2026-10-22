@@ -86,6 +86,7 @@ import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { repairRuntimeProviders } from "./runtime-provider-repair.js";
 import { externalOpencodeConfigDir } from "./lawoss/workspace-app-files.js";
 import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
+import { FILE_CHANGE_PERMISSION, fileChangeRule, withFileChangeRule } from "./lawoss/tool-permission-defaults.js";
 import { appendLawossToolDenials, LAWOSS_LOAD_WIKI_TOOLS } from "./lawoss/hidden-upstream-tools.js";
 import { yoloModeActive, yoloPermissions } from "./lawoss/yolo-mode.js";
 import { sandboxEngineAgents, sandboxEnginePermissions } from "./agent-sandbox/engine-policy.js";
@@ -301,7 +302,9 @@ export async function buildLegalworkRuntimeConfigObject(
     // Enable bounded output reads in the native explore agent, whose default
     // denies unknown tools. User and firm rules follow and keep precedence.
     permission: { ...(!Object.hasOwn(permission, "legalwork_tool_output_read") ? { legalwork_tool_output_read: "allow" } : {}),
-      ...permission, legalwork_project_set_instructions: instructionPermission },
+      ...permission,
+      // LAWOSS: lawoss_files asks with its own key, derived from edit, after any `*` rule (lawoss/tool-permission-defaults.ts).
+      [FILE_CHANGE_PERMISSION]: fileChangeRule(permission, false), legalwork_project_set_instructions: instructionPermission },
     // A refusal remains a tool error visible to the model. The engine should
     // continue within the user's boundaries instead of silently ending the turn.
     experimental: { continue_loop_on_deny: true },
@@ -324,7 +327,8 @@ export async function buildLegalworkRuntimeConfigObject(
       [ALL_PROJECTS_TASK_AGENT]: {
         description: "Scheduled task with access to all authorized local projects", mode: "primary", hidden: true,
         prompt: agentPrompt + "\nThis scheduled run may access all authorized local projects. Use legalwork_schedule_projects and legalwork_schedule_project_list/read to find and read project data. Read chat transcripts directly using kind=sessions and exact chat IDs. Do not open chats or navigate the LegalWork UI to retrieve data. If direct reads are unavailable, report that limitation. Existing tool permissions and approvals still apply.",
-        permission: allProjectTaskPermissions(permission),
+        // LAWOSS: after the copied rules, so a `*` allow there cannot silence lawoss_files.
+        permission: withFileChangeRule(allProjectTaskPermissions(permission), permission),
       },
       legalwork: {
         description: "LegalWork default agent",
@@ -332,7 +336,7 @@ export async function buildLegalworkRuntimeConfigObject(
         temperature: 0.2,
         prompt: agentPrompt,
         // LAWOSS: „YOLO Mode" (lawoss/yolo-mode.ts) for the chat agent only; scheduled and other agents keep the shared map.
-        ...(config && await yoloModeActive(config) ? { permission: yoloPermissions(permission) } : {}),
+        ...(config && await yoloModeActive(config) ? { permission: { ...yoloPermissions(permission), [FILE_CHANGE_PERMISSION]: fileChangeRule(permission, true) } } : {}),
       },
     },
     plugin: (await Promise.all([

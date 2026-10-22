@@ -209,7 +209,7 @@ function describePermissionRequest(permission: PendingPermission): PermissionPre
 
   // LAWOSS: lawoss_files – one readable card ("old → new", "Delete X").
   const files = permission.metadata && typeof permission.metadata === "object" ? fileOperationCard(permission.metadata) : null;
-  if (files) return { ...files, permissionLabel: readablePermissionLabel(permission.permission), isDoomLoop: false, note: null };
+  if (files) return { ...files, isDoomLoop: false, note: null };
 
   const copy = permissionCopy(permission.permission);
   return {
@@ -327,7 +327,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
               {presentation.scopeLabel}
             </div>
             <div className="mt-3 rounded-2xl border border-dls-border bg-dls-hover/55 px-3.5 py-3 font-mono text-[13px] leading-6 text-dls-text">
-              <span className="block whitespace-pre-line break-all">{presentation.scopeValue}</span>
+              <span className="block max-h-48 overflow-auto whitespace-pre-line break-all">{presentation.scopeValue}</span>
             </div>
           </div>
 
