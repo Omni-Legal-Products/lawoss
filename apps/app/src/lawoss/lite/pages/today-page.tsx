@@ -13,6 +13,7 @@ import { litePageProps } from "../state-text";
 import { addDays, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
 import { deadlineKey, deadlineText, dueTextFromDays, isCalendarDay, urgencyOf, type Urgency } from "../../okf/view-rules";
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
+import { deadlinesRecorded } from "../../../../../../lawoss/okf/views";
 import { buildToday, nextDeadline, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
 import { LITE_CLIENTS_PATH, liteDeadlineLink, liteMatterLink } from "../links";
 import { clientPreferenceScope, practiceClientChoices, type ClientChoice } from "../client-choice";
@@ -58,7 +59,9 @@ function TodayLive({ data, meta, scope, locale, name }: { data: OkfReadResult; m
   const { connection } = useOkfConnection();
   // Prax: „+ Nová vec“ sa najprv opýta, pre ktorého klienta (prehľad praxe).
   const choices = useMemo(() => practiceClientChoices(scope, data.clients), [scope, data.clients]);
-  return <TodayView model={model} locale={locale} meta={meta} name={name} choices={choices} preferenceScope={clientPreferenceScope(scope, connection?.baseUrl)} activeId={connection?.activeWorkspaceId} />;
+  // „Nič nehorí“ len po úplnom čítaní a pri evidovaných lehotách; inak to prehľad povie (UX P2 Denný prehľad).
+  const evidence = useMemo(() => ({ complete: data.coverage.status === "complete", recorded: deadlinesRecorded(data.inputs) }), [data]);
+  return <TodayView model={model} locale={locale} meta={meta} name={name} choices={choices} evidence={evidence} preferenceScope={clientPreferenceScope(scope, connection?.baseUrl)} activeId={connection?.activeWorkspaceId} />;
 }
 
 type Text = (key: string, params?: Record<string, string | number>) => string;
@@ -83,13 +86,16 @@ const isWeekend = (iso: string) => [0, 6].includes(parseDay(iso).getUTCDay());
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });
 
 /** Ranní otázka „co mi dnes hoří": přehled, pás lhůt, lhůty, úkoly, k zařazení a věci. Jen čte, nic nezapisuje. */
-export function TodayView({ model, locale, now = new Date(), meta, name, choices, activeId, preferenceScope }: { model: TodayModel; locale: Language; now?: Date; meta?: OkfPageMeta; name?: string; choices?: readonly ClientChoice[]; activeId?: string | null; preferenceScope?: string }) {
+export function TodayView({ model, locale, now = new Date(), meta, name, choices, activeId, preferenceScope, evidence }: { model: TodayModel; locale: Language; now?: Date; meta?: OkfPageMeta; name?: string; choices?: readonly ClientChoice[]; activeId?: string | null; preferenceScope?: string;
+  /** Úplnosť čítania a evidencia lehôt v podkladoch: bez nich prázdny zoznam nie je „nič nehorí“. */
+  evidence?: { complete: boolean; recorded: boolean } }) {
   const text: Text = (key, params) => t(`lawoss.lite.${key}`, locale, params);
   const todayIso = today(now);
   // „Tento týždeň" = všetko, čo nie je v pokoji (po lehote, neplatné, do 7 dní) - rovnaké pravidlo ako farby.
   const thisWeek = model.deadlines.filter((d) => urgency(d, todayIso) !== "calm");
   const first = model.deadlines[0];
-  const lead = !first || thisWeek.length === 0 ? text("hero_calm")
+  const lead = !first || thisWeek.length === 0
+    ? evidence && !evidence.complete ? text("hero_partial") : evidence && !evidence.recorded ? text("hero_unrecorded") : text("hero_calm")
     : first.invalid ? text("hero_invalid", { title: deadlineText(first) })
     : first.tier === "overdue" ? text("hero_overdue", { title: deadlineText(first) })
     : text("hero_next", { title: deadlineText(first), when: dueTextFromDays(first.daysLeft, locale) });
@@ -113,7 +119,9 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
 
       <div className="lw-today-grid">
         <Panel index={2} icon={<CalendarClock aria-hidden size={16} />} title={text("deadlines_title")} className="lw-today-deadlines">
-          {model.deadlines.length === 0 ? <Empty text={text("deadlines_empty")} /> : <ul className="lw-today-list">
+          {model.deadlines.length === 0 ? evidence && !evidence.recorded
+            ? <p className="lw-today-empty" data-lawoss-deadlines="unrecorded">{text("deadlines_unrecorded")} {text("deadlines_unrecorded_hint")}</p>
+            : <Empty text={text("deadlines_empty")} /> : <ul className="lw-today-list">
             {model.deadlines.map((d, index) => (
               <li key={`${d.matter.path}/${deadlineKey(d, index)}`}>
                 <Link className="lw-today-deadline" data-urgency={urgency(d, todayIso)} to={d.invalid ? liteMatterLink(d.matter.path) : liteDeadlineLink(d.matter.path, d.recordId, d.date)}>

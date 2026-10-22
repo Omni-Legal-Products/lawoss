@@ -548,7 +548,11 @@ export const deadlinesRecorded = (inputs: readonly Pick<MatterInput, "records">[
 
 /** Riadok `tags:` v karte, ako sa zapíše — rovnaký text ukazuje náhľad pred uložením. */
 export function viewTagsLine(content: string, families: readonly ViewFamily[] | null): string {
-  const current = currentTags(content);
+  return tagsLineFrom(currentTags(content), families);
+}
+
+/** To isté nad už načítaným `tags` karty (náhľad v UI pred čítaním súboru). */
+export function tagsLineFrom(current: readonly string[], families: readonly ViewFamily[] | null): string {
   const kept = current.filter((t) => !VIEW_TAG.test(t));
   const chosen = families === null ? [] : families.length ? VIEW_FAMILIES.filter((f) => families.includes(f)).map((f) => `view:${f}`) : ["view:base"];
   return `tags: ${JSON.stringify([...kept, ...chosen])}`;

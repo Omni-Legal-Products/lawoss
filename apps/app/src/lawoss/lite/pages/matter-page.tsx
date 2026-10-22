@@ -12,7 +12,7 @@ import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
 import { deadlineAnchor, hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick } from "../live";
 import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
-import { canActOnSource, localMatter, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
+import { canActOnSource, localMatter, locateInScope, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
 import { daysUntil, deadlineKey, deadlineText, dueText, inHorizon, urgencyOf } from "../../okf/view-rules";
 import { composeQuickAction, MORE_ACTIONS, QUICK_ACTIONS } from "../quick-actions";
 import { POSTPROCESS_RESOURCE_NAME, postprocessSource, VYSTUP_SKILL_NAME, vystupSkillBody } from "../../okf/skill-bundle";
@@ -22,6 +22,9 @@ import { openMatterConversation, type MatterConversation } from "../matter-conve
 import { isTreeFailure, useMatterConversations } from "../client-tree-data";
 import { saveDocumentsToMatter } from "../matter-intake";
 import { AI_SETTINGS_PATH, useMatterModelGap, type MatterModelGap } from "../matter-model";
+import { buildMatterViews, setCardViewTags, type MatterViews, type ViewFamily } from "../../../../../../lawoss/okf/views";
+import { MatterViewsPanel, type ViewsEdit } from "../matter-views";
+import { openScopeFile } from "../source-open";
 import "./lite.css";
 import "./okf-glass.css";
 import "./matter.css";
@@ -130,11 +133,32 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
     } finally { running.current = false; setBusy(null); }
   }
 
+  // Oprava typu prehľadu: jediný riadok `tags:` karty prípadu, cez natívny zápis s kontrolou obsahu (CAS).
+  async function onSaveViews(families: ViewFamily[] | null) {
+    if (running.current || !matter || !target || meta.failed || !canActOnSource(data, target.workspace.id) || !connection || !matter.cardPath) throw new Error("source_not_ready");
+    running.current = true;
+    try {
+      const card = scope ? locateInScope(scope, matter.cardPath) : null;
+      if (!card || card.workspace.id !== target.workspace.id) throw new Error("card_outside_client");
+      const current = await revalidateScopeTarget(scope, connection, target.workspace.id);
+      const before = (await current.connection.client.readWorkspaceFile(current.workspace.id, card.path)).content;
+      await current.connection.client.writeWorkspaceFile(current.workspace.id, { path: card.path, content: setCardViewTags(before, families), expectedContent: before });
+      void queries.invalidateQueries({ queryKey: ["okf-overview"] });
+    } catch (failure) {
+      console.warn("LAWOSS-lite: overview type save failed", failure);
+      throw failure;
+    } finally { running.current = false; }
+  }
+  const views = input ? buildMatterViews(input, today()) : undefined;
+  const sourceReady = Boolean(!meta.failed && target && canActOnSource(data, target.workspace.id));
+
   // Kľúč podľa veci: pri prechode na inú vec sa záložka, zvýraznenie aj potvrdenia vynulujú.
   return <LiteMatterView key={matter.path} matter={matter} cockpit={cockpit} busy={busy} error={error} onAction={(id) => void onAction(id)}
     conversations={conversations.items} conversationsComplete={conversations.status !== "ready" || conversations.complete}
     conversationsError={conversations.status === "error" ? conversations.retry ?? (() => {}) : undefined} onContinue={(c) => void onContinue(c)}
-    onFiles={(files) => void onFiles(files)} saved={saved} modelGap={modelGap} sourceReady={Boolean(!meta.failed && target && canActOnSource(data,target.workspace.id))}
+    onFiles={(files) => void onFiles(files)} saved={saved} modelGap={modelGap} sourceReady={sourceReady}
+    views={views} onOpenSource={(file) => { openScopeFile(scope, file, navigate); }}
+    viewsEdit={matter.cardPath ? { cardFile: matter.cardPath, tags: input?.cardFrontmatter?.tags, disabled: !sourceReady, onSave: onSaveViews } : undefined}
     scopePaths={input?.scopePaths}
     existingMemorySources={input?.existingMemorySources}
     truths={Object.fromEntries((input?.records ?? []).map((record) => [record.id, record.truth]))}
@@ -142,8 +166,14 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
     meta={meta} focusDeadline={params.get("lehota")} />;
 }
 
-export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], conversationsComplete = true, conversationsError, onContinue, onFiles, saved = null, modelGap = null, sourceReady = true, scopePaths = [], existingMemorySources = [], truths = {}, client, meta, focusDeadline = null }: {
+export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], conversationsComplete = true, conversationsError, onContinue, onFiles, saved = null, modelGap = null, sourceReady = true, scopePaths = [], existingMemorySources = [], truths = {}, client, meta, focusDeadline = null, views, onOpenSource, viewsEdit }: {
   matter: MatterOverview;
+  /** Prehľad podľa oblasti a typu práce (`buildMatterViews`); bez neho záložka ostane pri pevných sekciách. */
+  views?: MatterViews;
+  /** Otvorí zdrojový súbor položky (cesta voči koreňu prehľadu). */
+  onOpenSource?: (file: string) => void;
+  /** Oprava rozpoznaného typu zápisom do karty prípadu. */
+  viewsEdit?: ViewsEdit;
   scopePaths?: readonly string[];
   existingMemorySources?: readonly string[];
   cockpit: LiteCockpit | null;
@@ -340,6 +370,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
       </div>
 
       <div id="lite-panel-overview" role="tabpanel" aria-labelledby="lite-tab-overview" hidden={tab !== "overview"}>
+        {views ? <MatterViewsPanel views={views} locale={locale} onOpen={onOpenSource} edit={viewsEdit} /> : null}
         <div className="lw-matter-grid">
           <section className="lw-matter-panel lw-matter-timeline" style={reveal(4)}>
             <h2 className="lw-matter-section">{text("matter_timeline")}</h2>
@@ -355,7 +386,9 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
           <div className="lw-matter-side">
             <section className="lw-matter-panel" style={reveal(5)}>
               <h2 className="lw-matter-section">{text("deadlines_title")}</h2>
-              {deadlines.length === 0 ? <p className="lw-matter-empty">{text("deadlines_empty")}</p> : <ul className="lw-matter-list">
+              {deadlines.length === 0 ? views && !views.deadlinesRecorded
+                ? <p className="lw-matter-empty" data-lawoss-deadlines="unrecorded">{text("deadlines_unrecorded")} <small>{text("deadlines_unrecorded_hint")}</small></p>
+                : <p className="lw-matter-empty">{text("deadlines_empty")}</p> : <ul className="lw-matter-list">
                 {deadlines.map((d, index) => {
                   const anchor = anchorFor(d);
                   return (
