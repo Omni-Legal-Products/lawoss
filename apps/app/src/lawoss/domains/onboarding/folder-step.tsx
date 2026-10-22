@@ -76,6 +76,22 @@ export function FreshCloudNoticeView({ text, kind, onContinue, onCancel }: { tex
   );
 }
 
+/**
+ * Jedna akcia kroku Priečinok (pripojiť alebo začať nanovo): najprv zmaže starý pruh chyby, potom pracuje
+ * (N-4, 22. 10. 2026: „Vyberte prázdny priečinok“ ostávala vedľa úspešne založenej kancelárie).
+ * `not_empty` sa ohlási vetou kroku, `null` (nič nevybrané, zrušené) nerobí nič.
+ */
+export async function folderAction<R>(deps: { clear: () => void; work: () => Promise<R | "not_empty" | null>; report: (reason: unknown) => void; done: (result: R) => void }): Promise<void> {
+  deps.clear();
+  try {
+    const result = await deps.work();
+    if (result === "not_empty") deps.report(new Error(FRESH_NOT_EMPTY));
+    else if (result !== null) deps.done(result);
+  } catch (reason) {
+    deps.report(reason);
+  }
+}
+
 type Props = {
   api: Pick<OnboardingApi, "planOnboarding" | "applyOnboarding" | "updateOnboardingProfile" | "suggestOnboarding">;
   identity: FoundIdentity;
@@ -86,38 +102,34 @@ type Props = {
   onAcknowledge: () => Promise<void>;
   onFreshDone: (result: OnboardingApplyResult) => Promise<void> | void;
   onError: (reason: unknown) => void;
+  /** Nová akcia zmaže starý pruh chyby nad obrazovkou (N-4). */
+  onClearError: () => void;
   /** Späť alebo Zrušiť od volajúceho, zobrazené pri nadpise. */
   nav?: ReactNode;
 };
 
 /** „Začať nanovo“: prázdny vybraný priečinok dostane kanceláriu, `AGENTS.md` praxe a `Klienti/`. */
-export function FolderStep({ api, identity, text, pickDirectory, onFound, onAcknowledge, onFreshDone, onError, nav }: Props) {
+export function FolderStep({ api, identity, text, pickDirectory, onFound, onAcknowledge, onFreshDone, onError, onClearError, nav }: Props) {
   const [busy, setBusy] = useState(false);
   const [fresh, setFresh] = useState<OnboardingApplyResult | null>(null);
   // Otázka pred zápisom do zdieľaného alebo cloudového priečinka; odpoveď dokončí čakajúci `confirm`.
   const [cloudAsk, setCloudAsk] = useState<{ kind: "shared" | "cloud"; answer: (proceed: boolean) => void } | null>(null);
   // Dvojklik na „Dokončiť“ nesmie dokončiť onboarding dvakrát; ref platí ešte pred novým vykreslením.
   const finishing = useRef(false);
-  const connect = async () => {
-    try {
-      const root = await pickDirectory();
-      if (root) onFound(root);
-    } catch (reason) {
-      onError(reason);
-    }
-  };
+  const connect = () => folderAction({ clear: onClearError, work: pickDirectory, report: onError, done: onFound });
   const startFresh = async () => {
     setBusy(true);
     try {
-      const result = await freshFolderFlow({
-        pick: pickDirectory,
-        confirm: (kind) => new Promise<boolean>((resolve) => setCloudAsk({ kind, answer: (proceed) => { setCloudAsk(null); resolve(proceed); } })),
-        start: (parent) => startFreshFolder(api, parent, identity, onAcknowledge),
+      await folderAction({
+        clear: onClearError,
+        work: () => freshFolderFlow({
+          pick: pickDirectory,
+          confirm: (kind) => new Promise<boolean>((resolve) => setCloudAsk({ kind, answer: (proceed) => { setCloudAsk(null); resolve(proceed); } })),
+          start: (parent) => startFreshFolder(api, parent, identity, onAcknowledge),
+        }),
+        report: onError,
+        done: setFresh,
       });
-      if (result === "not_empty") onError(new Error(FRESH_NOT_EMPTY));
-      else if (result) setFresh(result);
-    } catch (reason) {
-      onError(reason);
     } finally {
       setBusy(false);
     }

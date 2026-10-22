@@ -940,6 +940,7 @@ export function LawossWelcomePage({
                 // advokát pristane na Klienti a prípady pri „Pridať klienta“.
                 onFreshDone={(result) => complete(result, FRESH_OFFICE_COMPLETION)}
                 onError={reportError}
+                onClearError={clearError}
               />
             )
           ) : null}
