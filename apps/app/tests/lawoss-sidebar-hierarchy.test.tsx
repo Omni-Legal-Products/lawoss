@@ -10,6 +10,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { t } from "@/i18n";
 import { cardTitle, clientGroupOfProject, clientLabel, clientRowDeadline, expandedAfter, liteProjectNav, matterOfDirectory, prettyFolderName, rowDeadline } from "../src/lawoss/lite/client-row";
 import { chatContextText, clientProjectRow, ClientMoreNavItem } from "../src/lawoss/lite/client-row-view";
+import { shortDay } from "../src/lawoss/lite/client-row-text";
 import { ClientMattersView, matterRowStatus } from "../src/lawoss/lite/client-nav";
 import { clientNavModel, type ClientOverviewState } from "../src/lawoss/lite/client-projects";
 import type { TreeClient } from "../src/lawoss/lite/client-tree";
@@ -94,11 +95,16 @@ describe("stav a lehota v riadku: len to, čo je v súboroch", () => {
     expect(rowDeadline([], TODAY)).toBeNull();
   });
 
+  test("krátky dátum v riadku: bez dňa v týždni, iný rok s rokom", () => {
+    expect(shortDay("2026-10-24", "sk", TODAY)).toBe("24. 10.");
+    expect(shortDay("2027-01-05", "sk", TODAY)).toBe("5. 1. 2027");
+  });
+
   test("klient: lehota len pri úplnom čítaní; bez lehôt ani neúplné čítanie netvrdí „žiadne lehoty“", () => {
     expect(clientRowDeadline([UHRADA], true, TODAY)).toMatchObject({ kind: "next", date: "2026-10-24" });
     expect(clientRowDeadline([UHRADA], false, TODAY)).toBeNull();
     expect(clientRowDeadline([VADY], true, TODAY)).toBeNull();
-    expect(clientProjectRow(nav(), tatran, SLUG, "sk", TODAY).status?.text).toContain("ďalšia lehota");
+    expect(clientProjectRow(nav(), tatran, SLUG, "sk", TODAY).status?.text).toMatch(/^Lehota /);
     for (const quiet of [nav({ data: data("partial") }), nav({ data: data("complete", [VADY]) })]) {
       const row = clientProjectRow(quiet, tatran, SLUG, "sk", TODAY);
       expect(row.status).toBeUndefined();
@@ -108,7 +114,7 @@ describe("stav a lehota v riadku: len to, čo je v súboroch", () => {
 
   test("vec: stav z karty doslovne a lehota; nič z toho = žiadny riadok stavu", () => {
     expect(matterRowStatus(UHRADA, TODAY, "sk")).toMatchObject({ urgency: "near" });
-    expect(matterRowStatus(UHRADA, TODAY, "sk")?.text).toMatch(/^aktívny · ďalšia lehota /);
+    expect(matterRowStatus(UHRADA, TODAY, "sk")?.text).toMatch(/^aktívny · Lehota /);
     expect(matterRowStatus(VADY, TODAY, "sk")).toBeNull();
     expect(matterRowStatus({ ...VADY, state: "uzavretý" }, TODAY, "cs")?.text).toBe("uzavretý");
   });
@@ -146,7 +152,7 @@ describe("hierarchia a aktívni predkovia", () => {
     // Vykreslenie počíta s dnešným dňom: lehota o 3 dni sa blíži.
     const nodes = tree(false).map((client) => ({ ...client, matters: client.matters.map((m) => m.path === UHRADA.path ? { ...m, deadlines: [deadline(addDays(today(), 3))] } : m) }));
     const out = html(<ul><ClientMattersView nodes={nodes} open locale="sk" /></ul>);
-    expect(out).toMatch(/data-lawoss-row-status=""[^>]*data-urgency="near"[^>]*>aktívny · ďalšia lehota/);
+    expect(out).toMatch(/data-lawoss-row-status=""[^>]*data-urgency="near"[^>]*>aktívny · Lehota /);
   });
 
   test("natívne Chaty nie sú aktívne, keď je otvorený chat vo veci (patrí pod Prípady)", () => {

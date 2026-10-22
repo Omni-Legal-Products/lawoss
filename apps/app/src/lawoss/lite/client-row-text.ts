@@ -1,6 +1,6 @@
 /** Texty a vzhľad riadkov bočného panela (alfa2 B3): lehota v riadku a zvýraznenie predka otvorenej položky. */
 import { t, type Language } from "@/i18n";
-import { formatDay } from "../okf/read-model";
+import { today } from "../okf/read-model";
 import type { RowDeadline } from "./client-row";
 
 /**
@@ -9,9 +9,16 @@ import type { RowDeadline } from "./client-row";
  */
 export const ANCESTOR_CLASS = "font-medium text-sidebar-foreground bg-sidebar-accent/50";
 
-/** Text lehoty v riadku; statické kľúče (CI audit), dátum ako v ostatných pohľadoch. */
+/** Krátky dátum do úzkeho riadku: deň a mesiac, iný rok s rokom (lehota o rok nesmie vyzerať ako budúci týždeň). */
+export function shortDay(iso: string, locale: Language, todayIso = today()): string {
+  const date = new Date(`${iso}T00:00:00Z`);
+  if (!Number.isFinite(date.getTime())) return iso;
+  return new Intl.DateTimeFormat(locale, { day: "numeric", month: "numeric", timeZone: "UTC", ...(iso.slice(0, 4) === todayIso.slice(0, 4) ? {} : { year: "numeric" }) }).format(date);
+}
+
+/** Krátky text lehoty v riadku („Lehota 25. 10.“); statické kľúče (CI audit). */
 export function rowDeadlineText(deadline: RowDeadline, locale: Language): string {
   if (deadline.kind === "overdue") return t("lawoss.lite.overdue", locale);
   if (deadline.kind === "invalid") return t("lawoss.lite.due_invalid", locale);
-  return t("lawoss.lite.matter_next_deadline", locale, { date: formatDay(deadline.date, locale) });
+  return t("lawoss.lite.row_deadline", locale, { date: shortDay(deadline.date, locale) });
 }

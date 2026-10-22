@@ -399,6 +399,7 @@ export const shellEn = {
   "lawoss.lite.client_unnamed": "Client",
   "lawoss.lite.nav_more": "More",
   "lawoss.lite.client_folder_tooltip": "Folder: {path}",
+  "lawoss.lite.row_deadline": "Deadline {date}",
   "lawoss.lite.client_no_matters": "No matters yet.",
   // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
   "lawoss.word_addin.editor_unavailable_title": "Open in the LAWOSS app",
@@ -811,6 +812,7 @@ export const shellCs = {
   "lawoss.lite.client_unnamed": "Klient",
   "lawoss.lite.nav_more": "Více",
   "lawoss.lite.client_folder_tooltip": "Složka: {path}",
+  "lawoss.lite.row_deadline": "Lhůta {date}",
   "lawoss.lite.client_no_matters": "Zatím bez případů.",
   // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
   "lawoss.word_addin.editor_unavailable_title": "Otevřete v aplikaci LAWOSS",
@@ -1220,6 +1222,7 @@ export const shellSk = {
   "lawoss.lite.client_unnamed": "Klient",
   "lawoss.lite.nav_more": "Viac",
   "lawoss.lite.client_folder_tooltip": "Priečinok: {path}",
+  "lawoss.lite.row_deadline": "Lehota {date}",
   "lawoss.lite.client_no_matters": "Zatiaľ bez prípadov.",
   // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
   "lawoss.word_addin.editor_unavailable_title": "Otvorte v aplikácii LAWOSS",
@@ -1627,6 +1630,7 @@ export const shellDe = {
   "lawoss.lite.client_unnamed": "Mandant",
   "lawoss.lite.nav_more": "Mehr",
   "lawoss.lite.client_folder_tooltip": "Ordner: {path}",
+  "lawoss.lite.row_deadline": "Frist {date}",
   "lawoss.lite.client_no_matters": "Noch keine Akten.",
   // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
   "lawoss.word_addin.editor_unavailable_title": "In der LAWOSS-App öffnen",

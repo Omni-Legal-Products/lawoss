@@ -412,7 +412,7 @@ describe("bočný panel (natívny AppSidebar, vykreslený)", () => {
     const out = sidebar(navValue(model, [], { scope, data, groups }), [{ workspace: client, sessions: [session], status: "ready" } as WorkspaceSessionGroup]);
     expect(out).toContain(`title="Folder: /prax/Klienti/${slug}">${card.replace(/,/g, ",")}</span>`);
     expect(out).not.toContain(`>${slug}<`);
-    expect(out).toMatch(/data-lawoss-row-status=""[^>]*>next deadline /);
+    expect(out).toMatch(/data-lawoss-row-status=""[^>]*>Deadline /);
     expect(out).toContain(`>${card} · Úhrada dodávok</span>`);
   });
 
