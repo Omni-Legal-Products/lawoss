@@ -1441,3 +1441,5 @@ and finite-summary-only upload remain byte-identical. Cross-target fixtures are 
 proof, with an explicit Windows/root skip for the POSIX permission-failure case.
 
 Standalone SDK preparation now composes explicit accepted/native/without-sdk suppliers, owned generations and a closed private application-code module. Pure identity tests run before the original native entry; capsule/preparation tests run after its exact tools installation. Actual ASAR-reader regressions require the installed desktop builder. No desktop build hook, resource copy mapping or runtime seeding is introduced by these primitives.
+
+The SDK compatibility workflow additionally runs bounded capsule-validation fixtures after the original genuine entry has installed pinned tools. Its native53/6 and finite-only upload stay unchanged. The standalone composed actual-ASAR/resource gate is implemented and tested locally; actual desktop/post-sign/prepackaged invocation is still pending.

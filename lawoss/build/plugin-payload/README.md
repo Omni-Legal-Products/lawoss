@@ -353,9 +353,9 @@ multiple pathname opens do not provide hostile-writer atomicity.
 `node --test lawoss/build/plugin-payload/product-identity.test.mjs` needs no
 installed build tools. The actual-container regressions in
 `packaged-identity.test.mjs` additionally require the installed desktop builder.
-These primitives do not yet bind a real desktop build caller to its resources,
-admit an SDK capsule or establish installed startup. The final packaging gate
-must compose those separate checks before it can report success.
+These identity primitives do not themselves admit an SDK capsule or establish
+installed startup. The composed static gate below performs resource admission;
+binding it into the real desktop build is still a separate pending step.
 
 `prepareProductSdkPackaging({ desktopRoot, target, supplier, applicationBuild })`
 composes the owned generation, supplier, capsule and generated private module.
@@ -373,3 +373,36 @@ actual desktop build/file-copy/ASAR/resource-gate wiring and runtime use are
 pending. Native integration receipts must distinguish a modeled desktop root
 from a real packaged app. Packaging fixtures run only after tools installation,
 separately from the unchanged53/6 native compatibility selection.
+
+## Static capsule extraction and composed packaging gate
+
+`extractAndVerifyProductSdkCapsule({ resourceRoot, identity, workspace })` accepts
+an independently authenticated private-code identity and a fresh SDK-owned
+workspace. It checks the exact resource layout, nine-file verifier inventory
+and physical archive size/hash without executing resource JavaScript. Pinned
+tar7.5.22 lists a bounded gzip stream before path writes. Admission rejects
+traversal, duplicate/case aliases, unsafe links and special files; portable names
+also protect the reserved private input on case-insensitive target filesystems.
+Entry/depth/file/aggregate/metadata/raw stream limits and bounded zero EOF
+padding prevent the decoder from doing unlimited work behind a logical limit.
+
+Only the admitted byte-identical archive is copied into a private `wx` stage
+and synchronously extracted. The original SDK manifest/notices/full inventory
+and resource/workspace identities are rechecked before publication. The returned
+payload is build data, not a runtime capability. Primary errors survive; retained
+stages/admissions report cleanup uncertainty. Caller cleanup is still required.
+
+`verifyPackagedProductSdk({ resourcesRoot, target, expectedMode,
+applicationBuild, validationParent })` composes the actual-ASAR identity reader,
+bounded public BuildInfo equality and capsule verification. Explicit without-SDK
+mode requires an absent resource and performs no SDK staging. SDK mode requires
+an initialized private validation parent outside the resources tree and an absent
+fixed `verification` child. Success follows only after repeated private/public
+identity checks and one ownership-checked removal of that child. Failures retain
+their workspace and never repair or retry cleanup.
+
+Run `product-capsule-validation.test.mjs` with the installed pinned SDK tools.
+`packaged-resource.test.mjs` additionally uses the installed desktop builder for
+real ASAR fixtures. These are static build checks, including inert foreign data;
+real desktop file mappings, post-sign/prepackaged hooks and runtime integration
+remain pending. No test fixture stands in for six-target native startup.

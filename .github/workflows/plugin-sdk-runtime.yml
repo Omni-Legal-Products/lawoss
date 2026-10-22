@@ -73,7 +73,7 @@ jobs:
           console.log(JSON.stringify({status:result.status,stage:result.failedStage,code:result.code}));
           if(result.status!=='complete')process.exitCode=1;"
       - name: Verify SDK capsules and packaging preparation with the installed pinned build tools
-        run: node --test lawoss/build/plugin-payload/product-capsule.test.mjs lawoss/build/plugin-payload/product-packaging.test.mjs
+        run: node --test lawoss/build/plugin-payload/product-capsule.test.mjs lawoss/build/plugin-payload/product-packaging.test.mjs lawoss/build/plugin-payload/product-capsule-validation.test.mjs
       - name: Upload finite dependency compatibility evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
