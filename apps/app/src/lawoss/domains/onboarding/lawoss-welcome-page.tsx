@@ -466,7 +466,8 @@ function DocumentLanguageSelect({
   );
 }
 /** Server client in the app; tests pass only the onboarding API. */
-export type WelcomeApi = OnboardingApi & Partial<OpenClientReader & Pick<LegalworkServerClient, "listWorkspaces" | "lawossMarketplace" | "lawossTriage">>;
+// Krok „Ako agent pracuje“ (C1) číta a mení YOLO a pravidlá zmien existujúcimi metódami klienta servera.
+export type WelcomeApi = OnboardingApi & Partial<OpenClientReader & Pick<LegalworkServerClient, "listWorkspaces" | "lawossMarketplace" | "lawossTriage" | "lawossYolo" | "setLawossYolo" | "getConfig" | "patchConfig" | "reloadEngine" | "canApprove">>;
 const sameFolder = (a: string | undefined, b: string | undefined) =>
   (a ?? "").replaceAll("\\", "/").replace(/\/+$/, "") === (b ?? "").replaceAll("\\", "/").replace(/\/+$/, "");
 /**

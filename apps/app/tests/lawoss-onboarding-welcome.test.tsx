@@ -43,6 +43,34 @@ describe("LAWOSS welcome flow", () => {
     expect(html).toMatch(/Continue without AI|>Continue</);
   });
 
+  test("kroky Ako agent pracuje a Pripravené sú v sprievodcovi so Späť pri nadpise a bez päty (C1)", () => {
+    const approvals = page("approvals");
+    expect(approvals).toContain("repeat(6, minmax(0, 1fr))");
+    expect(approvals).toMatch(/<li data-state="current" aria-current="step"><span class="lw-onb-step-bar"><\/span><span class="lw-onb-step-label">5\. How the agent works/);
+    expect(approvals).toContain('data-lawoss-wizard-screen="approvals"');
+    expect(approvals).toContain("Ask before every change");
+    expect(approvals).toMatch(/>Back<\/button>/);
+    expect(approvals).not.toContain("<footer");
+    const ready = page("ready");
+    expect(ready).toContain('data-lawoss-wizard-screen="ready"');
+    // Pri SSR sa postup z úložiska nenačíta: bez pripojeného priečinka je prvou úlohou pripojiť ho.
+    expect(ready).toContain('data-lawoss-ready-primary="connectFolder"');
+    expect(ready).toMatch(/>Back<\/button>/);
+    expect(ready).not.toContain("<footer");
+  });
+
+  test("krok Toto sme našli bez vybraného priečinka ukáže výber dokumentov (C1)", () => {
+    const html = page("found");
+    expect(html).toContain('data-lawoss-onboarding-step="found"');
+    expect(html).toContain('data-lawoss-wizard-screen="folder"');
+    expect(html).toContain("Connect an existing folder");
+  });
+
+  test("odkaz s priečinkom (?root=) v hlavnej ceste otvorí krok found (atribút kroku sa zmenil z folder)", () => {
+    expect(page("folder", { initialRoot: "/x" })).toContain('data-lawoss-onboarding-step="found"');
+    expect(page("folder", { initialRoot: "/x", completed: true })).toContain('data-lawoss-onboarding-step="folder"');
+  });
+
   test("staré kroky (voľba OKF, kancelária, balíky) sa otvoria ako krok Priečinok", () => {
     for (const step of ["okf", "office", "packs"] as const) {
       const html = page(step);

@@ -90,6 +90,8 @@
   .lw-wiz-progress-count { display: block; }
   .lw-wiz-progress .lw-onb-step-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .lw-wiz-progress .lw-onb-step-bar { margin-bottom: 0; }
+  /* Bez viditeľného názvu ostane hotový krok dosiahnuteľný: väčšia plocha okolo pruhu. */
+  .lw-wiz-progress .lw-onb-step-link { padding-block: 10px; margin-block: -10px; }
 }
 
 .lw-wiz-screen { display: grid; gap: 20px; min-width: 0; }
