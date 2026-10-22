@@ -1,5 +1,12 @@
 # LAWOSS downstream patches
 
+## Generovaný sandbox probe a čistota zdrojov (2026-10-22)
+
+| Súbor | Downstream zmena |
+|---|---|
+| `.gitignore` | Iba presný generovaný výstup `/scripts/sandbox/probe.mjs` je ignorovaný. Pôvodný Bun producer aj consumer, `assertReleaseSource`, verzovanie a SDK identita ostávajú. Skutočný Git/Bun fixture reprodukuje zmenu BuildInfo na null pred opravou a zhodnú neprázdnu identitu po nej; nesúvisiace nové súbory a zmeny tracked zdrojov alebo package naďalej odmieta. Pôvodný Mac ARM preZIP inner guard nebol zaznamenaný, preto ide o opravu doloženého konfliktu poradia, nie tvrdenie výlučnej historickej príčiny či natívneho PASS. |
+
+
 ## Kanonický pnpm vstup privátneho SDK buildu (2026-10-22)
 
 | Súbory | Downstream doplnenie a hranica dôkazu |

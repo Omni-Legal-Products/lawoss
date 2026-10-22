@@ -537,3 +537,9 @@ Primary and descriptor-restoration failures are preserved together; successful
 restoration and both dual-error paths have focused coverage. The original first
 48/49 local failure remains unattributed. Later local passes close the demonstrated
 fixture risk without establishing that it caused that original failure.
+
+Source identity is recomputed at final packaging gates. The known generated
+`scripts/sandbox/probe.mjs` output has an exact root-anchored ignore rule so its
+normal compilation does not turn a clean 0.0.0 build into null development
+identity. Other untracked files and modified tracked sources still refuse;
+this adds no source-cleanliness exception or SDK identity fallback.
