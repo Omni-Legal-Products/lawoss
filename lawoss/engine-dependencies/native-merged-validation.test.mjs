@@ -127,7 +127,7 @@ test('caller cancellation destroys idle owned response', async () => {
 test('finite public errors never reflect raw values or arbitrary uppercase codes', () => {
   const error = Object.assign(Error('private-sentinel'), { code: 'SECRET_TOKEN' });
   assert.equal(publicCode(error), 'ACQUISITION_FAILED');
-  assert.deepEqual(failureReceipt(error), { schema: 1, phase: 'initialize', status: 'failed', code: 'NATIVE_VALIDATION_FAILED', childClosed: 'unknown', exitCode: null, signal: 'unknown', worker: null, tests: null });
+  assert.deepEqual(failureReceipt(error), { schema: 1, phase: 'initialize', status: 'failed', code: 'NATIVE_VALIDATION_FAILED', childClosed: 'unknown', exitCode: null, signal: 'unknown', worker: null, projection: null, tests: null });
   assert.throws(() => active(NaN), { code: 'PRIMER_DEADLINE' });
 });
 test('genuine pinned local API closure admits exactly immutable 32 distinct records offline', async () => {
@@ -322,4 +322,413 @@ test('missing failure block cannot borrow the next registration location', async
   const line = source.split('\n').findIndex(v => /^\s*test\(/.test(v)) + 1;
   const value = `TAP version 13\nnot ok 1 - first\nok 2 - second\n  ---\n  location: '${path.join(here, TEST_FILES[0])}:${line}:1'\n  ...\n1..2\n# tests 2\n# suites 0\n# pass 1\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n`;
   assert.equal(failedTap(value, 2, [new Set([line])]).failures[0].source, 'unknown');
+});
+
+// Supplemental Task18 controls: these do not fabricate genuine 32-package admission.
+import * as parentProjection from './native-merged-validation.mjs';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+import { PATHS, FIXTURE_POLICY, COUNTS, canonicalRecordBytes, sha256, inventoryDigest } from './native-merged-projection-contract.mjs';
+const projectionWorker = path.join(here, 'native-merged-cache-projection-worker.mjs');
+const projectionFixture = path.join(here, 'fixtures/native-merged-child.mjs');
+const toolsBoundary = path.join(here, 'runtime-tools/node_modules');
+const nonce = '12345678-1234-1234-1234-123456789abc';
+const projectionFailure = (patch = {}) => ({ schema: 1, phase: 'projection', status: 'failed', policy: FIXTURE_POLICY,
+  nonce, stage: 'admission', code: 'TOOLS_INVALID', archives: 0, rawReads: 0, representations: 0, byteChecks: 0, pacoteChecks: 0, drain: 'settled', ...patch });
+const latch = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
+async function fixedPlan() {
+  const sources = await Promise.all(TEST_FILES.map(f => fs.readFile(path.join(here, f), 'utf8')));
+  return { expected: sources.map(sourceTestCount), declarations: sources.map(s => new Set(s.split('\n').flatMap((line, i) => /^\s*test\(/.test(line) ? [i + 1] : []))) };
+}
+async function negativeProjection(workspace, deadline = Date.now() + 300000) {
+  const sources = []; // negative control; real verifier refuses before source admission
+  const request = { schema: 1, policy: FIXTURE_POLICY, nonce, deadline, rawAcquisition: goodReceipt(),
+    rawAcquisitionSha256: sha256(canonicalRecordBytes(goodReceipt())), sourceInventorySha256: inventoryDigest(sources) };
+  const receipt = { schema: 1, phase: 'projection', status: 'complete', kind: 'derived-accepted-version-fixture', policy: FIXTURE_POLICY,
+    nonce, requestSha256: sha256(canonicalRecordBytes(request)), rawAcquisitionSha256: request.rawAcquisitionSha256,
+    sourceInventorySha256: request.sourceInventorySha256, manifestSha256: '0'.repeat(64), rawCacheSha256: '0'.repeat(64), derivedCacheSha256: '0'.repeat(64),
+    node: process.version, platform: process.platform, ...COUNTS, archiveBytes: 1, rawMetadataBytes: 1, projectedMetadataBytes: 1 };
+  await fs.writeFile(path.join(workspace, PATHS.request), canonicalRecordBytes(request), { flag: 'wx' });
+  await fs.mkdir(path.join(workspace, PATHS.fixture));
+  const workspaceStat = await fs.lstat(workspace, { bigint: true }), root = await fs.lstat(path.join(workspace, PATHS.fixture), { bigint: true });
+  const identity = s => ({ dev: String(s.dev), ino: String(s.ino) });
+  await fs.writeFile(path.join(workspace, PATHS.owner), canonicalRecordBytes({ schema: 1, nonce, workspace: identity(workspaceStat), root: identity(root) }));
+  await fs.writeFile(path.join(workspace, PATHS.manifest), '{'); // intentionally malformed, never a full cache
+  await fs.writeFile(path.join(workspace, 'projection-fixture-receipt.json'), JSON.stringify(receipt));
+  return { request, sources };
+}
+async function marker(workspace, name) {
+  const limit = Date.now() + 5000;
+  while (!(await fs.stat(path.join(workspace, name)).catch(() => null))) {
+    if (Date.now() >= limit) assert.fail('owned fixture readiness: ' + name);
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+}
+function interceptProjection(mode, expectedDeadline) {
+  const descriptor = Object.getOwnPropertyDescriptor(childProcess, 'spawn');
+  const original = descriptor.value, children = [], closes = [], observations = [];
+  let testSpawns = 0;
+  Object.defineProperty(childProcess, 'spawn', { ...descriptor, value(executable, args, options) {
+    if (args.includes('--test')) { testSpawns++; assert.fail('test launch on refused projection'); }
+    assert.equal(executable, process.execPath);
+    assert.equal(args[0], '--import');
+    assert.match(args[1], /network-guard\.mjs$/);
+    assert.deepEqual(args.slice(2), [projectionWorker, options.cwd, String(expectedDeadline)]);
+    observations.push({ executable, args: [...args], cwd: options.cwd });
+    const child = original(executable, [...args.slice(0, 2), projectionFixture, mode, options.cwd], options);
+    children.push(child); closes.push(new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal }))));
+    return child;
+  } }); syncBuiltinESMExports();
+  return { children, closes, observations, get testSpawns() { return testSpawns; }, restore() { Object.defineProperty(childProcess, 'spawn', descriptor); syncBuiltinESMExports(); } };
+}
+function interceptOpen(workspace, { hold = false } = {}) {
+  const descriptor = Object.getOwnPropertyDescriptor(fs, 'open'), original = descriptor.value;
+  const entered = latch(), release = latch(), fdClosed = latch();
+  const statDescriptor = Object.getOwnPropertyDescriptor(fs, 'lstat');
+  let manifests = 0, failures = 0, failureStats = 0, cacheStats = 0, closedFds = 0, manifestFd = null;
+  Object.defineProperty(fs, 'lstat', { ...statDescriptor, value(file, ...args) {
+    if (file === path.join(workspace, PATHS.failure)) failureStats++;
+    if ([path.join(workspace, PATHS.raw), path.join(workspace, PATHS.derived)].includes(file)) cacheStats++;
+    return statDescriptor.value.call(fs, file, ...args);
+  } });
+  Object.defineProperty(fs, 'open', { ...descriptor, value: async function(file, ...args) {
+    if (file === path.join(workspace, PATHS.failure)) failures++;
+    const handle = await original.call(fs, file, ...args);
+    if (file === path.join(workspace, PATHS.manifest)) {
+      manifests++; manifestFd = handle.fd; const read = handle.read.bind(handle), close = handle.close.bind(handle);
+      handle.read = async (...readArgs) => { entered.resolve(); if (hold) await release.promise; return read(...readArgs); };
+      handle.close = async () => { try { return await close(); } finally { closedFds++; fdClosed.resolve(); } };
+    }
+    return handle;
+  } }); syncBuiltinESMExports();
+  return { entered, release, fdClosed, get manifests() { return manifests; }, get failures() { return failures; }, get failureStats() { return failureStats; }, get cacheStats() { return cacheStats; }, get closedFds() { return closedFds; }, get manifestFd() { return manifestFd; }, restore() { Object.defineProperty(fs, 'open', descriptor); Object.defineProperty(fs, 'lstat', statDescriptor); syncBuiltinESMExports(); } };
+}
+
+test('projection parent: real preparation refuses exact absent tools boundary before child or preload', async () => {
+  assert.equal(typeof parentProjection.prepareProjectionRequest, 'function');
+  const descriptor = Object.getOwnPropertyDescriptor(fs, 'realpath'), original = descriptor.value;
+  const spawnDescriptor = Object.getOwnPropertyDescriptor(childProcess, 'spawn'); let calls = 0, spawns = 0;
+  Object.defineProperty(fs, 'realpath', { ...descriptor, value: async (file, ...args) => {
+    if (file === toolsBoundary) { calls++; throw Object.assign(Error('controlled absent tools'), { code: 'ENOENT' }); }
+    return original.call(fs, file, ...args);
+  } });
+  Object.defineProperty(childProcess, 'spawn', { ...spawnDescriptor, value() { spawns++; assert.fail('no spawn before tools admission'); } }); syncBuiltinESMExports();
+  try {
+    await ownedValidation(async workspace => {
+      await assert.rejects(parentProjection.prepareProjectionRequest(workspace, goodReceipt(), Date.now() + 300000), { code: 'TOOLS_INVALID' });
+      await assert.rejects(fs.access(path.join(workspace, PATHS.request)), { code: 'ENOENT' });
+      await assert.rejects(fs.access(path.join(workspace, 'accepted-cache.mjs')), { code: 'ENOENT' });
+    });
+    assert.equal(calls, 1); assert.equal(spawns, 0);
+  } finally { Object.defineProperty(fs, 'realpath', descriptor); Object.defineProperty(childProcess, 'spawn', spawnDescriptor); syncBuiltinESMExports(); }
+});
+
+test('projection parent: finite projection failure field and phase never echo private diagnostics', () => {
+  const failure = projectionFailure();
+  const error = Object.assign(Error('private-sentinel'), { code: 'TOOLS_INVALID', private: { context: { phase: 'projection', projectionFailure: failure } } });
+  assert.deepEqual(failureReceipt(error), { schema: 1, phase: 'projection', status: 'failed', code: 'TOOLS_INVALID', childClosed: 'unknown', exitCode: null, signal: 'unknown', worker: null, projection: failure, tests: null });
+  error.private.context.projectionFailure = { ...failure, raw: 'private-sentinel' };
+  assert.equal(failureReceipt(error).projection, null);
+  error.code = 'SECRET_TOKEN'; assert.equal(failureReceipt(error).code, 'PROJECTION_FAILED');
+});
+
+test('projection parent: bounded diagnostic requires actual close and exact nonce/schema/code/physical record', async () => {
+  assert.equal(typeof parentProjection.readProjectionFailure, 'function');
+  await ownedValidation(async workspace => {
+    const file = path.join(workspace, PATHS.failure), value = projectionFailure();
+    assert.equal(await parentProjection.readProjectionFailure(workspace, { closed: true }, nonce), null);
+    await fs.writeFile(file, canonicalRecordBytes(value));
+    assert.equal(await parentProjection.readProjectionFailure(workspace, { closed: false }, nonce), null);
+    assert.deepEqual(await parentProjection.readProjectionFailure(workspace, { closed: true }, nonce), value);
+    for (const patch of [{ nonce: '87654321-1234-1234-1234-123456789abc' }, { raw: 'private-sentinel' }, { code: 'SECRET_TOKEN' }, { nonce: null, stage: 'metadata' }]) {
+      await fs.writeFile(file, canonicalRecordBytes(projectionFailure(patch)));
+      assert.equal(await parentProjection.readProjectionFailure(workspace, { closed: true }, nonce), null);
+    }
+    const early = projectionFailure({ nonce: null });
+    await fs.writeFile(file, canonicalRecordBytes(early));
+    assert.deepEqual(await parentProjection.readProjectionFailure(workspace, { closed: true }, nonce), early);
+    await fs.writeFile(file, ' '.repeat(4097)); assert.equal(await parentProjection.readProjectionFailure(workspace, { closed: true }, nonce), null);
+    await fs.writeFile(file, canonicalRecordBytes(value)); await fs.link(file, path.join(workspace, 'projection-linked'));
+    assert.equal(await parentProjection.readProjectionFailure(workspace, { closed: true }, nonce), null);
+    await fs.unlink(file); await fs.symlink(path.join(workspace, 'projection-linked'), file);
+    assert.equal(await parentProjection.readProjectionFailure(workspace, { closed: true }, nonce), null);
+  });
+});
+
+for (const gate of ['receipt-before-close', 'held-manifest', 'cancel-admission', 'deadline-admission', 'nonzero-success-stdout', 'preabort', 'cleanup-failure']) {
+  test('projection parent: actual tail ' + gate + ' drains owned child/fd and refuses progress', async t => {
+    assert.equal(typeof parentProjection.projectionThenTests, 'function');
+    let owned, interception, io, pending, cleaned = false, settled = false, observedContext;
+    const controller = new AbortController(), deadline = Date.now() + 300000, plan = await fixedPlan();
+    const dateDescriptor = Object.getOwnPropertyDescriptor(Date, 'now');
+    const cleanupError = Error('private-cleanup'); let finalError;
+    try {
+      pending = ownedValidation(async (workspace, context) => {
+        owned = workspace; observedContext = context;
+        const prepared = await negativeProjection(workspace, deadline);
+        context.acquisition = goodReceipt(); context.worker = { preserved: 'private-worker' };
+        context.child = { closed: true, exitCode: 0, signal: null }; // must be cleared before projection
+        interception = interceptProjection(gate === 'nonzero-success-stdout' ? 'projection-nonzero' : 'projection-held', deadline);
+        io = interceptOpen(workspace, { hold: ['held-manifest', 'cancel-admission', 'deadline-admission'].includes(gate) });
+        if (gate === 'preabort') controller.abort();
+        return parentProjection.projectionThenTests(workspace, context, prepared, plan, { signal: controller.signal, onProjection() { assert.fail('negative control cannot admit projection'); } });
+      }, { cleanup: async (workspace, opts) => {
+        cleaned = true;
+        if (interception.children.length) {
+          assert.equal(await fs.readFile(path.join(workspace, 'projection-final'), 'utf8'), 'child-final-write');
+          assert.equal(observedContext.child.closed, true);
+        }
+        if (gate === 'cleanup-failure') throw cleanupError;
+        await fs.rm(workspace, opts);
+      } });
+      const outcome = pending.then(value => { settled = true; return value; }, error => { settled = true; finalError = error; });
+      // The interception is installed by the owned operation before fixture readiness.
+      while (!interception && !settled) await new Promise(resolve => setImmediate(resolve));
+      if (gate !== 'preabort') {
+        await marker(owned, 'projection-ready');
+        if (gate === 'receipt-before-close') {
+          assert.equal(settled, false); assert.equal(cleaned, false); assert.equal(io.manifests, 0); assert.equal(io.failures, 0); assert.equal(io.failureStats, 0); assert.equal(io.cacheStats, 0);
+          assert.equal(observedContext.child.closed, false);
+          await assert.rejects(fs.access(path.join(owned, 'accepted-cache.mjs')), { code: 'ENOENT' });
+        }
+        await fs.writeFile(path.join(owned, 'projection-release'), 'release');
+        if (['held-manifest', 'cancel-admission', 'deadline-admission'].includes(gate)) {
+          await io.entered.promise;
+          assert.equal(observedContext.child.closed, true); assert.equal(settled, false); assert.equal(cleaned, false);
+          assert.equal((await interception.closes[0]).code, 0);
+          if (gate === 'cancel-admission') controller.abort();
+          if (gate === 'deadline-admission') Object.defineProperty(Date, 'now', { ...dateDescriptor, value: () => deadline + 1 });
+          await new Promise(resolve => setImmediate(resolve));
+          assert.equal(settled, false); assert.equal(cleaned, false); assert.equal(interception.testSpawns, 0);
+          io.release.resolve(); await io.fdClosed.promise;
+        }
+      }
+      await outcome;
+      assert.ok(finalError); assert.deepEqual(finalError.private.context.acquisition, goodReceipt());
+      assert.deepEqual(finalError.private.context.worker, { preserved: 'private-worker' });
+      assert.equal(interception.testSpawns, 0);
+      const publicFailure = failureReceipt(finalError);
+      assert.equal(publicFailure.projection, null);
+      t.diagnostic(JSON.stringify({ control: gate, originalSpawns: interception.observations,
+        actualChildren: interception.children.map(child => ({ pid: child.pid, argv: child.spawnargs, exitCode: child.exitCode, signal: child.signalCode })),
+        positiveClose: observedContext.child?.closed ?? 'unknown', manifestOpens: io.manifests, manifestFd: io.manifestFd, closedFds: io.closedFds,
+        failureReads: io.failureStats, cacheReads: io.cacheStats, cleanup: cleaned, testSpawns: interception.testSpawns, code: finalError.code }));
+      if (gate === 'preabort') {
+        assert.equal(finalError.code, 'CANCELLED'); assert.equal(publicFailure.childClosed, 'unknown');
+        assert.equal(cleaned, false); assert.equal(io.manifests, 0); assert.equal(io.failures, 0); assert.equal(io.failureStats, 0); assert.equal(io.cacheStats, 0);
+        assert.equal((await fs.lstat(owned)).isDirectory(), true);
+      } else {
+        assert.equal(cleaned, true); assert.equal(publicFailure.childClosed, true);
+        assert.equal(finalError.code, gate === 'cancel-admission' ? 'CANCELLED' : gate === 'deadline-admission' ? 'PRIMER_DEADLINE' : gate === 'nonzero-success-stdout' ? 'CHILD_FAILED' : 'RECEIPT_INVALID');
+        if (gate === 'nonzero-success-stdout') assert.equal(io.manifests, 0);
+        else assert.equal(io.manifests, 1);
+        if (gate === 'cleanup-failure') assert.equal(finalError.private.cleanup, cleanupError);
+      }
+    } finally {
+      Object.defineProperty(Date, 'now', dateDescriptor);
+      io?.release.resolve();
+      if (owned) await fs.writeFile(path.join(owned, 'projection-release'), 'release').catch(() => {});
+      controller.abort();
+      await pending?.catch(() => {});
+      if (interception) await Promise.all(interception.closes);
+      io?.restore(); interception?.restore();
+      if (owned) await fs.rm(owned, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const diagnostic of ['valid', 'wrong-nonce', 'extra', 'code', 'oversize', 'forged-stderr', 'cancelled', 'timeout', 'output-limit']) {
+  test('projection parent: actual closed failure ' + diagnostic + ' preserves original context and primary', async t => {
+    const deadline = Date.now() + 300000, controller = new AbortController(), emitted = [];
+    const dateDescriptor = Object.getOwnPropertyDescriptor(Date, 'now');
+    let owned, interception, io, pending, error, context;
+    try {
+      pending = ownedValidation(async (workspace, state) => {
+        owned = workspace; context = state;
+        const prepared = await negativeProjection(workspace, deadline);
+        state.child = { closed: true, exitCode: 0, signal: null };
+        retainAcquisition(goodReceipt(), state, value => emitted.push(value));
+        state.worker = { preserved: 'raw-worker-context' };
+        const value = projectionFailure(diagnostic === 'wrong-nonce' ? { nonce: '87654321-1234-1234-1234-123456789abc' } : diagnostic === 'extra' ? { secret: 'private-sentinel' } : diagnostic === 'code' ? { code: 'SECRET' } : {});
+        await fs.writeFile(path.join(workspace, 'projection-fixture-failure.json'), diagnostic === 'oversize' ? ' '.repeat(4097) : canonicalRecordBytes(value));
+        interception = interceptProjection(diagnostic === 'forged-stderr' ? 'projection-forged-code' : diagnostic === 'output-limit' ? 'projection-output-limit' : 'projection-failure', deadline);
+        if (diagnostic === 'timeout') Object.defineProperty(Date, 'now', { ...dateDescriptor, value: () => deadline - 1000 });
+        io = interceptOpen(workspace);
+        return parentProjection.projectionThenTests(workspace, state, prepared, await fixedPlan(), { signal: controller.signal, onProjection() { assert.fail('failure cannot publish'); } });
+      });
+      const outcome = pending.catch(failure => { error = failure; });
+      while (!owned || !interception) await new Promise(resolve => setImmediate(resolve));
+      await marker(owned, 'projection-ready');
+      if (diagnostic === 'cancelled') controller.abort();
+      else if (diagnostic === 'output-limit') await fs.writeFile(path.join(owned, 'projection-output-release'), 'release');
+      else if (!['timeout', 'output-limit'].includes(diagnostic)) await fs.writeFile(path.join(owned, 'projection-release'), 'release');
+      await outcome;
+      assert.ok(error); assert.equal(emitted.length, 1); assert.deepEqual(context.acquisition, goodReceipt());
+      assert.deepEqual(context.worker, { preserved: 'raw-worker-context' });
+      assert.equal(io.manifests, 0); assert.equal(interception.testSpawns, 0);
+      assert.equal(context.child.closed, true);
+      const value = failureReceipt(error);
+      if (diagnostic === 'valid' || (['cancelled', 'timeout', 'output-limit'].includes(diagnostic) && process.platform !== 'win32')) assert.deepEqual(value.projection, projectionFailure());
+      else assert.equal(value.projection, null);
+      assert.equal(value.code, diagnostic === 'cancelled' ? 'CANCELLED' : diagnostic === 'timeout' ? 'OPERATION_TIMEOUT' : diagnostic === 'output-limit' ? 'CHILD_OUTPUT_LIMIT' : diagnostic === 'valid' ? 'TOOLS_INVALID' : 'CHILD_FAILED');
+      assert.equal(JSON.stringify(value).includes('private-sentinel'), false);
+      t.diagnostic(JSON.stringify({ control: diagnostic, originalSpawns: interception.observations,
+        actualChildren: interception.children.map(child => ({ pid: child.pid, argv: child.spawnargs, exitCode: child.exitCode, signal: child.signalCode })),
+        positiveClose: context.child.closed, manifestOpens: io.manifests, failureReads: io.failureStats, testSpawns: interception.testSpawns,
+        primary: error.private.primary.code, publicCode: value.code, admittedFailure: value.projection !== null }));
+    } finally {
+      Object.defineProperty(Date, 'now', dateDescriptor);
+      if (owned) await fs.writeFile(path.join(owned, 'projection-release'), 'release').catch(() => {});
+      controller.abort(); await pending?.catch(() => {});
+      if (interception) await Promise.all(interception.closes);
+      io?.restore(); interception?.restore();
+      if (owned) await fs.rm(owned, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const expiry of ['after-acquisition', 'during-preparation']) {
+  test('projection parent: original native deadline ' + expiry + ' joins work and prevents next spawn', async t => {
+    const descriptor = Object.getOwnPropertyDescriptor(childProcess, 'spawn'), original = descriptor.value;
+    const realpathDescriptor = Object.getOwnPropertyDescriptor(fs, 'realpath'), originalRealpath = realpathDescriptor.value;
+    const dateDescriptor = Object.getOwnPropertyDescriptor(Date, 'now');
+    const entered = latch(), release = latch(), emitted = [], children = [], closes = [];
+    let deadline, owned, pending, finalError, toolReads = 0, nextSpawns = 0, settled = false;
+    Object.defineProperty(childProcess, 'spawn', { ...descriptor, value(executable, args, options) {
+      if (!args.includes(path.join(here, 'native-merged-cache-worker.mjs'))) { nextSpawns++; assert.fail('expired original deadline forbids next child'); }
+      assert.equal(executable, process.execPath); owned = options.cwd;
+      const offset = args.indexOf(path.join(here, 'native-merged-cache-worker.mjs'));
+      assert.deepEqual(args.slice(offset, offset + 2), [path.join(here, 'native-merged-cache-worker.mjs'), owned]);
+      deadline = Number(args[offset + 2]); assert.ok(deadline > Date.now() && deadline - Date.now() <= 300000);
+      const child = original(executable, [...args.slice(0, offset), projectionFixture, 'acquisition-held', owned], options);
+      children.push(child); closes.push(new Promise(resolve => child.once('close', resolve))); return child;
+    } });
+    Object.defineProperty(fs, 'realpath', { ...realpathDescriptor, value: async function(file, ...args) {
+      if (file === toolsBoundary) {
+        toolReads++; entered.resolve(); await release.promise;
+        throw Object.assign(Error('controlled missing tools after owned pending read'), { code: 'ENOENT' });
+      }
+      return originalRealpath.call(fs, file, ...args);
+    } }); syncBuiltinESMExports();
+    try {
+      pending = parentProjection.nativeValidation({ onAcquisition(value) {
+        emitted.push(value);
+        if (expiry === 'after-acquisition') Object.defineProperty(Date, 'now', { ...dateDescriptor, value: () => deadline + 1 });
+      }, onProjection() { assert.fail('expired acquisition allowance'); } });
+      const outcome = pending.catch(error => { finalError = error; }).finally(() => { settled = true; });
+      while (!owned && !settled) await new Promise(resolve => setImmediate(resolve));
+      await marker(owned, 'projection-ready');
+      assert.equal(settled, false); assert.equal(emitted.length, 0);
+      await fs.writeFile(path.join(owned, 'projection-release'), 'release');
+      if (expiry === 'during-preparation') {
+        await entered.promise; assert.equal(settled, false);
+        Object.defineProperty(Date, 'now', { ...dateDescriptor, value: () => deadline + 1 });
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(settled, false); assert.equal((await fs.lstat(owned)).isDirectory(), true);
+        release.resolve();
+      }
+      await outcome;
+      assert.equal(finalError.code, 'PRIMER_DEADLINE'); assert.equal(emitted.length, 1);
+      assert.deepEqual(finalError.private.context.acquisition, goodReceipt());
+      assert.equal(finalError.private.context.phase, 'projection');
+      assert.equal(finalError.private.context.child, undefined); // acquisition close cannot authorize projection reads
+      assert.equal(toolReads, expiry === 'after-acquisition' ? 0 : 1); assert.equal(nextSpawns, 0);
+      t.diagnostic(JSON.stringify({ control: expiry, originalDeadline: deadline,
+        actualChildren: children.map(child => ({ pid: child.pid, argv: child.spawnargs, exitCode: child.exitCode, signal: child.signalCode })),
+        acquisitionEmitted: emitted.length, projectionWitness: finalError.private.context.child ?? 'cleared', toolReads, nextSpawns, code: finalError.code }));
+      await assert.rejects(fs.access(owned), { code: 'ENOENT' });
+    } finally {
+      Object.defineProperty(Date, 'now', dateDescriptor); release.resolve();
+      if (owned) await fs.writeFile(path.join(owned, 'projection-release'), 'release').catch(() => {});
+      await pending?.catch(() => {}); await Promise.all(closes);
+      Object.defineProperty(childProcess, 'spawn', descriptor); Object.defineProperty(fs, 'realpath', realpathDescriptor); syncBuiltinESMExports();
+      if (owned) await fs.rm(owned, { recursive: true, force: true });
+    }
+  });
+}
+
+test('projection parent: unchanged absolute deadline reduces actual supervisor remainder after controlled acquisition', async t => {
+  const deadline = Date.now() + 300000, dateDescriptor = Object.getOwnPropertyDescriptor(Date, 'now');
+  const timeoutDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'setTimeout');
+  const timeouts = [];
+  let owned, pending, interception, io;
+  try {
+    pending = ownedValidation(async (workspace, context) => {
+      owned = workspace;
+      context.phase = 'acquisition';
+      const child = validationChild([projectionFixture, 'acquisition-held', workspace], workspace, { offline: true, timeout: 300000 }, context);
+      await marker(workspace, 'projection-ready');
+      // Controlled clock advance while the actual acquisition child is held.
+      Object.defineProperty(Date, 'now', { ...dateDescriptor, value: () => deadline - 12345 });
+      await fs.writeFile(path.join(workspace, 'projection-release'), 'release');
+      retainAcquisition(await child, context, () => {});
+      await fs.unlink(path.join(workspace, 'projection-ready')); await fs.unlink(path.join(workspace, 'projection-release'));
+      const prepared = await negativeProjection(workspace, deadline);
+      interception = interceptProjection('projection-nonzero', deadline); io = interceptOpen(workspace);
+      Object.defineProperty(globalThis, 'setTimeout', { ...timeoutDescriptor, value(fn, ms, ...args) { timeouts.push(ms); return timeoutDescriptor.value(fn, ms, ...args); } });
+      return parentProjection.projectionThenTests(workspace, context, prepared, await fixedPlan());
+    });
+    const outcome = pending.catch(error => error);
+    while (!interception) await new Promise(resolve => setImmediate(resolve));
+    await marker(owned, 'projection-ready');
+    await fs.writeFile(path.join(owned, 'projection-release'), 'release');
+    const error = await outcome;
+    assert.equal(error.code, 'CHILD_FAILED'); assert.equal(interception.testSpawns, 0);
+    assert.equal(interception.observations[0].args.at(-1), String(deadline));
+    assert.deepEqual(timeouts.filter(ms => ms > 1000), [12345]);
+    t.diagnostic(JSON.stringify({ originalDeadline: deadline, originalSpawns: interception.observations, actualArgv: interception.children[0].spawnargs, supervisorTimeouts: timeouts.filter(ms => ms > 1000), code: error.code }));
+  } finally {
+    Object.defineProperty(Date, 'now', dateDescriptor); Object.defineProperty(globalThis, 'setTimeout', timeoutDescriptor);
+    if (owned) await fs.writeFile(path.join(owned, 'projection-release'), 'release').catch(() => {});
+    await pending?.catch(() => {}); if (interception) await Promise.all(interception.closes);
+    io?.restore(); interception?.restore(); if (owned) await fs.rm(owned, { recursive: true, force: true });
+  }
+});
+
+test('projection parent: fixed successful wiring model keeps derived preload, original argv/47/180000 and immutable callback order', async () => {
+  // Source-bound model only: no mocked verifier/admitted cache/full positive claim.
+  const source = await fs.readFile(path.join(here, 'native-merged-validation.mjs'), 'utf8');
+  assert.deepEqual((await fixedPlan()).expected, [8, 25, 14]);
+  assert.equal(source.match(/const deadline = Date.now\(\) \+ 300000;/g)?.length, 1);
+  assert.match(source, /verifyProjectionArtifacts\(workspace, receipt, request, sources, \{ signal \}\)/);
+  assert.match(source, /JSON.stringify\(admitted.cache\)/);
+  assert.doesNotMatch(source, /JSON.stringify\(path.join\(workspace, 'cache\/_cacache'\)\)/);
+  assert.match(source, /\['--import', pathToFileURL\(preload\).href, '--test', '--test-reporter=tap', \n?\s*\.\.\.TEST_FILES.map\(file => path.join\(here, file\)\)\]/);
+  assert.match(source, /\{ signal, json: false, timeout: 180000 \}/);
+  const verified = source.indexOf('const admitted = await scope.run(() => verifyProjectionArtifacts');
+  const retained = source.indexOf('context.projection = admitted.receipt;', verified);
+  const callback = source.indexOf('onProjection(admitted.receipt)', retained);
+  const accepted = source.indexOf('acceptedArtifacts()', callback);
+  const preload = source.indexOf('publishAcceptedPreload(workspace, admitted, scope)', accepted);
+  const disposed = source.indexOf('scope.dispose()', preload);
+  const tests = source.indexOf("context.phase = 'tests'", disposed);
+  assert.ok(verified >= 0 && retained > verified && callback > retained && accepted > callback && preload > accepted && disposed > preload && tests > disposed);
+  assert.match(source, /return \{ acquisition: context.acquisition, projection: context.projection,/);
+  assert.match(source, /onAcquisition: receipt => console.log\(JSON.stringify\(receipt\)\), onProjection: receipt => console.log\(JSON.stringify\(receipt\)\)/);
+  assert.match(source, /console.log\(JSON.stringify\(result.tests\)\)/);
+});
+
+test('projection parent: expiration after prepared negative control prevents projection launch and reads', async t => {
+  const deadline = Date.now() + 300000, dateDescriptor = Object.getOwnPropertyDescriptor(Date, 'now');
+  let owned, interception, io, error, cleaned = false;
+  try {
+    await assert.rejects(ownedValidation(async (workspace, context) => {
+      owned = workspace;
+      const prepared = await negativeProjection(workspace, deadline);
+      context.acquisition = goodReceipt(); context.child = { closed: true, exitCode: 0 };
+      interception = interceptProjection('projection-held', deadline); io = interceptOpen(workspace);
+      const plan = await fixedPlan();
+      Object.defineProperty(Date, 'now', { ...dateDescriptor, value: () => deadline + 1 });
+      return parentProjection.projectionThenTests(workspace, context, prepared, plan, { onProjection() { assert.fail('expired request'); } });
+    }, { cleanup: async (workspace, options) => { cleaned = true; await fs.rm(workspace, options); } }), value => {
+      error = value; return value.code === 'PRIMER_DEADLINE';
+    });
+    assert.equal(error.private.context.child, undefined); assert.equal(cleaned, true);
+    assert.equal(interception.children.length, 0); assert.equal(interception.testSpawns, 0);
+    assert.equal(io.manifests, 0); assert.equal(io.failureStats, 0); assert.equal(io.cacheStats, 0);
+    t.diagnostic(JSON.stringify({ originalDeadline: deadline, projectionSpawns: interception.children.length, testSpawns: interception.testSpawns, manifestOpens: io.manifests, failureReads: io.failureStats, cacheReads: io.cacheStats, cleanup: cleaned, code: error.code }));
+  } finally {
+    Object.defineProperty(Date, 'now', dateDescriptor); io?.restore(); interception?.restore();
+    if (owned) await fs.rm(owned, { recursive: true, force: true });
+  }
 });

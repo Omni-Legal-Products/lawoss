@@ -1,5 +1,5 @@
 // CI entry only. runChild joins direct child close on every settled outcome.
-import { mkdir, readFile, writeFile, realpath, lstat, rm, open } from 'node:fs/promises';
+import { mkdir, readFile, realpath, lstat, rm, open } from 'node:fs/promises';
 import path from 'node:path';
 import { constants } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -8,19 +8,29 @@ import { isDeepStrictEqual } from 'node:util';
 import { initialize, verifyWorkspace, runChild } from '../build/plugin-payload/prepare.mjs';
 import { acceptedArtifacts, ACCEPTED } from '../build/plugin-payload/prime-cache.mjs';
 import { RUNTIME_LOCK, VERSIONS, METADATA_LIMITS, publicCode, refuse, OPERATION_RECEIPT, validateOperationReceipt } from './native-merged-cache-worker.mjs';
+import { CODES as PROJECTION_CODES, PATHS, LIMITS, FIXTURE_POLICY, canonicalRecordBytes, sha256, inventoryDigest, validateProjectionRequest, validateProjectionFailure, validateProjectionReceipt } from './native-merged-projection-contract.mjs';
+import { sourceInventory, writeExclusiveRecord, readBoundedRecord, verifyProjectionArtifacts } from './native-merged-projection-files.mjs';
+import { operationScope } from './native-merged-projection-cache.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const TEST_FILES = Object.freeze(['npm-config.test.mjs', 'dependency-lease.test.mjs', 'prepare-target.test.mjs']);
 const failureCodes = new Set(['NODE_VERSION', 'CANCELLED', 'PRIMER_DEADLINE', 'OPERATION_TIMEOUT', 'CHILD_OUTPUT_LIMIT', 'CHILD_FAILED', 'INPUT_DRIFT', 'WORKSPACE_INVALID', 'RECEIPT_INVALID', 'TEST_COUNTS_INVALID', 'TEST_SOURCE_INVALID', 'CLEANUP_FAILED', 'NATIVE_VALIDATION_FAILED', 'ACQUISITION_FAILED']);
-const phases = new Set(['initialize', 'admission', 'acquisition', 'tests', 'cleanup', 'complete']);
+const phases = new Set(['initialize', 'admission', 'acquisition', 'projection', 'tests', 'cleanup', 'complete']);
+function publicProjection(context) {
+  try {
+    const value = context.projection ?? context.projectionFailure;
+    if (!value || canonicalRecordBytes(value).length > LIMITS.receipt) return null;
+    return context.projection ? validateProjectionReceipt(value) : validateProjectionFailure(value);
+  } catch { return null; }
+}
 export function failureReceipt(error) {
   const context = error?.private?.context ?? {};
   const child = context.child;
   return { schema: 1, phase: phases.has(context.phase) ? context.phase : 'initialize', status: 'failed',
-    code: failureCodes.has(error?.code) ? error.code : publicCode(error) !== 'ACQUISITION_FAILED' ? publicCode(error) : 'NATIVE_VALIDATION_FAILED',
+    code: context.phase === 'projection' ? (PROJECTION_CODES.includes(error?.code) || ['OPERATION_TIMEOUT', 'CHILD_OUTPUT_LIMIT', 'CHILD_FAILED'].includes(error?.code) ? error.code : 'PROJECTION_FAILED') : failureCodes.has(error?.code) ? error.code : publicCode(error) !== 'ACQUISITION_FAILED' ? publicCode(error) : 'NATIVE_VALIDATION_FAILED',
     childClosed: typeof child?.closed === 'boolean' ? child.closed : 'unknown',
     exitCode: Number.isSafeInteger(child?.exitCode) && child.exitCode >= 0 && child.exitCode <= 255 ? child.exitCode : null,
     signal: child?.signal === null ? 'none' : ['SIGTERM', 'SIGKILL', 'SIGINT'].includes(child?.signal) ? child.signal : child?.signal ? 'other' : 'unknown',
-    worker: context.worker ?? null, tests: context.tests ?? null };
+    worker: context.worker ?? null, projection: publicProjection(context), tests: context.tests ?? null };
 }
 export async function readOperationReceipt(workspace, child) {
   if (child?.closed !== true) return null;
@@ -90,6 +100,11 @@ export async function validationChild(args, workspace, options, context, declara
     if (context.phase === 'acquisition') {
       context.worker = await readOperationReceipt(workspace, error.child);
       if (context.worker && error.code === 'CHILD_FAILED') error.code = context.worker.code;
+    } else if (context.phase === 'projection') {
+      // runChild's stderr parser is not an authority for projection error codes.
+      if (!['CANCELLED', 'OPERATION_TIMEOUT', 'CHILD_OUTPUT_LIMIT'].includes(error.code)) error.code = 'CHILD_FAILED';
+      context.projectionFailure = await readProjectionFailure(workspace, error.child, context.projectionNonce);
+      if (context.projectionFailure && error.code === 'CHILD_FAILED') error.code = context.projectionFailure.code;
     } else if (context.phase === 'tests' && error.child?.closed === true) context.tests = failedTap(error.output, context.expected, declarations);
     throw error;
   }
@@ -166,30 +181,104 @@ export async function ownedValidation(operation, { parent = path.join(here, '.wo
   context.phase = 'complete';
   return result;
 }
-export async function nativeValidation({ signal, onAcquisition = () => {} } = {}) {
+// The original acquisition allowance is absolute, never renewed by settlement.
+function remaining(deadline, signal) {
+  if (signal?.aborted) refuse('CANCELLED');
+  const value = deadline - Date.now();
+  if (!Number.isSafeInteger(deadline) || value <= 0 || value > 300000) refuse('PRIMER_DEADLINE');
+  return value;
+}
+export async function prepareProjectionRequest(workspace, acquisition, deadline, signal) {
+  remaining(deadline, signal);
+  const scope = operationScope(deadline, signal);
+  try {
+    const sources = await scope.run(() => sourceInventory({ scope }));
+    const request = validateProjectionRequest({ schema: 1, policy: FIXTURE_POLICY, nonce: randomUUID(), deadline,
+      rawAcquisition: acquisition, rawAcquisitionSha256: sha256(canonicalRecordBytes(acquisition)), sourceInventorySha256: inventoryDigest(sources) });
+    await scope.run(() => writeExclusiveRecord(path.join(workspace, PATHS.request), request, LIMITS.request, { scope }));
+    scope.check();
+    return { request, sources };
+  } catch (error) { scope.check(); throw error; }
+  finally { await scope.drain(); scope.dispose(); }
+}
+export async function readProjectionFailure(workspace, child, expectedNonce) {
+  if (child?.closed !== true) return null;
+  try {
+    await verifyWorkspace(workspace);
+    const value = validateProjectionFailure(await readBoundedRecord(path.join(workspace, PATHS.failure), LIMITS.failure));
+    // The worker keeps nonce null only before admitting its request in admission.
+    if (value.nonce === null ? value.stage !== 'admission' : value.nonce !== expectedNonce) return null;
+    return value;
+  } catch { return null; }
+}
+async function publishAcceptedPreload(workspace, admitted, scope) {
+  const preload = path.join(workspace, 'accepted-cache.mjs');
+  let handle, primary;
+  try {
+    await scope.run(async () => { handle = await open(preload, 'wx', 0o600); });
+    await scope.run(() => handle.writeFile(`process.env.LAWOSS_TEST_ACCEPTED_SDK_CACHE = ${JSON.stringify(admitted.cache)};\n`));
+  } catch (error) { primary = error; }
+  finally {
+    if (handle) try { await handle.close(); } catch (error) {
+      if (primary) Object.defineProperty(primary, 'closeError', { value: error });
+      else primary = error;
+    }
+  }
+  if (primary) throw primary;
+  scope.check();
+  return preload;
+}
+export async function projectionThenTests(workspace, context, prepared, testPlan, { signal, onProjection = () => {} } = {}) {
+  context.phase = 'projection'; context.child = undefined;
+  const { request, sources } = prepared;
+  validateProjectionRequest(request);
+  context.projectionNonce = request.nonce;
+  const deadline = request.deadline;
+  if (!isDeepStrictEqual(testPlan.expected, [8, 25, 14]) || !Array.isArray(testPlan.declarations) || testPlan.declarations.length !== TEST_FILES.length || testPlan.declarations.some(rows => !(rows instanceof Set))) refuse('TEST_SOURCE_INVALID');
+  let scope, preload;
+  try {
+    // Let validationChild own launch uncertainty even for a pre-aborted signal.
+    const timeout = remaining(deadline);
+    const receipt = await validationChild([path.join(here, 'native-merged-cache-projection-worker.mjs'), workspace, String(deadline)], workspace,
+      { offline: true, signal, timeout }, context);
+    remaining(deadline, signal);
+    scope = operationScope(deadline, signal);
+    const admitted = await scope.run(() => verifyProjectionArtifacts(workspace, receipt, request, sources, { signal }));
+    context.projection = admitted.receipt;
+    await scope.run(() => onProjection(admitted.receipt));
+    await scope.run(() => acceptedArtifacts());
+    preload = await publishAcceptedPreload(workspace, admitted, scope);
+    scope.check();
+  } finally { if (scope) { await scope.drain(); scope.dispose(); } }
+  remaining(deadline, signal);
+  context.phase = 'tests'; context.child = undefined;
+  const { expected, declarations } = testPlan;
+  context.expected = expected.reduce((a, b) => a + b, 0);
+  const tap = await validationChild(['--import', pathToFileURL(preload).href, '--test', '--test-reporter=tap', ...TEST_FILES.map(file => path.join(here, file))], workspace, { signal, json: false, timeout: 180000 }, context, declarations);
+  const tests = validateTap(tap, context.expected);
+  await acceptedArtifacts();
+  return { acquisition: context.acquisition, projection: context.projection,
+    tests: { schema: 1, phase: 'tests', status: 'complete', node: process.version, platform: process.platform,
+      files: TEST_FILES.length, expectedByFile: expected, ...tests, childClosed: true } };
+}
+export async function nativeValidation({ signal, onAcquisition = () => {}, onProjection = () => {} } = {}) {
   if (process.version !== 'v22.23.2') refuse('NODE_VERSION');
   return ownedValidation(async (workspace, context) => {
     context.phase = 'admission';
     await acceptedArtifacts();
     const expected = await Promise.all(TEST_FILES.map(async file => sourceTestCount(await readFile(path.join(here, file), 'utf8'))));
     const declarations = await Promise.all(TEST_FILES.map(async file => new Set((await readFile(path.join(here, file), 'utf8')).split('\n').flatMap((line, i) => /^\s*test\(/.test(line) ? [i + 1] : []))));
+    if (!isDeepStrictEqual(expected, [8, 25, 14])) refuse('TEST_SOURCE_INVALID');
     context.expected = expected.reduce((a, b) => a + b, 0);
     context.phase = 'acquisition';
     const deadline = Date.now() + 300000;
     const acquisition = retainAcquisition(await validationChild([path.join(here, 'native-merged-cache-worker.mjs'), workspace, String(deadline)], workspace,
-      { offline: false, signal, timeout: Math.max(1, deadline - Date.now()) }, context), context, onAcquisition);
-    if (Date.now() >= deadline) refuse('PRIMER_DEADLINE');
-    await acceptedArtifacts();
-    // runChild's fixed environment intentionally has no arbitrary env passthrough.
-    // This owned fixed preload supplies only the test-cache opt-in, never npm config.
-    const preload = path.join(workspace, 'accepted-cache.mjs');
-    await writeFile(preload, `process.env.LAWOSS_TEST_ACCEPTED_SDK_CACHE = ${JSON.stringify(path.join(workspace, 'cache/_cacache'))};\n`, { flag: 'wx', mode: 0o600 });
-    context.phase = 'tests'; context.child = undefined;
-    const tap = await validationChild(['--import', pathToFileURL(preload).href, '--test', '--test-reporter=tap', ...TEST_FILES.map(file => path.join(here, file))], workspace, { signal, json: false, timeout: 180000 }, context, declarations);
-    const tests = validateTap(tap, expected.reduce((a, b) => a + b, 0));
-    await acceptedArtifacts();
-    return { acquisition, tests: { schema: 1, phase: 'tests', status: 'complete', node: process.version, platform: process.platform,
-      files: TEST_FILES.length, expectedByFile: expected, ...tests, childClosed: true } };
+      { offline: false, signal, timeout: remaining(deadline, signal) }, context), context, onAcquisition);
+    context.phase = 'projection'; context.child = undefined;
+    remaining(deadline, signal);
+    const prepared = await prepareProjectionRequest(workspace, acquisition, deadline, signal);
+    remaining(deadline, signal);
+    return projectionThenTests(workspace, context, prepared, { expected, declarations }, { signal, onProjection });
   });
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -197,7 +286,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
   try {
     if (process.argv.length !== 2) refuse('NATIVE_VALIDATION_FAILED');
-    const result = await nativeValidation({ signal: controller.signal, onAcquisition: receipt => console.log(JSON.stringify(receipt)) });
+    const result = await nativeValidation({ signal: controller.signal, onAcquisition: receipt => console.log(JSON.stringify(receipt)), onProjection: receipt => console.log(JSON.stringify(receipt)) });
     console.log(JSON.stringify(result.tests));
   } catch (error) { console.error(JSON.stringify(failureReceipt(error))); process.exitCode = 1; }
   finally { process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }
