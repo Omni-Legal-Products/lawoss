@@ -1,0 +1,52 @@
+{
+  "name": "Windows qualified cold helper experiment",
+  "on": {
+    "push": {
+      "branches": ["fix/spolahliva-alfa-sest-platform-20261021"],
+      "paths": [
+        ".github/workflows/ci-alpha-windows-qualified-cold-experiment.yml",
+        "lawoss/testing/alpha/windows-qualified-cold-experiment.mjs",
+        "lawoss/testing/alpha/windows-qualified-cold-experiment.test.mjs"
+      ]
+    }
+  },
+  "permissions": { "contents": "read" },
+  "concurrency": { "group": "windows-qualified-cold-experiment-${{ github.run_id }}", "cancel-in-progress": false },
+  "jobs": {
+    "first-helper": {
+      "if": "${{ github.event_name == 'push' && github.ref == 'refs/heads/fix/spolahliva-alfa-sest-platform-20261021' && github.event.deleted == false && github.event.forced == false && github.run_attempt == '1' && github.event.head_commit.message == 'chore: spustit jediny cold-helper experiment 20261023' && github.event.after == github.sha && github.event.head_commit.id == github.sha }}",
+      "name": "First helper (${{ matrix.arch }}, ${{ matrix.arm }})",
+      "strategy": {
+        "fail-fast": false,
+        "matrix": { "include": [
+          { "os": "windows-2022", "arch": "x64", "arm": "control" },
+          { "os": "windows-2022", "arch": "x64", "arm": "absolute-import" },
+          { "os": "windows-11-arm", "arch": "arm64", "arm": "control" },
+          { "os": "windows-11-arm", "arch": "arm64", "arm": "absolute-import" }
+        ] }
+      },
+      "runs-on": "${{ matrix.os }}",
+      "timeout-minutes": 3,
+      "steps": [
+        { "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803", "with": { "ref": "${{ github.sha }}", "persist-credentials": false } },
+        { "uses": "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38", "with": { "node-version": "24.21.0" } },
+        {
+          "name": "Compose and invoke original first native case exactly once",
+          "shell": "cmd",
+          "run": "node lawoss/testing/alpha/windows-qualified-cold-experiment.mjs --arm ${{ matrix.arm }} --arch ${{ matrix.arch }} --source-sha %GITHUB_SHA% --output \"%RUNNER_TEMP%\\qualified-cold-${{ matrix.arch }}-${{ matrix.arm }}\""
+        },
+        {
+          "name": "Preserve first result including red control",
+          "if": "always()",
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+          "with": {
+            "name": "qualified-cold-${{ matrix.arch }}-${{ matrix.arm }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            "path": "${{ runner.temp }}/qualified-cold-${{ matrix.arch }}-${{ matrix.arm }}/receipt.json\n${{ runner.temp }}/qualified-cold-${{ matrix.arch }}-${{ matrix.arm }}/source-manifest.json\n${{ runner.temp }}/qualified-cold-${{ matrix.arch }}-${{ matrix.arm }}/native.stdout.ndjson\n${{ runner.temp }}/qualified-cold-${{ matrix.arch }}-${{ matrix.arm }}/native.stderr.log",
+            "if-no-files-found": "error",
+            "retention-days": 7
+          }
+        }
+      ]
+    }
+  }
+}
