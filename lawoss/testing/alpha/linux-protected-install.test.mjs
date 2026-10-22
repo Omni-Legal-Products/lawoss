@@ -65,14 +65,21 @@ test('tool-entry observation rejects malformed own data without getters or unrel
   assert.deepEqual(linuxPreflightFailure('mkdir-entry',unverified),{boundary:'tool-trust',tool:'mkdir',check:'entry',errorCode:unverified.code});
 });
 
-// Entirely metadata-modeled: exact production bytes, no installer, no native tool.
-async function productionToolMetadataFixture(moduleUrl,guardOnly) {
+// POSIX metadata model on every host: exact production bytes, no native proof.
+async function productionToolMetadataFixture(moduleUrl,guardOnly,initialPathModel) {
   const assert=(await import('node:assert/strict')).default;
   const fs=(await import('node:fs/promises')).default;
   const nativeFs=(await import('node:fs')).default;
   const childProcess=(await import('node:child_process')).default;
+  const nativePath=(await import('node:path')).default;
   const {syncBuiltinESMExports}=await import('node:module');
   const source=await fs.readFile(new URL(moduleUrl),'utf8');
+  const pathMembers=['dirname','isAbsolute','join','relative','resolve','sep'];
+  const posixPath=Object.fromEntries(pathMembers.map(key=>[key,nativePath.posix[key]]));
+  const win32Path=Object.fromEntries(pathMembers.map(key=>[key,nativePath.win32[key]]));
+  if(initialPathModel==='win32')Object.assign(nativePath,win32Path);
+  // Capture before mutation: the default path object aliases a platform model.
+  Object.assign(nativePath,posixPath);
   const labels=['sudo','mkdir','cp','chmod','install','rm','cat','parser'];
   const logical=['/usr/bin/sudo','/usr/bin/mkdir','/usr/bin/cp','/usr/bin/chmod','/usr/bin/install','/usr/bin/rm','/usr/bin/cat','/usr/sbin/apparmor_parser'];
   const targets=labels.map(label=>`/lawoss-metadata-fixture/bin/${label}`);
@@ -97,6 +104,8 @@ async function productionToolMetadataFixture(moduleUrl,guardOnly) {
     return canonical?'/unexpected-canonical-result':filename;
   };
   syncBuiltinESMExports();
+  const modeledPath=await import('node:path');
+  for(const key of pathMembers)assert.equal(modeledPath[key],posixPath[key]);
   const production=await import(`data:text/javascript;base64,${Buffer.from(`${source}\nexport { protectedEntry${guardOnly?'':', protectedToolPreflight'} };`).toString('base64')}`);
   function input(kind) {
     const fields={symlink:false,uid:0,mode:0o755,isFile:true,nlink:1,isDirectory:true};
@@ -188,14 +197,15 @@ async function productionToolMetadataFixture(moduleUrl,guardOnly) {
   console.log(JSON.stringify({guardCases:guards,helperCases:helpers,unexpectedOperations:unexpected,source:'unaltered-plus-private-exports',metadata:'modeled-only'}));
 }
 
-for(const guardOnly of [true,false]) test(`tool-entry ${guardOnly?'guard preserves cached predicate order':'production helper executes all fixed tool metadata paths'}`, () => {
+for(const guardOnly of [true,false]) for(const initialPathModel of (guardOnly?[undefined]:[undefined,'win32'])) test(`tool-entry ${guardOnly?'guard preserves cached predicate order':'production helper executes all fixed tool metadata paths'}${initialPathModel?' with initial Win32 path model':''}`, t => {
   const child=spawnSync(process.execPath,['--input-type=module'],{
-    input:`await (${productionToolMetadataFixture.toString()})(${JSON.stringify(new URL('./linux-protected-install.mjs',import.meta.url).href)},${guardOnly});`,
+    input:`await (${productionToolMetadataFixture.toString()})(${JSON.stringify(new URL('./linux-protected-install.mjs',import.meta.url).href)},${guardOnly},${JSON.stringify(initialPathModel)});`,
     encoding:'utf8',timeout:10000,maxBuffer:65536,
   });
   assert.equal(child.error,undefined);assert.equal(child.signal,null);assert.equal(child.status,0,child.stderr);
   assert.equal(child.stderr,'');
   assert.deepEqual(JSON.parse(child.stdout),{guardCases:9,helperCases:guardOnly?0:67,unexpectedOperations:0,source:'unaltered-plus-private-exports',metadata:'modeled-only'});
+  t.diagnostic(child.stdout.trim());
 });
 
 test('failed tree validation freezes only admitted root permission bits', () => {
@@ -814,8 +824,8 @@ test('actual ordinary non-hosted CLI refuses with finite output before creating 
 });
 
 // This ordinary isolated child executes the unchanged complete production source
-// against metadata only; modeled uid0/0755 is not native/root ownership proof.
-async function productionLinkResolutionFixture(moduleUrl) {
+// against POSIX metadata only; modeled uid0/0755 is not native/root proof.
+async function productionLinkResolutionFixture(moduleUrl,initialPathModel) {
   const assert=(await import('node:assert/strict')).default;
   const fs=(await import('node:fs/promises')).default;
   const nativeFs=(await import('node:fs')).default;
@@ -823,7 +833,14 @@ async function productionLinkResolutionFixture(moduleUrl) {
   const nativePath=(await import('node:path')).default;
   const {syncBuiltinESMExports}=await import('node:module');
   const source=await fs.readFile(new URL(moduleUrl),'utf8');
+  const pathMembers=['dirname','isAbsolute','join','relative','resolve','sep'];
+  const posixPath=Object.fromEntries(pathMembers.map(key=>[key,nativePath.posix[key]]));
+  const win32Path=Object.fromEntries(pathMembers.map(key=>[key,nativePath.win32[key]]));
+  if(initialPathModel==='win32')Object.assign(nativePath,win32Path);
+  // Select POSIX before capturing the resolve function used by the observer.
+  Object.assign(nativePath,posixPath);
   const originalResolve=nativePath.resolve,originalFreeze=Object.freeze;
+  assert.equal(originalResolve,posixPath.resolve);
   const root='/link-metadata/payload',directory=`${root}/nested`;
   let unexpected=0,events=[],kind,entry,linkTarget,primary,validatorCases=0,projectionCases=0;
   const reject=()=>{unexpected++;throw new Error('unexpected operation');};
@@ -856,6 +873,8 @@ async function productionLinkResolutionFixture(moduleUrl) {
     throw primary;
   };
   syncBuiltinESMExports();
+  const modeledPath=await import('node:path');
+  for(const key of pathMembers)assert.equal(modeledPath[key],key==='resolve'?nativePath.resolve:posixPath[key]);
   const production=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
   async function run(caseKind,expectedSnapshot) {
     kind=caseKind;events=[];entry=`${directory}/link`;linkTarget='target/leaf';
@@ -955,9 +974,9 @@ async function productionLinkResolutionFixture(moduleUrl) {
   console.log(JSON.stringify({validatorCases,projectionCases,unexpectedOperations:unexpected,proxyTraps:traps,source:'unchanged-full-module',metadata:'modeled-only'}));
 }
 
-test('link-resolution actual validator separates cached entry lexical target and original error path', t => {
+for(const initialPathModel of [undefined,'win32']) test(`link-resolution actual validator separates cached entry lexical target and original error path${initialPathModel?' with initial Win32 path model':''}`, t => {
   const child=spawnSync(process.execPath,['--input-type=module'],{
-    input:`await (${productionLinkResolutionFixture.toString()})(${JSON.stringify(new URL('./linux-protected-install.mjs',import.meta.url).href)});`,
+    input:`await (${productionLinkResolutionFixture.toString()})(${JSON.stringify(new URL('./linux-protected-install.mjs',import.meta.url).href)},${JSON.stringify(initialPathModel)});`,
     encoding:'utf8',timeout:10000,maxBuffer:65536,
   });
   assert.equal(child.error,undefined);assert.equal(child.signal,null);assert.equal(child.status,0,child.stderr);
