@@ -18,7 +18,9 @@ type FoundText = (key: FoundTextKey, params?: Record<string, string | number>) =
 export type WizardLevel = "practice" | "client" | "matter";
 type Scope = "client" | "practice";
 
+/** Prípady pod klientom praxe: pri malej praxi vypísané, pri veľkej len počet (strom ostane prehľadný). */
 const MATTERS_SHOWN = 3;
+const SMALL_PRACTICE = 6;
 const ROOT_MATTERS_SHOWN = 8;
 
 const unitOf = (suggestion: OnboardingSuggestion, path: string): SuggestedUnit | undefined => suggestion.units?.find((unit) => unit.path === path);
@@ -115,7 +117,7 @@ export function FoundTree({ text, suggestion, level, scope, selected, busy, onTo
                 <input type="checkbox" aria-label={`${text("treeSelected")}: ${client.name}`} checked={selected.includes(client.path)} disabled={busy} onChange={() => onToggle?.(client.path)} />
               ) : undefined}
             >
-              {unit?.matterCount ? <Matters text={text} unit={unit} shown={MATTERS_SHOWN} /> : null}
+              {unit?.matterCount && suggestion.clients.length <= SMALL_PRACTICE ? <Matters text={text} unit={unit} shown={MATTERS_SHOWN} /> : null}
             </Node>
           );
         }) : <li className="lw-wiz-tree-more">{text("treeNoClients")}</li>}

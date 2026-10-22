@@ -80,12 +80,12 @@ export function AssistantStepView({ text, locale, model, boundariesOn, busy, nav
       </section>
       <p role="status" className="lw-wiz-state" data-lawoss-ai-model={model.state} data-tone={tone}>
         <span aria-hidden="true">{toneIcon(tone)}</span>
-        {text(STATE_TEXT[model.state])}
+        <span className="min-w-0 flex-1">{text(STATE_TEXT[model.state])}</span>
       </p>
       {boundariesOn === null ? null : (
         <p className="lw-wiz-note" data-lawoss-ai-boundaries={boundariesOn ? "on" : "off"}>
           {boundariesOn ? <ShieldCheck className="size-4 shrink-0" aria-hidden /> : <ShieldOff className="size-4 shrink-0" aria-hidden />}
-          {text(boundariesOn ? "aiBoundariesOn" : "aiBoundariesOff")}
+          <span className="min-w-0 flex-1">{text(boundariesOn ? "aiBoundariesOn" : "aiBoundariesOff")}</span>
         </p>
       )}
       <div className="lw-wiz-actions">

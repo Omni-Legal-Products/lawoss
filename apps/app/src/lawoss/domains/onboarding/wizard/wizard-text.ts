@@ -64,9 +64,15 @@ const sk = {
   treeClient: "Klient",
   treeCase: "Prípad",
   treeCases: "{count} prípadov",
+  treeCases_one: "{count} prípad",
+  treeCases_few: "{count} prípady",
   treeCasesNone: "bez prípadov",
   treeFiles: "{count} súborov",
+  treeFiles_one: "{count} súbor",
+  treeFiles_few: "{count} súbory",
   treeFilesAtLeast: "aspoň {count} súborov",
+  treeFilesAtLeast_one: "aspoň {count} súbor",
+  treeFilesAtLeast_few: "aspoň {count} súbory",
   treeMore: "a ďalšie: {count}",
   treeMoreClients: "a ďalší klienti: {count}",
   treeDocsStay: "Dokumenty ostávajú na mieste",
@@ -220,9 +226,15 @@ const cs: Dictionary = {
   treeClient: "Klient",
   treeCase: "Případ",
   treeCases: "{count} případů",
+  treeCases_one: "{count} případ",
+  treeCases_few: "{count} případy",
   treeCasesNone: "bez případů",
   treeFiles: "{count} souborů",
+  treeFiles_one: "{count} soubor",
+  treeFiles_few: "{count} soubory",
   treeFilesAtLeast: "alespoň {count} souborů",
+  treeFilesAtLeast_one: "alespoň {count} soubor",
+  treeFilesAtLeast_few: "alespoň {count} soubory",
   treeMore: "a další: {count}",
   treeMoreClients: "a další klienti: {count}",
   treeDocsStay: "Dokumenty zůstávají na místě",
@@ -373,9 +385,15 @@ const en: Dictionary = {
   treeClient: "Client",
   treeCase: "Case",
   treeCases: "{count} cases",
+  treeCases_one: "{count} case",
+  treeCases_few: "{count} cases",
   treeCasesNone: "no cases",
   treeFiles: "{count} files",
+  treeFiles_one: "{count} file",
+  treeFiles_few: "{count} files",
   treeFilesAtLeast: "at least {count} files",
+  treeFilesAtLeast_one: "at least {count} file",
+  treeFilesAtLeast_few: "at least {count} files",
   treeMore: "and {count} more",
   treeMoreClients: "and {count} more clients",
   treeDocsStay: "Documents stay where they are",
@@ -526,9 +544,15 @@ const de: Dictionary = {
   treeClient: "Mandant",
   treeCase: "Fall",
   treeCases: "{count} Fälle",
+  treeCases_one: "{count} Fall",
+  treeCases_few: "{count} Fälle",
   treeCasesNone: "keine Fälle",
   treeFiles: "{count} Dateien",
+  treeFiles_one: "{count} Datei",
+  treeFiles_few: "{count} Dateien",
   treeFilesAtLeast: "mindestens {count} Dateien",
+  treeFilesAtLeast_one: "mindestens {count} Datei",
+  treeFilesAtLeast_few: "mindestens {count} Dateien",
   treeMore: "und {count} weitere",
   treeMoreClients: "und {count} weitere Mandanten",
   treeDocsStay: "Dokumente bleiben, wo sie sind",
@@ -624,8 +648,18 @@ export const WIZARD_TEXT: Record<Language, Dictionary> = { sk, cs, en, de };
 
 export type WizardText = (key: WizardTextKey, params?: Record<string, string | number>) => string;
 
-/** Text v jazyku rozhrania s doplnenými parametrami `{name}`. */
+/**
+ * Text v jazyku rozhrania s doplnenými parametrami `{name}`. Pri číselnom `count` sa použije tvar podľa
+ * pravidiel množného čísla jazyka (`_one`, `_few`), ak ho kľúč má; inak základný tvar (SK/CS 0 a 5+).
+ */
 export function wizardText(locale: Language): WizardText {
   const dictionary = WIZARD_TEXT[locale];
-  return (key, params = {}) => dictionary[key].replace(/\{(\w+)\}/g, (whole, name: string) => (name in params ? String(params[name]) : whole));
+  const plural = new Intl.PluralRules(locale);
+  const isKey = (key: string): key is WizardTextKey => Object.hasOwn(dictionary, key);
+  return (key, params = {}) => {
+    const count = params.count;
+    const variant = typeof count === "number" ? `${key}_${plural.select(count)}` : "";
+    const chosen = variant && isKey(variant) ? variant : key;
+    return dictionary[chosen].replace(/\{(\w+)\}/g, (whole, name: string) => (name in params ? String(params[name]) : whole));
+  };
 }

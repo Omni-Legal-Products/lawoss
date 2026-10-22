@@ -128,8 +128,8 @@ describe("sprievodca C1: obrazovky", () => {
     expect(html).toContain("4-usporiadana-kancelaria");
     expect(html).toContain("C001-syn-tatran");
     expect(html).toContain("M001-uhrada");
-    expect(html).toContain("2 prípadov · aspoň 12 súborov");
-    expect(html).toContain("bez prípadov · 3 súborov");
+    expect(html).toContain("2 prípady · aspoň 12 súborov");
+    expect(html).toContain("bez prípadov · 3 súbory");
     expect(html).toMatch(/type="checkbox" aria-label="Označený na pripojenie: C001-syn-tatran" checked=""/);
     expect(html).not.toMatch(/aria-label="Označený na pripojenie: C002-syn-hron" checked=""/);
     expect(html).toContain("Čo pribudne");
@@ -260,6 +260,12 @@ describe("sprievodca C1: texty", () => {
       de: /\b(Angelegenheit|Akte|Projekt|Sitzung)\b|AGENTS\.md|Klon/i,
     };
     for (const [locale, pattern] of Object.entries(banned)) for (const [key, value] of Object.entries(WIZARD_TEXT[locale as "sk"])) expect([locale, key, pattern.test(value)]).toEqual([locale, key, false]);
+  });
+  test("počty v správnom tvare množného čísla", () => {
+    expect([1, 2, 5].map((count) => sk("treeCases", { count }))).toEqual(["1 prípad", "2 prípady", "5 prípadov"]);
+    expect([1, 3, 12].map((count) => wizardText("cs")("treeFiles", { count }))).toEqual(["1 soubor", "3 soubory", "12 souborů"]);
+    expect([1, 2].map((count) => wizardText("en")("treeFilesAtLeast", { count }))).toEqual(["at least 1 file", "at least 2 files"]);
+    expect([1, 2].map((count) => wizardText("de")("treeCases", { count }))).toEqual(["1 Fall", "2 Fälle"]);
   });
   test("krátky text: hlavná veta každého kroku do 15 slov", () => {
     for (const key of ["officeLead", "docsLead", "aiLead", "approvalsLead", "readyLead"] as const) expect([key, words(sk(key)) <= 15]).toEqual([key, true]);

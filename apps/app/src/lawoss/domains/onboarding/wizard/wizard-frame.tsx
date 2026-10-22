@@ -36,7 +36,11 @@ export function WizardProgress({ text, steps, current, onGo, disabled = false }:
 }) {
   return (
     <nav aria-label={text("stepsLabel")} className="lw-wiz-progress">
-      <p className="lw-wiz-progress-count">{text("stepOf", { n: Math.max(1, current + 1), total: steps.length })}</p>
+      {/* Úzke okno: namiesto stĺpcov s názvami jeden riadok „Krok n z N: názov“ (čítačka má zoznam nižšie). */}
+      <p className="lw-wiz-progress-count" aria-hidden="true">
+        {text("stepOf", { n: Math.max(1, current + 1), total: steps.length })}
+        {steps[current] ? `: ${wizardStepLabel(text, steps[current])}` : null}
+      </p>
       <ol className="lw-onb-steps" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
         {steps.map((item, index) => {
           const state = index < current ? "done" : index === current ? "current" : "next";
