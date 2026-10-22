@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { initialize, prepare, runChild } from './prepare.mjs';
+import { initialize, prepare, runChild, verifyWorkspace } from './prepare.mjs';
 import { primeAcceptedCache, ACCEPTED } from './prime-cache.mjs';
 import { assertConsumer, testCounts } from './native-validation.mjs';
 import { preflightTools } from './tools-preflight.mjs';
@@ -70,7 +70,26 @@ async function executable(input) {
   return { path: resolved, sha256: sha256(await readFile(resolved)) };
 }
 
-export async function validateRuntimeConsumer(consumerNode, pnpmCli) {
+export async function validateRuntimeConsumer(consumerNode, pnpmCli, { outputParent } = {}) {
+  const explicitParent = outputParent !== undefined;
+  const base = explicitParent ? outputParent : path.join(HERE, '.work');
+  let parentIdentity;
+  if (explicitParent) {
+    // Reject unowned output authority before probes, children or summary writes.
+    if (typeof base !== 'string' || base.length > 4096 || !path.isAbsolute(base)) fail('WORKSPACE_INVALID');
+    await verifyWorkspace(base);
+    parentIdentity = await lstat(base);
+    for (const name of ['runtime-consumer-validation', 'runtime-consumer-summary.json']) {
+      try { await lstat(path.join(base, name)); }
+      catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+      fail('OUTPUT_EXISTS');
+    }
+  }
+  const recheckParent = async () => {
+    await verifyWorkspace(base);
+    const current = await lstat(base);
+    if (current.dev !== parentIdentity.dev || current.ino !== parentIdentity.ino) fail('WORKSPACE_INVALID');
+  };
   const summary = {
     schema: 2, kind: 'plugin-sdk-runtime-consumer', status: 'failed', failedStage: 'admission', code: null,
     headSha: null, checkoutSha: null, target: { platform: process.platform, arch: process.arch },
@@ -80,7 +99,6 @@ export async function validateRuntimeConsumer(consumerNode, pnpmCli) {
     scope: 'dependency compatibility only; no product hook, engine startup or installed-application acceptance',
   };
   let stage = 'admission';
-  const base = path.join(HERE, '.work');
   let workspace;
   try {
     if (process.version !== 'v24.21.0' || !['darwin', 'linux', 'win32'].includes(process.platform) || !['x64', 'arm64'].includes(process.arch)) fail('IDENTITY_INVALID');
@@ -94,7 +112,8 @@ export async function validateRuntimeConsumer(consumerNode, pnpmCli) {
     const consumer = await executable(consumerNode);
     const producer = await executable(process.execPath);
     const pnpm = await validatePnpm(pnpmCli);
-    await mkdir(base, { recursive: true });
+    if (explicitParent) await recheckParent();
+    else await mkdir(base, { recursive: true });
     workspace = path.join(await realpath(base), 'runtime-consumer-validation');
     await initialize(workspace); // Existing runs are refused rather than refreshed.
     const version = (await runChild(['--version'], workspace, { executable: consumer.path, json: false, timeout: 10000 })).trim();
@@ -152,7 +171,8 @@ export async function validateRuntimeConsumer(consumerNode, pnpmCli) {
   } catch (error) { summary.failedStage = stage; summary.code = runtimeConsumerFailureCode(error); }
   // Constructed finite projection only: never publish the private cache, payload,
   // paths, installer output, raw TAP or exception messages.
-  await mkdir(base, { recursive: true });
+  if (explicitParent) await recheckParent();
+  else await mkdir(base, { recursive: true });
   await writeFile(path.join(base, 'runtime-consumer-summary.json'), `${JSON.stringify(summary, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
   return summary;
 }
@@ -160,8 +180,8 @@ export async function validateRuntimeConsumer(consumerNode, pnpmCli) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const [node, pnpm, ...extra] = process.argv.slice(2);
-    if (extra.length) fail('ARGUMENT_INVALID');
-    const result = await validateRuntimeConsumer(node, pnpm);
+    if (extra.length && (extra.length !== 2 || extra[0] !== '--output-parent' || !path.isAbsolute(extra[1]))) fail('ARGUMENT_INVALID');
+    const result = await validateRuntimeConsumer(node, pnpm, extra.length ? { outputParent: extra[1] } : undefined);
     console.log(JSON.stringify({ status: result.status, stage: result.failedStage, code: result.code }));
     if (result.status !== 'complete') process.exitCode = 1;
   } catch (error) { console.error(JSON.stringify({ code: runtimeConsumerFailureCode(error) })); process.exitCode = 1; }
