@@ -60,7 +60,7 @@ export function WelcomeRoute() {
   }), []);
 
   if (error) return <main className="mx-auto max-w-xl p-10"><p role="alert">{error}</p><Button className="mt-4" onClick={() => navigate("/settings/advanced")}>Open Settings</Button></main>;
-  if (!client) return <main className="mx-auto max-w-xl p-10" role="status">Connecting LAWOSS…</main>;
+  if (!client) return <main className="mx-auto max-w-xl p-10" data-legalwork-boot-overlay="" role="status">Connecting LAWOSS…</main>;
   // 🟡 LAWOSS: registrácia, výber a aktivácia pripojeného priečinka (register-clients.ts); volá sa už pred
   // usporiadaním (onRegister), aby prerušené usporiadanie priečinok nestratilo, a znova pri dokončení.
   const register = async (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => {

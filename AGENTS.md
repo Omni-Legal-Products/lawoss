@@ -93,7 +93,7 @@ Rules:
 - Never use `any`, typecasts, or `as` unless necessary and justified.
 - Prefer functional patterns, short focused functions, DRY, KISS, and YAGNI.
 - Use pnpm. Never use npm or yarn.
-- A shipping-control response is not interactive readiness. Native startup proof requires a completed document, no visible boot overlay and a usable visible control; retain the original readiness deadline.
+- A shipping-control response is not interactive readiness. Native startup proof requires a completed document, no visible boot overlay and a usable visible control; retain the original readiness deadline. Mark connection-wait renderer branches with the existing boot-overlay attribute so unrelated shell controls cannot admit an unfinished welcome screen.
 - Observe initial cold MCP readiness separately from selected-directory proof. Keep its original request/body contract and 300s limit, start the separate 90s directory budget only after readiness, and retain the initial diagnostic window on failure; passive observers cannot replace the transport error or establish a cause.
 - A finite presentation-watchdog response may be transient after startup. Wait only for that exact state inside the original observation budget; revalidate build, process and packaged renderer identity before every attempt, and reject other errors without retrying.
 - Classify an owned HTTP deadline across both response headers and body consumption. Preserve the original total budget and unrelated transport errors; test genuinely stalled headers and bodies rather than accepting generic abort exceptions.

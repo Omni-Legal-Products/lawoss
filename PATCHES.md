@@ -1380,7 +1380,7 @@ Rozsah alfy a nepodpísané Windows do bety vychádzajú zo [zápisu callu 19. 1
 
 | Súbory | Zmena a dôvod |
 |---|---|
-| `apps/app/src/react-app/shell/welcome-route.tsx` | Natívny onboarding picker používa LAWOSS `folder-picker.ts`: existujúci preklad `welcome.folder_select` sa načíta pri každom otvorení. Kanonická cesta a zrušenie výberu zostávajú zachované. Nahrádza anglický titulok pozorovaný v skutočnom českom dialógu. |
+| `apps/app/src/react-app/shell/welcome-route.tsx` | Natívny onboarding picker používa LAWOSS `folder-picker.ts`: existujúci preklad `welcome.folder_select` sa načíta pri každom otvorení. Kanonická cesta a zrušenie výberu zostávajú zachované. Nahrádza anglický titulok pozorovaný v skutočnom českom dialógu. Čakajúci client-null stav má existujúci `data-legalwork-boot-overlay` marker: shipping readiness odmietne „Connecting LAWOSS…“ aj pri iných ovládacích prvkoch. SSR regresia v `apps/app/tests/lawoss-onboarding-welcome.test.tsx` overuje skutočný výstup aj neoznačený pripojený onboarding; žiadna zmena textu, toku alebo časového limitu. |
 | `apps/app/src/react-app/domains/session/panel/legalmemory-files-panel.tsx` | Typovaný `project_folder_unavailable` zobrazí existujúci `projectErrorMessage` vo výpise, koreňoch a hľadaní. Ostatné chyby a retry/query správanie sa nemenia. Oprava surovej anglickej správy pozorovanej v slovenskom natívnom paneli. |
 | `apps/app/tests/lawoss-onboarding-typed-paths.test.ts`, `lawoss-onboarding-attach-existing.test.tsx` | Wiring kontrola volá nový picker a naďalej overuje `canonical: true`; behové locale/cancel/error regresie sú v novom LAWOSS teste. |
 
