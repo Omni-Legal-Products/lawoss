@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import * as windowsJob from './windows-job.mjs';
 import { launchWindowsJob, validateWindowsJobOptions, parseWindowsJobFrame, assertWindowsJobCompletion, parseWindowsJobCheckpoint } from './windows-job.mjs';
 
 const options = { executable: 'C:\\app\\LAWOSS.exe', args: ['space here', 'quote"', 'trailing\\', ''],
@@ -75,9 +76,82 @@ test('checkpoint observers receive only exact phases and cannot change parser re
   for (const phase of phases) assert.equal(parseWindowsJobCheckpoint(`LAWOSS_WINDOWS_JOB_CHECKPOINT:${phase}`, () => { throw new Error('observer failure'); }), phase);
 });
 
+test('CALL boundary grammar admits only six frozen finite records', () => {
+  const parse = windowsJob.parseWindowsJobCallBoundary;
+  assert.equal(typeof parse, 'function', 'new finite CALL parser is missing');
+  for (const operation of ['decode', 'compile']) for (const boundary of ['before', 'return', 'error']) {
+    for (const [elapsed, capped] of [[0, 0], [1, 0], [60000, 0], [60000, 1]]) {
+      const line = `LAWOSS_WINDOWS_JOB_CALL:${operation}:${boundary}:${elapsed}:${capped}`;
+      const value = parse(line);
+      assert.deepEqual(value, { event: `${operation}-${boundary}`, childElapsedMs: elapsed, childElapsedCapped: capped === 1 });
+      assert.equal(Object.isFrozen(value), true);
+      assert.equal(parseWindowsJobCheckpoint(line), null);
+    }
+  }
+  for (const line of [undefined, null, 1, {}, 'x'.repeat(10000),
+    ...['-1','+1','01','1.0','1e2','60001','999999999999999999999',''].map(n=>`LAWOSS_WINDOWS_JOB_CALL:decode:before:${n}:0`),
+    ...['2','true','01',''].map(n=>`LAWOSS_WINDOWS_JOB_CALL:decode:before:60000:${n}`),
+    'LAWOSS_WINDOWS_JOB_CALL:decode:before:1:1', 'LAWOSS_WINDOWS_JOB_CALL:private:before:1:0',
+    'LAWOSS_WINDOWS_JOB_CALL:decode:entered:1:0', 'LAWOSS_WINDOWS_JOB_CALL:decode:before:1:0:extra',
+    ' LAWOSS_WINDOWS_JOB_CALL:decode:before:1:0', 'LAWOSS_WINDOWS_JOB_CALL:decode:before:1:0 ',
+    'LAWOSS_WINDOWS_JOB_CALL:decode:before:1:0\n', 'LAWOSS_WINDOWS_JOB_CALL:decode:before:1:0\r']) assert.equal(parse(line), null);
+});
+
+test('CALL parent delivery caps independently of frozen child elapsed observations', () => {
+  const calls = callObservations(performance.now() - 60001);
+  const projector = windowsJob.createWindowsJobDiagnosticProjector(undefined, calls.observe);
+  projector.write('LAWOSS_WINDOWS_JOB_CALL:decode:before:2:0\n');
+  assert.deepEqual(calls.slots['decode-before'], { childElapsedMs: 2, childElapsedCapped: false,
+    parentDeliveryElapsedMs: 60000, parentDeliveryElapsedCapped: true });
+  assert.equal(Object.isFrozen(calls.slots['decode-before']), true);
+  projector.freeze();
+  projector.write('LAWOSS_WINDOWS_JOB_CALL:decode:return:3:0\n');
+  assert.equal(calls.slots['decode-return'], null);
+});
+
+test('CALL stderr projector bounds fragmented lines, fixes first slots and freezes observers', () => {
+  assert.equal(typeof windowsJob.createWindowsJobDiagnosticProjector, 'function', 'new bounded stderr projector is missing');
+  const phases = [], calls = [];
+  const projector = windowsJob.createWindowsJobDiagnosticProjector(phase => { phases.push(phase); throw new Error('observer'); }, value => { calls.push(value); throw new Error('observer'); });
+  projector.write('raw private path/error\nLAWOSS_WINDOWS_JOB_CHECK');
+  projector.write('POINT:configured\r\nLAWOSS_WINDOWS_JOB_CALL:decode:be');
+  projector.write('fore:1:0\r\nLAWOSS_WINDOWS_JOB_CALL:decode:before:2:0\n');
+  projector.write('x'.repeat(257)); projector.write('LAWOSS_WINDOWS_JOB_CALL:compile:before:3:0\n');
+  projector.write('LAWOSS_WINDOWS_JOB_CALL:decode:return:5:0\nLAWOSS_WINDOWS_JOB_CALL:decode:error:6:0\n');
+  projector.write('LAWOSS_WINDOWS_JOB_CALL:compile:before:60000:1\n');
+  assert.deepEqual(phases, ['configured']);
+  assert.equal(projector.lastCheckpoint, 'configured');
+  assert.deepEqual(calls, [
+    { event: 'decode-before', childElapsedMs: 1, childElapsedCapped: false },
+    { event: 'decode-return', childElapsedMs: 5, childElapsedCapped: false },
+    { event: 'compile-before', childElapsedMs: 60000, childElapsedCapped: true },
+  ]);
+  projector.freeze(); projector.freeze();
+  projector.write('LAWOSS_WINDOWS_JOB_CHECKPOINT:compiled\nLAWOSS_WINDOWS_JOB_CALL:compile:error:60000:1\n');
+  assert.equal(phases.length, 1); assert.equal(calls.length, 3);
+  const silent = windowsJob.createWindowsJobDiagnosticProjector();
+  silent.write('LAWOSS_WINDOWS_JOB_CHECKPOINT:entry\n');
+  assert.equal(silent.lastCheckpoint, 'entry');
+  const terminal = [];
+  const other = windowsJob.createWindowsJobDiagnosticProjector(undefined, record => terminal.push(record));
+  other.write('LAWOSS_WINDOWS_JOB_CALL:compile:error:3:0\nLAWOSS_WINDOWS_JOB_CALL:compile:return:4:0\n');
+  assert.deepEqual(terminal.map(value=>value.event), ['compile-error']);
+});
+
 test('unavailable Windows host refuses without attempting a simulated native launch', { skip: process.platform === 'win32' }, async () => {
   await assert.rejects(launchWindowsJob(options), /windows-job-host-unavailable/);
 });
+
+function callObservations(started) {
+  const slots = { 'decode-before': null, 'decode-return': null, 'decode-error': null,
+    'compile-before': null, 'compile-return': null, 'compile-error': null };
+  return { slots, observe(record) {
+    if (!Object.hasOwn(slots, record.event) || slots[record.event] !== null) return;
+    const elapsed = Math.max(0, Math.round(performance.now() - started));
+    slots[record.event] = Object.freeze({ childElapsedMs: record.childElapsedMs, childElapsedCapped: record.childElapsedCapped,
+      parentDeliveryElapsedMs: Math.min(60000, elapsed), parentDeliveryElapsedCapped: elapsed > 60000 });
+  } };
+}
 
 const native = { skip: process.platform !== 'win32', timeout: 45000 };
 async function until(check, timeoutMs = 10000) {
@@ -103,15 +177,15 @@ test('native Windows job stops root and detached grandchild before returning ver
   const f = await nativeFixture(t);
   const checkpointFirstObservedMs = { entry: null, encoding: null, 'input-read': null, decoded: null, configured: null, compiled: null, created: null };
   let job, outcome = 'failed';
-  const started = performance.now();
+  const started = performance.now(), calls = callObservations(started);
   try {
     job = f.own(await launchWindowsJob({ executable: process.execPath, args: [f.leader], cwd: f.root, env: f.env, timeoutMs: 15000 }, phase => {
       if (Object.hasOwn(checkpointFirstObservedMs, phase) && checkpointFirstObservedMs[phase] === null) checkpointFirstObservedMs[phase] = Math.min(60000, Math.max(0, Math.round(performance.now() - started)));
-    }));
+    }, calls.observe));
     outcome = 'ready';
   } finally {
     const elapsed = Math.max(0, Math.round(performance.now() - started));
-    t.diagnostic(JSON.stringify({ kind: 'lawoss-windows-job-launch-observer', timingSemantics: 'parent-observed-checkpoint-delivery', snapshotBoundary: 'observer-released-before-cancel-or-ready-return', checkpointFirstObservedMs, elapsedMs: Math.min(60000, elapsed), elapsedCapped: elapsed > 60000, elapsedMayIncludeInternalCancellation: outcome === 'failed', outcome }));
+    t.diagnostic(JSON.stringify({ kind: 'lawoss-windows-job-launch-observer', timingSemantics: 'parent-observed-checkpoint-delivery', snapshotBoundary: 'observer-released-before-cancel-or-ready-return', checkpointFirstObservedMs, callBoundaryFirstObserved: calls.slots, callTimingSemantics: 'child-relative-source-bracket-and-parent-delivery-independent-origins', elapsedMs: Math.min(60000, elapsed), elapsedCapped: elapsed > 60000, elapsedMayIncludeInternalCancellation: outcome === 'failed', outcome }));
   }
   const pids = await until(async () => { try { return JSON.parse(await readFile(f.receipt, 'utf8')); } catch { return false; } });
   assert.equal(job.pid, pids.root); assert.notEqual(job.pid, job.supervisorPid); assert.equal(job.isRunning(), true);
@@ -180,14 +254,16 @@ for (const eof of [false, true]) test(`native Windows Console configuration prob
 test('native Windows qualified decoder consumes actual-size JSON while the private control writer stays open', native, async t => {
   const f = await nativeFixture(t), probe = path.join(f.root, 'json-probe.ps1');
   const configuration = JSON.stringify({ schema: 1, nonce, executable: process.execPath, args: ['x'.repeat(4096)], cwd: f.root, env: f.env, timeoutMs: 15000 });
-  await writeFile(probe, `$ErrorActionPreference = 'Stop'\n[Console]::Error.WriteLine('probe-entry')\n[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false, $true)\n[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n[Console]::Error.WriteLine('probe-encoding')\n$line = [Console]::In.ReadLine()\n[Console]::Error.WriteLine('probe-read')\nif ($line.Length -ne ${configuration.length}) { exit 125 }\n$decoded = Microsoft.PowerShell.Utility\\ConvertFrom-Json -InputObject $line\n[Console]::Error.WriteLine('probe-decoded')\nif ($decoded.schema -ne 1 -or $decoded.args[0].Length -ne 4096) { exit 125 }\n[Console]::Out.WriteLine('synthetic-json-consumed')\n`);
+  await writeFile(probe, `$ErrorActionPreference = 'Stop'\n[Console]::Error.WriteLine('probe-entry')\n$callClock = $null\ntry { $callClock = [System.Diagnostics.Stopwatch]::StartNew() } catch { }\nfunction Write-CallBoundary([string]$operation, [string]$boundary) {\n  try {\n    if ($null -eq $callClock) { return }\n    $elapsed = $callClock.ElapsedMilliseconds\n    $capped = '0'\n    if ($elapsed -lt 0) { $elapsed = 0 }\n    if ($elapsed -gt 60000) { $elapsed = 60000; $capped = '1' }\n    [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CALL:' + $operation + ':' + $boundary + ':' + $elapsed + ':' + $capped)\n  } catch { }\n}\n[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false, $true)\n[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n[Console]::Error.WriteLine('probe-encoding')\n$line = [Console]::In.ReadLine()\n[Console]::Error.WriteLine('probe-read')\nif ($line.Length -ne ${configuration.length}) { exit 125 }\nWrite-CallBoundary 'decode' 'before'\ntry {\n$decoded = Microsoft.PowerShell.Utility\\ConvertFrom-Json -InputObject $line\n} catch {\n  Write-CallBoundary 'decode' 'error'\n  throw\n}\nWrite-CallBoundary 'decode' 'return'\n[Console]::Error.WriteLine('probe-decoded')\nif ($decoded.schema -ne 1 -or $decoded.args[0].Length -ne 4096) { exit 125 }\n[Console]::Out.WriteLine('synthetic-json-consumed')\n`);
   const helper = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
   const started = performance.now(), checkpoints = { 'probe-entry': null, 'probe-encoding': null, 'probe-read': null, 'probe-decoded': null };
+  const calls = callObservations(started), diagnostics = windowsJob.createWindowsJobDiagnosticProjector(undefined, calls.observe);
   const child = spawn(helper, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe], { env: f.env, cwd: f.root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
   let output = '', errorOutput = '', exit, spawnErrorObserved = false, closeObserved = false;
   child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
   child.stdout.on('data', chunk => { output = (output + chunk).slice(0, 1024); });
   child.stderr.on('data', chunk => {
+    diagnostics.write(chunk);
     errorOutput = (errorOutput + chunk).slice(-1024);
     const lines = errorOutput.split(/\r?\n/).slice(0, -1);
     for (const marker of Object.keys(checkpoints)) if (checkpoints[marker] === null && lines.includes(marker)) {
@@ -200,14 +276,16 @@ test('native Windows qualified decoder consumes actual-size JSON while the priva
   child.stdin.write(`${configuration}\n`);
   try {
     try { await until(() => exit, 15000); }
-    catch { assert.fail(`Qualified JSON configuration timed out; completed=${['probe-entry', 'probe-encoding', 'probe-read', 'probe-decoded'].filter(marker => errorOutput.split(/\r?\n/).includes(marker)).join(',')}`); }
+    catch { assert.fail(`Qualified JSON configuration timed out; completed=${['probe-entry', 'probe-encoding', 'probe-read', 'probe-decoded'].filter(marker => errorOutput.split(/\r?\n/).includes(marker)).join(',')}; callBoundaries=${Object.keys(calls.slots).filter(event => calls.slots[event] !== null).join(',')}`); }
     assert.deepEqual(exit, { code: 0, signal: null });
     assert.ok(output.trim() === 'synthetic-json-consumed', 'Unexpected synthetic JSON probe output');
   } finally {
     // Parent-observed pipe delivery times, not durations inside PowerShell.
     // Freeze before t.after cleanup; never publish input, output or identifiers.
+    diagnostics.freeze();
     const elapsed = Math.round(performance.now() - started);
     t.diagnostic(JSON.stringify({ kind: 'lawoss-cold-windows-json-probe', elapsedMs: Math.min(60000, elapsed), elapsedCapped: elapsed > 60000,
+      callBoundaryFirstObserved: calls.slots, callTimingSemantics: 'child-relative-source-bracket-and-parent-delivery-independent-origins',
       checkpointObservedMs: checkpoints, closeObserved, spawnError: spawnErrorObserved,
       exitCode: Number.isInteger(exit?.code) && exit.code >= 0 && exit.code <= 255 ? exit.code : null,
       signal: exit?.signal === null ? null : ['SIGTERM', 'SIGKILL'].includes(exit?.signal) ? exit.signal : 'unknown' }));

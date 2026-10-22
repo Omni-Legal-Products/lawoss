@@ -56,6 +56,50 @@ export function parseWindowsJobCheckpoint(line, onCheckpoint) {
   return phase;
 }
 
+/** Private stderr observation only: child and parent clocks have unrelated origins. */
+export function parseWindowsJobCallBoundary(line) {
+  if (typeof line !== 'string' || line.length > 80) return null;
+  const match = /^LAWOSS_WINDOWS_JOB_CALL:(decode|compile):(before|return|error):(0|[1-9][0-9]{0,4}):(0|1)$/.exec(line);
+  if (!match || match[0] !== line) return null;
+  const elapsed = Number(match[3]), capped = match[4] === '1';
+  if (elapsed > 60000 || capped && elapsed !== 60000) return null;
+  return Object.freeze({ event: `${match[1]}-${match[2]}`, childElapsedMs: elapsed, childElapsedCapped: capped });
+}
+
+// Same bounded accumulator as the supervisor; never retain rejected raw stderr.
+export function createWindowsJobDiagnosticProjector(onCheckpoint, onCallBoundary) {
+  let line = '', overflow = false, lastCheckpoint = 'none';
+  const seen = new Set(); // At most before + one terminal for each of two operations.
+  return {
+    get lastCheckpoint() { return lastCheckpoint; },
+    freeze() { onCheckpoint = undefined; onCallBoundary = undefined; },
+    write(chunk) {
+      for (let start = 0; start < chunk.length;) {
+        const end = chunk.indexOf('\n', start), piece = chunk.slice(start, end === -1 ? chunk.length : end);
+        if (!overflow) {
+          line += piece;
+          if (line.length > 256) { overflow = true; line = ''; }
+        }
+        if (end === -1) break;
+        if (!overflow) {
+          const complete = line.replace(/\r$/, '');
+          lastCheckpoint = parseWindowsJobCheckpoint(complete, onCheckpoint) ?? lastCheckpoint;
+          const record = parseWindowsJobCallBoundary(complete);
+          if (record) {
+            const [operation, boundary] = record.event.split('-');
+            const slot = `${operation}-${boundary === 'before' ? 'before' : 'terminal'}`;
+            if (!seen.has(slot)) {
+              seen.add(slot);
+              try { onCallBoundary?.(record); } catch { /* Observation cannot change supervision. */ }
+            }
+          }
+        }
+        line = ''; overflow = false; start = end + 1;
+      }
+    },
+  };
+}
+
 async function within(timeoutMs, predicate, code) {
   const deadline = performance.now() + timeoutMs;
   do {
@@ -67,7 +111,7 @@ async function within(timeoutMs, predicate, code) {
 }
 
 // The optional synchronous observer receives only existing completed phases.
-export async function launchWindowsJob(input, onCheckpoint) {
+export async function launchWindowsJob(input, onCheckpoint, onCallBoundary) {
   const options = validateWindowsJobOptions(input);
   if (process.platform !== 'win32') throw blocked('windows-job-host-unavailable');
   const executable = await realpath(options.executable), cwd = await realpath(options.cwd);
@@ -82,7 +126,7 @@ export async function launchWindowsJob(input, onCheckpoint) {
     cwd, env: { ...supervisorEnv, SystemRoot: systemRoot }, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
   });
   let ready, state, receipt, close, fault, stopRequested = false, stopPromise, buffered = '', lastStateAt = 0;
-  let lastCheckpoint = 'none', diagnosticLine = '', diagnosticOverflow = false;
+  const diagnostics = createWindowsJobDiagnosticProjector(onCheckpoint, onCallBoundary);
   const fail = code => { fault ??= blocked(code); child.kill(); };
   child.on('error', () => { fault ??= blocked('windows-job-supervisor-failed'); });
   child.stdin.on('error', () => { fault ??= blocked('windows-job-control-pipe-failed'); });
@@ -91,18 +135,7 @@ export async function launchWindowsJob(input, onCheckpoint) {
   // Discard every nonexact stderr line. A completed checkpoint is evidence of
   // that boundary only, never proof that the following operation was entered.
   child.stderr.setEncoding('utf8');
-  child.stderr.on('data', chunk => {
-    for (let start = 0; start < chunk.length;) {
-      const end = chunk.indexOf('\n', start), piece = chunk.slice(start, end === -1 ? chunk.length : end);
-      if (!diagnosticOverflow) {
-        diagnosticLine += piece;
-        if (diagnosticLine.length > 256) { diagnosticOverflow = true; diagnosticLine = ''; }
-      }
-      if (end === -1) break;
-      if (!diagnosticOverflow) lastCheckpoint = parseWindowsJobCheckpoint(diagnosticLine.replace(/\r$/, ''), onCheckpoint) ?? lastCheckpoint;
-      diagnosticLine = ''; diagnosticOverflow = false; start = end + 1;
-    }
-  });
+  child.stderr.on('data', chunk => diagnostics.write(chunk));
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', chunk => {
     buffered += chunk;
@@ -147,8 +180,8 @@ export async function launchWindowsJob(input, onCheckpoint) {
       if (ready && !state.rootRunning) throw blocked('windows-job-root-exited');
       return ready;
     }, 'windows-job-start-timeout');
-  } catch (error) { error.lastCheckpoint = lastCheckpoint; onCheckpoint = undefined; await cancel(); throw error; }
-  onCheckpoint = undefined;
+  } catch (error) { error.lastCheckpoint = diagnostics.lastCheckpoint; diagnostics.freeze(); await cancel(); throw error; }
+  diagnostics.freeze();
   return {
     pid: ready.pid, supervisorPid: child.pid,
     isRunning: () => !fault && !close && !stopRequested && state.rootRunning && performance.now() - lastStateAt < 1000,

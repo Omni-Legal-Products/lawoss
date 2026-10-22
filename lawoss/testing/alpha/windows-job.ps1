@@ -1,5 +1,17 @@
 $ErrorActionPreference = 'Stop'
 [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:entry')
+$callClock = $null
+try { $callClock = [System.Diagnostics.Stopwatch]::StartNew() } catch { }
+function Write-CallBoundary([string]$operation, [string]$boundary) {
+  try {
+    if ($null -eq $callClock) { return }
+    $elapsed = $callClock.ElapsedMilliseconds
+    $capped = '0'
+    if ($elapsed -lt 0) { $elapsed = 0 }
+    if ($elapsed -gt 60000) { $elapsed = 60000; $capped = '1' }
+    [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CALL:' + $operation + ':' + $boundary + ':' + $elapsed + ':' + $capped)
+  } catch { }
+}
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false, $true)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:encoding')
@@ -12,11 +24,20 @@ try {
   $line = [Console]::In.ReadLine()
   [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:input-read')
   if ($null -eq $line -or $line.Length -gt 131072) { throw 'configuration' }
+  Write-CallBoundary 'decode' 'before'
+  try {
   $configuration = Microsoft.PowerShell.Utility\ConvertFrom-Json -InputObject $line
+  } catch {
+    Write-CallBoundary 'decode' 'error'
+    throw
+  }
+  Write-CallBoundary 'decode' 'return'
   [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:decoded')
   $nonce = [string]$configuration.nonce
   if ($configuration.schema -ne 1 -or $nonce -cnotmatch '^[a-f0-9]{64}$') { throw 'configuration' }
   [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:configured')
+  Write-CallBoundary 'compile' 'before'
+  try {
   Add-Type @'
 using System;
 using System.Diagnostics;
@@ -164,6 +185,11 @@ public sealed class AlphaWindowsJob : IDisposable {
   }
 }
 '@
+  } catch {
+    Write-CallBoundary 'compile' 'error'
+    throw
+  }
+  Write-CallBoundary 'compile' 'return'
   [Console]::Error.WriteLine('LAWOSS_WINDOWS_JOB_CHECKPOINT:compiled')
   $environment = @($configuration.env.PSObject.Properties | ForEach-Object { $_.Name + '=' + [string]$_.Value })
   $job = [AlphaWindowsJob]::Start([string]$configuration.executable, [string[]]@($configuration.args), [string]$configuration.cwd, [string[]]$environment)
