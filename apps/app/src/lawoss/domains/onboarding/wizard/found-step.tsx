@@ -21,6 +21,8 @@ type Scope = "client" | "practice";
 /** Prípady pod klientom praxe: pri malej praxi vypísané, pri veľkej len počet (strom ostane prehľadný). */
 const MATTERS_SHOWN = 3;
 const SMALL_PRACTICE = 6;
+/** Klienti viditeľní hneď; ďalší sú v rozbaľovacom zozname pod stromom. */
+const CLIENTS_SHOWN = 8;
 const ROOT_MATTERS_SHOWN = 8;
 
 const unitOf = (suggestion: OnboardingSuggestion, path: string): SuggestedUnit | undefined => suggestion.units?.find((unit) => unit.path === path);
@@ -102,7 +104,8 @@ export function FoundTree({ text, suggestion, level, scope, selected, busy, onTo
     const pick = scope === "client" && onToggle !== undefined;
     tree = (
       <Node icon={<Landmark className="size-4" />} kind={text("treeOffice")} name={name} meta={text("readyClients", { count: suggestion.clients.length })}>
-        {suggestion.clients.length ? suggestion.clients.map((client) => {
+        {suggestion.clients.length ? (() => {
+          const row = (client: { path: string; name: string }) => {
           const unit = unitOf(suggestion, client.path);
           const item = added?.find((entry) => entry.name === client.name);
           return (
@@ -120,7 +123,23 @@ export function FoundTree({ text, suggestion, level, scope, selected, busy, onTo
               {unit?.matterCount && suggestion.clients.length <= SMALL_PRACTICE ? <Matters text={text} unit={unit} shown={MATTERS_SHOWN} /> : null}
             </Node>
           );
-        }) : <li className="lw-wiz-tree-more">{text("treeNoClients")}</li>}
+          };
+          // Veľká prax: prvých 8 klientov, ostatní v rozbaľovacom zozname (výber ostáva dostupný).
+          const shown = suggestion.clients.slice(0, CLIENTS_SHOWN), rest = suggestion.clients.slice(CLIENTS_SHOWN);
+          return (
+            <>
+              {shown.map(row)}
+              {rest.length ? (
+                <li className="lw-wiz-tree-node">
+                  <details className="lw-wiz-tree-rest">
+                    <summary>{text("treeMoreClients", { count: rest.length })}</summary>
+                    <ul>{rest.map(row)}</ul>
+                  </details>
+                </li>
+              ) : null}
+            </>
+          );
+        })() : <li className="lw-wiz-tree-more">{text("treeNoClients")}</li>}
       </Node>
     );
   } else if (level === "matter") {
@@ -193,7 +212,7 @@ export function WizardFoundView({ text, found, busy, suggestion, headline, level
     ? found("useParent", { name: folderName(matterClientPath(suggestion.root)) })
     : practiceEach ? text("foundAddClients", { count: selected.length }) : text("foundAdd");
   return (
-    <StepScreen step="found" title={text("foundTitle")} lead={<p>{headline}</p>} nav={nav}>
+    <StepScreen step="found" title={text("foundTitle")} lead={<p>{headline}</p>} nav={nav} focusOnMount>
       {(suggestion.childOffices ?? []).map((name) => (
         <div key={name} className="lw-onb-inset grid gap-2">
           <p>{found("childOffice", { name })}</p>

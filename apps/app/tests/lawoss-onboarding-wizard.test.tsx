@@ -134,7 +134,7 @@ describe("sprievodca C1: obrazovky", () => {
     expect(html).not.toMatch(/aria-label="Označený na pripojenie: C002-syn-hron" checked=""/);
     expect(html).toContain("Čo pribudne");
     expect(html).toContain("Nič sa nepresunie ani nezmaže.");
-    expect(html).toMatch(/<button type="button" class="lw-btn gold">Pridať pomocné súbory \(1\)<\/button>/);
+    expect(html).toMatch(/<button type="button" class="lw-btn gold">Pridať pomocné súbory pre 1 klienta<\/button>/);
     expect(html).toMatch(/<summary>Pokročilé<\/summary>/);
   });
 
@@ -150,7 +150,7 @@ describe("sprievodca C1: obrazovky", () => {
       <WizardFoundView text={sk} found={found} busy={false} suggestion={practice} headline="h" level="practice" scope="client" selected={[]}
         onLevel={noop} onScope={noop} onToggle={noop} onAll={noop} onAdd={noop} onTable={noop} onPickRoot={noop} childPath={(name) => name} />,
     );
-    expect(none).toMatch(/<button type="button" class="lw-btn gold" disabled="">Pridať pomocné súbory \(0\)/);
+    expect(none).toMatch(/<button type="button" class="lw-btn gold" disabled="">Pridať pomocné súbory pre 0 klientov/);
   });
 
   test("pripojený strom ukáže stav slovom: Pridané", () => {
@@ -179,19 +179,32 @@ describe("sprievodca C1: obrazovky", () => {
 
   test("Ako agent pracuje: diagram, ukážka karty, predvolené schvaľovanie a YOLO ako samostatná karta so zámkom firmy", () => {
     const state = { yolo: { enabled: false, locked: false, source: "default" as const }, edits: "ask" as const, loading: false };
-    const html = renderToStaticMarkup(<ApprovalsStepView text={sk} locale="sk" state={state} canWrite saving={false} failed={false} firmManaged={false} busy={false} onYolo={noop} onAsk={noop} onContinue={noop} />);
+    const html = renderToStaticMarkup(<ApprovalsStepView text={sk} locale="sk" state={state} canWrite saving={false} failed={false} control="own" busy={false} onYolo={noop} onAsk={noop} onContinue={noop} />);
     expect(html).toMatch(/aria-label="Postup agenta"/);
     for (const label of ["Prečíta", "Navrhne zmenu", "Vy schválite", "Vykoná"]) expect(html).toContain(label);
     expect(html).toContain("Ukážka karty schválenia");
     expect(html).toMatch(/<input type="radio"[^>]*checked=""[^>]*\/?>\s*<span><strong>[^<]*<svg[\s\S]*?Pýtať sa pred každou zmenou/);
     expect(html).toContain("YOLO: bez pýtania");
     expect(html).not.toContain('role="alertdialog"');
-    const locked = renderToStaticMarkup(<ApprovalsStepView text={sk} locale="sk" state={{ ...state, yolo: { enabled: false, locked: true, source: "organization" } }} canWrite saving={false} failed={false} firmManaged={false} busy={false} onYolo={noop} onAsk={noop} onContinue={noop} />);
+    const locked = renderToStaticMarkup(<ApprovalsStepView text={sk} locale="sk" state={{ ...state, yolo: { enabled: false, locked: true, source: "organization" } }} canWrite saving={false} failed={false} control="own" busy={false} onYolo={noop} onAsk={noop} onContinue={noop} />);
     expect(locked).toContain("Nastavuje vaša kancelária.");
     expect(locked.match(/<input type="radio"[^>]*disabled=""/g)?.length).toBe(1);
-    const allow = renderToStaticMarkup(<ApprovalsStepView text={sk} locale="sk" state={{ ...state, edits: "allow" }} canWrite saving={false} failed={false} firmManaged={false} busy={false} onYolo={noop} onAsk={noop} onContinue={noop} />);
+    const allow = renderToStaticMarkup(<ApprovalsStepView text={sk} locale="sk" state={{ ...state, edits: "allow" }} canWrite saving={false} failed={false} control="own" busy={false} onYolo={noop} onAsk={noop} onContinue={noop} />);
     expect(allow).toContain("Zmeny súborov sa teraz robia bez pýtania");
-    expect(allow).toContain(">Pýtať sa pred zmenou</button>");
+    // Pri zmenách bez pýtania nie je vybraná žiadna karta a hlavná akcia zapína schvaľovanie.
+    expect(allow).not.toMatch(/<input type="radio"[^>]*checked=""/);
+    expect(allow).toContain("Teraz vypnuté");
+    expect(allow).toMatch(/<button type="button" class="lw-btn gold">Pýtať sa pred zmenou<\/button><button type="button" class="lw-btn">Pokračovať<\/button>/);
+    expect(allow).toContain("Zmeny súborov sa teraz robia bez pýtania. Zapnite schvaľovanie.");
+    // Firemný zámok pravidiel zmien: len informácia, žiadny zápis.
+    const firmLocked = renderToStaticMarkup(<ApprovalsStepView text={sk} locale="sk" state={{ ...state, edits: "allow" }} canWrite saving={false} failed={false} control="locked" busy={false} onYolo={noop} onAsk={noop} onContinue={noop} />);
+    expect(firmLocked).toContain("Pravidlá zmien nastavuje vaša kancelária.");
+    expect(firmLocked).not.toContain(">Pýtať sa pred zmenou</button>");
+    // YOLO sa nepodarilo načítať: karta je vypnutá a povie prečo.
+    const unknown = renderToStaticMarkup(<ApprovalsStepView text={sk} locale="sk" state={{ ...state, yolo: null }} canWrite saving={false} failed={false} control="own" busy={false} onYolo={noop} onAsk={noop} onContinue={noop} />);
+    expect(unknown).toContain("Stav YOLO sa nepodarilo načítať.");
+    const yoloOn = renderToStaticMarkup(<ApprovalsStepView text={sk} locale="sk" state={{ ...state, yolo: { enabled: true, locked: false, source: "user" } }} canWrite saving={false} failed={false} control="own" busy={false} onYolo={noop} onAsk={noop} onContinue={noop} />);
+    expect(yoloOn).toContain("YOLO je zapnuté: agent mení súbory bez pýtania.");
   });
 
   test("Pripravené: súhrn so stavmi slovom a jedna prvá úloha", () => {
@@ -202,7 +215,8 @@ describe("sprievodca C1: obrazovky", () => {
     expect(html.match(/Hotové/g)).toHaveLength(3);
     expect(html).toContain('data-lawoss-ready-primary="chat"');
     expect(html).toContain("Otvoriť chat s klientom C001 SYN Tatran");
-    expect(html).toContain(">Nie, nechaj ho tak, ako je</button>");
+    expect(html).toContain(">Otvoriť prehľad klienta</button>");
+    expect(html).toMatch(/class="lw-wiz-client"[\s\S]*C001 SYN Tatran/);
     expect(html).toContain("Usporiadať podľa tabuľky");
     // Bez modelu sa chat neponúkne ako prvá úloha; chýbajúca časť má opravu.
     const noAi = renderToStaticMarkup(<ReadySummaryView text={sk} found={found} connected={one} model={{ state: "no-model" }} agent="yolo" busy={false} onGo={noop} onChat={noop} onOverview={noop} />);
@@ -231,7 +245,8 @@ describe("sprievodca C1: logika súhrnu a režimu agenta", () => {
   });
   test("riadky súhrnu: stav aj oprava", () => {
     const rows = readyRows(sk, { connected: undefined, model: { state: "checking" }, agent: "unknown" });
-    expect(rows.map((row) => [row.id, row.tone, row.fix])).toEqual([["docs", "missing", "folder"], ["ai", "checking", undefined], ["approvals", "checking", undefined]]);
+    expect(rows.map((row) => [row.id, row.tone, row.fix])).toEqual([["docs", "missing", "folder"], ["ai", "checking", undefined], ["approvals", "unknown", undefined]]);
+    expect(readyRows(sk, { connected: undefined, model: { state: "ready" }, agent: "yolo" })[2]).toMatchObject({ tone: "warn", fix: "approvals" });
   });
   test("režim zmien: nenastavené sa berie ako pýtanie (predvolenie A1), allow ako bez pýtania; zápis len edit a bash", () => {
     expect(editsMode(parseToolPermissions({}))).toBe("ask");

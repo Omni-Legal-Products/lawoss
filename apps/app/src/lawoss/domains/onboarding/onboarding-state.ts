@@ -213,6 +213,28 @@ export function patchOnboardingProgress(
   return next;
 }
 
+/**
+ * Uložené voľby a pripojenie platia len k profilu servera (C1, review m-11): pripojení klienti a voľby
+ * patria uloženému `foundRoot`, nová kancelária koreňu kancelárie profilu. Bez profilu (reset) sa zahodia.
+ */
+export function trustedProgress(progress: OnboardingProgress, profile: Pick<OnboardingProfile, "foundRoot" | "officeRoot"> | null): Pick<OnboardingProgress, "found" | "connected"> {
+  if (!profile) return {};
+  const found = progress.found && progress.found.root === profile.foundRoot ? progress.found : undefined;
+  const connected = progress.connected?.kind === "fresh"
+    ? (progress.connected.root === profile.officeRoot ? progress.connected : undefined)
+    : progress.connected && progress.connected.root === profile.foundRoot ? progress.connected : undefined;
+  return { ...(found ? { found } : {}), ...(connected ? { connected } : {}) };
+}
+
+/**
+ * Krok, ktorým sa sprievodca otvorí po obnove (C1): staré uložené `ai` (pôvodné poradie AI pred priečinkom)
+ * bez pripojeného priečinka vedie na Dokumenty; ostatné kroky ostávajú.
+ */
+export function wizardOpeningStep(step: OnboardingStep, connected: WizardConnected | undefined, foundRoot: string | undefined): OnboardingStep {
+  if ((step === "ai" || step === "approvals" || step === "ready") && !connected && !foundRoot) return "folder";
+  return step;
+}
+
 /** Verzia oznámenia OKF; nová verzia si vyžiada nové vzatie na vedomie (spec 2026-10-08, OKF vždy lokálne). */
 export const OKF_NOTICE_VERSION = "2026-10-08-priecinok";
 
@@ -238,10 +260,6 @@ export function visibleOnboardingSteps(): readonly OnboardingStep[] {
 export function visibleOnboardingStep(step: OnboardingStep, hasProfile = true): OnboardingStep {
   if (!hasProfile) return "identity";
   return step === "okf" || step === "office" || step === "packs" ? "folder" : step;
-}
-
-export function stepAfterAi(): OnboardingStep {
-  return "approvals";
 }
 
 export function okfChoice(enabled: boolean, now: Date): OkfChoice {

@@ -4,8 +4,8 @@
  * Chat s klientom ide cez existujúci `createClientChatFlow` (pripravená správa sa neodošle sama) s náhradnými
  * obrazovkami bez modelu a pri AI hraniciach; usporiadanie podľa tabuľky cez `createReorganizeFlow`.
  */
-import { useRef, useState, type ReactNode } from "react";
-import { CircleAlert, CircleCheck, Loader2, MessageSquare } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { CircleAlert, CircleCheck, CircleHelp, Loader2, MessageSquare, UserRound } from "lucide-react";
 import { useLocale } from "@/i18n/use-locale";
 import { toggledLeave, triageApply, triageReplan, type TriageClient, type TriagePreview } from "../../roztriedenie/api";
 import { friendlyError, useTriageText } from "../../roztriedenie/triage-page";
@@ -30,7 +30,10 @@ const ICON: Record<StatusTone, ReactNode> = {
   missing: <CircleAlert className="size-3.5" />,
   warn: <CircleAlert className="size-3.5" />,
   checking: <Loader2 className="size-3.5 animate-spin" />,
+  unknown: <CircleHelp className="size-3.5" />,
 };
+
+const FIX_TEXT = { folder: "readyFixFolder", ai: "readyFixAi", approvals: "readyFixApprovals" } as const;
 
 const AI_SETTINGS_LANDING = "/settings/ai";
 /** Bez klienta roztriedenia sa tabuľka neponúkne; zástupca len splní typ. */
@@ -54,7 +57,9 @@ export type ReadyStepProps = {
   onRegister: (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => Promise<TriageClient | undefined>;
   onOpenChat?: (request: ClientChatRequest) => Promise<ClientChatOutcome>;
   onFinish: (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => Promise<void>;
-  onGo: (target: "folder" | "ai") => void;
+  onGo: (target: "folder" | "ai" | "approvals") => void;
+  /** Krok práve pracuje (chat, usporiadanie): stránka vypne ukazovateľ priebehu a Späť. */
+  onBusy?: (busy: boolean) => void;
   onError: (reason: unknown) => void;
   onClearError: () => void;
 };
@@ -79,18 +84,21 @@ export function ReadySummaryView({ text, found, connected, model, agent, busy, n
             <span className="lw-wiz-summary-label">{text(row.label)}</span>
             <span className="lw-wiz-summary-value">{row.value}</span>
             <StatusBadge text={text} tone={row.tone} icon={ICON[row.tone]} />
-            {row.fix ? <button type="button" className="lw-btn" disabled={busy} onClick={() => onGo(row.fix === "ai" ? "ai" : "folder")}>{text(row.fix === "ai" ? "readyFixAi" : "readyFixFolder")}</button> : null}
+            {row.fix ? <button type="button" className="lw-btn" disabled={busy} onClick={() => { if (row.fix) onGo(row.fix); }}>{text(FIX_TEXT[row.fix])}</button> : null}
           </li>
         ))}
       </ul>
       <section className="lw-wiz-first" aria-label={text("readyFirst")} data-lawoss-ready-primary={plan.primary}>
         <h3 className="lw-wiz-label">{text("readyFirst")}</h3>
+        {plan.chatWith && connected?.kind === "clients" && connected.clients.length === 1 ? (
+          <p className="lw-wiz-client"><UserRound className="size-4 shrink-0" aria-hidden /><span className="min-w-0">{plan.chatWith.name}</span></p>
+        ) : null}
         {plan.primary === "chat" && chat ? (
           <>
             <p className="text-sm text-muted-foreground">{text("readyChatHint")}</p>
             <div className="lw-wiz-actions">
               {chat(true)}
-              <button type="button" className="lw-btn" disabled={busy} onClick={onOverview}>{found("answerNo")}</button>
+              <button type="button" className="lw-btn" disabled={busy} onClick={onOverview}>{text("readyOverview")}</button>
             </div>
           </>
         ) : plan.primary === "connectFolder" ? (
@@ -125,6 +133,9 @@ export function ReadyStep(props: ReadyStepProps) {
   const [phase, setPhase] = useState<Phase>({ name: "summary" });
   const [working, setWorking] = useState(false);
   const busy = props.busy || working;
+  const { onBusy } = props;
+  useEffect(() => { onBusy?.(working); }, [working]);
+  useEffect(() => () => onBusy?.(false), []);
   const triageClient = useRef<TriageClient>(triage ?? NO_TRIAGE);
   const { result, completion } = readyCompletion(connected);
   const clients = connected?.kind === "clients" ? connected.clients.map(asBatchItem) : [];

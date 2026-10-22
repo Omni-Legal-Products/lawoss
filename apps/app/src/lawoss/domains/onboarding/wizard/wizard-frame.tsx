@@ -3,7 +3,7 @@
  * Rám sprievodcu (C1): ukazovateľ priebehu so stavom aj mimo farby (ikona a skrytý text), návrat na hotový
  * krok kliknutím a jednotná hlavička obrazovky (nadpis, krátka veta, obrázok, navigácia pri nadpise).
  */
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Check } from "lucide-react";
 import type { OnboardingStep } from "../api";
 import type { WizardText, WizardTextKey } from "./wizard-text";
@@ -72,7 +72,7 @@ export function WizardProgress({ text, steps, current, onGo, disabled = false }:
  * Obrazovka kroku: nadpis s navigáciou vpravo (Späť je dosiahnuteľné bez rolovania), krátka veta a obrázok
  * vedľa seba (v úzkom okne pod sebou), obsah a voliteľné „Podrobnosti“ na konci.
  */
-export function StepScreen({ step, title, lead, art, nav, children, details, detailsLabel }: {
+export function StepScreen({ step, title, lead, art, nav, children, details, detailsLabel, focusOnMount = false }: {
   step: string;
   title: string;
   lead?: ReactNode;
@@ -81,11 +81,19 @@ export function StepScreen({ step, title, lead, art, nav, children, details, det
   children?: ReactNode;
   details?: ReactNode;
   detailsLabel?: string;
+  /** Obsah sa objavil neskôr než krok (napr. po prezretí priečinka): fokus na nadpis, ak ho nič iné nemá. */
+  focusOnMount?: boolean;
 }) {
+  const heading = useRef<HTMLHeadingElement | null>(null);
+  useEffect(() => {
+    if (!focusOnMount || typeof document === "undefined") return;
+    const active = document.activeElement;
+    if (!active || active === document.body) heading.current?.focus();
+  }, [focusOnMount]);
   return (
     <div className="lw-wiz-screen" data-lawoss-wizard-screen={step}>
       <div className="lw-wiz-head">
-        <h2 className="text-xl font-semibold" tabIndex={-1}>{title}</h2>
+        <h2 ref={heading} className="text-xl font-semibold" tabIndex={-1}>{title}</h2>
         {nav ? <div className="lw-wiz-nav">{nav}</div> : null}
       </div>
       {lead || art ? (
@@ -105,10 +113,10 @@ export function StepScreen({ step, title, lead, art, nav, children, details, det
   );
 }
 
-export type StatusTone = "ok" | "missing" | "warn" | "checking";
+export type StatusTone = "ok" | "missing" | "warn" | "checking" | "unknown";
 
-/** Stav vždy ikonou aj slovom (Hotové / Chýba / Pozor / Overujem), farba je len doplnok. */
-const TONE_TEXT: Record<StatusTone, WizardTextKey> = { ok: "stateOk", missing: "stateMissing", warn: "stateWarn", checking: "stateChecking" };
+/** Stav vždy ikonou aj slovom (Hotové / Chýba / Pozor / Overujem / Neoverené), farba je len doplnok. */
+const TONE_TEXT: Record<StatusTone, WizardTextKey> = { ok: "stateOk", missing: "stateMissing", warn: "stateWarn", checking: "stateChecking", unknown: "stateUnknown" };
 
 export function StatusBadge({ text, tone, icon }: { text: WizardText; tone: StatusTone; icon: ReactNode }) {
   return (

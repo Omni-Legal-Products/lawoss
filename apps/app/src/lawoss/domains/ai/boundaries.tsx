@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
+import { OnboardingReturnLink } from "../onboarding/wizard/return-link";
 import type { AiBoundaries } from "@legalwork/types/ai-governance";
 import { Switch } from "@/components/ui/switch";
 import { t, type Language } from "@/i18n";
@@ -73,6 +74,10 @@ export function AiBoundariesRow({locale}: {locale: Language}) {
     try {publishAiBoundaries(await saveAiBoundaries(connection, enforced)); setLoadFailed(false);}
     catch {setFailed(true);} finally {setBusy(false);}
   };
-  return <AiBoundariesRowView locale={locale} boundaries={boundaries} canWrite={Boolean(connection?.resolvedHostToken)}
-    busy={busy} failed={failed} loadFailed={loadFailed} onChange={enforced => void change(enforced)} />;
+  // C1: kto prišiel zo sprievodcu („Pripojiť poskytovateľa“), má hore cestu späť do nastavenia praxe.
+  return <>
+    <OnboardingReturnLink locale={locale} />
+    <AiBoundariesRowView locale={locale} boundaries={boundaries} canWrite={Boolean(connection?.resolvedHostToken)}
+      busy={busy} failed={failed} loadFailed={loadFailed} onChange={enforced => void change(enforced)} />
+  </>;
 }

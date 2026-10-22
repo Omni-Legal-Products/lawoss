@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   MAIN_ONBOARDING_PATH, OKF_NOTICE_VERSION, okfChoice, readOnboardingProgress,
-  stepAfterAi, visibleOnboardingStep, visibleOnboardingSteps,
+  visibleOnboardingStep, visibleOnboardingSteps,
 } from "../src/lawoss/domains/onboarding/onboarding-state";
 
 const storage = (value: unknown) => ({ getItem: () => JSON.stringify(value) });
@@ -10,7 +10,6 @@ describe("kroky onboardingu cez priečinok", () => {
   test("hlavná cesta má šesť krokov sprievodcu (C1): priečinok pred AI, potom schvaľovanie a Pripravené", () => {
     expect(MAIN_ONBOARDING_PATH).toEqual(["identity", "folder", "found", "ai", "approvals", "ready"]);
     expect(visibleOnboardingSteps()).toEqual(["identity", "folder", "found", "ai", "approvals", "ready"]);
-    expect(stepAfterAi()).toBe("approvals");
   });
   test("staré kroky vedú na Priečinok, ostatné ostávajú", () => {
     for (const legacy of ["okf", "office", "packs"] as const) expect(visibleOnboardingStep(legacy)).toBe("folder");

@@ -41,15 +41,17 @@ import {
   type WizardConnected,
 } from "./onboarding-state";
 import { OnboardingAiPanel, useOnboardingModel } from "./ai-step";
-import { useOrgPolicy } from "@/react-app/domains/connections/org-policy";
+import { changeOrgPolicySetting, useOrgPolicy } from "@/react-app/domains/connections/org-policy";
 import { wizardText } from "./wizard/wizard-text";
 import { WizardProgress } from "./wizard/wizard-frame";
 import { OfficeStep } from "./wizard/office-step";
 import { AssistantStep } from "./wizard/assistant-step";
 import { ApprovalsStepView } from "./wizard/approvals-step";
-import { agentSummary, useAgentMode } from "./wizard/agent-mode";
+import { agentSummary, useAgentMode, type AgentModeApi, type FirmPermissions } from "./wizard/agent-mode";
 import { ReadyStep, type ReadyStepProps } from "./wizard/ready-step";
 import { ConnectedTree, WizardConnectedView } from "./wizard/found-step";
+import { createWizardFlow, wizardResume } from "./wizard/wizard-flow";
+import { clearOnboardingReturn, markOnboardingReturn } from "./wizard/return-link";
 import { markOnboardingCompleted, openingStep, resumeFound } from "./resume";
 import { visibleExistingClientModes } from "../../feature-flags";
 import { clientTitleOf, resolveOpenClient, type OpenClientReader } from "../../okf/open-client";
@@ -518,7 +520,7 @@ async function clientTitleFor(api: WelcomeApi, root: string): Promise<string> {
   return api.listWorkspaces().then((list) => clientTitleOf(reader, list.items, root)).catch(() => fallback);
 }
 /** Klient servera po registrácii pripojeného priečinka (môže mať nový token či port). */
-export type RegisteredApi = TriageClient & Pick<OnboardingApi, "updateOnboardingProfile">;
+export type RegisteredApi = TriageClient & Pick<OnboardingApi, "updateOnboardingProfile"> & AgentModeApi;
 /** Completion details that are not an onboarding apply result. */
 export type OnboardingCompletion = {
   workingFolder?: string;
@@ -611,6 +613,8 @@ export function LawossWelcomePage({
     [locale],
   );
   const clearError = useCallback(() => setError(null), []);
+  // Sprievodca je otvorený: odkaz späť v Nastaveniach AI už netreba.
+  useEffect(() => { clearOnboardingReturn(); }, []);
   const storage = () => (typeof window === "undefined" ? null : window.localStorage);
   useEffect(() => {
     let cancelled = false;
@@ -643,24 +647,18 @@ export function LawossWelcomePage({
           typeof window === "undefined"
             ? DEFAULT_ONBOARDING_PROGRESS
             : readOnboardingProgress(window.localStorage);
-        const opening = visibleOnboardingStep(
-          openingStep(initialStep, status.profile, saved.step, hasCompletedOnboarding),
-          status.profile !== null,
-        );
-        setStep(initialRoot && !sidebarFlow && opening === "folder" ? "found" : opening);
-        // Sprievodca: voľby a pripojenie z úložiska prehliadača (tok z bočného panela ich nepoužíva).
-        if (!sidebarFlow) {
-          setSavedChoice(saved.found);
-          setConnected(saved.connected);
-        }
-        // Obnova po prerušení otvorí naposledy vybraný priečinok, nie znova výber (M1, 22. 10. 2026).
-        const resumed = resumeFound(opening, status.profile, initialRoot, status.foundRootMissing);
-        if (resumed && "root" in resumed) setFoundRoot(resumed.root);
-        // Zmiznutý priečinok: krok Priečinok s krátkou vetou (zmaže ju ďalšia akcia) a uložený priečinok sa zabudne.
-        if (resumed && "missing" in resumed) {
-          setError(foundText(locale)("resumeFolderMissing", { name: folderName(resumed.missing) }));
-          if (opening === "found") setStep("folder");
-          void api.updateOnboardingProfile({ foundRoot: null }).then(setProfile, (reason: unknown) => console.warn("[lawoss] onboarding resume folder", reason));
+        // Krok, priečinok, voľby a pripojenie po prerušení (wizard-flow.ts); voľby z úložiska len k tomuto profilu.
+        const resume = wizardResume({ initialStep, initialRoot, profile: status.profile, saved, foundRootMissing: status.foundRootMissing, hasCompletedOnboarding, sidebarFlow });
+        setStep(resume.step);
+        if (resume.foundRoot) setFoundRoot(resume.foundRoot);
+        setSavedChoice(resume.found);
+        setConnected(resume.connected);
+        // Zmiznutý priečinok (aj v krokoch 4–6): krok Dokumenty s krátkou vetou (zmaže ju ďalšia akcia);
+        // uložený priečinok aj pripojenie k nemu sa zabudnú.
+        if (resume.missing) {
+          setError(foundText(locale)("resumeFolderMissing", { name: folderName(resume.missing) }));
+          if (!sidebarFlow) patchOnboardingProgress(storage(), { step: "folder", found: undefined, connected: undefined });
+          if (resume.profilePatch) void api.updateOnboardingProfile(resume.profilePatch).then(setProfile, (reason: unknown) => console.warn("[lawoss] onboarding resume folder", reason));
         }
       })
       .catch(() => {
@@ -680,11 +678,17 @@ export function LawossWelcomePage({
     if (!sidebarFlow) patchOnboardingProgress(storage(), { found: undefined, connected: undefined });
     await onComplete(result, completion);
   };
+  const [registeredClient, setRegisteredClient] = useState<RegisteredApi | undefined>(undefined);
   const register = async (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => {
     const registered = await onRegister?.(result, completion);
-    if (registered) registeredApi.current = registered;
+    if (registered) { registeredApi.current = registered; setRegisteredClient(registered); }
     return registered;
   };
+  // Krok práve zapisuje (dávka v kroku 3, chat či usporiadanie v kroku 6): ukazovateľ priebehu a Späť sú vypnuté.
+  const [stepBusy, setStepBusy] = useState(false);
+  const navBusy = busy || stepBusy;
+  const stepNow = useRef(step);
+  stepNow.current = step;
   const savedClientRoot = profile?.clientRoot;
   useEffect(() => {
     let cancelled = false;
@@ -702,6 +706,14 @@ export function LawossWelcomePage({
   };
   // Formulár klienta (`?continue=client`) zapisuje súbory OKF do priečinka klienta.
   const writesClientOkf = preview?.request.action === "client" || preview?.request.action === "existing";
+  const flow = createWizardFlow({
+    // Po skorej registrácii (krok 3) môže mať server nový token či port: kroky 4–6 ukladajú cez neho.
+    live: () => registeredApi.current ?? api,
+    storage,
+    currentStep: () => stepNow.current,
+    register: (result, completion) => register(result, completion),
+    onStep: (next, saved) => { setProfile(saved); setStep(next); },
+  });
   const move = async (
     next: OnboardingStep,
     patch: Pick<Partial<OnboardingProfile>, "okf"> = {},
@@ -709,11 +721,7 @@ export function LawossWelcomePage({
     setBusy(true);
     setError(null);
     try {
-      // Len krok; voľby a pripojenie sprievodcu v úložisku ostávajú (návrat bez straty údajov).
-      patchOnboardingProgress(storage(), { lane: "detailed", step: next });
-      const saved = await api.updateOnboardingProfile({ ...patch, step: next });
-      setProfile(saved);
-      setStep(next);
+      const saved = await flow.move(next, patch);
       if (next === "done") await finish(saved, completedResult);
     } catch (reason) {
       setError(onboardingErrorMessage(reason, locale));
@@ -883,14 +891,22 @@ export function LawossWelcomePage({
    */
   const onConnected = async (next: WizardConnected, result?: OnboardingApplyResult, completion?: OnboardingCompletion) => {
     setConnected(next);
-    patchOnboardingProgress(storage(), { connected: next });
-    if (next.kind !== "fresh") await register(result, completion).catch((reason: unknown) => console.warn("[lawoss] onboarding early registration", reason));
-    await move("ai");
+    // Pokračuje len z kroku, ktorý zápis spustil (poistka popri vypnutom ukazovateli priebehu).
+    setBusy(true);
+    try { await flow.connected(next, result, completion); }
+    catch (reason) { setError(onboardingErrorMessage(reason, locale)); }
+    finally { setBusy(false); }
   };
-  const agent = useAgentMode(api, wizard && (step === "approvals" || step === "ready"));
-  const firmPermissions = useOrgPolicy("tools.permissions");
+  // Firemné pravidlá oprávnení ako v Nastaveniach; stabilná hodnota, aby sa stav nenačítaval pri každom vykreslení.
+  const firmEntry = useOrgPolicy("tools.permissions");
+  const firmKey = JSON.stringify(firmEntry ?? null);
+  const firm = useMemo<FirmPermissions>(() => (firmEntry ? { mode: firmEntry.mode, locked: firmEntry.locked, value: firmEntry.value } : null), [firmKey]);
+  const agentApi = useMemo<AgentModeApi>(() => registeredClient ?? api, [registeredClient, api]);
+  const agent = useAgentMode(agentApi, wizard && (step === "approvals" || step === "ready"), firm, {
+    releaseFirm: (change) => changeOrgPolicySetting("tools.permissions", change),
+  });
   const backTo = (target: OnboardingStep) => (
-    <button type="button" className="lw-btn" disabled={busy} onClick={() => void move(target)}>
+    <button type="button" className="lw-btn" disabled={navBusy} onClick={() => void move(target)}>
       {wiz("back")}
     </button>
   );
@@ -921,7 +937,9 @@ export function LawossWelcomePage({
       onFreshDone={async (result) => {
         const root = result.root ?? profile?.officeRoot;
         if (!root) { await complete(result, FRESH_OFFICE_COMPLETION); return; }
+        // Nová kancelária: predtým vybraný priečinok sa zabudne aj na serveri (krok Dokumenty ho už neponúkne).
         setFoundRoot(null);
+        rememberFoundRoot(null);
         setSavedChoice(undefined);
         const next: WizardConnected = { kind: "fresh", root, result };
         setConnected(next);
@@ -965,6 +983,7 @@ export function LawossWelcomePage({
         back: backTo("folder"),
         onChoice: (choice) => { setSavedChoice(choice); patchOnboardingProgress(storage(), { found: choice }); },
         onConnected,
+        onBusy: setStepBusy,
       }}
     />
   ) : wizardFolder;
@@ -987,7 +1006,7 @@ export function LawossWelcomePage({
           </p>
           <h1 className="lw-onb-title">{tr("title")}</h1>
           {mainPath && idx >= 0 ? (
-            <WizardProgress text={wiz} steps={steps} current={idx} disabled={busy} onGo={wizard ? (target) => void move(target) : undefined} />
+            <WizardProgress text={wiz} steps={steps} current={idx} disabled={navBusy} onGo={wizard ? (target) => void move(target) : undefined} />
           ) : null}
         </header>
         {error ? (
@@ -1030,7 +1049,8 @@ export function LawossWelcomePage({
                 locale={locale}
                 busy={busy}
                 nav={backTo("found")}
-                onOpenAiSettings={onOpenAiSettings}
+                // Nastavenia AI potom ukážu „Späť do nastavenia praxe“ (return-link.tsx).
+                onOpenAiSettings={() => { markOnboardingReturn(); onOpenAiSettings(); }}
                 onContinue={() => void move("approvals")}
               />
             ) : (
@@ -1054,7 +1074,7 @@ export function LawossWelcomePage({
               canWrite={agent.canWrite}
               saving={agent.saving}
               failed={agent.failed}
-              firmManaged={firmPermissions !== null}
+              control={agent.control}
               busy={busy}
               nav={backTo("ai")}
               onYolo={(enabled) => void agent.setYolo(enabled)}
@@ -1070,7 +1090,8 @@ export function LawossWelcomePage({
               agent={agentSummary(agent.state)}
               busy={busy}
               nav={backTo("approvals")}
-              triage={registeredApi.current ?? triage}
+              triage={registeredClient ?? triage}
+              onBusy={setStepBusy}
               onRegister={register}
               onOpenChat={onOpenClientChat ? (request) => onOpenClientChat(request, identity.language) : undefined}
               onFinish={async (result, completion) => {

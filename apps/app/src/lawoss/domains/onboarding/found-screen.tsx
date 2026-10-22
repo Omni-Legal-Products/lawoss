@@ -311,6 +311,8 @@ export type WizardMode = {
   onConnected: (connected: WizardConnected, result?: OnboardingApplyResult, completion?: OnboardingCompletion) => Promise<void>;
   /** Späť na krok Dokumenty (len počas otázky, nie počas zápisu). */
   back?: ReactNode;
+  /** Obrazovka práve zapisuje: stránka vypne ukazovateľ priebehu, aby sa zápis nedal potichu opustiť. */
+  onBusy?: (busy: boolean) => void;
 };
 
 /** Pripojení klienti dávky (len úspešní) pre krok Pripravené. */
@@ -378,6 +380,10 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
   }, [api, root]);
 
   const run = (work: () => Promise<void>) => runStep(work, { start: () => { onClearError(); setBusy(true); }, fail: onError, end: () => setBusy(false) });
+
+  const reportBusy = wizard?.onBusy;
+  useEffect(() => { reportBusy?.(busy); }, [busy]);
+  useEffect(() => () => reportBusy?.(false), []);
 
   // Sprievodca si každú zmenu volieb uloží (návrat a obnova bez straty výberu klientov praxe).
   const reportChoice = wizard?.onChoice;

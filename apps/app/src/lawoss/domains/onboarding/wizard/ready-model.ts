@@ -13,7 +13,7 @@ import type { AgentSummary } from "./agent-mode";
 import type { StatusTone } from "./wizard-frame";
 import type { WizardText, WizardTextKey } from "./wizard-text";
 
-export type ReadyRow = { id: "docs" | "ai" | "approvals"; label: WizardTextKey; tone: StatusTone; value: string; fix?: "folder" | "ai" };
+export type ReadyRow = { id: "docs" | "ai" | "approvals"; label: WizardTextKey; tone: StatusTone; value: string; fix?: "folder" | "ai" | "approvals" };
 
 function docsRow(text: WizardText, connected: WizardConnected | undefined): ReadyRow {
   const row = { id: "docs", label: "readyDocs" } as const;
@@ -35,7 +35,11 @@ function aiRow(text: WizardText, model: AiModelView): ReadyRow {
 const AGENT_TEXT: Record<AgentSummary, WizardTextKey> = { ask: "readyAsk", yolo: "readyYolo", allow: "permAllow", unknown: "readyUnknown" };
 
 function approvalsRow(text: WizardText, agent: AgentSummary): ReadyRow {
-  return { id: "approvals", label: "readyApprovals", tone: agent === "ask" ? "ok" : agent === "unknown" ? "checking" : "warn", value: text(AGENT_TEXT[agent]) };
+  const row = { id: "approvals", label: "readyApprovals", value: text(AGENT_TEXT[agent]) } as const;
+  // Neznámy stav nie je „overujem“ (nikdy by neskončil); YOLO aj zmeny bez pýtania sa dajú zmeniť v kroku 5.
+  if (agent === "ask") return { ...row, tone: "ok" };
+  if (agent === "unknown") return { ...row, tone: "unknown" };
+  return { ...row, tone: "warn", fix: "approvals" };
 }
 
 export function readyRows(text: WizardText, input: { connected?: WizardConnected; model: AiModelView; agent: AgentSummary }): ReadyRow[] {
