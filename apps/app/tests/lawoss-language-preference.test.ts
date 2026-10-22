@@ -3,7 +3,7 @@ import { bootstrapLawoss } from "../../../lawoss/theme/bootstrap";
 import { currentLanguagePreference, currentLocale, detectSystemLanguage, initLocale, LANGUAGE_PREF_KEY, setFirmLanguage, setLanguagePreference, setLocale, subscribeLocale } from "../src/i18n";
 import { EXPERIMENT_VIEWS } from "../src/lawoss/experiments/registry";
 
-const originalDescriptors = new Map(["window", "document", "navigator"].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+const originalDescriptors = new Map(["window", "document", "navigator", "__LEGALWORK_ELECTRON__"].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
 let storage: Map<string, string>;
 let browser: EventTarget & { localStorage: Storage };
 let languages: string[];
@@ -167,4 +167,28 @@ test("čistý profil na systéme „en-US, sk-SK“ začne po slovensky; jazyk k
   expect(currentLocale()).toBe("sk");
   setLanguagePreference("en");
   expect(initLocale()).toBe("en");
+});
+
+// Fix round 1 (R-1): v Electrone navigator.languages nesie len jazyk aplikácie; zoznam OS posiela hlavný proces.
+test("desktopový most so zoznamom OS má prednosť pred navigator.languages; bez mosta alebo pri prázdnom zozname web", () => {
+  languages = ["en-US"];
+  Object.defineProperty(globalThis, "__LEGALWORK_ELECTRON__", { configurable: true, value: { systemLanguages: Object.freeze(["en-US", "sk-SK"]) } });
+  expect(detectSystemLanguage()).toBe("sk");
+  expect(initLocale()).toBe("sk");
+  // Jazyk kancelárie a výslovná voľba majú naďalej prednosť pred systémom (#201).
+  setFirmLanguage("cs");
+  expect(currentLocale()).toBe("cs");
+  setFirmLanguage(null);
+  setLanguagePreference("de");
+  expect(currentLocale()).toBe("de");
+  setLanguagePreference("system");
+  Object.defineProperty(globalThis, "__LEGALWORK_ELECTRON__", { configurable: true, value: { systemLanguages: [] } });
+  expect(detectSystemLanguage()).toBe("en");
+  Object.defineProperty(globalThis, "__LEGALWORK_ELECTRON__", { configurable: true, value: { invokeDesktop: () => undefined } });
+  expect(detectSystemLanguage()).toBe("en");
+});
+
+test("bez navigatora aj mosta (SSR) je systémový jazyk slovenčina", () => {
+  Reflect.deleteProperty(globalThis, "navigator");
+  expect(detectSystemLanguage()).toBe("sk");
 });

@@ -9,3 +9,15 @@ const LOCAL = new Set(["sk", "cs"]);
 export function preferredSystemLanguage<L extends string>(supported: readonly L[], fallback: L): L {
   return supported.find(language => LOCAL.has(language)) ?? supported[0] ?? fallback;
 }
+
+/**
+ * Jazyky systému z desktopového mosta (`__LEGALWORK_ELECTRON__.systemLanguages`, hlavný proces cez
+ * `app.getPreferredSystemLanguages()`): v Electrone `navigator.languages` nesie len jazyk aplikácie (N-2).
+ * Bez mosta alebo pri prázdnom zozname `undefined`, appka potom použije `navigator.languages` (web).
+ */
+export function desktopSystemLanguages(): readonly string[] | undefined {
+  const bridge: unknown = Reflect.get(globalThis, "__LEGALWORK_ELECTRON__");
+  if (typeof bridge !== "object" || bridge === null || !("systemLanguages" in bridge) || !Array.isArray(bridge.systemLanguages)) return undefined;
+  const languages = bridge.systemLanguages.filter((tag: unknown): tag is string => typeof tag === "string");
+  return languages.length ? languages : undefined;
+}

@@ -1,5 +1,5 @@
 import { nativeBundledDisplayId } from "./bundled-workflow-presentation.mjs";
-import { acceptUiLocaleReport, createNativeLocaleState, nativeCopy, preferredSystemLocale } from "./native-locale.mjs";
+import { acceptUiLocaleReport, createNativeLocaleState, nativeCopy, preferredSystemLocale, systemLanguageList, systemLanguagesArgument } from "./native-locale.mjs";
 import { getAppBuildInfo } from './build-info.mjs';
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
@@ -138,7 +138,7 @@ app.on("will-quit", () => { void actaportConnection?.close(); });
 const APP_START_URL = process.env.LEGALWORK_ELECTRON_START_URL?.trim() || process.env.ELECTRON_START_URL?.trim();
 const APP_ROOT = app.isPackaged ? path.join(process.resourcesPath, "app-dist") : path.resolve(__dirname, "../../app/dist");
 const isAppUrl = createAppUrlMatcher({ devServerUrl: APP_START_URL, appRoot: APP_ROOT });
-const uiLocales = createNativeLocaleState(() => preferredSystemLocale(app.getPreferredSystemLanguages?.() ?? [app.getLocale?.() ?? "en"]));
+const uiLocales = createNativeLocaleState(() => preferredSystemLocale(systemLanguageList(app)));
 
 // Only LegalWork's own pages may use the desktop bridge. Browser tabs send
 // menu-overlay:dismiss so a click in a web page closes an open menu.
@@ -1709,6 +1709,8 @@ async function openAppWindow(event, route, title = "") {
       nodeIntegration: false,
       sandbox: true,
       plugins: true,
+      // LAWOSS: jazyky systému pre voľbu „Systém“ v rendereri (len na čítanie, N-2).
+      additionalArguments: [systemLanguagesArgument(systemLanguageList(app))],
     },
   });
   secondaryWindows.add(sessionWindow);
@@ -2835,6 +2837,8 @@ async function createMainWindow() {
       // Enable Chromium's built-in PDF viewer (PDFium) so the in-app artifact
       // panel can render PDFs inline in an iframe.
       plugins: true,
+      // LAWOSS: jazyky systému pre voľbu „Systém“ v rendereri (len na čítanie, N-2).
+      additionalArguments: [systemLanguagesArgument(systemLanguageList(app))],
     },
   });
   applicationMenu.applyVisibility(mainWindow);

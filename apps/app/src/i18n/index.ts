@@ -3,7 +3,7 @@ import de from "./locales/de";
 import sk from "./locales/sk";
 import cs from "./locales/cs";
 import { BRAND_NAME, UPSTREAM_BRAND_NAME } from "../lawoss/branding";
-import { preferredSystemLanguage } from "../lawoss/i18n/system-language";
+import { desktopSystemLanguages, preferredSystemLanguage } from "../lawoss/i18n/system-language";
 export const LANGUAGE_PREF_KEY = "legalwork.language";
 
 /**
@@ -91,16 +91,18 @@ export const matchLanguageTag = (tag: string): Language | null => {
 };
 
 /**
- * The language the OS/browser asks for. LAWOSS: Slovak or Czech anywhere in
- * `navigator.languages` wins, otherwise the first supported entry, and "sk"
- * when none of the preferred languages is one we ship.
+ * The language the OS/browser asks for. LAWOSS: the desktop OS language list
+ * from the main process (Electron's `navigator.languages` only carries the app
+ * locale), else `navigator.languages`; Slovak or Czech anywhere in the list
+ * wins, otherwise the first supported entry, and "sk" when none is shipped.
  */
 export const detectSystemLanguage = (): Language => {
-  if (typeof navigator === "undefined") return "en";
-
-  const tags = Array.isArray(navigator.languages) && navigator.languages.length > 0
-    ? navigator.languages
-    : [navigator.language];
+  const desktop = desktopSystemLanguages();
+  const tags = desktop ?? (typeof navigator === "undefined"
+    ? []
+    : Array.isArray(navigator.languages) && navigator.languages.length > 0
+      ? navigator.languages
+      : [navigator.language]);
 
   const supported: Language[] = [];
   for (const tag of tags) {

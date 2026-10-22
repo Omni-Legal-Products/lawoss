@@ -268,6 +268,27 @@ export function normalizeUiLocale(value) {
  * (apps/app/src/lawoss/i18n/system-language.ts, N-2 22. 10. 2026): SK/CS kdekoľvek v zozname systému,
  * inak prvý podporovaný jazyk, inak slovenčina.
  */
+/** Jazyková značka BCP 47 bez iných znakov (prenáša sa ako argument renderera, nič iné do neho nesmie). */
+const LANGUAGE_TAG = /^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{1,8}){0,4}$/;
+export const SYSTEM_LANGUAGES_ARGUMENT = "--lawoss-system-languages=";
+/**
+ * Jazyky systému v poradí preferencie (`app.getPreferredSystemLanguages()`); prázdny zoznam (napr. Linux bez
+ * nastavenia) nahradí jazyk aplikácie `app.getLocale()`, ako doteraz. Rovnaký zoznam dostane menu aj renderer.
+ */
+export function systemLanguageList(app) {
+  const preferred = app?.getPreferredSystemLanguages?.() ?? [];
+  const list = (Array.isArray(preferred) ? preferred : []).filter(tag => typeof tag === "string" && LANGUAGE_TAG.test(tag)).slice(0, 32);
+  if (list.length) return list;
+  const locale = app?.getLocale?.();
+  return typeof locale === "string" && LANGUAGE_TAG.test(locale) ? [locale] : [];
+}
+/**
+ * Argument okna pre preload (`additionalArguments`, rovnako ako `--lawoss-review-id`): renderer v `navigator.languages`
+ * vidí len jazyk aplikácie, nie zoznam systému (N-2, 22. 10. 2026). Len údaj na čítanie, žiadna schopnosť.
+ */
+export function systemLanguagesArgument(languages) {
+  return `${SYSTEM_LANGUAGES_ARGUMENT}${(Array.isArray(languages) ? languages : []).filter(tag => typeof tag === "string" && LANGUAGE_TAG.test(tag)).slice(0, 32).join(",")}`;
+}
 export function preferredSystemLocale(languages) {
   const supported = (Array.isArray(languages) ? languages : []).map(normalizeUiLocale).filter(Boolean);
   return supported.find(language => language === "sk" || language === "cs") ?? supported[0] ?? "sk";

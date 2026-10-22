@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 
-function loadPreload(file, bridgeName, platform = "darwin") {
+function loadPreload(file, bridgeName, platform = "darwin", argv) {
   const messages = [];
   const ipc = Object.assign(new EventEmitter(), {
     send: (...args) => messages.push(args),
@@ -31,7 +31,7 @@ function loadPreload(file, bridgeName, platform = "darwin") {
         exposed.set(name, value);
       } } };
     },
-    process: { platform, versions: { electron: "35.0.0" } },
+    process: { platform, versions: { electron: "35.0.0" }, ...(argv ? { argv } : {}) },
     navigator: { windowControlsOverlay: overlay },
     window: { addEventListener() {}, dispatchEvent() {} },
     document: { documentElement, addEventListener() {} },
@@ -80,4 +80,11 @@ test("menu and call preloads preserve their sandboxed IPC bridges", () => {
   overlay.bridge.ask("ask-1", "Question");
   assert.deepEqual(overlay.messages[0], ["legalwork:audio:overlay-ask", "ask-1", "Question"]);
   assert.equal(overlay.bridge.platform, "darwin");
+});
+
+test("main preload exposes the OS language list from the main process as read-only data (LAWOSS N-2)", () => {
+  const { bridge } = loadPreload("./preload.cjs", "__LEGALWORK_ELECTRON__", "darwin", ["electron", "--type=renderer", "--lawoss-system-languages=en-US,sk-SK,bad;tag,<x>"]);
+  assert.deepEqual([...bridge.systemLanguages], ["en-US", "sk-SK"]);
+  assert.equal(Object.isFrozen(bridge.systemLanguages), true);
+  assert.deepEqual([...loadPreload("./preload.cjs", "__LEGALWORK_ELECTRON__").bridge.systemLanguages], []);
 });
