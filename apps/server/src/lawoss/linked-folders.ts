@@ -13,12 +13,14 @@
  */
 import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { ApiError } from "../errors.js";
 import { appliedOrgPolicy } from "../org-policy.js";
 import { readRuntimeOpencodeConfig, runtimeExternalDirectory, runtimeStorageDir } from "../runtime-opencode-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
-import { canonicalPath, folderOfGrant, LINKED_FOLDERS_MAP_FILE, linkedFolderConflict, type LinkedFolderConflict, type LinkedFoldersMap } from "./linked-folders-rules.js";
+import { canonicalPath, folderOfGrant, isOfficeMemoryFolder, LINKED_FOLDERS_MAP_FILE, linkedFolderConflict, type LinkedFolderConflict, type LinkedFoldersMap } from "./linked-folders-rules.js";
+import { surveyLinkedFolder } from "./linked-folder-survey.js";
+import { isPathWithin } from "./path-within.js";
 
 export function linkedFoldersMapPath(config: ServerConfig): string {
   return join(runtimeStorageDir(config), LINKED_FOLDERS_MAP_FILE);
@@ -56,17 +58,39 @@ async function officeRoot(config: ServerConfig): Promise<string | null> {
 /** Lokálni klienti: bez vzdialených a bez wiki (wiki má vlastné pravidlá prístupu, nie je klient). */
 const localWorkspaces = (config: ServerConfig): WorkspaceInfo[] => config.workspaces.filter((workspace) => workspace.workspaceType !== "remote" && workspace.preset !== "wiki" && Boolean(workspace.path));
 
+/**
+ * Interný domovský priestor appky (`lawoss-domov` v Electron userData vedľa `legalwork-workspaces.json`,
+ * `apps/desktop/electron/lawoss-home-workspace.mjs`): nie je klient. Jeho rodič sú dáta aplikácie (N-20).
+ */
+async function appHomeDataDir(workspace: WorkspaceInfo): Promise<string | null> {
+  if (workspace.workspaceType === "remote" || !workspace.path || basename(workspace.path) !== "lawoss-domov") return null;
+  const parent = dirname(workspace.path);
+  return await access(join(parent, "legalwork-workspaces.json")).then(() => existingCanonical(parent), () => null);
+}
+
+/** Klienti: lokálne priestory bez interného domovského priestoru appky. */
+async function clientWorkspaces(config: ServerConfig): Promise<WorkspaceInfo[]> {
+  const home = await Promise.all(localWorkspaces(config).map(async (workspace) => ({ workspace, home: await appHomeDataDir(workspace) })));
+  return home.filter((entry) => entry.home === null).map((entry) => entry.workspace);
+}
+
+/** Dáta aplikácie: úložisko runtime (súbor enginu, mapa, pluginy) a userData s domovským priestorom. */
+async function appDataDirs(config: ServerConfig): Promise<string[]> {
+  const runtime = await existingCanonical(runtimeStorageDir(config)) ?? runtimeStorageDir(config);
+  const homes = await Promise.all(localWorkspaces(config).map(appHomeDataDir));
+  return [...new Set([runtime, ...homes.filter((dir): dir is string => dir !== null)])];
+}
+
 /** Rozsah pravidiel pre jeden pracovný priestor: jeho koreň, ostatní registrovaní, prax a dáta aplikácie. */
 async function conflictScope(config: ServerConfig, workspace: WorkspaceInfo) {
-  const others = await Promise.all(localWorkspaces(config).filter((other) => other.id !== workspace.id).map((other) => existingCanonical(other.path)));
-  const appData = await existingCanonical(runtimeStorageDir(config)) ?? runtimeStorageDir(config);
+  const others = await Promise.all((await clientWorkspaces(config)).filter((other) => other.id !== workspace.id).map((other) => existingCanonical(other.path)));
   const wikis = await Promise.all(config.workspaces.filter((entry) => entry.preset === "wiki" && entry.workspaceType !== "remote" && entry.path).map((entry) => existingCanonical(entry.path)));
   return {
     contentRoots: wikis.filter((root): root is string => root !== null),
     ownRoot: await existingCanonical(workspace.path),
     otherRoots: others.filter((root): root is string => root !== null),
     officeRoot: await officeRoot(config),
-    protectedDirs: [appData],
+    protectedDirs: await appDataDirs(config),
   };
 }
 
@@ -77,28 +101,51 @@ const conflictErrors: Record<LinkedFolderConflict, () => ApiError> = {
   practice: () => new ApiError(409, "linked_folder_practice", "Folders of the practice cannot be linked. Link a folder outside the practice."),
 };
 
+/** Mäkké odmietnutie: priečinok vyzerá ako prax; pripojí sa len s výslovným potvrdením tohto priečinka v aplikácii. */
+const practiceLikeError = (folder: string, clients: string[]) => new ApiError(409, "linked_folder_practice_like",
+  "This folder looks like it holds the folders of several clients. Link a specific folder, or confirm this folder in the app.", { folder, clients });
+
 /** Mapa pre plugin: kanonický koreň každého lokálneho klienta a jeho pripojené priečinky bez kolízií. */
 export async function buildLinkedFoldersMap(config: ServerConfig): Promise<LinkedFoldersMap> {
   const firm = await appliedOrgPolicy(config, "tools.permissions").catch(() => null);
   if (firm?.value.external_directory !== undefined) return { version: 1, officeRoot: null, clients: [], firmManaged: true };
   const clients = [];
-  for (const workspace of localWorkspaces(config)) {
-    const scope = await conflictScope(config, workspace);
-    if (!scope.ownRoot) continue;
-    const grants = runtimeExternalDirectory(await readRuntimeOpencodeConfig(config, workspace.id));
-    const candidates = Object.entries(grants).flatMap(([key, value]) => {
-      const folder = folderOfGrant(key, value);
-      return folder ? [folder] : [];
-    });
-    const folders: string[] = [];
-    for (const folder of candidates) {
-      if (linkedFolderConflict(folder, scope) === "relative") continue;
-      const canonical = await canonicalPath(folder);
-      if (linkedFolderConflict(canonical, scope) === null) folders.push(canonical);
-    }
-    clients.push({ root: scope.ownRoot, folders });
+  for (const workspace of await clientWorkspaces(config)) {
+    const linked = await clientLinkedFolders(config, workspace);
+    if (linked) clients.push(linked);
   }
   return { version: 1, officeRoot: await officeRoot(config), clients, firmManaged: false };
+}
+
+/** Kanonický koreň klienta a jeho pripojené priečinky z natívneho zoznamu, ktoré prejdú pravidlami; bez koreňa `null`. */
+async function clientLinkedFolders(config: ServerConfig, workspace: WorkspaceInfo): Promise<{ root: string; folders: string[] } | null> {
+  const scope = await conflictScope(config, workspace);
+  if (!scope.ownRoot) return null;
+  const grants = runtimeExternalDirectory(await readRuntimeOpencodeConfig(config, workspace.id));
+  const candidates = Object.entries(grants).flatMap(([key, value]) => {
+    const folder = folderOfGrant(key, value);
+    return folder ? [folder] : [];
+  });
+  const folders: string[] = [];
+  for (const folder of candidates) {
+    if (linkedFolderConflict(folder, scope) === "relative") continue;
+    const canonical = await canonicalPath(folder);
+    if (linkedFolderConflict(canonical, scope) === null) folders.push(canonical);
+  }
+  return { root: scope.ownRoot, folders };
+}
+
+/**
+ * Pripojené priečinky, z ktorých smie príprava dokumentov klienta čítať (kanonicky, bez koreňa klienta). Tie isté
+ * pravidlá ako mapa pre plugin; volá sa pri každom čítaní, takže odpojený priečinok prestane platiť hneď.
+ * Firma, ktorá spravuje priečinky mimo projektu, a wiki ich nemajú: dokumenty ostanú v koreni.
+ */
+export async function documentLinkedFolders(config: ServerConfig, workspace: WorkspaceInfo): Promise<string[]> {
+  if (workspace.preset === "wiki" || workspace.workspaceType === "remote") return [];
+  const firm = await appliedOrgPolicy(config, "tools.permissions").catch(() => null);
+  if (firm?.value.external_directory !== undefined) return [];
+  if (!(await clientWorkspaces(config)).some((entry) => entry.id === workspace.id)) return [];
+  return (await clientLinkedFolders(config, workspace))?.folders ?? [];
 }
 
 // Zápisy mapy idú za sebou a obsah sa skladá až v rade: staršie zostavenie nikdy nepremenuje posledné.
@@ -141,16 +188,26 @@ export function linkedFoldersMapRefresher(config: ServerConfig): { refresh: () =
   };
 }
 
-/** Natívny zápis zoznamu: nový priečinok nesmie byť relatívny ani zasahovať do iného klienta, praxe či dát aplikácie. */
-export async function requireLinkableFolders(config: ServerConfig, workspace: WorkspaceInfo, folders: readonly string[], existing: readonly string[]): Promise<void> {
+/**
+ * Natívny zápis zoznamu: nový priečinok nesmie byť relatívny ani zasahovať do iného klienta, praxe či dát aplikácie.
+ * Priečinok mimo klienta sa ešte prezrie (`linked-folder-survey.ts`): značky OKF iného klienta alebo kancelárie
+ * ho odmietnu vždy, podoba praxe len bez potvrdenia (`confirmedPracticeLike` z aplikácie po otázke advokátovi).
+ */
+export async function requireLinkableFolders(config: ServerConfig, workspace: WorkspaceInfo, folders: readonly string[], existing: readonly string[], confirmedPracticeLike: readonly string[] = []): Promise<void> {
   const added = folders.filter((folder) => !existing.includes(folder));
   if (added.length === 0) return;
   const scope = await conflictScope(config, workspace);
+  const confirmed = await Promise.all(confirmedPracticeLike.filter((folder) => linkedFolderConflict(folder, scope) !== "relative").map(canonicalPath));
   for (const folder of added) {
     const relative = linkedFolderConflict(folder, scope);
     if (relative === "relative") throw conflictErrors.relative();
-    const conflict = linkedFolderConflict(await canonicalPath(folder), scope);
+    const canonical = await canonicalPath(folder);
+    const conflict = linkedFolderConflict(canonical, scope);
     if (conflict) throw conflictErrors[conflict]();
+    if ((scope.ownRoot && isPathWithin(scope.ownRoot, canonical)) || isOfficeMemoryFolder(canonical, scope.officeRoot)) continue;
+    const survey = await surveyLinkedFolder(canonical, scope.ownRoot);
+    if (survey?.kind === "practice_like") { if (!confirmed.includes(canonical)) throw practiceLikeError(folder, survey.clients); }
+    else if (survey) throw conflictErrors[survey.kind]();
   }
 }
 

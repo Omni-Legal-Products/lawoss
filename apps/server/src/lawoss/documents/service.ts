@@ -8,6 +8,7 @@ import type { DocumentPreparation } from "../../document-preparation/service.js"
 import { within } from "../../reviews/storage.js";
 import type { ServerConfig, WorkspaceInfo } from "../../types.js";
 import { workspaceAppFilesRoot } from "../workspace-app-files.js";
+import { canonicalPath } from "../linked-folders-rules.js";
 import { DOCUMENT_LIMITS as LIMIT, documentRecordSchema, type DocumentEvidence, type DocumentRead, type DocumentRecord, type DocumentSummary } from "./types.js";
 
 const outputRecordSchema = z.object({ sourceKind:z.enum(["isir","workspace"]), identityPath:z.string().nullable(), identityHash:z.string().nullable(), documentIds:z.array(z.string().uuid()).min(1).max(20), owned:z.boolean(), workspaceId:z.string(), path:z.string(), hash:z.string().regex(/^[a-f0-9]{64}$/), sourceHash:z.string(), verifiedHash:z.string().nullable(), kind:z.enum(["registry","summary"]), outputLanguage:z.enum(["cs","sk","en"]), verified:z.literal(false), legalApproval:z.literal(false), identity:z.object({caseNumber:z.string().nullable(),company:z.string().nullable(),sourceUrl:z.string().nullable(),project:z.string()}) });
@@ -39,7 +40,13 @@ export class LawossDocuments {
   private mutations: Promise<unknown> = Promise.resolve();
   private active = new Map<string, { controller: AbortController; done: Promise<unknown>; workspaceId: string; bytes: number }>();
   private stopped = false;
-  constructor(private readonly config: Pick<ServerConfig, "configPath">, private readonly preparation: DocumentPreparation) {}
+  /**
+   * @param linkedFolders LAWOSS: kanonické pripojené priečinky klienta (`documentLinkedFolders`), čítané pri každom
+   * prístupe k zdroju. Zdroj v nich sa ukladá s absolútnou kanonickou cestou: kód, ktorý cestu rieši voči koreňu
+   * klienta (export, chránené prostredie), ho tak odmietne namiesto čítania iného súboru.
+   */
+  constructor(private readonly config: Pick<ServerConfig, "configPath">, private readonly preparation: DocumentPreparation,
+    private readonly linkedFolders: (workspace: WorkspaceInfo) => Promise<readonly string[]> = async () => []) {}
   private lock<T>(action: () => Promise<T>): Promise<T> {
     const result = this.mutations.then(action); this.mutations = result.catch(() => {}); return result;
   }
@@ -71,18 +78,29 @@ export class LawossDocuments {
     if (Buffer.byteLength(bytes) > 128 * 1024 * 1024) throw new Error("Document storage limit reached.");
     await writeFile(temp, bytes, { flag: "wx", mode: 0o600 }); await rename(temp, join(directory, "records.json"));
   }
+  /** LAWOSS: zdroj mimo koreňa klienta smie byť len v jeho práve pripojenom priečinku; inak sa nič nečíta. */
+  private async linkedSource(workspace: WorkspaceInfo, requested: string): Promise<string> {
+    const notLinked = () => new ApiError(403, "document_folder_not_linked", "This file is outside this client's folder and its linked folders. Nothing was read. If the folder belongs to this client, the user can link it under Linked folders on the client's overview; otherwise work only with this client's own folders.");
+    const canonical = await canonicalPath(requested);
+    const folders = await this.linkedFolders(workspace);
+    if (!folders.some(folder => within(folder, canonical))) throw notLinked();
+    // Odkaz vnútri pripojeného priečinka smie viesť len do neho (nie k inému klientovi).
+    const absolute = (await realpath(requested).catch(() => { throw new ApiError(404, "document_missing", "Document was not found."); })).normalize("NFC");
+    if (!folders.some(folder => within(folder, absolute))) throw notLinked();
+    return absolute;
+  }
   private async source(workspace: WorkspaceInfo, path: string, availableBytes = LIMIT.bytes) {
     const root = await realpath(workspace.path), requested = resolve(root, path);
-    if (!within(root, requested)) throw new ApiError(403, "document_path", "Document is outside this workspace.");
-    const absolute = await realpath(requested);
-    if (!within(root, absolute)) throw new ApiError(403, "document_path", "Document is outside this workspace.");
+    const linked = within(root, requested) ? null : await this.linkedSource(workspace, requested);
+    const absolute = linked ?? await realpath(requested);
+    if (!linked && !within(root, absolute)) throw new ApiError(403, "document_path", "Document is outside this workspace.");
     const info = await stat(absolute);
     if (!info.isFile() || info.size > LIMIT.bytes) throw new ApiError(400, "document_size", "Document exceeds 64 MiB.");
     if (info.size > availableBytes) throw new ApiError(429, "document_queue_bytes", "Queued documents exceed 128 MiB; narrow the batch.");
     const bytes = await readFile(absolute);
     if (bytes.length > availableBytes) throw new ApiError(429, "document_queue_bytes", "Queued documents exceed 128 MiB; narrow the batch.");
     if (bytes.length > LIMIT.bytes) throw new Error("Document exceeds 64 MiB.");
-    return { path: relative(root, requested).replaceAll("\\", "/"), bytes, hash: hash(bytes), extension: extname(absolute).toLowerCase() };
+    return { path: linked ?? relative(root, requested).replaceAll("\\", "/"), bytes, hash: hash(bytes), extension: extname(absolute).toLowerCase() };
   }
   async list(workspace: WorkspaceInfo): Promise<DocumentSummary[]> {
     return this.lock(async () => {
