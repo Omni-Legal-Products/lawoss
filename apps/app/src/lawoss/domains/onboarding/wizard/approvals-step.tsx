@@ -63,7 +63,7 @@ export function ApprovalsStepView({ text, locale, state, canWrite, saving, faile
   const selected = yoloOn || confirming ? "yolo" : allow ? null : "ask";
   const yoloNote = locked ? text("modeLocked") : yolo && !canWrite ? text("modeHostOnly") : !yolo && !state.loading ? text("modeUnavailable") : null;
   const lead = yoloOn ? text("approvalsLeadYolo") : allow ? text("approvalsLeadAllow") : text("approvalsLead");
-  // Potvrdenie YOLO dostane fokus hneď po otvorení; Escape ho zruší.
+  // Potvrdenie YOLO dostane fokus hneď po otvorení (na bezpečné Zrušiť, nie na zapnutie); Escape ho zruší.
   useEffect(() => { if (confirming) confirmButton.current?.focus(); }, [confirming]);
   return (
     <StepScreen step="approvals" title={text("approvalsTitle")} lead={<p>{lead}</p>} nav={nav}
@@ -105,8 +105,8 @@ export function ApprovalsStepView({ text, locale, state, canWrite, saving, faile
           <p>{t("lawoss.yolo.confirm_clients", locale)}</p>
           <p className="font-medium">{t("lawoss.yolo.confirm_undo", locale)}</p>
           <div className="flex flex-wrap gap-2">
-            <button ref={confirmButton} type="button" className="lw-btn lw-btn-danger" disabled={saving} onClick={() => { setConfirming(false); onYolo(true); }}>{t("lawoss.yolo.confirm_on", locale)}</button>
-            <button type="button" className="lw-btn" disabled={saving} onClick={() => setConfirming(false)}>{t("lawoss.yolo.confirm_cancel", locale)}</button>
+            <button type="button" className="lw-btn lw-btn-danger" disabled={saving} onClick={() => { setConfirming(false); onYolo(true); }}>{t("lawoss.yolo.confirm_on", locale)}</button>
+            <button ref={confirmButton} type="button" className="lw-btn" disabled={saving} onClick={() => setConfirming(false)}>{t("lawoss.yolo.confirm_cancel", locale)}</button>
           </div>
         </div>
       ) : null}

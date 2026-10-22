@@ -139,7 +139,7 @@
 .lw-wiz-example svg { color: var(--lw-wiz-accent); }
 
 /* Strom „Toto sme našli“. */
-.lw-wiz-tree { max-height: 420px; overflow: auto; padding: 12px 14px; border: 1px solid var(--lw-border-subtle, var(--lw-border)); border-radius: var(--lw-radius-lg); background: color-mix(in srgb, var(--lw-text-primary) 2%, transparent); }
+.lw-wiz-tree { padding: 12px 14px; border: 1px solid var(--lw-border-subtle, var(--lw-border)); border-radius: var(--lw-radius-lg); background: color-mix(in srgb, var(--lw-text-primary) 2%, transparent); }
 .lw-wiz-tree ul { margin: 0; padding: 0; list-style: none; }
 .lw-wiz-tree ul ul { margin-inline-start: 11px; padding-inline-start: 14px; border-inline-start: 1px solid var(--lw-border); }
 .lw-wiz-tree-row { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 3px 0; }
