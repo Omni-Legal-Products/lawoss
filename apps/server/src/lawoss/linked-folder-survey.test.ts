@@ -24,6 +24,13 @@ test("nečitateľný podpriečinok alebo priveľa podpriečinkov: aspoň otázka
   const many = join(root, "Archív");
   await Promise.all(Array.from({ length: 1001 }, (_, i) => mkdir(join(many, `Zložka ${i}`), { recursive: true })));
   expect(await surveyLinkedFolder(many, null)).toEqual({ kind: "practice_like", clients: [] });
+  // Veľký priečinok so značkou kancelárie: tvrdé odmietnutie, nie len otázka (značka mimo limitu výpisu tiež).
+  await writeFile(join(many, "okf.config"), "office: Archív\n");
+  expect(await surveyLinkedFolder(many, null)).toEqual({ kind: "practice" });
+  await rm(join(many, "okf.config"));
+  await mkdir(join(many, "_kancelaria"));
+  await writeFile(join(many, "_kancelaria", "okf.config"), "office: Archív\n");
+  expect(await surveyLinkedFolder(many, null)).toEqual({ kind: "practice" });
   // Chýbajúci priečinok nie je chyba prieskumu.
   expect(await surveyLinkedFolder(join(root, "Neexistuje"), null)).toBeNull();
 });

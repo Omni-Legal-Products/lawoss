@@ -79,7 +79,8 @@ export async function surveyLinkedFolder(folder: string, ownRoot: string | null)
   // pripája aj bez profilu praxe. Vyššie položený `Office` (napr. `~/Office`) výnimku nemá.
   if (ownRoot !== null && isOfficeName(basename(folder)) && [dirname(ownRoot), dirname(dirname(ownRoot))].includes(dirname(folder))) return null;
   const top = await listing(folder, LIMIT.children);
-  if (await officeIn(folder, top.entries)) return { kind: "practice" };
+  // Výpis môže byť neúplný (limit, chyba čítania): priame značky kancelárie sa overia aj bez neho.
+  if (await officeIn(folder, top.entries) || await ancestorHasOffice(folder)) return { kind: "practice" };
   // Predok s kanceláriou: priečinok leží v praxi (aj keď nie je v profile), aj v praxi vlastného klienta.
   for (const ancestor of ancestors(folder)) if (await ancestorHasOffice(ancestor)) return { kind: "practice" };
 
