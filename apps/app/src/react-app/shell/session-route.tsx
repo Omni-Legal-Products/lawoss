@@ -78,6 +78,7 @@ import {
   LegalworkServerError,
   readLegalworkServerSettings,
   type LegalworkServerClient,
+  type LegalworkSessionSnapshot,
   type LegalworkWorkspaceInfo,
 } from "@/app/lib/legalwork-server";
 import {
@@ -151,7 +152,8 @@ import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/ch
 import { AppHome } from "@/react-app/domains/session/home/app-home";
 import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/session/home/home-submission";
 import { replaceHomeAttachmentTokens, type HomeDraftAttachment } from "@/react-app/domains/session/home/home-attachments";
-import { seedSubmittedMessage } from "@/react-app/domains/session/sync/session-sync";
+import { seedSubmittedMessage, snapshotKey } from "@/react-app/domains/session/sync/session-sync";
+import { chatSendDirectory } from "@/lawoss/shell/session-directory";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
@@ -1691,10 +1693,17 @@ export function SessionRoute() {
         if (section === "workflows") navigate(path);
         else handleOpenSettings(path);
       },
-      onSendDraft: (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution">; modelSelection?: { model: ModelRef; variant: string | null } }) => sendNativeDraft(draft, sessionId, options, {
-        opencode: sessionOpencodeClient, legalwork: client, directory: selectedSessionDirectory || selectedWorkspaceRoot,
-        projectId: selectedWorkspaceId, runtimeKey: environmentRuntimeKey,
-      }),
+      onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution">; modelSelection?: { model: ModelRef; variant: string | null } }) => {
+        // LAWOSS: the target chat's own folder (a case chat's case subfolder), from its loaded snapshot;
+        // never the selected chat's folder or a case chat's root fallback.
+        const target = sessionId.trim() || selectedSessionId || "";
+        const directory = chatSendDirectory(selectedWorkspaceRoot, selectedWorkspace?.workspaceType === "remote", target,
+          getReactQueryClient().getQueryData<LegalworkSessionSnapshot>(snapshotKey(selectedWorkspaceEndpoint?.workspaceId ?? "", target)));
+        if (directory === null) throw new Error(t("session.loading_detail"));
+        const opencode = directory === (selectedSessionDirectory || selectedWorkspaceRoot) ? sessionOpencodeClient
+          : createClient(opencodeBaseUrl, directory || undefined, { token: selectedWorkspaceServerToken, mode: "legalwork" });
+        return sendNativeDraft(draft, sessionId, options, { opencode, legalwork: client, directory, projectId: selectedWorkspaceId, runtimeKey: environmentRuntimeKey });
+      },
       onDraftChange: () => {
         // Draft persistence will be wired once the full React shell owns session state.
       },
@@ -1781,6 +1790,8 @@ export function SessionRoute() {
   }, [
     sendNativeDraft,
     client,
+    selectedWorkspaceEndpoint?.workspaceId,
+    selectedWorkspaceServerToken,
     modelPicker.compactOpen,
     handleOpenSettings,
     usableProviderCount,
