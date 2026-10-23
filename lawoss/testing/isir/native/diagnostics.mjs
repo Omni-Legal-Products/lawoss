@@ -277,9 +277,82 @@ export function summarizePromptEvents(events,context,start=0,end=events.length){
   for(const entry of active.values())finish(entry);
   return result;
 }
-export async function settleCleanup(primary, operations) {
+// Internal observers are trusted synchronous void callbacks. No promises are
+// assimilated and no detached work is permitted by this contract.
+export function observeNativeLifecycle(observer, ...facts) {
+  try { observer?.(...facts); } catch { /* Observation cannot change the gate. */ }
+}
+function createRecoveryReadinessObservation() {
+  const boundaries=['approval-check','transport-request','status-check','transport-body','session-check','host-directory-check','guest-directory-check','root-identity-check','legal-approval-check','runtime-state-check'];
+  let record=null,frozen=false;
+  return {
+    observe(event,boundary){
+      if(frozen)return;
+      if(event==='begin'||event==='wait-start'){
+        record??={schema:1,attempts:0,attemptsCapped:false,first:null,last:null,waitOutcome:'not-observed'};
+        if(event==='wait-start')return;
+        if(record.attempts===128)record.attemptsCapped=true;else record.attempts++;
+        record.last={attempt:record.attemptsCapped?null:record.attempts,enteredPredicate:false,boundary:'approval-check',completedPrefix:0,outcome:'pending'};
+        record.first??=record.last;
+      } else if(record){
+        const poll=record.last;
+        if(event==='wait-returned'||event==='wait-threw')record.waitOutcome=event==='wait-returned'?'returned':'threw';
+        else if(poll?.outcome==='pending'){
+          if(event==='entered')poll.enteredPredicate=true;
+          else if(event==='boundary'&&boundaries.includes(boundary))poll.boundary=boundary;
+          else if(event==='completed')poll.completedPrefix=Math.min(9,poll.completedPrefix+1);
+          else if(['threw','not-ready','ready'].includes(event))poll.outcome=event;
+        }
+      }
+    },
+    freeze(){frozen=true;},
+    snapshot(){return record?{recoveryReadinessObservation:{...record,first:record.first?{...record.first}:null,last:record.last?{...record.last}:null}}:{};},
+  };
+}
+function createInnerCleanupObservation() {
+  const labels=['protected-approvals-close','chooser-disconnect','cdp-close','owned-child-stop','engine-traces-close','provider-close','prepared-engine-cleanup'];
+  const tags=new WeakMap();
+  let record=null,firstOrdinal=null,lastOrdinal=null;
+  // Input is the already computed public errorMetadata value, never an Error.
+  const cloneMetadata=(value,depth=0)=>({name:['Error','TypeError','AssertionError','AggregateError','TimeoutError','AbortError'].includes(value.name)?value.name:'Error',
+    ...(['EPERM','ESRCH','ENOENT','EBUSY','ECONNREFUSED','ECONNRESET','UND_ERR_HEADERS_TIMEOUT','UND_ERR_CONNECT_TIMEOUT','ERR_ASSERTION','ISIR_NATIVE_WAIT_EXPIRED'].includes(value.code)?{code:value.code}:{}),
+    ...(depth<3&&value.cause?{cause:cloneMetadata(value.cause,depth+1)}:{})});
+  return {
+    tag(operation,boundary,slot=null){
+      if(typeof operation==='function'&&labels.includes(boundary))tags.set(operation,{boundary,childSlot:boundary==='owned-child-stop'&&Number.isInteger(slot)&&slot>=1&&slot<=32?slot:null,childSlotCapped:boundary==='owned-child-stop'&&Number.isInteger(slot)&&slot>32});
+      return operation;
+    },
+    observe(operation,event,failureOrdinal){
+      const tag=tags.get(operation);if(!tag)return;
+      if(event==='start'){
+        record??={schema:1,scope:'inner-harness-cleanup',operations:0,operationsCapped:false,failures:0,failuresCapped:false,current:null,last:null,firstFailure:null,lastFailure:null,interiorFailuresOmitted:false};
+        if(record.operations===128)record.operationsCapped=true;else record.operations++;
+        record.current={operation:record.operationsCapped?null:record.operations,...tag,outcome:'pending'};
+      } else if(record?.current&&(event==='completed'||event==='failed')){
+        record.current.outcome=event;record.last=record.current;record.current=null;
+        if(event==='failed'){
+          if(record.failures===32)record.failuresCapped=true;else record.failures++;
+          record.interiorFailuresOmitted=record.failures>2;
+          record.lastFailure={failure:failureOrdinal<=32?failureOrdinal:null,...tag,metadata:null};lastOrdinal=failureOrdinal;
+          if(!record.firstFailure){record.firstFailure=record.lastFailure;firstOrdinal=failureOrdinal;}
+        }
+      }
+    },
+    metadata(ordinal,metadata){
+      if(!record)return;
+      if(ordinal===firstOrdinal)record.firstFailure.metadata=cloneMetadata(metadata);
+      if(ordinal===lastOrdinal)record.lastFailure.metadata=cloneMetadata(metadata);
+    },
+    snapshot(){return record?{cleanupObservation:record}:{};},
+  };
+}
+export async function settleCleanup(primary, operations, observe) {
   const failures=[];
-  for(const operation of operations)try {await operation();}catch(error){failures.push(error);}
+  for(const operation of operations){
+    observeNativeLifecycle(observe,operation,'start',null);
+    try {await operation();observeNativeLifecycle(observe,operation,'completed',null);}
+    catch(error){failures.push(error);observeNativeLifecycle(observe,operation,'failed',failures.length);}
+  }
   return {error:primary??(failures.length?new AggregateError(failures,'Owned native cleanup failed'):null),failures};
 }
 // Pinned engine v1.18.29 default file format, not a raw-log redactor. The
@@ -497,6 +570,8 @@ function generationHostError(lines,index) {
 
 export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,ownedRoot,engineLogFs=fs,readGenerationResponseBody}) {
   if(enabled&&(!ci||mode!=='synthetic'||!outputFile))throw new Error('Published native diagnostics require explicit CI synthetic mode and output file');
+  const readiness=enabled?createRecoveryReadinessObservation():null;
+  const innerCleanup=enabled?createInnerCleanupObservation():null;
   let phase='setup',caseIndex=null;
   let recoveryStage=null,recoveryFrozen=false;
   const recoveryStages=['snapshot-request','snapshot-body','snapshot-save','snapshot-check',
@@ -589,6 +664,10 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
     finally {record.elapsedMs=Math.round(performance.now()-started);}
   };
   return {
+    recoveryReadiness:readiness?.observe,
+    cleanupTag:innerCleanup?.tag??(operation=>operation),
+    cleanupObserve:innerCleanup?.observe,
+    cleanupMetadata:innerCleanup?.metadata,
     observeNetworkEvent,
     provisioningStart(index,events,start,context){
       if(recoveryFrozen||!Number.isInteger(index)||index<1||index>10||provisioning.some(row=>row.caseIndex===index))return;
@@ -741,11 +820,12 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
     },
     async write({events=[],error=null,cleanupErrors=[]}={}){
       if(!enabled)return;
-      const data={schema:6,generationPrompts,provisioning,...(hostErrorsCaptured?{generationHostErrors,provisioningHostErrors}:{}),...(hostConsoleCapture?{hostConsoleCapture}:{}),promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
+      const data={schema:6,...readiness?.snapshot(),...innerCleanup?.snapshot(),generationPrompts,provisioning,...(hostErrorsCaptured?{generationHostErrors,provisioningHostErrors}:{}),...(hostConsoleCapture?{hostConsoleCapture}:{}),promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
       await writeFile(outputFile,JSON.stringify(data,null,2),{mode:0o600});
     },
     failure(error){
       // Called first at the primary catch, before probes or cleanup can run.
+      readiness?.freeze();
       if(!recoveryFrozen){recoveryStage=phase==='recovery'?recoveryStage??'unknown':null;recoveryFrozen=true;generationRun=null;provisioningRun=null;for(const role of ['attachment','recovery'])endPrompt(role);}
       return {phase,caseIndex,recoveryStage,error:errorMetadata(error)};
     },

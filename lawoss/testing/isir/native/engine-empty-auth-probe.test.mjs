@@ -361,3 +361,51 @@ test('actual workflow-style input paths still reject symlink or junction parents
     await assert.rejects(api.readBounded(file,256*1024),{code:'ERR_ASSERTION'});
   }
 });
+
+function emptyAuthRecoveryExtras(){
+  const poll={attempt:1,enteredPredicate:true,boundary:'runtime-state-check',completedPrefix:9,outcome:'ready'};
+  return [{},{recoveryReadinessObservation:{schema:1,attempts:1,attemptsCapped:false,first:poll,last:poll,waitOutcome:'returned'},cleanupObservation:{schema:1,scope:'inner-harness-cleanup',operations:7,operationsCapped:false,failures:0,failuresCapped:false,current:null,last:{operation:7,boundary:'prepared-engine-cleanup',childSlot:null,childSlotCapped:false,outcome:'completed'},firstFailure:null,lastFailure:null,interiorFailuresOmitted:false}},
+    {recoveryReadinessObservation:{schema:-1,attempts:'PRIVATE',extra:'PRIVATE'},cleanupObservation:['PRIVATE']},{recoveryReadinessObservation:null,cleanupObservation:'PRIVATE'}];
+}
+test('raw recovery additions preserve six-field empty-auth projections and original classifications',()=>{
+  const projected=JSON.stringify(api.compactBoundary(main())),assessed=api.assessInputs(main(),runtime()),receipt=observedReceipt();
+  for(const extra of emptyAuthRecoveryExtras()){
+    const value={...main(),...extra};assert.equal(JSON.stringify(api.compactBoundary(value)),projected);assert.equal(Object.keys(api.compactBoundary(value)).length,6);assert.deepEqual(api.assessInputs(value,runtime()),assessed);
+    assert.equal(api.classifyAltered(receipt,value),api.classifyAltered(receipt,main()));
+    value.cleanupErrors=[{name:'Error'}];assert.equal(api.assessInputs(value,runtime()).decision,'unknown');assert.equal(api.classifyAltered(receipt,value),'unknown');
+    value.platform='darwin';assert.equal(api.assessInputs(value,runtime()).decision,'unknown');
+  }
+  for(const mutate of [r=>r.recoveryReadinessObservation={},r=>r.originalBoundary.cleanupObservation={},r=>{r.alteredBoundary={...r.originalBoundary,recoveryReadinessObservation:{}};}]){const r=observedReceipt();mutate(r);assert.throws(()=>api.projectReceipt(r));}
+});
+test('actual empty-auth guard and finalize bind changed raw hashes while dropping optional observations',async t=>{
+  const env={...context(),GITHUB_SHA:await api.actualCheckout()},hashes=[];let expectedProjection;
+  for(const extra of emptyAuthRecoveryExtras()){
+    const complete={...main(),...extra,phase:'complete'};delete complete.error;
+    const input=await workflowInputs(t,complete);await fs.rm(input.runtimeFile);
+    const privateFile=path.join(input.nativeRoot,'empty-auth-owner.private.json');const r=await api.guard(privateFile,input.mainFile,input.runtimeFile,env);
+    assert.equal(r.eligibility,'not-needed');assert.equal(r.inputs.mainSha256,hash(input.mainBytes));assert.equal(r.inputs.runtimeSha256,null);hashes.push(r.inputs.mainSha256);
+    expectedProjection??=JSON.stringify(r.originalBoundary);assert.equal(JSON.stringify(r.originalBoundary),expectedProjection);assert.equal(Object.keys(api.projectReceipt(r)).length,18);
+    const publicFile=path.join(input.nativeRoot,'engine-empty-auth-probe.json'),published=await api.finalize(privateFile,publicFile,env);
+    assert.deepEqual(published,r);assert.deepEqual(JSON.parse(await fs.readFile(publicFile,'utf8')),r);assert.doesNotMatch(JSON.stringify(r),/recoveryReadinessObservation|cleanupObservation|PRIVATE/);
+  }
+  assert.equal(new Set(hashes).size,4);
+  for(const extra of emptyAuthRecoveryExtras()){
+    const input=await workflowInputs(t,{...main(),...extra});const r=await api.guard(path.join(input.nativeRoot,'empty-auth-owner.private.json'),input.mainFile,input.runtimeFile,env);
+    assert.equal(r.eligibility,process.platform==='win32'&&process.arch==='x64'?'run':'unknown');
+    if(r.eligibility==='run')assert.deepEqual(r.inputs,{mainSha256:hash(input.mainBytes),runtimeSha256:hash(input.runtimeBytes)});
+  }
+});
+test('empty-auth byte parsing still refuses optional duplicate UTF8 oversize and nonfinite values and strict final receipts',async t=>{
+  const env={...context(),GITHUB_SHA:await api.actualCheckout()},complete={...main(),phase:'complete'};delete complete.error;
+  const bytes=JSON.stringify(complete);
+  const invalids=[Buffer.from(bytes.slice(0,-1)+',"cleanupObservation":{"x":1,"x":2}}'),Buffer.concat([Buffer.from(bytes.slice(0,-1)+',"cleanupObservation":"'),Buffer.from([255]),Buffer.from('"}')]),Buffer.from(bytes.slice(0,-1)+',"cleanupObservation":"'+'x'.repeat(256*1024)+'"}'),Buffer.from(bytes.slice(0,-1)+',"cleanupObservation":1e999}')];
+  for(const invalid of invalids){
+    const input=await workflowInputs(t,complete);await fs.writeFile(input.mainFile,invalid);
+    const r=await api.guard(path.join(input.nativeRoot,'empty-auth-owner.private.json'),input.mainFile,input.runtimeFile,env);assert.equal(r.eligibility,'unknown');assert.deepEqual(r.inputs,{mainSha256:null,runtimeSha256:null});
+  }
+  for(const mutate of [r=>r.cleanupObservation={},r=>r.originalBoundary.recoveryReadinessObservation={},r=>{r.alteredBoundary={...r.originalBoundary,cleanupObservation:{}};}]){
+    const input=await workflowInputs(t,complete),privateFile=path.join(input.nativeRoot,'empty-auth-owner.private.json');const r=await api.guard(privateFile,input.mainFile,input.runtimeFile,env);mutate(r);
+    assert.throws(()=>api.projectReceipt(r));await fs.writeFile(privateFile,JSON.stringify(r));const result=await api.finalize(privateFile,path.join(input.nativeRoot,'engine-empty-auth-probe.json'),env);
+    assert.equal(result.eligibility,'unknown');assert.equal(Object.keys(result).length,18);assert.equal(result.originalBoundary,null);assert.doesNotMatch(JSON.stringify(result),/recoveryReadinessObservation|cleanupObservation|PRIVATE/);
+  }
+});
