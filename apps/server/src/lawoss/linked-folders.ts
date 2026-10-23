@@ -45,7 +45,7 @@ async function existingCanonical(path: string): Promise<string | null> {
 }
 
 /** Koreň praxe z profilu onboardingu (ako `agent-client-boundary.ts`); bez profilu `null`. */
-async function officeRoot(config: ServerConfig): Promise<string | null> {
+export async function officeRoot(config: ServerConfig): Promise<string | null> {
   try {
     const raw: unknown = JSON.parse(await readFile(join(runtimeStorageDir(config), "lawoss-onboarding", "profile.json"), "utf8"));
     const root = raw && typeof raw === "object" && "officeRoot" in raw && typeof raw.officeRoot === "string" ? raw.officeRoot : null;

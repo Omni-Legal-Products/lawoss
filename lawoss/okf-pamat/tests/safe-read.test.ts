@@ -104,3 +104,19 @@ test("okf.config ako odkaz na zariadenie: čítanie skončí s chybou konfigu, n
     assert.match(r.out, /okf\.config: súbor sa nedá prečítať — Symbolický odkaz nie je povolený/);
   }
 });
+
+test("hostiteľ s office:false kanceláriu nečíta a čítanie je neúplné; CLI bez voľby ju číta ako doteraz", () => {
+  const f = fixture();
+  writeFileSync(join(f.m3, "VSTUPY.md"), "x\n");
+  mkdirSync(join(f.m3, "memory"), { recursive: true });
+  writeFileSync(join(f.m3, "memory", "M-049.md"), record("M-049", "SECRET-C017-OFFICE-ALIAS"));
+  symlinkSync(f.m3, join(f.m1, "Office"));
+  for (const command of ["read", "preamble"]) {
+    const host = runCli([command, f.m1], { office: false });
+    assert.equal(host.code, 1);
+    assert.doesNotMatch(host.out, /SECRET/);
+    assert.match(host.out, /Pamäť kancelárie sa nenačítala/);
+  }
+  // The portable CLI in the lawyer's own shell keeps its behavior (the shell can read the folder anyway).
+  assert.match(runCli(["read", f.m1]).out, /SECRET-C017-OFFICE-ALIAS/);
+});

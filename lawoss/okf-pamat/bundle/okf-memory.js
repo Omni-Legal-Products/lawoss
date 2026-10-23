@@ -2948,7 +2948,7 @@ function findClientByPath(matterDir, maxUp) {
   }
   return;
 }
-function readScope(matterDir) {
+function readScope(matterDir, options = {}) {
   const matter = readStore(matterDir);
   let clientDir;
   let subjectDir;
@@ -2966,7 +2966,11 @@ function readScope(matterDir) {
   const client = clientDir ? readStore(clientDir) : undefined;
   const clientRecords = client?.records ?? [];
   const najdena = findOfficeDir(matterDir);
-  const officeDir = najdena && resolve(najdena) !== resolve(matterDir) ? najdena : undefined;
+  const kancelaria = najdena && resolve(najdena) !== resolve(matterDir) ? najdena : undefined;
+  const officeDir = options.office === false ? undefined : kancelaria;
+  if (kancelaria && !officeDir) {
+    configProblems.push({ file: kancelaria, message: "Pamäť kancelárie sa nenačítala: tento priečinok nie je kancelária praxe ani priečinok tohto klienta." });
+  }
   const office = officeDir ? readStore(officeDir) : undefined;
   const officeRecords = office?.records ?? [];
   const records = [...matter.records, ...subjectRecords, ...clientRecords, ...officeRecords];
@@ -3765,7 +3769,7 @@ function workspaceArguments(rest, save) {
     file: values.get("--file")
   };
 }
-function runCli(argv) {
+function runCli(argv, options = {}) {
   const [cmd, dir, ...rest] = argv;
   const apply = rest.includes("--apply");
   if (!cmd || !dir)
@@ -3812,7 +3816,7 @@ ${USAGE}` };
   }
   switch (cmd) {
     case "read": {
-      const scope = readScope(dir);
+      const scope = readScope(dir, options);
       const problems = [...scope.problems];
       const inputs = [];
       try {
@@ -3859,7 +3863,7 @@ ${serializeRecord(maskRecord(r))}`),
 `) };
     }
     case "preamble": {
-      const scope = readScope(dir);
+      const scope = readScope(dir, options);
       const problems = problemLines(scope.problems);
       const body = composePreamble(scope.records);
       const lines = body ? [...problems, body] : problems;

@@ -203,3 +203,35 @@ test.skipIf(process.platform === "win32")("zariadenie a príliš veľké súbory
   expect(text.length).toBeLessThan(STORE_BYTE_LIMIT + 2 * FILE_BYTE_LIMIT);
   expect(pages).toBeGreaterThan(1);
 }, 60000);
+
+// Re-review P3a (poc2): okf-pamat takes any `Office/` above the case; a link named Office must not read another client.
+for (const where of ["case", "client"] as const) {
+  test(`odkaz Office v priečinku ${where === "case" ? "prípadu" : "klienta"} na spis iného klienta sa nečíta (poc2)`, async () => {
+    const f = await fixture();
+    await memory(f.m3, "M-049.md", record("M-049", "matter", "L2", "Cudzí SYN", "iný klient", "SECRET-C017-OFFICE-ALIAS"));
+    await symlink(f.m3, join(where === "case" ? f.m1 : f.k1, "Office"));
+    for (const action of ["read", "preamble"] as const) {
+      const read = await readMatterMemoryForChat(f.config, f.own, { action, matter: f.m1 }, none);
+      expect(read.text).not.toContain("SECRET");
+      expect(read.text).not.toMatch(/Hron|M003|K3/);
+      expect(read.complete).toBe(false);
+      expect(read.text).toContain("Pamäť kancelárie sa nenačítala");
+    }
+    // The case memory itself is still there.
+    expect((await readMatterMemoryForChat(f.config, f.own, { action: "read", matter: f.m1 }, none)).text).toContain("SYN fakt 7311");
+  });
+}
+
+test("Office klienta, ktorý obsahuje tohto klienta, sa nečíta; vlastné Office klienta áno", async () => {
+  const f = await fixture();
+  // f.inner (Vnoreny-Hron) lies inside K1: K1's own Office is another client's folder for the nested client.
+  await rm(join(f.root, "Office"), { recursive: true });
+  await memory(join(f.k1, "Office"), "R-001.md", record("R-001", "rule", "L1", "SECRET-OUTER-RULE", "pravidlo K1", "t"));
+  const nested = await readMatterMemoryForChat(f.config, f.inner, { action: "preamble", matter: f.mn }, none);
+  expect(nested.text).not.toContain("SECRET-OUTER-RULE");
+  expect(nested.complete).toBe(false);
+  // For K1 itself the folder is its own.
+  const own = await readMatterMemoryForChat(f.config, f.own, { action: "preamble", matter: f.m1 }, none);
+  expect(own.text).toContain("SECRET-OUTER-RULE");
+  expect(own.complete).toBe(true);
+});

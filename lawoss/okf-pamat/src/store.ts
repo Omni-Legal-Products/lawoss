@@ -815,7 +815,16 @@ function findClientByPath(matterDir: string, maxUp: number): string | undefined 
   return undefined;
 }
 
-export function readScope(matterDir: string): Scope {
+/** Options of a host that reads memory on behalf of a chat (LAWOSS `lawoss_memory`). */
+export interface ScopeOptions {
+  /**
+   * `false`: the host did not confirm the `Office/` found above the case as this practice's office or as
+   * this client's own folder; its memory is not read and the read is incomplete. Default: read it.
+   */
+  readonly office?: boolean;
+}
+
+export function readScope(matterDir: string, options: ScopeOptions = {}): Scope {
   const matter = readStore(matterDir);
   // Nečitateľný `okf.config` so vzorom klienta je nečitateľný súbor v dosahu,
   // nie „bez klienta“ — inak by brána úniku potichu stratila jehly klienta.
@@ -835,7 +844,11 @@ export function readScope(matterDir: string): Scope {
   const clientRecords = client?.records ?? [];
   // Kancelária ako „spis" nesmie čítať samu seba dvakrát.
   const najdena = findOfficeDir(matterDir);
-  const officeDir = najdena && resolve(najdena) !== resolve(matterDir) ? najdena : undefined;
+  const kancelaria = najdena && resolve(najdena) !== resolve(matterDir) ? najdena : undefined;
+  const officeDir = options.office === false ? undefined : kancelaria;
+  if (kancelaria && !officeDir) {
+    configProblems.push({ file: kancelaria, message: "Pamäť kancelárie sa nenačítala: tento priečinok nie je kancelária praxe ani priečinok tohto klienta." });
+  }
   const office = officeDir ? readStore(officeDir) : undefined;
   const officeRecords = office?.records ?? [];
   const records = [...matter.records, ...subjectRecords, ...clientRecords, ...officeRecords];

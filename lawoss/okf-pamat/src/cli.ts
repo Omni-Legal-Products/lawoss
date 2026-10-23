@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import {
-  readStore, readScope, syncProjections, ProjectionWriteError, retrofitStatusFile, ensureBrain, applyRecordWrite, standingApproval,
+  readStore, readScope, type ScopeOptions, syncProjections, ProjectionWriteError, retrofitStatusFile, ensureBrain, applyRecordWrite, standingApproval,
   findOfficeDir, OFFICE_DIR,
   jurisdictionFromCard, documentLanguageFromCard, MEMORY_DIR, statusLinkResolver, findClientDir, STATUS_FILE,
 } from "./store.ts";
@@ -145,7 +145,8 @@ function workspaceArguments(rest: readonly string[], save: boolean) {
     json: switches.has("--json"), apply: switches.has("--apply"), file: values.get("--file") };
 }
 
-export function runCli(argv: readonly string[]): CliResult {
+/** `options` (host only): see `ScopeOptions`; used by `read` and `preamble`. */
+export function runCli(argv: readonly string[], options: ScopeOptions = {}): CliResult {
   const [cmd, dir, ...rest] = argv;
   const apply = rest.includes("--apply");
 
@@ -184,7 +185,7 @@ export function runCli(argv: readonly string[]): CliResult {
 
   switch (cmd) {
     case "read": {
-      const scope = readScope(dir);
+      const scope = readScope(dir, options);
       const problems = [...scope.problems];
       const inputs: string[] = [];
       try {
@@ -228,7 +229,7 @@ export function runCli(argv: readonly string[]): CliResult {
     }
 
     case "preamble": {
-      const scope = readScope(dir);
+      const scope = readScope(dir, options);
       // Rovnaká hláška ako `read` — rozbitý súbor sa nesmie stratiť potichu.
       // Ban-list je záväzný (SKILL.md); ak z neho vinou parse chyby vypadne
       // prameň bez jediného varovania, agent cituje niečo, čo bolo zakázané.
