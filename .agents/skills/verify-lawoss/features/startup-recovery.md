@@ -38,6 +38,20 @@ Keep Windows cold prerequisite results separate from installed startup: the isol
 
 Windows decode/compile diagnostics use a separate bounded CALL grammar with `before`, `return` or `error` and capped child-relative elapsed time. Preserve the first before and first terminal for each operation; completed checkpoints and lastCheckpoint retain their original meaning. A before event identifies a source boundary, and a missing terminal remains censored. Parent delivery uses a separate clock origin; subtracting it from child time does not measure one-way latency. Observers freeze before cancellation or ready return. Timer/IO/CLR work can perturb cold behavior; preserve the original cold order, budgets and failures.
 
+The separate Windows qualified-cold experiment is preparation-only until its
+root-owned single marked feature push passes the live publication gates. It
+runs the unchanged first native closure case once on each of four fresh
+x64/ARM64 control/treatment workers; only treatment adds the absolute Utility
+import inside the original decode bracket. The public Node24 reporter rejects
+noncanonical duplicate owned projections and contradictory file provenance,
+then drains; final evidence requires actual child, both pipes and both writers
+closed. Retrieve and hash all four finite files from each first cell within 7 days.
+Local pure-event and inert CLI tests are transport proof only. Missing/capped
+decode returns or dominating host variance make comparison INCONCLUSIVE; a
+functional difference alone grants no production fix or historical clearance.
+Never rerun the batch to obtain green, and never use its marker as global
+single-use authority. Keep all original native failures and startup gates.
+
 Development-native ISIR startup has a separate cold MCP readiness gate: `engine.mcp` and `instance-request/headers/body/verified` describe its existing 300s request, before the 90s selected-directory `request/headers/body/verified` proof. A health response does not complete either gate. Initial readiness failures retain their diagnostic log window; finite log observations and completed bootstrap spans do not establish the cause, native closure or installed-alpha acceptance.
 
 After Linux installation preflight, `operationFailure` freezes the existing failed operation enum and own primitive allowlisted error code before wrapper cleanup. It can distinguish stage creation/binding, copy, protected-tree validation, root mode, installed-tree verification, policy steps and native use. Only a protected-tree failure with valid owned-root context adds `filesystem`: fixed action (`scandir`, `lstat`, `realpath`, `readlink`, `unknown`), lexical payload-root/descendant/ancestor/unknown scope, and bounded component depth or null. These come from the original error's own data properties; no paths, messages, getters or additional filesystem reads are used. Missing detail stays unknown; lexical scope does not identify a mode, ACL or operating-system cause. Extractor dual failures retain both errors in `AggregateError`, primary first and as cause; outer cleanup EACCES alone cannot identify an earlier failed guard. No native permission or policy relaxation follows from these observations.

@@ -20,6 +20,10 @@
 | `.github/workflows/{plugin-sdk-runtime,ci-tests,ci-desktop-packaging,ci-okf,ci-okf-pamat,alpha-macos-aarch64}.yml` | Sedem ARM runner hodnôt mení `macos-14` na pripnutý `macos-15`, podporovaný nástupca pred oznámeným koncom macOS14 runnerov 2.11.2026. Zachováva všetkých šesť cieľov, Intel runner, action/tool piny, testy, deadlines a finite uploads. Existujúci platform-matrix test aktualizuje iba očakávaný ARM runner. Nejde o dôkaz vykonania na novom hoste ani o príčinu starých queued/cancelled jobov. Verejný release workflow ostáva mimo privátneho scope a jeho macos14 vyžaduje samostatnú údržbu. |
 
 
+## Jednorazový Windows cold-helper experiment (2026-10-23)
+
+Nový `.github/workflows/ci-alpha-windows-qualified-cold-experiment.yml` pripravuje iba štyri samostatné control/treatment joby cez presný feature-push marker a attempt1; root navyše viaže jedinú publikáciu na W a pôvodné ukončené behy. Green wrapper/reporter zachováva pôvodné helper/test bajty,15s/45s a úplný closure oracle; publikuje iba štyri finite súbory na7d. Nejde o produkčnú opravu, globálnu single-use garanciu ani natívny výsledok. Žiadny experiment sa ešte nespustil; chýbajúci uncapped decode-return alebo rozdielne host podmienky ponechávajú porovnanie INCONCLUSIVE. Ostatné workflow a ich pravidlá zostávajú.
+
 ## SDK pod dodávaným Node22 na šiestich cieľoch (2026-10-22)
 
 | Súbory | Downstream doplnenie a dôvod |
