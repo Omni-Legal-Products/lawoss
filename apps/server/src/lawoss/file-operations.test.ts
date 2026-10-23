@@ -213,6 +213,30 @@ test("a client registered inside this client's folder is out of reach, its folde
   expect(await readFile(join(nested, "zmluva.txt"), "utf8")).toBe("SYN vnoreny klient");
 });
 
+test("an earlier step of the same request cannot turn a later target into a nested client's folder", async () => {
+  const { config, client, workspace } = await office();
+  const nested = join(client, "Klienti-vnorene", "C099-Vnoreny");
+  await mkdir(nested, { recursive: true });
+  await writeFile(join(nested, "zmluva.txt"), "SYN vnoreny klient");
+  config.workspaces.push({ id: "ws_c099", name: "C099", path: nested, preset: "starter", workspaceType: "local" });
+  await symlink(nested, join(client, "Odkaz"));
+  await mkdir(join(client, "Obal"));
+  await symlink(nested, join(client, "Obal", "Odkaz"));
+  for (const operations of [
+    [{ operation: "move", from: join(client, "Odkaz"), to: join(client, "Novy") },
+      { operation: "copy", from: join(client, "poznamky.txt"), to: join(client, "Novy", "poznamky.txt") }],
+    [{ operation: "move", from: join(client, "Obal"), to: join(client, "Presunuty") },
+      { operation: "move", from: join(client, "poznamky.txt"), to: join(client, "Presunuty", "Odkaz", "poznamky.txt") }],
+  ]) {
+    const plan = await planFileOperations(config, workspace, operations);
+    const result = await applyFileOperations(config, workspace, operations, plan.operations, plan.revision);
+    expect(result.complete).toBe(false);
+    expect(result.results[1]).toMatchObject({ status: "failed" });
+    expect(await readdir(nested)).toEqual(["zmluva.txt"]);
+  }
+  expect(await readFile(join(client, "poznamky.txt"), "utf8")).toBeTruthy();
+});
+
 test("a move never replaces a file that appeared after the approval check (review #221)", async () => {
   const { config, client, workspace } = await office();
   const step = (from: string, to: string, kind: "file" | "folder" = "file"): PlannedFileOperation =>
