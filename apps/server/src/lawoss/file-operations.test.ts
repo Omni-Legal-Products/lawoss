@@ -348,3 +348,19 @@ test("only the chat's own tool credential reaches the routes; a spoofed client I
   expect(await applied.json()).toMatchObject({ complete: true, results: [{ status: "done", to: "x.txt" }] });
   expect(await readFile(join(client, "x.txt"), "utf8")).toBe("SYN poznamky");
 });
+
+test("an existing target name tells the agent to propose another name, at plan and at apply (P6, V10d)", async () => {
+  const { config, client, workspace } = await office();
+  await writeFile(join(client, "zmluva.pdf"), "SYN obsadene");
+  await writeFile(join(client, "podklad.pdf"), "SYN podklad");
+  const clash = planFileOperations(config, workspace, [{ operation: "move", from: join(client, "podklad.pdf"), to: join(client, "zmluva.pdf") }]);
+  await expect(clash).rejects.toMatchObject({ code: "file_operation_target_exists" });
+  await expect(clash).rejects.toThrow(/Propose a different name to the user, for example with the date or "\(2\)"/);
+  await expect(planFileOperations(config, workspace, [{ operation: "create_folder", path: join(client, "Pripady") }])).rejects.toThrow(/Propose a different name/);
+  // The name taken between the card and the change (apply-time check).
+  const operations = [{ operation: "move", from: join(client, "podklad.pdf"), to: join(client, "nove.pdf") }];
+  const plan = await planFileOperations(config, workspace, operations);
+  await writeFile(join(client, "nove.pdf"), "SYN medzitym");
+  await expect(applyFileOperations(config, workspace, operations, plan.operations, plan.revision)).rejects.toThrow(/Propose a different name/);
+  expect(await readFile(join(client, "zmluva.pdf"), "utf8")).toBe("SYN obsadene");
+});

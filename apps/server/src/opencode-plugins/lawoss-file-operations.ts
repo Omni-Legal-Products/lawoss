@@ -12,6 +12,7 @@
 // Exportovaný je len vstupný bod pluginu: OpenCode volá každý export modulu.
 import { z } from "zod";
 import { chatFilePath, chatWorkspace } from "./lawoss-file-paths.js";
+import { FILE_REPORT_RULE, fileOperationToolText } from "./lawoss-file-operations-text.js";
 import { listWorkspaces, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 const pathArg = z.string().min(1).max(4096);
@@ -27,7 +28,7 @@ const args = z.object({
   description: z.string().max(300).optional().describe("Briefly say why, in the user's language."),
 });
 
-const SYSTEM = "To rename, move, copy or delete files and folders or to create folders, use lawoss_files instead of shell commands (mv, cp, rm, mkdir): the user sees one approval card listing the exact changes, and deleted items go to the Trash. Put a whole requested batch in one call. If the user declines the card, nothing changed; do not retry it now, but if the user later explicitly asks again, call lawoss_files again so they see a new card. Report only the changes the tool result lists as done.";
+const SYSTEM = `To rename, move, copy or delete files and folders or to create folders, use lawoss_files instead of shell commands (mv, cp, rm, mkdir): the user sees one approval card listing the exact changes, and deleted items go to the Trash. Put a whole requested batch in one call. If the user declines the card, nothing changed; do not retry it now, but if the user later explicitly asks again, call lawoss_files again so they see a new card. Report only the changes the tool result lists as done. ${FILE_REPORT_RULE}`;
 
 type Plan = { operations: unknown[]; revision: string };
 /** The tool's own permission (not `edit`): see the file header. */
@@ -76,7 +77,7 @@ export const LawossFileOperations = async () => ({
         await context.ask({ permission: PERMISSION, patterns: visiblePaths(plan), always: [],
           metadata: { lawossFiles: plan.operations, ...(input.description ? { description: input.description } : {}) } });
         const result = await post(context, workspace, "apply", { operations, approved: plan.operations, revision: plan.revision, sessionID: context.sessionID });
-        return JSON.stringify(result);
+        return fileOperationToolText(result);
       },
     },
   },

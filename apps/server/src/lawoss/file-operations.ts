@@ -81,6 +81,9 @@ export type FileOperationResult = PublicFileOperation & {
 };
 export type FilePlan = { operations: PublicFileOperation[]; revision: string };
 
+/** P6 (N-A3-6): on a name clash the agent proposes another name instead of only reporting the failure. */
+const NEW_NAME = "Do not overwrite or remove it. Propose a different name to the user, for example with the date or \"(2)\" added, and use it only after the user agrees.";
+
 const OUTSIDE = "This path is not in this client's folder or in a folder linked to this client. Nothing was changed. The user can link a folder that belongs to this client on the client's overview.";
 
 /** Control and bidirectional characters would make a card line lie about the name; show them escaped. */
@@ -193,7 +196,7 @@ async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, inpu
       // The client's folder or a linked folder itself is never a target (resolveWorkspaceFilePath refuses the root).
       const target = await locate(roots, operation.path, nested);
       if (operation.operation === "create_folder") {
-        if (await exists(target.canonical)) throw new ApiError(409, "file_operation_target_exists", `${target.display} already exists. Nothing was changed.`);
+        if (await exists(target.canonical)) throw new ApiError(409, "file_operation_target_exists", `${target.display} already exists. Nothing was changed. ${NEW_NAME}`);
         created.set(target.canonical, "folder");
         planned.push({ operation: "create_folder", kind: "folder", to: target.display, target: target.canonical });
         continue;
@@ -209,7 +212,7 @@ async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, inpu
     const source = await locate(roots, operation.from, nested), target = await locate(roots, operation.to, nested);
     if (!await exists(source.canonical)) throw new ApiError(404, "file_operation_missing", `${source.display} does not exist. Nothing was changed.`);
     const caseOnly = operation.operation === "move" && !created.has(target.canonical) && await sameNode(source.canonical, target.canonical);
-    if (!caseOnly && await exists(target.canonical)) throw new ApiError(409, "file_operation_target_exists", `${target.display} already exists. This tool never overwrites. Nothing was changed.`);
+    if (!caseOnly && await exists(target.canonical)) throw new ApiError(409, "file_operation_target_exists", `${target.display} already exists. This tool never overwrites. Nothing was changed. ${NEW_NAME}`);
     if (!caseOnly && isPathWithin(source.canonical, target.canonical)) throw new ApiError(400, "file_operation_into_itself", "A folder cannot be moved or copied into itself. Nothing was changed.");
     const kind = await kindOf(source.canonical);
     const { identity: id, ...contents } = await identity(source.canonical, kind);
@@ -266,7 +269,7 @@ async function moveToTrash(config: ServerConfig, item: Planned): Promise<string>
 }
 
 const errorCode = (error: unknown) => error instanceof Error && "code" in error ? error.code : undefined;
-const targetExists = (item: Planned) => new ApiError(409, "file_operation_target_exists", `${item.to} already exists. This tool never overwrites. Nothing was changed.`);
+const targetExists = (item: Planned) => new ApiError(409, "file_operation_target_exists", `${item.to} already exists. This tool never overwrites. Nothing was changed. ${NEW_NAME}`);
 
 /** Content of a file or folder tree: names, kinds, sizes, SHA-256 of files and link targets. */
 async function treeDigest(location: string): Promise<string> {
