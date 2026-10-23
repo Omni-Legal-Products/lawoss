@@ -10,6 +10,8 @@ import { readActiveWorkspaceId, readLastSessionFor } from "../src/react-app/shel
 import { type RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 import { sessionsWithinWorkspace } from "../src/react-app/shell/use-workspace-route-state";
 import { memoryFixture } from "./lawoss-memory-fixture";
+import { takeCaseChatContext } from "../src/lawoss/okf/case-chat-context";
+import { quickActionPrompt } from "../src/lawoss/lite/quick-actions";
 
 const previousLanguage = currentLanguagePreference();
 beforeEach(() => setLocale("sk"));
@@ -73,7 +75,16 @@ test("matter sessions retain the client workspace, scope engine calls to each ma
   // Pole pro zprávu čte composer store - bez něj by nová konverzace zůstala prázdná.
   expect(getComposerDraft(useComposerStateStore.getState(), "synthetic-session")).toBe(getSessionDraft("office", "synthetic-session").text);
   expect(getSessionDraft("office", "existing-office-session").text).toBe("untouched office draft");
-  const secondRoute = await openMatterSession(connection, workspace, records[1]!, records);
+  expect(takeCaseChatContext("synthetic-session")).toBeUndefined();
+  // P6 (N-A3-6): lite chat prípadu – advokát vidí prirodzenú vetu, technické pokyny ostanú skryté pre prvú správu.
+  const prompt = quickActionPrompt("open", { title: "Rovnaký názov", matterRef: "CASE-B", path: "AK/S/B/Spisy/B" }, "sk");
+  const secondRoute = await openMatterSession(connection, workspace, records[1]!, records, prompt);
+  const visible = getComposerDraft(useComposerStateStore.getState(), "synthetic-session-2");
+  expect(visible).toBe(prompt.text);
+  expect(visible).toStartWith(`Pracujeme na prípade ${JSON.stringify("Rovnaký názov")} · ${JSON.stringify("CASE-B")}. Najprv si prečítaj pamäť prípadu`);
+  expect(visible).not.toMatch(/okf-|--apply|preamble|Spisy\//);
+  expect(takeCaseChatContext("synthetic-session-2")).toBe(prompt.modelContext);
+  expect(takeCaseChatContext("synthetic-session-2")).toBeUndefined();
   expect(started).toEqual([f.root, f.root]);
   expect(nativeCalls).not.toContain("workspaceCreate");
   expect(secondRoute).toBe("/workspace/office/session/synthetic-session-2");

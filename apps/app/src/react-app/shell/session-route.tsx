@@ -70,6 +70,7 @@ import { analyticsSurface, captureAnalyticsEvent, markTaskRunStart } from "@/app
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { buildSessionPromptRequest, systemReminderPart } from "@/app/lib/system-reminder";
 import { yoloTurnContext } from "@/lawoss/domains/yolo/yolo-mode";
+import { takeCaseChatContext } from "@/lawoss/okf/case-chat-context";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
 import {
@@ -1541,7 +1542,8 @@ export function SessionRoute() {
       cacheKey: targetSessionId,
       runtimeKey: scope.runtimeKey,
     });
-    const turnSystemContext = [envSystemContext, draft.modelContext, pluginContext, yoloTurnContext()]
+    // 🟡 LAWOSS (P6): a new case chat's technical instructions go hidden with its first message.
+    const turnSystemContext = [envSystemContext, draft.modelContext, pluginContext, yoloTurnContext(), takeCaseChatContext(targetSessionId)]
       .filter((context): context is string => Boolean(context?.trim()))
       .join("\n\n");
     if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));

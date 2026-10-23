@@ -100,3 +100,11 @@ describe("„Podrobnosti“ karty zmeny súborov bez surového JSON (V10a)", () 
     expect(html).not.toContain("data-lawoss-file-details");
   });
 });
+
+describe("nový chat prípadu: technické pokyny idú modelu skryto (R1)", () => {
+  test("prvé odoslanie pridá skrytý pokyn chatu do system-reminder časti správy", () => {
+    const route = source("src/react-app/shell/session-route.tsx");
+    expect(route).toContain("yoloTurnContext(), takeCaseChatContext(targetSessionId)]");
+    expect(route).toContain("if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));");
+  });
+});
