@@ -10,7 +10,7 @@ import {
   withDefaultModel,
 } from "../src/lawoss/domains/onboarding/wizard/assistant-model";
 import { AssistantStepView } from "../src/lawoss/domains/onboarding/wizard/assistant-step";
-import { readyPlan, readyRows } from "../src/lawoss/domains/onboarding/wizard/ready-model";
+import { readyChatClient, readyPlan, readyRows } from "../src/lawoss/domains/onboarding/wizard/ready-model";
 import { ReadySummaryView } from "../src/lawoss/domains/onboarding/wizard/ready-step";
 import { wizardText } from "../src/lawoss/domains/onboarding/wizard/wizard-text";
 import { foundText } from "../src/lawoss/domains/onboarding/found-text";
@@ -53,9 +53,34 @@ describe("krok 4: predvolený model pripojeného poskytovateľa (N-A2-5)", () =>
     // Bez odporúčania prvý model s nástrojmi, nie obrázkový.
     expect(onboardingAutoModel(null, providerList(["openai"], { openai: OPENAI }))).toEqual(LUNA);
   });
-  test("vybraný dostupný model ostane; nedostupný sa nahradí", () => {
+  test("vybraný model sa nikdy neprepíše, ani keď v tomto zozname chýba (iný priečinok, vlastný poskytovateľ)", () => {
     expect(onboardingAutoModel(MINI, ONE)).toBeNull();
-    expect(onboardingAutoModel({ providerID: "openai", modelID: "gpt-5-zmazany" }, ONE)).toEqual(LUNA);
+    // Advokát má vlastného poskytovateľa v priestore A; onboarding číta zoznam priestoru B len s OpenAI.
+    const custom: ModelRef = { providerID: "kancelaria-llm", modelID: "qwen-72b" };
+    expect(onboardingAutoModel(custom, ONE)).toBeNull();
+    const { view, auto } = onboardingModelView(custom, ONE);
+    expect(auto).toBeNull();
+    expect(view.state).toBe("unavailable");
+    expect(view.choices?.length).toBe(2);
+    // Krok ukáže výber, ale nič neuloží.
+    let state = { defaultModel: custom as ModelRef | null, modelVariant: null as string | null };
+    const writes: string[] = [];
+    saveDefaultModel((updater: (previous: typeof state) => typeof state) => { writes.push("setPrefs"); state = updater(state); }, auto);
+    expect(writes).toEqual([]);
+    expect(state.defaultModel).toEqual(custom);
+    const html = renderToStaticMarkup(<AssistantStepView text={sk} locale="sk" model={view} boundariesOn={false} busy={false} onOpenAiSettings={noop} onContinue={noop} onSelectModel={noop} />);
+    expect(html).toContain("data-lawoss-ai-model-picker");
+    expect(html).toMatch(/<option value="" disabled="" selected="">Vyberte model<\/option>/);
+  });
+  test("platný uložený model mimo ponuky je vo výbere vybraný (nie „Vyberte model“ pri stave pripravený)", () => {
+    const list = providerList(["openai"], { openai: { ...OPENAI, "gpt-6-legacy": { name: "GPT-6 Legacy", toolcall: false } } }, { openai: "gpt-6-luna" });
+    const legacy: ModelRef = { providerID: "openai", modelID: "gpt-6-legacy" };
+    const { view } = onboardingModelView(legacy, list);
+    expect(view.state).toBe("ready");
+    expect(view.choices?.[0]).toEqual({ ...legacy, label: "OpenAI · GPT-6 Legacy" });
+    const html = renderToStaticMarkup(<AssistantStepView text={sk} locale="sk" model={view} boundariesOn={false} busy={false} onOpenAiSettings={noop} onContinue={noop} onSelectModel={noop} />);
+    expect(html).toMatch(/<option value="0" selected="">OpenAI · GPT-6 Legacy<\/option>/);
+    expect(html).not.toContain("Vyberte model");
   });
   test("bez poskytovateľa, bez zoznamu alebo pri viacerých poskytovateľoch sa nič nevyberá samo", () => {
     expect(onboardingAutoModel(null, providerList([], { openai: OPENAI }))).toBeNull();
@@ -139,6 +164,7 @@ describe("krok 6: s vybraným modelom asistent pripravený a chat s klientom hla
     { root: "/p/C002", name: "C002", result: result("w2", "/p/C002") },
     { root: "/p/C017", name: "C017", result: result("w3", "/p/C017") },
   ] };
+  const fromClient = (workspaceId: string) => ({ ...onboardingModelView(null, ONE).view, workspaceId });
   test("riadok AI asistent je Hotové bez opravy, keď sa model vybral sám", () => {
     const { view } = onboardingModelView(null, ONE);
     const ai = readyRows(sk, { connected: one, model: view, agent: "ask" }).find((row) => row.id === "ai");
@@ -146,13 +172,20 @@ describe("krok 6: s vybraným modelom asistent pripravený a chat s klientom hla
     expect(ai?.fix).toBeUndefined();
   });
   test("jeden klient aj prax s viacerými klientmi: chat je hlavná akcia, prehľad vedľa", () => {
-    const { view } = onboardingModelView(null, ONE);
-    expect(readyPlan(one, view)).toMatchObject({ primary: "chat", overview: "readyOverview", chatWith: { name: "C001 SYN Tatran" } });
-    expect(readyPlan(practice, view)).toMatchObject({ primary: "chat", overview: "readyOverviewClients", chatWith: { name: "C002" } });
-    const html = renderToStaticMarkup(<ReadySummaryView text={sk} found={foundText("sk")} connected={practice} model={view} agent="ask" busy={false} onGo={noop} onChat={noop} onOverview={noop} onTable={noop} />);
+    expect(readyChatClient(practice)?.name).toBe("C002");
+    expect(readyPlan(one, fromClient("w1"))).toMatchObject({ primary: "chat", overview: "readyOverview", chatWith: { name: "C001 SYN Tatran" } });
+    expect(readyPlan(practice, fromClient("w2"))).toMatchObject({ primary: "chat", overview: "readyOverviewClients", chatWith: { name: "C002" } });
+    const html = renderToStaticMarkup(<ReadySummaryView text={sk} found={foundText("sk")} connected={practice} model={fromClient("w2")} agent="ask" busy={false} onGo={noop} onChat={noop} onOverview={noop} onTable={noop} />);
     expect(html).toContain('data-lawoss-ready-primary="chat"');
     expect(html).toMatch(/class="lw-btn gold"[^>]*><svg[\s\S]*?<\/svg> Otvoriť chat s klientom C002<\/button><button type="button" class="lw-btn">Otvoriť klientov<\/button>/);
     expect(html).not.toContain("Pozor");
+  });
+  test("model pripravený v inom priestore alebo neznámo kde: hlavná akcia ostáva prehľad", () => {
+    expect(readyPlan(practice, onboardingModelView(null, ONE).view)).toMatchObject({ primary: "overview" });
+    expect(readyPlan(practice, fromClient("w3"))).toMatchObject({ primary: "overview" });
+    // Klient bez pracovného priečinka: pripravenosť jeho priestoru sa nedá overiť.
+    const noWorkspace: WizardConnected = { kind: "clients", root: "/p/C009", clients: [{ root: "/p/C009", name: "C009", result: { result: "applied", clientRoot: "/p/C009" } }] };
+    expect(readyPlan(noWorkspace, fromClient("w1"))).toMatchObject({ primary: "overview" });
   });
   test("bez modelu ostáva prehľad a oprava (chat by nefungoval)", () => {
     expect(readyPlan(practice, { state: "pick-model" })).toMatchObject({ primary: "overview", overview: "readyOverviewClients" });

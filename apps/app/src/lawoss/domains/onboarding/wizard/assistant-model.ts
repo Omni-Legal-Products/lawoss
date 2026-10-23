@@ -28,14 +28,17 @@ const connectedProviders = (list: ProviderListResponse | null | undefined) =>
   getConnectedProviderItems(list).filter((provider) => !RETIRED_FREE_PROVIDER_IDS.has(provider.id));
 
 /**
- * Model, ktorý krok vyberie sám: len keď je poskytovateľ pripojený a model chýba alebo už nie je
- * dostupný. Pravidlo je to isté ako v rozhovore (jeden pripojený poskytovateľ, jeho odporúčaný model
+ * Model, ktorý krok vyberie sám: len keď je poskytovateľ pripojený a **žiadny** model nie je vybraný
+ * (`pick-model`). Pravidlo je to isté ako v rozhovore (jeden pripojený poskytovateľ, jeho odporúčaný model
  * s nástrojmi); pri viacerých poskytovateľoch nevyberá a advokát si model zvolí sám.
+ *
+ * Vybraný, no v tomto zozname nedostupný model (`unavailable`) sa neprepisuje: zoznam môže byť z iného
+ * priečinka (onboarding číta aktívny priestor), kde vlastný poskytovateľ advokáta chýba. Krok ukáže výber.
  */
 export function onboardingAutoModel(defaultModel: ModelRef | null | undefined, list: ProviderListResponse | null | undefined): ModelRef | null {
   if (!list) return null;
   const state = composerModelState(onboardingModelReadiness(defaultModel, list));
-  if (state !== "pick-model" && state !== "unavailable") return null;
+  if (state !== "pick-model") return null;
   const model = getDefaultModelForSingleConnectedProvider(list);
   return model && composerModelState(onboardingModelReadiness(model, list)) === "ready" ? model : null;
 }
@@ -59,7 +62,8 @@ export function withDefaultModel<P extends ModelPrefs>(previous: P, next: ModelR
   return { ...previous, defaultModel: { providerID: next.providerID, modelID: next.modelID }, modelVariant: null };
 }
 
-type ModelPrefs = { defaultModel: ModelRef | null; modelVariant: string | null };
+/** Časť nastavení s predvoleným modelom (`LocalPreferences`). */
+export type ModelPrefs = { defaultModel: ModelRef | null; modelVariant: string | null };
 
 /** Zápis do nastavení (`useLocal().setPrefs`) pre automatický výber aj zmenu vo výbere; bez modelu nič. */
 export function saveDefaultModel<P extends ModelPrefs>(setPrefs: (updater: (previous: P) => P) => void, model: ModelRef | null): void {
@@ -78,8 +82,12 @@ export function onboardingModelView(defaultModel: ModelRef | null | undefined, l
   const providers = connected.map((provider) => ({ id: provider.id, name: provider.name }));
   const choices = onboardingModelChoices(list);
   if (state !== "ready") return { view: { state, providers, choices }, auto };
+  const selected = readiness.selectedModel;
+  const modelLabel = formatModelLabel(selected, connected);
+  // Platný uložený model mimo ponuky (napr. bez príznaku nástrojov v katalógu) ostane vo výbere vybraný.
+  const listed = choices.some((choice) => sameModel(choice, selected));
   return {
-    view: { state, modelLabel: formatModelLabel(readiness.selectedModel, connected), providers, choices, selected: readiness.selectedModel },
+    view: { state, modelLabel, providers, choices: listed ? choices : [{ ...selected, label: modelLabel }, ...choices], selected },
     auto,
   };
 }

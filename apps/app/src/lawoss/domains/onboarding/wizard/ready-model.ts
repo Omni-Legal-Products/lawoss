@@ -60,6 +60,12 @@ export type ReadyPlan = {
   offerTable: boolean;
 };
 
+/** Klient, s ktorým krok 6 otvorí chat: prvý s pracovným priečinkom, inak prvý pridaný. */
+export function readyChatClient(connected: WizardConnected | undefined): ConnectedClient | undefined {
+  if (connected?.kind !== "clients") return undefined;
+  return connected.clients.find((client) => client.result.workspace) ?? connected.clients[0];
+}
+
 /**
  * Prvá úloha: s pripraveným modelom chat s (prvým) klientom (pripravená správa, neodošle sa sama), prehľad
  * klienta či klientov vedľa; bez modelu prehľad. Celá prax ako jeden priečinok nemá klienta, preto prehľad praxe;
@@ -70,10 +76,13 @@ export function readyPlan(connected: WizardConnected | undefined, model: AiModel
   if (!connected) return { ...none, primary: "connectFolder", overview: "readyFinish" };
   if (connected.kind === "fresh") return { ...none, primary: "addClient", overview: "readyAddClient" };
   if (connected.kind === "practice") return { ...none, primary: "overview", overview: "readyOverviewPractice" };
-  const chatWith = connected.clients.find((client) => client.result.workspace) ?? connected.clients[0];
+  const chatWith = readyChatClient(connected);
   if (!chatWith) return { ...none, primary: "connectFolder", overview: "readyFinish" };
   // Prax s viacerými klientmi ponúkne chat s prvým pridaným klientom ako hlavnú akciu (#197, N-A2-4); prehľad je vedľa.
-  const primary = model.state === "ready" ? "chat" : "overview";
+  // Chat len vtedy, keď je model pripravený v priestore tohto klienta (ten istý zoznam ako `prepareClientChat`);
+  // neznáma pripravenosť klienta ponechá hlavnú akciu na prehľade, aby chat neskončil „bez modelu“.
+  const workspaceId = chatWith.result.workspace?.id;
+  const primary = model.state === "ready" && workspaceId !== undefined && model.workspaceId === workspaceId ? "chat" : "overview";
   return { primary, overview: connected.clients.length === 1 ? "readyOverview" : "readyOverviewClients", chatWith, offerTable: true };
 }
 

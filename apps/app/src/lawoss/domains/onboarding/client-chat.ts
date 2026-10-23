@@ -16,12 +16,19 @@ type Text = (key: FoundTextKey, params?: Record<string, string | number>) => str
 /** Prečo sa chat neotvoril: bez modelu, zapnuté AI hranice, alebo zlyhanie (engine, skill, založenie chatu). */
 export type ClientChatUnavailable = "no-model" | "boundaries" | "failed";
 export type ClientChatOutcome = { route: string } | { unavailable: ClientChatUnavailable };
-/** Chat v priečinku klienta: id pracovného priečinka (ak ho výsledok nesie), jeho cesta a prvá správa. */
-export type ClientChatRequest = { workspaceId?: string; directory: string; prompt: string };
+/**
+ * Chat v priečinku klienta: id pracovného priečinka (ak ho výsledok nesie), jeho cesta a prvá správa.
+ * `promptWithoutSkill` sa použije, keď engine skill /novy-spis nevidí (správa ho potom nespomína).
+ */
+export type ClientChatRequest = { workspaceId?: string; directory: string; prompt: string; promptWithoutSkill: string };
 
-/** Prvá správa agentovi zo slovníka; meno klienta ide ako JSON, aby nepridalo pokyn (ako rýchle akcie). */
-export function clientChatPrompt(text: Text, name: string): string {
-  return text("chatPrompt", { client: JSON.stringify(name) });
+/**
+ * Prvá správa agentovi zo slovníka; meno klienta ide ako JSON, aby nepridalo pokyn (ako rýchle akcie).
+ * Bez skillu (`skill: false`) správa prípady nezakladá ani nepresúva a ponúkne založenie v LAWOSS, aby
+ * agent nevymyslel vlastnú štruktúru mimo OKF.
+ */
+export function clientChatPrompt(text: Text, name: string, skill = true): string {
+  return text(skill ? "chatPrompt" : "chatPromptNoSkill", { client: JSON.stringify(name) });
 }
 
 /** Poškodená hodnota hraníc platí ako zapnuté (`AiBoundaries.source === "invalid"`). */
@@ -52,8 +59,8 @@ export type ClientChatDeps = {
   installSkills(): Promise<unknown>;
   /** Či engine priečinka skill vidí; pri potrebe ho obnoví (`ensureSkillAvailable`). */
   skillAvailability(name: string): Promise<SkillAvailability>;
-  /** Založí chat v priečinku klienta s pripravenou správou a vráti trasu. */
-  open(): Promise<string>;
+  /** Založí chat v priečinku klienta s pripravenou správou (so skillom alebo bez neho) a vráti trasu. */
+  open(skill: boolean): Promise<string>;
 };
 
 /**
@@ -62,7 +69,8 @@ export type ClientChatDeps = {
  * Skilly sú pomôcka, nie podmienka (N-A2-4, MČ 23. 10. 2026): prvá správa je obyčajný text, prehľad
  * a návrh prípadov ich nepotrebujú a správa agentovi káže povedať na rovinu, keď skill odmietne. Chat sa
  * preto otvorí aj vtedy, keď sa balík nenainštaluje alebo ho engine nevidí; slepá ulička by advokátovi
- * nedala nič. Zlyhanie zoznamu poskytovateľov alebo založenia chatu vráti `failed`.
+ * nedala nič; správa vtedy skill nespomína (`promptWithoutSkill`). Zlyhanie zoznamu poskytovateľov alebo
+ * založenia chatu vráti `failed`.
  */
 export async function prepareClientChat(deps: ClientChatDeps): Promise<ClientChatOutcome> {
   try {
@@ -70,8 +78,9 @@ export async function prepareClientChat(deps: ClientChatDeps): Promise<ClientCha
     const gap = clientChatGap({ boundaries, defaultModel: deps.defaultModel, providerList: await deps.providerList() });
     if (gap) return { unavailable: gap };
     const skills = await prepareChatSkill(deps);
-    if (skills !== "ready" && skills !== "reloaded") console.warn("[lawoss] client chat opens without the OKF skill", CLIENT_CHAT_SKILL, skills);
-    return { route: await deps.open() };
+    const skill = skills === "ready" || skills === "reloaded";
+    if (!skill) console.warn("[lawoss] client chat opens without the OKF skill", CLIENT_CHAT_SKILL, skills);
+    return { route: await deps.open(skill) };
   } catch (reason) {
     console.warn("[lawoss] client chat after adding a folder", reason);
     return { unavailable: "failed" };
