@@ -1351,6 +1351,17 @@ var MATTER_WORDS = new Set([...SK_MATTER_WORDS, ...CZ_MATTER_WORDS].map(fold));
 var firstWord = (name) => fold(name.normalize("NFC").trim().split(/[\s,.;:()_-]+/u)[0] ?? "");
 var startsWithMatterWord = (name) => MATTER_WORDS.has(firstWord(name));
 var looksLikeMatterName = (name) => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined || startsWithMatterWord(name));
+var CODE = /^(\p{Lu}{1,3})[-_ ]?(\d{3,5})(?=$|[\s_.,-])/u;
+var YEAR = /^(?:19|20)\d{2}$/;
+var CAMERA_PREFIXES = new Set(["IMG", "DSC", "PIC", "MVI", "VID", "MOV", "PXL", "SAM", "DJI"]);
+var codeOf = (name) => {
+  const match = CODE.exec(name);
+  const [whole, prefix, digits] = match ?? [];
+  if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix))
+    return;
+  return { prefix, rest: name.slice(whole.length).replace(/^[\s_.,-]+/, "") };
+};
+var looksLikeMatterFolder = (name) => codeOf(name) !== undefined || looksLikeMatterName(name);
 
 // src/onboarding/suggest.ts
 var PRACTICE_MIN_CLIENTS = 5;
@@ -1370,16 +1381,6 @@ var OFFICE_DIRS = ["Office", "_kancelaria"];
 var OFFICE_EVIDENCE = new Set(["agents.md", "claude.md", "memory"]);
 var CLIENTS_DIR = "Klienti";
 var LETTER = /^\p{Lu}$/u;
-var CODE = /^(\p{Lu}{1,3})[-_ ]?(\d{3,5})(?=$|[\s_.,-])/u;
-var YEAR = /^(?:19|20)\d{2}$/;
-var CAMERA_PREFIXES = new Set(["IMG", "DSC", "PIC", "MVI", "VID", "MOV", "PXL", "SAM", "DJI"]);
-var codeOf = (name) => {
-  const match = CODE.exec(name);
-  const [whole, prefix, digits] = match ?? [];
-  if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix))
-    return;
-  return { prefix, rest: name.slice(whole.length).replace(/^[\s_.,-]+/, "") };
-};
 var nameOf = (path) => path.split("/").pop() ?? path;
 var indexChildren = (entries) => {
   const index = new Map;
@@ -1468,12 +1469,10 @@ var depthOf = (path) => path ? path.split("/").length : 0;
 function mattersOf(index, files, unit) {
   const prefix = unit ? `${unit}/` : "";
   const dirs = childrenOf(index, unit).filter((entry) => entry.kind === "directory");
-  const folder = dirs.find((entry) => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()));
-  const candidates = folder ? childrenOf(index, folder.path).filter((entry) => entry.kind === "directory") : dirs.filter((entry) => {
-    const name = nameOf(entry.path);
-    return [...MATTER_CARDS].some((card) => files.has(`${entry.path}/${card}`)) || codeOf(name) !== undefined || looksLikeMatterName(name);
-  });
-  return candidates.map((entry) => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
+  const folders = dirs.filter((entry) => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()));
+  const filed = folders.flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
+  const beside = dirs.filter((entry) => !folders.includes(entry) && ([...MATTER_CARDS].some((card) => files.has(`${entry.path}/${card}`)) || looksLikeMatterFolder(nameOf(entry.path))));
+  return [...filed, ...beside].map((entry) => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
 }
 function unitsOf(survey, index, paths) {
   const files = new Set(survey.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));

@@ -266,3 +266,23 @@ test("náhľad stromu: prípady a počty súborov z prieskumu, kancelária aj je
   expect(root?.matters.map(matter => matter.name).sort()).toEqual(["2024-03 Kúpna zmluva", "M004 Vyúčtovanie", "Zmluva"]);
   expect(root).toMatchObject({ files: 3, exact: true });
 });
+
+test("náhľad stromu: prázdny Spisy/ z pomocných súborov neskryje prípady vedľa neho (N-A2-3)", async () => {
+  const practice = await tree([
+    "AGENTS.md",
+    "C002 SYN Hron/client.md",
+    "C002 SYN Hron/Spisy/.keep",
+    "C002 SYN Hron/01_Podklady/.keep",
+    "C002 SYN Hron/M004 Vyúčtovanie nájmu/a.pdf",
+    "C002 SYN Hron/M005 Neakceptovaný modul/b.pdf",
+    "C017 SYN Šimková/client.md",
+    "C017 SYN Šimková/Spisy/M049 Reklamácia/c.pdf",
+    "C017 SYN Šimková/M050 Výpoveď/d.pdf",
+  ]);
+  const suggestion = await suggestOnboardingLevel(practice);
+  const unit = (path: string) => suggestion.units.find(item => item.path === path);
+  expect(unit("C002 SYN Hron")?.matters.map(matter => matter.path).sort()).toEqual(["M004 Vyúčtovanie nájmu", "M005 Neakceptovaný modul"]);
+  expect(unit("C002 SYN Hron")?.matterCount).toBe(2);
+  // Spisy/ a prípady vedľa neho spolu, pracovné priečinky ani samotný Spisy/ nie.
+  expect(unit("C017 SYN Šimková")?.matters.map(matter => matter.path).sort()).toEqual(["M050 Výpoveď", "Spisy/M049 Reklamácia"]);
+});

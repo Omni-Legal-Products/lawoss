@@ -19,7 +19,7 @@ import { normalizeDirectoryPath, normalizeDirectoryQueryPath } from "@/app/utils
 import { addDays, buildOverview, deadlineTier, ISO_DAY, isCalendarDay, missingScopeLevels, type DeadlineTier, type MatterInput, type MatterOverview, type Overview } from "../../../../../lawoss/okf/read";
 import type { OkfRecord } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
-import { looksLikeMatterName } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
+import { looksLikeMatterFolder } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { validateStore } from "../../../../../lawoss/okf-pamat/src/validate.ts";
 import { selectSourceSnapshot } from "./practice-read-state";
@@ -151,7 +151,7 @@ export async function readWorkspaceMemory(
         for (const matter of await dirs(child.path)) await discover(matter, true, depth + 2, clientFolder);
       // Priamy podpriečinok klienta s kartou pomenovaný ako vec (`2025-01 Spor`, spisová značka) je vec aj bez
       // karty; rovnaký vzor ako rozpoznanie a roztriedenie (suggest-patterns.ts), D1 2026-10-09.
-      } else await discover(child.path, hasClientCard && !isWorkDir(child.name) && looksLikeMatterName(child.name), depth + 1, clientFolder);
+      } else await discover(child.path, hasClientCard && !isWorkDir(child.name) && looksLikeMatterFolder(child.name), depth + 1, clientFolder);
     }
   };
   await discover("");

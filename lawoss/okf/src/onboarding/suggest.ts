@@ -8,7 +8,7 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 import { realpath } from "../canonical-path.ts";
 import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
 import { findAncestorOffice, VOLATILE_ENTRY } from "./classify.ts";
-import { hasLegalForm, isBareDate, looksLikeMatterName, startsWithMatterWord } from "./suggest-patterns.ts";
+import { codeOf, hasLegalForm, isBareDate, looksLikeMatterFolder, looksLikeMatterName, startsWithMatterWord } from "./suggest-patterns.ts";
 
 export type SuggestedLevel = "practice" | "client" | "matter" | "unknown";
 export type SuggestionSignal = "office_config" | "office_without_config" | "client_card" | "matter_card" | "legal_form_children" | "matter_named_children" | "coded_hierarchy" | "letter_buckets" | "matter_named_root" | "documents_only" | "plain_directories" | "empty" | "inside_office";
@@ -50,22 +50,6 @@ const OFFICE_DIRS = ["Office", "_kancelaria"];
 const OFFICE_EVIDENCE = new Set(["agents.md", "claude.md", "memory"]);
 const CLIENTS_DIR = "Klienti";
 const LETTER = /^\p{Lu}$/u;
-/**
- * Interný kód na začiatku mena („C002 Hron…“, „M004 Vyúčtovanie…“, „C001-syn-…“): prefix z 1 až 3 veľkých písmen
- * a 3 až 5 číslic. Dvojciferné sekcie („D01 Podania“, „K-01“, „Q01“) kódom klienta ani veci nie sú.
- */
-const CODE = /^(\p{Lu}{1,3})[-_ ]?(\d{3,5})(?=$|[\s_.,-])/u;
-/** Rok (FY2023, SP-2023-01, IMG_2023) nie je číslo klienta ani veci. */
-const YEAR = /^(?:19|20)\d{2}$/;
-/** Mená súborov fotoaparátov a telefónov („IMG_0001“, „DSC 001“, „MVI_0123“). */
-const CAMERA_PREFIXES = new Set(["IMG", "DSC", "PIC", "MVI", "VID", "MOV", "PXL", "SAM", "DJI"]);
-type Code = { prefix: string; rest: string };
-const codeOf = (name: string): Code | undefined => {
-  const match = CODE.exec(name);
-  const [whole, prefix, digits] = match ?? [];
-  if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix)) return undefined;
-  return { prefix, rest: name.slice(whole.length).replace(/^[\s_.,-]+/, "") };
-};
 
 /** Meno z relatívnej cesty položky prieskumu, tá sa skladá cez „/“ na každej platforme. Koreň je natívna cesta, preto `basename`. */
 const nameOf = (path: string): string => path.split("/").pop() ?? path;
@@ -155,18 +139,18 @@ function legacyOffice(index: ChildIndex): boolean {
 const depthOf = (path: string): number => path ? path.split("/").length : 0;
 
 /**
- * Prípady jednotky: podpriečinky `Spisy/` (štruktúra OKF), inak podpriečinky s kartou veci, kódom („M004 …“)
- * alebo menom veci. Pracovné priečinky klienta („01_Podklady“) prípadmi nie sú.
+ * Prípady jednotky: podpriečinky `Spisy/` (štruktúra OKF) a popri nich podpriečinky s kartou veci, kódom („M004 …“)
+ * alebo menom veci. Prázdny `Spisy/` z pomocných súborov tak prípady vedľa neho neskryje (N-A2-3, 23. 10. 2026).
+ * Pracovné priečinky klienta („01_Podklady“) prípadmi nie sú.
  */
 function mattersOf(index: ChildIndex, files: ReadonlySet<string>, unit: string): SuggestedClient[] {
   const prefix = unit ? `${unit}/` : "";
   const dirs = childrenOf(index, unit).filter(entry => entry.kind === "directory");
-  const folder = dirs.find(entry => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()));
-  const candidates = folder ? childrenOf(index, folder.path).filter(entry => entry.kind === "directory") : dirs.filter(entry => {
-    const name = nameOf(entry.path);
-    return [...MATTER_CARDS].some(card => files.has(`${entry.path}/${card}`)) || codeOf(name) !== undefined || looksLikeMatterName(name);
-  });
-  return candidates.map(entry => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
+  const folders = dirs.filter(entry => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()));
+  const filed = folders.flatMap(folder => childrenOf(index, folder.path).filter(entry => entry.kind === "directory"));
+  const beside = dirs.filter(entry => !folders.includes(entry)
+    && ([...MATTER_CARDS].some(card => files.has(`${entry.path}/${card}`)) || looksLikeMatterFolder(nameOf(entry.path))));
+  return [...filed, ...beside].map(entry => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
 }
 
 /** Strom náhľadu z prieskumu (počty súborov, prípady); prieskum sa nečíta znova. */
