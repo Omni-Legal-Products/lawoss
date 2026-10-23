@@ -1,23 +1,21 @@
 /** @jsxImportSource react */
 import { AiGuidance } from "../ai/guidance";
 import { useEffect, useState } from "react";
+import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 import { preferRealWorkspace } from "../../home-workspace";
 import { CircleAlert, CircleCheck, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Language } from "@/i18n";
-import type { Client } from "@/app/types";
+import type { Client, ModelRef } from "@/app/types";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { createClient } from "@/app/lib/opencode";
-import { formatModelLabel } from "@/app/utils";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
-import { getConnectedProviderItems, useProviderListQuery } from "@/react-app/infra/provider-list-query";
+import { normalizeDirectoryPath } from "@/app/utils";
+import { useProviderListQuery } from "@/react-app/infra/provider-list-query";
 import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 import { useLocal } from "@/react-app/kernel/local-provider";
-import {
-  composerModelState,
-  onboardingModelReadiness,
-  type ComposerModelState,
-} from "@/lawoss/shell/model-readiness";
+import type { ComposerModelState } from "@/lawoss/shell/model-readiness";
+import { onboardingModelView, saveDefaultModel, type ModelChoice, type ModelPrefs } from "./wizard/assistant-model";
 
 type AiStepText = {
   checking: string;
@@ -84,7 +82,18 @@ export type AiModelView = {
   modelLabel?: string;
   /** Pripojení poskytovatelia (karty v kroku AI asistent, C1); bez enginu prázdne. */
   providers?: readonly { id: string; name: string }[];
+  /** Modely pripojených poskytovateľov na zmenu v kroku AI asistent (N-A2-5). */
+  choices?: readonly ModelChoice[];
+  /** Vybraný model, keď je stav `ready`. */
+  selected?: ModelRef;
+  /** Pripojený poskytovateľ ponúka len bezplatné modely; s podkladmi klientov ich nepoužívame. */
+  onlyFree?: boolean;
+  /** Priestor, z ktorého zoznamu poskytovateľov stav pochádza (len po úspešnom načítaní). */
+  workspaceId?: string;
 };
+
+/** Priečinok klienta, ktorého pripravenosť má krok čítať (krok 6: klient, s ktorým sa otvorí chat). */
+export type OnboardingModelScope = { workspaceId?: string; directory?: string };
 
 /**
  * Pure view of the AI step: model state, the way to AI settings and continue.
@@ -151,14 +160,14 @@ export function AiStepView({
   );
 }
 
-type OpencodeTarget = { client: Client; baseUrl: string; directory: string };
+type OpencodeTarget = { client: Client; baseUrl: string; directory: string; workspaceId: string };
 
 /**
  * The OpenCode endpoint whose provider list the composer would read: the active
  * workspace, else the first local one. Null when no workspace exists yet; the
  * readiness then falls back exactly as the composer does before its query resolves.
  */
-async function resolveOpencodeTarget(): Promise<OpencodeTarget | null> {
+async function resolveOpencodeTarget(scope?: OnboardingModelScope): Promise<OpencodeTarget | null> {
   const connection = await resolveLegalworkConnection();
   if (!connection.normalizedBaseUrl || !(connection.resolvedToken || connection.resolvedHostToken)) return null;
   const server = createLegalworkServerClient({
@@ -167,7 +176,13 @@ async function resolveOpencodeTarget(): Promise<OpencodeTarget | null> {
     hostToken: connection.resolvedHostToken || undefined,
   });
   const list = await server.listWorkspaces();
+  // Krok 6 číta priestor klienta, s ktorým sa otvorí chat (ten istý zoznam ako `prepareClientChat`).
+  const directory = scope?.directory ? normalizeDirectoryPath(scope.directory) : "";
+  const scoped = scope
+    ? list.items.find((item) => item.id === scope.workspaceId) ?? (directory ? list.items.find((item) => normalizeDirectoryPath(item.path) === directory) : undefined)
+    : undefined;
   const workspace =
+    scoped ??
     preferRealWorkspace(list.items, list.activeId, (item) => item.id) ??
     list.items.find((item) => item.id === list.activeId);
   if (!workspace) return null;
@@ -176,20 +191,35 @@ async function resolveOpencodeTarget(): Promise<OpencodeTarget | null> {
     token: connection.resolvedToken,
   });
   if (!endpoint?.token) return null;
-  const directory = workspace.path?.trim() ?? "";
+  const path = workspace.path?.trim() ?? "";
   return {
-    client: createClient(endpoint.opencodeBaseUrl, directory || undefined, { token: endpoint.token, mode: "legalwork" }),
+    client: createClient(endpoint.opencodeBaseUrl, path || undefined, { token: endpoint.token, mode: "legalwork" }),
     baseUrl: endpoint.opencodeBaseUrl,
-    directory,
+    directory: path,
+    workspaceId: workspace.id,
   };
 }
 
-export function useOnboardingModel(): AiModelView {
+/**
+ * Stav kroku zo zoznamu poskytovateľov a uloženie automaticky vybraného modelu. Pripojený poskytovateľ
+ * bez modelu: odporúčaný model sa uloží ako v Nastaveniach AI (N-A2-5), aby ho použil aj chat; rovnaký
+ * model `withDefaultModel` nemení, takže sa to nezacyklí.
+ */
+export function useOnboardingModelView<P extends ModelPrefs>(defaultModel: ModelRef | null, list: ProviderListResponse | undefined, setPrefs: (updater: (previous: P) => P) => void): AiModelView {
+  const { view, auto } = onboardingModelView(defaultModel, list);
+  useEffect(() => {
+    saveDefaultModel(setPrefs, auto);
+  }, [auto?.providerID, auto?.modelID, setPrefs]);
+  return view;
+}
+
+export function useOnboardingModel(scope?: OnboardingModelScope): AiModelView {
   const local = useLocal();
   const [target, setTarget] = useState<OpencodeTarget | null | undefined>(undefined);
   useEffect(() => {
     let cancelled = false;
-    void resolveOpencodeTarget()
+    setTarget(undefined);
+    void resolveOpencodeTarget(scope)
       .catch(() => null)
       .then((value) => {
         if (!cancelled) setTarget(value);
@@ -197,21 +227,22 @@ export function useOnboardingModel(): AiModelView {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [scope?.workspaceId, scope?.directory]);
   const query = useProviderListQuery({
     client: target?.client ?? null,
     baseUrl: target?.baseUrl,
     directory: target?.directory,
   });
+  const view = useOnboardingModelView(local.prefs.defaultModel, target ? query.data : undefined, local.setPrefs);
   if (target === undefined || (target && query.isPending)) return { state: "checking" };
   if (target === null) return { state: "no-workspace" };
-  const readiness = onboardingModelReadiness(local.prefs.defaultModel, query.data);
-  const state = composerModelState(readiness);
-  const connected = getConnectedProviderItems(query.data);
-  const providers = connected.map((provider) => ({ id: provider.id, name: provider.name }));
-  return state === "ready"
-    ? { state, modelLabel: formatModelLabel(readiness.selectedModel, connected), providers }
-    : { state, providers };
+  return query.data ? { ...view, workspaceId: target.workspaceId } : view;
+}
+
+/** Zmena modelu v kroku AI asistent: uloží sa ako predvolený model v Nastaveniach AI. */
+export function useOnboardingModelSelect(): (model: ModelRef) => void {
+  const { setPrefs } = useLocal();
+  return (model) => saveDefaultModel(setPrefs, model);
 }
 
 /** AI step with live state. */

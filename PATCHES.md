@@ -1386,6 +1386,7 @@ New focused viewer hook/source registry and mounted regression reuse existing na
 | Súbory | Zmena a dôvod |
 |---|---|
 | `apps/app/src/react-app/shell/welcome-route.tsx` | Odovzdá `onOpenClientChat` z LAWOSS `lawoss/domains/onboarding/client-chat-open.ts` do `LawossWelcomePage` s predvoleným modelom z `local.prefs` (+1 import, +1 komentár, 1 riadok zmenený). „Toto som našiel“ potom pri klientovi ponúkne „Otvoriť chat s klientom“: po registrácii skontroluje AI hranice a model, nainštaluje skilly OKF, overí `/novy-spis` v engine a založí chat v priečinku klienta s pripravenou prvou správou; dokončenie onboardingu pristane v chate cez existujúce `completion.landing`. Rozhodnutie MČ 19. 10. 2026: po pridaní existujúceho priečinka klienta sa otvorí chat ku klientovi, tabuľka usporiadania ostane ako pokročilá voľba. |
+| `apps/app/src/react-app/shell/welcome-route.tsx` | Pri dokončení onboardingu sa skilly OKF prvého klienta inštalujú cez LAWOSS `installOnboardingSkillsQuietly` (`lawoss/domains/onboarding/install-pack.ts`) namiesto `installMissingOnboardingSkills` (import rozšírený, +1 komentár, 1 riadok zmenený). Zlyhanie sa len zapíše, rovnako ako pri ostatných klientoch dávky. Skilly sú pomôcka, nie podmienka (N-A2-4, MČ 23. 10. 2026, fix/p2-onboarding-model-chat). Test V10c skončil po otvorení chatu alebo pri „Otvoriť LAWOSS“ na „Niečo sa nepodarilo“ (`Skill not found: novy-spis`). |
 
 ### Pripojené priečinky klienta (2026-10-20, feat/pripojene-priecinky)
 

@@ -98,7 +98,7 @@ export function ReadySummaryView({ text, found, connected, model, agent, busy, n
             <p className="text-sm text-muted-foreground">{text("readyChatHint")}</p>
             <div className="lw-wiz-actions">
               {chat(true)}
-              <button type="button" className="lw-btn" disabled={busy} onClick={onOverview}>{text("readyOverview")}</button>
+              <button type="button" className="lw-btn" disabled={busy} onClick={onOverview}>{text(plan.overview)}</button>
             </div>
           </>
         ) : plan.primary === "connectFolder" ? (
@@ -109,7 +109,6 @@ export function ReadySummaryView({ text, found, connected, model, agent, busy, n
         ) : (
           <div className="lw-wiz-actions">
             <button type="button" className="lw-btn gold" disabled={busy} onClick={onOverview}>{text(plan.overview)}</button>
-            {plan.offerChat ? chat?.(false) : null}
           </div>
         )}
       </section>
@@ -145,7 +144,7 @@ export function ReadyStep(props: ReadyStepProps) {
   const chat = onOpenChat ? createClientChatFlow({
     register: (registered) => onRegister(registered, completion),
     openChat: onOpenChat,
-    prompt: (name) => clientChatPrompt(found, name),
+    prompt: (name, skill) => clientChatPrompt(found, name, skill),
     done: (registered, landing) => onFinish(registered, { ...completion, landing }),
     show: setPhase,
   }) : undefined;

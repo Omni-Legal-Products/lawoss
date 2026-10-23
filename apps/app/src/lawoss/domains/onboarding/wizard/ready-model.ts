@@ -1,6 +1,6 @@
 /**
  * Súhrn a prvá úloha kroku „Pripravené“ (C1) bez Reactu: čo je pripojené, čo funguje, čo chýba a jedna
- * prvá úloha so splnenými predpokladmi (chat len s pripraveným modelom a jedným klientom, inak prehľad).
+ * prvá úloha so splnenými predpokladmi (chat len s pripraveným modelom a pridaným klientom, inak prehľad).
  */
 import type { OnboardingApplyResult } from "../api";
 import type { BatchItem } from "../found-flow";
@@ -56,26 +56,34 @@ export type ReadyPlan = {
   overview: WizardTextKey;
   /** Klient pre chat (prvý s pracovným priečinkom). */
   chatWith?: ConnectedClient;
-  /** Chat ako vedľajšia akcia (prax s pripraveným modelom). */
-  offerChat: boolean;
   /** „Usporiadať podľa tabuľky“ v Pokročilé. */
   offerTable: boolean;
 };
 
+/** Klient, s ktorým krok 6 otvorí chat: prvý s pracovným priečinkom, inak prvý pridaný. */
+export function readyChatClient(connected: WizardConnected | undefined): ConnectedClient | undefined {
+  if (connected?.kind !== "clients") return undefined;
+  return connected.clients.find((client) => client.result.workspace) ?? connected.clients[0];
+}
+
 /**
- * Prvá úloha: pri jednom klientovi a pripravenom modeli chat s klientom (pripravená správa, neodošle sa sama),
- * inak prehľad klienta či praxe; nová kancelária pridá prvého klienta; bez priečinka návrat na Dokumenty.
+ * Prvá úloha: s pripraveným modelom chat s (prvým) klientom (pripravená správa, neodošle sa sama), prehľad
+ * klienta či klientov vedľa; bez modelu prehľad. Celá prax ako jeden priečinok nemá klienta, preto prehľad praxe;
+ * nová kancelária pridá prvého klienta; bez priečinka návrat na Dokumenty.
  */
 export function readyPlan(connected: WizardConnected | undefined, model: AiModelView): ReadyPlan {
-  const none = { offerChat: false, offerTable: false } as const;
+  const none = { offerTable: false } as const;
   if (!connected) return { ...none, primary: "connectFolder", overview: "readyFinish" };
   if (connected.kind === "fresh") return { ...none, primary: "addClient", overview: "readyAddClient" };
   if (connected.kind === "practice") return { ...none, primary: "overview", overview: "readyOverviewPractice" };
-  const chatWith = connected.clients.find((client) => client.result.workspace) ?? connected.clients[0];
+  const chatWith = readyChatClient(connected);
   if (!chatWith) return { ...none, primary: "connectFolder", overview: "readyFinish" };
-  const modelReady = model.state === "ready";
-  if (connected.clients.length === 1) return { primary: modelReady ? "chat" : "overview", overview: "readyOverview", chatWith, offerChat: false, offerTable: true };
-  return { primary: "overview", overview: "readyOverviewClients", chatWith, offerChat: modelReady, offerTable: true };
+  // Prax s viacerými klientmi ponúkne chat s prvým pridaným klientom ako hlavnú akciu (#197, N-A2-4); prehľad je vedľa.
+  // Chat len vtedy, keď je model pripravený v priestore tohto klienta (ten istý zoznam ako `prepareClientChat`);
+  // neznáma pripravenosť klienta ponechá hlavnú akciu na prehľade, aby chat neskončil „bez modelu“.
+  const workspaceId = chatWith.result.workspace?.id;
+  const primary = model.state === "ready" && workspaceId !== undefined && model.workspaceId === workspaceId ? "chat" : "overview";
+  return { primary, overview: connected.clients.length === 1 ? "readyOverview" : "readyOverviewClients", chatWith, offerTable: true };
 }
 
 /** Výsledok a doplnenie dokončenia: kam appka pristane a koho zaregistruje. */

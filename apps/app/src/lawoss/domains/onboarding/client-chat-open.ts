@@ -50,6 +50,6 @@ export async function openOnboardedClientChat(request: ClientChatRequest, option
       return engine ? ensureSkillAvailable(engine, name) : "missing";
     },
     // Priečinok klienta je pracovný priečinok; jeho registrovaná cesta je tá, ktorú server overuje.
-    open: () => openSessionWithPrompt(connection, workspace, request.prompt, toSessionTransportDirectory(workspace.path)),
+    open: (skill) => openSessionWithPrompt(connection, workspace, skill ? request.prompt : request.promptWithoutSkill, toSessionTransportDirectory(workspace.path)),
   });
 }

@@ -417,7 +417,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
   const chat = onOpenChat ? createClientChatFlow({
     register: (result) => onRegister(result, completion()),
     openChat: onOpenChat,
-    prompt: (name) => clientChatPrompt(text, name),
+    prompt: (name, skill) => clientChatPrompt(text, name, skill),
     done: (result, landing) => onDone(result, { ...completion(), landing }),
     show: setPhase,
   }) : undefined;

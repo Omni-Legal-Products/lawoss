@@ -209,7 +209,7 @@ describe("sprievodca C1: obrazovky", () => {
 
   test("Pripravené: súhrn so stavmi slovom a jedna prvá úloha", () => {
     const one: WizardConnected = { kind: "clients", root: "/p/C001", clients: [{ root: "/p/C001", name: "C001 SYN Tatran", result: result("w1", "/p/C001") }] };
-    const ready = { state: "ready" as const, modelLabel: "Claude Sonnet" };
+    const ready = { state: "ready" as const, modelLabel: "Claude Sonnet", workspaceId: "w1" };
     const html = renderToStaticMarkup(<ReadySummaryView text={sk} found={found} connected={one} model={ready} agent="ask" busy={false} onGo={noop} onChat={noop} onOverview={noop} onTable={noop} />);
     expect(html).toContain("Klient C001 SYN Tatran");
     expect(html.match(/Hotové/g)).toHaveLength(3);
@@ -231,9 +231,14 @@ describe("sprievodca C1: logika súhrnu a režimu agenta", () => {
   const one: WizardConnected = { kind: "clients", root: "/p/a", clients: [{ root: "/p/a", name: "A", result: result("w1", "/p/a") }] };
   const two: WizardConnected = { kind: "clients", root: "/p", clients: [{ root: "/p/a", name: "A", result: { result: "applied", clientRoot: "/p/a" } }, { root: "/p/b", name: "B", result: result("w2", "/p/b") }] };
   test("prvá úloha podľa predpokladov", () => {
-    expect(readyPlan(one, { state: "ready" })).toMatchObject({ primary: "chat", offerTable: true });
+    expect(readyPlan(one, { state: "ready", workspaceId: "w1" })).toMatchObject({ primary: "chat", offerTable: true });
+    // Pripravenosť z iného priestoru alebo neznáma: chat by mohol skončiť „bez modelu“, hlavná akcia je prehľad.
+    expect(readyPlan(one, { state: "ready" })).toMatchObject({ primary: "overview" });
+    expect(readyPlan(one, { state: "ready", workspaceId: "iny" })).toMatchObject({ primary: "overview" });
     expect(readyPlan(one, { state: "no-model" })).toMatchObject({ primary: "overview", overview: "readyOverview" });
-    expect(readyPlan(two, { state: "ready" })).toMatchObject({ primary: "overview", overview: "readyOverviewClients", offerChat: true, chatWith: { name: "B" } });
+    // Prax: chat s prvým klientom s pracovným priečinkom je hlavná akcia (#197, N-A2-4); bez modelu prehľad.
+    expect(readyPlan(two, { state: "ready", workspaceId: "w2" })).toMatchObject({ primary: "chat", overview: "readyOverviewClients", chatWith: { name: "B" } });
+    expect(readyPlan(two, { state: "pick-model" })).toMatchObject({ primary: "overview", overview: "readyOverviewClients" });
     expect(readyPlan({ kind: "practice", root: "/p" }, { state: "ready" })).toMatchObject({ primary: "overview", overview: "readyOverviewPractice", offerTable: false });
     expect(readyPlan({ kind: "fresh", root: "/p", result: { result: "applied" } }, { state: "ready" })).toMatchObject({ primary: "addClient" });
     expect(readyPlan(undefined, { state: "ready" })).toMatchObject({ primary: "connectFolder" });

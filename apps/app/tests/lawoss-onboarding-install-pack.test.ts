@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
-import { installMissingOnboardingSkills } from "../src/lawoss/domains/onboarding/install-pack";
+import { expect, spyOn, test } from "bun:test";
+import { installMissingOnboardingSkills, installOnboardingSkillsQuietly } from "../src/lawoss/domains/onboarding/install-pack";
+import { LegalworkServerError } from "../src/app/lib/legalwork-server";
 import { novySpisSkillBody, okfCliSource } from "../src/lawoss/okf/skill-bundle";
 import type { OkfSkillClient } from "../src/lawoss/okf/skill-refresh";
 
@@ -58,4 +59,18 @@ test("onboarding skill pack keeps a customized SKILL.md and reports it", async (
   expect(result.modified).toEqual(["novy-spis"]);
   expect(f.skills.find((skill) => skill.name === "novy-spis")?.content).toContain("My office rules.");
   expect(f.resources.get("novy-spis")?.get("okf.js")).toBe(okfCliSource());
+});
+
+// V10c / N-A2-4: skill nájdený v nadradenom priečinku vráti pri zdrojoch 404 „Skill not found“. Dokončenie
+// onboardingu (welcome-route) to nesmie zhodiť na „Niečo sa nepodarilo“: skilly sú pomôcka, nie podmienka.
+test("dokončenie onboardingu: zlyhanie skillov sa len zapíše, nič nevyhodí", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+  const f = clientFixture([{ name: "novy-spis", scope: "project", content: novySpisSkillBody("sk").content }]);
+  f.client.listSkillResources = async () => { throw new LegalworkServerError(404, "skill_not_found", "Skill not found: novy-spis"); };
+  await expect(installMissingOnboardingSkills(f.client, "workspace", "sk")).rejects.toThrow("Skill not found: novy-spis");
+  expect(await installOnboardingSkillsQuietly(f.client, "workspace", "sk")).toBeNull();
+  expect(warn).toHaveBeenCalled();
+  warn.mockRestore();
+  // Bez chyby vráti výsledok ako bežná inštalácia.
+  expect(await installOnboardingSkillsQuietly(clientFixture([]).client, "workspace", "sk")).toMatchObject({ modified: [] });
 });

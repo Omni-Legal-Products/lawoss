@@ -49,6 +49,7 @@ import { AssistantStep } from "./wizard/assistant-step";
 import { ApprovalsStepView } from "./wizard/approvals-step";
 import { agentSummary, useAgentMode, type AgentModeApi, type FirmPermissions } from "./wizard/agent-mode";
 import { ReadyStep, type ReadyStepProps } from "./wizard/ready-step";
+import { readyChatClient } from "./wizard/ready-model";
 import { ConnectedTree, WizardConnectedView } from "./wizard/found-step";
 import { createWizardFlow, wizardResume } from "./wizard/wizard-flow";
 import { clearOnboardingReturn, markOnboardingReturn } from "./wizard/return-link";
@@ -1312,9 +1313,10 @@ export function LawossWelcomePage({
   );
 }
 
-/** Krok Pripravené so živým stavom modelu (rovnaký zdroj ako krok AI asistent). */
+/** Krok Pripravené so živým stavom modelu v priestore klienta, s ktorým sa otvorí chat (N-A2-4). */
 function ReadyStepLive(props: Omit<ReadyStepProps, "model">) {
-  const model = useOnboardingModel();
+  const chatWith = readyChatClient(props.connected);
+  const model = useOnboardingModel(chatWith ? { workspaceId: chatWith.result.workspace?.id, directory: chatWith.root } : undefined);
   return <ReadyStep {...props} model={model} />;
 }
 
