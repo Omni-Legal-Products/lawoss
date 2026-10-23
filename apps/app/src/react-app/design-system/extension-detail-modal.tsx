@@ -287,7 +287,7 @@ export function ExtensionDetailModal({
                   : kindLabel[kind]}</span>
                 {preview ? (
                   <span className="rounded-md bg-[rgba(var(--dls-accent-rgb),0.1)] px-1.5 py-0.5 text-[10px] font-medium text-dls-accent">
-                    Preview
+                    {t("extension_card.preview", locale)}
                   </span>
                 ) : null}
               </DialogDescription>
@@ -324,7 +324,7 @@ export function ExtensionDetailModal({
             {setupInstructions ? (
               <Card variant="outline" size="sm">
                 <CardHeader>
-                  <CardTitle>Setup</CardTitle>
+                  <CardTitle>{t("extension_detail.setup", locale)}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-sm leading-relaxed text-muted-foreground">
@@ -366,21 +366,21 @@ export function ExtensionDetailModal({
               </Card>
             ) : null}
 
-            {/* Details */}
+            {/* Details – 🟡 LAWOSS (P6): popisky cez t() namiesto napevno anglických (SK/CS/DE). */}
             <Card variant="outline" size="sm">
               <CardHeader>
-                <CardTitle>Details</CardTitle>
+                <CardTitle>{t("session.details_label", locale)}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Type</span>
+                    <span className="text-muted-foreground">{t("mcp.server_type", locale)}</span>
                     <span className="font-medium text-card-foreground">{kindLabel[kind]}</span>
                   </div>
 
                   {url ? (
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Endpoint</span>
+                      <span className="text-muted-foreground">{t("extension_detail.endpoint", locale)}</span>
                       <span className="flex items-center gap-1.5 truncate font-mono text-xs text-card-foreground">
                         {url.replace(/^https?:\/\//, "").slice(0, 40)}
                         <ExternalLink size={10} className="shrink-0 text-muted-foreground" />
@@ -390,14 +390,14 @@ export function ExtensionDetailModal({
 
                   {kind === "ui-control" ? (
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Launch</span>
+                      <span className="text-muted-foreground">{t("extension_detail.launch", locale)}</span>
                       <span className="max-w-[300px] truncate font-mono text-xs text-card-foreground">{(launchCommand ?? fallbackUiControlCommand).join(" ")}</span>
                     </div>
                   ) : null}
 
                   {path && onReveal ? (
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Location</span>
+                      <span className="text-muted-foreground">{t("extension_detail.location", locale)}</span>
                       <Button
                         variant="link"
                         size="xs"
@@ -411,37 +411,37 @@ export function ExtensionDetailModal({
 
                   {oauth ? (
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Authentication</span>
+                      <span className="text-muted-foreground">{t("ocr.authentication", locale)}</span>
                       <span className="font-medium text-card-foreground">{t("extension_detail.oauth_required", locale)}</span>
                     </div>
                   ) : null}
 
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Status</span>
+                    <span className="text-muted-foreground">{t("identities.status_label", locale)}</span>
                     <span className={cn("font-medium", connected ? "text-green-11" : "text-muted-foreground")}>
                       {connected
-                        ? connectedLabel ?? (kind === "skill" || kind === "plugin" ? "Installed" : "Connected")
+                        ? connectedLabel ?? (kind === "skill" || kind === "plugin" ? t("skills.installed_status", locale) : t("connectors.connected", locale))
                         : connecting
                           ? connectingLabel
-                          : disconnectedLabel ?? (kind === "skill" || kind === "plugin" ? "Not installed" : "Not connected")}
+                          : disconnectedLabel ?? (kind === "skill" || kind === "plugin" ? t("extension_detail.not_installed", locale) : t("config.status_not_connected", locale))}
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Visibility</span>
-                    <span className="font-medium text-card-foreground">{hidden ? "Hidden" : "Shown"}</span>
+                    <span className="text-muted-foreground">{t("extension_detail.visibility", locale)}</span>
+                    <span className="font-medium text-card-foreground">{hidden ? t("extension_card.hidden", locale) : t("extension_detail.shown", locale)}</span>
                   </div>
 
                   {preview ? (
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">{t("extension_detail.release_stage", locale)}</span>
-                      <span className="font-medium text-dls-accent">Preview</span>
+                      <span className="font-medium text-dls-accent">{t("extension_card.preview", locale)}</span>
                     </div>
                   ) : null}
 
                   {disabledReason ? (
                     <div className="flex items-center justify-between gap-4 text-sm">
-                      <span className="text-muted-foreground">Availability</span>
+                      <span className="text-muted-foreground">{t("extension_detail.availability", locale)}</span>
                       <span className="text-right font-medium text-amber-11">{disabledReason}</span>
                     </div>
                   ) : null}
@@ -455,7 +455,7 @@ export function ExtensionDetailModal({
             {kind === "skill" && trigger ? (
               <Card variant="outline" size="sm">
                 <CardHeader>
-                  <CardTitle>Trigger</CardTitle>
+                  <CardTitle>{t("extension_detail.trigger", locale)}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-sm leading-relaxed text-card-foreground">
@@ -517,7 +517,7 @@ export function ExtensionDetailModal({
                   onClose();
                 }}
               >
-                Show
+                {t("common.show", locale)}
               </Button>
             ) : !hidden && onHide ? (
               <Button
@@ -528,7 +528,7 @@ export function ExtensionDetailModal({
                   onClose();
                 }}
               >
-                Hide
+                {t("common.hide", locale)}
               </Button>
             ) : null}
           </div>
@@ -545,7 +545,7 @@ export function ExtensionDetailModal({
                   onClose();
                 }}
               >
-                {uninstallLabel ?? (kind === "skill" ? "Uninstall" : "Disconnect")}
+                {uninstallLabel ?? (kind === "skill" ? t("office_addins.uninstall", locale) : t("connectors.disconnect", locale))}
               </Button>
             ) : null}
             {!connected && onConnect ? (

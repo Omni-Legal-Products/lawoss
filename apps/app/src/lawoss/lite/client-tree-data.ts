@@ -20,7 +20,7 @@ import {
   assignConversations, comparable, FOLDER_SESSIONS_KEY, folderEngine, folderPath, openMatterConversation, readSessionDirectory, rebaseDirectory, useFolderListings, within,
   type Folder, type FolderListing, type FolderState, type MatterConversation, type Owners,
 } from "./matter-conversations";
-import { composeQuickAction } from "./quick-actions";
+import { quickActionPrompt } from "./quick-actions";
 import { clientOf, groupByClient, type ClientGroup } from "./today-model";
 
 /** Stav navigácie: „+ Nový rozhovor“ zo stromu zlyhal; detail veci to povie jednou vetou. */
@@ -209,7 +209,7 @@ export function useClientTree(connection: OkfConnection | null, scope: OkfScope 
     const found = target(path);
     if (!connection || !found) { navigate(liteMatterLink(path), { state: TREE_FAILURE_STATE }); return; }
     const { matter, local } = found;
-    const prompt = composeQuickAction("open", { title: matter.title, matterRef: matter.matterRef, path: local.selected.path }, locale);
+    const prompt = quickActionPrompt("open", { title: matter.title, matterRef: matter.matterRef, path: local.selected.path }, locale);
     // #168: pred založením overiť prax a čerstvý zdroj klienta (ako rýchla akcia na detaile prípadu).
     run(async () => {
       const current = await revalidateScopeTarget(check.scope, check.connection ?? connection, local.workspace.id);

@@ -18,6 +18,7 @@ import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connecti
 import { mapDesktopWorkspace, mergeRouteWorkspaces, type RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { readActiveWorkspaceId, writeLastSessionFor } from "@/react-app/shell/session-memory";
 import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
+import { rememberCaseChatContext } from "./case-chat-context";
 
 export type OkfConnection = {
   client: LegalworkServerClient | null;
@@ -75,6 +76,8 @@ export async function openSessionWithPrompt(
   workspace: RouteWorkspace,
   prompt: string,
   sessionDirectory?: TransportDirectory,
+  /** P6: technical instructions for the model, sent hidden with the first message (`case-chat-context.ts`). */
+  modelContext?: string,
 ): Promise<string> {
   const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
   if (!endpoint) throw new Error(t("lawoss.integrations.error.workspace_unavailable"));
@@ -85,6 +88,7 @@ export async function openSessionWithPrompt(
   });
   const session = unwrap(await opencode.session.create({ directory: directory || undefined }));
   saveSessionDraft(workspace.id, session.id, { text: prompt, mode: "prompt" });
+  if (modelContext) rememberCaseChatContext(session.id, modelContext);
   // Pole pro zprávu čte koncept z paměťového úložiště composeru, ne z draft-store (ten nikdo nečte).
   useComposerStateStore.getState().setDraft(session.id, prompt);
   writeLastSessionFor(workspace.id, session.id);
