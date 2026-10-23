@@ -62,12 +62,13 @@ function rootAccessSnapshot(value) {
 }
 // Closed own-data records only. Reject even transparent/revoked proxies before
 // reflection, so optional metadata never executes foreign traps or getters.
-function linkRecord(value,keys) {
+function linkRecord(value,keys,optional=[]) {
   if(!value || typeof value!=='object' || types.isProxy(value))return undefined;
   const prototype=Object.getPrototypeOf(value);
   if(prototype!==Object.prototype && prototype!==null)return undefined;
   const fields=Object.getOwnPropertyDescriptors(value),actual=Reflect.ownKeys(fields);
-  if(actual.length!==keys.length || !keys.every(key=>Object.hasOwn(fields,key) && Object.hasOwn(fields[key],'value')))return undefined;
+  if(actual.length<keys.length || actual.length>keys.length+optional.length || !keys.every(key=>Object.hasOwn(fields,key))
+    || !actual.every(key=>(keys.includes(key) || optional.includes(key)) && Object.hasOwn(fields[key],'value')))return undefined;
   return fields;
 }
 function linkResolutionSnapshot(value) {
@@ -97,14 +98,97 @@ function linkCallsiteSnapshot(root,entry,target) {
   }
   return Object.freeze({entry:Object.freeze({scope:'payload-descendant',depth}),lexicalTarget:Object.freeze({scope,depth:targetDepth})});
 }
-export function linuxOperationFailure(operation,error,root,rootMetadata,linkMetadata) {
+const targetReadCodes=new Set(['EACCES','EPERM','ENOENT','ENOTDIR','ELOOP','unknown']);
+const trustedSampleDirectory=record=>record.kind==='directory' && record.rootOwned && (record.modeBits&0o022)===0;
+function linkTargetContextSnapshot(value,targetDepth) {
+  try {
+    const fields=linkRecord(value,['sampling','prefixes','stop']);
+    if(!fields || fields.sampling.value!=='post-failure')return undefined;
+    const input=fields.prefixes.value;
+    if(types.isProxy(input) || !Array.isArray(input) || Object.getPrototypeOf(input)!==Array.prototype)return undefined;
+    const elements=Object.getOwnPropertyDescriptors(input),keys=Reflect.ownKeys(elements),length=elements.length?.value;
+    if(!Number.isInteger(length) || length<0 || length>16 || length>targetDepth || keys.length!==length+1)return undefined;
+    const prefixes=[];
+    for(let index=0;index<length;index++) {
+      if(!Object.hasOwn(elements,index) || !Object.hasOwn(elements[index],'value'))return undefined;
+      const record=linkRecord(elements[index].value,['depth','kind','modeBits','rootOwned']);
+      if(!record)return undefined;
+      const depth=record.depth.value,kind=record.kind.value,modeBits=record.modeBits.value,rootOwned=record.rootOwned.value;
+      if(depth!==index+1 || !['directory','regular','symlink','other'].includes(kind) || !Number.isInteger(modeBits) || modeBits<0 || modeBits>511 || typeof rootOwned!=='boolean')return undefined;
+      const sample={depth,kind,modeBits,rootOwned};
+      if(index<length-1 && !trustedSampleDirectory(sample))return undefined;
+      prefixes.push(Object.freeze(sample));
+    }
+    const stopFields=linkRecord(fields.stop.value,['reason','depth'],['errorCode']);
+    if(!stopFields)return undefined;
+    const reason=stopFields.reason.value,depth=stopFields.depth.value,errorCode=stopFields.errorCode?.value;
+    if(reason!=='read-error' && Object.hasOwn(stopFields,'errorCode'))return undefined;
+    const last=prefixes[length-1],allTrusted=!last || trustedSampleDirectory(last);
+    if(reason==='complete') {
+      if(!last || depth!==length || length!==targetDepth || !(last.kind==='regular' || trustedSampleDirectory(last)))return undefined;
+    } else if(['symlink','non-directory','untrusted-directory','unsupported-type'].includes(reason)) {
+      if(!last || depth!==length)return undefined;
+      if(reason==='symlink' && last.kind!=='symlink' ||
+        reason==='non-directory' && (!(last.kind==='regular' || last.kind==='other') || length>=targetDepth) ||
+        reason==='untrusted-directory' && (last.kind!=='directory' || trustedSampleDirectory(last)) ||
+        reason==='unsupported-type' && (last.kind!=='other' || length!==targetDepth))return undefined;
+    } else if(reason==='read-error' || reason==='malformed') {
+      if(length>=16 || depth!==length+1 || depth>targetDepth || !allTrusted || reason==='read-error' && !targetReadCodes.has(errorCode))return undefined;
+    } else if(reason==='cap') {
+      if(length!==16 || depth!==17 || targetDepth<=16 || !allTrusted)return undefined;
+    } else if(reason==='unavailable') {
+      if(length!==0 || depth!==null)return undefined;
+    } else return undefined;
+    return Object.freeze({sampling:'post-failure',prefixes:Object.freeze(prefixes),stop:Object.freeze({reason,depth,...(reason==='read-error'?{errorCode}:{})})});
+  } catch {return undefined;}
+}
+// These are post-failure lexical samples, not the original denied component or
+// effective access. Path-based lstat can race ancestor replacement; only call
+// count is bounded. Never descend after a sampled trust/type failure.
+async function sampleLinkTarget(root,target,targetDepth) {
+  const components=target.slice(root.length+1).split('/'),prefixes=[];
+  const finish=(reason,depth,errorCode)=>Object.freeze({sampling:'post-failure',prefixes:Object.freeze(prefixes),stop:Object.freeze({reason,depth,...(reason==='read-error'?{errorCode}:{})})});
+  let path=root;
+  for(let depth=1;depth<=targetDepth;depth++) {
+    if(depth>16)return finish('cap',depth);
+    path+=`/${components[depth-1]}`;
+    let info;
+    try {info=await lstat(path);}catch(error) {
+      let errorCode='unknown';
+      try {if(!types.isProxy(error)){const code=Object.getOwnPropertyDescriptor(error,'code')?.value;if(targetReadCodes.has(code))errorCode=code;}}catch { /* No foreign getters or raw error strings. */ }
+      return finish('read-error',depth,errorCode);
+    }
+    let fields;
+    try {if(info && typeof info==='object' && !types.isProxy(info))fields=Object.getOwnPropertyDescriptors(info);}catch { /* Malformed metadata is a stop, not authority. */ }
+    const mode=fields && Object.hasOwn(fields,'mode')?fields.mode.value:undefined,uid=fields && Object.hasOwn(fields,'uid')?fields.uid.value:undefined;
+    if(!Number.isSafeInteger(mode) || mode<0 || mode>0xffffffff || !Number.isSafeInteger(uid) || uid<0 || uid>0xffffffff)return finish('malformed',depth);
+    const type=mode&constants.S_IFMT,kind=type===constants.S_IFDIR?'directory':type===constants.S_IFREG?'regular':type===constants.S_IFLNK?'symlink':'other';
+    const sample=Object.freeze({depth,kind,modeBits:mode&0o777,rootOwned:uid===0});
+    prefixes.push(sample);
+    if(kind==='symlink')return finish('symlink',depth);
+    if(kind==='directory' && !trustedSampleDirectory(sample))return finish('untrusted-directory',depth);
+    if(depth===targetDepth)return finish(kind==='other'?'unsupported-type':'complete',depth);
+    if(kind!=='directory')return finish('non-directory',depth);
+  }
+}
+export function linuxOperationFailure(operation,error,root,rootMetadata,linkMetadata,targetMetadata) {
   if(!installationOperations.has(operation))return undefined;
   let errorCode='unknown';
   try {const code=Object.getOwnPropertyDescriptor(error,'code')?.value;if(preflightCodes.has(code))errorCode=code;}catch { /* Observation cannot replace the primary. */ }
   const filesystem=operation==='tree-validation'?treeFilesystemFailure(error,root):undefined;
   const rootAccess=filesystem?rootAccessSnapshot(rootMetadata):undefined;
   const linkResolution=filesystem?.action==='realpath' && errorCode!=='unknown'?linkResolutionSnapshot(linkMetadata):undefined;
-  return Object.freeze({operation,errorCode,...(filesystem?{filesystem}:{}),...(rootAccess?{rootAccess}:{}),...(linkResolution?{linkResolution}:{})});
+  const linkTargetContext=errorCode==='EACCES' && linkResolution?.lexicalTarget.scope==='payload-descendant'?linkTargetContextSnapshot(targetMetadata,linkResolution.lexicalTarget.depth):undefined;
+  return Object.freeze({operation,errorCode,...(filesystem?{filesystem}:{}),...(rootAccess?{rootAccess}:{}),...(linkResolution?{linkResolution}:{}),...(linkTargetContext?{linkTargetContext}:{})});
+}
+function linkCountSnapshot(value) {
+  try {
+    const fields=linkRecord(value,['value','capped']);
+    if(!fields)return undefined;
+    const count=fields.value.value,capped=fields.capped.value;
+    if(!Number.isSafeInteger(count) || count<0 || count>65535 || count===1 || typeof capped!=='boolean' || capped && count!==65535)return undefined;
+    return Object.freeze({value:count,capped});
+  } catch {return undefined;}
 }
 function toolRefusalSnapshot(value) {
   try {
@@ -113,9 +197,13 @@ function toolRefusalSnapshot(value) {
     if(!Object.hasOwn(fields,'predicate') || !Object.hasOwn(fields.predicate,'value'))return undefined;
     const predicate=fields.predicate.value;
     if(['symlink','owner','writable'].includes(predicate) && keys.length===1)return Object.freeze({predicate});
-    if(predicate!=='type' || keys.length!==2 || !Object.hasOwn(fields,'typeDetail') || !Object.hasOwn(fields.typeDetail,'value'))return undefined;
+    if(predicate!=='type' || !Object.hasOwn(fields,'typeDetail') || !Object.hasOwn(fields.typeDetail,'value'))return undefined;
     const typeDetail=fields.typeDetail.value;
-    if(typeDetail==='non-regular' || typeDetail==='link-count')return Object.freeze({predicate,typeDetail});
+    if(keys.length===2 && (typeDetail==='non-regular' || typeDetail==='link-count'))return Object.freeze({predicate,typeDetail});
+    if(keys.length===3 && typeDetail==='link-count' && Object.hasOwn(fields,'linkCount') && Object.hasOwn(fields.linkCount,'value')) {
+      const linkCount=linkCountSnapshot(fields.linkCount.value);
+      return Object.freeze({predicate,typeDetail,...(linkCount?{linkCount}:{})});
+    }
   } catch { /* Reflection failures omit diagnostics without changing the guard. */ }
   return undefined;
 }
@@ -150,10 +238,18 @@ async function protectedEntry(path,directory=false,observe) {
   const info=await lstat(path);
   // Same short-circuit predicates and cached lstat record as admission originally
   // used; no additional filesystem read or permission change for diagnostics.
-  let typeDetail;
+  let typeDetail,cachedLinkCount;
   const predicate=info.isSymbolicLink()?'symlink':info.uid!==0?'owner':(info.mode&0o022)!==0?'writable':
-    (directory?!info.isDirectory():!info.isFile()?(typeDetail='non-regular',true):info.nlink!==1?(typeDetail='link-count',true):false)?'type':undefined;
-  if(predicate) {noteRefusal(observe,predicate,typeDetail);fail();}
+    (directory?!info.isDirectory():!info.isFile()?(typeDetail='non-regular',true):(cachedLinkCount=info.nlink)!==1?(typeDetail='link-count',true):false)?'type':undefined;
+  if(predicate) {
+    let linkCount;
+    if(typeDetail==='link-count' && Number.isSafeInteger(cachedLinkCount) && cachedLinkCount>=0) {
+      try {linkCount=Object.freeze({value:Math.min(cachedLinkCount,65535),capped:cachedLinkCount>65535});}catch { /* Optional observation only. */ }
+    }
+    if(linkCount)noteRefusal(observe,predicate,typeDetail,linkCount);
+    else noteRefusal(observe,predicate,typeDetail);
+    fail();
+  }
   return info;
 }
 async function protectedAncestors(path,observe) {
@@ -182,7 +278,7 @@ async function protectedToolPreflight(label,onStep,onRefusal) {
   return await protectedEntry(physical,false,onRefusal);
 }
 /** Filesystem metadata validation only; does not execute or grant an application. */
-export async function validateProtectedLinuxTree(root,{onRootMetadata,onLinkResolutionFailure}={}) {
+export async function validateProtectedLinuxTree(root,{onRootMetadata,onLinkResolutionFailure,onLinkTargetContext}={}) {
   if(!isAbsolute(root) || resolve(root)!==root)fail();
   const info=await protectedAncestors(root);
   const modeBits=info.mode&0o777;
@@ -202,10 +298,17 @@ export async function validateProtectedLinuxTree(root,{onRootMetadata,onLinkReso
         let physicalTarget;
         try {physicalTarget=await realpath(path);}
         catch(error) {
+          let eligible=false,snapshot;
+          if(typeof onLinkTargetContext==='function') {
+            try {eligible=!types.isProxy(error) && Object.getOwnPropertyDescriptor(error,'code')?.value==='EACCES';}catch { /* No new authority from foreign error metadata. */ }
+          }
           try {
-            const snapshot=linkCallsiteSnapshot(root,path,lexicalTarget);
+            snapshot=linkCallsiteSnapshot(root,path,lexicalTarget);
             if(snapshot)noteRefusal(onLinkResolutionFailure,snapshot);
           } catch { /* Snapshot construction cannot replace the original error. */ }
+          if(eligible && snapshot?.lexicalTarget.scope==='payload-descendant') {
+            try {noteRefusal(onLinkTargetContext,await sampleLinkTarget(root,lexicalTarget,snapshot.lexicalTarget.depth));}catch { /* Optional sampling cannot replace the primary error. */ }
+          }
           throw error;
         }
         if(!inside(root,physicalTarget))fail();
@@ -275,7 +378,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
     const policy=linuxUsernsProfile(stage),policyFile=join(stage,'userns.profile');
     let stageIdentity,retained=false,policyState='not-required',stageState='not-created',primary;
     let restricted=false,policyOwned=false,policyUncertain=false,temporary,protectionVerified=false;
-    let preflight,preflightFailure,stageTrustRefusal,toolTrustRefusal,operation,operationFailure,rootMetadata,linkMetadata;
+    let preflight,preflightFailure,stageTrustRefusal,toolTrustRefusal,operation,operationFailure,rootMetadata,linkMetadata,linkTargetContext;
     try {
       preflight='stage-ancestors';
       // Hosted image scripts make /opt world-writable. Select a fixed different
@@ -288,16 +391,16 @@ export async function withProtectedLinuxArtifact(artifact,use) {
       // Fixed tools and their canonical targets must also be root protected.
       for(const label of ['sudo','mkdir','cp','chmod','install','rm','cat']) {
         toolTrustRefusal=undefined;
-        await protectedToolPreflight(label,value=>{preflight=value;},(predicate,typeDetail)=>{
-          toolTrustRefusal=typeDetail?{predicate,typeDetail}:{predicate};
+        await protectedToolPreflight(label,value=>{preflight=value;},(predicate,typeDetail,linkCount)=>{
+          toolTrustRefusal=typeDetail?{predicate,typeDetail,...(linkCount?{linkCount}:{})}:{predicate};
         });
       }
       preflight='restriction-read';
       restricted=await usernsRestriction();
       if(restricted) {
         toolTrustRefusal=undefined;
-        await protectedToolPreflight('parser',value=>{preflight=value;},(predicate,typeDetail)=>{
-          toolTrustRefusal=typeDetail?{predicate,typeDetail}:{predicate};
+        await protectedToolPreflight('parser',value=>{preflight=value;},(predicate,typeDetail,linkCount)=>{
+          toolTrustRefusal=typeDetail?{predicate,typeDetail,...(linkCount?{linkCount}:{})}:{predicate};
         });
         preflight='initial-policy-presence';
         if(await policyPresent(policy.name))fail();
@@ -314,7 +417,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
       operation='tree-copy';
       await copyProtectedLinuxTree(dirname(source.installedApp),app,stageIdentity,value=>{operation=value;});
       operation='tree-validation';
-      await validateProtectedLinuxTree(app,{onRootMetadata:value=>{rootMetadata=value;},onLinkResolutionFailure:value=>{linkMetadata=value;}});
+      await validateProtectedLinuxTree(app,{onRootMetadata:value=>{rootMetadata=value;},onLinkResolutionFailure:value=>{linkMetadata=value;},onLinkTargetContext:value=>{linkTargetContext=value;}});
       const installedApp=join(app,'legalwork');
       operation='installed-tree';
       const installation=await verifyAlphaInstallation({...artifact,installedApp});
@@ -338,7 +441,7 @@ export async function withProtectedLinuxArtifact(artifact,use) {
       }
       operation='native-use';
       return await use({installedApp,installation,retain(){retained=true;}});
-    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error,stageTrustRefusal,toolTrustRefusal);operationFailure=linuxOperationFailure(operation,error,app,rootMetadata,linkMetadata);throw error;}
+    } catch(error) {primary=error;preflightFailure=linuxPreflightFailure(preflight,error,stageTrustRefusal,toolTrustRefusal);operationFailure=linuxOperationFailure(operation,error,app,rootMetadata,linkMetadata,linkTargetContext);throw error;}
     finally {
       let cleanupFailure;
       try {

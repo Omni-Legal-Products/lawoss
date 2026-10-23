@@ -986,3 +986,362 @@ for(const initialPathModel of [undefined,'win32']) test(`link-resolution actual 
   t.diagnostic(JSON.stringify(result));
   assert.deepEqual({...result,validatorCases:0,projectionCases:0},{validatorCases:0,projectionCases:0,unexpectedOperations:0,proxyTraps:0,source:'unchanged-full-module',metadata:'modeled-only'});
 });
+
+
+test('cached link count projects copied closed bounded counts at eligible entry refusals', () => {
+  for(const tool of ['sudo','mkdir','cp','chmod','install','rm','cat','parser'])for(const [value,capped] of [[0,false],[2,false],[65535,false],[65535,true]]) {
+    const linkCount={value,capped},input={predicate:'type',typeDetail:'link-count',linkCount};
+    const result=linuxPreflightFailure(`${tool}-entry`,unverified,undefined,input);
+    assert.deepEqual(result.toolTrust,input);
+    assert.notEqual(result.toolTrust.linkCount,linkCount);assert.equal(Object.isFrozen(result.toolTrust.linkCount),true);
+    linkCount.value=3;assert.equal(result.toolTrust.linkCount.value,value);
+  }
+});
+
+test('cached link count rejects forged nested data while retaining only admitted legacy shapes', () => {
+  const legacy={predicate:'type',typeDetail:'link-count'};
+  let traps=0;const trap=()=>{traps++;throw new Error('private trap');};
+  const handler={get:trap,ownKeys:trap,getOwnPropertyDescriptor:trap,getPrototypeOf:trap};
+  const valid={value:2,capped:false},revoked=Proxy.revocable(valid,{});revoked.revoke();
+  const bad=[undefined,null,2,'private',[],{},Object.create(valid),Object.assign(Object.create({}),valid),
+    new Proxy(valid,handler),new Proxy(valid,{}),revoked.proxy,{get value(){return trap();},capped:false},
+    {value:2,get capped(){return trap();}},{...valid,extra:true},{...valid,[Symbol('private')]:true}];
+  for(const value of [-1,1,65536,NaN,Infinity,1.5,'2',2n,{},new Number(2)])bad.push({value,capped:false});
+  for(const capped of [0,1,null,'false',{},new Boolean(false)])bad.push({value:2,capped});
+  bad.push({value:2,capped:true},{value:0,capped:true});
+  for(const linkCount of bad)assert.deepEqual(linuxPreflightFailure('mkdir-entry',unverified,undefined,{...legacy,linkCount}).toolTrust,legacy);
+  const nullCount=Object.assign(Object.create(null),valid);
+  assert.deepEqual(linuxPreflightFailure('parser-entry',unverified,undefined,{...legacy,linkCount:nullCount}).toolTrust,{...legacy,linkCount:valid});
+  for(const input of [{...legacy,linkCount:valid,extra:true},{...legacy,linkCount:valid,[Symbol()]:true},
+    {predicate:'type',typeDetail:'non-regular',linkCount:valid},{predicate:'owner',linkCount:valid},
+    {...legacy,get linkCount(){return trap();}}])assert.equal(linuxPreflightFailure('mkdir-entry',unverified,undefined,input).toolTrust,undefined);
+  const evil=new Proxy(valid,handler);
+  for(const step of ['mkdir-realpath','mkdir-ancestors','restriction-read','stage-ancestors','initial-policy-presence','unknown'])
+    assert.equal(linuxPreflightFailure(step,unverified,undefined,evil)?.toolTrust,undefined);
+  for(const code of ['EACCES','ENOENT','EPERM','ELOOP','ENOTDIR','unknown','linux-protected-install-refused'])
+    assert.equal(linuxPreflightFailure('mkdir-entry',{code},undefined,evil).toolTrust,undefined);
+  assert.equal(traps,0);
+  assert.equal(linuxPreflightFailure('mkdir-entry',unverified,undefined,new Proxy({},handler)).toolTrust,undefined);
+  assert.equal(traps,1); // Preserve the original single caught outer reflection trap.
+});
+
+async function productionCachedCountFixture(moduleUrl) {
+  const assert=(await import('node:assert/strict')).default;
+  const fs=(await import('node:fs/promises')).default,nativeFs=(await import('node:fs')).default;
+  const cp=(await import('node:child_process')).default,nativePath=(await import('node:path')).default;
+  const {syncBuiltinESMExports}=await import('node:module');
+  const source=await fs.readFile(new URL(moduleUrl),'utf8');
+  const pathMembers=['dirname','isAbsolute','join','relative','resolve','sep'];
+  const posixPath=Object.fromEntries(pathMembers.map(key=>[key,nativePath.posix[key]]));
+  Object.assign(nativePath,posixPath);
+  let events=[],record,unexpected=0,cases=0;
+  const reject=()=>{unexpected++;throw new Error('unexpected operation');};
+  for(const object of [fs,nativeFs,cp])for(const key of Object.keys(object))if(typeof object[key]==='function')Object.defineProperty(object,key,{value:reject,writable:true,configurable:true,enumerable:true});
+  const dir=()=>({uid:0,mode:0o755,isSymbolicLink:()=>false,isDirectory:()=>true});
+  fs.lstat=async filename=>{events.push(`lstat:${filename}`);if(filename==='/count/tool')return record;if(['/count','/'].includes(filename))return dir();return reject();};
+  fs.realpath=async filename=>{events.push(`realpath:${filename}`);if(['/usr/bin/mkdir','/usr/sbin/apparmor_parser'].includes(filename))return '/count/tool';if(filename==='/count')return filename;return reject();};
+  syncBuiltinESMExports();
+  const production=await import(`data:text/javascript;base64,${Buffer.from(`${source}\nexport { protectedEntry, protectedToolPreflight };`).toString('base64')}`);
+  let coerces=0;const object={valueOf(){coerces++;throw 0;}};
+  for(const count of [0,1,2,65535,65536,Number.MAX_SAFE_INTEGER,Number.MAX_SAFE_INTEGER+1,-1,1.5,NaN,Infinity,'2',object,2n]) {
+    events=[];const seen=[];
+    record={isSymbolicLink(){events.push('symlink');return false;},get uid(){events.push('uid');return 0;},get mode(){events.push('mode');return 0o755;},isFile(){events.push('file');return true;},get nlink(){events.push('nlink');return count;}};
+    const error=await production.protectedEntry('/count/tool',false,(...args)=>{seen.push(args);throw new Error('observer');}).then(value=>{assert.equal(value,record);return null;},error=>error);
+    assert.deepEqual(events,['lstat:/count/tool','symlink','uid','mode','file','nlink']);
+    if(count===1){assert.equal(error,null);assert.deepEqual(seen,[]);}
+    else {
+      assert.equal(error.code,'linux-protected-install-unverified');
+      const expected=typeof count==='number' && Number.isSafeInteger(count) && count>=0 ? {value:count>65535?65535:count,capped:count>65535}:undefined;
+      assert.deepEqual(seen,expected?[['type','link-count',expected]]:[['type','link-count']]);
+      if(expected)assert.equal(Object.isFrozen(seen[0][2]),true);
+    }
+    cases++;
+  }
+  assert.equal(coerces,0);
+  const original=new Error('private original getter');let reads=0;
+  record={...dir(),isFile:()=>true,get nlink(){reads++;throw original;}};
+  await assert.rejects(production.protectedEntry('/count/tool',false,reject),error=>error===original);assert.equal(reads,1);cases++;
+  for(const early of ['symlink','owner','writable','non-regular','directory']) {
+    record={isSymbolicLink:()=>early==='symlink',uid:early==='owner'?1:0,mode:early==='writable'?0o777:0o755,isFile:()=>early!=='non-regular',isDirectory:()=>false,get nlink(){return reject();}};
+    const seen=[];await assert.rejects(production.protectedEntry('/count/tool',early==='directory',(...args)=>seen.push(args)),{code:'linux-protected-install-unverified'});
+    assert.equal(seen[0].length,2);cases++;
+  }
+  for(const label of ['mkdir','parser']) {
+    record={...dir(),isFile:()=>true,nlink:65536};events=[];let step,seen;
+    const error=await production.protectedToolPreflight(label,value=>{step=value;},(...args)=>{seen=args;}).catch(error=>error);
+    assert.deepEqual(seen,['type','link-count',{value:65535,capped:true}]);
+    assert.deepEqual(events,[`realpath:${label==='mkdir'?'/usr/bin/mkdir':'/usr/sbin/apparmor_parser'}`,'lstat:/count','lstat:/','realpath:/count','lstat:/count/tool']);
+    assert.deepEqual(production.linuxPreflightFailure(step,error,undefined,{predicate:seen[0],typeDetail:seen[1],linkCount:seen[2]}).toolTrust,{predicate:'type',typeDetail:'link-count',linkCount:{value:65535,capped:true}});cases++;
+  }
+  const freeze=Object.freeze;
+  record={...dir(),isFile:()=>true,nlink:2};let fallback;
+  try {
+    Object.freeze=()=>{throw new Error('optional count construction');};
+    await assert.rejects(production.protectedEntry('/count/tool',false,(...args)=>{fallback=args;}),{code:'linux-protected-install-unverified'});
+  } finally {Object.freeze=freeze;}
+  assert.deepEqual(fallback,['type','link-count']);cases++;
+  try {
+    Object.freeze=value=>{if(Object.hasOwn(value,'capped'))throw new Error('optional nested freeze');return freeze(value);};
+    assert.deepEqual(production.linuxPreflightFailure('mkdir-entry',{code:'linux-protected-install-unverified'},undefined,{predicate:'type',typeDetail:'link-count',linkCount:{value:2,capped:false}}).toolTrust,{predicate:'type',typeDetail:'link-count'});
+  } finally {Object.freeze=freeze;}
+
+  assert.equal(unexpected,0);
+  console.log(JSON.stringify({cases,unexpectedOperations:unexpected,coercions:coerces,source:'unaltered-plus-private-exports',metadata:'modeled-only'}));
+}
+
+test('cached link count uses exactly the original getter and production fixed-tool sequence', t => {
+  const child=spawnSync(process.execPath,['--input-type=module'],{input:`await (${productionCachedCountFixture.toString()})(${JSON.stringify(new URL('./linux-protected-install.mjs',import.meta.url).href)});`,encoding:'utf8',timeout:10000,maxBuffer:65536});
+  assert.equal(child.error,undefined);assert.equal(child.signal,null);assert.equal(child.status,0,child.stderr);assert.equal(child.stderr,'');
+  assert.deepEqual(JSON.parse(child.stdout),{cases:23,unexpectedOperations:0,coercions:0,source:'unaltered-plus-private-exports',metadata:'modeled-only'});t.diagnostic(child.stdout.trim());
+});
+
+// Fresh child, full production bytes, POSIX metadata model only. No native probe.
+async function productionPostFailureFixture(moduleUrl,extended=false) {
+  const assert=(await import('node:assert/strict')).default;
+  const fs=(await import('node:fs/promises')).default,nativeFs=(await import('node:fs')).default;
+  const cp=(await import('node:child_process')).default,nativePath=(await import('node:path')).default;
+  const {syncBuiltinESMExports}=await import('node:module');
+  const source=await fs.readFile(new URL(moduleUrl),'utf8');
+  const pathMembers=['dirname','isAbsolute','join','relative','resolve','sep'];
+  const posixPath=Object.fromEntries(pathMembers.map(key=>[key,nativePath.posix[key]]));
+  Object.assign(nativePath,posixPath);
+  const originalResolve=nativePath.resolve,freeze=Object.freeze,root='/sample/payload';
+  let unexpected=0,traps=0,resultThenReads=0,cases=0,events=[],config={},entry,target,primary,afterFailure=false,reads=[];
+  const reject=()=>{unexpected++;throw new Error('unexpected operation');};
+  const trap=()=>{traps++;throw new Error('private foreign trap');};
+  const handler={get:trap,ownKeys:trap,getOwnPropertyDescriptor:trap,getPrototypeOf:trap};
+  for(const object of [fs,nativeFs,cp])for(const key of Object.keys(object))if(typeof object[key]==='function')Object.defineProperty(object,key,{value:reject,writable:true,configurable:true,enumerable:true});
+  nativePath.resolve=(...args)=>{if(args.length===2 && args[0]===root && args[1]===target)events.push('lexical-resolve');return originalResolve(...args);};
+  const directory=()=>({mode:0o40755,uid:0,isSymbolicLink:()=>false,isDirectory:()=>true});
+  fs.lstat=async filename=>{
+    if(afterFailure) {
+      const depth=reads.length+1;reads.push(filename);events.push(`sample:${depth}`);
+      assert.equal(filename,`${root}/${target.split('/').slice(0,depth).join('/')}`);
+      if(config.sampleError && depth===config.stopDepth)throw config.sampleError;
+      if(config.freezeFailure && depth===1)Object.freeze=()=>{throw new Error('optional freeze');};
+      if(Object.hasOwn(config,'sample') && depth===(config.sampleDepth??config.stopDepth))return config.sample;
+      return {mode:depth===target.split('/').length?0o100644:0o40755,uid:0};
+    }
+    if(filename===entry){events.push('lstat-entry');return {get uid(){events.push('uid-entry');return config.kind==='owner'?1:0;},isSymbolicLink(){events.push('symlink-entry');return true;}};}
+    if([root,'/sample','/'].includes(filename)){events.push(`ancestor:${filename}`);return {...directory(),...(config.kind==='ancestor' && filename==='/sample'?{uid:1}:{}),...(config.kind==='type' && filename===root?{isDirectory:()=>false}:{})};}
+    return reject();
+  };
+  fs.readdir=async filename=>{if(filename!==root)return reject();events.push('readdir');return [entry.slice(root.length+1)];};
+  fs.readlink=async filename=>{if(filename!==entry)return reject();events.push('readlink');if(config.kind==='readlink')throw primary;return target;};
+  fs.realpath=async filename=>{
+    if(filename===root){events.push('realpath-root');return config.kind==='canonical'?'/different':root;}
+    if(filename!==entry)return reject();events.push('realpath-entry');
+    if(config.kind==='success')return `${root}/resolved`;
+    if(config.kind==='physical')return '/outside';
+    afterFailure=true;if(config.snapshotFreezeFailure)Object.freeze=()=>{throw new Error('callsite snapshot freeze');};throw primary;
+  };
+  syncBuiltinESMExports();
+  const production=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+  const trusted=depth=>({depth,kind:'directory',modeBits:493,rootOwned:true});
+  async function run(options={},expected) {
+    config=options;events=[];reads=[];afterFailure=false;entry=`${root}/link`;target=options.target??'a/b/c/d/e/f/leaf';
+    if(options.kind==='control-entry')entry=`${root}/bad\nlink`;
+    if(options.kind==='long-entry')entry=`${root}/${'x'.repeat(4097)}`;
+    primary=options.primary??Object.assign(new Error('private original denied'),{code:'EACCES',syscall:'realpath',path:`${root}/error-path`});
+    const before=Object.getOwnPropertyDescriptors(primary),roots=[],old=[],contexts=[];
+    let caught;
+    try {
+      await production.validateProtectedLinuxTree(options.kind==='noncanonical'?`${root}/../payload`:root,{
+        onRootMetadata(value){roots.push(value);},
+        onLinkResolutionFailure(value){events.push('old-observer');old.push(value);if(options.mutateCode)primary.code=options.mutateCode;if(options.oldThrows)throw new Error('private old observer');},
+        ...(options.noCallback?{}:{onLinkTargetContext:options.invalidCallback??(value=>{events.push('new-observer');contexts.push(value);if(options.newThrows)throw new Error('private new observer');})}),
+      });
+    } catch(error){caught=error;} finally {Object.freeze=freeze;}
+    if(options.kind==='success')assert.equal(caught,undefined);
+    else if(['noncanonical','ancestor','type','owner','canonical','absolute','lexical','physical'].includes(options.kind))assert.equal(caught.code,'linux-protected-install-unverified');
+    else {assert.equal(caught,primary);if(!options.mutateCode)assert.deepEqual(Object.getOwnPropertyDescriptors(primary),before);}
+    assert.deepEqual(contexts,expected?[expected]:[]);
+    if(expected){
+      const attempted=expected.stop.reason==='read-error' || expected.stop.reason==='malformed'?expected.stop.depth:expected.prefixes.length;
+      assert.equal(reads.length,attempted);
+      assert.deepEqual(events.slice(-8-attempted),['lstat-entry','uid-entry','symlink-entry','readlink','lexical-resolve','realpath-entry','old-observer',...Array.from({length:attempted},(_,i)=>`sample:${i+1}`),'new-observer']);
+      for(const item of [contexts[0],contexts[0].prefixes,...contexts[0].prefixes,contexts[0].stop])assert.equal(Object.isFrozen(item),true);
+      assert.deepEqual(roots,[{modeBits:493,otherRead:true,otherSearch:true}]);
+      assert.equal(old[0].entry.depth,1);assert.equal(old[0].lexicalTarget.depth,target.split('/').length);
+      const output=production.linuxOperationFailure('tree-validation',caught,root,roots[0],old[0],contexts[0]);
+      if(!options.mutateCode){assert.deepEqual(output.linkTargetContext,expected);assert.equal(output.filesystem.depth,1);assert.deepEqual(output.rootAccess,roots[0]);}
+      assert.doesNotMatch(JSON.stringify(contexts[0]),/private|sample|payload|leaf|path|uid|gid|ino|stack|message/);
+    } else if(!options.freezeFailure)assert.equal(reads.length,0);
+    assert.equal(unexpected,0);cases++;
+  }
+  const full={sampling:'post-failure',prefixes:[...Array.from({length:6},(_,i)=>trusted(i+1)),{depth:7,kind:'regular',modeBits:420,rootOwned:true}],stop:{reason:'complete',depth:7}};
+  await run({},full);
+  if(extended) {
+    await run({oldThrows:true,newThrows:true},full);
+    await run({sample:{mode:0o40755,uid:0,isDirectory:trap,isSymbolicLink:trap,valueOf:trap},stopDepth:1},full);
+    await run({mutateCode:'EPERM'},full); // Original own-data EACCES remains the gate.
+    await run({primary:{code:'EPERM',syscall:'realpath'},mutateCode:'EACCES'});
+    await run({sample:{mode:0o40700,uid:0},stopDepth:2},{...full,prefixes:[trusted(1),{...trusted(2),modeBits:448},...full.prefixes.slice(2)]});
+    // A restrictive sampled directory does not attribute the original failure.
+    await run({sample:{mode:0o40700,uid:0},sampleDepth:1,sampleError:{code:'EACCES'},stopDepth:2},{sampling:'post-failure',prefixes:[{...trusted(1),modeBits:448}],stop:{reason:'read-error',depth:2,errorCode:'EACCES'}});
+    for(const [mode,uid,reason,kind,modeBits] of [
+      [0o120777,0,'symlink','symlink',511],[0o100644,0,'non-directory','regular',420],
+      [0o40755,1,'untrusted-directory','directory',493],[0o40775,0,'untrusted-directory','directory',509],
+      [0o40757,0,'untrusted-directory','directory',495],[0o10600,0,'non-directory','other',384],
+    ])await run({sample:{mode,uid},stopDepth:2},{sampling:'post-failure',prefixes:[trusted(1),{depth:2,kind,modeBits,rootOwned:uid===0}],stop:{reason,depth:2}});
+    for(const [mode,uid,reason,kind,modeBits] of [[0o40755,0,'complete','directory',493],[0o100600,1,'complete','regular',384],[0o10600,0,'unsupported-type','other',384],[0o40777,0,'untrusted-directory','directory',511],[0o40755,1,'untrusted-directory','directory',493],[0o120777,0,'symlink','symlink',511]])
+      await run({target:'leaf',sample:{mode,uid},stopDepth:1},{sampling:'post-failure',prefixes:[{depth:1,kind,modeBits,rootOwned:uid===0}],stop:{reason,depth:1}});
+    for(const code of ['EACCES','EPERM','ENOENT','ENOTDIR','ELOOP','private',undefined,1])for(const stopDepth of [1,3])
+      await run({sampleError:{code},stopDepth},{sampling:'post-failure',prefixes:Array.from({length:stopDepth-1},(_,i)=>trusted(i+1)),stop:{reason:'read-error',depth:stopDepth,errorCode:['EACCES','EPERM','ENOENT','ENOTDIR','ELOOP'].includes(code)?code:'unknown'}});
+    for(const sampleError of [{get code(){return trap();}},Object.create({code:'EACCES'}),new Proxy({code:'EACCES'},handler)])
+      await run({sampleError,stopDepth:1},{sampling:'post-failure',prefixes:[],stop:{reason:'read-error',depth:1,errorCode:'unknown'}});
+    const revoked=Proxy.revocable({mode:0o40755,uid:0},{});revoked.revoke();
+    const malformed=[{},null,1,'private',{mode:0o40755},Object.create({mode:0o40755,uid:0}),{get mode(){return trap();},uid:0},{mode:0o40755,get uid(){return trap();}},new Proxy({mode:0o40755,uid:0},{...handler,get(target,key){if(key==='then'){resultThenReads++;return undefined;}return trap();}}),new Proxy({mode:0o40755,uid:0},{})];
+    for(const value of [-1,1.5,NaN,Infinity,0x100000000,'0',0n,{valueOf:trap}])malformed.push({mode:value,uid:0},{mode:0o40755,uid:value});
+    // Promise resolution touches a revoked result before awaited sampling can inspect it.
+    await run({sample:revoked.proxy,stopDepth:2},{sampling:'post-failure',prefixes:[trusted(1)],stop:{reason:'read-error',depth:2,errorCode:'unknown'}});
+    for(const sample of malformed)await run({sample,stopDepth:2},{sampling:'post-failure',prefixes:[trusted(1)],stop:{reason:'malformed',depth:2}});
+    await run({sample:{mode:0xffffffff,uid:0xffffffff},stopDepth:1},{sampling:'post-failure',prefixes:[{depth:1,kind:'other',modeBits:511,rootOwned:false}],stop:{reason:'non-directory',depth:1}});
+    await run({sample:{},stopDepth:1},{sampling:'post-failure',prefixes:[],stop:{reason:'malformed',depth:1}});
+    await run({target:Array(16).fill('d').join('/')},{sampling:'post-failure',prefixes:[...Array.from({length:15},(_,i)=>trusted(i+1)),{depth:16,kind:'regular',modeBits:420,rootOwned:true}],stop:{reason:'complete',depth:16}});
+    await run({target:Array(20).fill('d').join('/')},{sampling:'post-failure',prefixes:Array.from({length:16},(_,i)=>trusted(i+1)),stop:{reason:'cap',depth:17}});
+    await run({freezeFailure:true});await run({snapshotFreezeFailure:true});
+    await run({noCallback:true});await run({invalidCallback:true});
+    await run({primary:{}});await run({primary:{code:1}});await run({primary:{code:'EACCES-extra'}});
+    for(const primary of [{code:'EPERM'},Object.create({code:'EACCES'}),{get code(){return trap();}},new Proxy({code:'EACCES'},handler),new Proxy({code:'EACCES'},{})]) {
+      // Do not inspect proxies in test setup either; gate checks must be trap-free.
+      if((await import('node:util')).types.isProxy(primary)) {
+        events=[];reads=[];afterFailure=false;config={};entry=`${root}/link`;target='a/b';
+        const proxyError=primary;
+        // use the shared binding through a separate case below
+        await runProxy(proxyError);
+      } else await run({primary});
+    }
+    const revokedError=Proxy.revocable({code:'EACCES'},{});revokedError.revoke();
+    events=[];reads=[];afterFailure=false;config={};entry=`${root}/link`;target='a/b';await runProxy(revokedError.proxy);
+    for(const kind of ['success','noncanonical','ancestor','type','owner','canonical','readlink','physical','control-entry','long-entry'])await run({kind});
+    for(const [kind,target] of [['absolute','/outside'],['lexical','../outside'],['root-target','.'],['deep-target',Array(130).fill('d').join('/')],['long-target','x'.repeat(4097)],['control-target','bad\nname']])await run({kind,target});
+    async function runProxy(error) {
+      primary=error;let observed=0;
+      let caught;try {await production.validateProtectedLinuxTree(root,{onLinkTargetContext(){observed++;}});}catch(value){caught=value;}
+      assert.equal(caught===error,true);
+      assert.equal(reads.length,0);assert.equal(observed,0);cases++;
+    }
+  }
+  if(extended) {
+    const error={code:'EACCES',syscall:'realpath',path:`${root}/error-path`};
+    const metadata={entry:{scope:'payload-descendant',depth:1},lexicalTarget:{scope:'payload-descendant',depth:7}};
+    const baseline=production.linuxOperationFailure('tree-validation',error,root,undefined,metadata);
+    try {
+      Object.freeze=value=>{if(Object.hasOwn(value,'rootOwned'))throw new Error('optional context copy freeze');return freeze(value);};
+      assert.deepEqual(production.linuxOperationFailure('tree-validation',error,root,undefined,metadata,full),baseline);
+    } finally {Object.freeze=freeze;}
+  }
+  assert.equal(traps,0);assert.equal(unexpected,0);assert.equal(resultThenReads,extended?1:0);
+  console.log(JSON.stringify({cases,unexpectedOperations:unexpected,foreignTraps:traps,resultThenReads,source:'unchanged-full-module',metadata:'modeled-only'}));
+}
+
+test('post-failure target context samples seven prefixes only after original EACCES and old observer', t => {
+  const child=spawnSync(process.execPath,['--input-type=module'],{input:`await (${productionPostFailureFixture.toString()})(${JSON.stringify(new URL('./linux-protected-install.mjs',import.meta.url).href)});`,encoding:'utf8',timeout:10000,maxBuffer:65536});
+  assert.equal(child.error,undefined);assert.equal(child.signal,null);assert.equal(child.status,0,child.stderr);assert.equal(child.stderr,'');
+  assert.deepEqual(JSON.parse(child.stdout),{cases:1,unexpectedOperations:0,foreignTraps:0,resultThenReads:0,source:'unchanged-full-module',metadata:'modeled-only'});t.diagnostic(child.stdout.trim());
+});
+
+
+test('post-failure target context stops at trust type error malformed and cap boundaries with negative read controls', t => {
+  const child=spawnSync(process.execPath,['--input-type=module'],{input:`await (${productionPostFailureFixture.toString()})(${JSON.stringify(new URL('./linux-protected-install.mjs',import.meta.url).href)},true);`,encoding:'utf8',timeout:10000,maxBuffer:65536});
+  assert.equal(child.error,undefined);assert.equal(child.signal,null);assert.equal(child.status,0,child.stderr);assert.equal(child.stderr,'');
+  const result=JSON.parse(child.stdout);assert.equal(result.cases,98);
+  assert.deepEqual({...result,cases:0},{cases:0,unexpectedOperations:0,foreignTraps:0,resultThenReads:1,source:'unchanged-full-module',metadata:'modeled-only'});t.diagnostic(child.stdout.trim());
+});
+
+test('post-failure target context projector copies deeply frozen closed records with exact cross-field admission', t => {
+  const root='/payload',error={code:'EACCES',syscall:'realpath',path:'/payload/private/error'};
+  const rootMetadata={modeBits:493,otherRead:true,otherSearch:true};
+  const link=depth=>({entry:{scope:'payload-descendant',depth:1},lexicalTarget:{scope:'payload-descendant',depth}});
+  const directory=depth=>({depth,kind:'directory',modeBits:493,rootOwned:true});
+  const regular=depth=>({depth,kind:'regular',modeBits:420,rootOwned:false});
+  const context=(prefixes,reason,depth,errorCode)=>({sampling:'post-failure',prefixes,stop:{reason,depth,...(reason==='read-error'?{errorCode}:{})}});
+  const project=(input,depth=7)=>protectedInstall.linuxOperationFailure('tree-validation',error,root,rootMetadata,link(depth),input);
+  let validCases=0,invalidCases=0,traps=0;
+  const trap=()=>{traps++;throw new Error('foreign private trap');};
+  const handler={get:trap,ownKeys:trap,getOwnPropertyDescriptor:trap,getPrototypeOf:trap};
+  const accepted=[
+    [context([regular(1)],'complete',1),1],
+    [context([directory(1)],'complete',1),1],
+    [context([directory(1),regular(2)],'complete',2),2],
+    [context([directory(1),{depth:2,kind:'symlink',modeBits:511,rootOwned:true}],'symlink',2),7],
+    [context([regular(1)],'non-directory',1),7],
+    [context([{...regular(1),kind:'other'}],'non-directory',1),7],
+    [context([{...directory(1),rootOwned:false}],'untrusted-directory',1),1],
+    [context([{...directory(1),modeBits:509}],'untrusted-directory',1),7],
+    [context([{...directory(1),modeBits:495}],'untrusted-directory',1),1],
+    [context([{...regular(1),kind:'other'}],'unsupported-type',1),1],
+    [context([],'malformed',1),7],
+    [context([directory(1)],'malformed',2),2],
+    [context(Array.from({length:16},(_,i)=>directory(i+1)),'cap',17),129],
+    [context([],'unavailable',null),7],
+  ];
+  for(const code of ['EACCES','EPERM','ENOENT','ENOTDIR','ELOOP','unknown'])accepted.push([context([],'read-error',1,code),7],[context([directory(1)],'read-error',2,code),7]);
+  for(const [input,depth] of accepted) {
+    const observed=project(input,depth),copy=observed.linkTargetContext;
+    assert.deepEqual(copy,input);assert.notEqual(copy,input);assert.notEqual(copy.prefixes,input.prefixes);assert.notEqual(copy.stop,input.stop);
+    for(let index=0;index<input.prefixes.length;index++)assert.notEqual(copy.prefixes[index],input.prefixes[index]);
+    for(const value of [copy,copy.prefixes,copy.stop,...copy.prefixes])assert.equal(Object.isFrozen(value),true);
+    input.stop.reason='private';if(input.prefixes.length)input.prefixes[0].modeBits=0;
+    assert.notEqual(copy.stop.reason,'private');if(copy.prefixes.length)assert.notEqual(copy.prefixes[0].modeBits,0);
+    assert.doesNotMatch(JSON.stringify(copy),/private|payload|path|uid|gid|inode|stack|message/);validCases++;
+  }
+  const good=context([directory(1),regular(2)],'complete',2),baseline=project(undefined,2);
+  const nullRecords=Object.assign(Object.create(null),{sampling:'post-failure',prefixes:good.prefixes.map(value=>Object.assign(Object.create(null),value)),stop:Object.assign(Object.create(null),good.stop)});
+  assert.deepEqual(project(nullRecords,2).linkTargetContext,good);validCases++;
+  const revoked=Proxy.revocable(good,{});revoked.revoke();
+  const bad=[undefined,null,1,'private',[],{},Object.create(good),Object.assign(Object.create({}),good),new Proxy(good,handler),new Proxy(good,{}),revoked.proxy,
+    {...good,sampling:'cached'}, {...good,sampling:new String('post-failure')},{...good,extra:true},{...good,[Symbol('private')]:true},
+    {...good,get prefixes(){return trap();}},{...good,get sampling(){return trap();}},{...good,get stop(){return trap();}}];
+  const weirdArray=[];Object.defineProperty(weirdArray,'0',{get:trap,enumerable:true});
+  const holey=[,regular(2)],extra=[...good.prefixes];extra.private=true;
+  const symbol=[...good.prefixes];symbol[Symbol.iterator]=trap;
+  const custom=[...good.prefixes];Object.setPrototypeOf(custom,Object.create(Array.prototype));
+  const revokedArray=Proxy.revocable([...good.prefixes],{});revokedArray.revoke();
+  for(const prefixes of [undefined,null,{},Object.create(good.prefixes),weirdArray,holey,extra,symbol,custom,new Proxy(good.prefixes,handler),new Proxy(good.prefixes,{}),revokedArray.proxy,Array(17).fill(directory(1))])bad.push({...good,prefixes});
+  for(const record of [undefined,null,{},[],Object.create(directory(1)),Object.assign(Object.create({}),directory(1)),new Proxy(directory(1),handler),new Proxy(directory(1),{}),
+    {...directory(1),extra:1},{...directory(1),[Symbol()]:1},{...directory(1),get depth(){return trap();}},{...directory(1),get kind(){return trap();}},{...directory(1),get modeBits(){return trap();}},{...directory(1),get rootOwned(){return trap();}}])bad.push({...good,prefixes:[record,regular(2)]});
+  for(const field of ['depth','kind','modeBits','rootOwned'])for(const value of [undefined,null,{},true,'private',NaN,Infinity,-1,1.5,513])if(value!==directory(1)[field])bad.push({...good,prefixes:[{...directory(1),[field]:value},regular(2)]});
+  for(const prefix of [{...directory(1),rootOwned:false},{...directory(1),modeBits:509},{...directory(1),modeBits:495},regular(1),{...directory(1),kind:'symlink'},{...directory(1),kind:'other'}])bad.push({...good,prefixes:[prefix,regular(2)]});
+  for(const stop of [undefined,null,{},[],Object.create(good.stop),Object.assign(Object.create({}),good.stop),new Proxy(good.stop,handler),new Proxy(good.stop,{}),{...good.stop,[Symbol()]:true},{...good.stop,extra:1},{...good.stop,errorCode:undefined},{...good.stop,get reason(){return trap();}},{...good.stop,get depth(){return trap();}},{reason:'private',depth:2},...['2',null,0,1,3,NaN,Infinity,2.5].map(depth=>({reason:'complete',depth}))])bad.push({...good,stop});
+  for(const [prefixes,reason,depth,errorCode] of [
+    [[], 'complete',0],[[], 'symlink',0],[[], 'non-directory',0],[[], 'untrusted-directory',0],[[], 'unsupported-type',0],
+    [[directory(1)],'complete',1],[[regular(1)],'symlink',1],[[directory(1)],'non-directory',1],
+    [[{...directory(1),kind:'symlink'}],'non-directory',1],[[directory(1)],'untrusted-directory',1],
+    [[{...regular(1),kind:'other'}],'unsupported-type',1],[[regular(1),regular(2)],'non-directory',2],
+    [[directory(1),regular(2)],'unsupported-type',2],[[directory(1),regular(2)],'symlink',2],
+    [[directory(1)],'malformed',1],[[regular(1)],'malformed',2],[[directory(1),directory(2)],'malformed',3],
+    [[regular(1)],'read-error',2,'EACCES'],[[directory(1)],'read-error',2,'private'],[[directory(1)],'read-error',2,undefined],
+    [[], 'cap',17],[[directory(1)],'cap',17],[[], 'unavailable',0],[[directory(1)],'unavailable',null],
+  ])bad.push(context(prefixes,reason,depth,errorCode));
+  bad.push({...context([],'read-error',1,'EACCES'),stop:{reason:'read-error',depth:1,get errorCode(){return trap();}}});
+  for(const input of bad){assert.deepEqual(project(input,2),baseline,`invalid context case ${invalidCases}`);invalidCases++;}
+  const sixteen=Array.from({length:16},(_,i)=>directory(i+1));
+  for(const [input,depth] of [[context(sixteen,'cap',17),16],[context(sixteen,'cap',16),20],[context(sixteen,'read-error',17,'EACCES'),20],[context(sixteen,'malformed',17),20],[context([...sixteen.slice(0,15),regular(16)],'cap',17),20],[context([{...regular(1),kind:'other'}],'non-directory',1),1]]) {
+    assert.deepEqual(project(input,depth),project(undefined,depth));invalidCases++;
+  }
+  assert.equal(traps,0);
+  // Existing error and link metadata reflection budgets must not change.
+  let codeReads=0,syscallReads=0,pathReads=0;
+  const countedError=new Proxy(error,{getOwnPropertyDescriptor(target,key){if(key==='code')codeReads++;if(key==='syscall')syscallReads++;if(key==='path')pathReads++;return Reflect.getOwnPropertyDescriptor(target,key);}});
+  protectedInstall.linuxOperationFailure('tree-validation',countedError,root,rootMetadata,link(2),good);
+  assert.deepEqual([codeReads,syscallReads,pathReads],[1,1,1]);
+  const hostile=new Proxy(good,handler);
+  for(const [operation,err,payload,metadata] of [['tree-copy',error,root,link(2)],['unknown',error,root,link(2)],['tree-validation',{...error,code:'EPERM'},root,link(2)],['tree-validation',{...error,syscall:'readlink'},root,link(2)],['tree-validation',error,'/',link(2)],['tree-validation',error,root,undefined],['tree-validation',error,root,{entry:link(2).entry,lexicalTarget:{scope:'payload-root',depth:0}}],['tree-validation',error,root,{entry:link(2).entry,lexicalTarget:{scope:'unknown',depth:null}}]]) {
+    const value=protectedInstall.linuxOperationFailure(operation,err,payload,rootMetadata,metadata,hostile);
+    assert.equal(value?.linkTargetContext,undefined);invalidCases++;
+  }
+  assert.equal(traps,0);t.diagnostic(JSON.stringify({validCases,invalidCases,foreignTraps:traps,errorDescriptorReads:[codeReads,syscallReads,pathReads]}));
+});
+
+test('post-failure target context wrapper binds both private observations without widening legacy metadata', async () => {
+  // Structural wiring only: hosted wrapper execution is not simulated by spoofing
+  // process.platform. The real guard/helper/projector bytes run in models above.
+  const source=await readFile(new URL('./linux-protected-install.mjs',import.meta.url),'utf8');
+  const wrapper=source.slice(source.indexOf('export async function withProtectedLinuxArtifact('));
+  assert.equal((wrapper.match(/\(predicate,typeDetail,linkCount\)=>\{/g)??[]).length,2);
+  assert.equal((wrapper.match(/toolTrustRefusal=typeDetail\?\{predicate,typeDetail,\.\.\.\(linkCount\?\{linkCount\}:\{\}\)\}:\{predicate\};/g)??[]).length,2);
+  assert.match(wrapper,/onLinkResolutionFailure:value=>\{linkMetadata=value;\},onLinkTargetContext:value=>\{linkTargetContext=value;\}/);
+  assert.match(wrapper,/linuxOperationFailure\(operation,error,app,rootMetadata,linkMetadata,linkTargetContext\)/);
+});
