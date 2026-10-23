@@ -358,7 +358,7 @@ test("registrácia klienta dostane názov z karty client.md, nie slug priečinka
   await register("C001-syn-alfa-s-r-o", "C001-syn-alfa-s-r-o");
   await register("C002-syn-beta-a-s", "Môj klient Beta");
   await register("C003-bez-karty", "C003-bez-karty");
-  const names = Object.fromEntries(f.config.workspaces.map((w) => [w.path.split("/").pop(), w.name]));
+  const names = Object.fromEntries(f.config.workspaces.map((w) => [w.path.split(/[\\/]/).pop(), w.name]));
   expect(names).toEqual({ "C001-syn-alfa-s-r-o": "SYN Alfa, s. r. o.", "C002-syn-beta-a-s": "Môj klient Beta", "C003-bez-karty": "C003-bez-karty" });
 });
 
