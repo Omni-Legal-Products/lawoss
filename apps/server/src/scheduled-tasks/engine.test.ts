@@ -15,6 +15,10 @@ import { nextOccurrence } from "./schedule.js";
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 test.skipIf(!binary)("real engine enforces project scope and supplies local scheduling defaults", async () => {
   if (!binary) return;
+  const startedAt = performance.now();
+  let phase = "setup", sourceMessagesCompleted = 0, agentIndex = 0;
+  const activity = { snapshot: 0, documents: 0, foreground: 0, workspaces: 0, projects: 0, content: 0, model: 0,
+    transcriptGetStarted: 0, transcriptGetCompleted: 0, transcriptMessagesStarted: 0, transcriptMessagesCompleted: 0 };
   const root = await realpath(await mkdtemp(join(tmpdir(), "schedule-engine-")));
   const folder = join(root, "matter"), otherFolder = join(root, "other"); await mkdir(folder); await mkdir(otherFolder);
   const tasks = await TaskStore.open(join(root, "tasks.sqlite"), join(root, "attachments"));
@@ -31,7 +35,7 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
     // LAWOSS: the engine reaches the server only with its chat-bound credential.
     if (path.startsWith("/workspace") || path.startsWith("/scheduled-tasks"))
       serverAuth.push({ authorization: request.headers.get("authorization"), session: request.headers.get("x-legalwork-wiki-agent-session") });
-    if (path === "/snapshot") return Response.json({ ok: true, route: "/unrelated-chat" });
+    if (path === "/snapshot") { activity.snapshot++; return Response.json({ ok: true, route: "/unrelated-chat" }); }
     if (path === "/execute") {
       const input = z.object({ actionId: z.string(), args: z.unknown().optional() }).parse(await request.json());
       // Task document inventory is a background read, even though the bridge
@@ -40,18 +44,20 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
       if (input.actionId === "documents.list") {
         expect(z.object({ sessionId: z.string().min(1) }).safeParse(input.args).success).toBe(true);
         documentReads++;
+        activity.documents++;
         return Response.json({ ok: true, result: { openFiles: [], surfaces: [], activeSurface: null } });
       }
-      uiActions++; return Response.json({ ok: true });
+      uiActions++; activity.foreground++; return Response.json({ ok: true });
     }
-    if (path === "/workspaces") return Response.json({ items: [{ id: "matter", path: folder }, { id: "other", path: join(root, "other") }] });
-    if (path === "/scheduled-tasks/projects") return Response.json({ projects: [{ id: "matter", name: "Matter", path: folder }, { id: "other", name: "Other", path: join(root, "other") }] });
+    if (path === "/workspaces") { activity.workspaces++; return Response.json({ items: [{ id: "matter", path: folder }, { id: "other", path: join(root, "other") }] }); }
+    if (path === "/scheduled-tasks/projects") { activity.projects++; return Response.json({ projects: [{ id: "matter", name: "Matter", path: folder }, { id: "other", name: "Other", path: join(root, "other") }] }); }
     if (path === "/workspace/matter/scheduled-tasks" && request.method === "POST") {
       const input = ScheduledTaskInputSchema.parse(await request.json());
       created.push(input);
       return Response.json({ task: { ...input, nextRunAt: nextOccurrence(input.schedule, Date.parse("2026-10-24T12:00:00Z")) } });
     }
-    if (path === "/workspace/other/project/content" && transcriptSources) { sourceReads.push(path); return Response.json(await readProjectContent(transcriptSources, Object.fromEntries(new URL(request.url).searchParams))); }
+    if (path === "/workspace/other/project/content" && transcriptSources) { activity.content++; sourceReads.push(path); return Response.json(await readProjectContent(transcriptSources, Object.fromEntries(new URL(request.url).searchParams))); }
+    activity.model++;
     const input = z.object({ messages: z.array(z.object({ role: z.string(), content: z.unknown().optional() })), tools: z.array(z.object({ function: z.object({ name: z.string(), description: z.string().optional(), parameters: z.unknown().optional() }) })).optional() }).parse(await request.json());
     const tools = input.tools?.map(tool => tool.function.name) ?? [];
     const toolResults = input.messages.filter(message => message.role === "tool").map(message => JSON.stringify(message.content));
@@ -91,6 +97,7 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
   const logs = new Response(engine.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   try {
+    phase = "engine-health";
     let ready = false;
     const startupDeadline = Date.now() + 20000;
     while (Date.now() < startupDeadline) {
@@ -100,30 +107,46 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
     }
     if (!ready) throw new Error("Engine did not start: " + (engine.exitCode !== null ? await logs : "timed out"));
     const client = createOpencodeClient({ baseUrl: base, directory: otherFolder });
+    phase = "source-session-create";
     const { data: sourceSession } = await client.session.create({ title: "Other project chat" }, { throwOnError: true, signal: AbortSignal.timeout(10000) });
     sourceSessionId = sourceSession.id;
-    for (let i = 0; i < 23; i++) await client.session.prompt({ sessionID: sourceSession.id, noReply: true, parts: [{ type: "text", text: `Source message ${i}: Continue the contract review.` }] }, { throwOnError: true, signal: AbortSignal.timeout(10000) });
+    phase = "source-message-seed";
+    for (let i = 0; i < 23; i++) {
+      await client.session.prompt({ sessionID: sourceSession.id, noReply: true, parts: [{ type: "text", text: `Source message ${i}: Continue the contract review.` }] }, { throwOnError: true, signal: AbortSignal.timeout(10000) });
+      sourceMessagesCompleted++;
+    }
     transcriptSources = {
       workspace: { id: "other", name: "Other", path: otherFolder, preset: "default", workspaceType: "local" }, tasks, orgId: null, scope: "owner",
       sessions: async () => [],
-      session: async id => (await client.session.get({ sessionID: id }, { throwOnError: true, signal: AbortSignal.timeout(10000) })).data,
-      sessionMessages: async (id, limit, before) => { const result = await client.session.messages({ sessionID: id, limit, before }, { throwOnError: true, signal: AbortSignal.timeout(10000) }); return { messages: result.data, nextBefore: result.response.headers.get("x-next-cursor") }; },
+      session: async id => { activity.transcriptGetStarted++; const result = await client.session.get({ sessionID: id }, { throwOnError: true, signal: AbortSignal.timeout(10000) }); activity.transcriptGetCompleted++; return result.data; },
+      sessionMessages: async (id, limit, before) => { activity.transcriptMessagesStarted++; const result = await client.session.messages({ sessionID: id, limit, before }, { throwOnError: true, signal: AbortSignal.timeout(10000) }); activity.transcriptMessagesCompleted++; return { messages: result.data, nextBefore: result.response.headers.get("x-next-cursor") }; },
     };
+    phase = "transcript-recent";
     const recent = await readProjectContent(transcriptSources, { kind: "sessions", id: sourceSession.id });
     expect(recent.content).toContain("Source message 22");
     expect(recent.content).not.toContain("Source message 0:");
     expect(recent.nextBefore).not.toBeNull();
+    phase = "transcript-older";
     const older = await readProjectContent(transcriptSources, { kind: "sessions", id: sourceSession.id, before: recent.nextBefore });
     expect(older.content).toContain("Source message 0:"); expect(older.nextBefore).toBeNull();
     expect(recent.content.split("\n").length + older.content.split("\n").length).toBe(23);
+    phase = "agents-headers";
     const agentsResponse = await fetch(base + "/agent", { signal: AbortSignal.timeout(10000) });
+    phase = "agents-body";
     const agents = z.array(z.object({ name: z.string(), permission: z.array(z.object({ permission: z.string(), pattern: z.string(), action: z.enum(["allow", "deny", "ask"]) })) })).parse(await agentsResponse.json());
     expect(hasProjectTaskBoundary(agents.find(agent => agent.name === PROJECT_TASK_AGENT)), JSON.stringify(agents.find(agent => agent.name === PROJECT_TASK_AGENT)?.permission.slice(-20))).toBe(true);
     for (const agent of [PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, "build"]) {
+      agentIndex++;
       const requestStart = modelRequests.length;
-      const session = z.object({ id: z.string() }).parse(await (await fetch(base + "/session", { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(10000) })).json());
+      phase = "agent-session-headers";
+      const sessionResponse = await fetch(base + "/session", { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(10000) });
+      phase = "agent-session-body";
+      const session = z.object({ id: z.string() }).parse(await sessionResponse.json());
+      phase = "agent-prompt-headers";
       const response = await fetch(`${base}/session/${session.id}/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent, model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: agent === "build" ? "Remind me of this project's deadlines every morning." : "Run the scope fixture." }] }), signal: AbortSignal.timeout(25000) });
+      phase = "agent-prompt-body";
       const result = await response.text();
+      phase = "agent-assertions";
       expect(response.status, result).toBe(200);
       const requests = modelRequests.slice(requestStart), first = requests[0], last = requests.at(-1);
       expect(first?.tools).toContain("legalwork_schedule_project_read");
@@ -149,8 +172,11 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
         expect(created).toHaveLength(1);
         expect(created[0]).toMatchObject({ sessionId: session.id, reuseChat: true, projectAccess: "project", model: { providerID: "fixture", modelID: "fixture" }, schedule: { timeZone: "Europe/Berlin", startAt: "2026-10-25T06:00:00" } });
         expect(last?.toolResults.join(" ")).toContain("2026-10-25T05:00:00.000Z");
+        phase = "follow-up-headers";
         const followUp = await fetch(`${base}/session/${session.id}/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent, model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: "Continue." }] }), signal: AbortSignal.timeout(25000) });
+        phase = "follow-up-body";
         expect(followUp.status, await followUp.text()).toBe(200);
+        phase = "follow-up-assertions";
         const next = modelRequests.at(-1);
         expect(next?.system).toBe(first?.system);
         expect(next?.toolDefinitions).toBe(first?.toolDefinitions);
@@ -165,9 +191,19 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
         expect(sourceReads).toEqual(["/workspace/other/project/content"]);
       }
     }
+    phase = "final-assertions";
     expect(uiActions).toBe(0);
     expect(documentReads).toBeGreaterThan(0);
     expect(serverAuth.length).toBeGreaterThan(0);
     expect(serverAuth.every(entry => entry.authorization === null && Boolean(entry.session))).toBe(true);
+  } catch (error) {
+    // Counts and fixed phases only. Do not await stderr EOF while the engine is live.
+    try {
+      console.error(JSON.stringify({ kind: "lawoss-scheduling-engine-test-failure", phase, sourceMessagesCompleted, agentIndex,
+        activity: Object.fromEntries(Object.entries(activity).map(([key, value]) => [key, Math.min(value, 65535)])),
+        modelRequests: Math.min(modelRequests.length, 65535), engineExited: engine.exitCode !== null,
+        elapsedMs: Math.round(performance.now() - startedAt) }));
+    } catch { /* Diagnostic output must not replace the primary failure. */ }
+    throw error;
   } finally { engine.kill("SIGKILL"); await engine.exited; fixture.stop(true); await rm(root, { recursive: true, force: true }); }
 }, 60000);

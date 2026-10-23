@@ -21,11 +21,20 @@ export function createNativeEngineClient(serverInfo, workspaceId, request = fetc
   // Global health and enabled renderer actions do not await instance bootstrap.
   // Finish the real cold instance before configuring and reloading its provider.
   // Cold provisioning includes npm installs; the pinned engine's lock budget is 5m.
-  engineRequest.ready = async () => {
-    const response = await authenticatedRequest(`${baseUrl}/mcp`, { signal: AbortSignal.timeout(300_000) }, 300_000);
+  engineRequest.ready = async ({ observe, onDeadline } = {}) => {
+    const deadline = typeof onDeadline === 'function' ? Date.now() + 300_000 : undefined;
+    const signal = AbortSignal.timeout(300_000);
+    // Optional diagnostics are passive: they cannot replace readiness/errors.
+    const notify = (callback, value) => { try { callback?.(value); } catch {} };
+    if (deadline !== undefined) notify(onDeadline, deadline);
+    notify(observe, 'request');
+    const response = await authenticatedRequest(`${baseUrl}/mcp`, { signal }, 300_000);
+    notify(observe, 'headers');
     assert.equal(response.status, 200, 'Owned engine instance must be ready before native configuration');
     const body = await response.json();
+    notify(observe, 'body');
     assert.ok(body && typeof body === 'object' && !Array.isArray(body), 'Owned engine readiness requires a valid MCP status object');
+    notify(observe, 'verified');
     return body;
   };
   // Match provider sign-in in the application: the server awaits rebuilding

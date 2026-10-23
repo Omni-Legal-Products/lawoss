@@ -10,15 +10,20 @@ const electronSidecarDir = resolve(desktopRoot, "resources", "sidecars");
 const electronRoot = resolve(desktopRoot, "electron");
 const packagedServerRoot = resolve(desktopRoot, "server");
 
+import { desktopProductSdkTarget, parseDesktopSdkBuildArguments, prepareDesktopProductSdkPackaging } from '../../../lawoss/build/plugin-payload/desktop-packaging.mjs';
+const sdkSupplier = parseDesktopSdkBuildArguments(process.argv.slice(2));
+
 import { targetFromTriple, writeBuildInfoForCheckout } from '../../../scripts/release/build-info.mjs';
 const identityTarget = process.env.CARGO_CFG_TARGET_TRIPLE ?? process.env.TARGET;
 const identityVersion = JSON.parse(readFileSync(resolve(desktopRoot, 'package.json'), 'utf8')).version;
-writeBuildInfoForCheckout({root: repoRoot, out: resolve(desktopRoot, 'resources/build-info.json'),
+const applicationBuild = writeBuildInfoForCheckout({root: repoRoot, out: resolve(desktopRoot, 'resources/build-info.json'),
   version: identityVersion, ...(identityTarget ? targetFromTriple(identityTarget) : {platform:process.platform,arch:process.arch}),
   channel: identityVersion.includes('alpha') ? 'alpha' : 'stable',
   workflowRunUrl: process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID
     ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : '',
   release: identityVersion !== '0.0.0'});
+const sdkTarget = identityTarget ? targetFromTriple(identityTarget) : { platform: process.platform, arch: process.arch };
+await prepareDesktopProductSdkPackaging({ target: desktopProductSdkTarget(sdkTarget.platform, sdkTarget.arch), applicationBuild, supplier: sdkSupplier, workerBunPath: process.env.LAWOSS_PRODUCT_SDK_BUN_BINARY });
 
 const pnpmCmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const nodeCmd = process.execPath;

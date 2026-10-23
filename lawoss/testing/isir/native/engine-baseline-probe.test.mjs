@@ -498,3 +498,41 @@ test('upstream-build invocation retains exact executable argv cwd environment an
   assert.deepEqual(result.buildObservation.stdout.progressEvents,['web-ui-enter']);assert.equal(result.buildObservation.stderr.viteBuildFailureSummaryCount,1);
   assert.ok(Object.isFrozen(result.buildObservation));assert.equal(result.installObservation,null);
 });
+
+function recoveryOptionalFixtures(){
+  const poll={attempt:1,enteredPredicate:true,boundary:'runtime-state-check',completedPrefix:9,outcome:'ready'};
+  return [{},{recoveryReadinessObservation:{schema:1,attempts:1,attemptsCapped:false,first:poll,last:poll,waitOutcome:'returned'},cleanupObservation:{schema:1,scope:'inner-harness-cleanup',operations:7,operationsCapped:false,failures:0,failuresCapped:false,current:null,last:{operation:7,boundary:'prepared-engine-cleanup',childSlot:null,childSlotCapped:false,outcome:'completed'},firstFailure:null,lastFailure:null,interiorFailuresOmitted:false}},
+    {recoveryReadinessObservation:{schema:999,attempts:-1,boundary:'PRIVATE',extra:'PRIVATE'},cleanupObservation:['PRIVATE']},
+    {recoveryReadinessObservation:'PRIVATE',cleanupObservation:null}];
+}
+test('raw recovery additions preserve exact baseline projection and cannot repair selected failures',()=>{
+  const expected=JSON.stringify(api.projectBoundary(boundary(6))),decision=api.assessOriginal(boundary(6),runtime());
+  for(const extra of recoveryOptionalFixtures()){
+    const raw={...boundary(6),...extra};assert.equal(JSON.stringify(api.projectBoundary(raw)),expected);assert.deepEqual(api.assessOriginal(raw,runtime()),decision);
+    raw.platform='darwin';assert.equal(api.assessOriginal(raw,runtime()).decision,'unknown');
+    raw.platform='win32';raw.startup.push({stage:'headers',elapsedMs:2});assert.equal(api.assessOriginal(raw,runtime()).decision,'unknown');
+    raw.cleanupErrors=[{name:'Error'}];assert.equal(api.assessOriginal(raw,runtime()).decision,'unknown');
+  }
+  const raw=boundary(6);Object.defineProperty(raw,'recoveryReadinessObservation',{get(){throw Error('must not read ignored data');}});assert.equal(JSON.stringify(api.projectBoundary(raw)),expected);
+});
+test('actual baseline guard and finalize ignore raw optional records while retaining byte parser and strict receipt boundaries',async t=>{
+  const {spawn}=await import('node:child_process');const root=await mkdtemp(path.join(tmpdir(),'recovery-baseline-entry-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const output=path.join(root,'receipt.json'),native=path.join(root,'native.json'),input=path.join(root,'input.json'),rt=path.join(root,'runtime.json');
+  await writeFile(rt,JSON.stringify(runtime()));
+  const launch=async(args)=>{const c=spawn(process.execPath,[fileURLToPath(new URL('./engine-baseline-probe.mjs',import.meta.url)),...args],{env:{},stdio:['ignore','pipe','pipe']});assert.equal((await api.collectChild(c,{timeoutMs:5000})).outcome,'ok');return JSON.parse(await readFile(output,'utf8'));};
+  for(const extra of recoveryOptionalFixtures()){
+    await writeFile(input,JSON.stringify({...boundary(6),...extra}));const guarded=await launch(['guard',output,input,rt]);
+    assert.equal(guarded.stage,'awaiting-lawoss-build');assert.deepEqual(guarded.originalBoundary,api.projectBoundary(boundary(6)));assert.deepEqual(api.projectReceipt(guarded),guarded);
+    const finalized=await launch(['finalize',output,native]);assert.deepEqual(finalized,guarded);assert.doesNotMatch(JSON.stringify(finalized),/recoveryReadinessObservation|cleanupObservation|PRIVATE/);
+  }
+  const bytes=JSON.stringify(boundary(6));
+  for(const invalid of [Buffer.from(bytes.slice(0,-1)+',"cleanupObservation":{"x":1,"x":2}}'),Buffer.concat([Buffer.from(bytes.slice(0,-1)+',"cleanupObservation":"'),Buffer.from([255]),Buffer.from('"}')]),Buffer.from(bytes.slice(0,-1)+',"cleanupObservation":"'+'x'.repeat(256*1024)+'"}')]){
+    await writeFile(input,invalid);const guarded=await launch(['guard',output,input,rt]);assert.equal(guarded.originalBoundary,null);assert.equal(guarded.stage,'original-input');
+  }
+  // Baseline intentionally has no whole-tree nonfinite walk.
+  await writeFile(input,bytes.slice(0,-1)+',"cleanupObservation":1e999}');assert.equal((await launch(['guard',output,input,rt])).stage,'awaiting-lawoss-build');
+  for(const mutate of [r=>r.cleanupObservation={},r=>r.originalBoundary.recoveryReadinessObservation={},r=>{r.rebuiltBoundary=structuredClone(r.originalBoundary);r.rebuiltBoundary.cleanupObservation={};}]){
+    const r=baselineReceipt();mutate(r);assert.throws(()=>api.projectReceipt(r));await writeFile(output,JSON.stringify(r));await writeFile(native,'PRIVATE');
+    const cleaned=await launch(['finalize',output,native]);assert.equal(cleaned.outcome,'unknown');assert.equal(cleaned.originalBoundary,null);assert.equal(cleaned.rebuiltBoundary,null);await assert.rejects(lstat(native),{code:'ENOENT'});
+  }
+});

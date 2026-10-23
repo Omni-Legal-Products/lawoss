@@ -49,7 +49,7 @@ jobs:
   publish-alpha-macos-aarch64:
     needs: sandbox-runtime
     name: Build + Publish alpha (aarch64-apple-darwin)
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 180
 
     env:

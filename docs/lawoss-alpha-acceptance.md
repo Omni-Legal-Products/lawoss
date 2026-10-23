@@ -32,6 +32,20 @@ overí `codesign` a Gatekeeper, spustí ju s izolovaným profilom a číta živ�
 UI-control. Rozhranie CDP ani runtime fuses sa nemenia. Bez manuálne dokončených
 nativných scenárov runner zapíše `blocked` a skončí nenulovo.
 
+Súkromný alfa extractor kontroluje podporované Mach-O hlavičky priamo z obmedzeného
+čítania toho istého fyzického súboru. Podporuje iba generic x64/ARM64 thin64 a overené
+FAT32/FAT64 rozloženia; úspešná kontrola nenahrádza podpis ani skutočný natívny štart.
+Ak úvodný census vlastníkov odmietne štart ešte pred profilovým zámkom a spawn,
+cleanup dôkaz platí len pre žiadne nové deti tejto invokácie. Existujúca cudzia aplikácia
+zostáva samostatným vlastníkom a pôvodný dôvod odmietnutia sa zachová.
+
+Prospektívny natívny alfa runner viaže aj `XDG_STATE_HOME` na vlastný
+`profile/state` a tento fyzický adresár skontroluje pred child spawn. Ambientný
+state adresár sa nepreberá; existujúci súbor alebo alias sa neadoptuje. Kontrolované
+Node fixture overujú prenos prostredia a odmietnutie nebezpečného state vstupu.
+Staršie natívne výsledky tým nezískavajú dôkaz izolácie tohto nového prostredia;
+skutočný engine state a jeho natívne temp správanie ešte potrebujú čerstvé meranie.
+
 ## AI režimy v governance kandidátovi
 
 **AI hranice v alfe (rozhodnutie 20. 10. 2026):** alfa sa dodáva s prepínačom **AI hranice vypnutým**.
@@ -102,6 +116,27 @@ API kľúče ani discovery token UI-control.
 
 `draft`, `built`, `signed`, `tested`, `published` a `delivered` sú samostatné stavy.
 Po zmene finálnych bytes, podpise alebo novom builde sa pôvodný runtime výsledok neprenesie.
+
+## Pozorovanie zlyhania macOS census
+
+Neočakávané odmietnutie kontroly vlastníka pred spustením môže uchovať iba
+uzavreté registrované fakty o fáze, kóde, exit kóde, signáli a killed príznaku.
+Pôvodná chyba, bezpečnostná podmienka, 2000ms/4MiB limit a cleanup zostávajú.
+Signál ani killed samostatne nepreukazujú timeout. Kontrolované lokálne prípady
+neobjasňujú pôvodné Intel CI zlyhanie; jeho príčina ostáva neznáma do nového
+natívneho pozorovania. Očakávané odmietnutia nevytvárajú diagnostický výpis.
+
+## Chránený Linux inštalačný kontajner
+
+Len novo vytvorený, výlučne vlastnený inštalačný koreň má explicitnú politiku
+root-owned0755. Jeho presná fyzická identita sa kontroluje pred aj po zmene
+práv; zdrojový koreň a každý vnútorný súbor, adresár a link zachovávajú pôvodné
+bytes a práva. Aplikácia sa naďalej spúšťa ako bežný používateľ a pôvodné
+AppArmor, sandbox, integrita a cleanup podmienky zostávajú povinné.
+
+Skutočný Linux metadata test pod bežným UID nepreukazuje štart finálneho
+AppImage. Dve pôvodné chyby inertných launch fixtures v obmedzenom Linux
+kontajneri zostávajú zaznamenané; hostiteľský macOS PASS ich príčinu neurčuje.
 
 ## Ďalšie kroky
 

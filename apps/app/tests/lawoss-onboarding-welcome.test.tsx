@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LocalProvider } from "../src/react-app/kernel/local-provider";
 import { clientsFolderOf, LawossWelcomePage, type WelcomeApi } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
 import type { OnboardingStep } from "../src/lawoss/domains/onboarding/api";
+import { WelcomeRoute } from "../src/react-app/shell/welcome-route";
 
 // renderToStaticMarkup nespúšťa efekty a jazyk rozhrania je pri SSR angličtina (useLocale).
 const api: WelcomeApi = {
@@ -29,6 +30,17 @@ const page = (initialStep: OnboardingStep, extra: { initialRoot?: string; comple
   );
 
 describe("LAWOSS welcome flow", () => {
+  test("welcome waiting for its server client remains a boot state", () => {
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <LocalProvider><MemoryRouter><WelcomeRoute /></MemoryRouter></LocalProvider>
+      </QueryClientProvider>,
+    );
+    expect(html).toContain("Connecting LAWOSS…");
+    expect(html).toMatch(/<main\b[^>]*data-legalwork-boot-overlay=""[^>]*role="status"/);
+    expect(page("folder")).not.toContain("data-legalwork-boot-overlay");
+  });
+
   test("onboarding má tri kroky a krok Priečinok ponúkne obe voľby", () => {
     const html = page("folder");
     expect(html).toContain('data-lawoss-onboarding-step="folder"');

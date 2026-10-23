@@ -93,3 +93,16 @@ test('owned renderer connection keeps the page active for foreground-only UI pol
     await new Promise(resolve => server.close(resolve));
   }
 });
+
+test('readiness observer keeps the actual helper catch, 100ms sleep and short expiry unchanged',async t=>{
+  const { createNativeDiagnostics, observeNativeLifecycle }=await import('./diagnostics.mjs');
+  const { mkdtemp, readFile, rm }=await import('node:fs/promises');const { tmpdir }=await import('node:os');const path=await import('node:path');
+  const root=await mkdtemp(path.join(tmpdir(),'readiness-wait-unit-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const outputFile=path.join(root,'diagnostics.json'),d=createNativeDiagnostics({enabled:true,ci:true,mode:'synthetic',outputFile});
+  t.mock.timers.enable({apis:['Date'],now:1000});let reads=0;
+  await assert.rejects(until(()=>{reads++;observeNativeLifecycle(d.recoveryReadiness,'begin');observeNativeLifecycle(d.recoveryReadiness,'entered');observeNativeLifecycle(d.recoveryReadiness,'not-ready');t.mock.timers.tick(2);return false;},'inert observed expiry',1),error=>{assert.equal(error.code,'ISIR_NATIVE_WAIT_EXPIRED');assert.equal(error.message,'Timed out: inert observed expiry; last=false');return true;});
+  assert.equal(reads,1);await d.write();const row=JSON.parse(await readFile(outputFile,'utf8')).recoveryReadinessObservation;
+  assert.equal(row.first.outcome,'not-ready');assert.equal(row.waitOutcome,'not-observed');
+  const source=await readFile(new URL('./cdp.mjs',import.meta.url),'utf8');
+  assert.match(source,/const end = Date.now\(\) \+ timeout;/);assert.match(source,/try \{ last = await read\(\); if \(last\) return last; \} catch \(e\) \{ last = e; \}/);assert.match(source,/await setTimeout\(100\);/);
+});

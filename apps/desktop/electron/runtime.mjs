@@ -617,7 +617,11 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, listLocalWorkspaceAppFiles, listLocalWorkspaces, reconnectHostWorkspace, recorder, onSidecarExit, getApprovalWindow, getUiLocale = () => "en", subscribeUiLocale = () => () => {} }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, listLocalWorkspaceAppFiles, listLocalWorkspaces, reconnectHostWorkspace, recorder, onSidecarExit, getApprovalWindow, getUiLocale = () => "en", subscribeUiLocale = () => () => {}, onStartupCheckpoint = undefined }) {
+  const checkpoint = phase => {
+    try { onStartupCheckpoint?.(phase); } catch { /* Observation cannot change constructor behavior. */ }
+  };
+  checkpoint('runtime-manager-entered');
   const requestHostApproval = createHostApprovalHandler({
     getWindow: getApprovalWindow,
     getLocale: getUiLocale,
@@ -634,6 +638,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   const engineState = createEngineState();
   const legalworkServerState = createLegalworkServerState();
   const orchestratorState = createOrchestratorState();
+  checkpoint('runtime-state-returned');
 
   // Report an unexpected sidecar (agent runtime) exit as a content-free signal.
   // Intentional stops/restarts are filtered out in spawnManagedChild via the
@@ -676,13 +681,17 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   const userDataDir = app.getPath("userData");
+  checkpoint('runtime-user-data-returned');
   const pluginDiscoveryHome = app.getPath("home");
+  checkpoint('runtime-home-returned');
   const projectsDirectory = desktopProjectsDirectory(app.getPath("documents"), process.env.LEGALWORK_DEV_MODE === "1");
+  checkpoint('runtime-documents-returned');
   const sidecarDirs = [
     path.join(desktopRoot, "resources", "sidecars"),
     process.resourcesPath ? path.join(process.resourcesPath, "sidecars") : null,
     path.join(path.dirname(app.getPath("exe")), "sidecars"),
   ].filter(Boolean);
+  checkpoint('runtime-sidecars-returned');
 
   // Office add-in (Word/Excel/PowerPoint) manager. Install/uninstall is driven
   // by the "Office Add-ins" settings tab; startLegalworkServer reads its state
@@ -693,6 +702,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     locatePaneDist: locatePaneDistDir,
     requestServerRestart: () => withRuntimeLifecycle(() => legalworkServerRestart({})),
   });
+  checkpoint('runtime-office-returned');
 
   function legalworkServerTokenStorePath() {
     return path.join(userDataDir, "legalwork-server-tokens.json");

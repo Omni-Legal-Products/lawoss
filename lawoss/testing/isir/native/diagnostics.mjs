@@ -26,7 +26,7 @@ function endpoint(url) {
   if (/\/prompt_async$/.test(pathname)) return 'prompt';
   if (/\/sessions?\/[^/]+\/snapshot$/.test(pathname)) return 'snapshot';
   if (/\/files\/(?:list|raw|content)$/.test(pathname)) return 'files';
-  const fixed = new Map([['/path','engine.path'],['/global/health','engine.health'],['/provider','provider'],['/instance/dispose','engine.dispose'],['/auth/isir-native','synthetic.auth'],['/json/list','cdp.targets'],['/experimental/session','engine.sessions'],['/','ui']]);
+  const fixed = new Map([['/path','engine.path'],['/mcp','engine.mcp'],['/global/health','engine.health'],['/provider','provider'],['/instance/dispose','engine.dispose'],['/auth/isir-native','synthetic.auth'],['/json/list','cdp.targets'],['/experimental/session','engine.sessions'],['/','ui']]);
   const enginePath=pathname.replace(/^\/workspace\/[^/]+\/opencode(?=\/|$)/,'');
   if(fixed.has(enginePath))return fixed.get(enginePath);
   if (/\/workspace\/[^/]+\/engine\/reload$/.test(pathname))return 'engine.reload';
@@ -277,9 +277,82 @@ export function summarizePromptEvents(events,context,start=0,end=events.length){
   for(const entry of active.values())finish(entry);
   return result;
 }
-export async function settleCleanup(primary, operations) {
+// Internal observers are trusted synchronous void callbacks. No promises are
+// assimilated and no detached work is permitted by this contract.
+export function observeNativeLifecycle(observer, ...facts) {
+  try { observer?.(...facts); } catch { /* Observation cannot change the gate. */ }
+}
+function createRecoveryReadinessObservation() {
+  const boundaries=['approval-check','transport-request','status-check','transport-body','session-check','host-directory-check','guest-directory-check','root-identity-check','legal-approval-check','runtime-state-check'];
+  let record=null,frozen=false;
+  return {
+    observe(event,boundary){
+      if(frozen)return;
+      if(event==='begin'||event==='wait-start'){
+        record??={schema:1,attempts:0,attemptsCapped:false,first:null,last:null,waitOutcome:'not-observed'};
+        if(event==='wait-start')return;
+        if(record.attempts===128)record.attemptsCapped=true;else record.attempts++;
+        record.last={attempt:record.attemptsCapped?null:record.attempts,enteredPredicate:false,boundary:'approval-check',completedPrefix:0,outcome:'pending'};
+        record.first??=record.last;
+      } else if(record){
+        const poll=record.last;
+        if(event==='wait-returned'||event==='wait-threw')record.waitOutcome=event==='wait-returned'?'returned':'threw';
+        else if(poll?.outcome==='pending'){
+          if(event==='entered')poll.enteredPredicate=true;
+          else if(event==='boundary'&&boundaries.includes(boundary))poll.boundary=boundary;
+          else if(event==='completed')poll.completedPrefix=Math.min(9,poll.completedPrefix+1);
+          else if(['threw','not-ready','ready'].includes(event))poll.outcome=event;
+        }
+      }
+    },
+    freeze(){frozen=true;},
+    snapshot(){return record?{recoveryReadinessObservation:{...record,first:record.first?{...record.first}:null,last:record.last?{...record.last}:null}}:{};},
+  };
+}
+function createInnerCleanupObservation() {
+  const labels=['protected-approvals-close','chooser-disconnect','cdp-close','owned-child-stop','engine-traces-close','provider-close','prepared-engine-cleanup'];
+  const tags=new WeakMap();
+  let record=null,firstOrdinal=null,lastOrdinal=null;
+  // Input is the already computed public errorMetadata value, never an Error.
+  const cloneMetadata=(value,depth=0)=>({name:['Error','TypeError','AssertionError','AggregateError','TimeoutError','AbortError'].includes(value.name)?value.name:'Error',
+    ...(['EPERM','ESRCH','ENOENT','EBUSY','ECONNREFUSED','ECONNRESET','UND_ERR_HEADERS_TIMEOUT','UND_ERR_CONNECT_TIMEOUT','ERR_ASSERTION','ISIR_NATIVE_WAIT_EXPIRED'].includes(value.code)?{code:value.code}:{}),
+    ...(depth<3&&value.cause?{cause:cloneMetadata(value.cause,depth+1)}:{})});
+  return {
+    tag(operation,boundary,slot=null){
+      if(typeof operation==='function'&&labels.includes(boundary))tags.set(operation,{boundary,childSlot:boundary==='owned-child-stop'&&Number.isInteger(slot)&&slot>=1&&slot<=32?slot:null,childSlotCapped:boundary==='owned-child-stop'&&Number.isInteger(slot)&&slot>32});
+      return operation;
+    },
+    observe(operation,event,failureOrdinal){
+      const tag=tags.get(operation);if(!tag)return;
+      if(event==='start'){
+        record??={schema:1,scope:'inner-harness-cleanup',operations:0,operationsCapped:false,failures:0,failuresCapped:false,current:null,last:null,firstFailure:null,lastFailure:null,interiorFailuresOmitted:false};
+        if(record.operations===128)record.operationsCapped=true;else record.operations++;
+        record.current={operation:record.operationsCapped?null:record.operations,...tag,outcome:'pending'};
+      } else if(record?.current&&(event==='completed'||event==='failed')){
+        record.current.outcome=event;record.last=record.current;record.current=null;
+        if(event==='failed'){
+          if(record.failures===32)record.failuresCapped=true;else record.failures++;
+          record.interiorFailuresOmitted=record.failures>2;
+          record.lastFailure={failure:failureOrdinal<=32?failureOrdinal:null,...tag,metadata:null};lastOrdinal=failureOrdinal;
+          if(!record.firstFailure){record.firstFailure=record.lastFailure;firstOrdinal=failureOrdinal;}
+        }
+      }
+    },
+    metadata(ordinal,metadata){
+      if(!record)return;
+      if(ordinal===firstOrdinal)record.firstFailure.metadata=cloneMetadata(metadata);
+      if(ordinal===lastOrdinal)record.lastFailure.metadata=cloneMetadata(metadata);
+    },
+    snapshot(){return record?{cleanupObservation:record}:{};},
+  };
+}
+export async function settleCleanup(primary, operations, observe) {
   const failures=[];
-  for(const operation of operations)try {await operation();}catch(error){failures.push(error);}
+  for(const operation of operations){
+    observeNativeLifecycle(observe,operation,'start',null);
+    try {await operation();observeNativeLifecycle(observe,operation,'completed',null);}
+    catch(error){failures.push(error);observeNativeLifecycle(observe,operation,'failed',failures.length);}
+  }
   return {error:primary??(failures.length?new AggregateError(failures,'Owned native cleanup failed'):null),failures};
 }
 // Pinned engine v1.18.29 default file format, not a raw-log redactor. The
@@ -497,6 +570,8 @@ function generationHostError(lines,index) {
 
 export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,ownedRoot,engineLogFs=fs,readGenerationResponseBody}) {
   if(enabled&&(!ci||mode!=='synthetic'||!outputFile))throw new Error('Published native diagnostics require explicit CI synthetic mode and output file');
+  const readiness=enabled?createRecoveryReadinessObservation():null;
+  const innerCleanup=enabled?createInnerCleanupObservation():null;
   let phase='setup',caseIndex=null;
   let recoveryStage=null,recoveryFrozen=false;
   const recoveryStages=['snapshot-request','snapshot-body','snapshot-save','snapshot-check',
@@ -512,6 +587,7 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
   const provisioning=[],provisioningRuns=[];
   let generationHostErrors=[],hostErrorsCaptured=false;
   let provisioningHostErrors=[];
+  let hostConsoleCapture=null;
   let generationRun=null;
   let provisioningRun=null;
   const readGenerationError=run=>{
@@ -572,9 +648,9 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
   const promptProjection=()=>Object.fromEntries(['attachment','recovery'].map(role=>{
     const run=promptRuns[role];return [role,run?{click:run.click,network:run.network}:null];
   }));
-  let startupDropped=0,ownedProcessesDropped=0;
+  let startupDropped=0,ownedProcessesDropped=0,ownedStopAttempt=0;
   const observationStarted=performance.now();
-  const startupStages=['request','headers','body','verified'];
+  const startupStages=['request','headers','body','verified','instance-request','instance-headers','instance-body','instance-verified'];
   const processStages=['capture','term-signal','term-wait','kill-signal','kill-wait','signal-recheck'];
   const phases=['setup','startup','configure-provider','native-case','preparation-admission','generation','extra-cases','relaunch','recovery','complete'];
   const request=async(url,options={},timeout=30_000,probeCaseIndex=null)=>{
@@ -588,6 +664,10 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
     finally {record.elapsedMs=Math.round(performance.now()-started);}
   };
   return {
+    recoveryReadiness:readiness?.observe,
+    cleanupTag:innerCleanup?.tag??(operation=>operation),
+    cleanupObserve:innerCleanup?.observe,
+    cleanupMetadata:innerCleanup?.metadata,
     observeNetworkEvent,
     provisioningStart(index,events,start,context){
       if(recoveryFrozen||!Number.isInteger(index)||index<1||index>10||provisioning.some(row=>row.caseIndex===index))return;
@@ -650,7 +730,25 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
       if(!processStages.includes(value?.stage))throw new Error('Unknown process diagnostic stage');
       const counts=['index','elapsedMs','knownLive','unknown','moved','mismatched'];
       if(!counts.every(key=>Number.isSafeInteger(value[key])&&value[key]>=0)||typeof value.leaderExited!=='boolean'||typeof value.anchored!=='boolean')throw new Error('Invalid process diagnostic census');
-      ownedProcesses.push({phase,stage:value.stage,index:value.index,elapsedMs:value.elapsedMs,knownLive:value.knownLive,unknown:value.unknown,moved:value.moved,mismatched:value.mismatched,leaderExited:value.leaderExited,anchored:value.anchored});
+      const extra={},validCount=value=>Number.isSafeInteger(value)&&value>=0;
+      if(value.leaderLive!==undefined||value.descendantLive!==undefined){
+        if(!validCount(value.leaderLive)||!validCount(value.descendantLive))throw new Error('Invalid process diagnostic census');
+        Object.assign(extra,{leaderLive:value.leaderLive,descendantLive:value.descendantLive});
+      }
+      if(value.states!==undefined){
+        const keys=['running','sleeping','idle','stopped','uninterruptible','zombie','dead','other','unknown'];
+        if(!value.states||!keys.every(key=>validCount(value.states[key])))throw new Error('Invalid process diagnostic census');
+        extra.states=Object.fromEntries(keys.map(key=>[key,value.states[key]]));
+      }
+      if(value.signals!==undefined){
+        const keys=['returned','esrch','refusedIdentity'];
+        if(!value.signals||!['term','kill'].every(kind=>value.signals[kind]&&keys.every(key=>validCount(value.signals[kind][key]))))throw new Error('Invalid process diagnostic census');
+        extra.signals=Object.fromEntries(['term','kill'].map(kind=>[kind,Object.fromEntries(keys.map(key=>[key,value.signals[kind][key]]))]));
+      }
+      // 0 means capture was not observed; null means the bounded attempt index
+      // overflowed. Only the existing capture boundary starts a new attempt.
+      if(value.stage==='capture')ownedStopAttempt=Math.min(129,ownedStopAttempt+1);
+      ownedProcesses.push({phase,stopAttempt:ownedStopAttempt>128?null:ownedStopAttempt,stage:value.stage,index:value.index,elapsedMs:value.elapsedMs,knownLive:value.knownLive,unknown:value.unknown,moved:value.moved,mismatched:value.mismatched,leaderExited:value.leaderExited,anchored:value.anchored,...extra});
       if(ownedProcesses.length>128){ownedProcesses.shift();ownedProcessesDropped++;}
     },
     async probeWorkspace({serverInfo,serverAuth,workspaces,selectedIndex=1}){
@@ -682,37 +780,52 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
       hostErrorsCaptured=true;
       const runs=[...generationRuns,...provisioningRuns].filter(run=>run.receipt.issued&&run.receipt.status>=500&&run.receipt.status<=599);
       if(!runs.length)return;
+      hostConsoleCapture={owners:[],runs:[]};
       // Owned console envelopes are structural evidence, not authenticated
       // causes: a guest or arbitrary message can imitate text. Never publish
       // output, paths, functions, messages or arbitrary error properties.
       const buffers=[];let inspected=0;
       try{for(const owner of Array.isArray(owners)?owners:[]){
         if(inspected===2)break;
-        if(!['electron','electron-relaunch'].includes(owner?.label)||typeof owner.output!=='function')continue;
+        const source=owner?.label;
+        if(!['electron','electron-relaunch'].includes(source))continue;
         inspected++;
-        try{const text=owner.output();if(typeof text==='string'){
+        const coverage={source,status:'unavailable',truncated:false};
+        hostConsoleCapture.owners.push(coverage);
+        try{const text=typeof owner.output==='function'?owner.output():null;if(typeof text==='string'){
           const tail=Buffer.from(text.slice(-256*1024),'utf8');
+          coverage.status='read';coverage.truncated=text.length>256*1024||tail.length>256*1024;
           buffers.push(tail.subarray(Math.max(0,tail.length-256*1024)).toString('utf8').split(/\r?\n/));
-        }}catch{}
+        }}catch{coverage.status='read-error';}
       }}catch{}
       const project=run=>{
         const matches=[],prefix=`[legalwork-server] Unhandled error: POST ${run.path} `;
-        for(const lines of buffers)for(let i=0;i<lines.length;i++)if(lines[i].startsWith(prefix)){
+        for(const lines of buffers)for(let i=0;i<lines.length;i++)if(matches.length<2&&lines[i].startsWith(prefix)){
           const block=[lines[i].slice(prefix.length),...lines.slice(i+1,i+33)];
-          matches.push(generationHostError(block,0));
+          matches.push(block);
         }
-        return {caseIndex:run.receipt.caseIndex,...(matches.length===1?matches[0]:{category:'unknown',name:'Error',code:null,phase:null,frames:[]})};
+        const match=matches.length===0?'none':matches.length===1?'one':'ambiguous';
+        let shape=match==='none'?'absent':match==='ambiguous'?'ambiguous':'unrecognized',traceLines=0;
+        if(matches.length===1){
+          const block=matches[0];
+          if(/^(Error|TypeError|RangeError|SyntaxError|TimeoutError|AbortError|ZodError)(?::| \[)/.test(block[0]))shape='named-error';
+          else if(/^DOMException \[(TimeoutError|AbortError)\]:/.test(block[0]))shape='dom-exception';
+          for(const line of block.slice(1)){if(!/^\s+at /.test(line))break;traceLines++;}
+        }
+        hostConsoleCapture.runs.push({kind:generationRuns.includes(run)?'prompt':'provisioning',caseIndex:run.receipt.caseIndex,match,shape,traceLines});
+        return {caseIndex:run.receipt.caseIndex,...(matches.length===1?generationHostError(matches[0],0):{category:'unknown',name:'Error',code:null,phase:null,frames:[]})};
       };
       generationHostErrors=runs.filter(run=>generationRuns.includes(run)).map(project);
       provisioningHostErrors=runs.filter(run=>provisioningRuns.includes(run)).map(project);
     },
     async write({events=[],error=null,cleanupErrors=[]}={}){
       if(!enabled)return;
-      const data={schema:6,generationPrompts,provisioning,...(hostErrorsCaptured?{generationHostErrors,provisioningHostErrors}:{}),promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
+      const data={schema:6,...readiness?.snapshot(),...innerCleanup?.snapshot(),generationPrompts,provisioning,...(hostErrorsCaptured?{generationHostErrors,provisioningHostErrors}:{}),...(hostConsoleCapture?{hostConsoleCapture}:{}),promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
       await writeFile(outputFile,JSON.stringify(data,null,2),{mode:0o600});
     },
     failure(error){
       // Called first at the primary catch, before probes or cleanup can run.
+      readiness?.freeze();
       if(!recoveryFrozen){recoveryStage=phase==='recovery'?recoveryStage??'unknown':null;recoveryFrozen=true;generationRun=null;provisioningRun=null;for(const role of ['attachment','recovery'])endPrompt(role);}
       return {phase,caseIndex,recoveryStage,error:errorMetadata(error)};
     },

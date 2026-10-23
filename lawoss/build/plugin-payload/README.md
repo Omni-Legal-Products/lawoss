@@ -9,8 +9,88 @@ provider, profile, packaging workflow or supported target matrix.
 optional packages. `sdk/provenance.json` records every version/integrity, declared
 license, available license-file hash, and observed **darwin/arm64** artifact.
 `sdk/public-package-manifests.json` retains actual installed package manifests.
-Four published packages omit a separate license file; their declared licenses
-are recorded, and source-license collection remains a redistribution follow-up.
+Several published packages omit a separate license file. `sdk/notices/` supplies
+three original source notice texts for nine exact artifacts, including all six
+foreign/native optional packages. Its index binds tarball URL/SRI, source revision,
+license hash and attribution method; it preserves separate POSIX/Windows publisher
+revisions. Plugin/SDK attribution uses complete metadata and selected byte-identical
+source comparisons; Kubernetes attribution uses declared SPDX and the generator's
+upstream source. These methods and their limits are explicit, without invented
+copyright or NOTICE text or a full-build attestation claim.
+
+The worker includes the five fixed files under `third-party-notices/` alongside
+all unchanged package LICENSE/COPYING/NOTICE files. Source input hashes and exact
+payload inventory are both mandatory: missing, changed, linked, executable or extra
+notice files refuse admission. An existing destination is never adopted or repaired.
+This supplies source notice data; product packaging must retain it, and a software
+license compatibility assessment is not implied.
+
+## Shipped Node consumer admission
+
+`verifyRuntimePayload(root, manifestSha256)` is a separate read-only verifier
+for the product's exact **Node 22.23.2**. It requires a payload produced by
+**Node 24.21.0**, the same native platform/architecture/libc, all10 guarded
+imports, a real roundtrip, the exact target codec mode, the accepted input/full lock, and the
+complete unchanged file inventory. The original `verifyPayload` producer gate
+still binds the receipt to its executing Node version.
+
+The expected manifest digest must come from a trusted build identity, not from
+the adjacent receipt. This interface neither authenticates a caller-provided
+digest nor stabilizes a mutable tree after validation. It performs no copying,
+SDK imports, installation, engine launch or application-profile mutation.
+Production digest transport and config-root provisioning remain unwired.
+
+`runtime-consumer-validation.mjs ABSOLUTE_NODE22 ABSOLUTE_PNPM11_CLI` runs under
+Node24.21.0 with `LAWOSS_PR_HEAD` and `LAWOSS_CHECKOUT_SHA` set to exact40hex
+identities. It creates a fresh owned `.work/runtime-consumer-validation` workspace;
+existing workspaces and summaries are refused. It installs only the frozen
+standalone tools using genuine pnpm11.4.0 and private configuration/store, runs
+53 producer units, acquires all32 accepted tarballs once, prepares/verifies the
+genuine payload offline, then requires all6 consumer integrations under Node22.
+The consumer imports all10 SDK entries with network denied and checks the exact
+target codec mode. The four native-loaded targets require a corrupted native-binary
+fixture to remain refused and expose only the existing loader boundary and
+allowlisted code. The two fallback targets instead corrupt a real required SDK
+module and require import refusal. It also rejects corrupted files, replacement
+receipts, mismatched targets/producers and missing digest/capability proof. No skips count as acceptance.
+Source, both executables and the complete payload are rechecked afterward.
+
+The capability table binds to accepted lock SHA256
+`59f4b854ddab534533fd878c5a7c325a7a1bc3382294d68111cff005920a4053`:
+
+| Target | Required codec mode |
+| --- | --- |
+| macOS x64 / ARM64, Linux glibc x64, Windows x64 | `native-loaded` |
+| Linux glibc ARM64, Windows ARM64 | `javascript-fallback` |
+
+The accepted msgpackr2.1.0 README and implementation describe native extraction
+as optional string-parsing acceleration. The accepted ARM64 Linux3.0.4 package
+has only musl-tagged prebuilds, and no Windows ARM64 prebuild is accepted. Thus
+these two targets must explicitly report a functional JavaScript codec; this is
+not a native-acceleration PASS. Unknown targets, malformed tuples and any changed
+lock are refused. Every target still requires full physical integrity, all imports,
+guard and roundtrip. Schema2 reports `consumerMode` and truthful `nativeLoaded`
+(false for fallback); `nativeCapability` means the exact target contract passed.
+The original unbound strict assertion and existing Windows x64/Bun lane stay strict.
+
+When a producer consumer-check fails, `producerProbe` may
+report only closed primitive import/native/guard/roundtrip observations and a
+fixed native loader scope/code. Accessors, paths, raw errors and command output
+are excluded. The `msgpackr-load` scope covers the existing outer require and
+roundtrip block; it does not identify an exact failed inner call. Success probe
+JSON is unchanged. Historical ARM failures without this tuple remain unknown;
+source inspection does not identify their failed field. Native execution of the
+new candidate on all six targets, actual engine/Bun use and representative fallback
+workload performance remain separate proof obligations.
+
+Only `.work/runtime-consumer-summary.json` is published by the separate
+`plugin-sdk-runtime.yml` six-native-target matrix. This finite summary carries
+hashes, counts and fixed failure information; it excludes paths, private caches,
+package trees, installer output and raw errors. The entry waits for each owned
+direct child close through `runChild`; this is not a universal descendant-tree
+proof. This lane establishes dependency compatibility only. Product shipping,
+licenses, Bun consumption, engine readiness and actual installed journeys remain
+separate acceptance gates. It does not modify the engine's audit/config policy.
 
 Build tools and SDK dependencies are separate closures. Acquire tools with the
 committed tools manifest/lock, explicit dev-dependency inclusion, disabled scripts,
@@ -164,3 +244,318 @@ acquisition counts/bytes, separate Node/Bun observations and bounded failed stag
 raw output or user/provider data is uploaded. Local offline tests are source and
 synthetic-stream evidence only; Windows, Bun, native cold replay and application
 startup/production integration remain unverified until their separate gates run.
+
+## Read-only product bundle admission
+
+`inspectProductSdkBundle` in `product-bundle.mjs` statically admits an explicit
+`payloadRoot` using `expectedManifestSha256`, `expectedTarget`,
+`acceptedLockSha256` and `compatibilityBinding`. The trusted build caller must
+independently authenticate that full schema-2 native producer/Node22 consumer
+summary. An adjacent manifest or summary cannot provide its own authority.
+
+Admission requires the exact accepted inputs, notices, bounded physical inventory,
+target capability and all 27 current compatibility source hashes. It returns a
+frozen finite identity; it never imports target SDK/native code or writes files.
+Caller data is snapshotted with aggregate value/text limits and repeated-object
+refusal before copying. The separate build-only static verifier supports accepted
+foreign target bytes; both existing producer and runtime host gates remain strict.
+
+Run `node --test lawoss/build/plugin-payload/product-bundle.test.mjs` for inert
+format/data regressions. These fixtures do not prove genuine native compatibility.
+The six-target SDK workflow runs them separately before the unchanged genuine
+producer/consumer entry. A source change invalidates older compatibility bindings;
+fresh native proof is required before a product build caller can use them.
+
+This S1 admission does not install into a profile or start the engine.
+
+## Owned build resource publication
+
+`publishProductSdkResource` in `product-resource.mjs` takes the full trusted S1
+input plus an explicit canonical `buildParent` and one-component `outputName`.
+It refuses existing outputs, overlapping paths and unowned parents. Under a
+publisher lease it copies the SDK with its validated relative links and modes,
+adds the nine-file static verifier closure, rechecks copied and source bytes,
+then renames its own same-parent stage. Failures preserve primary/cleanup errors;
+uncertain publication or replaced ownership retains the affected entries.
+
+The caller must exclusively control the build parent. The lease coordinates this
+publisher; Node's directory rename has no atomic no-replace guarantee against
+other same-UID writers. Windows POSIX mode fields do not establish ACL privacy.
+
+The frozen result includes `privateIdentityModule` text containing the payload,
+target, accepted lock/source and verifier identity. A future trusted build caller
+must put this identity inside application code and bind it to the actual final
+resource. An adjacent JSON file, manifest or environment variable cannot grant
+that authority. This standalone S2 publication primitive has no desktop packaging
+caller, actual app.asar binding, profile seeding or engine startup hook yet.
+
+Run both `product-bundle.test.mjs` and `product-resource.test.mjs` for inert data
+and real owned-filesystem regressions. A fixture copying foreign-target data does
+not execute that target's SDK. The POSIX permission-failure case is explicitly
+inapplicable on Windows/root; genuine compatibility remains the separate native
+producer/Node22 entry.
+
+## Fresh build generations and signing-safe data capsules
+
+`validateRuntimeConsumer(node, pnpm, { outputParent })` optionally writes its
+fixed workspace and summary names under an already initialized SDK workspace.
+Explicit parent admission and existing-output refusal precede tool probes and
+writes; its identity is checked again before child initialization and summary
+publication. Omission keeps the original default path. The CLI accepts the exact
+optional pair `--output-parent ABS`. Existing outputs are never refreshed.
+
+`freshProductSdkBuildRoot(root)` holds a cooperating generation lease and returns
+an opaque frozen capability. A previous positively owned, idle root is renamed
+whole into a unique sibling archive and rechecked; all previous bytes remain.
+Unknown roots or leases are refused. Only `completeProductSdkBuildRoot(capability)`
+releases that generation after ownership rechecks. The caller must first settle
+every child; this filesystem helper does not prove process closure. Uncertain
+operations retain their marker. POSIX metadata does not prove Windows ACL privacy.
+On failure, `retainFailedProductSdkBuildRoot(capability)` closes this process's
+descriptor without unlinking the unresolved marker or permitting a new generation.
+
+`publishProductSdkResource({ ...input, transport: 'tar+gzip' })` publishes
+`payload.tgz` and the same static verifier closure. Its frozen private identity
+also binds archive format, fixed filename, byte count and SHA-256. The default
+`directory` transport remains available; unknown transports refuse before staging.
+The archive uses tar7.5.22 from the existing pinned build-tools closure. A genuine
+roundtrip must pass the original manifest and complete SDK inventory before the
+expanded staged copy is removed. SDK code is never executed by publication.
+
+The data archive keeps original native SDK bytes away from the macOS signer's
+individual Mach-O signing pass, while the enclosing app seals the archive.
+This build-only creator is not an admission/extraction API for untrusted runtime
+archives. Actual asar identity binding, bounded runtime extraction, dependency
+seeding and engine startup remain separate unimplemented integration steps.
+
+The workflow runs output-parent/build-root tests separately from the unchanged
+53 producer and 6 consumer selection. Capsule tests run after that genuine entry
+has installed its exact tools. A portable archive positive runs on every host;
+the POSIX link/mode fixture is explicitly skipped on Windows. A local signing
+proof never substitutes for six-target installed-application acceptance.
+
+## Private code identity and static ASAR reader
+
+`createProductSdkIdentityModule` writes one closed generated module format for
+an explicit SDK/without-SDK mode, the complete application BuildInfo, target and
+optional capsule identity. `readProductSdkIdentityModule` parses that exact
+format as bounded plain data, freezes its nested objects and never evaluates it.
+Neither formatting nor parsing authenticates a compatibility proof or grants
+authority to adjacent resource metadata.
+
+The separate `development` mode requires exactly `applicationBuild: null` and
+`sdk: null`, while still validating the complete supported target. It preserves
+the existing development build-info writer's literal `null` result; it cannot
+carry SDK authority. The preparer accepts this only with an explicit
+`without-sdk` supplier, rejecting SDK suppliers before filesystem admission.
+Both packaged readers require an explicit development expectation. The composed
+gate checks public literal null and absent SDK resources, stages no SDK tools,
+and returns `status: 'development'`, never verified release identity.
+
+`readPackagedProductSdkIdentity` reads the fixed module member from an actual
+physical `app.asar` using the pinned builder's asar3.4.1 parser. It bounds the
+header allocation and member range/size first, refuses links/unpacked code,
+clears parser caches and checks the supplied build/mode/target and physical
+archive/root postflight. The caller exclusively controls this build tree;
+multiple pathname opens do not provide hostile-writer atomicity.
+
+`node --test lawoss/build/plugin-payload/product-identity.test.mjs` needs no
+installed build tools. The actual-container regressions in
+`packaged-identity.test.mjs` additionally require the installed desktop builder.
+These identity primitives do not themselves admit an SDK capsule or establish
+installed startup. The composed static gate below performs resource admission;
+the desktop build wiring described below composes it with these checks.
+
+`prepareProductSdkPackaging({ desktopRoot, target, supplier, applicationBuild })`
+composes the owned generation, supplier, capsule and generated private module.
+Supplier modes are explicit `accepted`, `native` and `without-sdk`; accepted
+foreign data never executes on the build host. Native mode requires a matching
+host and Node24, exact producer/consumer/pnpm physical identities and explicit
+head/checkout SHAs. It runs the original validator as a fresh isolated child,
+admits its complete proof after normal close and rechecks the executable bytes.
+An error retains the generation marker and evidence while closing our lease FD.
+The child cap does not establish Windows descendant closure on failure.
+
+The return includes the capsule resource and `application-code/identity.mjs`
+under the same archived generation. The desktop adapter below now calls this
+preparation API; product runtime use is still pending. Native integration receipts
+must distinguish a modeled desktop root
+from a real packaged app. Packaging fixtures run only after tools installation,
+separately from the unchanged53/6 native compatibility selection.
+
+## Static capsule extraction and composed packaging gate
+
+`extractAndVerifyProductSdkCapsule({ resourceRoot, identity, workspace })` accepts
+an independently authenticated private-code identity and a fresh SDK-owned
+workspace. It checks the exact resource layout, nine-file verifier inventory
+and physical archive size/hash without executing resource JavaScript. Pinned
+tar7.5.22 lists a bounded gzip stream before path writes. Admission rejects
+traversal, duplicate/case aliases, unsafe links and special files; portable names
+also protect the reserved private input on case-insensitive target filesystems.
+Entry/depth/file/aggregate/metadata/raw stream limits and bounded zero EOF
+padding prevent the decoder from doing unlimited work behind a logical limit.
+
+Only the admitted byte-identical archive is copied into a private `wx` stage
+and synchronously extracted. The original SDK manifest/notices/full inventory
+and resource/workspace identities are rechecked before publication. The returned
+payload is build data, not a runtime capability. Primary errors survive; retained
+stages/admissions report cleanup uncertainty. Caller cleanup is still required.
+
+`verifyPackagedProductSdk({ resourcesRoot, target, expectedMode,
+applicationBuild, validationParent })` composes the actual-ASAR identity reader,
+bounded public BuildInfo equality and capsule verification. Explicit without-SDK
+mode requires an absent resource and performs no SDK staging. SDK mode requires
+an initialized private validation parent outside the resources tree and an absent
+fixed `verification` child. Success follows only after repeated private/public
+identity checks and one ownership-checked removal of that child. Failures retain
+their workspace and never repair or retry cleanup.
+
+Run `product-capsule-validation.test.mjs` with the installed pinned SDK tools.
+`packaged-resource.test.mjs` additionally uses the installed desktop builder for
+real ASAR fixtures. These are static build checks, including inert foreign data;
+actual builder FileSet mapping is tested separately below. Full native desktop
+build/signing and runtime integration need their own evidence. No test fixture
+stands in for six-target native startup.
+
+
+## Desktop build wiring
+
+`desktop-packaging.mjs` connects preparation and admission to the desktop build.
+`build:electron` defaults to explicit `without-sdk`, including supported
+crossbuilds. SDK production requires `--sdk-mode native` plus explicit
+`--sdk-consumer-node`, `--sdk-pnpm-cli`, `--sdk-head` and `--sdk-checkout` inputs.
+A native failure never falls back to an SDK-free package. The existing writer's
+BuildInfo result is used unchanged; only its null development result selects
+the separate development identity.
+
+The pinned builder maps only the current owned generation's
+`application-code/identity.mjs` to `electron/generated/plugin-sdk/identity.mjs`
+inside ASAR. A stale broad source module is excluded. Only `payload.tgz` and the
+verifier closure are SDK extraResources; caches, ownership markers, raw SDK trees
+and compatibility proofs are not published. The `afterPack` hook asynchronously
+imports the adapter and checks it before the existing prerequisite checks and
+sidecar early returns. The checked source identity must equal the complete
+actual-ASAR identity, current source set, expected build and target.
+
+Since `--prepackaged` skips that hook, all three CI final-distribution commands
+are immediately preceded by the same gate CLI:
+
+```sh
+node apps/desktop/scripts/check-packaged-plugin-sdk.mjs \
+  --asar <packaged-resources>/app.asar --target <one-of-six-triples> --mode sdk
+```
+
+Shipping wrappers derive BuildInfo from the current checkout, version, target,
+commit epoch, channel and workflow URL, using the existing release-source
+predicate. CI independently requires SDK mode and supplies actual native Node22
+and pinned pnpm inputs before building under Node24. Actual-ASAR/adapter tests
+run after native preparation installs the SDK tools and before original native
+ISIR gates. The separate original53/6 compatibility gate stays unchanged.
+
+Run `desktop-packaging.test.mjs` with both the installed desktop builder and SDK
+build tools. It exercises actual pinned FileMatchers/copyFiles plus ASAR with
+inert data, rejects source/code/resource mismatches and omitted final gates,
+and preserves the original18 sidecar assertions. Those fixtures do not establish
+full desktop build/signing, installed startup, managed config provisioning or
+six-target acceptance. The private SDK resource is not yet consumed at runtime.
+
+
+### Build-only failure observations
+
+The optional synchronous failure observer on `verifyBuildPayload` and the build-only bundle/publisher/capsule APIs reports frozen closed guard/code categories. Publisher contexts distinguish source admission, copied admission, capsule original and capsule roundtrip. It observes the original operation before error translation, adds no filesystem reads or retries and cannot replace the original failure when it throws. Own primitive error codes are structural observations, not authenticated OS causes.
+
+The expected-valid capsule test fixture prints at most three events only when setup fails, then rethrows the same error. Successful fixtures stay silent. Producer/runtime default callers do not enable the observer. Changes to `validate.mjs`, including diagnostics, invalidate prior source-bound compatibility evidence; refresh native producer/consumer proof for the final source set before claiming current compatibility.
+
+
+The desktop build script's static adapter import is included in the existing
+Electron `checkJs` contract. Keep exact JSDoc tuples/options and guarded key
+narrowing; run `pnpm --filter @legalwork/desktop typecheck:electron` with the
+repository's pinned toolchain. Annotating sources still changes compatibility
+source hashes and requires fresh native evidence for the final source set.
+
+### Pinned desktop pnpm caller input
+
+The private packaging workflow passes the pinned setup action's explicit install
+root to `prepareDesktopPnpmInput`. It copies the complete pnpm11.4.0 package,
+including sibling distribution files, into a fresh owned canonical tool tree.
+Source package aliases and read-only store hardlinks are admitted as inputs;
+destination files must be independent single links. Internal links are refused.
+Unknown or failed output trees are retained. The original SDK preparer keeps its
+strict physical-file checks, tool versions, source binding and child lifetime.
+
+Controlled caller tests preserve the original wrong-consumer refusal. A separate
+Mac ARM64 check copied all468 files of the existing real pnpm11.4.0 package with
+equal bytes/modes and ran its normalized CLI `--version` successfully, preserving
+the source inventory. The action layout in that check was modeled; actual hosted
+action layout, Windows behavior and native SDK/build proof remain separate gates.
+
+### Embedded runtime metadata prerequisite
+
+`createEmbeddedRuntimePayloadVerifier` synchronously snapshots two bounded
+primitive metadata strings with fixed accepted input/lock byte hashes and full
+existing semantic validation. Its frozen closure requires actual Node22.23.2,
+the executing supported target and an external manifest digest. It reuses the
+complete original inventory, import/native-mode and fixed notice predicates.
+Existing producer/build/runtime wrappers and their default source-relative reads
+retain their original call contracts and ordering.
+
+The same-file implementation remains inside the27-source binding. An actual
+self-contained Bun-built module was exercised under genuine Node22 with inert
+payload data and no adjacent SDK metadata files; unexpected CLI arguments did
+not initialize a workspace. This proves metadata closure for that fixture,
+not worker authentication, ASAR binding, G/E provisioning or engine launch.
+Changed verifier bytes require fresh final-source native compatibility evidence.
+
+### Exact inventory identities
+
+Inventory reads native device/inode/link count/size/mode as BigInt. Exact
+duplicate identities and real hardlinks still refuse at their original guards;
+accepted byte counts become JSON-safe Numbers only after the original bounds.
+The isolated two-file regression distinguishes IDs2^53 and2^53+1 without
+weakening duplicate detection. It models precision and does not measure the
+historical Windows IDs. Other ownership helpers are outside this correction.
+
+Capsule refusal fixtures guarantee that an owner inode field actually changes.
+The portable archive-path case observes a real second file's exact metadata
+after actual extraction, while retaining the source bytes, strict refusal and
+cleanup checks. A separate physical rename case runs on supported hosts; a
+Windows rename capability skip cannot pass the portable identity case.
+
+### Native ASAR member spelling and completed fixture archives
+
+The private identity reader keeps POSIX archive-header keys and converts only
+its fixed member argument to the host-native spelling required by pinned ASAR
+3.4.1. It retains cache clearing, exact identity matching and all physical checks.
+The original Windows x64/ARM64 integration failures remain recorded; local
+actual-ASAR tests do not establish Windows completion.
+
+The ASAR test fixture observes the pinned cloned filesystem wrapper's exact
+output writer and waits for actual close before returning or renaming an archive.
+The library's returned stream is not a writable-completion promise. Controlled
+barriers demonstrate the old early return and the corrected close ordering.
+Primary and descriptor-restoration failures are preserved together; successful
+restoration and both dual-error paths have focused coverage. The original first
+48/49 local failure remains unattributed. Later local passes close the demonstrated
+fixture risk without establishing that it caused that original failure.
+
+Source identity is recomputed at final packaging gates. The known generated
+`scripts/sandbox/probe.mjs` output has an exact root-anchored ignore rule so its
+normal compilation does not turn a clean 0.0.0 build into null development
+identity. Other untracked files and modified tracked sources still refuse;
+this adds no source-cleanliness exception or SDK identity fallback.
+
+### Shared capsule format admission
+
+`product-capsule-format.mjs` exports the existing bounded read-only archive
+admission as `validateProductSdkCapsuleArchive(handle, size, tar)`. The build
+caller retains its pinned parser, physical checks, nine-resource verifier and
+extraction transaction. The factored predicates and limits are byte-identical
+to their original implementation. The module has only Node builtin imports and
+no preparation, workspace or CLI behavior.
+
+Standalone tests and an isolated Bun bundle under bundled Node22 verify this
+module closure. They do not authenticate a runtime worker or authorize writes.
+The module remains outside the27-source SDK set; application-code authentication,
+child supervision, parent leases and paired publication require separate work.
+Copied validator fixtures include the transitive shared module while retaining
+the original incorrect-parser-version refusal.

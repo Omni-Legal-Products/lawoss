@@ -19,12 +19,24 @@ for (const spec of specs) {
 // Observe prebuilt native load separately from msgpackr's ordinary fallback path.
 let native = 'absent';
 let roundtrip = false;
+let nativeFailure;
+const loaderCodes = new Set(['MODULE_NOT_FOUND', 'ERR_MODULE_NOT_FOUND', 'ERR_DLOPEN_FAILED', 'ERR_DLOPEN_DISABLED']);
+const loaderCode = error => {
+  try { const code = Object.getOwnPropertyDescriptor(error, 'code')?.value; return loaderCodes.has(code) ? code : 'unknown'; }
+  catch { return 'unknown'; }
+};
 try {
   const msgpackr = require('msgpackr');
   const decoded = msgpackr.unpack(msgpackr.pack({ fixture: 'sdk-payload' }));
   if (decoded.fixture !== 'sdk-payload') throw Error('ROUNDTRIP_FAILED');
   roundtrip = true;
-  try { const extract = require('msgpackr-extract'); native = typeof extract.extractStrings === 'function' && msgpackr.isNativeAccelerationEnabled === true ? 'loaded' : 'fallback'; }
-  catch { native = 'fallback'; }
-} catch (error) { if (error.code !== 'MODULE_NOT_FOUND') throw error; }
-console.log(JSON.stringify({ imports: specs, native, guard: true, roundtrip }));
+  try {
+    const extract = require('msgpackr-extract');
+    native = typeof extract.extractStrings === 'function' && msgpackr.isNativeAccelerationEnabled === true ? 'loaded' : 'fallback';
+    if (native === 'fallback') nativeFailure = { stage: 'native-state', code: 'not-enabled' };
+  } catch (error) { native = 'fallback'; nativeFailure = { stage: 'extract-load', code: loaderCode(error) }; }
+} catch (error) {
+  if (error.code !== 'MODULE_NOT_FOUND') throw error;
+  nativeFailure = { stage: 'msgpackr-load', code: 'MODULE_NOT_FOUND' };
+}
+console.log(JSON.stringify({ imports: specs, native, guard: true, roundtrip, ...(nativeFailure ? { nativeFailure } : {}) }));

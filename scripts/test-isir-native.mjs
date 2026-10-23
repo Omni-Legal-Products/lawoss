@@ -15,7 +15,7 @@ import { createNativeProtectedApprover } from "../lawoss/testing/isir/native/pro
 import { stopForRelaunch } from "../lawoss/testing/isir/native/relaunch-stop.mjs";
 import { readNativeQuitAcceptance } from "../lawoss/testing/isir/native/quit-acceptance.mjs";
 import { stopNativeChild } from "../lawoss/testing/isir/native/owned-process.mjs";
-import { createNativeDiagnostics, settleCleanup, errorMetadata, observePromptClick, summarizeRecoveryVerification, recoveryRendererIdentity } from "../lawoss/testing/isir/native/diagnostics.mjs";
+import { createNativeDiagnostics, settleCleanup, errorMetadata, observeNativeLifecycle, observePromptClick, summarizeRecoveryVerification, recoveryRendererIdentity } from "../lawoss/testing/isir/native/diagnostics.mjs";
 import { configureNativeProvider } from "../lawoss/testing/isir/native/bootstrap.mjs";
 import { openNativeProjectFiles } from "../lawoss/testing/isir/native/project-files-navigation.mjs";
 import { awaitNativeStartup } from "../lawoss/testing/isir/native/startup-readiness.mjs";
@@ -64,7 +64,14 @@ const children = [];
 let protectedApprovals;
 const approvalScopes = new Map();
 const approvalReceipts = [];
-const until = (read, description, timeout) => nativeUntil(async () => {protectedApprovals?.check(); return read();}, description, timeout);
+// BEGIN RECOVERY_READINESS_UNTIL
+const until = (read, description, timeout, observe) => nativeUntil(async () => {
+  observeNativeLifecycle(observe,'begin');
+  try {protectedApprovals?.check();}
+  catch(error){observeNativeLifecycle(observe,'threw');throw error;}
+  return read();
+}, description, timeout);
+// END RECOVERY_READINESS_UNTIL
 let boundaryProbe;
 let recoveryVerificationStart;
 let recoveryRendererExpected;
@@ -122,15 +129,17 @@ const launch = (command, args, cwd, label) => {
 const relaunchCleanupErrors=[];
 let cleanupPromise;
 const cleanup = () => cleanupPromise ??= (async () => {
+  // BEGIN INNER_HARNESS_CLEANUP_OPERATIONS
   const result = await settleCleanup(primaryError, [
-    async () => {if (protectedApprovals) {await protectedApprovals.close(); approvalReceipts.push(...protectedApprovals.receipts); protectedApprovals = undefined;}},
-    () => cdp?.evaluate('window.__isirChooserBoundary?.disconnect()'),
-    () => cdp?.close(),
-    ...[...children].reverse().map(({child}) => () => stop(child)),
-    () => engineTraces?.close(),
-    () => provider.close(),
-    () => preparedEngine.cleanup(),
-  ]);
+    diagnostics.cleanupTag(async () => {if (protectedApprovals) {await protectedApprovals.close(); approvalReceipts.push(...protectedApprovals.receipts); protectedApprovals = undefined;}},'protected-approvals-close'),
+    diagnostics.cleanupTag(() => cdp?.evaluate('window.__isirChooserBoundary?.disconnect()'),'chooser-disconnect'),
+    diagnostics.cleanupTag(() => cdp?.close(),'cdp-close'),
+    ...[...children].reverse().map(({child},index) => diagnostics.cleanupTag(() => stop(child),'owned-child-stop',index+1)),
+    diagnostics.cleanupTag(() => engineTraces?.close(),'engine-traces-close'),
+    diagnostics.cleanupTag(() => provider.close(),'provider-close'),
+    diagnostics.cleanupTag(() => preparedEngine.cleanup(),'prepared-engine-cleanup'),
+  ],diagnostics.cleanupObserve);
+  // END INNER_HARNESS_CLEANUP_OPERATIONS
   if(corpus.mode==='synthetic'&&result.failures.length){
     try {
       const seen=new Set();
@@ -138,7 +147,13 @@ const cleanup = () => cleanupPromise ??= (async () => {
       await writeFile(path.join(root,'native-cleanup-errors.private.json'),JSON.stringify({failures:result.failures.map(error=>describe(error))},null,2),{mode:0o600});
     } catch { /* Supplemental private evidence never changes cleanup decisions. */ }
   }
-  for (const error of result.failures) console.error('Owned native cleanup failure', JSON.stringify(errorMetadata(error)));
+  // BEGIN INNER_HARNESS_CLEANUP_LOG
+  for (const [index,error] of result.failures.entries()) {
+    const metadata=errorMetadata(error);
+    console.error('Owned native cleanup failure', JSON.stringify(metadata));
+    observeNativeLifecycle(diagnostics.cleanupMetadata,index+1,metadata);
+  }
+  // END INNER_HARNESS_CLEANUP_LOG
   if(primaryError&&engineTraces)console.error('Owned completed engine bootstrap spans',JSON.stringify(engineTraces.snapshot()));
   const processes=children.map(({child,label})=>({label,pid:child.pid,exitCode:child.exitCode,signal:child.signalCode}));
   await writeFile(path.join(root,'process-receipts.json'),JSON.stringify({cleaned:result.failures.length===0,processes},null,2),{mode:0o600});
@@ -702,17 +717,49 @@ try {
   diagnostics.recoveryStage('runtime-readiness');
   // Queue admission stores intent; a restored operation must independently
   // finish its fresh native admission and cold provision before inference.
-  await until(async()=>{
-    const response=await engineRequest(`/session/${encodeURIComponent(evidence[0].sessionId)}/protected-transport`);
-    assert.equal(response.status,200);
-    const state=await response.json();
-    assert.equal(state.sessionId,evidence[0].sessionId);
-    assert.equal(state.directoryMapping.hostDirectory,moved);
-    assert.equal(state.directoryMapping.guestDirectory,'/tmp/home/protected-engine/workspace');
-    assert.equal(state.directoryMapping.rootIdentity,recoveredTransport.directoryMapping.rootIdentity);
-    assert.equal(state.legalApproval,false);
-    return state.runtimeState==='ready';
-  },'recovered protected runtime is ready after fresh native admission and cold provision',240000);
+  // BEGIN RECOVERY_READINESS_PREDICATE
+  const readRecoveredRuntimeForNativeReadiness = async()=>{
+    observeNativeLifecycle(diagnostics.recoveryReadiness,'entered');
+    try {
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'boundary','transport-request');
+      const response=await engineRequest(`/session/${encodeURIComponent(evidence[0].sessionId)}/protected-transport`);
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'completed');
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'boundary','status-check');
+      assert.equal(response.status,200);
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'completed');
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'boundary','transport-body');
+      const state=await response.json();
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'completed');
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'boundary','session-check');
+      assert.equal(state.sessionId,evidence[0].sessionId);
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'completed');
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'boundary','host-directory-check');
+      assert.equal(state.directoryMapping.hostDirectory,moved);
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'completed');
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'boundary','guest-directory-check');
+      assert.equal(state.directoryMapping.guestDirectory,'/tmp/home/protected-engine/workspace');
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'completed');
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'boundary','root-identity-check');
+      assert.equal(state.directoryMapping.rootIdentity,recoveredTransport.directoryMapping.rootIdentity);
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'completed');
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'boundary','legal-approval-check');
+      assert.equal(state.legalApproval,false);
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'completed');
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'boundary','runtime-state-check');
+      const ready=state.runtimeState==='ready';
+      observeNativeLifecycle(diagnostics.recoveryReadiness,'completed');
+      observeNativeLifecycle(diagnostics.recoveryReadiness,ready?'ready':'not-ready');
+      return ready;
+    }catch(error){observeNativeLifecycle(diagnostics.recoveryReadiness,'threw');throw error;}
+  };
+  // END RECOVERY_READINESS_PREDICATE
+  // BEGIN RECOVERY_READINESS_WAIT
+  observeNativeLifecycle(diagnostics.recoveryReadiness,'wait-start');
+  try {
+    await until(readRecoveredRuntimeForNativeReadiness,'recovered protected runtime is ready after fresh native admission and cold provision',240000,diagnostics.recoveryReadiness);
+    observeNativeLifecycle(diagnostics.recoveryReadiness,'wait-returned');
+  }catch(error){observeNativeLifecycle(diagnostics.recoveryReadiness,'wait-threw');throw error;}
+  // END RECOVERY_READINESS_WAIT
   diagnostics.recoveryStage('fresh-poll');
   const freshRead=await until(async()=>{
     const {body}=await api(first,`sessions/${evidence[0].sessionId}/snapshot?limit=20`),item=body.item;

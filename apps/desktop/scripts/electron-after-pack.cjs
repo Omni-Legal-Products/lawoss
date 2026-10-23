@@ -60,11 +60,21 @@ function copyExecutableTargetToAlias(sidecarsDir, targetName, aliasName) {
 }
 
 async function afterPack(context) {
+  const { desktopProductSdkTarget, verifyDesktopProductSdkPackaging, desktopSdkPackagingFailureDiagnostic } = await import("../../../lawoss/build/plugin-payload/desktop-packaging.mjs");
   const appPath = resolveMacAppPath(context);
   const resources = appPath ? path.join(appPath, "Contents", "Resources") : path.join(context.appOutDir, "resources");
+  const arch = typeof context.arch === "string" ? context.arch : Arch[context.arch];
+  try {
+    await verifyDesktopProductSdkPackaging({ resourcesRoot: resources, target: desktopProductSdkTarget(context.electronPlatformName, arch) });
+  } catch (error) {
+    try {
+      const diagnostic = desktopSdkPackagingFailureDiagnostic(error);
+      if (diagnostic) process.stderr.write(`${JSON.stringify(diagnostic)}\n`);
+    } catch { /* Diagnostic lookup, serialization and sink failures are secondary. */ }
+    throw error;
+  }
   const nodePath = path.join(resources, "node", context.electronPlatformName === "win32" ? "node.exe" : "node");
   if (!fs.existsSync(nodePath)) throw new Error(`Missing packaged Node runtime: ${nodePath}`);
-  const arch = typeof context.arch === "string" ? context.arch : Arch[context.arch];
   pruneOcrRuntime(resources, context.electronPlatformName, arch);
   const triple = targetTriple(context.electronPlatformName, arch);
   if (!triple) return;

@@ -431,6 +431,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: pnpm --filter @legalwork/desktop build:electron
+      - name: Build real final Windows NSIS installer
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --x64 --publish never
+      - name: Verify actual Windows NSIS installation and final bytes
+        shell: pwsh
+        timeout-minutes: 7
+        run: ./lawoss/testing/alpha/probe-nsis-ci.ps1 -Arch x64 -Output "$env:RUNNER_TEMP/nsis-proof-x64.json"
+      - name: Upload Windows installed-tree integrity receipt
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nsis-installed-tree-x64-manual
+          path: ${{ runner.temp }}/nsis-proof-x64.json
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Full synthetic native flow with bounded bootstrap tracing
         # Ten existing provisioning/inference windows alone total 55 minutes.
         timeout-minutes: 75

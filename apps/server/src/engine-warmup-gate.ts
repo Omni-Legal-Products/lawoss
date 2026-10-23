@@ -58,10 +58,11 @@ export function sharedEngineResponse(
 
 export function abortable<T>(promise: Promise<T>, signal?: AbortSignal | null): Promise<T> {
   if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(signal.reason ?? abortError());
   return new Promise((resolve, reject) => {
     const onAbort = () => reject(signal.reason ?? abortError());
-    signal.addEventListener("abort", onAbort, { once: true });
+    // Observe shared work even when this caller was cancelled before admission.
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
     promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
   });
 }

@@ -44,6 +44,7 @@ import { architectureInfo, findArchitectureDownload, normalizeRuntimeArch, resol
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
+import { createAlphaStartupCheckpoints } from "./lawoss-startup-checkpoints.mjs";
 import {
   ELECTRON_UPDATER_FEEDS,
   registerUpdaterIpc,
@@ -499,6 +500,10 @@ if (userDataOverride) {
 // After setName/setPath: the logs folder derives from the app name (macOS)
 // or userData (Windows/Linux).
 installMainErrorLog(() => app.getPath("logs"));
+const alphaStartupCheckpoint = createAlphaStartupCheckpoints({ platform: process.platform,
+  optIn: process.env.LAWOSS_ALPHA_STARTUP_CHECKPOINTS, isolated: Boolean(userDataOverride),
+  write: phase => console.warn(phase) });
+alphaStartupCheckpoint('main-configured');
 
 // Resolve and cache the app icon (reused for BrowserWindow + mac dock).
 // Packaged builds ship icons via electron-builder config, but for `dev:electron`
@@ -563,10 +568,12 @@ function resolveArchitectureInfo() {
   });
 }
 
+alphaStartupCheckpoint('icons-entered');
 const APP_ICON_PATH = resolveAppIconPath();
 const APP_ICON_IMAGE = APP_ICON_PATH ? nativeImage.createFromPath(APP_ICON_PATH) : null;
 const APP_ICON_DARK_PATH = resolveAppIconPath({ dark: true });
 const APP_ICON_DARK_IMAGE = APP_ICON_DARK_PATH ? nativeImage.createFromPath(APP_ICON_DARK_PATH) : null;
+alphaStartupCheckpoint('icons-returned');
 
 // macOS only: the dock icon is the one surface we can repaint at runtime, so
 // the ink-plate variant is used while the system is in dark mode. Falls back
@@ -857,6 +864,7 @@ const appTray = new AppTray({
     app.quit();
   },
 });
+alphaStartupCheckpoint('services-returned');
 
 function trayShortcutLabel(status) {
   if (!status.registered) return null;
@@ -1076,6 +1084,7 @@ function fitSkillName(raw) {
 
 const runtimeManager = createRuntimeManager({
   app,
+  onStartupCheckpoint: alphaStartupCheckpoint,
   getApprovalWindow: () => mainWindow,
   getUiLocale: window => uiLocales.forWindow(window ?? mainWindow),
   subscribeUiLocale: uiLocales.subscribe,
@@ -1113,6 +1122,7 @@ const runtimeManager = createRuntimeManager({
   // stops/restarts are filtered out inside the runtime manager.
   onSidecarExit: (detail) => relayAppError("sidecar_exit", { name: "Error" }, "sidecar", detail?.exitCode ?? null),
 });
+alphaStartupCheckpoint('runtime-manager-returned');
 
 let runtimeDisposedForQuit = false;
 let runtimeDisposeInProgress = false;
@@ -3047,9 +3057,12 @@ ipcMain.on("legalwork:audio:overlay-hide", () => {
 registerMigrationIpc({ app, ipcMain });
 const { ensureAutoUpdater } = registerUpdaterIpc({ app, ipcMain, getMainWindow: () => mainWindow });
 
+alphaStartupCheckpoint('single-instance-entered');
 if (!app.requestSingleInstanceLock()) {
+  alphaStartupCheckpoint('single-instance-rejected');
   app.quit();
 } else {
+  alphaStartupCheckpoint('single-instance-acquired');
   app.on("before-quit", (event) => {
     // Lets the window 'close' handler distinguish quit from close-to-hide.
     appIsQuitting = true;
@@ -3083,10 +3096,16 @@ if (!app.requestSingleInstanceLock()) {
     queueDeepLinks([url]);
   });
 
+  alphaStartupCheckpoint('ready-registering');
   app.whenReady().then(async () => {
+    alphaStartupCheckpoint('ready-entered');
+    alphaStartupCheckpoint('actaport-bundle-entered');
     await prepareActaportMcpRuntime().catch(() => console.warn("Actaport MCP bundle unavailable. Rebuild LegalWork to enable Actaport."));
+    alphaStartupCheckpoint('actaport-bundle-returned');
     // Recreate the private token bridge before workspace engines reconnect saved MCP entries.
+    alphaStartupCheckpoint('actaport-environment-entered');
     await getActaportConnection().environment();
+    alphaStartupCheckpoint('actaport-environment-returned');
     // Serve recording audio to <audio> elements. The element loads this URL
     // natively (no async JS between the click and play()), so first-play works
     // within the user gesture, and Range requests stream the file for seeking.
@@ -3142,14 +3161,19 @@ if (!app.requestSingleInstanceLock()) {
     pinWindowsProcessQoS([process.pid]);
     installMediaPermissionHandlers(session, () => mainWindow, { isLoopbackCaptureArmed });
     applicationMenu.install();
+    alphaStartupCheckpoint('runtime-prepare-entered');
     await runtimeManager.prepareFreshRuntime().catch(() => undefined);
+    alphaStartupCheckpoint('runtime-prepare-returned');
 
     // Use Tauri's existing workspace state file as canonical so rollback and
     // Electron see the same workspace list. Import the short-lived
     // Electron-only filename only when the shared file is missing.
+    alphaStartupCheckpoint('workspace-migrate-entered');
     await workspaceStore.migrateLegacyElectronWorkspaceStateIfNeeded();
+    alphaStartupCheckpoint('workspace-migrate-returned');
 
     let installedWorkflowRoot = path.join(globalOpencodeRoot(), "skills");
+    alphaStartupCheckpoint('opencode-config-entered');
     try {
       const prepared = await runtimeManager.prepareOpencodeConfig();
       if (prepared) {
@@ -3177,9 +3201,11 @@ if (!app.requestSingleInstanceLock()) {
     } catch (error) {
       console.warn("[skills] Could not migrate the Windows OpenCode config", error);
     }
+    alphaStartupCheckpoint('opencode-config-returned');
 
     // Repair workflows imported by older builds before OpenCode discovers its
     // global skill library. Leave files we cannot safely normalize untouched.
+    alphaStartupCheckpoint('workflows-migrate-entered');
     try {
       const result = await migrateInstalledWorkflows(installedWorkflowRoot);
       if (result.migrated) console.info(`[skills] Repaired ${result.migrated} installed workflow(s)`);
@@ -3189,6 +3215,7 @@ if (!app.requestSingleInstanceLock()) {
     } catch (error) {
       console.warn("[skills] Could not scan installed workflows for repair", error);
     }
+    alphaStartupCheckpoint('workflows-migrate-returned');
 
     // Remove the analytics identity file persisted by earlier builds (the
     // identity is now in-memory only).
@@ -3198,9 +3225,11 @@ if (!app.requestSingleInstanceLock()) {
     } catch {
       // Best-effort cleanup only.
     }
+    alphaStartupCheckpoint('ui-control-entered');
     await uiControlServer.start().catch((error) => {
       console.warn("[ui-control] failed to start", error);
     });
+    alphaStartupCheckpoint('ui-control-returned');
     void ensureRuntimeBootstrap();
 
     queueDeepLinks(forwardedDeepLinks(process.argv));
@@ -3252,6 +3281,7 @@ if (!app.requestSingleInstanceLock()) {
     // channel explicitly, avoiding stale stable-feed results for alpha users.
     void ensureAutoUpdater();
   });
+  alphaStartupCheckpoint('ready-registered');
 
   app.on("activate", async () => {
     if (BrowserWindow.getAllWindows().length === 0) {

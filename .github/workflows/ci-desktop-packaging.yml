@@ -24,7 +24,7 @@ jobs:
     if: ${{ !inputs.runtime_provided }}
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
-      targets: linux-x64,win32-x64,win32-arm64,darwin-arm64
+      targets: linux-x64,linux-arm64,win32-x64,win32-arm64,darwin-x64,darwin-arm64
       run_tests: false
   package-smoke:
     name: Package and launch (${{ matrix.os }})
@@ -50,7 +50,7 @@ jobs:
             executable: win-unpacked/LAWOSS.exe
             asar: win-unpacked/resources/app.asar
             securityTarget: win-unpacked/LAWOSS.exe
-          - os: macos-14
+          - os: macos-15
             target: aarch64-apple-darwin
             platform: mac
             arch: arm64
@@ -64,11 +64,27 @@ jobs:
             executable: win-arm64-unpacked/LAWOSS.exe
             asar: win-arm64-unpacked/resources/app.asar
             securityTarget: win-arm64-unpacked/LAWOSS.exe
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            platform: mac
+            arch: x64
+            executable: mac/LAWOSS.app/Contents/MacOS/LAWOSS
+            asar: mac/LAWOSS.app/Contents/Resources/app.asar
+            securityTarget: mac/LAWOSS.app
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            platform: linux
+            arch: arm64
+            executable: linux-arm64-unpacked/legalwork
+            asar: linux-arm64-unpacked/resources/app.asar
+            securityTarget: linux-arm64-unpacked/legalwork
     defaults:
       run:
         shell: bash
     env:
       TARGET: ${{ matrix.target }}
+      LAWOSS_PR_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      LAWOSS_CHECKOUT_SHA: ${{ github.sha }}
       NODE_OPTIONS: --max-old-space-size=6144
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
       MACOS_NOTARIZE: "false"
@@ -78,16 +94,42 @@ jobs:
         if: runner.os == 'Windows'
         run: git config --global core.longpaths true
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        id: desktop-pnpm
         with:
           version: 11.4.0
       - uses: actions/setup-node@v6
         with:
+          node-version: 22.23.2
+      - name: Capture native SDK consumer executable
+        run: >-
+          node -e "if(process.version!=='v22.23.2'||process.arch!=='${{ matrix.arch }}')process.exit(1);
+          require('node:fs').appendFileSync(process.env.GITHUB_ENV,'LAWOSS_PRODUCT_SDK_CONSUMER_NODE='+process.execPath+'\n')"
+      - uses: actions/setup-node@v6
+        with:
           node-version: 24.21.0
+      - name: Verify native runner architecture
+        run: node -e "if (process.arch !== '${{ matrix.arch }}') throw new Error('Desktop smoke requires native ${{ matrix.arch }} Node; got ' + process.arch); require('node:fs').appendFileSync(process.env.GITHUB_ENV,'LAWOSS_PRODUCT_SDK_PRODUCER_NODE='+process.execPath+'\n')"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
+      - name: Capture explicit pinned SDK worker compiler
+        run: >-
+          bun -e "if(Bun.version!=='1.4.2')throw new Error('SDK_BUN_VERSION_INVALID');
+          require('node:fs').appendFileSync(process.env.GITHUB_ENV,'LAWOSS_PRODUCT_SDK_BUN_BINARY='+process.execPath+'\n')"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Test desktop platform coverage
+        if: runner.os != 'Windows'
+        run: node --test lawoss/testing/desktop-platform-matrix.test.mjs lawoss/testing/alpha/*.test.mjs
+      - name: Test desktop platform coverage with native Windows process ownership
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archiveTool = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
+          if (!(Test-Path -LiteralPath $archiveTool -PathType Leaf)) { throw 'Full 7-Zip with NSIS support is required for alpha integrity tests' }
+          $env:ELECTRON_BUILDER_7ZIP_PATH = $archiveTool
+          node --test lawoss/testing/desktop-platform-matrix.test.mjs lawoss/testing/alpha/*.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test config migration, token-file migration and link policy
         run: node --test apps/desktop/electron/opencode-config-migration.test.mjs apps/desktop/electron/runtime.test.mjs apps/desktop/electron/ui-control-server.test.mjs apps/desktop/electron/safe-open.test.mjs
       - uses: actions/download-artifact@v4
@@ -103,10 +145,31 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then archive="$(cygpath -u "$archive")"; fi
           tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
 
+      - name: Prepare canonical pinned pnpm input for desktop SDK
+        env:
+          LAWOSS_PRODUCT_SDK_PNPM_DEST: ${{ steps.desktop-pnpm.outputs.dest }}
+        run: >-
+          node --input-type=module -e "import { prepareDesktopPnpmInput } from './lawoss/build/plugin-payload/desktop-pnpm-input.mjs';
+          import fs from 'node:fs/promises'; import path from 'node:path';
+          if(process.version!=='v24.21.0')throw new Error('DESKTOP_PNPM_INPUT_INVALID');
+          const outputRoot=path.join(await fs.realpath(process.env.RUNNER_TEMP),'lawoss-desktop-sdk-pnpm');
+          const {pnpmCli}=await prepareDesktopPnpmInput({installRoot:process.env.LAWOSS_PRODUCT_SDK_PNPM_DEST,outputRoot});
+          await fs.appendFile(process.env.GITHUB_ENV,'LAWOSS_PRODUCT_SDK_PNPM_CLI='+pnpmCli+'\n')"
       - name: Build desktop app and native dependencies
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: pnpm --filter @legalwork/desktop build:electron
+        run: >-
+          pnpm --filter @legalwork/desktop build:electron --sdk-mode native
+          --sdk-consumer-node "$LAWOSS_PRODUCT_SDK_CONSUMER_NODE"
+          --sdk-pnpm-cli "$LAWOSS_PRODUCT_SDK_PNPM_CLI"
+          --sdk-head "$LAWOSS_PR_HEAD" --sdk-checkout "$LAWOSS_CHECKOUT_SHA"
+      # Native supplier admission installed the pinned SDK tools before these
+      # build-only inert-data/actual-ASAR tests; root pnpm install alone does not.
+      - name: Verify desktop SDK build integration
+        env:
+          LAWOSS_TEST_BUN: ${{ env.LAWOSS_PRODUCT_SDK_BUN_BINARY }}
+          LAWOSS_TEST_NODE24: ${{ env.LAWOSS_PRODUCT_SDK_PRODUCER_NODE }}
+        run: '"$LAWOSS_PRODUCT_SDK_CONSUMER_NODE" --test lawoss/build/plugin-payload/product-stage-worker.test.mjs lawoss/build/plugin-payload/product-identity.test.mjs lawoss/build/plugin-payload/product-packaging.test.mjs lawoss/build/plugin-payload/packaged-identity.test.mjs lawoss/build/plugin-payload/packaged-resource.test.mjs lawoss/build/plugin-payload/desktop-packaging.test.mjs'
       # Real isolated dev renderer + pinned sidecar + provider protocol fixture.
       # The packaged CDP prohibition stays covered by the existing security gate.
       - name: Enable synthetic-only native diagnostic artifact
@@ -150,9 +213,12 @@ jobs:
       # LAWOSS: importuje každý modul servera priamo zo zabaleného app.asar (Electron ako Node).
       - name: Verify packaged server modules load from app.asar
         run: node apps/desktop/scripts/check-packaged-server-imports.mjs "apps/desktop/dist-electron/${{ matrix.asar }}"
+      - name: Verify SDK identity before Verify Linux AppImage packaging
+        if: runner.os == 'Linux'
+        run: node apps/desktop/scripts/check-packaged-plugin-sdk.mjs --asar "apps/desktop/dist-electron/${{ matrix.asar }}" --target "${{ matrix.target }}" --mode sdk
       - name: Verify Linux AppImage packaging
         if: runner.os == 'Linux'
-        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --x64 --publish never
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --${{ matrix.arch }} --prepackaged "dist-electron/${{ matrix.arch == 'arm64' && 'linux-arm64-unpacked' || 'linux-unpacked' }}" --publish never
       - name: Verify shipped fuses, Node and document tools
         run: pnpm --dir apps/desktop check:packaged-security "dist-electron/${{ matrix.securityTarget }}"
       - name: Run isolation probe with the packaged Node and VM
@@ -171,14 +237,34 @@ jobs:
         if: runner.os != 'Linux'
         timeout-minutes: 3
         run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
+      - name: Verify SDK identity before Verify Windows installer packaging
+        if: runner.os == 'Windows'
+        run: node apps/desktop/scripts/check-packaged-plugin-sdk.mjs --asar "apps/desktop/dist-electron/${{ matrix.asar }}" --target "${{ matrix.target }}" --mode sdk
       - name: Verify Windows installer packaging
         if: runner.os == 'Windows'
-        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --${{ matrix.arch }} --publish never
-      # LAWOSS: nepodpísaný testovací inštalátor sa nenahráva ako artefakt behu; v public
-      # repe by ho stiahol ktokoľvek prihlásený (rozhodnutie Q06/U6). Overí sa len jeho vznik.
-      - name: Verify Windows test installer exists
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --win --${{ matrix.arch }} --prepackaged "dist-electron/${{ matrix.arch == 'arm64' && 'win-arm64-unpacked' || 'win-unpacked' }}" --publish never
+      # Only the finite integrity receipt is uploaded, never unsigned binaries.
+      - name: Verify actual Windows NSIS installation and final bytes
         if: runner.os == 'Windows'
-        run: ls apps/desktop/dist-electron/lawoss-win-${{ matrix.arch }}-*.exe
+        shell: pwsh
+        timeout-minutes: 12
+        run: ./lawoss/testing/alpha/probe-nsis-ci.ps1 -Arch '${{ matrix.arch }}' -NativeStartup -Output "$env:RUNNER_TEMP/nsis-proof-${{ matrix.arch }}.json"
+      - name: Upload Windows installed-tree integrity receipt
+        if: runner.os == 'Windows' && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nsis-installed-tree-${{ matrix.arch }}
+          path: ${{ runner.temp }}/nsis-proof-${{ matrix.arch }}.json
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload finite Windows Documents diagnostic
+        if: runner.os == 'Windows' && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-documents-probe-${{ matrix.arch }}
+          path: ${{ runner.temp }}/windows-documents-probe-${{ matrix.arch }}.json
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Verify Linux native modules
         if: runner.os == 'Linux'
         timeout-minutes: 2
@@ -191,6 +277,48 @@ jobs:
         if: runner.os == 'Linux'
         timeout-minutes: 3
         run: xvfb-run -a node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
+      # Final-distribution startup is separate from unpacked-app smoke. These
+      # private unsigned artifacts never enter the public artifact uploader.
+      - name: Verify SDK identity before Build final macOS ZIP for native startup
+        if: runner.os == 'macOS'
+        run: node apps/desktop/scripts/check-packaged-plugin-sdk.mjs --asar "apps/desktop/dist-electron/${{ matrix.asar }}" --target "${{ matrix.target }}" --mode sdk
+      - name: Build final macOS ZIP for native startup
+        if: runner.os == 'macOS'
+        timeout-minutes: 10
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --mac zip --${{ matrix.arch }} -c.mac.identity=- --prepackaged "dist-electron/${{ matrix.securityTarget }}" --publish never
+      - name: Verify final macOS ZIP native startup
+        if: runner.os == 'macOS'
+        timeout-minutes: 10
+        run: node lawoss/testing/alpha/probe-startup-ci.mjs --output-dir "$RUNNER_TEMP/alpha-startup-${{ matrix.arch }}"
+      - name: Install native Linux startup capture tools
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        run: |
+          if ! command -v xwd >/dev/null || ! command -v xprop >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends x11-apps x11-utils
+          fi
+      - name: Verify final Linux AppImage native startup
+        id: final_linux_startup
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        run: xvfb-run -a node lawoss/testing/alpha/probe-linux-protected-startup-ci.mjs --output-dir "$RUNNER_TEMP/alpha-startup-${{ matrix.arch }}"
+      - name: Observe Linux sandbox prerequisites after failed native startup
+        if: failure() && runner.os == 'Linux' && steps.final_linux_startup.outcome == 'failure'
+        timeout-minutes: 3
+        run: node lawoss/testing/alpha/diagnose-linux-sandbox-ci.mjs
+      # Only the finite receipt and synthetic welcome window, after verified
+      # cleanup. Profiles, raw receipts and final distributions remain private.
+      - name: Upload synthetic final-artifact native startup evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-final-startup-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/alpha-startup-${{ matrix.arch }}/startup.json
+            ${{ runner.temp }}/alpha-startup-${{ matrix.arch }}/startup.${{ runner.os == 'Linux' && 'xwd' || 'png' }}
+          if-no-files-found: error
+          retention-days: 7
 
   # A separate unmodified upstream rebuild can only diagnose the original RED.
   # Matrix aggregate failure also includes macOS: inspect Windows evidence first.

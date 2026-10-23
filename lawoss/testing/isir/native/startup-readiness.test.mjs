@@ -176,7 +176,7 @@ test('composed native startup completes cold MCP before starting the selected-in
   let finishCold, finishSelected, coldArrive, selectedArrive, configured=false, deadline;
   const coldStarted=new Promise(resolve=>{coldArrive=resolve;});
   const selectedStarted=new Promise(resolve=>{selectedArrive=resolve;});
-  const calls=[];
+  const calls=[],stages=[];
   const workspace={id:'ws_native_1',path:pathForHost()};
   function pathForHost(){return process.platform==='win32'?'C:\\synthetic\\selected':'/synthetic/selected';}
   const server=createServer((req,res)=>{
@@ -194,10 +194,11 @@ test('composed native startup completes cold MCP before starting the selected-in
   const engineRequest=createNativeEngineClient(serverInfo,workspace.id);
   let pending;
   try {
-    pending=awaitNativeStartup({engineRequest,request:fetch,serverInfo,workspace,onDeadline:value=>{deadline=value;}}).then(receipt=>{configured=true;return receipt;});
+    pending=awaitNativeStartup({engineRequest,request:fetch,serverInfo,workspace,observe:stage=>stages.push(stage),onDeadline:value=>{deadline=value;}}).then(receipt=>{configured=true;return receipt;});
     await coldStarted;
     t.mock.timers.tick(120_000);
-    assert.equal(deadline,undefined);assert.equal(configured,false);
+    assert.equal(deadline,301_000,'Initial cold readiness has its own diagnostic window');assert.equal(configured,false);
+    assert.equal(stages[0],'instance-request');
     assert.deepEqual(calls,[`/workspace/${workspace.id}/opencode/mcp`]);
     finishCold();await selectedStarted;
     assert.equal(deadline,211_000,'Selected90s starts after completed cold provisioning, not before it');
@@ -205,8 +206,25 @@ test('composed native startup completes cold MCP before starting the selected-in
     finishSelected();
     const receipt=await pending;
     assert.equal(receipt.directoryMatches,true);assert.equal(receipt.bodyCompleted,true);assert.equal(configured,true);
+    assert.deepEqual(stages,['instance-request','instance-headers','instance-body','instance-verified','request','headers','body','verified']);
   } finally {
-    finishCold?.();finishSelected?.();await pending?.catch(()=>{});
-    server.closeAllConnections();await new Promise(resolve=>server.close(resolve));
+    const closed=new Promise(resolve=>server.close(resolve));
+    finishCold?.();finishSelected?.();server.closeAllConnections();await pending?.catch(()=>{});
+    await closed;
   }
+});
+
+test('failed cold MCP retains its diagnostic window and exact failure before any selected-directory request', async t => {
+  const { awaitNativeStartup } = await import('./startup-readiness.mjs');
+  const { createNativeEngineClient } = await import('./engine-client.mjs');
+  t.mock.timers.enable({apis:['Date'],now:1000});
+  const original=new DOMException('Synthetic cold deadline','TimeoutError');
+  const deadlines=[],stages=[];
+  let calls=0;
+  const serverInfo={baseUrl:'http://127.0.0.1:4321',ownerToken:'synthetic-owner'};
+  const engineRequest=createNativeEngineClient(serverInfo,'ws_native_1',async()=>{calls++;throw original;});
+  await assert.rejects(awaitNativeStartup({engineRequest,request:()=>assert.fail('Selected directory must not be requested'),serverInfo,workspace:{id:'ws_native_1',path:process.platform==='win32'?'C:\\synthetic':'/synthetic'},observe:stage=>stages.push(stage),onDeadline:value=>deadlines.push(value)}),error=>error===original);
+  assert.equal(calls,1);
+  assert.deepEqual(deadlines,[301000]);
+  assert.deepEqual(stages,['instance-request']);
 });

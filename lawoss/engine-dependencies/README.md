@@ -434,3 +434,88 @@ imports all runtime modules and verifies every loaded CommonJS physical path
 stays inside the relocated tree. It does not prepare user dependencies or fetch
 SDK packages. It restores the original stage after positive child close.
 Native Windows/Ubuntu CI and actual desktop packaging remain separate gates.
+
+
+### Captured managed SDK authority plan (S3)
+
+`managed-sdk-authority.mjs` exports the standalone read-only
+`planManagedSdkConfigRoles` API. Its private inputs are the closed product-code
+identity, eligible managed sandbox scope, one final environment/cwd/native-home/
+Global.state capture, explicit active-lifetime G/E root grants and the original
+deadline/signal. The caller must establish capture and grant provenance; a valid
+data shape, same UID or familiar path does not establish authority.
+
+The frozen result is `planned`, `incomplete` or `not-applicable`. It retains both
+G and E, every logical lease spelling, applicable extra P/H roles, physical
+identity/alias observations and absent-target suffixes under a granted ancestor.
+Existing dependency entries stay unadmitted; extra or ungranted roles keep
+coverage incomplete. The module creates no directories, locks or SDK planes and
+has no runtime caller. S4 must acquire leases and revalidate grants before any
+mutation; modeled Windows paths are not native ownership evidence.
+
+Focused verification uses the existing Node test runner:
+`node --test lawoss/engine-dependencies/config-roles.test.mjs lawoss/engine-dependencies/managed-sdk-authority.test.mjs lawoss/build/plugin-payload/product-identity.test.mjs`.
+
+## Accepted-version metadata fixture policy
+
+`native-merged-cache-projection.mjs` is a pure prerequisite for a derived
+offline test cache. The owner must first admit exact SDK lock/public-manifest
+bytes and pinned npm APIs. Projection preserves accepted-version JSON values,
+keeps only that candidate and existing matching tags, and checks the complete
+32-package graph against the lock and available27 public manifests. Five
+foreign native manifests remain absent; only the three witnessed optional
+plugin peers may be missing. Source whitespace is represented by separate raw
+body hashes, not a claim of lexical JSON preservation.
+
+The fixed cache adapter has actual full/corgi offline byte-readback coverage
+with public cacache and pinned make-fetch-happen. A shared URL key does not
+prove both representations. These supplemental tests do not execute the
+original47 or repair the active cache.
+
+The offline projection worker now builds a separately labelled fixture from
+an independently copied raw cache. It requires actual Node22.23.2, the fixed
+network guard, the original acquisition deadline and all32 archive/SRI,
+64 representation,64 exact-byte fetch and64 fresh pacote checks. Raw evidence
+stays unchanged. Fixed bounded records bind the nonce, source fingerprint,
+physical identities, inventories and byte totals. Runtime-tool source metadata
+may have stable shared links; owned cache/records and SDK/build inputs retain
+their single-link requirements. Canonical hashes preserve every finite opaque
+JSON Number, while control schemas require bounded safe integers.
+
+`verifyProjectionArtifacts` performs read-only content admission after the
+parent has independently observed direct-child close and exit0. Worker stdout
+and a manifest cannot attest that close. Cancellation joins started operations
+and descriptor closes; the worker never recursively deletes the workspace.
+The native validation parent now sequences raw acquisition, offline projection,
+read-only admission and exclusive derived-cache preload within one original
+300-second allowance. Its fixed three suites retain their source-derived
+8+25+14=47 tests and separate 180-second timeout. CLI output is three finite JSON
+lines: original acquisition, admitted projection and test result. Earlier
+receipts survive a later refusal; uncertain child close retains the workspace.
+
+Supervisor cancellation, timeout and output-limit reasons use private Error
+identity in `prepare.mjs`; stderr code spelling cannot supply that provenance.
+Other callers retain the original public error fields and supervision behavior.
+Validated bounded projection diagnostics may refine a generic child failure.
+
+Worker and parent supplemental refusal/lifetime tests have independent review.
+A retained-input replay at `ac3e493edfe56c3dcb4bb02fdc90cbf8d1e21fe3` used the
+complete physical source/runtime-tools layout on Linux ARM64 with Node22.23.2:
+one actual projection checked32 archives and64 each of raw reads,
+representations, exact-byte fetches and fresh pacote reads; the unchanged47
+then passed with no skips. Both direct children closed with exit0, artifact
+admission followed projection close, owned cleanup completed and all inputs
+remained unchanged. The acquisition receipt is historical: this replay does
+not measure fresh network acquisition plus projection within300 seconds, or
+establish another platform, current all-six SDK compatibility or installed-app
+acceptance. Its evidence manifest SHA256 is
+`0df17d299d87d2264621bb1220accf544a8106a054ec66a5a87761d5e388ce1f`.
+
+Supplemental readiness tests use an independent monotonic5000ms bound and
+observe owning-operation and inner-child settlement. Early failure retains
+the original Error; release and actual child/fd joins precede restoration and
+cleanup. Focused real fault controls and32 covering cases passed independent
+review on macOS; deliberate inner failures prove error handling, not app
+success. Existing SDK-bound source changes still require fresh source-bound
+compatibility proof. This CI fixture pipeline remains separate from the future
+application SDK seeder and installed-app acceptance.

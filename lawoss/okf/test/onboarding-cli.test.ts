@@ -28,7 +28,7 @@ test("CLI preview creates only the external plan; approval applies exactly that 
   expect((await run(["apply", "--plan", f.plan, "--journal", f.journal])).code).toBe(1);
   expect((await inspectOnboardingRoot(f.client)).digest).toEqual(before.digest);
   const applied = await run(["apply", "--plan", f.plan, "--journal", f.journal, "--confirm"]);
-  expect(applied.code).toBe(0);
+  expect(applied.code, applied.output).toBe(0);
   expect(JSON.parse(applied.output).status).toBe("applied");
   expect(await readFile(join(f.client, "original.txt"), "utf8")).toBe("Original bytes\n");
   const repeated = await run(["apply", "--plan", f.plan, "--journal", f.journal, "--confirm"]);

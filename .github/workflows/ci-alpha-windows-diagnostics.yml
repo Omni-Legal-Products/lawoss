@@ -1,0 +1,82 @@
+name: Alpha Windows ownership diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      cold_repro:
+        description: Run one batch of eight independent cold ARM64 ownership samples
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - lawoss/testing/alpha/windows-job.*
+      - .github/workflows/ci-alpha-windows-diagnostics.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpha-windows-ownership-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cold-repro:
+    name: Cold ARM64 ownership sample (${{ matrix.sample }})
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.cold_repro }}
+    strategy:
+      fail-fast: false
+      matrix:
+        sample: [1, 2, 3, 4, 5, 6, 7, 8]
+    runs-on: windows-11-arm
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.21.0
+      # Every matrix sample owns a fresh runner and executes the first native case once.
+      - name: Observe one cold ownership launch without changing its contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node --test --test-name-pattern='^native Windows job stops root and detached grandchild before returning verified closure$' lawoss/testing/alpha/windows-job.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  cold-json:
+    name: Cold Windows JSON probe (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.21.0
+      # An independent fresh runner: never warm the ownership suite's helper.
+      - name: Run only the existing qualified decoder probe
+        shell: pwsh
+        run: |
+          node --test --test-name-pattern='^native Windows qualified decoder consumes actual-size JSON while the private control writer stays open$' lawoss/testing/alpha/windows-job.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  native-contracts:
+    name: Native Windows ownership (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.21.0
+      - name: Run synthetic ownership and transport contracts
+        shell: pwsh
+        run: |
+          node --test lawoss/testing/alpha/windows-job.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

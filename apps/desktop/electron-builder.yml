@@ -16,10 +16,21 @@ directories:
   output: dist-electron
 files:
   - electron/**/*
+  - "!electron/generated/plugin-sdk/**"
+  - from: resources/.plugin-sdk-build/application-code
+    to: electron/generated/plugin-sdk
+    filter:
+      - identity.mjs
+      - worker.cjs
   - server/**/*
   - "!server/dist/opencode-plugins/**"
   - package.json
 extraResources:
+  - from: resources/.plugin-sdk-build/publication/plugin-sdk
+    to: plugin-sdk
+    filter:
+      - payload.tgz
+      - verifier/**
   - from: resources/build-info.json
     to: build-info.json
   # MIT žiada doložku „in all copies or substantial portions of the Software".

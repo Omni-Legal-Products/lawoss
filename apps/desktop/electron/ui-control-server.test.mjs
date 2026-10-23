@@ -3,6 +3,7 @@ import { chmod, mkdir, mkdtemp, open, readFile, readdir, rm, stat, symlink, writ
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 import { createUiControlServer } from "./ui-control-server.mjs";
 
 function stubWindow() {
@@ -183,4 +184,140 @@ test('build identity reads the live renderer IPC behind the existing bearer gate
  const {baseUrl,token}=JSON.parse(await readFile(path.join(root,'legalwork-ui-control.json'),'utf8'));
  assert.equal((await fetch(`${baseUrl}/build-info`)).status,401);
  const response=await fetch(`${baseUrl}/build-info`,{headers:{authorization:`Bearer ${token}`}});assert.equal(response.status,200);const result=await response.json();assert.deepEqual(result.build,build);assert.equal(result.process.pid,process.pid);assert.equal(result.process.userData,root);assert.match(expression,/invokeDesktop\("appBuildInfo"\)/);assert.equal(result.rendererUrl,'file:///fixture/app-dist/index.html');
+});
+
+// Execute the actual shipping snapshot expression against a DOM boundary
+// fixture. These are probe tests, not native Electron acceptance evidence.
+function readinessElement({ attributes = {}, style = {}, parentElement = null, disabled = false, readOnly = false, top = 100 } = {}) {
+  const element = {
+    isConnected: true, parentElement, disabled, readOnly,
+    hasAttribute: name => Object.hasOwn(attributes, name),
+    getAttribute: name => attributes[name] ?? null,
+    matches: selector => selector === ':disabled' && (disabled || parentElement?.disabled === true),
+    getBoundingClientRect: () => ({ left: 10, top, right: 210, bottom: top + 30, width: 200, height: 30 }),
+    contains: other => other === element,
+    computedStyle: { display: 'block', visibility: 'visible', opacity: '1', pointerEvents: 'auto', ...style },
+  };
+  for (const field of ['textContent', 'innerText', 'value']) Object.defineProperty(element, field, { get() { throw new Error('Readiness must not inspect user content'); } });
+  return element;
+}
+
+async function shippingSnapshot(t, { readyState = 'complete', overlays = [], controls = [], occluded = false, control = true,
+  onAnimationFrame = (_frame = 0) => {}, requestFrame = (callback = () => {}) => setImmediate(callback), cancelFrame = clearImmediate } = {}) {
+  const root = await mkdtemp(path.join(tmpdir(), 'lawoss-ui-readiness-'));
+  const previousDiscovery = process.env.LEGALWORK_UI_CONTROL_DISCOVERY;
+  const document = {
+    readyState,
+    querySelectorAll: selector => selector.includes('data-legalwork-boot-overlay') ? overlays : controls,
+    elementFromPoint: (x, y) => occluded ? {} : controls.find(element => { const r = element.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; }) ?? null,
+  };
+  let frame = 0;
+  const bridge = createUiControlServer({ appName: 'test', appIdentifier: 'test', getUserDataDir: () => root,
+    getWindow: async () => ({ ...stubWindow(), getMediaSourceId: () => 'window:42:0', webContents: { executeJavaScript: async expression => runInNewContext(expression, {
+      document, performance: { timeOrigin: 1700000000000.5 }, window: { innerWidth: 1000, innerHeight: 800,
+        __legalworkControl: control ? { snapshot: () => ({ route: '/welcome', windowSourceId: 'forged-private', readiness: { private: 'forged' } }) } : undefined },
+      getComputedStyle: element => element.computedStyle,
+      requestAnimationFrame: callback => requestFrame(() => { onAnimationFrame(++frame); callback(frame); }),
+      cancelAnimationFrame: cancelFrame, setTimeout, clearTimeout,
+    }) } }),
+  });
+  t.after(async () => {
+    await bridge.stop();
+    if (previousDiscovery === undefined) delete process.env.LEGALWORK_UI_CONTROL_DISCOVERY;
+    else process.env.LEGALWORK_UI_CONTROL_DISCOVERY = previousDiscovery;
+    await rm(root, { recursive: true, force: true });
+  });
+  await bridge.start();
+  const { baseUrl, token } = JSON.parse(await readFile(path.join(root, 'legalwork-ui-control.json'), 'utf8'));
+  assert.equal((await fetch(`${baseUrl}/snapshot`)).status, 401);
+  const response = await fetch(`${baseUrl}/snapshot`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(2000) });
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
+test('shipping snapshot binds finite readiness to its exact window and renderer document', async t => {
+  const snapshot = await shippingSnapshot(t, { controls: [readinessElement()] });
+  assert.equal(snapshot.windowSourceId, 'window:42:0');
+  assert.equal(snapshot.readiness.documentTimeOrigin, 1700000000000.5);
+});
+
+test('shipping snapshot distinguishes a boot overlay from an interactive application', async t => {
+  const snapshot = await shippingSnapshot(t, { overlays: [readinessElement()], controls: [readinessElement()] });
+  assert.equal(snapshot.ok, true);
+  assert.equal(snapshot.route, '/welcome');
+  assert.deepEqual(snapshot.readiness, { documentTimeOrigin: 1700000000000.5, documentReadyState: 'complete', bootOverlayVisible: true, interactiveControls: 1 });
+});
+
+for (const attributes of [{ 'aria-hidden': 'true' }, { inert: '' }]) {
+  test(`bootOverlayVisible remains true for a physically visible ${Object.keys(attributes)[0]} marker`, async t => {
+    const snapshot = await shippingSnapshot(t, { overlays: [readinessElement({ attributes })], controls: [readinessElement()] });
+    assert.deepEqual(snapshot.readiness, { documentTimeOrigin: 1700000000000.5, documentReadyState: 'complete', bootOverlayVisible: true, interactiveControls: 1 });
+  });
+}
+
+test('shipping snapshot with no usable controls cannot imply readiness', async t => {
+  const snapshot = await shippingSnapshot(t);
+  assert.deepEqual(snapshot.readiness, { documentTimeOrigin: 1700000000000.5, documentReadyState: 'complete', bootOverlayVisible: false, interactiveControls: 0 });
+});
+
+test('shipping snapshot reports usable onboarding inputs without reading their content', async t => {
+  const snapshot = await shippingSnapshot(t, { controls: [readinessElement()] });
+  assert.deepEqual(snapshot.readiness, { documentTimeOrigin: 1700000000000.5, documentReadyState: 'complete', bootOverlayVisible: false, interactiveControls: 1 });
+  assert.doesNotMatch(JSON.stringify(snapshot), /forged|private/);
+});
+
+test('shipping snapshot recomputes readiness after renderer frame turns instead of returning prepaint DOM state', async t => {
+  const overlay = readinessElement({ style: { opacity: '0' } });
+  const snapshot = await shippingSnapshot(t, { controls: [readinessElement()], overlays: [overlay],
+    onAnimationFrame: frame => { if (frame === 2) overlay.computedStyle.opacity = '1'; } });
+  assert.equal(snapshot.readiness.bootOverlayVisible, true);
+});
+
+test('shipping snapshot stays unavailable when renderer presentation does not advance', async t => {
+  const snapshot = await shippingSnapshot(t, { controls: [readinessElement()], requestFrame: () => setImmediate(() => {}) });
+  assert.equal(snapshot.ok, false);
+  assert.match(snapshot.error, /presentation|frame/i);
+});
+
+test('readiness excludes hidden, disabled, readonly, inert and CSS-hidden controls and ancestors', async t => {
+  const controls = [
+    readinessElement({ attributes: { hidden: '' } }),
+    readinessElement({ attributes: { 'aria-hidden': 'true' } }),
+    readinessElement({ attributes: { inert: '' } }),
+    readinessElement({ disabled: true }),
+    readinessElement({ readOnly: true }),
+    readinessElement({ attributes: { 'aria-disabled': 'true' } }),
+    readinessElement({ style: { display: 'none' } }),
+    readinessElement({ style: { visibility: 'hidden' } }),
+    readinessElement({ style: { opacity: '0' } }),
+    readinessElement({ style: { pointerEvents: 'none' } }),
+    readinessElement({ parentElement: readinessElement({ attributes: { hidden: '' } }) }),
+    readinessElement({ parentElement: readinessElement({ style: { opacity: '0' } }) }),
+  ];
+  const snapshot = await shippingSnapshot(t, { controls });
+  assert.equal(snapshot.readiness.interactiveControls, 0);
+});
+
+test('readiness excludes offscreen and occluded controls and a faded boot overlay', async t => {
+  const snapshot = await shippingSnapshot(t, { controls: [readinessElement({ top: 900 }), readinessElement()],
+    overlays: [readinessElement({ style: { opacity: '0' } })], occluded: true });
+  assert.deepEqual(snapshot.readiness, { documentTimeOrigin: 1700000000000.5, documentReadyState: 'complete', bootOverlayVisible: false, interactiveControls: 0 });
+});
+
+test('readiness retains document loading state even if a control is already available', async t => {
+  const snapshot = await shippingSnapshot(t, { readyState: 'loading', controls: [readinessElement()] });
+  assert.deepEqual(snapshot.readiness, { documentTimeOrigin: 1700000000000.5, documentReadyState: 'loading', bootOverlayVisible: false, interactiveControls: 1 });
+});
+
+test('missing shipping control stays unavailable while exposing only finite DOM readiness', async t => {
+  const snapshot = await shippingSnapshot(t, { control: false });
+  assert.equal(snapshot.ok, false);
+  assert.equal(snapshot.error, 'LegalWork control surface is not available yet.');
+  assert.deepEqual(snapshot.readiness, { documentTimeOrigin: 1700000000000.5, documentReadyState: 'complete', bootOverlayVisible: false, interactiveControls: 0 });
+});
+
+test('unknown document state stays unknown and cannot export arbitrary state text', async t => {
+  const snapshot = await shippingSnapshot(t, { readyState: 'private-document-content' });
+  assert.deepEqual(snapshot.readiness, { documentTimeOrigin: 1700000000000.5, documentReadyState: 'unknown', bootOverlayVisible: false, interactiveControls: 0 });
+  assert.doesNotMatch(JSON.stringify(snapshot), /private-document-content/);
 });

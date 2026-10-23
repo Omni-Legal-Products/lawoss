@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { alphaStartupPhases, createAlphaStartupCheckpoints } from './lawoss-startup-checkpoints.mjs';
 import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
 import { buildSupportBundleText } from "./support-bundle.mjs";
 
@@ -119,5 +120,78 @@ describe("logWindowErrors", () => {
       assert.doesNotMatch(log, /chatty/);
       assert.match(log, /ERROR \[window\] Renderer process gone: \{ reason: 'crashed', exitCode: 5 \}/);
     });
+  });
+});
+
+it('startup observations require the explicit isolated Windows alpha opt-in', () => {
+  const messages = [];
+  for (const input of [
+    { platform: 'darwin', optIn: '1', isolated: true },
+    { platform: 'linux', optIn: '1', isolated: true },
+    { platform: 'win32', optIn: 'true', isolated: true },
+    { platform: 'win32', optIn: '1', isolated: false },
+  ]) createAlphaStartupCheckpoints({ ...input, write: value => messages.push(value) })('main-configured');
+  assert.deepEqual(messages, []);
+});
+
+it('startup observations are finite exact phases, once each, and never serialize caller data', () => {
+  const messages = [];
+  const checkpoint = createAlphaStartupCheckpoints({ platform: 'win32', optIn: '1', isolated: true, write: value => messages.push(value) });
+  checkpoint('main-configured'); checkpoint('ready-entered'); checkpoint('ready-entered');
+  checkpoint('actaport-environment-entered'); checkpoint('actaport-environment-returned');
+  checkpoint('PRIVATE /profile token=secret'); checkpoint({ toString() { throw new Error('private'); } });
+  assert.deepEqual(messages, ['[lawoss-alpha-startup] main-configured', '[lawoss-alpha-startup] ready-entered',
+    '[lawoss-alpha-startup] actaport-environment-entered', '[lawoss-alpha-startup] actaport-environment-returned']);
+});
+
+it('a failed diagnostic writer cannot replace application control flow or retry a phase', () => {
+  let calls = 0;
+  const checkpoint = createAlphaStartupCheckpoints({ platform: 'win32', optIn: '1', isolated: true, write: () => { calls++; throw new Error('private'); } });
+  assert.doesNotThrow(() => { checkpoint('ui-control-entered'); checkpoint('ui-control-entered'); });
+  assert.equal(calls, 1);
+});
+
+it('pre-ready checkpoints distinguish completed module initialization from lock refusal and callback registration', () => {
+  const messages = [];
+  const checkpoint = createAlphaStartupCheckpoints({ platform: 'win32', optIn: '1', isolated: true, write: value => messages.push(value) });
+  checkpoint('icons-entered'); checkpoint('icons-returned'); checkpoint('services-returned');
+  checkpoint('runtime-manager-returned'); checkpoint('single-instance-entered');
+  checkpoint('single-instance-rejected'); checkpoint('single-instance-acquired');
+  checkpoint('ready-registering'); checkpoint('ready-registered');
+  assert.deepEqual(messages, [
+    '[lawoss-alpha-startup] icons-entered', '[lawoss-alpha-startup] icons-returned',
+    '[lawoss-alpha-startup] services-returned', '[lawoss-alpha-startup] runtime-manager-returned',
+    '[lawoss-alpha-startup] single-instance-entered', '[lawoss-alpha-startup] single-instance-rejected',
+    '[lawoss-alpha-startup] single-instance-acquired', '[lawoss-alpha-startup] ready-registering',
+    '[lawoss-alpha-startup] ready-registered',
+  ]);
+});
+
+it('runtime constructor checkpoint phases are fixed once-only observations within the 32-write limit', () => {
+  const phases = ['runtime-manager-entered', 'runtime-state-returned', 'runtime-user-data-returned',
+    'runtime-home-returned', 'runtime-documents-returned', 'runtime-sidecars-returned', 'runtime-office-returned'];
+  const messages = [];
+  const checkpoint = createAlphaStartupCheckpoints({ platform: 'win32', optIn: '1', isolated: true, write: value => messages.push(value) });
+  for (const phase of phases) { checkpoint(phase); checkpoint(phase); }
+  assert.deepEqual(messages, phases.map(phase => `[lawoss-alpha-startup] ${phase}`));
+  for (const phase of alphaStartupPhases) { checkpoint(phase); checkpoint(phase); }
+  checkpoint('PRIVATE /profile token=secret'); checkpoint({ toString() { throw new Error('private'); } });
+  assert.equal(alphaStartupPhases.length, 32);
+  assert.equal(Object.isFrozen(alphaStartupPhases), true);
+  assert.equal(messages.length, 32);
+  assert.equal(new Set(messages).size, 32);
+});
+
+it('runtime constructor checkpoints use the existing physical main log without private caller data', () => {
+  withMainErrorLog(logsDir => {
+    const checkpoint = createAlphaStartupCheckpoints({ platform: 'win32', optIn: '1', isolated: true, write: line => console.warn(line) });
+    const phases = ['runtime-manager-entered', 'runtime-state-returned', 'runtime-user-data-returned',
+      'runtime-home-returned', 'runtime-documents-returned', 'runtime-sidecars-returned', 'runtime-office-returned'];
+    for (const phase of phases) { checkpoint(phase); checkpoint(phase); }
+    checkpoint('runtime-documents-returned PRIVATE');
+    const log = readFileSync(path.join(logsDir, 'main.log'), 'utf8');
+    assert.deepEqual(log.trim().split('\n').map(line => line.replace(/^\[[^\]]+\] WARN /, '')),
+      phases.map(phase => `[lawoss-alpha-startup] ${phase}`));
+    assert.doesNotMatch(log, /PRIVATE/);
   });
 });

@@ -76,9 +76,13 @@ test('workspace engine proxy diagnostics keep typed endpoints without workspace 
   const result = summarizeNetwork([
     { method:'Network.requestWillBeSent',params:{requestId:'synthetic',timestamp:1,request:{url:'http://127.0.0.1:999/workspace/private-id/opencode/global/health'}} },
     { method:'Network.requestWillBeSent',params:{requestId:'reload',timestamp:2,request:{url:'http://127.0.0.1:999/workspace/private-id/engine/reload'}} },
+    { method:'Network.requestWillBeSent',params:{requestId:'cold',timestamp:3,request:{url:'http://127.0.0.1:999/workspace/private-id/opencode/mcp?directory=private-path'}} },
+    { method:'Network.requestWillBeSent',params:{requestId:'unrelated',timestamp:4,request:{url:'http://127.0.0.1:999/private-id/mcp'}} },
   ]);
   assert.equal(result.requests[0].endpoint, 'engine.health');
   assert.equal(result.requests[1].endpoint, 'engine.reload');
+  assert.equal(result.requests[2].endpoint, 'engine.mcp');
+  assert.equal(result.requests[3].endpoint, 'other');
   assert.doesNotMatch(JSON.stringify(result), /private-id|127\.0/);
 });
 
@@ -291,8 +295,30 @@ test('selected-instance category and finite startup/census projections are bound
     assert.equal(result.schema,6);assert.equal(result.network.requests[0].endpoint,'engine.path');
     assert.equal(result.startup.length,32);assert.equal(result.startupDropped,8);
     assert.equal(result.ownedProcesses.length,128);assert.equal(result.ownedProcessesDropped,22);
-    assert.deepEqual(result.ownedProcesses[0],{phase:'startup',stage:'term-wait',index:23,elapsedMs:22,knownLive:1,unknown:0,moved:0,mismatched:0,leaderExited:true,anchored:true});
+    assert.deepEqual(result.ownedProcesses[0],{phase:'startup',stopAttempt:0,stage:'term-wait',index:23,elapsedMs:22,knownLive:1,unknown:0,moved:0,mismatched:0,leaderExited:true,anchored:true});
     assert.doesNotMatch(text,/PRIVATE|private-host|987654|"pid"|"uid"|command|"directory"/);
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test('owned stop attempts increment only at capture and project closed bounded counts without private extras',async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'native-stop-counts-'));
+  try{
+    const outputFile=path.join(root,'safe.json'),d=createNativeDiagnostics({enabled:true,ci:true,mode:'synthetic',outputFile});
+    const row={stage:'capture',index:1,elapsedMs:0,knownLive:2,unknown:0,moved:0,mismatched:0,leaderExited:false,anchored:false,
+      leaderLive:1,descendantLive:1,states:{running:0,sleeping:1,idle:0,stopped:0,uninterruptible:0,zombie:0,dead:0,other:0,unknown:1,'PRIVATE-STATE':987654},
+      signals:{term:{returned:0,esrch:0,refusedIdentity:0,pid:987654},kill:{returned:0,esrch:0,refusedIdentity:0},command:'PRIVATE-COMMAND'},pid:987654};
+    d.phase('relaunch');d.ownedProcess(row);d.ownedProcess({...row,stage:'term-wait',index:2});d.ownedProcess(row);
+    assert.throws(()=>d.ownedProcess({...row,states:{...row.states,unknown:-1}}),/census/);
+    assert.throws(()=>d.ownedProcess({...row,signals:{...row.signals,term:{returned:'PRIVATE',esrch:0,refusedIdentity:0}}}),/census/);
+    await d.write();let result=JSON.parse(await readFile(outputFile,'utf8'));
+    assert.deepEqual(result.ownedProcesses.map(row=>row.stopAttempt),[1,1,2]);
+    assert.deepEqual(result.ownedProcesses[0].states,{running:0,sleeping:1,idle:0,stopped:0,uninterruptible:0,zombie:0,dead:0,other:0,unknown:1});
+    assert.deepEqual(result.ownedProcesses[0].signals,{term:{returned:0,esrch:0,refusedIdentity:0},kill:{returned:0,esrch:0,refusedIdentity:0}});
+    assert.equal(result.ownedProcesses[0].leaderLive,1);assert.equal(result.ownedProcesses[0].descendantLive,1);
+    assert.doesNotMatch(JSON.stringify(result),/PRIVATE|987654|"pid"|command/);
+    for(let i=3;i<=132;i++)d.ownedProcess(row);
+    await d.write();result=JSON.parse(await readFile(outputFile,'utf8'));
+    assert.deepEqual(result.ownedProcesses.slice(-5).map(row=>row.stopAttempt),[128,null,null,null,null]);
   }finally{await rm(root,{recursive:true,force:true});}
 });
 
@@ -886,6 +912,7 @@ test('provisioning failure before a session exists retains its exact owned respo
     assert.equal(result.provisioning[0].state,'finished');assert.equal(result.provisioning[0].responseError.code,'internal_error');
     assert.deepEqual(result.generationPrompts,[]);
     assert.deepEqual(result.provisioningHostErrors,[{caseIndex:2,category:'worker-exited',name:'Error',code:null,phase:'engine-health',frames:[{module:'lawoss/protected-ai/vm-engine.js',line:141,column:24}]}]);
+    assert.deepEqual(result.hostConsoleCapture.runs,[{kind:'provisioning',caseIndex:2,match:'one',shape:'named-error',traceLines:1}]);
     assert.deepEqual(f.reads,['PRIVATE-PROVISION']);
     assert.doesNotMatch(JSON.stringify(result),/PRIVATE|private-host|Unhandled error|worker exited|file:\/\/|stack/);
   });
@@ -1063,6 +1090,41 @@ test('host console capture ignores foreign owners and routes and remains unknown
   });
 });
 
+test('host console coverage distinguishes missing, ambiguous, unclassified and truncated owned evidence without text',async()=>{
+  const prefix='[legalwork-server] Unhandled error: POST /workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async ';
+  const unknown=prefix+'Error: PRIVATE-UNKNOWN\n    at PRIVATE (/PRIVATE/unlisted.js:12:34)\n';
+  const samples=[
+    {outputs:['PRIVATE-NO-MATCH'],match:'none',shape:'absent',traceLines:0,truncated:0},
+    {outputs:[unknown],match:'one',shape:'named-error',traceLines:1,truncated:0},
+    {outputs:[prefix+'DOMException [TimeoutError]: PRIVATE-UNKNOWN'],match:'one',shape:'dom-exception',traceLines:0,truncated:0},
+    {outputs:[prefix+'PRIVATE-MALFORMED'],match:'one',shape:'unrecognized',traceLines:0,truncated:0},
+    {outputs:[unknown+unknown],match:'ambiguous',shape:'ambiguous',traceLines:0,truncated:0},
+    {outputs:[unknown+'x'.repeat(256*1024)],match:'none',shape:'absent',traceLines:0,truncated:1},
+    {outputs:['é'.repeat(200000)],match:'none',shape:'absent',traceLines:0,truncated:1},
+    {outputs:[()=>{throw new Error('PRIVATE-READ-FAILURE');},()=>null,()=>{throw new Error('THIRD-OWNER');}],statuses:['read-error','unavailable'],match:'none',shape:'absent',traceLines:0,truncated:0},
+    {outputs:[null],missing:true,statuses:['unavailable'],match:'none',shape:'absent',traceLines:0,truncated:0},
+  ];
+  for(const sample of samples)await generationResponseFixture(async f=>{
+    f.bodies.set('PRIVATE',{body:'{}',base64Encoded:false});
+    f.diagnostics.generationStart(1,f.events,f.events.length,f.context);
+    f.emit(promptRequest('PRIVATE'));f.emit(promptResponse('PRIVATE',500));f.emit({method:'Network.loadingFinished',params:{requestId:'PRIVATE'}});await f.flush();await f.flush();
+    f.diagnostics.failure(new Error('PRIVATE-PRIMARY'));
+    f.diagnostics.captureGenerationHostErrors([
+      {label:'provider',output:()=>{throw new Error('FOREIGN-OWNER');}},
+      ...sample.outputs.map(output=>sample.missing?{label:'electron'}:{label:'electron',output:typeof output==='function'?output:()=>output}),
+    ]);
+    const result=await f.receipt(),inspected=Math.min(2,sample.outputs.length);
+    assert.deepEqual(result.hostConsoleCapture,{
+      owners:Array.from({length:inspected},(_,i)=>({source:'electron',status:sample.statuses?.[i]??'read',truncated:sample.truncated===1})),
+      runs:[{kind:'prompt',caseIndex:1,match:sample.match,shape:sample.shape,traceLines:sample.traceLines}],
+    });
+    assert.equal(result.generationHostErrors[0].category,sample.shape==='dom-exception'?'timeout':'unknown');
+    assert.doesNotMatch(JSON.stringify(result),/PRIVATE|FOREIGN|THIRD|unlisted|xxxx|é|Unhandled error/);
+    f.diagnostics.captureGenerationHostErrors([{label:'electron',output:()=>{throw new Error('MUST-NOT-RECAPTURE');}}]);
+    assert.deepEqual(await f.receipt(),result);
+  });
+});
+
 test('host console capture performs no inspection before primary freeze, without owning5xx or when disabled and cannot replace frozen evidence',async()=>{
   let inspected=0;const owners=[{label:'electron',output:()=>{inspected++;return 'PRIVATE';}}];
   await generationResponseFixture(async f=>{
@@ -1187,4 +1249,129 @@ test('generation receipts retain only bounded relative network timing, never abs
       assert.doesNotMatch(JSON.stringify(row),/123456|timestamp|PRIVATE/);
     }
   });
+});
+
+test('recovery readiness writer retains first and last finite polls and freezes before cleanup',async t=>{
+  const root=await mkdtemp(path.join(tmpdir(),'native-readiness-unit-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const outputFile=path.join(root,'diagnostics.json');
+  const d=createNativeDiagnostics({enabled:true,ci:true,mode:'synthetic',outputFile});
+  await d.write();assert.equal(Object.hasOwn(JSON.parse(await readFile(outputFile,'utf8')),'recoveryReadinessObservation'),false);
+  assert.equal(typeof d.recoveryReadiness,'function');
+  d.recoveryReadiness('begin');d.recoveryReadiness('entered');d.recoveryReadiness('boundary','transport-request');d.recoveryReadiness('threw');
+  for(let i=1;i<130;i++){d.recoveryReadiness('begin');d.recoveryReadiness('entered');}
+  d.phase('recovery');d.recoveryStage('runtime-readiness');d.failure(new Error('PRIVATE'));
+  await d.write();const before=JSON.parse(await readFile(outputFile,'utf8')).recoveryReadinessObservation;
+  assert.deepEqual(before,{schema:1,attempts:128,attemptsCapped:true,first:{attempt:1,enteredPredicate:true,boundary:'transport-request',completedPrefix:0,outcome:'threw'},last:{attempt:null,enteredPredicate:true,boundary:'approval-check',completedPrefix:0,outcome:'pending'},waitOutcome:'not-observed'});
+  d.recoveryReadiness('boundary','PRIVATE');d.recoveryReadiness('ready');d.recoveryReadiness('wait-returned');d.recoveryReadiness('begin');
+  await d.write();assert.deepEqual(JSON.parse(await readFile(outputFile,'utf8')).recoveryReadinessObservation,before);
+});
+
+test('inner cleanup observation preserves original function identities, primary and ordered failures with ordinal metadata',async t=>{
+  const root=await mkdtemp(path.join(tmpdir(),'cleanup-observation-unit-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const outputFile=path.join(root,'diagnostics.json'),d=createNativeDiagnostics({enabled:true,ci:true,mode:'synthetic',outputFile});
+  assert.equal(typeof d.cleanupTag,'function');
+  const labels=['protected-approvals-close','chooser-disconnect','cdp-close','owned-child-stop','engine-traces-close','provider-close','prepared-engine-cleanup'];
+  const primary={},shared=new Proxy({}, {get(){throw new Error('extra error read');}}),calls=[];
+  const operations=labels.map((label,i)=>{const fn=async()=>{calls.push(i);throw shared;};assert.equal(d.cleanupTag(fn,label,label==='owned-child-stop'?1:null),fn);return fn;});
+  const result=await settleCleanup(primary,operations,d.cleanupObserve);
+  assert.equal(result.error,primary);assert.deepEqual(calls,[0,1,2,3,4,5,6]);assert.equal(result.failures.length,7);assert.ok(result.failures.every(e=>e===shared));
+  d.cleanupMetadata(1,{name:'TypeError',code:'EPERM',message:'PRIVATE'});d.cleanupMetadata(7,{name:'Error',code:'ESRCH'});
+  await d.write();const row=JSON.parse(await readFile(outputFile,'utf8')).cleanupObservation;
+  assert.equal(row.scope,'inner-harness-cleanup');assert.equal(row.operations,7);assert.equal(row.failures,7);assert.equal(row.current,null);
+  assert.equal(row.firstFailure.boundary,labels[0]);assert.equal(row.lastFailure.boundary,labels[6]);assert.equal(row.interiorFailuresOmitted,true);
+  assert.deepEqual(row.firstFailure.metadata,{name:'TypeError',code:'EPERM'});assert.deepEqual(row.lastFailure.metadata,{name:'Error',code:'ESRCH'});
+  assert.doesNotMatch(JSON.stringify(row),/PRIVATE|message/);
+  const events=[];const plain=await settleCleanup(null,operations,(...args)=>{events.push(args);throw primary;});
+  assert.equal(plain.error.constructor,AggregateError);assert.deepEqual(plain.error.errors,result.failures);assert.deepEqual(plain.failures,result.failures);
+  assert.deepEqual(events.slice(0,2),[[operations[0],'start',null],[operations[0],'failed',1]]);
+});
+
+async function innerObservationFixture(t){
+  const root=await mkdtemp(path.join(tmpdir(),'inner-observation-unit-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const outputFile=path.join(root,'diagnostics.json'),d=createNativeDiagnostics({enabled:true,ci:true,mode:'synthetic',outputFile});
+  return {d,async read(options){await d.write(options);return JSON.parse(await readFile(outputFile,'utf8'));},async bytes(){await d.write();return readFile(outputFile);}};
+}
+async function extractInner(label){
+  const source=await readFile(new URL('../../../../scripts/test-isir-native.mjs',import.meta.url),'utf8');
+  const begin=`// BEGIN ${label}`,end=`// END ${label}`;assert.equal(source.split(begin).length,2);assert.equal(source.split(end).length,2);
+  return source.slice(source.indexOf(begin)+begin.length,source.indexOf(end));
+}
+test('actual inner cleanup list covers seven labels and reversed child slots without child introspection',async t=>{
+  const block=await extractInner('INNER_HARNESS_CLEANUP_OPERATIONS');
+  const execute=new Function('settleCleanup','diagnostics','primaryError','protectedApprovals','approvalReceipts','cdp','children','stop','engineTraces','provider','preparedEngine',`return (async()=>{${block}return result;})()`);
+  const labels=['protected-approvals-close','chooser-disconnect','cdp-close','owned-child-stop','engine-traces-close','provider-close','prepared-engine-cleanup'];
+  for(const failing of labels){
+    const f=await innerObservationFixture(t),calls=[],primary={},failure={},childReads=[];
+    const operation=label=>async()=>{calls.push(label);if(label===failing)throw failure;};
+    const children=[1,2].map(slot=>({get child(){childReads.push(slot);return new Proxy({slot},{get(o,key){assert.equal(key,'slot');return o.slot;}});}}));
+    const result=await execute(settleCleanup,f.d,primary,{close:operation(labels[0]),receipts:[]},[],{evaluate:operation(labels[1]),close:operation(labels[2])},children,async child=>{calls.push(`child-${child.slot}`);if(failing===labels[3])throw failure;},{close:operation(labels[4])},{close:operation(labels[5])},{cleanup:operation(labels[6])});
+    assert.equal(result.error,primary);assert.deepEqual(childReads,[2,1]);assert.deepEqual(calls,[labels[0],labels[1],labels[2],'child-2','child-1',labels[4],labels[5],labels[6]]);
+    const row=(await f.read()).cleanupObservation;assert.equal(row.firstFailure.boundary,failing);assert.equal(row.lastFailure.boundary,failing);assert.equal(row.firstFailure.metadata,null);
+    assert.equal(row.firstFailure.childSlot,failing==='owned-child-stop'?1:null);assert.equal(row.lastFailure.childSlot,failing==='owned-child-stop'?2:null);
+  }
+});
+test('actual legacy cleanup log reuses one metadata projection by failure ordinal even for the same Error',async t=>{
+  const {observeNativeLifecycle}=await import('./diagnostics.mjs');const block=await extractInner('INNER_HARNESS_CLEANUP_LOG');
+  const log=new Function('result','errorMetadata','console','diagnostics','observeNativeLifecycle',block);
+  const f=await innerObservationFixture(t),reads={name:0,code:0,cause:0};
+  const error={get name(){reads.name++;return 'Error';},get code(){reads.code++;return 'EPERM';},get cause(){reads.cause++;},get message(){throw Error('PRIVATE');},get stack(){throw Error('PRIVATE');}};
+  const a=f.d.cleanupTag(()=>{throw error;},'chooser-disconnect'),b=f.d.cleanupTag(()=>{throw error;},'provider-close');
+  const result=await settleCleanup(null,[a,b],f.d.cleanupObserve),lines=[];
+  log(result,errorMetadata,{error:(...args)=>lines.push(args)},f.d,observeNativeLifecycle);
+  assert.deepEqual(reads,{name:4,code:4,cause:2});assert.deepEqual(lines,Array(2).fill(['Owned native cleanup failure','{"name":"Error","code":"EPERM"}']));
+  const row=(await f.read()).cleanupObservation;assert.deepEqual(row.firstFailure.metadata,{name:'Error',code:'EPERM'});assert.deepEqual(row.lastFailure.metadata,row.firstFailure.metadata);assert.equal(row.firstFailure.failure,1);assert.equal(row.lastFailure.failure,2);
+  await f.read({cleanupErrors:result.failures});assert.deepEqual(reads,{name:8,code:8,cause:4},'later legacy write retains its original independent metadata reads');
+  for(const kind of ['primitive','getter','sink']){
+    const g=await innerObservationFixture(t),sentinel={},raw=kind==='getter'?{get name(){throw sentinel;}}:'PRIVATE';
+    const settled=await settleCleanup(null,[g.d.cleanupTag(()=>{throw raw;},'cdp-close')],g.d.cleanupObserve);
+    const sink={error(){if(kind==='sink')throw sentinel;}};
+    if(kind==='primitive')log(settled,errorMetadata,sink,g.d,observeNativeLifecycle);
+    else assert.throws(()=>log(settled,errorMetadata,sink,g.d,observeNativeLifecycle),e=>e===sentinel);
+    assert.deepEqual((await g.read()).cleanupObservation.firstFailure.metadata,kind==='primitive'?{name:'Error'}:null);
+  }
+});
+test('cleanup caps counts and child slots honestly, keeps pending state and associates capped last ordinal',async t=>{
+  const f=await innerObservationFixture(t),operations=Array.from({length:130},(_,i)=>f.d.cleanupTag(()=>{throw 0;},'owned-child-stop',i+1));
+  await settleCleanup(null,operations,f.d.cleanupObserve);f.d.cleanupMetadata(1,{name:'Error'});f.d.cleanupMetadata(130,{name:'TypeError'});
+  const row=(await f.read()).cleanupObservation;
+  assert.equal(row.operations,128);assert.equal(row.operationsCapped,true);assert.equal(row.failures,32);assert.equal(row.failuresCapped,true);assert.equal(row.last.operation,null);
+  assert.equal(row.firstFailure.childSlot,1);assert.equal(row.lastFailure.childSlot,null);assert.equal(row.lastFailure.childSlotCapped,true);assert.equal(row.lastFailure.failure,null);assert.deepEqual(row.lastFailure.metadata,{name:'TypeError'});
+  const next=f.d.cleanupTag(()=>{},'provider-close');f.d.cleanupObserve(next,'start',null);
+  const pending=(await f.read()).cleanupObservation;assert.equal(pending.current.outcome,'pending');assert.equal(pending.last.outcome,'failed');
+  const disabled=createNativeDiagnostics({mode:'synthetic'}),original=()=>{};assert.equal(disabled.cleanupTag(original,'provider-close'),original);assert.equal(disabled.cleanupObserve,undefined);assert.equal(disabled.recoveryReadiness,undefined);
+});
+
+test('actual writer bounds maximum new record bytes independently of the unchanged legacy producer size',async t=>{
+  const f=await innerObservationFixture(t),before=await f.bytes();
+  const base=JSON.parse(before);assert.equal('recoveryReadinessObservation' in base,false);assert.equal('cleanupObservation' in base,false);
+  // Conservative closed-schema maximum, including combinations the original
+  // predicate cannot produce: longest boundary + outcome and false boolean.
+  // This bounds bytes, not a claim about a reachable native recovery history.
+  for(let i=0;i<130;i++){
+    f.d.recoveryReadiness('begin');
+    f.d.recoveryReadiness('boundary','guest-directory-check');
+    for(let j=0;j<9;j++)f.d.recoveryReadiness('completed');f.d.recoveryReadiness('not-ready');
+  }
+  // Longest closed label, null slots, full depth-three existing public cause
+  // shape, capped ordinals; retain a completed last and pending current as well
+  // as first/last failures. This is a collector model, not a native operation run.
+  const metadata={name:'AssertionError',code:'ISIR_NATIVE_WAIT_EXPIRED'};
+  metadata.cause={...metadata,cause:{...metadata,cause:{...metadata}}};
+  const operations=Array.from({length:130},()=>f.d.cleanupTag(()=>{throw 0;},'protected-approvals-close'));
+  await settleCleanup(null,operations,f.d.cleanupObserve);f.d.cleanupMetadata(1,metadata);f.d.cleanupMetadata(130,metadata);
+  await settleCleanup(null,[f.d.cleanupTag(()=>{},'protected-approvals-close')],f.d.cleanupObserve);
+  const pending=f.d.cleanupTag(()=>{},'protected-approvals-close');f.d.cleanupObserve(pending,'start',null);
+  const after=await f.bytes(),output=JSON.parse(after),added=after.length-before.length;
+  assert.deepEqual(Object.keys(output.recoveryReadinessObservation).sort(),['attempts','attemptsCapped','first','last','schema','waitOutcome']);
+  assert.deepEqual(Object.keys(output.cleanupObservation).sort(),['current','failures','failuresCapped','firstFailure','interiorFailuresOmitted','last','lastFailure','operations','operationsCapped','schema','scope']);
+  const legacy={...output};delete legacy.recoveryReadinessObservation;delete legacy.cleanupObservation;assert.deepEqual(legacy,base);
+  assert.equal(added,2307);assert.equal(output.cleanupObservation.last.outcome,'completed');assert.equal(output.cleanupObservation.current.outcome,'pending');
+  const finite=value=>{if(typeof value==='number')assert.ok(Number.isFinite(value));if(value&&typeof value==='object')for(const item of Object.values(value))finite(item);};finite(output);
+  assert.doesNotMatch(JSON.stringify({recoveryReadinessObservation:output.recoveryReadinessObservation,cleanupObservation:output.cleanupObservation}),/PRIVATE|stack|message|pid|timestamp|headers|body/);
+  t.diagnostic(`Maximum-shaped NEW records actual pretty-JSON writer delta: ${added} bytes; no global writer-size guarantee, existing consumers still refuse above 256 KiB.`);
+});
+
+test('entered recovery wait without a poll remains explicit zero-attempt unknown data',async t=>{
+  const f=await innerObservationFixture(t);f.d.recoveryReadiness('wait-start');f.d.recoveryReadiness('wait-threw');
+  assert.deepEqual((await f.read()).recoveryReadinessObservation,{schema:1,attempts:0,attemptsCapped:false,first:null,last:null,waitOutcome:'threw'});
 });
