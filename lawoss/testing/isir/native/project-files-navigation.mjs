@@ -61,7 +61,7 @@ function navigateProjectFiles(expected, phase) {
   // Only the explicit pre-reconnect call can acknowledge the production error
   // branch. It has no directory rows; ordinary navigation remains strict.
   const controlsAtRoot = expected.readiness === 'reconnect'
-    ? [...panel.querySelectorAll('button')].filter(node => node.textContent.trim() === 'Reconnect project folder')
+    ? [...panel.querySelectorAll('button')].filter(node => node.textContent.trim() === 'Reconnect client folder')
     : [...panel.querySelectorAll('[data-project-folder="Dokumenty"]')];
   return controlsAtRoot.length === 1 && enabled(controlsAtRoot[0]);
 }
