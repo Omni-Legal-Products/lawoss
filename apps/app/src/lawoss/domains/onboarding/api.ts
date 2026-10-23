@@ -138,7 +138,7 @@ export type OnboardingApplyResult = {
   matterRoot?: string;
   appFiles?: "inside" | "outside";
   trial?: boolean;
-  workspace?: { id: string; path: string; displayName?: string };
+  workspace?: { id: string; path: string; name?: string; displayName?: string };
   workspaces?: readonly { id: string; path: string; displayName?: string }[];
   activeId?: string;
 };
@@ -171,6 +171,8 @@ export type OnboardingSuggestion = {
   units?: readonly SuggestedUnit[];
   /** Názov z karty klienta priamo vo vybranom priečinku (N-A4-2); starší server ho neposiela. */
   rootTitle?: string;
+  /** Názov z karty klienta, pod ktorý patrí vybraný priečinok ako prípad (`matterClientPath`); starší server ho neposiela. */
+  matterClientTitle?: string;
 };
 
 /** Klient v návrhu: relatívna cesta, meno priečinka a názov z karty `client.md`/`klient.md`, ak ho karta má (N-A4-2). */

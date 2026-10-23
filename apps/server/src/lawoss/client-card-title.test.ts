@@ -15,6 +15,7 @@ test("názov z frontmatteru karty: úvodzovky, apostrofy, bez názvu a mimo fron
   expect(cardTitleFromMarkdown("---\ntitle: \"\"\n---\n")).toBeUndefined();
   expect(cardTitleFromMarkdown("---\ntype: klient\n---\ntitle: telo\n")).toBeUndefined();
   expect(cardTitleFromMarkdown("title: bez frontmatteru\n")).toBeUndefined();
+  expect(cardTitleFromMarkdown("---\ntitle: \"SYN\\u0007 Alfa\"\n---\n")).toBe("SYN Alfa");
   for (const block of [">", "|", ">-", "[SYN]", "{a: b}", "&kotva", "*odkaz", "!!str x"]) expect(cardTitleFromMarkdown(`---\ntitle: ${block}\n---\n`)).toBeUndefined();
 });
 
@@ -58,4 +59,10 @@ test("N-A4-2: návrh onboardingu nesie názov z karty klienta; bez karty, symlin
   expect("rootTitle" in suggestion).toBe(false);
   // Klient otvorený priamo: názov z karty v koreni.
   expect((await withClientCardTitles({ root: join(office, "Klienti/C001-syn-tatran"), clients: [], practiceCandidates: [] })).rootTitle).toBe("SYN Tatran Automatika, s. r. o.");
+  // Prípad otvorený priamo: názov klienta, ku ktorému sa pripojí (rodič, pri Spisy/ jeho rodič).
+  for (const matter of ["Klienti/C001-syn-tatran/Spisy/M001-uhrada", "Klienti/C001-syn-tatran/M002-spor"]) {
+    await mkdir(join(office, matter), { recursive: true });
+    const titled = await withClientCardTitles({ root: join(office, matter), clients: [], practiceCandidates: [] });
+    expect([titled.matterClientTitle, "rootTitle" in titled]).toEqual(["SYN Tatran Automatika, s. r. o.", false]);
+  }
 });

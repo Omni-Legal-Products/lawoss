@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "../src/lawoss/domains/onboarding/api";
-import { addOkfFiles, childPath, clientName, rootClientName, type BatchItem } from "../src/lawoss/domains/onboarding/found-flow";
+import { addOkfFiles, childPath, clientName, matterClientName, registeredName, rootClientName, type BatchItem } from "../src/lawoss/domains/onboarding/found-flow";
 import { headline } from "../src/lawoss/domains/onboarding/found-screen";
 import { foundText } from "../src/lawoss/domains/onboarding/found-text";
 import { FoundTree } from "../src/lawoss/domains/onboarding/wizard/found-step";
@@ -50,14 +50,31 @@ describe("N-A4-2: meno klienta v onboardingu z karty klienta", () => {
     expect(clientName({ name: "C003", title: "  " })).toBe("C003");
     expect(rootClientName({ root: "/p/Klienti/C003" })).toBe("C003");
   });
-  test("krok 6 a prvá správa: meno, pod ktorým server klienta zaregistroval", async () => {
+  test("krok 6 a prvá správa: meno, pod ktorým server klienta zaregistroval (pravidlo bočného panela)", async () => {
+    // Server pri novej registrácii vráti `name` (názov z karty), `displayName` len pri mene zadanom používateľom.
+    const registered: Record<string, { name: string; displayName?: string }> = {
+      "C001-syn-tatran-automatika-s-r-o": { name: TATRAN },
+      "C002-syn-hron": { name: "C002-syn-hron", displayName: "Môj Hron" },
+      "C003-bez-karty": { name: "C003-bez-karty" },
+    };
     const api: Pick<OnboardingApi, "planOnboarding" | "applyOnboarding" | "updateOnboardingProfile"> = {
       planOnboarding: async (request) => ({ id: "root" in request ? request.root : "x", fingerprint: "f".repeat(64), preview: {} }),
-      applyOnboarding: async (input): Promise<OnboardingApplyResult> => ({ result: "applied", root: input.id, workspace: { id: "ws", path: input.id, ...(input.id.endsWith("C002") ? { displayName: "Môj Hron" } : {}) } }),
+      applyOnboarding: async (input): Promise<OnboardingApplyResult> => ({ result: "applied", root: input.id, workspace: { id: "ws", path: input.id, ...registered[input.id.split("/").pop() ?? ""] } }),
       updateOnboardingProfile: async () => ({ version: 1, lawyerName: "L", jurisdiction: "sk", language: "sk" }),
     };
-    const items = office.clients.slice(0, 2).map((client) => ({ root: childPath(office.root, client.path.replace("C002-syn-hron", "C002")), name: clientName(client) }));
+    const items = office.clients.map((client) => ({ root: childPath(office.root, client.path), name: clientName(client) }));
     const batch = await addOkfFiles(api, items, { lawyerName: "L", jurisdiction: "sk", language: "sk" }, new Date("2026-10-24T10:00:00Z"), () => undefined, String);
-    expect(batch.map((item) => item.name)).toEqual([TATRAN, "Môj Hron"]);
+    expect(batch.map((item) => item.name)).toEqual([TATRAN, "Môj Hron", "C003-bez-karty"]);
+    // Klient zaregistrovaný skôr pod menom priečinka (pred N-22): ostáva názov z karty, nie slug.
+    expect(registeredName({ root: "/p/Klienti/C001-x", name: TATRAN }, { name: "c001-X" })).toBe(TATRAN);
+    expect(registeredName({ root: "/p/Klienti/C001-x", name: TATRAN }, { name: "Vlastné meno" })).toBe("Vlastné meno");
+    expect(registeredName({ root: "/p/Klienti/C001-x", name: TATRAN }, undefined)).toBe(TATRAN);
+  });
+  test("prípad otvorený priamo: klient, ku ktorému sa pripojí, sa volá názvom z jeho karty", () => {
+    const matter: OnboardingSuggestion = { root: "/p/Klienti/C001-syn-tatran-automatika-s-r-o/Spisy/M001-uhrada", level: "matter", marked: true, score: 1, signals: ["matter_card"], clients: [], complete: true, matterClientTitle: TATRAN };
+    const html = renderToStaticMarkup(<FoundTree text={wizardText("sk")} suggestion={matter} level="matter" scope="client" selected={[]} busy={false} />);
+    expect(html).toContain(TATRAN);
+    expect(html).not.toContain("C001-syn-tatran-automatika-s-r-o");
+    expect(matterClientName({ root: matter.root })).toBe("C001-syn-tatran-automatika-s-r-o");
   });
 });

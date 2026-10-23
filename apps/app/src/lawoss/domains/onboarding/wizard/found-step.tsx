@@ -7,7 +7,7 @@
 import { useId, type ReactNode } from "react";
 import { Briefcase, Check, CircleAlert, FilePlus2, FileText, Landmark, ShieldCheck, UserRound } from "lucide-react";
 import type { OnboardingSuggestion, SuggestedClient, SuggestedUnit } from "../api";
-import { childPath, clientName, folderName, matterClientPath, rootClientName, type BatchItem } from "../found-flow";
+import { childPath, clientName, folderName, matterClientName, rootClientName, type BatchItem } from "../found-flow";
 import type { FoundTextKey } from "../found-text";
 import { OkfNotice } from "../okf-notice";
 import type { ConnectedClient, WizardConnected } from "../onboarding-state";
@@ -144,7 +144,7 @@ export function FoundTree({ text, suggestion, level, scope, selected, busy, onTo
     );
   } else if (level === "matter") {
     tree = (
-      <Node icon={<UserRound className="size-4" />} kind={text("treeClient")} name={folderName(matterClientPath(suggestion.root))}>
+      <Node icon={<UserRound className="size-4" />} kind={text("treeClient")} name={matterClientName(suggestion)}>
         <Node icon={<Briefcase className="size-4" />} kind={text("treeCase")} name={name}>
           <DocsLeaf text={text} meta={unitMeta(text, root, false)} />
         </Node>
@@ -209,7 +209,7 @@ export function WizardFoundView({ text, found, busy, suggestion, headline, level
   const noClients = practiceEach && suggestion.clients.length === 0;
   const tableDisabled = level === "practice" && scope === "practice";
   const primary = level === "matter"
-    ? found("useParent", { name: folderName(matterClientPath(suggestion.root)) })
+    ? found("useParent", { name: matterClientName(suggestion) })
     : practiceEach ? text("foundAddClients", { count: selected.length }) : text("foundAdd");
   return (
     <StepScreen step="found" title={text("foundTitle")} lead={<p>{headline}</p>} nav={nav} focusOnMount>
@@ -251,7 +251,7 @@ export function WizardFoundView({ text, found, busy, suggestion, headline, level
         </div>
       ) : null}
       <FoundTree text={text} suggestion={suggestion} level={level} scope={scope} selected={selected} busy={busy} onToggle={onToggle} />
-      {level === "matter" ? <p className="text-muted-foreground">{found("matterHint", { name: folderName(matterClientPath(suggestion.root)) })}</p> : null}
+      {level === "matter" ? <p className="text-muted-foreground">{found("matterHint", { name: matterClientName(suggestion) })}</p> : null}
       {noClients ? <p className="lw-status warn">{found("noClientsHint")}</p> : null}
       <AddsPanel text={text} found={found} />
       <div className="lw-wiz-actions">

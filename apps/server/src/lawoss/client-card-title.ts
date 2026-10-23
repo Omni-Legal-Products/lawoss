@@ -4,7 +4,7 @@
  * (iné než meno priečinka) ostáva. Existujúce registrácie sa nepremenúvajú (rozhoduje volajúci cez `prior`).
  */
 import { lstat, readFile } from "node:fs/promises";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 
 const CLIENT_CARDS = ["client.md", "klient.md"];
 /** Karta je krátky Markdown; väčší súbor sa nečíta (meno ostane z priečinka). */
@@ -23,7 +23,8 @@ export function cardTitleFromMarkdown(text: string): string | undefined {
   if (raw.startsWith("\"") && raw.endsWith("\"") && raw.length >= 2) {
     try { value = String(JSON.parse(raw)); } catch { value = raw.slice(1, -1); }
   } else if (raw.startsWith("'") && raw.endsWith("'") && raw.length >= 2) value = raw.slice(1, -1).replace(/''/g, "'");
-  const title = value.replace(/\s+/g, " ").trim();
+  // Riadiace znaky (aj z `\u0007` v úvodzovkách) by appka pri obnove sprievodcu odmietla; nahradia sa medzerou.
+  const title = value.replace(/[\s\p{Cc}]+/gu, " ").trim();
   return title && title.length <= 200 ? title : undefined;
 }
 
@@ -56,10 +57,11 @@ const CARD_READS_AT_ONCE = 8;
 
 /**
  * N-A4-2 (test 23. 10. 2026): návrh onboardingu menuje klientov tak ako bočný panel, teda názvom z karty klienta,
- * nie menom priečinka (`C001-syn-tatran-automatika-s-r-o`). Čítajú sa len karty priamo v priečinku klienta a v koreni
- * (`rootTitle`); cesta mimo koreňa sa nečíta. Bez karty ostane meno priečinka (`title` chýba).
+ * nie menom priečinka (`C001-syn-tatran-automatika-s-r-o`). Čítajú sa len karty priamo v priečinku klienta, v koreni
+ * (`rootTitle`) a v klientovi, ku ktorému sa koreň pripojí ako prípad (`matterClientTitle`); iné cesty mimo koreňa
+ * sa nečítajú. Bez karty ostane meno priečinka (`title` chýba).
  */
-export async function withClientCardTitles<S extends { root: string; clients: readonly Named[]; practiceCandidates: readonly Named[] }>(suggestion: S): Promise<S & { clients: (Named & { title?: string })[]; practiceCandidates: (Named & { title?: string })[]; rootTitle?: string }> {
+export async function withClientCardTitles<S extends { root: string; clients: readonly Named[]; practiceCandidates: readonly Named[] }>(suggestion: S): Promise<S & { clients: (Named & { title?: string })[]; practiceCandidates: (Named & { title?: string })[]; rootTitle?: string; matterClientTitle?: string }> {
   const paths = [...new Set([...suggestion.clients, ...suggestion.practiceCandidates].map((client) => client.path))].filter(insideRoot);
   const titles = new Map<string, string>();
   for (let index = 0; index < paths.length; index += CARD_READS_AT_ONCE) {
@@ -70,8 +72,12 @@ export async function withClientCardTitles<S extends { root: string; clients: re
   }
   const titled = (client: Named) => { const title = titles.get(client.path); return title ? { ...client, title } : { ...client }; };
   const rootTitle = await clientCardTitle(suggestion.root);
-  return { ...suggestion, clients: suggestion.clients.map(titled), practiceCandidates: suggestion.practiceCandidates.map(titled), ...(rootTitle ? { rootTitle } : {}) };
+  const matterClientTitle = await clientCardTitle(matterClientRoot(suggestion.root));
+  return { ...suggestion, clients: suggestion.clients.map(titled), practiceCandidates: suggestion.practiceCandidates.map(titled), ...(rootTitle ? { rootTitle } : {}), ...(matterClientTitle ? { matterClientTitle } : {}) };
 }
+
+/** Klient, ku ktorému sa pripojí priečinok zvolený ako prípad: rodič, pri `Spisy/` jeho rodič (`matterClientPath` v appke). */
+const matterClientRoot = (root: string): string => basename(dirname(root)).toLowerCase() === "spisy" ? dirname(dirname(root)) : dirname(root);
 
 /** Relatívna cesta z prieskumu bez `..` a bez absolútneho začiatku; iná sa nečíta. */
 const insideRoot = (path: string): boolean => path !== "" && !isAbsolute(path) && !path.split(/[\\/]+/).includes("..");

@@ -7,7 +7,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { toggledLeave, triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { friendlyError, TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
-import { addOkfFiles, answerClient, batchOffersChat, chatTarget, childPath, clientName, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientPath, createReorganizeFlow, practiceView, retryFailed, rootClientName, workspaceResults, type Answer, type BatchItem, type FoundIdentity } from "./found-flow";
+import { addOkfFiles, answerClient, batchOffersChat, chatTarget, childPath, clientName, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientName, matterClientPath, createReorganizeFlow, practiceView, retryFailed, rootClientName, workspaceResults, type Answer, type BatchItem, type FoundIdentity } from "./found-flow";
 import { clientChatPrompt, type ClientChatOutcome, type ClientChatRequest, type ClientChatUnavailable } from "./client-chat";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
@@ -87,7 +87,7 @@ export function FoundView({ text, busy, suggestion: proposed, level, scope, sele
   const yesDisabled = level === "practice" && scope === "practice";
   // Prax po klientoch bez označeného klienta: nie je čo urobiť, kancelária sa nezapíše.
   const nothingSelected = level === "practice" && scope === "client" && selected.length === 0;
-  const parentName = folderName(matterClientPath(suggestion.root));
+  const parentName = matterClientName(suggestion);
   const noClients = level === "practice" && scope === "client" && suggestion.clients.length === 0;
   const cloud = cloudFolderKind(suggestion.root);
   // Chat s klientom len pri jednom klientovi; prax ho ponúkne po pridaní súborov (BatchView), prípad pripája klienta.
@@ -461,7 +461,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
       reorganize: reorganize.begin,
       chat: wizard ? undefined : chat?.begin,
       showBatch: progress,
-    }, choice, { root: target, name: level === "matter" ? folderName(target) : rootClientName(suggestion) });
+    }, choice, { root: target, name: level === "matter" ? matterClientName(suggestion) : rootClientName(suggestion) });
   });
 
   if (phase.name === "loading") {
