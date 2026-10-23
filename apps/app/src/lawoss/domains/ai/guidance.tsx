@@ -29,7 +29,7 @@ const copy: Record<Language, {title: string; remote: string; reading: string; pr
     jurisdiction: "Jurisdikcia informácie", acknowledge: "Prečítal/a som informáciu", saved: "Prečítanie zaznamenané. Povolenie AI tým nevzniká.", failed: "Prečítanie sa nepodarilo zaznamenať na tomto zariadení.",
   },
   en: {
-    bounded: "Selected document processing has a separate conditional mode: explicitly choose an existing reviewed matter profile for the configured account and model. The host reviews the exact directory, sources and every complete transmission. New legal approvals cannot be created here; without a profile continue manually. A synthetic test on a literal loopback address requires separate native review and creates no client grant.",
+    bounded: "Selected document processing has a separate conditional mode: explicitly choose an existing reviewed case profile for the configured account and model. The host reviews the exact directory, sources and every complete transmission. New legal approvals cannot be created here; without a profile continue manually. A synthetic test on a literal loopback address requires separate native review and creates no client grant.",
     title: "AI and protected information",
     remote: "Remote AI sends content and derived information outside this device. A local label or localhost address alone does not verify local processing.",
     reading: "A reading acknowledgment records this information only. It does not replace client consent, a DPA or a review of the particular service.",
@@ -39,7 +39,7 @@ const copy: Record<Language, {title: string; remote: string; reading: string; pr
     jurisdiction: "Information jurisdiction", acknowledge: "I have read this information", saved: "Reading recorded. This does not grant AI permission.", failed: "Reading could not be recorded on this device.",
   },
   de: {
-    bounded: "Für ausgewählte Dokumente besteht ein gesonderter bedingter Modus: Wählen Sie ausdrücklich ein bestehendes geprüftes Mandatsprofil für das konfigurierte Konto und Modell. Der Host prüft Verzeichnis, Quellen und jede vollständige Übertragung. Neue rechtliche Freigaben können hier nicht erstellt werden; ohne Profil arbeiten Sie manuell weiter. Ein synthetischer Test an einer wörtlichen Loopback-Adresse erfordert eine separate Hostprüfung und erzeugt keine Mandantenfreigabe.",
+    bounded: "Für ausgewählte Dokumente besteht ein gesonderter bedingter Modus: Wählen Sie ausdrücklich ein bestehendes geprüftes Fallprofil für das konfigurierte Konto und Modell. Der Host prüft Verzeichnis, Quellen und jede vollständige Übertragung. Neue rechtliche Freigaben können hier nicht erstellt werden; ohne Profil arbeiten Sie manuell weiter. Ein synthetischer Test an einer wörtlichen Loopback-Adresse erfordert eine separate Hostprüfung und erzeugt keine Mandantenfreigabe.",
     title: "KI und geschützte Informationen",
     remote: "Remote-KI überträgt Inhalte und abgeleitete Informationen außerhalb dieses Geräts. Eine lokale Bezeichnung oder localhost-Adresse belegt keine lokale Verarbeitung.",
     reading: "Die Lesebestätigung dokumentiert nur diese Information. Sie ersetzt weder Mandanteneinwilligung, DPA noch die Prüfung des konkreten Dienstes.",

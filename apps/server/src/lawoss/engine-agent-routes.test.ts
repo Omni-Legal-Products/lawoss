@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runtimeStorageDir } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
-import { authenticateWikiAgentRequest, ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
+import { authenticateWikiAgentRequest, CLIENT_RUNTIME_REQUIRED, ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
 import { SERVER_CREDENTIAL_ENV, withoutServerCredentials } from "./engine-credentials.js";
 
 const roots: string[] = [];
@@ -77,6 +77,19 @@ test("a runtime token for A cannot impersonate an already registered B session",
   await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_b/files/content?path=private.md", {
     session: "chat_b", directory: b,
   }))).rejects.toMatchObject({ code: "wiki_agent_client_runtime_required" });
+  expect((await authenticateWikiAgentRequest(config, request("/workspace/ws_a/files/content?path=x", { session: "chat_a", directory: a })))?.workspaceId).toBe("ws_a");
+});
+
+// N-A2-2 (alfa, možnosť C): the pin stays; the refusal tells the lawyer what happened and what to do.
+test("a second client's chat is refused with an explanation the model can pass on, and nothing changes for A", async () => {
+  const { config, a, b, request } = await fixture();
+  await authenticateWikiAgentRequest(config, request("/workspace/ws_a/files/content?path=x", { session: "chat_a", directory: a }));
+  await grantWikiAgentSession(config, { sessionId: "chat_b", directory: b, scope: "collaborator" });
+  const refusal = authenticateWikiAgentRequest(config, request("/workspace/ws_b/files/content?path=x", { session: "chat_b", directory: b }));
+  await expect(refusal).rejects.toMatchObject({ status: 403, code: "wiki_agent_client_runtime_required", message: CLIENT_RUNTIME_REQUIRED });
+  expect(CLIENT_RUNTIME_REQUIRED).toContain("Nothing was read or changed.");
+  expect(CLIENT_RUNTIME_REQUIRED).toContain("quit LAWOSS completely, open it again and start with this client's chat");
+  expect(CLIENT_RUNTIME_REQUIRED).not.toMatch(/runtime|403|LegalWork/);
   expect((await authenticateWikiAgentRequest(config, request("/workspace/ws_a/files/content?path=x", { session: "chat_a", directory: a })))?.workspaceId).toBe("ws_a");
 });
 

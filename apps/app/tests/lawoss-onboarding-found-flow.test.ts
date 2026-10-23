@@ -3,7 +3,7 @@ import type { OnboardingApi, OnboardingApplyResult, OnboardingPlanRequest, Onboa
 import type { TriageApiPath } from "../src/lawoss/domains/roztriedenie/api";
 import {
   addOkfFiles, childPath, connectPractice, convertRequest, documentLanguage, firstWorkspaceResult,
-  folderName, freshOfficeRequest, workspaceResults, createReorganizeFlow, freshFolderFlow, reorganizePreview, type ReorganizeView, startFreshFolder, isEmptyFolderSuggestion, matterClientPath, parentPath, practiceRequest, reorganizeTarget, retryFailed, startReorganize, type BatchItem,
+  folderName, freshOfficeRequest, workspaceResults, createReorganizeFlow, freshFolderFlow, reorganizePreview, type ReorganizeView, startFreshFolder, isEmptyFolderSuggestion, matterClientPath, parentPath, practiceRequest, practiceView, reorganizeTarget, retryFailed, startReorganize, type BatchItem,
 } from "../src/lawoss/domains/onboarding/found-flow";
 
 const identity = { lawyerName: "Syntetický advokát", jurisdiction: "sk" as const, language: "sk" as const };
@@ -69,6 +69,31 @@ describe("hromadné pridanie OKF súborov", () => {
     expect(again.map(item => item.status)).toEqual(["done", "failed", "done"]);
     expect(again[1]?.error).toBe("Veta pre advokáta (locked_file)");
     expect(applied).toHaveLength(2);
+  });
+});
+
+describe("ručná oprava na Celú prax (N-9, 22. 10. 2026)", () => {
+  const candidates = [{ path: "C002 Hron, a. s.", name: "C002 Hron, a. s." }, { path: "C017 Šimková", name: "C017 Šimková" }, { path: "C022 Ľupták", name: "C022 Ľupták" }];
+  test("návrh klienta s kandidátmi praxe: klienti a vzor z kandidátov, úroveň a signály ostávajú", () => {
+    const client = suggestion({ level: "client", signals: ["plain_directories"], clientPattern: undefined, clients: [], practiceCandidates: candidates, practicePattern: "*" });
+    expect(practiceView(client)).toMatchObject({ level: "client", signals: ["plain_directories"], clients: candidates, clientPattern: "*" });
+    // Návrh praxe sa nemení; starší server bez kandidátov ostáva pri pôvodných klientoch.
+    const practice = suggestion({ clients: candidates, practiceCandidates: [] });
+    expect(practiceView(practice)).toBe(practice);
+    expect(practiceView(suggestion({ level: "client", clientPattern: undefined, clients: candidates }))).toMatchObject({ clients: candidates, clientPattern: "*" });
+    // Hotová kancelária bez okf.config: vzor Klienti/* ide až do plánu praxe.
+    expect(practiceRequest("/p", identity, practiceView(suggestion({ level: "client", clientPattern: undefined, practicePattern: "Klienti/*", practiceCandidates: [] })), "client").clientPattern).toBe("Klienti/*");
+  });
+  test("Nie pri ručne zvolenej praxi: plán praxe so vzorom * a pomocné súbory trom klientom", async () => {
+    const { api, plans, profiles } = fakeApi();
+    const view = practiceView(suggestion({ root: "/p", level: "client", signals: ["plain_directories"], clientPattern: undefined, clients: [], practiceCandidates: candidates, practicePattern: "*" }));
+    await connectPractice(api, view.root, identity, view, "client");
+    const items = view.clients.map(client => ({ root: childPath(view.root, client.path), name: client.name }));
+    const batch = await addOkfFiles(api, items, identity, today, () => undefined, String);
+    expect(plans[0]).toMatchObject({ action: "practice", root: "/p", clientPattern: "*", scope: "client" });
+    expect(plans.slice(1).map(plan => "root" in plan ? plan.root : "")).toEqual(["/p/C002 Hron, a. s.", "/p/C017 Šimková", "/p/C022 Ľupták"]);
+    expect(batch.map(item => item.status)).toEqual(["done", "done", "done"]);
+    expect(profiles).toEqual([{ officeRoot: "/p" }]);
   });
 });
 

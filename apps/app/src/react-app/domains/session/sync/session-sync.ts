@@ -32,7 +32,7 @@ import {
   permissionKey, questionKey, permissionWithReceivedAt, questionWithReceivedAt,
   sortInteractionRequests, seedInteractionSession, removeInteractionSession,
   resolveInteractionLineage, refreshWorkspaceInteractions, createInteractionSnapshot,
-  interactionRequestKey, interactionSessionIds, interactionSessionsKey, type InteractionSessions, type InteractionSnapshot,
+  interactionRequestKey, interactionSessionIds, interactionSessionsKey, noteInteractionFolder, type InteractionSessions, type InteractionSnapshot,
 } from "./interaction-state";
 export { permissionKey, questionKey, seedPermissionState, seedQuestionState } from "./interaction-state";
 
@@ -992,6 +992,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "permission.asked" || event.type === "permission.v2.asked") {
     const permission = event.properties as PermissionRequest | PermissionV2Request;
     if (!permission?.id || !permission.sessionID || entry.deletedSessionIds.has(permission.sessionID)) return;
+    noteInteractionFolder(workspaceId, permission.sessionID, entry.input.directory);
     useSessionActivityStore.getState().setWaitingRequest(workspaceId, permission.sessionID, "permission", permission.id, true, executionScope(entry.input));
     entry.interactionSnapshot?.permissions.set(interactionRequestKey(permission.sessionID, permission.id), true);
     resolveRequestLineage(entry, permission.sessionID);
@@ -1021,6 +1022,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "question.asked" || event.type === "question.v2.asked") {
     const question = event.properties as QuestionRequest;
     if (!question?.id || !question.sessionID || entry.deletedSessionIds.has(question.sessionID)) return;
+    noteInteractionFolder(workspaceId, question.sessionID, entry.input.directory);
     useSessionActivityStore.getState().setWaitingRequest(workspaceId, question.sessionID, "question", question.id, true, executionScope(entry.input));
     entry.interactionSnapshot?.questions.set(interactionRequestKey(question.sessionID, question.id), true);
     resolveRequestLineage(entry, question.sessionID);
@@ -1351,7 +1353,7 @@ function startSync(input: SyncOptions) {
           snapshot.deletedSessions = new Set(entry.deletedSessionIds);
           entry.interactionSnapshot = snapshot;
           void refreshWorkspaceInteractions({
-            client, workspaceId: input.workspaceId, snapshot,
+            client, workspaceId: input.workspaceId, directory: input.directory, snapshot,
             isCurrent: (id) => !disposed && !connectionController.signal.aborted && entry.interactionSnapshot === snapshot &&
               (!id || !entry.deletedSessionIds.has(id)),
             onSessionUpdated: (update) => {

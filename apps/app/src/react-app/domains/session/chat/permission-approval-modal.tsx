@@ -13,10 +13,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 import type { PendingPermission } from "@/app/types";
 import { currentUiMode, useUiMode } from "@/lawoss/lite/ui-mode";
 import { describeMemoryWrite, keepsMemoryWriteGate } from "@/lawoss/lite/memory-write";
 import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
+import { fileOperationCard, offersRememberedApproval, rememberedApprovalKeys } from "@/lawoss/lite/file-operation-card";
 import { networkApprovalContent } from "./network-approval-content";
 import { InteractionSource } from "./interaction-source";
 
@@ -206,6 +208,10 @@ function describePermissionRequest(permission: PendingPermission): PermissionPre
     };
   }
 
+  // LAWOSS: lawoss_files – one readable card ("old → new", "Delete X").
+  const files = permission.metadata && typeof permission.metadata === "object" ? fileOperationCard(permission.metadata) : null;
+  if (files) return { ...files, isDoomLoop: false, note: null };
+
   const copy = permissionCopy(permission.permission);
   return {
     title: copy.title,
@@ -222,7 +228,9 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
   const projectInstructions = props.permission.permission === "legalwork_project_set_instructions";
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
-  const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission]);
+  const locale = useLocale();
+  // LAWOSS: the card text is translated while describing it, so the language is a dependency.
+  const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission, locale]);
   const metadata =
     props.permission.metadata && typeof props.permission.metadata === "object"
       ? props.permission.metadata
@@ -322,7 +330,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
               {presentation.scopeLabel}
             </div>
             <div className="mt-3 rounded-2xl border border-dls-border bg-dls-hover/55 px-3.5 py-3 font-mono text-[13px] leading-6 text-dls-text">
-              <span className="block break-all">{presentation.scopeValue}</span>
+              <span className="block max-h-48 overflow-auto whitespace-pre-line break-all">{presentation.scopeValue}</span>
             </div>
           </div>
 
@@ -366,7 +374,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
 
         <AlertDialogFooter className="flex-col gap-4">
           {!projectInstructions ? <p className="mb-4 text-[12px] leading-5 text-dls-secondary">
-            {t("session.permission_decision_hint")}
+            {t(rememberedApprovalKeys(props.permission).hint)}
           </p> : null}
           <div className={`grid grid-cols-1 gap-2.5 ${projectInstructions ? "sm:grid-cols-[1fr_auto]" : "sm:grid-cols-[1fr_auto_auto]"}`}>
             <AlertDialogAction
@@ -386,13 +394,13 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
               {t("session.allow_once")}
             </AlertDialogAction>
             {/* LAWOSS-lite: pravidlo „pro session“ by povolilo i pozdější zápis s --apply bez karty. */}
-            {!projectInstructions && !(lite && keepsMemoryWriteGate(String(metadata.command ?? ""))) ? <AlertDialogAction
+            {!projectInstructions && offersRememberedApproval(props.permission) && !(lite && keepsMemoryWriteGate(String(metadata.command ?? ""))) ? <AlertDialogAction
               variant="outline"
               onClick={() => props.respondPermission?.(props.permission.id, "always")}
               disabled={props.busy || !props.respondPermission}
             >
               <Check data-icon="inline-start" />
-              {t("session.allow_for_session")}
+              {t(rememberedApprovalKeys(props.permission).label)}
             </AlertDialogAction> : null}
           </div>
         </AlertDialogFooter>
@@ -403,7 +411,9 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
 
 export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
   const projectInstructions = props.permission.permission === "legalwork_project_set_instructions";
-  const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission]);
+  const locale = useLocale();
+  // LAWOSS: the card text is translated while describing it, so the language is a dependency.
+  const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission, locale]);
   const host = props.permission.host;
   const network = host?.network ? networkApprovalContent(host.network) : null;
   const metadata =
@@ -427,6 +437,8 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               <div className="text-[13px] font-medium leading-5 text-dls-text">{network?.action ?? presentation.title}</div>
               <div className="mt-0.5 text-[12px] leading-5 text-dls-secondary">{network?.description ?? presentation.message}</div>
               {host?.description && !network?.search ? <div className="mt-1 text-[12px] leading-5 text-dls-secondary">{t("sandbox.approval_task", undefined, { description: host.description })}</div> : null}
+              {/* LAWOSS: one card per command on this computer – say what it covers (lawoss/i18n/shell.ts). */}
+              {host?.hostWide && !network ? <div className="mt-1 text-[12px] leading-5 text-dls-text">{t("lawoss.shell_card.host_wide")}</div> : null}
               {presentation.note ? (
                 <div className="mt-1 text-[12px] leading-5 text-dls-secondary">{presentation.note}</div>
               ) : null}
@@ -455,7 +467,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               {t("session.allow_once")}
             </Button>
             {/* LAWOSS-lite: pravidlo „pro session“ by povolilo i pozdější zápis s --apply bez karty. */}
-            {!projectInstructions && (!host || host.canRemember) && !(lite && keepsMemoryWriteGate(String(metadata.command ?? ""))) ? <Button
+            {!projectInstructions && offersRememberedApproval(props.permission) && !(lite && keepsMemoryWriteGate(String(metadata.command ?? ""))) ? <Button
               type="button"
               variant="outline"
               size="sm"
@@ -463,7 +475,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               disabled={props.busy || !props.respondPermission}
             >
               <Check data-icon="inline-start" />
-              {t("session.allow_for_session")}
+              {t(rememberedApprovalKeys(props.permission).label)}
             </Button> : null}
           </div>
         </div>
@@ -475,6 +487,10 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
         ) : null}
 
         <div className="border-t border-dls-border px-4 py-3">
+          {host?.command && !network ? <div className="mb-3">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">{t("session.permission_detail_command")}</div>
+            <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-dls-border bg-dls-hover/55 px-2.5 py-1.5 font-mono text-[12px] leading-5 text-dls-text">{host.command}</pre>
+          </div> : null}
           {network ? <div className="space-y-3 text-[12px] leading-5">
             {network.search ? <div>
               <div className="mb-1.5 font-medium text-dls-secondary">{t("sandbox.approval_search_query")}</div>
@@ -510,7 +526,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">
                 {presentation.scopeLabel}
               </div>
-              <div className="mt-1 truncate rounded-lg border border-dls-border bg-dls-hover/55 px-2.5 py-1.5 font-mono text-[12px] leading-5 text-dls-text">
+              <div className={`mt-1 rounded-lg border border-dls-border bg-dls-hover/55 px-2.5 py-1.5 font-mono text-[12px] leading-5 text-dls-text ${presentation.scopeValue.includes("\n") ? "max-h-40 overflow-auto whitespace-pre-line break-all" : "truncate"}`}>
                 {presentation.scopeValue}
               </div>
             </div>

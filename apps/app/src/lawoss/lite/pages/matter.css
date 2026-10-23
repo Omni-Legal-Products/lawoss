@@ -249,3 +249,49 @@
 .lw-matter-copy[data-copied="failed"] { border-color: color-mix(in srgb, var(--td-hot) 55%, transparent); }
 .lw-matter-copy[data-copied="failed"] .lw-matter-copy-state { color: var(--td-hot); }
 .lw-matter .lw-h1 { overflow-wrap: anywhere; }
+
+/* Prehľad podľa oblasti a typu práce (matter-views.tsx): krátke stavové bloky, zdroj pri každej položke. */
+.lw-views { display: grid; gap: 14px; margin-bottom: 18px; }
+.lw-views-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.lw-views-detected { margin: 0; font-size: 13px; font-weight: 600; color: var(--lw-text-primary); }
+.lw-views-reasons { font-size: 12px; color: var(--lw-text-tertiary); }
+.lw-views-reasons summary { cursor: pointer; }
+.lw-views-reasons ul { margin: 6px 0 0; padding-left: 18px; }
+.lw-views-blocks { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; align-items: start; }
+.lw-views-sections { display: grid; gap: 10px; margin: 0; }
+.lw-views-row { display: grid; gap: 4px; }
+.lw-views-row dt { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--lw-text-tertiary); }
+.lw-views-row dd { margin: 0; }
+.lw-views-items { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.lw-views-item { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 10px; font-size: 13px; }
+.lw-views-main { display: grid; min-width: 0; flex: 1 1 160px; }
+.lw-views-label { overflow-wrap: anywhere; color: var(--lw-text-primary); }
+.lw-views-main small { color: var(--lw-text-tertiary); font-size: 12px; overflow-wrap: anywhere; }
+.lw-views-meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.lw-views-state { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--td-line); font-size: 11px; font-weight: 600; color: var(--lw-text-secondary); white-space: nowrap; }
+.lw-views-state[data-state="executed"] { border-style: solid; color: var(--lw-text-primary); }
+.lw-views-state[data-state="proposed"] { border-style: dashed; }
+.lw-views-state[data-state="unknown"] { color: var(--lw-text-tertiary); }
+.lw-views-source { padding: 0; border: 0; background: none; font: inherit; font-size: 11px; color: var(--lw-text-tertiary); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+
+.lw-views-missing { margin: 0; font-size: 13px; color: var(--lw-text-tertiary); font-style: italic; }
+.lw-views-more summary { margin-top: 4px; font-size: 12px; color: var(--lw-text-secondary); cursor: pointer; }
+.lw-views-more .lw-views-items { margin-top: 6px; }
+.lw-views-conflicts ul { margin: 4px 0 0; padding-left: 18px; }
+.lw-views-edit { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--td-line); border-radius: 12px; }
+.lw-views-edit-title, .lw-views-edit-preview { margin: 0; font-size: 13px; }
+.lw-views-edit-preview { font-family: var(--lw-font-mono); font-size: 12px; color: var(--lw-text-secondary); overflow-wrap: anywhere; }
+.lw-views-edit-options { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13px; }
+.lw-views-edit-options label { display: inline-flex; align-items: center; gap: 6px; }
+.lw-views-edit-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.lw-views-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 18px; margin: 0; padding: 12px 16px; border: 1px solid var(--td-line); border-radius: 14px; background: var(--td-glass); }
+.lw-views-strip > div { display: grid; gap: 2px; min-width: 0; }
+.lw-views-strip dt { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--lw-text-tertiary); }
+.lw-views-strip dd { margin: 0; font-size: 13px; color: var(--lw-text-primary); }
+.lw-views-strip-item { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; overflow-wrap: anywhere; }
+.lw-views-strip .lw-views-missing { font-size: 13px; }
+.lw-views-block .lw-views-missing { margin-top: 10px; }
+.lw-views-collapsed > summary, .lw-matter-register > summary { cursor: pointer; padding: 10px 14px; border: 1px solid var(--td-line); border-radius: 12px; font-size: 13px; font-weight: 600; color: var(--lw-text-secondary); background: var(--td-glass); }
+.lw-views-collapsed[open] > summary, .lw-matter-register[open] > summary { margin-bottom: 12px; }
+.lw-matter-register { margin-top: 4px; }
+.lw-views-source.is-static { text-decoration: none; cursor: default; }

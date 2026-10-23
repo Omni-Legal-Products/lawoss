@@ -93,7 +93,7 @@ function missingRootFixture() {
   const f=fixture();
   // Production error branch: processing/breadcrumb stay; directory rows do not.
   f.panel.children=f.panel.children.filter(node=>!node.contains(f.documents));
-  const reconnect=new f.files.constructor('button',{},'Reconnect project folder');
+  const reconnect=new f.files.constructor('button',{},'Reconnect client folder');
   f.panel.append(reconnect);
   return {...f,reconnect};
 }
@@ -111,7 +111,7 @@ for(const [name,mutate] of [
   ['wrong selected owner',f=>{f.state.selected='foreign';}],
   ['wrong registered root',f=>{f.panel.attrs['data-files-workspace-root']='/foreign';}],
   ['hidden pane',f=>{f.retained.attrs.hidden='';}],
-  ['duplicate',f=>{f.panel.append(new f.files.constructor('button',{},'Reconnect project folder'));}],
+  ['duplicate',f=>{f.panel.append(new f.files.constructor('button',{},'Reconnect client folder'));}],
   ['foreign pane action',f=>{f.panel.children=f.panel.children.filter(node=>node!==f.reconnect);f.body.append(f.reconnect);}],
 ])test(`explicit recovery refuses ${name} reconnect action`,async()=>{
   const f=missingRootFixture();mutate(f);await assert.rejects(f.run('reconnect'),error=>error===f.waitError);
@@ -139,7 +139,7 @@ test('actual driver recovery call reaches reconnect with old root absent, then r
   const call=runInNewContext(`(async()=>{let selectedIndex=1;const workspaces=[first];const openFiles=${wrapper};${segment}})()`,{
     first,cdp:{...f.cdp,events:[],evaluate:expression=>expression==='!!window.__legalworkControl'?true:f.cdp.evaluate(expression)},
     until:async(read,description,...budgets)=>description==='relaunched native renderer'?read():f.until(read,description,...budgets),openNativeProjectFiles,
-    click:async text=>{assert.equal(text,'Reconnect project folder');assert.equal(first.path,oldRoot);assert.equal(await access(oldRoot).then(()=>true,()=>false),false);clicks++;},
+    click:async text=>{assert.equal(text,'Reconnect client folder');assert.equal(first.path,oldRoot);assert.equal(await access(oldRoot).then(()=>true,()=>false),false);clicks++;},
   });
   await call;assert.equal(clicks,1);assert.equal(first.path,oldRoot);
   await assert.rejects(openNativeProjectFiles({cdp:f.cdp,until:f.until,workspace:first,caseIndex:1}),error=>error===f.waitError);

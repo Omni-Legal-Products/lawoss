@@ -14,6 +14,8 @@ Pred uložením súboru čítaj `PRACOVNY-PROFIL.md`: určuje skutočné prieči
 
 Vec `advisory` v režime `ongoing` môže mať opakované zadania a termíny bez súdneho konania. Pracuj len s jej úlohami a vstupmi; spoločné firemné údaje čítaj z klienta. Uzavretie jedného zadania neuzatvára priebežnú vec.
 
+Hodnoty `view:procedural`, `view:corporate`, `view:ip` a `view:base` v poli `tags` karty sú voľba prehľadu prípadu od používateľa. Zachovaj ich a bez jeho pokynu ich nemeň ani nemaž.
+
 <!-- okf:protokol-zapisu:v2 -->
 ## Protokol zápisu
 
@@ -24,3 +26,5 @@ Každý nový podklad alebo správu najprv zaznamenaj do `VSTUPY.md` konkrétnej
 `_STATUS.md`, `memory/index.md` a `memory/log.md` sú projekcie. `MEMORY.md` je starší archív, nie druhá aktívna pamäť. Originály a rešerše sú pracovné podklady v príslušných priečinkoch, nie archív pamäte. Pri zmene `AGENTS.md` udržuj `CLAUDE.md` obsahovo zhodný.
 
 Odoslanie, podpis alebo podanie vyžaduje výslovné potvrdenie človeka. Citácie právnych predpisov a judikatúry overuj v dostupných MCP zdrojoch; uveď zdroj a limity. Údaje o subjekte nehádaj.
+
+Každé podstatné tvrdenie zo súborov uveď s odkazom na súbor, ktorý ho obsahuje, ako Markdown odkaz s cestou relatívnou ku koreňu priečinka otvoreného v LAWOSS (pri prípade klienta je to priečinok klienta), napríklad `[poznamky.txt](Spisy/M001-najom/01_Podklady/poznamky.txt)`. Odkazuj na pôvodný dokument, v ktorom si fakt naozaj prečítal. Kartu ani generovaný prehľad (`matter.md`, `client.md`, `_STATUS.md`, `index.md`) necituj, ak fakt je aj inde; ak prehľad menuje svoj zdrojový dokument, cituj ten dokument. Pri zhrnutí viacerých súborov uveď každý z nich. Ak si nie si istý, povedz, ktoré súbory si skontroloval.

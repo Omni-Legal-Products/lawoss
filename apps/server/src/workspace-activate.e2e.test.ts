@@ -212,11 +212,13 @@ describe("workspace activation", () => {
     const workspaceRoot = await createWorkspaceRoot();
     const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
     const port = probe.port;
-    await probe.stop(true);
+    // 🟡 LAWOSS: sonda drží port, kým server nemá svoj port 0 (pozri test nižšie).
+    stops.push(() => probe.stop(true));
     const legalwork = await startLegalworkServer({
       workspaceRoot,
       opencodeBaseUrl: `http://127.0.0.1:${port}`,
     });
+    await probe.stop(true);
     const mockReady = new Promise<void>((resolve) => {
       setTimeout(() => {
         const engine = Bun.serve({
@@ -241,11 +243,15 @@ describe("workspace activation", () => {
     const workspaceRoot = await createWorkspaceRoot();
     const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
     const port = probe.port;
-    await probe.stop(true);
+    // 🟡 LAWOSS: sonda drží port, kým server nemá svoj port 0. Uvoľnený port inak jadro
+    // môže dať samotnému serveru; ten na /instance/dispose vráti 404 a aktivácia 502.
+    // Ak štart servera zlyhá, sondu zastaví afterEach (druhé stop je bez účinku).
+    stops.push(() => probe.stop(true));
     const legalwork = await startLegalworkServer({
       workspaceRoot,
       opencodeBaseUrl: `http://127.0.0.1:${port}`,
     });
+    await probe.stop(true);
 
     const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspaces/ws_1/activate`, {
       method: "POST",

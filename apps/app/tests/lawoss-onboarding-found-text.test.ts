@@ -20,8 +20,8 @@ test("voľby „Toto je“ začínajú veľkým písmenom vo všetkých jazykoch
   const expected = {
     sk: ["Klient", "Celá prax", "Jeden prípad"],
     cs: ["Klient", "Celá praxe", "Jeden případ"],
-    en: ["A client", "A whole practice", "One matter"],
-    de: ["Ein Mandant", "Eine ganze Kanzlei", "Eine Angelegenheit"],
+    en: ["A client", "A whole practice", "One case"],
+    de: ["Ein Mandant", "Eine ganze Kanzlei", "Ein Fall"],
   } as const;
   for (const locale of ["sk", "cs", "en", "de"] as const) {
     const text = foundText(locale);

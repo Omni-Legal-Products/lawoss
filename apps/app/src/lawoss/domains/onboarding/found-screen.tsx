@@ -2,12 +2,12 @@
  * „Toto som našiel“ (spec 2026-10-08): návrh úrovne, oprava, prax, otázka OKF, hromadné pridanie
  * a usporiadanie po jednom klientovi. Spoločná pre onboarding aj bočný panel („Pridať priečinok“).
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocale } from "@/i18n/use-locale";
 import { toggledLeave, triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { friendlyError, TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
-import { addOkfFiles, answerClient, batchOffersChat, chatTarget, childPath, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientPath, createReorganizeFlow, retryFailed, workspaceResults, type Answer, type BatchItem, type FoundIdentity } from "./found-flow";
+import { addOkfFiles, answerClient, batchOffersChat, chatTarget, childPath, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientPath, createReorganizeFlow, practiceView, retryFailed, workspaceResults, type Answer, type BatchItem, type FoundIdentity } from "./found-flow";
 import { clientChatPrompt, type ClientChatOutcome, type ClientChatRequest, type ClientChatUnavailable } from "./client-chat";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
@@ -15,6 +15,9 @@ import { ScreenHead } from "./folder-step";
 import { onboardingErrorMessage } from "./onboarding-errors";
 export { OkfNotice } from "./okf-notice";
 import type { OnboardingCompletion } from "./lawoss-welcome-page";
+import type { ConnectedClient, FoundChoice, WizardConnected } from "./onboarding-state";
+import { WizardFoundView } from "./wizard/found-step";
+import type { WizardText } from "./wizard/wizard-text";
 
 type Text = (key: FoundTextKey, params?: Record<string, string | number>) => string;
 export type FoundLevel = "practice" | "client" | "matter";
@@ -41,7 +44,8 @@ export function foundProposal(suggestion: OnboardingSuggestion): { key: Proposal
   if (isUncertainPractice(suggestion)) return { key: "practiceUncertain", level: "client" };
   if (suggestion.level === "practice") return { key: "practiceFound", level: "practice" };
   if (suggestion.level === "matter") return { key: "matterFound", level: "matter" };
-  if (suggestion.level === "client") return { key: "clientFound", level: "client" };
+  // Len obyčajné podpriečinky (najslabší signál, istota 0,5): appka netvrdí „Vyzerá to ako klient“ (N-9, R1 bod 1 P2).
+  if (suggestion.level === "client" && !(suggestion.signals.length === 1 && suggestion.signals[0] === "plain_directories")) return { key: "clientFound", level: "client" };
   return { key: "unknownFound", level: "client" };
 }
 
@@ -53,7 +57,7 @@ const LEVEL_KEY: Record<FoundLevel, ProposalKey> = { client: "clientFound", prac
  * Veta nad voľbou „Toto je“ nasleduje zvolenú úroveň (MČ 19. 10. 2026); návrh určuje len predvoľbu.
  * Kým advokát voľbu nezmení, ostáva veta návrhu (aj „Môže to byť jeden klient…“ či „Neviem s istotou…“).
  */
-function headline(text: Text, suggestion: OnboardingSuggestion, level: FoundLevel): string {
+export function headline(text: Text, suggestion: OnboardingSuggestion, level: FoundLevel): string {
   if (level === "practice" && suggestion.clients.length === 0) return text("practiceNoClients");
   const proposal = foundProposal(suggestion);
   return text(level === proposal.level ? proposal.key : LEVEL_KEY[level], { count: suggestion.clients.length, name: folderName(suggestion.root) });
@@ -77,7 +81,9 @@ type ViewProps = {
   chat?: boolean;
 };
 
-export function FoundView({ text, busy, suggestion, level, scope, selected, onLevel, onScope, onToggle, onAll, onAnswer, onChangeFolder, onPickRoot, chat = false }: ViewProps) {
+export function FoundView({ text, busy, suggestion: proposed, level, scope, selected, onLevel, onScope, onToggle, onAll, onAnswer, onChangeFolder, onPickRoot, chat = false }: ViewProps) {
+  // Ručne zvolená „Celá prax“ ukáže kandidátov praxe aj pri návrhu klienta (N-9).
+  const suggestion = level === "practice" ? practiceView(proposed) : proposed;
   const yesDisabled = level === "practice" && scope === "practice";
   // Prax po klientoch bez označeného klienta: nie je čo urobiť, kancelária sa nezapíše.
   const nothingSelected = level === "practice" && scope === "client" && selected.length === 0;
@@ -183,7 +189,7 @@ export function FoundView({ text, busy, suggestion, level, scope, selected, onLe
   );
 }
 
-export function BatchView({ text, busy, items, answer, onRetry, onContinue, onChangeFolder, onChat }: { text: Text; busy: boolean; items: readonly BatchItem[]; answer?: Answer; onRetry: () => void; onContinue: () => void; onChangeFolder?: () => void; onChat?: () => void }) {
+export function BatchView({ text, busy, items, answer, onRetry, onContinue, onChangeFolder, onChat, continueLabel }: { text: Text; busy: boolean; items: readonly BatchItem[]; answer?: Answer; onRetry: () => void; onContinue: () => void; onChangeFolder?: () => void; onChat?: () => void; /** Sprievodca pokračuje ďalším krokom, nie otvorením appky. */ continueLabel?: string }) {
   const done = items.filter(item => item.status === "done").length;
   // Kedy sa chat ponúka, rozhoduje volajúci (`batchOffersChat`); s kým, `chatTarget`.
   const chatWith = onChat ? chatTarget(items) : undefined;
@@ -200,7 +206,7 @@ export function BatchView({ text, busy, items, answer, onRetry, onContinue, onCh
           {chatWith && onChat ? <button type="button" className="lw-btn gold" disabled={busy} onClick={onChat}>{text("chatWith", { name: chatWith.name })}</button> : null}
           {done === 0 && onChangeFolder
             ? <button type="button" className="lw-btn gold" disabled={busy} onClick={onChangeFolder}>{text("changeFolder")}</button>
-            : <button type="button" className={chatWith ? "lw-btn" : "lw-btn gold"} disabled={busy} onClick={onContinue}>{text(answer === "yes" ? "nextClient" : "open")}</button>}
+            : <button type="button" className={chatWith ? "lw-btn" : "lw-btn gold"} disabled={busy} onClick={onContinue}>{answer === "yes" ? text("nextClient") : continueLabel ?? text("open")}</button>}
         </div>
       ) : null}
     </div>
@@ -289,7 +295,39 @@ type Props = {
    * Bez neho obrazovka chat neponúka. Vráti trasu chatu alebo dôvod, prečo sa neotvoril.
    */
   onOpenChat?: (request: ClientChatRequest) => Promise<ClientChatOutcome>;
+  /**
+   * Sprievodca po krokoch (C1): obrazovka len pridá pomocné súbory (prípadne usporiada podľa tabuľky) a namiesto
+   * dokončenia onboardingu odovzdá, čo pripojila; chat a prvá úloha sú až v kroku Pripravené. Bez neho ostáva
+   * pôvodný tok z bočného panela (odpovede chat / nie / tabuľka a dokončenie hneď).
+   */
+  wizard?: WizardMode;
 };
+
+export type WizardMode = {
+  text: WizardText;
+  /** Uložené voľby (návrat, obnova); použijú sa len pre ten istý priečinok. */
+  initial?: FoundChoice;
+  onChoice: (choice: FoundChoice) => void;
+  onConnected: (connected: WizardConnected, result?: OnboardingApplyResult, completion?: OnboardingCompletion) => Promise<void>;
+  /** Späť na krok Dokumenty (len počas otázky, nie počas zápisu). */
+  back?: ReactNode;
+  /** Obrazovka práve zapisuje: stránka vypne ukazovateľ priebehu, aby sa zápis nedal potichu opustiť. */
+  onBusy?: (busy: boolean) => void;
+};
+
+/** Pripojení klienti dávky (len úspešní) pre krok Pripravené. */
+export function connectedClients(items: readonly BatchItem[]): ConnectedClient[] {
+  return items.flatMap((item) => (item.status === "done" && item.result ? [{ root: item.root, name: item.name, result: item.result }] : []));
+}
+
+/** Uložená voľba pre tento priečinok: len známi kandidáti, inak predvolené hodnoty návrhu. */
+export function restoredChoice(initial: FoundChoice | undefined, suggestion: OnboardingSuggestion): { level: FoundLevel; scope: Scope; selected: string[] } {
+  const level = initialFoundLevel(suggestion);
+  const all = suggestion.clients.map((client) => client.path);
+  if (!initial || initial.root !== suggestion.root) return { level, scope: "client", selected: all };
+  const candidates = new Set(practiceView(suggestion).clients.map((client) => client.path));
+  return { level: initial.level, scope: initial.scope, selected: initial.selected.filter((path) => candidates.has(path)) };
+}
 
 /** Nastavenia AI (poskytovatelia aj AI hranice); náhradná cesta po neotvorenom chate tam dokončí onboarding. */
 const AI_SETTINGS_LANDING = "/settings/ai";
@@ -302,7 +340,7 @@ type Phase =
   | { name: "reorganizeFailed"; queue: BatchItem[]; message: string; result?: OnboardingApplyResult }
   | { name: "chatUnavailable"; queue: BatchItem[]; reason: ClientChatUnavailable; result?: OnboardingApplyResult };
 
-export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, onDone, onRegister, onChangeFolder, onPickRoot, onError, onClearError, onOpenChat }: Props) {
+export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, onDone, onRegister, onChangeFolder, onPickRoot, onError, onClearError, onOpenChat, wizard }: Props) {
   const locale = useLocale();
   const triageText = useTriageText(locale);
   const [phase, setPhase] = useState<Phase>({ name: "loading" });
@@ -328,8 +366,10 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     onClearError();
     void suggest({ root }).then((suggestion) => {
       if (cancelled) return;
-      setLevel(initialFoundLevel(suggestion));
-      setSelected(suggestion.clients.map(client => client.path));
+      const restored = wizard ? restoredChoice(wizard.initial, suggestion) : { level: initialFoundLevel(suggestion), scope: "client" as const, selected: suggestion.clients.map(client => client.path) };
+      setLevel(restored.level);
+      setScope(restored.scope);
+      setSelected(restored.selected);
       setPhase({ name: "question", suggestion });
     }).catch((reason: unknown) => {
       if (cancelled) return;
@@ -341,6 +381,25 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
 
   const run = (work: () => Promise<void>) => runStep(work, { start: () => { onClearError(); setBusy(true); }, fail: onError, end: () => setBusy(false) });
 
+  const reportBusy = wizard?.onBusy;
+  useEffect(() => { reportBusy?.(busy); }, [busy]);
+  useEffect(() => () => reportBusy?.(false), []);
+
+  // Sprievodca si každú zmenu volieb uloží (návrat a obnova bez straty výberu klientov praxe).
+  const reportChoice = wizard?.onChoice;
+  useEffect(() => {
+    if (phase.name === "question" && reportChoice) reportChoice({ root: phase.suggestion.root, level, scope, selected });
+  }, [phase, level, scope, selected]);
+
+  // Posledná dávka sprievodcu: po usporiadaní podľa tabuľky z nej vznikne zoznam pripojených klientov.
+  const wizardBatch = useRef<BatchItem[]>([]);
+  const connectClients = async (items: readonly BatchItem[], result?: OnboardingApplyResult) => {
+    if (!wizard) return;
+    const clients = connectedClients(items);
+    batchClients.current = workspaceResults(items);
+    await wizard.onConnected({ kind: "clients", root, clients }, result ?? firstWorkspaceResult(items) ?? clients[0]?.result, completion());
+  };
+
   const completion = (): OnboardingCompletion | undefined => batchClients.current.length ? { clients: batchClients.current } : undefined;
 
   /**
@@ -350,7 +409,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
   const reorganize = createReorganizeFlow({
     client: triageClient,
     register: (result) => onRegister(result, completion()),
-    done: (result) => onDone(result, completion()),
+    done: (result) => wizard ? connectClients(wizardBatch.current, result) : onDone(result, completion()),
     show: (view) => setPhase(view.name === "reorganize" ? view : { name: "reorganizeFailed", queue: view.queue, result: view.result, message: friendlyError(view.failure, triageText) }),
   });
 
@@ -363,28 +422,44 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     show: setPhase,
   }) : undefined;
 
-  const answer = (suggestion: OnboardingSuggestion, choice: Answer) => run(async () => {
+  const answer = (proposed: OnboardingSuggestion, choice: Answer) => run(async () => {
     await onAcknowledge();
+    // Pri ručne zvolenej praxi klienti a vzor z kandidátov praxe (N-9); úroveň a veta návrhu ostávajú.
+    const suggestion = level === "practice" ? practiceView(proposed) : proposed;
     if (level === "practice") {
       await connectPractice(api, suggestion.root, identity, suggestion, scope);
       if (scope === "practice") {
         // Celá prax ako jeden priečinok (P5): volajúci ju zaregistruje ako pracovný priečinok (bez výsledku klienta).
-        await onDone(undefined, { workingFolder: suggestion.root });
+        if (wizard) await wizard.onConnected({ kind: "practice", root: suggestion.root }, undefined, { workingFolder: suggestion.root });
+        else await onDone(undefined, { workingFolder: suggestion.root });
         return;
       }
       const items = suggestion.clients.filter(client => selected.includes(client.path)).map(client => ({ root: childPath(suggestion.root, client.path), name: client.name }));
       const batch = await addOkfFiles(api, items, identity, today, (next) => setPhase({ name: "batch", items: next, answer: choice }), describe);
+      // Sprievodca: bez zlyhania pokračuje sám (tabuľka po klientoch, inak ďalší krok); zlyhanie ukáže súhrn.
+      if (wizard && batch.every(item => item.status === "done")) {
+        wizardBatch.current = batch;
+        batchClients.current = workspaceResults(batch);
+        if (choice === "yes") await reorganize.begin(batch, firstWorkspaceResult(batch));
+        else await connectClients(batch);
+        return;
+      }
       setPhase({ name: "batch", items: batch, answer: choice });
       return;
     }
     // Vec (R9): pripojí sa nadradený priečinok ako klient, nie samotná vec.
     const target = level === "matter" ? matterClientPath(suggestion.root) : suggestion.root;
     const progress = (next: BatchItem[]) => setPhase({ name: "batch", items: next, answer: choice });
+    const addFiles = async (items: readonly { root: string; name: string }[]) => {
+      const batch = await addOkfFiles(api, items, identity, today, progress, describe);
+      wizardBatch.current = batch;
+      return batch;
+    };
     await answerClient({
-      addFiles: (items) => addOkfFiles(api, items, identity, today, progress, describe),
-      done: (result) => onDone(result),
+      addFiles,
+      done: (result) => wizard ? connectClients(wizardBatch.current, result) : onDone(result),
       reorganize: reorganize.begin,
-      chat: chat?.begin,
+      chat: wizard ? undefined : chat?.begin,
       showBatch: progress,
     }, choice, { root: target, name: folderName(target) });
   });
@@ -393,20 +468,46 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     // Cesta späť na výber priečinka je aj počas prezerania (veľký priečinok môže trvať dlho), nielen po chybe.
     return (
       <div className="grid gap-3">
-        <ScreenHead title={text("foundTitle")}>
+        <ScreenHead title={wizard ? wizard.text("foundTitle") : text("foundTitle")}>
           <button type="button" className="lw-btn" onClick={onChangeFolder}>{text("changeFolder")}</button>
         </ScreenHead>
         {phase.failed ? null : <p role="status">{text("looking")}</p>}
       </div>
     );
   }
+  if (phase.name === "question" && wizard) {
+    const seen = level === "practice" ? practiceView(phase.suggestion) : phase.suggestion;
+    return (
+      <WizardFoundView
+        text={wizard.text} found={text} busy={busy} suggestion={seen} headline={headline(text, phase.suggestion, level)}
+        level={level} scope={scope} selected={selected}
+        nav={<>{wizard.back}<button type="button" className="lw-btn" disabled={busy} onClick={onChangeFolder}>{text("changeFolder")}</button></>}
+        onLevel={(next) => {
+          setLevel(next);
+          if (next === "practice") setSelected(practiceView(phase.suggestion).clients.map(client => client.path));
+        }}
+        onScope={setScope}
+        onToggle={(path) => setSelected((current) => current.includes(path) ? current.filter(item => item !== path) : [...current, path])}
+        onAll={(all) => setSelected(all ? practiceView(phase.suggestion).clients.map(client => client.path) : [])}
+        onAdd={() => void answer(phase.suggestion, "no")}
+        onTable={() => void answer(phase.suggestion, "yes")}
+        onPickRoot={onPickRoot}
+        childPath={(name) => childPath(phase.suggestion.root, name)}
+      />
+    );
+  }
   if (phase.name === "question") {
     return (
       <FoundView
         text={text} busy={busy} suggestion={phase.suggestion} level={level} scope={scope} selected={selected}
-        onLevel={setLevel} onScope={setScope}
+        onLevel={(next) => {
+          setLevel(next);
+          // Prepnutie na prax predvolí všetkých klientov praxe (inak by výber ostal prázdny a odpovede vypnuté).
+          if (next === "practice") setSelected(practiceView(phase.suggestion).clients.map(client => client.path));
+        }}
+        onScope={setScope}
         onToggle={(path) => setSelected((current) => current.includes(path) ? current.filter(item => item !== path) : [...current, path])}
-        onAll={(all) => setSelected(all ? phase.suggestion.clients.map(client => client.path) : [])}
+        onAll={(all) => setSelected(all ? practiceView(phase.suggestion).clients.map(client => client.path) : [])}
         onAnswer={(choice) => void answer(phase.suggestion, choice)}
         onChangeFolder={onChangeFolder}
         onPickRoot={onPickRoot}
@@ -418,18 +519,20 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     const continueBatch = () => run(async () => {
       const done = phase.items.filter(item => item.status === "done");
       batchClients.current = workspaceResults(phase.items);
+      wizardBatch.current = phase.items;
       if (phase.answer === "yes") await reorganize.begin(done, firstWorkspaceResult(phase.items));
+      else if (wizard) await connectClients(phase.items);
       else await onDone(firstWorkspaceResult(phase.items), { clients: batchClients.current });
     });
     const retry = () => run(async () => {
       const progress = (next: BatchItem[]) => setPhase({ name: "batch", items: next, answer: phase.answer });
       progress(await retryFailed(api, phase.items, identity, today, progress, describe));
     });
-    const chatBatch = chat && batchOffersChat(phase.answer, level === "practice") ? () => run(async () => {
+    const chatBatch = chat && !wizard && batchOffersChat(phase.answer, level === "practice") ? () => run(async () => {
       batchClients.current = workspaceResults(phase.items);
       await chat.begin(phase.items.filter(item => item.status === "done"), firstWorkspaceResult(phase.items));
     }) : undefined;
-    return <BatchView text={text} busy={busy} items={phase.items} answer={phase.answer} onRetry={() => void retry()} onContinue={() => void continueBatch()} onChangeFolder={onChangeFolder} onChat={chatBatch ? () => void chatBatch() : undefined} />;
+    return <BatchView text={text} busy={busy} items={phase.items} answer={phase.answer} onRetry={() => void retry()} onContinue={() => void continueBatch()} onChangeFolder={onChangeFolder} onChat={chatBatch ? () => void chatBatch() : undefined} continueLabel={wizard?.text("continue")} />;
   }
   const [current, ...rest] = phase.queue;
   if (phase.name === "chatUnavailable") {

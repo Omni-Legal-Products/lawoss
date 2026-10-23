@@ -457,6 +457,33 @@ test("priečinok pomenovaný ako vec (`2025-01 Spor`) je vecou klienta aj bez ka
   expect(groupByClient(out.matters, out.inputs, out.clients).map((g) => [g.client, g.matters.length])).toEqual([["Samostatný klient", 2]]);
 });
 
+test("po pomocných súboroch: prípady s kódom vedľa prázdneho Spisy/ ostanú prípadmi (N-A2-3)", async () => {
+  // Klient z onboardingu `2-jeden-neusporiadany-klient`: karta, pracovné priečinky, prázdny Spisy/ a M00x vedľa neho.
+  const files = {
+    "client.md": "---\ntitle: SYN Tatran Automatika\n---\n",
+    "Spisy/.keep": "", "00_Na_zatriedenie/.keep": "", "01_Podklady/.keep": "",
+    "M001 Úhrada dodávok riadiacich jednotiek/Podklady.pdf": "%PDF",
+    "M002 Vady rekonštrukcie výrobnej haly/poznamky.txt": "",
+    "M003 Vysporiadanie odchádzajúceho spoločníka/Zapis.rtf": "",
+    "IMG_0001/foto.png": "",
+  };
+  const out = await readWorkspaceMemory(fakeClient(files), "ws", TODAY);
+  expect(out.matters.map((m) => m.path).sort()).toEqual([
+    "M001 Úhrada dodávok riadiacich jednotiek", "M002 Vady rekonštrukcie výrobnej haly", "M003 Vysporiadanie odchádzajúceho spoločníka",
+  ]);
+  expect(groupByClient(out.matters, out.inputs, out.clients).map((g) => [g.client, g.matters.length])).toEqual([["SYN Tatran Automatika", 3]]);
+  // Po usporiadaní do Spisy/ sa nič nestratí ani nezdvojí.
+  const sorted = await readWorkspaceMemory(fakeClient({
+    "client.md": files["client.md"],
+    "Spisy/M001 Úhrada dodávok riadiacich jednotiek/Podklady.pdf": "%PDF",
+    "Spisy/M002 Vady rekonštrukcie výrobnej haly/poznamky.txt": "",
+    "M003 Vysporiadanie odchádzajúceho spoločníka/Zapis.rtf": "",
+  }), "ws", TODAY);
+  expect(sorted.matters.map((m) => m.path).sort()).toEqual([
+    "M003 Vysporiadanie odchádzajúceho spoločníka", "Spisy/M001 Úhrada dodávok riadiacich jednotiek", "Spisy/M002 Vady rekonštrukcie výrobnej haly",
+  ]);
+});
+
 test("mimo klienta s kartou sa priečinok s dátumom za vec nepovažuje", async () => {
   const out = await readWorkspaceMemory(fakeClient({ "2025-01 Projekt/readme.txt": "" }), "ws", TODAY);
   expect(out.matters).toEqual([]);

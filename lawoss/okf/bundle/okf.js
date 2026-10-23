@@ -926,7 +926,7 @@ async function findOfficeConfigs(root, limits = {}) {
   return { complete: true, offices: offices.sort() };
 }
 var OFFICE_CONFIG = /(?:^|\/)(?:Office|_kancelaria)\/okf\.config$/;
-var APP_FILE_DIRECTORIES = new Set([".opencode"]);
+var APP_FILE_DIRECTORIES = new Set([".opencode", ".lawoss-kos"]);
 var MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
 var VOLATILE_ENTRY = /^(?:~\$.*|~WRL\d+\.tmp|thumbs\.db|desktop\.ini)$/i;
 var LOCK_CODES = new Set(["EBUSY", "EPERM", "EACCES"]);
@@ -1351,16 +1351,35 @@ var MATTER_WORDS = new Set([...SK_MATTER_WORDS, ...CZ_MATTER_WORDS].map(fold));
 var firstWord = (name) => fold(name.normalize("NFC").trim().split(/[\s,.;:()_-]+/u)[0] ?? "");
 var startsWithMatterWord = (name) => MATTER_WORDS.has(firstWord(name));
 var looksLikeMatterName = (name) => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined || startsWithMatterWord(name));
+var CODE = /^(\p{Lu}{1,3})[-_ ]?(\d{3,5})(?=$|[\s_.,-])/u;
+var YEAR = /^(?:19|20)\d{2}$/;
+var CAMERA_PREFIXES = new Set(["IMG", "DSC", "PIC", "MVI", "VID", "MOV", "PXL", "SAM", "DJI"]);
+var codeOf = (name) => {
+  const match = CODE.exec(name);
+  const [whole, prefix, digits] = match ?? [];
+  if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix))
+    return;
+  return { prefix, rest: name.slice(whole.length).replace(/^[\s_.,-]+/, "") };
+};
+var looksLikeMatterFolder = (name) => codeOf(name) !== undefined || looksLikeMatterName(name);
 
 // src/onboarding/suggest.ts
 var PRACTICE_MIN_CLIENTS = 5;
 var PRACTICE_MIN_RATIO = 0.5;
+var CODED_MIN_CLIENTS = 2;
+var CODED_SCORE = 0.8;
+var LEGACY_OFFICE_SCORE = 0.9;
 var WEAK_SCORE = 0.5;
 var SURVEY_DEPTH = 4;
+var UNIT_LIMIT = 200;
+var UNIT_MATTERS = 50;
+var MATTER_FOLDERS = new Set(["spisy", "pripady", "případy", "matters"]);
 var SURVEY_ENTRIES = 50000;
 var CLIENT_CARDS = new Set(["client.md", "klient.md"]);
 var MATTER_CARDS = new Set(["matter.md", "spis.md", "project.md", "projekt.md"]);
 var OFFICE_DIRS = ["Office", "_kancelaria"];
+var OFFICE_EVIDENCE = new Set(["agents.md", "claude.md", "memory"]);
+var CLIENTS_DIR = "Klienti";
 var LETTER = /^\p{Lu}$/u;
 var nameOf = (path) => path.split("/").pop() ?? path;
 var indexChildren = (entries) => {
@@ -1424,13 +1443,80 @@ function matchPattern(index, pattern) {
   }
   return level.filter(Boolean).map((path) => ({ path, name: nameOf(path) }));
 }
+function matterLevelDirs(index, parent) {
+  const dirs = childrenOf(index, parent).filter((entry) => entry.kind === "directory");
+  const filed = dirs.filter((entry) => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase())).flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
+  return [...dirs, ...filed];
+}
+function codedHierarchy(index, candidates) {
+  const coded = candidates.flatMap((candidate) => {
+    const code = codeOf(nameOf(candidate.path));
+    return code ? [{ candidate, code }] : [];
+  });
+  if (coded.length < CODED_MIN_CLIENTS || coded.length * 2 < candidates.length)
+    return false;
+  const prefixes = new Set(coded.map(({ code }) => code.prefix));
+  const [prefix] = prefixes;
+  if (prefixes.size !== 1 || !prefix)
+    return false;
+  if (coded.filter(({ code }) => startsWithMatterWord(code.rest)).length * 2 >= coded.length)
+    return false;
+  const childPrefixes = coded.map(({ candidate }) => matterLevelDirs(index, candidate.path).flatMap((entry) => {
+    const child = codeOf(nameOf(entry.path));
+    return child ? [child.prefix] : [];
+  }));
+  if (childPrefixes.some((found) => found.includes(prefix)))
+    return false;
+  const withMatters = childPrefixes.filter((found) => found.length > 0).length;
+  return withMatters >= CODED_MIN_CLIENTS && withMatters * 2 >= coded.length;
+}
+function legacyOffice(index) {
+  const office = OFFICE_DIRS.some((name) => childrenOf(index, name).some((entry) => OFFICE_EVIDENCE.has(nameOf(entry.path).toLowerCase())));
+  return office && childrenOf(index, CLIENTS_DIR).some((client) => client.kind === "directory" && childrenOf(index, client.path).some((entry) => entry.kind === "file" && CLIENT_CARDS.has(nameOf(entry.path).toLowerCase())));
+}
+var depthOf = (path) => path ? path.split("/").length : 0;
+function mattersOf(index, files, unit) {
+  const prefix = unit ? `${unit}/` : "";
+  const dirs = childrenOf(index, unit).filter((entry) => entry.kind === "directory");
+  const folders = dirs.filter((entry) => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()));
+  const filed = folders.flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
+  const beside = dirs.filter((entry) => !folders.includes(entry) && ([...MATTER_CARDS].some((card) => files.has(`${entry.path}/${card}`)) || looksLikeMatterFolder(nameOf(entry.path))));
+  return [...filed, ...beside].map((entry) => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
+}
+function unitsOf(survey, index, paths, clients = new Set) {
+  const files = new Set(survey.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));
+  return paths.slice(0, UNIT_LIMIT).map((path) => {
+    const prefix = path ? `${path}/` : "";
+    const inside = path ? survey.entries.filter((entry) => entry.path.startsWith(prefix)) : survey.entries;
+    const exact = survey.complete && !inside.some((entry) => entry.kind === "directory" && depthOf(entry.path) >= SURVEY_DEPTH);
+    const matters = mattersOf(index, files, path).filter((matter) => path || !clients.has(matter.path));
+    return { path, matters: matters.slice(0, UNIT_MATTERS), matterCount: matters.length, files: inside.filter((entry) => entry.kind === "file").length, exact };
+  });
+}
 async function suggestOnboardingLevel(root) {
   const survey = await surveyFolder(root);
+  const suggestion = await suggestFromSurvey(survey);
+  const index = indexChildren(survey.entries);
+  const clients = new Set(suggestion.level === "practice" ? suggestion.clients.map((client) => client.path) : []);
+  const units = unitsOf(survey, index, ["", ...new Set([...suggestion.clients, ...suggestion.practiceCandidates].map((client) => client.path))], clients);
+  return { ...suggestion, units };
+}
+async function suggestFromSurvey(survey) {
   const index = indexChildren(survey.entries);
   const top = childrenOf(index, "");
   const files = new Set(survey.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));
   const childOffices = top.filter((entry) => entry.kind === "directory" && OFFICE_DIRS.some((office) => files.has(`${entry.path}/${office}/okf.config`))).map((entry) => nameOf(entry.path));
-  const base = { root: survey.root, complete: survey.complete, clients: [], ...childOffices.length ? { childOffices } : {} };
+  const dirs = top.filter((entry) => entry.kind === "directory" && !OFFICE_DIRS.includes(nameOf(entry.path)));
+  const buckets = dirs.filter((entry) => LETTER.test(nameOf(entry.path)));
+  const bucketed = buckets.length >= PRACTICE_MIN_CLIENTS && buckets.length >= dirs.length * 0.8;
+  const candidates = bucketed ? buckets.flatMap((bucket) => childrenOf(index, bucket.path).filter((entry) => entry.kind === "directory")) : dirs;
+  const matterNamed = candidates.filter((candidate) => looksLikeMatterName(nameOf(candidate.path)));
+  const clientCandidates = candidates.filter((candidate) => !looksLikeMatterName(nameOf(candidate.path)) && !isBareDate(nameOf(candidate.path)));
+  const heuristicClients = clientCandidates.map((candidate) => ({ path: candidate.path, name: nameOf(candidate.path) }));
+  const heuristicPattern = bucketed ? "*/*" : "*";
+  const klienti = dirs.some((entry) => nameOf(entry.path) === CLIENTS_DIR);
+  const practice = klienti ? { practiceCandidates: matchPattern(index, `${CLIENTS_DIR}/*`), practicePattern: `${CLIENTS_DIR}/*` } : { practiceCandidates: heuristicClients, practicePattern: heuristicPattern };
+  const base = { root: survey.root, complete: survey.complete, clients: [], ...practice, ...childOffices.length ? { childOffices } : {} };
   const topFiles = top.filter((entry) => entry.kind === "file").map((entry) => nameOf(entry.path).toLowerCase());
   if (topFiles.some((name) => CLIENT_CARDS.has(name)))
     return { ...base, level: "client", marked: true, score: 1, signals: ["client_card"] };
@@ -1440,41 +1526,46 @@ async function suggestOnboardingLevel(root) {
   if (office) {
     const config = await readFile(join2(survey.root, office, "okf.config")).then(decodeText, () => "");
     const clientPattern = /^client_path:\s*["']?([^"'\r\n]+?)["']?\s*$/m.exec(config)?.[1] ?? "Klienti/*";
-    return { ...base, level: "practice", marked: true, score: 1, signals: ["office_config"], clientPattern, clients: matchPattern(index, clientPattern) };
+    const clients = matchPattern(index, clientPattern);
+    return { ...base, level: "practice", marked: true, score: 1, signals: ["office_config"], clientPattern, clients, practiceCandidates: clients, practicePattern: clientPattern };
+  }
+  if (legacyOffice(index)) {
+    if (await findAncestorOffice(survey.root))
+      return { ...base, level: "unknown", marked: false, score: 0, signals: ["inside_office"] };
+    const clients = matchPattern(index, `${CLIENTS_DIR}/*`);
+    return { ...base, level: "practice", marked: false, score: LEGACY_OFFICE_SCORE, signals: ["office_without_config"], clientPattern: `${CLIENTS_DIR}/*`, clients, practiceCandidates: clients, practicePattern: `${CLIENTS_DIR}/*` };
   }
   if (!top.length)
     return { ...base, level: "unknown", marked: false, score: 0, signals: ["empty"] };
-  const dirs = top.filter((entry) => entry.kind === "directory");
-  const buckets = dirs.filter((entry) => LETTER.test(nameOf(entry.path)));
-  const bucketed = buckets.length >= PRACTICE_MIN_CLIENTS && buckets.length >= dirs.length * 0.8;
-  const candidates = bucketed ? buckets.flatMap((bucket) => childrenOf(index, bucket.path).filter((entry) => entry.kind === "directory")) : dirs;
-  const matterNamed = candidates.filter((candidate) => looksLikeMatterName(nameOf(candidate.path)));
-  const clientCandidates = candidates.filter((candidate) => !looksLikeMatterName(nameOf(candidate.path)) && !isBareDate(nameOf(candidate.path)));
   const legal = clientCandidates.filter((candidate) => hasLegalForm(nameOf(candidate.path)));
   const withMatters = clientCandidates.filter((candidate) => childrenOf(index, candidate.path).some((entry) => entry.kind === "directory" && looksLikeMatterName(nameOf(entry.path))));
   const clientish = new Set([...legal, ...withMatters].map((candidate) => candidate.path));
   const ratio = candidates.length ? clientish.size / candidates.length : 0;
   const mattersDominate = matterNamed.length * 2 > candidates.length;
-  if (!mattersDominate && clientCandidates.length >= PRACTICE_MIN_CLIENTS && ratio >= PRACTICE_MIN_RATIO) {
+  const coded = !bucketed && codedHierarchy(index, clientCandidates);
+  const byNames = clientCandidates.length >= PRACTICE_MIN_CLIENTS && ratio >= PRACTICE_MIN_RATIO;
+  if (!mattersDominate && (byNames || coded)) {
     if (await findAncestorOffice(survey.root))
       return { ...base, level: "unknown", marked: false, score: 0, signals: ["inside_office"] };
     const signals = [];
+    if (coded)
+      signals.push("coded_hierarchy");
     if (bucketed)
       signals.push("letter_buckets");
     if (legal.length)
       signals.push("legal_form_children");
     if (withMatters.length)
       signals.push("matter_named_children");
-    const score = signals.length === 1 && signals[0] === "matter_named_children" ? Math.min(round(ratio), WEAK_SCORE) : round(ratio);
-    return { ...base, level: "practice", marked: false, score, signals, clientPattern: bucketed ? "*/*" : "*", clients: clientCandidates.map((candidate) => ({ path: candidate.path, name: nameOf(candidate.path) })) };
+    const score = coded ? Math.max(round(ratio), CODED_SCORE) : signals.length === 1 && signals[0] === "matter_named_children" ? Math.min(round(ratio), WEAK_SCORE) : round(ratio);
+    return { ...base, level: "practice", marked: false, score, signals, clientPattern: heuristicPattern, clients: heuristicClients, practiceCandidates: heuristicClients, practicePattern: heuristicPattern };
   }
   if (looksLikeMatterName(basename2(survey.root)))
     return { ...base, level: "matter", marked: false, score: 0.8, signals: ["matter_named_root"] };
   if (dirs.some((entry) => looksLikeMatterName(nameOf(entry.path))))
     return { ...base, level: "client", marked: false, score: 0.8, signals: ["matter_named_children"] };
-  if (!dirs.length)
+  if (!top.some((entry) => entry.kind === "directory"))
     return { ...base, level: "matter", marked: false, score: 0.5, signals: ["documents_only"] };
-  return { ...base, level: "client", marked: false, score: 0.5, signals: ["plain_directories"] };
+  return { ...base, level: "client", marked: false, score: WEAK_SCORE, signals: ["plain_directories"] };
 }
 
 // src/onboarding/plan.ts
@@ -1649,7 +1740,7 @@ Automatické pravidelné kontroly zatiaľ nie sú zapnuté. Táto evidencia a po
 `;
 
 // templates/klient/AGENTS.md
-var AGENTS_default = "---\ntype: agents\ntitle: {{KLIENT}} — AGENTS\nupdated: {{DATE}}\n---\n\n# AGENTS.md — {{KLIENT}}\n\nZrkadlené s `CLAUDE.md`.\n\nNajprv čítaj `{{CARD}}`, `index.md` a plné relevantné záznamy `memory/`. Spoločné subjekty a preverenia patria klientovi; obsah konkrétnej veci do `Spisy/<vec>/memory/`. Každá vec má samostatné vstupy a úlohy. Pri práci v konkrétnej veci čítaj aj jej `AGENTS.md` a `BRAIN.md`. Preverenie registra nie je potvrdením právnej úplnosti AML.\n\n## Firma a priebežná podpora\n\nFirma má jednu kartu klienta a spoločné podklady (napr. zakladateľské dokumenty a kontakty) v klientskych pracovných priečinkoch podľa `PRACOVNY-PROFIL.md`. Každá samostatná poradenská oblasť má vlastnú vec, napr. `Spisy/Korporatna-podpora/` a `Spisy/Pracovne-pravo/`, s `matter_kind: advisory` a `mode: ongoing`. Pri založení cez CLI použi `--matter-kind advisory --mode ongoing` a skutočnú jurisdikciu `--sk` alebo `--cz`. Súd, spisová značka ani protistrana nie sú pre také poradenstvo povinné; nevymýšľaj ich.\n\nPožiadavku, úlohu, termín a prijatú správu priraď ku konkrétnej veci. Ak zaradenie nie je jasné, označ ho ako nevyriešené a vyžiadaj rozhodnutie; nevytváraj rovnakú úlohu vo viacerých veciach. Na spoločné firemné podklady z veci odkazuj, nekopíruj ich do každej veci. Samostatný projekt alebo spor založ ako ďalšiu vec, keď má vlastný cieľ a rozsah; priebežnú podporu tým automaticky neuzatváraj. `okf render <klient>` obnoví zoznam vecí v `index.md`.\n\n<!-- okf:protokol-zapisu:v2 -->\n## Protokol zápisu\n\nKanonická pamäť je `memory/`, riadená cez `okf-memory` a jeho `BRAIN.md`. Fakt, udalosť, rozhodnutie, otázku, dokument a úlohu ulož ako záznam s Truth, History a zdrojom. Lehotu veď len v príslušnom zázname pamäte; nevytváraj druhý zoznam v karte ani ručnú tabuľku v `_STATUS.md`. Zápis rob cez `okf-memory write` s dôvodom a podľa existujúceho oprávnenia, potom `validate` a `sync --apply`. Neobchádzaj brány zápisu.\n\nKaždý nový podklad alebo správu najprv zaznamenaj do `VSTUPY.md` konkrétnej veci so zdrojom, časom a stavom `pending`. Až po spracovaní celého obsahu a zápise výsledných ID nastav `processed`. Pred odovzdaním vypíš nespracované vstupy a chyby čítania. Prehľad ani typ záznamu nenahrádza prečítanie plného relevantného obsahu naprieč typmi.\n\n`_STATUS.md`, `memory/index.md` a `memory/log.md` sú projekcie. `MEMORY.md` je starší archív, nie druhá aktívna pamäť. Originály a rešerše sú pracovné podklady v príslušných priečinkoch, nie archív pamäte. Pri zmene `AGENTS.md` udržuj `CLAUDE.md` obsahovo zhodný.\n\nOdoslanie, podpis alebo podanie vyžaduje výslovné potvrdenie človeka. Citácie právnych predpisov a judikatúry overuj v dostupných MCP zdrojoch; uveď zdroj a limity. Údaje o subjekte nehádaj.\n";
+var AGENTS_default = "---\ntype: agents\ntitle: {{KLIENT}} — AGENTS\nupdated: {{DATE}}\n---\n\n# AGENTS.md — {{KLIENT}}\n\nZrkadlené s `CLAUDE.md`.\n\nNajprv čítaj `{{CARD}}`, `index.md` a plné relevantné záznamy `memory/`. Spoločné subjekty a preverenia patria klientovi; obsah konkrétnej veci do `Spisy/<vec>/memory/`. Každá vec má samostatné vstupy a úlohy. Pri práci v konkrétnej veci čítaj aj jej `AGENTS.md` a `BRAIN.md`. Preverenie registra nie je potvrdením právnej úplnosti AML.\n\n## Firma a priebežná podpora\n\nFirma má jednu kartu klienta a spoločné podklady (napr. zakladateľské dokumenty a kontakty) v klientskych pracovných priečinkoch podľa `PRACOVNY-PROFIL.md`. Každá samostatná poradenská oblasť má vlastnú vec, napr. `Spisy/Korporatna-podpora/` a `Spisy/Pracovne-pravo/`, s `matter_kind: advisory` a `mode: ongoing`. Pri založení cez CLI použi `--matter-kind advisory --mode ongoing` a skutočnú jurisdikciu `--sk` alebo `--cz`. Súd, spisová značka ani protistrana nie sú pre také poradenstvo povinné; nevymýšľaj ich.\n\nPožiadavku, úlohu, termín a prijatú správu priraď ku konkrétnej veci. Ak zaradenie nie je jasné, označ ho ako nevyriešené a vyžiadaj rozhodnutie; nevytváraj rovnakú úlohu vo viacerých veciach. Na spoločné firemné podklady z veci odkazuj, nekopíruj ich do každej veci. Samostatný projekt alebo spor založ ako ďalšiu vec, keď má vlastný cieľ a rozsah; priebežnú podporu tým automaticky neuzatváraj. `okf render <klient>` obnoví zoznam vecí v `index.md`.\n\n<!-- okf:protokol-zapisu:v2 -->\n## Protokol zápisu\n\nKanonická pamäť je `memory/`, riadená cez `okf-memory` a jeho `BRAIN.md`. Fakt, udalosť, rozhodnutie, otázku, dokument a úlohu ulož ako záznam s Truth, History a zdrojom. Lehotu veď len v príslušnom zázname pamäte; nevytváraj druhý zoznam v karte ani ručnú tabuľku v `_STATUS.md`. Zápis rob cez `okf-memory write` s dôvodom a podľa existujúceho oprávnenia, potom `validate` a `sync --apply`. Neobchádzaj brány zápisu.\n\nKaždý nový podklad alebo správu najprv zaznamenaj do `VSTUPY.md` konkrétnej veci so zdrojom, časom a stavom `pending`. Až po spracovaní celého obsahu a zápise výsledných ID nastav `processed`. Pred odovzdaním vypíš nespracované vstupy a chyby čítania. Prehľad ani typ záznamu nenahrádza prečítanie plného relevantného obsahu naprieč typmi.\n\n`_STATUS.md`, `memory/index.md` a `memory/log.md` sú projekcie. `MEMORY.md` je starší archív, nie druhá aktívna pamäť. Originály a rešerše sú pracovné podklady v príslušných priečinkoch, nie archív pamäte. Pri zmene `AGENTS.md` udržuj `CLAUDE.md` obsahovo zhodný.\n\nOdoslanie, podpis alebo podanie vyžaduje výslovné potvrdenie človeka. Citácie právnych predpisov a judikatúry overuj v dostupných MCP zdrojoch; uveď zdroj a limity. Údaje o subjekte nehádaj.\n\nKaždé podstatné tvrdenie zo súborov uveď s odkazom na súbor, ktorý ho obsahuje, ako Markdown odkaz s cestou relatívnou ku koreňu priečinka otvoreného v LAWOSS (pri prípade klienta je to priečinok klienta), napríklad `[poznamky.txt](Spisy/M001-najom/01_Podklady/poznamky.txt)`. Odkazuj na pôvodný dokument, v ktorom si fakt naozaj prečítal. Kartu ani generovaný prehľad (`matter.md`, `client.md`, `_STATUS.md`, `index.md`) necituj, ak fakt je aj inde; ak prehľad menuje svoj zdrojový dokument, cituj ten dokument. Pri zhrnutí viacerých súborov uveď každý z nich. Ak si nie si istý, povedz, ktoré súbory si skontroloval.\n";
 
 // templates/klient/MEMORY.md
 var MEMORY_default = `---
@@ -1705,7 +1796,7 @@ Po založení sú údaje neoverené. Pri pokuse zapíš register, zdrojový podk
 `;
 
 // templates/spis/AGENTS.md
-var AGENTS_default2 = "---\ntype: agents\ntitle: {{TITLE}} — AGENTS\nupdated: {{DATE}}\n---\n\n# AGENTS.md — {{TITLE}}\n\nZrkadlené s `CLAUDE.md`.\n\nNajprv čítaj `{{CARD}}`, `BRAIN.md` (po `okf-memory init`), `_STATUS.md`, `VSTUPY.md` a plné relevantné záznamy `memory/`. Načítaj aj klientsky `../../AGENTS.md`, kartu klienta, jeho pamäť a kancelárske pravidlá. Pri cielenej otázke hľadaj naprieč všetkými typmi záznamov. Poradenstvo bez konania nepotrebuje súd ani spisovú značku.\n\nPred uložením súboru čítaj `PRACOVNY-PROFIL.md`: určuje skutočné priečinky, ich roly a názvy nových dokumentov. Originály nemeň ani neprepisuj; rovnaké názvy oddeľ stabilným ID vstupu. Novú verziu draftu ulož samostatne a zachovaj odkaz na originál. Dôležitú správu označ odkazom na kanonický originál a jeho prílohy. Bez priradenej roly si vyžiadaj umiestnenie, nehádaj ho.\n\nVec `advisory` v režime `ongoing` môže mať opakované zadania a termíny bez súdneho konania. Pracuj len s jej úlohami a vstupmi; spoločné firemné údaje čítaj z klienta. Uzavretie jedného zadania neuzatvára priebežnú vec.\n\n<!-- okf:protokol-zapisu:v2 -->\n## Protokol zápisu\n\nKanonická pamäť je `memory/`, riadená cez `okf-memory` a jeho `BRAIN.md`. Fakt, udalosť, rozhodnutie, otázku, dokument a úlohu ulož ako záznam s Truth, History a zdrojom. Lehotu veď len v príslušnom zázname pamäte; nevytváraj druhý zoznam v karte ani ručnú tabuľku v `_STATUS.md`. Zápis rob cez `okf-memory write` s dôvodom a podľa existujúceho oprávnenia, potom `validate` a `sync --apply`. Neobchádzaj brány zápisu.\n\nKaždý nový podklad alebo správu najprv zaznamenaj do `VSTUPY.md` konkrétnej veci so zdrojom, časom a stavom `pending`. Až po spracovaní celého obsahu a zápise výsledných ID nastav `processed`. Pred odovzdaním vypíš nespracované vstupy a chyby čítania. Prehľad ani typ záznamu nenahrádza prečítanie plného relevantného obsahu naprieč typmi.\n\n`_STATUS.md`, `memory/index.md` a `memory/log.md` sú projekcie. `MEMORY.md` je starší archív, nie druhá aktívna pamäť. Originály a rešerše sú pracovné podklady v príslušných priečinkoch, nie archív pamäte. Pri zmene `AGENTS.md` udržuj `CLAUDE.md` obsahovo zhodný.\n\nOdoslanie, podpis alebo podanie vyžaduje výslovné potvrdenie človeka. Citácie právnych predpisov a judikatúry overuj v dostupných MCP zdrojoch; uveď zdroj a limity. Údaje o subjekte nehádaj.\n";
+var AGENTS_default2 = "---\ntype: agents\ntitle: {{TITLE}} — AGENTS\nupdated: {{DATE}}\n---\n\n# AGENTS.md — {{TITLE}}\n\nZrkadlené s `CLAUDE.md`.\n\nNajprv čítaj `{{CARD}}`, `BRAIN.md` (po `okf-memory init`), `_STATUS.md`, `VSTUPY.md` a plné relevantné záznamy `memory/`. Načítaj aj klientsky `../../AGENTS.md`, kartu klienta, jeho pamäť a kancelárske pravidlá. Pri cielenej otázke hľadaj naprieč všetkými typmi záznamov. Poradenstvo bez konania nepotrebuje súd ani spisovú značku.\n\nPred uložením súboru čítaj `PRACOVNY-PROFIL.md`: určuje skutočné priečinky, ich roly a názvy nových dokumentov. Originály nemeň ani neprepisuj; rovnaké názvy oddeľ stabilným ID vstupu. Novú verziu draftu ulož samostatne a zachovaj odkaz na originál. Dôležitú správu označ odkazom na kanonický originál a jeho prílohy. Bez priradenej roly si vyžiadaj umiestnenie, nehádaj ho.\n\nVec `advisory` v režime `ongoing` môže mať opakované zadania a termíny bez súdneho konania. Pracuj len s jej úlohami a vstupmi; spoločné firemné údaje čítaj z klienta. Uzavretie jedného zadania neuzatvára priebežnú vec.\n\nHodnoty `view:procedural`, `view:corporate`, `view:ip` a `view:base` v poli `tags` karty sú voľba prehľadu prípadu od používateľa. Zachovaj ich a bez jeho pokynu ich nemeň ani nemaž.\n\n<!-- okf:protokol-zapisu:v2 -->\n## Protokol zápisu\n\nKanonická pamäť je `memory/`, riadená cez `okf-memory` a jeho `BRAIN.md`. Fakt, udalosť, rozhodnutie, otázku, dokument a úlohu ulož ako záznam s Truth, History a zdrojom. Lehotu veď len v príslušnom zázname pamäte; nevytváraj druhý zoznam v karte ani ručnú tabuľku v `_STATUS.md`. Zápis rob cez `okf-memory write` s dôvodom a podľa existujúceho oprávnenia, potom `validate` a `sync --apply`. Neobchádzaj brány zápisu.\n\nKaždý nový podklad alebo správu najprv zaznamenaj do `VSTUPY.md` konkrétnej veci so zdrojom, časom a stavom `pending`. Až po spracovaní celého obsahu a zápise výsledných ID nastav `processed`. Pred odovzdaním vypíš nespracované vstupy a chyby čítania. Prehľad ani typ záznamu nenahrádza prečítanie plného relevantného obsahu naprieč typmi.\n\n`_STATUS.md`, `memory/index.md` a `memory/log.md` sú projekcie. `MEMORY.md` je starší archív, nie druhá aktívna pamäť. Originály a rešerše sú pracovné podklady v príslušných priečinkoch, nie archív pamäte. Pri zmene `AGENTS.md` udržuj `CLAUDE.md` obsahovo zhodný.\n\nOdoslanie, podpis alebo podanie vyžaduje výslovné potvrdenie človeka. Citácie právnych predpisov a judikatúry overuj v dostupných MCP zdrojoch; uveď zdroj a limity. Údaje o subjekte nehádaj.\n\nKaždé podstatné tvrdenie zo súborov uveď s odkazom na súbor, ktorý ho obsahuje, ako Markdown odkaz s cestou relatívnou ku koreňu priečinka otvoreného v LAWOSS (pri prípade klienta je to priečinok klienta), napríklad `[poznamky.txt](Spisy/M001-najom/01_Podklady/poznamky.txt)`. Odkazuj na pôvodný dokument, v ktorom si fakt naozaj prečítal. Kartu ani generovaný prehľad (`matter.md`, `client.md`, `_STATUS.md`, `index.md`) necituj, ak fakt je aj inde; ak prehľad menuje svoj zdrojový dokument, cituj ten dokument. Pri zhrnutí viacerých súborov uveď každý z nich. Ak si nie si istý, povedz, ktoré súbory si skontroloval.\n";
 
 // templates/spis/MEMORY.md
 var MEMORY_default2 = `---
@@ -1808,21 +1899,7 @@ language: {{LANGUAGE}}
 `;
 
 // templates/projekt/AGENTS.md
-var AGENTS_default3 = `---
-type: agents
-title: {{TITLE}} — AGENTS
-updated: {{DATE}}
----
-
-# AGENTS.md — {{TITLE}}
-
-Zrkadlené s \`CLAUDE.md\`.
-
-Najprv čítaj \`{{CARD}}\` a \`MEMORY.md\`. Interný projekt používa \`MEMORY.md\` na rozhodnutia, poučenia a otázky; netvár sa, že je právnym spisom. Pri zmene \`AGENTS.md\` udržuj \`CLAUDE.md\` obsahovo zhodný.
-
-
-Odoslanie, podpis alebo podanie vyžaduje výslovné potvrdenie človeka. Citácie právnych predpisov a judikatúry overuj v dostupných MCP zdrojoch; uveď zdroj a limity. Údaje o subjekte nehádaj.
-`;
+var AGENTS_default3 = "---\ntype: agents\ntitle: {{TITLE}} — AGENTS\nupdated: {{DATE}}\n---\n\n# AGENTS.md — {{TITLE}}\n\nZrkadlené s `CLAUDE.md`.\n\nNajprv čítaj `{{CARD}}` a `MEMORY.md`. Interný projekt používa `MEMORY.md` na rozhodnutia, poučenia a otázky; netvár sa, že je právnym spisom. Pri zmene `AGENTS.md` udržuj `CLAUDE.md` obsahovo zhodný.\n\n\nOdoslanie, podpis alebo podanie vyžaduje výslovné potvrdenie človeka. Citácie právnych predpisov a judikatúry overuj v dostupných MCP zdrojoch; uveď zdroj a limity. Údaje o subjekte nehádaj.\n\nKaždé podstatné tvrdenie zo súborov uveď s odkazom na súbor, ktorý ho obsahuje, ako Markdown odkaz s cestou relatívnou ku koreňu priečinka otvoreného v LAWOSS (pri prípade klienta je to priečinok klienta), napríklad `[poznamky.txt](Podklady/poznamky.txt)`. Odkazuj na pôvodný dokument, v ktorom si fakt naozaj prečítal. Kartu ani generovaný prehľad (`matter.md`, `client.md`, `_STATUS.md`, `index.md`) necituj, ak fakt je aj inde; ak prehľad menuje svoj zdrojový dokument, cituj ten dokument. Pri zhrnutí viacerých súborov uveď každý z nich. Ak si nie si istý, povedz, ktoré súbory si skontroloval.\n";
 
 // templates/projekt/MEMORY.md
 var MEMORY_default3 = `---
@@ -1918,7 +1995,7 @@ Automatické pravidelné kontroly zatím nejsou zapnuté. Tato evidence a postup
 `;
 
 // templates/cs/klient/AGENTS.md
-var AGENTS_default4 = "---\ntype: agents\ntitle: {{KLIENT}} — AGENTS\nupdated: {{DATE}}\n---\n\n# AGENTS.md — {{KLIENT}}\n\nZrcadlené s `CLAUDE.md`.\n\nNejprve čti `{{CARD}}`, `index.md` a úplné relevantní záznamy `memory/`. Společné subjekty a prověření patří klientovi; obsah konkrétní věci do `Spisy/<vec>/memory/`. Každá věc má samostatné vstupy a úkoly. Při práci v konkrétní věci čti také její `AGENTS.md` a `BRAIN.md`. Prověření rejstříku není potvrzením právní úplnosti AML.\n\n## Firma a průběžná podpora\n\nFirma má jednu kartu klienta a společné podklady (např. zakladatelské dokumenty a kontakty) v klientských pracovních složkách podle `PRACOVNY-PROFIL.md`. Každá samostatná poradenská oblast má vlastní věc, např. `Spisy/Korporatni-podpora/` a `Spisy/Pracovni-pravo/`, s `matter_kind: advisory` a `mode: ongoing`. Při založení přes CLI použij `--matter-kind advisory --mode ongoing` a skutečnou jurisdikci `--sk` nebo `--cz`. Soud, spisová značka ani protistrana nejsou pro takové poradenství povinné; nevymýšlej je.\n\nPožadavek, úkol, termín a přijatou zprávu přiřaď ke konkrétní věci. Pokud zařazení není jasné, označ je jako nevyřešené a vyžádej rozhodnutí; nevytvářej stejný úkol ve více věcech. Na společné firemní podklady z věci odkazuj, nekopíruj je do každé věci. Samostatný projekt nebo spor založ jako další věc, pokud má vlastní cíl a rozsah; průběžnou podporu tím automaticky neuzavírej. `okf render <klient>` obnoví seznam věcí v `index.md`.\n\n<!-- okf:protokol-zapisu:v2 -->\n## Protokol zápisu\n\nKanonická paměť je `memory/`, spravovaná přes `okf-memory` a jeho `BRAIN.md`. Fakt, událost, rozhodnutí, otázku, dokument a úkol ulož jako záznam s Truth, History a zdrojem. Lhůtu veď pouze v příslušném záznamu paměti; nevytvářej druhý seznam v kartě ani ruční tabulku v `_STATUS.md`. Zapisuj přes `okf-memory write` s důvodem a podle existujícího oprávnění, potom `validate` a `sync --apply`. Neobcházej schvalování zápisu.\n\nKaždý nový podklad nebo zprávu nejprve zaznamenej do `VSTUPY.md` konkrétní věci se zdrojem, časem a stavem `pending`. Teprve po zpracování celého obsahu a zápisu výsledných ID nastav `processed`. Před předáním vypiš nezpracované vstupy a chyby čtení. Přehled ani typ záznamu nenahrazuje přečtení úplného relevantního obsahu napříč typy.\n\n`_STATUS.md`, `memory/index.md` a `memory/log.md` jsou projekce. `MEMORY.md` je starší archiv, nikoli druhá aktivní paměť. Originály a rešerše jsou pracovní podklady v příslušných složkách, nikoli archiv paměti. Při změně `AGENTS.md` udržuj `CLAUDE.md` obsahově shodný.\n\nOdeslání, podpis nebo podání vyžaduje výslovné potvrzení člověka. Citace právních předpisů a judikatury ověřuj v dostupných MCP zdrojích; uveď zdroj a omezení. Údaje o subjektu neodhaduj.\n";
+var AGENTS_default4 = "---\ntype: agents\ntitle: {{KLIENT}} — AGENTS\nupdated: {{DATE}}\n---\n\n# AGENTS.md — {{KLIENT}}\n\nZrcadlené s `CLAUDE.md`.\n\nNejprve čti `{{CARD}}`, `index.md` a úplné relevantní záznamy `memory/`. Společné subjekty a prověření patří klientovi; obsah konkrétní věci do `Spisy/<vec>/memory/`. Každá věc má samostatné vstupy a úkoly. Při práci v konkrétní věci čti také její `AGENTS.md` a `BRAIN.md`. Prověření rejstříku není potvrzením právní úplnosti AML.\n\n## Firma a průběžná podpora\n\nFirma má jednu kartu klienta a společné podklady (např. zakladatelské dokumenty a kontakty) v klientských pracovních složkách podle `PRACOVNY-PROFIL.md`. Každá samostatná poradenská oblast má vlastní věc, např. `Spisy/Korporatni-podpora/` a `Spisy/Pracovni-pravo/`, s `matter_kind: advisory` a `mode: ongoing`. Při založení přes CLI použij `--matter-kind advisory --mode ongoing` a skutečnou jurisdikci `--sk` nebo `--cz`. Soud, spisová značka ani protistrana nejsou pro takové poradenství povinné; nevymýšlej je.\n\nPožadavek, úkol, termín a přijatou zprávu přiřaď ke konkrétní věci. Pokud zařazení není jasné, označ je jako nevyřešené a vyžádej rozhodnutí; nevytvářej stejný úkol ve více věcech. Na společné firemní podklady z věci odkazuj, nekopíruj je do každé věci. Samostatný projekt nebo spor založ jako další věc, pokud má vlastní cíl a rozsah; průběžnou podporu tím automaticky neuzavírej. `okf render <klient>` obnoví seznam věcí v `index.md`.\n\n<!-- okf:protokol-zapisu:v2 -->\n## Protokol zápisu\n\nKanonická paměť je `memory/`, spravovaná přes `okf-memory` a jeho `BRAIN.md`. Fakt, událost, rozhodnutí, otázku, dokument a úkol ulož jako záznam s Truth, History a zdrojem. Lhůtu veď pouze v příslušném záznamu paměti; nevytvářej druhý seznam v kartě ani ruční tabulku v `_STATUS.md`. Zapisuj přes `okf-memory write` s důvodem a podle existujícího oprávnění, potom `validate` a `sync --apply`. Neobcházej schvalování zápisu.\n\nKaždý nový podklad nebo zprávu nejprve zaznamenej do `VSTUPY.md` konkrétní věci se zdrojem, časem a stavem `pending`. Teprve po zpracování celého obsahu a zápisu výsledných ID nastav `processed`. Před předáním vypiš nezpracované vstupy a chyby čtení. Přehled ani typ záznamu nenahrazuje přečtení úplného relevantního obsahu napříč typy.\n\n`_STATUS.md`, `memory/index.md` a `memory/log.md` jsou projekce. `MEMORY.md` je starší archiv, nikoli druhá aktivní paměť. Originály a rešerše jsou pracovní podklady v příslušných složkách, nikoli archiv paměti. Při změně `AGENTS.md` udržuj `CLAUDE.md` obsahově shodný.\n\nOdeslání, podpis nebo podání vyžaduje výslovné potvrzení člověka. Citace právních předpisů a judikatury ověřuj v dostupných MCP zdrojích; uveď zdroj a omezení. Údaje o subjektu neodhaduj.\n\nKaždé podstatné tvrzení ze souborů uveď s odkazem na soubor, který ho obsahuje, jako Markdown odkaz s cestou relativní ke kořeni složky otevřené v LAWOSS (u případu klienta je to složka klienta), například `[poznamky.txt](Spisy/M001-najem/01_Podklady/poznamky.txt)`. Odkazuj na původní dokument, ve kterém jsi fakt opravdu přečetl. Kartu ani generovaný přehled (`matter.md`, `client.md`, `_STATUS.md`, `index.md`) necituj, pokud je fakt i jinde; pokud přehled jmenuje svůj zdrojový dokument, cituj ten dokument. Při shrnutí více souborů uveď každý z nich. Pokud si nejsi jistý, řekni, které soubory jsi zkontroloval.\n";
 
 // templates/cs/klient/MEMORY.md
 var MEMORY_default4 = `---
@@ -1974,7 +2051,7 @@ Po založení jsou údaje neověřené. Při pokusu zapiš rejstřík, zdrojový
 `;
 
 // templates/cs/spis/AGENTS.md
-var AGENTS_default5 = "---\ntype: agents\ntitle: {{TITLE}} — AGENTS\nupdated: {{DATE}}\n---\n\n# AGENTS.md — {{TITLE}}\n\nZrcadlené s `CLAUDE.md`.\n\nNejprve čti `{{CARD}}`, `BRAIN.md` (po `okf-memory init`), `_STATUS.md`, `VSTUPY.md` a úplné relevantní záznamy `memory/`. Načti také klientský `../../AGENTS.md`, kartu klienta, jeho paměť a kancelářská pravidla. Při konkrétní otázce hledej napříč všemi typy záznamů. Poradenství bez řízení nepotřebuje soud ani spisovou značku.\n\nPřed uložením souboru čti `PRACOVNY-PROFIL.md`: určuje skutečné složky, jejich role a názvy nových dokumentů. Originály neměň ani nepřepisuj; stejné názvy odděl stabilním ID vstupu. Novou verzi návrhu ulož samostatně a zachovej odkaz na originál. Důležitou zprávu označ odkazem na kanonický originál a jeho přílohy. Bez přiřazené role si vyžádej umístění, neodhaduj je.\n\nVěc `advisory` v režimu `ongoing` může mít opakovaná zadání a termíny bez soudního řízení. Pracuj pouze s jejími úkoly a vstupy; společné firemní údaje čti z klienta. Uzavření jednoho zadání neuzavírá průběžnou věc.\n\n<!-- okf:protokol-zapisu:v2 -->\n## Protokol zápisu\n\nKanonická paměť je `memory/`, spravovaná přes `okf-memory` a jeho `BRAIN.md`. Fakt, událost, rozhodnutí, otázku, dokument a úkol ulož jako záznam s Truth, History a zdrojem. Lhůtu veď pouze v příslušném záznamu paměti; nevytvářej druhý seznam v kartě ani ruční tabulku v `_STATUS.md`. Zapisuj přes `okf-memory write` s důvodem a podle existujícího oprávnění, potom `validate` a `sync --apply`. Neobcházej schvalování zápisu.\n\nKaždý nový podklad nebo zprávu nejprve zaznamenej do `VSTUPY.md` konkrétní věci se zdrojem, časem a stavem `pending`. Teprve po zpracování celého obsahu a zápisu výsledných ID nastav `processed`. Před předáním vypiš nezpracované vstupy a chyby čtení. Přehled ani typ záznamu nenahrazuje přečtení úplného relevantního obsahu napříč typy.\n\n`_STATUS.md`, `memory/index.md` a `memory/log.md` jsou projekce. `MEMORY.md` je starší archiv, nikoli druhá aktivní paměť. Originály a rešerše jsou pracovní podklady v příslušných složkách, nikoli archiv paměti. Při změně `AGENTS.md` udržuj `CLAUDE.md` obsahově shodný.\n\nOdeslání, podpis nebo podání vyžaduje výslovné potvrzení člověka. Citace právních předpisů a judikatury ověřuj v dostupných MCP zdrojích; uveď zdroj a omezení. Údaje o subjektu neodhaduj.\n";
+var AGENTS_default5 = "---\ntype: agents\ntitle: {{TITLE}} — AGENTS\nupdated: {{DATE}}\n---\n\n# AGENTS.md — {{TITLE}}\n\nZrcadlené s `CLAUDE.md`.\n\nNejprve čti `{{CARD}}`, `BRAIN.md` (po `okf-memory init`), `_STATUS.md`, `VSTUPY.md` a úplné relevantní záznamy `memory/`. Načti také klientský `../../AGENTS.md`, kartu klienta, jeho paměť a kancelářská pravidla. Při konkrétní otázce hledej napříč všemi typy záznamů. Poradenství bez řízení nepotřebuje soud ani spisovou značku.\n\nPřed uložením souboru čti `PRACOVNY-PROFIL.md`: určuje skutečné složky, jejich role a názvy nových dokumentů. Originály neměň ani nepřepisuj; stejné názvy odděl stabilním ID vstupu. Novou verzi návrhu ulož samostatně a zachovej odkaz na originál. Důležitou zprávu označ odkazem na kanonický originál a jeho přílohy. Bez přiřazené role si vyžádej umístění, neodhaduj je.\n\nVěc `advisory` v režimu `ongoing` může mít opakovaná zadání a termíny bez soudního řízení. Pracuj pouze s jejími úkoly a vstupy; společné firemní údaje čti z klienta. Uzavření jednoho zadání neuzavírá průběžnou věc.\n\nHodnoty `view:procedural`, `view:corporate`, `view:ip` a `view:base` v poli `tags` karty jsou volba přehledu případu od uživatele. Zachovej je a bez jeho pokynu je neměň ani nemaž.\n\n<!-- okf:protokol-zapisu:v2 -->\n## Protokol zápisu\n\nKanonická paměť je `memory/`, spravovaná přes `okf-memory` a jeho `BRAIN.md`. Fakt, událost, rozhodnutí, otázku, dokument a úkol ulož jako záznam s Truth, History a zdrojem. Lhůtu veď pouze v příslušném záznamu paměti; nevytvářej druhý seznam v kartě ani ruční tabulku v `_STATUS.md`. Zapisuj přes `okf-memory write` s důvodem a podle existujícího oprávnění, potom `validate` a `sync --apply`. Neobcházej schvalování zápisu.\n\nKaždý nový podklad nebo zprávu nejprve zaznamenej do `VSTUPY.md` konkrétní věci se zdrojem, časem a stavem `pending`. Teprve po zpracování celého obsahu a zápisu výsledných ID nastav `processed`. Před předáním vypiš nezpracované vstupy a chyby čtení. Přehled ani typ záznamu nenahrazuje přečtení úplného relevantního obsahu napříč typy.\n\n`_STATUS.md`, `memory/index.md` a `memory/log.md` jsou projekce. `MEMORY.md` je starší archiv, nikoli druhá aktivní paměť. Originály a rešerše jsou pracovní podklady v příslušných složkách, nikoli archiv paměti. Při změně `AGENTS.md` udržuj `CLAUDE.md` obsahově shodný.\n\nOdeslání, podpis nebo podání vyžaduje výslovné potvrzení člověka. Citace právních předpisů a judikatury ověřuj v dostupných MCP zdrojích; uveď zdroj a omezení. Údaje o subjektu neodhaduj.\n\nKaždé podstatné tvrzení ze souborů uveď s odkazem na soubor, který ho obsahuje, jako Markdown odkaz s cestou relativní ke kořeni složky otevřené v LAWOSS (u případu klienta je to složka klienta), například `[poznamky.txt](Spisy/M001-najem/01_Podklady/poznamky.txt)`. Odkazuj na původní dokument, ve kterém jsi fakt opravdu přečetl. Kartu ani generovaný přehled (`matter.md`, `client.md`, `_STATUS.md`, `index.md`) necituj, pokud je fakt i jinde; pokud přehled jmenuje svůj zdrojový dokument, cituj ten dokument. Při shrnutí více souborů uveď každý z nich. Pokud si nejsi jistý, řekni, které soubory jsi zkontroloval.\n";
 
 // templates/cs/spis/MEMORY.md
 var MEMORY_default5 = `---
@@ -2069,20 +2146,7 @@ language: {{LANGUAGE}}
 `;
 
 // templates/cs/projekt/AGENTS.md
-var AGENTS_default6 = `---
-type: agents
-title: {{TITLE}} — AGENTS
-updated: {{DATE}}
----
-
-# AGENTS.md — {{TITLE}}
-
-Zrcadlené s \`CLAUDE.md\`.
-
-Nejprve čti \`{{CARD}}\` a \`MEMORY.md\`. Interní projekt používá \`MEMORY.md\` pro rozhodnutí, poučení a otázky; nepředstírej, že jde o právní spis. Při změně \`AGENTS.md\` udržuj \`CLAUDE.md\` obsahově shodný.
-
-Odeslání, podpis nebo podání vyžaduje výslovné potvrzení člověka. Citace právních předpisů a judikatury ověřuj v dostupných MCP zdrojích; uveď zdroj a omezení. Údaje o subjektu neodhaduj.
-`;
+var AGENTS_default6 = "---\ntype: agents\ntitle: {{TITLE}} — AGENTS\nupdated: {{DATE}}\n---\n\n# AGENTS.md — {{TITLE}}\n\nZrcadlené s `CLAUDE.md`.\n\nNejprve čti `{{CARD}}` a `MEMORY.md`. Interní projekt používá `MEMORY.md` pro rozhodnutí, poučení a otázky; nepředstírej, že jde o právní spis. Při změně `AGENTS.md` udržuj `CLAUDE.md` obsahově shodný.\n\nOdeslání, podpis nebo podání vyžaduje výslovné potvrzení člověka. Citace právních předpisů a judikatury ověřuj v dostupných MCP zdrojích; uveď zdroj a omezení. Údaje o subjektu neodhaduj.\n\nKaždé podstatné tvrzení ze souborů uveď s odkazem na soubor, který ho obsahuje, jako Markdown odkaz s cestou relativní ke kořeni složky otevřené v LAWOSS (u případu klienta je to složka klienta), například `[poznamky.txt](Podklady/poznamky.txt)`. Odkazuj na původní dokument, ve kterém jsi fakt opravdu přečetl. Kartu ani generovaný přehled (`matter.md`, `client.md`, `_STATUS.md`, `index.md`) necituj, pokud je fakt i jinde; pokud přehled jmenuje svůj zdrojový dokument, cituj ten dokument. Při shrnutí více souborů uveď každý z nich. Pokud si nejsi jistý, řekni, které soubory jsi zkontroloval.\n";
 
 // templates/cs/projekt/MEMORY.md
 var MEMORY_default6 = `---
@@ -2178,7 +2242,7 @@ Automatic periodic checks are not enabled yet. This register and procedure apply
 `;
 
 // templates/en/klient/AGENTS.md
-var AGENTS_default7 = "---\ntype: agents\ntitle: {{KLIENT}} — AGENTS\nupdated: {{DATE}}\n---\n\n# AGENTS.md — {{KLIENT}}\n\nMirrored in `CLAUDE.md`.\n\nFirst read `{{CARD}}`, `index.md` and the complete relevant records in `memory/`. Shared entities and screening records belong to the client; specific matter content belongs in `Spisy/<matter>/memory/`. Each matter has separate inputs and tasks. When working on a specific matter, also read its `AGENTS.md` and `BRAIN.md`. Checking a register does not establish legal completeness of AML screening.\n\n## Company and ongoing support\n\nA company has one client card and shared materials (for example, incorporation documents and contacts) in the client’s working folders defined by `PRACOVNY-PROFIL.md`. Each separate advisory area has its own matter, for example `Spisy/Corporate-support/` and `Spisy/Employment-law/`, with `matter_kind: advisory` and `mode: ongoing`. When creating it through the CLI, use `--matter-kind advisory --mode ongoing` and the actual jurisdiction, `--sk` or `--cz`. A court, matter reference and opposing party are not required for this advisory work; do not invent them.\n\nAssign each request, task, deadline and incoming message to a specific matter. If the allocation is unclear, mark it unresolved and request a decision; do not create the same task in multiple matters. Link to shared company documents rather than copying them into every matter. Create a separate project or dispute as another matter when it has its own objective and scope; this does not automatically close ongoing support. `okf render <klient>` refreshes the matter list in `index.md`.\n\n<!-- okf:protokol-zapisu:v2 -->\n## Write protocol\n\nCanonical memory is `memory/`, managed through `okf-memory` and its `BRAIN.md`. Store each fact, event, decision, question, document and task as a record with Truth, History and a source. Keep a deadline only in its relevant memory record; do not create another list in the card or a manual table in `_STATUS.md`. Write through `okf-memory write` with a reason and under the existing authorization, then run `validate` and `sync --apply`. Do not bypass write approval.\n\nFirst register each new source document or message in the specific matter’s `VSTUPY.md`, with its source, time and `pending` status. Set `processed` only after processing the entire content and recording the resulting IDs. Before handing work over, list unprocessed inputs and read errors. An overview or record type does not replace reading the full relevant content across record types.\n\n`_STATUS.md`, `memory/index.md` and `memory/log.md` are projections. `MEMORY.md` is a legacy archive, not a second active memory. Originals and research are working materials in their respective folders, not a memory archive. Keep `CLAUDE.md` identical to `AGENTS.md` whenever the latter changes.\n\nSending, signing or filing requires explicit human confirmation. Verify citations to legislation and case law using the available MCP sources; state the source and limitations. Do not guess entity details.\n";
+var AGENTS_default7 = "---\ntype: agents\ntitle: {{KLIENT}} — AGENTS\nupdated: {{DATE}}\n---\n\n# AGENTS.md — {{KLIENT}}\n\nMirrored in `CLAUDE.md`.\n\nFirst read `{{CARD}}`, `index.md` and the complete relevant records in `memory/`. Shared entities and screening records belong to the client; specific matter content belongs in `Spisy/<matter>/memory/`. Each matter has separate inputs and tasks. When working on a specific matter, also read its `AGENTS.md` and `BRAIN.md`. Checking a register does not establish legal completeness of AML screening.\n\n## Company and ongoing support\n\nA company has one client card and shared materials (for example, incorporation documents and contacts) in the client’s working folders defined by `PRACOVNY-PROFIL.md`. Each separate advisory area has its own matter, for example `Spisy/Corporate-support/` and `Spisy/Employment-law/`, with `matter_kind: advisory` and `mode: ongoing`. When creating it through the CLI, use `--matter-kind advisory --mode ongoing` and the actual jurisdiction, `--sk` or `--cz`. A court, matter reference and opposing party are not required for this advisory work; do not invent them.\n\nAssign each request, task, deadline and incoming message to a specific matter. If the allocation is unclear, mark it unresolved and request a decision; do not create the same task in multiple matters. Link to shared company documents rather than copying them into every matter. Create a separate project or dispute as another matter when it has its own objective and scope; this does not automatically close ongoing support. `okf render <klient>` refreshes the matter list in `index.md`.\n\n<!-- okf:protokol-zapisu:v2 -->\n## Write protocol\n\nCanonical memory is `memory/`, managed through `okf-memory` and its `BRAIN.md`. Store each fact, event, decision, question, document and task as a record with Truth, History and a source. Keep a deadline only in its relevant memory record; do not create another list in the card or a manual table in `_STATUS.md`. Write through `okf-memory write` with a reason and under the existing authorization, then run `validate` and `sync --apply`. Do not bypass write approval.\n\nFirst register each new source document or message in the specific matter’s `VSTUPY.md`, with its source, time and `pending` status. Set `processed` only after processing the entire content and recording the resulting IDs. Before handing work over, list unprocessed inputs and read errors. An overview or record type does not replace reading the full relevant content across record types.\n\n`_STATUS.md`, `memory/index.md` and `memory/log.md` are projections. `MEMORY.md` is a legacy archive, not a second active memory. Originals and research are working materials in their respective folders, not a memory archive. Keep `CLAUDE.md` identical to `AGENTS.md` whenever the latter changes.\n\nSending, signing or filing requires explicit human confirmation. Verify citations to legislation and case law using the available MCP sources; state the source and limitations. Do not guess entity details.\n\nBack every substantive claim taken from files with a Markdown link to the file that contains it, using a path relative to the root of the folder opened in LAWOSS (for a client's case, the client folder), for example `[notes.txt](Spisy/M001-lease/01_Inputs/notes.txt)`. Link the original document in which you actually read the fact. Do not cite a card or generated overview (`matter.md`, `client.md`, `_STATUS.md`, `index.md`) when the fact appears elsewhere; if the overview names its source document, cite that document. When summarising several files, cite each of them. If you are unsure, say which files you checked.\n";
 
 // templates/en/klient/MEMORY.md
 var MEMORY_default7 = `---
@@ -2234,7 +2298,7 @@ Details are unverified on creation. For each attempt, record the register, sourc
 `;
 
 // templates/en/spis/AGENTS.md
-var AGENTS_default8 = "---\ntype: agents\ntitle: {{TITLE}} — AGENTS\nupdated: {{DATE}}\n---\n\n# AGENTS.md — {{TITLE}}\n\nMirrored in `CLAUDE.md`.\n\nFirst read `{{CARD}}`, `BRAIN.md` (after `okf-memory init`), `_STATUS.md`, `VSTUPY.md` and the complete relevant records in `memory/`. Also load the client’s `../../AGENTS.md`, client card, memory and office rules. For a specific question, search across all record types. Advisory work without proceedings does not require a court or matter reference.\n\nBefore saving a file, read `PRACOVNY-PROFIL.md`: it defines the actual folders, their roles and new document naming. Do not alter or overwrite originals; separate identical names using a stable input ID. Save each new draft version separately and retain its link to the original. Mark important messages with a link to the canonical original and its attachments. Without an assigned role, ask where to store the document instead of guessing.\n\nAn `advisory` matter in `ongoing` mode may contain recurring assignments and deadlines without court proceedings. Work only with its tasks and inputs; read shared company information from the client. Closing one assignment does not close the ongoing matter.\n\n<!-- okf:protokol-zapisu:v2 -->\n## Write protocol\n\nCanonical memory is `memory/`, managed through `okf-memory` and its `BRAIN.md`. Store each fact, event, decision, question, document and task as a record with Truth, History and a source. Keep a deadline only in its relevant memory record; do not create another list in the card or a manual table in `_STATUS.md`. Write through `okf-memory write` with a reason and under the existing authorization, then run `validate` and `sync --apply`. Do not bypass write approval.\n\nFirst register each new source document or message in the specific matter’s `VSTUPY.md`, with its source, time and `pending` status. Set `processed` only after processing the entire content and recording the resulting IDs. Before handing work over, list unprocessed inputs and read errors. An overview or record type does not replace reading the full relevant content across record types.\n\n`_STATUS.md`, `memory/index.md` and `memory/log.md` are projections. `MEMORY.md` is a legacy archive, not a second active memory. Originals and research are working materials in their respective folders, not a memory archive. Keep `CLAUDE.md` identical to `AGENTS.md` whenever the latter changes.\n\nSending, signing or filing requires explicit human confirmation. Verify citations to legislation and case law using the available MCP sources; state the source and limitations. Do not guess entity details.\n";
+var AGENTS_default8 = "---\ntype: agents\ntitle: {{TITLE}} — AGENTS\nupdated: {{DATE}}\n---\n\n# AGENTS.md — {{TITLE}}\n\nMirrored in `CLAUDE.md`.\n\nFirst read `{{CARD}}`, `BRAIN.md` (after `okf-memory init`), `_STATUS.md`, `VSTUPY.md` and the complete relevant records in `memory/`. Also load the client’s `../../AGENTS.md`, client card, memory and office rules. For a specific question, search across all record types. Advisory work without proceedings does not require a court or matter reference.\n\nBefore saving a file, read `PRACOVNY-PROFIL.md`: it defines the actual folders, their roles and new document naming. Do not alter or overwrite originals; separate identical names using a stable input ID. Save each new draft version separately and retain its link to the original. Mark important messages with a link to the canonical original and its attachments. Without an assigned role, ask where to store the document instead of guessing.\n\nAn `advisory` matter in `ongoing` mode may contain recurring assignments and deadlines without court proceedings. Work only with its tasks and inputs; read shared company information from the client. Closing one assignment does not close the ongoing matter.\n\nThe values `view:procedural`, `view:corporate`, `view:ip` and `view:base` in the card's `tags` field are the user's choice of case overview. Keep them and do not change or remove them without the user's instruction.\n\n<!-- okf:protokol-zapisu:v2 -->\n## Write protocol\n\nCanonical memory is `memory/`, managed through `okf-memory` and its `BRAIN.md`. Store each fact, event, decision, question, document and task as a record with Truth, History and a source. Keep a deadline only in its relevant memory record; do not create another list in the card or a manual table in `_STATUS.md`. Write through `okf-memory write` with a reason and under the existing authorization, then run `validate` and `sync --apply`. Do not bypass write approval.\n\nFirst register each new source document or message in the specific matter’s `VSTUPY.md`, with its source, time and `pending` status. Set `processed` only after processing the entire content and recording the resulting IDs. Before handing work over, list unprocessed inputs and read errors. An overview or record type does not replace reading the full relevant content across record types.\n\n`_STATUS.md`, `memory/index.md` and `memory/log.md` are projections. `MEMORY.md` is a legacy archive, not a second active memory. Originals and research are working materials in their respective folders, not a memory archive. Keep `CLAUDE.md` identical to `AGENTS.md` whenever the latter changes.\n\nSending, signing or filing requires explicit human confirmation. Verify citations to legislation and case law using the available MCP sources; state the source and limitations. Do not guess entity details.\n\nBack every substantive claim taken from files with a Markdown link to the file that contains it, using a path relative to the root of the folder opened in LAWOSS (for a client's case, the client folder), for example `[notes.txt](Spisy/M001-lease/01_Inputs/notes.txt)`. Link the original document in which you actually read the fact. Do not cite a card or generated overview (`matter.md`, `client.md`, `_STATUS.md`, `index.md`) when the fact appears elsewhere; if the overview names its source document, cite that document. When summarising several files, cite each of them. If you are unsure, say which files you checked.\n";
 
 // templates/en/spis/MEMORY.md
 var MEMORY_default8 = `---
@@ -2329,20 +2393,7 @@ language: {{LANGUAGE}}
 `;
 
 // templates/en/projekt/AGENTS.md
-var AGENTS_default9 = `---
-type: agents
-title: {{TITLE}} — AGENTS
-updated: {{DATE}}
----
-
-# AGENTS.md — {{TITLE}}
-
-Mirrored in \`CLAUDE.md\`.
-
-First read \`{{CARD}}\` and \`MEMORY.md\`. An internal project uses \`MEMORY.md\` for decisions, lessons and questions; do not present it as a legal matter. Keep \`CLAUDE.md\` identical to \`AGENTS.md\` whenever the latter changes.
-
-Sending, signing or filing requires explicit human confirmation. Verify citations to legislation and case law using the available MCP sources; state the source and limitations. Do not guess entity details.
-`;
+var AGENTS_default9 = "---\ntype: agents\ntitle: {{TITLE}} — AGENTS\nupdated: {{DATE}}\n---\n\n# AGENTS.md — {{TITLE}}\n\nMirrored in `CLAUDE.md`.\n\nFirst read `{{CARD}}` and `MEMORY.md`. An internal project uses `MEMORY.md` for decisions, lessons and questions; do not present it as a legal matter. Keep `CLAUDE.md` identical to `AGENTS.md` whenever the latter changes.\n\nSending, signing or filing requires explicit human confirmation. Verify citations to legislation and case law using the available MCP sources; state the source and limitations. Do not guess entity details.\n\nBack every substantive claim taken from files with a Markdown link to the file that contains it, using a path relative to the root of the folder opened in LAWOSS (for a client's case, the client folder), for example `[notes.txt](Inputs/notes.txt)`. Link the original document in which you actually read the fact. Do not cite a card or generated overview (`matter.md`, `client.md`, `_STATUS.md`, `index.md`) when the fact appears elsewhere; if the overview names its source document, cite that document. When summarising several files, cite each of them. If you are unsure, say which files you checked.\n";
 
 // templates/en/projekt/MEMORY.md
 var MEMORY_default9 = `---
@@ -2425,6 +2476,8 @@ var LOCALIZED_TEMPLATES = { cs: CS_TEMPLATES, sk: TEMPLATES, en: EN_TEMPLATES };
 
 // src/onboarding/messages.ts
 var UNSAFE_FOLDER_NAME_MESSAGE = "A safe non-empty folder name is required.";
+var OFFICE_EXISTS_MESSAGE = "Tento priečinok už kanceláriu má (Office/), ale nedá sa doplniť.";
+var INSIDE_OFFICE_MESSAGE_PREFIX = "Tento priečinok je už súčasťou kancelárie";
 var LOCKED_FILES_MESSAGE_PREFIX = "Files are open in another application:";
 var LOCKED_FILE_CODE = "locked_file";
 function incompleteInspectionMessage(message, issues) {
@@ -3189,7 +3242,7 @@ This folder is a law practice organised by OKF (open client folder framework). T
 `;
 
 // src/onboarding/entities.ts
-import { lstat as lstat5, readFile as readFile3 } from "node:fs/promises";
+import { lstat as lstat5, readdir as readdir4, readFile as readFile3 } from "node:fs/promises";
 import { createHash as createHash4 } from "node:crypto";
 import { basename as basename5, join as join8, relative as relative4, resolve as resolve6, sep as sep5 } from "node:path";
 
@@ -3399,17 +3452,54 @@ async function planOffice(request) {
   const names = await topLevelNames(request.parent);
   return { mode: "new", appFiles: "inside", target, plan: await rootPlan(request.parent, [directory(name), file(`${name}/okf.config`, officeConfig(request)), directory(`${name}/memory`), file(`${name}/memory/.keep`, ""), directory("Klienti"), file("Klienti/.keep", ""), ...practiceInstructions(names, request.language, "Klienti/*", "client")]) };
 }
+var OFFICE_DIR_NAMES2 = ["Office", "_kancelaria"];
+var OFFICE_EVIDENCE2 = ["agents.md", "claude.md", "memory"];
+var CLIENT_CARD_NAMES = ["client.md", "klient.md"];
+var lowerNames = async (path) => new Set((await readdir4(path).catch(() => [])).map((name) => name.toLowerCase()));
+var realDirectory = async (path) => (await lstat5(path).catch(() => {
+  return;
+}))?.isDirectory() ?? false;
+async function incompleteOffice(root) {
+  const top = new Set(await readdir4(root));
+  const present = OFFICE_DIR_NAMES2.filter((name) => top.has(name));
+  const [name] = present;
+  if (present.length !== 1 || !name)
+    return;
+  const officePath = join8(root, name);
+  if (!await realDirectory(officePath))
+    return;
+  const officeNames = await lowerNames(officePath);
+  if (officeNames.has("okf.config") || !OFFICE_EVIDENCE2.some((entry) => officeNames.has(entry)))
+    return;
+  const clients = join8(root, "Klienti");
+  if (!await realDirectory(clients))
+    return;
+  const carded = async (client) => {
+    if (!await realDirectory(join8(clients, client)))
+      return false;
+    const names = await lowerNames(join8(clients, client));
+    return CLIENT_CARD_NAMES.some((card) => names.has(card));
+  };
+  if (!(await Promise.all((await readdir4(clients).catch(() => [])).map(carded))).some(Boolean))
+    return;
+  return { name, memory: await realDirectory(join8(officePath, "memory")) };
+}
 async function planPracticeOffice(request) {
   const clientPath = safeClientPattern(request.clientPattern);
   const root = await realpath(request.root);
   const names = await topLevelNames(root);
-  if (names.has("office") || names.has("_kancelaria"))
-    throw new Error("Tento priečinok už kanceláriu má (Office/). Pripojte ho ako kanceláriu.");
+  const hasOffice = OFFICE_DIR_NAMES2.some((name) => names.has(name.toLowerCase()));
+  const existing = hasOffice ? await incompleteOffice(root) : undefined;
+  if (hasOffice && !existing)
+    throw new Error(OFFICE_EXISTS_MESSAGE);
   const outer = await findAncestorOffice(root);
   if (outer)
-    throw new Error(`Tento priečinok je už súčasťou kancelárie (${outer}). Pripojte celú kanceláriu, nie jej časť.`);
+    throw new Error(`${INSIDE_OFFICE_MESSAGE_PREFIX} (${outer}). Pripojte celú kanceláriu, nie jej časť.`);
   const office = { parent: root, title: request.title, jurisdiction: request.jurisdiction, language: request.language, lawyerName: request.lawyerName };
-  return { mode: "new", appFiles: "inside", target: root, plan: await rootPlan(root, [directory("Office"), file("Office/okf.config", officeConfig(office, clientPath, request.scope)), directory("Office/memory"), file("Office/memory/.keep", ""), ...practiceInstructions(names, request.language, clientPath, request.scope)]) };
+  const config = (name) => file(`${name}/okf.config`, officeConfig(office, clientPath, request.scope));
+  const memory = (name) => [directory(`${name}/memory`), file(`${name}/memory/.keep`, "")];
+  const officeOperations = existing ? [config(existing.name), ...existing.memory ? [] : memory(existing.name)] : [directory("Office"), config("Office"), ...memory("Office")];
+  return { mode: "new", appFiles: "inside", target: root, plan: await rootPlan(root, [...officeOperations, ...practiceInstructions(names, request.language, clientPath, request.scope)]) };
 }
 async function planNewClient(request) {
   const name = safeSegment(request.name), target = join8(request.parent, name), language = request.language ?? "sk";
@@ -4202,7 +4292,7 @@ import { dirname as dirname9, join as join14, resolve as resolve12 } from "node:
 
 // src/triage/files.ts
 import { constants as constants10 } from "node:fs";
-import { lstat as lstat11, mkdir as mkdir5, open as open8, readdir as readdir4 } from "node:fs/promises";
+import { lstat as lstat11, mkdir as mkdir5, open as open8, readdir as readdir5 } from "node:fs/promises";
 import { join as join12 } from "node:path";
 
 // src/triage/scan.ts
@@ -4551,7 +4641,7 @@ async function listClassificationFiles(root) {
   const dir = await triageSubdirectory(root, "classifications", false);
   if (!dir)
     return [];
-  return (await readdir4(dir)).filter((name) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.json$/.test(name)).sort().reverse().map((name) => join12(dir, name));
+  return (await readdir5(dir)).filter((name) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.json$/.test(name)).sort().reverse().map((name) => join12(dir, name));
 }
 
 // src/triage/index.ts
@@ -4914,11 +5004,16 @@ function buildTriagePlan(inventory, options) {
 // src/triage/apply.ts
 import { createHash as createHash8 } from "node:crypto";
 import { constants as constants11 } from "node:fs";
-import { appendFile, copyFile as copyFile2, link, lstat as lstat12, mkdir as mkdir6, open as open9, readdir as readdir5, readFile as readFile7, rmdir as rmdir3 } from "node:fs/promises";
+import { appendFile, copyFile as copyFile2, link, lstat as lstat12, mkdir as mkdir6, open as open9, readdir as readdir6, readFile as readFile7, rmdir as rmdir3 } from "node:fs/promises";
 import { dirname as dirname8, isAbsolute as isAbsolute9, join as join13, resolve as resolve11 } from "node:path";
 class TriageConflictError extends Error {
   code = "triage_conflict";
 }
+
+class TriageLockedError extends Error {
+  code = "triage_locked";
+}
+var lockedError = (paths, next) => new TriageLockedError(`Dokument je otvorený v inom programe (napríklad vo Worde): ${paths.slice(0, 10).join(", ")}${paths.length > 10 ? " …" : ""}. Nič sa nepresunulo. ${next}`);
 
 class TooManyMattersError extends Error {
   code = TOO_MANY_MATTERS_CODE;
@@ -4928,7 +5023,7 @@ var missing4 = (error) => error instanceof Error && ("code" in error) && error.c
 var errorCode5 = (error) => error instanceof Error && ("code" in error) ? String(error.code) : "";
 var isClutter = (name) => VOLATILE_ENTRY.test(name) || /^\.ds_store$/i.test(name);
 async function removeClutter(directory) {
-  for (const name of await readdir5(directory))
+  for (const name of await readdir6(directory))
     if (isClutter(name))
       await unlinkFile(join13(directory, name));
 }
@@ -5193,7 +5288,7 @@ async function applyTriagePlan(input, options = {}) {
         if (await lockedForWrite(join13(root, move.from), options.hooks))
           locked.push(move.from);
       if (locked.length)
-        throw new TriageConflictError(`Dokument je otvorený v inom programe (napríklad vo Worde): ${locked.slice(0, 10).join(", ")}${locked.length > 10 ? " …" : ""}. Nič sa nepresunulo. Zatvorte ho a pripravte nový náhľad.`);
+        throw lockedError(locked, "Zatvorte ho a pripravte nový náhľad.");
       const handle = await open9(planPath, constants11.O_WRONLY | constants11.O_CREAT | constants11.O_EXCL | constants11.O_NOFOLLOW, 384);
       try {
         await handle.writeFile(JSON.stringify(plan, null, 2) + `
@@ -5306,7 +5401,7 @@ async function undoTriage(rootInput, runId, options = {}) {
         if (state === "other")
           problems.push(operation.path);
         if (state === "ours" && operation.kind === "directory") {
-          for (const name of await readdir5(join13(root, operation.path)))
+          for (const name of await readdir6(join13(root, operation.path)))
             if (!isClutter(name) && !owned.has(`${operation.path}/${name}`.toLocaleLowerCase()))
               problems.push(`${operation.path}/${name}`);
         }
@@ -5321,6 +5416,12 @@ async function undoTriage(rootInput, runId, options = {}) {
       }
     if (problems.length)
       throw new TriageConflictError(`Roztriedenie sa nedá vrátiť bez zásahu do zmenených súborov: ${[...new Set(problems)].slice(0, 10).join(", ")}${problems.length > 10 ? " …" : ""}`);
+    const locked = [];
+    for (const item of pending)
+      if (item.to !== null && await lockedForWrite(join13(root, item.move.to), options.hooks))
+        locked.push(item.move.to);
+    if (locked.length)
+      throw lockedError(locked, "Zatvorte ho a skúste vrátiť znova.");
     if (!events.some((event) => event.t === "undo_started"))
       await appendEvent2(eventsPath, { t: "undo_started" });
     let restoredCount = 0, removedCount = 0;
@@ -5340,7 +5441,7 @@ async function undoTriage(rootInput, runId, options = {}) {
       const full = join13(root, operation.path);
       if (keepChanged) {
         const state = await operationState(root, operation);
-        if (state === "other" || state === "ours" && operation.kind === "directory" && (await readdir5(full)).some((name) => !isClutter(name))) {
+        if (state === "other" || state === "ours" && operation.kind === "directory" && (await readdir6(full)).some((name) => !isClutter(name))) {
           kept.push(operation.path);
           continue;
         }
@@ -5384,7 +5485,7 @@ async function listTriageRuns(rootInput) {
     const state = await lstat12(runs);
     if (!state.isDirectory() || state.isSymbolicLink())
       return [];
-    names = await readdir5(runs);
+    names = await readdir6(runs);
   } catch (error) {
     if (missing4(error))
       return [];

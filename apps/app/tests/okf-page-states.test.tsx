@@ -27,14 +27,14 @@ test("missing connection is unavailable, not an empty workspace", () => {
   const html = renderToStaticMarkup(<MemoryRouter><OkfPageState connection="unavailable" workspace={null} error={null} data={empty} loading={false}>{() => "dashboard"}</OkfPageState></MemoryRouter>);
   expect(html).toContain("The server is not available yet");
   expect(html).not.toContain("dashboard");
-  expect(html).not.toContain("Create a new matter");
+  expect(html).not.toContain("Create a new case");
 });
 
 test("no workspace offers opening a folder, and a readable empty folder offers a new matter", () => {
   const render = (workspace: string | null) => renderToStaticMarkup(<MemoryRouter><OkfPageState connection="ready" workspace={workspace} error={null} data={empty} loading={false}>{() => "dashboard"}</OkfPageState></MemoryRouter>);
   expect(render(null)).toContain("Open a workspace");
-  expect(render(null)).not.toContain("Create a new matter");
-  expect(render("Moje spisy")).toContain("Create a new matter");
+  expect(render(null)).not.toContain("Create a new case");
+  expect(render("Moje spisy")).toContain("Create a new case");
   expect(render("Moje spisy")).not.toContain("dashboard");
 });
 
@@ -42,24 +42,24 @@ test("failed discovery never claims that the folder has no matters", () => {
   const data = { ...empty, problems: [{ path: "AK", message: "Prístup odmietnutý" }] };
   const html = renderToStaticMarkup(<MemoryRouter><OkfPageState connection="ready" workspace="Moje spisy" error={null} data={data} loading={false}>{() => "dashboard"}</OkfPageState></MemoryRouter>);
   expect(html).toContain("Prístup odmietnutý");
-  expect(html).toContain("cannot establish whether the workspace contains matters");
-  expect(html).not.toContain("Create a new matter");
+  expect(html).toContain("cannot establish whether the workspace contains cases");
+  expect(html).not.toContain("Create a new case");
 });
 
 test("lite hides raw per-file read errors but still reports the incomplete read", () => {
   const data = { ...empty, problems: [{ path: "", message: "Workspace not found" }] };
   const html = renderToStaticMarkup(<MemoryRouter><OkfPageState connection="ready" workspace="Testovací kancelář" error={null} data={data} loading={false} rawProblems={false}>{() => "dashboard"}</OkfPageState></MemoryRouter>);
   expect(html).not.toContain("Workspace not found");
-  expect(html).toContain("cannot establish whether the workspace contains matters");
+  expect(html).toContain("cannot establish whether the workspace contains cases");
   expect(html).not.toContain("dashboard");
 });
 
 test("query failure suppresses cached overview rather than presenting it as current", () => {
   const data = { ...empty, ...buildOverview([{ path: "case", records: [] }], "2026-09-20") };
   const html = renderToStaticMarkup(<MemoryRouter><OkfPageState connection="ready" workspace="Moje spisy" error={new Error("Connection lost")} data={data} loading={false}>{() => "dashboard"}</OkfPageState></MemoryRouter>);
-  expect(html).toContain("Could not load matter memory:");
+  expect(html).toContain("Could not load case memory:");
   expect(html).toContain("Technical details (original text)");
   expect(html).toContain("Connection lost");
   expect(html).not.toContain("dashboard");
-  expect(html).not.toContain("Create a new matter");
+  expect(html).not.toContain("Create a new case");
 });

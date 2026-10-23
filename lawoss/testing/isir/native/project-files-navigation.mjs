@@ -5,8 +5,14 @@ function navigateProjectFiles(expected, phase) {
   const visible = node => Boolean(node?.isConnected && !node.closest('[hidden]') &&
     node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0);
   const enabled = node => visible(node) && !node.disabled && node.getAttribute('aria-disabled') !== 'true';
+  // LAWOSS sidebar rows can show a client-card name and a second status line; their exact native project
+  // name stays on the label element. Without that element the whole title text must match, as before.
+  const projectName = node => {
+    const label = node.querySelector('[data-lawoss-row-label]');
+    return label ? label.getAttribute('data-lawoss-native-name') : node.textContent.trim();
+  };
   const titles = [...document.querySelectorAll('button')].filter(node =>
-    node.textContent.trim() === expected.name && node.closest('[data-slot="collapsible"]') && enabled(node));
+    projectName(node) === expected.name && node.closest('[data-slot="collapsible"]') && enabled(node));
   if (titles.length !== 1) return false;
   const title = titles[0];
   const group = title.closest('[data-slot="collapsible"]');
@@ -55,7 +61,7 @@ function navigateProjectFiles(expected, phase) {
   // Only the explicit pre-reconnect call can acknowledge the production error
   // branch. It has no directory rows; ordinary navigation remains strict.
   const controlsAtRoot = expected.readiness === 'reconnect'
-    ? [...panel.querySelectorAll('button')].filter(node => node.textContent.trim() === 'Reconnect project folder')
+    ? [...panel.querySelectorAll('button')].filter(node => node.textContent.trim() === 'Reconnect client folder')
     : [...panel.querySelectorAll('[data-project-folder="Dokumenty"]')];
   return controlsAtRoot.length === 1 && enabled(controlsAtRoot[0]);
 }

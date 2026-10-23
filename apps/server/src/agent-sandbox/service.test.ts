@@ -52,7 +52,9 @@ async function fixture(permissions: Record<string, unknown>, approve = true, onR
   };
   configs.push(config);
   await writeSandboxDefault(config, { enabled: true, networkMode: "approve" });
-  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: permissions }));
+  // LAWOSS: unset edit/bash ask by default (lawoss/tool-permission-defaults.ts); these upstream
+  // scenarios model the engine's own default, so they state it explicitly.
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "allow", edit: "allow", ...permissions } }));
   const prompts: ApprovalRequest[] = [];
   const approvals = new ApprovalService(config.approval, async (request) => { prompts.push(request); return approve ? "allow" : "deny"; });
   const executions: SandboxRun[] = [];

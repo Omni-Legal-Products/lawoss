@@ -4,7 +4,8 @@
  */
 import type { OnboardingProfile, OnboardingStep } from "./api";
 
-type ProfileWriter = { updateOnboardingProfile: (patch: Partial<OnboardingProfile>) => Promise<OnboardingProfile> };
+type ProfilePatch = Omit<Partial<OnboardingProfile>, "foundRoot"> & { foundRoot?: string | null };
+type ProfileWriter = { updateOnboardingProfile(patch: ProfilePatch): Promise<OnboardingProfile> };
 
 /**
  * Nastavenie sa začalo, ale neskončilo. Bez profilu karta netreba: prvé spustenie rieši presmerovanie na /welcome.
@@ -28,11 +29,27 @@ export function openingStep(
   return profile?.step ?? savedStep;
 }
 
-/** Zapíše značku dokončenia raz. Zlyhanie (napr. presunutý koreň) nesmie zastaviť dokončenie onboardingu. */
+/** Kroky sprievodcu od „Toto sme našli“ ďalej; návrat na „Toto sme našli“ z nich potrebuje vybraný priečinok (C1). */
+const AFTER_FOLDER: ReadonlySet<OnboardingStep> = new Set(["found", "ai", "approvals", "ready"]);
+
+/**
+ * Obnova kroku „Toto som našiel“ (M1, 22. 10. 2026): pri obnovenom kroku `found` alebo neskoršom kroku sprievodcu
+ * (C1) bez priečinka z adresy (`?root=` má prednosť). `root` otvorí obrazovku s uloženým priečinkom; `missing`
+ * (priečinok medzitým zmizol) nechá krok Priečinok s krátkou vetou; `null` znamená bežný výber priečinka.
+ */
+export function resumeFound(step: OnboardingStep, profile: OnboardingProfile | null, initialRoot?: string, foundRootMissing = false): { root: string } | { missing: string } | null {
+  if (!AFTER_FOLDER.has(step) || initialRoot || !profile?.foundRoot) return null;
+  return foundRootMissing ? { missing: profile.foundRoot } : { root: profile.foundRoot };
+}
+
+/**
+ * Zapíše značku dokončenia raz a zmaže priečinok obnovy (po dokončení nie je čo obnovovať).
+ * Zlyhanie (napr. presunutý koreň) nesmie zastaviť dokončenie onboardingu.
+ */
 export async function markOnboardingCompleted(api: ProfileWriter, profile: OnboardingProfile | null, now = new Date()): Promise<OnboardingProfile | null> {
-  if (!profile || profile.completedAt) return profile;
+  if (!profile || (profile.completedAt && !profile.foundRoot)) return profile;
   try {
-    return await api.updateOnboardingProfile({ completedAt: now.toISOString() });
+    return await api.updateOnboardingProfile({ ...(profile.completedAt ? {} : { completedAt: now.toISOString() }), ...(profile.foundRoot ? { foundRoot: null } : {}) });
   } catch (reason) {
     console.warn("[lawoss] onboarding completion marker", reason);
     return profile;

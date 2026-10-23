@@ -460,7 +460,7 @@ type MatterText = ReturnType<typeof useMatterText>["text"];
 const COCKPIT_LABELS: Readonly<Record<string, MatterTextKey>> = {
   "Spisová značka": "field.reference", "Súd / orgán": "field.court",
   "Jurisdikcia": "field.jurisdiction", "Stav konania": "field.state",
-  "nie je v karte ani v zázname": "field.notRecorded", "záznam veci chýba": "field.noMatterRecord",
+  "nie je v karte ani v zázname": "field.notRecorded", "záznam prípadu chýba": "field.noMatterRecord",
   "overené": "provenance.verified", "AI návrh": "provenance.ai", "zapísané": "recorded",
   "overenie neurčené": "provenance.unknown", "strojovo overené": "provenance.machine",
   "po termíne": "overdue", "blíži sa": "state.approaching", "neparsovateľné": "state.unparseable",

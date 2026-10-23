@@ -31,18 +31,20 @@ test("welcome exposes the first native identity step with all UI languages", () 
   expect(html).toContain("Set up your practice");
   expect(html).toContain("Your name");
   expect(html).not.toContain("legal practice");
-  expect(html).toContain("You and jurisdiction");
+  // Sprievodca C1: krok Kancelária s voľbami namiesto rozbaľovačov.
+  expect(html).toContain("Your office");
   expect(html).toContain('value="sk"');
   // Jazyky ich vlastnými názvami, nie kódmi; jurisdikcia v jazyku rozhrania.
-  expect(html).toContain('<option value="sk">Slovenčina</option><option value="cs">Čeština</option><option value="en" selected="">English</option><option value="de">Deutsch</option>');
-  expect(html).not.toContain(">de</option>");
-  expect(html).toContain('<option value="cz">Czech Republic</option>');
+  const languages = [...html.matchAll(/<input type="radio" name="[^"]*-language"( checked="")? value="(\w+)"[^>]*\/?><span>([^<]+)<\/span>/g)].map(([, checked, value, label]) => `${value}${checked ? "*" : ""}:${label}`);
+  expect(languages).toEqual(["sk:Slovenčina", "cs:Čeština", "en*:English", "de:Deutsch"]);
+  expect(html).not.toContain("<span>de</span>");
+  expect(html).toMatch(/value="cz"[^>]*\/?><span>Czech Republic<\/span>/);
   expect(html).not.toContain("lawoss.setup.");
 });
 
 test("native wizard uses translated UI while keeping jurisdiction values and raw prompt", () => {
   const html = renderToStaticMarkup(<NovySpisPanel documentAuthor="Test Advokát" connection={{ client: null, baseUrl: "", token: "" }} workspace={{ id: "test-office", name: "Pôvodný workspace", path: "/office", workspaceType: "local" }} onOpenSession={() => { throw new Error("SSR must not open a draft"); }} />);
-  expect(html).toContain("Matter using OKF");
+  expect(html).toContain("Case using OKF");
   expect(html).toContain("Legal entity");
   expect(html).toContain('value="pravnicka-osoba"');
   expect(html).toContain("Slovakia");

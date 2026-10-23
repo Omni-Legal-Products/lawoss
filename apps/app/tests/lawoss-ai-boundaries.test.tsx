@@ -12,7 +12,7 @@ const noop = () => {};
 test("the AI boundaries row shows the alpha default off with a plain explanation and an enabled switch", () => {
   const html = renderToStaticMarkup(<AiBoundariesRowView locale="sk" boundaries={{enforced: false, locked: false, source: "default"}} canWrite busy={false} failed={false} onChange={noop} />);
   expect(html).toContain("AI hranice");
-  expect(html).toContain("appka neposiela obsah spisov žiadnemu modelu okrem chráneného generovania dokumentov");
+  expect(html).toContain("appka neposiela obsah prípadov žiadnemu modelu okrem chráneného generovania dokumentov");
   expect(html).toContain('data-lawoss-ai-boundaries="off"');
   expect(html).toContain('aria-checked="false"');
   expect(html).not.toContain('data-disabled=""');

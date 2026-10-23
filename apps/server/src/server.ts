@@ -1,10 +1,11 @@
 import { registerAiGovernanceRoutes } from "./lawoss/ai-governance-routes.js";
 import { registerYoloModeRoutes } from "./lawoss/yolo-mode.js";
+import { registerFileOperationRoutes } from "./lawoss/file-operations.js";
 import { ProtectedDocumentRuntime } from "./lawoss/protected-ai/runtime.js";
 import { protectedGuestBundleFactory } from "./lawoss/protected-ai/bundle.js";
 import { registerProtectedDocumentProfileRoutes } from "./lawoss/protected-ai/profiles.js";
 import { registerProtectedDocumentRoutes } from "./lawoss/protected-ai/routes.js";
-import { linkedFoldersMapRefresher, requireLinkableExternalDirectory, requireLinkableFolders } from "./lawoss/linked-folders.js";
+import { documentLinkedFolders, linkedFoldersMapRefresher, requireLinkableExternalDirectory, requireLinkableFolders } from "./lawoss/linked-folders.js";
 import { protectedEngineFetch, protectedSessionResponse, registerProtectedRuntime } from "./lawoss/protected-ai/dispatch.js";
 import { retainWikiAgentRuntime } from "./wiki/agent-access.js";
 import { createGovernedEngineFetch, governedOcrTransport, requireGovernedEngineDispatch, requireAiBoundariesAdmission } from "./lawoss/ai-governance-engine.js";
@@ -15,7 +16,7 @@ import { LawossDocuments } from "./lawoss/documents/service.js";
 import { registerLawossDocumentRoutes } from "./routes/lawoss-documents.js";
 import { engineCurrentProject, engineProjectWorktree, scopeSessionListQuery, workspaceListsSession } from "./lawoss/session-list-scope.js";
 import { assertEngineRouteScoped, scopeProjectList } from "./lawoss/engine-route-scope.js";
-import { sessionOwnershipChecked, workspaceReadsSession } from "./lawoss/session-ownership.js";
+import { sessionFolder, sessionOwnershipChecked, workspaceReadsSession } from "./lawoss/session-ownership.js";
 import { sessionInfoSchema } from "./session-read-model.js";
 import { historicalWorkspaceSessions } from "./lawoss/workspace-history-sessions.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
@@ -941,7 +942,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
   cleanups.push(() => { benchmarkRunner.dispose(); ocr.stop(); });
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
   cleanups.push(() => preparation.stop());
-  const documents = new LawossDocuments(config, preparation);
+  // LAWOSS: príprava dokumentov číta aj z pripojených priečinkov klienta, overených pri každom čítaní (alfa2 A3).
+  const documents = new LawossDocuments(config, preparation, (workspace) => documentLinkedFolders(config, workspace));
   cleanups.push(() => documents.stop());
   const protectedDocuments = new ProtectedDocumentRuntime({config, approvals, documents, getGuestBundle: protectedGuestBundleFactory(config)});
   await protectedDocuments.initialize().catch(() => {
@@ -1019,7 +1021,15 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents, scheduledTasks, wikiStore, wikiSync, protectedDocuments, runtimeOptions.publicEngineBinary, runtimeOptions.onboardingApplyCheckpoint);
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) =>
     unwrapOpencodeResult(await createDirectoryOpencodeClient(config, workspace, directory).session.get({ sessionID }, { signal }), "/session"));
+  // LAWOSS: a case chat lives in a subfolder of its client workspace (session-ownership.ts).
+  const sandboxOwnsSession = async (workspace: WorkspaceInfo, session: { id: string; directory: string }) => {
+    if (sessionOwnershipChecked(workspace)) return workspaceReadsSession(workspace, session);
+    const directory = resolveOpencodeDirectory(workspace);
+    return !!directory && resolve(session.directory) === resolve(directory);
+  };
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
+    sessionFolder: async (workspace, sessionID) => sessionFolder(workspace,
+      unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.get({ sessionID }, { signal: AbortSignal.timeout(10000) }), "/session")),
     sessionLineage: async (workspace, sessionID) => {
       const client = createWorkspaceOpencodeClient(config, workspace);
       const lineage: string[] = [];
@@ -1028,8 +1038,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
         if (lineage.includes(id) || lineage.length >= 64) throw new ApiError(400, "sandbox_session", "Invalid chat ancestry.");
         const currentId: string = id;
         const session = unwrapOpencodeResult(await client.session.get({ sessionID: currentId }, { signal: AbortSignal.timeout(10000) }), "/session");
-        const directory = resolveOpencodeDirectory(workspace);
-        if (!directory || resolve(session.directory) !== resolve(directory)) throw new ApiError(403, "sandbox_session", "This chat belongs to a different workspace.");
+        if (!(await sandboxOwnsSession(workspace, session))) throw new ApiError(403, "sandbox_session", "This chat belongs to a different workspace.");
         lineage.push(id);
         id = session.parentID;
       }
@@ -1038,8 +1047,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
     agentRules: async (workspace, sessionID, agentName) => {
       const client = createWorkspaceOpencodeClient(config, workspace);
       const session = unwrapOpencodeResult(await client.session.get({ sessionID }), "/session");
-      const directory = resolveOpencodeDirectory(workspace);
-      if (!directory || resolve(session.directory) !== resolve(directory)) {
+      if (!(await sandboxOwnsSession(workspace, session))) {
         throw new ApiError(403, "sandbox_session", "The command session belongs to a different workspace.");
       }
       const agents = unwrapOpencodeResult(await client.app.agents(), "/agent");
@@ -2073,6 +2081,7 @@ function createRoutes(
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerAiGovernanceRoutes({routes, config, jsonResponse, readJsonBodyLimited, getPublicEngineBinary: publicEngineBinary, pinnedEngineVersion: OPENCODE_VERSION});
   registerYoloModeRoutes({routes, config, jsonResponse, readJsonBodyLimited});
+  registerFileOperationRoutes({ routes, config, jsonResponse, readJsonBodyLimited, requireClientScope, resolveWorkspace });
   registerProtectedDocumentRoutes({routes, runtime: protectedDocuments, jsonResponse, readJsonBodyLimited});
   registerProtectedDocumentProfileRoutes({config, routes, jsonResponse});
   registerLawossDocumentRoutes({ routes, config, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
@@ -2668,8 +2677,10 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const folders = parseAuthorizedFoldersPayload(body.folders, workspaceAppFilesRoot(config, workspace));
-    // LAWOSS: nový priečinok nesmie zasahovať do iného klienta ani do praxe (lawoss/linked-folders.ts).
-    await requireLinkableFolders(config, workspace, folders, readAuthorizedFoldersFromOpencodeConfig(mergeOpencodeConfigs(await readOpencodeConfig(workspaceAppFilesRoot(config, workspace)), await readRuntimeOpencodeConfig(config, workspace.id)), workspaceAppFilesRoot(config, workspace)).folders);
+    // LAWOSS: nový priečinok nesmie zasahovať do iného klienta ani do praxe (lawoss/linked-folders.ts); priečinok,
+    // ktorý len vyzerá ako prax, prejde iba s potvrdením advokáta v aplikácii (`lawossConfirmedPracticeLike`).
+    const confirmedPracticeLike = Array.isArray(body.lawossConfirmedPracticeLike) ? body.lawossConfirmedPracticeLike.filter((entry): entry is string => typeof entry === "string").slice(0, 50) : [];
+    await requireLinkableFolders(config, workspace, folders, readAuthorizedFoldersFromOpencodeConfig(mergeOpencodeConfigs(await readOpencodeConfig(workspaceAppFilesRoot(config, workspace)), await readRuntimeOpencodeConfig(config, workspace.id)), workspaceAppFilesRoot(config, workspace)).folders, confirmedPracticeLike);
     const configPath = legalworkConfigPath(workspaceAppFilesRoot(config, workspace));
 
     await requireApproval(ctx, {

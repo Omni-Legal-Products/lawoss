@@ -487,6 +487,8 @@
 /* Lite bočný panel: naliehavosť najbližšej lehoty pri „Posledných veciach“ (rovnaké pravidlá ako Dnes). */
 .lw-nav-urgency { flex: none; width: 6px; height: 6px; margin-left: auto; border-radius: 50%; background: #c9a24a; box-shadow: 0 0 8px rgba(201, 162, 74, 0.8); }
 .lw-nav-urgency[data-urgency="hot"] { background: #e8836b; box-shadow: 0 0 8px rgba(232, 131, 107, 0.85); }
+/* B3: blížiaca sa lehota v riadku klienta/veci má farbu zlatého bodu (význam nesie text). */
+.lw-row-near { color: #c9a24a; }
 
 
 /* ── zjednotenie s pohľadmi z OKF (5. 10. 2026) ────────────────────────────

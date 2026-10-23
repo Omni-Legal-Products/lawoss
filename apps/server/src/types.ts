@@ -155,6 +155,8 @@ export interface ServerConfig {
    */
   reconnectHostWorkspace?: (workspace: WorkspaceInfo, previous: WorkspaceInfo) => Promise<() => Promise<void>>;
   pickDirectory?: ((options: { title?: string; defaultPath?: string; returnFocusTo?: string; existingOnly?: boolean }) => Promise<string | null>) | null;
+  /** LAWOSS: moves a file or folder to the OS Trash (desktop host, Electron `shell.trashItem`). */
+  trashItem?: ((path: string) => Promise<void>) | null;
   /** Desktop-owned recorder controls used by browser-hosted Office add-ins. */
   recorder?: RecorderBridge | null;
   /** In-process host confirmation. Never set from client input or persisted config. */

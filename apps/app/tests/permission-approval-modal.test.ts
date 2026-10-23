@@ -118,7 +118,7 @@ describe("permission approval modal helpers", () => {
       match[0].replace(/<[^>]*>/g, "").trim(),
     );
 
-    expect(buttonLabels).toEqual(["Deny", "Allow once", "Allow for session"]);
+    expect(buttonLabels).toEqual(["Deny", "Allow once", "Allow for this client"]);
   });
 
   test("uses readable labels for generic permission titles", () => {
@@ -142,7 +142,7 @@ describe("permission approval modal helpers", () => {
       respondPermission: () => {},
     }));
     const html = render("Use short paragraphs. <script>alert('test')</script>");
-    expect(html).toContain("Update project instructions?");
+    expect(html).toContain("Update client instructions?");
     expect(html).toContain("Current instructions");
     expect(html).toContain("Formal English");
     expect(html).toContain("Proposed instructions");

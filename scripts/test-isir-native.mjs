@@ -624,7 +624,7 @@ try {
     const before=cdp.events.length;
     await cdp.evaluate(`(()=>{const e=document.querySelector('[aria-label="Document processing"] label input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'../case-01');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
     await until(()=>cdp.evaluate(`document.querySelector('[aria-label="Document processing"] label input').value==='../case-01'`),'actual cross-project working-directory input');
-    await until(()=>cdp.evaluate(`(()=>{const panel=document.querySelector('[aria-label="Document processing"]');const alert=[...panel.querySelectorAll('[role="alert"]')].some(e=>e.textContent.includes('Enter an existing subdirectory of the selected project.'));const controls=[...panel.querySelectorAll('button')].filter(e=>['Generate through chat','Start a new generation','Retry in created chat'].includes(e.textContent.trim())&&e.getBoundingClientRect().width>0);return alert&&controls.length===1&&controls[0].disabled})()`),'cross-project working directory has an immediate visible refusal and disabled generation control');
+    await until(()=>cdp.evaluate(`(()=>{const panel=document.querySelector('[aria-label="Document processing"]');const alert=[...panel.querySelectorAll('[role="alert"]')].some(e=>e.textContent.includes('Enter an existing subdirectory of the selected client.'));const controls=[...panel.querySelectorAll('button')].filter(e=>['Generate through chat','Start a new generation','Retry in created chat'].includes(e.textContent.trim())&&e.getBoundingClientRect().width>0);return alert&&controls.length===1&&controls[0].disabled})()`),'cross-project working directory has an immediate visible refusal and disabled generation control');
     const crossRequests=cdp.events.slice(before).filter(e=>{if(e.method!=='Network.requestWillBeSent'||e.params.request.method!=='POST')return false;const pathname=new URL(e.params.request.url).pathname;return pathname.endsWith('/lawoss/documents/generation')||pathname.endsWith('/prompt_async')||/\/opencode\/session(?:\/|$)/.test(pathname)||/\/sessions\/[^/]+\/queue$/.test(pathname)});
     assert.equal(crossRequests.length,0,'Invalid working scope cannot create or submit an engine session');
     await cdp.evaluate(`(()=>{const e=document.querySelector('[aria-label="Document processing"] label input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
@@ -650,7 +650,7 @@ try {
   await until(()=>cdp.evaluate('!!window.__legalworkControl'),'relaunched native renderer',90000);
   await openFiles(first,'reconnect');
   const recoveryStart=cdp.events.length;
-  await click('Reconnect project folder');
+  await click('Reconnect client folder');
   await until(async()=>{const saved=JSON.parse(await readFile(path.join(profile,'legalwork-workspaces.json'),'utf8'));const found=saved.workspaces.find(w=>w.id===first.id);return found?.path===moved},'production native chooser canonical reconnect transaction',90000);
   await until(()=>['/workspace/'+first.id+'/reconnect','/workspaces/'+first.id+'/activate'].every(path=>cdp.events.slice(recoveryStart).some(e=>e.method==='Network.responseReceived'&&new URL(e.params.response.url).pathname.endsWith(path)&&e.params.response.status===200)),'actual native reconnect and activation200');
   if (corpus.mode === "synthetic") {

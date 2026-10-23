@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { onboardingErrorMessage } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
+import { INSIDE_OFFICE_MESSAGE_PREFIX, OFFICE_EXISTS_MESSAGE } from "../../../lawoss/okf/src/onboarding/messages";
 
 // Chyby onboardingu zapisujú surovú správu do konzoly; v teste je to len šum (review 6c).
 let quiet: ReturnType<typeof spyOn>;
@@ -12,6 +13,17 @@ const TOO_LARGE_SK = "Priečinok je príliš veľký alebo má priveľa podprie�
 const incomplete = new Error("The directory could not be inspected completely and unambiguously: .: office_search_incomplete");
 
 describe("chyby identity pri pripojení priečinka", () => {
+  // N-14 (22. 10. 2026): „už kanceláriu má“ bolo „Niečo sa nepodarilo“; teraz veta s ďalším krokom.
+  test("prax s kanceláriou, ktorá sa nedá doplniť, a časť kancelárie dostanú preloženú vetu s ďalším krokom", () => {
+    const exists = new Error(OFFICE_EXISTS_MESSAGE);
+    const inside = new Error(`${INSIDE_OFFICE_MESSAGE_PREFIX} (/x/Kancelaria/Office). Pripojte celú kanceláriu, nie jej časť.`);
+    for (const [locale, button] of [["sk", "Vybrať iný priečinok"], ["cs", "Vybrat jinou složku"], ["en", "Choose another folder"], ["de", "Anderen Ordner wählen"]] as const) {
+      expect(onboardingErrorMessage(exists, locale)).toContain(button);
+      expect(onboardingErrorMessage(inside, locale)).toContain(button);
+      expect(onboardingErrorMessage(inside, locale)).not.toContain("/x/Kancelaria");
+    }
+    expect(onboardingErrorMessage(exists, "sk")).not.toBe(onboardingErrorMessage(new Error("x"), "sk"));
+  });
   test("vnorená kancelária sa vysvetlí s cestami vo všetkých jazykoch", () => {
     expect(onboardingErrorMessage(nested, "sk")).toContain("Prax/Office/okf.config, Archiv/_kancelaria/okf.config");
     expect(onboardingErrorMessage(nested, "sk")).toContain("iná kancelária");

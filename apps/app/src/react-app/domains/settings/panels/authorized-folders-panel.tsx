@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/empty";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { t } from "@/i18n";
+import { linkedFolderServerMessage } from "@/lawoss/lite/linked-folders";
 import type {
   LegalworkServerCapabilities,
   LegalworkServerClient,
@@ -229,7 +230,8 @@ export function AuthorizedFoldersPanel(props: AuthorizedFoldersPanelProps) {
       props.onConfigUpdated();
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : safeStringify(error);
+      // LAWOSS: odmietnutia pripojených priečinkov klienta (iný klient, prax, dáta appky) preložene, nie text servera.
+      const message = linkedFolderServerMessage(error) ?? (error instanceof Error ? error.message : safeStringify(error));
       setAuthorizedFoldersError(message);
       setAuthorizedFoldersStatus(null);
       return false;

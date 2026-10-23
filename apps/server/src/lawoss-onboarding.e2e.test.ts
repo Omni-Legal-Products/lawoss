@@ -281,12 +281,85 @@ test("nové kroky folder a found sa uložia; starý krok packs sa načíta", asy
   await f.success("profile", { step: "folder" });
   await f.success("profile", { step: "found" });
   expect((await f.success("status")).profile.step).toBe("found");
+  // Sprievodca C1: kroky Ako agent pracuje a Pripravené sa uložia a prežijú opätovné načítanie.
+  for (const step of ["ai", "approvals", "ready"] as const) {
+    await f.success("profile", { step });
+    expect((await f.success("status")).profile.step).toBe(step);
+  }
+});
+
+test("vybraný priečinok kroku Toto som našiel sa uloží na obnovu, overí pri zápise a zmaže (M1)", async () => {
+  const f = await fixture(), found = join(f.base, "3-neusporiadana-prax"), gone = join(f.base, "zmizne");
+  await mkdir(join(found, "C002 Hron"), { recursive: true }); await mkdir(gone);
+  await f.success("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", step: "found", foundRoot: found });
+  await f.restartFromDisk();
+  const restored = await f.success("status");
+  expect(restored.profile).toMatchObject({ step: "found", foundRoot: found });
+  expect(restored.foundRootMissing).toBeUndefined();
+  // Bez kontroly úrovne: obyčajný priečinok (nie klient ani kancelária) sa uložiť dá; nič sa doň nezapíše.
+  expect(await readdir(found)).toEqual(["C002 Hron"]);
+  // Výslovný zápis chýbajúceho alebo relatívneho priečinka sa odmietne.
+  const missing = await f.call("profile", { foundRoot: join(f.base, "neexistuje") });
+  expect(missing.status).toBe(400);
+  expect(await missing.json()).toMatchObject({ code: "folder_missing", details: { key: "foundRoot", name: "neexistuje" } });
+  expect((await f.call("profile", { foundRoot: "relatívna/cesta" })).status).toBe(400);
+  // Uložený priečinok, ktorý zmizol, inú zmenu profilu neblokuje.
+  await f.success("profile", { foundRoot: gone });
+  await rm(gone, { recursive: true });
+  await f.success("profile", { step: "folder" });
+  const status = await f.success("status");
+  expect(status.profile).toMatchObject({ step: "folder", foundRoot: gone });
+  expect(status.foundRootMissing).toBe(true);
+  const cleared = await f.success("profile", { foundRoot: null });
+  expect(cleared.foundRoot).toBeUndefined();
+  expect((await f.success("status")).profile.foundRoot).toBeUndefined();
 });
 
 test("profil naďalej odmietne priečinok, ktorý nie je klient", async () => {
   const f = await fixture(), plain = join(f.base, "obyčajný");
   await mkdir(plain);
   expect((await f.call("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", clientRoot: plain })).status).toBe(400);
+});
+
+test("hotová kancelária bez okf.config: návrh praxe, doplnenie kancelárie a uloženie do profilu (N-14)", async () => {
+  const f = await fixture(), root = join(f.base, "4-usporiadana-kancelaria");
+  await mkdir(join(root, "Office", "memory"), { recursive: true });
+  await writeFile(join(root, "Office", "AGENTS.md"), "# Kancelária\n");
+  await writeFile(join(root, "Office", "memory", "RULE.md"), "pravidlo\n");
+  for (const client of ["C001-syn-alfa-s-r-o", "C002-syn-beta-a-s"]) {
+    await mkdir(join(root, "Klienti", client), { recursive: true });
+    await writeFile(join(root, "Klienti", client, "client.md"), `---\ntype: klient\ntitle: "${client}"\n---\n`);
+  }
+  const suggestion = await f.success("suggest", { root });
+  expect(suggestion).toMatchObject({ level: "practice", marked: false, signals: ["office_without_config"], clientPattern: "Klienti/*" });
+  expect(suggestion.clients).toHaveLength(2);
+  // Pred doplnením kancelária nie je, profil ju odmietne.
+  expect((await f.call("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", officeRoot: root })).status).toBe(400);
+  const preview = await f.success("plan", { action: "practice", root, title: "Prax", jurisdiction: "sk", language: "sk", lawyerName: "Syntetický advokát", clientPattern: "Klienti/*", scope: "client" });
+  expect(preview.preview.operations).toEqual(["Office/okf.config", "AGENTS.md", "CLAUDE.md"]);
+  await f.success("apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
+  expect(await readFile(join(root, "Office", "AGENTS.md"), "utf8")).toBe("# Kancelária\n");
+  await f.success("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", officeRoot: root });
+  for (const client of ["C001-syn-alfa-s-r-o", "C002-syn-beta-a-s"]) {
+    const result = await f.apply({ action: "existing", root: join(root, "Klienti", client), mode: "convert", title: client, confirmUnknownClient: true, ...common });
+    expect(result.result).toBe("applied");
+  }
+  expect(f.config.workspaces).toHaveLength(2);
+});
+
+test("registrácia klienta dostane názov z karty client.md, nie slug priečinka; vlastné meno ostáva (B3, N-22)", async () => {
+  const f = await fixture(), root = join(f.base, "kancelaria-b3");
+  const cards: Record<string, string | null> = { "C001-syn-alfa-s-r-o": "SYN Alfa, s. r. o.", "C002-syn-beta-a-s": "SYN Beta, a. s.", "C003-bez-karty": null };
+  for (const [client, title] of Object.entries(cards)) {
+    await mkdir(join(root, "Klienti", client), { recursive: true });
+    if (title) await writeFile(join(root, "Klienti", client, "client.md"), `---\ntype: klient\ntitle: "${title}"\n---\n`);
+  }
+  const register = (client: string, title: string) => f.apply({ action: "existing", root: join(root, "Klienti", client), mode: "convert", title, confirmUnknownClient: true, ...common });
+  await register("C001-syn-alfa-s-r-o", "C001-syn-alfa-s-r-o");
+  await register("C002-syn-beta-a-s", "Môj klient Beta");
+  await register("C003-bez-karty", "C003-bez-karty");
+  const names = Object.fromEntries(f.config.workspaces.map((w) => [w.path.split(/[\\/]/).pop(), w.name]));
+  expect(names).toEqual({ "C001-syn-alfa-s-r-o": "SYN Alfa, s. r. o.", "C002-syn-beta-a-s": "Môj klient Beta", "C003-bez-karty": "C003-bez-karty" });
 });
 
 test("suggest navrhne prax z mien priečinkov a nič nezapíše", async () => {

@@ -2461,7 +2461,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/authorized-folders`,
         { token, hostToken, timeoutMs: timeouts.config },
       ),
-    setAuthorizedFolders: (workspaceId: string, folders: string[]) =>
+    // LAWOSS: `lawossConfirmedPracticeLike` = priečinky, ktoré advokát potvrdil, hoci vyzerajú ako prax (alfa2 A3).
+    setAuthorizedFolders: (workspaceId: string, folders: string[], options?: { lawossConfirmedPracticeLike?: string[] }) =>
       requestJson<LegalworkAuthorizedFoldersUpdateResponse>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/authorized-folders`,
@@ -2469,7 +2470,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
           token,
           hostToken,
           method: "PUT",
-          body: { folders },
+          body: options?.lawossConfirmedPracticeLike?.length ? { folders, lawossConfirmedPracticeLike: options.lawossConfirmedPracticeLike } : { folders },
           timeoutMs: timeouts.config,
         },
       ),

@@ -41,8 +41,8 @@ describe("matter UI language boundary", () => {
     const before = JSON.stringify(data);
     const overview = renderToStaticMarkup(<MemoryRouter><RealOverview data={data} /></MemoryRouter>);
     const register = renderToStaticMarkup(<RealRegister data={data} />);
-    expect(overview).toContain("Active matters");
-    expect(overview).toContain("1 matter");
+    expect(overview).toContain("Active cases");
+    expect(overview).toContain("1 case");
     expect(overview).toContain("Klientův názov spisu");
     expect(overview).toContain("Pôvodný zápis v histórii");
     expect(overview).toContain("po termíne"); // the matter's own status is not a UI enum
@@ -61,7 +61,7 @@ describe("matter UI language boundary", () => {
     const before = JSON.stringify(cockpit);
     const html = renderToStaticMarkup(<MatterCockpit cockpit={cockpit} now={TODAY} raw={{}} />);
     expect(html).toContain("Requires a lawyer’s attention");
-    expect(html).toContain("Matter details");
+    expect(html).toContain("Case details");
     expect(html).toContain("AI proposal");
     expect(html).toContain("evidence without a sources field");
     expect(html).toContain("záznam E-TEST"); // a source that resembles generated copy must remain untouched
@@ -79,13 +79,13 @@ describe("matter UI language boundary", () => {
     const render = (data: OkfReadResult | undefined, error: unknown = null) => renderToStaticMarkup(
       <MemoryRouter><OkfPageState connection="ready" workspace="Pracovní složka" data={data} error={error} loading={false}>{() => "unexpected data"}</OkfPageState></MemoryRouter>,
     );
-    expect(render(empty)).toContain("does not yet contain any matters with memory");
+    expect(render(empty)).toContain("does not yet contain any cases with memory");
     expect(render({ ...empty, truncated: true })).toContain("could not be read completely");
     const failed = render(undefined, new Error("pôvodná chyba EACCES"));
     expect(failed).toContain("The operation could not be completed.");
     expect(failed).toContain("Technical details (original text)");
     expect(failed).toContain("pôvodná chyba EACCES");
-    expect(render(undefined)).toContain("Loading matter memory");
+    expect(render(undefined)).toContain("Loading case memory");
   });
 });
 
@@ -106,10 +106,10 @@ describe("matter translations and calendar dates", () => {
 
   test("zero, one, few and many counts use each language's plural rules", () => {
     for (const [locale, expected] of [
-      ["cs", ["0 spisů", "1 spis", "2 spisy", "5 spisů"]],
-      ["sk", ["0 spisov", "1 spis", "2 spisy", "5 spisov"]],
-      ["en", ["0 matters", "1 matter", "2 matters", "5 matters"]],
-      ["de", ["0 Akten", "1 Akte", "2 Akten", "5 Akten"]],
+      ["cs", ["0 případů", "1 případ", "2 případy", "5 případů"]],
+      ["sk", ["0 prípadov", "1 prípad", "2 prípady", "5 prípadov"]],
+      ["en", ["0 cases", "1 case", "2 cases", "5 cases"]],
+      ["de", ["0 Fälle", "1 Fall", "2 Fälle", "5 Fälle"]],
     ] as const) {
       expect([0, 1, 2, 5].map((count) => t("lawoss.matters.matters", locale, { count }))).toEqual([...expected]);
     }

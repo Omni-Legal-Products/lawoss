@@ -56,7 +56,18 @@ function installMenuOverlayDismissListeners() {
   }
 }
 
+// LAWOSS: jazyky systému od hlavného procesu (`--lawoss-system-languages=`, app.getPreferredSystemLanguages),
+// lebo navigator.languages v Electrone nesie len jazyk aplikácie (N-2). Len údaj na čítanie, žiadna schopnosť.
+const SYSTEM_LANGUAGES_ARGUMENT = "--lawoss-system-languages=";
+function systemLanguages() {
+  const argv = typeof process !== "undefined" && Array.isArray(process.argv) ? process.argv : [];
+  const value = argv.find((arg) => typeof arg === "string" && arg.startsWith(SYSTEM_LANGUAGES_ARGUMENT));
+  if (!value) return [];
+  return value.slice(SYSTEM_LANGUAGES_ARGUMENT.length).split(",").filter((tag) => /^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{1,8}){0,4}$/.test(tag)).slice(0, 32);
+}
+
 contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
+  systemLanguages: Object.freeze(systemLanguages()),
   invokeDesktop(command, ...args) {
     return ipcRenderer.invoke("legalwork:desktop", command, ...args);
   },

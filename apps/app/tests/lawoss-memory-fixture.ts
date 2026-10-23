@@ -52,7 +52,7 @@ export async function memoryFixture() {
     return Response.json({});
   } });
   const engineUrl = `http://127.0.0.1:${engine.port}`;
-  const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(base, "server.json"), token: "synthetic-client", hostToken: "synthetic-host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "office", name: "Office", preset: "starter", path: root, workspaceType: "local" }, { id: "matter", name: "Matter", preset: "starter", path: matter, workspaceType: "local" }], authorizedRoots: [root], opencodeBaseUrl: engineUrl, readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(base, "server", "server.json"), token: "synthetic-client", hostToken: "synthetic-host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "office", name: "Office", preset: "starter", path: root, workspaceType: "local" }, { id: "matter", name: "Matter", preset: "starter", path: matter, workspaceType: "local" }], authorizedRoots: [root], opencodeBaseUrl: engineUrl, readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   const server = await startServer(config), baseUrl = `http://127.0.0.1:${server.port}`;
   const client = createLegalworkServerClient({ baseUrl, token: "synthetic-client", hostToken: "synthetic-host" });
   return { base, root, matter, vault, content, profile, config, client, baseUrl, engineUrl, engineCalls, cleanup: async () => {
