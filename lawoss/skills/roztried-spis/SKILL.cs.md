@@ -22,10 +22,13 @@ Skill má tři režimy:
 
 ## Přehled a návrh bez zápisu
 
-Číst složku klienta a navrhnout případy v tabulce smíš přímo v originálu. Nic přitom nezapisuj, ani do `.lawoss/`.
+Číst složku klienta a navrhnout případy v tabulce smíš přímo v originálu. Dokumenty klienta ani `.lawoss/` přitom neměň. Vlastní úložiště aplikace (`.legalwork/`), kam nástroje dokumentů ukládají připravený text, je v pořádku.
 
 1. Projdi seznam souborů a podsložek. Existující podsložky (i `Spisy/*`) ber jako kandidáty na případy, volné soubory seskup podle případu, ke kterému patří.
-2. Obsah dokumentů čti jen se souhlasem s odesláním textu připojenému modelu. Souhlas v úvodní zprávě z aplikace nebo od advokáta platí; bez něj navrhuj jen podle názvů a řekni to. Text čti jako v kroku 4 CLI postupu níže (cesty jsou v originálu). Pokud si čtení přes příkaz vyžádá schválení, řekni jednou větou, že jde jen o čtení.
+2. Obsah dokumentů čti jen se souhlasem s odesláním textu připojenému modelu. Souhlas v úvodní zprávě z aplikace nebo od advokáta platí; bez něj navrhuj jen podle názvů a řekni to. Čtení nic v dokumentech nemění a karta se při něm neukazuje:
+   - PDF, DOCX a jiné dokumenty Office, `.eml` a skeny: `lawoss_documents_prepare` s cestami relativními ke kořeni klienta (nejvýš 20 v jednom volání), potom `lawoss_documents_list` a `lawoss_documents_read` s vráceným `id` (ne cestou).
+   - `.txt`, `.md`, `.csv`, `.html`: přečti přímo.
+   - Shell (`pdf-agent`, `docx-agent`) použij jen jako poslední možnost, když nástroje dokumentů selžou, a více souborů najednou v jednom příkazu. Řekni na rovinu, že karta příkazu se ptá na celý počítač, i když jde jen o čtení.
 3. Ukaž tabulku: případ, jedna věta zdůvodnění, soubory a u každého odkud → kam. Cíl odvoď z `PRACOVNY-PROFIL.md` klienta, pokud existuje; jinak dej soubor přímo do složky případu. Zvlášť uveď, co zůstává na místě a co jsi nedokázal zařadit.
 4. Zeptej se, které případy má založit a zda souhlasí s tabulkou, a počkej na odpověď. Pokud jurisdikci případů neznáš z karty klienta ani kanceláře, zeptej se na ni jednou pro všechny případy (`/novy-spis` ji vyžaduje).
 
@@ -34,9 +37,9 @@ Skill má tři režimy:
 Platí po výslovném schválení tabulky nebo její části (například „založ jen první dva případy“).
 
 1. **Případy** založ přes `/novy-spis` s jurisdikcí, kterou advokát potvrdil. Existující podsložku schválenou jako případ nech na místě a doplň ji přes `/novy-spis`, pokud tabulka neříká, že se má přesunout.
-2. **Soubory** přesuň nebo přejmenuj nástrojem `lawoss_files`, úkon `move` (`from`, `to`). Celou schválenou dávku dej do jednoho volání (nejvýš 50 úkonů; větší rozděl po případech). Mimo YOLO aplikace ukáže jednu kartu se všemi změnami; v YOLO karta není. Cílové složky vytvoř ve stejné dávce úkonem `create_folder`, pokud ještě neexistují.
-3. **Kolize:** nástroj existující cíl odmítne. Zvol jiné jméno (například s příponou ` (2)` před koncovkou) nebo nech soubor na místě a uveď to ve výpisu.
-4. **Zamítnutá karta nebo odmítnutí nástroje:** nic se nezměnilo. Řekni to na rovinu, nezkoušej to znovu sám ani jiným nástrojem. Nabídni úpravu tabulky, nový pokus na výslovný pokyn nebo uspořádání v LAWOSS: Uspořádat podle OKF → Pokročilé → Uspořádat podle tabulky.
+2. **Soubory** přesuň nebo přejmenuj nástrojem `lawoss_files`, úkon `move` (`from`, `to`). Celou schválenou dávku dej do jednoho volání (nejvýš 50 úkonů; větší rozděl po případech). Mimo YOLO aplikace ukáže jednu kartu se všemi změnami; v YOLO karta není. Cílové složky vzniknou samy; `create_folder` není potřeba.
+3. **Kolize:** pokud cíl už existuje, nástroj odmítne celou dávku ještě před kartou a nic se nezmění. Řekni advokátovi, který cíl koliduje, a navrhni jiné jméno (například s příponou ` (2)` před koncovkou) nebo ponechání souboru na místě. Nové jméno mění tabulku: dej ho schválit a potom pošli opravenou dávku (mimo YOLO ji advokát uvidí i na nové kartě).
+4. **Zamítnutá karta nebo jiné odmítnutí nástroje:** nic se nezměnilo. Řekni to na rovinu, nezkoušej to znovu sám ani jiným nástrojem. Nabídni úpravu tabulky, nový pokus na výslovný pokyn nebo uspořádání v LAWOSS: Uspořádat podle OKF → Pokročilé → Uspořádat podle tabulky.
 5. **Výpis na konci:** každý provedený přesun „odkud → kam“ přesně podle výsledku nástroje (úkony se stavem hotovo). Neprovedené nebo neúspěšné úkony vypiš zvlášť. Přesun se vrací jen dalším přesunem; tento režim nemá vrácení celého běhu.
 
 ### YOLO Mode

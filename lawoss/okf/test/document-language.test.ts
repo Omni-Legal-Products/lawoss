@@ -18,9 +18,9 @@ const labels = {
 };
 
 const CITATION_RULE = {
-  cs: "Odkazuj na soubor, ve kterém jsi fakt opravdu přečetl, ne na kartu, přehled ani jiný metadatový soubor",
-  sk: "Odkazuj na súbor, v ktorom si fakt naozaj prečítal, nie na kartu, prehľad ani iný metadátový súbor",
-  en: "Link the file in which you actually read the fact, not the card, an overview or another metadata file",
+  cs: "Odkazuj na původní dokument, ve kterém jsi fakt opravdu přečetl. Kartu ani generovaný přehled",
+  sk: "Odkazuj na pôvodný dokument, v ktorom si fakt naozaj prečítal. Kartu ani generovaný prehľad",
+  en: "Link the original document in which you actually read the fact. Do not cite a card or generated overview",
 } as const;
 
 for (const language of ["cs", "sk", "en"] as const) for (const jurisdiction of ["cz", "sk"] as const) for (const type of ENTITY_TYPES) {

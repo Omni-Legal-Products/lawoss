@@ -66,7 +66,7 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "6c28a2343489363802528c4b1aa59c509856e76a0ac151b48f169f0515cfdd17", // lawoss/skills/usporiadaj-spis/SKILL.md @ feat/yolo-mode (výnimka YOLO Mode)
   "20a2bceed2679f8db5b6f672a39856d243b852a835e80405b8a48ec6d75cba88", // lawoss/skills/roztried-spis/SKILL.md @ feat/yolo-mode (výnimka YOLO Mode)
   "3f27ea3f7ac7a5f755896e30031084fee42829be934efd156e4a7d6f4f154162", // lawoss/skills/roztried-spis/SKILL.cs.md @ feat/yolo-mode (výjimka YOLO Mode)
-  "8faf530e629cd88c8d718419fdadb424401a6de3c6e53eab1e31b223a2a7c38d", // lawoss/skills/usporiadaj-spis/SKILL.md @ alfa2/b1 (presun na mieste cez lawoss_files po schválení)
-  "8b91912557a333a3010637e5229400a8d81e7b98c99d46557b300e77fecf7a95", // lawoss/skills/roztried-spis/SKILL.md @ alfa2/b1 (prehľad bez klona, presun cez lawoss_files po schválení)
-  "3f37fcf64046e6fe9f6db2353ae4a60c9883752af45b96980c6581a85b4c9390", // lawoss/skills/roztried-spis/SKILL.cs.md @ alfa2/b1 (přehled bez klonu, přesun přes lawoss_files po schválení)
+  "6cd5b94cd7f84503b2a4307b99a72e33f52d0f670422695371987b2bee02b6e5", // lawoss/skills/usporiadaj-spis/SKILL.md @ alfa2/b1 (presun na mieste cez lawoss_files po schválení)
+  "c6b4a33fd6a0519ddd8deb3d45264b2ba039622ad54d633b62206413c3f04d7f", // lawoss/skills/roztried-spis/SKILL.md @ alfa2/b1 (prehľad bez klona, presun cez lawoss_files po schválení)
+  "803d68c6b9bc64ef8ed2cdd36cd2d7f897148678316817f32c5d3ea0969dad7b", // lawoss/skills/roztried-spis/SKILL.cs.md @ alfa2/b1 (přehled bez klonu, přesun přes lawoss_files po schválení)
 ]);

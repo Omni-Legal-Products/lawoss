@@ -6,7 +6,7 @@ import { createHandoff } from "./checkpoint.mjs";
  * obsahuje. Nemení sa medzi ťahmi ani pri zlyhaní checkpointu, takže nerozbije cache promptu.
  * Neexportuje sa: OpenCode volá každý export modulu pluginu.
  */
-const CITATION_RULE = "Back each substantive claim taken from the user's files with a Markdown link to the exact file that contains it, using a path relative to the client or project folder opened in LAWOSS (for example [notes.txt](Spisy/M001-lease/01_Inputs/notes.txt)), so the user can open it. Link the file where you actually read the fact, not a card, overview or other metadata file (matter.md, client.md, _STATUS.md, index.md) unless the fact is written there. When a summary draws on several files, cite each one. If you are not sure which file supports a claim, say which files you checked.";
+const CITATION_RULE = "Back each substantive claim taken from the user's files with a Markdown link to the exact file that contains it, using a path relative to the client or project folder opened in LAWOSS (for example [notes.txt](Spisy/M001-lease/01_Inputs/notes.txt)), so the user can open it. Link the original document where you actually read the fact. Cite a card or generated overview (matter.md, client.md, _STATUS.md, index.md) only when the fact appears nowhere else; if the overview names its source document, cite that document. When a summary draws on several files, cite each one. If you are not sure which file supports a claim, say which files you checked.";
 
 /** Native lifecycle hooks; native mode refreshes authenticated host permissions. */
 export async function LawossOkfHandoff(input, { mode = "standalone" } = {}) {

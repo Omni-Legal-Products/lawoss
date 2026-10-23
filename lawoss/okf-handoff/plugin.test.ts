@@ -106,7 +106,7 @@ describe("pevné pravidlo citácií v systémovom texte (alfa 2 B1, N-15)", () =
     const [rule] = citation(turns.ok1.system);
     expect(rule).toBeDefined();
     expect(citation(turns.failed1.system)).toEqual([rule!]);
-    for (const phrase of ["not a card, overview or other metadata file", "_STATUS.md", "cite each one", "say which files you checked"]) expect(rule).toContain(phrase);
+    for (const phrase of ["Link the original document", "only when the fact appears nowhere else", "cite that document", "_STATUS.md", "cite each one", "say which files you checked"]) expect(rule).toContain(phrase);
   });
   test("natívny režim pridá vetu aj mimo pamäte prípadu", async () => {
     const root = mkdtempSync(join(tmpdir(), "okf-cite-")); roots.push(root);
