@@ -48,7 +48,13 @@ export async function promoteAlphaTarget({ item, repo, gh }) {
       previous = await readFile(join(pointerDir, manifestName), 'utf8');
     }
     await verifyEvidenceChain({ repo, tag: evidence.releaseTag, name: item.candidate.evidenceName, expectedSha256: item.canonical.sha256, gh });
-    if (previous === desired) return; // Exact fully verified replay, not an equal-version replacement.
+    // A pointer someone turned into a draft is invisible to the updater (HTTP 404). publishDraftedPointers()
+    // publishes it again only after every manifest it holds was verified in this run.
+    const promoted = { pointerTag, manifestName, sha256: sha256(desired), draft: pointer?.isDraft === true };
+    if (previous === desired) { // Exact fully verified replay, not an equal-version replacement.
+      if (promoted.draft) validateChannelPromotion({ evidence, release, observedAssets, pointerTag, manifestName });
+      return promoted;
+    }
     const currentVersion = previous ? scalar(previous.match(/^version:\s*(.+)$/m)?.[1] ?? '') : undefined;
     if (previous && !currentVersion) throw new Error('Current pointer version unavailable');
     validateChannelPromotion({ evidence, release, observedAssets, pointerTag, manifestName, currentVersion });
@@ -65,5 +71,33 @@ export async function promoteAlphaTarget({ item, repo, gh }) {
     await import('node:fs/promises').then(fs => fs.mkdir(readback));
     await gh(['release', 'download', pointerTag, '--repo', repo, '--pattern', manifestName, '--dir', readback]);
     if (sha256(await readFile(join(readback, manifestName))) !== sha256(desired)) throw new Error('Updater pointer readback differs');
+    return promoted;
   } finally { await rm(root, { recursive: true, force: true }); }
+}
+
+/** Promotes every target, then publishes a drafted pointer only once all its targets of this run are written. */
+export async function promoteAlphaTargets({ items, repo, gh, promoteTarget = promoteAlphaTarget }) {
+  const promoted = [];
+  for (const item of items) promoted.push(await promoteTarget({ item, repo, gh }));
+  // A shared pointer (alpha-windows-latest: x64 + arm64) is checked as a whole, never after its first target.
+  await publishDraftedPointers({ promoted, repo, gh });
+}
+
+/** Publishes a drafted pointer again only when this run verified every asset it holds and reads them back unchanged. */
+export async function publishDraftedPointers({ promoted, repo, gh }) {
+  for (const pointerTag of new Set(promoted.filter(item => item.draft).map(item => item.pointerTag))) {
+    const verified = new Map(promoted.filter(item => item.pointerTag === pointerTag).map(item => [item.manifestName, item.sha256]));
+    const pointer = JSON.parse(await gh(['release', 'view', pointerTag, '--repo', repo, '--json', 'tagName,isDraft,assets']));
+    if (pointer.isDraft !== true) continue;
+    const unverified = pointer.assets.map(asset => asset.name).filter(name => !verified.has(name));
+    if (unverified.length) throw new Error(`Drafted pointer ${pointerTag} holds manifests this run did not verify (${unverified.join(', ')}); it stays a draft`);
+    const root = await mkdtemp(join(tmpdir(), 'lawoss-alpha-pointer-'));
+    try {
+      for (const [name, expected] of verified) {
+        await gh(['release', 'download', pointerTag, '--repo', repo, '--pattern', name, '--dir', root]);
+        if (sha256(await readFile(join(root, name))) !== expected) throw new Error(`Drafted pointer ${pointerTag} changed after verification; it stays a draft`);
+      }
+      await gh(['release', 'edit', pointerTag, '--repo', repo, '--draft=false', '--prerelease', '--latest=false']);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
 }
