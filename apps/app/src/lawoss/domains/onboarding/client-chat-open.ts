@@ -15,7 +15,7 @@ import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "..
 import { ensureSkillAvailable, workspaceSkillEngine } from "../../okf/skill-availability";
 import { publishAiBoundaries } from "../ai/boundaries-store";
 import { installMissingOnboardingSkills } from "./install-pack";
-import { prepareClientChat, type ClientChatOutcome, type ClientChatRequest } from "./client-chat";
+import { clientChatMessage, prepareClientChat, type ClientChatOutcome, type ClientChatRequest } from "./client-chat";
 
 /**
  * Priečinok klienta pre chat: podľa id z výsledku registrácie, inak podľa cesty. Len lokálny pracovný
@@ -50,6 +50,10 @@ export async function openOnboardedClientChat(request: ClientChatRequest, option
       return engine ? ensureSkillAvailable(engine, name) : "missing";
     },
     // Priečinok klienta je pracovný priečinok; jeho registrovaná cesta je tá, ktorú server overuje.
-    open: (skill) => openSessionWithPrompt(connection, workspace, skill ? request.prompt : request.promptWithoutSkill, toSessionTransportDirectory(workspace.path)),
+    // Technické pokyny idú skryto s prvou správou (N-A4-1), advokát vidí len vetu.
+    open: (skill) => {
+      const message = clientChatMessage(request.prompt, skill);
+      return openSessionWithPrompt(connection, workspace, message.text, toSessionTransportDirectory(workspace.path), message.modelContext);
+    },
   });
 }

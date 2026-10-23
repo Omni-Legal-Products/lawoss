@@ -144,7 +144,7 @@ export function ReadyStep(props: ReadyStepProps) {
   const chat = onOpenChat ? createClientChatFlow({
     register: (registered) => onRegister(registered, completion),
     openChat: onOpenChat,
-    prompt: (name, skill) => clientChatPrompt(found, name, skill),
+    prompt: (name) => clientChatPrompt(found, name),
     done: (registered, landing) => onFinish(registered, { ...completion, landing }),
     show: setPhase,
   }) : undefined;

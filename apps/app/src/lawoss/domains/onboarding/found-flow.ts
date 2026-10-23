@@ -7,7 +7,7 @@ import { hasLegalForm } from "../../../../../../lawoss/okf/src/onboarding/sugges
 import { triageGrant, triagePlan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { LITE_CLIENTS_PATH } from "../../lite/links";
 import type { OnboardingCompletion } from "./lawoss-welcome-page";
-import type { ClientChatOutcome, ClientChatRequest, ClientChatUnavailable } from "./client-chat";
+import type { ClientChatOutcome, ClientChatPrompt, ClientChatRequest, ClientChatUnavailable } from "./client-chat";
 import type { DocumentLanguage, ExistingPlanRequest, Jurisdiction, OfficePlanRequest, OnboardingApi, OnboardingApplyResult, OnboardingSuggestion, PracticePlanRequest } from "./api";
 
 export type FoundIdentity = { lawyerName: string; jurisdiction: Jurisdiction; language: Language };
@@ -256,8 +256,8 @@ export type ClientChatView = { name: "chatUnavailable"; reason: ClientChatUnavai
 export function createClientChatFlow(deps: {
   register: (result?: OnboardingApplyResult) => Promise<unknown>;
   openChat: (request: ClientChatRequest) => Promise<ClientChatOutcome>;
-  /** Prvá správa pre klienta; `skill: false` je variant bez /novy-spis. */
-  prompt: (name: string, skill: boolean) => string;
+  /** Prvá správa pre klienta: viditeľná veta a skryté pokyny so skillom /novy-spis aj bez neho. */
+  prompt: (name: string) => ClientChatPrompt;
   done: (result: OnboardingApplyResult | undefined, landing: string) => Promise<void> | void;
   show: (view: ClientChatView) => void;
 }) {
@@ -266,7 +266,7 @@ export function createClientChatFlow(deps: {
     if (!target) { deps.show({ name: "chatUnavailable", reason: "failed", queue, result }); return; }
     const registered = target.result ?? result;
     await deps.register(registered);
-    const request: ClientChatRequest = { workspaceId: target.result?.workspace?.id, directory: reorganizeTarget(target), prompt: deps.prompt(target.name, true), promptWithoutSkill: deps.prompt(target.name, false) };
+    const request: ClientChatRequest = { workspaceId: target.result?.workspace?.id, directory: reorganizeTarget(target), prompt: deps.prompt(target.name) };
     const outcome = await deps.openChat(request).catch((reason: unknown): ClientChatOutcome => { console.warn("[lawoss] client chat after adding a folder", reason); return { unavailable: "failed" }; });
     if ("route" in outcome) await deps.done(registered, outcome.route);
     else deps.show({ name: "chatUnavailable", reason: outcome.unavailable, queue, result: registered });
