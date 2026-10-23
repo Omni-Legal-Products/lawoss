@@ -117,7 +117,7 @@ export async function runPublicAiPrompt(config: ServerConfig, approvals: Approva
       share: "disabled", autoupdate: false, plugin: [], mcp: {}, permission: {"*": "deny"}, lsp: false, formatter: false,
       provider: {"public-synthetic": {npm: "@ai-sdk/openai-compatible", name: "Public scratch", options: {baseURL: `http://127.0.0.1:${relay.port}/${capability}`, apiKey: "public-relay-only"},
         models: {[input.modelId]: {name: "Public scratch", limit: {context: 100000, output: 4000}}}}}}), {mode: 0o600});
-    engine = await createManagedOpencodeServer({bin: binary, cwd: directory, inheritEnvironment: false, timeoutMs: 15000,
+    engine = await createManagedOpencodeServer({bin: binary, cwd: directory, inheritEnvironment: false,
       env: {PATH: process.env.PATH ?? "/usr/bin:/bin", OPENCODE_CONFIG: engineConfig, OPENCODE_TEST_HOME: root, OPENCODE_DB: join(root, "engine.sqlite"),
         XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
         OPENCODE_CONFIG_DIR: join(root, "empty-config"), OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true",
