@@ -4,6 +4,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { currentLocale, setLocale, t, type Language } from "../src/i18n";
 import { getDisplaySessionTitle } from "../src/app/lib/session-title";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { PendingPermission } from "../src/app/types";
+import { fileOperationCard } from "../src/lawoss/lite/file-operation-card";
+import { PermissionApprovalModal, PermissionApprovalPanel } from "../src/react-app/domains/session/chat/permission-approval-modal";
 
 const initial: Language = currentLocale();
 afterEach(() => setLocale(initial));
@@ -48,5 +53,50 @@ describe("detail skillu v Integráciách nie je po anglicky (V14)", () => {
       setLocale(locale);
       expect(keys.map((key) => t(key))).toEqual(expected[locale]);
     }
+  });
+});
+
+describe("„Podrobnosti“ karty zmeny súborov bez surového JSON (V10a)", () => {
+  const metadata = { lawossFiles: [
+    { operation: "move", kind: "file", from: "00_Na_zatriedenie/sken_sud_001.pdf", to: "Spisy/M004 Vyúčtovanie nájmu logistického skladu/2026-10-15 Uznesenie.pdf" },
+    { operation: "move", kind: "file", from: "Spisy/M004/podklad.pdf", to: "Spisy/M004/zmluva (2).pdf" },
+    { operation: "copy", kind: "folder", from: "Spisy/M004/Podania", to: "C002-podklady/Podania", entries: 3 },
+    { operation: "delete", kind: "file", from: "stary.txt" },
+  ], description: "Zaradenie rozhodnutia do prípadu" };
+  const permission: PendingPermission = { id: "per_1", sessionID: "ses_1", permission: "lawoss_file_change", patterns: [], metadata, always: [], receivedAt: 1, protocol: "legacy" };
+
+  test("každá zmena má sloveso, obe cesty celé a počty položiek, v SK/CS/EN/DE", () => {
+    setLocale("sk");
+    expect(fileOperationCard(metadata)?.details).toEqual({ reason: "Dôvod: Zaradenie rozhodnutia do prípadu", lines: [
+      "Presunúť: 00_Na_zatriedenie/sken_sud_001.pdf → Spisy/M004 Vyúčtovanie nájmu logistického skladu/2026-10-15 Uznesenie.pdf",
+      "Premenovať: Spisy/M004/podklad.pdf → Spisy/M004/zmluva (2).pdf",
+      "Kópia priečinka: Spisy/M004/Podania → C002-podklady/Podania s 3 položkami",
+      "Do Koša: stary.txt",
+    ] });
+    const first = (locale: Language) => { setLocale(locale); return fileOperationCard(metadata)?.details.lines.slice(0, 3).map((line) => line.split(":")[0]); };
+    expect(first("cs")).toEqual(["Přesunout", "Přejmenovat", "Kopie složky"]);
+    expect(first("en")).toEqual(["Move", "Rename", "Copy folder"]);
+    expect(first("de")).toEqual(["Verschieben", "Umbenennen", "Ordner kopieren"]);
+  });
+
+  test("karta v chate aj dialóg ukážu zoznam, nie lawossFiles/operation/kind", () => {
+    setLocale("sk");
+    for (const html of [renderToStaticMarkup(<PermissionApprovalPanel permission={permission} respondPermission={() => {}} />),
+      renderToStaticMarkup(<PermissionApprovalModal permission={permission} respondPermission={() => {}} />)]) {
+      if (!html.includes("data-lawoss-file-details")) continue; // A closed or portalled dialog renders nothing on the server.
+      for (const raw of ["lawossFiles", "&quot;operation&quot;", "&quot;kind&quot;", "&quot;from&quot;"]) expect(html.includes(raw) ? raw : null).toBeNull();
+      expect(html).toContain("Premenovať: Spisy/M004/podklad.pdf → Spisy/M004/zmluva (2).pdf");
+    }
+    const panel = renderToStaticMarkup(<PermissionApprovalPanel permission={permission} respondPermission={() => {}} />);
+    expect(panel).toContain("data-lawoss-file-details");
+    expect(panel).toContain("Dôvod: Zaradenie rozhodnutia do prípadu");
+  });
+
+  test("iné karty si surové podrobnosti nechávajú", () => {
+    setLocale("sk");
+    const other: PendingPermission = { ...permission, permission: "webfetch", metadata: { url: "https://example.invalid", format: "text" } };
+    const html = renderToStaticMarkup(<PermissionApprovalPanel permission={other} respondPermission={() => {}} />);
+    expect(html).toContain("&quot;format&quot;");
+    expect(html).not.toContain("data-lawoss-file-details");
   });
 });

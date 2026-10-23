@@ -1,8 +1,9 @@
 /**
  * LAWOSS: karta nástroja `lawoss_files` (alfa 2, MČ 22. 10. 2026) – jedna karta na jednu žiadosť
  * o zmenu súborov s čitateľným rozsahom „pôvodná → nová“ / „Do Koša: X“. Plán prichádza zo servera
- * v `metadata.lawossFiles` karty enginu (povolenie `lawoss_file_change`); technické údaje ostávajú
- * v „Podrobnostiach“. Názvy prichádzajú zo servera s viditeľne escapovanými riadiacimi znakmi.
+ * v `metadata.lawossFiles` karty enginu (povolenie `lawoss_file_change`). „Podrobnosti“ ukazujú tie isté zmeny
+ * čitateľne (sloveso, pôvodná → nová, počty položiek, dôvod), nie surový JSON (P6, N-A3-6). Názvy prichádzajú
+ * zo servera s viditeľne escapovanými riadiacimi znakmi.
  *
  * Tlačidlo „Povoliť do konca konverzácie“: engine 1.18.29 si „always“ pamätá pre celý priečinok
  * klienta (všetky jeho chaty, do reštartu), nie pre konverzáciu. Preto sa neponúka pri natívnej
@@ -56,20 +57,37 @@ function line(change: PlannedChange): string {
   return trashLine(change, from);
 }
 
+const renamed = (change: PlannedChange) => parent(change.from ?? "") === parent(change.to ?? "");
+
+/** One full line per change for "Details": an explicit verb, both paths, and folder item counts. */
+function detailLine(change: PlannedChange): string {
+  const from = change.from ?? "", to = change.to ?? "";
+  if (change.operation === "move") return t(renamed(change) ? "lawoss.files.line_rename" : "lawoss.files.line_move", undefined, { from, to });
+  if (change.operation === "copy" && change.kind === "folder" && change.entries !== undefined)
+    return change.entriesCapped
+      ? t("lawoss.files.line_copy_folder_large", undefined, { from, to, limit: String(SURVEY_LIMIT) })
+      : t("lawoss.files.line_copy_folder", { from, to, count: change.entries });
+  return line(change);
+}
+
 function title(changes: PlannedChange[]): string {
   if (changes.length > 1) return t("lawoss.files.title_batch", { count: changes.length });
   const [change] = changes;
-  if (change.operation === "move") return t(parent(change.from ?? "") === parent(change.to ?? "") ? "lawoss.files.title_rename" : "lawoss.files.title_move");
+  if (change.operation === "move") return t(renamed(change) ? "lawoss.files.title_rename" : "lawoss.files.title_move");
   if (change.operation === "copy") return t("lawoss.files.title_copy");
   if (change.operation === "create_folder") return t("lawoss.files.title_create_folder");
   return t("lawoss.files.title_trash");
 }
 
 /** The card's readable content, or `null` when the request is not from `lawoss_files`. */
-export function fileOperationCard(metadata: Record<string, unknown>): { title: string; message: string; permissionLabel: string; scopeLabel: string; scopeValue: string } | null {
+export type FileOperationDetails = { reason: string | null; lines: string[] };
+
+export function fileOperationCard(metadata: Record<string, unknown>): { title: string; message: string; permissionLabel: string; scopeLabel: string; scopeValue: string; details: FileOperationDetails } | null {
   const changes = plannedChanges(metadata);
   if (!changes) return null;
+  const reason = typeof metadata.description === "string" && metadata.description.trim() ? t("lawoss.files.reason", undefined, { text: metadata.description.trim() }) : null;
   return {
+    details: { reason, lines: changes.map(detailLine) },
     title: title(changes),
     message: t(changes.some((change) => change.operation === "delete") ? "lawoss.files.message_trash" : "lawoss.files.message"),
     permissionLabel: t("lawoss.files.permission_label"),
