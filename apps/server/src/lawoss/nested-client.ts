@@ -29,35 +29,48 @@ type RegisteredClient = { root: string; ref: NestedClientRef };
 const refOf = (workspace: WorkspaceInfo): NestedClientRef => ({ workspaceId: workspace.id, name: workspace.displayName?.trim() || workspace.name });
 const strictlyWithin = (root: string, candidate: string) => root !== candidate && isPathWithin(root, candidate);
 
-/** Zaregistrovaní klienti s kanonickým, zjednoteným koreňom; kontajner praxe medzi nimi nie je. */
-async function registeredClients(config: ServerConfig): Promise<RegisteredClient[]> {
+/** Všetky lokálne pracovné priestory klientov (aj kontajnery) s kanonickým, zjednoteným koreňom. */
+async function localClientRoots(config: ServerConfig): Promise<RegisteredClient[]> {
+  return Promise.all((await clientWorkspaces(config)).map(async (workspace) => ({ root: foldedPath(await canonicalPath(workspace.path)), ref: refOf(workspace) })));
+}
+/** Zaregistrovaní klienti; kontajner praxe (rovná sa koreňu praxe alebo ho obsahuje) medzi nimi nie je. */
+async function registeredClients(config: ServerConfig, all?: readonly RegisteredClient[]): Promise<RegisteredClient[]> {
   const practice = await officeRoot(config);
   const office = practice ? foldedPath(practice) : null;
-  const clients = await Promise.all((await clientWorkspaces(config)).map(async (workspace) => ({ root: foldedPath(await canonicalPath(workspace.path)), ref: refOf(workspace) })));
-  return clients.filter((client) => !office || !isPathWithin(client.root, office));
+  return (all ?? await localClientRoots(config)).filter((client) => !office || !isPathWithin(client.root, office));
 }
 
-/** Bez I/O: koreň klienta a zaregistrovaní klienti už kanonicky a zjednotene. */
-export function nestedClientConflict(candidate: string, clients: readonly { root: string; ref: NestedClientRef }[]): NestedClientConflict | null {
+/**
+ * Bez I/O: koreň klienta a zaregistrovaní klienti už kanonicky a zjednotene. `inPlace`: priečinok sa použije
+ * na mieste (úprava, mapovanie, výber v profile); už zaregistrovaný sa tým nezaregistruje znova a starý stav
+ * s klientom vnútri ostane voliteľný. Kópia (originál skúšobného klonu) výnimku nemá: skopírovala by aj klienta vo vnútri.
+ */
+export function nestedClientConflict(candidate: string, clients: readonly { root: string; ref: NestedClientRef }[], inPlace = true): NestedClientConflict | null {
   const outer = [...clients].sort((left, right) => right.root.length - left.root.length).find((client) => strictlyWithin(client.root, candidate));
   if (outer) return { kind: "nested", outer: outer.ref };
-  // Už zaregistrovaný priečinok sa týmto nezaregistruje znova; starý stav s klientom vnútri ostane voliteľný.
-  if (clients.some((client) => client.root === candidate)) return null;
+  if (inPlace && clients.some((client) => client.root === candidate)) return null;
   const inner = clients.filter((client) => strictlyWithin(candidate, client.root));
   return inner.length ? { kind: "contains", clients: inner.map((client) => client.ref) } : null;
 }
 
-/** Odmietne priečinok ako klienta, ak leží v inom zaregistrovanom klientovi alebo nejakého obsahuje. Nič nezapisuje. */
-export async function assertClientFolderNotNested(config: ServerConfig, folder: string): Promise<void> {
-  const conflict = nestedClientConflict(foldedPath(await canonicalPath(folder)), await registeredClients(config));
+/**
+ * Odmietne priečinok ako klienta, ak leží v inom zaregistrovanom klientovi alebo nejakého obsahuje. Nič nezapisuje.
+ * `use: "copy"` pre originál skúšobnej kópie (pozri `nestedClientConflict`).
+ */
+export async function assertClientFolderNotNested(config: ServerConfig, folder: string, use: "in_place" | "copy" = "in_place"): Promise<void> {
+  const conflict = nestedClientConflict(foldedPath(await canonicalPath(folder)), await registeredClients(config), use === "in_place");
   if (conflict?.kind === "nested")
     throw new ApiError(409, "onboarding_client_nested", "This folder belongs to another client. A client cannot be inside another client. Nothing was changed.", conflict.outer);
   if (conflict?.kind === "contains")
     throw new ApiError(409, "onboarding_client_contains_clients", "This folder holds the folders of other clients. Choose the folder of one client. Nothing was changed.", { clients: conflict.clients });
 }
 
-/** Je priečinok sám zaregistrovaný klient mimo kontajnera praxe? (hranica nástrojov agenta) */
-export async function isRegisteredClientRoot(config: ServerConfig, folder: string): Promise<boolean> {
+/**
+ * Hranica nástrojov agenta: priečinok je zaregistrovaný klient mimo kontajnera praxe a nie je v ňom zaregistrovaný
+ * žiadny iný pracovný priestor (ako `nestedClientRoots`). Kontajner s klientmi (aj vnútri praxe) tak výnimku nedostane.
+ */
+export async function isStandaloneClientRoot(config: ServerConfig, folder: string): Promise<boolean> {
   const candidate = foldedPath(await canonicalPath(folder));
-  return (await registeredClients(config)).some((client) => client.root === candidate);
+  const all = await localClientRoots(config);
+  return (await registeredClients(config, all)).some((client) => client.root === candidate) && !all.some((client) => strictlyWithin(candidate, client.root));
 }

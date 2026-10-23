@@ -62,13 +62,14 @@ const inside = (root: string, path: string) => { const rel = relative(root, path
  * Priečinky, ktoré sa po vykonaní stanú klientom (ako `apply` určí `clientRoot`), a pri skúšobnej kópii aj originál.
  * Kancelária a prax nie sú klient. Klient vnútri iného klienta ani priečinok s klientmi sa nezaregistruje (N-A3-1).
  */
-function clientFoldersOf(preview: { action: string; mode: string; root?: string; target?: string; clientRoot?: string; source?: string }): string[] {
+function clientFoldersOf(preview: { action: string; mode: string; root?: string; target?: string; clientRoot?: string; source?: string }): { folder: string; use: "in_place" | "copy" }[] {
   if (preview.action === "office" || preview.action === "practice") return [];
   const registered = preview.clientRoot ?? (preview.mode === "map" ? preview.root : preview.target);
-  return [registered, preview.mode === "trial_clone" ? preview.source : undefined].filter((folder): folder is string => Boolean(folder));
+  const source = preview.mode === "trial_clone" ? preview.source : undefined;
+  return [...(registered ? [{ folder: registered, use: "in_place" as const }] : []), ...(source ? [{ folder: source, use: "copy" as const }] : [])];
 }
 const assertClientFolders = async (config: ServerConfig, preview: Parameters<typeof clientFoldersOf>[0]) => {
-  for (const folder of clientFoldersOf(preview)) await assertClientFolderNotNested(config, folder);
+  for (const { folder, use } of clientFoldersOf(preview)) await assertClientFolderNotNested(config, folder, use);
 };
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
 
@@ -214,7 +215,7 @@ export function registerOnboardingRoutes(options: {
   route("POST", "plan", async ctx => {
     const input = await body(ctx);
     // Vybraný existujúci priečinok sa overí ešte pred prehliadkou: odmietnutie má prednosť pred inou chybou plánu.
-    if (input.action === "existing" && typeof input.root === "string" && isAbsolute(input.root)) await assertClientFolderNotNested(config, input.root);
+    if (input.action === "existing" && typeof input.root === "string" && isAbsolute(input.root)) await assertClientFolderNotNested(config, input.root, input.mode === "trial_clone" ? "copy" : "in_place");
     const preview = await previewOnboarding(input);
     // The state/journal must never live inside an inspected client or parent.
     const original = preview.mode === "map" ? preview.root : preview.mode === "trial_clone" ? preview.source : preview.plan?.root;

@@ -27,12 +27,28 @@ async function boundaryFixture(profile: (paths: {practice: string; outer: string
   return {root, config, practice, outer, nested, workspace};
 }
 
-test("registrovaný klient s vnoreným priečinkom v profile ostáva dostupný; vnorený aj tak (N-A3-1)", async () => {
+test("registrovaný klient so starým vnoreným priečinkom v profile ostáva dostupný, kým v ňom nie je iný zaregistrovaný klient (N-A3-1)", async () => {
   const {root, config, outer, nested, workspace} = await boundaryFixture(({practice, nested}) => ({officeRoot: practice, clientRoot: nested}));
   try {
+    // Stav V10c: C099 zaregistrovaný vnútri C002. Chat a shell C002 by videli iného zaregistrovaného klienta, preto 403.
     config.workspaces = [workspace("ws_c002", outer), workspace("ws_c099", nested)];
-    await expect(requireClientWorkspaceBoundary(config, outer)).resolves.toBeUndefined();
+    await expect(requireClientWorkspaceBoundary(config, outer)).rejects.toMatchObject({status: 403, code: "wiki_agent_client_workspace_required"});
     await expect(requireClientWorkspaceBoundary(config, nested)).resolves.toBeUndefined();
+    // Po odstránení C099 z bočného panela (profil naň stále ukazuje) C002 opäť číta.
+    config.workspaces = [workspace("ws_c002", outer)];
+    await expect(requireClientWorkspaceBoundary(config, outer)).resolves.toBeUndefined();
+  } finally {await rm(root, {recursive: true});}
+});
+
+// Kontrola VŘ k PR #225: zaregistrovaný kontajner vnútri praxe nie je klient, aj keď leží v praxi.
+test("zaregistrovaný kontajner vnútri praxe s vybraným a ďalším klientom ostáva bez nástrojov agenta (N-A3-1)", async () => {
+  const {root, config, practice, workspace} = await boundaryFixture(({practice}) => ({officeRoot: practice, clientRoot: join(practice, "Klienti", "Novak")}));
+  try {
+    const container = join(practice, "Klienti"), novak = join(container, "Novak"), hron = join(container, "Hron");
+    await mkdir(novak, {recursive: true}); await mkdir(hron, {recursive: true});
+    config.workspaces = [workspace("ws_klienti", container), workspace("ws_novak", novak), workspace("ws_hron", hron)];
+    await expect(requireClientWorkspaceBoundary(config, container)).rejects.toMatchObject({status: 403, code: "wiki_agent_client_workspace_required"});
+    await expect(requireClientWorkspaceBoundary(config, novak)).resolves.toBeUndefined();
   } finally {await rm(root, {recursive: true});}
 });
 

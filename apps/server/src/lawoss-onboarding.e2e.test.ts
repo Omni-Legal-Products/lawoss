@@ -524,3 +524,22 @@ test("klient v praxi zaregistrovanej ako jeden priečinok sa pridá ako doteraz 
   await registerLocalProject(f.config, { folderPath: practice, name: "Prax", preset: "starter", registerExisting: true });
   expect((await f.apply(convert(outer, "C002 SYN Beta"))).result).toBe("applied");
 });
+
+// Kontrola VŘ k PR #225: skúšobná kópia už zaregistrovaného klienta by skopírovala aj klienta zaregistrovaného v ňom.
+test("skúšobná kópia klienta, v ktorom je zaregistrovaný iný klient, sa odmietne; úprava na mieste ostáva (N-A3-1)", async () => {
+  const { f, outer, nested, snapshot, convert } = await nestedClientFixture();
+  const registered = await f.apply(convert(outer, "C002 SYN Beta"));
+  // Stav V10c: C099 zaregistrovaný vnútri C002 starou verziou.
+  const { registerLocalProject } = await import("./routes/workspaces.js");
+  const { workspace: inner } = await registerLocalProject(f.config, { folderPath: nested, name: "C099", preset: "starter", registerExisting: true });
+  const before = await snapshot();
+  const clones = join(f.base, "kopie"); await mkdir(clones);
+  const refused = await f.call("plan", { action: "existing", root: outer, mode: "trial_clone", cloneParent: clones, title: "C002 kópia", confirmUnknownClient: true, ...common });
+  expect(refused.status).toBe(409);
+  expect(await refused.json()).toMatchObject({ code: "onboarding_client_contains_clients", details: { clients: [{ workspaceId: inner.id }] } });
+  expect(await readdir(clones)).toEqual([]);
+  expect(await snapshot()).toEqual(before);
+  // Už zaregistrovaný C002 sa dá naďalej zvoliť na mieste (profil).
+  expect(await f.success("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", clientRoot: outer })).toMatchObject({ clientRoot: outer });
+  expect(registered.workspace.id).not.toBe(inner.id);
+});
