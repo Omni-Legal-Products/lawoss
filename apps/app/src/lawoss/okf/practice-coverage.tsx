@@ -56,7 +56,8 @@ export function PracticeCoverage({ data, scope, failed, excludedWorkspaceIds = [
   const summary = [
     scope?.practiceRoot ? `${t("lawoss.practice.selected", locale)}: ${prettyFolderName(folderName(scope.practiceRoot))}` : t("lawoss.practice.single", locale),
     ...(scope?.practiceRoot ? [t("lawoss.practice.clients", { lng: locale, count: clients })] : []),
-    oldest !== null ? t("lawoss.practice.updated", locale, { time: formatTime(oldest, locale, now) }) : null,
+    // Pri neúplnom čítaní by „aktualizované“ znelo ako „všetko v poriadku“; časy sú pri zdrojoch s problémom.
+    oldest !== null && !incomplete ? t("lawoss.practice.updated", locale, { time: formatTime(oldest, locale, now) }) : null,
     excludedWorkspaceIds.length ? t("lawoss.practice.excluded", locale, { count: excludedWorkspaceIds.length }) : null,
   ].filter(Boolean).join(" · ");
   return <div className={incomplete ? "lw-status warn" : "lw-status"} role={incomplete ? "alert" : "status"} data-lawoss-practice-coverage={failed ? "partial" : coverage.status}>

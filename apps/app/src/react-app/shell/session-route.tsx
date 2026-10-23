@@ -70,7 +70,7 @@ import { analyticsSurface, captureAnalyticsEvent, markTaskRunStart } from "@/app
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { buildSessionPromptRequest, systemReminderPart } from "@/app/lib/system-reminder";
 import { yoloTurnContext } from "@/lawoss/domains/yolo/yolo-mode";
-import { takeCaseChatContext } from "@/lawoss/okf/case-chat-context";
+import { clearCaseChatContext, peekCaseChatContext } from "@/lawoss/okf/case-chat-context";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
 import {
@@ -1542,8 +1542,9 @@ export function SessionRoute() {
       cacheKey: targetSessionId,
       runtimeKey: scope.runtimeKey,
     });
-    // 🟡 LAWOSS (P6): a new case chat's technical instructions go hidden with its first message.
-    const turnSystemContext = [envSystemContext, draft.modelContext, pluginContext, yoloTurnContext(), takeCaseChatContext(targetSessionId)]
+    // 🟡 LAWOSS (P6): a new case chat's technical instructions go hidden with its first message; they are
+    // forgotten only after a successful hand-off further below, so a failed send retries with them.
+    const turnSystemContext = [envSystemContext, draft.modelContext, pluginContext, yoloTurnContext(), peekCaseChatContext(targetSessionId)]
       .filter((context): context is string => Boolean(context?.trim()))
       .join("\n\n");
     if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));
@@ -1554,6 +1555,7 @@ export function SessionRoute() {
         parts.push(systemReminderPart([trace, buildFusionDelegationSystemPrompt({ candidateModels: fusionModels })].filter(Boolean).join("\n\n")));
       }
       await enqueue({ kind: "prompt", parts, model: sendModel, agent: selectedAgent ?? undefined, variant: sendVariant ?? undefined });
+      clearCaseChatContext(targetSessionId); // 🟡 LAWOSS (P6)
       return;
     }
     if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
@@ -1578,7 +1580,7 @@ export function SessionRoute() {
           mainModel: sendModel ?? undefined,
           agent: selectedAgent ?? undefined,
           variant: sendVariant ?? undefined,
-        }).catch((error: unknown) => {
+        }).then(() => clearCaseChatContext(targetSessionId)).catch((error: unknown) => { // 🟡 LAWOSS (P6): clear after success
           const message = error instanceof Error ? error.message : String(error);
           toast.error(t("fusion.turn_failed"), { description: message });
           useSessionActivityStore.getState().setError(scope.projectId, targetSessionId, message);
@@ -1609,6 +1611,7 @@ export function SessionRoute() {
       const result = await scope.opencode.session.promptAsync(request);
       if (result.error) throw new Error(serializeSDKError(result.error));
     }
+    clearCaseChatContext(targetSessionId); // 🟡 LAWOSS (P6): handed off successfully
   }, [local, workspaces, selectedSessionId, selectedWorkspaceId, selectedWorkspaceEndpoint, providerListQuery.data, selectedAgent, modelVariantValue]);
 
   const surfaceProps = useMemo(() => {

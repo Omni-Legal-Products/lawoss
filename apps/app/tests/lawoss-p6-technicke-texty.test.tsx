@@ -12,6 +12,7 @@ import { PermissionApprovalModal, PermissionApprovalPanel } from "../src/react-a
 import { QueryClient } from "@tanstack/react-query";
 import { okfOverviewQueryOptions, okfScope, type OkfReadResult, type OkfScopeClient } from "../src/lawoss/okf/read-model";
 import { PracticeCoverage } from "../src/lawoss/okf/practice-coverage";
+import { clearCaseChatContext, peekCaseChatContext, rememberCaseChatContext } from "../src/lawoss/okf/case-chat-context";
 import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 
 const initial: Language = currentLocale();
@@ -108,8 +109,38 @@ describe("„Podrobnosti“ karty zmeny súborov bez surového JSON (V10a)", () 
 describe("nový chat prípadu: technické pokyny idú modelu skryto (R1)", () => {
   test("prvé odoslanie pridá skrytý pokyn chatu do system-reminder časti správy", () => {
     const route = source("src/react-app/shell/session-route.tsx");
-    expect(route).toContain("yoloTurnContext(), takeCaseChatContext(targetSessionId)]");
+    expect(route).toContain("yoloTurnContext(), peekCaseChatContext(targetSessionId)]");
     expect(route).toContain("if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));");
+  });
+
+  // Rovnaký postup ako `sendNativeDraft`: pokyn sa pri zostavení správy len prečíta a zabudne sa až po úspešnom odovzdaní.
+  async function send(sessionId: string, transport: (hidden: string | undefined) => Promise<void>): Promise<void> {
+    const hidden = peekCaseChatContext(sessionId);
+    await transport(hidden);
+    clearCaseChatContext(sessionId);
+  }
+
+  test("zlyhané prvé odoslanie si skrytý pokyn ponechá pre opakovanie", async () => {
+    rememberCaseChatContext("ses_retry", "LAWOSS case chat. Load the case memory first.");
+    const delivered: (string | undefined)[] = [];
+    await expect(send("ses_retry", async (hidden) => { delivered.push(hidden); throw new Error("AI boundaries refusal"); })).rejects.toThrow();
+    await send("ses_retry", async (hidden) => { delivered.push(hidden); });
+    await send("ses_retry", async (hidden) => { delivered.push(hidden); });
+    expect(delivered).toEqual(["LAWOSS case chat. Load the case memory first.", "LAWOSS case chat. Load the case memory first.", undefined]);
+  });
+
+  test("session-route zabudne pokyn až po úspešnom odovzdaní (fronta, Fusion, bežné odoslanie)", () => {
+    const route = source("src/react-app/shell/session-route.tsx");
+    const body = route.slice(route.indexOf("const sendNativeDraft = useCallback"), route.indexOf("const surfaceProps = useMemo"));
+    const peek = body.indexOf("peekCaseChatContext(targetSessionId)");
+    const clears = [...body.matchAll(/clearCaseChatContext\(targetSessionId\)/g)].map((match) => match.index ?? -1);
+    expect(peek).toBeGreaterThan(0);
+    expect(clears).toHaveLength(3);
+    // Fronta: až po `await enqueue(...)`; Fusion: až v `.then` úspešného behu; bežné odoslanie: až po kontrole výsledku.
+    expect(body.slice(peek, clears[0])).toContain('await enqueue({ kind: "prompt"');
+    expect(body.slice(clears[1]! - 20, clears[1])).toContain(".then(() =>");
+    expect(body.slice(clears[1]!, clears[2])).toContain("if (result.error) throw new Error(serializeSDKError(result.error));");
+    expect(body.slice(0, peek)).not.toContain("clearCaseChatContext");
   });
 });
 
@@ -172,6 +203,8 @@ describe("stav praxe navrchu stránok kancelárie (N-A2-8)", () => {
     expect(html).toContain('role="alert"');
     expect(text(html)).toContain("SYN Tatran Automatika, s. r. o.: Last successful read · ");
     expect(html).not.toContain("Current");
+    // Výstraha netvrdí „aktualizované“, aj keď má každý zdroj čas posledného úspechu.
+    expect(text(html)).not.toContain("updated");
   });
 
   test("texty riadku v SK, CS a DE so správnymi tvarmi počtu", () => {
