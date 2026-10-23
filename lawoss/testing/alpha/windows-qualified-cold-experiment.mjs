@@ -187,7 +187,9 @@ export async function* reportEvents(events, expectedFile) {
   let queued = [];
   const bad = reason => { invalid ??= reason; };
   const stderr = lineDecoder(line => {
-    if (!line.startsWith('{')) return;
+    // JSON-leading whitespace identifies an owned candidate, but canonical()
+    // must validate the ORIGINAL line rather than silently normalizing it.
+    if (!/^[ \t\r]*\{/.test(line)) return;
     // Other arbitrary raw strings are ignored and never become result records.
     if (!line.includes(IMPORT_KIND)) return;
     const value = validateProjection(canonical(line), IMPORT_KIND);
@@ -221,8 +223,10 @@ export async function* reportEvents(events, expectedFile) {
           case 'test:summary': {
             const counts = countsOf(d.counts); requireThat(typeof d.success === 'boolean' && d.success === (counts.passed === 1), 'summary');
             const value = { ...counts, success: d.success };
-            if (d.file === expectedFile) { requireThat(fileSummary === null && runSummary === null, 'file-summary'); fileSummary = value; queued.push({ kind: 'file-summary', ...value }); }
-            else { requireThat(d.file === undefined && runSummary === null && fileSummary !== null, 'run-summary'); runSummary = value; queued.push({ kind: 'run-summary', ...value }); }
+            // File scope may omit entryFile or confirm the selected file.
+            // Cumulative scope has no file owner; both source fields are absent.
+            if (d.file === expectedFile) { requireThat((d.entryFile === undefined || d.entryFile === expectedFile) && fileSummary === null && runSummary === null, 'file-summary'); fileSummary = value; queued.push({ kind: 'file-summary', ...value }); }
+            else { requireThat(d.file === undefined && d.entryFile === undefined && runSummary === null && fileSummary !== null, 'run-summary'); runSummary = value; queued.push({ kind: 'run-summary', ...value }); }
             break;
           }
           case 'test:diagnostic':

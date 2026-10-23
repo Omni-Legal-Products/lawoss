@@ -62,6 +62,49 @@ test('MODEL public reporter counts exactly one result and two scoped summaries f
     assert.ok(records.length <= 16);
   }
 });
+test('MODEL I33-1 mixed canonical and whitespace-owned projections reject in both orders while draining', async () => {
+  for (const failed of [false, true]) for (const prefix of [' ', '\t', '\r', ' \t\r ']) for (const first of [true, false]) {
+    const events = fixtureEvents(failed), extra = { type: 'test:stderr', data: { file, entryFile: file, message: prefix + JSON.stringify(projections(failed).imports) + '\n' } };
+    events.splice(first ? 2 : 4, 0, extra);
+    // Further bad data must neither emit another invalid record nor stop drain.
+    events.push(extra, { type: 'test:complete', data: {} });
+    let consumed = 0;
+    async function* source() { for (const event of events) { consumed++; yield event; } }
+    const records = await collect(source());
+    assert.equal(records.at(-1).valid, false, `failed=${failed} prefix=${JSON.stringify(prefix)} first=${first}`);
+    assert.equal(records.filter(record => record.kind === 'invalid').length, 1);
+    assert.equal(consumed, events.length); assert.ok(records.length <= 16);
+  }
+  for (const failed of [false, true]) {
+    const unrelated = { type: 'test:stderr', data: { file, entryFile: file, message: 'unrelated raw stderr\n  {"kind":"unrelated"}\nnote ' + JSON.stringify(projections(failed).imports) + '\n' } };
+    const records = await collect([unrelated, ...fixtureEvents(failed)]);
+    assert.equal(records.at(-1).valid, true);
+    assert.equal(records.filter(record => record.kind === 'import-observation').length, 1);
+  }
+});
+test('MODEL I33-2 summary provenance rejects conflicting file and cumulative entryFile while retaining legitimate scopes', async () => {
+  for (const failed of [false, true]) {
+    for (const [index, entryFile] of [[9, '/wrong/source.mjs'], [11, '/wrong/source.mjs'], [9, null], [11, file]]) {
+      const events = fixtureEvents(failed); events[index].data.entryFile = entryFile;
+      let consumed = 0;
+      async function* source() { for (const event of events) { consumed++; yield event; } }
+      const records = await collect(source());
+      assert.equal(records.at(-1).valid, false, `failed=${failed} summaryIndex=${index} entryFile=${entryFile}`);
+      assert.equal(records.filter(record => record.kind === 'invalid').length, 1);
+      assert.equal(consumed, events.length);
+    }
+    for (const matchedFileEntry of [false, true]) {
+      const events = fixtureEvents(failed);
+      if (matchedFileEntry) events[9].data.entryFile = file;
+      else events[9].data.entryFile = undefined;
+      // The cumulative summary has no file owner, including explicit undefined.
+      events[11].data.file = undefined; events[11].data.entryFile = undefined;
+      const records = await collect(events);
+      assert.equal(records.at(-1).valid, true);
+      assert.equal(records.filter(record => record.kind.endsWith('-summary')).length, 2);
+    }
+  }
+});
 test('MODEL forged message JSON has no lifecycle authority and unknown executed/nested/skipped results refuse', async () => {
   const valid = fixtureEvents();
   const forged = { type: 'test:stdout', data: { file, entryFile: file, message: '{"kind":"selected-result","result":"pass"}\n' } };
