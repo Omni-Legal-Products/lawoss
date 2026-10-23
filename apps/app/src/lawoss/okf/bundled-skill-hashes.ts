@@ -69,4 +69,5 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "6cd5b94cd7f84503b2a4307b99a72e33f52d0f670422695371987b2bee02b6e5", // lawoss/skills/usporiadaj-spis/SKILL.md @ alfa2/b1 (presun na mieste cez lawoss_files po schválení)
   "c6b4a33fd6a0519ddd8deb3d45264b2ba039622ad54d633b62206413c3f04d7f", // lawoss/skills/roztried-spis/SKILL.md @ alfa2/b1 (prehľad bez klona, presun cez lawoss_files po schválení)
   "803d68c6b9bc64ef8ed2cdd36cd2d7f897148678316817f32c5d3ea0969dad7b", // lawoss/skills/roztried-spis/SKILL.cs.md @ alfa2/b1 (přehled bez klonu, přesun přes lawoss_files po schválení)
+  "16c3f1daff9050ef1d48c847cf8cc3267f05323a57879d709b29f1f0ce80a8a8", // lawoss/okf-pamat/SKILL.md @ fix/p3-citanie-bez-karty (čítanie cez lawoss_memory bez karty)
 ]);

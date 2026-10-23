@@ -22,6 +22,12 @@ export function withLawossToolDefaults(own: Record<string, unknown>, firmTools: 
   return { ...defaults, ...own };
 }
 
+/**
+ * Read-only case memory (opencode-plugins/lawoss-memory-tools.ts, MČ 23. 10. 2026: reading needs no card).
+ * The engine file allows it before the lawyer's and firm's rules, which follow and keep precedence.
+ */
+export const LAWOSS_MEMORY_TOOL = "lawoss_memory";
+
 /** The permission `lawoss_files` asks with (opencode-plugins/lawoss-file-operations.ts). */
 export const FILE_CHANGE_PERMISSION = "lawoss_file_change";
 

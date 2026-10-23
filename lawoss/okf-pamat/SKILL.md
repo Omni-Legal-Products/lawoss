@@ -7,9 +7,18 @@ description: Use when reading or writing case memory in an OKF matter folder (sp
 
 ## Kde je CLI
 
+**Čítanie v LAWOSS bez karty.** V aplikácii LAWOSS čítaj pamäť nástrojom `lawoss_memory`, nie cez
+shell: `action: "preamble"` namiesto `okf-memory preamble`, `action: "read"` namiesto `okf-memory read`.
+`matter` je priečinok spisu (relatívne k priečinku chatu alebo absolútne); v chate prípadu ho vynechaj.
+Nástroj vráti ten istý text ako CLI, len v priečinku tohto klienta a bez schvaľovacej karty;
+`complete: false` znamená to isté ako kód 1 CLI a pri `nextOffset` čítaj ďalej. Priečinky
+prezeraj nástrojmi `glob` a `read`, nie `ls` v shelli. Mimo LAWOSS (alebo bez tohto nástroja) spusti CLI.
+Zápis a kontroly (`write`, `init`, `sync`, `retrofit`, `workspace-save`, `validate`, `aml`) idú vždy
+cez CLI a jeho schválenie.
+
 V aplikácii LAWOSS je skill nainštalovaný do `.opencode/skills/okf-pamat/` aj s CLI
 `resources/okf-memory.js` (jeden súbor, bez závislostí). Všade, kde je nižšie
-`okf-memory …`, spúšťaj:
+`okf-memory …` (okrem čítania v LAWOSS vyššie), spúšťaj:
 ```
 node "<cesta k tomuto skillu>/resources/okf-memory.js" <príkaz> …
 ```
@@ -159,7 +168,7 @@ správnosť právneho záveru.
 
 1. `BRAIN.md` — protokol pamäte tohto spisu
 2. `_STATUS.md` — **Fáza** a **Ďalší krok** hore
-3. `okf-memory read <spis>` — plný obsah záznamov všetkých typov v rozsahu veci, klienta a kancelárie; obsahuje aj `VSTUPY.md`, ak existuje
+3. `okf-memory read <spis>` (v LAWOSS `lawoss_memory`, `action: "read"`) — plný obsah záznamov všetkých typov v rozsahu veci, klienta a kancelárie; obsahuje aj `VSTUPY.md`, ak existuje
 4. `VSTUPY.md` — nespracované riadky `pending`, zdroje a odkazy na výsledné záznamy
 5. `memory/index.md` — pomocná mapa; originálne dokumenty otváraj podľa úlohy a zdrojových odkazov
 
@@ -176,7 +185,8 @@ zdrojový záznam len preto, aby kontrola prešla.
 
 ## Na začiatku session nad typovaným spisom bez profilu
 
-Pred prvou odpoveďou spusti `okf-memory preamble <spis>` a výstupom sa riaď
+Pred prvou odpoveďou spusti `okf-memory preamble <spis>` (v LAWOSS `lawoss_memory`,
+`action: "preamble"`) a výstupom sa riaď
 po celú session. Ban-list je záväzný: prameň zo sekcie „Necitovať" nesmieš
 použiť ani nepriamo — namiesto neho povedz, prečo je zakázaný (dôvod je pri zázname).
 Ak preambula ohlási nečitateľné súbory, zastav sa a povedz to advokátovi —
@@ -436,7 +446,7 @@ Potom prejdi kontrolný zoznam nižšie.
 - [ ] Všetko podstatné z konverzácie je v pamäti? (prejdi ju spätne)
 - [ ] Každá vecná zmena má dôvod, nový riadok History a aktuálne `updated`
 - [ ] `okf-memory validate <spis>` → bez chýb
-- [ ] `okf-memory read <spis>` → úplný kontext, vypísané prípadné chyby a nespracované vstupy
+- [ ] `okf-memory read <spis>` (v LAWOSS `lawoss_memory`) → úplný kontext, vypísané prípadné chyby a nespracované vstupy
 - [ ] pri AML evidencii `okf-memory aml <spis>` → skontrolované nálezy a stav evidencie; výpis nenahrádza preverenie
 - [ ] `okf-memory sync <spis> --apply` → projekcia do `_STATUS.md`, `index.md` a `log.md`
 - [ ] pri spornej veci: matica `evidence_matrix` v `_STATUS.md` sedí a žiadne tvrdenie nie je bez opory

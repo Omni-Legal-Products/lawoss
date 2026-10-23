@@ -36,6 +36,8 @@ const productActivityLabels: Record<string, string> = {
   legalwork_review_library_save: "tool_activity.saving_prompts",
   legalwork_project_list: "tool_activity.browsing_project",
   legalwork_project_read: "tool_activity.reading_project_content",
+  // 🟡 LAWOSS: lawoss_memory reads the case memory (server lawoss/matter-memory.ts); no tool name for the lawyer.
+  lawoss_memory: "tool_activity.reading_project_content",
   legalwork_task_list: "tool_activity.finding_tasks",
   legalwork_task_get: "tool_activity.reading_task",
   legalwork_task_create: "tool_activity.creating_task",

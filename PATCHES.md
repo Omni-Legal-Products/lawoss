@@ -1,5 +1,18 @@
 # LAWOSS downstream patches
 
+## Čítanie pamäte spisu bez karty (2026-10-23)
+
+Alfa 2, oprava P3a (N-A3-3, N-18, N-A2-7; rozhodnutie MČ: čítanie dokumentov a pamäte bez karty, zápis s kartou). Skill `okf-pamat` čítal pamäť cez `node …/okf-memory.js preamble|read` v spravovanom shelli a každé zhrnutie spisu ukázalo dve najširšie karty („celý počítač + internet“). Nový nástroj `lawoss_memory` (plugin `apps/server/src/opencode-plugins/lawoss-memory-tools.ts`, server `apps/server/src/lawoss/matter-memory.ts`, most `lawoss/okf-handoff/matter-memory-read.mjs`) číta tým istým kódom pamäte bez podprocesu, len v koreni klienta chatu a v jeho pripojených priečinkoch; spis iného (aj vnoreného) klienta sa odmietne bez mena. Zápis pamäte ostáva v CLI so schválením.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/server.ts` | Trasa `POST /workspace/:id/lawoss/memory/read` (+6 riadkov, import) volá `readMatterMemoryForChat`. Cesta spisu ide v tele, nie v URL. |
+| `apps/server/src/wiki/agent-access.ts` | Poverenie chatu smie `POST lawoss/memory/read` vo vlastnom priečinku klienta (+2 riadky). Iný klient: `wiki_agent_workspace_denied`; iná trasa pamäte (zápis) neexistuje. |
+| `apps/server/src/legalwork-runtime-config.ts` | Plugin `lawoss-memory-tools` v zozname pluginov; `lawoss_memory: "allow"` v súbore enginu pred pravidlami advokáta a firmy (tie ho prepíšu), ako `legalwork_tool_output_read`. Engine 1.18.29 sa pri pluginovom nástroji bez `context.ask` nepýta ani bez tohto kľúča (overené integračným testom); kľúč drží nástroj dostupný aj pre agentov s predvoleným zákazom. |
+| `apps/server/package.json` | Build zahŕňa `src/opencode-plugins/lawoss-memory-tools.ts`. |
+| `.github/workflows/ci-tests.yml` | Krok so skutočným enginom spúšťa aj `apps/server/src/lawoss/okf-pamat-citanie.integration.test.ts` (`LAWOSS_PAMAT_ENGINE=1`): zhrnutie spisu cez `okf-pamat` + `lawoss_memory` + `glob`/`read` bez jedinej karty, cudzí spis odmietnutý. |
+| `apps/app/src/lib/tool-activity.ts`, `apps/app/src/components/tools/tool-presentation.ts` | `lawoss_memory` má počas behu existujúci popis „Čítanie obsahu priečinka klienta“ a po skončení kategóriu čítania, nie názov nástroja. Test `apps/app/tests/lawoss-memory-tool-label.test.ts`. |
+
 ## Koreň disku Windows v pripojených priečinkoch (2026-10-23)
 
 | Súbory | Downstream doplnenie a dôvod |

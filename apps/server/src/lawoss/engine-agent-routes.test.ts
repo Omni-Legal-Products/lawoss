@@ -122,3 +122,12 @@ test("registered client workspace retains child matter tools and the process can
   await grantWikiAgentSession(config, {sessionId: "viewer", directory: matter, scope: "viewer"});
   expect((await authenticateWikiAgentRequest(config, request("/workspace/ws_a/files/content?path=x", {session: "matter", directory: matter})))?.actor.scope).toBe("viewer");
 });
+
+test("a chat reads case memory only through its own client's route (lawoss_memory)", async () => {
+  const { config, request } = await fixture();
+  expect((await authenticateWikiAgentRequest(config, request("/workspace/ws_a/lawoss/memory/read", { session: "chat_a", method: "POST", body: { action: "read", matter: "/x" } })))?.workspaceId).toBe("ws_a");
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_b/lawoss/memory/read", { session: "chat_a", method: "POST", body: {} }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+  // Only the read route: no write path for memory exists for the chat credential.
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_a/lawoss/memory/write", { session: "chat_a", method: "POST", body: {} }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_a/lawoss/memory/read", { session: "chat_a" }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+});

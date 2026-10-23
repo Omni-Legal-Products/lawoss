@@ -21,6 +21,8 @@ function categoryOf(part: ToolPart) {
   if (name === "todowrite") return "plan";
   if ((name === "webfetch" || name === "legalwork_webfetch")) return "web";
   if (name === "legalwork_review_settings" || name === "legalwork_review_library") return "read";
+  // 🟡 LAWOSS: reading case memory is reading, not a bare tool name.
+  if (name === "lawoss_memory") return "read";
   if (name === "legalwork_review_list" || name === "legalwork_review_files") return "browse";
   if (name === "legalwork_jev_corpus_question") return "search";
   if (/(?:^|[_-])(?:search|grep|glob|find)(?:$|[_-])/.test(name)) return "search";

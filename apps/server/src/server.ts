@@ -20,6 +20,7 @@ import { sessionFolder, sessionOwnershipChecked, workspaceReadsSession } from ".
 import { sessionInfoSchema } from "./session-read-model.js";
 import { historicalWorkspaceSessions } from "./lawoss/workspace-history-sessions.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
+import { readMatterMemoryForChat } from "./lawoss/matter-memory.js";
 import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { stopMessageQueue } from "./session-message-queue.js";
@@ -2651,6 +2652,13 @@ function createRoutes(
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id, { bootstrap: false });
     return jsonResponse(await getWorkspaceMemoryContext(config, workspace));
+  });
+
+  // 🟡 LAWOSS: lawoss_memory číta pamäť spisu bez shellu a bez karty, len v tomto klientovi (lawoss/matter-memory.ts).
+  addRoute(routes, "POST", "/workspace/:id/lawoss/memory/read", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id, { bootstrap: false });
+    return jsonResponse(await readMatterMemoryForChat(config, workspace, await readJsonBody(ctx.request)));
   });
 
   addRoute(routes, "GET", "/workspace/:id/lawoss/memory", "client", async (ctx) => {

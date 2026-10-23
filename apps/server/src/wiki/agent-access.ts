@@ -181,6 +181,8 @@ const WORKSPACE_TOOL_ROUTES: readonly ToolRule[] = [
   { methods: WRITE, route: /^scheduled-tasks(?:\/preview)?$/ },
   { methods: READ, route: /^project\/(?:setup|remote-folders)$/ },
   { methods: READ, route: /^lawoss\/memory\/(?:grants|context)$/ },
+  // LAWOSS: lawoss_memory (lawoss/matter-memory.ts) reads case memory of this client only; the path goes in the body.
+  { methods: WRITE, route: /^lawoss\/memory\/read$/ },
   { methods: READ, route: /^project\/(?:contents|content)$/, crossProject: true },
   { methods: ["PATCH"], route: /^project\/(?:setup|metadata)$/ },
   { methods: ["GET", "POST"], route: /^files\/content$/ },
