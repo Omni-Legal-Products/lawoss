@@ -34,3 +34,11 @@ export function deepestContaining<T extends { path: string }>(items: readonly T[
     .sort((left, right) => right.path.length - left.path.length)
     .find((item) => isPathWithin(item.path, candidate, api));
 }
+
+/**
+ * Cesta na porovnanie mien: názvy skopírované z Macu môžu byť NFD na každom systéme, APFS a NTFS
+ * navyše nerozlišujú veľkosť písmen. Priveľa zjednotenia len viac odmieta (`file-operations.ts`, vnorení klienti).
+ */
+export function foldedPath(location: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === "linux" ? location.normalize("NFC") : location.normalize("NFC").toLowerCase();
+}
