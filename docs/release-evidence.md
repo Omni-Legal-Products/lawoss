@@ -117,7 +117,12 @@ A missing architecture or one failed target prevents this promotion.
 
 `channel-evidence.mjs` checks the live exact source tag is public, final downloaded bytes match, signing and
 fresh and migrated acceptance are complete, published receipts exist, and the platform feed is correct.
-It refuses lower or equal semver. It only verifies. The existing workflow remains the owner of the subsequent pointer write.
+It refuses lower or equal semver. It only verifies. The pointer is written by `scripts/release/acceptance-promotion.mjs`
+in `release-acceptance-resume.yml` (Resume exact desktop release acceptance), after the same gates.
+The alpha workflows reach their own pointer step only with tested evidence, which a fresh build does not have.
+A pointer someone turned into a draft is still compared by version. The promotion publishes it again
+(`--draft=false --prerelease --latest=false`) only after every file it holds was verified and read back in the same run.
+Otherwise it stays a draft and the run fails, so a stale manifest of another target is never made public again.
 The mutable pointer is a distribution mechanism, not source provenance. Keep the prior pointer and referenced immutable release
 for rollback. A rollback to an older semver does not bypass the updater's existing downgrade guard.
 
@@ -131,7 +136,7 @@ No command here grants publication, signing, or external-send authority.
 Each source target preserves `release-candidate-<run-id>-<attempt>-<platform>-<arch>` for 30 days
 before its public acceptance gate. This artifact includes the actual final installer, target updater files,
 checksums, original target evidence, and `release-candidate.json`. A failed public gate does not discard the installer.
-Unsigned internal Windows candidates remain in the existing private draft path and are not uploaded as public Actions artifacts.
+Unsigned internal Windows and macOS candidates (`allow_unsigned_internal`) remain in the existing private draft path and are not uploaded as public Actions artifacts.
 
 Download the exact candidate from its original run and install that artifact. Complete the native runner for
 fresh and migrated profiles for each installer in the evidence. Keep the original candidate files unchanged.

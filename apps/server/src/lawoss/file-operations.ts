@@ -369,6 +369,10 @@ async function verified(item: Planned): Promise<boolean> {
 export async function applyFileOperations(config: ServerConfig, workspace: WorkspaceInfo, input: unknown, approved: unknown, revision: unknown, sessionID?: string): Promise<{ results: FileOperationResult[]; complete: boolean }> {
   if (config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
   const plan = await planInternal(config, workspace, input);
+  const roots = await clientRoots(config, workspace), nested = await nestedClientRoots(config, workspace);
+  // An earlier step of the same request may move a link (or a folder holding one) to a name the plan saw as free:
+  // every path must still pass the plan's checks and lead to the same place right before its step.
+  const unchanged = async (location: string | undefined) => !location || (await locate(roots, location, nested).catch(() => null))?.canonical === location;
   if (JSON.stringify(publicPlan(plan)) !== JSON.stringify(approved) || revisionOf(plan) !== revision)
     throw new ApiError(409, "file_operation_changed", "The files changed after the approval card was shown. Nothing was changed. Ask the user before trying again.");
   return withFileEditorHandoff({ write: true, sessionID }, async () => {
@@ -378,6 +382,7 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
       const visible = publicPlan([item])[0]!;
       if (failed) { results.push({ ...visible, status: "not_run" }); continue; }
       try {
+        if (!await unchanged(item.source) || !await unchanged(item.target)) throw new ApiError(403, "file_operation_outside_client", OUTSIDE);
         const trash = await execute(config, item);
         if (!await verified(item)) throw new Error("The change is not visible on disk.");
         results.push({ ...visible, status: "done", ...(trash ? { trash } : {}) });
