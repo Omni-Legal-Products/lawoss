@@ -17,7 +17,7 @@ import { validateStore } from "./validate.ts";
 import { authorize, assertHasSource, type Approval, type WriteDiff } from "./write.ts";
 import { readStandingAuthorization, covers, readClientPath, matchesClientPath, readNameLeakSeverity, ConfigReadError } from "./config.ts";
 import { decodeText } from "./text-decode.ts";
-import { FILE_BYTE_LIMIT, readRegularFile, readTextFile, STORE_BYTE_LIMIT } from "./safe-read.ts";
+import { FILE_BYTE_LIMIT, readRegularFile, readTextFile, STORE_BYTE_LIMIT, STORE_FILE_LIMIT } from "./safe-read.ts";
 import { truthDigest, OKF_VERSION, type Jurisdiction } from "./schema.ts";
 import { documentTypeLabel, documentValueLabel, isDocumentLanguage, renderLanguage, type DocumentLanguage, type RenderLanguage } from "./document-language.ts";
 
@@ -123,9 +123,13 @@ export function readStore(dir: string): Store {
     // beneath it must never import records from a different matter.
     const safeMemoryDir = join(realpathSync(dir), MEMORY_DIR);
     if (lstatSync(safeMemoryDir).isSymbolicLink()) throw new Error("Symbolický odkaz na adresár pamäte nie je povolený.");
-    let total = 0;
+    let total = 0, files = 0;
     for (const entry of readdirSync(safeMemoryDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const name = entry.name;
+      if (++files > STORE_FILE_LIMIT) {
+        problems.push({ file: memoryDir, message: `Pamäť má viac ako ${STORE_FILE_LIMIT} položiek; ďalšie záznamy (od ${name}) sa nenačítali.` });
+        break;
+      }
       if (entry.isDirectory()) {
         problems.push({ file: name, message: "Vnorený adresár pamäte nie je podporovaný; jeho záznamy neboli načítané." });
         continue;

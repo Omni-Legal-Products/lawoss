@@ -59,19 +59,20 @@ function readableAbove(path: string, own: { root: string; others: readonly strin
 
 /**
  * The `Office/` (or `_kancelaria/`) that okf-pamat found above the case, by its real path: the practice's own office
- * (onboarding profile), a folder of this client, or (without a profile) a real folder next to the clients whose
- * parent is not another registered client. A link to another client's case (`C001/Office -> C017/…`), an office
+ * (onboarding profile), a folder of this client, or (only without a profile) a real folder next to the clients that
+ * lies in no other registered client. A link to another client's case (`C001/Office -> C017/…`), an office
  * of a client that contains this one, or a link elsewhere is not read.
  */
 async function officeReadable(logical: string, own: { root: string; linked: readonly string[]; others: readonly string[] }, practice: string | null): Promise<boolean> {
   const real = await canonicalPath(logical);
   if (practice && isOfficeMemoryFolder(real, practice)) return true;
   if (readable(real, own)) return true;
+  // Without a practice profile only: a real folder next to the clients, inside no other registered client
+  // (not even a client that contains this one).
+  if (practice) return false;
   const named = await lstat(logical).catch(() => null);
   if (!named?.isDirectory() || named.isSymbolicLink() || real !== resolve(logical).normalize("NFC")) return false;
-  const parent = dirname(real);
-  return isPathWithin(parent, own.root) && !own.others.some((other) => isPathWithin(other, real) && !isPathWithin(other, own.root))
-    && !own.others.some((other) => other === parent);
+  return isPathWithin(dirname(real), own.root) && !own.others.some((other) => isPathWithin(other, real));
 }
 
 /** `linkedFolders`: the client's linked folders, read at every call (tests pass their own, as for `LawossDocuments`). */
@@ -102,7 +103,9 @@ export async function readMatterMemoryForChat(config: ServerConfig, workspace: W
   }
   // Not confirmed: okf-pamat leaves the office out and reports the read as incomplete (no other client named).
   const office = !scope.officeDir || await officeReadable(scope.officeDir, own, await officeRoot(config));
-  const result = readMatterMemory(action, target, { allowedRoots: [root, ...own.linked], office });
+  // A memory profile in the case must not map a root or source into another client (also a nested one).
+  const excludedRoots = own.others.filter((other) => !isPathWithin(other, own.root));
+  const result = readMatterMemory(action, target, { allowedRoots: [root, ...own.linked], office, excludedRoots });
   const text = result.out.slice(offset, offset + MATTER_MEMORY_PAGE);
   const end = offset + text.length;
   return { action, matter: target, complete: result.code === 0, text, offset, nextOffset: end < result.out.length ? end : null, untrusted: true };

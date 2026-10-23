@@ -14,6 +14,8 @@ import { decodeText } from "./text-decode.ts";
 export const FILE_BYTE_LIMIT = 2 * 1024 * 1024;
 /** Všetky záznamy jedného adresára `memory/` spolu; nad ním je čítanie neúplné, nie nekonečné. */
 export const STORE_BYTE_LIMIT = 16 * 1024 * 1024;
+/** Súborov `*.md` v jednom adresári `memory/`; nad ním je čítanie neúplné (aj prázdne súbory stoja čas a riadky hlásení). */
+export const STORE_FILE_LIMIT = 2000;
 
 /** Bajty bežného súboru, bez nasledovania odkazu a bez blokovania; chýbajúci súbor hodí ENOENT. */
 export function readRegularFile(path: string, limit = FILE_BYTE_LIMIT): Buffer {

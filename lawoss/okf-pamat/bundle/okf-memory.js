@@ -2178,6 +2178,7 @@ import { existsSync } from "node:fs";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
 var FILE_BYTE_LIMIT = 2 * 1024 * 1024;
 var STORE_BYTE_LIMIT = 16 * 1024 * 1024;
+var STORE_FILE_LIMIT = 2000;
 function readRegularFile(path, limit = FILE_BYTE_LIMIT) {
   const named = lstatSync(path);
   if (named.isSymbolicLink())
@@ -2401,9 +2402,13 @@ function readStore(dir) {
     const safeMemoryDir = join2(realpathSync(dir), MEMORY_DIR);
     if (lstatSync2(safeMemoryDir).isSymbolicLink())
       throw new Error("Symbolický odkaz na adresár pamäte nie je povolený.");
-    let total = 0;
+    let total = 0, files = 0;
     for (const entry of readdirSync(safeMemoryDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const name = entry.name;
+      if (++files > STORE_FILE_LIMIT) {
+        problems.push({ file: memoryDir, message: `Pamäť má viac ako ${STORE_FILE_LIMIT} položiek; ďalšie záznamy (od ${name}) sa nenačítali.` });
+        break;
+      }
       if (entry.isDirectory()) {
         problems.push({ file: name, message: "Vnorený adresár pamäte nie je podporovaný; jeho záznamy neboli načítané." });
         continue;
@@ -3015,7 +3020,7 @@ function composePreamble(records) {
 // src/workspace-memory-types.ts
 var WORKSPACE_MEMORY_LIMITS = Object.freeze({ profileBytes: 256 * 1024, journalBytes: 4 * 1024 * 1024, sourceBytes: 2 * 1024 * 1024, totalBytes: 16 * 1024 * 1024, sources: 256 });
 // src/workspace-memory-reader.ts
-import { readdirSync as readdirSync2 } from "node:fs";
+import { readdirSync as readdirSync2, realpathSync as realpathSync3 } from "node:fs";
 import { isAbsolute as isAbsolute2, join as join4, resolve as resolve3, sep as sep4 } from "node:path";
 
 // src/workspace-memory-fs.ts
@@ -3280,15 +3285,34 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
     }))].sort();
     const roots = new Map;
     const rootProblems = new Map;
+    const excludedRoots = [...new Set((options.excludedRoots ?? []).flatMap((root) => {
+      try {
+        return [resolve3(root), resolve3(realpathSync3.native(root))];
+      } catch {
+        return [resolve3(root)];
+      }
+    }))];
+    const excluded = (path) => excludedRoots.some((root) => contained(root, path));
+    const hidden = new Set;
     for (const root of profile.roots) {
       const path = resolve3(report.directory, root.path);
       roots.set(root.id, path);
+      if (excluded(path)) {
+        hidden.add(root.id);
+        rootProblems.set(root.id, `Root ${root.id} lies in a folder this host does not allow; it was not read.`);
+        continue;
+      }
       const authority = authorityFor(path, [report.directory, resolve3(directory), ...options.allowedRoots ?? [], ...grants]);
       if (!authority)
         rootProblems.set(root.id, `External root requires a caller grant: ${root.id}`);
       else {
         try {
-          roots.set(root.id, physicalPathWithin(authority, path, "directory"));
+          const physical = physicalPathWithin(authority, path, "directory");
+          if (excluded(physical)) {
+            hidden.add(root.id);
+            rootProblems.set(root.id, `Root ${root.id} lies in a folder this host does not allow; it was not read.`);
+          } else
+            roots.set(root.id, physical);
         } catch (error) {
           rootProblems.set(root.id, message(error));
         }
@@ -3300,7 +3324,7 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
       let path = resolve3(roots.get(source.root), source.path);
       if (isControlPath(path))
         throw new Error("Memory sources cannot alias reserved .lawoss control files.");
-      if (!rootProblems.has(source.root)) {
+      if (!rootProblems.has(source.root) && !excluded(path)) {
         try {
           path = physicalPathWithin(roots.get(source.root), path, "file", true);
           if (isControlPath(path))
@@ -3308,6 +3332,10 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
         } catch (error) {
           sourceProblems.set(source.id, message(error));
         }
+      }
+      if (hidden.has(source.root) || excluded(path)) {
+        sourceProblems.set(source.id, `Source ${source.id} lies in a folder this host does not allow; it was not read.`);
+        path = "[not shown: outside this client's folders]";
       }
       report.sources.push({ id: source.id, root: source.root, path, role: source.role, required: source.required, writable: externalProfile ? false : source.writable, anchors, sha256: null, bytes: 0, content: null, status: "error" });
     }

@@ -10,7 +10,8 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, unlinkSync, writeFil
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli.ts";
-import { FILE_BYTE_LIMIT, STORE_BYTE_LIMIT } from "../src/safe-read.ts";
+import { FILE_BYTE_LIMIT, STORE_BYTE_LIMIT, STORE_FILE_LIMIT } from "../src/safe-read.ts";
+import { readWorkspaceMemory, renderWorkspaceMemory } from "../src/workspace-memory.ts";
 
 const D = "2026-10-23";
 const record = (id: string, truth: string) =>
@@ -119,4 +120,36 @@ test("hostiteľ s office:false kanceláriu nečíta a čítanie je neúplné; CL
   }
   // The portable CLI in the lawyer's own shell keeps its behavior (the shell can read the folder anyway).
   assert.match(runCli(["read", f.m1]).out, /SECRET-C017-OFFICE-ALIAS/);
+});
+
+test("hostiteľ s excludedRoots nečíta koreň ani zdroj profilu v cudzom priečinku a nemenuje ho", () => {
+  const f = fixture();
+  writeFileSync(join(f.m3, "tajne.md"), "SECRET-PROFILE-K3\n");
+  writeFileSync(join(f.m1, "_memory.md"), "SYN-01 pamäť\n");
+  mkdirSync(join(f.m1, ".lawoss"));
+  writeFileSync(join(f.m1, ".lawoss", "memory-profile.json"), JSON.stringify({ version: 1, matterId: "SYN-01",
+    roots: [{ id: "c", path: "." }, { id: "x", path: f.k3 }, { id: "p", path: f.root }],
+    sources: [
+      { id: "memory", root: "c", path: "_memory.md", role: "case_memory", required: true, writable: true, anchors: ["SYN-01"] },
+      { id: "foreign", root: "x", path: "Spisy/M003/tajne.md", role: "work_note", required: true, writable: false },
+      { id: "via", root: "p", path: "K3/Spisy/M003/tajne.md", role: "work_note", required: false, writable: false },
+    ] }));
+  const report = readWorkspaceMemory(f.m1, { allowedRoots: [f.root], excludedRoots: [f.k3] });
+  const text = renderWorkspaceMemory(report);
+  assert.equal(report.complete, false);
+  assert.doesNotMatch(text, /SECRET|K3/);
+  assert.match(text, /SYN-01 pamäť/);
+  // Without the host exclusion the portable CLI reads what its grants allow, as before.
+  assert.match(renderWorkspaceMemory(readWorkspaceMemory(f.m1, { allowedRoots: [f.root] })), /SECRET-PROFILE-K3/);
+});
+
+test("pamäť s viac ako STORE_FILE_LIMIT súbormi sa číta neúplne", () => {
+  const f = fixture();
+  for (let i = 0; i <= STORE_FILE_LIMIT; i++) writeFileSync(join(f.m1, "memory", `X-${String(i).padStart(5, "0")}.md`), "");
+  const started = Date.now();
+  const r = runCli(["read", f.m1]);
+  assert.equal(r.code, 1);
+  assert.match(r.out, new RegExp(`viac ako ${STORE_FILE_LIMIT} položiek`));
+  assert.ok(r.out.split("\n").length < STORE_FILE_LIMIT + 200, `${r.out.split("\n").length} lines`);
+  assert.ok(Date.now() - started < 10000);
 });

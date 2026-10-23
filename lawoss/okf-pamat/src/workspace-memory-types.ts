@@ -7,6 +7,11 @@ export interface WorkspaceMemoryOptions {
   profilePath?: string;
   profileIdentity?: string;
   profileGrants?: string[];
+  /**
+   * Host-owned folders a root or source must never lie in (LAWOSS: other registered clients, also nested ones).
+   * Such a root or source is not read; its path is not reported and the load is incomplete.
+   */
+  excludedRoots?: string[];
 }
 interface WorkspaceMemoryProblem { code: string; message: string; sourceId?: string }
 export interface WorkspaceMemorySource {

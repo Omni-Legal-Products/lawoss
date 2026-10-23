@@ -235,3 +235,60 @@ test("Office klienta, ktorý obsahuje tohto klienta, sa nečíta; vlastné Offic
   expect(own.text).toContain("SECRET-OUTER-RULE");
   expect(own.complete).toBe(true);
 });
+
+// Review PR #228: a memory profile in this client's case must not map a root or a source into a nested registered client.
+test("profil pamäte s koreňom alebo zdrojom vo vnorenom klientovi ho nečíta a nemenuje", async () => {
+  const f = await fixture();
+  await writeFile(join(f.mn, "tajne.md"), "SECRET-NESTED-PROFILE\n");
+  await writeFile(join(f.m1, "_memory.md"), "SYN-MATTER-01 vlastná pamäť\n");
+  await mkdir(join(f.m1, ".lawoss"), { recursive: true });
+  await writeFile(join(f.m1, ".lawoss", "memory-profile.json"), JSON.stringify({
+    version: 1, matterId: "SYN-MATTER-01",
+    roots: [{ id: "c", path: "." }, { id: "r", path: f.nested }, { id: "k", path: f.k1 }],
+    sources: [
+      { id: "memory", root: "c", path: "_memory.md", role: "case_memory", required: true, writable: true, anchors: ["SYN-MATTER-01"] },
+      { id: "nested", root: "r", path: "Spisy/M009/tajne.md", role: "work_note", required: true, writable: false },
+      // A root this client may read (its own folder) with a source inside the nested client.
+      { id: "via", root: "k", path: "Vnoreny-Hron/Spisy/M009/tajne.md", role: "work_note", required: false, writable: false },
+    ],
+  }));
+  const read = await readMatterMemoryForChat(f.config, f.own, { action: "read", matter: f.m1 }, none);
+  expect(read.text).not.toContain("SECRET");
+  expect(read.text).not.toMatch(/Vnoreny|Hron/);
+  expect(read.complete).toBe(false);
+  expect(read.text).toContain("SYN-MATTER-01 vlastná pamäť");
+});
+
+// Review PR #228: an Office inside a container client (not its direct child) is not read by a nested client's case.
+test("Office v podpriečinku klienta, ktorý obsahuje vnoreného klienta, sa nečíta", async () => {
+  const f = await fixture();
+  await rm(join(f.root, "Office"), { recursive: true });
+  const branch = join(f.k1, "Pobocka"), deep = join(branch, "Vnoreny"), deepCase = join(deep, "Spisy", "M010");
+  await mkdir(deepCase, { recursive: true });
+  await writeFile(join(deep, "client.md"), "---\ntype: klient\n---\n");
+  await memory(join(branch, "Office"), "R-001.md", record("R-001", "rule", "L1", "SECRET-BRANCH-RULE", "pravidlo pobočky", "t"));
+  const inner = f.workspace("ws_deep", deep);
+  const config = { ...f.config, workspaces: [...f.config.workspaces, inner] };
+  for (const action of ["preamble", "read"] as const) {
+    const read = await readMatterMemoryForChat(config, inner, { action, matter: deepCase }, none);
+    expect(read.text).not.toContain("SECRET-BRANCH-RULE");
+    expect(read.complete).toBe(false);
+  }
+});
+
+test("s profilom praxe sa číta len kancelária praxe; iné Office nad klientom nie", async () => {
+  const f = await fixture();
+  const previous = process.env.LEGALWORK_RUNTIME_DB;
+  const runtime = join(f.root, "..", `${f.root.split("/").pop()}-runtime`);
+  cleanups.push(async () => { if (previous === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previous; await rm(runtime, { recursive: true, force: true }); });
+  process.env.LEGALWORK_RUNTIME_DB = join(runtime, "runtime.sqlite");
+  await mkdir(join(runtime, "lawoss-onboarding"), { recursive: true });
+  await writeFile(join(runtime, "lawoss-onboarding", "profile.json"), JSON.stringify({ officeRoot: f.root }));
+  // The practice office (root/Office) is read.
+  expect((await readMatterMemoryForChat(f.config, f.own, { action: "preamble", matter: f.m1 }, none)).text).toContain("Prekonaný výklad SYN");
+  // A practice elsewhere: the Office next to the clients is no longer the practice's, and is not read.
+  await writeFile(join(runtime, "lawoss-onboarding", "profile.json"), JSON.stringify({ officeRoot: f.k3 }));
+  const other = await readMatterMemoryForChat(f.config, f.own, { action: "preamble", matter: f.m1 }, none);
+  expect(other.text).not.toContain("Prekonaný výklad SYN");
+  expect(other.complete).toBe(false);
+});

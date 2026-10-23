@@ -30,10 +30,12 @@ export function matterMemoryScope(directory) {
 /**
  * `preamble` alebo `read` ako CLI; pamäť s profilom číta `read` s koreňmi od hostiteľa.
  * `office: false`: hostiteľ kanceláriu nad spisom nepotvrdil; jej pamäť sa nečíta a čítanie je neúplné.
+ * `excludedRoots`: priečinky iných klientov pre pamäť s profilom (`.lawoss/memory-profile.json`).
  */
-export function readMatterMemory(action, directory, { allowedRoots = [], office = true } = {}) {
+export function readMatterMemory(action, directory, { allowedRoots = [], office = true, excludedRoots = [] } = {}) {
   if (action === "read" && workspaceProfilePresent(directory)) {
-    const report = readWorkspaceMemory(directory, { allowedRoots });
+    // `excludedRoots`: iní registrovaní klienti (aj vnorení); koreň ani zdroj profilu v nich sa nečíta.
+    const report = readWorkspaceMemory(directory, { allowedRoots, excludedRoots });
     return { code: report.complete ? 0 : 1, out: renderWorkspaceMemory(report) };
   }
   return runCli([action, directory], { office });

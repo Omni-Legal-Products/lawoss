@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { readdirSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import { checkedDirectory, checkedPath, contained, isObject, jsonText, message, missing, physicalPathWithin, readText, safeId, sha256 } from "./workspace-memory-fs.ts";
 import { WORKSPACE_MEMORY_LIMITS } from "./workspace-memory-types.ts";
@@ -77,25 +77,40 @@ export function readWorkspaceMemorySnapshot(directory: string, options: Workspac
     const grants = [...new Set((options.allowedRoots ?? []).map(grant => { if (typeof grant !== "string" || !isAbsolute(grant)) throw new Error("Caller grants must be absolute directory paths."); return checkedDirectory(grant); }))].sort();
     const roots = new Map<string, string>();
     const rootProblems = new Map<string, string>();
+    // Host exclusions by logical and physical path; a root or source there is never read nor named.
+    const excludedRoots = [...new Set((options.excludedRoots ?? []).flatMap(root => { try { return [resolve(root), resolve(realpathSync.native(root))]; } catch { return [resolve(root)]; } }))];
+    const excluded = (path: string) => excludedRoots.some(root => contained(root, path));
+    const hidden = new Set<string>();
     for (const root of profile.roots) {
       const path = resolve(report.directory, root.path);
       // Check authority before accessing an external root.
       roots.set(root.id, path);
+      if (excluded(path)) { hidden.add(root.id); rootProblems.set(root.id, `Root ${root.id} lies in a folder this host does not allow; it was not read.`); continue; }
       const authority = authorityFor(path, [report.directory, resolve(directory), ...(options.allowedRoots ?? []), ...grants]);
       if (!authority) rootProblems.set(root.id, `External root requires a caller grant: ${root.id}`);
-      else { try { roots.set(root.id, physicalPathWithin(authority, path, "directory")); } catch (error) { rootProblems.set(root.id, message(error)); } }
+      else {
+        try {
+          const physical = physicalPathWithin(authority, path, "directory");
+          if (excluded(physical)) { hidden.add(root.id); rootProblems.set(root.id, `Root ${root.id} lies in a folder this host does not allow; it was not read.`); }
+          else roots.set(root.id, physical);
+        } catch (error) { rootProblems.set(root.id, message(error)); }
+      }
     }
     const sourceProblems = new Map<string, string>();
     for (const source of profile.sources) {
       const anchors = source.anchors ?? [];
       let path = resolve(roots.get(source.root)!, source.path);
       if (isControlPath(path)) throw new Error("Memory sources cannot alias reserved .lawoss control files.");
-      if (!rootProblems.has(source.root)) {
+      if (!rootProblems.has(source.root) && !excluded(path)) {
         try {
           // Resolve within this source's root, not the union of caller grants.
           path = physicalPathWithin(roots.get(source.root)!, path, "file", true);
           if (isControlPath(path)) throw new Error("Memory sources cannot alias reserved .lawoss control files.");
         } catch (error) { sourceProblems.set(source.id, message(error)); }
+      }
+      if (hidden.has(source.root) || excluded(path)) {
+        sourceProblems.set(source.id, `Source ${source.id} lies in a folder this host does not allow; it was not read.`);
+        path = "[not shown: outside this client's folders]";
       }
       report.sources.push({ id: source.id, root: source.root, path, role: source.role, required: source.required, writable: externalProfile ? false : source.writable, anchors, sha256: null, bytes: 0, content: null, status: "error" });
     }
