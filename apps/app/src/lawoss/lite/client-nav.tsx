@@ -138,7 +138,7 @@ export function useClientNavData(live?: { groups?: readonly WorkspaceSessionGrou
     pending, failed, rootUnknown: practiceRoot === undefined, incomplete: Boolean(data && (data.truncated || data.problems.length > 0)),
   }), [pending, failed, practiceRoot, data]);
   // B3: fakty riadkov klientov raz pre celý panel; karty v koreňoch priečinkov nezávisle od výberu (I-1, I-4).
-  const rootCards = useRootCards(connection);
+  const rootCards = useRootCards(connection, data);
   const todayIso = today();
   const rows = useMemo(() => buildClientRows({ workspaces: connection?.workspaces ?? [], scope, data, groups, model, excludedWorkspaceIds, rootCards, todayIso }),
     [connection?.workspaces, scope, data, groups, model, excludedWorkspaceIds, rootCards, todayIso]);
@@ -510,7 +510,7 @@ function MatterNode({ matter, page, locale, onToggle, onOpenConversation, onNewC
         render={<Link to={liteMatterLink(matter.path)} aria-current={here ? "page" : ancestor ? "location" : undefined} data-lawoss-tree-matter="" data-lawoss-ancestor={ancestor ? "" : undefined} title={status ? `${matter.title} · ${status.text}` : matter.title} />}>
         <span className="min-w-0 flex-1">
           <span className="block truncate">{matter.title}</span>
-          {status ? <span className={cn("block truncate text-2xs", urgencyTextClass(status.urgency))} data-lawoss-row-status="" data-urgency={status.urgency}>{status.text}</span> : null}
+          {status ? <span className={cn("block whitespace-nowrap text-2xs", urgencyTextClass(status.urgency))} data-lawoss-row-status="" data-urgency={status.urgency}>{status.text}</span> : null}
         </span>
         {urgencyDot(matter, now, locale)}
       </SidebarMenuSubButton>

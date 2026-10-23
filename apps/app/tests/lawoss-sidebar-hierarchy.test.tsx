@@ -9,7 +9,7 @@ import type { ReactElement } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { t } from "@/i18n";
 import { cardTitle, clientCode, clientGroupOfProject, clientLabel, expandedAfter, liteProjectNav, matterOfDirectory, matterSourceFresh, prettyFolderName, rowDeadline, sameName } from "../src/lawoss/lite/client-row";
-import { buildClientRows, readRootCards, type RootCard } from "../src/lawoss/lite/client-row-data";
+import { buildClientRows, MAX_CARD_BYTES, readRootCards, type RootCard } from "../src/lawoss/lite/client-row-data";
 import { chatContextText, clientProjectRow, ClientMoreNavItem, ClientRowLabel, ClientRowStatusLine } from "../src/lawoss/lite/client-row-view";
 import { shortDay } from "../src/lawoss/lite/client-row-text";
 import { ClientMattersView, matterRowStatus } from "../src/lawoss/lite/client-nav";
@@ -88,7 +88,7 @@ describe("čitateľné meno klienta (N-22)", () => {
 
   test("riadok projektu: názov z karty, kód a priečinok; bez dát panela natívne meno", () => {
     const row = clientProjectRow(nav(), tatran, SLUG, "sk");
-    expect(row).toMatchObject({ label: CARD, code: "C001", client: true, tooltip: `Priečinok: /prax/Klienti/${SLUG}` });
+    expect(row).toMatchObject({ label: CARD, code: "C001", client: true, tooltip: `Priečinok: /prax/Klienti/${SLUG}\nLehota 24. 10.` });
     expect(clientProjectRow(null, tatran, SLUG, "sk")).toEqual({ label: SLUG, nativeLabel: SLUG, client: false });
     expect(clientProjectRow(nav({ excludedWorkspaceIds: ["tatran"] }), tatran, SLUG, "sk")).toMatchObject({ label: SLUG, client: false });
   });
@@ -118,6 +118,11 @@ describe("čitateľné meno klienta (N-22)", () => {
     const cards = await readRootCards(client as never, [{ id: "alfa" }, { id: "beta" }, { id: "plain" }, { id: "zly" }]);
     expect(Object.fromEntries(cards)).toEqual({ alfa: { card: true, title: "SYN Alfa, s. r. o." }, beta: { card: true }, plain: { card: false }, zly: { card: false } });
     expect(calls.filter((c) => c.startsWith("read:")).sort()).toEqual(["read:alfa:client.md", "read:beta:klient.md"]);
+    // Veľká karta (> 64 KB podľa výpisu) sa nečíta; z prečítanej sa parsuje len začiatok.
+    const big = { listWorkspaceDirectory: async () => ({ entries: [{ kind: "file", name: "client.md", path: "client.md", size: MAX_CARD_BYTES + 1 }] }), readWorkspaceFile: async () => { throw new Error("nemá sa čítať"); } };
+    expect(Object.fromEntries(await readRootCards(big as never, [{ id: "velka" }]))).toEqual({ velka: { card: true } });
+    const padded = { listWorkspaceDirectory: async () => ({ entries: [{ kind: "file", name: "client.md", path: "client.md" }] }), readWorkspaceFile: async () => ({ content: `---\n${"x: y\n".repeat(20_000)}title: Neskoro\n---\n` }) };
+    expect(Object.fromEntries(await readRootCards(padded as never, [{ id: "dlha" }]))).toEqual({ dlha: { card: true } });
   });
 });
 
@@ -173,7 +178,10 @@ describe("stav a lehota v riadku: len to, čo je v súboroch", () => {
   test("UX: zmeškaná lehota červeno, blížiaca sa zlato; kód a lehota v druhom riadku; meno klienta na dva riadky s natívnym menom", () => {
     const late = clientProjectRow(nav({ data: data("fresh", [{ ...UHRADA, deadlines: [deadline("2026-10-01")] }]), groups: [{ ...groups[0], matters: [{ ...UHRADA, deadlines: [deadline("2026-10-01")] }] }] }), tatran, SLUG, "sk");
     const line = html(<ClientRowStatusLine row={late} />);
-    expect(line).toMatch(/<span data-lawoss-row-code="">C001<\/span> · <span class="text-destructive" data-lawoss-row-status="" data-urgency="hot">po lehote<\/span>/);
+    // R-1: najprv lehota (neskracuje sa: shrink-0, bez truncate), potom kód, ktorý sa skráti ako jediný.
+    expect(line).toMatch(/title="po lehote · C001"><span class="shrink-0 whitespace-nowrap text-destructive" data-lawoss-row-status="" data-urgency="hot">po lehote<\/span><span aria-hidden="true" class="shrink-0">·<\/span><span class="min-w-0 truncate" data-lawoss-row-code="">C001<\/span>/);
+    expect(line.indexOf("data-lawoss-row-status")).toBeLessThan(line.indexOf("data-lawoss-row-code"));
+    expect(late.tooltip).toBe(`Priečinok: /prax/Klienti/${SLUG}\npo lehote`);
     const label = html(<ClientRowLabel row={late} />);
     expect(label).toContain("line-clamp-2");
     expect(label).toContain(`data-lawoss-native-name="${SLUG}"`);

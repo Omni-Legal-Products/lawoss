@@ -39,7 +39,8 @@ export function clientRowFrom(facts: ClientRowFacts | undefined, nativeLabel: st
   if (!named.path) return { label: named.label, nativeLabel, client: false };
   return {
     label: named.label, nativeLabel, client: true,
-    tooltip: t("lawoss.lite.client_folder_tooltip", locale, { path: named.path }),
+    // Celá lehota aj v bublinke (v úzkom riadku sa môže skrátiť nanajvýš kód klienta, nie lehota).
+    tooltip: [t("lawoss.lite.client_folder_tooltip", locale, { path: named.path }), facts.deadline ? rowDeadlineText(facts.deadline, locale) : null].filter(Boolean).join("\n"),
     ...(named.code ? { code: named.code } : {}),
     ...(facts.deadline ? { status: { text: rowDeadlineText(facts.deadline, locale), urgency: facts.deadline.urgency } } : {}),
   };
@@ -76,13 +77,16 @@ export function ClientRowLabel({ row }: { row: ClientRow }) {
     data-lawoss-row-label="" data-lawoss-native-name={row.nativeLabel}>{row.label}</span>;
 }
 
-/** Druhý riadok klienta: kód klienta a najbližšia lehota so slovným stavom (farba len dopĺňa text). */
+/**
+ * Druhý riadok klienta: najprv lehota (nikdy sa neskracuje, slovný stav, farba len dopĺňa text), potom kód klienta,
+ * ktorý sa v úzkom paneli skráti ako jediný.
+ */
 export function ClientRowStatusLine({ row }: { row: ClientRow }) {
   if (!row.code && !row.status) return null;
-  return <span className="block truncate text-xs text-muted-foreground" data-lawoss-row-secondary="">
-    {row.code ? <span data-lawoss-row-code="">{row.code}</span> : null}
-    {row.code && row.status ? " · " : null}
-    {row.status ? <span className={urgencyTextClass(row.status.urgency)} data-lawoss-row-status="" data-urgency={row.status.urgency}>{row.status.text}</span> : null}
+  return <span className="flex min-w-0 items-baseline gap-1 text-xs text-muted-foreground" data-lawoss-row-secondary="" title={[row.status?.text, row.code].filter(Boolean).join(" · ")}>
+    {row.status ? <span className={cn("shrink-0 whitespace-nowrap", urgencyTextClass(row.status.urgency))} data-lawoss-row-status="" data-urgency={row.status.urgency}>{row.status.text}</span> : null}
+    {row.code && row.status ? <span aria-hidden className="shrink-0">·</span> : null}
+    {row.code ? <span className="min-w-0 truncate" data-lawoss-row-code="">{row.code}</span> : null}
   </span>;
 }
 

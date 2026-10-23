@@ -4,8 +4,8 @@
  * registrovaného priečinka sa číta nezávisle od vybraného projektu (ohraničene, s cache), takže meno klienta
  * sa pri prepnutí výberu nemení.
  */
-import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef } from "react";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
 import type { OkfConnection } from "../okf/connection";
@@ -18,7 +18,11 @@ import type { ClientGroup } from "./today-model";
 const CLIENT_CARDS = ["client.md", "klient.md"];
 /** Najviac toľko priečinkov sa prečíta (jeden výpis koreňa a jedna karta na priečinok). */
 export const MAX_CARD_READS = 100;
-const CARD_TITLES_STALE_MS = 5 * 60_000;
+const CARD_TITLES_STALE_MS = 30_000;
+/** Karty sa obnovia aj bez zmeny prehľadu (premenovanie klienta v karte iného, nevybraného priečinka). */
+const CARD_TITLES_REFRESH_MS = 60_000;
+/** Karta klienta je krátky Markdown; väčšia sa nečíta (meno ostane natívne), z prečítanej sa parsuje len začiatok. */
+export const MAX_CARD_BYTES = 64 * 1024;
 
 /** Karta klienta v koreni priečinka: či existuje a jej názov (`title`). */
 export type RootCard = { card: boolean; title?: string };
@@ -35,7 +39,8 @@ export async function readRootCards(client: CardClient, workspaces: readonly Pic
         const listing = await client.listWorkspaceDirectory(id, "", { signal });
         const card = listing.entries.find((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
         if (!card) { out.set(id, { card: false }); continue; }
-        const title = parseFrontmatter((await client.readWorkspaceFile(id, card.name, { signal })).content)?.title;
+        if (card.size !== undefined && card.size > MAX_CARD_BYTES) { out.set(id, { card: true }); continue; }
+        const title = parseFrontmatter((await client.readWorkspaceFile(id, card.name, { signal })).content.slice(0, MAX_CARD_BYTES))?.title;
         out.set(id, typeof title === "string" && title.trim() ? { card: true, title: title.trim() } : { card: true });
       } catch {
         signal?.throwIfAborted();
@@ -49,8 +54,11 @@ export async function readRootCards(client: CardClient, workspaces: readonly Pic
 
 const NO_CARDS: ReadonlyMap<string, RootCard> = new Map();
 
-/** Karty klientov všetkých registrovaných lokálnych priečinkov panela (nie len vybraného). */
-export function useRootCards(connection: OkfConnection | null): ReadonlyMap<string, RootCard> {
+/**
+ * Karty klientov všetkých registrovaných lokálnych priečinkov panela (nie len vybraného). Obnovia sa, keď sa zmení
+ * prehľad OKF (`refreshKey`, napr. zmenená karta vybraného klienta), a periodicky pre nevybrané priečinky.
+ */
+export function useRootCards(connection: OkfConnection | null, refreshKey?: unknown): ReadonlyMap<string, RootCard> {
   const projects = useMemo(() => (connection?.workspaces ?? []).filter((w) => w.workspaceType !== "remote" && Boolean(w.path)).slice(0, MAX_CARD_READS), [connection?.workspaces]);
   const key = projects.map((w) => `${w.id}\u0000${w.path}`).join("\u0001");
   const client = connection?.client ?? null;
@@ -58,10 +66,19 @@ export function useRootCards(connection: OkfConnection | null): ReadonlyMap<stri
     queryKey: ["lawoss-client-root-cards", connection?.baseUrl ?? "", connection?.authGeneration ?? 0, key],
     enabled: client !== null && projects.length > 0,
     staleTime: CARD_TITLES_STALE_MS,
+    refetchInterval: CARD_TITLES_REFRESH_MS,
     retry: false,
     refetchOnWindowFocus: false,
     queryFn: ({ signal }) => client ? readRootCards(client, projects, signal) : Promise.resolve(NO_CARDS),
   });
+  // Nové čítanie prehľadu (iný objekt dát) = karty sa prečítajú znova, prvé načítanie sa nezdvojuje.
+  const queryClient = useQueryClient();
+  const seen = useRef(refreshKey);
+  useEffect(() => {
+    if (seen.current === refreshKey) return;
+    seen.current = refreshKey;
+    void queryClient.invalidateQueries({ queryKey: ["lawoss-client-root-cards"] });
+  }, [refreshKey, queryClient]);
   return query.data ?? NO_CARDS;
 }
 

@@ -413,8 +413,8 @@ describe("bočný panel (natívny AppSidebar, vykreslený)", () => {
     const session = { id: "s1", title: "Návrh odpovede", directory: `/prax/Klienti/${slug}/Spisy/Uhrada`, time: { created: 1, updated: 2 } };
     const rows = buildClientRows({ workspaces: [client], scope, data, groups, model, excludedWorkspaceIds: [], rootCards: new Map(), todayIso: "2026-10-22" });
     const out = sidebar(navValue(model, [], { scope, data, groups, rows }), [{ workspace: client, sessions: [session], status: "ready" } as WorkspaceSessionGroup]);
-    expect(out).toMatch(new RegExp(`title="Folder: /prax/Klienti/${slug}" data-lawoss-row-label="" data-lawoss-native-name="${slug}">${card}</span>`));
-    expect(out).toContain('<span data-lawoss-row-code="">C001</span>');
+    expect(out).toMatch(new RegExp(`title="Folder: /prax/Klienti/${slug}\\nDeadline [^"]+" data-lawoss-row-label="" data-lawoss-native-name="${slug}">${card}</span>`));
+    expect(out).toMatch(/<span class="min-w-0 truncate" data-lawoss-row-code="">C001<\/span>/);
     expect(out).not.toContain(`>${slug}<`);
     expect(out).toMatch(/data-lawoss-row-status=""[^>]*>Deadline /);
     expect(out).toContain(`>${card} · Úhrada dodávok</span>`);
