@@ -118,7 +118,7 @@ describe("permission approval modal helpers", () => {
       match[0].replace(/<[^>]*>/g, "").trim(),
     );
 
-    expect(buttonLabels).toEqual(["Deny", "Allow once", "Allow for this chat"]);
+    expect(buttonLabels).toEqual(["Deny", "Allow once", "Allow for this client"]);
   });
 
   test("uses readable labels for generic permission titles", () => {

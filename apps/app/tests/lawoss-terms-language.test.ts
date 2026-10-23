@@ -14,9 +14,11 @@ import { shellCs, shellSk } from "../src/lawoss/i18n/shell";
 import { mattersCs, mattersSk } from "../src/lawoss/i18n/matters";
 import { setupCs, setupSk } from "../src/lawoss/i18n/setup";
 import { integrationsCs, integrationsSk } from "../src/lawoss/i18n/integrations";
+import { defaultProjectTemplates, localizedProjectFields, projectFieldLabel, projectTemplateName } from "../../../packages/types/src/project-templates";
 import { documentProfileCopy } from "../src/react-app/domains/session/panel/document-processing";
 import { AI_BOUNDARIES_STORED_MESSAGE, aiBoundariesRefusal } from "../src/lawoss/domains/ai/boundaries-refusal";
 import { sendErrorFromThrown, sendErrorText } from "../src/lawoss/domains/ai/send-error";
+import { rememberedApprovalKeys } from "../src/lawoss/lite/file-operation-card";
 import { PermissionApprovalPanel } from "../src/react-app/domains/session/chat/permission-approval-modal";
 
 const initial: Language = currentLocale();
@@ -62,9 +64,10 @@ describe("EN a DE: Client / Case / Chats a Mandant / Fall / Chats (N-11)", () =>
     expect(t("lawoss.matters.mattersTitle")).toBe("Fälle");
     expect(t("lawoss.lite.new_matter")).toBe("Neuer Fall");
     expect(t("lawoss.matters.field.reference")).toBe("Aktenzeichen");
-    for (const value of Object.entries(de).filter(([key]) => key.startsWith("lawoss.") && key !== "lawoss.alpha.notice" && !key.startsWith("lawoss.setup.welcome.")).map(([, v]) => v)) {
-      expect(String(value).replace(/Aktenzeichen/g, "")).not.toMatch(/\bAkten?\b|Angelegenheit/);
+    for (const value of Object.entries(de).filter(([key]) => key.startsWith("lawoss.")).map(([, v]) => v)) {
+      expect(String(value)).not.toMatch(/\bAkten?\b|\bAkten(?!zeichen)[a-zäöüß]+|Angelegenheit/);
     }
+    expect("Akteure und Aktenzeichen").not.toMatch(/\bAkten?\b|\bAkten(?!zeichen)[a-zäöüß]+/);
   });
 
   test("nemecká gramatika po zámene rodu a zvyšky Akte / Mandat / Session", () => {
@@ -86,11 +89,10 @@ describe("EN a DE: Client / Case / Chats a Mandant / Fall / Chats (N-11)", () =>
     const effectiveDe: Record<string, string> = { ...de, ...termsDe };
     const effectiveEn: Record<string, string> = { ...en, ...termsEn };
     const leftovers = Object.entries(effectiveDe)
-      .filter(([key, value]) => key !== "lawoss.alpha.notice" && !key.startsWith("lawoss.setup.welcome."))
-      .filter(([, value]) => /\bAkten?\w*|\bAngelegenheit|\bMandat(e|en|s)?\b/.test(value.replace(/Aktenzeichen/g, "")));
+      .filter(([, value]) => /\bAkten?\b|\bAkten(?!zeichen)[a-zäöüß]+|\bAngelegenheit|\bMandat(e|en|s)?\b/.test(value));
     expect(leftovers.map(([key]) => key)).toEqual([]);
     const enLeft = Object.entries(effectiveEn)
-      .filter(([key, value]) => key !== "lawoss.alpha.notice" && !key.startsWith("lawoss.setup.welcome.") && /\bmatters?\b/i.test(value.replace(/\{[^}]*\}|features? (you use )?matter|details that matter/gi, "")))
+      .filter(([, value]) => /\bmatters?\b/i.test(value.replace(/\{[^}]*\}|features? (you use )?matter|details that matter/gi, "")))
       .map(([key]) => key);
     expect(enLeft).toEqual([]);
   });
@@ -110,8 +112,8 @@ describe("EN a DE: Client / Case / Chats a Mandant / Fall / Chats (N-11)", () =>
 });
 
 describe("SK a CS: Prípad / Případ namiesto spisu (N-3, F1, N-6)", () => {
-  // Texty onboardingu (alfa upozornenie, analytika, „Toto je“) mení úloha C1.
-  const LEFT_TO_C1 = new Set(["lawoss.alpha.notice", "lawoss.setup.welcome.analyticsDesc", "lawoss.setup.wizard.clientRootHint", "projects.schema.matter_number"]);
+  // Právne pojmy a doslovný názov priečinka: „Číslo spisu“, priečinok „Spisy“.
+  const LEFT_TO_C1 = new Set(["lawoss.setup.wizard.clientRootHint", "projects.schema.matter_number"]);
   const OLD = /(?<![-\p{L}/])[Ss]pis(y|u|e|ov|om|och|mi|ů|ům|ech|em)?(?![\p{L}])/u;
   test("slovníky nehovoria o spise vo význame prípadu", () => {
     for (const dict of [shellSk, shellCs, mattersSk, mattersCs, setupSk, setupCs, integrationsSk, integrationsCs]) {
@@ -194,5 +196,51 @@ describe("K5/K6: texty sa prekladajú pri renderi, nie pri uložení", () => {
   test("miera uvažovania má EN a DE preklad, nie slovenský text", () => {
     expect(en["model_behavior.title_reasoning_effort"]).not.toMatch(/uvažovania/);
     expect(de["model_behavior.title_reasoning_effort"]).not.toMatch(/uvažovania/);
+  });
+});
+
+describe("karta povolenia: pamätanie podľa druhu karty (review B2 kolo 2)", () => {
+  test("engine karta pamätá pre klienta, host karta pre chat", () => {
+    expect(rememberedApprovalKeys({ protocol: "legacy" }).label).toBe("lawoss.permission.allow_for_client");
+    expect(rememberedApprovalKeys({ protocol: "v2" }).label).toBe("lawoss.permission.allow_for_client");
+    expect(rememberedApprovalKeys({ protocol: "host" }).label).toBe("session.allow_for_session");
+    expect(rememberedApprovalKeys({ protocol: "host" }).hint).toBe("session.permission_decision_hint");
+    const expected = { sk: "Povoliť pre tohto klienta", cs: "Povolit pro tohoto klienta", en: "Allow for this client", de: "Für diesen Mandanten erlauben" } as const;
+    for (const locale of ["sk", "cs", "en", "de"] as const) {
+      setLocale(locale);
+      expect(t(rememberedApprovalKeys({ protocol: "legacy" }).label)).toBe(expected[locale]);
+      expect(t(rememberedApprovalKeys({ protocol: "legacy" }).hint)).not.toMatch(/konverzác|konverzac|chat/i);
+    }
+  });
+
+  test("vykreslená karta ukazuje správny popisok podľa protokolu", () => {
+    const base: PendingPermission = { id: "p2", sessionID: "s1", permission: "bash", patterns: ["ls"], metadata: {}, always: { session: false, project: false }, receivedAt: 1, protocol: "legacy" };
+    setLocale("cs");
+    const engine = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, { permission: base, respondPermission: () => {} }));
+    expect(engine).toContain("Povolit pro tohoto klienta");
+    expect(engine).not.toContain("do konce konverzace");
+  });
+});
+
+describe("zákonné aliasy: staré uložené štítky a názvy šablón sa ďalej prekladajú (review B2 kolo 2)", () => {
+  test("pole bez labelSource so starým EN štítkom sa preloží na nový", () => {
+    const legacy = { id: "matter_number", label: "Matter reference", type: "text" as const, value: null };
+    expect(projectFieldLabel(legacy, "sk")).toBe("Číslo spisu");
+    expect(projectFieldLabel(legacy, "en")).toBe("Case number");
+    expect(projectFieldLabel({ id: "subject", label: "Matter subject", type: "text", value: null }, "cs")).toBe("Předmět případu");
+    expect(localizedProjectFields([legacy], "de")[0]?.labelSource).toBe("suggested");
+    expect(projectFieldLabel({ ...legacy, labelSource: "custom" }, "sk")).toBe("Matter reference");
+    expect(projectFieldLabel({ ...legacy, label: "Moje vlastné" }, "sk")).toBe("Moje vlastné");
+  });
+
+  test("šablóna bez nameSource so starým názvom sa preloží, vlastný názov ostane", () => {
+    const [legal, internal] = defaultProjectTemplates("en");
+    expect(legal && internal).toBeTruthy();
+    for (const old of ["Legal Matter", "Akte", "Právny spis", "Právní spis"]) {
+      expect(projectTemplateName({ id: "legal_matter", name: old, fields: [] }, "de")).toBe("Fall");
+    }
+    expect(projectTemplateName({ id: "internal", name: "Internal Project", fields: [] }, "en")).toBe("Internal Work");
+    expect(projectTemplateName({ id: "legal_matter", name: "Moja šablóna", fields: [] }, "de")).toBe("Moja šablóna");
+    expect(projectTemplateName({ id: "legal_matter", name: "Akte", nameSource: "custom", fields: [] }, "de")).toBe("Akte");
   });
 });
