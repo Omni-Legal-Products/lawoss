@@ -116,3 +116,19 @@ describe("OKF bundle refresh in an existing workspace", () => {
     expect(f.writes).toEqual([]);
   });
 });
+
+describe("alfa 2 B1: skilly pred zmenou sa pri otvorení klienta aktualizujú", () => {
+  // Telá z integračnej vetvy pred B1 (78df57e5), uložené ako fixtúra, aby test nezávisel od histórie gitu.
+  const before = (file: string) => Bun.file(new URL(`./fixtures/okf-skills-pred-b1/${file}`, import.meta.url)).text();
+  const cases = [
+    { name: "roztried-spis", file: "roztried-spis.sk.md", body: () => roztriedSpisSkillBody("sk") },
+    { name: "roztried-spis", file: "roztried-spis.cs.md", body: () => roztriedSpisSkillBody("cs") },
+    { name: "usporiadaj-spis", file: "usporiadaj-spis.md", body: () => usporiadajSpisSkillBody() },
+  ];
+  for (const item of cases) test(`${item.file}: nezmenená stará verzia → updated, nie customized`, async () => {
+    const skill = { name: item.name, body: item.body(), resource: OKF_CLI_RESOURCE_NAME, source: okfCliSource() };
+    const f = fixture({ [item.name]: { content: await before(item.file), resources: new Map([[OKF_CLI_RESOURCE_NAME, okfCliSource()]]) } });
+    expect(await refreshOkfSkills(f.client, "w", [skill])).toEqual({ modified: [], written: [item.name] });
+    expect(f.installed[item.name]?.content).toContain("lawoss_files");
+  });
+});
