@@ -175,7 +175,7 @@ describe("navigácia bez rolovania (MČ 19. 10.)", () => {
   test("Vybrať iný priečinok je v hlavičke pri nadpise, pred voľbou úrovne a odpoveďami, a len raz", () => {
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ level: "practice", clients: [{ path: "A", name: "A" }], clientPattern: "*" })} level="practice" selected={["A"]} />);
     const change = html.indexOf("Vybrať iný priečinok");
-    expect(change).toBeGreaterThan(html.indexOf("Toto som našiel"));
+    expect(change).toBeGreaterThan(html.indexOf("Toto sme našli"));
     expect(change).toBeLessThan(html.indexOf("<select"));
     expect(html.split("Vybrať iný priečinok")).toHaveLength(2);
   });

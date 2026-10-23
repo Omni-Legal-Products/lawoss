@@ -281,6 +281,11 @@ test("nové kroky folder a found sa uložia; starý krok packs sa načíta", asy
   await f.success("profile", { step: "folder" });
   await f.success("profile", { step: "found" });
   expect((await f.success("status")).profile.step).toBe("found");
+  // Sprievodca C1: kroky Ako agent pracuje a Pripravené sa uložia a prežijú opätovné načítanie.
+  for (const step of ["ai", "approvals", "ready"] as const) {
+    await f.success("profile", { step });
+    expect((await f.success("status")).profile.step).toBe(step);
+  }
 });
 
 test("vybraný priečinok kroku Toto som našiel sa uloží na obnovu, overí pri zápise a zmaže (M1)", async () => {
