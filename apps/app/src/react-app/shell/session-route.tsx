@@ -2084,7 +2084,7 @@ export function SessionRoute() {
       }
       if (options?.paneId) {
         usePanelTabStore.getState().openTab(workspacePanelKey(workspaceId), {
-          id: `chat:${session.id}`, type: "chat", sessionId: session.id, label: session.title || t("session.default_title"),
+          id: `chat:${session.id}`, type: "chat", sessionId: session.id, label: getDisplaySessionTitle(session.title), // 🟡 LAWOSS (P6): not the engine's "New session - …"
         }, options.paneId);
       }
       navigateToWorkspaceSession(workspaceId, session.id);

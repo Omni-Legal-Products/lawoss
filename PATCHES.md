@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Technické texty pre advokáta (2026-10-23, P6, N-A3-6)
+
+Podklad: akceptačný test 24. 10. 2026 (`nalezy.md` N-A3-6, N-A2-8) a plán opráv P6. Ostatné zmeny sú v LAWOSS súboroch.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/shell/session-route.tsx`, `apps/app/src/react-app/domains/session/panel/side-panel.tsx` | Karta chatu z „+“ dostane `getDisplaySessionTitle(session.title)` namiesto surového názvu enginu a `SidePanelTab` zobrazí názov karty chatu cez `getDisplaySessionTitle` (aj uložené karty). Uložená hodnota a `DEFAULT_SESSION_TITLE` sa nemenia, upstream rozpoznávanie predvoleného názvu ostáva. Dôvod: nová karta sa volala „New session - …“ (+1 import, 2 zmenené riadky, 1 komentár). |
+
 ## Koreň disku Windows v pripojených priečinkoch (2026-10-23)
 
 | Súbory | Downstream doplnenie a dôvod |

@@ -52,6 +52,7 @@ import { hasViewerFileDrag, readViewerFileDrop, viewerFileTabs } from "./viewer-
 import { acceptsSessionsDrag, readSessionsDrag, startSessionDrag } from "../sidebar/session-drag";
 import { type ProjectView } from "./panel-tab-store";
 import { projectFileDisplayName } from "../../workspace/project-note-title";
+import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import { Button } from "@/components/ui/button";
@@ -367,8 +368,9 @@ type SidePanelTabProps = {
 function SidePanelTab({ tab, workspaceId, fileSource, projectId, pane, destinations, canSplit, active, canMove, preview, onKeepOpen, onOpenWindow, onSelect, onClose, onClosePane, onMove, onSplit, onDragChange }: SidePanelTabProps) {
   const tabRef = React.useRef<HTMLDivElement>(null);
   const sourceName = useProjectFiles()?.projects.find(project => project.projectId === fileSource?.projectId)?.name;
+  // 🟡 LAWOSS (P6): a chat tab may keep the engine's default title ("New session - …"); show the localized default.
   const label = tab.type === "artifact" && tab.value && !tab.storage
-    ? projectFileDisplayName(tab.value, tab.label) : tab.type === "project-view" ? projectViewLabel(tab.view) : tab.label;
+    ? projectFileDisplayName(tab.value, tab.label) : tab.type === "project-view" ? projectViewLabel(tab.view) : tab.type === "chat" ? getDisplaySessionTitle(tab.label) : tab.label;
 
   React.useEffect(() => {
     if (active) {
