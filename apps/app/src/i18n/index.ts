@@ -2,7 +2,9 @@ import en from "./locales/en";
 import de from "./locales/de";
 import sk from "./locales/sk";
 import cs from "./locales/cs";
+import { termsDe, termsEn } from "../lawoss/i18n/terms";
 import { BRAND_NAME, UPSTREAM_BRAND_NAME } from "../lawoss/branding";
+import { desktopSystemLanguages, preferredSystemLanguage } from "../lawoss/i18n/system-language";
 export const LANGUAGE_PREF_KEY = "legalwork.language";
 
 /**
@@ -47,8 +49,9 @@ export const LANGUAGE_OPTIONS = [
  * Translation maps
  */
 const TRANSLATIONS: Record<Language, Record<string, string>> = {
-  en,
-  de,
+  // LAWOSS: Client / Case / Chats (EN) and Mandant / Fall / Chats (DE) over the upstream wording.
+  en: { ...en, ...termsEn },
+  de: { ...de, ...termsDe },
   sk,
   cs,
 };
@@ -90,24 +93,28 @@ export const matchLanguageTag = (tag: string): Language | null => {
 };
 
 /**
- * The language the OS/browser asks for, or "en" when none of the preferred
- * languages is one we ship. `navigator.languages` is ordered by preference, so
- * the first supported entry wins.
+ * The language the OS/browser asks for. LAWOSS: the desktop OS language list
+ * from the main process (Electron's `navigator.languages` only carries the app
+ * locale), else `navigator.languages`; Slovak or Czech anywhere in the list
+ * wins, otherwise the first supported entry, and "sk" when none is shipped.
  */
 export const detectSystemLanguage = (): Language => {
-  if (typeof navigator === "undefined") return "en";
+  const desktop = desktopSystemLanguages();
+  const tags = desktop ?? (typeof navigator === "undefined"
+    ? []
+    : Array.isArray(navigator.languages) && navigator.languages.length > 0
+      ? navigator.languages
+      : [navigator.language]);
 
-  const tags = Array.isArray(navigator.languages) && navigator.languages.length > 0
-    ? navigator.languages
-    : [navigator.language];
-
+  const supported: Language[] = [];
   for (const tag of tags) {
     if (typeof tag !== "string") continue;
     const matched = matchLanguageTag(tag);
-    if (matched) return matched;
+    if (matched) supported.push(matched);
   }
 
-  return "en";
+  // LAWOSS: SK/CS kdekoľvek v zozname má prednosť, bez podporovaného jazyka slovenčina (lawoss/i18n/system-language.ts).
+  return preferredSystemLanguage(supported, "sk");
 };
 
 /* ------------------------------------------------------------------ */

@@ -94,7 +94,7 @@ afterEach(() => {
 describe("upozornenie na alfa verziu", () => {
   test("prepínač je zapnutý a text je vo všetkých štyroch jazykoch", () => {
     expect(ALPHA_NOTICE).toBe(true);
-    expect(t("lawoss.alpha.notice", "sk")).toBe("Toto je alfa verzia LAWOSS na testovanie. Skúšajte ju na syntetických dátach alebo na kópii priečinka. Vlastné spisy len na vlastné riziko.");
+    expect(t("lawoss.alpha.notice", "sk")).toBe("Toto je alfa verzia LAWOSS na testovanie. Skúšajte ju na syntetických dátach alebo na kópii priečinka. Vlastné dokumenty klientov len na vlastné riziko.");
     expect(t("lawoss.alpha.dismiss", "sk")).toBe("Rozumiem");
     for (const language of ["cs", "en", "de"] as const) {
       expect(t("lawoss.alpha.notice", language)).not.toBe("lawoss.alpha.notice");

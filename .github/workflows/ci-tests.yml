@@ -158,6 +158,19 @@ jobs:
           pnpm --filter legalwork-server build
           LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts --timeout 180000 apps/server/src/scheduled-tasks/engine.test.ts
 
+      # 🟡 LAWOSS: oddelenie klientov a schvaľovanie so skutočným enginom a skriptovaným modelom (review #221).
+      # Načítajú pluginy z apps/server/dist, preto bežia po builde servera v predchádzajúcom kroku.
+      - name: Verify client isolation and approval cards with the shipped engine
+        env:
+          LAWOSS_APPROVAL_ENGINE: "1"
+          LAWOSS_TRIEDENIE_ENGINE: "1"
+        run: |
+          export LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)"
+          # Bez enginu by sa testy potichu preskočili a krok by bol zelený.
+          test -x "$LEGALWORK_TEST_OPENCODE_BIN"
+          bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts --timeout 180000 apps/server/src/lawoss/linked-folders-documents.integration.test.ts apps/server/src/lawoss/matter-chat-engine.integration.test.ts apps/server/src/lawoss/approval-cards.integration.test.ts apps/server/src/lawoss/okf-triedenie-flow.integration.test.ts
+          cd apps/app && bun test --timeout 180000 tests/lawoss-matter-chat-engine.test.ts
+
       - name: Verify built draft routes load in Node
         run: pnpm test:drafts:build
 

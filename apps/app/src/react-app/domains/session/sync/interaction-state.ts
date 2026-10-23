@@ -5,6 +5,7 @@ import { t } from "@/i18n";
 import { unwrap } from "@/app/lib/opencode";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionActivityStore } from "../status/session-activity-store";
+import { comparable } from "@/lawoss/shell/session-directory";
 
 export const permissionKey = (workspaceId: string, sessionId: string) =>
   ["react-session-permissions", workspaceId, sessionId] as const;
@@ -54,6 +55,7 @@ export function removeInteractionSession(workspaceId: string, sessionId: string)
   const sessions = queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId)) ?? {};
   const removed = new Set(interactionSessionIds(sessionId, sessions));
   for (const id of removed) {
+    interactionFolders.delete(interactionFolderKey(workspaceId, id));
     queryClient.removeQueries({ queryKey: permissionKey(workspaceId, id), exact: true });
     queryClient.removeQueries({ queryKey: questionKey(workspaceId, id), exact: true });
     useSessionActivityStore.getState().removeSession(workspaceId, id);
@@ -63,6 +65,21 @@ export function removeInteractionSession(workspaceId: string, sessionId: string)
 }
 
 export const interactionRequestKey = (sessionId: string, requestId: string) => `${sessionId}\u0000${requestId}`;
+
+// LAWOSS: the engine keeps pending requests per folder instance, and a case chat runs in its case
+// subfolder. Several syncs of one workspace (client root, case folders) recover side by side; each
+// replaces only chats whose requests came from its own folder, never another folder's cards.
+const interactionFolders = new Map<string, string>();
+const interactionFolderKey = (workspaceId: string, sessionId: string) => `${workspaceId}\u0000${sessionId}`;
+const folderOf = (directory?: string) => (directory?.trim() ? comparable(directory) : "");
+/** Records the folder instance whose events or list reported this chat's requests. */
+export function noteInteractionFolder(workspaceId: string, sessionId: string, directory?: string) {
+  interactionFolders.set(interactionFolderKey(workspaceId, sessionId), folderOf(directory));
+}
+function recoveredBy(workspaceId: string, sessionId: string, directory?: string) {
+  const owner = interactionFolders.get(interactionFolderKey(workspaceId, sessionId));
+  return owner === undefined || owner === folderOf(directory);
+}
 export type InteractionSnapshot = {
   startedAt: number;
   permissions: Map<string, boolean>;
@@ -194,6 +211,8 @@ export function seedQuestionState(
 type RecoveryInput = {
   client: Client;
   workspaceId: string;
+  /** The folder instance `client` reads (a case subfolder or the client root). */
+  directory?: string;
   snapshot: InteractionSnapshot;
   isCurrent: (sessionId?: string) => boolean;
   onSessionUpdated: (update: { sessionId: string; info: Record<string, unknown> }) => void;
@@ -228,8 +247,9 @@ export async function refreshWorkspaceInteractions(input: RecoveryInput) {
     const requests = (await read()).filter((item) => !input.snapshot.deletedSessions.has(item.sessionID));
     if (!input.isCurrent()) return;
     const ids = new Set(requests.map((item) => item.sessionID));
+    for (const id of ids) noteInteractionFolder(input.workspaceId, id, input.directory);
     for (const [, pending] of queryClient.getQueriesData<PendingPermission[]>({ queryKey: ["react-session-permissions", input.workspaceId] })) {
-      for (const item of pending ?? []) if (item.protocol === protocol) ids.add(item.sessionID);
+      for (const item of pending ?? []) if (item.protocol === protocol && recoveredBy(input.workspaceId, item.sessionID, input.directory)) ids.add(item.sessionID);
     }
     for (const id of ids) seedPermissionState(input.workspaceId, id, requests, { protocol, snapshot: input.snapshot });
     await Promise.allSettled([...new Set(requests.map((item) => item.sessionID))].map(resolveLineage));
@@ -238,8 +258,9 @@ export async function refreshWorkspaceInteractions(input: RecoveryInput) {
     const requests = (await read()).filter((item) => !input.snapshot.deletedSessions.has(item.sessionID));
     if (!input.isCurrent()) return;
     const ids = new Set(requests.map((item) => item.sessionID));
+    for (const id of ids) noteInteractionFolder(input.workspaceId, id, input.directory);
     for (const [, pending] of queryClient.getQueriesData<PendingQuestion[]>({ queryKey: ["react-session-questions", input.workspaceId] })) {
-      for (const item of pending ?? []) if ((item.protocol ?? "legacy") === protocol) ids.add(item.sessionID);
+      for (const item of pending ?? []) if ((item.protocol ?? "legacy") === protocol && recoveredBy(input.workspaceId, item.sessionID, input.directory)) ids.add(item.sessionID);
     }
     for (const id of ids) seedQuestionState(input.workspaceId, id, requests, { protocol, snapshot: input.snapshot });
     await Promise.allSettled([...new Set(requests.map((item) => item.sessionID))].map(resolveLineage));

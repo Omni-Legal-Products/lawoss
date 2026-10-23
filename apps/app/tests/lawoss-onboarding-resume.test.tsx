@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import type { OnboardingProfile } from "../src/lawoss/domains/onboarding/api";
-import { markOnboardingCompleted, onboardingIncomplete, openingStep } from "../src/lawoss/domains/onboarding/resume";
+import { markOnboardingCompleted, onboardingIncomplete, openingStep, resumeFound } from "../src/lawoss/domains/onboarding/resume";
 import { OnboardingResumeCardView } from "../src/lawoss/domains/onboarding/resume-card";
 import { OkfPageState } from "../src/lawoss/domains/okf-page";
 import { OfficeProfileView } from "../src/lawoss/domains/settings/office-profile-view";
@@ -52,6 +52,38 @@ describe("návrat k nedokončenému nastaveniu praxe (#96)", () => {
     await markOnboardingCompleted(api, { ...base, completedAt: "2026-10-01T00:00:00.000Z" }, now);
     await markOnboardingCompleted(api, null, now);
     expect(calls).toHaveLength(1);
+  });
+
+  test("obnova po prerušení otvorí naposledy vybraný priečinok (M1, 22. 10. 2026)", () => {
+    const profile: OnboardingProfile = { ...base, step: "found", foundRoot: "/x/3-neusporiadana-prax" };
+    const step = openingStep(undefined, profile, "identity", false);
+    expect(step).toBe("found");
+    expect(resumeFound(step, profile)).toEqual({ root: "/x/3-neusporiadana-prax" });
+    // `?root=` z adresy má prednosť; iný krok ani profil bez priečinka nič neobnoví.
+    expect(resumeFound(step, profile, "/iny")).toBeNull();
+    expect(resumeFound("folder", profile)).toBeNull();
+    expect(resumeFound("found", { ...base, step: "found" })).toBeNull();
+    expect(resumeFound("found", null)).toBeNull();
+  });
+
+  test("zmiznutý priečinok obnovy vráti krok Priečinok s preloženou vetou (review A4, minor 4)", async () => {
+    const profile: OnboardingProfile = { ...base, step: "found", foundRoot: "/x/Presunutá prax" };
+    expect(resumeFound("found", profile, undefined, true)).toEqual({ missing: "/x/Presunutá prax" });
+    const { foundText } = await import("../src/lawoss/domains/onboarding/found-text");
+    expect(foundText("sk")("resumeFolderMissing", { name: "Presunutá prax" })).toBe("Priečinok „Presunutá prax“ z prerušeného nastavenia sa nenašiel (možno bol presunutý alebo premenovaný). Vyberte ho znova.");
+    for (const locale of ["cs", "en", "de"] as const) expect(foundText(locale)("resumeFolderMissing", { name: "Presunutá prax" })).toContain("Presunutá prax");
+    // Sprievodca (C1) volá resumeFound cez wizardResume; zmiznutý priečinok vedie na Dokumenty aj z krokov 4–6.
+    const flow = (await import("node:fs")).readFileSync(new URL("../src/lawoss/domains/onboarding/wizard/wizard-flow.ts", import.meta.url), "utf8");
+    expect(flow).toContain("resumeFound(opening, profile, initialRoot, input.foundRootMissing)");
+  });
+
+  test("dokončenie zmaže priečinok obnovy aj pri už dokončenom profile", async () => {
+    const calls: unknown[] = [];
+    const api = { updateOnboardingProfile: async (patch: Partial<OnboardingProfile> | { foundRoot: null }) => { calls.push(patch); return base; } };
+    const now = new Date("2026-10-22T10:00:00.000Z");
+    await markOnboardingCompleted(api, { ...base, foundRoot: "/x" }, now);
+    await markOnboardingCompleted(api, { ...base, completedAt: "2026-10-01T00:00:00.000Z", foundRoot: "/x" }, now);
+    expect(calls).toEqual([{ completedAt: "2026-10-22T10:00:00.000Z", foundRoot: null }, { foundRoot: null }]);
   });
 
   test("zlyhaný zápis značky nezablokuje dokončenie", async () => {

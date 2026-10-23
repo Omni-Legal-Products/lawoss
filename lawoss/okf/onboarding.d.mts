@@ -41,8 +41,15 @@ export interface OnboardingSuggestion {
   signals: string[];
   clientPattern?: string;
   clients: SuggestedClient[];
+  /** Klienti a vzor pre ručnú opravu na „Celá prax“; sú v každom návrhu (N-9). */
+  practiceCandidates: SuggestedClient[];
+  practicePattern: string;
   complete: boolean;
+  childOffices?: string[];
+  /** Náhľad stromu: koreň („“) a kandidáti praxe s prípadmi a počtom súborov (C1); `exact: false` = dolná hranica. */
+  units: SuggestedUnit[];
 }
+export interface SuggestedUnit { path: string; matters: SuggestedClient[]; matterCount: number; files: number; exact: boolean }
 export function suggestOnboardingLevel(root: string): Promise<OnboardingSuggestion>;
 export function grantInPlaceReorganize(root: string, now?: Date): Promise<void>;
 /** Usporiadanie na mieste len s `allowInPlace: true` od hostiteľa, ktorý súhlas overil vo vlastnom zázname; samotná značka v priečinku nestačí. */

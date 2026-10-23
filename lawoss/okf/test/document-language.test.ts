@@ -17,6 +17,12 @@ const labels = {
   en: { guide: "First read", memory: "Legacy memory", inputs: "Inputs and communication", channels: "Communication checks", profile: "Working folders and document naming", project: "decisions and lessons learned", phase: "**Phase:**" },
 };
 
+const CITATION_RULE = {
+  cs: "Odkazuj na původní dokument, ve kterém jsi fakt opravdu přečetl. Kartu ani generovaný přehled",
+  sk: "Odkazuj na pôvodný dokument, v ktorom si fakt naozaj prečítal. Kartu ani generovaný prehľad",
+  en: "Link the original document in which you actually read the fact. Do not cite a card or generated overview",
+} as const;
+
 for (const language of ["cs", "sk", "en"] as const) for (const jurisdiction of ["cz", "sk"] as const) for (const type of ENTITY_TYPES) {
   test(`${type}: ${language} document language is independent of ${jurisdiction} jurisdiction`, () => {
     const input: PlanInput = { type, dir: join(root, type), title: 'Původní "názov": právní věc', description: "Pôvodný obsah zostáva.",
@@ -29,6 +35,8 @@ for (const language of ["cs", "sk", "en"] as const) for (const jurisdiction of [
     if (type === "spis") expect(parseFrontmatter(content("matter.md"))).toMatchObject({ jurisdiction, matter_kind: "advisory", mode: "ongoing", advokat: input.advokat });
     expect(content("AGENTS.md")).toContain(labels[language].guide);
     expect(content("CLAUDE.md")).toBe(content("AGENTS.md"));
+    // Alfa 2 B1 (N-15): tvrdenie odkazuje na súbor, ktorý fakt obsahuje, nie na metadátový súbor.
+    expect(content("AGENTS.md")).toContain(CITATION_RULE[language]);
     expect(content("MEMORY.md")).toContain(type === "projekt" ? labels[language].project : labels[language].memory);
     if (type !== "projekt") {
       expect(content("VSTUPY.md")).toContain(labels[language].inputs);

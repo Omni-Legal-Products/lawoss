@@ -70,7 +70,7 @@ test("rendered memory and office controls localize labels while role values, pat
   const original = previewMemoryProfile(profile);
   const html = renderToStaticMarkup(<MemoryRouter><MemoryProfileEditor client={{ statWorkspaceFile: unused, readWorkspaceFile: unused, writeWorkspaceFile: unused, getWorkspaceMemoryStatus: unused, capabilities: unused }} workspaceId="case" initial={{ content: original, profile }} writable onReload={() => {}} /></MemoryRouter>);
   // The shared useLocale SSR snapshot is English; live switching is exercised by the browser smoke test.
-  expect(html).toContain("Matter identity");
+  expect(html).toContain("Case identity");
   expect(html).toContain('value="case_memory" selected=""');
   expect(html).toContain('value="Původní složka/_memory.md"');
   expect(html).toContain("Save mapping");

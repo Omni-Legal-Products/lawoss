@@ -79,7 +79,12 @@ const aiStepText: Record<Language, AiStepText> = {
 };
 
 /** `no-workspace`: no engine is reachable yet (not even the hidden home workspace, spec P8), so providers cannot be listed here. */
-export type AiModelView = { state: ComposerModelState | "checking" | "no-workspace"; modelLabel?: string };
+export type AiModelView = {
+  state: ComposerModelState | "checking" | "no-workspace";
+  modelLabel?: string;
+  /** Pripojení poskytovatelia (karty v kroku AI asistent, C1); bez enginu prázdne. */
+  providers?: readonly { id: string; name: string }[];
+};
 
 /**
  * Pure view of the AI step: model state, the way to AI settings and continue.
@@ -179,7 +184,7 @@ async function resolveOpencodeTarget(): Promise<OpencodeTarget | null> {
   };
 }
 
-function useOnboardingModel(): AiModelView {
+export function useOnboardingModel(): AiModelView {
   const local = useLocal();
   const [target, setTarget] = useState<OpencodeTarget | null | undefined>(undefined);
   useEffect(() => {
@@ -202,9 +207,11 @@ function useOnboardingModel(): AiModelView {
   if (target === null) return { state: "no-workspace" };
   const readiness = onboardingModelReadiness(local.prefs.defaultModel, query.data);
   const state = composerModelState(readiness);
+  const connected = getConnectedProviderItems(query.data);
+  const providers = connected.map((provider) => ({ id: provider.id, name: provider.name }));
   return state === "ready"
-    ? { state, modelLabel: formatModelLabel(readiness.selectedModel, getConnectedProviderItems(query.data)) }
-    : { state };
+    ? { state, modelLabel: formatModelLabel(readiness.selectedModel, connected), providers }
+    : { state, providers };
 }
 
 /** AI step with live state. */

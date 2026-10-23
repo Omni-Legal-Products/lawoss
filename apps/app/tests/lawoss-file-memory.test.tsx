@@ -70,7 +70,7 @@ test("native card refuses disconnected, absent and remote workspaces", async () 
   const f = await fixture();
   for (const props of [{ client: null, workspaceId: "matter", workspacePath: f.matter }, { client: f.client, workspaceId: null, workspacePath: "" }, { client: f.client, workspaceId: "matter", workspacePath: f.matter, remote: true }]) {
     const html = renderToStaticMarkup(<FileMemoryIntegrationCard {...props} workspaceName="Synthetic" />);
-    expect(html).toContain("Select a connected local matter workspace"); expect(html).not.toContain("Save mapping");
+    expect(html).toContain("Select a connected local case workspace"); expect(html).not.toContain("Save mapping");
   }
 });
 test("native Integrations entry renders file memory only in Connectors and preserves existing MCP content", async () => {

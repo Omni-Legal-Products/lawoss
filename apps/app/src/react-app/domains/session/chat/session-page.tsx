@@ -22,6 +22,7 @@ import { ProjectReviews } from "../../reviews/project-reviews";
 import { ProjectsPage } from "../../workspace/projects-page";
 import { ProjectHome } from "../../workspace/project-home";
 import { ClientOverview } from "@/lawoss/lite/client-overview";
+import { useClientDisplayName } from "@/lawoss/lite/client-row-view";
 import { clientDeadlinesLink } from "@/lawoss/lite/links";
 import { ProjectPersonalisationProvider } from "../../workspace/project-personalisation-modal";
 /** @jsxImportSource react */
@@ -370,6 +371,7 @@ function controlStringArg(args: unknown, key: string) {
 export function SessionPage(props: SessionPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const projectName = useClientDisplayName(props.selectedWorkspaceId, props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId);
   const wikiWorkspace = props.wikiWorkspace;
   const [wikiNavigationStates, setWikiNavigationStates] = useState<Record<string, boolean>>({});
   const wikiNavigationOpen = wikiWorkspace ? wikiNavigationStates[wikiWorkspace.workspaceId] ?? readWikiNavigationOpen(wikiWorkspace.workspaceId) : false;
@@ -1066,7 +1068,7 @@ export function SessionPage(props: SessionPageProps) {
       projectId={props.selectedWorkspaceId}
       isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
       onStartRecording={props.onStartProjectRecording}
-      name={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId}
+      name={projectName}
       onOpenFile={openWorkspaceFileEntry}
       onBeforeDeleteNote={(entry) => {
         const tabs = usePanelTabStore.getState().sessions[panelStateSessionId]?.tabs ?? [];
@@ -1586,6 +1588,7 @@ export function SessionPage(props: SessionPageProps) {
             }}
             renderChat={(sessionId, active) => props.surface ? <WorkspaceChat
               {...props.surface!}
+              clientRoot={props.selectedWorkspaceRoot}
               active={active}
               client={props.legalworkServerClient!}
               environmentClient={props.environmentClient}

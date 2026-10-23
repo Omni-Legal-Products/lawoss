@@ -38,7 +38,7 @@ import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
 import { t } from "@/i18n";
-import { aiBoundariesRefusal } from "@/lawoss/domains/ai/boundaries-refusal";
+import { AI_BOUNDARIES_STORED_MESSAGE, aiBoundariesRefusal } from "@/lawoss/domains/ai/boundaries-refusal";
 import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import type { ImportedPlugin } from "@/app/lib/extension-imports";
 import type { ComposerConnector } from "./composer/tool-menu";
@@ -420,9 +420,9 @@ function TrialEndedNotice(props: { billingUrl: string }) {
 }
 
 function parseSessionError(thrown: unknown): SessionError {
-  // LAWOSS: AI hranice refused the send; show the localized sentence, not the raw denial.
-  const boundaries = aiBoundariesRefusal(thrown);
-  if (boundaries) return { message: boundaries, kind: "ai-boundaries" };
+  // LAWOSS: AI hranice refused the send; keep a language-neutral message and let the card
+  // localize it at render time, so a language switch re-renders it.
+  if (aiBoundariesRefusal(thrown)) return { message: AI_BOUNDARIES_STORED_MESSAGE, kind: "ai-boundaries" };
   const raw = thrown instanceof Error ? thrown.message : String(thrown);
   // Try to detect ProviderModelNotFoundError from the SDK error shape.
   // The error message may be a JSON string from our serializer in session-route.
@@ -462,7 +462,7 @@ function SessionErrorCard({ error, onDismiss, onChangeModel, onOpenModelPicker, 
       <div className="rounded-2xl border border-red-6/30 bg-red-3/15 px-5 py-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-red-11">{error.message}</div>
+            <div className="text-sm font-medium text-red-11">{error.kind === "ai-boundaries" ? aiBoundariesRefusal(error.message) : error.message}</div>
             {error.kind === "ai-boundaries" && onOpenAiSettings ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 <button

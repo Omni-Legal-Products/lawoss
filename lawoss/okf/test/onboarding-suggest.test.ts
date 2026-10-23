@@ -178,3 +178,134 @@ test("kancelária OKF v priamom podpriečinku sa ohlási (MČ 19. 10.: Neusporia
   // Bez kancelárie v podpriečinku pole nie je (staré tvary návrhu ostávajú rovnaké).
   expect(await suggestOnboardingLevel(await tree(["A/", "B/"]))).not.toHaveProperty("childOffices");
 });
+
+// N-9 (akceptácia 22. 10. 2026): malá prax s internými kódmi klientov a vecí (pieskovisko 3-neusporiadana-prax).
+test("prax s tromi kódovanými klientmi (C0xx/M0xx) je prax so signálom coded_hierarchy", async () => {
+  const root = await tree(["C002 SYN Hron Technológie, a. s./M004 Vyúčtovanie nájmu/doc.pdf", "C017 SYN Zuzana Šimková/M049 Reklamácia čerpadla/doc.pdf", "C022 SYN Michal Ľupták servis/M064 Odmena za služby/doc.pdf"]);
+  const suggestion = await suggestOnboardingLevel(root);
+  expect(suggestion).toMatchObject({ level: "practice", marked: false, clientPattern: "*", practicePattern: "*" });
+  expect(suggestion.signals).toContain("coded_hierarchy");
+  expect(suggestion.score).toBeGreaterThanOrEqual(0.8);
+  expect(suggestion.clients.map(client => client.path)).toEqual(["C002 SYN Hron Technológie, a. s.", "C017 SYN Zuzana Šimková", "C022 SYN Michal Ľupták servis"]);
+  expect(suggestion.practiceCandidates).toEqual(suggestion.clients);
+});
+test("kódovaná prax ostane praxou aj s novým klientom bez prípadu a s prípadmi pod Spisy/ (review #221)", async () => {
+  const unit = (suggestion: Awaited<ReturnType<typeof suggestOnboardingLevel>>, path: string) => suggestion.units.find(entry => entry.path === path);
+  const fresh = await suggestOnboardingLevel(await tree(["C002 Hron/M004 Najem/a.pdf", "C017 Simkova/M049 Reklamacia/b.pdf", "C022 Novy klient/zmluva.pdf"]));
+  expect(fresh).toMatchObject({ level: "practice" });
+  expect(fresh.signals).toContain("coded_hierarchy");
+  expect(fresh.clients.map(client => client.path)).toEqual(["C002 Hron", "C017 Simkova", "C022 Novy klient"]);
+  // Klienti praxe nie sú prípadmi jej koreňa, hoci ich kód vyzerá ako kód veci.
+  expect(unit(fresh, "")?.matters).toEqual([]);
+  expect(unit(fresh, "C002 Hron")?.matters.map(matter => matter.path)).toEqual(["M004 Najem"]);
+  const filed = await suggestOnboardingLevel(await tree(["C001 Alfa/Spisy/M001 Uhrada/a.pdf", "C002 Beta/Spisy/M002 Najem/b.pdf", "C003 Gama/Spisy/M003 Kupa/c.pdf"]));
+  expect(filed).toMatchObject({ level: "practice" });
+  expect(filed.signals).toContain("coded_hierarchy");
+  expect(unit(filed, "")?.matters).toEqual([]);
+  expect(unit(filed, "C003 Gama")?.matters.map(matter => matter.path)).toEqual(["Spisy/M003 Kupa"]);
+  // Jeden kódovaný klient s prípadom nestačí: dvaja noví klienti bez prípadov ostávajú na rozhodnutí advokáta.
+  const single = await suggestOnboardingLevel(await tree(["C002 Hron/M004 Najem/a.pdf", "C017 Novy/zmluva.pdf", "C022 Novy/zmluva.pdf"]));
+  expect(single.signals).not.toContain("coded_hierarchy");
+  // Rovnaký prefix pod kódovaným kandidátom vylúči prax aj vedľa kandidátov s iným prefixom.
+  const mixed = await suggestOnboardingLevel(await tree(["C001 Alfa/M001 x/", "C002 Beta/M002 y/", "C003 Gama/C030 podklady/"]));
+  expect(mixed.signals).not.toContain("coded_hierarchy");
+});
+test("kódovaná hierarchia: negatívne prípady ostávajú klientom", async () => {
+  // Štyri právne formy bez podpriečinkov, tematické priečinky klienta, jeden klient s číslovanými vecami so súbormi, holý Office.
+  for (const paths of [
+    ["Alfa s. r. o./", "Beta a. s./", "Gama s.r.o./", "Delta k. s./"],
+    ["Zmluvy/2024-01/zmluva.pdf", "Korešpondencia/2024-02/list.pdf"],
+    ["M001 Spor/žaloba.pdf", "M002 Zmluva/zmluva.pdf", "M003 Nájom/nájom.pdf"],
+    ["Office/", "Klienti/A/"],
+    // Rovnaký prefix na oboch úrovniach nie je prax.
+    ["C001 Alfa/C010 podklady/", "C002 Beta/C020 podklady/"],
+    // Review #221: jeden klient s vecami M001–M005, len dve majú kódované podpriečinky.
+    ["M001 Novak/F001 Faktura/", "M002 Horvath/F002 Faktura/", "M003 Kral/", "M004 Bielik/", "M005 Urban/"],
+    // Review A4, I-1: jeden klient s číslovanými vecami a sekciami, roky, fiškálne roky, fotky.
+    ["M001 Spor/D01 Podania/", "M002 Zmluva/D02 Drafty/", "M003 Exekúcia/D01 x/"],
+    ["M001 Spor/D001 Podania/", "M002 Zmluva/D002 Drafty/", "M003 Exekúcia/D001 x/"],
+    ["SP-2023-01 Novák/K-01 Korešpondencia/", "SP-2023-02 Hraško/K-02 Podania/"],
+    ["FY2023/Q01 Faktúry/", "FY2024/Q02 Faktúry/"],
+    ["IMG_2023 Leto/DSC 001 Pláž/", "IMG_2024 Zima/DSC 002 Hory/"],
+    ["2023/A001 x/", "2024/A002 y/"],
+    ["IMG_0001 Leto/DSC_0002 Pláž/", "IMG_0003 Zima/DSC_0004 Hory/"],
+  ]) {
+    const suggestion = await suggestOnboardingLevel(await tree(paths));
+    expect(suggestion.level).not.toBe("practice");
+    expect(suggestion.signals).not.toContain("coded_hierarchy");
+  }
+});
+test("každý návrh klienta alebo veci nesie kandidátov praxe pre ručnú voľbu (N-9)", async () => {
+  const plain = await suggestOnboardingLevel(await tree(["A/", "B/"]));
+  expect(plain).toMatchObject({ level: "client", signals: ["plain_directories"], clients: [], practicePattern: "*" });
+  expect(plain.practiceCandidates.map(client => client.path)).toEqual(["A", "B"]);
+  const matters = await suggestOnboardingLevel(await tree(["2024-03 Kúpna zmluva/zmluva.docx", "Faktúry/"]));
+  expect(matters.level).toBe("client");
+  expect(matters.practiceCandidates.map(client => client.path)).toEqual(["Faktúry"]);
+  expect((await suggestOnboardingLevel(await tree(["zmluva.docx"]))).practiceCandidates).toEqual([]);
+  // Holý Office s dokumentmi nie je „len dokumenty“ (prípad), rozhodnutie ostáva na advokátovi.
+  expect(await suggestOnboardingLevel(await tree(["Office/", "zmluva.docx"]))).toMatchObject({ level: "client", signals: ["plain_directories"], practiceCandidates: [] });
+  // Priečinok kancelárie nie je kandidát na klienta; pri Klienti/ sa berú klienti z neho.
+  const office = await suggestOnboardingLevel(await tree(["Office/", "Klienti/A/", "Klienti/B/", "Archív/"]));
+  expect(office).toMatchObject({ practicePattern: "Klienti/*" });
+  expect(office.practiceCandidates.map(client => client.path)).toEqual(["Klienti/A", "Klienti/B"]);
+});
+
+// N-14 (akceptácia 22. 10. 2026): kancelária OKF bez okf.config (dátová sada v1, pieskovisko 4-usporiadana-kancelaria).
+test("kancelária bez okf.config (Office s obsahom OKF a Klienti s kartami) je prax so vzorom Klienti/*", async () => {
+  const root = await tree(["Office/AGENTS.md", "Office/memory/x.md", "Klienti/A/client.md", "Klienti/B/client.md", "Klienti/C/"]);
+  const suggestion = await suggestOnboardingLevel(root);
+  expect(suggestion).toMatchObject({ level: "practice", marked: false, score: 0.9, signals: ["office_without_config"], clientPattern: "Klienti/*", practicePattern: "Klienti/*" });
+  expect(suggestion.clients.map(client => client.path)).toEqual(["Klienti/A", "Klienti/B", "Klienti/C"]);
+  // Kódované mená klientov (C001-syn-…) nesmú zvoliť inú vetvu.
+  const coded = await suggestOnboardingLevel(await tree(["Office/CLAUDE.md", "Klienti/C001-syn-alfa-s-r-o/client.md", "Klienti/C001-syn-alfa-s-r-o/Spisy/M001-spor/matter.md", "Klienti/C002-syn-beta/klient.md"]));
+  expect(coded.signals).toEqual(["office_without_config"]);
+});
+test("holý Office bez obsahu OKF alebo Klienti bez kariet nie je kancelária bez okf.config", async () => {
+  for (const paths of [["Office/", "Klienti/A/client.md"], ["Office/AGENTS.md", "Klienti/A/", "Klienti/B/zmluva.pdf"]]) {
+    expect((await suggestOnboardingLevel(await tree(paths))).signals).not.toContain("office_without_config");
+  }
+});
+
+test("náhľad stromu: prípady a počty súborov z prieskumu, kancelária aj jeden klient (C1)", async () => {
+  const office = await tree([
+    "Office/AGENTS.md",
+    "Klienti/C001-syn-tatran/client.md",
+    "Klienti/C001-syn-tatran/Spisy/M001-uhrada/",
+    "Klienti/C001-syn-tatran/Spisy/M003-spolocnik/",
+    "Klienti/C002-syn-hron/client.md",
+    "Klienti/C002-syn-hron/01_Podklady/zmluva.pdf",
+  ]);
+  const suggestion = await suggestOnboardingLevel(office);
+  const unit = (path: string) => suggestion.units.find(item => item.path === path);
+  expect(unit("Klienti/C001-syn-tatran")).toMatchObject({ matters: [{ path: "Spisy/M001-uhrada", name: "M001-uhrada" }, { path: "Spisy/M003-spolocnik", name: "M003-spolocnik" }], matterCount: 2, files: 1 });
+  // Hĺbka prieskumu (4) končí pri prípadoch: počet súborov pod nimi je len dolná hranica.
+  expect(unit("Klienti/C001-syn-tatran")?.exact).toBe(false);
+  expect(unit("Klienti/C002-syn-hron")).toMatchObject({ matters: [], matterCount: 0, files: 2, exact: true });
+
+  // Jeden klient bez Spisy/: prípady podľa kódu, karty alebo mena veci; pracovné priečinky nie.
+  const client = await tree(["M004 Vyúčtovanie/a.pdf", "Zmluva/matter.md", "2024-03 Kúpna zmluva/", "01_Podklady/b.pdf", "Pošta/"]);
+  const root = (await suggestOnboardingLevel(client)).units.find(item => item.path === "");
+  expect(root?.matters.map(matter => matter.name).sort()).toEqual(["2024-03 Kúpna zmluva", "M004 Vyúčtovanie", "Zmluva"]);
+  expect(root).toMatchObject({ files: 3, exact: true });
+});
+
+test("náhľad stromu: prázdny Spisy/ z pomocných súborov neskryje prípady vedľa neho (N-A2-3)", async () => {
+  const practice = await tree([
+    "AGENTS.md",
+    "C002 SYN Hron/client.md",
+    "C002 SYN Hron/Spisy/.keep",
+    "C002 SYN Hron/01_Podklady/.keep",
+    "C002 SYN Hron/M004 Vyúčtovanie nájmu/a.pdf",
+    "C002 SYN Hron/M005 Neakceptovaný modul/b.pdf",
+    "C017 SYN Šimková/client.md",
+    "C017 SYN Šimková/Spisy/M049 Reklamácia/c.pdf",
+    "C017 SYN Šimková/M050 Výpoveď/d.pdf",
+  ]);
+  const suggestion = await suggestOnboardingLevel(practice);
+  const unit = (path: string) => suggestion.units.find(item => item.path === path);
+  expect(unit("C002 SYN Hron")?.matters.map(matter => matter.path).sort()).toEqual(["M004 Vyúčtovanie nájmu", "M005 Neakceptovaný modul"]);
+  expect(unit("C002 SYN Hron")?.matterCount).toBe(2);
+  // Spisy/ a prípady vedľa neho spolu, pracovné priečinky ani samotný Spisy/ nie.
+  expect(unit("C017 SYN Šimková")?.matters.map(matter => matter.path).sort()).toEqual(["M050 Výpoveď", "Spisy/M049 Reklamácia"]);
+});

@@ -71,6 +71,16 @@ export function convertRequest(root: string, identity: FoundIdentity, today: Dat
   };
 }
 
+/**
+ * Návrh tak, ako ho vidí voľba „Celá prax“ (N-9, 22. 10. 2026): pri návrhu klienta či veci sú klienti a vzor
+ * z kandidátov praxe, takže ručná oprava má zoznam klientov, výber aj plán. Návrh praxe ostáva nezmenený;
+ * úroveň a signály sa nemenia, veta návrhu preto ostáva rovnaká.
+ */
+export function practiceView(suggestion: OnboardingSuggestion): OnboardingSuggestion {
+  if (suggestion.level === "practice") return suggestion;
+  return { ...suggestion, clients: suggestion.practiceCandidates ?? suggestion.clients, clientPattern: suggestion.practicePattern ?? suggestion.clientPattern ?? "*" };
+}
+
 export function practiceRequest(root: string, identity: FoundIdentity, suggestion: OnboardingSuggestion, scope: "client" | "practice"): PracticePlanRequest {
   return {
     action: "practice", root, title: folderName(root),

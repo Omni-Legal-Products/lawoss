@@ -30,7 +30,7 @@ test("Open cards use the current server task, and cannot open from a different p
         <ScheduledTaskToolCard part={{ type: "dynamic-tool", toolName: "legalwork_schedule_create", toolCallId: "create", state: "output-available", input: {}, output: { ok: true, referenceData: { task } } }} />
       </MessageListProvider>
     </MemoryRouter></QueryClientProvider>);
-    if (workspaceId === "matter") { expect(html).toContain("Edited title"); expect(html).toContain("All projects"); expect(html).not.toContain('disabled=""'); }
+    if (workspaceId === "matter") { expect(html).toContain("Edited title"); expect(html).toContain("All clients"); expect(html).not.toContain('disabled=""'); }
     else { expect(html).toContain('disabled=""'); expect(html).not.toContain("Edited title"); }
     cache.clear();
   }

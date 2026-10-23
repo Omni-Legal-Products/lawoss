@@ -150,7 +150,8 @@ describe("zrozumiteľná chyba v hromadnom kroku (MČ 19. 10.: domovský prieči
 describe("veta návrhu a predvolená úroveň sa zhodujú (MČ 19. 10.)", () => {
   const clients = [{ path: "A", name: "A" }, { path: "B", name: "B" }];
   const shapes: [string, OnboardingSuggestion, string, string][] = [
-    ["obyčajné podpriečinky", base({ root: "/p/LAWOSS-synteticke-data", level: "client", score: 0.5, signals: ["plain_directories"] }), "Vyzerá to ako klient LAWOSS-synteticke-data.", "client"],
+    // N-9 (22. 10. 2026): najslabší signál netvrdí „Vyzerá to ako klient“; predvolený ostáva klient.
+    ["obyčajné podpriečinky", base({ root: "/p/LAWOSS-synteticke-data", level: "client", score: 0.5, signals: ["plain_directories"] }), "Neviem s istotou, čo tento priečinok je.", "client"],
     ["karta klienta", base({ level: "client", marked: true, score: 1, signals: ["client_card"] }), "Vyzerá to ako klient Novák.", "client"],
     ["istá prax", base({ level: "practice", score: 0.83, signals: ["legal_form_children"], clients }), "Vyzerá to ako celá prax: 2 klientov.", "practice"],
     ["označená prax", base({ level: "practice", marked: true, score: 1, signals: ["office_config"], clients }), "Vyzerá to ako celá prax: 2 klientov.", "practice"],
@@ -174,7 +175,7 @@ describe("navigácia bez rolovania (MČ 19. 10.)", () => {
   test("Vybrať iný priečinok je v hlavičke pri nadpise, pred voľbou úrovne a odpoveďami, a len raz", () => {
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ level: "practice", clients: [{ path: "A", name: "A" }], clientPattern: "*" })} level="practice" selected={["A"]} />);
     const change = html.indexOf("Vybrať iný priečinok");
-    expect(change).toBeGreaterThan(html.indexOf("Toto som našiel"));
+    expect(change).toBeGreaterThan(html.indexOf("Toto sme našli"));
     expect(change).toBeLessThan(html.indexOf("<select"));
     expect(html.split("Vybrať iný priečinok")).toHaveLength(2);
   });
@@ -205,6 +206,22 @@ describe("Toto som našiel: veta podľa voľby, kancelária v podpriečinku, pra
     expect(html).not.toContain("Vyzerá to ako klient");
     expect(html).toContain("Vyzerá to ako celá prax: 2 klientov.");
     expect(html).toContain('<option value="practice" selected="">');
+  });
+  test("klient s kandidátmi praxe ručne prepnutý na celú prax: zoznam troch klientov a aktívne odpovede (N-9)", () => {
+    const practiceCandidates = [{ path: "C002 Hron, a. s.", name: "C002 Hron, a. s." }, { path: "C017 Šimková", name: "C017 Šimková" }, { path: "C022 Ľupták", name: "C022 Ľupták" }];
+    const suggestion = base({ root: "/p/3-neusporiadana-prax", level: "client", score: 0.5, signals: ["plain_directories"], practiceCandidates, practicePattern: "*" });
+    const html = renderToStaticMarkup(<FoundView {...props} suggestion={suggestion} level="practice" scope="client" selected={practiceCandidates.map(client => client.path)} />);
+    expect(html).toContain("Vyzerá to ako celá prax: 3 klientov.");
+    expect(html).not.toContain("V priečinku som nenašiel priečinky klientov.");
+    for (const client of practiceCandidates) expect(html).toMatch(new RegExp(`type="checkbox"[^>]*checked=""[^>]*/?>[^<]*<span>${client.name.replace(/\./g, "\\.")}`));
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Nie, nechaj ho tak, ako je/);
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Áno, usporiadaj/);
+    // Odznačenie jedného klienta: ostatní ostávajú, odpovede aktívne; odznačenie všetkých obe vypne.
+    const two = renderToStaticMarkup(<FoundView {...props} suggestion={suggestion} level="practice" scope="client" selected={["C002 Hron, a. s.", "C022 Ľupták"]} />);
+    expect(two).not.toMatch(/type="checkbox"[^>]*checked=""[^>]*\/?>[^<]*<span>C017/);
+    expect(two).not.toMatch(/<button[^>]*disabled=""[^>]*>Nie, nechaj ho tak, ako je/);
+    const none = renderToStaticMarkup(<FoundView {...props} suggestion={suggestion} level="practice" scope="client" selected={[]} />);
+    expect(none).toMatch(/<button[^>]*disabled=""[^>]*>Nie, nechaj ho tak, ako je/);
   });
   test("vec zvolená ručne hovorí o veci", () => {
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ level: "client" })} level="matter" />);

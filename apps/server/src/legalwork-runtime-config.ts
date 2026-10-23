@@ -86,6 +86,7 @@ import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { repairRuntimeProviders } from "./runtime-provider-repair.js";
 import { externalOpencodeConfigDir } from "./lawoss/workspace-app-files.js";
 import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
+import { FILE_CHANGE_PERMISSION, fileChangeRule, withFileChangeRule } from "./lawoss/tool-permission-defaults.js";
 import { appendLawossToolDenials, LAWOSS_LOAD_WIKI_TOOLS } from "./lawoss/hidden-upstream-tools.js";
 import { yoloModeActive, yoloPermissions } from "./lawoss/yolo-mode.js";
 import { sandboxEngineAgents, sandboxEnginePermissions } from "./agent-sandbox/engine-policy.js";
@@ -128,7 +129,7 @@ Apply expert corrections without defensiveness or lengthy apologies, check affec
 - Be warm, attentive, and calm. Notice relevant details and explain why they matter to the user's objective. Keep simple answers short and difficult answers clear; use depth where it changes a decision. Build engagement through useful work, not flattery or forced enthusiasm.
 - Finish authorized work and verify the result before claiming success. A plan, progress update, or offer to help is not completion. If blocked, name the concrete blocker and what remains undone.
 - If required setup or credentials are missing, ask one targeted question and continue once provided.
-- A denied permission blocks that action or scope, not the whole conversation. Respect the denial: do not retry it through another tool, request the same access again, or bypass it. Continue any remaining work within the authorized project scope, or briefly explain the specific limitation if the answer requires the denied access.
+- A denied permission blocks that action or scope, not the whole conversation. A declined approval applies to that one request: do not retry it in the same turn, through another tool, or by bypassing it. If the user later explicitly asks for the action again, call the tool again so they see a new approval card. Point to Settings only when a permission rule (not a one-time decline) blocks the action. Continue any remaining work within the authorized project scope, or briefly explain the specific limitation if the answer requires the denied access.
 - If you change code, run the smallest meaningful test.
 - If steps repeat, factor them into a skill.
 
@@ -301,7 +302,9 @@ export async function buildLegalworkRuntimeConfigObject(
     // Enable bounded output reads in the native explore agent, whose default
     // denies unknown tools. User and firm rules follow and keep precedence.
     permission: { ...(!Object.hasOwn(permission, "legalwork_tool_output_read") ? { legalwork_tool_output_read: "allow" } : {}),
-      ...permission, legalwork_project_set_instructions: instructionPermission },
+      ...permission,
+      // LAWOSS: lawoss_files asks with its own key, derived from edit, after any `*` rule (lawoss/tool-permission-defaults.ts).
+      [FILE_CHANGE_PERMISSION]: fileChangeRule(permission, false), legalwork_project_set_instructions: instructionPermission },
     // A refusal remains a tool error visible to the model. The engine should
     // continue within the user's boundaries instead of silently ending the turn.
     experimental: { continue_loop_on_deny: true },
@@ -324,7 +327,8 @@ export async function buildLegalworkRuntimeConfigObject(
       [ALL_PROJECTS_TASK_AGENT]: {
         description: "Scheduled task with access to all authorized local projects", mode: "primary", hidden: true,
         prompt: agentPrompt + "\nThis scheduled run may access all authorized local projects. Use legalwork_schedule_projects and legalwork_schedule_project_list/read to find and read project data. Read chat transcripts directly using kind=sessions and exact chat IDs. Do not open chats or navigate the LegalWork UI to retrieve data. If direct reads are unavailable, report that limitation. Existing tool permissions and approvals still apply.",
-        permission: allProjectTaskPermissions(permission),
+        // LAWOSS: after the copied rules, so a `*` allow there cannot silence lawoss_files.
+        permission: withFileChangeRule(allProjectTaskPermissions(permission), permission),
       },
       legalwork: {
         description: "LegalWork default agent",
@@ -332,7 +336,7 @@ export async function buildLegalworkRuntimeConfigObject(
         temperature: 0.2,
         prompt: agentPrompt,
         // LAWOSS: „YOLO Mode" (lawoss/yolo-mode.ts) for the chat agent only; scheduled and other agents keep the shared map.
-        ...(config && await yoloModeActive(config) ? { permission: yoloPermissions(permission) } : {}),
+        ...(config && await yoloModeActive(config) ? { permission: { ...yoloPermissions(permission), [FILE_CHANGE_PERMISSION]: fileChangeRule(permission, true) } } : {}),
       },
     },
     plugin: (await Promise.all([
@@ -362,6 +366,8 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
       bundledPluginSpec(legalworkPluginPath("lawoss-okf-handoff"), config),
       bundledPluginSpec(legalworkPluginPath("lawoss-linked-folders"), config),
+      // LAWOSS: premenovanie/presun/zmazanie s jednou kartou (lawoss/file-operations.ts).
+      bundledPluginSpec(legalworkPluginPath("lawoss-file-operations"), config),
       // LAWOSS: wiki sa v alfe nenačíta (spec 0017 S1, lawoss/hidden-upstream-tools.ts).
       ...(LAWOSS_LOAD_WIKI_TOOLS ? [bundledPluginSpec(legalworkWikiToolsPluginPath(), config)] : []),
       bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),

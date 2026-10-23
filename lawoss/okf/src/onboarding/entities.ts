@@ -1,7 +1,7 @@
 import practiceAgentsSK from "../../templates/kancelaria/AGENTS.md" with { type: "text" };
 import practiceAgentsCS from "../../templates/cs/kancelaria/AGENTS.md" with { type: "text" };
 import practiceAgentsEN from "../../templates/en/kancelaria/AGENTS.md" with { type: "text" };
-import { lstat, readFile } from "node:fs/promises";
+import { lstat, readdir, readFile } from "node:fs/promises";
 import { realpath } from "../canonical-path.ts";
 import { createHash } from "node:crypto";
 import { basename, join, relative, resolve, sep } from "node:path";
@@ -13,7 +13,7 @@ import { DEFAULT_FOLDER_ROLES, parseOfficeWorkingProfile, type WorkingProfile } 
 import { findOfficeDir } from "../../../okf-pamat/src/store.ts";
 import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
 import { contained } from "../../../okf-pamat/src/workspace-memory-fs.ts";
-import { incompleteInspectionMessage, UNSAFE_FOLDER_NAME_MESSAGE } from "./messages.ts";
+import { incompleteInspectionMessage, INSIDE_OFFICE_MESSAGE_PREFIX, OFFICE_EXISTS_MESSAGE, UNSAFE_FOLDER_NAME_MESSAGE } from "./messages.ts";
 import { parseFrontmatter } from "../frontmatter.ts";
 
 export type MatterKind = "contentious" | "non_contentious";
@@ -114,17 +114,58 @@ export async function planOffice(request: OfficeRequest): Promise<CreatePreview>
   const names = await topLevelNames(request.parent);
   return { mode: "new", appFiles: "inside", target, plan: await rootPlan(request.parent, [directory(name), file(`${name}/okf.config`, officeConfig(request)), directory(`${name}/memory`), file(`${name}/memory/.keep`, ""), directory("Klienti"), file("Klienti/.keep", ""), ...practiceInstructions(names, request.language, "Klienti/*", "client")]) };
 }
-/** Existujúca prax: kancelária vedľa klientov, nič existujúce sa nepresúva (spec P5). */
+const OFFICE_DIR_NAMES = ["Office", "_kancelaria"];
+const OFFICE_EVIDENCE = ["agents.md", "claude.md", "memory"];
+const CLIENT_CARD_NAMES = ["client.md", "klient.md"];
+const lowerNames = async (path: string): Promise<Set<string>> => new Set((await readdir(path).catch(() => [])).map(name => name.toLowerCase()));
+/** Skutočný priečinok (nie odkaz) priamo v koreni, inak `false`. */
+const realDirectory = async (path: string): Promise<boolean> => (await lstat(path).catch(() => undefined))?.isDirectory() ?? false;
+
+/**
+ * Kancelária OKF bez `okf.config` (N-14): jediný skutočný priečinok `Office/` alebo `_kancelaria/` s obsahom OKF
+ * (AGENTS.md, CLAUDE.md alebo memory/) a aspoň jeden klient s kartou v `Klienti/*`. Vráti meno priečinka
+ * kancelárie a či už má `memory/`; inak `undefined` (holý Office ani odkaz sa nedopĺňajú).
+ */
+async function incompleteOffice(root: string): Promise<{ name: string; memory: boolean } | undefined> {
+  const top = new Set(await readdir(root));
+  const present = OFFICE_DIR_NAMES.filter(name => top.has(name));
+  const [name] = present;
+  if (present.length !== 1 || !name) return undefined;
+  const officePath = join(root, name);
+  if (!(await realDirectory(officePath))) return undefined;
+  const officeNames = await lowerNames(officePath);
+  if (officeNames.has("okf.config") || !OFFICE_EVIDENCE.some(entry => officeNames.has(entry))) return undefined;
+  const clients = join(root, "Klienti");
+  if (!(await realDirectory(clients))) return undefined;
+  const carded = async (client: string): Promise<boolean> => {
+    if (!(await realDirectory(join(clients, client)))) return false;
+    const names = await lowerNames(join(clients, client));
+    return CLIENT_CARD_NAMES.some(card => names.has(card));
+  };
+  if (!(await Promise.all((await readdir(clients).catch(() => [])).map(carded))).some(Boolean)) return undefined;
+  return { name, memory: await realDirectory(join(officePath, "memory")) };
+}
+
+/**
+ * Existujúca prax: kancelária vedľa klientov, nič existujúce sa nepresúva (spec P5). Kancelária OKF bez `okf.config`
+ * sa dokončí: plán obsahuje len chýbajúce položky (`okf.config`, prípadne `memory/`), existujúce súbory ostanú.
+ */
 export async function planPracticeOffice(request: PracticeRequest): Promise<CreatePreview> {
   const clientPath = safeClientPattern(request.clientPattern);
   const root = await realpath(request.root);
   const names = await topLevelNames(root);
-  if (names.has("office") || names.has("_kancelaria")) throw new Error("Tento priečinok už kanceláriu má (Office/). Pripojte ho ako kanceláriu.");
+  const hasOffice = OFFICE_DIR_NAMES.some(name => names.has(name.toLowerCase()));
+  const existing = hasOffice ? await incompleteOffice(root) : undefined;
+  if (hasOffice && !existing) throw new Error(OFFICE_EXISTS_MESSAGE);
   // Vnorená kancelária (napr. prax nad `Klienti/` existujúcej kancelárie) by klientom pod ňou zmenila kanceláriu.
   const outer = await findAncestorOffice(root);
-  if (outer) throw new Error(`Tento priečinok je už súčasťou kancelárie (${outer}). Pripojte celú kanceláriu, nie jej časť.`);
+  if (outer) throw new Error(`${INSIDE_OFFICE_MESSAGE_PREFIX} (${outer}). Pripojte celú kanceláriu, nie jej časť.`);
   const office: OfficeRequest = { parent: root, title: request.title, jurisdiction: request.jurisdiction, language: request.language, lawyerName: request.lawyerName };
-  return { mode: "new", appFiles: "inside", target: root, plan: await rootPlan(root, [directory("Office"), file("Office/okf.config", officeConfig(office, clientPath, request.scope)), directory("Office/memory"), file("Office/memory/.keep", ""), ...practiceInstructions(names, request.language, clientPath, request.scope)]) };
+  const config = (name: string) => file(`${name}/okf.config`, officeConfig(office, clientPath, request.scope));
+  const memory = (name: string) => [directory(`${name}/memory`), file(`${name}/memory/.keep`, "")];
+  // Existujúci priečinok kancelárie sa v pláne neopakuje (preflight transakcie by ho odmietol), dopĺňa sa do neho.
+  const officeOperations = existing ? [config(existing.name), ...(existing.memory ? [] : memory(existing.name))] : [directory("Office"), config("Office"), ...memory("Office")];
+  return { mode: "new", appFiles: "inside", target: root, plan: await rootPlan(root, [...officeOperations, ...practiceInstructions(names, request.language, clientPath, request.scope)]) };
 }
 export async function planNewClient(request: ClientRequest): Promise<CreatePreview> {
   const name = safeSegment(request.name), target = join(request.parent, name), language = request.language ?? "sk";

@@ -7,7 +7,7 @@ import { currentTemplateLocale } from "../src/lawoss/i18n/template-locale";
 test("Czech and Slovak template presentation follows UI selection without mutating custom names or saved values", () => {
   const preference = currentLanguagePreference();
   try {
-    for (const [locale, name, clientLabel] of [["cs", "Právní spis", "Klient"], ["sk", "Právny spis", "Klient"]] as const) {
+    for (const [locale, name, clientLabel] of [["cs", "Právní případ", "Klient"], ["sk", "Právny prípad", "Klient"]] as const) {
       setLocale(locale);
       expect(currentTemplateLocale()).toBe(locale);
       const original = defaultProjectTemplates("en")[0];

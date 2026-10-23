@@ -12,8 +12,8 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { t, type Language } from "@/i18n";
 import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import {
-  LINK_REFUSAL_TEXT, isOfficeGrant, linkFolder, linkRefusal, linkedFolderCount, linkedFolderRows, linkedFoldersPolicy, linkedFoldersWriter,
-  otherClientFolders, serverRefusal, unlinkFolder, type LinkRefusal, type LinkScope,
+  LINK_REFUSAL_TEXT, confirmLinkFolder, isOfficeGrant, linkFolder, linkRefusal, linkedFolderCount, linkedFolderRows, linkedFoldersPolicy, linkedFoldersWriter,
+  linkedFolderServerMessage, otherClientFolders, serverPracticeLike, serverRefusal, unlinkFolder, type LinkRefusal, type LinkScope,
 } from "../src/lawoss/lite/linked-folders";
 import { LinkedFolders, LinkedFoldersNavView, LinkedFoldersView, focusLinkedFolders, linkedFoldersKey } from "../src/lawoss/lite/linked-folders-view";
 import { ClientLinkedFoldersNavItem, ClientNavTestProvider } from "../src/lawoss/lite/client-nav";
@@ -25,6 +25,8 @@ import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 import { ShellConfigProvider, useShellConfig, type ShellConfig } from "../src/react-app/shell/shell-config";
 import { SIDEBAR_ITEMS } from "../src/react-app/domains/session/sidebar/sidebar-customization";
 import { shellCs, shellDe, shellEn, shellSk } from "../src/lawoss/i18n/shell";
+import { ProjectRemoteFolders } from "../src/react-app/domains/workspace/project-remote-folders";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 
 const source = (path: string) => readFileSync(join(import.meta.dir, "../src", path), "utf8");
 const html = (node: ReactElement, client = new QueryClient()) => renderToStaticMarkup(
@@ -99,6 +101,16 @@ describe("model: čo sa smie pripojiť", () => {
     expect(otherClientFolders("/prax/Klienti/Šťastný", workspaces, ["/prax/Klienti/Novák", "/prax/Klienti/Šťastný"])).toEqual(["/prax/Klienti/Hron", "/prax/Klienti/Novák"]);
   });
 
+  test("N-20: interný domovský priestor nie je iný klient; userData rozhodne server (dáta aplikácie)", () => {
+    const workspaces = [
+      { id: "home", path: "/Users/ana/LAWOSS-test-profil/userdata/lawoss-domov", workspaceType: "local" as const },
+      { id: "hron", path: "/prax/Klienti/Hron", workspaceType: "local" as const },
+    ];
+    const others = otherClientFolders("/prax/Klienti/Šťastný", workspaces, []);
+    expect(others).toEqual(["/prax/Klienti/Hron"]);
+    expect(linkRefusal("/Users/ana/LAWOSS-test-profil/userdata", scope({ otherClients: others }))).toBeNull();
+  });
+
   test("pamäť kancelárie (pripojila ju LAWOSS) sa nedá odpojiť a nepočíta sa; koreň praxe ňou nie je", () => {
     expect(isOfficeGrant("/prax/_kancelaria", "/prax")).toBe(true);
     expect(isOfficeGrant("/prax/Office", "/prax")).toBe(true);
@@ -125,6 +137,24 @@ describe("model: čo sa smie pripojiť", () => {
     expect(serverRefusal(new LegalworkServerError(409, "linked_folder_app_data", "x"))).toBe("app_data");
     expect(serverRefusal(new LegalworkServerError(400, "linked_folder_relative", "x"))).toBe("missing");
     expect(serverRefusal(new Error("network"))).toBeNull();
+    // N-20: interné dáta appky majú vlastný text, nie „iný klient“.
+    expect(t(LINK_REFUSAL_TEXT[serverRefusal(new LegalworkServerError(409, "linked_folder_app_data", "x")) ?? "missing"], "sk")).toContain("údaje aplikácie");
+    expect(serverRefusal(new LegalworkServerError(409, "linked_folder_practice_like", "x"))).toBeNull();
+  });
+
+  test("Nastavenia → Povolené priečinky: odmietnutia servera preložene (hák v upstream paneli, PATCHES)", () => {
+    expect(linkedFolderServerMessage(new LegalworkServerError(409, "linked_folder_other_client", "This folder belongs to another client"), "sk")).toBe(t(LINK_REFUSAL_TEXT.other_client, "sk"));
+    expect(linkedFolderServerMessage(new LegalworkServerError(409, "linked_folder_app_data", "x"), "cs")).toBe(t(LINK_REFUSAL_TEXT.app_data, "cs"));
+    expect(linkedFolderServerMessage(new LegalworkServerError(409, "linked_folder_practice_like", "x"), "de")).toBe(t("lawoss.lite.linked_folders_refuse_practice_like_settings", "de"));
+    expect(linkedFolderServerMessage(new LegalworkServerError(409, "linked_folder_practice_like", "x"), "sk")).toContain("Pripojené priečinky");
+    expect(linkedFolderServerMessage(new Error("network"))).toBeNull();
+    expect(source("react-app/domains/settings/panels/authorized-folders-panel.tsx")).toContain("linkedFolderServerMessage(error) ??");
+  });
+
+  test("priečinok, ktorý vyzerá ako prax: server sa pýta, mená klientov z detailov", () => {
+    const error = new LegalworkServerError(409, "linked_folder_practice_like", "x", { folder: "/p", clients: ["C002 SYN Hron", 7, "C017 SYN Šimková"] });
+    expect(serverPracticeLike(error, "/Users/ana/Prax")).toEqual({ kind: "confirm", folder: "/Users/ana/Prax", clients: ["C002 SYN Hron", "C017 SYN Šimková"] });
+    expect(serverPracticeLike(new LegalworkServerError(409, "linked_folder_practice", "x"), "/p")).toBeNull();
   });
 });
 
@@ -165,6 +195,25 @@ describe("model: zápis cez natívny zoznam povolených priečinkov", () => {
     expect(await linkFolder({ pick: async () => "/prax", ...io })).toEqual({ kind: "refused", reason: "practice_root" });
     expect(await linkFolder({ pick: async () => "/Users/ana/Iné/", ...io })).toEqual({ kind: "refused", reason: "duplicate" });
     expect(native.writes).toEqual([]);
+  });
+
+  test("N-16: priečinok ako prax sa neuloží bez potvrdenia; „Pripojiť aj tak“ pošle potvrdenie len pre tento priečinok", async () => {
+    const native = fakeNative(["/Users/ana/Iné"]);
+    const confirmations: Array<string[] | undefined> = [];
+    const client = { ...native.client, setAuthorizedFolders: async (workspaceId: string, next: string[], options?: { lawossConfirmedPracticeLike?: string[] }) => {
+      confirmations.push(options?.lawossConfirmedPracticeLike);
+      if (!options?.lawossConfirmedPracticeLike?.includes("/Users/ana/Prax")) throw new LegalworkServerError(409, "linked_folder_practice_like", "x", { folder: "/Users/ana/Prax", clients: ["C002", "C017"] });
+      return native.client.setAuthorizedFolders(workspaceId, next);
+    } };
+    const io = linkedFoldersWriter({ client, workspaceId: "ws", managed: false, changePolicy: async () => false });
+    const { linked: _ignored, ...rest } = scope();
+    expect(await linkFolder({ pick: async () => "/Users/ana/Prax", scope: rest, current: io.current, save: io.save })).toEqual({ kind: "confirm", folder: "/Users/ana/Prax", clients: ["C002", "C017"] });
+    expect(native.writes).toEqual([]);
+    expect(await confirmLinkFolder({ scope: rest, current: io.current, save: io.save }, "/Users/ana/Prax")).toEqual({ kind: "saved" });
+    expect(native.writes).toEqual([["/Users/ana/Iné", "/Users/ana/Prax"]]);
+    expect(confirmations).toEqual([undefined, ["/Users/ana/Prax"]]);
+    // Potvrdenie neobíde odmietnutie v appke (iný klient).
+    expect(await confirmLinkFolder({ scope: rest, current: io.current, save: io.save }, "/prax/Klienti/Hron")).toEqual({ kind: "refused", reason: "other_client" });
   });
 
   test("odpojenie uloží čerstvý zoznam bez priečinka, ostatné položky ostanú v pôvodnom tvare", async () => {
@@ -241,6 +290,21 @@ describe("Domov klienta: sekcia Pripojené priečinky", () => {
     expect(out).toContain(t("lawoss.lite.linked_folders_empty", "sk"));
   });
 
+  test("otázka pri priečinku ako prax: predvolene Nepripojiť, mená klientov, výslovné Pripojiť aj tak", () => {
+    const out = html(<LinkedFoldersView locale="sk" state="ready" rows={[]} locked={false} canLink outcome={{ kind: "confirm", folder: "/Users/ana/3-neusporiadana-prax", clients: ["C002 SYN Hron", "C017 SYN Šimková"] }} />);
+    expect(out).toContain('role="alertdialog"');
+    expect(out).toContain("3-neusporiadana-prax");
+    expect(out).toContain("C002 SYN Hron, C017 SYN Šimková");
+    expect(out).toMatch(/<button(?=[^>]*data-lawoss-linked-folders-practice-like-cancel="")(?=[^>]*autofocus)[^>]*>Nepripojiť</i);
+    expect(out).toMatch(/data-lawoss-linked-folders-practice-like-confirm=""[^>]*>Pripojiť aj tak</);
+  });
+
+  test("otázka bez mien (prieskum nedobehol): vlastný text, nie prázdny zoznam", () => {
+    const out = html(<LinkedFoldersView locale="sk" state="ready" rows={[]} locked={false} canLink outcome={{ kind: "confirm", folder: "/Users/ana/Archív", clients: [] }} />);
+    expect(out).toContain(t("lawoss.lite.linked_folders_practice_like_body_unknown", "sk", { name: "Archív" }));
+    expect(out).not.toContain(": .");
+  });
+
   test("výsledok: odmietnutie jednou vetou, odmietnutá zmena firmy, uložené; chyba čítania nie je prázdny zoznam", () => {
     const view = (outcome: Parameters<typeof LinkedFoldersView>[0]["outcome"]) => html(<LinkedFoldersView locale="sk" state="ready" rows={[]} locked={false} canLink outcome={outcome} />);
     expect(view({ kind: "refused", reason: "other_client" })).toMatch(/role="alert"[^>]*>[^<]*inému klientovi/);
@@ -263,7 +327,11 @@ describe("bočný panel: Pripojené priečinky pod klientom", () => {
     expect(out).toContain("Linked folders");
     expect(out).toMatch(/data-lawoss-project-linked-folders-count=""[^>]*>1</);
     expect(html(<ClientNavTestProvider value={value}><ul><ClientLinkedFoldersNavItem workspaceId="rem_far" /></ul></ClientNavTestProvider>, client)).toContain("<ul></ul>");
-    expect(html(<ClientNavTestProvider value={value}><ul><ClientLinkedFoldersNavItem workspaceId="tatran" /></ul></ClientNavTestProvider>, seeded("tatran", ["/prax/_kancelaria"]))).toContain("<ul></ul>");
+    // Len pamäť kancelárie (N-10): položka je tu aj pri nule, bez čísla a s akciou Pripojiť priečinok.
+    const zero = html(<ClientNavTestProvider value={value}><ul><ClientLinkedFoldersNavItem workspaceId="tatran" /></ul></ClientNavTestProvider>, seeded("tatran", ["/prax/_kancelaria"]));
+    expect(zero).toContain("data-lawoss-project-linked-folders=");
+    expect(zero).not.toContain("data-lawoss-project-linked-folders-count");
+    expect(zero).toContain("data-lawoss-project-linked-folders-add");
   });
 
   test("aktívna, keď je otvorený Domov klienta zo sekcie; inak nie", () => {
@@ -277,9 +345,13 @@ describe("bočný panel: Pripojené priečinky pod klientom", () => {
     focusLinkedFolders(null);
   });
 
-  test("pohľad položky: bez priečinkov sa neukáže", () => {
+  test("pohľad položky: s priečinkami počet; bez nich (N-10) názov a zreteľná akcia Pripojiť priečinok", () => {
     expect(html(<LinkedFoldersNavView locale="sk" count={2} />)).toMatch(/data-lawoss-project-linked-folders-count=""[^>]*>2</);
-    expect(html(<LinkedFoldersNavView locale="sk" count={0} />)).not.toContain("data-lawoss-project-linked-folders");
+    const zero = html(<LinkedFoldersNavView locale="sk" count={0} />);
+    expect(zero).toContain("Pripojené priečinky");
+    expect(zero).not.toContain("data-lawoss-project-linked-folders-count");
+    expect(zero).toMatch(/data-lawoss-project-linked-folders-add=""[^>]*>.*Pripojiť priečinok/);
+    expect(zero).toContain('title="Pripojiť priečinok"');
   });
 
   test("natívna mapa položiek projektu ju vykreslí ako Prípady a Lehoty (hák v upstream súbore, PATCHES)", () => {
@@ -300,7 +372,9 @@ describe("bočný panel: Pripojené priečinky pod klientom", () => {
 
 describe("texty pripojených priečinkov", () => {
   const keys = ["linked_folders_title", "linked_folders_desc", "linked_folders_empty", "linked_folders_link", "linked_folders_unlink", "linked_folders_office",
-    "linked_folders_locked", "linked_folders_error", "linked_folders_save_error", "linked_folders_reload", "linked_folders_declined", "linked_folders_unavailable"];
+    "linked_folders_locked", "linked_folders_error", "linked_folders_save_error", "linked_folders_reload", "linked_folders_declined", "linked_folders_unavailable",
+    "linked_folders_practice_like_title", "linked_folders_practice_like_body", "linked_folders_practice_like_cancel", "linked_folders_practice_like_confirm",
+    "linked_folders_practice_like_body_unknown", "linked_folders_refuse_practice_like_settings"];
   test("všetky jazyky, každý dôvod odmietnutia má statický kľúč, nemčina bez dlhej pomlčky", () => {
     const reasons: LinkRefusal[] = ["own", "contains_client", "other_client", "practice_root", "app_data", "missing", "duplicate"];
     for (const dict of [shellEn, shellCs, shellSk, shellDe]) {
@@ -338,3 +412,39 @@ function readConfig(saved: object | null): ShellConfig {
   if (!config) throw new Error("shell config not read");
   return config;
 }
+
+describe("Priečinky v cloude (upstream vzdialené priečinky, N-10)", () => {
+  test("iný názov než lokálne Pripojené priečinky vo všetkých jazykoch", () => {
+    expect(t("projects.remote.linked", "sk")).toBe("Priečinky v cloude");
+    expect(t("projects.remote.linked", "cs")).toBe("Složky v cloudu");
+    expect(t("projects.remote.linked", "en")).toBe("Cloud folders");
+    expect(t("projects.remote.linked", "de")).toBe("Cloud-Ordner");
+    // Zvyšné texty dialógu hovoria o priečinkoch v cloude, nie o pripojených priečinkoch klienta.
+    expect(t("projects.remote.sharing_hint", "sk")).toContain("priečinkom v cloude");
+    expect(t("projects.remote.pending", "sk")).toContain("priečinkov v cloude");
+    expect(t("projects.remote.pending", "cs")).toContain("složek v cloudu");
+    for (const locale of ["sk", "cs", "en", "de"] satisfies Language[]) {
+      for (const key of ["projects.remote.sharing_hint", "projects.remote.pending"]) expect(t(key, locale)).not.toMatch(/pripojen|propojen|linked folders|verknüpfte/i);
+    }
+    for (const locale of ["sk", "cs", "en", "de"] satisfies Language[]) {
+      expect(t("projects.remote.linked", locale)).not.toBe(t("lawoss.lite.linked_folders_title", locale));
+      expect(t("projects.remote.link", locale)).not.toBe(t("lawoss.lite.linked_folders_link", locale));
+    }
+  });
+
+  test("bez cloudového úložiska a bez pripojeného priečinka z cloudu sa tlačidlo neukáže; so úložiskom áno", () => {
+    const remoteClient = (sources: number, folders: number) => {
+      const stub = { projectFolderSources: async () => ({ sources: [] }), getProjectDetails: async () => ({}), projectRemoteFolders: async () => ({ folders: [] }) };
+      // SSR test potrebuje len tri volania, ktoré komponent robí; zvyšok klienta sa nepoužije.
+      const client = stub as unknown as LegalworkServerClient;
+      const queries = new QueryClient();
+      queries.setQueryData(["project-folder-sources", client], { sources: Array.from({ length: sources }, (_, i) => ({ id: `s${i}` })) });
+      queries.setQueryData(["project", "ws"], { remote: { folders: Array.from({ length: folders }, (_, i) => ({ id: `f${i}` })) } });
+      return html(<ProjectRemoteFolders client={client} workspaceId="ws" />, queries);
+    };
+    expect(remoteClient(0, 0)).not.toContain(t("projects.remote.linked"));
+    expect(remoteClient(0, 0)).not.toContain("<button");
+    expect(remoteClient(1, 0)).toContain(t("projects.remote.linked"));
+    expect(remoteClient(0, 2)).toContain(t("projects.remote.linked"));
+  });
+});

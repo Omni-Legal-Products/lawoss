@@ -36,7 +36,7 @@ test("Akte defaults start empty and every new project's values and options are i
 
 
 
-test("legacy custom and explicitly empty defaults migrate only into Legal Matter", () => {
+test("legacy custom and explicitly empty defaults migrate only into Legal Case", () => {
   const field: ProjectField = { id: "custom", label: "Priority", type: "select", options: ["High", "Low"], value: "High" };
   const migrated = migrateProjectDefaults({ fields: [field] });
   expect(migrated.defaultTemplateId).toBe("legal_matter");
@@ -73,8 +73,8 @@ test("template selection keeps values and custom fields while replacing empty su
 
 test("built-in template names translate, user names remain literal, and schemas have independent values", () => {
   const templates = defaultProjectTemplates();
-  expect(projectTemplateName(templates[0], "en")).toBe("Legal Matter");
-  expect(projectTemplateName(templates[0], "de")).toBe("Akte");
+  expect(projectTemplateName(templates[0], "en")).toBe("Legal Case");
+  expect(projectTemplateName(templates[0], "de")).toBe("Fall");
   expect(projectTemplateName({ ...templates[0], name: "My matters", nameSource: "custom" }, "de")).toBe("My matters");
   for (const template of templates) {
     expect(template.fields.every((field) => field.value === null)).toBe(true);

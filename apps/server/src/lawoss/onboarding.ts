@@ -10,6 +10,7 @@ import { registerLocalProject } from "../routes/workspaces.js";
 import { addRoute, type RequestContext, type Route } from "../routes/registry.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { externalAppFilesRoot } from "./workspace-app-files.js";
+import { registrationName } from "./client-card-title.js";
 import { registerTriageRoutes } from "./triage.js";
 import { readOfficeMemory } from "./office-memory.js";
 import { executeOnboarding, inspectCardLevel, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, suggestOnboardingLevel, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
@@ -27,10 +28,13 @@ const profileSchema = z.strictObject({
   officeRoot: z.string().min(1).max(4096).optional(), clientRoot: z.string().min(1).max(4096).optional(),
   subjectRoot: z.string().min(1).max(4096).optional(),
   matterRoot: z.string().min(1).max(4096).optional(),
+  // Priečinok vybraný v kroku „Toto som našiel“ pre obnovu po prerušení (M1, 22. 10. 2026); len údaj appky, nie oprávnenie.
+  foundRoot: z.string().min(1).max(4096).optional(),
   trial: z.boolean().optional(),
   okf: okfChoiceSchema.optional(),
-  // Nový tok (spec 2026-10-08): identity, ai, folder, found, done. Staré hodnoty ostávajú pre uložené profily alfa testerov.
-  step: z.enum(["identity", "ai", "folder", "found", "okf", "office", "packs", "client", "matter", "done"]).optional(),
+  // Sprievodca alfa 2 (C1, 22. 10. 2026): identity → folder → found → ai → approvals → ready. Staré hodnoty
+  // ostávajú pre uložené profily alfa testerov; `done` ostáva pre formuláre klienta a veci z bočného panela.
+  step: z.enum(["identity", "ai", "folder", "found", "approvals", "ready", "okf", "office", "packs", "client", "matter", "done"]).optional(),
   // Dokončenie nastavenia praxe (#96): trvalá značka, `step` sa po dokončení ďalej mení (napr. „+ Nová vec“).
   completedAt: z.iso.datetime().optional(),
 });
@@ -127,7 +131,12 @@ export function registerOnboardingRoutes(options: {
       throw new ApiError(400, "onboarding_failed", error instanceof Error ? error.message : "Onboarding failed.");
     }
   });
-  route("GET", "status", async () => ({ profile: await readProfile(), capabilities: { map: true, trialClone: true } }));
+  route("GET", "status", async () => {
+    const profile = await readProfile();
+    // Obnova po prerušení (M1): zmiznutý priečinok kroku „Toto som našiel“ appka ohlási a vráti výber priečinka.
+    const foundRootMissing = profile?.foundRoot ? await missingDirectory(profile.foundRoot) : false;
+    return { profile, capabilities: { map: true, trialClone: true }, ...(foundRootMissing ? { foundRootMissing: true } : {}) };
+  });
   // Prehľad praxe (N1, MČ 16. 10. 2026): pamäť kancelárie v koreni praxe číta len hostiteľ, agent ju má cez grant.
   route("GET", "office-memory", async ctx => {
     const expected = new URL(ctx.request.url).searchParams.get("expectedPracticeRoot");
@@ -140,8 +149,8 @@ export function registerOnboardingRoutes(options: {
     return read;
   });
   route("POST", "profile", async ctx => {
-    const rawPatch = profileSchema.partial().extend({ subjectRoot: z.string().min(1).max(4096).nullable().optional() }).parse(await body(ctx));
-    const patch = { ...rawPatch, ...(rawPatch.subjectRoot === null ? { subjectRoot: undefined, matterRoot: undefined } : {}) };
+    const rawPatch = profileSchema.partial().extend({ subjectRoot: z.string().min(1).max(4096).nullable().optional(), foundRoot: z.string().min(1).max(4096).nullable().optional() }).parse(await body(ctx));
+    const patch = { ...rawPatch, ...(rawPatch.subjectRoot === null ? { subjectRoot: undefined, matterRoot: undefined } : {}), ...(rawPatch.foundRoot === null ? { foundRoot: undefined } : {}) };
     const change = async () => {
       const previous = await readProfile();
       const changesClient = patch.clientRoot !== undefined && patch.clientRoot !== previous?.clientRoot;
@@ -159,6 +168,12 @@ export function registerOnboardingRoutes(options: {
         const identity = await inspectCardLevel(path);
         const mappedClient = key === "clientRoot" && config.workspaces.some(workspace => workspace.path === path && workspace.appFiles === "outside");
         if (!mappedClient && identity.level !== level) throw new ApiError(400, "invalid_scope", `Selected ${key} does not identify a ${level}.`);
+      }
+      // Vybraný priečinok obnovy sa overí len pri zápise (existujúci kanonický priečinok, úroveň nie); uložený,
+      // ktorý medzitým zmizol, inú zmenu profilu neblokuje a obrazovka ho pri obnove ohlási.
+      if (patch.foundRoot) {
+        if (await missingDirectory(patch.foundRoot)) throw new ApiError(400, "folder_missing", "Selected foundRoot folder does not exist.", { key: "foundRoot", name: basename(patch.foundRoot) });
+        await canonicalDirectory(patch.foundRoot);
       }
       if (profile.matterRoot && (!profile.clientRoot || !inside(profile.clientRoot, profile.matterRoot))) throw new ApiError(400, "invalid_scope", "Matter must be within the selected client.");
       if (profile.subjectRoot && (!profile.clientRoot || !inside(profile.clientRoot, profile.subjectRoot))) throw new ApiError(400, "invalid_scope", "Subject must be within the selected client.");
@@ -245,7 +260,7 @@ export function registerOnboardingRoutes(options: {
       await canonicalDirectory(clientRoot);
       const prior = config.workspaces.find(workspace => workspace.path === clientRoot);
       const appFiles = ticket.preview.action === "matter" || ticket.preview.action === "subject" ? prior?.appFiles ?? result.appFiles : result.appFiles;
-      const { workspace } = await registerLocalProject(config, { folderPath: clientRoot, name: prior?.name ?? ticket.name, preset: "starter", registerExisting: true, appFiles });
+      const { workspace } = await registerLocalProject(config, { folderPath: clientRoot, name: prior?.name ?? await registrationName(clientRoot, ticket.name), preset: "starter", registerExisting: true, appFiles });
       checkpoint("register-done");
       if (ticket.officeMemoryRoot && !(await lstat(join(storage, `${input.id}.office-grant.json`)).then(() => true).catch(error => { if (missing(error)) return false; throw error; }))) {
         checkpoint("office-grant-enter");

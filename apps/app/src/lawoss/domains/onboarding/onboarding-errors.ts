@@ -4,8 +4,10 @@
  */
 import { t, type Language } from "@/i18n";
 import {
+  INSIDE_OFFICE_MESSAGE_PREFIX,
   LOCKED_FILE_CODE,
   LOCKED_FILES_MESSAGE_PREFIX,
+  OFFICE_EXISTS_MESSAGE,
   UNSAFE_FOLDER_NAME_MESSAGE,
 } from "../../../../../../lawoss/okf/src/onboarding/messages";
 import { OFFICE_CONFIG_ENCODING_MESSAGE } from "../../../../../../lawoss/okf/src/profile";
@@ -97,6 +99,28 @@ const clientUnavailable: Record<Language, string> = {
   de: "Dieser Mandant ist in der Kanzlei nicht verbunden oder sein Ordner fehlt. Wählen Sie unten einen Mandanten.",
 };
 /**
+ * Celá prax nad priečinkom, ktorý už má priečinok kancelárie, ktorý sa nedá doplniť (holý Office, odkaz, dva
+ * priečinky kancelárie), alebo nad časťou existujúcej kancelárie (N-14, 22. 10. 2026). Ďalší krok je tlačidlo
+ * „Vybrať iný priečinok“ na tej istej obrazovke.
+ */
+const officeExists: Record<Language, string> = {
+  sk: "V tomto priečinku už je priečinok kancelárie (Office alebo _kancelaria), ktorý sa nedá doplniť na kanceláriu LAWOSS. Pripojte priečinok v „Toto je“ ako klienta, alebo tlačidlom „Vybrať iný priečinok“ zvoľte priečinok, ktorý celú prax obsahuje.",
+  cs: "V této složce už je složka kanceláře (Office nebo _kancelaria), kterou nelze doplnit na kancelář LAWOSS. Připojte složku v „Tohle je“ jako klienta, nebo tlačítkem „Vybrat jinou složku“ zvolte složku, která obsahuje celou praxi.",
+  en: "This folder already has an office folder (Office or _kancelaria) that cannot be completed into a LAWOSS office. Add the folder as a client under “This is”, or use “Choose another folder” to pick the folder that contains the whole practice.",
+  de: "Dieser Ordner enthält bereits einen Kanzleiordner (Office oder _kancelaria), der sich nicht zu einer LAWOSS-Kanzlei ergänzen lässt. Fügen Sie den Ordner unter „Das ist“ als Mandanten hinzu oder wählen Sie mit „Anderen Ordner wählen“ den Ordner, der die ganze Kanzlei enthält.",
+};
+const insideOffice: Record<Language, string> = {
+  sk: "Tento priečinok je už súčasťou kancelárie LAWOSS. Tlačidlom „Vybrať iný priečinok“ zvoľte celú kanceláriu (priečinok, v ktorom je Office), nie jej časť.",
+  cs: "Tato složka je už součástí kanceláře LAWOSS. Tlačítkem „Vybrat jinou složku“ zvolte celou kancelář (složku, ve které je Office), ne její část.",
+  en: "This folder is already part of a LAWOSS office. Use “Choose another folder” to pick the whole office (the folder that contains Office), not a part of it.",
+  de: "Dieser Ordner ist bereits Teil einer LAWOSS-Kanzlei. Wählen Sie mit „Anderen Ordner wählen“ die ganze Kanzlei (den Ordner mit Office), nicht einen Teil davon.",
+};
+const officeMessage = (error: unknown, locale: Language) => {
+  if (!(error instanceof Error)) return undefined;
+  if (error.message === OFFICE_EXISTS_MESSAGE) return officeExists[locale];
+  return error.message.startsWith(INSIDE_OFFICE_MESSAGE_PREFIX) ? insideOffice[locale] : undefined;
+};
+/**
  * Chyba servera ako veta pre advokáta v jazyku rozhrania; neznáma chyba je všeobecná veta.
  * Surová správa (cesty, interné kódy) ide vždy len do konzoly. Spoločná pre pruh chyby aj hromadný krok.
  */
@@ -105,7 +129,8 @@ export function onboardingErrorMessage(error: unknown, locale: Language): string
   if (error instanceof Error && error.message === UNSAFE_FOLDER_NAME_MESSAGE) return unsafeFolderName[locale];
   if (error instanceof Error && error.message === FRESH_NOT_EMPTY) return foundText(locale)("freshNotEmpty");
   if (error instanceof Error && error.message === CLIENT_UNAVAILABLE) return clientUnavailable[locale];
-  return lockedFilesMessage(error, locale) ??
+  return officeMessage(error, locale) ??
+    lockedFilesMessage(error, locale) ??
     identityMessage(error, locale) ??
     folderTooLargeMessage(error, locale) ??
     officeConfigEncodingMessage(error, locale) ??

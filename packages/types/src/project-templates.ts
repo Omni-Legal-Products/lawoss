@@ -53,11 +53,24 @@ function suggestedLabels(locale: Locale): Record<string, string> {
   };
 }
 
+/**
+ * Earlier shipped wording of suggested labels (alfa2 B2 renamed matter to case). Legacy fields saved
+ * without `labelSource` still match their preset by this text and so keep re-translating.
+ */
+const LEGACY_SUGGESTED_LABELS: Readonly<Record<string, readonly string[]>> = {
+  matter_number: ["Matter reference"],
+  subject: ["Matter subject"],
+};
+
+function isSuggestedLabel(field: ProjectField): boolean {
+  return PROJECT_TEMPLATE_LOCALES.some((language) => suggestedLabels(language)[field.id] === field.label) ||
+    (LEGACY_SUGGESTED_LABELS[field.id] ?? []).includes(field.label);
+}
+
 export function projectFieldLabel(field: ProjectField, locale: Locale = "en"): string {
   const label = suggestedLabels(locale)[field.id];
   if (!label || field.labelSource === "custom") return field.label;
-  if (field.labelSource === "suggested" ||
-      PROJECT_TEMPLATE_LOCALES.some((language) => suggestedLabels(language)[field.id] === field.label)) return label;
+  if (field.labelSource === "suggested" || isSuggestedLabel(field)) return label;
   return field.label;
 }
 
@@ -66,10 +79,7 @@ export function localizedProjectFields(fields: ProjectField[], locale: Locale = 
   return fields.map((field) => ({
     ...field,
     label: projectFieldLabel(field, locale),
-    labelSource: field.labelSource ?? (
-      PROJECT_TEMPLATE_LOCALES.some(language => suggestedLabels(language)[field.id] === field.label)
-        ? "suggested" : "custom"
-    ),
+    labelSource: field.labelSource ?? (isSuggestedLabel(field) ? "suggested" : "custom"),
   }));
 }
 
@@ -117,8 +127,16 @@ function suggestedTemplateNames(locale: Locale): Record<string, string> {
   };
 }
 
+/** Earlier shipped names of the preset templates; a template saved without `nameSource` still matches by them. */
+const LEGACY_TEMPLATE_NAMES: Readonly<Record<string, readonly string[]>> = {
+  legal_matter: ["Legal Matter", "Akte", "Právny spis", "Právní spis"],
+  internal: ["Internal Project", "Internes Projekt"],
+};
+
 export function projectTemplateName(template: ProjectMetadataTemplate, locale: Locale = "en"): string {
-  return template.nameSource === "suggested" ? suggestedTemplateNames(locale)[template.id] ?? template.name : template.name;
+  const suggested = template.nameSource === "suggested" ||
+    (template.nameSource === undefined && (LEGACY_TEMPLATE_NAMES[template.id] ?? []).includes(template.name));
+  return suggested ? suggestedTemplateNames(locale)[template.id] ?? template.name : template.name;
 }
 
 export function defaultProjectTemplates(locale: Locale = "en"): ProjectMetadataTemplate[] {

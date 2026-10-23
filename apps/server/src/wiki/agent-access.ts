@@ -167,6 +167,8 @@ const WORKSPACE_TOOL_ROUTES: readonly ToolRule[] = [
   { methods: WRITE, route: /^(?:storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|skills|skills\/(?!hub\/)[^/]+\/resources)$/ },
   { methods: READ, route: /^sandbox\/session\/([^/]+)$/, ownSession: true },
   { methods: WRITE, route: /^sandbox\/(?:execute|web)$/ },
+  // LAWOSS: lawoss_files (lawoss/file-operations.ts); the change itself is bound to this chat below.
+  { methods: WRITE, route: /^lawoss\/files\/(?:plan|apply)$/ },
   { methods: ["GET", "POST"], route: /^wiki-suggestions$/ },
   { methods: ["GET", "PUT"], route: /^wiki-suggestions\/[^/]+$/ },
   { methods: WRITE, route: /^view-generations\/([^/]+)$/, ownSession: true },
@@ -231,6 +233,12 @@ export async function ownWorkspaceFor(config: ServerConfig, directory: string): 
   }).sort((a, b) => b.root.length - a.root.length)[0]?.workspace;
 }
 
+/**
+ * LAWOSS (N-A2-2, alfa): the model relays this refusal to the lawyer, so it says what happened and
+ * what to do. Nothing was read; the pin itself does not change (rozhodnutie MČ 23. 10. 2026, možnosť C).
+ */
+export const CLIENT_RUNTIME_REQUIRED = "This chat cannot use this client's files now. In this version LAWOSS works with one client at a time: since LAWOSS started, its AI has worked with another client, so this client's files stay closed to protect them. Nothing was read or changed. Tell the user in their language: quit LAWOSS completely, open it again and start with this client's chat; chats of the other client keep working until then.";
+
 /** Engine requests get the session's own data; an all-projects scheduled run may read other projects. */
 export function agentMayList(agent: { workspaceId: string | null; allProjects: boolean }, pathname: string, workspaceId: string): boolean {
   return workspaceId === agent.workspaceId || (agent.allProjects && pathname === "/scheduled-tasks/projects");
@@ -279,7 +287,7 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   const own = await ownWorkspaceFor(config, directory);
   const clientRoot = own ? await realpath(own.directory || own.path) : directory;
   if (!access.clientRoot || clientRoot !== access.clientRoot)
-    throw new ApiError(403, "wiki_agent_client_runtime_required", "This client requires a separate agent runtime.");
+    throw new ApiError(403, "wiki_agent_client_runtime_required", CLIENT_RUNTIME_REQUIRED);
   // The shared process credential cannot distinguish a normal chat from a scheduled
   // all-projects session named in attacker-controlled headers. Keep cross-client reads
   // unavailable until the scheduled transport has an independent scoped credential.
@@ -292,7 +300,7 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
       throw new ApiError(403, "wiki_agent_session_mismatch", "Use this route only for this chat.");
     if (tool.workspaceId !== undefined && own?.id !== tool.workspaceId && !(tool.crossProject && allProjects))
       throw new ApiError(403, "wiki_agent_workspace_denied", "Use project tools only in this session's own workspace.");
-    if (/^\/workspace\/[^/]+\/sandbox\/(?:execute|web)$/.test(pathname)
+    if (/^\/workspace\/[^/]+\/(?:sandbox\/(?:execute|web)|lawoss\/files\/apply)$/.test(pathname)
       && z.object({ sessionID: z.string() }).parse(await request.clone().json()).sessionID !== sessionId)
       throw new ApiError(403, "wiki_agent_session_mismatch", "Use this session's execution settings and approvals.");
     // A scheduled run reaching every project is granted only by a person, never by an agent.
