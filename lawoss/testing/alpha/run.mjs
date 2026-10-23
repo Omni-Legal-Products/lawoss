@@ -25,14 +25,22 @@ const instructions = {
 };
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 
-// Constructor-only observation; arbitrary thenables are never read or assimilated.
+/**
+ * diagnosticObserver is trusted constructor-only synchronous code returning void,
+ * with no detached background work. Synchronous invocation/getter failures are
+ * contained. The native-Promise rejection fallback is defensive best effort only:
+ * Promise.then reads constructor/@@species before attaching handlers, so a tampered
+ * returned Promise can still reject unhandled. Its creator owns that rejection.
+ * Async/thenable observers are unsupported; nothing is awaited and arbitrary
+ * thenables are never read or assimilated. This is not an untrusted-code sandbox.
+ */
 function notifyDiagnostic(adapters, event, error) {
   try {
     const observer = adapters.diagnosticObserver;
     if (typeof observer !== 'function') return;
     const pending = observer(event, error);
     if (isPromise(pending)) Promise.prototype.then.call(pending, () => {}, () => {});
-  } catch { /* Observation cannot alter the private receipt or cleanup. */ }
+  } catch { /* Synchronous observer failures cannot alter the private receipt or cleanup. */ }
 }
 
 export async function runAlphaAcceptance(options, adapters = {}) {

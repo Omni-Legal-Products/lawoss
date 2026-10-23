@@ -117,7 +117,9 @@ test('cleanup attribution observer sees written startup and original work reason
   assert.ok(await readFile(join(options.profileRoot, '.acceptance-running.lock')));
 });
 
-for (const behavior of ['throw', 'reject', 'thenable', 'native-then-getter', 'observer-getter']) test(`cleanup attribution observer ${behavior} cannot alter legacy success or become unhandled`, async t => {
+// Return-value controls exercise defensive fallback, not supported async observers.
+// Both rejected native Promises below retain their normal constructor/@@species.
+for (const behavior of ['throw', 'reject', 'thenable', 'native-then-getter', 'observer-getter']) test(`cleanup attribution observer defensive ${behavior} control preserves legacy success`, async t => {
   const options = await fixture(t), events = [], ports = adapters(events);
   let thenReads = 0, called = 0;
   ports.diagnosticObserver = event => {
@@ -160,6 +162,7 @@ test('cleanup attribution observer follows original native cleanup and message r
     events.push(event); observed = raw;
     Object.defineProperty(raw, 'message', { value: 'mutated' });
     raw.nativeCleanup = null;
+    // Ordinary native-Promise fallback only; constructor/@@species are untouched.
     return Promise.reject(new Error('contained'));
   } });
   assert.equal(observed, error);
@@ -168,4 +171,43 @@ test('cleanup attribution observer follows original native cleanup and message r
   assert.equal(receipt.cleanup, 'verified');
   assert.equal(receipt.scenarios[0].status, 'blocked');
   await assert.rejects(readFile(join(options.profileRoot, '.acceptance-running.lock')), { code: 'ENOENT' });
+});
+
+
+// Unsupported return-value control: the fixture attaches its rejection handler
+// BEFORE tampering. This does not prove suppression of an unhandled hostile Promise.
+test('cleanup attribution observer pre-handled unsupported constructor/species returns preserve original failure receipt', async t => {
+  for (const boundary of ['constructor', 'species']) {
+    const options = await fixture(t), events = [], ports = adapters(events, { cleanupFails: true });
+    const launch = ports.launch, work = new Error('original work reason');
+    const rejection = new Error('fixture-owned rejection'), hostile = new Error('unsupported return property');
+    let handled, observed, reads = 0, calls = 0;
+    ports.launch = async () => ({ ...await launch(), observe: async () => { throw work; } });
+    const pending = Promise.reject(rejection);
+    const ownedRejection = pending.catch(error => { handled = error; });
+    if (boundary === 'constructor') Object.defineProperty(pending, 'constructor', {
+      get() { reads++; throw hostile; },
+    });
+    else Object.defineProperty(pending, 'constructor', { value: {
+      get [Symbol.species]() { reads++; throw hostile; },
+    } });
+    ports.diagnosticObserver = (event, error) => {
+      calls++; events.push(event); observed = error;
+      return pending;
+    };
+    const receipt = await runAlphaAcceptance(options, ports);
+    await ownedRejection;
+    assert.equal(calls, 1);
+    assert.equal(reads, 1, `${boundary} failure occurred before helper handler attachment`);
+    assert.equal(handled, rejection, 'fixture owns the rejection before unsupported tampering');
+    assert.equal(observed, work);
+    assert.deepEqual(events, ['installation', 'work-failed', 'stop']);
+    assert.deepEqual(receipt.reasons, ['original work reason', 'Owned process cleanup could not be verified']);
+    assert.equal(receipt.cleanup, 'unverified');
+    assert.equal(receipt.status, 'blocked');
+    assert.ok(receipt.scenarios.every(scenario => scenario.status === 'blocked' && scenario.evidence === null));
+    assert.equal(Object.hasOwn(receipt, 'diagnostic'), false);
+    assert.deepEqual(JSON.parse(await readFile(options.output)), receipt);
+    assert.ok(await readFile(join(options.profileRoot, '.acceptance-running.lock')));
+  }
 });
