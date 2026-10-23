@@ -55,3 +55,13 @@ test("rendered production chevron expands before inactive Files activates and st
   await f.run();
   expect(f.state.toggles).toBe(2);
 });
+
+test("LAWOSS client row: card name and status line keep exact native-name matching on the label element", async () => {
+  const f = fixture({renderControls,expanded:false,foreign:true,open:false,folder:"Dokumenty",displayName:"SYN Native Case, s. r. o."});
+  expect(f.title.textContent).not.toBe(workspace.name);
+  await f.run();
+  expect(f.state.selected).toBe(workspace.id);
+  expect(f.state.expansions).toBe(1);
+  expect(f.state.toggles).toBe(1);
+  expect(f.state.titles).toBe(0);
+});

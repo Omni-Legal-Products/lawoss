@@ -6,7 +6,7 @@ export const workspace = {id:'case-10',name:'Native case 10',path:'/synthetic/ca
 // Renderer-shaped DOM only: real helper expressions and the actual chooser
 // observer execute in the VM. Files toggles; visited panels stay in the DOM.
 // This does not mount React or claim native layout/handler coverage.
-export function fixture({open=true,expanded=true,foreign=false,folder='',renderControls}={}) {
+export function fixture({open=true,expanded=true,foreign=false,folder='',renderControls,displayName}={}) {
   const state={selected:foreign?'case-9':workspace.id,open,expanded,toggles:0,titles:0,expansions:0,roots:0};
   class Element {
     constructor(tag,attrs={},text='') {this.tagName=tag;this.attrs={...attrs};this.text=text;this.children=[];this.isConnected=true;this.disabled=false;this.zeroWidth=false;this.zeroHeight=false;}
@@ -25,7 +25,9 @@ export function fixture({open=true,expanded=true,foreign=false,folder='',renderC
     click(){if(!this.disabled)this.onClick?.();}
   }
   const el=(...args)=>new Element(...args),body=el('body');
-  const group=el('div',{'data-slot':'collapsible'}),title=el('button',{},workspace.name),files=el('button',{},'Files');
+  const group=el('div',{'data-slot':'collapsible'}),files=el('button',{},'Files');
+  // LAWOSS client row (optional): readable card name plus a status line; the native name stays on the label.
+  const title=displayName?el('button').append(el('span',{'data-lawoss-row-label':'','data-lawoss-native-name':workspace.name},displayName),el('span',{'data-lawoss-row-secondary':''},'C010 · Lehota 25. 10.')):el('button',{},workspace.name);
   const expand=el('button',{'aria-label':'Expand'});
   const retained=el('div'),panel=el('div',{'data-files-workspace-id':workspace.id,'data-files-workspace-root':workspace.path,'data-files-folder-path':folder,'data-files-client-identity':'7'});
   const processing=el('div',{'aria-label':'Document processing'}),nav=el('nav',{'aria-label':'Current folder'}),root=el('button',{},workspace.name);

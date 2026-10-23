@@ -18,7 +18,7 @@ export type TreeFocus = { client?: string; matter?: string; session?: { workspac
 /** Rozhovory jedného uzla: `complete` = nič staršie nechýba; `error` sa nesmie tváriť ako prázdny zoznam. */
 export type ConversationList = { items: readonly MatterConversation[]; status: "loading" | "error" | "ready"; complete: boolean; retry?: () => void };
 type Listed = { conversations: readonly MatterConversation[]; more: boolean; status: ConversationList["status"]; retry?: () => void };
-export type TreeMatter = Pick<MatterOverview, "path" | "title" | "deadlines" | "state"> & Listed & { expanded: boolean; current: boolean; canStart: boolean };
+export type TreeMatter = Pick<MatterOverview, "path" | "title" | "deadlines"> & Listed & { expanded: boolean; current: boolean; canStart: boolean };
 export type TreeClient = Listed & { key: string; title: string; expanded: boolean; current: boolean; matters: readonly TreeMatter[] };
 
 /** Kľúče používateľských prepnutí; kľúče skupín (`client:`, `path:`, `matter:`) sa s cestami vecí nesmú zraziť. */
@@ -111,7 +111,7 @@ export function buildClientTree({ groups, focus, overrides, lists, canStart }: {
       const here = m.path === focus.matter;
       const open = overrides[matterToggle(m.path)] ?? here;
       const visible = expanded && open;
-      return { path: m.path, title: m.title, deadlines: m.deadlines, ...(m.state ? { state: m.state } : {}), expanded: open, current: here, canStart: visible && canStart(m.path), ...listed(visible ? lists.matter(m.path) : undefined, visible) };
+      return { path: m.path, title: m.title, deadlines: m.deadlines, expanded: open, current: here, canStart: visible && canStart(m.path), ...listed(visible ? lists.matter(m.path) : undefined, visible) };
     });
     return { key: group.key, title: group.client, expanded, current, matters, ...listed(expanded ? lists.client(group.key) : undefined, expanded) };
   });

@@ -17,6 +17,8 @@ export function cardTitleFromMarkdown(text: string): string | undefined {
   const line = match[1].split(/\r?\n/).find((l) => /^title\s*:/.test(l));
   if (!line) return undefined;
   const raw = line.replace(/^title\s*:\s*/, "").trim();
+  // Viacriadkový reťazec, zoznam, mapa, kotva, odkaz alebo značka YAML sa nedá prečítať riadkom: meno ostane z priečinka.
+  if (/^[>|[{&*!]/.test(raw)) return undefined;
   let value = raw;
   if (raw.startsWith("\"") && raw.endsWith("\"") && raw.length >= 2) {
     try { value = String(JSON.parse(raw)); } catch { value = raw.slice(1, -1); }
@@ -25,9 +27,12 @@ export function cardTitleFromMarkdown(text: string): string | undefined {
   return title && title.length <= 200 ? title : undefined;
 }
 
+/** Rovnaké meno bez ohľadu na Unicode tvar (NFC/NFD) a veľkosť písmen (ako priečinky na macOS a Windows). */
+const sameName = (a: string, b: string): boolean => a.trim().normalize("NFC").toLocaleLowerCase() === b.trim().normalize("NFC").toLocaleLowerCase();
+
 /** Názov z karty klienta v `root`, ak `requested` je len meno priečinka; inak `requested`. */
 export async function registrationName(root: string, requested: string): Promise<string> {
-  if (requested.trim() !== basename(root)) return requested;
+  if (!sameName(requested, basename(root))) return requested;
   for (const name of CLIENT_CARDS) {
     const path = join(root, name);
     try {

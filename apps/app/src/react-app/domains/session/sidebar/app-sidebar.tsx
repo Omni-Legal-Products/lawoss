@@ -14,7 +14,7 @@ import { ClientDeadlinesNavItem, ClientLinkedFoldersNavItem, ClientMattersNavIte
 import { LITE_CLIENTS_PATH, NEW_CLIENT_PATH } from "@/lawoss/lite/links";
 import { useChatSectionVisibility } from "@/lawoss/lite/chat-sections";
 import { expandedAfter, liteProjectNav } from "@/lawoss/lite/client-row";
-import { ChatContextLabel, ClientMoreNavItem, ClientRowStatusLine, useClientProjectRow, useClientRowActive } from "@/lawoss/lite/client-row-view";
+import { ChatContextLabel, ClientMoreNavItem, ClientRowLabel, ClientRowStatusLine, useClientProjectRow, useClientRowActive } from "@/lawoss/lite/client-row-view";
 import { OkfWorkspaceSkillSync } from "@/lawoss/okf/workspace-skill-sync";
 import {
   Search,
@@ -972,7 +972,8 @@ function WorkspaceHeader({
       title={t("workspace.open_workspace")}
       className={cn(
         "pr-10 [&_.lw-folder-icon]:size-5 group-hover/workspace-header:bg-sidebar-accent group-hover/workspace-header:text-sidebar-accent-foreground mac:group-hover/workspace-header:bg-black/5 dark:mac:group-hover/workspace-header:bg-white/10",
-        (statusLabel || clientRow.status) && "h-10",
+        statusLabel && "h-10",
+        clientRow.client && "h-auto min-h-8 py-1.5",
       )}
       onClick={(event) => {
         onClick?.(event);
@@ -998,12 +999,12 @@ function WorkspaceHeader({
         data-workspace-drag-handle
         onPointerDown={onTitlePointerDown}
       >
-        <span className="block truncate" title={clientRow.tooltip}>{clientRow.label}</span>
+        <ClientRowLabel row={clientRow} />
         {statusLabel ? (
           <span className={cn("block text-xs", isError ? "text-destructive" : "text-muted-foreground")}>
             {statusLabel}
           </span>
-        ) : clientRow.status ? <ClientRowStatusLine status={clientRow.status} /> : null}
+        ) : <ClientRowStatusLine row={clientRow} />}
       </div>
       <span className="flex size-3.5 shrink-0 items-center justify-center">
         {isLoading ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : <UnreadDot unread={unread} />}
@@ -1046,6 +1047,7 @@ function WorkspaceSidebarGroup({
   const projectNavItems = hideCommercialSidebarItems(config.projectNavOrder).filter(key => key === "projectSessions" || config[key]);
   const projectNav = liteProjectNav(projectNavItems, useUiMode());
   const rowActive = useClientRowActive(workspace.id, isSelected);
+  const projectLabel = useClientProjectRow(workspace, workspaceLabel(workspace)).label;
   const chatInMatter = useMatterChatOpen(workspace.id);
 
 
@@ -1121,7 +1123,7 @@ function WorkspaceSidebarGroup({
             <CollapsibleContent className="pt-1 pb-3">
               <div className="ml-5 mr-1 border-l border-sidebar-border/70 pl-2">
                 {<SidebarMenuSub className="gap-1.5 rounded-xl bg-sidebar-accent/65 p-1">
-                  {(() => { const workbench = (separated: boolean) => <SidebarMenuSubItem className={separated ? "mt-1 border-t border-sidebar-border/70 pt-2" : undefined}><WorkspaceTabDropTarget projectId={workspace.id} projectName={workspaceLabel(workspace)} sessionTitle={id => getDisplaySessionTitle(group.sessions.find(session => session.id === id)?.title)} onOpen={() => ctx.onOpenWorkspace(workspace.id)}><SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "workspace"} onClick={() => void ctx.onOpenWorkspace(workspace.id)}><PanelsTopLeft className="size-4" strokeWidth={1.5} /><span>{t("workspace.workbench")}</span></SidebarMenuSubButton></WorkspaceTabDropTarget></SidebarMenuSubItem>;
+                  {(() => { const workbench = (separated: boolean) => <SidebarMenuSubItem className={separated ? "mt-1 border-t border-sidebar-border/70 pt-2" : undefined}><WorkspaceTabDropTarget projectId={workspace.id} projectName={projectLabel} sessionTitle={id => getDisplaySessionTitle(group.sessions.find(session => session.id === id)?.title)} onOpen={() => ctx.onOpenWorkspace(workspace.id)}><SidebarMenuSubButton className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "workspace"} onClick={() => void ctx.onOpenWorkspace(workspace.id)}><PanelsTopLeft className="size-4" strokeWidth={1.5} /><span>{t("workspace.workbench")}</span></SidebarMenuSubButton></WorkspaceTabDropTarget></SidebarMenuSubItem>;
                   const item = (key: (typeof projectNavItems)[number]) => ({
                   projectCalendar: <SidebarMenuSubItem key="projectCalendar"><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "calendar")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "calendar"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "calendar")} onClick={() => { void ctx.onOpenProjectPage(workspace.id, "calendar"); }}><SIDEBAR_ITEMS.projectCalendar.icon className="size-4" strokeWidth={1.5} /><span>{t("calendar.title")}</span></SidebarMenuSubButton></SidebarMenuSubItem>,
                   projectHome: <SidebarMenuSubItem key="projectHome">
@@ -1802,6 +1804,7 @@ function GlobalSessionRow({ session, workspace }: { session: SessionListItem; wo
   const pinned = usePinnedSessionIds();
   const status = ctx.sessionStatusById?.[session.id];
   const unread = useSessionInboxStore(state => unreadSession(state, session.id));
+  const projectLabel = useClientProjectRow(workspace, workspaceLabel(workspace)).label;
   return <SidebarMenuItem className="group/session-row" draggable onDragStart={event => startSessionDrag(event.dataTransfer, workspace.id, session.id)}>
     <SessionContextMenu sessionId={session.id} workspaceId={workspace.id} isPinned={pinned.has(session.id)} isArchived={false}>
         <SidebarMenuButton className="h-auto min-h-8 gap-1.5 py-1 pr-10 text-[13px]" aria-current={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id ? "page" : undefined} isActive={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id} onClick={() => ctx.onOpenSession(workspace.id, session.id)} onDoubleClick={event => {
@@ -1811,7 +1814,7 @@ function GlobalSessionRow({ session, workspace }: { session: SessionListItem; wo
           ctx.onOpenSessionWindow(workspace.id, session.id);
         }} onPointerEnter={() => ctx.onPrefetchSession?.(workspace.id, session.id)}>
           <ScheduledSessionIcon sessionId={session.id} />
-          <span className="min-w-0 flex-1" title={`${getDisplaySessionTitle(session.title)} · ${workspaceLabel(workspace)}`}><span className="block truncate">{getDisplaySessionTitle(session.title)}</span><ChatContextLabel project={workspace} nativeLabel={workspaceLabel(workspace)} directory={session.directory} /></span>
+          <span className="min-w-0 flex-1" title={`${getDisplaySessionTitle(session.title)} · ${projectLabel}`}><span className="block truncate">{getDisplaySessionTitle(session.title)}</span><ChatContextLabel project={workspace} nativeLabel={workspaceLabel(workspace)} directory={session.directory} /></span>
           <SessionInboxIndicators unread={unread} status={isSessionActivityStatus(status) ? status : undefined} isStreaming={isStreamingSessionStatus(status)} isActive={isSessionActivityStatus(status) && status !== "idle"} />
         </SidebarMenuButton>
     </SessionContextMenu>

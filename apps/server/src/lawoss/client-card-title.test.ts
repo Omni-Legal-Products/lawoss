@@ -15,6 +15,7 @@ test("názov z frontmatteru karty: úvodzovky, apostrofy, bez názvu a mimo fron
   expect(cardTitleFromMarkdown("---\ntitle: \"\"\n---\n")).toBeUndefined();
   expect(cardTitleFromMarkdown("---\ntype: klient\n---\ntitle: telo\n")).toBeUndefined();
   expect(cardTitleFromMarkdown("title: bez frontmatteru\n")).toBeUndefined();
+  for (const block of [">", "|", ">-", "[SYN]", "{a: b}", "&kotva", "*odkaz", "!!str x"]) expect(cardTitleFromMarkdown(`---\ntitle: ${block}\n---\n`)).toBeUndefined();
 });
 
 test("meno registrácie: len meno priečinka sa nahradí názvom karty (client.md aj klient.md); vlastné meno a priečinok bez karty ostanú", async () => {
@@ -27,4 +28,9 @@ test("meno registrácie: len meno priečinka sa nahradí názvom karty (client.m
   expect(await registrationName(legacy, "C002-beta")).toBe("SYN Beta, a. s.");
   expect(await registrationName(card, "Môj názov")).toBe("Môj názov");
   expect(await registrationName(none, "C003")).toBe("C003");
+  // Meno priečinka v inom tvare (veľké/malé písmená, NFD) je stále len meno priečinka.
+  expect(await registrationName(card, "c001-SYN-alfa")).toBe("SYN Alfa, s. r. o.");
+  const nfd = join(base, "Šimková"); await mkdir(nfd);
+  await writeFile(join(nfd, "client.md"), "---\ntitle: SYN Zuzana Šimková\n---\n");
+  expect(await registrationName(nfd, "Šimková".normalize("NFD"))).toBe("SYN Zuzana Šimková");
 });

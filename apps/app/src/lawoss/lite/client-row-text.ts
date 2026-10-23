@@ -9,6 +9,11 @@ import type { RowDeadline } from "./client-row";
  */
 export const ANCESTOR_CLASS = "font-medium text-sidebar-foreground bg-sidebar-accent/50";
 
+/** Farba textu lehoty: zmeškaná/na overenie červeno, blížiaca sa zlato (ako bod naliehavosti); význam nesie text. */
+export function urgencyTextClass(urgency: string | undefined): string {
+  return urgency === "hot" ? "text-destructive" : urgency === "near" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground";
+}
+
 /** Krátky dátum do úzkeho riadku: deň a mesiac, iný rok s rokom (lehota o rok nesmie vyzerať ako budúci týždeň). */
 export function shortDay(iso: string, locale: Language, todayIso = today()): string {
   const date = new Date(`${iso}T00:00:00Z`);
