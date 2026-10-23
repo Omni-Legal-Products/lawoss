@@ -117,7 +117,12 @@ A missing architecture or one failed target prevents this promotion.
 
 `channel-evidence.mjs` checks the live exact source tag is public, final downloaded bytes match, signing and
 fresh and migrated acceptance are complete, published receipts exist, and the platform feed is correct.
-It refuses lower or equal semver. It only verifies. The existing workflow remains the owner of the subsequent pointer write.
+It refuses lower or equal semver. It only verifies. The pointer is written by `scripts/release/acceptance-promotion.mjs`
+in `release-acceptance-resume.yml` (Resume exact desktop release acceptance), after the same gates.
+The alpha workflows reach their own pointer step only with tested evidence, which a fresh build does not have.
+A pointer someone turned into a draft is still compared by version. The promotion publishes it again
+(`--draft=false --prerelease --latest=false`) only after every file it holds was verified and read back in the same run.
+Otherwise it stays a draft and the run fails, so a stale manifest of another target is never made public again.
 The mutable pointer is a distribution mechanism, not source provenance. Keep the prior pointer and referenced immutable release
 for rollback. A rollback to an older semver does not bypass the updater's existing downgrade guard.
 
