@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Overenie alfa2 v UI: editory pri chate prípadu (2026-10-23, N-A2-1)
+
+Podklad: nález N-A2-1 z overenia alfa2 23. 10. 2026 (schválené premenovanie v chate prípadu skončilo 500 „The task's project is unavailable“). Nové LAWOSS súbory: `apps/server/src/opencode-plugins/lawoss-file-paths.ts` (cesta od priečinka chatu; cesta od koreňa klienta, ktorá už začína priečinkom prípadu, sa nezdvojí), testy `apps/server/src/opencode-plugins/lawoss-file-paths.test.ts`, `apps/app/tests/lawoss-document-project.test.js`.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/artifacts/document-project.ts` | Výber projektu je v exportovanej `findDocumentProject` (rovnaké správanie, testovateľné bez spojenia). Lokálny chat patrí priestoru, keď jeho `directory` leží v koreni klienta (`isWithinClientFolder` z `lawoss/shell/session-directory.ts`), nie len pri presnej zhode. Dôvod: chat prípadu beží v `…/Spisy/M00x`, bočný panel ho v zozname chatov klienta nemá, takže `documents.begin_file_edit` (uloženie otvorených editorov pred `lawoss_files`) neodvodil projekt a server vrátil 500. Pri syncu zachovať. |
+
 ## Bočný panel: čitateľné mená, Klient → Prípady → Chaty, kompaktný bežný režim (alfa2 B3, 2026-10-23)
 
 Podklad: plán alfa2 úloha B3, nález N-22 a „Sidebar: klienti, prípady a chaty“ (akceptácia 22. 10. 2026). Nové LAWOSS súbory: `apps/app/src/lawoss/lite/client-row.ts` (čistý model: meno, lehota v riadku, kontext chatu, krátky zoznam, accordion), `client-row-text.ts`, `client-row-view.tsx`, `apps/server/src/lawoss/client-card-title.ts`; testy `apps/app/tests/lawoss-sidebar-hierarchy.test.tsx`, `apps/server/src/lawoss/client-card-title.test.ts`. Zelené zmeny: `client-nav.tsx`, `client-tree.ts` (stav veci), `shell.ts` (Viac, bublinka priečinka), `sk.ts`/`cs.ts` `workspace.overview` = „Prehľad“/„Přehled“ (Domov klienta už nie je druhý „Domov“), server `lawoss/onboarding.ts` (registrácia z onboardingu dostane `title` z `client.md`/`klient.md`, ak volajúci poslal len meno priečinka; existujúce registrácie sa nepremenúvajú).

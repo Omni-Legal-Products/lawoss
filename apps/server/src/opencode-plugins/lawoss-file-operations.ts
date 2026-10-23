@@ -10,9 +10,9 @@
  * (`lawoss/file-operations.ts`), ktorý pred vykonaním overí revíziou, že sa disk od karty nezmenil.
  */
 // Exportovaný je len vstupný bod pluginu: OpenCode volá každý export modulu.
-import { isAbsolute, resolve } from "node:path";
 import { z } from "zod";
-import { resolveWorkspaceId, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
+import { chatFilePath, chatWorkspace } from "./lawoss-file-paths.js";
+import { listWorkspaces, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 const pathArg = z.string().min(1).max(4096);
 // A flat object, not a union: every provider's tool schema accepts it (Gemini and OpenAI reject some anyOf shapes).
@@ -23,7 +23,7 @@ const operation = z.object({
   path: pathArg.optional().describe("create_folder/delete: the folder to create or the file/folder to delete."),
 });
 const args = z.object({
-  operations: z.array(operation).min(1).max(50).describe("Changes in order, 1–50. Paths are relative to the chat's folder or absolute inside this client's folder or its linked folders."),
+  operations: z.array(operation).min(1).max(50).describe("Changes in order, 1–50. Paths are relative to the chat's folder (in a case chat, the case folder) or absolute inside this client's folder or its linked folders."),
   description: z.string().max(300).optional().describe("Briefly say why, in the user's language."),
 });
 
@@ -60,7 +60,9 @@ export const LawossFileOperations = async () => ({
         if (!context.sessionID || !context.directory) throw new Error("File changes require a chat and its folder.");
         if (!context.ask) throw new Error("File changes need the user's approval, but approval requests are unavailable.");
         const directory = context.directory;
-        const absolute = (value: string) => isAbsolute(value) ? value : resolve(directory, value);
+        const own = chatWorkspace(await listWorkspaces(context), directory);
+        if (!own) throw new Error(`No LegalWork workspace matches the working directory ${directory}.`);
+        const absolute = (value: string) => chatFilePath(value, directory, own.path);
         const operations = input.operations.map((item) => {
           if (item.operation === "move" || item.operation === "copy") {
             if (!item.from || !item.to) throw new Error(`${item.operation} needs both from and to. Nothing was changed.`);
@@ -69,7 +71,7 @@ export const LawossFileOperations = async () => ({
           if (!item.path) throw new Error(`${item.operation} needs path. Nothing was changed.`);
           return { operation: item.operation, path: absolute(item.path) };
         });
-        const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
+        const workspace = own.id;
         const plan: Plan = z.object({ operations: z.array(z.unknown()), revision: z.string() }).parse(await post(context, workspace, "plan", { operations }));
         await context.ask({ permission: PERMISSION, patterns: visiblePaths(plan), always: [],
           metadata: { lawossFiles: plan.operations, ...(input.description ? { description: input.description } : {}) } });
