@@ -1,6 +1,6 @@
 import { registerAiGovernanceRoutes } from "./lawoss/ai-governance-routes.js";
 import { registerYoloModeRoutes } from "./lawoss/yolo-mode.js";
-import { registerFileOperationRoutes } from "./lawoss/file-operations.js";
+import { engineAgent, registerFileOperationRoutes } from "./lawoss/file-operations.js";
 import { ProtectedDocumentRuntime } from "./lawoss/protected-ai/runtime.js";
 import { protectedGuestBundleFactory } from "./lawoss/protected-ai/bundle.js";
 import { registerProtectedDocumentProfileRoutes } from "./lawoss/protected-ai/profiles.js";
@@ -2657,6 +2657,8 @@ function createRoutes(
   // 🟡 LAWOSS: lawoss_memory číta pamäť spisu bez shellu a bez karty, len v tomto klientovi (lawoss/matter-memory.ts).
   addRoute(routes, "POST", "/workspace/:id/lawoss/memory/read", "client", async (ctx) => {
     requireClientScope(ctx, "collaborator");
+    // Only the chat's own engine credential (bound to this client's folder), never an ordinary bearer token.
+    if (!await engineAgent(config, ctx.actor)) throw new ApiError(403, "memory_agent_only", "Only a chat's case memory tool can use this route.");
     const workspace = await resolveWorkspace(config, ctx.params.id, { bootstrap: false });
     return jsonResponse(await readMatterMemoryForChat(config, workspace, await readJsonBody(ctx.request)));
   });

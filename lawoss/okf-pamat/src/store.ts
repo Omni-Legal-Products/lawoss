@@ -8,7 +8,7 @@
  * v _STATUS.md. Dokumenty spisu ani karty nikdy neotvára na zápis.
  */
 
-import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { parseRecord, parseFrontmatter, recordRevision, serializeRecord, type OkfRecord } from "./record.ts";
@@ -17,6 +17,7 @@ import { validateStore } from "./validate.ts";
 import { authorize, assertHasSource, type Approval, type WriteDiff } from "./write.ts";
 import { readStandingAuthorization, covers, readClientPath, matchesClientPath, readNameLeakSeverity, ConfigReadError } from "./config.ts";
 import { decodeText } from "./text-decode.ts";
+import { FILE_BYTE_LIMIT, readRegularFile, readTextFile, STORE_BYTE_LIMIT } from "./safe-read.ts";
 import { truthDigest, OKF_VERSION, type Jurisdiction } from "./schema.ts";
 import { documentTypeLabel, documentValueLabel, isDocumentLanguage, renderLanguage, type DocumentLanguage, type RenderLanguage } from "./document-language.ts";
 
@@ -46,7 +47,7 @@ export function jurisdictionFromCard(dir: string): Jurisdiction | undefined {
   for (const name of MATTER_CARDS) {
     const path = join(dir, name);
     if (!existsSync(path)) continue;
-    const m = /^jurisdiction:\s*(cz|sk)\s*$/m.exec(decodeText(readFileSync(path)));
+    const m = /^jurisdiction:\s*(cz|sk)\s*$/m.exec(readTextFile(path));
     if (m?.[1] === "cz" || m?.[1] === "sk") return m[1];
   }
   return undefined;
@@ -58,7 +59,7 @@ export function documentLanguageFromCard(dir: string): DocumentLanguage | undefi
     const path = join(dir, name);
     if (!existsSync(path)) continue;
     // Karta z Windows môže mať BOM alebo UTF-16; bez dekódovania sa hlavička nenájde.
-    const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(decodeText(readFileSync(path)))?.[1];
+    const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(readTextFile(path))?.[1];
     if (!header) continue;
     // Cards may contain valid multiline YAML or custom nested fields unsupported by
     // the intentionally strict memory-record parser. Inspect only our top-level scalar.
@@ -122,6 +123,7 @@ export function readStore(dir: string): Store {
     // beneath it must never import records from a different matter.
     const safeMemoryDir = join(realpathSync(dir), MEMORY_DIR);
     if (lstatSync(safeMemoryDir).isSymbolicLink()) throw new Error("Symbolický odkaz na adresár pamäte nie je povolený.");
+    let total = 0;
     for (const entry of readdirSync(safeMemoryDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const name = entry.name;
       if (entry.isDirectory()) {
@@ -136,15 +138,16 @@ export function readStore(dir: string): Store {
       if (name === INDEX_FILE || name === LOG_FILE || name === LEGACY_INDEX_FILE) continue;
       try {
         const file = join(safeMemoryDir, name);
-        const before = lstatSync(file);
-        if (!before.isFile() || before.isSymbolicLink()) throw new Error("Záznam pamäte musí byť bežný súbor.");
-        const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-        let source: string;
-        try {
-          const opened = fstatSync(fd);
-          if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) throw new Error("Záznam pamäte sa zmenil počas čítania.");
-          source = readFileSync(fd, "utf8");
-        } finally { closeSync(fd); }
+        const named = lstatSync(file);
+        if (!named.isFile()) throw new Error("Záznam pamäte musí byť bežný súbor.");
+        if (named.size <= FILE_BYTE_LIMIT && total + named.size > STORE_BYTE_LIMIT) {
+          problems.push({ file: memoryDir, message: `Pamäť prekračuje ${STORE_BYTE_LIMIT} bajtov; ďalšie záznamy (od ${name}) sa nenačítali.` });
+          break;
+        }
+        // Ohraničene a bez blokovania (safe-read.ts): pamäť číta aj server aplikácie.
+        const bytes = readRegularFile(file, Math.min(FILE_BYTE_LIMIT, STORE_BYTE_LIMIT - total));
+        total += bytes.length;
+        const source = bytes.toString("utf8");
         records.push(parseRecord(source));
         if (hasUnparsedBody(source)) {
           problems.push({ file: join(memoryDir, name), message: "Časť obsahu (text pred prvou sekciou, zdvojená Truth/History alebo riadok History mimo tvaru udalosti) sa nedá načítať. Otvor celý zdrojový súbor; tento výpis nie je úplný." });

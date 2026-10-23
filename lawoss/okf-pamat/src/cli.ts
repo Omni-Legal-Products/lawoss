@@ -27,6 +27,7 @@ import { inspectStandingAuthorization, isExpired, readNameLeakSeverity, CONFIG_F
 
 import { readWorkspaceMemory, renderWorkspaceMemory, saveWorkspaceMemory, type WorkspaceMemorySaveRequest } from "./workspace-memory.ts";
 import { decodeText } from "./text-decode.ts";
+import { readTextFile } from "./safe-read.ts";
 
 const dnes = (): string => new Date().toISOString().slice(0, 10);
 
@@ -187,7 +188,7 @@ export function runCli(argv: readonly string[]): CliResult {
       const problems = [...scope.problems];
       const inputs: string[] = [];
       try {
-        const status = readManualStatus(decodeText(readFileSync(join(dir, STATUS_FILE))), scope.records);
+        const status = readManualStatus(readTextFile(join(dir, STATUS_FILE)), scope.records);
         if (status.content) inputs.push(`## Ručný stav — ${join(dir, STATUS_FILE)}`, status.message, status.content);
       } catch (error) {
         if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
@@ -204,7 +205,7 @@ export function runCli(argv: readonly string[]): CliResult {
       ];
       for (const { path, title } of contextFiles) {
         try {
-          inputs.push(`## ${title} — ${path}`, decodeText(readFileSync(path)));
+          inputs.push(`## ${title} — ${path}`, readTextFile(path));
         } catch (error) {
           if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
             problems.push({ file: path, message: error instanceof Error ? error.message : String(error) });

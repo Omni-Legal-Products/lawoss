@@ -9,12 +9,12 @@
  * zapnutá. Bezpečný default je ten, ktorý blokuje.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { readTextFile } from "./safe-read.ts";
 import { join, sep } from "node:path";
 import { parseFrontmatter, type FmValue } from "./record.ts";
 import type { WriteDiff } from "./write.ts";
 import { isIsoDate } from "./schema.ts";
-import { decodeText } from "./text-decode.ts";
 
 export const CONFIG_FILE = "okf.config";
 
@@ -54,7 +54,8 @@ export class ConfigReadError extends Error {
  * Poškodenie rieši až hodnota, ktorá sa naozaj použije (`damaged`).
  */
 function readConfigText(path: string): string {
-  return decodeText(readFileSync(path));
+  // Ohraničene, bez odkazu a rúry (safe-read.ts): konfig číta aj server aplikácie.
+  return readTextFile(path);
 }
 
 /** Hláška k U+FFFD v použitej hodnote; `Set-Content` bez -Encoding v PowerShelli 5.1 píše ANSI. */

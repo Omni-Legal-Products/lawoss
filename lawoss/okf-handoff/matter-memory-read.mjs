@@ -3,6 +3,9 @@ import { findClientDir, findSubjectDir } from "../okf-pamat/src/store.ts";
 import { readWorkspaceMemory, renderWorkspaceMemory } from "../okf-pamat/src/workspace-memory.ts";
 import { workspaceProfilePresent } from "./workspace-checkpoint.mjs";
 
+/** Limity ohraničeného čítania (okf-pamat `safe-read.ts`): súbor a jeden adresár `memory/`. */
+export { FILE_BYTE_LIMIT, STORE_BYTE_LIMIT } from "../okf-pamat/src/safe-read.ts";
+
 /**
  * LAWOSS (alfa 2, N-A3-3, MČ 23. 10. 2026): čítanie pamäte spisu bez shellu a bez karty.
  * Ten istý kód ako `okf-memory preamble|read`, v procese servera, bez podprocesu a bez zápisu.

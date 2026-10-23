@@ -17,6 +17,9 @@ import { documentLinkedFolders } from "./linked-folders.js";
 import { isPathWithin } from "./path-within.js";
 import { matterMemoryScope, readMatterMemory } from "./workspace-memory-runtime.js";
 
+/** Every memory and context file is a regular file read without links, up to these limits (okf-pamat safe-read.ts). */
+export { FILE_BYTE_LIMIT, STORE_BYTE_LIMIT } from "./workspace-memory-runtime.js";
+
 /** Characters per page; the engine truncates larger tool results, so the model follows nextOffset. */
 export const MATTER_MEMORY_PAGE = 40_000;
 
@@ -71,6 +74,8 @@ export async function readMatterMemoryForChat(config: ServerConfig, workspace: W
   if (!readable(target, own)) throw notOwn();
   if (!(await stat(target).catch(() => null))?.isDirectory()) throw new ApiError(404, "memory_folder_missing", "This case folder does not exist. Nothing was read.");
   // `read`/`preamble` also read the client (and subject) memory above the case: never another client's.
+  // The practice's `Office/` above is shared (rules, lessons, do-not-cite list): okf-pamat reads only its
+  // `okf.config` and `memory/*.md` there, as regular files without links and within size limits (safe-read.ts).
   const scope = matterMemoryScope(target);
   for (const dir of [scope.clientDir, scope.subjectDir]) {
     if (!dir) continue;

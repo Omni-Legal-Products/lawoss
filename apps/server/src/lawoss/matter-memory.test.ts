@@ -1,11 +1,12 @@
 // LAWOSS alfa 2 (N-A3-3, MČ 23. 10. 2026): pamäť spisu sa číta bez shellu a bez karty, len v klientovi chatu
 // a v jeho pripojených priečinkoch. Iný klient (aj vnorený, aj cez kartu klienta nad spisom) sa odmietne bez mena.
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
-import { MATTER_MEMORY_PAGE, readMatterMemoryForChat } from "./matter-memory.js";
+import { FILE_BYTE_LIMIT, MATTER_MEMORY_PAGE, readMatterMemoryForChat, STORE_BYTE_LIMIT } from "./matter-memory.js";
 
 const D = "2026-10-23";
 const record = (id: string, type: string, layer: string, title: string, description: string, truth: string, status = "active") =>
@@ -154,3 +155,51 @@ test("nečitateľný záznam: complete=false a text ho pomenuje", async () => {
   expect(read.complete).toBe(false);
   expect(read.text).toContain("NEÚPLNÉ ČÍTANIE");
 });
+
+// Review P3a: the server reads memory in its own process. Links, pipes and huge files must not leak or block.
+test("odkazy z kontextových súborov spisu a klienta na iného klienta sa nečítajú (PoC z review)", async () => {
+  const f = await fixture();
+  await writeFile(join(f.m3, "VSTUPY.md"), "SECRET-K3-VSTUPY\n");
+  await writeFile(join(f.k3, "plan.md"), "SECRET-K3-PLAN\n");
+  await writeFile(join(f.k3, "status.md"), "---\nmanual_updated: 2026-10-01\n---\n\nSECRET-K3-STATUS\n");
+  await writeFile(join(f.root, "outside.txt"), "SECRET-OUTSIDE\n");
+  await rm(join(f.m1, "VSTUPY.md"));
+  await symlink(join(f.m3, "VSTUPY.md"), join(f.m1, "VSTUPY.md"));
+  await symlink(join(f.k3, "plan.md"), join(f.m1, "KOMUNIKACNE-KANALY.md"));
+  await symlink(join(f.root, "outside.txt"), join(f.k1, "VSTUPY.md"));
+  await symlink(join(f.root, "outside.txt"), join(f.k1, "KOMUNIKACNE-KANALY.md"));
+  await symlink(join(f.k3, "status.md"), join(f.m1, "_STATUS.md"));
+  const read = await readMatterMemoryForChat(f.config, f.own, { action: "read", matter: f.m1 }, none);
+  expect(read.text).not.toContain("SECRET");
+  expect(read.text).toContain("SYN fakt 7311");
+  expect(read.complete).toBe(false);
+  expect(read.text).toContain("Symbolický odkaz nie je povolený");
+});
+
+test.skipIf(process.platform === "win32")("rúra namiesto VSTUPY.md alebo záznamu server nezablokuje", async () => {
+  const f = await fixture();
+  await rm(join(f.m1, "VSTUPY.md"));
+  execFileSync("mkfifo", [join(f.m1, "VSTUPY.md")]);
+  execFileSync("mkfifo", [join(f.m1, "memory", "M-900.md")]);
+  const started = Date.now();
+  const read = await readMatterMemoryForChat(f.config, f.own, { action: "read", matter: f.m1 }, none);
+  expect(Date.now() - started).toBeLessThan(5000);
+  expect(read.complete).toBe(false);
+  expect(read.text).toContain("SYN fakt 7311");
+}, 10000);
+
+test.skipIf(process.platform === "win32")("zariadenie a príliš veľké súbory sa nečítajú celé; pamäť nad limit je neúplná", async () => {
+  const f = await fixture();
+  await symlink("/dev/zero", join(f.m1, "KOMUNIKACNE-KANALY.md"));
+  await writeFile(join(f.m1, "memory", "M-002.md"), record("M-002", "matter", "L2", "Veľký", "veľký", "x".repeat(FILE_BYTE_LIMIT + 1)));
+  const big = "y".repeat(FILE_BYTE_LIMIT - 1024);
+  for (let i = 0; i <= Math.ceil(STORE_BYTE_LIMIT / big.length); i++) await memory(f.m1, `M-${300 + i}.md`, record(`M-${300 + i}`, "matter", "L2", "Diel", "diel", big));
+  const first = await readMatterMemoryForChat(f.config, f.own, { action: "read", matter: f.m1 }, none);
+  expect(first.complete).toBe(false);
+  let text = first.text, next = first.nextOffset, pages = 1;
+  while (next !== null) { const page = await readMatterMemoryForChat(f.config, f.own, { action: "read", matter: f.m1, offset: next }, none); text += page.text; next = page.nextOffset; pages++; }
+  expect(text).toContain("prekračuje limit");
+  expect(text).toContain("nenačítali");
+  expect(text.length).toBeLessThan(STORE_BYTE_LIMIT + 2 * FILE_BYTE_LIMIT);
+  expect(pages).toBeGreaterThan(1);
+}, 60000);
