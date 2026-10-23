@@ -18,7 +18,7 @@ import type { PendingPermission } from "@/app/types";
 import { currentUiMode, useUiMode } from "@/lawoss/lite/ui-mode";
 import { describeMemoryWrite, keepsMemoryWriteGate } from "@/lawoss/lite/memory-write";
 import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
-import { fileOperationCard, offersRememberedApproval, rememberedApprovalKeys } from "@/lawoss/lite/file-operation-card";
+import { fileOperationCard, offersRememberedApproval, rememberedApprovalKeys, type FileOperationDetails } from "@/lawoss/lite/file-operation-card";
 import { networkApprovalContent } from "./network-approval-content";
 import { InteractionSource } from "./interaction-source";
 
@@ -30,7 +30,17 @@ type PermissionPresentation = {
   scopeValue: string;
   isDoomLoop: boolean;
   note: string | null;
+  /** 🟡 LAWOSS (P6): lawoss_files cards show these readable lines in "Details" instead of the raw JSON. */
+  details?: FileOperationDetails;
 };
+
+/** 🟡 LAWOSS (P6): the readable "Details" of a lawoss_files card – complete, inert text in a bounded scroll region. */
+function FileOperationDetailList({ details, reason, className }: { details: FileOperationDetails; reason: boolean; className: string }) {
+  return <ul className={className} data-lawoss-file-details="">
+    {reason && details.reason ? <li>{details.reason}</li> : null}
+    {details.lines.map((line, index) => <li key={index}>{line}</li>)}
+  </ul>;
+}
 
 type PermissionDetail = {
   label: string;
@@ -365,9 +375,9 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
                 <span>{t("session.details_label")}</span>
                 <ChevronRight size={15} className="text-dls-secondary transition-transform group-open:rotate-90" />
               </summary>
-              <pre className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-dls-border bg-dls-hover/45 px-3 py-2.5 text-[12px] leading-5 text-dls-secondary">
+              {presentation.details ? <FileOperationDetailList details={presentation.details} reason={false} className="mt-3 max-h-44 space-y-1 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-dls-border bg-dls-hover/45 px-3 py-2.5 text-[12px] leading-5 text-dls-text" /> : <pre className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-dls-border bg-dls-hover/45 px-3 py-2.5 text-[12px] leading-5 text-dls-secondary">
                 {stringifyMetadata(metadata, props.safeStringify)}
-              </pre>
+              </pre>}
             </details>
           ) : null}
         </div>
@@ -539,9 +549,9 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
                 <span>{t("session.details_label")}</span>
                 <ChevronRight size={14} className="text-dls-secondary transition-transform group-open:rotate-90" />
               </summary>
-              <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-dls-hover/45 px-3 py-2 text-[11px] leading-5 text-dls-secondary">
+              {presentation.details ? <FileOperationDetailList details={presentation.details} reason className="mt-2 max-h-32 space-y-1 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-dls-hover/45 px-3 py-2 text-[12px] leading-5 text-dls-text" /> : <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-dls-hover/45 px-3 py-2 text-[11px] leading-5 text-dls-secondary">
                 {stringifyMetadata(metadata, props.safeStringify)}
-              </pre>
+              </pre>}
             </details>
           ) : null}
         </div>

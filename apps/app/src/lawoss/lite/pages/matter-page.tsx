@@ -14,7 +14,7 @@ import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
 import { canActOnSource, localMatter, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
 import { daysUntil, deadlineKey, deadlineText, dueText, inHorizon, urgencyOf } from "../../okf/view-rules";
-import { composeQuickAction, MORE_ACTIONS, QUICK_ACTIONS } from "../quick-actions";
+import { MORE_ACTIONS, QUICK_ACTIONS, quickActionPrompt } from "../quick-actions";
 import { POSTPROCESS_RESOURCE_NAME, postprocessSource, VYSTUP_SKILL_NAME, vystupSkillBody } from "../../okf/skill-bundle";
 import { clientOf, nextDeadline } from "../today-model";
 import { LITE_CLIENTS_PATH } from "../links";
@@ -91,7 +91,7 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
     running.current = true; setBusy(id); setError(null);
     try {
       if (!connection) throw new Error(t("lawoss.integrations.error.registration_denied", locale));
-      const prompt = composeQuickAction(id, { title: matter.title, matterRef: matter.matterRef, path: target.selected.path }, locale);
+      const prompt = quickActionPrompt(id, { title: matter.title, matterRef: matter.matterRef, path: target.selected.path }, locale);
       // Jen připraví koncept v nové konverzaci nad věcí; nic se neodesílá.
       // Shared client and office access remains controlled by native Permissions.
       const current = await revalidateScopeTarget(scope,connection,target.workspace.id);
