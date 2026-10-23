@@ -13,11 +13,12 @@ export type TriageStatus = { trial: true; mode: "trial" | "in_place"; root: stri
 /**
  * Beh, ktorý sa dá vrátiť: v klone posledný zapísaný, na mieste len ten, na ktorý sa spotreboval súhlas.
  * Po novom súhlase sa predošlé usporiadanie vrátiť nedá a tlačidlo sa neukáže (rozhodnutie MČ 13. 10. 2026).
+ * Na mieste aj prerušený zápis alebo vrátenie (Word pri presune): súhlas je spotrebovaný, iná cesta späť v appke nie je.
  */
 export function undoableRun(status: TriageStatus | null): TriageRun | undefined {
   if (!status?.trial) return undefined;
   const applied = status.runs.filter((item) => item.state === "applied");
-  return status.mode === "in_place" ? applied.find((item) => item.runId === status.undoRunId) : applied[0];
+  return status.mode === "in_place" ? status.runs.find((item) => item.runId === status.undoRunId && item.state !== "undone") : applied[0];
 }
 /** Náhľad sa pýta, len kým súhlas na mieste nie je spotrebovaný: po zápise ostáva len vrátenie (rozhodnutie MČ 12. 10.). */
 export const plansPreview = (state: TriageStatus): boolean => state.trial && state.canPlan !== false;
@@ -50,6 +51,14 @@ export const triageReplan = (client: TriageClient, id: string, keepInInbox: read
 export const toggledLeave = (preview: Pick<TriagePreview, "leaveInPlace">, key: string, leave: boolean): string[] =>
   leave ? [...new Set([...(preview.leaveInPlace ?? []), key])] : (preview.leaveInPlace ?? []).filter((item) => item !== key);
 export const triageApply = (client: TriageClient, preview: Pick<TriagePreview, "id" | "fingerprint">) => client.lawossTriage<TriageApplyResult>("apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
+/**
+ * Stav po neúspešnom zápise. Prerušený zápis na mieste (Word uprostred presunu) súhlas spotreboval: náhľad treba
+ * zahodiť, Potvrdiť by skončilo 403 a „Vrátiť“ sa má ukázať hneď. Zámok pred prvým zápisom súhlas nespotrebuje.
+ */
+export async function statusAfterFailedApply(client: TriageClient, root: string): Promise<{ status: TriageStatus; keepPreview: boolean } | null> {
+  const status = await triageStatus(client, root).catch(() => null);
+  return status && { status, keepPreview: plansPreview(status) };
+}
 export const triageUndo = (client: TriageClient, root: string, runId: string) => client.lawossTriage<TriageUndoResult>("undo", { root, runId, confirm: true });
 /** Výslovný súhlas s usporiadaním priečinka klienta na mieste („Áno, usporiadaj“). */
 export const triageGrant = (client: TriageClient, root: string) => client.lawossTriage<{ granted: true; root: string }>("grant", { root, confirm: true });
