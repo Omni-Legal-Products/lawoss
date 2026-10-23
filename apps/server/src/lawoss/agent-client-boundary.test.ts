@@ -48,3 +48,30 @@ test("koreň praxe a neregistrovaný nadradený priečinok vybraného klienta os
     await expect(requireClientWorkspaceBoundary(config, practice)).rejects.toMatchObject({status: 403, code: "wiki_agent_client_workspace_required"});
   } finally {await rm(root, {recursive: true});}
 });
+
+// Bezpečnostná kontrola bb025062: bez praxe v profile nie je zaregistrovaný široký priečinok (napr. Dokumenty)
+// klient, ktorý by smel vybraného klienta vo vnútri čítať nástrojmi agenta (dokumenty, shell).
+test("zaregistrovaný priečinok s vybraným klientom bez praxe v profile ostáva bez nástrojov agenta (N-A3-1)", async () => {
+  const {root, config} = await syntheticHostConfig();
+  try {
+    const base = await realpath(root), documents = join(base, "Dokumenty"), client = join(documents, "C001 Novak");
+    await mkdir(client, {recursive: true}); await writeFile(join(client, "secret.txt"), "syntetické");
+    const directory = join(root, "lawoss-onboarding"); await mkdir(directory);
+    await writeFile(join(directory, "profile.json"), JSON.stringify({clientRoot: client}));
+    const workspace = (id: string, path: string): WorkspaceInfo => ({id, name: id, path, preset: "starter", workspaceType: "local"});
+    config.workspaces = [workspace("ws_c001", client), workspace("ws_docs", documents)];
+    await expect(requireClientWorkspaceBoundary(config, documents)).rejects.toMatchObject({status: 403, code: "wiki_agent_client_workspace_required"});
+    await expect(requireClientWorkspaceBoundary(config, client)).resolves.toBeUndefined();
+    // Klient odstránený z bočného panela, profil naň stále ukazuje: priečinok nad ním tiež nie.
+    config.workspaces = [workspace("ws_docs", documents)];
+    await expect(requireClientWorkspaceBoundary(config, documents)).rejects.toMatchObject({status: 403, code: "wiki_agent_client_workspace_required"});
+  } finally {await rm(root, {recursive: true});}
+});
+
+test("vnorený priečinok v profile bez praxe vonkajšieho klienta neodomkne (hranica ostáva prísna) (N-A3-1)", async () => {
+  const {root, config, outer, nested, workspace} = await boundaryFixture(({nested}) => ({clientRoot: nested}));
+  try {
+    config.workspaces = [workspace("ws_c002", outer), workspace("ws_c099", nested)];
+    await expect(requireClientWorkspaceBoundary(config, outer)).rejects.toMatchObject({status: 403, code: "wiki_agent_client_workspace_required"});
+  } finally {await rm(root, {recursive: true});}
+});

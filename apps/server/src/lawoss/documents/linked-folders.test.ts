@@ -81,3 +81,36 @@ test("zdroj v koreni klienta ostáva relatívny ako doteraz", () => fixture(asyn
   await settled(service, client);
   expect((await service.read(client, started.id)).text).toContain("SYN zmluva");
 }));
+
+// N-A3-1 (bezpečnostná kontrola bb025062): klient zaregistrovaný vnútri tohto klienta je cudzí klient aj pre dokumenty.
+test("dokument v klientovi zaregistrovanom vnútri tohto klienta sa odmietne bez čítania, aj cez odkaz; vlastný prejde", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "lawoss-documents-nested-")));
+  const client: WorkspaceInfo = { id: "ws_c002", name: "C002", path: join(root, "C002"), preset: "starter", workspaceType: "local", appFiles: "outside", appFilesStorageKey: "c002-storage" };
+  const nested = join(client.path, "C099 Vnoreny");
+  await mkdir(nested, { recursive: true });
+  await writeFile(join(nested, "Zmluva.pdf"), await pdf("SYN obsah vnoreneho klienta"));
+  await writeFile(join(client.path, "Vlastne.pdf"), await pdf("SYN vlastny podklad"));
+  await symlink(join(nested, "Zmluva.pdf"), join(client.path, "odkaz.pdf"));
+  const ocr = new OcrManager(join(root, "runtime"));
+  const preparation = new DocumentPreparation(ocr, {});
+  const service = new LawossDocuments({ configPath: join(root, "config.json") }, preparation, async () => [], async (workspace) => workspace.id === "ws_c002" ? [nested] : []);
+  try {
+    const refuses = async (paths: string[]) => {
+      for (const path of paths) {
+        if (path.startsWith("c099") && process.platform === "linux") continue;
+        const refused = await failure(service.prepare(client, [path]));
+        expect({ path, ...refused }).toMatchObject({ path, code: "document_nested_client" });
+        expect(refused?.message).not.toContain("C099");
+      }
+    };
+    // Nečitateľný súbor: keby ho služba otvorila (alebo riešila jeho cestu), chyba by bola iná než odmietnutie.
+    await chmod(join(nested, "Zmluva.pdf"), 0o000);
+    await refuses(["C099 Vnoreny/Zmluva.pdf", join(nested, "Zmluva.pdf"), "c099 vnoreny/Zmluva.pdf"]);
+    // Odkaz vo vlastnom priečinku sa rieši cez `realpath`, cieľ preto musí byť čitateľný; odmietne sa podľa cieľa.
+    await chmod(join(nested, "Zmluva.pdf"), 0o644);
+    await refuses(["odkaz.pdf"]);
+    expect(await service.list(client)).toEqual([]);
+    const [own] = await service.prepare(client, ["Vlastne.pdf"]);
+    expect(own.path).toBe("Vlastne.pdf");
+  } finally { await service.stop(); preparation.stop(); ocr.stop(); await chmod(join(nested, "Zmluva.pdf"), 0o644).catch(() => {}); await rm(root, { recursive: true, force: true }); }
+});

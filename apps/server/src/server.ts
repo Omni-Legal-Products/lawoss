@@ -5,7 +5,7 @@ import { ProtectedDocumentRuntime } from "./lawoss/protected-ai/runtime.js";
 import { protectedGuestBundleFactory } from "./lawoss/protected-ai/bundle.js";
 import { registerProtectedDocumentProfileRoutes } from "./lawoss/protected-ai/profiles.js";
 import { registerProtectedDocumentRoutes } from "./lawoss/protected-ai/routes.js";
-import { documentLinkedFolders, linkedFoldersMapRefresher, requireLinkableExternalDirectory, requireLinkableFolders } from "./lawoss/linked-folders.js";
+import { documentLinkedFolders, linkedFoldersMapRefresher, nestedClientRoots, requireLinkableExternalDirectory, requireLinkableFolders } from "./lawoss/linked-folders.js";
 import { protectedEngineFetch, protectedSessionResponse, registerProtectedRuntime } from "./lawoss/protected-ai/dispatch.js";
 import { retainWikiAgentRuntime } from "./wiki/agent-access.js";
 import { createGovernedEngineFetch, governedOcrTransport, requireGovernedEngineDispatch, requireAiBoundariesAdmission } from "./lawoss/ai-governance-engine.js";
@@ -942,8 +942,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
   cleanups.push(() => { benchmarkRunner.dispose(); ocr.stop(); });
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
   cleanups.push(() => preparation.stop());
-  // LAWOSS: príprava dokumentov číta aj z pripojených priečinkov klienta, overených pri každom čítaní (alfa2 A3).
-  const documents = new LawossDocuments(config, preparation, (workspace) => documentLinkedFolders(config, workspace));
+  // LAWOSS: príprava dokumentov číta aj z pripojených priečinkov klienta, overených pri každom čítaní (alfa2 A3);
+  // klient zaregistrovaný vnútri tohto klienta je cudzí (N-A3-1).
+  const documents = new LawossDocuments(config, preparation, (workspace) => documentLinkedFolders(config, workspace), (workspace) => nestedClientRoots(config, workspace));
   cleanups.push(() => documents.stop());
   const protectedDocuments = new ProtectedDocumentRuntime({config, approvals, documents, getGuestBundle: protectedGuestBundleFactory(config)});
   await protectedDocuments.initialize().catch(() => {

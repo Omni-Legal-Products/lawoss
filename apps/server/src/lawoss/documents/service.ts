@@ -9,6 +9,7 @@ import { within } from "../../reviews/storage.js";
 import type { ServerConfig, WorkspaceInfo } from "../../types.js";
 import { workspaceAppFilesRoot } from "../workspace-app-files.js";
 import { canonicalPath } from "../linked-folders-rules.js";
+import { foldedPath, isPathWithin } from "../path-within.js";
 import { DOCUMENT_LIMITS as LIMIT, documentRecordSchema, type DocumentEvidence, type DocumentRead, type DocumentRecord, type DocumentSummary } from "./types.js";
 
 const outputRecordSchema = z.object({ sourceKind:z.enum(["isir","workspace"]), identityPath:z.string().nullable(), identityHash:z.string().nullable(), documentIds:z.array(z.string().uuid()).min(1).max(20), owned:z.boolean(), workspaceId:z.string(), path:z.string(), hash:z.string().regex(/^[a-f0-9]{64}$/), sourceHash:z.string(), verifiedHash:z.string().nullable(), kind:z.enum(["registry","summary"]), outputLanguage:z.enum(["cs","sk","en"]), verified:z.literal(false), legalApproval:z.literal(false), identity:z.object({caseNumber:z.string().nullable(),company:z.string().nullable(),sourceUrl:z.string().nullable(),project:z.string()}) });
@@ -44,9 +45,12 @@ export class LawossDocuments {
    * @param linkedFolders LAWOSS: kanonické pripojené priečinky klienta (`documentLinkedFolders`), čítané pri každom
    * prístupe k zdroju. Zdroj v nich sa ukladá s absolútnou kanonickou cestou: kód, ktorý cestu rieši voči koreňu
    * klienta (export, chránené prostredie), ho tak odmietne namiesto čítania iného súboru.
+   * @param nestedClients LAWOSS (N-A3-1): kanonické korene klientov zaregistrovaných vnútri tohto klienta
+   * (`nestedClientRoots`), čítané pri každom prístupe. Ich súbory sú cudzí klient, ako v `lawoss_files`.
    */
   constructor(private readonly config: Pick<ServerConfig, "configPath">, private readonly preparation: DocumentPreparation,
-    private readonly linkedFolders: (workspace: WorkspaceInfo) => Promise<readonly string[]> = async () => []) {}
+    private readonly linkedFolders: (workspace: WorkspaceInfo) => Promise<readonly string[]> = async () => [],
+    private readonly nestedClients: (workspace: WorkspaceInfo) => Promise<readonly string[]> = async () => []) {}
   private lock<T>(action: () => Promise<T>): Promise<T> {
     const result = this.mutations.then(action); this.mutations = result.catch(() => {}); return result;
   }
@@ -91,9 +95,16 @@ export class LawossDocuments {
   }
   private async source(workspace: WorkspaceInfo, path: string, availableBytes = LIMIT.bytes) {
     const root = await realpath(workspace.path), requested = resolve(root, path);
+    // Klient zaregistrovaný vnútri tohto klienta (N-A3-1): požadovaná cesta sa overí pred čítaním, cieľ odkazu po `realpath`;
+    // na macOS a Windows bez ohľadu na veľkosť písmen. Nič sa nečíta.
+    const nested = await this.nestedClients(workspace);
+    const inNestedClient = (candidate: string) => nested.some(other => isPathWithin(foldedPath(other), foldedPath(candidate.normalize("NFC"))));
+    const nestedClient = () => new ApiError(403, "document_nested_client", "This file belongs to another client whose folder lies inside this client's folder. Nothing was read. Work with it in that client's own chat.");
+    if (inNestedClient(requested)) throw nestedClient();
     const linked = within(root, requested) ? null : await this.linkedSource(workspace, requested);
     const absolute = linked ?? await realpath(requested);
     if (!linked && !within(root, absolute)) throw new ApiError(403, "document_path", "Document is outside this workspace.");
+    if (inNestedClient(absolute)) throw nestedClient();
     const info = await stat(absolute);
     if (!info.isFile() || info.size > LIMIT.bytes) throw new ApiError(400, "document_size", "Document exceeds 64 MiB.");
     if (info.size > availableBytes) throw new ApiError(429, "document_queue_bytes", "Queued documents exceed 128 MiB; narrow the batch.");
