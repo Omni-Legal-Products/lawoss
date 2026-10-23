@@ -40,7 +40,8 @@ export function folderOfGrant(key: string, value: unknown): string | null {
   const trimmed = key.trim();
   if (trimmed === "/*") return "/";
   if (trimmed === "*" || !/[\\/]\*$/.test(trimmed)) return null;
-  return trimmed.slice(0, -2).replace(/[\\/]+$/, "") || null;
+  const folder = trimmed.slice(0, -2).replace(/[\\/]+$/, "");
+  return /^[A-Za-z]:$/.test(folder) ? `${folder}/` : folder || null;
 }
 
 /** Pamäť kancelárie, ktorú pripojil onboarding: `Office/` alebo `_kancelaria/` priamo v koreni praxe. */

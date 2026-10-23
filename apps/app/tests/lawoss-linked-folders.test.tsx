@@ -45,6 +45,11 @@ describe("model: čo sa smie pripojiť", () => {
     expect(linkRefusal("/prax/_kancelaria", scope())).toBeNull();
   });
 
+  test("koreň disku Windows (namapovaný či USB disk) sa pripojiť smie", () => {
+    expect(linkRefusal("Z:\\", scope())).toBeNull();
+    expect(linkRefusal("Z:/", scope())).toBeNull();
+  });
+
   test("vlastný priečinok klienta a jeho podpriečinok netreba pripájať", () => {
     expect(linkRefusal("/prax/Klienti/Šťastný", scope())).toBe("own");
     expect(linkRefusal("/prax/Klienti/Šťastný/Spisy/Úhrada", scope())).toBe("own");

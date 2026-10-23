@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Koreň disku Windows v pripojených priečinkoch (2026-10-23)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/server.ts`, `apps/app/src/react-app/domains/settings/panels/authorized-folders-panel-state.ts` | `normalizeAuthorizedFolderPath` na serveri aj v appke ponechá koreň disku ako `Z:/` (predtým `Z:`, čo je na Windows cesta relatívna k aktuálnemu priečinku disku). `authorizedFolderToExternalDirectoryKey` pridá `*` k priečinku končiacemu lomkou, takže kľúč ostáva `Z:/*` a skôr uložené povolenia platia ďalej (+2 riadky komentára, 2 zmenené). Dôvod: od #199 `linkedFolderConflict` holé `Z:` odmietol ako relatívne, takže namapovaný či USB disk sa nedal pripojiť ku klientovi a existujúce povolenie `Z:/*` ticho zmizlo z mapy aj zo sandboxu. Rovnaké pravidlo má LAWOSS `folderOfGrant` v `apps/server/src/lawoss/linked-folders-rules.ts`. |
+
 ## Panel doplnku Office bez editorov xlsx/pptx (2026-10-20)
 
 | Súbory | Downstream doplnenie a dôvod |
