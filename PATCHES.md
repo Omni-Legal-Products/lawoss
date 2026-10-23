@@ -10,6 +10,24 @@ Podklad: plán alfa2 úloha B3, nález N-22 a „Sidebar: klienti, prípady a ch
 | `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` (oprava po review, kolo 1) | Meno v hlavičke je `ClientRowLabel` (klient na dva riadky, natívne meno v `data-lawoss-native-name`, natívny pomocník Files `lawoss/testing/isir/native/project-files-navigation.mjs` porovnáva toto meno), druhý riadok `ClientRowStatusLine` (kód klienta C001 a lehota; zmeškaná červeno). Bublinka Nedávnych a `WorkspaceTabDropTarget projectName` používajú to isté meno. Fakty riadkov počíta panel raz (`client-row-data.ts`, karty v koreňoch priečinkov nezávisle od výberu, najviac 100 priečinkov, cache 5 min); lehota len pri čerstvom zdroji vlastniaceho projektu (`canActOnSource`, nie orezané), inak len „po lehote“/„overiť dátum“; surový stav veci sa v paneli neukazuje. Bežný režim zámerne ignoruje používateľské poradie položiek (rešpektuje len zapnutie/vypnutie). |
 | `apps/app/src/react-app/domains/session/chat/session-page.tsx` | +1 import, +1 riadok: hlavička Prehľadu klienta (`ProjectHome name`) používa to isté meno ako bočný panel (`useClientDisplayName`). Dôvod: N-22, G1-04 ukazoval slug priečinka. |
 
+## Texty a preklady: terminológia EN/DE, živý preklad (alfa2 B2, 2026-10-23)
+
+Podklad: plán alfa2 úloha B2, nálezy N-3, N-6, N-11, F1, K5, K6. Nový LAWOSS súbor `apps/app/src/lawoss/i18n/terms.ts` (slovník Client / Case / Chats a Mandant / Fall / Chats nad upstream hodnotami), `apps/app/src/lawoss/domains/ai/send-error.ts`.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/i18n/index.ts` | `TRANSLATIONS.en` / `.de` = upstream slovník + `termsEn` / `termsDe`. Prepísať upstream kľúče priamo v `en.ts` / `de.ts` by pri každom synce konfliktovalo na stovkách riadkov. |
+| `apps/app/scripts/i18n-check.ts` | Kontrola pokrytia a štýlu beží nad zlúčeným slovníkom (rovnaké zlúčenie ako v `index.ts`). |
+| `apps/app/src/react-app/domains/session/surface/use-model-behavior.ts` | `useLocale()` a jazyk v deps memoizácie, inak ostane „Miera uvažovania“ zo starého jazyka (N-11). Vhodné poslať upstream. |
+| `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | `useLocale()` a jazyk v deps oboch `useMemo(describePermissionRequest)`, inak karta ostane v pôvodnom jazyku (K6). Vhodné poslať upstream. |
+| `apps/app/src/react-app/domains/session/home/app-home.tsx` | Chyba odoslania sa ukladá ako druh (`SendError`), text sa vykreslí pri renderi (K5). |
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `parseSessionError` pri AI hraniciach uloží neutrálnu správu, karta ju preloží pri renderi; do úložiska aktivity ide tá istá neutrálna správa. |
+| `apps/app/src/components/chat/message-list.tsx` | `ErrorMessage` dostane `aiBoundariesRefusal(error) ?? error` (preklad pri renderi). |
+| `apps/app/src/react-app/domains/session/panel/document-processing.ts` | Inline slovník `documentProfileCopy`: „profil prípadu“ / Case / Fall namiesto „vec“ / matter / Mandat (F1). |
+| `apps/app/src/lawoss/domains/ai/guidance.tsx` | EN/DE text `bounded`: case profile / Fallprofil. |
+| `packages/types/src/project-template-strings.ts` | Názov šablóny `legal_matter`: „Právny prípad“ / „Právní případ“ (predtým „spis“). Servrový test a test jazyka šablón zosúladené. |
+| `apps/app/src/i18n/locales/{sk,cs}.ts` (zelená zóna) | Opravené upstream preklady, kde „spis“ / „projekt“ / „relácia“ znamenajú prípad / klienta / chat. |
+
 ## Pripojené priečinky klienta: agent, dokumenty, prax, cloud (alfa2 A3, 2026-10-22)
 
 Podklad: plán alfa2 úloha A3, nálezy N-10, N-16, N-18, N-19, N-20 (akceptácia 22. 10. 2026). Nové LAWOSS súbory: `apps/server/src/lawoss/linked-folder-survey.ts`, testy `apps/server/src/lawoss/documents/linked-folders.test.ts`, `apps/server/src/opencode-plugins/lawoss-linked-folders.test.ts`, `apps/server/src/lawoss/linked-folders-documents.integration.test.ts`.

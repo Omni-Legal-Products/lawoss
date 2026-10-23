@@ -13,11 +13,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 import type { PendingPermission } from "@/app/types";
 import { currentUiMode, useUiMode } from "@/lawoss/lite/ui-mode";
 import { describeMemoryWrite, keepsMemoryWriteGate } from "@/lawoss/lite/memory-write";
 import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
-import { fileOperationCard, offersRememberedApproval } from "@/lawoss/lite/file-operation-card";
+import { fileOperationCard, offersRememberedApproval, rememberedApprovalKeys } from "@/lawoss/lite/file-operation-card";
 import { networkApprovalContent } from "./network-approval-content";
 import { InteractionSource } from "./interaction-source";
 
@@ -227,7 +228,9 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
   const projectInstructions = props.permission.permission === "legalwork_project_set_instructions";
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
-  const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission]);
+  const locale = useLocale();
+  // LAWOSS: the card text is translated while describing it, so the language is a dependency.
+  const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission, locale]);
   const metadata =
     props.permission.metadata && typeof props.permission.metadata === "object"
       ? props.permission.metadata
@@ -371,7 +374,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
 
         <AlertDialogFooter className="flex-col gap-4">
           {!projectInstructions ? <p className="mb-4 text-[12px] leading-5 text-dls-secondary">
-            {t("session.permission_decision_hint")}
+            {t(rememberedApprovalKeys(props.permission).hint)}
           </p> : null}
           <div className={`grid grid-cols-1 gap-2.5 ${projectInstructions ? "sm:grid-cols-[1fr_auto]" : "sm:grid-cols-[1fr_auto_auto]"}`}>
             <AlertDialogAction
@@ -397,7 +400,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
               disabled={props.busy || !props.respondPermission}
             >
               <Check data-icon="inline-start" />
-              {t("session.allow_for_session")}
+              {t(rememberedApprovalKeys(props.permission).label)}
             </AlertDialogAction> : null}
           </div>
         </AlertDialogFooter>
@@ -408,7 +411,9 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
 
 export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
   const projectInstructions = props.permission.permission === "legalwork_project_set_instructions";
-  const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission]);
+  const locale = useLocale();
+  // LAWOSS: the card text is translated while describing it, so the language is a dependency.
+  const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission, locale]);
   const host = props.permission.host;
   const network = host?.network ? networkApprovalContent(host.network) : null;
   const metadata =
@@ -470,7 +475,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               disabled={props.busy || !props.respondPermission}
             >
               <Check data-icon="inline-start" />
-              {t("session.allow_for_session")}
+              {t(rememberedApprovalKeys(props.permission).label)}
             </Button> : null}
           </div>
         </div>

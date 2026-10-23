@@ -2,6 +2,7 @@ import en from "./locales/en";
 import de from "./locales/de";
 import sk from "./locales/sk";
 import cs from "./locales/cs";
+import { termsDe, termsEn } from "../lawoss/i18n/terms";
 import { BRAND_NAME, UPSTREAM_BRAND_NAME } from "../lawoss/branding";
 import { desktopSystemLanguages, preferredSystemLanguage } from "../lawoss/i18n/system-language";
 export const LANGUAGE_PREF_KEY = "legalwork.language";
@@ -48,8 +49,9 @@ export const LANGUAGE_OPTIONS = [
  * Translation maps
  */
 const TRANSLATIONS: Record<Language, Record<string, string>> = {
-  en,
-  de,
+  // LAWOSS: Client / Case / Chats (EN) and Mandant / Fall / Chats (DE) over the upstream wording.
+  en: { ...en, ...termsEn },
+  de: { ...de, ...termsDe },
   sk,
   cs,
 };

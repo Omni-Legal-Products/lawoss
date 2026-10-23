@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getModelBehaviorSummary } from "@/app/lib/model-behavior";
 import type { ModelRef, ProviderListItem } from "@/app/types";
 import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 
 type ProviderModel = ProviderListItem["models"][string];
 
@@ -24,6 +25,8 @@ export type UseModelBehaviorInput = {
 export function useModelBehavior(input: UseModelBehaviorInput) {
   const { providerList, defaultModel, modelVariant } = input;
   const [providerCatalog, setProviderCatalog] = useState<ProviderCatalog>({});
+  // LAWOSS: the variant label and option texts are translated while computing them.
+  const locale = useLocale();
 
   // Prefetch the full provider catalog once so `getModelBehaviorSummary` has
   // everything it needs to expose the reasoning/thinking variants the active
@@ -63,7 +66,7 @@ export function useModelBehavior(input: UseModelBehaviorInput) {
       modelBehaviorOptions: summary.options,
       modelVariantValue: summary.value,
     };
-  }, [defaultModel, modelVariant, providerCatalog]);
+  }, [defaultModel, modelVariant, providerCatalog, locale]);
 
   return { providerCatalog, modelVariantLabel, modelBehaviorOptions, modelVariantValue };
 }

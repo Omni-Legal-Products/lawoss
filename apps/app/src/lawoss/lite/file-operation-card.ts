@@ -84,3 +84,13 @@ export function offersRememberedApproval(permission: Pick<PendingPermission, "pr
   if (permission.permission === "external_directory" || permission.permission === "edit") return false;
   return !(Array.isArray(permission.always) && permission.always.length === 0);
 }
+
+/**
+ * Texts of the "remember" choice by card type. The engine remembers `always` per client folder (instance)
+ * until reload; only host cards remember per chat (`approvals.ts`, rememberKey with sessionID).
+ */
+export function rememberedApprovalKeys(permission: Pick<PendingPermission, "protocol">): { label: string; hint: string } {
+  return permission.protocol === "host"
+    ? { label: "session.allow_for_session", hint: "session.permission_decision_hint" }
+    : { label: "lawoss.permission.allow_for_client", hint: "lawoss.permission.decision_hint_client" };
+}

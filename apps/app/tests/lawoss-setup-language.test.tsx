@@ -44,7 +44,7 @@ test("welcome exposes the first native identity step with all UI languages", () 
 
 test("native wizard uses translated UI while keeping jurisdiction values and raw prompt", () => {
   const html = renderToStaticMarkup(<NovySpisPanel documentAuthor="Test Advokát" connection={{ client: null, baseUrl: "", token: "" }} workspace={{ id: "test-office", name: "Pôvodný workspace", path: "/office", workspaceType: "local" }} onOpenSession={() => { throw new Error("SSR must not open a draft"); }} />);
-  expect(html).toContain("Matter using OKF");
+  expect(html).toContain("Case using OKF");
   expect(html).toContain("Legal entity");
   expect(html).toContain('value="pravnicka-osoba"');
   expect(html).toContain("Slovakia");

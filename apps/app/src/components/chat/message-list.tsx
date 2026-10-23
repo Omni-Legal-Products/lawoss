@@ -124,6 +124,7 @@ import { LEGALMEMORY_OPEN_EVENT, parseLegalMemoryRef } from "@/components/markdo
 import { STORAGE_LINK_SOURCE, STORAGE_OPEN_EVENT, parseStorageRefLink, type StorageRef } from "@/components/markdown/storage-ref"
 import { groupMessages, isMessageGroup, getAssistantRenderGroups, groupAssistantToolRuns, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
 import { t } from "@/i18n";
+import { aiBoundariesRefusal } from "@/lawoss/domains/ai/boundaries-refusal";
 
 function MessageTimestamp({ message, className }: { message: UIMessage; className?: string }) {
   const created = getMessageCreated(message)
@@ -1080,7 +1081,7 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
 
       {status === "streaming" && !hasLiveTool && <LoadingMessage />}
       {retryStatus ? <RetryMessage status={retryStatus} /> : null}
-      {error && !hasSessionErrorMessage ? <ErrorMessage error={error} /> : null}
+      {error && !hasSessionErrorMessage ? <ErrorMessage error={aiBoundariesRefusal(error) ?? error} /> : null}
     </div>
     </EigenweltBudgetPlanContext.Provider>
     </UsageLimitRendererContext.Provider>
