@@ -566,8 +566,9 @@ jobs:
           printf 'version=%s\narch=%s\n' "$version" "$arch" >> "$GITHUB_OUTPUT"
           cp "${installers[0]}" "$RUNNER_TEMP/signpath-unsigned/"
 
+      # 🟡 LAWOSS: bez SignPath by to bola len verejná kópia nepodpísaného buildu (ako v alpha-windows-x64.yml).
       - name: Upload unsigned Windows installer for SignPath
-        if: matrix.os_type == 'windows'
+        if: matrix.os_type == 'windows' && env.SIGNPATH_PROJECT_SLUG != ''
         id: upload-unsigned-windows-installer
         uses: actions/upload-artifact@v4
         with:
@@ -629,11 +630,16 @@ jobs:
           node scripts/release/checksums.mjs apps/desktop/dist-electron
           node scripts/release/release-evidence.mjs create --build apps/desktop/resources/build-info.json --assets-dir apps/desktop/dist-electron --release-tag "$RELEASE_TAG"
 
+      # 🟡 LAWOSS: artefakt behu je v public repe verejný (30 dní), preto macOS len podpísaný
+      # a notarizovaný a Windows len podpísaný cez SignPath (Q06/U6, ako v alpha-windows-x64.yml);
+      # nepodpísaný build ide nanajvýš do konceptu releasu. Linux bez zmeny.
       - name: Stage exact final artifact for native acceptance
+        if: (matrix.os_type != 'macos' || env.MACOS_NOTARIZE == 'true') && (matrix.os_type != 'windows' || env.SIGNPATH_PROJECT_SLUG != '')
         shell: bash
         run: node scripts/release/acceptance-handoff.mjs stage --assets-dir apps/desktop/dist-electron --out "$RUNNER_TEMP/release-candidate"
 
       - name: Preserve final installer and target evidence before the public gate
+        if: (matrix.os_type != 'macos' || env.MACOS_NOTARIZE == 'true') && (matrix.os_type != 'windows' || env.SIGNPATH_PROJECT_SLUG != '')
         uses: actions/upload-artifact@v4
         with:
           name: release-candidate-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os_type == 'macos' && 'darwin' || matrix.os_type == 'windows' && 'win32' || 'linux' }}-${{ startsWith(matrix.target_triple, 'aarch64') && 'arm64' || 'x64' }}

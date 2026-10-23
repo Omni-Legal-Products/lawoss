@@ -8,15 +8,27 @@ name: Alpha Channel (macOS arm64)
 # `alpha-macos-latest` release so the Electron updater feed stays stable while
 # historical alpha artifacts remain available.
 #
+# 🟡 LAWOSS: podpis ako vo Windows workflowe (rozhodnutie tímu Q06/U6, verejné
+# binárky len podpísané). Bez notarizácie (vars.MACOS_NOTARIZE nastavená inak
+# než 'true'; nenastavená znamená notarizáciu) beh hneď na začiatku (job `signing`)
+# skončí, pokiaľ spúšťajúci výslovne nezvolí `allow_unsigned_internal`. Taký ad-hoc
+# podpísaný build je len pre interný tím: vyjde vždy ako koncept (draft) s názvom
+# „NEPODPÍSANÉ – len interný tím“, nikdy neposunie verejný `alpha-macos-latest`
+# a neuloží sa ako artefakt behu. Notarizácia bez Apple certifikátu a notárskeho
+# kľúča (secrets) skončí tiež hneď.
+#
 # See:
 #   - ARCHITECTURE.md#release-channels
 #   - .github/workflows/release-macos-aarch64.yml (stable channel)
+#   - .github/workflows/alpha-windows-x64.yml (LAWOSS: rovnaká brána podpisu)
 
 on:
   # Manual-only: dispatch from the GitHub Actions tab to publish a macOS arm64
   # alpha build to the rolling alpha-macos-latest release. Builds are unsigned
   # until Apple signing secrets are added + MACOS_NOTARIZE=true (see the
   # signed/unsigned package steps below).
+  # 🟡 LAWOSS: nepodpísaný build len so vstupom `allow_unsigned_internal` a len ako
+  # koncept; inak beh skončí v jobe `signing` (viď hlavičku).
   workflow_dispatch:
     inputs:
       sandbox_tests:
@@ -32,6 +44,11 @@ on:
         required: false
         type: boolean
         default: false
+      allow_unsigned_internal:
+        description: "LAWOSS: ak vars.MACOS_NOTARIZE nie je 'true' (bez notarizácie), povoliť NEPODPÍSANÝ (ad-hoc) build len pre interný tím: vždy len koncept (draft) bez posunu ukazovateľa, Gatekeeper varuje, žiadne klientske údaje. Verejné binárky len podpísané."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -41,13 +58,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # 🟡 LAWOSS: rozhodnutie Q06/U6, rovnako ako job `signing` v alpha-windows-x64.yml.
+  # Samostatný job pred sandbox runtime a buildom, aby beh bez notarizácie skončil
+  # skôr, než sa stavia. Výstupy `signed` a `draft` čítajú kroky buildu aj releasu
+  # (aj pri opakovaní neúspešných jobov); nepodpísaný build je vždy koncept.
+  signing:
+    name: Require notarization or an explicit unsigned internal build
+    runs-on: ubuntu-latest
+    outputs:
+      signed: ${{ steps.signing.outputs.signed }}
+      draft: ${{ steps.signing.outputs.draft }}
+    steps:
+      - name: Require notarization or an explicit unsigned internal build
+        id: signing
+        shell: bash
+        env:
+          # Rovnaké vyhodnotenie ako doterajšie `env.MACOS_NOTARIZE == 'true'` v krokoch balenia.
+          NOTARIZE: ${{ (vars.MACOS_NOTARIZE || 'true') == 'true' }}
+          # Notarizácia bez týchto secrets by zlyhala až po zostavení (electron-after-sign.cjs).
+          HAS_APPLE: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 != '' && secrets.APPLE_NOTARY_API_KEY_ID != '' && secrets.APPLE_NOTARY_API_ISSUER_ID != '' && secrets.APPLE_NOTARY_API_KEY_P8_BASE64 != '' }}
+          ALLOW_UNSIGNED_INTERNAL: ${{ inputs.allow_unsigned_internal }}
+          DRAFT: ${{ inputs.draft }}
+        run: |
+          set -euo pipefail
+          if [ "${NOTARIZE:-false}" = "true" ]; then
+            if [ "${HAS_APPLE:-false}" != "true" ]; then
+              echo "::error title=Chýbajú Apple secrets::MACOS_NOTARIZE je 'true' alebo nie je nastavené, ale chýba niektorý zo secrets APPLE_CODESIGN_CERT_P12_BASE64, APPLE_NOTARY_API_KEY_ID, APPLE_NOTARY_API_ISSUER_ID, APPLE_NOTARY_API_KEY_P8_BASE64. Podpis a notarizácia by zlyhali až po zostavení. Doplňte secrets, alebo nastavte vars.MACOS_NOTARIZE na 'false' a nepodpísaný build pre interný tím spustite s allow_unsigned_internal=true."
+              exit 1
+            fi
+            echo "MACOS_NOTARIZE je 'true'; build sa podpíše a notarizuje."
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            if [ "${DRAFT:-false}" = "true" ]; then
+              echo "draft=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "draft=false" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+          if [ "${ALLOW_UNSIGNED_INTERNAL:-false}" != "true" ]; then
+            echo "::error title=Notarizácia nie je zapnutá::MACOS_NOTARIZE nie je 'true', build by bol len ad-hoc podpísaný a nenotarizovaný. Verejné binárky LAWOSS musia byť podpísané (rozhodnutie Q06/U6). Nepodpísaný build len pre interný tím spustite so vstupom allow_unsigned_internal=true; release dostane varovanie v názve aj v popise."
+            exit 1
+          fi
+          echo "::warning title=NEPODPÍSANÝ build::Bez notarizácie (ad-hoc podpis), povolené cez allow_unsigned_internal. Len pre interný tím: vyjde len ako koncept (draft), ukazovateľ alpha-macos-latest sa neposunie, Gatekeeper varuje, žiadne klientske údaje."
+          echo "signed=false" >> "$GITHUB_OUTPUT"
+          echo "draft=true" >> "$GITHUB_OUTPUT"
+
   sandbox-runtime:
+    needs: signing
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
       targets: darwin-arm64
       run_tests: ${{ inputs.sandbox_tests }}
   publish-alpha-macos-aarch64:
-    needs: sandbox-runtime
+    needs: [signing, sandbox-runtime]
     name: Build + Publish alpha (aarch64-apple-darwin)
     runs-on: macos-14
     timeout-minutes: 180
@@ -58,7 +121,11 @@ jobs:
       # Apple signing + notarization are required so alpha bundles install
       # and launch without Gatekeeper friction. Alpha builds are served
       # from GitHub Releases like stable, just from a different tag.
-      MACOS_NOTARIZE: ${{ vars.MACOS_NOTARIZE || 'true' }}
+      # 🟡 LAWOSS: hodnotu určuje brána `signing` (vars.MACOS_NOTARIZE || 'true'),
+      # aby balenie, názov releasu aj ukazovateľ vychádzali z toho istého rozhodnutia.
+      MACOS_NOTARIZE: ${{ needs.signing.outputs.signed }}
+      SIGNED: ${{ needs.signing.outputs.signed }}
+      DRAFT: ${{ needs.signing.outputs.draft }}
 
     steps:
       - name: Checkout
@@ -254,11 +321,15 @@ jobs:
           node scripts/release/checksums.mjs apps/desktop/dist-electron
           node scripts/release/release-evidence.mjs create --build apps/desktop/resources/build-info.json --assets-dir apps/desktop/dist-electron --release-tag "$RELEASE_TAG"
 
+      # 🟡 LAWOSS: artefakt behu je v public repe verejný, preto len podpísaný build
+      # (ako vo Windows workflowe); nepodpísaný ostáva len v koncepte releasu.
       - name: Stage exact final artifact for native acceptance
+        if: env.SIGNED == 'true'
         shell: bash
         run: node scripts/release/acceptance-handoff.mjs stage --assets-dir apps/desktop/dist-electron --out "$RUNNER_TEMP/release-candidate"
 
       - name: Preserve final installer and target evidence before the public gate
+        if: env.SIGNED == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: release-candidate-${{ github.run_id }}-${{ github.run_attempt }}-darwin-arm64
@@ -267,7 +338,7 @@ jobs:
           retention-days: 30
 
       - name: Require exact native acceptance before public publication
-        if: ${{ !inputs.draft }}
+        if: ${{ needs.signing.outputs.draft != 'true' }}
         run: node scripts/release/release-evidence.mjs verify --evidence apps/desktop/dist-electron/release-evidence-darwin-arm64.json --assets-dir apps/desktop/dist-electron --require-tested
 
       - name: Create immutable alpha prerelease
@@ -278,17 +349,65 @@ jobs:
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
         run: |
           set -euo pipefail
-          body="Priebežná alfa LAWOSS ${ALPHA_VERSION} (macOS arm64) z commitu ${GITHUB_SHA}."
+          # 🟡 LAWOSS: názov a popis podľa podpisu (Q06/U6) ako vo Windows workflowe;
+          # nepodpísaný build je vždy koncept (draft), viditeľný len tímu s právom zápisu.
+          unsigned_prefix="NEPODPÍSANÉ – len interný tím · "
+          title="LAWOSS Alpha ${ALPHA_VERSION} (macOS arm64)"
+          notes="$RUNNER_TEMP/alpha-release-notes.md"
+          {
+            if [ "$SIGNED" != "true" ]; then
+              title="${unsigned_prefix}${title}"
+              cat <<'EOF'
+          > [!WARNING]
+          > **NEPODPÍSANÝ build – len pre interný tím LAWOSS.**
+          >
+          > - Aplikácia je podpísaná len ad-hoc a nie je notarizovaná. macOS Gatekeeper ju pri prvom spustení zablokuje; otvoríte ju cez **Systémové nastavenia → Súkromie a bezpečnosť → Otvoriť aj tak**.
+          > - Určené výhradne interným testerom. Ďalej ho nešírte.
+          > - Žiadne klientske ani iné dôverné údaje, len vymyslené alebo verejné.
+
+          EOF
+            fi
+            echo "Priebežná alfa LAWOSS ${ALPHA_VERSION} (macOS arm64) z commitu ${GITHUB_SHA}."
+            # Len nepodpísaný koncept: podpísaný koncept sa neskôr zverejní bez prepisu poznámok.
+            if [ "$SIGNED" != "true" ]; then
+              echo
+              echo "Koncept (draft): vidia ho len členovia s právom zápisu do repa. Updater ho neponúka, \`alpha-macos-latest\` sa neposunul."
+            fi
+          } > "$notes"
           if gh release view "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Opakovaný beh (Re-run all jobs) číta podpis znova, ako vo Windows workflowe.
+            # Keď sa stav konceptu alebo podpisu (predpona názvu) nezhoduje s prvým
+            # pokusom, nič sa nenahrá ani nepremenuje: názov a popis musia sedieť s assetmi
+            # prvého pokusu. Inak sa zosúladia s týmto pokusom.
+            existing_draft="$(gh release view "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+            if [ "$existing_draft" != "$DRAFT" ]; then
+              echo "::error title=Opakovaný beh s iným podpisom::Release $ALPHA_RUN_RELEASE_TAG má draft=$existing_draft, tento pokus draft=$DRAFT (signed=$SIGNED). Assety ani ukazovateľ sa nemenia. Spustite workflow znova ako nový beh (nová verzia a tag), prípadne release najprv odstráňte."
+              exit 1
+            fi
+            existing_name="$(gh release view "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json name --jq .name)"
+            existing_signed=true
+            case "$existing_name" in "${unsigned_prefix}"*) existing_signed=false ;; esac
+            if [ "$existing_signed" != "$SIGNED" ]; then
+              echo "::error title=Opakovaný beh s iným podpisom::Release $ALPHA_RUN_RELEASE_TAG je signed=$existing_signed (podľa názvu), tento pokus signed=$SIGNED. Názov, popis ani assety sa nemenia. Spustite workflow znova ako nový beh (nová verzia a tag), prípadne release najprv odstráňte."
+              exit 1
+            fi
             echo "Alpha prerelease $ALPHA_RUN_RELEASE_TAG already exists; reusing it."
+            gh release edit "$ALPHA_RUN_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$title" \
+              --notes-file "$notes"
             exit 0
+          fi
+          release_flags=(--prerelease)
+          if [ "$DRAFT" = "true" ]; then
+            release_flags+=(--draft)
           fi
           gh release create "$ALPHA_RUN_RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "LAWOSS Alpha ${ALPHA_VERSION} (macOS arm64)" \
-            --notes "$body" \
+            --title "$title" \
+            --notes-file "$notes" \
             --target "$GITHUB_SHA" \
-            --prerelease ${{ inputs.draft && '--draft' || '' }}
+            "${release_flags[@]}"
 
       - name: Upload Electron alpha updater assets
         env:
@@ -296,17 +415,22 @@ jobs:
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
         run: |
           set -euo pipefail
-          node scripts/release/publish-electron-assets.mjs --payload-only ${{ inputs.draft && '--draft-payload' || '' }} apps/desktop/dist-electron "$ALPHA_RUN_RELEASE_TAG"
+          node scripts/release/publish-electron-assets.mjs --payload-only ${{ needs.signing.outputs.draft == 'true' && '--draft-payload' || '' }} apps/desktop/dist-electron "$ALPHA_RUN_RELEASE_TAG"
 
       - name: Update alpha updater pointer
-        # LAWOSS: koncept nemení ukazovateľ alfa kanála.
-        if: ${{ !inputs.draft }}
+        # LAWOSS: koncept nemení ukazovateľ alfa kanála; nepodpísaný build je vždy
+        # koncept (Q06/U6), takže tento workflow ukazovateľ na nepodpísaný neposunie.
+        if: ${{ needs.signing.outputs.draft != 'true' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
         run: |
           set -euo pipefail
+          if [ "$SIGNED" != "true" ]; then
+            echo "::error title=Ukazovateľ sa neposúva::signed=$SIGNED. Verejný alpha-macos-latest smie mieriť len na podpísaný a notarizovaný zverejnený release."
+            exit 1
+          fi
           node scripts/release/channel-evidence.mjs --evidence apps/desktop/dist-electron/release-evidence-darwin-arm64.json --pointer-tag "$ALPHA_RELEASE_TAG" --manifest latest-mac.yml
           POINTER_MANIFEST="$RUNNER_TEMP/latest-mac.yml"
           export POINTER_MANIFEST
