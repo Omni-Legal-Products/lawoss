@@ -264,8 +264,10 @@ async function moveToTrash(config: ServerConfig, item: Planned): Promise<string>
   const destination = join(item.sourceRoot, LAWOSS_TRASH_FOLDER, batch, inside);
   await mkdir(dirname(destination), { recursive: true });
   await rename(item.source, destination);
-  const prefix = item.from && item.from.endsWith(inside.split(sep).join("/")) ? item.from.slice(0, item.from.length - inside.length) : "";
-  return visibleName(`${prefix}${LAWOSS_TRASH_FOLDER}/${batch}/${inside.split(sep).join("/")}`);
+  // `item.from` is already escaped by visibleName(): compare and cut with the escaped form, not the raw path.
+  const shown = visibleName(inside.split(sep).join("/"));
+  const prefix = item.from?.endsWith(shown) ? item.from.slice(0, item.from.length - shown.length) : "";
+  return `${prefix}${LAWOSS_TRASH_FOLDER}/${batch}/${shown}`;
 }
 
 const errorCode = (error: unknown) => error instanceof Error && "code" in error ? error.code : undefined;
