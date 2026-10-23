@@ -110,7 +110,7 @@ export function AssistantStepView({ text, locale, model, boundariesOn, busy, nav
       ) : null}
       <p role="status" className="lw-wiz-state" data-lawoss-ai-model={model.state} data-tone={tone}>
         <span aria-hidden="true">{toneIcon(tone)}</span>
-        <span className="min-w-0 flex-1">{text(STATE_TEXT[model.state])}</span>
+        <span className="min-w-0 flex-1">{text(model.onlyFree ? "aiFreeOnly" : STATE_TEXT[model.state])}</span>
       </p>
       {boundariesOn === null ? null : (
         <p className="lw-wiz-note" data-lawoss-ai-boundaries={boundariesOn ? "on" : "off"}>

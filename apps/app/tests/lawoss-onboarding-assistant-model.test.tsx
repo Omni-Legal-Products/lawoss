@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 import type { ModelRef } from "../src/app/types";
 import {
+  isFreeModel,
   onboardingAutoModel,
   onboardingModelChoices,
   onboardingModelView,
@@ -189,5 +190,79 @@ describe("krok 6: s vybraným modelom asistent pripravený a chat s klientom hla
   });
   test("bez modelu ostáva prehľad a oprava (chat by nefungoval)", () => {
     expect(readyPlan(practice, { state: "pick-model" })).toMatchObject({ primary: "overview", overview: "readyOverviewClients" });
+  });
+});
+
+// Review PR #226 (VŘ): bezplatné modely nesmú dostať podklady klientov (AGENTS.md). Ani vo výbere, ani samy.
+describe("bezplatné modely: nie vo výbere, nie automaticky", () => {
+  type Priced = { name: string; cost?: number; apiId?: string };
+  const pricedList = (providers: Record<string, { source: string; models: Record<string, Priced> }>, defaults: Record<string, string> = {}): ProviderListResponse =>
+    ({
+      all: Object.entries(providers).map(([id, provider]) => ({
+        id,
+        name: id === "openrouter" ? "OpenRouter" : id,
+        env: [],
+        source: provider.source,
+        models: Object.fromEntries(Object.entries(provider.models).map(([modelID, model]) => [modelID, {
+          id: modelID,
+          name: model.name,
+          api: { id: model.apiId ?? modelID, url: "", npm: "" },
+          capabilities: { toolcall: true },
+          ...(model.cost === undefined ? {} : { cost: { input: model.cost, output: model.cost, cache: { read: 0, write: 0 } } }),
+        }])),
+      })),
+      connected: Object.keys(providers),
+      default: defaults,
+    }) as unknown as ProviderListResponse;
+  const model = (name: string, cost?: number, apiId?: string) => ({ id: name, name, api: { id: apiId ?? name, url: "", npm: "" }, capabilities: { toolcall: true }, ...(cost === undefined ? {} : { cost: { input: cost, output: cost, cache: { read: 0, write: 0 } } }) }) as unknown as ProviderListResponse["all"][number]["models"][string];
+
+  test("predikát: variant :free a nulová cena pri poskytovateľovi s cenníkom; predplatné a vlastné modely nie", () => {
+    expect(isFreeModel({ source: "api" }, "meta-llama/llama-4:free", model("Llama 4 (free)", 0))).toBe(true);
+    expect(isFreeModel({ source: "api" }, "llama-4", model("Llama 4", 1, "meta-llama/llama-4:FREE"))).toBe(true);
+    expect(isFreeModel({ source: "api" }, "deepseek-r2", model("DeepSeek R2", 0))).toBe(true);
+    expect(isFreeModel({ source: "env" }, "deepseek-r2", model("DeepSeek R2", 0))).toBe(true);
+    expect(isFreeModel({ source: "api" }, "claude-sonnet", model("Claude Sonnet", 3))).toBe(false);
+    // Predplatné ChatGPT (OAuth, zdroj custom) a lokálne či vlastné modely (config) majú v OpenCode cenu 0.
+    expect(isFreeModel({ source: "custom" }, "gpt-6-luna", model("GPT-6 Luna", 0))).toBe(false);
+    expect(isFreeModel({ source: "config" }, "qwen-72b", model("Qwen 72B", 0))).toBe(false);
+    expect(isFreeModel({ source: "api" }, "bez-ceny", model("Bez ceny"))).toBe(false);
+  });
+  test("výber neponúka bezplatné modely a automatický výber preskočí aj bezplatný odporúčaný model", () => {
+    const list = pricedList({ openrouter: { source: "api", models: {
+      "meta-llama/llama-4:free": { name: "Llama 4 (free)", cost: 0 },
+      "deepseek/deepseek-r2": { name: "DeepSeek R2", cost: 0 },
+      "anthropic/claude-sonnet": { name: "Claude Sonnet", cost: 3 },
+    } } }, { openrouter: "meta-llama/llama-4:free" });
+    expect(onboardingModelChoices(list).map((choice) => choice.modelID)).toEqual(["anthropic/claude-sonnet"]);
+    expect(onboardingAutoModel(null, list)).toEqual({ providerID: "openrouter", modelID: "anthropic/claude-sonnet" });
+    expect(onboardingModelView(null, list).view).toMatchObject({ state: "ready", selected: { modelID: "anthropic/claude-sonnet" } });
+  });
+  test("len bezplatné modely: nič sa nevyberie, výber nie je a krok povie, že treba platený alebo vlastný model", () => {
+    const list = pricedList({ openrouter: { source: "api", models: { "meta-llama/llama-4:free": { name: "Llama 4 (free)", cost: 0 } } } }, { openrouter: "meta-llama/llama-4:free" });
+    const { view, auto } = onboardingModelView(null, list);
+    expect(auto).toBeNull();
+    expect(view.state).not.toBe("ready");
+    expect(view).toMatchObject({ onlyFree: true, choices: [] });
+    const html = renderToStaticMarkup(<AssistantStepView text={sk} locale="sk" model={view} boundariesOn={false} busy={false} onOpenAiSettings={noop} onContinue={noop} onSelectModel={noop} />);
+    expect(html).toContain("ponúka len bezplatné modely");
+    expect(html).toContain("Pripojte platený alebo vlastný model.");
+    expect(html).not.toContain("data-lawoss-ai-model-picker");
+    for (const locale of ["cs", "en", "de"] as const) expect(wizardText(locale)("aiFreeOnly")).not.toBe(wizardText("sk")("aiFreeOnly"));
+  });
+  test("uložený bezplatný model nie je pripravený: krok 6 neponúkne chat", () => {
+    const list = pricedList({ openrouter: { source: "api", models: {
+      "meta-llama/llama-4:free": { name: "Llama 4 (free)", cost: 0 },
+      "anthropic/claude-sonnet": { name: "Claude Sonnet", cost: 3 },
+    } } });
+    const { view, auto } = onboardingModelView({ providerID: "openrouter", modelID: "meta-llama/llama-4:free" }, list);
+    expect(auto).toBeNull();
+    expect(view.state).toBe("unavailable");
+    const connected: WizardConnected = { kind: "clients", root: "/p/C001", clients: [{ root: "/p/C001", name: "C001", result: { result: "applied", clientRoot: "/p/C001", workspace: { id: "w1", path: "/p/C001" } } }] };
+    expect(readyPlan(connected, { ...view, workspaceId: "w1" })).toMatchObject({ primary: "overview" });
+  });
+  test("predplatné ChatGPT s nulovou cenou ostáva vo výbere aj v automatickom výbere", () => {
+    const list = pricedList({ openai: { source: "custom", models: { "gpt-6-luna": { name: "GPT-6 Luna", cost: 0 } } } }, { openai: "gpt-6-luna" });
+    expect(onboardingModelChoices(list).map((choice) => choice.modelID)).toEqual(["gpt-6-luna"]);
+    expect(onboardingAutoModel(null, list)).toEqual(LUNA);
   });
 });

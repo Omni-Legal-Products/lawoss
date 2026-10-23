@@ -86,6 +86,8 @@ export type AiModelView = {
   choices?: readonly ModelChoice[];
   /** Vybraný model, keď je stav `ready`. */
   selected?: ModelRef;
+  /** Pripojený poskytovateľ ponúka len bezplatné modely; s podkladmi klientov ich nepoužívame. */
+  onlyFree?: boolean;
   /** Priestor, z ktorého zoznamu poskytovateľov stav pochádza (len po úspešnom načítaní). */
   workspaceId?: string;
 };
