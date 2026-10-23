@@ -113,8 +113,8 @@ function protectedPath(inside: string): boolean {
 
 type Located = { canonical: string; display: string; root: string };
 
-/** APFS and NTFS resolve names case-insensitively and macOS may hand over NFD: compare both folded. */
-const folded = (location: string) => process.platform === "linux" ? location : location.normalize("NFC").toLowerCase();
+/** Names copied from a Mac may be NFD on any system; APFS and NTFS also ignore case. Folding too much only refuses more. */
+const folded = (location: string) => process.platform === "linux" ? location.normalize("NFC") : location.normalize("NFC").toLowerCase();
 /** The path lies in another client registered inside this one, or holds such a client. */
 function inNestedClient(nested: readonly string[], canonical: string): boolean {
   return nested.some((other) => isPathWithin(folded(other), folded(canonical)) || isPathWithin(folded(canonical), folded(other)));
@@ -267,8 +267,6 @@ async function moveToTrash(config: ServerConfig, item: Planned): Promise<string>
 
 const errorCode = (error: unknown) => error instanceof Error && "code" in error ? error.code : undefined;
 const targetExists = (item: Planned) => new ApiError(409, "file_operation_target_exists", `${item.to} already exists. This tool never overwrites. Nothing was changed.`);
-/** Hard links unsupported on this volume (exFAT, some network shares): the checked rename below is the fallback. */
-const NO_HARD_LINKS = new Set(["EPERM", "ENOTSUP", "EOPNOTSUPP", "EINVAL", "ENOSYS", "EMLINK"]);
 
 /** Content of a file or folder tree: names, kinds, sizes, SHA-256 of files and link targets. */
 async function treeDigest(location: string): Promise<string> {
@@ -277,12 +275,14 @@ async function treeDigest(location: string): Promise<string> {
   while (pending.length) {
     const current = pending.shift() ?? location;
     const info = await lstat(current);
-    const name = relative(location, current).split(sep).join("/");
+    // A network share may store names in another Unicode form: compare the names, not their bytes.
+    const name = relative(location, current).split(sep).join("/").normalize("NFC");
     if (info.isSymbolicLink()) hash.update(`L\0${name}\0${await readlink(current)}\n`);
     else if (info.isDirectory()) {
       hash.update(`D\0${name}\n`);
       for (const child of (await readdir(current)).sort()) pending.push(join(current, child));
-    } else {
+    } else if (!info.isFile()) throw new Error(`${name || "The item"} is not a regular file or folder and cannot be moved to another drive. Nothing was moved.`);
+    else {
       const file = createHash("sha256");
       for await (const chunk of createReadStream(current)) file.update(chunk);
       hash.update(`F\0${name}\0${info.size}\0${file.digest("hex")}\n`);
@@ -304,10 +304,11 @@ async function moveAcrossVolumes(config: ServerConfig, item: Planned & { source:
     if (errorCode(error) !== "EEXIST" && errorCode(error) !== "ERR_FS_CP_EEXIST") await rm(item.target, { recursive: true, force: true });
     throw errorCode(error) === "EEXIST" || errorCode(error) === "ERR_FS_CP_EEXIST" ? targetExists(item) : error;
   }
-  return moveToTrash(config, item);
+  try { return await moveToTrash(config, item); }
+  catch (error) { throw new Error(`The copy on the other drive is complete, but the original could not be moved to the Trash, so both exist now: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
-/** A folder, or a file on a volume without hard links: rename only after checking the target is still free. */
+/** A folder, a link, or a file on a volume without hard links: rename only after checking the target is still free. */
 async function checkedRename(config: ServerConfig, item: Planned & { source: string; target: string }): Promise<string | undefined> {
   if (await present(item.target)) throw targetExists(item);
   try { await rename(item.source, item.target); return undefined; }
@@ -316,21 +317,24 @@ async function checkedRename(config: ServerConfig, item: Planned & { source: str
 
 /**
  * A move never replaces an existing target, even one created after the plan (an editor saving, review #221):
- * a file gets its new name as a hard link, which fails when the name exists, and only then loses the old one.
- * Returns where the original went when the move had to copy it to another drive.
+ * a regular file gets its new name as a hard link, which fails when the name exists, and only then loses the old
+ * one. A symbolic link is renamed, never hard-linked: `link` follows it on macOS and would give this client a second
+ * name for the file it points to. Returns where the original went when the move had to copy it to another drive.
  */
 async function moveWithoutReplacing(config: ServerConfig, item: Planned & { source: string; target: string }): Promise<string | undefined> {
   if (item.caseOnly) { await rename(item.source, item.target); return undefined; }
-  if (item.kind === "folder") return checkedRename(config, item);
+  if (item.kind === "folder" || (await lstat(item.source)).isSymbolicLink()) return checkedRename(config, item);
   try { await link(item.source, item.target); }
   catch (error) {
     const code = errorCode(error);
     if (code === "EEXIST") throw targetExists(item);
     if (code === "EXDEV") return moveAcrossVolumes(config, item);
-    if (typeof code === "string" && NO_HARD_LINKS.has(code)) return checkedRename(config, item);
-    throw error;
+    // No hard links on this volume (FAT, exFAT, some network shares): rename after checking the target is free.
+    return checkedRename(config, item);
   }
-  await unlink(item.source);
+  // The old name stays when the file is held open (Windows): drop the new one so the move fails cleanly.
+  try { await unlink(item.source); }
+  catch (error) { await unlink(item.target).catch(() => {}); throw error; }
   return undefined;
 }
 

@@ -1,6 +1,6 @@
 // LAWOSS: lawoss_files na serveri – plán pre jednu kartu, vykonanie len schváleného plánu, pravdivý výsledok.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
@@ -229,6 +229,21 @@ test("a move never replaces a file that appeared after the approval check (revie
   await executePlannedFileOperation(config, step("poznamky.txt", "presunute.txt"));
   expect(await readFile(join(client, "presunute.txt"), "utf8")).toBe("SYN poznamky");
   expect(await readdir(client)).not.toContain("poznamky.txt");
+});
+
+test("moving a link renames the link itself and never gives this client a second name for the file it points to (review #221)", async () => {
+  const { config, client, other } = await office();
+  const step: PlannedFileOperation = { operation: "move", kind: "file", from: "odkaz.txt", to: "nove.txt", source: join(client, "odkaz.txt"), target: join(client, "nove.txt"), sourceRoot: client };
+  await symlink(join(other, "tajne.txt"), join(client, "odkaz.txt"));
+  await executePlannedFileOperation(config, step);
+  expect((await lstat(join(client, "nove.txt"))).isSymbolicLink()).toBe(true);
+  expect(await readlink(join(client, "nove.txt"))).toBe(join(other, "tajne.txt"));
+  // The other client's file keeps a single name.
+  expect((await stat(join(other, "tajne.txt"))).nlink).toBe(1);
+  // A dangling link moves too.
+  await symlink(join(client, "neexistuje.txt"), join(client, "odkaz.txt"));
+  await executePlannedFileOperation(config, { ...step, to: "nove-2.txt", target: join(client, "nove-2.txt") });
+  expect(await readlink(join(client, "nove-2.txt"))).toBe(join(client, "neexistuje.txt"));
 });
 
 /** A second volume for a real cross-device move: tmpfs on Linux, or `LAWOSS_TEST_OTHER_VOLUME` (e.g. a macOS RAM disk); else skipped. */

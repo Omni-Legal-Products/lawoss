@@ -116,8 +116,9 @@ function matterLevelDirs(index: ChildIndex, parent: string): SurveyEntry[] {
 
 /**
  * Kódovaná hierarchia (R1 bod 1A): aspoň dvaja kandidáti na klienta s kódom jedného prefixu (C002, C017, C022),
- * kódovaní tvoria väčšinu kandidátov a aspoň dvaja z nich majú podpriečinok (aj pod `Spisy/`) s kódom iného
- * prefixu (M004…). Nový klient zatiaľ bez veci prax nezhodí na jedného klienta (review #221). Iný prefix na
+ * kódovaní tvoria väčšinu kandidátov a aspoň dvaja a aspoň polovica z nich majú podpriečinok (aj pod `Spisy/`)
+ * s kódom iného prefixu (M004…). Nový klient zatiaľ bez veci prax nezhodí na jedného klienta (review #221), ale
+ * jeden klient s vecami M001…M005, z ktorých dve majú kódované podpriečinky (F001), praxou nie je. Iný prefix na
  * druhej úrovni odlíši prax od klienta s číslovanými vecami (M001…M003 so súbormi); rovnaký prefix pod
  * kódovaným kandidátom (C001/C010) prax vylúči. Ak sa kódovaní pomenúvajú slovom veci („M001 Spor“,
  * „M002 Zmluva“), sú to veci jedného klienta, nie klienti (review A4, I-1).
@@ -132,7 +133,8 @@ function codedHierarchy(index: ChildIndex, candidates: readonly SurveyEntry[]): 
   const childPrefixes = coded.map(({ candidate }) => matterLevelDirs(index, candidate.path)
     .flatMap(entry => { const child = codeOf(nameOf(entry.path)); return child ? [child.prefix] : []; }));
   if (childPrefixes.some(found => found.includes(prefix))) return false;
-  return childPrefixes.filter(found => found.length > 0).length >= CODED_MIN_CLIENTS;
+  const withMatters = childPrefixes.filter(found => found.length > 0).length;
+  return withMatters >= CODED_MIN_CLIENTS && withMatters * 2 >= coded.length;
 }
 
 /**

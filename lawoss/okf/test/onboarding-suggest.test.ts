@@ -219,6 +219,8 @@ test("kódovaná hierarchia: negatívne prípady ostávajú klientom", async () 
     ["Office/", "Klienti/A/"],
     // Rovnaký prefix na oboch úrovniach nie je prax.
     ["C001 Alfa/C010 podklady/", "C002 Beta/C020 podklady/"],
+    // Review #221: jeden klient s vecami M001–M005, len dve majú kódované podpriečinky.
+    ["M001 Novak/F001 Faktura/", "M002 Horvath/F002 Faktura/", "M003 Kral/", "M004 Bielik/", "M005 Urban/"],
     // Review A4, I-1: jeden klient s číslovanými vecami a sekciami, roky, fiškálne roky, fotky.
     ["M001 Spor/D01 Podania/", "M002 Zmluva/D02 Drafty/", "M003 Exekúcia/D01 x/"],
     ["M001 Spor/D001 Podania/", "M002 Zmluva/D002 Drafty/", "M003 Exekúcia/D001 x/"],
