@@ -43,7 +43,12 @@ export const shellEn = {
 
   "lawoss.practice.selected": "Selected practice",
   "lawoss.practice.single": "Only this client",
-  "lawoss.practice.excluded": "Excluded workspaces: {count}",
+  "lawoss.practice.excluded": "{count} outside this overview",
+  "lawoss.practice.clients_one": "{count} client",
+  "lawoss.practice.clients_other": "{count} clients",
+  "lawoss.practice.updated": "updated {time}",
+  "lawoss.practice.details": "Reading details",
+  "lawoss.practice.folder": "Practice folder: {path}",
   "lawoss.practice.incomplete": "The practice overview is incomplete. Other deadlines may exist.",
   "lawoss.practice.office": "Office",
   "lawoss.practice.fresh": "Current",
@@ -566,7 +571,7 @@ export const shellEn = {
 };
 
 /** Čeština a slovenština potřebují navíc tvary few/many (Intl.PluralRules, viz `t()` v i18n/index.ts). */
-type SlavicPluralKey = "lawoss.lite.due_in_days_few" | "lawoss.lite.due_in_days_many";
+type SlavicPluralKey = "lawoss.lite.due_in_days_few" | "lawoss.lite.due_in_days_many" | "lawoss.practice.clients_few" | "lawoss.practice.clients_many";
 
 export const shellCs = {
   "lawoss.yolo.title": "YOLO Mode",
@@ -613,7 +618,14 @@ export const shellCs = {
 
   "lawoss.practice.selected": "Vybraná praxe",
   "lawoss.practice.single": "Pouze tento klient",
-  "lawoss.practice.excluded": "Vyloučené pracovní prostory: {count}",
+  "lawoss.practice.excluded": "mimo přehled: {count}",
+  "lawoss.practice.clients_one": "{count} klient",
+  "lawoss.practice.clients_few": "{count} klienti",
+  "lawoss.practice.clients_many": "{count} klienta",
+  "lawoss.practice.clients_other": "{count} klientů",
+  "lawoss.practice.updated": "aktualizováno {time}",
+  "lawoss.practice.details": "Podrobnosti o načtení",
+  "lawoss.practice.folder": "Složka praxe: {path}",
   "lawoss.practice.incomplete": "Přehled praxe je neúplný. Mohou existovat další lhůty.",
   "lawoss.practice.office": "Kancelář",
   "lawoss.practice.fresh": "Aktuální",
@@ -1182,7 +1194,14 @@ export const shellSk = {
 
   "lawoss.practice.selected": "Vybraná prax",
   "lawoss.practice.single": "Iba tento klient",
-  "lawoss.practice.excluded": "Vylúčené pracovné priestory: {count}",
+  "lawoss.practice.excluded": "mimo prehľadu: {count}",
+  "lawoss.practice.clients_one": "{count} klient",
+  "lawoss.practice.clients_few": "{count} klienti",
+  "lawoss.practice.clients_many": "{count} klienta",
+  "lawoss.practice.clients_other": "{count} klientov",
+  "lawoss.practice.updated": "aktualizované {time}",
+  "lawoss.practice.details": "Podrobnosti o načítaní",
+  "lawoss.practice.folder": "Priečinok praxe: {path}",
   "lawoss.practice.incomplete": "Prehľad praxe je neúplný. Môžu existovať ďalšie lehoty.",
   "lawoss.practice.office": "Kancelária",
   "lawoss.practice.fresh": "Aktuálne",
@@ -1751,7 +1770,12 @@ export const shellDe = {
 
   "lawoss.practice.selected": "Ausgewählte Kanzlei",
   "lawoss.practice.single": "Nur dieser Mandant",
-  "lawoss.practice.excluded": "Ausgeschlossene Arbeitsbereiche: {count}",
+  "lawoss.practice.excluded": "{count} außerhalb dieser Übersicht",
+  "lawoss.practice.clients_one": "{count} Mandant",
+  "lawoss.practice.clients_other": "{count} Mandanten",
+  "lawoss.practice.updated": "aktualisiert {time}",
+  "lawoss.practice.details": "Details zum Einlesen",
+  "lawoss.practice.folder": "Kanzleiordner: {path}",
   "lawoss.practice.incomplete": "Die Kanzleiübersicht ist unvollständig. Weitere Fristen sind möglich.",
   "lawoss.practice.office": "Kanzlei",
   "lawoss.practice.fresh": "Aktuell",

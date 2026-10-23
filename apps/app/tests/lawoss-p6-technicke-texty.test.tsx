@@ -9,6 +9,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { PendingPermission } from "../src/app/types";
 import { fileOperationCard } from "../src/lawoss/lite/file-operation-card";
 import { PermissionApprovalModal, PermissionApprovalPanel } from "../src/react-app/domains/session/chat/permission-approval-modal";
+import { QueryClient } from "@tanstack/react-query";
+import { okfOverviewQueryOptions, okfScope, type OkfReadResult, type OkfScopeClient } from "../src/lawoss/okf/read-model";
+import { PracticeCoverage } from "../src/lawoss/okf/practice-coverage";
+import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 
 const initial: Language = currentLocale();
 afterEach(() => setLocale(initial));
@@ -106,5 +110,76 @@ describe("nový chat prípadu: technické pokyny idú modelu skryto (R1)", () =>
     const route = source("src/react-app/shell/session-route.tsx");
     expect(route).toContain("yoloTurnContext(), takeCaseChatContext(targetSessionId)]");
     expect(route).toContain("if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));");
+  });
+});
+
+describe("stav praxe navrchu stránok kancelárie (N-A2-8)", () => {
+  const root = "/Users/advokat/4-usporiadana-kancelaria";
+  const slugs = ["C001-syn-tatran-automatika-s-r-o", "C002-syn-hron-technologie-a-s", "C017-syn-zuzana-simkova"];
+  const titles = ["SYN Tatran Automatika, s. r. o.", "SYN Hron Technológie, a. s.", "SYN Zuzana Šimková"];
+  const workspaces: RouteWorkspace[] = slugs.map((slug) => ({ id: slug.slice(0, 4), path: `${root}/${slug}`, name: slug, displayNameResolved: slug, workspaceType: "local" }));
+  const empty: OkfScopeClient = {
+    listWorkspaceDirectory: async () => ({ path: "", entries: [], truncated: false }),
+    readWorkspaceFile: async () => { throw new Error("not found"); },
+    lawossOfficeMemory: async (expected) => ({ practiceRoot: expected, directory: null, files: [], problems: [], truncated: false }),
+  };
+  const at = new Date(2026, 9, 23, 15, 57, 15).getTime();
+  async function overview(): Promise<{ data: OkfReadResult; scope: NonNullable<ReturnType<typeof okfScope>> }> {
+    const scope = okfScope(workspaces, workspaces[0]!, root)!;
+    const queries = new QueryClient();
+    const read = await queries.fetchQuery(okfOverviewQueryOptions({ client: empty, baseUrl: "http://synthetic", token: "synthetic" }, scope, "2026-10-23", queries));
+    queries.clear();
+    const data: OkfReadResult = { ...read, clients: slugs.map((path, index) => ({ path, title: titles[index] })),
+      coverage: { ...read.coverage, status: "complete", sources: read.coverage.sources.map((source) => ({ ...source, state: "fresh" as const, lastSuccessAt: at, checkedAt: at })) } };
+    return { data, scope };
+  }
+  const text = (html: string) => html.replace(/<[^>]+>/g, "\n");
+
+  // Server rendering always uses English (`useLocale` server snapshot); SK/CS texts are checked through t() below.
+  test("úplné čítanie: jeden riadok s praxou, počtom klientov a časom; žiadny zoznam slugov navrchu", async () => {
+    const { data, scope } = await overview();
+    const html = renderToStaticMarkup(<PracticeCoverage data={data} scope={scope} now={at} />);
+    const firstLine = text(html).split("\n").find(Boolean);
+    expect(firstLine).toMatch(/^Selected practice: 4 usporiadana kancelaria · 3 clients · updated \S+/);
+    expect(html).toContain('role="status"');
+    expect(html).not.toContain("data-lawoss-practice-problems");
+    for (const slug of slugs) expect(html.includes(slug) ? slug : null).toBeNull();
+    // Podrobnosti sú pod rozbaľovačom a menujú klientov z karty klienta.
+    expect(html).toMatch(/<details data-lawoss-practice-details="">[\s\S]*SYN Hron Technológie, a\. s\.: Current/);
+  });
+
+  test("čiastočné čítanie: výstraha a zoznam len klientov s problémom, menom z karty a časom posledného úspechu", async () => {
+    const { data, scope } = await overview();
+    const partial: OkfReadResult = { ...data, coverage: { ...data.coverage, status: "partial", sources: data.coverage.sources.map((source) =>
+      source.workspaceId === "C002" ? { ...source, state: "unavailable" as const, lastSuccessAt: null } : source.workspaceId === "C017" ? { ...source, state: "stale" as const } : source) } };
+    const html = renderToStaticMarkup(<PracticeCoverage data={partial} scope={scope} now={at} excludedWorkspaceIds={["remote"]} />);
+    expect(html).toContain('role="alert"');
+    expect(html).toContain('data-lawoss-practice-coverage="partial"');
+    expect(text(html)).toContain("The practice overview is incomplete.");
+    expect(text(html)).toContain("1 outside this overview");
+    const problems = /<ul data-lawoss-practice-problems="">([\s\S]*?)<\/ul>/.exec(html)?.[1] ?? "";
+    const items = text(problems).split("\n").filter(Boolean);
+    expect(items[0]).toBe("SYN Hron Technológie, a. s.: Unavailable");
+    expect(items[1]).toStartWith("SYN Zuzana Šimková: Last successful read · ");
+    expect(items).toHaveLength(2);
+    // Bez úspešného čítania všetkých zdrojov netvrdí čas aktualizácie.
+    expect(text(html)).not.toContain("updated");
+  });
+
+  test("zlyhané obnovenie: aktuálne zdroje sa ukážu ako posledné úspešné čítanie, nie ako prázdne", async () => {
+    const { data, scope } = await overview();
+    const html = renderToStaticMarkup(<PracticeCoverage data={data} scope={scope} failed now={at} />);
+    expect(html).toContain('role="alert"');
+    expect(text(html)).toContain("SYN Tatran Automatika, s. r. o.: Last successful read · ");
+    expect(html).not.toContain("Current");
+  });
+
+  test("texty riadku v SK, CS a DE so správnymi tvarmi počtu", () => {
+    expect((["sk", "cs", "de", "en"] as const).map((lng) => [1, 3, 24].map((count) => t("lawoss.practice.clients", { lng, count })))).toEqual([
+      ["1 klient", "3 klienti", "24 klientov"], ["1 klient", "3 klienti", "24 klientů"], ["1 Mandant", "3 Mandanten", "24 Mandanten"], ["1 client", "3 clients", "24 clients"],
+    ]);
+    expect(t("lawoss.practice.updated", "sk", { time: "10:42" })).toBe("aktualizované 10:42");
+    expect(t("lawoss.practice.excluded", "sk", { count: 2 })).toBe("mimo prehľadu: 2");
+    expect(t("lawoss.practice.details", "cs")).toBe("Podrobnosti o načtení");
   });
 });
