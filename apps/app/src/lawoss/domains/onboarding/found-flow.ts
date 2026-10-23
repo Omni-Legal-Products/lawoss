@@ -37,6 +37,12 @@ export function matterClientPath(root: string): string {
 }
 
 /** Cesta klienta z relatívnej cesty návrhu (vždy s „/“) v oddeľovači koreňa. */
+/** Meno klienta pre advokáta (N-A4-2): názov z karty ako v bočnom paneli, inak meno priečinka. */
+export const clientName = (client: { name: string; title?: string }): string => client.title?.trim() || client.name;
+
+/** Meno vybraného priečinka ako klienta: názov z jeho karty, inak meno priečinka. */
+export const rootClientName = (suggestion: { root: string; rootTitle?: string }): string => suggestion.rootTitle?.trim() || folderName(suggestion.root);
+
 export function childPath(root: string, relative: string): string {
   const separator = separatorOf(root);
   return [trimEnd(root), ...relative.split("/").filter(Boolean)].join(separator);
@@ -96,7 +102,9 @@ async function convertOne(api: FlowApi, item: { root: string; name: string }, id
   try {
     const preview = await api.planOnboarding(convertRequest(item.root, identity, today));
     const result = await api.applyOnboarding({ id: preview.id, fingerprint: preview.fingerprint, confirm: true });
-    return { ...item, status: "done", result };
+    // N-A4-2: ďalej (krok Pripravené, chat a jeho prvá správa) platí meno, pod ktorým server klienta zaregistroval
+    // (názov z karty alebo meno zadané skôr), teda to isté, ktoré ukáže bočný panel.
+    return { ...item, name: result.workspace?.displayName?.trim() || item.name, status: "done", result };
   } catch (reason) {
     return { ...item, status: "failed", error: describe(reason) };
   }

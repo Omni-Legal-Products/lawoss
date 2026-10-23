@@ -4,7 +4,7 @@
  * (iné než meno priečinka) ostáva. Existujúce registrácie sa nepremenúvajú (rozhoduje volajúci cez `prior`).
  */
 import { lstat, readFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 
 const CLIENT_CARDS = ["client.md", "klient.md"];
 /** Karta je krátky Markdown; väčší súbor sa nečíta (meno ostane z priečinka). */
@@ -30,9 +30,8 @@ export function cardTitleFromMarkdown(text: string): string | undefined {
 /** Rovnaké meno bez ohľadu na Unicode tvar (NFC/NFD) a veľkosť písmen (ako priečinky na macOS a Windows). */
 const sameName = (a: string, b: string): boolean => a.trim().normalize("NFC").toLocaleLowerCase() === b.trim().normalize("NFC").toLocaleLowerCase();
 
-/** Názov z karty klienta v `root`, ak `requested` je len meno priečinka; inak `requested`. */
-export async function registrationName(root: string, requested: string): Promise<string> {
-  if (!sameName(requested, basename(root))) return requested;
+/** Názov z karty klienta (`client.md`, potom `klient.md`) priamo v `root`; bez karty, symlinku alebo názvu `undefined`. */
+export async function clientCardTitle(root: string): Promise<string | undefined> {
   for (const name of CLIENT_CARDS) {
     const path = join(root, name);
     try {
@@ -42,5 +41,37 @@ export async function registrationName(root: string, requested: string): Promise
       if (title) return title;
     } catch { /* bez karty = meno priečinka */ }
   }
-  return requested;
+  return undefined;
 }
+
+/** Názov z karty klienta v `root`, ak `requested` je len meno priečinka; inak `requested`. */
+export async function registrationName(root: string, requested: string): Promise<string> {
+  if (!sameName(requested, basename(root))) return requested;
+  return await clientCardTitle(root) ?? requested;
+}
+
+type Named = { path: string; name: string };
+/** Koľko kariet sa číta naraz (prax s tisíckou klientov, pomalý NAS). */
+const CARD_READS_AT_ONCE = 8;
+
+/**
+ * N-A4-2 (test 23. 10. 2026): návrh onboardingu menuje klientov tak ako bočný panel, teda názvom z karty klienta,
+ * nie menom priečinka (`C001-syn-tatran-automatika-s-r-o`). Čítajú sa len karty priamo v priečinku klienta a v koreni
+ * (`rootTitle`); cesta mimo koreňa sa nečíta. Bez karty ostane meno priečinka (`title` chýba).
+ */
+export async function withClientCardTitles<S extends { root: string; clients: readonly Named[]; practiceCandidates: readonly Named[] }>(suggestion: S): Promise<S & { clients: (Named & { title?: string })[]; practiceCandidates: (Named & { title?: string })[]; rootTitle?: string }> {
+  const paths = [...new Set([...suggestion.clients, ...suggestion.practiceCandidates].map((client) => client.path))].filter(insideRoot);
+  const titles = new Map<string, string>();
+  for (let index = 0; index < paths.length; index += CARD_READS_AT_ONCE) {
+    await Promise.all(paths.slice(index, index + CARD_READS_AT_ONCE).map(async (path) => {
+      const title = await clientCardTitle(join(suggestion.root, path));
+      if (title) titles.set(path, title);
+    }));
+  }
+  const titled = (client: Named) => { const title = titles.get(client.path); return title ? { ...client, title } : { ...client }; };
+  const rootTitle = await clientCardTitle(suggestion.root);
+  return { ...suggestion, clients: suggestion.clients.map(titled), practiceCandidates: suggestion.practiceCandidates.map(titled), ...(rootTitle ? { rootTitle } : {}) };
+}
+
+/** Relatívna cesta z prieskumu bez `..` a bez absolútneho začiatku; iná sa nečíta. */
+const insideRoot = (path: string): boolean => path !== "" && !isAbsolute(path) && !path.split(/[\\/]+/).includes("..");

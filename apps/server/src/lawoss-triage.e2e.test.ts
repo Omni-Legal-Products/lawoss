@@ -315,3 +315,23 @@ test("archív je predvolene odškrtnutý a nad 100 zaškrtnutých prípadov appl
   const refused = await f.call("triage/apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
   expect({ status: refused.status, code: (await refused.json()).code }).toEqual({ status: 400, code: "triage_too_many_matters" });
 }, transactionTimeout);
+
+test("N-A4-2: návrh onboardingu v usporiadanej kancelárii menuje klientov názvom z karty klienta", async () => {
+  const f = await convertedFixture();
+  const office = join(f.base, "kancelaria");
+  for (const client of ["C001-syn-tatran-automatika-s-r-o", "C002-syn-hron"]) await mkdir(join(office, "Klienti", client, "Spisy", "M001-vec"), { recursive: true });
+  await writeFile(join(office, "Klienti/C001-syn-tatran-automatika-s-r-o/client.md"), "---\ntype: klient\ntitle: \"SYN Tatran Automatika, s. r. o.\"\n---\n");
+  await mkdir(join(office, "Office"));
+  await writeFile(join(office, "Office/okf.config"), "client_path: Klienti/*\n");
+  const suggestion = await f.success("onboarding/suggest", { root: office });
+  const names = (list: { path: string; name: string; title?: string }[]) => list.map(({ path, name, title }) => ({ path, name, title }));
+  const expected = [
+    { path: "Klienti/C001-syn-tatran-automatika-s-r-o", name: "C001-syn-tatran-automatika-s-r-o", title: "SYN Tatran Automatika, s. r. o." },
+    { path: "Klienti/C002-syn-hron", name: "C002-syn-hron", title: undefined },
+  ];
+  expect(names(suggestion.practiceCandidates)).toEqual(expected);
+  expect(suggestion.level).toBe("practice");
+  expect(names(suggestion.clients)).toEqual(expected);
+  // Klient otvorený priamo.
+  expect((await f.success("onboarding/suggest", { root: join(office, "Klienti/C001-syn-tatran-automatika-s-r-o") })).rootTitle).toBe("SYN Tatran Automatika, s. r. o.");
+});
