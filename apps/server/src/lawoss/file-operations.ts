@@ -23,7 +23,7 @@
  */
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { cp, link, lstat, mkdir, readdir, readlink, realpath, rename, rm, unlink } from "node:fs/promises";
+import { cp, link, lstat, mkdir, readdir, readlink, rename, rm, unlink } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { z } from "zod";
@@ -118,20 +118,6 @@ const folded = (location: string) => process.platform === "linux" ? location.nor
 /** The path lies in another client registered inside this one, or holds such a client. */
 function inNestedClient(nested: readonly string[], canonical: string): boolean {
   return nested.some((other) => isPathWithin(folded(other), folded(canonical)) || isPathWithin(folded(canonical), folded(other)));
-}
-
-/**
- * Where a planned path leads right now: an earlier step of the same request may have moved a link
- * (or a folder holding one) to a name the plan only saw as free. Resolves the deepest existing ancestor.
- */
-async function currentLocation(location: string): Promise<string> {
-  const rest: string[] = [];
-  for (let current = location; ; current = dirname(current)) {
-    const resolved = await realpath(current).catch(() => null);
-    if (resolved) return join(resolved, ...rest);
-    if (dirname(current) === current) return location;
-    rest.unshift(basename(current));
-  }
 }
 
 /** The canonical path in the client's folder or a linked folder; a link itself is moved, not its target. */
@@ -384,7 +370,11 @@ async function verified(item: Planned): Promise<boolean> {
  */
 export async function applyFileOperations(config: ServerConfig, workspace: WorkspaceInfo, input: unknown, approved: unknown, revision: unknown, sessionID?: string): Promise<{ results: FileOperationResult[]; complete: boolean }> {
   if (config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
-  const plan = await planInternal(config, workspace, input), nested = await nestedClientRoots(config, workspace);
+  const plan = await planInternal(config, workspace, input);
+  const roots = await clientRoots(config, workspace), nested = await nestedClientRoots(config, workspace);
+  // An earlier step of the same request may move a link (or a folder holding one) to a name the plan saw as free:
+  // every path must still pass the plan's checks and lead to the same place right before its step.
+  const unchanged = async (location: string | undefined) => !location || (await locate(roots, location, nested).catch(() => null))?.canonical === location;
   if (JSON.stringify(publicPlan(plan)) !== JSON.stringify(approved) || revisionOf(plan) !== revision)
     throw new ApiError(409, "file_operation_changed", "The files changed after the approval card was shown. Nothing was changed. Ask the user before trying again.");
   return withFileEditorHandoff({ write: true, sessionID }, async () => {
@@ -394,8 +384,7 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
       const visible = publicPlan([item])[0]!;
       if (failed) { results.push({ ...visible, status: "not_run" }); continue; }
       try {
-        // The plan checked each path against the disk before the first step; check again where it leads now.
-        if (item.target && inNestedClient(nested, await currentLocation(item.target))) throw new ApiError(403, "file_operation_outside_client", OUTSIDE);
+        if (!await unchanged(item.source) || !await unchanged(item.target)) throw new ApiError(403, "file_operation_outside_client", OUTSIDE);
         const trash = await execute(config, item);
         if (!await verified(item)) throw new Error("The change is not visible on disk.");
         results.push({ ...visible, status: "done", ...(trash ? { trash } : {}) });
