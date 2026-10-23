@@ -255,8 +255,8 @@ async function promoteAcceptedTargets({ items, repo, outDir, gh }) {
     // This existing single shared-manifest publisher re-verifies all final payload and evidence bytes.
     execFileSync(process.execPath, [fileURLToPath(new URL('./publish-electron-assets.mjs', import.meta.url)), '--manifests-only', outDir, items[0].evidence.releaseTag], { stdio: 'inherit', env: { ...process.env, RELEASE_REPOSITORY: repo } });
   } else {
-    const { promoteAlphaTarget } = await import('./acceptance-promotion.mjs');
-    for (const item of items) await promoteAlphaTarget({ item, repo, gh });
+    const { promoteAlphaTargets } = await import('./acceptance-promotion.mjs');
+    await promoteAlphaTargets({ items, repo, gh });
   }
 }
 

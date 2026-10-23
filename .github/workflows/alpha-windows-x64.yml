@@ -21,8 +21,10 @@ name: Alpha Channel (Windows x64 + ARM64)
 # po podpise sa zmaže (aj pri chybe podpisu).
 #
 # Opakovaný beh (Re-run) s iným výsledkom podpisu, než mal prvý pokus, skončí
-# pred nahratím assetov: koncept sa nezverejní a verejný release nedostane
-# nepodpísaný inštalátor. Taký build treba spustiť znova ako nový beh.
+# pred úpravou releasu aj pred nahratím assetov: koncept sa nezverejní, verejný
+# release nedostane nepodpísaný inštalátor a názov releasu (predpona
+# „NEPODPÍSANÉ – len interný tím“) ostane podľa assetov prvého pokusu. Taký
+# build treba spustiť znova ako nový beh.
 #
 # `draft: true` vydá aj podpísaný build len ako koncept bez posunu ukazovateľa.
 #
@@ -608,11 +610,12 @@ jobs:
           ASSET_HASHES: ${{ steps.asset-hashes.outputs.file }}
         run: |
           set -euo pipefail
+          unsigned_prefix="NEPODPÍSANÉ – len interný tím · "
           title="LAWOSS Alpha ${ALPHA_VERSION} (Windows ${ALPHA_ARCH})"
           notes="$RUNNER_TEMP/alpha-release-notes.md"
           {
             if [ "$SIGNED" != "true" ]; then
-              title="NEPODPÍSANÉ – len interný tím · ${title}"
+              title="${unsigned_prefix}${title}"
               cat <<'EOF'
           > [!WARNING]
           > **NEPODPÍSANÝ build – len pre interný tím LAWOSS.**
@@ -647,6 +650,16 @@ jobs:
             existing_draft="$(gh release view "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
             if [ "$existing_draft" != "$DRAFT" ]; then
               echo "::error title=Opakovaný beh s iným podpisom::Release $ALPHA_RUN_RELEASE_TAG má draft=$existing_draft, tento pokus draft=$DRAFT (signed=$SIGNED). Assety ani ukazovateľ sa nemenia. Spustite workflow znova ako nový beh (nová verzia a tag), prípadne release najprv odstráňte."
+              exit 1
+            fi
+            # 🟡 LAWOSS: koncept (DRAFT=true) je podpísaný build so vstupom `draft` aj
+            # každý nepodpísaný, preto sa porovná aj podpis podľa predpony názvu. Inak
+            # by sa release premenoval podľa tohto pokusu, hoci má assety prvého.
+            existing_name="$(gh release view "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json name --jq .name)"
+            existing_signed=true
+            case "$existing_name" in "${unsigned_prefix}"*) existing_signed=false ;; esac
+            if [ "$existing_signed" != "$SIGNED" ]; then
+              echo "::error title=Opakovaný beh s iným podpisom::Release $ALPHA_RUN_RELEASE_TAG je signed=$existing_signed (podľa názvu), tento pokus signed=$SIGNED. Názov, popis ani assety sa nemenia. Spustite workflow znova ako nový beh (nová verzia a tag), prípadne release najprv odstráňte."
               exit 1
             fi
             # Immutable payloads are verified by digest. A retry never replaces their bytes.
