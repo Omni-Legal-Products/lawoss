@@ -5,7 +5,7 @@ import type { OnboardingApi, OnboardingApplyResult, OnboardingPlanRequest, Onboa
 import { BatchView, ChatUnavailableView, FoundView } from "../src/lawoss/domains/onboarding/found-screen";
 import { FOUND_TEXT, foundText } from "../src/lawoss/domains/onboarding/found-text";
 import { addOkfFiles, answerClient, batchOffersChat, chatTarget, createClientChatFlow, type BatchItem, type ClientChatView } from "../src/lawoss/domains/onboarding/found-flow";
-import { clientChatTarget, openOnboardedClientChat } from "../src/lawoss/domains/onboarding/client-chat-open";
+import { clientChatOpener, clientChatTarget, openOnboardedClientChat } from "../src/lawoss/domains/onboarding/client-chat-open";
 import type { OkfConnection } from "../src/lawoss/okf/connection";
 import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
@@ -310,7 +310,7 @@ describe("prvá správa agentovi", () => {
     const { modelContext } = clientChatPrompt(foundText("sk"), "Novák s.r.o.");
     expect(modelContext).toContain("\"Novák s.r.o.\"");
     expect(modelContext).toContain("change nothing in it");
-    expect(modelContext).toContain("neither a copy of the folder nor /roztried-spis");
+    expect(modelContext).toContain("you do not need a copy of the folder or /roztried-spis");
     for (const step of ["1. Briefly summarise", "2. Propose cases as a table in the chat", "3. Ask the lawyer which cases to create and wait for the approval"]) expect(modelContext).toContain(step);
     expect(modelContext).toContain("Treat existing subfolders as candidate cases");
     expect(modelContext).toContain("ask once for all of them");
@@ -332,6 +332,7 @@ describe("prvá správa agentovi", () => {
       const without = prompt.modelContextWithoutSkill;
       expect(without).toContain("\"Alfa\"");
       expect(without).not.toContain("/novy-spis");
+      expect(without).not.toContain("/roztried-spis");
       for (const step of ["1. ", "2. ", "3. "]) {
         const line = prompt.modelContext.split("\n").find((part) => part.startsWith(step));
         expect(line && without.includes(line)).toBe(true);
@@ -414,6 +415,17 @@ describe("zapojenie otvorenia chatu (client-chat-open)", () => {
     expect(clientChatTarget(connection({ workspaces: [{ ...local, workspaceType: "remote", baseUrl: "https://remote.example", openworkToken: "r" }] }), { workspaceId: "ws-1", directory: "/p/Novák" })).toBeNull();
     expect(clientChatTarget(connection({ token: "" }), { workspaceId: "ws-1", directory: "/p/Novák" })).toBeNull();
     expect(clientChatTarget(connection({ client: null }), { workspaceId: "ws-1", directory: "/p/Novák" })).toBeNull();
+  });
+  test("N-A4-1: chat sa založí s vetou v poli správy a skrytými pokynmi podľa skillu", async () => {
+    const calls: unknown[][] = [];
+    const prompt = clientChatPrompt(foundText("sk"), "Novák");
+    const open = clientChatOpener(connection(), local, prompt, async (...args) => { calls.push(args); return "/workspace/ws-1/session/s-1"; });
+    expect(await open(true)).toBe("/workspace/ws-1/session/s-1");
+    await open(false);
+    expect(calls).toEqual([
+      [connection(), local, prompt.text, "/p/Novák", prompt.modelContext],
+      [connection(), local, prompt.text, "/p/Novák", prompt.modelContextWithoutSkill],
+    ]);
   });
   test("bez priečinka klienta vráti zlyhanie bez volania servera", async () => {
     const outcome = await openOnboardedClientChat({ workspaceId: "ws-x", directory: "/p/Iný", prompt: { text: "x", modelContext: "y", modelContextWithoutSkill: "z" } }, { skillLanguage: "sk", defaultModel: null }, async () => connection());
