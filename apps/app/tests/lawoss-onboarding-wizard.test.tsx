@@ -233,7 +233,9 @@ describe("sprievodca C1: logika súhrnu a režimu agenta", () => {
   test("prvá úloha podľa predpokladov", () => {
     expect(readyPlan(one, { state: "ready" })).toMatchObject({ primary: "chat", offerTable: true });
     expect(readyPlan(one, { state: "no-model" })).toMatchObject({ primary: "overview", overview: "readyOverview" });
-    expect(readyPlan(two, { state: "ready" })).toMatchObject({ primary: "overview", overview: "readyOverviewClients", offerChat: true, chatWith: { name: "B" } });
+    // Prax: chat s prvým klientom s pracovným priečinkom je hlavná akcia (#197, N-A2-4); bez modelu prehľad.
+    expect(readyPlan(two, { state: "ready" })).toMatchObject({ primary: "chat", overview: "readyOverviewClients", chatWith: { name: "B" } });
+    expect(readyPlan(two, { state: "pick-model" })).toMatchObject({ primary: "overview", overview: "readyOverviewClients" });
     expect(readyPlan({ kind: "practice", root: "/p" }, { state: "ready" })).toMatchObject({ primary: "overview", overview: "readyOverviewPractice", offerTable: false });
     expect(readyPlan({ kind: "fresh", root: "/p", result: { result: "applied" } }, { state: "ready" })).toMatchObject({ primary: "addClient" });
     expect(readyPlan(undefined, { state: "ready" })).toMatchObject({ primary: "connectFolder" });

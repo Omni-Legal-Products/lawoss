@@ -5,19 +5,15 @@ import { preferRealWorkspace } from "../../home-workspace";
 import { CircleAlert, CircleCheck, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Language } from "@/i18n";
-import type { Client } from "@/app/types";
+import type { Client, ModelRef } from "@/app/types";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { createClient } from "@/app/lib/opencode";
-import { formatModelLabel } from "@/app/utils";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
-import { getConnectedProviderItems, useProviderListQuery } from "@/react-app/infra/provider-list-query";
+import { useProviderListQuery } from "@/react-app/infra/provider-list-query";
 import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 import { useLocal } from "@/react-app/kernel/local-provider";
-import {
-  composerModelState,
-  onboardingModelReadiness,
-  type ComposerModelState,
-} from "@/lawoss/shell/model-readiness";
+import type { ComposerModelState } from "@/lawoss/shell/model-readiness";
+import { onboardingModelView, saveDefaultModel, type ModelChoice } from "./wizard/assistant-model";
 
 type AiStepText = {
   checking: string;
@@ -84,6 +80,10 @@ export type AiModelView = {
   modelLabel?: string;
   /** Pripojení poskytovatelia (karty v kroku AI asistent, C1); bez enginu prázdne. */
   providers?: readonly { id: string; name: string }[];
+  /** Modely pripojených poskytovateľov na zmenu v kroku AI asistent (N-A2-5). */
+  choices?: readonly ModelChoice[];
+  /** Vybraný model, keď je stav `ready`. */
+  selected?: ModelRef;
 };
 
 /**
@@ -203,15 +203,22 @@ export function useOnboardingModel(): AiModelView {
     baseUrl: target?.baseUrl,
     directory: target?.directory,
   });
+  const { view, auto } = onboardingModelView(local.prefs.defaultModel, target ? query.data : undefined);
+  // Pripojený poskytovateľ bez modelu: odporúčaný model sa uloží ako v Nastaveniach AI (N-A2-5),
+  // aby ho použil aj chat; rovnaký model `withDefaultModel` nemení, takže sa to nezacyklí.
+  const { setPrefs } = local;
+  useEffect(() => {
+    saveDefaultModel(setPrefs, auto);
+  }, [auto?.providerID, auto?.modelID, setPrefs]);
   if (target === undefined || (target && query.isPending)) return { state: "checking" };
   if (target === null) return { state: "no-workspace" };
-  const readiness = onboardingModelReadiness(local.prefs.defaultModel, query.data);
-  const state = composerModelState(readiness);
-  const connected = getConnectedProviderItems(query.data);
-  const providers = connected.map((provider) => ({ id: provider.id, name: provider.name }));
-  return state === "ready"
-    ? { state, modelLabel: formatModelLabel(readiness.selectedModel, connected), providers }
-    : { state, providers };
+  return view;
+}
+
+/** Zmena modelu v kroku AI asistent: uloží sa ako predvolený model v Nastaveniach AI. */
+export function useOnboardingModelSelect(): (model: ModelRef) => void {
+  const { setPrefs } = useLocal();
+  return (model) => saveDefaultModel(setPrefs, model);
 }
 
 /** AI step with live state. */

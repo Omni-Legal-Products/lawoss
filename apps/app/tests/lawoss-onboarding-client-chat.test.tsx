@@ -238,19 +238,26 @@ describe("príprava chatu: hranice, model, skilly, až potom chat", () => {
     expect(await prepareClientChat(d.value)).toEqual({ route: "/workspace/ws-1/session/s-1" });
     warn.mockRestore();
   });
-  test("engine skill /novy-spis nevidí alebo beží úloha: zlyhanie, nie chat bez skillu", async () => {
-    for (const availability of ["missing", "busy"] as const) {
-      const d = deps({ skillAvailability: async () => availability });
-      expect(await prepareClientChat(d.value)).toEqual({ unavailable: "failed" });
-      expect(d.log).not.toContain("open");
-    }
-  });
-  test("zlyhaná inštalácia skillov je zlyhanie, chat sa neotvorí", async () => {
+  // N-A2-4 (MČ 23. 10. 2026): skill je pomôcka, nie podmienka. Prvá správa je obyčajný text; bez skillu
+  // sa chat aj tak otvorí s pripravenou správou, inak by advokát skončil v slepej uličke.
+  test("engine skill /novy-spis nevidí alebo beží úloha: chat sa aj tak otvorí s pripravenou správou", async () => {
     const warn = spyOn(console, "warn").mockImplementation(() => undefined);
-    const d = deps({ installSkills: async () => { throw new Error("disk full"); } });
-    expect(await prepareClientChat(d.value)).toEqual({ unavailable: "failed" });
-    expect(d.log).not.toContain("open");
-    expect(d.log.some((entry) => entry.startsWith("skill:"))).toBe(false);
+    for (const availability of ["missing", "busy"] as const) {
+      const d = deps({ skillAvailability: async (name) => { d.log.push(`skill:${name}`); return availability; } });
+      expect(await prepareClientChat(d.value)).toEqual({ route: "/workspace/ws-1/session/s-1" });
+      expect(d.log).toEqual(["governance", "providers", "skills", `skill:${NOVY_SPIS_SKILL_NAME}`, "open"]);
+    }
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+  test("zlyhaná inštalácia alebo overenie skillov: chat sa otvorí, zlyhanie sa len zapíše", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+    const install = deps({ installSkills: async () => { throw new Error("Skill not found: novy-spis"); } });
+    expect(await prepareClientChat(install.value)).toEqual({ route: "/workspace/ws-1/session/s-1" });
+    expect(install.log).toEqual(["governance", "providers", "open"]);
+    const check = deps({ skillAvailability: async () => { throw new Error("engine offline"); } });
+    expect(await prepareClientChat(check.value)).toEqual({ route: "/workspace/ws-1/session/s-1" });
+    expect(check.log).toContain("open");
     warn.mockRestore();
   });
   test("chybný zoznam poskytovateľov alebo založenie chatu je zlyhanie", async () => {

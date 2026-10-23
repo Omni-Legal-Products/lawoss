@@ -1,15 +1,17 @@
 /** @jsxImportSource react */
 /**
  * Krok 4 „Váš AI asistent“ (C1): karty pripojených poskytovateľov so stavom, diagram toku podkladov, stav AI
- * hraníc pri akcii a „Pokračovať bez AI“. Pripojenie ostáva v natívnych Nastaveniach AI (Native UI first);
+ * hraníc pri akcii a „Pokračovať bez AI“. Pri pripojenom poskytovateľovi je model vybraný sám a dá sa zmeniť
+ * v malom výbere (N-A2-5). Pripojenie ostáva v natívnych Nastaveniach AI (Native UI first);
  * dlhé vysvetlenie o ochrane údajov (`AiGuidance`) je v rozbaľovacích Podrobnostiach.
  */
 import type { ReactNode } from "react";
 import { Bot, CircleAlert, CircleCheck, Cloud, FileText, Loader2, Plug, ShieldCheck, ShieldOff } from "lucide-react";
 import type { Language } from "@/i18n";
+import type { ModelRef } from "@/app/types";
 import { AiGuidance } from "../../ai/guidance";
 import { useAiBoundaries } from "../../ai/boundaries-store";
-import { useOnboardingModel, type AiModelView } from "../ai-step";
+import { useOnboardingModel, useOnboardingModelSelect, type AiModelView } from "../ai-step";
 import { FlowDiagram, type FlowNode } from "./illustrations";
 import { StatusBadge, StepScreen, type StatusTone } from "./wizard-frame";
 import type { WizardText, WizardTextKey } from "./wizard-text";
@@ -26,10 +28,33 @@ const STATE_TEXT: Record<AiModelView["state"], WizardTextKey> = {
 export const modelTone = (state: AiModelView["state"]): StatusTone =>
   state === "ready" ? "ok" : state === "checking" ? "checking" : state === "no-model" || state === "no-workspace" ? "missing" : "warn";
 
+/** Stavy, v ktorých má výber modelu zmysel: pripojený poskytovateľ s modelom alebo bez neho. */
+const PICKABLE: ReadonlySet<AiModelView["state"]> = new Set(["ready", "pick-model", "unavailable"]);
+
+/** Malý výber modelu pripojených poskytovateľov (N-A2-5); hodnota je poradie v zozname. */
+function ModelPicker({ text, model, busy, onSelect }: { text: WizardText; model: AiModelView; busy: boolean; onSelect: (model: ModelRef) => void }) {
+  const choices = model.choices ?? [];
+  const current = choices.findIndex((choice) => choice.providerID === model.selected?.providerID && choice.modelID === model.selected?.modelID);
+  return (
+    <label className="grid gap-1.5" data-lawoss-ai-model-picker>
+      <span className="lw-wiz-label">{text("aiModelPick")}</span>
+      <select
+        className="lw-onb-select"
+        value={current >= 0 ? String(current) : ""}
+        disabled={busy}
+        onChange={(event) => { const choice = choices[Number(event.target.value)]; if (choice) onSelect({ providerID: choice.providerID, modelID: choice.modelID }); }}
+      >
+        {current >= 0 ? null : <option value="" disabled>{text("aiModelChoose")}</option>}
+        {choices.map((choice, index) => <option key={`${choice.providerID}/${choice.modelID}`} value={String(index)}>{choice.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
 const toneIcon = (tone: StatusTone): ReactNode =>
   tone === "ok" ? <CircleCheck className="size-3.5" /> : tone === "checking" ? <Loader2 className="size-3.5 animate-spin" /> : <CircleAlert className="size-3.5" />;
 
-export function AssistantStepView({ text, locale, model, boundariesOn, busy, nav, onOpenAiSettings, onContinue }: {
+export function AssistantStepView({ text, locale, model, boundariesOn, busy, nav, onOpenAiSettings, onContinue, onSelectModel }: {
   text: WizardText;
   locale: Language;
   model: AiModelView;
@@ -39,6 +64,8 @@ export function AssistantStepView({ text, locale, model, boundariesOn, busy, nav
   nav?: ReactNode;
   onOpenAiSettings: () => void;
   onContinue: () => void;
+  /** Zmena modelu; bez nej sa výber neukáže. */
+  onSelectModel?: (model: ModelRef) => void;
 }) {
   const ready = model.state === "ready";
   const providers = model.providers ?? [];
@@ -78,6 +105,9 @@ export function AssistantStepView({ text, locale, model, boundariesOn, busy, nav
           )}
         </ul>
       </section>
+      {onSelectModel && PICKABLE.has(model.state) && model.choices?.length ? (
+        <ModelPicker text={text} model={model} busy={busy} onSelect={onSelectModel} />
+      ) : null}
       <p role="status" className="lw-wiz-state" data-lawoss-ai-model={model.state} data-tone={tone}>
         <span aria-hidden="true">{toneIcon(tone)}</span>
         <span className="min-w-0 flex-1">{text(STATE_TEXT[model.state])}</span>
@@ -108,8 +138,9 @@ export function AssistantStepView({ text, locale, model, boundariesOn, busy, nav
 }
 
 /** Krok s živým stavom modelu a AI hraníc. */
-export function AssistantStep(props: Omit<Parameters<typeof AssistantStepView>[0], "model" | "boundariesOn">) {
+export function AssistantStep(props: Omit<Parameters<typeof AssistantStepView>[0], "model" | "boundariesOn" | "onSelectModel">) {
   const model = useOnboardingModel();
+  const select = useOnboardingModelSelect();
   const boundaries = useAiBoundaries();
-  return <AssistantStepView {...props} model={model} boundariesOn={boundaries ? boundaries.enforced : null} />;
+  return <AssistantStepView {...props} model={model} boundariesOn={boundaries ? boundaries.enforced : null} onSelectModel={select} />;
 }

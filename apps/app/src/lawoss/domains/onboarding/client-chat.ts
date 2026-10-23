@@ -59,19 +59,32 @@ export type ClientChatDeps = {
 /**
  * Najprv hranice a model (nič nezapisujú), potom skilly a ich viditeľnosť v engine, až potom chat.
  * Nedostupný stav hraníc neblokuje: hranice vynucuje server a odmietnutie odoslania chat ohlási vetou.
- * Každé iné zlyhanie vráti `failed`, aby sa neotvoril chat, ktorý nefunguje.
+ * Skilly sú pomôcka, nie podmienka (N-A2-4, MČ 23. 10. 2026): prvá správa je obyčajný text, prehľad
+ * a návrh prípadov ich nepotrebujú a správa agentovi káže povedať na rovinu, keď skill odmietne. Chat sa
+ * preto otvorí aj vtedy, keď sa balík nenainštaluje alebo ho engine nevidí; slepá ulička by advokátovi
+ * nedala nič. Zlyhanie zoznamu poskytovateľov alebo založenia chatu vráti `failed`.
  */
 export async function prepareClientChat(deps: ClientChatDeps): Promise<ClientChatOutcome> {
   try {
     const boundaries = await deps.governance().catch((reason: unknown) => { console.warn("[lawoss] AI boundaries before client chat", reason); return undefined; });
     const gap = clientChatGap({ boundaries, defaultModel: deps.defaultModel, providerList: await deps.providerList() });
     if (gap) return { unavailable: gap };
-    await deps.installSkills();
-    const availability = await deps.skillAvailability(CLIENT_CHAT_SKILL);
-    if (availability === "missing" || availability === "busy") return { unavailable: "failed" };
+    const skills = await prepareChatSkill(deps);
+    if (skills !== "ready" && skills !== "reloaded") console.warn("[lawoss] client chat opens without the OKF skill", CLIENT_CHAT_SKILL, skills);
     return { route: await deps.open() };
   } catch (reason) {
     console.warn("[lawoss] client chat after adding a folder", reason);
     return { unavailable: "failed" };
+  }
+}
+
+/** Balík skillov a viditeľnosť /novy-spis; zlyhanie inštalácie alebo overenia je `missing`, nie výnimka. */
+async function prepareChatSkill(deps: Pick<ClientChatDeps, "installSkills" | "skillAvailability">): Promise<SkillAvailability> {
+  try {
+    await deps.installSkills();
+    return await deps.skillAvailability(CLIENT_CHAT_SKILL);
+  } catch (reason) {
+    console.warn("[lawoss] OKF skills before client chat", reason);
+    return "missing";
   }
 }
