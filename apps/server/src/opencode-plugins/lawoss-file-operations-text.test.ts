@@ -3,7 +3,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { LawossFileOperations } from "./lawoss-file-operations.js";
-import { FILE_REPORT_RULE, fileOperationReport, fileOperationToolText } from "./lawoss-file-operations-text.js";
+import { FILE_REPORT_RULE, fileOperationReport, fileOperationToolText, MOVE_ACROSS_DRIVES_RULE } from "./lawoss-file-operations-text.js";
 
 const moved = { operation: "move", kind: "file", from: "Spisy/M004/Podklady.pdf", to: "C002-podklady/Podklady.pdf", status: "done", trash: "system" };
 
@@ -15,15 +15,38 @@ test("a move to another drive tells the agent that the original is in the Trash"
   expect(parsed).toHaveProperty("report", report);
   expect(report).toHaveLength(2);
   expect(report[0]).toContain("Spisy/M004/Podklady.pdf → C002-podklady/Podklady.pdf");
-  expect(report[0]).toContain("the original is now in the Trash");
+  expect(report[0]).toContain("the original is now in the system Trash");
   expect(report[0]).toContain("Tell the user plainly that the original is in the Trash");
 });
 
-test("the recovery folder is named when the system Trash was not available; deletes say where items went", () => {
-  const [line] = fileOperationReport({ complete: true, results: [{ ...moved, trash: "C002-podklady/.lawoss-kos/2026/Podklady.pdf" }] });
-  expect(line).toContain("recovery folder C002-podklady/.lawoss-kos/2026/Podklady.pdf");
+test("the place of the original follows the real result: system Trash, client's folder or linked folder (P3 review of #227)", () => {
+  const line = (trash: string, from = moved.from) => fileOperationReport({ complete: true, results: [{ ...moved, from, trash }] })[0] ?? "";
+  // Moved from the client's folder; the system Trash was unavailable: the recovery folder in the client's folder.
+  const client = line(".lawoss-kos/2026-10-24T10-00-00-000Z-ab12cd34/Spisy/M004/Podklady.pdf");
+  expect(client).toContain("the original is now in the recovery folder .lawoss-kos/2026-10-24T10-00-00-000Z-ab12cd34/Spisy/M004/Podklady.pdf in the client's folder");
+  expect(client).not.toContain("linked folder");
+  // Moved from a linked NAS folder on Windows (UNC, no reliable Trash): the recovery folder stays on the NAS.
+  const linked = line("C002-podklady/.lawoss-kos/2026-10-24T10-00-00-000Z-ab12cd34/Podklady.pdf", "C002-podklady/Podklady.pdf");
+  expect(linked).toContain("in the recovery folder C002-podklady/.lawoss-kos/2026-10-24T10-00-00-000Z-ab12cd34/Podklady.pdf in the linked folder C002-podklady");
+  expect(linked).toContain("Tell the user plainly that the original is in the recovery folder C002-podklady/.lawoss-kos/");
+  expect(linked).not.toContain("client's folder");
+  // An ambiguous linked folder is labelled with its full path; the label is everything before the recovery folder.
+  expect(line("/Volumes/NAS/Zdielane/.lawoss-kos/b/a.pdf")).toContain("in the linked folder /Volumes/NAS/Zdielane");
+  expect(line("system")).toContain("the original is now in the system Trash, where the user can restore it. Tell the user plainly that the original is in the Trash.");
   expect(fileOperationReport({ complete: true, results: [{ operation: "delete", kind: "folder", from: "Stare", status: "done", trash: "system" }] }))
-    .toEqual(["Stare: the folder is now in the Trash, where the user can restore it."]);
+    .toEqual(["Stare: the folder is now in the system Trash, where the user can restore it."]);
+});
+
+test("a move to another drive or linked folder is described as a real move, and \"presuň\" means move, not copy (#229 N-A4-3)", async () => {
+  expect(MOVE_ACROSS_DRIVES_RULE).toContain("is a real move");
+  expect(MOVE_ACROSS_DRIVES_RULE).toContain("moves the original to the Trash, where the user can restore it");
+  expect(MOVE_ACROSS_DRIVES_RULE).toContain("use the move operation, not copy, even across drives");
+  expect(MOVE_ACROSS_DRIVES_RULE).toContain("\"presuň\"");
+  const plugin = await LawossFileOperations();
+  expect(plugin.tool.lawoss_files.description).toContain(MOVE_ACROSS_DRIVES_RULE);
+  const system: string[] = [];
+  await plugin["experimental.chat.system.transform"]({}, { system });
+  expect(system.join("\n")).toContain(MOVE_ACROSS_DRIVES_RULE);
 });
 
 test("an ordinary rename adds no report; an incomplete batch says what to tell the user", () => {
@@ -58,7 +81,7 @@ test("the lawoss_files tool returns the report to the model after an approved mo
     const output = await plugin.tool.lawoss_files.execute({ operations: [{ operation: "move", from: "Podklady.pdf", to: "NAS/Podklady.pdf" }] },
       { sessionID: "ses_1", directory: folder, ask: async (input) => { asked.push(input.permission); } });
     expect(asked).toEqual(["lawoss_file_change"]);
-    expect(output).toContain("the original is now in the Trash");
+    expect(output).toContain("the original is now in the system Trash");
     const system: string[] = [];
     await plugin["experimental.chat.system.transform"]({}, { system });
     expect(system.join("\n")).toContain(FILE_REPORT_RULE);

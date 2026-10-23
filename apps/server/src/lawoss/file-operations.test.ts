@@ -7,6 +7,7 @@ import { closeRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runti
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
+import { fileOperationReport } from "../opencode-plugins/lawoss-file-operations-text.js";
 import { applyFileOperations, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, LAWOSS_TRASH_FOLDER, planFileOperations, systemTrashReliable, visibleName, type PlannedFileOperation } from "./file-operations.js";
 
 const roots: string[] = [];
@@ -141,6 +142,8 @@ test("one card for a batch: a new folder, moves into it, a copy and a recoverabl
   expect(trash[0]).toMatch(new RegExp(`^${LAWOSS_TRASH_FOLDER}/[^/]+/Pripady/M001$`));
   expect(await readdir(join(client, trash[0]!))).toEqual([]);
   expect(await readdir(join(client, trash[1]!))).toEqual([]);
+  // What the agent tells the lawyer names the real place: the client's own folder (P3 review of #227).
+  expect(fileOperationReport(applied).find((line) => line.startsWith("Pripady/M001:"))).toContain(`in the recovery folder ${trash[0]} in the client's folder`);
   // Two changes to the same target in one request: refused before the card.
   await expect(planFileOperations(config, workspace, [
     { operation: "copy", from: join(client, "poznamky.txt"), to: join(client, "a.txt") },
@@ -163,6 +166,10 @@ test("delete uses the OS Trash through the desktop host, and falls back inside t
   const linkedPlan = await planFileOperations(config, workspace, linkedDelete);
   const result = await applyFileOperations(config, workspace, linkedDelete, linkedPlan.operations, linkedPlan.revision);
   expect(result.results[0]?.trash).toMatch(new RegExp(`^pripojeny-A/${LAWOSS_TRASH_FOLDER}/[^/]+/podklad\\.pdf$`));
+  // …and the agent says it is in the linked folder (a NAS), not in the client's folder (P3 review of #227).
+  const [linkedLine] = fileOperationReport(result);
+  expect(linkedLine).toContain(`in the recovery folder ${result.results[0]?.trash} in the linked folder pripojeny-A`);
+  expect(linkedLine).not.toContain("client's folder");
   const [batch] = await readdir(join(linked, LAWOSS_TRASH_FOLDER));
   expect(await readFile(join(linked, LAWOSS_TRASH_FOLDER, batch!, "podklad.pdf"), "utf8")).toBe("SYN pdf");
   // The Trash folder itself is out of the tool's reach.

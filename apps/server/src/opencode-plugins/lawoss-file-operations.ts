@@ -12,13 +12,13 @@
 // Exportovaný je len vstupný bod pluginu: OpenCode volá každý export modulu.
 import { z } from "zod";
 import { chatFilePath, chatWorkspace } from "./lawoss-file-paths.js";
-import { FILE_REPORT_RULE, fileOperationToolText } from "./lawoss-file-operations-text.js";
+import { FILE_REPORT_RULE, fileOperationToolText, MOVE_ACROSS_DRIVES_RULE } from "./lawoss-file-operations-text.js";
 import { listWorkspaces, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 const pathArg = z.string().min(1).max(4096);
 // A flat object, not a union: every provider's tool schema accepts it (Gemini and OpenAI reject some anyOf shapes).
 const operation = z.object({
-  operation: z.enum(["move", "copy", "create_folder", "delete"]).describe("move renames or moves; delete moves a file or a folder with its contents to the Trash, where the user can restore it."),
+  operation: z.enum(["move", "copy", "create_folder", "delete"]).describe("move renames or moves, also to another drive or linked folder (the original then goes to the Trash); copy keeps the original; delete moves a file or a folder with its contents to the Trash, where the user can restore it."),
   from: pathArg.optional().describe("move/copy: the existing file or folder."),
   to: pathArg.optional().describe("move/copy: the new path; it must not exist yet."),
   path: pathArg.optional().describe("create_folder/delete: the folder to create or the file/folder to delete."),
@@ -28,7 +28,7 @@ const args = z.object({
   description: z.string().max(300).optional().describe("Briefly say why, in the user's language."),
 });
 
-const SYSTEM = `To rename, move, copy or delete files and folders or to create folders, use lawoss_files instead of shell commands (mv, cp, rm, mkdir): the user sees one approval card listing the exact changes, and deleted items go to the Trash. Put a whole requested batch in one call. If the user declines the card, nothing changed; do not retry it now, but if the user later explicitly asks again, call lawoss_files again so they see a new card. Report only the changes the tool result lists as done. ${FILE_REPORT_RULE}`;
+const SYSTEM = `To rename, move, copy or delete files and folders or to create folders, use lawoss_files instead of shell commands (mv, cp, rm, mkdir): the user sees one approval card listing the exact changes, and deleted items go to the Trash. Put a whole requested batch in one call. If the user declines the card, nothing changed; do not retry it now, but if the user later explicitly asks again, call lawoss_files again so they see a new card. Report only the changes the tool result lists as done. ${MOVE_ACROSS_DRIVES_RULE} ${FILE_REPORT_RULE}`;
 
 type Plan = { operations: unknown[]; revision: string };
 /** The tool's own permission (not `edit`): see the file header. */
@@ -54,7 +54,7 @@ export const LawossFileOperations = async () => ({
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => { output.system.push(SYSTEM); },
   tool: {
     lawoss_files: {
-      description: "Rename, move, copy or delete files and folders, or create folders, in this client's folder and its linked folders. Shows the user one approval card with every change (no card when YOLO Mode is on). Deleting moves items to the Trash. Never overwrites: an existing target is refused. A declined card changes nothing. The result lists what was actually done.",
+      description: `Rename, move, copy or delete files and folders, or create folders, in this client's folder and its linked folders. Shows the user one approval card with every change (no card when YOLO Mode is on). Deleting moves items to the Trash. Never overwrites: an existing target is refused. A declined card changes nothing. The result lists what was actually done. ${MOVE_ACROSS_DRIVES_RULE}`,
       args: args.shape,
       async execute(raw: unknown, context: OpenCodeContext) {
         const input = args.parse(raw);
