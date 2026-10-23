@@ -86,7 +86,7 @@ import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { repairRuntimeProviders } from "./runtime-provider-repair.js";
 import { externalOpencodeConfigDir } from "./lawoss/workspace-app-files.js";
 import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
-import { FILE_CHANGE_PERMISSION, fileChangeRule, withFileChangeRule } from "./lawoss/tool-permission-defaults.js";
+import { FILE_CHANGE_PERMISSION, LAWOSS_MEMORY_TOOL, fileChangeRule, withFileChangeRule } from "./lawoss/tool-permission-defaults.js";
 import { appendLawossToolDenials, LAWOSS_LOAD_WIKI_TOOLS } from "./lawoss/hidden-upstream-tools.js";
 import { yoloModeActive, yoloPermissions } from "./lawoss/yolo-mode.js";
 import { sandboxEngineAgents, sandboxEnginePermissions } from "./agent-sandbox/engine-policy.js";
@@ -302,6 +302,8 @@ export async function buildLegalworkRuntimeConfigObject(
     // Enable bounded output reads in the native explore agent, whose default
     // denies unknown tools. User and firm rules follow and keep precedence.
     permission: { ...(!Object.hasOwn(permission, "legalwork_tool_output_read") ? { legalwork_tool_output_read: "allow" } : {}),
+      // LAWOSS: reading case memory needs no card (lawoss/matter-memory.ts); the lawyer's and firm's rules follow and win.
+      ...(!Object.hasOwn(permission, LAWOSS_MEMORY_TOOL) ? { [LAWOSS_MEMORY_TOOL]: "allow" } : {}),
       ...permission,
       // LAWOSS: lawoss_files asks with its own key, derived from edit, after any `*` rule (lawoss/tool-permission-defaults.ts).
       [FILE_CHANGE_PERMISSION]: fileChangeRule(permission, false), legalwork_project_set_instructions: instructionPermission },
@@ -368,6 +370,8 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkPluginPath("lawoss-linked-folders"), config),
       // LAWOSS: premenovanie/presun/zmazanie s jednou kartou (lawoss/file-operations.ts).
       bundledPluginSpec(legalworkPluginPath("lawoss-file-operations"), config),
+      // LAWOSS: čítanie pamäte spisu bez shellu a bez karty (lawoss/matter-memory.ts).
+      bundledPluginSpec(legalworkPluginPath("lawoss-memory-tools"), config),
       // LAWOSS: wiki sa v alfe nenačíta (spec 0017 S1, lawoss/hidden-upstream-tools.ts).
       ...(LAWOSS_LOAD_WIKI_TOOLS ? [bundledPluginSpec(legalworkWikiToolsPluginPath(), config)] : []),
       bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),

@@ -402,7 +402,7 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
  * Only the engine's chat credential: its token hash must match this runtime's secret. The client
  * ID alone is a request header (`x-legalwork-client-id`) for ordinary bearer tokens.
  */
-async function engineAgent(config: ServerConfig, actor: Actor | undefined): Promise<boolean> {
+export async function engineAgent(config: ServerConfig, actor: Actor | undefined): Promise<boolean> {
   if (actor?.type !== "remote" || !actor.clientId?.startsWith("wiki-agent:") || !actor.tokenHash) return false;
   const expected = Buffer.from(createHash("sha256").update(await ensureWikiAgentToken(config)).digest("hex"));
   const received = Buffer.from(actor.tokenHash);

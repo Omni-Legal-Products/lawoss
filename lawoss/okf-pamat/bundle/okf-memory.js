@@ -1414,11 +1414,11 @@ function readManualStatus(raw, records, today = new Date().toISOString().slice(0
 
 // src/cli.ts
 import { createHash as createHash2 } from "node:crypto";
-import { existsSync as existsSync3, lstatSync as lstatSync4, mkdirSync as mkdirSync3, readFileSync as readFileSync3, writeFileSync as writeFileSync3 } from "node:fs";
+import { existsSync as existsSync3, lstatSync as lstatSync5, mkdirSync as mkdirSync3, readFileSync as readFileSync2, writeFileSync as writeFileSync3 } from "node:fs";
 import { isAbsolute as isAbsolute3, join as join6, resolve as resolve4 } from "node:path";
 
 // src/store.ts
-import { closeSync, constants, existsSync as existsSync2, fstatSync, lstatSync, mkdirSync, openSync, readFileSync as readFileSync2, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync as existsSync2, lstatSync as lstatSync2, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join as join2, relative, resolve, sep as sep2 } from "node:path";
 
@@ -2172,7 +2172,46 @@ function assertHasSource(after) {
 }
 
 // src/config.ts
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+
+// src/safe-read.ts
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
+var FILE_BYTE_LIMIT = 2 * 1024 * 1024;
+var STORE_BYTE_LIMIT = 16 * 1024 * 1024;
+var STORE_FILE_LIMIT = 2000;
+function readRegularFile(path, limit = FILE_BYTE_LIMIT) {
+  const named = lstatSync(path);
+  if (named.isSymbolicLink())
+    throw new Error(`Symbolický odkaz nie je povolený: ${path}`);
+  if (!named.isFile())
+    throw new Error(`Nie je bežný súbor: ${path}`);
+  const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    const opened = fstatSync(fd);
+    if (!opened.isFile() || opened.dev !== named.dev || opened.ino !== named.ino)
+      throw new Error(`Súbor sa zmenil počas čítania: ${path}`);
+    if (opened.size > limit)
+      throw new Error(`Súbor prekračuje limit ${limit} bajtov: ${path}`);
+    const buffer = Buffer.alloc(Math.min(opened.size + 1, limit + 1));
+    let count = 0;
+    while (count < buffer.length) {
+      const read = readSync(fd, buffer, count, buffer.length - count, null);
+      if (read === 0)
+        break;
+      count += read;
+    }
+    if (count > limit)
+      throw new Error(`Súbor prekračuje limit ${limit} bajtov: ${path}`);
+    return buffer.subarray(0, count);
+  } finally {
+    closeSync(fd);
+  }
+}
+function readTextFile(path, limit = FILE_BYTE_LIMIT) {
+  return decodeText(readRegularFile(path, limit));
+}
+
+// src/config.ts
 import { join, sep } from "node:path";
 var CONFIG_FILE = "okf.config";
 function text(v) {
@@ -2188,7 +2227,7 @@ class ConfigReadError extends Error {
   }
 }
 function readConfigText(path) {
-  return decodeText(readFileSync(path));
+  return readTextFile(path);
 }
 var NOT_UTF8 = "súbor nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8";
 function damaged(value) {
@@ -2303,7 +2342,7 @@ function jurisdictionFromCard(dir) {
     const path = join2(dir, name);
     if (!existsSync2(path))
       continue;
-    const m = /^jurisdiction:\s*(cz|sk)\s*$/m.exec(decodeText(readFileSync2(path)));
+    const m = /^jurisdiction:\s*(cz|sk)\s*$/m.exec(readTextFile(path));
     if (m?.[1] === "cz" || m?.[1] === "sk")
       return m[1];
   }
@@ -2314,7 +2353,7 @@ function documentLanguageFromCard(dir) {
     const path = join2(dir, name);
     if (!existsSync2(path))
       continue;
-    const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(decodeText(readFileSync2(path)))?.[1];
+    const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(readTextFile(path))?.[1];
     if (!header)
       continue;
     const languageLines = header.split(/\r?\n/).filter((line) => /^language[ \t]*:/.test(line));
@@ -2361,10 +2400,15 @@ function readStore(dir) {
   const problems = [];
   try {
     const safeMemoryDir = join2(realpathSync(dir), MEMORY_DIR);
-    if (lstatSync(safeMemoryDir).isSymbolicLink())
+    if (lstatSync2(safeMemoryDir).isSymbolicLink())
       throw new Error("Symbolický odkaz na adresár pamäte nie je povolený.");
+    let total = 0, files = 0;
     for (const entry of readdirSync(safeMemoryDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const name = entry.name;
+      if (++files > STORE_FILE_LIMIT) {
+        problems.push({ file: memoryDir, message: `Pamäť má viac ako ${STORE_FILE_LIMIT} položiek; ďalšie záznamy (od ${name}) sa nenačítali.` });
+        break;
+      }
       if (entry.isDirectory()) {
         problems.push({ file: name, message: "Vnorený adresár pamäte nie je podporovaný; jeho záznamy neboli načítané." });
         continue;
@@ -2379,19 +2423,16 @@ function readStore(dir) {
         continue;
       try {
         const file = join2(safeMemoryDir, name);
-        const before = lstatSync(file);
-        if (!before.isFile() || before.isSymbolicLink())
+        const named = lstatSync2(file);
+        if (!named.isFile())
           throw new Error("Záznam pamäte musí byť bežný súbor.");
-        const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-        let source;
-        try {
-          const opened = fstatSync(fd);
-          if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino)
-            throw new Error("Záznam pamäte sa zmenil počas čítania.");
-          source = readFileSync2(fd, "utf8");
-        } finally {
-          closeSync(fd);
+        if (named.size <= FILE_BYTE_LIMIT && total + named.size > STORE_BYTE_LIMIT) {
+          problems.push({ file: memoryDir, message: `Pamäť prekračuje ${STORE_BYTE_LIMIT} bajtov; ďalšie záznamy (od ${name}) sa nenačítali.` });
+          break;
         }
+        const bytes = readRegularFile(file, Math.min(FILE_BYTE_LIMIT, STORE_BYTE_LIMIT - total));
+        total += bytes.length;
+        const source = bytes.toString("utf8");
         records.push(parseRecord(source));
         if (hasUnparsedBody(source)) {
           problems.push({ file: join2(memoryDir, name), message: "Časť obsahu (text pred prvou sekciou, zdvojená Truth/History alebo riadok History mimo tvaru udalosti) sa nedá načítať. Otvor celý zdrojový súbor; tento výpis nie je úplný." });
@@ -2421,7 +2462,7 @@ function slug(s) {
 function fileFor(store, r) {
   const existing = existsSync2(store.memoryDir) ? readdirSync(store.memoryDir).find((n) => n.startsWith(`${r.id}-`) || n === `${r.id}.md`) : undefined;
   const target = join2(store.memoryDir, existing ?? `${r.id}-${slug(r.title)}.md`);
-  if (existing && parseRecord(readFileSync2(target, "utf8")).id !== r.id) {
+  if (existing && parseRecord(readFileSync(target, "utf8")).id !== r.id) {
     throw new ConcurrentWriteError(`Cieľový súbor je obsadený iným ID než ${r.id}; zápis alebo mazanie bolo odmietnuté.`);
   }
   return target;
@@ -2534,7 +2575,7 @@ function linkResolver(store, zVnutraMemory) {
       if (!name.endsWith(".md") || [INDEX_FILE, LOG_FILE, LEGACY_INDEX_FILE].includes(name))
         continue;
       try {
-        const { id } = parseRecord(readFileSync2(join2(store.memoryDir, name), "utf8"));
+        const { id } = parseRecord(readFileSync(join2(store.memoryDir, name), "utf8"));
         if (!podlaId.has(id))
           podlaId.set(id, name);
       } catch {}
@@ -2574,7 +2615,7 @@ class ProjectionWriteError extends Error {
 }
 function projectionStat(path) {
   try {
-    return lstatSync(path);
+    return lstatSync2(path);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT")
       return;
@@ -2825,7 +2866,7 @@ function syncStatus(dir) {
   const scope = completeScope(dir);
   const store = scope.matter;
   const path = join2(dir, STATUS_FILE);
-  const existing = existsSync2(path) ? decodeText(readFileSync2(path)) : "";
+  const existing = existsSync2(path) ? decodeText(readFileSync(path)) : "";
   const next = renderStatus(existing, scope.records, store.jurisdiction, statusLinkResolver(dir), documentLanguageFromCard(dir));
   if (next !== existing)
     writeProjection(path, next, dir);
@@ -2837,7 +2878,7 @@ function retrofitStatusFile(dir, apply) {
   const path = join2(dir, STATUS_FILE);
   if (!existsSync2(path))
     return [];
-  const existing = decodeText(readFileSync2(path));
+  const existing = decodeText(readFileSync(path));
   const { text, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false), documentLanguageFromCard(dir));
   if (apply && inserted.length > 0)
     writeProjection(path, text, dir);
@@ -2912,7 +2953,7 @@ function findClientByPath(matterDir, maxUp) {
   }
   return;
 }
-function readScope(matterDir) {
+function readScope(matterDir, options = {}) {
   const matter = readStore(matterDir);
   let clientDir;
   let subjectDir;
@@ -2930,7 +2971,11 @@ function readScope(matterDir) {
   const client = clientDir ? readStore(clientDir) : undefined;
   const clientRecords = client?.records ?? [];
   const najdena = findOfficeDir(matterDir);
-  const officeDir = najdena && resolve(najdena) !== resolve(matterDir) ? najdena : undefined;
+  const kancelaria = najdena && resolve(najdena) !== resolve(matterDir) ? najdena : undefined;
+  const officeDir = options.office === false ? undefined : kancelaria;
+  if (kancelaria && !officeDir) {
+    configProblems.push({ file: kancelaria, message: "Pamäť kancelárie sa nenačítala: tento priečinok nie je kancelária praxe ani priečinok tohto klienta." });
+  }
   const office = officeDir ? readStore(officeDir) : undefined;
   const officeRecords = office?.records ?? [];
   const records = [...matter.records, ...subjectRecords, ...clientRecords, ...officeRecords];
@@ -2975,12 +3020,12 @@ function composePreamble(records) {
 // src/workspace-memory-types.ts
 var WORKSPACE_MEMORY_LIMITS = Object.freeze({ profileBytes: 256 * 1024, journalBytes: 4 * 1024 * 1024, sourceBytes: 2 * 1024 * 1024, totalBytes: 16 * 1024 * 1024, sources: 256 });
 // src/workspace-memory-reader.ts
-import { readdirSync as readdirSync2 } from "node:fs";
+import { readdirSync as readdirSync2, realpathSync as realpathSync3 } from "node:fs";
 import { isAbsolute as isAbsolute2, join as join4, resolve as resolve3, sep as sep4 } from "node:path";
 
 // src/workspace-memory-fs.ts
 import { createHash } from "node:crypto";
-import { closeSync as closeSync2, constants as constants2, fstatSync as fstatSync2, lstatSync as lstatSync2, openSync as openSync2, readSync, realpathSync as realpathSync2 } from "node:fs";
+import { closeSync as closeSync2, constants as constants2, fstatSync as fstatSync2, lstatSync as lstatSync3, openSync as openSync2, readSync as readSync2, realpathSync as realpathSync2 } from "node:fs";
 import { basename as basename2, dirname as dirname2, isAbsolute, join as join3, parse, relative as relative2, resolve as resolve2, sep as sep3 } from "node:path";
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -3012,7 +3057,7 @@ function checkedPath(path, kind, allowMissing = false) {
     current = resolve2(current, parts[i]);
     let stat;
     try {
-      stat = lstatSync2(current);
+      stat = lstatSync3(current);
     } catch (error) {
       if (allowMissing && missing(error))
         return false;
@@ -3050,7 +3095,7 @@ function physicalPathWithin(root, path, kind, allowMissing = false) {
       if (!allowMissing || !missing(error))
         throw error;
     }
-    if (lstatSync2(ancestor, { throwIfNoEntry: false }))
+    if (lstatSync3(ancestor, { throwIfNoEntry: false }))
       throw new Error(`Dangling symlink is not allowed: ${ancestor}`);
     const parent = dirname2(ancestor);
     if (parent === ancestor)
@@ -3076,12 +3121,12 @@ function readText(path, limit) {
     const buffer = Buffer.alloc(Math.min(Number(before.size) + 1, limit + 1));
     let count = 0;
     while (count < buffer.length) {
-      const n = readSync(fd, buffer, count, buffer.length - count, null);
+      const n = readSync2(fd, buffer, count, buffer.length - count, null);
       if (n === 0)
         break;
       count += n;
     }
-    const after = fstatSync2(fd, { bigint: true }), named = lstatSync2(path, { bigint: true });
+    const after = fstatSync2(fd, { bigint: true }), named = lstatSync3(path, { bigint: true });
     if (BigInt(count) !== before.size || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || named.isSymbolicLink() || before.ino !== named.ino || before.dev !== named.dev)
       throw new Error(`Source changed during read: ${path}`);
     const bytes = buffer.subarray(0, count);
@@ -3240,15 +3285,34 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
     }))].sort();
     const roots = new Map;
     const rootProblems = new Map;
+    const excludedRoots = [...new Set((options.excludedRoots ?? []).flatMap((root) => {
+      try {
+        return [resolve3(root), resolve3(realpathSync3.native(root))];
+      } catch {
+        return [resolve3(root)];
+      }
+    }))];
+    const excluded = (path) => excludedRoots.some((root) => contained(root, path));
+    const hidden = new Set;
     for (const root of profile.roots) {
       const path = resolve3(report.directory, root.path);
       roots.set(root.id, path);
+      if (excluded(path)) {
+        hidden.add(root.id);
+        rootProblems.set(root.id, `Root ${root.id} lies in a folder this host does not allow; it was not read.`);
+        continue;
+      }
       const authority = authorityFor(path, [report.directory, resolve3(directory), ...options.allowedRoots ?? [], ...grants]);
       if (!authority)
         rootProblems.set(root.id, `External root requires a caller grant: ${root.id}`);
       else {
         try {
-          roots.set(root.id, physicalPathWithin(authority, path, "directory"));
+          const physical = physicalPathWithin(authority, path, "directory");
+          if (excluded(physical)) {
+            hidden.add(root.id);
+            rootProblems.set(root.id, `Root ${root.id} lies in a folder this host does not allow; it was not read.`);
+          } else
+            roots.set(root.id, physical);
         } catch (error) {
           rootProblems.set(root.id, message(error));
         }
@@ -3260,7 +3324,7 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
       let path = resolve3(roots.get(source.root), source.path);
       if (isControlPath(path))
         throw new Error("Memory sources cannot alias reserved .lawoss control files.");
-      if (!rootProblems.has(source.root)) {
+      if (!rootProblems.has(source.root) && !excluded(path)) {
         try {
           path = physicalPathWithin(roots.get(source.root), path, "file", true);
           if (isControlPath(path))
@@ -3268,6 +3332,10 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
         } catch (error) {
           sourceProblems.set(source.id, message(error));
         }
+      }
+      if (hidden.has(source.root) || excluded(path)) {
+        sourceProblems.set(source.id, `Source ${source.id} lies in a folder this host does not allow; it was not read.`);
+        path = "[not shown: outside this client's folders]";
       }
       report.sources.push({ id: source.id, root: source.root, path, role: source.role, required: source.required, writable: externalProfile ? false : source.writable, anchors, sha256: null, bytes: 0, content: null, status: "error" });
     }
@@ -3334,7 +3402,7 @@ function renderWorkspaceMemory(report) {
 }
 // src/workspace-memory-writer.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
-import { chmodSync, closeSync as closeSync3, constants as constants3, fstatSync as fstatSync3, fsyncSync, lstatSync as lstatSync3, mkdirSync as mkdirSync2, openSync as openSync3, renameSync as renameSync2, unlinkSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { chmodSync, closeSync as closeSync3, constants as constants3, fstatSync as fstatSync3, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync2, openSync as openSync3, renameSync as renameSync2, unlinkSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { dirname as dirname3, join as join5 } from "node:path";
 class Conflict extends Error {
 }
@@ -3480,7 +3548,7 @@ function saveWorkspaceMemory(directory, request, options = {}) {
       return result;
     const assertLock = () => {
       checkedPath(lockPath, "file");
-      const held = fstatSync3(lockFd), named = lstatSync3(lockPath);
+      const held = fstatSync3(lockFd), named = lstatSync4(lockPath);
       if (held.ino !== named.ino || held.dev !== named.dev)
         throw new Conflict("Save lock was replaced externally.");
     };
@@ -3587,7 +3655,7 @@ function saveWorkspaceMemory(directory, request, options = {}) {
     }
     if (lockFd !== undefined) {
       try {
-        const held = fstatSync3(lockFd), named = lstatSync3(lockPath);
+        const held = fstatSync3(lockFd), named = lstatSync4(lockPath);
         if (!named.isSymbolicLink() && held.ino === named.ino && held.dev === named.dev)
           unlinkSync(lockPath);
       } catch (error) {
@@ -3672,7 +3740,7 @@ function workspaceProfilePresent(directory) {
     const control = join6(directory, ".lawoss");
     let stat;
     try {
-      stat = lstatSync4(control);
+      stat = lstatSync5(control);
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT")
         return false;
@@ -3681,7 +3749,7 @@ function workspaceProfilePresent(directory) {
     if (!stat.isDirectory())
       return true;
     try {
-      lstatSync4(join6(control, "memory-profile.json"));
+      lstatSync5(join6(control, "memory-profile.json"));
       return true;
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT")
@@ -3729,7 +3797,7 @@ function workspaceArguments(rest, save) {
     file: values.get("--file")
   };
 }
-function runCli(argv) {
+function runCli(argv, options = {}) {
   const [cmd, dir, ...rest] = argv;
   const apply = rest.includes("--apply");
   if (!cmd || !dir)
@@ -3748,7 +3816,7 @@ ${USAGE}` };
     if (cmd === "workspace-save") {
       let request;
       try {
-        request = JSON.parse(decodeText(readFileSync3(args.file)));
+        request = JSON.parse(decodeText(readFileSync2(args.file)));
       } catch (error) {
         return { code: 2, out: `Invalid request file: ${error instanceof Error ? error.message : String(error)}` };
       }
@@ -3776,11 +3844,11 @@ ${USAGE}` };
   }
   switch (cmd) {
     case "read": {
-      const scope = readScope(dir);
+      const scope = readScope(dir, options);
       const problems = [...scope.problems];
       const inputs = [];
       try {
-        const status = readManualStatus(decodeText(readFileSync3(join6(dir, STATUS_FILE))), scope.records);
+        const status = readManualStatus(readTextFile(join6(dir, STATUS_FILE)), scope.records);
         if (status.content)
           inputs.push(`## Ručný stav — ${join6(dir, STATUS_FILE)}`, status.message, status.content);
       } catch (error) {
@@ -3798,7 +3866,7 @@ ${USAGE}` };
       ];
       for (const { path, title } of contextFiles) {
         try {
-          inputs.push(`## ${title} — ${path}`, decodeText(readFileSync3(path)));
+          inputs.push(`## ${title} — ${path}`, readTextFile(path));
         } catch (error) {
           if (!(error instanceof Error && ("code" in error) && error.code === "ENOENT")) {
             problems.push({ file: path, message: error instanceof Error ? error.message : String(error) });
@@ -3823,7 +3891,7 @@ ${serializeRecord(maskRecord(r))}`),
 `) };
     }
     case "preamble": {
-      const scope = readScope(dir);
+      const scope = readScope(dir, options);
       const problems = problemLines(scope.problems);
       const body = composePreamble(scope.records);
       const lines = body ? [...problems, body] : problems;
@@ -3869,7 +3937,7 @@ ${serializeRecord(maskRecord(r))}`),
       try {
         if (!apply) {
           const statusPath = join6(dir, "_STATUS.md");
-          const before = existsSync3(statusPath) ? decodeText(readFileSync3(statusPath)) : "";
+          const before = existsSync3(statusPath) ? decodeText(readFileSync2(statusPath)) : "";
           const after = renderStatus(before, s.records, s.jurisdiction, statusLinkResolver(dir), documentLanguageFromCard(dir));
           const zmena = before === after ? "bez zmeny" : "_STATUS.md by sa zmenil";
           return ok(`dry-run: ${zmena}; INDEX.md by dostal ${riadkov(s.records.length)}. Zapíš s --apply.`);
@@ -3948,7 +4016,7 @@ ${USAGE}` };
         return { code: 2, out: `Súbor návrhu neexistuje: ${file}` };
       let after;
       try {
-        after = parseRecord(decodeText(readFileSync3(file)));
+        after = parseRecord(decodeText(readFileSync2(file)));
       } catch (e) {
         return { code: 2, out: `Návrh sa nedá prečítať: ${e instanceof Error ? e.message : String(e)}` };
       }

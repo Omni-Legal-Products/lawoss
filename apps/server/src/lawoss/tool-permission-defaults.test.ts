@@ -10,7 +10,7 @@ import {
   closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, readGlobalToolPermissions, readRuntimeOpencodeConfigText, writeRuntimeOpencodeConfig,
 } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
-import { fileChangeRule, withLawossToolDefaults } from "./tool-permission-defaults.js";
+import { LAWOSS_MEMORY_TOOL, fileChangeRule, withLawossToolDefaults } from "./tool-permission-defaults.js";
 import { writeYoloMode } from "./yolo-mode.js";
 
 /**
@@ -68,7 +68,7 @@ function shell(config: ServerConfig, reply: () => "allow" | "deny" | "always" | 
 
 async function engineFile(config: ServerConfig) {
   await writeLegalworkRuntimeConfigFile(config, "ws_1");
-  const parsed: { permission: Record<string, unknown>; agent: Record<string, { permission?: Record<string, unknown> }> } =
+  const parsed: { permission: Record<string, unknown>; agent: Record<string, { permission?: Record<string, unknown> }>; plugin?: string[] } =
     JSON.parse(await readFile(legalworkRuntimeConfigFilePath(config), "utf8"));
   return parsed;
 }
@@ -108,6 +108,18 @@ test("the engine file carries the lawoss_files rule after any wildcard, for chat
   expect(Object.keys(scheduled).indexOf("lawoss_file_change")).toBeGreaterThan(Object.keys(scheduled).indexOf("*"));
   await writeYoloMode(config, true);
   expect((await engineFile(config)).agent.legalwork?.permission?.lawoss_file_change).toBe("allow");
+});
+
+test("reading case memory (lawoss_memory) needs no card; the lawyer's own rule and a later wildcard still win", async () => {
+  const { config } = await setup();
+  const clean = await engineFile(config);
+  expect(clean.permission[LAWOSS_MEMORY_TOOL]).toBe("allow");
+  expect((clean.plugin ?? []).some((spec) => spec.includes("lawoss-memory-tools"))).toBe(true);
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { [LAWOSS_MEMORY_TOOL]: "deny" } }));
+  expect((await engineFile(config)).permission[LAWOSS_MEMORY_TOOL]).toBe("deny");
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "deny" } }));
+  const keys = Object.keys((await engineFile(config)).permission);
+  expect(keys.indexOf("*")).toBeGreaterThan(keys.indexOf(LAWOSS_MEMORY_TOOL));
 });
 
 test("a clean profile asks in the engine file, in Settings and for scheduled all-projects runs; stored allow is respected", async () => {
