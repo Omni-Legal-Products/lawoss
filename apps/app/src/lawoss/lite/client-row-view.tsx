@@ -72,7 +72,7 @@ export function useClientRowActive(projectId: string, isSelected: boolean): bool
  * meno je v `data-lawoss-native-name`, aby ho natívny pomocník Files našiel presne aj pri mene z karty.
  */
 export function ClientRowLabel({ row }: { row: ClientRow }) {
-  return <span className={row.client ? "line-clamp-2 block whitespace-normal break-words" : "block truncate"} title={row.tooltip}
+  return <span className={row.client ? "line-clamp-2 whitespace-normal break-words" : "block truncate"} title={row.tooltip}
     data-lawoss-row-label="" data-lawoss-native-name={row.nativeLabel}>{row.label}</span>;
 }
 

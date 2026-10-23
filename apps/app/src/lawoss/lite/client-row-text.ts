@@ -11,7 +11,7 @@ export const ANCESTOR_CLASS = "font-medium text-sidebar-foreground bg-sidebar-ac
 
 /** Farba textu lehoty: zmeškaná/na overenie červeno, blížiaca sa zlato (ako bod naliehavosti); význam nesie text. */
 export function urgencyTextClass(urgency: string | undefined): string {
-  return urgency === "hot" ? "text-destructive" : urgency === "near" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground";
+  return urgency === "hot" ? "text-destructive" : urgency === "near" ? "lw-row-near" : "text-muted-foreground";
 }
 
 /** Krátky dátum do úzkeho riadku: deň a mesiac, iný rok s rokom (lehota o rok nesmie vyzerať ako budúci týždeň). */
