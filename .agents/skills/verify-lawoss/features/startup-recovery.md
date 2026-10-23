@@ -32,6 +32,11 @@ For a protected Linux preflight failure, use the finite `preflight` boundary/too
 
 A recognized tool-entry refusal may also carry `toolTrust`: first rejected `symlink`, `owner`, `writable` or `type` from the same cached admission metadata; file `type` additionally distinguishes `non-regular` and `link-count`. These fields apply only to the fixed tool-entry steps and original unverified code. The parser keeps its separate parser-trust boundary. Missing detail remains unknown, and a native filesystem error supplies no invented metadata predicate. The original guards and root0755 policy remain unchanged.
 
+A type/link-count entry refusal may also carry frozen `toolTrust.linkCount`:
+exact safe counts0..65535 or value65535/capped:true. It comes from the same
+original getter and never admits a multiply linked tool. Invalid optional
+metadata leaves legacy refusal fields intact. Missing count stays unknown.
+
 For missing Windows discovery, inspect the failure-only finite `mainLog` categories after verified native closure. Isolated Windows alpha launches explicitly opt into thirty-two once-only checkpoints in the existing private log: main configuration, icons, service/runtime construction, single-instance lock result, ready registration/entry, and entered/returned pairs around Actaport bundle/environment, runtime preparation, workspace/config/workflow migration and UI bridge startup. Only exact whole-line markers become `startup-*` categories; `returned` can follow an already handled rejection and does not assert success. Seven constructor milestones use a private optional nonthrowing callback after the original state/path/sidecar/Office operations, preserving the original getPath order and exact thrown error. `runtime-documents-returned` covers both the original documents lookup and pure projects-directory join; it is not an isolated OS-call timing. Both earlier d794 Windows targets reached only services-returned, with no exact failing constructor call measured. No fallback or extra path query follows from that absence. These bounded synchronous log writes can perturb timing. This is not a timing trace. Main awaits UI bridge startup before scheduling runtime bootstrap, but catches its rejection, so missing discovery does not prove bootstrap never began. Log observations can narrow a reached boundary but cannot authenticate a root cause. Raw logs remain private. Current checkpoint behavior still requires a native Windows observation.
 
 Keep Windows cold prerequisite results separate from installed startup: the isolated JSON probe uses another fresh runner and cannot warm the original ownership suite. Its checkpoint delivery timings do not identify the cause of a startup timeout.
@@ -59,6 +64,18 @@ After Linux installation preflight, `operationFailure` freezes the existing fail
 After the same original root/ancestor/canonical checks pass, a failed tree validation may also carry `rootAccess`: permission `modeBits` (0..511), `otherRead` and `otherSearch`. They come only from the root's already-read metadata, before the original directory read; observer failures cannot replace validation. This is mode observation, not ACL/effective-access or root-cause proof. The first bc4 Linux x64 failure localized `scandir` to the payload root but predates this field, so its actual mode remains unknown. Preserve the original failure and do not infer a permission repair from a modeled owner-transfer mechanism.
 
 Only a thrown error from the original symlink realpath await may add `linkResolution`: bounded scope/depth for the invocation `entry` and already computed `lexicalTarget`. Existing `filesystem` still describes original error.path. These three depths may differ. RootAccess remains the existing fourth operation argument; the optional link snapshot is fifth and is unrelated to the preflight tool argument. Metadata is copied into a closed deep-frozen record after eligibility checks, with proxies/accessors rejected; observation adds no resolution or permission read. A lexical target is neither the physical target nor the denied component. Earlier readlink/containment failures and returned physical escapes do not manufacture this field.
+
+Only the opted-in protected wrapper may add separate `linkTargetContext`
+after the original realpath EACCES and old link observer. It samples at most
+16 increasing lexical prefixes with lstat, stopping at links, untrusted
+directories, wrong types, errors or the cap. Mode bits/ownership/depth and
+closed stop categories are post-failure samples, not cached original access
+or a denied-component/ACL diagnosis. Root is not reread, resolution is not
+retried, and the original error/guards/cleanup stay unchanged. Path-based
+sampling can race ancestor replacement; only call count is bounded, not
+filesystem latency. Invalid optional context leaves legacy fields intact.
+Native Linux collection remains separate from metadata models and source
+forwarding checks; these fields grant no permission or startup success.
 
 The final-artifact startup probe binds its existing before/captured/after observations and retained evidence observation to the same native window source ID and renderer `performance.timeOrigin`. A same-URL document reload or changed window refuses publication. The public capture records only a finite verified/same/same binding; exact IDs and time origin stay in private evidence. No requests, retries or deadlines are added. This correspondence check does not prove compositor presentation or clear visual review: inspect the actual pixels, preserve Connecting-only or Ready-only images and keep their original pending receipt. Older receipts remain unchanged.
 
