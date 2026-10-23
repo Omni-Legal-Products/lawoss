@@ -7,7 +7,7 @@ import { resolveWorkspaceListSelectedId, workspaceCreate, workspaceSetRuntimeAct
 import { canonicalDirectoryPath, pickDirectory } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/utils";
 import { resolveLegalworkConnection } from "./legalwork-connection";
-import { installMissingOnboardingSkills } from "@/lawoss/domains/onboarding/install-pack";
+import { installMissingOnboardingSkills, installOnboardingSkillsQuietly } from "@/lawoss/domains/onboarding/install-pack";
 import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork";
 import { onboardingLanding } from "@/lawoss/domains/onboarding/landing";
 import { writeActiveWorkspaceId } from "./session-memory";
@@ -92,7 +92,8 @@ export function WelcomeRoute() {
     const okf = status.profile?.okf?.enabled === true;
     const activeId = registered?.id;
     if (registered && okf) {
-      await installMissingOnboardingSkills(registered.client, registered.id, status.profile?.language ?? "sk");
+      // 🟡 LAWOSS: zlyhanie skillov nezhodí dokončenie (skilly sú pomôcka, N-A2-4).
+      await installOnboardingSkillsQuietly(registered.client, registered.id, status.profile?.language ?? "sk");
       // Skilly ostatným klientom dávky; zlyhanie neprekazí dokončenie, pri otvorení klienta sa doplnia.
       for (const other of completion?.clients ?? []) if (other.workspace && other.workspace.id !== registered.id) await installMissingOnboardingSkills(registered.client, other.workspace.id, status.profile?.language ?? "sk").catch((reason: unknown) => console.warn("[lawoss] OKF skills for another practice client", reason));
     }

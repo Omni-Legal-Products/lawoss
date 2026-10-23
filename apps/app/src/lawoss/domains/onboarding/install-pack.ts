@@ -25,3 +25,13 @@ export async function installMissingOnboardingSkills(client: OkfSkillClient & Pa
   await reloadAfterSkillWrites(client, workspaceId, result.written);
   return result;
 }
+
+/**
+ * Dokončenie onboardingu: skilly sú pomôcka, nie podmienka (N-A2-4, MČ 23. 10. 2026). Zlyhanie sa len
+ * zapíše, aby advokát po otvorenom chate alebo „Otvoriť LAWOSS“ neskončil na „Niečo sa nepodarilo“
+ * (V10c: `Skill not found: novy-spis`); chýbajúce skilly sa doplnia pri otvorení klienta.
+ */
+export async function installOnboardingSkillsQuietly(client: OkfSkillClient & Partial<Pick<LegalworkServerClient, "reloadEngine">>, workspaceId: string, locale: Language): Promise<OkfSkillRefresh | null> {
+  try { return await installMissingOnboardingSkills(client, workspaceId, locale); }
+  catch (reason) { console.warn("[lawoss] OKF skills after onboarding", reason); return null; }
+}
