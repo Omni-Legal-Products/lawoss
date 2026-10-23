@@ -48,6 +48,10 @@ export type MatterInput = {
   inheritedIntakes?: readonly { content: string; path: string; scope: "client" }[];
   /** Názov klienta z jeho karty (`client.md`/`klient.md`, pole `title`), ak vec patrí klientovi. */
   clientTitle?: string;
+  /** Cesta karty klienta, z ktorej je `clientTitle` (zdroj položky „Klient“ v prehľade). */
+  clientCardPath?: string;
+  /** Oblasti kancelárie z `okf.config` (`areas`) a cesta súboru; prehľad ich berie ako slovník oblastí. */
+  officeAreas?: { areas: readonly string[]; file: string };
   /** Mapped legacy-memory files visible to the user but never converted into typed records. */
   existingMemorySources?: readonly string[];
   manualStatus?: ManualStatus;

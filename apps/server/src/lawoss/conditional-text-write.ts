@@ -1,4 +1,4 @@
-import { lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { ApiError } from "../errors.js";
@@ -41,8 +41,12 @@ export async function writeConditionalText(root: string, path: string, content: 
     await check();
     await mkdir(dirname(path), { recursive: true });
     const temporary = `${path}.tmp-${randomUUID()}`;
+    // Prepis existujúceho súboru zachová jeho práva (karta prípadu na zdieľanom disku kancelárie);
+    // nový súbor dostane pôvodné predvolenie.
+    const existing = await stat(path).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; });
     try {
-      await writeFile(temporary, content, { encoding: "utf8", flag: "wx", mode: expectedContent === undefined ? 0o666 : 0o600 });
+      await writeFile(temporary, content, { encoding: "utf8", flag: "wx", mode: existing ? existing.mode & 0o777 : expectedContent === undefined ? 0o666 : 0o600 });
+      if (existing && process.platform !== "win32") await chmod(temporary, existing.mode & 0o777);
       await check();
       await rename(temporary, path);
     } finally { await rm(temporary, { force: true }); }
