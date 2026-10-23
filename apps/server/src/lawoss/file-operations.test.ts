@@ -7,7 +7,7 @@ import { closeRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runti
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
-import { applyFileOperations, FOLDER_SURVEY_LIMIT, LAWOSS_TRASH_FOLDER, planFileOperations, visibleName } from "./file-operations.js";
+import { applyFileOperations, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, LAWOSS_TRASH_FOLDER, planFileOperations, systemTrashReliable, visibleName, type PlannedFileOperation } from "./file-operations.js";
 
 const roots: string[] = [];
 const stops: Array<() => void | Promise<void>> = [];
@@ -185,6 +185,81 @@ test("another client's folder, the client folder itself, app and version-control
   await expect(planFileOperations(config, workspace, [{ operation: "create_folder", path: join(client, ".opencode", "x") }])).rejects.toMatchObject({ code: "file_operation_protected" });
   expect(await readFile(join(client, ".git", "HEAD"), "utf8")).toBe("ref: refs/heads/dev");
   expect(await readFile(join(other, "tajne.txt"), "utf8")).toBe("SYN iny klient");
+});
+
+test("a client registered inside this client's folder is out of reach, its folder and any folder holding it too (review #221)", async () => {
+  const { config, client, workspace } = await office();
+  const nested = join(client, "Klienti-vnorene", "C099-Vnoreny");
+  await mkdir(nested, { recursive: true });
+  await writeFile(join(nested, "zmluva.txt"), "SYN vnoreny klient");
+  config.workspaces.push({ id: "ws_c099", name: "C099", path: nested, preset: "starter", workspaceType: "local" });
+  for (const operations of [
+    [{ operation: "copy", from: join(nested, "zmluva.txt"), to: join(client, "kopia.txt") }],
+    [{ operation: "move", from: join(client, "poznamky.txt"), to: join(nested, "poznamky.txt") }],
+    [{ operation: "delete", path: nested }],
+    [{ operation: "delete", path: join(client, "Klienti-vnorene") }],
+    [{ operation: "move", from: join(client, "Klienti-vnorene"), to: join(client, "Archiv") }],
+    [{ operation: "create_folder", path: join(nested, "Novy") }],
+  ]) {
+    const refused = await planFileOperations(config, workspace, operations).catch((error: unknown) => error);
+    expect(refused).toMatchObject({ status: 403, code: "file_operation_outside_client" });
+    expect(String(Reflect.get(Object(refused), "message"))).not.toContain("C099");
+  }
+  if (await caseInsensitive(client))
+    await expect(planFileOperations(config, workspace, [{ operation: "delete", path: join(client, "KLIENTI-VNORENE", "c099-vnoreny", "zmluva.txt") }]))
+      .rejects.toMatchObject({ code: "file_operation_outside_client" });
+  // The client's own files stay reachable.
+  expect((await planFileOperations(config, workspace, [{ operation: "copy", from: join(client, "poznamky.txt"), to: join(client, "kopia.txt") }])).operations).toHaveLength(1);
+  expect(await readFile(join(nested, "zmluva.txt"), "utf8")).toBe("SYN vnoreny klient");
+});
+
+test("a move never replaces a file that appeared after the approval check (review #221)", async () => {
+  const { config, client, workspace } = await office();
+  const step = (from: string, to: string, kind: "file" | "folder" = "file"): PlannedFileOperation =>
+    ({ operation: "move", kind, from, to, source: join(client, from), target: join(client, to), sourceRoot: client });
+  // An editor saved the target between the re-plan and the change.
+  await writeFile(join(client, "nove.txt"), "SYN ulozene editorom");
+  await expect(executePlannedFileOperation(config, step("poznamky.txt", "nove.txt"))).rejects.toMatchObject({ code: "file_operation_target_exists" });
+  expect(await readFile(join(client, "nove.txt"), "utf8")).toBe("SYN ulozene editorom");
+  expect(await readFile(join(client, "poznamky.txt"), "utf8")).toBe("SYN poznamky");
+  await mkdir(join(client, "Archiv"));
+  await expect(executePlannedFileOperation(config, step("Pripady", "Archiv", "folder"))).rejects.toMatchObject({ code: "file_operation_target_exists" });
+  expect(await readFile(join(client, "Pripady", "M001", "zmluva.txt"), "utf8")).toBe("SYN zmluva");
+  // A free target still moves; the file keeps its identity and content.
+  await executePlannedFileOperation(config, step("poznamky.txt", "presunute.txt"));
+  expect(await readFile(join(client, "presunute.txt"), "utf8")).toBe("SYN poznamky");
+  expect(await readdir(client)).not.toContain("poznamky.txt");
+});
+
+/** A second volume for a real cross-device move: tmpfs on Linux, or `LAWOSS_TEST_OTHER_VOLUME` (e.g. a macOS RAM disk); else skipped. */
+const otherVolume = process.env.LAWOSS_TEST_OTHER_VOLUME ?? (process.platform === "linux" ? "/dev/shm" : null);
+const otherVolumeReady = otherVolume !== null && await access(otherVolume).then(() => true, () => false);
+test.skipIf(!otherVolumeReady)("a move to a linked folder on another volume copies, verifies and sends the original to the Trash (review #221)", async () => {
+  const { config, client, workspace } = await office();
+  const remote = await realpath(await mkdtemp(join(otherVolume ?? tmpdir(), "lawoss-files-nas-")));
+  roots.push(remote);
+  await writeRuntimeOpencodeConfig(config, "ws_c001", () => ({ permission: { external_directory: { [`${remote}/*`]: "allow" } } }));
+  const operations = [
+    { operation: "move", from: join(client, "poznamky.txt"), to: join(remote, "poznamky.txt") },
+    { operation: "move", from: join(client, "Pripady"), to: join(remote, "Pripady") },
+  ];
+  const plan = await planFileOperations(config, workspace, operations);
+  const result = await applyFileOperations(config, workspace, operations, plan.operations, plan.revision);
+  expect(result.complete).toBe(true);
+  expect(await readFile(join(remote, "poznamky.txt"), "utf8")).toBe("SYN poznamky");
+  expect(await readFile(join(remote, "Pripady", "M001", "zmluva.txt"), "utf8")).toBe("SYN zmluva");
+  // The originals are recoverable in the client's own Trash folder (no desktop host in this test).
+  for (const entry of result.results) expect(entry.trash).toMatch(new RegExp(`^${LAWOSS_TRASH_FOLDER}/`));
+  expect(await readdir(client)).not.toContain("poznamky.txt");
+});
+
+test("on Windows only the system drive's Recycle Bin is trusted; network and other drives use .lawoss-kos (review #221)", () => {
+  expect(systemTrashReliable("C:\\Klienti\\C001\\a.pdf", "win32", "C:")).toBe(true);
+  expect(systemTrashReliable("c:\\Klienti\\C001\\a.pdf", "win32", "C:")).toBe(true);
+  expect(systemTrashReliable("Z:\\Klienti\\C001\\a.pdf", "win32", "C:")).toBe(false);
+  expect(systemTrashReliable("\\\\nas\\share\\C001\\a.pdf", "win32", "C:")).toBe(false);
+  expect(systemTrashReliable("\\\\?\\C:\\Klienti\\a.pdf", "win32", "C:")).toBe(false);
+  expect(systemTrashReliable("/Volumes/NAS/C001/a.pdf", "darwin")).toBe(true);
 });
 
 test("a case-only rename of the same file is allowed and verified by its listed name", async () => {

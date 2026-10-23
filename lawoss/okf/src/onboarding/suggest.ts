@@ -106,11 +106,21 @@ function matchPattern(index: ChildIndex, pattern: string): SuggestedClient[] {
   return level.filter(Boolean).map(path => ({ path, name: nameOf(path) }));
 }
 
+/** Podpriečinky kandidáta, v ktorých môže ležať vec: priamo pod ním aj pod `Spisy/` (štruktúra OKF), ako v `mattersOf`. */
+function matterLevelDirs(index: ChildIndex, parent: string): SurveyEntry[] {
+  const dirs = childrenOf(index, parent).filter(entry => entry.kind === "directory");
+  const filed = dirs.filter(entry => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()))
+    .flatMap(folder => childrenOf(index, folder.path).filter(entry => entry.kind === "directory"));
+  return [...dirs, ...filed];
+}
+
 /**
  * Kódovaná hierarchia (R1 bod 1A): aspoň dvaja kandidáti na klienta s kódom jedného prefixu (C002, C017, C022),
- * kódovaní tvoria väčšinu kandidátov a každý z nich má podpriečinok s kódom iného prefixu (M004…). Iný prefix
- * na druhej úrovni odlíši prax od klienta s číslovanými vecami (M001…M003 so súbormi). Ak sa kódovaní pomenúvajú
- * slovom veci („M001 Spor“, „M002 Zmluva“), sú to veci jedného klienta, nie klienti (review A4, I-1).
+ * kódovaní tvoria väčšinu kandidátov a aspoň dvaja z nich majú podpriečinok (aj pod `Spisy/`) s kódom iného
+ * prefixu (M004…). Nový klient zatiaľ bez veci prax nezhodí na jedného klienta (review #221). Iný prefix na
+ * druhej úrovni odlíši prax od klienta s číslovanými vecami (M001…M003 so súbormi); rovnaký prefix pod
+ * kódovaným kandidátom (C001/C010) prax vylúči. Ak sa kódovaní pomenúvajú slovom veci („M001 Spor“,
+ * „M002 Zmluva“), sú to veci jedného klienta, nie klienti (review A4, I-1).
  */
 function codedHierarchy(index: ChildIndex, candidates: readonly SurveyEntry[]): boolean {
   const coded = candidates.flatMap(candidate => { const code = codeOf(nameOf(candidate.path)); return code ? [{ candidate, code }] : []; });
@@ -119,10 +129,10 @@ function codedHierarchy(index: ChildIndex, candidates: readonly SurveyEntry[]): 
   const [prefix] = prefixes;
   if (prefixes.size !== 1 || !prefix) return false;
   if (coded.filter(({ code }) => startsWithMatterWord(code.rest)).length * 2 >= coded.length) return false;
-  return coded.every(({ candidate }) => childrenOf(index, candidate.path).some(entry => {
-    const child = entry.kind === "directory" ? codeOf(nameOf(entry.path)) : undefined;
-    return child !== undefined && child.prefix !== prefix;
-  }));
+  const childPrefixes = coded.map(({ candidate }) => matterLevelDirs(index, candidate.path)
+    .flatMap(entry => { const child = codeOf(nameOf(entry.path)); return child ? [child.prefix] : []; }));
+  if (childPrefixes.some(found => found.includes(prefix))) return false;
+  return childPrefixes.filter(found => found.length > 0).length >= CODED_MIN_CLIENTS;
 }
 
 /**
@@ -153,15 +163,18 @@ function mattersOf(index: ChildIndex, files: ReadonlySet<string>, unit: string):
   return [...filed, ...beside].map(entry => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
 }
 
-/** Strom náhľadu z prieskumu (počty súborov, prípady); prieskum sa nečíta znova. */
-function unitsOf(survey: FolderSurvey, index: ChildIndex, paths: readonly string[]): SuggestedUnit[] {
+/**
+ * Strom náhľadu z prieskumu (počty súborov, prípady); prieskum sa nečíta znova. `clients`: pri návrhu praxe jej
+ * klienti, ktorí nie sú prípadmi koreňa, hoci ich kód (C002) vyzerá ako kód veci (review #221).
+ */
+function unitsOf(survey: FolderSurvey, index: ChildIndex, paths: readonly string[], clients: ReadonlySet<string> = new Set()): SuggestedUnit[] {
   const files = new Set(survey.entries.filter(entry => entry.kind === "file").map(entry => entry.path));
   return paths.slice(0, UNIT_LIMIT).map(path => {
     const prefix = path ? `${path}/` : "";
     const inside = path ? survey.entries.filter(entry => entry.path.startsWith(prefix)) : survey.entries;
     // Priečinok v najväčšej hĺbke prieskumu sa už neotvoril: počty pod ním chýbajú.
     const exact = survey.complete && !inside.some(entry => entry.kind === "directory" && depthOf(entry.path) >= SURVEY_DEPTH);
-    const matters = mattersOf(index, files, path);
+    const matters = mattersOf(index, files, path).filter(matter => path || !clients.has(matter.path));
     return { path, matters: matters.slice(0, UNIT_MATTERS), matterCount: matters.length, files: inside.filter(entry => entry.kind === "file").length, exact };
   });
 }
@@ -170,7 +183,8 @@ export async function suggestOnboardingLevel(root: string): Promise<OnboardingSu
   const survey = await surveyFolder(root);
   const suggestion = await suggestFromSurvey(survey);
   const index = indexChildren(survey.entries);
-  const units = unitsOf(survey, index, ["", ...new Set([...suggestion.clients, ...suggestion.practiceCandidates].map(client => client.path))]);
+  const clients = new Set(suggestion.level === "practice" ? suggestion.clients.map(client => client.path) : []);
+  const units = unitsOf(survey, index, ["", ...new Set([...suggestion.clients, ...suggestion.practiceCandidates].map(client => client.path))], clients);
   return { ...suggestion, units };
 }
 

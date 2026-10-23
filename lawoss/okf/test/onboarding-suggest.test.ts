@@ -189,6 +189,27 @@ test("prax s tromi kódovanými klientmi (C0xx/M0xx) je prax so signálom coded_
   expect(suggestion.clients.map(client => client.path)).toEqual(["C002 SYN Hron Technológie, a. s.", "C017 SYN Zuzana Šimková", "C022 SYN Michal Ľupták servis"]);
   expect(suggestion.practiceCandidates).toEqual(suggestion.clients);
 });
+test("kódovaná prax ostane praxou aj s novým klientom bez prípadu a s prípadmi pod Spisy/ (review #221)", async () => {
+  const unit = (suggestion: Awaited<ReturnType<typeof suggestOnboardingLevel>>, path: string) => suggestion.units.find(entry => entry.path === path);
+  const fresh = await suggestOnboardingLevel(await tree(["C002 Hron/M004 Najem/a.pdf", "C017 Simkova/M049 Reklamacia/b.pdf", "C022 Novy klient/zmluva.pdf"]));
+  expect(fresh).toMatchObject({ level: "practice" });
+  expect(fresh.signals).toContain("coded_hierarchy");
+  expect(fresh.clients.map(client => client.path)).toEqual(["C002 Hron", "C017 Simkova", "C022 Novy klient"]);
+  // Klienti praxe nie sú prípadmi jej koreňa, hoci ich kód vyzerá ako kód veci.
+  expect(unit(fresh, "")?.matters).toEqual([]);
+  expect(unit(fresh, "C002 Hron")?.matters.map(matter => matter.path)).toEqual(["M004 Najem"]);
+  const filed = await suggestOnboardingLevel(await tree(["C001 Alfa/Spisy/M001 Uhrada/a.pdf", "C002 Beta/Spisy/M002 Najem/b.pdf", "C003 Gama/Spisy/M003 Kupa/c.pdf"]));
+  expect(filed).toMatchObject({ level: "practice" });
+  expect(filed.signals).toContain("coded_hierarchy");
+  expect(unit(filed, "")?.matters).toEqual([]);
+  expect(unit(filed, "C003 Gama")?.matters.map(matter => matter.path)).toEqual(["Spisy/M003 Kupa"]);
+  // Jeden kódovaný klient s prípadom nestačí: dvaja noví klienti bez prípadov ostávajú na rozhodnutí advokáta.
+  const single = await suggestOnboardingLevel(await tree(["C002 Hron/M004 Najem/a.pdf", "C017 Novy/zmluva.pdf", "C022 Novy/zmluva.pdf"]));
+  expect(single.signals).not.toContain("coded_hierarchy");
+  // Rovnaký prefix pod kódovaným kandidátom vylúči prax aj vedľa kandidátov s iným prefixom.
+  const mixed = await suggestOnboardingLevel(await tree(["C001 Alfa/M001 x/", "C002 Beta/M002 y/", "C003 Gama/C030 podklady/"]));
+  expect(mixed.signals).not.toContain("coded_hierarchy");
+});
 test("kódovaná hierarchia: negatívne prípady ostávajú klientom", async () => {
   // Štyri právne formy bez podpriečinkov, tematické priečinky klienta, jeden klient s číslovanými vecami so súbormi, holý Office.
   for (const paths of [

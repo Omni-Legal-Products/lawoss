@@ -10,17 +10,20 @@
  * obsah priečinka), nič nevykoná (409).
  *
  * Hranica: koreň klienta a jeho pripojené priečinky podľa tých istých pravidiel ako sandbox
- * (`linkableFolders`). Cudzí priečinok sa odmietne bez mena klienta, ktorému patrí. Nič sa
- * neprepíše: existujúci cieľ je chyba (okrem zmeny len veľkosti písmen toho istého súboru).
- * Zmazanie nie je trvalé: položka ide do systémového Koša (hostiteľ, `config.trashItem`), inak do
- * `.lawoss-kos/` v koreni, kde leží (rozhodnutie koordinátora alfa 2, I3). Výsledok hlási skutočný
- * stav disku.
+ * (`linkableFolders`), bez klientov zaregistrovaných vnútri koreňa (review #221). Cudzí priečinok sa
+ * odmietne bez mena klienta, ktorému patrí. Nič sa neprepíše: existujúci cieľ je chyba (okrem zmeny
+ * len veľkosti písmen toho istého súboru) a presun súboru cieľ nevytvorí, ak medzitým vznikol.
+ * Presun na iný disk alebo NAS je kópia, overenie obsahu a originál do Koša. Zmazanie nie je trvalé:
+ * položka ide do systémového Koša (hostiteľ, `config.trashItem`), inak do `.lawoss-kos/` v koreni,
+ * kde leží (rozhodnutie koordinátora alfa 2, I3); na Windows mimo systémového disku vždy do
+ * `.lawoss-kos/`, lebo Kôš sieťového disku položku zmaže natrvalo. Výsledok hlási skutočný stav disku.
  *
  * Routy prijmú len poverenie chatu z enginu: jeho `tokenHash` sa porovná s tajomstvom runtime
  * (`wiki/agent-access.ts`), nie s hlavičkou, ktorú môže poslať ktokoľvek.
  */
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { cp, lstat, mkdir, readdir, rename } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { cp, link, lstat, mkdir, readdir, readlink, rename, rm, unlink } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { z } from "zod";
@@ -32,7 +35,7 @@ import { addRoute, type RequestContext, type Route } from "../routes/registry.js
 import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ensureWikiAgentToken } from "../wiki/agent-access.js";
 import { isSensitiveWorkspacePath, resolveWorkspaceFilePath } from "./filesystem-boundary.js";
-import { linkableFolders } from "./linked-folders.js";
+import { linkableFolders, nestedClientRoots } from "./linked-folders.js";
 import { isPathWithin } from "./path-within.js";
 
 const path = z.string().min(1).max(4096);
@@ -110,11 +113,19 @@ function protectedPath(inside: string): boolean {
 
 type Located = { canonical: string; display: string; root: string };
 
+/** APFS and NTFS resolve names case-insensitively and macOS may hand over NFD: compare both folded. */
+const folded = (location: string) => process.platform === "linux" ? location : location.normalize("NFC").toLowerCase();
+/** The path lies in another client registered inside this one, or holds such a client. */
+function inNestedClient(nested: readonly string[], canonical: string): boolean {
+  return nested.some((other) => isPathWithin(folded(other), folded(canonical)) || isPathWithin(folded(canonical), folded(other)));
+}
+
 /** The canonical path in the client's folder or a linked folder; a link itself is moved, not its target. */
-async function locate(roots: Root[], requested: string): Promise<Located> {
+async function locate(roots: Root[], requested: string, nested: readonly string[]): Promise<Located> {
   for (const root of roots) {
     const canonical = await resolveWorkspaceFilePath(root.path, requested, { preserveLeaf: true }).catch(() => null);
     if (!canonical) continue;
+    if (inNestedClient(nested, canonical)) throw new ApiError(403, "file_operation_outside_client", OUTSIDE);
     const inside = relative(root.canonical, canonical);
     if (protectedPath(inside))
       throw new ApiError(403, "file_operation_protected", "This path holds app, version-control or Trash data and cannot be changed with this tool. Nothing was changed.");
@@ -164,7 +175,7 @@ async function sameNode(source: string, target: string): Promise<boolean> {
 async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, input: unknown): Promise<Planned[]> {
   if (workspace.preset === "wiki") throw new ApiError(409, "file_operation_wiki", "Use the wiki tools to change wiki pages.");
   const operations = operationsSchema.parse(input);
-  const roots = await clientRoots(config, workspace);
+  const roots = await clientRoots(config, workspace), nested = await nestedClientRoots(config, workspace);
   const created = new Map<string, "file" | "folder">(), removed = new Set<string>();
   const exists = async (location: string) => created.has(location)
     || ![...removed].some((gone) => isPathWithin(gone, location)) && (await present(location)) !== null;
@@ -180,7 +191,7 @@ async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, inpu
   for (const operation of operations) {
     if (operation.operation === "create_folder" || operation.operation === "delete") {
       // The client's folder or a linked folder itself is never a target (resolveWorkspaceFilePath refuses the root).
-      const target = await locate(roots, operation.path);
+      const target = await locate(roots, operation.path, nested);
       if (operation.operation === "create_folder") {
         if (await exists(target.canonical)) throw new ApiError(409, "file_operation_target_exists", `${target.display} already exists. Nothing was changed.`);
         created.set(target.canonical, "folder");
@@ -195,7 +206,7 @@ async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, inpu
       planned.push({ operation: "delete", kind, from: target.display, source: target.canonical, sourceRoot: target.root, identity: id, ...(kind === "folder" ? contents : {}) });
       continue;
     }
-    const source = await locate(roots, operation.from), target = await locate(roots, operation.to);
+    const source = await locate(roots, operation.from, nested), target = await locate(roots, operation.to, nested);
     if (!await exists(source.canonical)) throw new ApiError(404, "file_operation_missing", `${source.display} does not exist. Nothing was changed.`);
     const caseOnly = operation.operation === "move" && !created.has(target.canonical) && await sameNode(source.canonical, target.canonical);
     if (!caseOnly && await exists(target.canonical)) throw new ApiError(409, "file_operation_target_exists", `${target.display} already exists. This tool never overwrites. Nothing was changed.`);
@@ -226,10 +237,21 @@ export async function planFileOperations(config: ServerConfig, workspace: Worksp
   return { operations: publicPlan(plan), revision: revisionOf(plan) };
 }
 
+/**
+ * Windows Kôš na sieťovom disku (UNC, namapované písmeno) položku bez otázky zmaže natrvalo a ohlási
+ * úspech (review #221). Spoľahlivý je len na systémovom disku; inde ide položka do `.lawoss-kos/`.
+ */
+export function systemTrashReliable(location: string, platform: NodeJS.Platform = process.platform, systemDrive = process.env.SystemDrive ?? "C:"): boolean {
+  if (platform !== "win32") return true;
+  if (/^[\\/]{2}/.test(location)) return false;
+  const drive = /^([a-z]):/i.exec(location)?.[1];
+  return drive !== undefined && drive.toLowerCase() === systemDrive.replace(/[:\\/]+$/, "").toLowerCase();
+}
+
 /** Recoverable delete: the OS Trash via the desktop host, else `.lawoss-kos/` next to the item. */
 async function moveToTrash(config: ServerConfig, item: Planned): Promise<string> {
   if (!item.source || !item.sourceRoot) throw new Error("Incomplete plan.");
-  if (config.trashItem) {
+  if (config.trashItem && systemTrashReliable(item.source)) {
     try { await config.trashItem(item.source); return "system"; }
     catch { /* The OS Trash may be unavailable on a network volume: keep the item in the client's own Trash folder. */ }
     if ((await present(item.source)) === null) return "system";
@@ -243,15 +265,89 @@ async function moveToTrash(config: ServerConfig, item: Planned): Promise<string>
   return visibleName(`${prefix}${LAWOSS_TRASH_FOLDER}/${batch}/${inside.split(sep).join("/")}`);
 }
 
+const errorCode = (error: unknown) => error instanceof Error && "code" in error ? error.code : undefined;
+const targetExists = (item: Planned) => new ApiError(409, "file_operation_target_exists", `${item.to} already exists. This tool never overwrites. Nothing was changed.`);
+/** Hard links unsupported on this volume (exFAT, some network shares): the checked rename below is the fallback. */
+const NO_HARD_LINKS = new Set(["EPERM", "ENOTSUP", "EOPNOTSUPP", "EINVAL", "ENOSYS", "EMLINK"]);
+
+/** Content of a file or folder tree: names, kinds, sizes, SHA-256 of files and link targets. */
+async function treeDigest(location: string): Promise<string> {
+  const hash = createHash("sha256");
+  const pending = [location];
+  while (pending.length) {
+    const current = pending.shift() ?? location;
+    const info = await lstat(current);
+    const name = relative(location, current).split(sep).join("/");
+    if (info.isSymbolicLink()) hash.update(`L\0${name}\0${await readlink(current)}\n`);
+    else if (info.isDirectory()) {
+      hash.update(`D\0${name}\n`);
+      for (const child of (await readdir(current)).sort()) pending.push(join(current, child));
+    } else {
+      const file = createHash("sha256");
+      for await (const chunk of createReadStream(current)) file.update(chunk);
+      hash.update(`F\0${name}\0${info.size}\0${file.digest("hex")}\n`);
+    }
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * Another drive, a NAS or another mount (`EXDEV`): copy, compare the content, then send the original to the
+ * Trash, so it stays recoverable. A failed or different copy is removed and the original stays (review #221).
+ */
+async function moveAcrossVolumes(config: ServerConfig, item: Planned & { source: string; target: string }): Promise<string> {
+  try {
+    await cp(item.source, item.target, { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true, preserveTimestamps: true });
+    if (await treeDigest(item.source) !== await treeDigest(item.target)) throw new Error("The copy on the other drive differs from the original. The original was kept; nothing was moved.");
+  } catch (error) {
+    // Only the copy this call made is removed: the plan checked that the target did not exist.
+    if (errorCode(error) !== "EEXIST" && errorCode(error) !== "ERR_FS_CP_EEXIST") await rm(item.target, { recursive: true, force: true });
+    throw errorCode(error) === "EEXIST" || errorCode(error) === "ERR_FS_CP_EEXIST" ? targetExists(item) : error;
+  }
+  return moveToTrash(config, item);
+}
+
+/** A folder, or a file on a volume without hard links: rename only after checking the target is still free. */
+async function checkedRename(config: ServerConfig, item: Planned & { source: string; target: string }): Promise<string | undefined> {
+  if (await present(item.target)) throw targetExists(item);
+  try { await rename(item.source, item.target); return undefined; }
+  catch (error) { if (errorCode(error) === "EXDEV") return moveAcrossVolumes(config, item); throw error; }
+}
+
+/**
+ * A move never replaces an existing target, even one created after the plan (an editor saving, review #221):
+ * a file gets its new name as a hard link, which fails when the name exists, and only then loses the old one.
+ * Returns where the original went when the move had to copy it to another drive.
+ */
+async function moveWithoutReplacing(config: ServerConfig, item: Planned & { source: string; target: string }): Promise<string | undefined> {
+  if (item.caseOnly) { await rename(item.source, item.target); return undefined; }
+  if (item.kind === "folder") return checkedRename(config, item);
+  try { await link(item.source, item.target); }
+  catch (error) {
+    const code = errorCode(error);
+    if (code === "EEXIST") throw targetExists(item);
+    if (code === "EXDEV") return moveAcrossVolumes(config, item);
+    if (typeof code === "string" && NO_HARD_LINKS.has(code)) return checkedRename(config, item);
+    throw error;
+  }
+  await unlink(item.source);
+  return undefined;
+}
+
 async function execute(config: ServerConfig, item: Planned): Promise<string | undefined> {
   if (item.operation === "create_folder" && item.target) { await mkdir(item.target, { recursive: true }); return undefined; }
   if (item.operation === "delete") return moveToTrash(config, item);
-  if (!item.source || !item.target) throw new Error("Incomplete plan.");
-  await mkdir(dirname(item.target), { recursive: true });
-  if (item.operation === "move") await rename(item.source, item.target);
-  else await cp(item.source, item.target, { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true });
+  const { source, target } = item;
+  if (!source || !target) throw new Error("Incomplete plan.");
+  await mkdir(dirname(target), { recursive: true });
+  if (item.operation === "move") return moveWithoutReplacing(config, { ...item, source, target });
+  await cp(source, target, { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true });
   return undefined;
 }
+
+/** One approved step against the disk, without re-planning: tests reach the window between plan and change with it. */
+export { execute as executePlannedFileOperation };
+export type { Planned as PlannedFileOperation };
 
 /** The disk after the change, not the intention: the report the model passes on to the user. */
 async function verified(item: Planned): Promise<boolean> {

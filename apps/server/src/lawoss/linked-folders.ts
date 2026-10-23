@@ -241,6 +241,15 @@ export async function requireLinkableExternalDirectory(config: ServerConfig, wor
   await requireLinkableFolders(config, workspace, folders, []);
 }
 
+/**
+ * Kanonické korene iných klientov zaregistrovaných vnútri koreňa tohto klienta. Súborové nástroje klienta
+ * ich obchádzajú rovnako ako `externalDirectoryAllowed` (najhlbší registrovaný koreň vlastní cieľ, review #221).
+ */
+export async function nestedClientRoots(config: ServerConfig, workspace: WorkspaceInfo): Promise<string[]> {
+  const { ownRoot, otherRoots } = await conflictScope(config, workspace);
+  return ownRoot ? otherRoots.filter((root) => root !== ownRoot && isPathWithin(ownRoot, root)) : [];
+}
+
 /** Priečinky klienta na zdieľanie do sandboxu: len tie, ktoré pravidlá pripojených priečinkov dovolia. */
 export async function linkableFolders(config: ServerConfig, workspace: WorkspaceInfo, folders: readonly string[]): Promise<string[]> {
   // Wiki nie je klient: jej povolenia projektov majú vlastné pravidlá (wiki/access.ts).

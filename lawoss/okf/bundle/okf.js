@@ -1443,6 +1443,11 @@ function matchPattern(index, pattern) {
   }
   return level.filter(Boolean).map((path) => ({ path, name: nameOf(path) }));
 }
+function matterLevelDirs(index, parent) {
+  const dirs = childrenOf(index, parent).filter((entry) => entry.kind === "directory");
+  const filed = dirs.filter((entry) => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase())).flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
+  return [...dirs, ...filed];
+}
 function codedHierarchy(index, candidates) {
   const coded = candidates.flatMap((candidate) => {
     const code = codeOf(nameOf(candidate.path));
@@ -1456,10 +1461,13 @@ function codedHierarchy(index, candidates) {
     return false;
   if (coded.filter(({ code }) => startsWithMatterWord(code.rest)).length * 2 >= coded.length)
     return false;
-  return coded.every(({ candidate }) => childrenOf(index, candidate.path).some((entry) => {
-    const child = entry.kind === "directory" ? codeOf(nameOf(entry.path)) : undefined;
-    return child !== undefined && child.prefix !== prefix;
+  const childPrefixes = coded.map(({ candidate }) => matterLevelDirs(index, candidate.path).flatMap((entry) => {
+    const child = codeOf(nameOf(entry.path));
+    return child ? [child.prefix] : [];
   }));
+  if (childPrefixes.some((found) => found.includes(prefix)))
+    return false;
+  return childPrefixes.filter((found) => found.length > 0).length >= CODED_MIN_CLIENTS;
 }
 function legacyOffice(index) {
   const office = OFFICE_DIRS.some((name) => childrenOf(index, name).some((entry) => OFFICE_EVIDENCE.has(nameOf(entry.path).toLowerCase())));
@@ -1474,13 +1482,13 @@ function mattersOf(index, files, unit) {
   const beside = dirs.filter((entry) => !folders.includes(entry) && ([...MATTER_CARDS].some((card) => files.has(`${entry.path}/${card}`)) || looksLikeMatterFolder(nameOf(entry.path))));
   return [...filed, ...beside].map((entry) => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
 }
-function unitsOf(survey, index, paths) {
+function unitsOf(survey, index, paths, clients = new Set) {
   const files = new Set(survey.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));
   return paths.slice(0, UNIT_LIMIT).map((path) => {
     const prefix = path ? `${path}/` : "";
     const inside = path ? survey.entries.filter((entry) => entry.path.startsWith(prefix)) : survey.entries;
     const exact = survey.complete && !inside.some((entry) => entry.kind === "directory" && depthOf(entry.path) >= SURVEY_DEPTH);
-    const matters = mattersOf(index, files, path);
+    const matters = mattersOf(index, files, path).filter((matter) => path || !clients.has(matter.path));
     return { path, matters: matters.slice(0, UNIT_MATTERS), matterCount: matters.length, files: inside.filter((entry) => entry.kind === "file").length, exact };
   });
 }
@@ -1488,7 +1496,8 @@ async function suggestOnboardingLevel(root) {
   const survey = await surveyFolder(root);
   const suggestion = await suggestFromSurvey(survey);
   const index = indexChildren(survey.entries);
-  const units = unitsOf(survey, index, ["", ...new Set([...suggestion.clients, ...suggestion.practiceCandidates].map((client) => client.path))]);
+  const clients = new Set(suggestion.level === "practice" ? suggestion.clients.map((client) => client.path) : []);
+  const units = unitsOf(survey, index, ["", ...new Set([...suggestion.clients, ...suggestion.practiceCandidates].map((client) => client.path))], clients);
   return { ...suggestion, units };
 }
 async function suggestFromSurvey(survey) {

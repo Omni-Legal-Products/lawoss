@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Review #221 k alfa2: integračné testy so skutočným enginom v CI (2026-10-23)
+
+Podklad: review VŘ [#221](https://github.com/Omni-Legal-Products/lawoss/issues/221). Testy oddelenia klientov a schvaľovacích kariet so skutočným enginom (`*.integration.test.ts` v `apps/server/src/lawoss/`, `apps/app/tests/lawoss-matter-chat-engine.test.ts`) sa v CI preskakovali, lebo žiadny krok nenastavil binárku enginu ani prepínače. Ostatné opravy z review sú v LAWOSS súboroch (`file-operations.ts`, `linked-folders.ts`, `lawoss/okf/src/onboarding/suggest.ts`).
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `.github/workflows/ci-tests.yml` | +1 krok v `legalwork-tests` (Ubuntu, macOS) hneď po builde servera: 4 serverové a 1 appkový integračný test s `LEGALWORK_TEST_OPENCODE_BIN`, `LAWOSS_APPROVAL_ENGINE=1`, `LAWOSS_TRIEDENIE_ENGINE=1`. Testy načítajú pluginy z `apps/server/dist`, preto po builde. Bez binárky krok zlyhá (`test -x`), nepreskočí sa potichu. |
+
 ## Overenie alfa2 v UI: editory pri chate prípadu, odmietnutie iného klienta (2026-10-23, N-A2-1, N-A2-2)
 
 Podklad: nález N-A2-1 z overenia alfa2 23. 10. 2026 (schválené premenovanie v chate prípadu skončilo 500 „The task's project is unavailable“). Nové LAWOSS súbory: `apps/server/src/opencode-plugins/lawoss-file-paths.ts` (cesta od priečinka chatu; cesta od koreňa klienta, ktorá už začína priečinkom prípadu, sa nezdvojí), testy `apps/server/src/opencode-plugins/lawoss-file-paths.test.ts`, `apps/app/tests/lawoss-document-project.test.js`.
