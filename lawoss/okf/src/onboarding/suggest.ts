@@ -18,7 +18,13 @@ export type SuggestedClient = { path: string; name: string };
  * `practiceCandidates` a `practicePattern`: klienti a vzor pre prípad, že advokát návrh ručne opraví na „Celá prax“
  * (N-9, 22. 10. 2026). Sú v každom návrhu; `clients` ostáva len pre návrh praxe, aby sa nezmenil jeho význam.
  */
-export type OnboardingSuggestion = { root: string; level: SuggestedLevel; marked: boolean; score: number; signals: SuggestionSignal[]; clientPattern?: string; clients: SuggestedClient[]; practiceCandidates: SuggestedClient[]; practicePattern: string; complete: boolean; childOffices?: string[] };
+/**
+ * Náhľad stromu pre obrazovku „Toto sme našli“ (C1, 22. 10. 2026): pre koreň (`path` „“) a každého kandidáta praxe
+ * jeho prípady a počet súborov. Len z už nasnímaných mien, bez ďalšieho čítania disku. `exact: false`, ak prieskum
+ * pod jednotkou narazil na hĺbku alebo limit: počty sú vtedy dolná hranica. Mená sú mená priečinkov.
+ */
+export type SuggestedUnit = { path: string; matters: SuggestedClient[]; matterCount: number; files: number; exact: boolean };
+export type OnboardingSuggestion = { root: string; level: SuggestedLevel; marked: boolean; score: number; signals: SuggestionSignal[]; clientPattern?: string; clients: SuggestedClient[]; practiceCandidates: SuggestedClient[]; practicePattern: string; complete: boolean; childOffices?: string[]; units: SuggestedUnit[] };
 export type SurveyEntry = { path: string; kind: "file" | "directory" };
 export type FolderSurvey = { root: string; complete: boolean; entries: SurveyEntry[] };
 
@@ -33,6 +39,10 @@ const LEGACY_OFFICE_SCORE = 0.9;
 /** Istota slabého návrhu (rovnaká ako pri obyčajných priečinkoch): advokát sa má rozhodnúť sám. */
 const WEAK_SCORE = 0.5;
 const SURVEY_DEPTH = 4;
+/** Náhľad stromu ostáva malý aj pri veľkej praxi; zvyšok je len počet. */
+const UNIT_LIMIT = 200;
+const UNIT_MATTERS = 50;
+const MATTER_FOLDERS = new Set(["spisy", "pripady", "případy", "matters"]);
 const SURVEY_ENTRIES = 50_000;
 const CLIENT_CARDS = new Set(["client.md", "klient.md"]);
 const MATTER_CARDS = new Set(["matter.md", "spis.md", "project.md", "projekt.md"]);
@@ -141,8 +151,46 @@ function legacyOffice(index: ChildIndex): boolean {
   return office && childrenOf(index, CLIENTS_DIR).some(client => client.kind === "directory" && childrenOf(index, client.path).some(entry => entry.kind === "file" && CLIENT_CARDS.has(nameOf(entry.path).toLowerCase())));
 }
 
+/** Hĺbka relatívnej cesty prieskumu („a“ = 1, „a/b“ = 2). */
+const depthOf = (path: string): number => path ? path.split("/").length : 0;
+
+/**
+ * Prípady jednotky: podpriečinky `Spisy/` (štruktúra OKF), inak podpriečinky s kartou veci, kódom („M004 …“)
+ * alebo menom veci. Pracovné priečinky klienta („01_Podklady“) prípadmi nie sú.
+ */
+function mattersOf(index: ChildIndex, files: ReadonlySet<string>, unit: string): SuggestedClient[] {
+  const prefix = unit ? `${unit}/` : "";
+  const dirs = childrenOf(index, unit).filter(entry => entry.kind === "directory");
+  const folder = dirs.find(entry => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()));
+  const candidates = folder ? childrenOf(index, folder.path).filter(entry => entry.kind === "directory") : dirs.filter(entry => {
+    const name = nameOf(entry.path);
+    return [...MATTER_CARDS].some(card => files.has(`${entry.path}/${card}`)) || codeOf(name) !== undefined || looksLikeMatterName(name);
+  });
+  return candidates.map(entry => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
+}
+
+/** Strom náhľadu z prieskumu (počty súborov, prípady); prieskum sa nečíta znova. */
+function unitsOf(survey: FolderSurvey, index: ChildIndex, paths: readonly string[]): SuggestedUnit[] {
+  const files = new Set(survey.entries.filter(entry => entry.kind === "file").map(entry => entry.path));
+  return paths.slice(0, UNIT_LIMIT).map(path => {
+    const prefix = path ? `${path}/` : "";
+    const inside = path ? survey.entries.filter(entry => entry.path.startsWith(prefix)) : survey.entries;
+    // Priečinok v najväčšej hĺbke prieskumu sa už neotvoril: počty pod ním chýbajú.
+    const exact = survey.complete && !inside.some(entry => entry.kind === "directory" && depthOf(entry.path) >= SURVEY_DEPTH);
+    const matters = mattersOf(index, files, path);
+    return { path, matters: matters.slice(0, UNIT_MATTERS), matterCount: matters.length, files: inside.filter(entry => entry.kind === "file").length, exact };
+  });
+}
+
 export async function suggestOnboardingLevel(root: string): Promise<OnboardingSuggestion> {
   const survey = await surveyFolder(root);
+  const suggestion = await suggestFromSurvey(survey);
+  const index = indexChildren(survey.entries);
+  const units = unitsOf(survey, index, ["", ...new Set([...suggestion.clients, ...suggestion.practiceCandidates].map(client => client.path))]);
+  return { ...suggestion, units };
+}
+
+async function suggestFromSurvey(survey: FolderSurvey): Promise<Omit<OnboardingSuggestion, "units">> {
   const index = indexChildren(survey.entries);
   const top = childrenOf(index, "");
   // Kancelária vnorená o úroveň nižšie (MČ 19. 10. 2026): advokát má zrejme pripojiť priamo ten podpriečinok.

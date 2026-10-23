@@ -1360,6 +1360,9 @@ var CODED_SCORE = 0.8;
 var LEGACY_OFFICE_SCORE = 0.9;
 var WEAK_SCORE = 0.5;
 var SURVEY_DEPTH = 4;
+var UNIT_LIMIT = 200;
+var UNIT_MATTERS = 50;
+var MATTER_FOLDERS = new Set(["spisy", "pripady", "případy", "matters"]);
 var SURVEY_ENTRIES = 50000;
 var CLIENT_CARDS = new Set(["client.md", "klient.md"]);
 var MATTER_CARDS = new Set(["matter.md", "spis.md", "project.md", "projekt.md"]);
@@ -1461,8 +1464,35 @@ function legacyOffice(index) {
   const office = OFFICE_DIRS.some((name) => childrenOf(index, name).some((entry) => OFFICE_EVIDENCE.has(nameOf(entry.path).toLowerCase())));
   return office && childrenOf(index, CLIENTS_DIR).some((client) => client.kind === "directory" && childrenOf(index, client.path).some((entry) => entry.kind === "file" && CLIENT_CARDS.has(nameOf(entry.path).toLowerCase())));
 }
+var depthOf = (path) => path ? path.split("/").length : 0;
+function mattersOf(index, files, unit) {
+  const prefix = unit ? `${unit}/` : "";
+  const dirs = childrenOf(index, unit).filter((entry) => entry.kind === "directory");
+  const folder = dirs.find((entry) => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()));
+  const candidates = folder ? childrenOf(index, folder.path).filter((entry) => entry.kind === "directory") : dirs.filter((entry) => {
+    const name = nameOf(entry.path);
+    return [...MATTER_CARDS].some((card) => files.has(`${entry.path}/${card}`)) || codeOf(name) !== undefined || looksLikeMatterName(name);
+  });
+  return candidates.map((entry) => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
+}
+function unitsOf(survey, index, paths) {
+  const files = new Set(survey.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));
+  return paths.slice(0, UNIT_LIMIT).map((path) => {
+    const prefix = path ? `${path}/` : "";
+    const inside = path ? survey.entries.filter((entry) => entry.path.startsWith(prefix)) : survey.entries;
+    const exact = survey.complete && !inside.some((entry) => entry.kind === "directory" && depthOf(entry.path) >= SURVEY_DEPTH);
+    const matters = mattersOf(index, files, path);
+    return { path, matters: matters.slice(0, UNIT_MATTERS), matterCount: matters.length, files: inside.filter((entry) => entry.kind === "file").length, exact };
+  });
+}
 async function suggestOnboardingLevel(root) {
   const survey = await surveyFolder(root);
+  const suggestion = await suggestFromSurvey(survey);
+  const index = indexChildren(survey.entries);
+  const units = unitsOf(survey, index, ["", ...new Set([...suggestion.clients, ...suggestion.practiceCandidates].map((client) => client.path))]);
+  return { ...suggestion, units };
+}
+async function suggestFromSurvey(survey) {
   const index = indexChildren(survey.entries);
   const top = childrenOf(index, "");
   const files = new Set(survey.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));

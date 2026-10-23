@@ -55,13 +55,13 @@ export function yoloTurnContext(): string | null {
     : null;
 }
 
-export async function saveYoloMode(client: LegalworkServerClient, enabled: boolean): Promise<YoloMode> {
+export async function saveYoloMode(client: Pick<LegalworkServerClient, "setLawossYolo">, enabled: boolean): Promise<YoloMode> {
   const mode = parseYoloMode(await client.setLawossYolo(enabled));
   if (!mode) throw new Error("YOLO Mode was not returned");
   return mode;
 }
 
-async function loadYoloMode(client: LegalworkServerClient): Promise<YoloMode> {
+export async function loadYoloMode(client: Pick<LegalworkServerClient, "lawossYolo">): Promise<YoloMode> {
   const mode = parseYoloMode(await client.lawossYolo());
   if (!mode) throw new Error("YOLO Mode was not returned");
   return mode;

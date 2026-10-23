@@ -8,6 +8,8 @@ export type OnboardingStep =
   | "ai"
   | "folder"
   | "found"
+  | "approvals"
+  | "ready"
   | "client"
   | "matter"
   | "done";
@@ -165,7 +167,12 @@ export type OnboardingSuggestion = {
   complete: boolean;
   /** Priame podpriečinky s kanceláriou OKF (`<meno>/Office/okf.config`); advokát má zrejme pripojiť ten podpriečinok. */
   childOffices?: readonly string[];
+  /** Náhľad stromu (C1): koreň („“) a kandidáti praxe s prípadmi a počtom súborov; starší server ich neposiela. */
+  units?: readonly SuggestedUnit[];
 };
+
+/** Jednotka náhľadu stromu; `exact: false` znamená, že počty sú dolná hranica (veľký alebo hlboký priečinok). */
+export type SuggestedUnit = { path: string; matters: readonly { path: string; name: string }[]; matterCount: number; files: number; exact: boolean };
 
 export type OnboardingApi = {
   onboardingStatus(): Promise<OnboardingStatus>;
