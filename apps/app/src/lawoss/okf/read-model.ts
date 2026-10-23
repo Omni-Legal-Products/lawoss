@@ -36,7 +36,11 @@ export const isFolderUnavailable = (error: unknown): boolean => error instanceof
 export type OkfSourceReadState = { source: "workspace" | "office"; workspaceId?: string; checkedAt: number; lastSuccessAt: number | null; state: "fresh" | "stale" | "unavailable" | "truncated" };
 export type OkfCoverage = { status: "complete" | "partial" | "failed"; scopeKey: string; sources: readonly OkfSourceReadState[] };
 type SourceSnapshot = { inputs: MatterInput[]; clients: OkfClient[]; office?: OfficeBundle | null };
-export type OkfReadOptions = { signal?: AbortSignal; previous?: OkfReadResult; now?: () => number };
+export type OkfReadOptions = {
+  signal?: AbortSignal; previous?: OkfReadResult; now?: () => number;
+  /** Relatívne cesty (NFC) zaregistrovaných priečinkov vo vnútri čítaného priečinka (`OkfScopeMember.nested`). */
+  registeredNested?: readonly string[];
+};
 export type OkfReadResult = Overview & {
   coverage: OkfCoverage;
   /** RAM-only successful source snapshots, never a second store. */
@@ -119,6 +123,7 @@ export async function readWorkspaceMemory(
     .filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name)).map((e) => e.path);
   const paths: string[] = [];
   const clientPaths: string[] = [];
+  const registeredNested = new Set((options.registeredNested ?? []).map((path) => path.normalize("NFC")));
   let scanned = 0;
   const discover = async (path: string, directMatter = false, depth = 0, insideClient = false): Promise<void> => {
     if (scanned >= MAX_DISCOVERY_DIRECTORIES || paths.length >= MAX_MATTERS || depth > MAX_DISCOVERY_DEPTH) { truncated = true; return; }
@@ -127,9 +132,11 @@ export async function readWorkspaceMemory(
     const hasMatterCard = entries.some((e) => e.kind === "file" && CARD_FILES.includes(e.name));
     // N-A4-4 (test 23. 10. 2026): priečinok s vlastnou kartou klienta vo vnútri iného klienta je vnorený klient,
     // ktorého appka odmieta (MČ 23. 10. 2026). Nie je to prípad vonkajšieho klienta (ani pri kóde `C099 …`) a jeho
-    // prípady do prehľadu vonkajšieho klienta nepatria; ostáva len obyčajným priečinkom v Súboroch.
-    if (insideClient && !hasMatterCard && entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name))) return;
-    if (directMatter || hasMatterCard) {
+    // prípady do prehľadu vonkajšieho klienta nepatria; ostáva len obyčajným priečinkom v Súboroch. Vnorený klient
+    // zaregistrovaný ešte pred odmietaním ostáva vlastnou skupinou: prax ho číta cez vonkajšieho klienta (`okfScope`).
+    const nestedClient = insideClient && !hasMatterCard && entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
+    if (nestedClient && !registeredNested.has(path.normalize("NFC"))) return;
+    if ((directMatter && !nestedClient) || hasMatterCard) {
       paths.push(path);
       return;
     }
@@ -364,7 +371,11 @@ export async function readWorkspaceMemory(
 // ── rozsah praxe (N1, podklad PR #162) ───────────────────────────
 
 /** Člen rozsahu: registrovaný pracovný priečinok a jeho cesta voči koreňu rozsahu („“ = koreň). */
-export type OkfScopeMember = { workspace: RouteWorkspace; prefix: string };
+export type OkfScopeMember = {
+  workspace: RouteWorkspace; prefix: string;
+  /** Zaregistrované lokálne priečinky vo vnútri člena, relatívne cesty v NFC (N-A4-4); bez nich chýba. */
+  nested?: readonly string[];
+};
 /**
  * Čo pohľady čítajú: jeden pracovný priečinok, alebo pri praxi „každý klient zvlášť“ všetky registrované
  * priečinky pod koreňom praxe. Prax sa neregistruje (R7 specu k#92): číta ju len appka, agent ostáva
@@ -394,7 +405,7 @@ const pathIdentity = (path: string): string => {
   return /^(?:[A-Za-z]:|\/\/)/.test(normalized) ? normalized.toLowerCase() : normalized;
 };
 export function okfScopeKey(scope: OkfScope): string {
-  return JSON.stringify([scope.practiceRoot ? pathIdentity(scope.practiceRoot) : null, scope.members.map(m => [m.workspace.id, pathIdentity(m.workspace.path), m.prefix.normalize("NFC"), m.workspace.workspaceType ?? "local"]).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
+  return JSON.stringify([scope.practiceRoot ? pathIdentity(scope.practiceRoot) : null, scope.members.map(m => [m.workspace.id, pathIdentity(m.workspace.path), m.prefix.normalize("NFC"), m.workspace.workspaceType ?? "local", ...(m.nested?.length ? [[...m.nested].sort()] : [])]).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
 }
 export function excludedWorkspaceIds(workspaces: readonly RouteWorkspace[], scope: OkfScope | null): string[] {
   return workspaces.filter(w => !scope?.members.some(m => m.workspace.id === w.id || (w.workspaceType !== "remote" && within(m.workspace.path, w.path)))).map(w => w.id).sort();
@@ -414,21 +425,34 @@ const joinPath = (prefix: string, path: string): string => !prefix ? path : !pat
  */
 export function okfScope(workspaces: readonly RouteWorkspace[], anchor: RouteWorkspace | null, practiceRoot?: string | null): OkfScope | null {
   if (!anchor) return null;
-  const single: OkfScope = { anchor, members: [{ workspace: anchor, prefix: "" }] };
   const local = (w: RouteWorkspace) => w.workspaceType !== "remote" && Boolean(w.path);
+  const member = (workspace: RouteWorkspace, prefix: string): OkfScopeMember => {
+    const nested = local(workspace) ? nestedPaths(workspaces.filter(local), workspace) : [];
+    return { workspace, prefix, ...(nested.length ? { nested } : {}) };
+  };
+  const single: OkfScope = { anchor, members: [member(anchor, "")] };
   if (!practiceRoot || !local(anchor) || !within(practiceRoot, anchor.path)) return single;
   if (!safeAbsolute(practiceRoot)) return null;
   const inside = workspaces.filter((w) => local(w) && within(practiceRoot, w.path));
   if (inside.some(w => !safeAbsolute(w.path)) || new Set(inside.map(w => pathIdentity(w.path))).size !== inside.length) return null;
   const top = inside.filter((w) => !inside.some((other) => other.id !== w.id && within(other.path, w.path) && !within(w.path, other.path)));
   const root = top.find((w) => within(w.path, practiceRoot));
-  if (root) return { anchor, members: [{ workspace: root, prefix: "" }] };
+  if (root) return { anchor, members: [member(root, "")] };
   // Predpona z NFC na oboch stranách: `within` porovnáva v NFC, koreň a klient môžu prísť v rôznom tvare (NFD z macOS).
   const base = queryPath(practiceRoot).normalize("NFC");
   const members = top
-    .map((workspace) => ({ workspace, prefix: queryPath(workspace.path).normalize("NFC").slice(base.length).replace(/^\/+/, "") }))
+    .map((workspace) => member(workspace, queryPath(workspace.path).normalize("NFC").slice(base.length).replace(/^\/+/, "")))
     .sort((a, b) => a.prefix.localeCompare(b.prefix));
   return members.length ? { anchor, members, practiceRoot } : single;
+}
+
+/** Relatívne cesty (NFC) zaregistrovaných priečinkov, ktoré ležia vo vnútri `outer` (nie on sám). */
+function nestedPaths(workspaces: readonly RouteWorkspace[], outer: RouteWorkspace): string[] {
+  const base = queryPath(outer.path).normalize("NFC").replace(/\/+$/, "");
+  return workspaces
+    .filter((w) => w.id !== outer.id && within(outer.path, w.path) && pathIdentity(w.path) !== pathIdentity(outer.path))
+    .map((w) => queryPath(w.path).normalize("NFC").slice(base.length).replace(/^\/+/, ""))
+    .filter(Boolean).sort();
 }
 
 /** Cesta z prehľadu → priečinok, ktorý ju obsahuje, a cesta v ňom (najdlhšia zhoda). */
@@ -531,7 +555,7 @@ export async function readScopeMemory(client: OkfScopeClient, scope: OkfScope, t
   const checkedAt = (options.now ?? Date.now)();
   const sources: OkfSourceReadState[] = [];
   const snapshots: Record<string, SourceSnapshot> = {};
-  const parts = await mapLimit(scope.members, 2, member => readWorkspaceMemory(client, member.workspace.id, todayIso, options));
+  const parts = await mapLimit(scope.members, 2, member => readWorkspaceMemory(client, member.workspace.id, todayIso, { ...options, ...(member.nested ? { registeredNested: member.nested } : {}) }));
   let truncated = false;
   const select = (id: string, source: "workspace" | "office", current: SourceSnapshot, issues: ReadProblem[], cut: boolean): SourceSnapshot => {
     problems.push(...issues);
