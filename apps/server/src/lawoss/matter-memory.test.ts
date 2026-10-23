@@ -2,7 +2,7 @@
 // a v jeho pripojených priečinkoch. Iný klient (aj vnorený, aj cez kartu klienta nad spisom) sa odmietne bez mena.
 import { afterEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
@@ -190,19 +190,27 @@ test.skipIf(process.platform === "win32")("rúra namiesto VSTUPY.md alebo zázna
 
 test.skipIf(process.platform === "win32")("zariadenie a príliš veľké súbory sa nečítajú celé; pamäť nad limit je neúplná", async () => {
   const f = await fixture();
+  // A link to a device is refused before it is opened; nothing is read from it.
   await symlink("/dev/zero", join(f.m1, "KOMUNIKACNE-KANALY.md"));
-  await writeFile(join(f.m1, "memory", "M-002.md"), record("M-002", "matter", "L2", "Veľký", "veľký", "x".repeat(FILE_BYTE_LIMIT + 1)));
+  // One record over the per-file limit: a sparse file (no bytes written), refused by its size.
+  await writeFile(join(f.m1, "memory", "M-002.md"), "");
+  await truncate(join(f.m1, "memory", "M-002.md"), FILE_BYTE_LIMIT + 1);
+  // Records just under the per-file limit until the per-store limit is crossed.
   const big = "y".repeat(FILE_BYTE_LIMIT - 1024);
   for (let i = 0; i <= Math.ceil(STORE_BYTE_LIMIT / big.length); i++) await memory(f.m1, `M-${300 + i}.md`, record(`M-${300 + i}`, "matter", "L2", "Diel", "diel", big));
+  const started = performance.now();
   const first = await readMatterMemoryForChat(f.config, f.own, { action: "read", matter: f.m1 }, none);
   expect(first.complete).toBe(false);
-  let text = first.text, next = first.nextOffset, pages = 1;
-  while (next !== null) { const page = await readMatterMemoryForChat(f.config, f.own, { action: "read", matter: f.m1, offset: next }, none); text += page.text; next = page.nextOffset; pages++; }
-  expect(text).toContain("prekračuje limit");
-  expect(text).toContain("nenačítali");
-  expect(text.length).toBeLessThan(STORE_BYTE_LIMIT + 2 * FILE_BYTE_LIMIT);
+  // The problems come first, so the first page already says the read is incomplete and why.
+  expect(first.text).toContain("prekračuje limit");
+  expect(first.text).toContain("nenačítali");
+  // Later pages reuse the first read's snapshot instead of reading the whole memory again per page.
+  let length = first.text.length, next = first.nextOffset, pages = 1;
+  while (next !== null) { const page = await readMatterMemoryForChat(f.config, f.own, { action: "read", matter: f.m1, offset: next }, none); length += page.text.length; next = page.nextOffset; pages++; }
   expect(pages).toBeGreaterThan(1);
-}, 60000);
+  expect(length).toBeLessThan(STORE_BYTE_LIMIT + 2 * FILE_BYTE_LIMIT);
+  expect(performance.now() - started).toBeLessThan(5000);
+}, 20000);
 
 // Re-review P3a (poc2): okf-pamat takes any `Office/` above the case; a link named Office must not read another client.
 for (const where of ["case", "client"] as const) {
@@ -291,4 +299,13 @@ test("s profilom praxe sa číta len kancelária praxe; iné Office nad klientom
   const other = await readMatterMemoryForChat(f.config, f.own, { action: "preamble", matter: f.m1 }, none);
   expect(other.text).not.toContain("Prekonaný výklad SYN");
   expect(other.complete).toBe(false);
+});
+
+test("nové čítanie (offset 0) vidí zmenu pamäte; ďalšie strany patria k tomu istému čítaniu", async () => {
+  const f = await fixture();
+  expect((await readMatterMemoryForChat(f.config, f.own, { action: "read", matter: f.m1 }, none)).text).toContain("SYN fakt 7311");
+  await memory(f.m1, "M-001.md", record("M-001", "matter", "L2", "Stav veci SYN", "SYN nájom", "SYN nový fakt 8812"));
+  const fresh = await readMatterMemoryForChat(f.config, f.own, { action: "read", matter: f.m1 }, none);
+  expect(fresh.text).toContain("SYN nový fakt 8812");
+  expect(fresh.text).not.toContain("SYN fakt 7311");
 });

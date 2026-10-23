@@ -23,6 +23,10 @@ export { FILE_BYTE_LIMIT, STORE_BYTE_LIMIT } from "./workspace-memory-runtime.js
 /** Characters per page; the engine truncates larger tool results, so the model follows nextOffset. */
 export const MATTER_MEMORY_PAGE = 40_000;
 
+/** Snapshots for paging: the newest few reads, for a short time; the boundary is still checked on every call. */
+const PAGE_SNAPSHOTS = 2, PAGE_SNAPSHOT_MS = 120_000;
+const pages = new Map<string, { code: number; out: string; at: number }>();
+
 const inputSchema = z.object({
   action: z.enum(["preamble", "read"]),
   matter: z.string().min(1).max(4096),
@@ -105,7 +109,12 @@ export async function readMatterMemoryForChat(config: ServerConfig, workspace: W
   const office = !scope.officeDir || await officeReadable(scope.officeDir, own, await officeRoot(config));
   // A memory profile in the case must not map a root or source into another client (also a nested one).
   const excludedRoots = own.others.filter((other) => !isPathWithin(other, own.root));
-  const result = readMatterMemory(action, target, { allowedRoots: [root, ...own.linked], office, excludedRoots });
+  // offset 0 reads afresh; later pages reuse that snapshot (one consistent text, not a new full read per page).
+  const key = `${workspace.id}\0${action}\0${target}`, cached = pages.get(key);
+  const result = offset > 0 && cached && Date.now() - cached.at < PAGE_SNAPSHOT_MS ? cached
+    : { ...readMatterMemory(action, target, { allowedRoots: [root, ...own.linked], office, excludedRoots }), at: Date.now() };
+  pages.delete(key); pages.set(key, result);
+  while (pages.size > PAGE_SNAPSHOTS) pages.delete(pages.keys().next().value ?? key);
   const text = result.out.slice(offset, offset + MATTER_MEMORY_PAGE);
   const end = offset + text.length;
   return { action, matter: target, complete: result.code === 0, text, offset, nextOffset: end < result.out.length ? end : null, untrusted: true };
