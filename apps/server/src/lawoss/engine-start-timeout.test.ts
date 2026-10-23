@@ -60,3 +60,18 @@ test.skipIf(process.platform === "win32")("createManagedOpencodeServer bez timeo
   await expect(createManagedOpencodeServer({ bin, cwd: dir })).rejects.toThrow(/after 1000ms/);
   expect(Date.now() - start).toBeLessThan(8000);
 }, 20000);
+
+// Pevný timeoutMs pri volaní obíde limit pre Windows aj LAWOSS_ENGINE_START_TIMEOUT_MS
+// (verejný scratch engine mal natvrdo 15 s, lawoss#185).
+test("produkčné volania createManagedOpencodeServer nepredávajú pevný timeoutMs", async () => {
+  const root = join(import.meta.dir, "..");
+  const offenders: string[] = [];
+  for await (const file of new Bun.Glob("**/*.ts").scan(root)) {
+    if (file.includes(".test.")) continue;
+    const source = await Bun.file(join(root, file)).text();
+    for (const call of source.matchAll(/createManagedOpencodeServer\(\{[\s\S]*?\}\)/g)) {
+      if (/timeoutMs:\s*[\d_]+/.test(call[0])) offenders.push(file);
+    }
+  }
+  expect(offenders).toEqual([]);
+});
