@@ -485,3 +485,163 @@ test('cleanup attribution successful inert startup publishes only after native a
     assert.equal(f.state.retained, false);
   } finally { nativeRelease.resolve(); extractorRelease.resolve(); await operation; }
 });
+
+const macByteTest = (name, run) => test(name, { skip: process.platform !== 'darwin' ? 'Native-target probe requires Darwin; inert MODEL launch only' : false }, run);
+async function byteFixture(t, change = {}) {
+  const f = await fixture(t, change), withArtifact = f.adapters.withArtifact;
+  f.options.asset += '.zip'; await writeFile(f.options.asset, 'pinned final bytes');
+  f.nodeHash = digest('inert embedded Node fixture bytes\n');
+  f.adapters.withArtifact = async (options, use) => {
+    options.observeArtifactBytes({ schema: 1, stage: 'owned-copy', sha256: f.options.expectedSha256 });
+    options.observeArtifactBytes({ schema: 1, stage: 'embedded-node', state: 'observed', sha256: f.nodeHash });
+    return withArtifact(options, use);
+  };
+  return f;
+}
+function expectedBytes(f, overrides = {}) {
+  return { schema: 1, build: f.build, platform: 'darwin', arch: process.arch, kind: 'mac-zip',
+    originalAsset: { state: 'matched', sha256: f.options.expectedSha256 },
+    ownedCopy: { state: 'matched', sha256: f.options.expectedSha256 },
+    embeddedNode: { state: 'observed', sha256: f.nodeHash }, embeddedBuild: { state: 'matched' }, ...overrides };
+}
+macByteTest('Mac ZIP byte observations publish separately from installation after extractor cleanup', async t => {
+  const f = await byteFixture(t), withArtifact = f.adapters.withArtifact;
+  let cleaned = false;
+  f.adapters.withArtifact = async (...args) => { const result = await withArtifact(...args); cleaned = true; return result; };
+  const result = await runNativeStartupProbe(f.options, f.adapters);
+  assert.equal(cleaned, true); assert.deepEqual(result.artifactBytes, expectedBytes(f));
+  for (const value of [result.artifactBytes, result.artifactBytes.build, result.artifactBytes.originalAsset,
+    result.artifactBytes.ownedCopy, result.artifactBytes.embeddedNode, result.artifactBytes.embeddedBuild]) assert.ok(Object.isFrozen(value));
+  assert.equal('artifactBytes' in result.installation, false);
+  assert.deepEqual(JSON.parse(await readFile(join(f.options.outputDir, 'startup.json'))).artifactBytes, expectedBytes(f));
+});
+
+macByteTest('Mac ZIP byte observations retain frozen stages after launch, stop, receipt, extractor and publication failures', async t => {
+  for (const mode of ['launch', 'readiness', 'stop', 'receipt', 'extractor', 'aggregate', 'publication']) await t.test(mode, async t => {
+    const primary = Object.assign(new Error('PRIVATE failure /private/profile'), { code: mode === 'readiness' ? 'native-readiness-timeout' : 'EACCES' });
+    const cleanup = Object.assign(new Error('PRIVATE extractor cleanup'), { code: 'EPERM' });
+    const change = mode === 'launch' || mode === 'readiness' ? { launchFailure: primary } : mode === 'receipt' ? { mutate: async receipt => { receipt.reasons.push('EACCES'); } } : {};
+    const f = await byteFixture(t, change), extract = f.adapters.withArtifact, launch = f.adapters.launch;
+    if (mode === 'stop') f.adapters.launch = async options => ({ ...await launch(options), stop: trustedModelStop('profile-lock', primary) });
+    let aggregate;
+    if (mode === 'extractor' || mode === 'aggregate') f.adapters.withArtifact = async (options, use) => {
+      return extract(options, async loan => {
+        if (mode === 'extractor') { await use(loan); throw cleanup; }
+        // Preserve the probe's first capture failure while extractor finally wraps it.
+        try { return await use(loan); } catch (error) { aggregate = new AggregateError([error, cleanup], 'PRIVATE aggregate', { cause: error }); throw aggregate; }
+      });
+    };
+    if (mode === 'aggregate') f.adapters.launch = async options => ({ ...await launch(options), capture: async () => { throw primary; } });
+    if (mode === 'publication') f.adapters.withArtifact = async (...args) => { const result = await extract(...args); await mkdir(join(f.options.outputDir, 'startup.json')); return result; };
+    let caught; await assert.rejects(runNativeStartupProbe(f.options, f.adapters), error => { caught = error; return true; });
+    if (mode === 'extractor') assert.equal(caught, cleanup);
+    if (mode === 'aggregate') { assert.equal(caught, aggregate); assert.equal(caught.errors[1], cleanup); assert.equal(caught.cause, caught.errors[0]); }
+    const result = startupProbe.startupFailureProjection(caught), d = result.diagnostic;
+    assert.deepEqual(d.artifactBytes, expectedBytes(f));
+    const phase = mode === 'launch' || mode === 'readiness' ? 'launch' : mode === 'stop' || mode === 'extractor' ? 'cleanup' : mode === 'aggregate' ? 'capture' : mode === 'publication' ? 'publish' : 'receipt-projection';
+    assert.equal(d.phase, phase);
+    assert.equal(d.cleanup, ['stop', 'launch', 'readiness'].includes(mode) ? 'unverified' : mode === 'publication' ? 'verified' : 'native-verified');
+    assert.equal(d.errorCode, mode === 'readiness' ? 'native-readiness-timeout' : mode === 'extractor' ? 'EPERM' : mode === 'publication' ? 'EEXIST' : 'EACCES');
+    assert.equal(f.state.retained, ['stop', 'launch', 'readiness'].includes(mode));
+    if (mode === 'stop') { assert.equal(d.cleanupAttribution.stop.failedAt, 'profile-lock'); await access(join(f.state.profileRoot, '.acceptance-running.lock')); assert.equal('mainLog' in d, false); }
+    assert.deepEqual(await readdir(f.options.outputDir), mode === 'publication' ? ['startup.json'] : []);
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE|private\/profile|inventory|node-decoy|cause|stack/);
+    primary.artifactBytes = { embeddedNode: { sha256: 'f'.repeat(64) } };
+    assert.deepEqual(startupProbe.startupFailureProjection(caught), result);
+  });
+});
+macByteTest('Mac ZIP byte observations never promote unavailable early stages or wrong embedded builds', async t => {
+  for (const mode of ['hash', 'copy', 'extraction', 'embed', 'unavailable']) await t.test(mode, async t => {
+    const f = await byteFixture(t, mode === 'embed' ? { embedded: { gitSha: 'b'.repeat(40) } } : {});
+    const unknown = { state: 'not-observed' };
+    if (mode === 'hash') await writeFile(f.options.asset, 'different bytes');
+    if (mode === 'copy' || mode === 'extraction') f.adapters.withArtifact = async options => {
+      if (mode === 'extraction') options.observeArtifactBytes({ schema: 1, stage: 'owned-copy', sha256: f.options.expectedSha256 });
+      throw new Error('PRIVATE early error');
+    };
+    if (mode === 'unavailable') {
+      const base = await fixture(t);
+      f.adapters.withArtifact = async (options, use) => {
+        options.observeArtifactBytes({ schema: 1, stage: 'owned-copy', sha256: f.options.expectedSha256 });
+        options.observeArtifactBytes({ schema: 1, stage: 'embedded-node', state: 'unavailable' });
+        return base.adapters.withArtifact(options, use);
+      };
+      // Stop before identity/capture; embedded build equality still completes.
+      f.adapters.launch = async () => { throw new Error('PRIVATE launch'); };
+    }
+    let caught; await assert.rejects(runNativeStartupProbe(f.options, f.adapters), error => { caught = error; return true; });
+    const expected = expectedBytes(f, { ...(mode !== 'unavailable' ? { embeddedBuild: unknown } : {}),
+      ...(['hash', 'copy', 'extraction'].includes(mode) ? { embeddedNode: unknown } : mode === 'unavailable' ? { embeddedNode: { state: 'unavailable' } } : {}),
+      ...(['hash', 'copy'].includes(mode) ? { ownedCopy: unknown } : {}), ...(mode === 'hash' ? { originalAsset: unknown } : {}) });
+    assert.deepEqual(startupProbe.startupFailureProjection(caught).diagnostic.artifactBytes, expected);
+    if (mode !== 'unavailable') assert.equal(f.state.launched, 0);
+  });
+});
+macByteTest('Mac ZIP byte observations ignore malformed, forged, reordered and late adapter events without invoking getters', async t => {
+  const f = await byteFixture(t), base = await fixture(t);
+  let getters = 0, observer;
+  const forged = Object.assign(new Error('PRIVATE'), { code: 'EACCES', artifactBytes: expectedBytes(f), cause: { artifactBytes: expectedBytes(f) } });
+  Object.defineProperty(forged, 'nodeHash', { get() { getters++; throw new Error('PRIVATE'); } });
+  const malformed = [null, 'PRIVATE', { schema: 2, stage: 'owned-copy', sha256: f.options.expectedSha256 },
+    { schema: 1, stage: 'owned-copy', sha256: 'F'.repeat(64) }, { schema: 1, stage: 'owned-copy', sha256: 'e'.repeat(64) },
+    { schema: 1, stage: 'owned-copy', sha256: f.options.expectedSha256, path: '/private' },
+    Object.defineProperty({ schema: 1, stage: 'owned-copy' }, 'sha256', { get() { getters++; throw new Error('PRIVATE'); } }),
+    { schema: 1, stage: 'embedded-node', state: 'observed', sha256: f.nodeHash },
+  ];
+  f.adapters.withArtifact = async (options, use) => {
+    observer = options.observeArtifactBytes;
+    for (const event of malformed) observer(event);
+    observer({ schema: 1, stage: 'owned-copy', sha256: f.options.expectedSha256 });
+    for (const event of [
+      { schema: 1, stage: 'embedded-node', state: 'observed', sha256: 'x'.repeat(64) },
+      { schema: 1, stage: 'embedded-node', state: 'unavailable', sha256: f.nodeHash },
+      { schema: 1, stage: 'embedded-node', state: 'observed', sha256: f.nodeHash, inventory: [] },
+    ]) observer(event);
+    // No valid node event before loan: later events must not fill it.
+    try { return await base.adapters.withArtifact(options, use); } finally { observer({ schema: 1, stage: 'embedded-node', state: 'observed', sha256: f.nodeHash }); }
+  };
+  f.adapters.launch = async () => { throw forged; };
+  let caught; await assert.rejects(runNativeStartupProbe(f.options, f.adapters), error => { caught = error; return true; });
+  const result = startupProbe.startupFailureProjection(caught);
+  assert.deepEqual(result.diagnostic.artifactBytes, expectedBytes(f, { embeddedNode: { state: 'not-observed' } }));
+  assert.equal(getters, 0);
+  observer({ schema: 1, stage: 'embedded-node', state: 'observed', sha256: f.nodeHash });
+  assert.deepEqual(startupProbe.startupFailureProjection(caught), result);
+  assert.equal(startupProbe.startupFailureProjection(forged).diagnostic.artifactBytes, undefined, 'the original thrown launch error is not the receipt rejection registered by the probe');
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE|private|inventory|nodeHash|cause/);
+});
+
+macByteTest('Mac ZIP byte observation integrates the real inert inventory with MODEL startup and post-cleanup publication', async t => {
+  const { createRequire } = await import('node:module');
+  const { withExtractedAlphaArtifact } = await import('./installed-artifact.mjs');
+  const { zipSync } = createRequire(new URL('../../../apps/desktop/package.json', import.meta.url))('fflate');
+  const f = await byteFixture(t), node = Buffer.from('actual inert Node inventory bytes'), launch = f.adapters.launch;
+  const macho = Buffer.from('cffaedfe0c000001000000000200000000000000000000000000000000000000', 'hex');
+  if (process.arch === 'x64') { macho.writeUInt32LE(0x01000007, 4); macho.writeUInt32LE(3, 8); }
+  const files = {
+    'LAWOSS.app/Contents/MacOS/LAWOSS': [macho, { os: 3, attrs: 0o100755 << 16 }],
+    'LAWOSS.app/Contents/Resources/build-info.json': Buffer.from(JSON.stringify(f.build)),
+    'LAWOSS.app/Contents/Resources/app-dist/index.html': Buffer.from('synthetic'),
+    'LAWOSS.app/Contents/Resources/node/node': node,
+    'LAWOSS.app/Contents/Resources/node/node-decoy': Buffer.from('not selected'),
+  };
+  await writeFile(f.options.asset, zipSync(files)); f.options.expectedSha256 = digest(await readFile(f.options.asset)); f.nodeHash = digest(node);
+  let extracted;
+  f.adapters.withArtifact = (options, use) => withExtractedAlphaArtifact(options, loan => {
+    extracted = loan.installedApp;
+    // The production observer has already frozen the real original inventory at this point.
+    return use(loan);
+  });
+  f.adapters.launch = async options => {
+    const app = await launch(options), observe = app.observe;
+    return { ...app, observe: async () => {
+      const value = await observe(); value.process.executable = join(extracted, 'Contents/MacOS/LAWOSS');
+      value.rendererUrl = pathToFileURL(join(extracted, 'Contents/Resources/app-dist/index.html')).href; return value;
+    } };
+  };
+  const result = await runNativeStartupProbe(f.options, f.adapters);
+  assert.deepEqual(result.artifactBytes, expectedBytes(f));
+  await assert.rejects(access(extracted), { code: 'ENOENT' });
+  assert.deepEqual(JSON.parse(await readFile(join(f.options.outputDir, 'startup.json'))).artifactBytes, expectedBytes(f));
+  assert.equal(result.installation.assetSha256, f.options.expectedSha256);
+});

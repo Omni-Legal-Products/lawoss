@@ -230,3 +230,131 @@ posixTest('DMG integrity uses a real readonly native mount or refuses a foreign 
     const expectedSha256 = digest(await readFile(asset));
     assert.deepEqual(await verifyAlphaInstallation({ ...f, asset, expectedSha256 }), { status: 'verified', method: 'sha256-dmg-installed-tree', signing: 'not-asserted', assetSha256: expectedSha256 });
 });
+
+// Byte observations use inert archive bytes only; no embedded executable is run.
+async function nodeZipFixture(t, kind = 'file') {
+    const f = await macFixture(t);
+    const nodeBytes = Buffer.from('inert embedded Node fixture bytes\n');
+    const files = { ...f.files,
+        'LAWOSS.app/Contents/Resources/node/': [Buffer.alloc(0), 0o040755],
+        'LAWOSS.app/Contents/Resources/node/node-decoy': [Buffer.from('different decoy bytes'), 0o100644],
+    };
+    if (kind === 'file') files['LAWOSS.app/Contents/Resources/node/node'] = [nodeBytes, 0o100755];
+    if (kind === 'directory') files['LAWOSS.app/Contents/Resources/node/node/'] = [Buffer.alloc(0), 0o040755];
+    if (kind === 'link' || kind === 'unsafe') files['LAWOSS.app/Contents/Resources/node/node'] = [Buffer.from(kind === 'link' ? 'node-decoy' : '../../../../../../outside'), 0o120777];
+    await writeFile(f.asset, zipSync(Object.fromEntries(Object.entries(files).map(([path, [bytes, mode]]) => [path, [bytes, { os: 3, attrs: mode << 16, mtime: new Date('2026-01-01T00:00:00Z') }]]))));
+    return { ...f, nodeBytes, expectedSha256: digest(await readFile(f.asset)) };
+}
+posixTest('Mac ZIP byte observation reuses the actual fixed regular Node row before loan', async t => {
+    const f = await nodeZipFixture(t), events = [];
+    t.diagnostic(JSON.stringify({ fixtureAssetSha256: f.expectedSha256, fixtureNodeSha256: digest(f.nodeBytes) }));
+    const result = await withExtractedAlphaArtifact({ ...f, observeArtifactBytes: event => {
+        assert.ok(Object.isFrozen(event)); events.push(event);
+    } }, async loan => {
+        assert.deepEqual(events, [
+            { schema: 1, stage: 'owned-copy', sha256: f.expectedSha256 },
+            { schema: 1, stage: 'embedded-node', state: 'observed', sha256: digest(f.nodeBytes) },
+        ]);
+        assert.deepEqual(loan.installation, { status: 'verified', method: 'sha256-zip-installed-tree', signing: 'not-asserted', assetSha256: f.expectedSha256 });
+        return 'completed';
+    });
+    assert.equal(result, 'completed');
+});
+
+for (const kind of ['missing', 'directory', 'link', 'unsafe']) posixTest(`Mac ZIP byte observation preserves original ${kind} Node outcome`, async t => {
+    const f = await nodeZipFixture(t, kind), events = [];
+    let used = false;
+    const operation = withExtractedAlphaArtifact({ ...f, observeArtifactBytes: event => events.push(event) }, () => { used = true; });
+    if (kind === 'unsafe') {
+        await assert.rejects(operation, /symlink/i);
+        assert.equal(used, false);
+        assert.deepEqual(events, [{ schema: 1, stage: 'owned-copy', sha256: f.expectedSha256 }]);
+    } else {
+        await operation; assert.equal(used, true);
+        assert.deepEqual(events, [{ schema: 1, stage: 'owned-copy', sha256: f.expectedSha256 },
+            { schema: 1, stage: 'embedded-node', state: 'unavailable' }]);
+    }
+});
+posixTest('Mac ZIP byte observation contains synchronous observer throws and preserves original ownership', async t => {
+    for (const mode of ['success', 'primary', 'retained', 'wrong-hash']) await t.test(mode, async t => {
+        const f = await nodeZipFixture(t), primary = new Error('original consumer'), events = [];
+        let installed;
+        const operation = withExtractedAlphaArtifact({ ...f, ...(mode === 'wrong-hash' ? { expectedSha256: '0'.repeat(64) } : {}),
+            observeArtifactBytes: event => { events.push(event); throw new Error('observer failure'); } }, loan => {
+            installed = loan.installedApp;
+            if (mode === 'retained') loan.retain();
+            if (mode !== 'success') throw primary;
+            return 'done';
+        });
+        if (mode === 'success') assert.equal(await operation, 'done');
+        else if (mode === 'wrong-hash') { await assert.rejects(operation, /digest/); assert.deepEqual(events, []); assert.equal(installed, undefined); return; }
+        else await assert.rejects(operation, error => error === primary);
+        assert.equal(events.length, 2);
+        if (mode === 'retained') {
+            assert.equal(digest(await readFile(join(installed, 'Contents/Resources/node/node'))), digest(f.nodeBytes));
+            await rm(dirname(dirname(installed)), { recursive: true, force: true });
+        } else await assert.rejects(lstat(installed), { code: 'ENOENT' });
+    });
+});
+
+// Exact source-bound helper extraction instruments the original I/O boundary only.
+// This MODEL complements the real ZIP tests above; it does not model native startup.
+test('Mac ZIP byte observation performs one original inventory and no added I/O, preserving cleanup identities', async () => {
+    const source = await readFile(new URL('./installed-artifact.mjs', import.meta.url), 'utf8');
+    const helper = source.slice(source.indexOf('export async function withExtractedAlphaArtifact('), source.indexOf('/** Private alpha payload'));
+    const observer = source.slice(source.indexOf('function observeBytes('), source.indexOf('/** Lend a digest-checked payload'));
+    for (const mode of ['success', 'primary-cleanup', 'cleanup', 'copy-mismatch', 'duplicate']) {
+        const calls = [], hash = 'a'.repeat(64), node = 'b'.repeat(64), primary = new Error('primary'), cleanup = new Error('cleanup');
+        const note = (name, value) => async () => { calls.push(name); return value; };
+        const deps = { join, tmpdir: () => '/MODEL', constants: { COPYFILE_EXCL: 1 },
+            lstat: note('lstat', { isFile: () => true }), realpath: note('realpath', '/MODEL/scratch'), mkdtemp: note('mkdtemp', '/MODEL/scratch'),
+            copyFile: async (...args) => { calls.push('copy'); assert.equal(args[2], 1); },
+            fileHash: note('hash', mode === 'copy-mismatch' ? 'c'.repeat(64) : hash), mkdir: note('mkdir'), extractZip: note('extract'),
+            macPayloadRoot: note('payload', '/MODEL/scratch/extracted/App.app'), macArchitecture: note('architecture'),
+            tree: note('tree', [['Contents/Resources/node/node-decoy', 'file', 493, 'd'.repeat(64)],
+                ['Contents/Resources/node/node', 'file', 493, node], ...(mode === 'duplicate' ? [['Contents/Resources/node/node', 'file', 493, node]] : [])]),
+            rm: async () => { calls.push('rm'); if (mode.includes('cleanup')) throw cleanup; },
+        };
+        const run = new Function('deps', `const {${Object.keys(deps).join(',')}}=deps; ${observer}; return ${helper.replace('export ', '')}`)(deps);
+        const events = [];
+        const operation = run({ platform: 'darwin', arch: 'arm64', asset: '/MODEL/input.zip', expectedSha256: hash,
+            observeArtifactBytes: event => { events.push(event); throw new Error('ignored sync observer'); } }, () => {
+            calls.push('use'); if (mode === 'primary-cleanup') throw primary; return 'done';
+        });
+        if (mode === 'primary-cleanup') await assert.rejects(operation, error => {
+            assert.ok(error instanceof AggregateError); assert.equal(error.cause, primary); assert.deepEqual(error.errors, [primary, cleanup]); return true;
+        });
+        else if (mode === 'cleanup') await assert.rejects(operation, error => error === cleanup);
+        else if (mode === 'copy-mismatch') await assert.rejects(operation, /digest/);
+        else assert.equal(await operation, 'done');
+        assert.deepEqual(calls, ['lstat', 'mkdtemp', 'realpath', 'copy', 'hash', ...(mode === 'copy-mismatch' ? [] : ['mkdir', 'extract', 'payload', 'architecture', 'tree', 'use']), 'rm']);
+        assert.deepEqual(events, mode === 'copy-mismatch' ? [] : [{ schema: 1, stage: 'owned-copy', sha256: hash },
+            { schema: 1, stage: 'embedded-node', ...(mode === 'duplicate' ? { state: 'unavailable' } : { state: 'observed', sha256: node }) }]);
+    }
+});
+posixTest('Mac ZIP byte observation does not add observations to a Linux helper loan', async t => {
+    const f = await fixture(t), events = [];
+    await withExtractedAlphaArtifact({ ...f, observeArtifactBytes: event => events.push(event) }, loan => {
+        assert.deepEqual(Object.keys(loan).sort(), ['installation', 'installedApp', 'retain']);
+    });
+    assert.deepEqual(events, []);
+});
+
+for (const consumerFails of [true, false]) test(`Mac ZIP byte observation survives actual ${consumerFails ? 'primary plus cleanup' : 'cleanup-only'} refusal`, {
+    skip: process.platform === 'win32' || process.getuid?.() === 0 ? 'Requires ordinary-user POSIX directory permissions' : false,
+}, async t => {
+    const f = await nodeZipFixture(t), primary = new Error('original consumer'), events = [];
+    let scratch, readonly;
+    t.after(async () => { if (readonly) await chmod(readonly, 0o755); if (scratch) await rm(scratch, { recursive: true, force: true }); });
+    await assert.rejects(withExtractedAlphaArtifact({ ...f, observeArtifactBytes: event => { events.push(event); throw new Error('observer'); } }, loan => {
+        scratch = dirname(dirname(loan.installedApp)); readonly = join(loan.installedApp, 'Contents/Resources/node');
+        return chmod(readonly, 0o555).then(() => { if (consumerFails) throw primary; return 'done'; });
+    }), error => {
+        if (consumerFails) { assert.ok(error instanceof AggregateError); assert.equal(error.cause, primary); assert.equal(error.errors[0], primary); assert.equal(error.errors[1].code, 'EACCES'); }
+        else { assert.equal(error instanceof AggregateError, false); assert.equal(error.code, 'EACCES'); }
+        return true;
+    });
+    assert.deepEqual(events, [{ schema: 1, stage: 'owned-copy', sha256: f.expectedSha256 },
+        { schema: 1, stage: 'embedded-node', state: 'observed', sha256: digest(f.nodeBytes) }]);
+    assert.ok(events.every(Object.isFrozen));
+});

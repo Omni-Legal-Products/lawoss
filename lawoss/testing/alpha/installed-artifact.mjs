@@ -196,8 +196,14 @@ async function tree(root) {
     return result;
 }
 
+// Internal trusted synchronous-void observer: no detached work or returned Promise contract.
+// Its synchronous exception cannot change operation/cleanup identity or loan ownership.
+function observeBytes(observer, event) {
+    try { if (typeof observer === 'function') observer(Object.freeze(event)); } catch {}
+}
+
 /** Lend a digest-checked payload; retain only when an owned child failed verified cleanup. */
-export async function withExtractedAlphaArtifact({ platform, arch, asset, expectedSha256 }, use) {
+export async function withExtractedAlphaArtifact({ platform, arch, asset, expectedSha256, observeArtifactBytes }, use) {
     if (!['x64', 'arm64'].includes(arch) || !/^[a-f0-9]{64}$/.test(expectedSha256 ?? ''))
         throw new Error('Expected architecture and final artifact SHA-256');
     if (typeof use !== 'function') throw new Error('Expected an owned artifact consumer');
@@ -211,7 +217,9 @@ export async function withExtractedAlphaArtifact({ platform, arch, asset, expect
         // Verification/extraction use the same private copy, never a later mutable source path.
         const ownedAsset = join(scratch, `candidate${mac ? dmg ? '.dmg' : '.zip' : appImage ? '.AppImage' : '.tar.gz'}`);
         await copyFile(asset, ownedAsset, constants.COPYFILE_EXCL);
-        if (await fileHash(ownedAsset) !== expectedSha256) throw new Error('Final artifact digest differs');
+        const ownedSha256 = await fileHash(ownedAsset);
+        if (ownedSha256 !== expectedSha256) throw new Error('Final artifact digest differs');
+        if (mac && !dmg) observeBytes(observeArtifactBytes, { schema: 1, stage: 'owned-copy', sha256: ownedSha256 });
         const extracted = join(scratch, 'extracted');
         await mkdir(extracted, { mode: 0o700 });
         if (dmg) {
@@ -224,7 +232,16 @@ export async function withExtractedAlphaArtifact({ platform, arch, asset, expect
         const payload = mac ? await macPayloadRoot(extracted, dmg) : await payloadRoot(extracted);
         if (mac) await macArchitecture(payload, arch);
         else await executableArchitecture(join(payload, 'legalwork'), arch);
-        await tree(payload); // Refuse escaping/broken links before lending an executable.
+        {
+            const inventory = await tree(payload); // Refuse escaping/broken links before lending an executable.
+            if (mac && !dmg) {
+                // Reuse the original inventory; this is preloan byte-stream evidence, not inode identity.
+                const rows = inventory.filter(row => row[0] === 'Contents/Resources/node/node');
+                const node = rows.length === 1 && rows[0][1] === 'file' ? rows[0][3] : undefined;
+                observeBytes(observeArtifactBytes, { schema: 1, stage: 'embedded-node',
+                    ...(typeof node === 'string' && /^[a-f0-9]{64}$/.test(node) ? { state: 'observed', sha256: node } : { state: 'unavailable' }) });
+            }
+        }
         const installation = { status: 'verified', method: mac ? dmg ? 'sha256-dmg-installed-tree' : 'sha256-zip-installed-tree' : appImage ? 'sha256-appimage-installed-tree' : 'sha256-tar-installed-tree', signing: 'not-asserted', assetSha256: expectedSha256 };
         return await use({ installedApp: mac ? payload : join(payload, 'legalwork'), installation, retain: () => { retained = true; } });
     } catch (error) {

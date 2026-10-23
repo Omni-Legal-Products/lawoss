@@ -43,9 +43,26 @@ const knownCode = value => typeof value==='string' && observedCodes.has(value) ?
 function errorCode(error) {
   try {const code=knownCode(error?.code);return code!=='unknown'?code:knownCode(error?.message);}catch{return 'unknown';}
 }
+// Copy only closed own data fields from the internal synchronous observer port.
+// Malformed adapter events/accessors are ignored, never mined for diagnostic evidence.
+function byteEvent(event) {
+  try {
+    if(!event || typeof event!=='object')return;
+    const fields=Object.getOwnPropertyDescriptors(event),keys=Reflect.ownKeys(fields);
+    if(keys.some(key=>typeof key!=='string' || !Object.hasOwn(fields[key],'value')))return;
+    const value=Object.fromEntries(keys.map(key=>[key,fields[key].value]));
+    if(value.schema!==1)return;
+    const hash=typeof value.sha256==='string' && /^[a-f0-9]{64}$/.test(value.sha256);
+    if(value.stage==='owned-copy' && hash && keys.length===3)return {stage:'owned-copy',sha256:value.sha256};
+    if(value.stage==='embedded-node' && ((value.state==='observed' && hash && keys.length===4)
+      || (value.state==='unavailable' && keys.length===3)))return {stage:'embedded-node',state:value.state,...(hash?{sha256:value.sha256}:{})};
+  } catch {}
+}
 function startupDiagnostic() {
   let phase='preflight',firstFailure,receiptCode='unknown',cleanup='not-observed',mainLogReader;
   let startupRecord='not-observed',workFailureCode=null,stopFailure;
+  let artifactBytes,artifactOpen=false;
+  const updateBytes=fields=>{artifactBytes=Object.freeze({...artifactBytes,...fields});};
   const record=error=>{
     if(firstFailure)return;
     const code=errorCode(error),native=nativeLaunchDiagnostic(error),readiness=nativeReadinessDiagnostic(error);
@@ -57,6 +74,24 @@ function startupDiagnostic() {
   };
   return {
     stage(value){phase=value;},
+    beginBytes(build){
+      const unknown=()=>Object.freeze({state:'not-observed'});
+      artifactBytes=Object.freeze({schema:1,build:Object.freeze({...build}),platform:build.platform,arch:build.arch,kind:'mac-zip',
+        originalAsset:unknown(),ownedCopy:unknown(),embeddedNode:unknown(),embeddedBuild:unknown()});
+      artifactOpen=true;
+    },
+    originalBytes(sha256){if(artifactBytes)updateBytes({originalAsset:Object.freeze({state:'matched',sha256})});},
+    artifactEvent(event){
+      if(!artifactOpen || artifactBytes.originalAsset.state!=='matched')return;
+      const value=byteEvent(event);if(!value)return;
+      if(value.stage==='owned-copy' && artifactBytes.ownedCopy.state==='not-observed' && value.sha256===artifactBytes.originalAsset.sha256)
+        updateBytes({ownedCopy:Object.freeze({state:'matched',sha256:value.sha256})});
+      if(value.stage==='embedded-node' && artifactBytes.ownedCopy.state==='matched' && artifactBytes.embeddedNode.state==='not-observed')
+        updateBytes({embeddedNode:Object.freeze({state:value.state,...(value.state==='observed'?{sha256:value.sha256}:{})})});
+    },
+    endArtifact(){artifactOpen=false;},
+    embeddedBytes(){if(artifactBytes)updateBytes({embeddedBuild:Object.freeze({state:'matched'})});},
+    bytes(){return artifactBytes;},
     observe(event,error){
       if(event==='startup-written')startupRecord='written';
       if(event==='work-failed' && workFailureCode===null)workFailureCode=errorCode(error);
@@ -77,13 +112,14 @@ function startupDiagnostic() {
     complete(){cleanup='verified';},
     mainLog(reader){mainLogReader=reader;},
     async remember(error){
+      artifactOpen=false;
       record(error);
       // Read private logs only after the original launch failed and native closure
       // was verified. This cannot extend or retry the native readiness operation.
       const mainLog=firstFailure?.phase==='launch' && cleanup==='native-verified' && mainLogReader
         ? await mainLogReader.read() : undefined;
       if(error!==null && (typeof error==='object' || typeof error==='function'))
-        failureDiagnostics.set(error,Object.freeze({...firstFailure,cleanup,...(mainLog?{mainLog}:{}),...(stopFailure?{
+        failureDiagnostics.set(error,Object.freeze({...firstFailure,cleanup,...(artifactBytes?{artifactBytes}:{}),...(mainLog?{mainLog}:{}),...(stopFailure?{
           cleanupAttribution:Object.freeze({schema:1,
             startup:Object.freeze({record:startupRecord,workFailureCode,finalResult:'unverified'}),stop:stopFailure}),
         }:{})}));
@@ -156,8 +192,11 @@ async function nativeStartupProbe(options,adapters,diagnostic) {
   const {asset,expectedSha256,installedApp}=options;
   const build=validateBuildInfo(options.expectedBuild);
   if(build.platform!==process.platform || build.arch!==process.arch || !/^[a-f0-9]{64}$/.test(expectedSha256??''))fail();
+  if(build.platform==='darwin' && asset.endsWith('.zip'))diagnostic.beginBytes(build);
   diagnostic.stage('hash');
-  if(await hashFile(asset)!==expectedSha256)fail();
+  const originalSha256=await hashFile(asset);
+  if(originalSha256!==expectedSha256)fail();
+  diagnostic.originalBytes(originalSha256);
   diagnostic.stage('preflight');
   const temporaryRoot=await physicalDirectory(options.temporaryRoot);
   const parent=await physicalDirectory(dirname(resolve(options.outputDir))),outputDir=join(parent,basename(options.outputDir));
@@ -172,11 +211,14 @@ async function nativeStartupProbe(options,adapters,diagnostic) {
     ? async (artifact,use)=>{if(!installedApp)fail();const installation=await verifyAlphaInstallation({...artifact,installedApp});return use({installedApp,installation,retain:()=>{}});}
     : withExtractedAlphaArtifact);
   diagnostic.stage('extraction');
-  const result=await withArtifact({platform:build.platform,arch:build.arch,asset,expectedSha256},loan=>diagnostic.at('embed',async()=>{
+  const result=await withArtifact({platform:build.platform,arch:build.arch,asset,expectedSha256,
+    ...(diagnostic.bytes()?{observeArtifactBytes:diagnostic.artifactEvent}:{})},loan=>diagnostic.at('embed',async()=>{
+    diagnostic.endArtifact();
     const installation=installationProjection(loan.installation,build.platform,expectedSha256);
     const layout=nativeAppLayout(loan.installedApp);
     const embedded=validateBuildInfo(JSON.parse(await boundedFile(join(layout.resources,'build-info.json'),16384)));
     if(!equalBuild(embedded,build))fail();
+    diagnostic.embeddedBytes();
     const expected={build,userData:join(profile.root,'userdata'),executable:await realpath(layout.executable),rendererRoot:await realpath(layout.rendererRoot)};
     let receipt, launchedPid;
     try {
@@ -237,6 +279,7 @@ async function nativeStartupProbe(options,adapters,diagnostic) {
     return result;
   }));
   diagnostic.complete();
+  if(diagnostic.bytes())result.receipt.artifactBytes=diagnostic.bytes();
   // Extractor finally (including DMG detach) must finish before publishing a verified marker.
   diagnostic.stage('publish');
   const image=join(outputDir,result.receipt.startup.capture.file),json=join(outputDir,'startup.json');
