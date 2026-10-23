@@ -1,8 +1,8 @@
 /** Shared by the human interface and the project API. */
 export const projectTemplateStrings = {
   "en": {
-    "projects.templates.legal_matter": "Legal Matter",
-    "projects.templates.internal": "Internal Project",
+    "projects.templates.legal_matter": "Legal Case",
+    "projects.templates.internal": "Internal Work",
     "projects.templates.administration": "Operations",
     "projects.templates.research": "Research & Analysis",
     "projects.schema.project_owner": "Project owner",
@@ -21,10 +21,10 @@ export const projectTemplateStrings = {
     "projects.schema.research_question": "Research question",
     "projects.schema.jurisdiction": "Jurisdiction",
     "projects.schema.deliverable": "Deliverable",
-    "projects.schema.matter_number": "Matter reference",
+    "projects.schema.matter_number": "Case number",
     "projects.schema.client": "Client",
     "projects.schema.opposing_party": "Opposing party",
-    "projects.schema.subject": "Matter subject",
+    "projects.schema.subject": "Case subject",
     "projects.schema.practice_area": "Practice area",
     "projects.schema.responsible": "Responsible lawyer",
     "projects.schema.status": "Status",
@@ -43,8 +43,8 @@ export const projectTemplateStrings = {
     "projects.schema.effective_date": "Effective date"
   },
   "de": {
-    "projects.templates.legal_matter": "Akte",
-    "projects.templates.internal": "Internes Projekt",
+    "projects.templates.legal_matter": "Fall",
+    "projects.templates.internal": "Interne Arbeit",
     "projects.templates.administration": "Betrieb",
     "projects.templates.research": "Recherche & Analyse",
     "projects.schema.project_owner": "Projektverantwortliche Person",

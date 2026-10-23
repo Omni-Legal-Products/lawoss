@@ -67,6 +67,42 @@ describe("EN a DE: Client / Case / Chats a Mandant / Fall / Chats (N-11)", () =>
     }
   });
 
+  test("nemecká gramatika po zámene rodu a zvyšky Akte / Mandat / Session", () => {
+    setLocale("de");
+    expect(t("project_sync.keep_local")).toBe("Als eigenen Mandanten behalten");
+    expect(t("project_sync.owner_only_short")).toBe("Nur die Person, der der Mandant gehört, kann das ändern.");
+    expect(t("welcome.project_creating")).toBe("Ihr Mandant wird erstellt…");
+    expect(t("benchmark.transcript_readonly")).toContain("Schreibgeschützter Eval-Chat");
+    expect(t("tasks.created_by_agent")).toBe("Vom LAWOSS-Agenten, in einem Chat");
+    expect(t("projects.reconnect_folder")).toBe("Mandantenordner erneut verbinden");
+    expect(t("session.cmd_new_session_title")).toBe("Neuer Chat");
+    expect(t("session.workspace_files")).toBe("Mandantendateien");
+    expect(t("open_computer_use.local_only")).toContain("lokalen Arbeitsbereich");
+    setLocale("en");
+    expect(t("projects.reconnect_folder")).toBe("Reconnect client folder");
+    expect(t("session.cmd_new_session_title")).toBe("New chat");
+    expect(t("session.workspace_files")).toBe("Client Files");
+    expect(t("open_computer_use.local_only")).toContain("local workspace");
+    const effectiveDe: Record<string, string> = { ...de, ...termsDe };
+    const effectiveEn: Record<string, string> = { ...en, ...termsEn };
+    const leftovers = Object.entries(effectiveDe)
+      .filter(([key, value]) => key !== "lawoss.alpha.notice" && !key.startsWith("lawoss.setup.welcome."))
+      .filter(([, value]) => /\bAkten?\w*|\bAngelegenheit|\bMandat(e|en|s)?\b/.test(value.replace(/Aktenzeichen/g, "")));
+    expect(leftovers.map(([key]) => key)).toEqual([]);
+    const enLeft = Object.entries(effectiveEn)
+      .filter(([key, value]) => key !== "lawoss.alpha.notice" && !key.startsWith("lawoss.setup.welcome.") && /\bmatters?\b/i.test(value.replace(/\{[^}]*\}|features? (you use )?matter|details that matter/gi, "")))
+      .map(([key]) => key);
+    expect(enLeft).toEqual([]);
+  });
+
+  test("YOLO: pravdivé o Koši, skrytom .lawoss-kos a priamych príkazoch", () => {
+    for (const locale of ["sk", "cs", "en", "de"] as const) {
+      setLocale(locale);
+      expect(t("lawoss.yolo.confirm_undo")).toContain(".lawoss-kos");
+      expect(t("lawoss.yolo.confirm_undo")).toContain("rm");
+    }
+  });
+
   test("profil prípadu v dokumentoch používa Case / Fall", () => {
     expect(documentProfileCopy.en.label).toContain("case");
     expect(documentProfileCopy.de.label).toBe("Geprüftes Profil und Fall");
@@ -133,12 +169,26 @@ describe("K5/K6: texty sa prekladajú pri renderi, nie pri uložení", () => {
     expect(cs1).not.toContain(sk["session.permission_title_bash"]);
   });
 
-  test("memo s prekladaným textom závisí od jazyka (karta povolenia, miera uvažovania)", () => {
+  // Obmedzenie: v teste nie je DOM, takže sa nedá skutočne prekresliť strom po prepnutí jazyka
+  // (renderToStaticMarkup rátá vždy nanovo). Preto sú nižšie stráže nad zdrojom: ak niekto
+  // odstráni `useLocale()` alebo jazyk z deps memoizácie, test zlyhá.
+  test("memoizácie s prekladaným textom závisia od jazyka (karta povolenia, miera uvažovania)", () => {
     const root = join(import.meta.dir, "..", "src", "react-app", "domains", "session");
     const card = readFileSync(join(root, "chat", "permission-approval-modal.tsx"), "utf8");
-    expect(card.match(/\[props\.permission, locale\]/g)?.length).toBe(2);
+    expect(card.match(/const locale = useLocale\(\);/g)?.length).toBe(2);
+    const memos = [...card.matchAll(/useMemo\(\(\) => describePermissionRequest\(props\.permission\), (\[[^\]]*\])\)/g)].map((m) => m[1]);
+    expect(memos).toEqual(["[props.permission, locale]", "[props.permission, locale]"]);
     const behavior = readFileSync(join(root, "surface", "use-model-behavior.ts"), "utf8");
-    expect(behavior).toContain("[defaultModel, modelVariant, providerCatalog, locale]");
+    expect(behavior).toContain("const locale = useLocale();");
+    expect(behavior).toMatch(/useMemo\(\(\) => \{[\s\S]*?\}, \[defaultModel, modelVariant, providerCatalog, locale\]\);/);
+  });
+
+  test("chyba AI hraníc sa v karte relácie a v zozname správ prekladá pri renderi", () => {
+    const surface = readFileSync(join(import.meta.dir, "..", "src", "react-app", "domains", "session", "surface", "session-surface.tsx"), "utf8");
+    expect(surface).toContain('error.kind === "ai-boundaries" ? aiBoundariesRefusal(error.message) : error.message');
+    expect(surface).toContain('message: AI_BOUNDARIES_STORED_MESSAGE, kind: "ai-boundaries"');
+    const list = readFileSync(join(import.meta.dir, "..", "src", "components", "chat", "message-list.tsx"), "utf8");
+    expect(list).toContain("aiBoundariesRefusal(error) ?? error");
   });
 
   test("miera uvažovania má EN a DE preklad, nie slovenský text", () => {

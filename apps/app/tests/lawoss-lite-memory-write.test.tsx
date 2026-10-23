@@ -189,9 +189,9 @@ describe("integrace do PermissionApprovalPanel/Modal (upstream)", () => {
       React.createElement(PermissionApprovalPanel, { permission, respondPermission: () => {} }),
     );
     expect(panelHtml).not.toContain('data-lawoss-lite="memory-write"');
-    expect(panelHtml).not.toContain("The assistant wants to record to the matter memory");
+    expect(panelHtml).not.toContain("The assistant wants to record to the case memory");
     expect(panelHtml).toContain("okf-memory write"); // scope/detail rows render as before
-    expect(panelHtml).toContain("Allow for session"); // pro: „pro session“ zůstává, skrývá se jen v lite u karty
+    expect(panelHtml).toContain("Allow for this chat"); // pro: „pro session“ zůstává, skrývá se jen v lite u karty
 
     // AlertDialogContent renders via a Portal, which is a no-op under
     // renderToStaticMarkup (SSR) - this only proves the modal doesn't throw
