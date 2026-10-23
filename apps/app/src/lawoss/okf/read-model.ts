@@ -124,7 +124,12 @@ export async function readWorkspaceMemory(
     if (scanned >= MAX_DISCOVERY_DIRECTORIES || paths.length >= MAX_MATTERS || depth > MAX_DISCOVERY_DEPTH) { truncated = true; return; }
     scanned++;
     const entries = await list(path);
-    if (directMatter || entries.some((e) => e.kind === "file" && CARD_FILES.includes(e.name))) {
+    const hasMatterCard = entries.some((e) => e.kind === "file" && CARD_FILES.includes(e.name));
+    // N-A4-4 (test 23. 10. 2026): priečinok s vlastnou kartou klienta vo vnútri iného klienta je vnorený klient,
+    // ktorého appka odmieta (MČ 23. 10. 2026). Nie je to prípad vonkajšieho klienta (ani pri kóde `C099 …`) a jeho
+    // prípady do prehľadu vonkajšieho klienta nepatria; ostáva len obyčajným priečinkom v Súboroch.
+    if (insideClient && !hasMatterCard && entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name))) return;
+    if (directMatter || hasMatterCard) {
       paths.push(path);
       return;
     }
