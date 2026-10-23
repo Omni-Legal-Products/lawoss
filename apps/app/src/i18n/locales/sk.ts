@@ -6381,7 +6381,7 @@ export default {
   "workspace.open_workspace": "Otvoriť pracovný priestor",
   "workspace.opening_hint": "Platí pre nové karty. Otvorené karty zostanú na mieste; kedykoľvek ich môžete presunúť kamkoľvek.",
   "workspace.opening_profile": "Profil otvárania",
-  "workspace.overview": "Domov",
+  "workspace.overview": "Prehľad",
   "workspace.preview_hint": "Náhľad: dvojitým kliknutím ponecháte otvorené",
   "workspace.remove_failed": "Tohto klienta sa nepodarilo odobrať.",
   "workspace.return_to": "Vrátiť sa na {name}",

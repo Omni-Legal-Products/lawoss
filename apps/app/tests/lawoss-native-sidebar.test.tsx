@@ -22,6 +22,7 @@ import { clientChatKeys, ClientDeadlinesNavItem, ClientMattersNavItem, ClientMat
 import { ClientOverviewView } from "../src/lawoss/lite/client-overview";
 import { buildClientTree, clientToggle, directoryFocus, type ConversationList, type TreeClient } from "../src/lawoss/lite/client-tree";
 import { SESSION_DIRECTORY_KEY, useClientTree } from "../src/lawoss/lite/client-tree-data";
+import { buildClientRows } from "../src/lawoss/lite/client-row-data";
 import { comparable, FOLDER_SESSIONS_KEY } from "../src/lawoss/lite/matter-conversations";
 import type { ClientGroup } from "../src/lawoss/lite/today-model";
 import type { OkfReadResult, OkfScope } from "../src/lawoss/okf/read-model";
@@ -75,7 +76,7 @@ const mixed = clientNavModel([root, tatranWs, legacy], "/prax", readyOverview(ro
 type TestValue = Parameters<typeof ClientNavTestProvider>[0]["value"];
 function navValue(model: TestValue["model"], nodes: TreeClient[], extra: Partial<TestValue> = {}): TestValue {
   return {
-    connection: null, scope: rootScope, data: undefined, groups: mixedGroups, model, excludedWorkspaceIds: [],
+    connection: null, scope: rootScope, data: undefined, groups: mixedGroups, model, excludedWorkspaceIds: [], rows: new Map(),
     tree: { nodes, toggle: () => {}, openConversation: () => {}, newConversation: () => {} },
     open: {}, setOpen: () => {}, focused: null, startNewChat: () => false, ...extra,
   };
@@ -396,6 +397,27 @@ describe("bočný panel (natívny AppSidebar, vykreslený)", () => {
       // SSR je vždy Pokročilý režim: „+“ ostáva natívne vytvorenie projektu (bežný režim vedie na Pridať klienta).
       expect(out).toContain('aria-label="Create project"');
     } finally { useProjectFavoritesStore.setState({ favoriteIds: [] }); }
+  });
+
+  test("B3: klient so slugom priečinka má v hlavičke názov z karty, priečinok v bublinke, lehotu a kontext chatu", () => {
+    const slug = "C001-syn-tatran-automatika-s-r-o", card = "SYN Tatran Automatika, s. r. o.";
+    const client = ws(slug, `/prax/Klienti/${slug}`);
+    const m = { ...matter(`Klienti/${slug}/Spisy/Uhrada`, "Úhrada dodávok"), deadlines: [deadline("2099-01-15")] };
+    const groups: ClientGroup[] = [{ key: `client:Klienti/${slug}`, client: card, matters: [m] }];
+    const scope: OkfScope = { anchor: client, members: [{ workspace: client, prefix: `Klienti/${slug}` }], practiceRoot: "/prax" };
+    const model = clientNavModel([client], "/prax", readyOverview(scope, groups));
+    const upcoming = m.deadlines.map((d) => ({ ...d, matter: { path: m.path, title: m.title } }));
+    const data: OkfReadResult = { matters: [m], upcomingDeadlines: upcoming, overdue: [], totals: { matters: 1, deadlinesWithin7Days: 0, openTasks: 0, overdue: 0, records: 1 },
+      problems: [], truncated: false, inputs: [], clients: [{ path: `Klienti/${slug}`, title: card }],
+      coverage: { status: "complete", scopeKey: "k", sources: [{ source: "workspace", workspaceId: slug, checkedAt: 1, lastSuccessAt: 1, state: "fresh" }] } };
+    const session = { id: "s1", title: "Návrh odpovede", directory: `/prax/Klienti/${slug}/Spisy/Uhrada`, time: { created: 1, updated: 2 } };
+    const rows = buildClientRows({ workspaces: [client], scope, data, groups, model, excludedWorkspaceIds: [], rootCards: new Map(), todayIso: "2026-10-22" });
+    const out = sidebar(navValue(model, [], { scope, data, groups, rows }), [{ workspace: client, sessions: [session], status: "ready" } as WorkspaceSessionGroup]);
+    expect(out).toMatch(new RegExp(`title="Folder: /prax/Klienti/${slug}\\nDeadline [^"]+" data-lawoss-row-label="" data-lawoss-native-name="${slug}">${card}</span>`));
+    expect(out).toMatch(/<span class="min-w-0 truncate" data-lawoss-row-code="">C001<\/span>/);
+    expect(out).not.toContain(`>${slug}<`);
+    expect(out).toMatch(/data-lawoss-row-status=""[^>]*>Deadline /);
+    expect(out).toContain(`>${card} · Úhrada dodávok</span>`);
   });
 
   test("bežný režim: + vedie na Pridať klienta (vetva podľa režimu)", () => {

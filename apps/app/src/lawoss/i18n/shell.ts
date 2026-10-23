@@ -397,6 +397,9 @@ export const shellEn = {
   "lawoss.lite.more_items": "+{count} more",
   "lawoss.lite.urgent": "urgent deadline",
   "lawoss.lite.client_unnamed": "Client",
+  "lawoss.lite.nav_more": "More",
+  "lawoss.lite.client_folder_tooltip": "Folder: {path}",
+  "lawoss.lite.row_deadline": "Deadline {date}",
   "lawoss.lite.client_no_matters": "No matters yet.",
   // Prehľad prípadu podľa oblasti a typu práce (alfa2 C2, lawoss/okf/views.ts) a poctivé prázdne stavy lehôt.
   "lawoss.lite.ov_block_base": "Basics",
@@ -955,6 +958,9 @@ export const shellCs = {
   "lawoss.lite.more_items": "+{count} další",
   "lawoss.lite.urgent": "naléhavá lhůta",
   "lawoss.lite.client_unnamed": "Klient",
+  "lawoss.lite.nav_more": "Více",
+  "lawoss.lite.client_folder_tooltip": "Složka: {path}",
+  "lawoss.lite.row_deadline": "Lhůta {date}",
   "lawoss.lite.client_no_matters": "Zatím bez případů.",
   // Prehľad prípadu podľa oblasti a typu práce (alfa2 C2, lawoss/okf/views.ts) a poctivé prázdne stavy lehôt.
   "lawoss.lite.ov_block_base": "Základ",
@@ -1510,6 +1516,9 @@ export const shellSk = {
   "lawoss.lite.more_items": "+{count} ďalšie",
   "lawoss.lite.urgent": "naliehavá lehota",
   "lawoss.lite.client_unnamed": "Klient",
+  "lawoss.lite.nav_more": "Viac",
+  "lawoss.lite.client_folder_tooltip": "Priečinok: {path}",
+  "lawoss.lite.row_deadline": "Lehota {date}",
   "lawoss.lite.client_no_matters": "Zatiaľ bez prípadov.",
   // Prehľad prípadu podľa oblasti a typu práce (alfa2 C2, lawoss/okf/views.ts) a poctivé prázdne stavy lehôt.
   "lawoss.lite.ov_block_base": "Základ",
@@ -2063,6 +2072,9 @@ export const shellDe = {
   "lawoss.lite.more_items": "+{count} weitere",
   "lawoss.lite.urgent": "dringende Frist",
   "lawoss.lite.client_unnamed": "Mandant",
+  "lawoss.lite.nav_more": "Mehr",
+  "lawoss.lite.client_folder_tooltip": "Ordner: {path}",
+  "lawoss.lite.row_deadline": "Frist {date}",
   "lawoss.lite.client_no_matters": "Noch keine Akten.",
   // Prehľad prípadu podľa oblasti a typu práce (alfa2 C2, lawoss/okf/views.ts) a poctivé prázdne stavy lehôt.
   "lawoss.lite.ov_block_base": "Grundlagen",
