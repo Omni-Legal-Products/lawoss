@@ -233,6 +233,12 @@ export async function ownWorkspaceFor(config: ServerConfig, directory: string): 
   }).sort((a, b) => b.root.length - a.root.length)[0]?.workspace;
 }
 
+/**
+ * LAWOSS (N-A2-2, alfa): the model relays this refusal to the lawyer, so it says what happened and
+ * what to do. Nothing was read; the pin itself does not change (rozhodnutie MČ 23. 10. 2026, možnosť C).
+ */
+export const CLIENT_RUNTIME_REQUIRED = "This chat cannot use this client's files now. In this version LAWOSS works with one client at a time: since LAWOSS started, its AI has worked with another client, so this client's files stay closed to protect them. Nothing was read or changed. Tell the user in their language: quit LAWOSS completely, open it again and start with this client's chat; chats of the other client keep working until then.";
+
 /** Engine requests get the session's own data; an all-projects scheduled run may read other projects. */
 export function agentMayList(agent: { workspaceId: string | null; allProjects: boolean }, pathname: string, workspaceId: string): boolean {
   return workspaceId === agent.workspaceId || (agent.allProjects && pathname === "/scheduled-tasks/projects");
@@ -281,7 +287,7 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   const own = await ownWorkspaceFor(config, directory);
   const clientRoot = own ? await realpath(own.directory || own.path) : directory;
   if (!access.clientRoot || clientRoot !== access.clientRoot)
-    throw new ApiError(403, "wiki_agent_client_runtime_required", "This client requires a separate agent runtime.");
+    throw new ApiError(403, "wiki_agent_client_runtime_required", CLIENT_RUNTIME_REQUIRED);
   // The shared process credential cannot distinguish a normal chat from a scheduled
   // all-projects session named in attacker-controlled headers. Keep cross-client reads
   // unavailable until the scheduled transport has an independent scoped credential.

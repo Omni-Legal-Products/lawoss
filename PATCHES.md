@@ -1,12 +1,13 @@
 # LAWOSS downstream patches
 
-## Overenie alfa2 v UI: editory pri chate prípadu (2026-10-23, N-A2-1)
+## Overenie alfa2 v UI: editory pri chate prípadu, odmietnutie iného klienta (2026-10-23, N-A2-1, N-A2-2)
 
 Podklad: nález N-A2-1 z overenia alfa2 23. 10. 2026 (schválené premenovanie v chate prípadu skončilo 500 „The task's project is unavailable“). Nové LAWOSS súbory: `apps/server/src/opencode-plugins/lawoss-file-paths.ts` (cesta od priečinka chatu; cesta od koreňa klienta, ktorá už začína priečinkom prípadu, sa nezdvojí), testy `apps/server/src/opencode-plugins/lawoss-file-paths.test.ts`, `apps/app/tests/lawoss-document-project.test.js`.
 
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
 | `apps/app/src/react-app/domains/session/artifacts/document-project.ts` | Výber projektu je v exportovanej `findDocumentProject` (rovnaké správanie, testovateľné bez spojenia). Lokálny chat patrí priestoru, keď jeho `directory` leží v koreni klienta (`isWithinClientFolder` z `lawoss/shell/session-directory.ts`), nie len pri presnej zhode. Dôvod: chat prípadu beží v `…/Spisy/M00x`, bočný panel ho v zozname chatov klienta nemá, takže `documents.begin_file_edit` (uloženie otvorených editorov pred `lawoss_files`) neodvodil projekt a server vrátil 500. Pri syncu zachovať. |
+| `apps/server/src/wiki/agent-access.ts`, `apps/server/src/opencode-plugins/office-plugin-shared.ts` | N-A2-2, rozhodnutie MČ 23. 10. 2026 (možnosť C): pin procesu enginu ku klientovi prvého chatu ostáva. Odmietnutie iného klienta (`wiki_agent_client_runtime_required`) má text pre advokáta (`CLIENT_RUNTIME_REQUIRED`: čo sa stalo, nič sa neprečítalo, ukončiť a znova otvoriť LAWOSS a začať chatom tohto klienta). `listWorkspaces()` pridá k „HTTP 403“ `message` z JSON tela, inak model videl len stav a radil skontrolovať prístup k priečinku. Variant D (reštart enginu s novým pinom) neprešiel: engine sa spúšťa raz pri štarte servera, reštart mení port, heslo a token všetkých priestorov a zhodí bežiace chaty. Test `apps/server/src/opencode-plugins/office-plugin-shared-refusal.test.ts`, rozšírený `lawoss/engine-agent-routes.test.ts`. |
 
 ## Bočný panel: čitateľné mená, Klient → Prípady → Chaty, kompaktný bežný režim (alfa2 B3, 2026-10-23)
 

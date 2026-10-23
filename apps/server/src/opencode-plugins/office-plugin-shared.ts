@@ -63,6 +63,14 @@ export async function workspaceToolHeaders(context?: OpenCodeContext): Promise<R
   };
 }
 
+/** The server's `message` from a JSON error body, bounded; empty when there is none. */
+function refusalMessage(text: string): string {
+  try {
+    const message: unknown = Reflect.get(Object(JSON.parse(text)), "message");
+    return typeof message === "string" && message.trim() ? `. ${message.trim().slice(0, 1000)}` : "";
+  } catch { return ""; }
+}
+
 type WorkspaceListPayload = {
   items?: Array<{ id?: unknown; path?: unknown }>;
 };
@@ -76,7 +84,8 @@ export async function listWorkspaces(context?: OpenCodeContext): Promise<Array<{
     headers,
     signal: context?.abort ? AbortSignal.any([context.abort, AbortSignal.timeout(8_000)]) : AbortSignal.timeout(8_000),
   });
-  if (!response.ok) throw new Error(`Workspace lookup failed: HTTP ${response.status}`);
+  // LAWOSS (N-A2-2): a refused client keeps the server's explanation for the user, not only the status.
+  if (!response.ok) throw new Error(`Workspace lookup failed: HTTP ${response.status}${refusalMessage(await response.text().catch(() => ""))}`);
   const payload = (await response.json()) as WorkspaceListPayload;
   const items = (payload.items ?? []).flatMap((item) =>
     typeof item.id === "string" && typeof item.path === "string" ? [{ id: item.id, path: item.path }] : [],
