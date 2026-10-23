@@ -13,6 +13,7 @@ import { externalAppFilesRoot } from "./workspace-app-files.js";
 import { registrationName } from "./client-card-title.js";
 import { registerTriageRoutes } from "./triage.js";
 import { readOfficeMemory } from "./office-memory.js";
+import { assertClientFolderNotNested } from "./nested-client.js";
 import { executeOnboarding, inspectCardLevel, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, suggestOnboardingLevel, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
 
 /** OKF is opt-in; enabling it requires a dated acknowledgement of a versioned notice. */
@@ -57,6 +58,18 @@ const ticketSchema = z.strictObject({ version: z.literal(1), id: z.uuid(), finge
 type Ticket = z.infer<typeof ticketSchema>;
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const inside = (root: string, path: string) => { const rel = relative(root, path); return !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`); };
+/**
+ * Priečinky, ktoré sa po vykonaní stanú klientom (ako `apply` určí `clientRoot`), a pri skúšobnej kópii aj originál.
+ * Kancelária a prax nie sú klient. Klient vnútri iného klienta ani priečinok s klientmi sa nezaregistruje (N-A3-1).
+ */
+function clientFoldersOf(preview: { action: string; mode: string; root?: string; target?: string; clientRoot?: string; source?: string }): string[] {
+  if (preview.action === "office" || preview.action === "practice") return [];
+  const registered = preview.clientRoot ?? (preview.mode === "map" ? preview.root : preview.target);
+  return [registered, preview.mode === "trial_clone" ? preview.source : undefined].filter((folder): folder is string => Boolean(folder));
+}
+const assertClientFolders = async (config: ServerConfig, preview: Parameters<typeof clientFoldersOf>[0]) => {
+  for (const folder of clientFoldersOf(preview)) await assertClientFolderNotNested(config, folder);
+};
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
 
 async function canonicalDirectory(path: string): Promise<string> {
@@ -163,6 +176,8 @@ export function registerOnboardingRoutes(options: {
         if (!chosen && await missingDirectory(path)) continue;
         if (chosen && await missingDirectory(path)) throw new ApiError(400, "folder_missing", `Selected ${key} folder does not exist.`, { key, name: basename(path) });
         await canonicalDirectory(path);
+        // N-A3-1: vybraný klient vnútri iného klienta by vonkajšiemu klientovi zablokoval nástroje agenta.
+        if (chosen && key === "clientRoot") await assertClientFolderNotNested(config, path);
         // LAWOSS: identita z kariet v koreni (plytko). Plná inšpekcia celého stromu tu odmietala
         // skutočných klientov (veľký strom, symlink, zamknutý dokument), chyba z callu 8. 10. 2026.
         const identity = await inspectCardLevel(path);
@@ -197,10 +212,14 @@ export function registerOnboardingRoutes(options: {
     return await suggestOnboardingLevel(input.root);
   });
   route("POST", "plan", async ctx => {
-    const input = await body(ctx), preview = await previewOnboarding(input);
+    const input = await body(ctx);
+    // Vybraný existujúci priečinok sa overí ešte pred prehliadkou: odmietnutie má prednosť pred inou chybou plánu.
+    if (input.action === "existing" && typeof input.root === "string" && isAbsolute(input.root)) await assertClientFolderNotNested(config, input.root);
+    const preview = await previewOnboarding(input);
     // The state/journal must never live inside an inspected client or parent.
     const original = preview.mode === "map" ? preview.root : preview.mode === "trial_clone" ? preview.source : preview.plan?.root;
     if (!original || inside(original, storage)) throw new ApiError(400, "invalid_storage", "Application state must be outside the selected source directory.");
+    await assertClientFolders(config, preview);
     await ensureStorage();
     const id = randomUUID();
     const name = typeof input.title === "string" ? input.title : basename(preview.target ?? preview.root ?? original);
@@ -230,6 +249,8 @@ export function registerOnboardingRoutes(options: {
       const ticket = await readTicket(join(storage, `${input.id}.json`));
       if (ticket.version !== 1 || ticket.id !== input.id || ticket.fingerprint !== input.fingerprint || digest(ticket.preview) !== input.fingerprint || ticket.officeMemoryRoot !== ticket.preview.officeMemoryRoot) throw new ApiError(409, "stale_preview", "Preview fingerprint does not match. Create a new preview.");
       checkpoint("ticket-done");
+      // Register klientov sa mohol od náhľadu zmeniť: overí sa znova pred prvým zápisom (N-A3-1).
+      await assertClientFolders(config, ticket.preview);
       const receiptPath = join(storage, `${input.id}.result.json`);
       let result: OnboardingResult;
       let repeated = false;

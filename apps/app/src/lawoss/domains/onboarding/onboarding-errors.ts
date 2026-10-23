@@ -121,6 +121,45 @@ const officeMessage = (error: unknown, locale: Language) => {
   return error.message.startsWith(INSIDE_OFFICE_MESSAGE_PREFIX) ? insideOffice[locale] : undefined;
 };
 /**
+ * Klient vnútri iného klienta alebo priečinok s klientmi (N-A3-1, rozhodnutie MČ 23. 10. 2026). Server pošle id a meno
+ * klienta len hostiteľskej appke v `details`; priečinok vnútri klienta už k nemu patrí, preto ponuka otvorí toho klienta.
+ */
+const NESTED_CLIENT_CODE = "onboarding_client_nested";
+const CONTAINS_CLIENTS_CODE = "onboarding_client_contains_clients";
+const nestedClient: Record<Language, { message: (client: string) => string; open: (client: string) => string }> = {
+  sk: { message: (client) => `Tento priečinok patrí klientovi „${client}“. Klient nemôže byť vnútri iného klienta. Nič sa nezmenilo.`, open: (client) => `Otvoriť v klientovi ${client}` },
+  cs: { message: (client) => `Tato složka patří klientovi „${client}“. Klient nemůže být uvnitř jiného klienta. Nic se nezměnilo.`, open: (client) => `Otevřít u klienta ${client}` },
+  en: { message: (client) => `This folder belongs to the client “${client}”. A client cannot be inside another client. Nothing was changed.`, open: (client) => `Open in client ${client}` },
+  de: { message: (client) => `Dieser Ordner gehört zum Mandanten „${client}“. Ein Mandant kann nicht in einem anderen Mandanten liegen. Es wurde nichts geändert.`, open: (client) => `Beim Mandanten ${client} öffnen` },
+};
+const containsClients: Record<Language, (clients: string) => string> = {
+  sk: (clients) => `Tento priečinok obsahuje priečinky iných klientov (${clients}). Vyberte priečinok jedného klienta. Nič sa nezmenilo.`,
+  cs: (clients) => `Tato složka obsahuje složky jiných klientů (${clients}). Vyberte složku jednoho klienta. Nic se nezměnilo.`,
+  en: (clients) => `This folder holds the folders of other clients (${clients}). Choose the folder of one client. Nothing was changed.`,
+  de: (clients) => `Dieser Ordner enthält die Ordner anderer Mandanten (${clients}). Wählen Sie den Ordner eines einzelnen Mandanten. Es wurde nichts geändert.`,
+};
+type ClientRef = { workspaceId: string; name: string };
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+const clientRefOf = (value: unknown): ClientRef | undefined =>
+  isRecord(value) && typeof value.workspaceId === "string" && value.workspaceId && typeof value.name === "string" && value.name
+    ? { workspaceId: value.workspaceId, name: value.name }
+    : undefined;
+const refusal = (error: unknown, code: string): Record<string, unknown> | undefined =>
+  error instanceof Error && "code" in error && error.code === code && "details" in error && isRecord(error.details) ? error.details : undefined;
+const nestedClientOf = (error: unknown): ClientRef | undefined => clientRefOf(refusal(error, NESTED_CLIENT_CODE));
+const nestedClientMessage = (error: unknown, locale: Language) => {
+  const outer = nestedClientOf(error);
+  if (outer) return nestedClient[locale].message(outer.name);
+  const details = refusal(error, CONTAINS_CLIENTS_CODE);
+  const names = Array.isArray(details?.clients) ? details.clients.map(clientRefOf).filter((client) => client !== undefined).map((client) => client.name) : [];
+  return names.length ? containsClients[locale](names.join(", ")) : undefined;
+};
+/** Ďalší krok pri odmietnutí: otvoriť klienta, ktorému priečinok patrí. Iné chyby ho nemajú. */
+export function onboardingRefusalAction(error: unknown, locale: Language): { workspaceId: string; label: string } | undefined {
+  const outer = nestedClientOf(error);
+  return outer ? { workspaceId: outer.workspaceId, label: nestedClient[locale].open(outer.name) } : undefined;
+}
+/**
  * Chyba servera ako veta pre advokáta v jazyku rozhrania; neznáma chyba je všeobecná veta.
  * Surová správa (cesty, interné kódy) ide vždy len do konzoly. Spoločná pre pruh chyby aj hromadný krok.
  */
@@ -129,7 +168,8 @@ export function onboardingErrorMessage(error: unknown, locale: Language): string
   if (error instanceof Error && error.message === UNSAFE_FOLDER_NAME_MESSAGE) return unsafeFolderName[locale];
   if (error instanceof Error && error.message === FRESH_NOT_EMPTY) return foundText(locale)("freshNotEmpty");
   if (error instanceof Error && error.message === CLIENT_UNAVAILABLE) return clientUnavailable[locale];
-  return officeMessage(error, locale) ??
+  return nestedClientMessage(error, locale) ??
+    officeMessage(error, locale) ??
     lockedFilesMessage(error, locale) ??
     identityMessage(error, locale) ??
     folderTooLargeMessage(error, locale) ??

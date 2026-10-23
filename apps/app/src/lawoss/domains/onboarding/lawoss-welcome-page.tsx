@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { Check, FileWarning, ShieldCheck } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { normalizeDirectoryPath } from "@/app/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +58,7 @@ import { visibleExistingClientModes } from "../../feature-flags";
 import { clientTitleOf, resolveOpenClient, type OpenClientReader } from "../../okf/open-client";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { readActiveWorkspaceId } from "@/react-app/shell/session-memory";
+import { workspaceProjectRoute } from "@/react-app/shell/workspace-routes";
 import { LawossWordmark } from "../../shell/wordmark";
 import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import "./onboarding.css";
@@ -68,7 +70,7 @@ import { FRESH_OFFICE_COMPLETION } from "./found-flow";
 import type { ClientChatOutcome, ClientChatRequest } from "./client-chat";
 import { foundText } from "./found-text";
 import { unquotedTypedPath } from "./typed-paths";
-import { onboardingErrorMessage } from "./onboarding-errors";
+import { onboardingErrorMessage, onboardingRefusalAction } from "./onboarding-errors";
 
 export { onboardingErrorMessage };
 
@@ -591,7 +593,16 @@ export function LawossWelcomePage({
     OnboardingApplyResult | undefined
   >();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Chyba môže mať ďalší krok (N-A3-1): pri klientovi vnútri iného klienta tlačidlo otvorí toho klienta.
+  const [errorState, setErrorState] = useState<{ text: string; action?: { workspaceId: string; label: string } } | null>(null);
+  const error = errorState?.text ?? null;
+  const errorAction = errorState?.action;
+  const setError = useCallback((text: string | null) => setErrorState(text === null ? null : { text }), []);
+  const failWith = useCallback(
+    (reason: unknown) => setErrorState({ text: onboardingErrorMessage(reason, locale), action: onboardingRefusalAction(reason, locale) }),
+    [locale],
+  );
+  const navigate = useNavigate();
   // Chyba pri voľbe priečinka klienta pre nový prípad: zbalená voľba iného klienta sa otvorí (veta chyby odkazuje na ňu).
   const [clientFolderError, setClientFolderError] = useState(false);
   // Vybraný priečinok kroku Priečinok; kým je prázdny, krok ponúka pripojiť existujúci alebo začať nanovo.
@@ -608,10 +619,7 @@ export function LawossWelcomePage({
     () => (api.lawossTriage ? { lawossTriage: api.lawossTriage } : null),
     [api],
   );
-  const reportError = useCallback(
-    (reason: unknown) => setError(onboardingErrorMessage(reason, locale)),
-    [locale],
-  );
+  const reportError = failWith;
   const clearError = useCallback(() => setError(null), []);
   // Sprievodca je otvorený: odkaz späť v Nastaveniach AI už netreba.
   useEffect(() => { clearOnboardingReturn(); }, []);
@@ -632,7 +640,7 @@ export function LawossWelcomePage({
               // #168: odmietnutý klient (neregistrovaný, mimo praxe, chýbajúci) sa nenahradí uloženým klientom profilu.
               // Formulár ostane bez vybraného klienta s otvorenou voľbou klienta a vetou chyby (oprava onboardingu 19. 10.).
               setProfile(withoutClient(status.profile));
-              setError(onboardingErrorMessage(reason, locale));
+              failWith(reason);
               setClientFolderError(true);
               return null;
             })
@@ -724,7 +732,7 @@ export function LawossWelcomePage({
       const saved = await flow.move(next, patch);
       if (next === "done") await finish(saved, completedResult);
     } catch (reason) {
-      setError(onboardingErrorMessage(reason, locale));
+      failWith(reason);
     } finally {
       setBusy(false);
     }
@@ -755,7 +763,7 @@ export function LawossWelcomePage({
       setPreview(pending);
       writePendingOnboarding(window.localStorage, pending);
     } catch (reason) {
-      setError(onboardingErrorMessage(reason, locale));
+      failWith(reason);
     } finally {
       setBusy(false);
     }
@@ -802,7 +810,7 @@ export function LawossWelcomePage({
       writePendingOnboarding(window.localStorage, null);
       if (next === "done") await finish(updated, result);
     } catch (reason) {
-      setError(onboardingErrorMessage(reason, locale));
+      failWith(reason);
     } finally {
       setBusy(false);
     }
@@ -824,7 +832,7 @@ export function LawossWelcomePage({
         writePendingOnboarding(window.localStorage, null);
       }
     } catch (reason) {
-      setError(onboardingErrorMessage(reason, locale));
+      failWith(reason);
     } finally {
       setBusy(false);
     }
@@ -835,7 +843,7 @@ export function LawossWelcomePage({
     try {
       await finish(profile, result, completion);
     } catch (reason) {
-      setError(onboardingErrorMessage(reason, locale));
+      failWith(reason);
     } finally {
       setBusy(false);
     }
@@ -894,7 +902,7 @@ export function LawossWelcomePage({
     // Pokračuje len z kroku, ktorý zápis spustil (poistka popri vypnutom ukazovateli priebehu).
     setBusy(true);
     try { await flow.connected(next, result, completion); }
-    catch (reason) { setError(onboardingErrorMessage(reason, locale)); }
+    catch (reason) { failWith(reason); }
     finally { setBusy(false); }
   };
   // Firemné pravidlá oprávnení ako v Nastaveniach; stabilná hodnota, aby sa stav nenačítaval pri každom vykreslení.
@@ -1015,6 +1023,11 @@ export function LawossWelcomePage({
             className="lw-status err"
           >
             {error}
+            {errorAction ? (
+              <Button type="button" variant="outline" size="sm" className="ml-2" onClick={() => navigate(workspaceProjectRoute(errorAction.workspaceId))}>
+                {errorAction.label}
+              </Button>
+            ) : null}
           </p>
         ) : null}
         <section ref={panel} className="lw-onb-panel grid gap-5">
@@ -1033,7 +1046,7 @@ export function LawossWelcomePage({
                   setProfile(await api.updateOnboardingProfile(next));
                   await move("folder");
                 } catch (reason) {
-                  setError(onboardingErrorMessage(reason, locale));
+                  failWith(reason);
                 } finally {
                   setBusy(false);
                 }
@@ -1180,7 +1193,7 @@ export function LawossWelcomePage({
                     }),
                   );
                 } catch (reason) {
-                  setError(onboardingErrorMessage(reason, locale));
+                  failWith(reason);
                   setClientFolderError(true);
                 } finally {
                   setBusy(false);
@@ -1197,7 +1210,7 @@ export function LawossWelcomePage({
                     }),
                   );
                 } catch (reason) {
-                  setError(onboardingErrorMessage(reason, locale));
+                  failWith(reason);
                 } finally {
                   setBusy(false);
                 }

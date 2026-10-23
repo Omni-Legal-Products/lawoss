@@ -36,7 +36,7 @@ import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js
 import { ensureWikiAgentToken } from "../wiki/agent-access.js";
 import { isSensitiveWorkspacePath, resolveWorkspaceFilePath } from "./filesystem-boundary.js";
 import { linkableFolders, nestedClientRoots } from "./linked-folders.js";
-import { isPathWithin } from "./path-within.js";
+import { foldedPath as folded, isPathWithin } from "./path-within.js";
 
 const path = z.string().min(1).max(4096);
 export const fileOperationSchema = z.discriminatedUnion("operation", [
@@ -113,8 +113,6 @@ function protectedPath(inside: string): boolean {
 
 type Located = { canonical: string; display: string; root: string };
 
-/** Names copied from a Mac may be NFD on any system; APFS and NTFS also ignore case. Folding too much only refuses more. */
-const folded = (location: string) => process.platform === "linux" ? location.normalize("NFC") : location.normalize("NFC").toLowerCase();
 /** The path lies in another client registered inside this one, or holds such a client. */
 function inNestedClient(nested: readonly string[], canonical: string): boolean {
   return nested.some((other) => isPathWithin(folded(other), folded(canonical)) || isPathWithin(folded(canonical), folded(other)));

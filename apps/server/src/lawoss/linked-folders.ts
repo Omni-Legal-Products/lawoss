@@ -45,7 +45,7 @@ async function existingCanonical(path: string): Promise<string | null> {
 }
 
 /** Koreň praxe z profilu onboardingu (ako `agent-client-boundary.ts`); bez profilu `null`. */
-async function officeRoot(config: ServerConfig): Promise<string | null> {
+export async function officeRoot(config: ServerConfig): Promise<string | null> {
   try {
     const raw: unknown = JSON.parse(await readFile(join(runtimeStorageDir(config), "lawoss-onboarding", "profile.json"), "utf8"));
     const root = raw && typeof raw === "object" && "officeRoot" in raw && typeof raw.officeRoot === "string" ? raw.officeRoot : null;
@@ -79,7 +79,7 @@ async function desktopUserData(): Promise<string | null> {
 }
 
 /** Klienti: lokálne priestory bez interného domovského priestoru appky. */
-async function clientWorkspaces(config: ServerConfig): Promise<WorkspaceInfo[]> {
+export async function clientWorkspaces(config: ServerConfig): Promise<WorkspaceInfo[]> {
   const home = await Promise.all(localWorkspaces(config).map(async (workspace) => ({ workspace, home: await appHomeDataDir(workspace) })));
   return home.filter((entry) => entry.home === null).map((entry) => entry.workspace);
 }

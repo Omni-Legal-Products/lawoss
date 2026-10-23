@@ -441,3 +441,86 @@ test("throwing embedding observers cannot alter actual onboarding durability or 
   expect(await readFile(join(matter.matterRoot, "matter.md"), "utf8")).toContain("kind: contentious");
   expect(await readFile(join(matter.matterRoot, "AGENTS.md"), "utf8")).toBe(await readFile(join(matter.matterRoot, "CLAUDE.md"), "utf8"));
 });
+
+// N-A3-1 (V10c, MČ 23. 10. 2026): klient vnútri iného klienta ani priečinok s klientmi sa nezaregistruje.
+async function nestedClientFixture() {
+  const f = await fixture(), practice = join(f.base, "3-neusporiadana-prax"), outer = join(practice, "C002 SYN Beta"), nested = join(outer, "C099 SYN Vnoreny");
+  await mkdir(nested, { recursive: true });
+  await writeFile(join(outer, "client.md"), "---\ntype: klient\ntitle: \"SYN Beta, a. s.\"\n---\n");
+  await writeFile(join(nested, "zmluva-vnoreny.txt"), "syntetická zmluva\n");
+  const storage = join(f.base, "data", "lawoss-onboarding");
+  const snapshot = async () => ({ nested: (await readdir(nested)).sort(), outer: (await readdir(outer)).sort(), practice: (await readdir(practice)).sort(), storage: (await readdir(storage).catch(() => [])).sort(), workspaces: f.config.workspaces.map(workspace => workspace.path) });
+  const convert = (root: string, title: string) => ({ action: "existing", root, mode: "convert", title, confirmUnknownClient: true, ...common });
+  return { f, practice, outer, nested, snapshot, convert };
+}
+
+test("klient vnútri zaregistrovaného klienta sa odmietne pred zápisom a server vráti vonkajšieho klienta (N-A3-1)", async () => {
+  const { f, outer, nested, snapshot, convert } = await nestedClientFixture();
+  const registered = await f.apply(convert(outer, "C002 SYN Beta"));
+  const before = await snapshot();
+  const refused = await f.call("plan", convert(nested, "C099 SYN Vnoreny"));
+  expect(refused.status).toBe(409);
+  const body = await refused.json();
+  expect(body).toMatchObject({ code: "onboarding_client_nested", details: { workspaceId: registered.workspace.id, name: "SYN Beta, a. s." } });
+  // Meno klienta ide len hostiteľovi v `details`, nie do vety správy.
+  expect(body.message).not.toContain("SYN Beta");
+  expect(await snapshot()).toEqual(before);
+  // Ani skúšobná kópia vnoreného priečinka nevznikne ako ďalší klient.
+  const clone = await f.call("plan", { action: "existing", root: nested, mode: "trial_clone", cloneParent: f.parent, title: "C099", confirmUnknownClient: true, ...common });
+  expect(clone.status).toBe(409);
+  expect((await clone.json()).code).toBe("onboarding_client_nested");
+  expect(await snapshot()).toEqual(before);
+  // Kópia iného priečinka uložená do vnútra klienta by tiež bola klient v klientovi.
+  const elsewhere = join(f.base, "iny-klient"); await mkdir(elsewhere); await writeFile(join(elsewhere, "a.txt"), "a\n");
+  const inside = await f.call("plan", { action: "existing", root: elsewhere, mode: "trial_clone", cloneParent: outer, title: "Kópia", confirmUnknownClient: true, ...common });
+  expect(inside.status).toBe(409);
+  expect(await inside.json()).toMatchObject({ code: "onboarding_client_nested", details: { workspaceId: registered.workspace.id } });
+  expect(await snapshot()).toEqual(before);
+});
+
+test("priečinok, ktorý obsahuje zaregistrovaného klienta, sa ako klient nezaregistruje (N-A3-1)", async () => {
+  const { f, practice, outer, snapshot, convert } = await nestedClientFixture();
+  const registered = await f.apply(convert(outer, "C002 SYN Beta"));
+  const before = await snapshot();
+  const refused = await f.call("plan", convert(practice, "Celá prax"));
+  expect(refused.status).toBe(409);
+  expect(await refused.json()).toMatchObject({ code: "onboarding_client_contains_clients", details: { clients: [{ workspaceId: registered.workspace.id, name: "SYN Beta, a. s." }] } });
+  expect(await snapshot()).toEqual(before);
+  // Ďalší klient vedľa neho v tej istej praxi ostáva v poriadku.
+  const sibling = join(practice, "C003 SYN Gama"); await mkdir(sibling);
+  expect((await f.apply(convert(sibling, "C003 SYN Gama"))).result).toBe("applied");
+});
+
+test("náhľad pripravený pred registráciou vonkajšieho klienta sa už nevykoná (N-A3-1)", async () => {
+  const { f, outer, nested, snapshot, convert } = await nestedClientFixture();
+  const pending = await f.success("plan", convert(nested, "C099 SYN Vnoreny"));
+  await f.apply(convert(outer, "C002 SYN Beta"));
+  const before = await snapshot();
+  const refused = await f.call("apply", { id: pending.id, fingerprint: pending.fingerprint, confirm: true });
+  expect(refused.status).toBe(409);
+  expect((await refused.json()).code).toBe("onboarding_client_nested");
+  expect(await snapshot()).toEqual(before);
+});
+
+test("profil neprijme klienta vnútri iného klienta; zaregistrovaný vonkajší klient ostáva voliteľný (N-A3-1)", async () => {
+  const { f, outer, nested, convert } = await nestedClientFixture();
+  const registered = await f.apply(convert(outer, "C002 SYN Beta"));
+  await writeFile(join(nested, "client.md"), "---\ntype: klient\ntitle: \"SYN Vnorený\"\n---\n");
+  // Stav z testu V10c: vnorený priečinok už zaregistrovaný starou verziou.
+  const { registerLocalProject } = await import("./routes/workspaces.js");
+  await registerLocalProject(f.config, { folderPath: nested, name: "C099", preset: "starter", registerExisting: true });
+  const refused = await f.call("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", clientRoot: nested });
+  expect(refused.status).toBe(409);
+  expect(await refused.json()).toMatchObject({ code: "onboarding_client_nested", details: { workspaceId: registered.workspace.id } });
+  expect((await f.success("status")).profile?.clientRoot).toBeUndefined();
+  expect(await f.success("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", clientRoot: outer })).toMatchObject({ clientRoot: outer });
+});
+
+test("klient v praxi zaregistrovanej ako jeden priečinok sa pridá ako doteraz (N-A3-1)", async () => {
+  const { f, practice, outer, convert } = await nestedClientFixture();
+  await f.apply({ action: "practice", root: practice, title: "Syntetická prax", jurisdiction: "sk", language: "sk", lawyerName: "Synthetic lawyer", clientPattern: "*", scope: "practice" });
+  await f.success("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", officeRoot: practice });
+  const { registerLocalProject } = await import("./routes/workspaces.js");
+  await registerLocalProject(f.config, { folderPath: practice, name: "Prax", preset: "starter", registerExisting: true });
+  expect((await f.apply(convert(outer, "C002 SYN Beta"))).result).toBe("applied");
+});
