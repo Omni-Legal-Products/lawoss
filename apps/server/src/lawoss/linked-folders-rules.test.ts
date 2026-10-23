@@ -44,6 +44,10 @@ describe("pomocné pravidlá", () => {
   test("položky natívneho zoznamu: len `<priečinok>/*: allow` je pripojený priečinok", () => {
     expect(folderOfGrant("/a/b/*", "allow")).toBe("/a/b");
     expect(folderOfGrant("/*", "allow")).toBe("/");
+    // Koreň disku Windows ostáva absolútny; „Z:“ je cesta relatívna k aktuálnemu priečinku disku.
+    expect(folderOfGrant("Z:/*", "allow")).toBe("Z:/");
+    expect(folderOfGrant("Z:\\*", "allow")).toBe("Z:/");
+    expect(folderOfGrant("Z:/Klienti/*", "allow")).toBe("Z:/Klienti");
     expect(folderOfGrant("*", "allow")).toBeNull();
     expect(folderOfGrant("/a/b/*", "deny")).toBeNull();
     expect(folderOfGrant("/a/b", "allow")).toBeNull();

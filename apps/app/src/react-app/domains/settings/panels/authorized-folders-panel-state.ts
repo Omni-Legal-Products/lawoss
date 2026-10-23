@@ -64,7 +64,9 @@ export const normalizeAuthorizedFolderPath = (input: string | null | undefined) 
   const trimmed = (input ?? "").trim();
   if (!trimmed) return "";
   const withoutWildcard = trimmed.replace(/[\\/]\*+$/, "");
-  return normalizeDirectoryQueryPath(withoutWildcard);
+  const normalized = normalizeDirectoryQueryPath(withoutWildcard);
+  // LAWOSS: koreň disku `Z:/` ostáva absolútny (holé `Z:` je relatívne k priečinku disku).
+  return /^[a-zA-Z]:$/.test(normalized) ? `${normalized}/` : normalized;
 };
 
 export const buildAuthorizedFoldersStatus = (preservedCount: number, action?: string) => {

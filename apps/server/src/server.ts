@@ -1903,7 +1903,8 @@ function normalizeAuthorizedFolderPath(input: string | null | undefined): string
       : withoutWildcard;
   const unified = withoutVerbatim.replace(/\\/g, "/");
   const withoutTrailing = unified.replace(/\/+$/, "");
-  return withoutTrailing || "/";
+  // LAWOSS: koreň disku `Z:/` ostáva absolútny (holé `Z:` je relatívne k priečinku disku).
+  return /^[a-zA-Z]:$/.test(withoutTrailing) ? `${withoutTrailing}/` : withoutTrailing || "/";
 }
 
 function externalDirectoryKeyToAuthorizedFolder(key: string, value: unknown): string | null {
@@ -1916,7 +1917,7 @@ function externalDirectoryKeyToAuthorizedFolder(key: string, value: unknown): st
 }
 
 function authorizedFolderToExternalDirectoryKey(folder: string): string {
-  return folder === "/" ? "/*" : `${folder}/*`;
+  return folder.endsWith("/") ? `${folder}*` : `${folder}/*`;
 }
 
 function hasOwnKey(object: Record<string, unknown>, key: string): boolean {

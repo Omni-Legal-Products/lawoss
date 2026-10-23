@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Koreň disku Windows v pripojených priečinkoch (2026-10-23)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/server.ts`, `apps/app/src/react-app/domains/settings/panels/authorized-folders-panel-state.ts` | `normalizeAuthorizedFolderPath` na serveri aj v appke ponechá koreň disku ako `Z:/` (predtým `Z:`, čo je na Windows cesta relatívna k aktuálnemu priečinku disku). `authorizedFolderToExternalDirectoryKey` pridá `*` k priečinku končiacemu lomkou, takže kľúč ostáva `Z:/*` a skôr uložené povolenia platia ďalej (+2 riadky komentára, 2 zmenené). Dôvod: od #199 `linkedFolderConflict` holé `Z:` odmietol ako relatívne, takže namapovaný či USB disk sa nedal pripojiť ku klientovi a existujúce povolenie `Z:/*` ticho zmizlo z mapy aj zo sandboxu. Rovnaké pravidlo má LAWOSS `folderOfGrant` v `apps/server/src/lawoss/linked-folders-rules.ts`. |
+
 ## Review #221 k alfa2: integračné testy so skutočným enginom v CI (2026-10-23)
 
 Podklad: review VŘ [#221](https://github.com/Omni-Legal-Products/lawoss/issues/221). Testy oddelenia klientov a schvaľovacích kariet so skutočným enginom (`*.integration.test.ts` v `apps/server/src/lawoss/`, `apps/app/tests/lawoss-matter-chat-engine.test.ts`) sa v CI preskakovali, lebo žiadny krok nenastavil binárku enginu ani prepínače. Ostatné opravy z review sú v LAWOSS súboroch (`file-operations.ts`, `linked-folders.ts`, `lawoss/okf/src/onboarding/suggest.ts`).

@@ -129,6 +129,18 @@ describe("authorized folders routes", () => {
     });
   });
 
+  test("keeps a Windows drive root absolute when listing", async () => {
+    const root = resolve(await createWorkspaceRoot());
+    await writeFile(join(root, "opencode.jsonc"), JSON.stringify({
+      permission: { external_directory: { "Z:/*": "allow", "D:\\*": "allow", "Z:/Klienti/*": "allow" } },
+    }, null, 2) + "\n", "utf8");
+    const { base } = await startLegalworkServer(root);
+
+    const response = await fetch(`${base}/workspace/ws_1/authorized-folders`, { headers: clientAuth() });
+    expect(response.status).toBe(200);
+    expect((await response.json() as AuthorizedFoldersBody).folders).toEqual(["Z:/", "Z:/Klienti"]);
+  });
+
   test("dedupes, filters workspace root, and preserves hidden entries on write", async () => {
     const root = resolve(await createWorkspaceRoot());
     const configPath = join(root, "opencode.jsonc");
