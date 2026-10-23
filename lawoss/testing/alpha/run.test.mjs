@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -80,4 +81,91 @@ test('a failed launch releases its acceptance lease only with matching verified 
     if (matching) await assert.rejects(readFile(join(profile.root, '.acceptance-running.lock')), { code: 'ENOENT' });
     else assert.ok(await readFile(join(profile.root, '.acceptance-running.lock')));
   }
+});
+
+
+test('cleanup attribution observer sees written startup and original work reason before stop', async t => {
+  const options = await fixture(t), events = [];
+  const ports = adapters(events, { cleanupFails: true });
+  const launch = ports.launch;
+  const work = new Error('original work reason');
+  let observations = 0, writtenAtObservation, observedError;
+  ports.launch = async () => {
+    const app = await launch();
+    app.observe = async () => {
+      if (++observations === 2) throw work;
+      return { process: { pid: 123 }, snapshot: { ok: true, route: '/welcome' } };
+    };
+    return app;
+  };
+  ports.diagnosticObserver = (event, error) => {
+    events.push(event);
+    if (event === 'startup-written') writtenAtObservation = JSON.parse(readFileSync(`${options.output}.evidence/startup.json`)).status;
+    if (event === 'work-failed') {
+      observedError = error;
+      error.message = 'observer mutation must not replace original reason';
+    }
+  };
+  const result = await runAlphaAcceptance(options, ports);
+  assert.deepEqual(events, ['installation', 'startup-written', 'work-failed', 'stop']);
+  assert.equal(writtenAtObservation, 'pass');
+  assert.equal(observedError, work);
+  assert.deepEqual(result.reasons, ['original work reason', 'Owned process cleanup could not be verified']);
+  assert.equal(result.scenarios[0].status, 'pass');
+  assert.equal(JSON.parse(await readFile(result.scenarios[0].evidence)).status, 'pass');
+  assert.equal(result.cleanup, 'unverified');
+  assert.ok(await readFile(join(options.profileRoot, '.acceptance-running.lock')));
+});
+
+for (const behavior of ['throw', 'reject', 'thenable', 'native-then-getter', 'observer-getter']) test(`cleanup attribution observer ${behavior} cannot alter legacy success or become unhandled`, async t => {
+  const options = await fixture(t), events = [], ports = adapters(events);
+  let thenReads = 0, called = 0;
+  ports.diagnosticObserver = event => {
+    called++;
+    events.push(event);
+    if (behavior === 'throw') throw new Error('PRIVATE observer');
+    if (behavior === 'reject') return Promise.reject(new Error('PRIVATE observer'));
+    if (behavior === 'native-then-getter') {
+      const pending = Promise.reject(new Error('PRIVATE native rejection'));
+      Object.defineProperty(pending, 'then', { get() { thenReads++; throw new Error('do not read then'); } });
+      return pending;
+    }
+    return { get then() { thenReads++; throw new Error('thenable must not be assimilated'); } };
+  };
+  if (behavior === 'observer-getter') Object.defineProperty(ports, 'diagnosticObserver', { get() { called++; throw new Error('PRIVATE observer getter'); } });
+  const receipt = await runAlphaAcceptance(options, ports);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(called, 1);
+  assert.equal(thenReads, 0);
+  assert.deepEqual(events, behavior === 'observer-getter' ? ['installation', 'stop'] : ['installation', 'startup-written', 'stop']);
+  assert.equal(receipt.cleanup, 'verified');
+  assert.equal(receipt.status, 'blocked');
+  assert.deepEqual(receipt.reasons, []);
+  assert.equal(receipt.scenarios[0].status, 'pass');
+  assert.equal(Object.hasOwn(receipt, 'diagnostic'), false);
+  await assert.rejects(readFile(join(options.profileRoot, '.acceptance-running.lock')), { code: 'ENOENT' });
+});
+
+test('cleanup attribution observer follows original native cleanup and message reads', async t => {
+  const options = await fixture(t), profile = await ownedProfile(options.profileRoot), events = [];
+  const error = new NativeAlphaLaunchError(new Error('original'), { descendantClosure: 'verified', profileRoot: profile.root, profileOwner: profile.owner });
+  const cleanup = error.nativeCleanup;
+  Object.defineProperty(error, 'message', { get() { events.push('reason-read'); return 'original reason'; }, configurable: true });
+  for (const key of ['descendantClosure', 'profileRoot', 'profileOwner']) {
+    const value = cleanup[key];
+    Object.defineProperty(cleanup, key, { get() { events.push(key); return value; }, configurable: true });
+  }
+  let observed;
+  const receipt = await runAlphaAcceptance(options, { ...adapters([]), launch: async () => { throw error; }, diagnosticObserver: (event, raw) => {
+    events.push(event); observed = raw;
+    Object.defineProperty(raw, 'message', { value: 'mutated' });
+    raw.nativeCleanup = null;
+    return Promise.reject(new Error('contained'));
+  } });
+  assert.equal(observed, error);
+  assert.deepEqual(events, ['descendantClosure', 'profileRoot', 'profileOwner', 'reason-read', 'work-failed']);
+  assert.deepEqual(receipt.reasons, ['original reason']);
+  assert.equal(receipt.cleanup, 'verified');
+  assert.equal(receipt.scenarios[0].status, 'blocked');
+  await assert.rejects(readFile(join(options.profileRoot, '.acceptance-running.lock')), { code: 'ENOENT' });
 });

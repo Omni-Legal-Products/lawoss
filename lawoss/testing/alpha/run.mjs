@@ -4,6 +4,7 @@ import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline/promises';
+import { isPromise } from 'node:util/types';
 import { ownedProfile } from '../../../apps/desktop/scripts/release-acceptance.mjs';
 import { validateBuildInfo } from '../../../apps/desktop/electron/build-info.mjs';
 import { ALPHA_SCENARIOS, summarizeAlphaCoverage, loadAlphaReceipt } from './coverage.mjs';
@@ -23,6 +24,16 @@ const instructions = {
   locales: 'Verify Czech and Slovak UI, native dialogs, errors and persisted selection after switching.',
 };
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+
+// Constructor-only observation; arbitrary thenables are never read or assimilated.
+function notifyDiagnostic(adapters, event, error) {
+  try {
+    const observer = adapters.diagnosticObserver;
+    if (typeof observer !== 'function') return;
+    const pending = observer(event, error);
+    if (isPromise(pending)) Promise.prototype.then.call(pending, () => {}, () => {});
+  } catch { /* Observation cannot alter the private receipt or cleanup. */ }
+}
 
 export async function runAlphaAcceptance(options, adapters = {}) {
   const { installedApp, asset, expectedSha256, profileRoot, profileKind, output, manual = false, operator = '' } = options;
@@ -73,11 +84,13 @@ export async function runAlphaAcceptance(options, adapters = {}) {
       await writeFile(evidence, JSON.stringify({ scenario: result.scenario, status, operator: reader ? operator : null,
         profile: { root: profile.root, owner: profile.owner, kind: profile.kind }, observed, capture }, null, 2), { flag: 'wx', mode: 0o600 });
       Object.assign(result, { status, evidence });
+      if (result.scenario === 'startup') notifyDiagnostic(adapters, 'startup-written');
     }
   } catch (error) {
     if (error instanceof NativeAlphaLaunchError && error.nativeCleanup?.descendantClosure === 'verified'
       && error.nativeCleanup.profileRoot === profile.root && error.nativeCleanup.profileOwner === profile.owner) cleanup = 'verified';
     reasons.push(error instanceof Error ? error.message : 'Native alpha verification failed');
+    notifyDiagnostic(adapters, 'work-failed', error);
   } finally {
     reader?.close();
     if (app) {

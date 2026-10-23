@@ -11,7 +11,7 @@ import { prepareAcceptanceProfile, ownedProfile } from '../../../apps/desktop/sc
 import { validateLiveIdentity } from '../../../apps/desktop/scripts/release-acceptance-macos.mjs';
 import { ALPHA_SCENARIOS } from './coverage.mjs';
 import { withExtractedAlphaArtifact, verifyAlphaInstallation } from './installed-artifact.mjs';
-import { assertCaptureBinding, assertInteractiveUi, launchAlphaApp, nativeAppLayout } from './native-app.mjs';
+import { assertCaptureBinding, assertInteractiveUi, launchAlphaApp, nativeAppLayout, nativeStopDiagnostic } from './native-app.mjs';
 import { runAlphaAcceptance } from './run.mjs';
 import { nativeLaunchDiagnostic } from './native-launch-diagnostics.mjs';
 import { nativeReadinessDiagnostic } from './native-readiness-diagnostics.mjs';
@@ -45,6 +45,7 @@ function errorCode(error) {
 }
 function startupDiagnostic() {
   let phase='preflight',firstFailure,receiptCode='unknown',cleanup='not-observed',mainLogReader;
+  let startupRecord='not-observed',workFailureCode=null,stopFailure;
   const record=error=>{
     if(firstFailure)return;
     const code=errorCode(error),native=nativeLaunchDiagnostic(error),readiness=nativeReadinessDiagnostic(error);
@@ -56,6 +57,15 @@ function startupDiagnostic() {
   };
   return {
     stage(value){phase=value;},
+    observe(event,error){
+      if(event==='startup-written')startupRecord='written';
+      if(event==='work-failed' && workFailureCode===null)workFailureCode=errorCode(error);
+    },
+    stop(error,owner){
+      if(stopFailure)return;
+      const facts=nativeStopDiagnostic(error,owner);
+      if(facts)stopFailure=Object.freeze({...facts,errorCode:errorCode(error)});
+    },
     async at(value,use){phase=value;try{return await use();}catch(error){record(error);throw error;}},
     receipt(receipt){
       // This is a native-cleanup observation, not extractor-cleanup proof.
@@ -73,7 +83,10 @@ function startupDiagnostic() {
       const mainLog=firstFailure?.phase==='launch' && cleanup==='native-verified' && mainLogReader
         ? await mainLogReader.read() : undefined;
       if(error!==null && (typeof error==='object' || typeof error==='function'))
-        failureDiagnostics.set(error,Object.freeze({...firstFailure,cleanup,...(mainLog?{mainLog}:{})}));
+        failureDiagnostics.set(error,Object.freeze({...firstFailure,cleanup,...(mainLog?{mainLog}:{}),...(stopFailure?{
+          cleanupAttribution:Object.freeze({schema:1,
+            startup:Object.freeze({record:startupRecord,workFailureCode,finalResult:'unverified'}),stop:stopFailure}),
+        }:{})}));
     },
   };
 }
@@ -169,11 +182,18 @@ async function nativeStartupProbe(options,adapters,diagnostic) {
     try {
       receipt=await (adapters.runAcceptance ?? runAlphaAcceptance)({installedApp:loan.installedApp,asset,expectedSha256,build,profileRoot:profile.root,profileKind:'fresh',output:receiptFile,manual:false},{
         verifyInstallation:async()=>installation,
+        diagnosticObserver:diagnostic.observe,
         launch:async options=>{
           const app=await diagnostic.at('launch',()=>(adapters.launch ?? launchAlphaApp)(options));
           launchedPid=app.pid;
           return {...app,observe:(...args)=>diagnostic.at('welcome',()=>app.observe(...args)),
-            stop:(...args)=>diagnostic.at('cleanup',()=>app.stop(...args)),capture:async path=>diagnostic.at('welcome',async()=>{
+            stop:(...args)=>{
+              let owner;
+              // Bind the actual method invocation, keeping its receiver and the
+              // original first-failure reads ahead of any additional observation.
+              return diagnostic.at('cleanup',()=>{owner=app.stop;return Reflect.apply(owner,app,args);})
+                .catch(error=>{diagnostic.stop(error,owner);throw error;});
+            },capture:async path=>diagnostic.at('welcome',async()=>{
             const before=await app.observe();welcome(before);validateLiveIdentity(before,{...expected,pid:app.pid});
             const capture=await diagnostic.at('capture',()=>app.capture(path));
             diagnostic.stage('welcome');

@@ -231,6 +231,47 @@ async function captureOwnedWindow({ live, pid, output, temporaryRoot, env, asser
   } finally { await rm(scratch, { recursive: true, force: true }); }
 }
 
+// The actual memoized stop owns its first exact thrown object. No error properties
+// are read, and independent stops can safely throw the same object.
+const stopFailures = new WeakMap();
+export function nativeStopDiagnostic(error, stop) {
+  const failure = stopFailures.get(stop);
+  return failure && failure.error === error ? failure.facts : null;
+}
+
+// Constructor-only lifetime boundary shared by production and owned inert fixtures.
+export function createNativeAppStop({ state, root, releaseLock, closeLock, onStop }, {
+  stopChild = stopNativeChild, removeLease = removeOwnedChromiumLease,
+} = {}) {
+  let stopPromise, failedAt, completed;
+  const stop = () => stopPromise ??= (async () => {
+    onStop();
+    const { child, windowsJob, windowsLaunchAttempted, closed } = state();
+    let method = 'no-child-started';
+    if (windowsLaunchAttempted) {
+      if (!windowsJob) throw blocked('windows-job-closure-unverified');
+      method = (await windowsJob.stop()).method;
+    } else if (child) {
+      failedAt = 'native-stop'; completed = 0;
+      await stopChild(child, 5000);
+      failedAt = 'child-close'; completed = 1;
+      await Promise.race([closed, delay(5000, undefined, { ref: false }).then(() => { throw blocked('native-child-close-unverified'); })]);
+      failedAt = 'chromium-lease'; completed = 2;
+      await removeLease(root, child.pid);
+      method = child.pid ? 'posix-owned-process-group' : 'no-child-started';
+      failedAt = 'profile-lock'; completed = 3;
+    }
+    await releaseLock();
+    return { status: 'stopped', descendantClosure: 'verified', method };
+  })().catch(async error => {
+    if (failedAt && error !== null && (typeof error === 'object' || typeof error === 'function'))
+      stopFailures.set(stop, { error, facts: Object.freeze({ failedAt, completed }) });
+    await closeLock().catch(() => {});
+    throw error;
+  });
+  return stop;
+}
+
 /** Launch an already verified installed artifact on its actual native host. */
 export async function launchAlphaApp({ installedApp, profileRoot, build, timeoutMs = 90000 }) {
   validateBuildInfo(build);
@@ -262,25 +303,12 @@ export async function launchAlphaApp({ installedApp, profileRoot, build, timeout
     await lock.close();
     await rm(lockPath);
   };
-  let child, windowsJob, windowsLaunchAttempted = false, stopPromise, stopped = false, discovery, launchError, closed;
+  let child, windowsJob, windowsLaunchAttempted = false, stopped = false, discovery, launchError, closed;
   const launchDiagnostics = process.platform === 'win32' ? null : createNativeLaunchDiagnostics();
   const readinessDiagnostics = createNativeReadinessDiagnostics();
   const env = nativeAppEnvironment(root);
-  const stop = () => stopPromise ??= (async () => {
-    stopped = true;
-    let method = 'no-child-started';
-    if (windowsLaunchAttempted) {
-      if (!windowsJob) throw blocked('windows-job-closure-unverified');
-      method = (await windowsJob.stop()).method;
-    } else if (child) {
-      await stopNativeChild(child, 5000);
-      await Promise.race([closed, delay(5000, undefined, { ref: false }).then(() => { throw blocked('native-child-close-unverified'); })]);
-      await removeOwnedChromiumLease(root, child.pid);
-      method = child.pid ? 'posix-owned-process-group' : 'no-child-started';
-    }
-    await releaseLock();
-    return { status: 'stopped', descendantClosure: 'verified', method };
-  })().catch(async error => { await lock.close().catch(() => {}); throw error; });
+  const stop = createNativeAppStop({ state: () => ({ child, windowsJob, windowsLaunchAttempted, closed }),
+    root, releaseLock, closeLock: () => lock.close(), onStop: () => { stopped = true; } });
   function assertRunning() {
     if (stopped) throw blocked('app-stopped');
     if (launchError) throw blocked('installed-app-spawn-failed');

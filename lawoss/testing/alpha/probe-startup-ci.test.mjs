@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { runNativeStartupProbe, startupAssetName, ciStartupOptions } from './probe-startup-ci.mjs';
 import * as startupProbe from './probe-startup-ci.mjs';
 import { runAlphaAcceptance } from './run.mjs';
-import { launchAlphaApp } from './native-app.mjs';
+import { createNativeAppStop, launchAlphaApp } from './native-app.mjs';
 import { ALPHA_SCENARIOS } from './coverage.mjs';
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -320,4 +320,168 @@ test('failure-only Documents observer runs after original projection and exit1 a
     await startupProbe.reportStartupFailure(primary, undefined, async () => { process.exitCode = 0; });
     assert.equal(process.exitCode, 1);
   } finally { console.error = previousError; process.exitCode = previousExitCode; }
+});
+
+
+for (const mode of ['written', 'work', 'capture']) test(`cleanup attribution survives actual acceptance catch: ${mode}`, async t => {
+  const work = Object.assign(new Error('PRIVATE work reason'), { code: 'EACCES' });
+  const stopError = Object.assign(new Error('PRIVATE stop reason /profile/token'), { code: 'profile-lock-ownership-lost' });
+  const f = await fixture(t, mode === 'capture' ? { captureFailure: work } : {});
+  const launch = f.adapters.launch;
+  let savedReceipt, stopIdentity, actualError, stopCount = 0;
+  f.adapters.runAcceptance = async (options, ports) => {
+    savedReceipt = await runAlphaAcceptance(options, ports);
+    return savedReceipt;
+  };
+  f.adapters.launch = async options => {
+    const app = await launch(options);
+    if (mode === 'work') {
+      const capture = app.capture;
+      app.capture = async path => {
+        const result = await capture(path);
+        // Fail in runAlphaAcceptance's own capture-byte read, after the probe wrapper.
+        await rm(path);
+        return result;
+      };
+    }
+    stopIdentity = createNativeAppStop({ state: () => ({ child: { pid: 123 }, closed: Promise.resolve() }),
+      root: 'MODEL', onStop: () => { stopCount++; }, closeLock: async () => {},
+      releaseLock: async () => { actualError = stopError; throw stopError; },
+    }, { stopChild: async () => {}, removeLease: async () => {} });
+    app.stop = stopIdentity;
+    return app;
+  };
+  let caught;
+  try { await runNativeStartupProbe(f.options, f.adapters); } catch (error) { caught = error; }
+  assert.ok(caught);
+  assert.equal(actualError, stopError);
+  assert.equal(stopCount, 1);
+  const projection = startupProbe.startupFailureProjection(caught);
+  assert.deepEqual(projection.diagnostic, {
+    phase: mode === 'capture' ? 'capture' : 'cleanup',
+    errorCode: mode === 'capture' ? 'EACCES' : 'profile-lock-ownership-lost', cleanup: 'unverified',
+    cleanupAttribution: { schema: 1,
+      startup: { record: mode === 'written' ? 'written' : 'not-observed', workFailureCode: mode === 'written' ? null : mode === 'work' ? 'ENOENT' : 'EACCES', finalResult: 'unverified' },
+      stop: { failedAt: 'profile-lock', completed: 3, errorCode: 'profile-lock-ownership-lost' } },
+  });
+  assert.equal(savedReceipt.cleanup, 'unverified');
+  assert.equal(savedReceipt.reasons.at(-1), 'Owned process cleanup could not be verified');
+  assert.equal(savedReceipt.reasons.length, mode === 'written' ? 1 : 2);
+  assert.equal(f.state.retained, true);
+  assert.ok(await readFile(join(f.state.profileRoot, '.acceptance-running.lock')));
+  assert.deepEqual(await readdir(f.options.outputDir), []);
+  assert.doesNotMatch(JSON.stringify(projection), /PRIVATE|profile\/token|ownerPid|stack|cause|reasons/);
+});
+
+function trustedModelStop(stage, error) {
+  const closed = stage === 'child-close' ? Promise.reject(error) : Promise.resolve();
+  closed.catch(() => {});
+  return createNativeAppStop({ state: () => ({ child: { pid: 123 }, closed }), root: 'MODEL', onStop: () => {}, closeLock: async () => {},
+    releaseLock: async () => { if (stage === 'profile-lock') throw error; },
+  }, { stopChild: async () => { if (stage === 'native-stop') throw error; }, removeLease: async () => { if (stage === 'chromium-lease') throw error; } });
+}
+
+test('cleanup attribution binds the invoked stop owner even when its method changes during failure', async t => {
+  const f = await fixture(t), launch = f.adapters.launch;
+  const error = Object.assign(new Error('PRIVATE'), { code: 'EACCES' });
+  const earlier = trustedModelStop('native-stop', error), actual = trustedModelStop('profile-lock', error);
+  await earlier().catch(() => {});
+  let lookups = 0, ownerApp;
+  f.adapters.launch = async options => {
+    ownerApp = await launch(options);
+    Object.defineProperty(ownerApp, 'stop', { enumerable: true, get() { lookups++; return lookups <= 2 ? actual : earlier; } });
+    return ownerApp;
+  };
+  let caught; try { await runNativeStartupProbe(f.options, f.adapters); } catch (error) { caught = error; }
+  assert.equal(lookups, 2, 'original spread and actual method invocation only; no catch reread');
+  assert.deepEqual(startupProbe.startupFailureProjection(caught).diagnostic.cleanupAttribution.stop,
+    { failedAt: 'profile-lock', completed: 3, errorCode: 'EACCES' });
+});
+
+test('cleanup attribution rejects unregistered, copied, wrapped, primitive and foreign-owner stop failures', async t => {
+  const error = Object.assign(new Error('PRIVATE'), { code: 'EACCES' });
+  const foreignStop = trustedModelStop('native-stop', error);
+  await foreignStop().catch(() => {});
+  let getters = 0;
+  const hostile = Object.defineProperty({}, 'code', { get() { getters++; throw new Error('PRIVATE getter'); } });
+  for (const [value, code] of [[error, 'EACCES'], [Object.assign(new Error('PRIVATE'), { code: 'EACCES', cleanupAttribution: { failedAt: 'profile-lock', completed: 3 } }), 'EACCES'],
+    [new Error('PRIVATE wrapper', { cause: error }), 'unknown'], [{ ...error }, 'EACCES'], ['PRIVATE primitive', 'unknown'], [null, 'unknown'], [hostile, 'unknown']]) {
+    const f = await fixture(t), launch = f.adapters.launch;
+    let receiver;
+    f.adapters.launch = async options => {
+      const app = await launch(options);
+      app.stop = function () { receiver = this; throw value; };
+      f.state.originalApp = app;
+      return app;
+    };
+    let caught; try { await runNativeStartupProbe(f.options, f.adapters); } catch (error) { caught = error; }
+    assert.equal(receiver, f.state.originalApp);
+    assert.deepEqual(startupProbe.startupFailureProjection(caught).diagnostic,
+      { phase: 'cleanup', errorCode: code, cleanup: 'unverified' });
+    assert.equal(f.state.retained, true);
+    assert.deepEqual(await readdir(f.options.outputDir), []);
+  }
+  assert.equal(getters, 1, 'only the unchanged first failure classifier reads the hostile code');
+});
+
+test('cleanup attribution uses whole closed codes and freezes private-free projection independently of error mutation', async t => {
+  const f = await fixture(t), launch = f.adapters.launch;
+  const error = Object.assign(new Error('PRIVATE ENOENT /path'), { code: 'EACCES-private-token' });
+  f.adapters.launch = async options => ({ ...await launch(options), stop: trustedModelStop('chromium-lease', error) });
+  let caught; try { await runNativeStartupProbe(f.options, f.adapters); } catch (error) { caught = error; }
+  const before = startupProbe.startupFailureProjection(caught);
+  error.code = 'ENOENT'; error.message = 'ENOENT';
+  const after = startupProbe.startupFailureProjection(caught);
+  assert.deepEqual(after, before);
+  assert.equal(after.diagnostic.errorCode, 'unknown');
+  assert.deepEqual(after.diagnostic.cleanupAttribution.stop, { failedAt: 'chromium-lease', completed: 2, errorCode: 'unknown' });
+  assert.ok(Object.isFrozen(after.diagnostic.cleanupAttribution));
+  assert.ok(Object.isFrozen(after.diagnostic.cleanupAttribution.startup));
+  assert.ok(Object.isFrozen(after.diagnostic.cleanupAttribution.stop));
+  assert.doesNotMatch(JSON.stringify(after), /PRIVATE|private-token|path|message|stack|cause/);
+});
+
+test('cleanup attribution cannot make a cleanup failure eligible for Windows documents diagnostics', async () => {
+  const { shouldRunWindowsDocumentsProbe } = await import('./windows-documents-probe.mjs');
+  const failure = { kind: 'lawoss-ci-native-startup', status: 'failed', reason: 'native-startup-unverified',
+    diagnostic: { phase: 'cleanup', errorCode: 'unknown', cleanup: 'unverified' } };
+  const context = { platform: 'win32', arch: 'x64', environment: { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted' } };
+  assert.equal(shouldRunWindowsDocumentsProbe(failure, context), false);
+  failure.diagnostic.cleanupAttribution = { schema: 1, startup: { record: 'written', workFailureCode: null, finalResult: 'unverified' },
+    stop: { failedAt: 'native-stop', completed: 0, errorCode: 'unknown' } };
+  assert.equal(shouldRunWindowsDocumentsProbe(failure, context), false);
+});
+
+test('cleanup attribution successful inert startup publishes only after native and extractor joins with original schema', async t => {
+  const f = await fixture(t), launch = f.adapters.launch, withArtifact = f.adapters.withArtifact;
+  const nativeEntered = Promise.withResolvers(), nativeRelease = Promise.withResolvers();
+  const extractorEntered = Promise.withResolvers(), extractorRelease = Promise.withResolvers();
+  const order = [];
+  f.adapters.launch = async options => ({ ...await launch(options), stop: createNativeAppStop({
+    state: () => ({ child: { pid: 123 }, closed: Promise.resolve() }), root: 'MODEL', onStop: () => {}, closeLock: async () => {},
+    releaseLock: async () => { nativeEntered.resolve(); await nativeRelease.promise; order.push('native'); },
+  }, { stopChild: async () => {}, removeLease: async () => {} }) });
+  f.adapters.withArtifact = async (...args) => {
+    const result = await withArtifact(...args);
+    extractorEntered.resolve(); await extractorRelease.promise; order.push('extractor');
+    return result;
+  };
+  const operation = runNativeStartupProbe(f.options, f.adapters);
+  try {
+    await nativeEntered.promise;
+    assert.deepEqual(await readdir(f.options.outputDir), []);
+    nativeRelease.resolve();
+    await extractorEntered.promise;
+    assert.deepEqual(order, ['native']);
+    assert.deepEqual(await readdir(f.options.outputDir), []);
+    extractorRelease.resolve();
+    const result = await operation;
+    assert.deepEqual(order, ['native', 'extractor']);
+    assert.deepEqual(Object.keys(result).sort(), ['schemaVersion', 'kind', 'status', 'releaseEligible', 'build', 'assetSha256', 'installation', 'startup', 'cleanup', 'nativeReview', 'fullAcceptance', 'at'].sort());
+    assert.equal(result.schemaVersion, 1);
+    assert.equal(result.status, 'verified');
+    assert.equal(result.cleanup, 'verified');
+    assert.equal(result.startup.capture.sha256, digest(await readFile(join(f.options.outputDir, result.startup.capture.file))));
+    assert.equal(f.state.retained, false);
+  } finally { nativeRelease.resolve(); extractorRelease.resolve(); await operation; }
 });

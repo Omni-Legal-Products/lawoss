@@ -6,7 +6,7 @@ import { tmpdir, hostname } from 'node:os';
 import { dirname, isAbsolute, join, win32 } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { assertCaptureBinding, assertInteractiveUi, launchAlphaApp, NativeAlphaLaunchError, nativeOwnerCensusDiagnostic, nativeAppLayout, nativeAppEnvironment } from './native-app.mjs';
+import { createNativeAppStop, nativeStopDiagnostic, assertCaptureBinding, assertInteractiveUi, launchAlphaApp, NativeAlphaLaunchError, nativeOwnerCensusDiagnostic, nativeAppLayout, nativeAppEnvironment } from './native-app.mjs';
 import { ownedProfile, prepareAcceptanceProfile } from '../../../apps/desktop/scripts/release-acceptance.mjs';
 import { nativeLaunchDiagnostic } from './native-launch-diagnostics.mjs';
 import { nativeReadinessDiagnostic } from './native-readiness-diagnostics.mjs';
@@ -582,4 +582,155 @@ test('capture binding requires the same native window and finite renderer time o
   const reloaded=identity();reloaded.snapshot.readiness.documentTimeOrigin++;
   assert.throws(()=>assertCaptureBinding(identity(),captured,reloaded),{code:'native-capture-identity-changed'});
   assert.throws(()=>assertCaptureBinding(identity(),{}),{code:'native-capture-identity-changed'});
+});
+
+
+function modelStop(failedAt, error, extra = {}) {
+  const order = [], child = { pid: 123 };
+  const operation = name => async () => { order.push(name); if (failedAt === name) throw error; };
+  const closed = failedAt === 'child-close' ? Promise.reject(error) : Promise.resolve();
+  closed.catch(() => {});
+  const stop = createNativeAppStop({ state: () => ({ child, closed }), root: 'MODEL',
+    releaseLock: operation('profile-lock'), closeLock: async () => { order.push('handle-close'); },
+    onStop: () => { order.push('stopped'); }, ...extra }, {
+    stopChild: operation('native-stop'), removeLease: operation('chromium-lease'),
+  });
+  return { stop, order };
+}
+
+for (const [stage, completed, order] of [
+  ['native-stop', 0, ['stopped', 'native-stop', 'handle-close']],
+  ['child-close', 1, ['stopped', 'native-stop', 'handle-close']],
+  ['chromium-lease', 2, ['stopped', 'native-stop', 'chromium-lease', 'handle-close']],
+  ['profile-lock', 3, ['stopped', 'native-stop', 'chromium-lease', 'profile-lock', 'handle-close']],
+]) test(`cleanup attribution production sequence preserves ${stage} failure and memoized stop`, async () => {
+  const error = new Error('PRIVATE path token'), f = modelStop(stage, error);
+  const first = f.stop();
+  assert.equal(f.stop(), first);
+  let thrown; try { await first; } catch (value) { thrown = value; }
+  assert.equal(thrown, error);
+  assert.deepEqual(f.order, order);
+  assert.deepEqual(nativeStopDiagnostic(error, f.stop), { failedAt: stage, completed });
+  assert.ok(Object.isFrozen(nativeStopDiagnostic(error, f.stop)));
+  assert.equal(f.stop(), first);
+});
+
+test('cleanup attribution isolates concurrent owners and exact hostile error identity without property reads', async () => {
+  const error = new Error('PRIVATE /path token');
+  Object.defineProperty(error, 'message', { get() { throw new Error('message must not be read'); } });
+  const a = modelStop('native-stop', error), b = modelStop('profile-lock', error);
+  await Promise.all([a.stop().catch(value => assert.equal(value, error)), b.stop().catch(value => assert.equal(value, error))]);
+  const first = nativeStopDiagnostic(error, a.stop);
+  assert.deepEqual(first, { failedAt: 'native-stop', completed: 0 });
+  assert.deepEqual(nativeStopDiagnostic(error, b.stop), { failedAt: 'profile-lock', completed: 3 });
+  assert.throws(() => { first.completed = 3; }, TypeError);
+  assert.equal(nativeStopDiagnostic(error, a.stop), first);
+  let traps = 0;
+  const proxy = new Proxy(error, { get() { traps++; throw new Error('PRIVATE'); }, getPrototypeOf() { traps++; throw new Error('PRIVATE'); } });
+  const revoked = Proxy.revocable(error, {}); revoked.revoke();
+  for (const foreign of [new Error('PRIVATE'), { cleanupAttribution: first }, new Error('wrapper', { cause: error }), proxy, revoked.proxy, null, 1, 'failure'])
+    assert.equal(nativeStopDiagnostic(foreign, a.stop), null);
+  for (const owner of [() => {}, new Proxy(a.stop, {}), {}, undefined, null, 1]) assert.equal(nativeStopDiagnostic(error, owner), null);
+  assert.equal(traps, 0);
+  const c = modelStop('chromium-lease', proxy);
+  let thrown; try { await c.stop(); } catch (value) { thrown = value; }
+  assert.equal(thrown, proxy);
+  assert.deepEqual(nativeStopDiagnostic(proxy, c.stop), { failedAt: 'chromium-lease', completed: 2 });
+  assert.equal(traps, 0);
+  for (const value of [null, undefined, 0, 'PRIVATE primitive']) {
+    const f = modelStop('native-stop', value);
+    let thrown; try { await f.stop(); } catch (error) { thrown = error; }
+    assert.equal(thrown, value);
+    assert.equal(nativeStopDiagnostic(value, f.stop), null);
+  }
+});
+
+test('cleanup attribution keeps dynamic stop state and Windows/no-child paths unregistered', async () => {
+  for (const mode of ['no-child', 'windows', 'windows-missing', 'late-posix']) {
+    const error = new Error('PRIVATE'), order = [];
+    let state = {};
+    const stop = createNativeAppStop({ state: () => state, root: 'MODEL', onStop: () => order.push('stopped'),
+      releaseLock: async () => { order.push('lock'); throw error; }, closeLock: async () => { order.push('close'); },
+    }, { stopChild: async (_child, budget) => { assert.equal(budget, 5000); order.push('native'); }, removeLease: async () => order.push('lease') });
+    if (mode === 'windows') state = { windowsLaunchAttempted: true, windowsJob: { stop: async () => { order.push('windows'); return { method: 'MODEL windows' }; } } };
+    if (mode === 'windows-missing') state = { windowsLaunchAttempted: true };
+    if (mode === 'late-posix') state = { child: { pid: 123 }, closed: Promise.resolve() };
+    let thrown; try { await stop(); } catch (value) { thrown = value; }
+    if (mode === 'windows-missing') assert.equal(thrown.code, 'windows-job-closure-unverified');
+    else assert.equal(thrown, error);
+    assert.deepEqual(nativeStopDiagnostic(thrown, stop), mode === 'late-posix' ? { failedAt: 'profile-lock', completed: 3 } : null);
+    assert.deepEqual(order, mode === 'late-posix' ? ['stopped', 'native', 'lease', 'lock', 'close']
+      : mode === 'windows' ? ['stopped', 'windows', 'lock', 'close'] : mode === 'windows-missing' ? ['stopped', 'close'] : ['stopped', 'lock', 'close']);
+  }
+});
+
+test('cleanup attribution freezes before best-effort handle closure and preserves its original rejection', async () => {
+  const error = new Error('first'), later = new Error('close');
+  let observed;
+  const f = modelStop('native-stop', error, { closeLock: async () => { observed = nativeStopDiagnostic(error, f.stop); throw later; } });
+  let thrown; try { await f.stop(); } catch (value) { thrown = value; }
+  assert.equal(thrown, error);
+  assert.deepEqual(observed, { failedAt: 'native-stop', completed: 0 });
+  assert.equal(nativeStopDiagnostic(later, f.stop), null);
+});
+
+// Real disposable Node process and inherited output pipe. Termination is MODEL:
+// the ownership helper intentionally destroys streams, so it cannot hold this barrier.
+async function heldCloseFixture() {
+  const holderSource = `
+    const fs = require('node:fs');
+    const gate = fs.createReadStream(null, { fd: 3 });
+    const limit = setTimeout(() => process.exit(93), 12000);
+    gate.once('data', () => { clearTimeout(limit); process.exit(0); });
+    process.send('held');
+  `;
+  const source = `
+    const { spawn } = require('node:child_process');
+    const holder = spawn(process.execPath, ['-'], { stdio: ['pipe', 1, 'ignore', 3, 'ipc'] });
+    holder.stdin.end(${JSON.stringify(holderSource)});
+    holder.once('message', () => process.send('held', () => process.exit(0)));
+  `;
+  const child = spawn(process.execPath, ['-'], { stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'ipc'] });
+  const close = once(child, 'close'), exit = once(child, 'exit'), ready = once(child, 'message');
+  child.stdout.resume(); child.stderr.resume();
+  child.stdin.end(source);
+  return { child, close, exit, ready, release: () => child.stdio[3].end('release') };
+}
+
+for (const refuse of [false, true]) test(`cleanup attribution real owned pipe close barrier (${refuse ? 'finite refusal' : 'join'})`, { timeout: 18000 }, async t => {
+  const f = await heldCloseFixture(), order = [];
+  let didClose = false, outcome, pending;
+  f.close.then(() => { didClose = true; order.push('actual-close'); });
+  try {
+    assert.deepEqual(await f.ready, ['held', undefined]);
+    assert.deepEqual(await f.exit, [0, null]);
+    assert.equal(didClose, false, 'process exit is not pipe close');
+    const stop = createNativeAppStop({ state: () => ({ child: f.child, closed: f.close }), root: 'MODEL',
+      onStop: () => order.push('stopped'), releaseLock: async () => order.push('lock'), closeLock: async () => order.push('handle-close'),
+    }, { stopChild: async (child, budget) => {
+      assert.equal(child, f.child); assert.equal(budget, 5000);
+      await f.exit; order.push('MODEL-native-stop');
+    }, removeLease: async () => { assert.equal(didClose, true); order.push('lease'); } });
+    pending = stop().then(value => { outcome = { value }; }, error => { outcome = { error }; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(order, ['stopped', 'MODEL-native-stop']);
+    assert.equal(outcome, undefined);
+    if (refuse) {
+      await pending;
+      assert.equal(outcome.error.code, 'native-child-close-unverified');
+      assert.deepEqual(nativeStopDiagnostic(outcome.error, stop), { failedAt: 'child-close', completed: 1 });
+      assert.deepEqual(order, ['stopped', 'MODEL-native-stop', 'handle-close']);
+      assert.equal(didClose, false);
+    }
+    f.release(); await f.close; await pending;
+    if (!refuse) {
+      assert.deepEqual(order, ['stopped', 'MODEL-native-stop', 'actual-close', 'lease', 'lock']);
+      assert.deepEqual(outcome.value, { status: 'stopped', descendantClosure: 'verified', method: 'posix-owned-process-group' });
+    } else assert.deepEqual(order, ['stopped', 'MODEL-native-stop', 'handle-close', 'actual-close']);
+    t.diagnostic(JSON.stringify({ proof: 'real-owned-Node-and-inherited-pipe-close', stopOperation: 'MODEL-not-native-ownership', refuse, order }));
+  } finally {
+    if (!didClose) f.release();
+    await f.close;
+    await pending;
+  }
 });
