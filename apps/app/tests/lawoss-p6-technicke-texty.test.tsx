@@ -97,6 +97,20 @@ describe("„Podrobnosti“ karty zmeny súborov bez surového JSON (V10a)", () 
     expect(panel).toContain("Dôvod: Zaradenie rozhodnutia do prípadu");
   });
 
+  test("N-A4-6: karta s jednou zmenou cestu zalomí a neoreže koniec s novým menom súboru", () => {
+    setLocale("sk");
+    const to = "Spisy/M001-uhrada-dodavok-riadiacich-jednotiek/01_Podklady/IN-001 Faktúra 2026-118 Tatran.pdf";
+    const single: PendingPermission = { ...permission, metadata: { lawossFiles: [{ operation: "move", kind: "file", from: "00_Na_zatriedenie/sken_001.pdf", to }] } };
+    const panel = renderToStaticMarkup(<PermissionApprovalPanel permission={single} respondPermission={() => {}} />);
+    const scope = /<div class="([^"]*)">00_Na_zatriedenie\/sken_001\.pdf → ([^<]*)<\/div>/.exec(panel);
+    expect(scope?.[2]).toBe(to);
+    expect(scope?.[1].split(" ")).not.toContain("truncate");
+    expect(scope?.[1]).toContain("break-all");
+    // Iná karta s jedným riadkom ostáva v jednom riadku ako upstream.
+    const other: PendingPermission = { ...permission, permission: "webfetch", patterns: ["https://example.invalid/very/long/path"], metadata: { url: "https://example.invalid" } };
+    expect(renderToStaticMarkup(<PermissionApprovalPanel permission={other} respondPermission={() => {}} />)).toMatch(/class="[^"]* truncate">https:\/\/example\.invalid\/very\/long\/path</);
+  });
+
   test("iné karty si surové podrobnosti nechávajú", () => {
     setLocale("sk");
     const other: PendingPermission = { ...permission, permission: "webfetch", metadata: { url: "https://example.invalid", format: "text" } };

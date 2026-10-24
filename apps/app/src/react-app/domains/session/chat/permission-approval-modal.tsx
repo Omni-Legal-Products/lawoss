@@ -536,7 +536,8 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">
                 {presentation.scopeLabel}
               </div>
-              <div className={`mt-1 rounded-lg border border-dls-border bg-dls-hover/55 px-2.5 py-1.5 font-mono text-[12px] leading-5 text-dls-text ${presentation.scopeValue.includes("\n") ? "max-h-40 overflow-auto whitespace-pre-line break-all" : "truncate"}`}>
+              {/* 🟡 LAWOSS (N-A4-6): a lawoss_files card wraps its paths so the new file name at the end stays visible. */}
+              <div className={`mt-1 rounded-lg border border-dls-border bg-dls-hover/55 px-2.5 py-1.5 font-mono text-[12px] leading-5 text-dls-text ${presentation.scopeValue.includes("\n") || presentation.details ? "max-h-40 overflow-auto whitespace-pre-line break-all" : "truncate"}`}>
                 {presentation.scopeValue}
               </div>
             </div>
