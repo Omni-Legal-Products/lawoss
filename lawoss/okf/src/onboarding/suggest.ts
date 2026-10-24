@@ -51,8 +51,11 @@ const OFFICE_EVIDENCE = new Set(["agents.md", "claude.md", "memory"]);
 const CLIENTS_DIR = "Klienti";
 const LETTER = /^\p{Lu}$/u;
 
-/** Meno z relatívnej cesty položky prieskumu, tá sa skladá cez „/“ na každej platforme. Koreň je natívna cesta, preto `basename`. */
-const nameOf = (path: string): string => path.split("/").pop() ?? path;
+/**
+ * Meno z relatívnej cesty položky prieskumu, tá sa skladá cez „/“ na každej platforme. Koreň je natívna cesta, preto
+ * `basename`. V NFC: „Případy“ z macOS alebo SMB v NFD sa inak s menami priečinkov prípadov nezhodne (#223).
+ */
+const nameOf = (path: string): string => (path.split("/").pop() ?? path).normalize("NFC");
 /** Priami potomkovia každého priečinka; kľúč „“ je koreň. Index sa postaví raz, nie pri každom hľadaní. */
 type ChildIndex = Map<string, SurveyEntry[]>;
 const indexChildren = (entries: SurveyEntry[]): ChildIndex => {
@@ -159,10 +162,13 @@ function mattersOf(index: ChildIndex, files: ReadonlySet<string>, unit: string):
   const prefix = unit ? `${unit}/` : "";
   const dirs = childrenOf(index, unit).filter(entry => entry.kind === "directory");
   const folders = dirs.filter(entry => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()));
+  // Priečinok s vlastnou kartou klienta (a bez karty prípadu) je vnorený klient, nie prípad (N-A4-4, MČ 23. 10. 2026).
+  const card = (entry: SurveyEntry, cards: ReadonlySet<string>) => childrenOf(index, entry.path).some(child => child.kind === "file" && cards.has(nameOf(child.path).toLowerCase()));
+  const nestedClient = (entry: SurveyEntry) => card(entry, CLIENT_CARDS) && !card(entry, MATTER_CARDS);
   const filed = folders.flatMap(folder => childrenOf(index, folder.path).filter(entry => entry.kind === "directory"));
   const beside = dirs.filter(entry => !folders.includes(entry)
     && ([...MATTER_CARDS].some(card => files.has(`${entry.path}/${card}`)) || looksLikeMatterFolder(nameOf(entry.path))));
-  return [...filed, ...beside].map(entry => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
+  return [...filed, ...beside].filter(entry => !nestedClient(entry)).map(entry => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
 }
 
 /**

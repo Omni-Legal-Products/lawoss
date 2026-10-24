@@ -53,11 +53,23 @@ const CODE = /^(\p{Lu}{1,3})[-_ ]?(\d{3,5})(?=$|[\s_.,-])/u;
 const YEAR = /^(?:19|20)\d{2}$/;
 /** Mená súborov fotoaparátov a telefónov („IMG_0001“, „DSC 001“, „MVI_0123“). */
 const CAMERA_PREFIXES = new Set(["IMG", "DSC", "PIC", "MVI", "VID", "MOV", "PXL", "SAM", "DJI"]);
+/**
+ * Bežné skratky s číslom nie sú kód klienta ani veci (#223): normy („ISO 27001“, „STN 73 0540“), meny a dane
+ * („EUR 500 záloha“, „DPH 2024“), predpisy („OSŘ 160“, „ZOK 120“) a oddelenia („HR 001“).
+ */
+const NOT_CODE_PREFIXES = new Set([
+  "ISO", "IEC", "EN", "DIN", "STN", "ČSN", "CSN",
+  "EUR", "CZK", "USD", "GBP", "CHF", "PLN", "HUF", "DPH", "VAT",
+  "OSŘ", "OSR", "OSP", "CSP", "SSP", "ZOK", "OZ", "OBZ", "ZP", "TZ", "TP",
+  "HR", "IT", "PR",
+]);
 export type Code = { prefix: string; rest: string };
-export const codeOf = (name: string): Code | undefined => {
+export const codeOf = (raw: string): Code | undefined => {
+  // NFC: na macOS a SMB prichádza „Č001“ aj v NFD, kde kombinujúci háček rozbije veľké písmeno prefixu (#223).
+  const name = raw.normalize("NFC");
   const match = CODE.exec(name);
   const [whole, prefix, digits] = match ?? [];
-  if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix)) return undefined;
+  if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix) || NOT_CODE_PREFIXES.has(prefix)) return undefined;
   return { prefix, rest: name.slice(whole.length).replace(/^[\s_.,-]+/, "") };
 };
 /** Podpriečinok klienta pomenovaný ako vec: kód („M001 Úhrada…“), dátum, spisová značka alebo slovo veci. */
