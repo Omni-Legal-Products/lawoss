@@ -641,6 +641,8 @@ function AppSidebarContent(props: AppSidebarProps) {
   const hiddenProjects = useHiddenClientProjects();
   const chatSections = useChatSectionVisibility(uiMode);
   const lawossNewChat = useLawossNewChat();
+  // 🟡 LAWOSS (N-A4-7): a project is being dragged; only then do projects spring to a new position.
+  const [reorderingProjects, setReorderingProjects] = React.useState(false);
   const goSettings = React.useCallback(
     (tab: string) => {
       const ws = props.selectedWorkspaceId.trim();
@@ -890,7 +892,7 @@ function AppSidebarContent(props: AppSidebarProps) {
                   : <Button variant="ghost" size="icon-xs" aria-label={t("projects.create")} onClick={props.onOpenCreateWorkspace}><Plus className="size-3.5" /></Button>)}
               </div>
               {!closedSections.has(key) && <Reorder.Group as="div" axis="y" values={groups.map(group => group.workspace.id)} onReorder={ids => props.onReorderWorkspaces?.(reorderProjectSection(props.workspaceSessionGroups.map(group => group.workspace.id), ids))} className="flex flex-col gap-px">
-                {groups.map(group => <WorkspaceReorderItem key={group.workspace.id} group={group} showInitialLoading={props.showInitialLoading} canReorder={Boolean(props.onReorderWorkspaces)} />)}
+                {groups.map(group => <WorkspaceReorderItem key={group.workspace.id} group={group} showInitialLoading={props.showInitialLoading} canReorder={Boolean(props.onReorderWorkspaces)} reordering={reorderingProjects} onReorderingChange={setReorderingProjects} />)}
                 {shared && !groups.length && <p className="px-4 py-2 text-xs text-muted-foreground">{t("projects.shared_empty")}</p>}
               </Reorder.Group>}
             </section>;
@@ -915,19 +917,32 @@ function AppSidebarContent(props: AppSidebarProps) {
   );
 }
 
-function WorkspaceReorderItem({ group, showInitialLoading, canReorder }: {
+/**
+ * 🟡 LAWOSS (N-A4-7): a Reorder.Item always measures its layout (it passes `drag`, so `layoutDependency` cannot gate
+ * it). With the spring on every render, a project below a growing one (e.g. "Cases" expanded) sprang down from its
+ * old place and briefly covered that project's items. The position springs only while a project is dragged.
+ */
+const PROJECT_REORDER_SPRING = { type: "spring", stiffness: 420, damping: 38 } as const;
+const PROJECT_LAYOUT_INSTANT = { type: false } as const;
+
+function WorkspaceReorderItem({ group, showInitialLoading, canReorder, reordering = false, onReorderingChange }: {
   group: WorkspaceSessionGroup;
   showInitialLoading?: boolean;
   canReorder: boolean;
+  reordering?: boolean;
+  onReorderingChange?: (reordering: boolean) => void;
 }) {
   const dragControls = useDragControls();
   const completedDrag = React.useRef(false);
   const [dragging, setDragging] = React.useState(false);
+  // 🟡 LAWOSS (N-A4-7): an item removed mid-drag must not leave the section springing.
+  const draggingRef = React.useRef(false);
+  React.useEffect(() => () => { if (draggingRef.current) onReorderingChange?.(false); }, []);
   return <Reorder.Item as="div" value={group.workspace.id} data-sidebar-project={group.workspace.id} data-project-dragging={dragging || undefined}
     onPointerDownCapture={() => { completedDrag.current = false; }}
     onKeyDownCapture={() => { completedDrag.current = false; }}
-    onDragStart={() => { completedDrag.current = true; setDragging(true); }}
-    onDragEnd={() => setDragging(false)}
+    onDragStart={() => { completedDrag.current = true; draggingRef.current = true; setDragging(true); onReorderingChange?.(true); }}
+    onDragEnd={() => { draggingRef.current = false; setDragging(false); onReorderingChange?.(false); }}
     onClickCapture={event => {
       // A pointer reorder must not activate the project on the trailing click.
       if (completedDrag.current) { event.preventDefault(); event.stopPropagation(); }
@@ -935,7 +950,7 @@ function WorkspaceReorderItem({ group, showInitialLoading, canReorder }: {
     layout="position" dragListener={false} dragControls={dragControls} dragElastic={0} dragMomentum={false}
     className={cn("relative isolate rounded-xl", dragging && "bg-sidebar")}
     whileDrag={{ zIndex: 20, boxShadow: "0 12px 28px -8px rgb(0 0 0 / 0.2), 0 0 0 1px var(--border)" }}
-    transition={{ layout: { type: "spring", stiffness: 420, damping: 38 } }}>
+    transition={{ layout: reordering ? PROJECT_REORDER_SPRING : PROJECT_LAYOUT_INSTANT }}>
     <WorkspaceSidebarGroup group={group} showInitialLoading={showInitialLoading}
       onWorkspaceTitlePointerDown={canReorder ? event => dragControls.start(event, { distanceThreshold: 10 }) : undefined} />
   </Reorder.Item>;
