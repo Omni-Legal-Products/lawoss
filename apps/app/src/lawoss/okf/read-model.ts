@@ -19,6 +19,7 @@ import { normalizeDirectoryPath, normalizeDirectoryQueryPath } from "@/app/utils
 import { addDays, buildOverview, deadlineTier, ISO_DAY, isCalendarDay, missingScopeLevels, type DeadlineTier, type MatterInput, type MatterOverview, type Overview } from "../../../../../lawoss/okf/read";
 import type { OkfRecord } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
+import { parseWorkingProfile, PROFILE_FILE } from "../../../../../lawoss/okf/src/profile";
 import { looksLikeMatterFolder } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { validateStore } from "../../../../../lawoss/okf-pamat/src/validate.ts";
@@ -339,6 +340,17 @@ export async function readWorkspaceMemory(
       try {
         input.inheritedIntakes = [{ content: (await readFile(intakePath)).content, path: intakePath, scope: "client" }];
       } catch (e) { problems.push({ path: intakePath, message: message(e), ...diagnosticFields(e), scope: "client" }); }
+    }
+    // #241: vlastný priečinok na nezaradené (rola `inbox` pracovného profilu), kam appka vkladá dokumenty
+    // (`matter-intake.ts`). Profil sa číta len vtedy, keď prípad alebo jeho klient má čakajúci vstup.
+    const pending = [input.intake, ...(input.inheritedIntakes ?? []).map((intake) => intake.content)].some((text) => text !== undefined && /\|\s*pending\s*\|/.test(text));
+    // Meno profilu bez ohľadu na veľkosť písmen, ako ho nájde `matter-intake.ts` na macOS a Windows.
+    const profileEntry = pending ? entries.find((e) => e.kind === "file" && e.name.toLowerCase() === PROFILE_FILE.toLowerCase()) : undefined;
+    if (profileEntry) {
+      try {
+        const inbox = parseWorkingProfile((await readFile(childPath(path, profileEntry.name))).content).roles.inbox;
+        if (inbox) input.inbox = inbox;
+      } catch { /* Neplatný profil: platí predvolený priečinok na nezaradené (00_Na_zatriedenie, 00_K_zarazeni, 00_Inbox). */ }
     }
     const existingMemorySources: string[] = [];
     for (const dir of scopePaths) {

@@ -46,6 +46,8 @@ export type MatterInput = {
   intake?: string;
   /** Pending intake inherited from the client scope, kept separate from the matter's own VSTUPY.md. */
   inheritedIntakes?: readonly { content: string; path: string; scope: "client" }[];
+  /** Priečinok na nezaradené (rola `inbox` v `PRACOVNY-PROFIL.md` prípadu), relatívne k prípadu; číta sa len pri čakajúcich vstupoch. */
+  inbox?: string;
   /** Názov klienta z jeho karty (`client.md`/`klient.md`, pole `title`), ak vec patrí klientovi. */
   clientTitle?: string;
   /** Cesta karty klienta, z ktorej je `clientTitle` (zdroj položky „Klient“ v prehľade). */
