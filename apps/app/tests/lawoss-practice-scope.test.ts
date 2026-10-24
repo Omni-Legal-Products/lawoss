@@ -138,6 +138,42 @@ describe("N-A4-4: vnorený klient v prehľade praxe", () => {
   });
 });
 
+describe("#240: zaregistrovaný vnorený klient – veľkosť písmen a klient pod nezaregistrovaným vnoreným", () => {
+  const nestedTree: Tree = {
+    ...ALFA_TREE,
+    "C099 SYN Vnoreny/client.md": "---\ntitle: SYN Vnorený\n---\n",
+    "C099 SYN Vnoreny/M001 Cudzí spor/matter.md": "---\ntitle: Cudzí spor\n---\n",
+    "C099 SYN Vnoreny/M001 Cudzí spor/memory/E-001-lehota.md": rec("evidence", "E-001", { title: "Lehota vnoreného", deadlines: ["2026-10-22"] }),
+  };
+  test("registrácia s inou veľkosťou písmen než priečinok na disku: klient aj lehota ostávajú", async () => {
+    const server = fakeServer({ alfa: nestedTree, horak: HORAK_TREE });
+    const lower = ws("vnoreny", `${ROOT}/ALFA STAV s.r.o./c099 syn vnoreny`);
+    const scope = okfScope([alfa, horak, lower], alfa, ROOT);
+    if (!scope) throw new Error("no scope");
+    const data = await readScopeMemory(server, scope, TODAY);
+    expect(data.clients.map((c) => c.title)).toContain("SYN Vnorený");
+    expect(data.upcomingDeadlines.map((d) => d.title)).toContain("Lehota vnoreného");
+  });
+  test("zaregistrovaný klient C2 pod nezaregistrovaným vnoreným C1 sa číta, C1 sám nie", async () => {
+    const tree: Tree = {
+      ...ALFA_TREE,
+      "C1 Nezaregistrovany/client.md": "---\ntitle: C1 vnorený\n---\n",
+      "C1 Nezaregistrovany/M007 Vec C1/matter.md": "---\ntitle: Vec C1\n---\n",
+      "C1 Nezaregistrovany/Podklady/C2 Zaregistrovany/client.md": "---\ntitle: C2 klient\n---\n",
+      "C1 Nezaregistrovany/Podklady/C2 Zaregistrovany/M001 Vec/matter.md": "---\ntitle: Vec C2\n---\n",
+    };
+    const server = fakeServer({ alfa: tree, horak: HORAK_TREE });
+    const c2 = ws("c2", `${ROOT}/ALFA STAV s.r.o./C1 Nezaregistrovany/Podklady/C2 Zaregistrovany`);
+    const scope = okfScope([alfa, horak, c2], alfa, ROOT);
+    if (!scope) throw new Error("no scope");
+    const data = await readScopeMemory(server, scope, TODAY);
+    expect(data.clients.map((c) => c.title)).toEqual(["ALFA STAV s.r.o.", "C2 klient", "Horák s.r.o."]);
+    const titles = data.matters.map((m) => m.title);
+    expect(titles).toContain("Vec C2");
+    expect(titles).not.toContain("Vec C1");
+  });
+});
+
 describe("readScopeMemory: jeden prehľad praxe", () => {
   const server = fakeServer({ alfa: ALFA_TREE, horak: HORAK_TREE }, OFFICE);
   const read = (anchor: RouteWorkspace) => {

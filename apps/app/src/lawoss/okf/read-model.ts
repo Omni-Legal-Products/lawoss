@@ -123,7 +123,17 @@ export async function readWorkspaceMemory(
     .filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name)).map((e) => e.path);
   const paths: string[] = [];
   const clientPaths: string[] = [];
-  const registeredNested = new Set((options.registeredNested ?? []).map((path) => path.normalize("NFC")));
+  // #240: cesta registrácie a cesta zo servera sa môžu líšiť veľkosťou písmen (APFS, NTFS) aj tvarom Unicode.
+  const nestedKey = (path: string): string => path.normalize("NFC").toLocaleLowerCase();
+  const registeredNested = new Set((options.registeredNested ?? []).map(nestedKey));
+  /** Pod nezaregistrovaným vnoreným klientom len cesta k zaregistrovaným priečinkom pod ním, nič z neho samého (#240). */
+  const descendToRegistered = async (path: string, depth: number): Promise<void> => {
+    for (const child of await dirs(path)) {
+      const key = nestedKey(child);
+      if (registeredNested.has(key)) await discover(child, false, depth + 1, true);
+      else if ([...registeredNested].some((registered) => registered.startsWith(`${key}/`))) await descendToRegistered(child, depth + 1);
+    }
+  };
   let scanned = 0;
   const discover = async (path: string, directMatter = false, depth = 0, insideClient = false): Promise<void> => {
     if (scanned >= MAX_DISCOVERY_DIRECTORIES || paths.length >= MAX_MATTERS || depth > MAX_DISCOVERY_DEPTH) { truncated = true; return; }
@@ -135,7 +145,10 @@ export async function readWorkspaceMemory(
     // prípady do prehľadu vonkajšieho klienta nepatria; ostáva len obyčajným priečinkom v Súboroch. Vnorený klient
     // zaregistrovaný ešte pred odmietaním ostáva vlastnou skupinou: prax ho číta cez vonkajšieho klienta (`okfScope`).
     const nestedClient = insideClient && !hasMatterCard && entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
-    if (nestedClient && !registeredNested.has(path.normalize("NFC"))) return;
+    if (nestedClient && !registeredNested.has(nestedKey(path))) {
+      if ([...registeredNested].some((registered) => registered.startsWith(`${nestedKey(path)}/`))) await descendToRegistered(path, depth);
+      return;
+    }
     if ((directMatter && !nestedClient) || hasMatterCard) {
       paths.push(path);
       return;
