@@ -115,4 +115,3 @@ describe("Dnes: termíny z prípadov oddelene od lehôt", () => {
     expect(out).toContain("Prípady bez evidovaných lehôt: 1. Termín z prípadu: Zajtrajšia úloha, zajtra.");
   });
 });
-

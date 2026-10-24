@@ -1378,7 +1378,8 @@ var NOT_CODE_PREFIXES = new Set([
   "ZOK",
   "OBZ"
 ]);
-var NOT_CODE_WITH_SPACE = new Set(["EN", "OZ", "ZP", "TZ", "TP", "HR", "IT", "PR"]);
+var NOT_CODE_WITH_SPACE = new Set(["EN", "OZ", "ZP", "TZ", "TP"]);
+var NOT_CODE_BARE = new Set(["HR", "IT", "PR"]);
 var codeOf = (raw) => {
   const name = raw.normalize("NFC");
   const match = CODE.exec(name);
@@ -1386,7 +1387,7 @@ var codeOf = (raw) => {
   if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix) || NOT_CODE_PREFIXES.has(prefix))
     return;
   const rest = name.slice(whole.length).replace(/^[\s_.,-]+/, "");
-  if (separator === " " && NOT_CODE_WITH_SPACE.has(prefix) && !rest)
+  if (separator === " " && (NOT_CODE_WITH_SPACE.has(prefix) || NOT_CODE_BARE.has(prefix) && !rest))
     return;
   return { prefix, rest };
 };

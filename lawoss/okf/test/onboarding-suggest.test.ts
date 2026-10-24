@@ -313,7 +313,7 @@ test("náhľad stromu: prázdny Spisy/ z pomocných súborov neskryje prípady v
 test("#223: interný kód aj v NFD (Č001) a bez falošných pozitív bežných skratiek", () => {
   expect(codeOf("Č001 Spor")).toEqual({ prefix: "Č", rest: "Spor" });
   expect(codeOf("Č001 Spor".normalize("NFD"))).toEqual({ prefix: "Č", rest: "Spor" });
-  for (const name of ["ISO 27001 certifikácia", "ISO27001", "EUR 500 záloha", "OSŘ 160", "OSŘ 160".normalize("NFD"), "HR 001", "OZ 123", "STN 73054", "DPH 500 preplatok", "ZOK 120"]) {
+  for (const name of ["ISO 27001 certifikácia", "ISO27001", "EUR 500 záloha", "OSŘ 160", "OSŘ 160".normalize("NFD"), "HR 001", "OZ 123", "STN 73054", "DPH 500 preplatok", "ZOK 120", "EN 1090-2 zváranie", "EN 13501 požiarna odolnosť", "OZ 420 náhrada škody", "TZ 212 krádež"]) {
     expect(codeOf(name)).toBeUndefined();
     expect(looksLikeMatterFolder(name)).toBe(false);
   }
