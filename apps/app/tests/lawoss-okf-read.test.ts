@@ -507,6 +507,15 @@ test("N-A4-4: vnorený klient s vlastnou kartou nie je prípadom vonkajšieho kl
   expect(own.matters.map((m) => m.title)).toEqual(["Cudzí spor"]);
 });
 
+test("#242: „PR 001 Kampaň“ pod klientom s kartou je prípad, holé „HR 001“ nie", async () => {
+  const out = await readWorkspaceMemory(fakeClient({
+    "client.md": "---\ntitle: Klient\n---\n",
+    "PR 001 Kampaň/brief.pdf": "%PDF",
+    "HR 001/zmluva.pdf": "%PDF",
+  }), "ws", TODAY);
+  expect(out.matters.map((m) => m.path)).toEqual(["PR 001 Kampaň"]);
+});
+
 test("#241: rola inbox z PRACOVNY-PROFIL.md sa číta len pri čakajúcom vstupe", async () => {
   const profile = '---\ntype: working-profile\nfolders: ["00_Prijate","01_Podklady"]\nfolder_roles: {"inbox":"00_Prijate","client_documents":"01_Podklady"}\ndocument_naming: "{date}_{description}"\n---\n';
   const intake = (state: string) => `| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |\n| --- | --- | --- | --- | --- | --- |\n| IN-1 | 2026-10-20 | e-mail | [a.pdf](00_Prijate/a.pdf) | ${state} | |\n`;
