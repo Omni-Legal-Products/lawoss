@@ -221,7 +221,8 @@ for (const where of ["case", "client"] as const) {
     for (const action of ["read", "preamble"] as const) {
       const read = await readMatterMemoryForChat(f.config, f.own, { action, matter: f.m1 }, none);
       expect(read.text).not.toContain("SECRET");
-      expect(read.text).not.toMatch(/Hron|M003|K3/);
+      // The random mkdtemp suffix of the own path can contain "K3" or "Hron"; match names outside it.
+      expect(read.text.replaceAll(f.root, "")).not.toMatch(/Hron|M003|K3/);
       expect(read.complete).toBe(false);
       expect(read.text).toContain("Pamäť kancelárie sa nenačítala");
     }
@@ -262,7 +263,7 @@ test("profil pamäte s koreňom alebo zdrojom vo vnorenom klientovi ho nečíta 
   }));
   const read = await readMatterMemoryForChat(f.config, f.own, { action: "read", matter: f.m1 }, none);
   expect(read.text).not.toContain("SECRET");
-  expect(read.text).not.toMatch(/Vnoreny|Hron/);
+  expect(read.text.replaceAll(f.root, "")).not.toMatch(/Vnoreny|Hron/);
   expect(read.complete).toBe(false);
   expect(read.text).toContain("SYN-MATTER-01 vlastná pamäť");
 });
