@@ -15,7 +15,7 @@ import { deadlineKey, deadlineText, dueTextFromDays, isCalendarDay, urgencyOf, t
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { deadlineCoverage } from "../../../../../../lawoss/okf/views";
 import { buildToday, nextDeadline, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
-import { LITE_CLIENTS_PATH, liteDeadlineLink, liteMatterLink } from "../links";
+import { LITE_INPUTS_PATH, liteDeadlineLink, liteMatterLink } from "../links";
 import { clientPreferenceScope, practiceClientChoices, type ClientChoice } from "../client-choice";
 import { NewMatterAction } from "../client-picker";
 import { hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick } from "../live";
@@ -150,21 +150,15 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
         </Panel>
 
         <div className="lw-today-side">
+          {/* Rozhodnutie MČ 23. 10. 2026 (N-A3-2): len počet dokumentov mimo prípadov a odkaz na podrobný zoznam. */}
           <Panel index={3} icon={<Inbox aria-hidden size={16} />} title={text("inputs_title")}>
-            {model.inputs.length === 0 ? <Empty text={text("inputs_empty")} done /> : <ul className="lw-today-list">
-              {model.inputs.map((input, index) => (
-                <li key={`${input.file}/${input.id}/${index}`}>
-                  <Link className="lw-today-input" to={input.scope === "client" ? LITE_CLIENTS_PATH : liteMatterLink(input.matterPath)} data-lawoss-scope={input.scope}>
-                    <span className="lw-no">{input.id || "-"}</span>
-                    <span className="lw-today-main">
-                      <span className="lw-today-title">{input.source}</span>
-                      <small>{input.original}</small>
-                    </span>
-                    <span className="lw-today-when"><span className="lw-today-date-short">{formatDay(input.received.slice(0, 10), locale)}</span><span className="lw-today-due">{text(input.scope === "client" ? "inputs_client" : "inputs_file")}</span></span>
-                  </Link>
-                </li>
-              ))}
-            </ul>}
+            {model.inputs.length === 0 ? <Empty text={text("inputs_empty")} done /> : <Link className="lw-today-input" to={LITE_INPUTS_PATH} data-lawoss-inputs-count={model.inputs.length}>
+              <span className="lw-no">{model.inputs.length}</span>
+              <span className="lw-today-main">
+                <span className="lw-today-title">{text("inputs_outside")}</span>
+                <small>{text("inputs_open_list")}</small>
+              </span>
+            </Link>}
           </Panel>
           <Panel index={4} icon={<ListChecks aria-hidden size={16} />} title={text("tasks_title")}>
             {model.tasks.length === 0 ? <Empty text={text("tasks_empty")} /> : <ul className="lw-today-list">
