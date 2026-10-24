@@ -36,6 +36,27 @@ export function matterClientPath(root: string): string {
   return folderName(parent).toLowerCase() === "spisy" ? parentPath(parent) : parent;
 }
 
+/** Meno klienta pre advokáta (N-A4-2): názov z karty ako v bočnom paneli, inak meno priečinka. */
+export const clientName = (client: { name: string; title?: string }): string => client.title?.trim() || client.name;
+
+/** Meno vybraného priečinka ako klienta: názov z jeho karty, inak meno priečinka. */
+export const rootClientName = (suggestion: { root: string; rootTitle?: string }): string => suggestion.rootTitle?.trim() || folderName(suggestion.root);
+
+/** Meno klienta, pod ktorý patrí vybraný prípad (`matterClientPath`): názov z jeho karty, inak meno priečinka. */
+export const matterClientName = (suggestion: { root: string; matterClientTitle?: string }): string => suggestion.matterClientTitle?.trim() || folderName(matterClientPath(suggestion.root));
+
+/** Rovnaké meno bez ohľadu na Unicode tvar a veľkosť písmen (ako `sameName` bočného panela). */
+const sameName = (a: string, b: string): boolean => a.trim().normalize("NFC").toLocaleLowerCase() === b.trim().normalize("NFC").toLocaleLowerCase();
+
+/**
+ * Meno po zápise (N-A4-2) podľa pravidla bočného panela (`clientLabel`): natívne meno registrácie, ak nie je len menom
+ * priečinka (meno zadané skôr alebo názov z karty pri registrácii), inak meno z návrhu.
+ */
+export function registeredName(item: { root: string; name: string }, workspace: { name?: string; displayName?: string } | undefined): string {
+  const native = (workspace?.displayName || workspace?.name)?.trim();
+  return native && !sameName(native, folderName(item.root)) ? native : item.name;
+}
+
 /** Cesta klienta z relatívnej cesty návrhu (vždy s „/“) v oddeľovači koreňa. */
 export function childPath(root: string, relative: string): string {
   const separator = separatorOf(root);
@@ -96,7 +117,9 @@ async function convertOne(api: FlowApi, item: { root: string; name: string }, id
   try {
     const preview = await api.planOnboarding(convertRequest(item.root, identity, today));
     const result = await api.applyOnboarding({ id: preview.id, fingerprint: preview.fingerprint, confirm: true });
-    return { ...item, status: "done", result };
+    // N-A4-2: ďalej (krok Pripravené, chat a jeho prvá správa) platí meno, pod ktorým server klienta zaregistroval
+    // (názov z karty alebo meno zadané skôr), teda to isté, ktoré ukáže bočný panel.
+    return { ...item, name: registeredName(item, result.workspace), status: "done", result };
   } catch (reason) {
     return { ...item, status: "failed", error: describe(reason) };
   }
