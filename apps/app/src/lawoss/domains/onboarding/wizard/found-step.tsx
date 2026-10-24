@@ -6,8 +6,8 @@
  */
 import { useId, type ReactNode } from "react";
 import { Briefcase, Check, CircleAlert, FilePlus2, FileText, Landmark, ShieldCheck, UserRound } from "lucide-react";
-import type { OnboardingSuggestion, SuggestedUnit } from "../api";
-import { folderName, matterClientPath, type BatchItem } from "../found-flow";
+import type { OnboardingSuggestion, SuggestedClient, SuggestedUnit } from "../api";
+import { childPath, clientName, folderName, matterClientName, rootClientName, type BatchItem } from "../found-flow";
 import type { FoundTextKey } from "../found-text";
 import { OkfNotice } from "../okf-notice";
 import type { ConnectedClient, WizardConnected } from "../onboarding-state";
@@ -105,19 +105,19 @@ export function FoundTree({ text, suggestion, level, scope, selected, busy, onTo
     tree = (
       <Node icon={<Landmark className="size-4" />} kind={text("treeOffice")} name={name} meta={text("readyClients", { count: suggestion.clients.length })}>
         {suggestion.clients.length ? (() => {
-          const row = (client: { path: string; name: string }) => {
+          const row = (client: SuggestedClient) => {
           const unit = unitOf(suggestion, client.path);
-          const item = added?.find((entry) => entry.name === client.name);
+          const item = added?.find((entry) => entry.root === childPath(suggestion.root, client.path));
           return (
             <Node
               key={client.path}
               icon={<UserRound className="size-4" />}
               kind={text("treeClient")}
-              name={client.name}
+              name={clientName(client)}
               meta={unitMeta(text, unit)}
               badge={<AddedBadge text={text} item={item} />}
               control={pick ? (
-                <input type="checkbox" aria-label={`${text("treeSelected")}: ${client.name}`} checked={selected.includes(client.path)} disabled={busy} onChange={() => onToggle?.(client.path)} />
+                <input type="checkbox" aria-label={`${text("treeSelected")}: ${clientName(client)}`} checked={selected.includes(client.path)} disabled={busy} onChange={() => onToggle?.(client.path)} />
               ) : undefined}
             >
               {unit?.matterCount && suggestion.clients.length <= SMALL_PRACTICE ? <Matters text={text} unit={unit} shown={MATTERS_SHOWN} /> : null}
@@ -144,7 +144,7 @@ export function FoundTree({ text, suggestion, level, scope, selected, busy, onTo
     );
   } else if (level === "matter") {
     tree = (
-      <Node icon={<UserRound className="size-4" />} kind={text("treeClient")} name={folderName(matterClientPath(suggestion.root))}>
+      <Node icon={<UserRound className="size-4" />} kind={text("treeClient")} name={matterClientName(suggestion)}>
         <Node icon={<Briefcase className="size-4" />} kind={text("treeCase")} name={name}>
           <DocsLeaf text={text} meta={unitMeta(text, root, false)} />
         </Node>
@@ -152,7 +152,7 @@ export function FoundTree({ text, suggestion, level, scope, selected, busy, onTo
     );
   } else {
     tree = (
-      <Node icon={<UserRound className="size-4" />} kind={text("treeClient")} name={name} meta={unitMeta(text, root)} badge={<AddedBadge text={text} item={added?.[0]} />}>
+      <Node icon={<UserRound className="size-4" />} kind={text("treeClient")} name={rootClientName(suggestion)} meta={unitMeta(text, root)} badge={<AddedBadge text={text} item={added?.[0]} />}>
         <Matters text={text} unit={root} shown={ROOT_MATTERS_SHOWN} />
         <DocsLeaf text={text} meta={unitMeta(text, root, false)} />
       </Node>
@@ -209,7 +209,7 @@ export function WizardFoundView({ text, found, busy, suggestion, headline, level
   const noClients = practiceEach && suggestion.clients.length === 0;
   const tableDisabled = level === "practice" && scope === "practice";
   const primary = level === "matter"
-    ? found("useParent", { name: folderName(matterClientPath(suggestion.root)) })
+    ? found("useParent", { name: matterClientName(suggestion) })
     : practiceEach ? text("foundAddClients", { count: selected.length }) : text("foundAdd");
   return (
     <StepScreen step="found" title={text("foundTitle")} lead={<p>{headline}</p>} nav={nav} focusOnMount>
@@ -251,7 +251,7 @@ export function WizardFoundView({ text, found, busy, suggestion, headline, level
         </div>
       ) : null}
       <FoundTree text={text} suggestion={suggestion} level={level} scope={scope} selected={selected} busy={busy} onToggle={onToggle} />
-      {level === "matter" ? <p className="text-muted-foreground">{found("matterHint", { name: folderName(matterClientPath(suggestion.root)) })}</p> : null}
+      {level === "matter" ? <p className="text-muted-foreground">{found("matterHint", { name: matterClientName(suggestion) })}</p> : null}
       {noClients ? <p className="lw-status warn">{found("noClientsHint")}</p> : null}
       <AddsPanel text={text} found={found} />
       <div className="lw-wiz-actions">

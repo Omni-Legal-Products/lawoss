@@ -96,13 +96,45 @@ describe("okfScope: koho pohľady čítajú", () => {
 
   test("prax ako jeden priečinok (R8): registrovaný koreň je jediný člen", () => {
     const root = ws("prax", ROOT);
-    expect(okfScope([root, alfa], alfa, ROOT)).toEqual({ anchor: alfa, members: [{ workspace: root, prefix: "" }] });
+    expect(okfScope([root, alfa], alfa, ROOT)).toEqual({ anchor: alfa, members: [{ workspace: root, prefix: "", nested: ["ALFA STAV s.r.o."] }] });
   });
 
   test("koreň s lomkou na konci a spätné lomky z Windows dajú tú istú predponu", () => {
     const winRoot = "C:\\AK\\Klienti\\";
     const client = ws("c", "C:\\AK\\Klienti\\Novák Peter");
     expect(okfScope([client], client, winRoot)?.members[0]?.prefix).toBe("Novák Peter");
+  });
+});
+
+describe("N-A4-4: vnorený klient v prehľade praxe", () => {
+  // Nový vnorený klient sa odmieta a v prehľade vonkajšieho klienta nie je prípadom. Starší zaregistrovaný vnorený
+  // klient (pred #225) sa číta cez vonkajšieho klienta a nesmie z prehľadu zmiznúť ani so svojimi lehotami.
+  const nestedTree: Tree = {
+    ...ALFA_TREE,
+    "C099 SYN Vnoreny/client.md": "---\ntitle: SYN Vnorený\n---\n",
+    "C099 SYN Vnoreny/M001 Cudzí spor/matter.md": "---\ntitle: Cudzí spor\n---\n",
+    "C099 SYN Vnoreny/M001 Cudzí spor/memory/E-001-lehota.md": rec("evidence", "E-001", { title: "Lehota vnoreného", deadlines: ["2026-10-22"] }),
+  };
+  const server = fakeServer({ alfa: nestedTree, horak: HORAK_TREE });
+  const nested = ws("vnoreny", `${ROOT}/ALFA STAV s.r.o./C099 SYN Vnoreny`);
+  test("nezaregistrovaný: nie je prípadom ALFA ani skupinou", async () => {
+    const scope = okfScope([alfa, horak], alfa, ROOT);
+    if (!scope) throw new Error("no scope");
+    const data = await readScopeMemory(server, scope, TODAY);
+    expect(data.matters.map((m) => m.path).sort()).toEqual(["ALFA STAV s.r.o./Spisy/2026-03 Spor BETA", "Horák s.r.o./Spisy/2026-09 Platobný rozkaz"]);
+    expect(data.clients.map((c) => c.title)).toEqual(["ALFA STAV s.r.o.", "Horák s.r.o."]);
+  });
+  test("zaregistrovaný skôr: ostáva vlastnou skupinou s prípadmi a lehotami", async () => {
+    const scope = okfScope([alfa, horak, nested], alfa, ROOT);
+    if (!scope) throw new Error("no scope");
+    expect(scope.members.map((m) => [m.workspace.id, m.nested ?? []])).toEqual([["alfa", ["C099 SYN Vnoreny"]], ["horak", []]]);
+    expect(okfScopeKey(scope)).not.toBe(okfScopeKey(okfScope([alfa, horak], alfa, ROOT)!));
+    const data = await readScopeMemory(server, scope, TODAY);
+    expect(data.clients.map((c) => c.title)).toEqual(["ALFA STAV s.r.o.", "SYN Vnorený", "Horák s.r.o."]);
+    expect(data.upcomingDeadlines.map((d) => d.title)).toContain("Lehota vnoreného");
+    // Otvorený len klient ALFA (bez praxe): to isté pravidlo.
+    const single = okfScope([alfa, nested], alfa, null);
+    expect(single?.members).toEqual([{ workspace: alfa, prefix: "", nested: ["C099 SYN Vnoreny"] }]);
   });
 });
 

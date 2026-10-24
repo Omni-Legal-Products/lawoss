@@ -484,6 +484,29 @@ test("po pomocných súboroch: prípady s kódom vedľa prázdneho Spisy/ ostan�
   ]);
 });
 
+test("N-A4-4: vnorený klient s vlastnou kartou nie je prípadom vonkajšieho klienta ani jeho skupinou", async () => {
+  const out = await readWorkspaceMemory(fakeClient({
+    "client.md": "---\ntitle: SYN Hron, a. s.\n---\n",
+    "M001 Spor o dielo/zmluva.pdf": "%PDF",
+    "Spisy/M002 Nájom/matter.md": "---\ntitle: Nájom\n---\n",
+    // Odmietnutý vnorený klient s kódom (inak by ho vzor `C099 …` vzal ako prípad) aj bez kódu, s vlastnými prípadmi.
+    "C099 SYN Vnoreny/client.md": "---\ntitle: SYN Vnorený\n---\n",
+    "C099 SYN Vnoreny/M001 Cudzí spor/matter.md": "---\ntitle: Cudzí spor\n---\n",
+    "Archív/Iný klient/klient.md": "---\ntitle: Iný klient\n---\n",
+    "Archív/Iný klient/Spisy/X/matter.md": "---\ntitle: Cudzia vec\n---\n",
+    "Spisy/C098 Vnorený v Spisy/client.md": "---\ntitle: Ďalší vnorený\n---\n",
+  }), "ws", TODAY);
+  expect(out.matters.map((m) => m.path).sort()).toEqual(["M001 Spor o dielo", "Spisy/M002 Nájom"]);
+  expect(out.clients).toEqual([{ path: "", title: "SYN Hron, a. s." }]);
+  expect(groupByClient(out.matters, out.inputs, out.clients).map((g) => [g.client, g.matters.length])).toEqual([["SYN Hron, a. s.", 2]]);
+  // Vnorený klient otvorený priamo ostáva klientom so svojimi prípadmi.
+  const own = await readWorkspaceMemory(fakeClient({
+    "client.md": "---\ntitle: SYN Vnorený\n---\n",
+    "M001 Cudzí spor/matter.md": "---\ntitle: Cudzí spor\n---\n",
+  }), "ws", TODAY);
+  expect(own.matters.map((m) => m.title)).toEqual(["Cudzí spor"]);
+});
+
 test("mimo klienta s kartou sa priečinok s dátumom za vec nepovažuje", async () => {
   const out = await readWorkspaceMemory(fakeClient({ "2025-01 Projekt/readme.txt": "" }), "ws", TODAY);
   expect(out.matters).toEqual([]);

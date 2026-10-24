@@ -54,7 +54,8 @@ describe("buildToday", () => {
     expect(today.tasks[0]!.matters.map((x) => x.title)).toEqual(["Novák - 14 C 101/2025", "Novák - pracovní smlouva"]);
   });
   test("nezařazené vstupy a poslední věci podle poslední události", () => {
-    expect(today.inputs.map((i) => i.id)).toEqual(["IN-1"]);
+    // N-A3-2: pending riadok VSTUPY.md prípadu je už v prípade (čaká na vecnú kontrolu), nie na zaradenie.
+    expect(today.inputs.map((i) => i.id)).toEqual([]);
     expect(today.recent.map((x) => x.title)).toEqual(["Novák - pracovní smlouva", "Novák - 14 C 101/2025", "ACME - převod podílu"]);
   });
 

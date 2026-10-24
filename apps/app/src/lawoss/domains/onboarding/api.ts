@@ -138,7 +138,7 @@ export type OnboardingApplyResult = {
   matterRoot?: string;
   appFiles?: "inside" | "outside";
   trial?: boolean;
-  workspace?: { id: string; path: string; displayName?: string };
+  workspace?: { id: string; path: string; name?: string; displayName?: string };
   workspaces?: readonly { id: string; path: string; displayName?: string }[];
   activeId?: string;
 };
@@ -160,16 +160,23 @@ export type OnboardingSuggestion = {
   score: number;
   signals: readonly string[];
   clientPattern?: string;
-  clients: readonly { path: string; name: string }[];
+  clients: readonly SuggestedClient[];
   /** Klienti a vzor pre ručnú opravu na „Celá prax“ (N-9); starší server ich neposiela. */
-  practiceCandidates?: readonly { path: string; name: string }[];
+  practiceCandidates?: readonly SuggestedClient[];
   practicePattern?: string;
   complete: boolean;
   /** Priame podpriečinky s kanceláriou OKF (`<meno>/Office/okf.config`); advokát má zrejme pripojiť ten podpriečinok. */
   childOffices?: readonly string[];
   /** Náhľad stromu (C1): koreň („“) a kandidáti praxe s prípadmi a počtom súborov; starší server ich neposiela. */
   units?: readonly SuggestedUnit[];
+  /** Názov z karty klienta priamo vo vybranom priečinku (N-A4-2); starší server ho neposiela. */
+  rootTitle?: string;
+  /** Názov z karty klienta, pod ktorý patrí vybraný priečinok ako prípad (`matterClientPath`); starší server ho neposiela. */
+  matterClientTitle?: string;
 };
+
+/** Klient v návrhu: relatívna cesta, meno priečinka a názov z karty `client.md`/`klient.md`, ak ho karta má (N-A4-2). */
+export type SuggestedClient = { path: string; name: string; title?: string };
 
 /** Jednotka náhľadu stromu; `exact: false` znamená, že počty sú dolná hranica (veľký alebo hlboký priečinok). */
 export type SuggestedUnit = { path: string; matters: readonly { path: string; name: string }[]; matterCount: number; files: number; exact: boolean };

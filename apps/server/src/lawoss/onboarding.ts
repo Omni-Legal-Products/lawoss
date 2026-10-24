@@ -10,7 +10,7 @@ import { registerLocalProject } from "../routes/workspaces.js";
 import { addRoute, type RequestContext, type Route } from "../routes/registry.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { externalAppFilesRoot } from "./workspace-app-files.js";
-import { registrationName } from "./client-card-title.js";
+import { registrationName, withClientCardTitles } from "./client-card-title.js";
 import { registerTriageRoutes } from "./triage.js";
 import { readOfficeMemory } from "./office-memory.js";
 import { assertClientFolderNotNested } from "./nested-client.js";
@@ -206,11 +206,12 @@ export function registerOnboardingRoutes(options: {
     const inspection = await inspectOnboardingRoot(input.root);
     return { ...inspection, memoryCandidates: inspection.memorySources };
   });
-  // Návrh úrovne (prax, klient, vec) z mien priečinkov; nič nečíta z obsahu a nič nezapisuje (spec P4).
+  // Návrh úrovne (prax, klient, vec) z mien priečinkov; nič nezapisuje (spec P4). Z obsahu číta len názov z karty
+  // klienta, aby sa klient volal rovnako ako v bočnom paneli (N-A4-2); dokumenty nečíta.
   route("POST", "suggest", async ctx => {
     const input = z.strictObject({ root: z.string().min(1).max(4096) }).parse(await body(ctx));
     await canonicalDirectory(input.root);
-    return await suggestOnboardingLevel(input.root);
+    return await withClientCardTitles(await suggestOnboardingLevel(input.root));
   });
   route("POST", "plan", async ctx => {
     const input = await body(ctx);

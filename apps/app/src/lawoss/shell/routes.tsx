@@ -15,7 +15,8 @@ import { TRIAGE_PATH } from "../domains/roztriedenie/api";
 import { TodayPage } from "../lite/pages/today-page";
 import { ClientsPage } from "../lite/pages/clients-page";
 import { LiteMatterPage } from "../lite/pages/matter-page";
-import { LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, NEW_MATTER_PATH } from "../lite/links";
+import { InputsPage } from "../lite/pages/inputs-page";
+import { LITE_CLIENTS_PATH, LITE_INPUTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, NEW_MATTER_PATH } from "../lite/links";
 import { isExperimentHidden, isUpstreamRouteHidden } from "../feature-flags";
 import { LawossLanding } from "../lite/landing";
 
@@ -47,6 +48,7 @@ export const LAWOSS_ROUTES: ReadonlyArray<{ path: string; element: ReactElement;
   { path: LITE_TODAY_PATH, element: <TodayPage />, title: "lawoss.lite.nav_today" },
   { path: LITE_CLIENTS_PATH, element: <ClientsPage />, title: "lawoss.lite.nav_clients" },
   { path: LITE_MATTER_PATH, element: <LiteMatterPage />, title: "lawoss.lite.nav_clients" },
+  { path: LITE_INPUTS_PATH, element: <InputsPage />, title: "lawoss.lite.inputs_title" },
   // Roztriedenie dokumentov v skúšobnom klone (alfa): vstup z Klientov a z onboardingu po vytvorení klona.
   { path: TRIAGE_PATH, element: <TriagePage />, title: "lawoss.triage.title" },
 ];

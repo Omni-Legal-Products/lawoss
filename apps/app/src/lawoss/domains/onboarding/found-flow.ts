@@ -7,7 +7,7 @@ import { hasLegalForm } from "../../../../../../lawoss/okf/src/onboarding/sugges
 import { triageGrant, triagePlan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { LITE_CLIENTS_PATH } from "../../lite/links";
 import type { OnboardingCompletion } from "./lawoss-welcome-page";
-import type { ClientChatOutcome, ClientChatRequest, ClientChatUnavailable } from "./client-chat";
+import type { ClientChatOutcome, ClientChatPrompt, ClientChatRequest, ClientChatUnavailable } from "./client-chat";
 import type { DocumentLanguage, ExistingPlanRequest, Jurisdiction, OfficePlanRequest, OnboardingApi, OnboardingApplyResult, OnboardingSuggestion, PracticePlanRequest } from "./api";
 
 export type FoundIdentity = { lawyerName: string; jurisdiction: Jurisdiction; language: Language };
@@ -34,6 +34,27 @@ export function parentPath(root: string): string {
 export function matterClientPath(root: string): string {
   const parent = parentPath(root);
   return folderName(parent).toLowerCase() === "spisy" ? parentPath(parent) : parent;
+}
+
+/** Meno klienta pre advokáta (N-A4-2): názov z karty ako v bočnom paneli, inak meno priečinka. */
+export const clientName = (client: { name: string; title?: string }): string => client.title?.trim() || client.name;
+
+/** Meno vybraného priečinka ako klienta: názov z jeho karty, inak meno priečinka. */
+export const rootClientName = (suggestion: { root: string; rootTitle?: string }): string => suggestion.rootTitle?.trim() || folderName(suggestion.root);
+
+/** Meno klienta, pod ktorý patrí vybraný prípad (`matterClientPath`): názov z jeho karty, inak meno priečinka. */
+export const matterClientName = (suggestion: { root: string; matterClientTitle?: string }): string => suggestion.matterClientTitle?.trim() || folderName(matterClientPath(suggestion.root));
+
+/** Rovnaké meno bez ohľadu na Unicode tvar a veľkosť písmen (ako `sameName` bočného panela). */
+const sameName = (a: string, b: string): boolean => a.trim().normalize("NFC").toLocaleLowerCase() === b.trim().normalize("NFC").toLocaleLowerCase();
+
+/**
+ * Meno po zápise (N-A4-2) podľa pravidla bočného panela (`clientLabel`): natívne meno registrácie, ak nie je len menom
+ * priečinka (meno zadané skôr alebo názov z karty pri registrácii), inak meno z návrhu.
+ */
+export function registeredName(item: { root: string; name: string }, workspace: { name?: string; displayName?: string } | undefined): string {
+  const native = (workspace?.displayName || workspace?.name)?.trim();
+  return native && !sameName(native, folderName(item.root)) ? native : item.name;
 }
 
 /** Cesta klienta z relatívnej cesty návrhu (vždy s „/“) v oddeľovači koreňa. */
@@ -96,7 +117,9 @@ async function convertOne(api: FlowApi, item: { root: string; name: string }, id
   try {
     const preview = await api.planOnboarding(convertRequest(item.root, identity, today));
     const result = await api.applyOnboarding({ id: preview.id, fingerprint: preview.fingerprint, confirm: true });
-    return { ...item, status: "done", result };
+    // N-A4-2: ďalej (krok Pripravené, chat a jeho prvá správa) platí meno, pod ktorým server klienta zaregistroval
+    // (názov z karty alebo meno zadané skôr), teda to isté, ktoré ukáže bočný panel.
+    return { ...item, name: registeredName(item, result.workspace), status: "done", result };
   } catch (reason) {
     return { ...item, status: "failed", error: describe(reason) };
   }
@@ -256,8 +279,8 @@ export type ClientChatView = { name: "chatUnavailable"; reason: ClientChatUnavai
 export function createClientChatFlow(deps: {
   register: (result?: OnboardingApplyResult) => Promise<unknown>;
   openChat: (request: ClientChatRequest) => Promise<ClientChatOutcome>;
-  /** Prvá správa pre klienta; `skill: false` je variant bez /novy-spis. */
-  prompt: (name: string, skill: boolean) => string;
+  /** Prvá správa pre klienta: viditeľná veta a skryté pokyny so skillom /novy-spis aj bez neho. */
+  prompt: (name: string) => ClientChatPrompt;
   done: (result: OnboardingApplyResult | undefined, landing: string) => Promise<void> | void;
   show: (view: ClientChatView) => void;
 }) {
@@ -266,7 +289,7 @@ export function createClientChatFlow(deps: {
     if (!target) { deps.show({ name: "chatUnavailable", reason: "failed", queue, result }); return; }
     const registered = target.result ?? result;
     await deps.register(registered);
-    const request: ClientChatRequest = { workspaceId: target.result?.workspace?.id, directory: reorganizeTarget(target), prompt: deps.prompt(target.name, true), promptWithoutSkill: deps.prompt(target.name, false) };
+    const request: ClientChatRequest = { workspaceId: target.result?.workspace?.id, directory: reorganizeTarget(target), prompt: deps.prompt(target.name) };
     const outcome = await deps.openChat(request).catch((reason: unknown): ClientChatOutcome => { console.warn("[lawoss] client chat after adding a folder", reason); return { unavailable: "failed" }; });
     if ("route" in outcome) await deps.done(registered, outcome.route);
     else deps.show({ name: "chatUnavailable", reason: outcome.unavailable, queue, result: registered });

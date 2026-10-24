@@ -1,13 +1,13 @@
 // Natívny bočný panel s klientmi a prípadmi (rozhodnutie MČ 19. 10. 2026, oprava po review): klient = natívny
 // projekt (registrovaný priečinok), pod ním Domov, Prípady, Lehoty, Úlohy, Súbory, Chaty.
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createJSONStorage } from "zustand/middleware";
-import type { ReactElement } from "react";
+import { createElement, type ReactElement } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { t, type Language } from "@/i18n";
@@ -355,6 +355,22 @@ async function importSidebar() {
   const [{ AppSidebar }, { ProjectPersonalisationProvider }, { useProjectFavoritesStore }] = modules;
   return { AppSidebar, ProjectPersonalisationProvider, useProjectFavoritesStore };
 }
+/**
+ * N-A4-7: vlastnosti `Reorder.Item` projektov v paneli. Obal len zaznamená vlastnosti a vykreslí pôvodný
+ * `Reorder.Item`, takže správanie ostáva rovnaké aj pre ďalšie súbory testov v tom istom procese.
+ */
+const reorderItems: { project: unknown; transition: unknown }[] = [];
+const motion = { ...(await import("motion/react")) };
+// Pôvodné objekty pred náhradou: bun mení už načítaný modul na mieste.
+const { Reorder } = motion, ReorderItem = Reorder.Item;
+mock.module("motion/react", () => ({
+  ...motion,
+  Reorder: { ...Reorder, Item: (props: Parameters<typeof ReorderItem>[0]) => {
+    const record: Record<string, unknown> = props;
+    if (typeof record["data-sidebar-project"] === "string") reorderItems.push({ project: record["data-sidebar-project"], transition: record.transition });
+    return createElement(ReorderItem, props);
+  } },
+}));
 const { AppSidebar, ProjectPersonalisationProvider, useProjectFavoritesStore } = await importSidebar();
 
 describe("bočný panel (natívny AppSidebar, vykreslený)", () => {
@@ -371,6 +387,15 @@ describe("bočný panel (natívny AppSidebar, vykreslený)", () => {
       </ClientNavTestProvider></SidebarProvider></ProjectPersonalisationProvider>
     </MemoryRouter></ShellConfigProvider></TooltipProvider></QueryClientProvider>,
   );
+
+  test("N-A4-7: projekt sa pružinou posúva len pri preusporiadaní ťahaním, inak hneď", () => {
+    // Reorder.Item meria polohu pri každom vykreslení (posiela `drag`). S pružinou vždy sa po rozbalení Prípadov ďalší
+    // klient chvíľu posúval zo starého miesta a jeho meno prekrylo Pripojené priečinky a Viac. Motion číta prechod
+    // z `props.transition` pri každej zmene polohy; mimo ťahania je okamžitý. Overené len vlastnosťami (SSR), nie v appke.
+    reorderItems.length = 0;
+    sidebar(navValue(mixed, []), [group(tatranWs), group(ws("iny", "/ina/Projekt"))]);
+    expect(reorderItems.map(({ project, transition }) => [project, transition])).toEqual([["tatran", { layout: { type: false } }], ["iny", { layout: { type: false } }]]);
+  });
 
   test("hore Dnes · natívny Nový chat · Pridať klienta; starý strom, Opýtať sa ani Klienti a prípady v navigácii nie sú", () => {
     const out = sidebar(navValue(mixed, []), [group(tatranWs)]);

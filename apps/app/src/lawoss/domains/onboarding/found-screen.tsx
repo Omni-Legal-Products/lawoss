@@ -7,7 +7,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { toggledLeave, triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { friendlyError, TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
-import { addOkfFiles, answerClient, batchOffersChat, chatTarget, childPath, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientPath, createReorganizeFlow, practiceView, retryFailed, workspaceResults, type Answer, type BatchItem, type FoundIdentity } from "./found-flow";
+import { addOkfFiles, answerClient, batchOffersChat, chatTarget, childPath, clientName, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientName, matterClientPath, createReorganizeFlow, practiceView, retryFailed, rootClientName, workspaceResults, type Answer, type BatchItem, type FoundIdentity } from "./found-flow";
 import { clientChatPrompt, type ClientChatOutcome, type ClientChatRequest, type ClientChatUnavailable } from "./client-chat";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
@@ -60,7 +60,7 @@ const LEVEL_KEY: Record<FoundLevel, ProposalKey> = { client: "clientFound", prac
 export function headline(text: Text, suggestion: OnboardingSuggestion, level: FoundLevel): string {
   if (level === "practice" && suggestion.clients.length === 0) return text("practiceNoClients");
   const proposal = foundProposal(suggestion);
-  return text(level === proposal.level ? proposal.key : LEVEL_KEY[level], { count: suggestion.clients.length, name: folderName(suggestion.root) });
+  return text(level === proposal.level ? proposal.key : LEVEL_KEY[level], { count: suggestion.clients.length, name: level === "matter" ? folderName(suggestion.root) : rootClientName(suggestion) });
 }
 
 /** Krok obrazovky: najprv zmaže starý pruh chyby, zlyhanie ohlási, `end` vždy (busy sa vráti). */
@@ -87,7 +87,7 @@ export function FoundView({ text, busy, suggestion: proposed, level, scope, sele
   const yesDisabled = level === "practice" && scope === "practice";
   // Prax po klientoch bez označeného klienta: nie je čo urobiť, kancelária sa nezapíše.
   const nothingSelected = level === "practice" && scope === "client" && selected.length === 0;
-  const parentName = folderName(matterClientPath(suggestion.root));
+  const parentName = matterClientName(suggestion);
   const noClients = level === "practice" && scope === "client" && suggestion.clients.length === 0;
   const cloud = cloudFolderKind(suggestion.root);
   // Chat s klientom len pri jednom klientovi; prax ho ponúkne po pridaní súborov (BatchView), prípad pripája klienta.
@@ -151,7 +151,7 @@ export function FoundView({ text, busy, suggestion: proposed, level, scope, sele
             <button type="button" className="lw-btn" disabled={busy} onClick={() => onAll(false)}>{text("selectNone")}</button>
           </div>
           {suggestion.clients.map((client) => (
-            <label key={client.path} className="flex gap-2"><input type="checkbox" checked={selected.includes(client.path)} disabled={busy} onChange={() => onToggle(client.path)} /><span>{client.name}</span></label>
+            <label key={client.path} className="flex gap-2"><input type="checkbox" checked={selected.includes(client.path)} disabled={busy} onChange={() => onToggle(client.path)} /><span>{clientName(client)}</span></label>
           ))}
         </fieldset>
       ) : null}
@@ -417,7 +417,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
   const chat = onOpenChat ? createClientChatFlow({
     register: (result) => onRegister(result, completion()),
     openChat: onOpenChat,
-    prompt: (name, skill) => clientChatPrompt(text, name, skill),
+    prompt: (name) => clientChatPrompt(text, name),
     done: (result, landing) => onDone(result, { ...completion(), landing }),
     show: setPhase,
   }) : undefined;
@@ -434,7 +434,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
         else await onDone(undefined, { workingFolder: suggestion.root });
         return;
       }
-      const items = suggestion.clients.filter(client => selected.includes(client.path)).map(client => ({ root: childPath(suggestion.root, client.path), name: client.name }));
+      const items = suggestion.clients.filter(client => selected.includes(client.path)).map(client => ({ root: childPath(suggestion.root, client.path), name: clientName(client) }));
       const batch = await addOkfFiles(api, items, identity, today, (next) => setPhase({ name: "batch", items: next, answer: choice }), describe);
       // Sprievodca: bez zlyhania pokračuje sám (tabuľka po klientoch, inak ďalší krok); zlyhanie ukáže súhrn.
       if (wizard && batch.every(item => item.status === "done")) {
@@ -461,7 +461,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
       reorganize: reorganize.begin,
       chat: wizard ? undefined : chat?.begin,
       showBatch: progress,
-    }, choice, { root: target, name: folderName(target) });
+    }, choice, { root: target, name: level === "matter" ? matterClientName(suggestion) : rootClientName(suggestion) });
   });
 
   if (phase.name === "loading") {

@@ -3,7 +3,8 @@
  * Čistá funkce nad již načteným přehledem (`OkfReadResult`) - nesiaha na disk.
  */
 import { addDays, daysBetween, deadlineKey, deadlineTier, lastSegment, recordKey, scopeLevels, type DeadlineTier, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
-import { pendingInputs, type PendingInput } from "../../../../../lawoss/okf/inputs";
+import type { PendingInput } from "../../../../../lawoss/okf/inputs";
+import { unfiledInputs } from "./inputs-model";
 import { clientFromPath } from "../../../../../lawoss/okf/cockpit";
 import type { OkfReadResult } from "../okf/read-model";
 import { HORIZON_DAYS, isCalendarDay } from "../okf/view-rules";
@@ -66,10 +67,8 @@ export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDead
   return {
     deadlines,
     tasks: [...tasks.values()].sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999")),
-    inputs: [...new Map(result.inputs.flatMap(pendingInputs).map((entry) => [
-      entry.scope === "client" ? `${entry.scope}\u0000${entry.file}\u0000${entry.id}` : `${entry.matterPath}\u0000${entry.file}\u0000${entry.id}`,
-      entry,
-    ])).values()],
+    // N-A3-2: len vstupy, ktorých súbor ešte nie je v žiadnom prípade (`inputs-model.ts`).
+    inputs: unfiledInputs(result),
     recent,
   };
 }

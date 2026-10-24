@@ -2,7 +2,7 @@ import { OkfDiagnostic } from "../../../../../lawoss/okf/diagnostics";
 /**
  * Přetažený nebo vybraný dokument → věc: originál do `00_K_zarazeni/IN-00N/<název>`
  * (vlastní složka na vstup, takže se nic nepřepíše) a řádek `pending` ve `VSTUPY.md`.
- * Obrazovka Dnes ho pak ukáže „K zařazení“. Nic se neodesílá, nic se nemaže.
+ * Dnes ho pak započítá „K zařazení“ (soubor je ve složce na nezařazené, `inputs-model.ts`). Nic se neodesílá, nic se nemaže.
  */
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { missing, today } from "../okf/read-model";
