@@ -312,9 +312,11 @@ export async function readWorkspaceMemory(
     // #241: vlastný priečinok na nezaradené (rola `inbox` pracovného profilu), kam appka vkladá dokumenty
     // (`matter-intake.ts`). Profil sa číta len vtedy, keď prípad alebo jeho klient má čakajúci vstup.
     const pending = [input.intake, ...(input.inheritedIntakes ?? []).map((intake) => intake.content)].some((text) => text !== undefined && /\|\s*pending\s*\|/.test(text));
-    if (pending && entries.some((e) => e.kind === "file" && e.name === PROFILE_FILE)) {
+    // Meno profilu bez ohľadu na veľkosť písmen, ako ho nájde `matter-intake.ts` na macOS a Windows.
+    const profileEntry = pending ? entries.find((e) => e.kind === "file" && e.name.toLowerCase() === PROFILE_FILE.toLowerCase()) : undefined;
+    if (profileEntry) {
       try {
-        const inbox = parseWorkingProfile((await readFile(childPath(path, PROFILE_FILE))).content).roles.inbox;
+        const inbox = parseWorkingProfile((await readFile(childPath(path, profileEntry.name))).content).roles.inbox;
         if (inbox) input.inbox = inbox;
       } catch { /* Neplatný profil: platí predvolený priečinok na nezaradené (00_Na_zatriedenie, 00_K_zarazeni, 00_Inbox). */ }
     }

@@ -105,4 +105,3 @@ describe("Na zaradenie: len dokumenty mimo prípadov", () => {
     expect(ids(withInbox())).toEqual([]);
   });
 });
-

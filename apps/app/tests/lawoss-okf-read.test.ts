@@ -519,6 +519,13 @@ test("#241: rola inbox z PRACOVNY-PROFIL.md sa číta len pri čakajúcom vstupe
   const processed = await readWorkspaceMemory(fakeClient(files("processed"), done), "ws", TODAY);
   expect(processed.inputs[0]?.inbox).toBeUndefined();
   expect(done).not.toContain("read Spisy/A/PRACOVNY-PROFIL.md");
+  // Čakajúci riadok len vo VSTUPY.md klienta (odkaz do prípadu): profil prípadu sa číta tiež; meno profilu malými písmenami.
+  const clientRow = `| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |\n| --- | --- | --- | --- | --- | --- |\n| IN-9 | 2026-10-20 | e-mail | [b.pdf](Spisy/A/00_Prijate/b.pdf) | pending | |\n`;
+  const inherited = await readWorkspaceMemory(fakeClient({
+    "client.md": "---\ntitle: Klient\n---\n", "VSTUPY.md": clientRow,
+    "Spisy/A/matter.md": "---\ntitle: A\n---\n", "Spisy/A/VSTUPY.md": intake("processed"), "Spisy/A/pracovny-profil.md": profile,
+  }), "ws", TODAY);
+  expect(inherited.inputs[0]?.inbox).toBe("00_Prijate");
   // Neplatný profil: bez roly a bez problému (platí predvolený priečinok).
   const broken = await readWorkspaceMemory(fakeClient({ ...files("pending"), "Spisy/A/PRACOVNY-PROFIL.md": "zlý" }), "ws", TODAY);
   expect(broken.inputs[0]?.inbox).toBeUndefined();
