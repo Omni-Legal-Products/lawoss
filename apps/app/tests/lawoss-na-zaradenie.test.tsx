@@ -91,4 +91,17 @@ describe("Na zaradenie: len dokumenty mimo prípadov", () => {
     }
     expect(renderToStaticMarkup(<MemoryRouter><InputsView groups={[]} locale="sk" /></MemoryRouter>)).toContain("Nič nečaká na zaradenie.");
   });
+  test("#241: vlastná rola inbox z pracovného profilu (aj viacúrovňová) je stále na zaradenie", () => {
+    const custom = HEAD
+      + row("IN-201", "ruční vložení (LAWOSS)", "[sken.pdf](Posta/Nezaradene/IN-201/sken.pdf)")
+      + row("IN-202", "e-mail", "[zaradene.pdf](Posta/Spracovane/zaradene.pdf)")
+      + row("IN-203", "e-mail", "[prijate.pdf](00_Prijate/IN-203/prijate.pdf)");
+    const withInbox = (inbox?: string): MatterInput[] => [{ path: M001, records: [], intake: custom, ...(inbox ? { inbox } : {}) }];
+    const ids = (list: MatterInput[]) => unfiledInputs({ ...buildOverview(list, TODAY), inputs: list }).map((input) => input.id).sort();
+    expect(ids(withInbox("Posta/Nezaradene"))).toEqual(["IN-201"]);
+    expect(ids(withInbox("posta/nezaradene/"))).toEqual(["IN-201"]);
+    expect(ids(withInbox("00_Prijate"))).toEqual(["IN-203"]);
+    // Bez profilu platí len predvolený priečinok na nezaradené.
+    expect(ids(withInbox())).toEqual([]);
+  });
 });

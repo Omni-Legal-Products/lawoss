@@ -64,29 +64,37 @@ export function inputFilePath(input: Pick<PendingInput, "original" | "file">): s
   return parts.join("/").normalize("NFC");
 }
 
+/** Cesta priečinka v porovnateľnom tvare: NFC, „/“, bez „./“ a koncových lomiek, bez ohľadu na veľkosť písmen. */
+const folderKey = (path: string): string => path.normalize("NFC").replace(/\\/g, "/").replace(/^(?:\.\/)+/, "").replace(/\/+$/, "").toLowerCase();
+
 /**
- * Súbor vstupu už leží v prípade: v priečinku prípadu, ale nie v jeho priečinku na nezaradené (`00_Na_zatriedenie`,
- * kam ho vloží aj appka). Riadok prípadu s adresou alebo absolútnou cestou patrí svojmu prípadu.
+ * Súbor vstupu už leží v prípade: v priečinku prípadu, ale nie v jeho priečinku na nezaradené. Ten je rola `inbox`
+ * pracovného profilu prípadu (`inboxes`, aj viacúrovňová, napr. `Posta/Nezaradene`, #241), vždy aj predvolené
+ * `00_Na_zatriedenie`, `00_K_zarazeni` a `00_Inbox`. Riadok prípadu s adresou alebo absolútnou cestou patrí svojmu prípadu.
  */
-export function isFiled(input: Pick<PendingInput, "original" | "file" | "matterPath" | "scope">, matterPaths: readonly string[]): boolean {
+export function isFiled(input: Pick<PendingInput, "original" | "file" | "matterPath" | "scope">, matterPaths: readonly string[], inboxes: ReadonlyMap<string, string> = new Map()): boolean {
   const path = inputFilePath(input);
   if (path === null) return input.scope !== "client" && matterPaths.includes(input.matterPath);
   return matterPaths.some((matter) => {
     const root = matter.normalize("NFC");
     if (!(root === "" || path === root || path.startsWith(`${root}/`))) return false;
-    const inside = (root ? path.slice(root.length + 1) : path).split("/");
-    return !(inside.length > 1 && INBOX_FOLDERS.has(inside[0]!.toLowerCase()));
+    const rest = root ? path.slice(root.length + 1) : path;
+    const inside = rest.split("/");
+    if (inside.length > 1 && INBOX_FOLDERS.has(inside[0]!.toLowerCase())) return false;
+    const inbox = inboxes.get(matter);
+    return !(inbox && folderKey(inbox) && folderKey(rest).startsWith(`${folderKey(inbox)}/`));
   });
 }
 
 /** Nezaradené vstupy celého prehľadu: `pending` riadky bez opakovaní, ktorých súbor ešte nie je v žiadnom prípade. */
 export function unfiledInputs(result: Pick<OkfReadResult, "inputs" | "matters">): PendingInput[] {
   const matterPaths = result.matters.map((matter) => matter.path);
+  const inboxes = new Map(result.inputs.flatMap((input) => input.inbox ? [[input.path, input.inbox] as const] : []));
   const unique = new Map(result.inputs.flatMap(pendingInputs).map((entry) => [
     entry.scope === "client" ? `${entry.scope}\u0000${entry.file}\u0000${entry.id}` : `${entry.matterPath}\u0000${entry.file}\u0000${entry.id}`,
     entry,
   ]));
-  return [...unique.values()].filter((entry) => !isFiled(entry, matterPaths));
+  return [...unique.values()].filter((entry) => !isFiled(entry, matterPaths, inboxes));
 }
 
 export type InputRow = { input: PendingInput; label: string; matter?: Pick<MatterOverview, "path" | "title">; link: string };
