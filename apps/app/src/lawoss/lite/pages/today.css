@@ -296,6 +296,9 @@
 .lw-today-when { max-width: 16ch; }
 
 /* Termíny z prípadov pod lehotami (N-A2-11): oddelené nadpisom a vetou, nie sú to evidované lehoty. */
-.lw-today-case-dates { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--lw-border, rgb(0 0 0 / 0.08)); }
+.lw-today-case-dates { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--td-line); }
+/* Termín nie je lehota: prerušovaný okraj kalendára a bez červenej/zlatej výplne lehoty. */
+.lw-today-deadline[data-kind="case-date"] .lw-today-cal { border-style: dashed; background: transparent; box-shadow: none; }
+.lw-today-deadline[data-kind="case-date"] .lw-today-cal strong { color: inherit; }
 .lw-today-subtitle { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
 .lw-today-note { margin: 0 0 8px; font-size: 12px; color: var(--lw-text-secondary); }

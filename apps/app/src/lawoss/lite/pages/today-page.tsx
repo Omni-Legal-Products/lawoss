@@ -95,12 +95,15 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
   // „Tento týždeň" = všetko, čo nie je v pokoji (po lehote, neplatné, do 7 dní) - rovnaké pravidlo ako farby.
   const thisWeek = model.deadlines.filter((d) => urgency(d, todayIso) !== "calm");
   const first = model.deadlines[0];
-  // N-A2-11: termíny z prípadov (úlohy s dátumom) oddelene od lehôt; „nie sú evidované“ len keď nie je ani termín.
+  // N-A2-11: termíny z prípadov (úlohy s dátumom) oddelene od lehôt; „nie sú evidované“ len keď nie je ani termín
+  // a „nič nehorí“ nie, keď termín uplynul alebo príde do 7 dní. Uplynulý termín má prednosť (zoradené podľa dátumu).
   const dates = caseDates(model.tasks, todayIso, STRIP_DAYS);
-  const nextDate = dates.find((d) => d.daysLeft >= 0) ?? dates[0];
+  const pressing = dates.find((d) => d.daysLeft <= 7);
+  const dateParams = (d: CaseDate) => ({ title: d.title, when: caseDateWhen(d, locale, text) });
   const lead = !first || thisWeek.length === 0
     ? evidence && !evidence.complete ? text("hero_partial")
-      : evidence && evidence.recorded === 0 ? nextDate ? text("hero_unrecorded_dates", { title: nextDate.title, when: dueTextFromDays(nextDate.daysLeft, locale) }) : text("hero_unrecorded")
+      : evidence && evidence.recorded === 0 ? dates[0] ? text("hero_unrecorded_dates", dateParams(dates[0])) : text("hero_unrecorded")
+      : pressing ? text("hero_calm_dates", dateParams(pressing))
       : evidence && evidence.unrecorded > 0 ? text("hero_calm_partial", { count: evidence.unrecorded })
       : text("hero_calm")
     : first.invalid ? text("hero_invalid", { title: deadlineText(first) })
@@ -234,12 +237,17 @@ function CaseDates({ dates, todayIso, locale, text }: { dates: readonly CaseDate
               <span className="lw-today-title" title={d.title}>{d.title}</span>
               <small>{matterList(d.matters, text)}</small>
             </span>
-            <span className="lw-today-when"><span className="lw-today-date-short">{formatDay(d.due, locale)}</span><span className="lw-today-due">{dueTextFromDays(d.daysLeft, locale)}</span></span>
+            <span className="lw-today-when"><span className="lw-today-date-short">{formatDay(d.due, locale)}</span><span className="lw-today-due">{caseDateWhen(d, locale, text)}</span></span>
           </Link>
         </li>
       ))}
     </ul>
   </div>;
+}
+
+/** Kedy je termín: uplynulý termín nie je „po lehote“ (lehota je evidovaná zvlášť), inak „zajtra“, „o 5 dní“. */
+function caseDateWhen(d: CaseDate, locale: Language, text: Text): string {
+  return d.daysLeft < 0 ? text("case_date_passed") : dueTextFromDays(d.daysLeft, locale);
 }
 
 function Stat({ label, value, hot = false }: { label: string; value: number; hot?: boolean }) {
