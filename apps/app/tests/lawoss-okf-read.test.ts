@@ -507,6 +507,24 @@ test("N-A4-4: vnorený klient s vlastnou kartou nie je prípadom vonkajšieho kl
   expect(own.matters.map((m) => m.title)).toEqual(["Cudzí spor"]);
 });
 
+test("#241: rola inbox z PRACOVNY-PROFIL.md sa číta len pri čakajúcom vstupe", async () => {
+  const profile = '---\ntype: working-profile\nfolders: ["00_Prijate","01_Podklady"]\nfolder_roles: {"inbox":"00_Prijate","client_documents":"01_Podklady"}\ndocument_naming: "{date}_{description}"\n---\n';
+  const intake = (state: string) => `| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |\n| --- | --- | --- | --- | --- | --- |\n| IN-1 | 2026-10-20 | e-mail | [a.pdf](00_Prijate/a.pdf) | ${state} | |\n`;
+  const files = (state: string) => ({ "Spisy/A/matter.md": "---\ntitle: A\n---\n", "Spisy/A/VSTUPY.md": intake(state), "Spisy/A/PRACOVNY-PROFIL.md": profile });
+  const log: string[] = [];
+  const pending = await readWorkspaceMemory(fakeClient(files("pending"), log), "ws", TODAY);
+  expect(pending.inputs[0]?.inbox).toBe("00_Prijate");
+  expect(log).toContain("read Spisy/A/PRACOVNY-PROFIL.md");
+  const done: string[] = [];
+  const processed = await readWorkspaceMemory(fakeClient(files("processed"), done), "ws", TODAY);
+  expect(processed.inputs[0]?.inbox).toBeUndefined();
+  expect(done).not.toContain("read Spisy/A/PRACOVNY-PROFIL.md");
+  // Neplatný profil: bez roly a bez problému (platí predvolený priečinok).
+  const broken = await readWorkspaceMemory(fakeClient({ ...files("pending"), "Spisy/A/PRACOVNY-PROFIL.md": "zlý" }), "ws", TODAY);
+  expect(broken.inputs[0]?.inbox).toBeUndefined();
+  expect(broken.problems).toEqual([]);
+});
+
 test("mimo klienta s kartou sa priečinok s dátumom za vec nepovažuje", async () => {
   const out = await readWorkspaceMemory(fakeClient({ "2025-01 Projekt/readme.txt": "" }), "ws", TODAY);
   expect(out.matters).toEqual([]);
