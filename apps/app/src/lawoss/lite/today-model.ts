@@ -7,11 +7,27 @@ import type { PendingInput } from "../../../../../lawoss/okf/inputs";
 import { unfiledInputs } from "./inputs-model";
 import { clientFromPath } from "../../../../../lawoss/okf/cockpit";
 import type { OkfReadResult } from "../okf/read-model";
-import { HORIZON_DAYS } from "../okf/view-rules";
+import { HORIZON_DAYS, isCalendarDay } from "../okf/view-rules";
 
 /** `alsoIn`: další věci, do kterých patří tatáž lhůta ze sdíleného souboru (klient, kancelář). */
 export type TodayDeadline = UpcomingDeadline & { tier: DeadlineTier; daysLeft: number; alsoIn?: { path: string; title: string }[] };
 export type TodayTask = { key: string; id: string; title: string; due?: string; matters: { path: string; title: string }[] };
+/** Termín z prípadu: otvorená úloha s platným dátumom (`due`), nie evidovaná lehota. */
+export type CaseDate = TodayTask & { due: string; daysLeft: number };
+
+/**
+ * N-A2-11 (rozhodnutie MČ 23. 10. 2026): Dnes ukazuje termíny z prípadov oddelene od evidovaných lehôt. Termín je
+ * otvorená úloha prípadu s platným dátumom v najbližších `days` dňoch alebo už uplynulý (M049-T1 do 25. 10.).
+ * Dátum s časom („2026-10-25 10:00“, pojednávanie) sa berie podľa dňa.
+ */
+export function caseDates(tasks: readonly TodayTask[], todayIso: string, days: number): CaseDate[] {
+  const last = addDays(todayIso, days - 1);
+  return tasks.flatMap((task) => {
+    const due = task.due?.trim().slice(0, 10);
+    return due && isCalendarDay(due) && due <= last ? [{ ...task, due, daysLeft: daysBetween(todayIso, due) }] : [];
+  })
+    .sort((a, b) => a.due.localeCompare(b.due) || a.title.localeCompare(b.title, "cs"));
+}
 export type TodayModel = { deadlines: TodayDeadline[]; tasks: TodayTask[]; inputs: PendingInput[]; recent: MatterOverview[] };
 /** `key` je jedinečný aj pri dvoch klientoch s rovnakým menom; `client` "" = klient bez názvu v karte. */
 export type ClientGroup = { key: string; client: string; matters: MatterOverview[] };

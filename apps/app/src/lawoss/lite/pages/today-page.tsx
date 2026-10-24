@@ -14,7 +14,7 @@ import { addDays, formatDay, today, useOkfConnection, type OkfReadResult, type O
 import { deadlineKey, deadlineText, dueTextFromDays, isCalendarDay, urgencyOf, type Urgency } from "../../okf/view-rules";
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { deadlineCoverage } from "../../../../../../lawoss/okf/views";
-import { buildToday, nextDeadline, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
+import { buildToday, caseDates, nextDeadline, type CaseDate, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
 import { LITE_INPUTS_PATH, liteDeadlineLink, liteMatterLink } from "../links";
 import { clientPreferenceScope, practiceClientChoices, type ClientChoice } from "../client-choice";
 import { NewMatterAction } from "../client-picker";
@@ -95,9 +95,15 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
   // „Tento týždeň" = všetko, čo nie je v pokoji (po lehote, neplatné, do 7 dní) - rovnaké pravidlo ako farby.
   const thisWeek = model.deadlines.filter((d) => urgency(d, todayIso) !== "calm");
   const first = model.deadlines[0];
+  // N-A2-11: termíny z prípadov (úlohy s dátumom) oddelene od lehôt; „nie sú evidované“ len keď nie je ani termín
+  // a „nič nehorí“ nie, keď termín uplynul alebo príde do 7 dní. Uplynulý termín má prednosť (zoradené podľa dátumu).
+  const dates = caseDates(model.tasks, todayIso, STRIP_DAYS);
+  const pressing = dates.find((d) => d.daysLeft <= 7);
+  const dateParams = (d: CaseDate) => ({ title: d.title, when: caseDateWhen(d, locale, text) });
   const lead = !first || thisWeek.length === 0
     ? evidence && !evidence.complete ? text("hero_partial")
-      : evidence && evidence.recorded === 0 ? text("hero_unrecorded")
+      : evidence && evidence.recorded === 0 ? dates[0] ? text("hero_unrecorded_dates", dateParams(dates[0])) : text("hero_unrecorded")
+      : pressing ? text("hero_calm_dates", dateParams(pressing))
       : evidence && evidence.unrecorded > 0 ? text("hero_calm_partial", { count: evidence.unrecorded })
       : text("hero_calm")
     : first.invalid ? text("hero_invalid", { title: deadlineText(first) })
@@ -128,7 +134,8 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
           {model.deadlines.length === 0 ? evidence && !evidence.complete
             ? <p className="lw-today-empty" data-lawoss-deadlines="not_loaded">{text("deadlines_not_loaded")}</p>
             : evidence && evidence.recorded === 0
-            ? <p className="lw-today-empty" data-lawoss-deadlines="unrecorded">{text("deadlines_unrecorded")} {text("deadlines_unrecorded_hint")}</p>
+            ? dates.length ? <p className="lw-today-empty" data-lawoss-deadlines="unrecorded_dates">{text("deadlines_unrecorded_dates")} {text("deadlines_unrecorded_hint")}</p>
+              : <p className="lw-today-empty" data-lawoss-deadlines="unrecorded">{text("deadlines_unrecorded")} {text("deadlines_unrecorded_hint")}</p>
             : <Empty text={text("deadlines_empty")} /> : <ul className="lw-today-list">
             {model.deadlines.map((d, index) => (
               <li key={`${d.matter.path}/${deadlineKey(d, index)}`}>
@@ -147,6 +154,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
               </li>
             ))}
           </ul>}
+          <CaseDates dates={dates} todayIso={todayIso} locale={locale} text={text} />
         </Panel>
 
         <div className="lw-today-side">
@@ -206,6 +214,34 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
 
     </div>
   );
+}
+
+/** Termíny z prípadov pod lehotami: vlastný nadpis a veta, že nejde o evidované lehoty (N-A2-11). */
+function CaseDates({ dates, todayIso, locale, text }: { dates: readonly CaseDate[]; todayIso: string; locale: Language; text: Text }) {
+  if (!dates.length) return null;
+  return <div className="lw-today-case-dates" data-lawoss-case-dates="">
+    <h3 className="lw-today-subtitle">{text("case_dates_title")}</h3>
+    <p className="lw-today-note">{text("case_dates_note")}</p>
+    <ul className="lw-today-list">
+      {dates.map((d) => (
+        <li key={d.key}>
+          <Link className="lw-today-deadline" data-urgency={urgencyOf(d.due, todayIso)} data-kind="case-date" to={liteMatterLink(d.matters[0]?.path ?? "")}>
+            <span className="lw-today-cal" aria-hidden><span>{weekdayShort(d.due, locale)}</span><strong>{dayOfMonth(d.due)}</strong></span>
+            <span className="lw-today-main">
+              <span className="lw-today-title" title={d.title}>{d.title}</span>
+              <small>{matterList(d.matters, text)}</small>
+            </span>
+            <span className="lw-today-when"><span className="lw-today-date-short">{formatDay(d.due, locale)}</span><span className="lw-today-due">{caseDateWhen(d, locale, text)}</span></span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  </div>;
+}
+
+/** Kedy je termín: uplynulý termín nie je „po lehote“ (lehota je evidovaná zvlášť), inak „zajtra“, „o 5 dní“. */
+function caseDateWhen(d: CaseDate, locale: Language, text: Text): string {
+  return d.daysLeft < 0 ? text("case_date_passed") : dueTextFromDays(d.daysLeft, locale);
 }
 
 function Stat({ label, value, hot = false }: { label: string; value: number; hot?: boolean }) {
