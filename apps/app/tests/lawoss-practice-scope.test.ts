@@ -138,6 +138,74 @@ describe("N-A4-4: vnorený klient v prehľade praxe", () => {
   });
 });
 
+describe("#240: zaregistrovaný vnorený klient – veľkosť písmen a klient pod nezaregistrovaným vnoreným", () => {
+  const nestedTree: Tree = {
+    ...ALFA_TREE,
+    "C099 SYN Vnoreny/client.md": "---\ntitle: SYN Vnorený\n---\n",
+    "C099 SYN Vnoreny/M001 Cudzí spor/matter.md": "---\ntitle: Cudzí spor\n---\n",
+    "C099 SYN Vnoreny/M001 Cudzí spor/memory/E-001-lehota.md": rec("evidence", "E-001", { title: "Lehota vnoreného", deadlines: ["2026-10-22"] }),
+  };
+  test("registrácia s inou veľkosťou písmen než priečinok na disku: klient aj lehota ostávajú", async () => {
+    const server = fakeServer({ alfa: nestedTree, horak: HORAK_TREE });
+    const lower = ws("vnoreny", `${ROOT}/ALFA STAV s.r.o./c099 syn vnoreny`);
+    const scope = okfScope([alfa, horak, lower], alfa, ROOT);
+    if (!scope) throw new Error("no scope");
+    const data = await readScopeMemory(server, scope, TODAY);
+    expect(data.clients.map((c) => c.title)).toContain("SYN Vnorený");
+    expect(data.upcomingDeadlines.map((d) => d.title)).toContain("Lehota vnoreného");
+  });
+  test("review: zaregistrovaný prípad odmietnutého vnoreného klienta sa do prehľadu nedostane", async () => {
+    const tree: Tree = {
+      ...ALFA_TREE,
+      "C1 Nezaregistrovany/client.md": "---\ntitle: C1 vnorený\n---\n",
+      "C1 Nezaregistrovany/M007 Vec C1/matter.md": "---\ntitle: Vec C1\n---\n",
+      "C1 Nezaregistrovany/memory/E-009-lehota.md": rec("evidence", "E-009", { title: "Lehota C1", deadlines: ["2026-10-21"] }),
+    };
+    const server = fakeServer({ alfa: tree, horak: HORAK_TREE });
+    const quick = ws("rychla-akcia", `${ROOT}/ALFA STAV s.r.o./C1 Nezaregistrovany/M007 Vec C1`);
+    const scope = okfScope([alfa, horak, quick], alfa, ROOT);
+    if (!scope) throw new Error("no scope");
+    const data = await readScopeMemory(server, scope, TODAY);
+    expect(data.matters.map((m) => m.title)).not.toContain("Vec C1");
+    expect(data.upcomingDeadlines.map((d) => d.title)).not.toContain("Lehota C1");
+  });
+  test("review: disk rozlišujúci veľkosť písmen – iný priečinok s rovnakým menom v inej veľkosti ostáva odmietnutý", async () => {
+    const tree: Tree = {
+      ...ALFA_TREE,
+      "Foo/client.md": "---\ntitle: Foo zaregistrovaný\n---\n",
+      "Foo/M001 A/matter.md": "---\ntitle: Vec Foo\n---\n",
+      "foo/client.md": "---\ntitle: foo odmietnutý\n---\n",
+      "foo/M002 B/matter.md": "---\ntitle: Vec foo\n---\n",
+    };
+    const server = fakeServer({ alfa: tree, horak: HORAK_TREE });
+    const registered = ws("foo-reg", `${ROOT}/ALFA STAV s.r.o./Foo`);
+    const scope = okfScope([alfa, horak, registered], alfa, ROOT);
+    if (!scope) throw new Error("no scope");
+    const data = await readScopeMemory(server, scope, TODAY);
+    expect(data.clients.map((c) => c.title)).toContain("Foo zaregistrovaný");
+    expect(data.clients.map((c) => c.title)).not.toContain("foo odmietnutý");
+    expect(data.matters.map((m) => m.title)).not.toContain("Vec foo");
+  });
+  test("zaregistrovaný klient C2 pod nezaregistrovaným vnoreným C1 sa číta, C1 sám nie", async () => {
+    const tree: Tree = {
+      ...ALFA_TREE,
+      "C1 Nezaregistrovany/client.md": "---\ntitle: C1 vnorený\n---\n",
+      "C1 Nezaregistrovany/M007 Vec C1/matter.md": "---\ntitle: Vec C1\n---\n",
+      "C1 Nezaregistrovany/Podklady/C2 Zaregistrovany/client.md": "---\ntitle: C2 klient\n---\n",
+      "C1 Nezaregistrovany/Podklady/C2 Zaregistrovany/M001 Vec/matter.md": "---\ntitle: Vec C2\n---\n",
+    };
+    const server = fakeServer({ alfa: tree, horak: HORAK_TREE });
+    const c2 = ws("c2", `${ROOT}/ALFA STAV s.r.o./C1 Nezaregistrovany/Podklady/C2 Zaregistrovany`);
+    const scope = okfScope([alfa, horak, c2], alfa, ROOT);
+    if (!scope) throw new Error("no scope");
+    const data = await readScopeMemory(server, scope, TODAY);
+    expect(data.clients.map((c) => c.title)).toEqual(["ALFA STAV s.r.o.", "C2 klient", "Horák s.r.o."]);
+    const titles = data.matters.map((m) => m.title);
+    expect(titles).toContain("Vec C2");
+    expect(titles).not.toContain("Vec C1");
+  });
+});
+
 describe("readScopeMemory: jeden prehľad praxe", () => {
   const server = fakeServer({ alfa: ALFA_TREE, horak: HORAK_TREE }, OFFICE);
   const read = (anchor: RouteWorkspace) => {
