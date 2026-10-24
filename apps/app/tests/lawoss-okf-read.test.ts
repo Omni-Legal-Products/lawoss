@@ -507,6 +507,15 @@ test("N-A4-4: vnorený klient s vlastnou kartou nie je prípadom vonkajšieho kl
   expect(own.matters.map((m) => m.title)).toEqual(["Cudzí spor"]);
 });
 
+test("#242: „PR 001 Kampaň“ pod klientom s kartou je prípad, holé „HR 001“ nie", async () => {
+  const out = await readWorkspaceMemory(fakeClient({
+    "client.md": "---\ntitle: Klient\n---\n",
+    "PR 001 Kampaň/brief.pdf": "%PDF",
+    "HR 001/zmluva.pdf": "%PDF",
+  }), "ws", TODAY);
+  expect(out.matters.map((m) => m.path)).toEqual(["PR 001 Kampaň"]);
+});
+
 test("mimo klienta s kartou sa priečinok s dátumom za vec nepovažuje", async () => {
   const out = await readWorkspaceMemory(fakeClient({ "2025-01 Projekt/readme.txt": "" }), "ws", TODAY);
   expect(out.matters).toEqual([]);

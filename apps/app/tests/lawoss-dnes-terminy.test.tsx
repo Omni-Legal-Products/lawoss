@@ -93,4 +93,26 @@ describe("Dnes: termíny z prípadov oddelene od lehôt", () => {
     expect(calm).toContain("V evidovaných lehotách tento týždeň nič nehorí. Termín z prípadu: Zajtrajšia úloha, zajtra.");
     expect(calm).not.toContain("Dobrá chvíľa predbehnúť prácu");
   });
+  test("#242: termín nezakryje počet prípadov bez lehôt; úloha s vlastnou lehotou nie je druhýkrát medzi termínmi", () => {
+    const OTHER = "Klienti/C017-syn-zuzana-simkova/Spisy/M050-bez-lehot";
+    const mixed: MatterInput[] = [
+      { path: M049, cardFrontmatter: { title: "Reklamácia" }, records: [
+        { ...task("M049-D9", "Lehota o mesiac"), type: "deadline", deadlines: ["2026-11-30"] },
+        task("M049-T2", "Zajtrajšia úloha", "2026-10-25"),
+        { ...task("M049-T5", "Úloha s lehotou", "2026-10-26"), deadlines: ["2026-10-30 Odvolanie"] },
+      ] },
+      { path: OTHER, cardFrontmatter: { title: "Bez lehôt" }, records: [] },
+    ];
+    const d = { ...buildOverview(mixed, TODAY), inputs: mixed };
+    const model = buildToday(d, TODAY);
+    expect(model.deadlines.map((x) => x.recordId)).toContain("M049-T5");
+    expect(caseDates(model.tasks, TODAY, 14, model.deadlines).map((x) => x.id)).toEqual(["M049-T2"]);
+    const coverage = deadlineCoverage(mixed);
+    expect([coverage.recorded, coverage.unrecorded]).toEqual([1, 1]);
+    // Bez lehôt do 7 dní: prvá veta s počtom prípadov bez lehôt, druhá s termínom.
+    const farOnly = { ...model, deadlines: model.deadlines.filter((x) => x.recordId === "M049-D9") };
+    const out = html(<TodayView model={farOnly} locale="sk" now={new Date(`${TODAY}T09:00:00`)} evidence={{ complete: true, ...coverage }} />);
+    expect(out).toContain("Prípady bez evidovaných lehôt: 1. Termín z prípadu: Zajtrajšia úloha, zajtra.");
+  });
 });
+

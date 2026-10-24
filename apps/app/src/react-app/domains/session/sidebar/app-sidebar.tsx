@@ -15,6 +15,7 @@ import { LITE_CLIENTS_PATH, NEW_CLIENT_PATH } from "@/lawoss/lite/links";
 import { useChatSectionVisibility } from "@/lawoss/lite/chat-sections";
 import { expandedAfter, liteProjectNav } from "@/lawoss/lite/client-row";
 import { ChatContextLabel, ClientMoreNavItem, ClientRowLabel, ClientRowStatusLine, useClientProjectRow, useClientRowActive } from "@/lawoss/lite/client-row-view";
+import { useSidebarReorderSpring } from "@/lawoss/lite/sidebar-reorder";
 import { OkfWorkspaceSkillSync } from "@/lawoss/okf/workspace-skill-sync";
 import {
   Search,
@@ -1480,6 +1481,7 @@ function SessionGroupSection({ group, rows, expanded, unread, workspaceId, store
   onShowMore: () => void;
 }) {
   const dragControls = useDragControls();
+  const reorderSpring = useSidebarReorderSpring(); // 🟡 LAWOSS (#242)
   const visibleRows = rows.slice(0, previewCount);
   const remaining = Math.max(0, rows.length - previewCount);
 
@@ -1493,6 +1495,7 @@ function SessionGroupSection({ group, rows, expanded, unread, workspaceId, store
       dragListener={false}
       dragControls={dragControls}
       transformTemplate={(_latest, generated) => generated.replace(/ ?scale[XY]?\([^)]*\)/g, "")}
+      {...reorderSpring}
     >
       <GroupDropZone groupId={group.id} workspaceId={workspaceId}>
         <Collapsible
@@ -1574,6 +1577,7 @@ function SessionMenuItem({
   compact = false,
 }: SessionMenuItemProps) {
   const ctx = useSidebarContext();
+  const reorderSpring = useSidebarReorderSpring(); // 🟡 LAWOSS (#242)
   const isSelected = ctx.selectedSessionId === session.id;
   const displayTitle = getDisplaySessionTitle(session.title);
   const hasChildren = !compact && (tree.descendantCountBySessionId.get(session.id) ?? 0) > 0;
@@ -1696,6 +1700,7 @@ function SessionMenuItem({
       layout="position"
       dragElastic={0}
       transformTemplate={(_latest, generated) => generated.replace(/ ?scale[XY]?\([^)]*\)/g, "")}
+      {...reorderSpring}
     >
       {item}
     </Reorder.Item>

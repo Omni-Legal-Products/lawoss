@@ -63,8 +63,8 @@ const NOT_CODE_PREFIXES = new Set([
   "OSŘ", "OSR", "OSP", "CSP", "SSP", "ZOK", "OBZ",
 ]);
 /**
- * Dvojpísmenové skratky („HR 001“, „OZ 123“, „EN 1090“) len s medzerou pred číslom: „HR001“, „PR-001“ či „IT-0042“
- * sú bežné kódy skupín a typov vecí a ostávajú kódom.
+ * Dvojpísmenové skratky („HR 001“, „OZ 123“, „EN 1090“) len s medzerou pred číslom a bez ďalšieho názvu: „HR001“,
+ * „PR-001“, „IT-0042“ aj „PR 001 Kampaň“ sú bežné kódy skupín a typov vecí a ostávajú kódom (#242).
  */
 const NOT_CODE_WITH_SPACE = new Set(["EN", "OZ", "ZP", "TZ", "TP", "HR", "IT", "PR"]);
 export type Code = { prefix: string; rest: string };
@@ -74,8 +74,9 @@ export const codeOf = (raw: string): Code | undefined => {
   const match = CODE.exec(name);
   const [whole, prefix, separator, digits] = match ?? [];
   if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix) || NOT_CODE_PREFIXES.has(prefix)) return undefined;
-  if (separator === " " && NOT_CODE_WITH_SPACE.has(prefix)) return undefined;
-  return { prefix, rest: name.slice(whole.length).replace(/^[\s_.,-]+/, "") };
+  const rest = name.slice(whole.length).replace(/^[\s_.,-]+/, "");
+  if (separator === " " && NOT_CODE_WITH_SPACE.has(prefix) && !rest) return undefined;
+  return { prefix, rest };
 };
 /** Podpriečinok klienta pomenovaný ako vec: kód („M001 Úhrada…“), dátum, spisová značka alebo slovo veci. */
 export const looksLikeMatterFolder = (name: string): boolean => codeOf(name) !== undefined || looksLikeMatterName(name);

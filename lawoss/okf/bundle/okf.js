@@ -1385,9 +1385,10 @@ var codeOf = (raw) => {
   const [whole, prefix, separator, digits] = match ?? [];
   if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix) || NOT_CODE_PREFIXES.has(prefix))
     return;
-  if (separator === " " && NOT_CODE_WITH_SPACE.has(prefix))
+  const rest = name.slice(whole.length).replace(/^[\s_.,-]+/, "");
+  if (separator === " " && NOT_CODE_WITH_SPACE.has(prefix) && !rest)
     return;
-  return { prefix, rest: name.slice(whole.length).replace(/^[\s_.,-]+/, "") };
+  return { prefix, rest };
 };
 var looksLikeMatterFolder = (name) => codeOf(name) !== undefined || looksLikeMatterName(name);
 

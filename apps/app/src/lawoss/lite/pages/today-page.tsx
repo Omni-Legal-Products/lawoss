@@ -97,14 +97,15 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
   const first = model.deadlines[0];
   // N-A2-11: termíny z prípadov (úlohy s dátumom) oddelene od lehôt; „nie sú evidované“ len keď nie je ani termín
   // a „nič nehorí“ nie, keď termín uplynul alebo príde do 7 dní. Uplynulý termín má prednosť (zoradené podľa dátumu).
-  const dates = caseDates(model.tasks, todayIso, STRIP_DAYS);
+  const dates = caseDates(model.tasks, todayIso, STRIP_DAYS, model.deadlines);
   const pressing = dates.find((d) => d.daysLeft <= 7);
   const dateParams = (d: CaseDate) => ({ title: d.title, when: caseDateWhen(d, locale, text) });
   const lead = !first || thisWeek.length === 0
     ? evidence && !evidence.complete ? text("hero_partial")
       : evidence && evidence.recorded === 0 ? dates[0] ? text("hero_unrecorded_dates", dateParams(dates[0])) : text("hero_unrecorded")
+      // #242: počet prípadov bez evidovaných lehôt nezmizne kvôli termínu; termín sa pridá ako druhá veta.
+      : evidence && evidence.unrecorded > 0 ? [text("hero_calm_partial", { count: evidence.unrecorded }), ...(pressing ? [text("hero_date_line", dateParams(pressing))] : [])].join(" ")
       : pressing ? text("hero_calm_dates", dateParams(pressing))
-      : evidence && evidence.unrecorded > 0 ? text("hero_calm_partial", { count: evidence.unrecorded })
       : text("hero_calm")
     : first.invalid ? text("hero_invalid", { title: deadlineText(first) })
     : first.tier === "overdue" ? text("hero_overdue", { title: deadlineText(first) })

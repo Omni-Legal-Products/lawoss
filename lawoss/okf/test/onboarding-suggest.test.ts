@@ -320,6 +320,8 @@ test("#223: interný kód aj v NFD (Č001) a bez falošných pozitív bežných 
   // Skutočné kódy klienta a veci ostávajú.
   // Dvojpísmenové skupiny a typy vecí bez medzery pred číslom („HR001“, „PR-001“) ostávajú kódom (review #223).
   for (const name of ["C001 SYN Alfa", "M004 Vyúčtovanie", "C001-syn-tatran", "SYN-0049 Reklamácia", "PR001 Kampaň", "HR001 Výpoveď", "HR-001", "IT-0042", "TP001", "EN001"]) expect(codeOf(name)).toBeDefined();
+  // #242: dvojpísmenový kód s medzerou a názvom je kód; holé „HR 001“ ostáva skratkou.
+  for (const name of ["PR 001 Kampaň", "IT 0042 Licencia", "HR 001 Výpoveď Novák"]) expect(codeOf(name)?.rest).toBeTruthy();
 });
 test("#223: priečinok prípadov v NFD (Případy z macOS/SMB) a kódy v NFD sa rozpoznajú ako v NFC", async () => {
   for (const form of ["NFC", "NFD"] as const) {
