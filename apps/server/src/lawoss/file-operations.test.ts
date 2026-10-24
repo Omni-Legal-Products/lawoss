@@ -177,6 +177,16 @@ test("delete uses the OS Trash through the desktop host, and falls back inside t
   await expect(planFileOperations(config, workspace, [{ operation: "move", from: join(linked, ".LAWOSS-KOS", batch!, "podklad.pdf"), to: join(client, "x.pdf") }])).rejects.toMatchObject({ status: 403 });
 });
 
+test("a recovery folder in a linked folder keeps its label for a name with an escaped character (review of #227)", async () => {
+  const { config, linked, workspace } = await office();
+  config.trashItem = async () => { throw new Error("Trash unavailable on this volume"); };
+  await writeFile(join(linked, "pod\u202eklad.pdf"), "SYN pdf");
+  const operations = [{ operation: "delete", path: join(linked, "pod\u202eklad.pdf") }];
+  const plan = await planFileOperations(config, workspace, operations);
+  const result = await applyFileOperations(config, workspace, operations, plan.operations, plan.revision);
+  expect(result.results[0]?.trash).toMatch(new RegExp(`^pripojeny-A/${LAWOSS_TRASH_FOLDER}/[^/]+/pod\\\\u202eklad\\.pdf$`));
+});
+
 test("another client's folder, the client folder itself, app and version-control data are refused in any letter case", async () => {
   const { config, client, other, workspace } = await office();
   await mkdir(join(client, ".git"));
