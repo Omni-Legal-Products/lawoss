@@ -294,3 +294,8 @@
 /* Neplatný dátum: pôvodný zápis pod názvom, nie v úzkom stĺpci dátumu */
 .lw-today-raw { font-family: var(--lw-font-mono); font-size: 11px; color: var(--td-hot); overflow-wrap: anywhere; }
 .lw-today-when { max-width: 16ch; }
+
+/* Termíny z prípadov pod lehotami (N-A2-11): oddelené nadpisom a vetou, nie sú to evidované lehoty. */
+.lw-today-case-dates { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--lw-border, rgb(0 0 0 / 0.08)); }
+.lw-today-subtitle { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
+.lw-today-note { margin: 0 0 8px; font-size: 12px; color: var(--lw-text-secondary); }
