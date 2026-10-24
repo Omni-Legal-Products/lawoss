@@ -55,7 +55,9 @@ const LETTER = /^\p{Lu}$/u;
  * Meno z relatívnej cesty položky prieskumu, tá sa skladá cez „/“ na každej platforme. Koreň je natívna cesta, preto
  * `basename`. V NFC: „Případy“ z macOS alebo SMB v NFD sa inak s menami priečinkov prípadov nezhodne (#223).
  */
-const nameOf = (path: string): string => (path.split("/").pop() ?? path).normalize("NFC");
+const nameOf = (path: string): string => rawNameOf(path).normalize("NFC");
+/** Meno v tvare na disku: appka z neho skladá cestu (`childOffices` → výber podpriečinka), NFC by na NFD disku neexistovalo. */
+const rawNameOf = (path: string): string => path.split("/").pop() ?? path;
 /** Priami potomkovia každého priečinka; kľúč „“ je koreň. Index sa postaví raz, nie pri každom hľadaní. */
 type ChildIndex = Map<string, SurveyEntry[]>;
 const indexChildren = (entries: SurveyEntry[]): ChildIndex => {
@@ -201,7 +203,7 @@ async function suggestFromSurvey(survey: FolderSurvey): Promise<Omit<OnboardingS
   const top = childrenOf(index, "");
   // Kancelária vnorená o úroveň nižšie (MČ 19. 10. 2026): advokát má zrejme pripojiť priamo ten podpriečinok.
   const files = new Set(survey.entries.filter(entry => entry.kind === "file").map(entry => entry.path));
-  const childOffices = top.filter(entry => entry.kind === "directory" && OFFICE_DIRS.some(office => files.has(`${entry.path}/${office}/okf.config`))).map(entry => nameOf(entry.path));
+  const childOffices = top.filter(entry => entry.kind === "directory" && OFFICE_DIRS.some(office => files.has(`${entry.path}/${office}/okf.config`))).map(entry => rawNameOf(entry.path));
   // Priečinky kancelárie nie sú klienti; ostatné priečinky najvyššej úrovne sú kandidáti (pri písmenách o úroveň nižšie).
   const dirs = top.filter(entry => entry.kind === "directory" && !OFFICE_DIRS.includes(nameOf(entry.path)));
   const buckets = dirs.filter(entry => LETTER.test(nameOf(entry.path)));

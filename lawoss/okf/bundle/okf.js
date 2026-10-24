@@ -1351,13 +1351,12 @@ var MATTER_WORDS = new Set([...SK_MATTER_WORDS, ...CZ_MATTER_WORDS].map(fold));
 var firstWord = (name) => fold(name.normalize("NFC").trim().split(/[\s,.;:()_-]+/u)[0] ?? "");
 var startsWithMatterWord = (name) => MATTER_WORDS.has(firstWord(name));
 var looksLikeMatterName = (name) => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined || startsWithMatterWord(name));
-var CODE = /^(\p{Lu}{1,3})[-_ ]?(\d{3,5})(?=$|[\s_.,-])/u;
+var CODE = /^(\p{Lu}{1,3})([-_ ]?)(\d{3,5})(?=$|[\s_.,-])/u;
 var YEAR = /^(?:19|20)\d{2}$/;
 var CAMERA_PREFIXES = new Set(["IMG", "DSC", "PIC", "MVI", "VID", "MOV", "PXL", "SAM", "DJI"]);
 var NOT_CODE_PREFIXES = new Set([
   "ISO",
   "IEC",
-  "EN",
   "DIN",
   "STN",
   "ČSN",
@@ -1377,20 +1376,16 @@ var NOT_CODE_PREFIXES = new Set([
   "CSP",
   "SSP",
   "ZOK",
-  "OZ",
-  "OBZ",
-  "ZP",
-  "TZ",
-  "TP",
-  "HR",
-  "IT",
-  "PR"
+  "OBZ"
 ]);
+var NOT_CODE_WITH_SPACE = new Set(["EN", "OZ", "ZP", "TZ", "TP", "HR", "IT", "PR"]);
 var codeOf = (raw) => {
   const name = raw.normalize("NFC");
   const match = CODE.exec(name);
-  const [whole, prefix, digits] = match ?? [];
+  const [whole, prefix, separator, digits] = match ?? [];
   if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix) || NOT_CODE_PREFIXES.has(prefix))
+    return;
+  if (separator === " " && NOT_CODE_WITH_SPACE.has(prefix))
     return;
   return { prefix, rest: name.slice(whole.length).replace(/^[\s_.,-]+/, "") };
 };
@@ -1414,7 +1409,8 @@ var OFFICE_DIRS = ["Office", "_kancelaria"];
 var OFFICE_EVIDENCE = new Set(["agents.md", "claude.md", "memory"]);
 var CLIENTS_DIR = "Klienti";
 var LETTER = /^\p{Lu}$/u;
-var nameOf = (path) => (path.split("/").pop() ?? path).normalize("NFC");
+var nameOf = (path) => rawNameOf(path).normalize("NFC");
+var rawNameOf = (path) => path.split("/").pop() ?? path;
 var indexChildren = (entries) => {
   const index = new Map;
   for (const entry of entries) {
@@ -1540,7 +1536,7 @@ async function suggestFromSurvey(survey) {
   const index = indexChildren(survey.entries);
   const top = childrenOf(index, "");
   const files = new Set(survey.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));
-  const childOffices = top.filter((entry) => entry.kind === "directory" && OFFICE_DIRS.some((office) => files.has(`${entry.path}/${office}/okf.config`))).map((entry) => nameOf(entry.path));
+  const childOffices = top.filter((entry) => entry.kind === "directory" && OFFICE_DIRS.some((office) => files.has(`${entry.path}/${office}/okf.config`))).map((entry) => rawNameOf(entry.path));
   const dirs = top.filter((entry) => entry.kind === "directory" && !OFFICE_DIRS.includes(nameOf(entry.path)));
   const buckets = dirs.filter((entry) => LETTER.test(nameOf(entry.path)));
   const bucketed = buckets.length >= PRACTICE_MIN_CLIENTS && buckets.length >= dirs.length * 0.8;

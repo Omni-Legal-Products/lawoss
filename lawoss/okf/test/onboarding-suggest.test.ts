@@ -313,12 +313,13 @@ test("náhľad stromu: prázdny Spisy/ z pomocných súborov neskryje prípady v
 test("#223: interný kód aj v NFD (Č001) a bez falošných pozitív bežných skratiek", () => {
   expect(codeOf("Č001 Spor")).toEqual({ prefix: "Č", rest: "Spor" });
   expect(codeOf("Č001 Spor".normalize("NFD"))).toEqual({ prefix: "Č", rest: "Spor" });
-  for (const name of ["ISO 27001 certifikácia", "EUR 500 záloha", "OSŘ 160", "OSŘ 160".normalize("NFD"), "HR 001", "STN 730540", "DPH 2025 priznanie", "ZOK 120"]) {
+  for (const name of ["ISO 27001 certifikácia", "ISO27001", "EUR 500 záloha", "OSŘ 160", "OSŘ 160".normalize("NFD"), "HR 001", "OZ 123", "STN 73054", "DPH 500 preplatok", "ZOK 120"]) {
     expect(codeOf(name)).toBeUndefined();
     expect(looksLikeMatterFolder(name)).toBe(false);
   }
   // Skutočné kódy klienta a veci ostávajú.
-  for (const name of ["C001 SYN Alfa", "M004 Vyúčtovanie", "C001-syn-tatran", "SYN-0049 Reklamácia"]) expect(codeOf(name)).toBeDefined();
+  // Dvojpísmenové skupiny a typy vecí bez medzery pred číslom („HR001“, „PR-001“) ostávajú kódom (review #223).
+  for (const name of ["C001 SYN Alfa", "M004 Vyúčtovanie", "C001-syn-tatran", "SYN-0049 Reklamácia", "PR001 Kampaň", "HR001 Výpoveď", "HR-001", "IT-0042", "TP001", "EN001"]) expect(codeOf(name)).toBeDefined();
 });
 test("#223: priečinok prípadov v NFD (Případy z macOS/SMB) a kódy v NFD sa rozpoznajú ako v NFC", async () => {
   for (const form of ["NFC", "NFD"] as const) {
@@ -336,4 +337,12 @@ test("#223: tematické podpriečinky so skratkou a vnorený klient s kartou nie 
   ]);
   const suggestion = await suggestOnboardingLevel(root);
   expect(suggestion.units.find(entry => entry.path === "")?.matters.map(matter => matter.path)).toEqual(["M001 Spor"]);
+});
+test("#223 review: podpriečinok s kanceláriou ostáva v tvare na disku (z neho sa skladá cesta), aj v NFD", async () => {
+  const name = "Iná kancelária".normalize("NFD");
+  const root = await tree([`${name}/Office/okf.config`, "Klient/a.pdf"]);
+  const suggestion = await suggestOnboardingLevel(root);
+  expect(suggestion.childOffices).toEqual([name]);
+  // Cesta zložená z mena existuje a je kanonická.
+  expect(await realpath(join(root, suggestion.childOffices![0]!))).toBe(join(root, name));
 });
