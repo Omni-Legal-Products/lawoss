@@ -48,16 +48,33 @@ export const looksLikeMatterName = (name: string): boolean => !isBareDate(name) 
  * Interný kód na začiatku mena („C002 Hron…“, „M004 Vyúčtovanie…“, „C001-syn-…“): prefix z 1 až 3 veľkých písmen
  * a 3 až 5 číslic. Dvojciferné sekcie („D01 Podania“, „K-01“, „Q01“) kódom klienta ani veci nie sú.
  */
-const CODE = /^(\p{Lu}{1,3})[-_ ]?(\d{3,5})(?=$|[\s_.,-])/u;
+const CODE = /^(\p{Lu}{1,3})([-_ ]?)(\d{3,5})(?=$|[\s_.,-])/u;
 /** Rok (FY2023, SP-2023-01, IMG_2023) nie je číslo klienta ani veci. */
 const YEAR = /^(?:19|20)\d{2}$/;
 /** Mená súborov fotoaparátov a telefónov („IMG_0001“, „DSC 001“, „MVI_0123“). */
 const CAMERA_PREFIXES = new Set(["IMG", "DSC", "PIC", "MVI", "VID", "MOV", "PXL", "SAM", "DJI"]);
+/**
+ * Bežné skratky s číslom nie sú kód klienta ani veci (#223): normy („ISO 27001“), meny a dane („EUR 500 záloha“),
+ * predpisy („OSŘ 160“, „ZOK 120“). Tieto platia pri každom oddeľovači („ISO27001“ tiež nie je kód).
+ */
+const NOT_CODE_PREFIXES = new Set([
+  "ISO", "IEC", "DIN", "STN", "ČSN", "CSN",
+  "EUR", "CZK", "USD", "GBP", "CHF", "PLN", "HUF", "DPH", "VAT",
+  "OSŘ", "OSR", "OSP", "CSP", "SSP", "ZOK", "OBZ",
+]);
+/**
+ * Dvojpísmenové skratky („HR 001“, „OZ 123“, „EN 1090“) len s medzerou pred číslom: „HR001“, „PR-001“ či „IT-0042“
+ * sú bežné kódy skupín a typov vecí a ostávajú kódom.
+ */
+const NOT_CODE_WITH_SPACE = new Set(["EN", "OZ", "ZP", "TZ", "TP", "HR", "IT", "PR"]);
 export type Code = { prefix: string; rest: string };
-export const codeOf = (name: string): Code | undefined => {
+export const codeOf = (raw: string): Code | undefined => {
+  // NFC: na macOS a SMB prichádza „Č001“ aj v NFD, kde kombinujúci háček rozbije veľké písmeno prefixu (#223).
+  const name = raw.normalize("NFC");
   const match = CODE.exec(name);
-  const [whole, prefix, digits] = match ?? [];
-  if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix)) return undefined;
+  const [whole, prefix, separator, digits] = match ?? [];
+  if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix) || NOT_CODE_PREFIXES.has(prefix)) return undefined;
+  if (separator === " " && NOT_CODE_WITH_SPACE.has(prefix)) return undefined;
   return { prefix, rest: name.slice(whole.length).replace(/^[\s_.,-]+/, "") };
 };
 /** Podpriečinok klienta pomenovaný ako vec: kód („M001 Úhrada…“), dátum, spisová značka alebo slovo veci. */

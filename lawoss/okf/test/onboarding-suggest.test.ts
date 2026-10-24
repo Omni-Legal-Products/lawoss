@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PRACTICE_MIN_CLIENTS, suggestOnboardingLevel, surveyFolder } from "../src/onboarding/suggest.ts";
-import { CZ_LEGAL_FORMS, SK_LEGAL_FORMS, hasLegalForm, looksLikeMatterName } from "../src/onboarding/suggest-patterns.ts";
+import { CZ_LEGAL_FORMS, SK_LEGAL_FORMS, codeOf, hasLegalForm, looksLikeMatterFolder, looksLikeMatterName } from "../src/onboarding/suggest-patterns.ts";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -308,4 +308,41 @@ test("náhľad stromu: prázdny Spisy/ z pomocných súborov neskryje prípady v
   expect(unit("C002 SYN Hron")?.matterCount).toBe(2);
   // Spisy/ a prípady vedľa neho spolu, pracovné priečinky ani samotný Spisy/ nie.
   expect(unit("C017 SYN Šimková")?.matters.map(matter => matter.path).sort()).toEqual(["M050 Výpoveď", "Spisy/M049 Reklamácia"]);
+});
+
+test("#223: interný kód aj v NFD (Č001) a bez falošných pozitív bežných skratiek", () => {
+  expect(codeOf("Č001 Spor")).toEqual({ prefix: "Č", rest: "Spor" });
+  expect(codeOf("Č001 Spor".normalize("NFD"))).toEqual({ prefix: "Č", rest: "Spor" });
+  for (const name of ["ISO 27001 certifikácia", "ISO27001", "EUR 500 záloha", "OSŘ 160", "OSŘ 160".normalize("NFD"), "HR 001", "OZ 123", "STN 73054", "DPH 500 preplatok", "ZOK 120"]) {
+    expect(codeOf(name)).toBeUndefined();
+    expect(looksLikeMatterFolder(name)).toBe(false);
+  }
+  // Skutočné kódy klienta a veci ostávajú.
+  // Dvojpísmenové skupiny a typy vecí bez medzery pred číslom („HR001“, „PR-001“) ostávajú kódom (review #223).
+  for (const name of ["C001 SYN Alfa", "M004 Vyúčtovanie", "C001-syn-tatran", "SYN-0049 Reklamácia", "PR001 Kampaň", "HR001 Výpoveď", "HR-001", "IT-0042", "TP001", "EN001"]) expect(codeOf(name)).toBeDefined();
+});
+test("#223: priečinok prípadov v NFD (Případy z macOS/SMB) a kódy v NFD sa rozpoznajú ako v NFC", async () => {
+  for (const form of ["NFC", "NFD"] as const) {
+    const root = await tree([`Klient/${"Případy".normalize(form)}/X/a.pdf`, `Klient/${"Č001 Spor".normalize(form)}/b.pdf`, "Klient/01_Podklady/c.pdf"], `okf-suggest-${form}-`);
+    const matters = (await suggestOnboardingLevel(join(root, "Klient"))).units.find(entry => entry.path === "")?.matters ?? [];
+    expect(matters.map(matter => matter.path.normalize("NFC")).sort()).toEqual(["Případy/X", "Č001 Spor"].sort());
+    expect(matters.map(matter => matter.name).sort()).toEqual(["X", "Č001 Spor"].sort());
+  }
+});
+test("#223: tematické podpriečinky so skratkou a vnorený klient s kartou nie sú prípady v náhľade", async () => {
+  const root = await tree([
+    "client.md", "M001 Spor/a.pdf", "ISO 27001 certifikácia/b.pdf", "EUR 500 záloha/c.pdf", "OSŘ 160/d.pdf", "HR 001/e.pdf",
+    // N-A4-4: odmietnutý vnorený klient s kódom nie je prípad vonkajšieho klienta.
+    "C099 SYN Vnoreny/client.md", "C099 SYN Vnoreny/M001 Cudzí/f.pdf",
+  ]);
+  const suggestion = await suggestOnboardingLevel(root);
+  expect(suggestion.units.find(entry => entry.path === "")?.matters.map(matter => matter.path)).toEqual(["M001 Spor"]);
+});
+test("#223 review: podpriečinok s kanceláriou ostáva v tvare na disku (z neho sa skladá cesta), aj v NFD", async () => {
+  const name = "Iná kancelária".normalize("NFD");
+  const root = await tree([`${name}/Office/okf.config`, "Klient/a.pdf"]);
+  const suggestion = await suggestOnboardingLevel(root);
+  expect(suggestion.childOffices).toEqual([name]);
+  // Cesta zložená z mena existuje a je kanonická.
+  expect(await realpath(join(root, suggestion.childOffices![0]!))).toBe(join(root, name));
 });

@@ -1351,13 +1351,41 @@ var MATTER_WORDS = new Set([...SK_MATTER_WORDS, ...CZ_MATTER_WORDS].map(fold));
 var firstWord = (name) => fold(name.normalize("NFC").trim().split(/[\s,.;:()_-]+/u)[0] ?? "");
 var startsWithMatterWord = (name) => MATTER_WORDS.has(firstWord(name));
 var looksLikeMatterName = (name) => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined || startsWithMatterWord(name));
-var CODE = /^(\p{Lu}{1,3})[-_ ]?(\d{3,5})(?=$|[\s_.,-])/u;
+var CODE = /^(\p{Lu}{1,3})([-_ ]?)(\d{3,5})(?=$|[\s_.,-])/u;
 var YEAR = /^(?:19|20)\d{2}$/;
 var CAMERA_PREFIXES = new Set(["IMG", "DSC", "PIC", "MVI", "VID", "MOV", "PXL", "SAM", "DJI"]);
-var codeOf = (name) => {
+var NOT_CODE_PREFIXES = new Set([
+  "ISO",
+  "IEC",
+  "DIN",
+  "STN",
+  "ČSN",
+  "CSN",
+  "EUR",
+  "CZK",
+  "USD",
+  "GBP",
+  "CHF",
+  "PLN",
+  "HUF",
+  "DPH",
+  "VAT",
+  "OSŘ",
+  "OSR",
+  "OSP",
+  "CSP",
+  "SSP",
+  "ZOK",
+  "OBZ"
+]);
+var NOT_CODE_WITH_SPACE = new Set(["EN", "OZ", "ZP", "TZ", "TP", "HR", "IT", "PR"]);
+var codeOf = (raw) => {
+  const name = raw.normalize("NFC");
   const match = CODE.exec(name);
-  const [whole, prefix, digits] = match ?? [];
-  if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix))
+  const [whole, prefix, separator, digits] = match ?? [];
+  if (!whole || !prefix || !digits || YEAR.test(digits) || CAMERA_PREFIXES.has(prefix) || NOT_CODE_PREFIXES.has(prefix))
+    return;
+  if (separator === " " && NOT_CODE_WITH_SPACE.has(prefix))
     return;
   return { prefix, rest: name.slice(whole.length).replace(/^[\s_.,-]+/, "") };
 };
@@ -1381,7 +1409,8 @@ var OFFICE_DIRS = ["Office", "_kancelaria"];
 var OFFICE_EVIDENCE = new Set(["agents.md", "claude.md", "memory"]);
 var CLIENTS_DIR = "Klienti";
 var LETTER = /^\p{Lu}$/u;
-var nameOf = (path) => path.split("/").pop() ?? path;
+var nameOf = (path) => rawNameOf(path).normalize("NFC");
+var rawNameOf = (path) => path.split("/").pop() ?? path;
 var indexChildren = (entries) => {
   const index = new Map;
   for (const entry of entries) {
@@ -1479,9 +1508,11 @@ function mattersOf(index, files, unit) {
   const prefix = unit ? `${unit}/` : "";
   const dirs = childrenOf(index, unit).filter((entry) => entry.kind === "directory");
   const folders = dirs.filter((entry) => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()));
+  const card = (entry, cards) => childrenOf(index, entry.path).some((child) => child.kind === "file" && cards.has(nameOf(child.path).toLowerCase()));
+  const nestedClient = (entry) => card(entry, CLIENT_CARDS) && !card(entry, MATTER_CARDS);
   const filed = folders.flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
   const beside = dirs.filter((entry) => !folders.includes(entry) && ([...MATTER_CARDS].some((card) => files.has(`${entry.path}/${card}`)) || looksLikeMatterFolder(nameOf(entry.path))));
-  return [...filed, ...beside].map((entry) => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
+  return [...filed, ...beside].filter((entry) => !nestedClient(entry)).map((entry) => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
 }
 function unitsOf(survey, index, paths, clients = new Set) {
   const files = new Set(survey.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));
@@ -1505,7 +1536,7 @@ async function suggestFromSurvey(survey) {
   const index = indexChildren(survey.entries);
   const top = childrenOf(index, "");
   const files = new Set(survey.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));
-  const childOffices = top.filter((entry) => entry.kind === "directory" && OFFICE_DIRS.some((office) => files.has(`${entry.path}/${office}/okf.config`))).map((entry) => nameOf(entry.path));
+  const childOffices = top.filter((entry) => entry.kind === "directory" && OFFICE_DIRS.some((office) => files.has(`${entry.path}/${office}/okf.config`))).map((entry) => rawNameOf(entry.path));
   const dirs = top.filter((entry) => entry.kind === "directory" && !OFFICE_DIRS.includes(nameOf(entry.path)));
   const buckets = dirs.filter((entry) => LETTER.test(nameOf(entry.path)));
   const bucketed = buckets.length >= PRACTICE_MIN_CLIENTS && buckets.length >= dirs.length * 0.8;
@@ -3247,19 +3278,54 @@ import { createHash as createHash4 } from "node:crypto";
 import { basename as basename5, join as join8, relative as relative4, resolve as resolve6, sep as sep5 } from "node:path";
 
 // ../okf-pamat/src/store.ts
-import { closeSync, constants as constants4, existsSync as existsSync2, fstatSync, lstatSync, mkdirSync, openSync, readFileSync as readFileSync2, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync as lstatSync2, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename as basename3, dirname as dirname3, join as join6, relative as relative2, resolve as resolve4, sep as sep3 } from "node:path";
 
 // ../okf-pamat/src/validate.ts
 var BIRTH_NUMBER_PATTERN = /\b\d{6}\s?\/\s?\d{3,4}\b/;
 var BIRTH_NUMBER_PATTERN_G = new RegExp(BIRTH_NUMBER_PATTERN.source, "g");
 
+// ../okf-pamat/src/safe-read.ts
+import { closeSync, constants as constants4, fstatSync, lstatSync, openSync, readSync } from "node:fs";
+var FILE_BYTE_LIMIT = 2 * 1024 * 1024;
+var STORE_BYTE_LIMIT = 16 * 1024 * 1024;
+function readRegularFile(path, limit = FILE_BYTE_LIMIT) {
+  const named = lstatSync(path);
+  if (named.isSymbolicLink())
+    throw new Error(`Symbolický odkaz nie je povolený: ${path}`);
+  if (!named.isFile())
+    throw new Error(`Nie je bežný súbor: ${path}`);
+  const fd = openSync(path, constants4.O_RDONLY | (constants4.O_NOFOLLOW ?? 0) | (constants4.O_NONBLOCK ?? 0));
+  try {
+    const opened = fstatSync(fd);
+    if (!opened.isFile() || opened.dev !== named.dev || opened.ino !== named.ino)
+      throw new Error(`Súbor sa zmenil počas čítania: ${path}`);
+    if (opened.size > limit)
+      throw new Error(`Súbor prekračuje limit ${limit} bajtov: ${path}`);
+    const buffer = Buffer.alloc(Math.min(opened.size + 1, limit + 1));
+    let count = 0;
+    while (count < buffer.length) {
+      const read = readSync(fd, buffer, count, buffer.length - count, null);
+      if (read === 0)
+        break;
+      count += read;
+    }
+    if (count > limit)
+      throw new Error(`Súbor prekračuje limit ${limit} bajtov: ${path}`);
+    return buffer.subarray(0, count);
+  } finally {
+    closeSync(fd);
+  }
+}
+function readTextFile(path, limit = FILE_BYTE_LIMIT) {
+  return decodeText(readRegularFile(path, limit));
+}
+
 // ../okf-pamat/src/config.ts
-import { existsSync, readFileSync } from "node:fs";
 import { join as join5, sep as sep2 } from "node:path";
 var CONFIG_FILE = "okf.config";
 function readConfigText(path) {
-  return decodeText(readFileSync(path));
+  return readTextFile(path);
 }
 function readConfiguredLawyerName(officeDir) {
   if (!officeDir)
@@ -3305,7 +3371,7 @@ function findOfficeDir(startDir, maxUp = 8) {
   if (OFFICE_DIRS2.some((n) => basename3(dir) === n))
     return dir;
   for (let i = 0;i < maxUp; i++) {
-    const candidate = OFFICE_DIRS2.map((n) => join6(dir, n)).find((c) => existsSync2(c));
+    const candidate = OFFICE_DIRS2.map((n) => join6(dir, n)).find((c) => existsSync(c));
     if (candidate)
       return candidate;
     const parent = dirname3(dir);
@@ -3317,7 +3383,7 @@ function findOfficeDir(startDir, maxUp = 8) {
 }
 
 // ../okf-pamat/src/workspace-memory-fs.ts
-import { closeSync as closeSync2, constants as constants5, fstatSync as fstatSync2, lstatSync as lstatSync2, openSync as openSync2, readSync, realpathSync as realpathSync2 } from "node:fs";
+import { closeSync as closeSync2, constants as constants5, fstatSync as fstatSync2, lstatSync as lstatSync3, openSync as openSync2, readSync as readSync2, realpathSync as realpathSync2 } from "node:fs";
 import { basename as basename4, dirname as dirname4, isAbsolute as isAbsolute4, join as join7, parse, relative as relative3, resolve as resolve5, sep as sep4 } from "node:path";
 function isObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -3337,7 +3403,7 @@ function checkedPath(path, kind, allowMissing = false) {
     current = resolve5(current, parts[i]);
     let stat;
     try {
-      stat = lstatSync2(current);
+      stat = lstatSync3(current);
     } catch (error) {
       if (allowMissing && missing(error))
         return false;
@@ -4287,7 +4353,7 @@ async function runOnboarding(argv, out = console.log) {
 }
 
 // src/triage/cli.ts
-import { existsSync as existsSync3, realpathSync as realpathSync3 } from "node:fs";
+import { existsSync as existsSync2, realpathSync as realpathSync3 } from "node:fs";
 import { dirname as dirname9, join as join14, resolve as resolve12 } from "node:path";
 
 // src/triage/files.ts
@@ -5577,11 +5643,11 @@ var value = (flags, name) => {
 };
 function resolveCloneRoot(argument, cwd = process.cwd()) {
   const start = resolve12(cwd, argument ?? ".");
-  const canonical = existsSync3(start) ? realpathSync3(start) : start;
+  const canonical = existsSync2(start) ? realpathSync3(start) : start;
   if (argument !== undefined)
     return canonical;
   for (let dir = canonical, depth = 0;depth < 16; depth++) {
-    if (existsSync3(join14(dir, TRIAL_MARKER)))
+    if (existsSync2(join14(dir, TRIAL_MARKER)))
       return dir;
     const parent = dirname9(dir);
     if (parent === dir)
@@ -5661,25 +5727,25 @@ async function runTriage(argv, out = console.log) {
 var ENTITY_TYPES2 = ["klient", "spis", "projekt"];
 
 // src/fs.ts
-import { existsSync as existsSync4, lstatSync as lstatSync3, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, realpathSync as realpathSync4, statSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync3, lstatSync as lstatSync4, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync2, realpathSync as realpathSync4, statSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { basename as basename8, dirname as dirname10, join as join15, relative as relative9, resolve as resolve13, sep as sep10 } from "node:path";
 function readText(path) {
-  return readFileSync3(path, "utf8");
+  return readFileSync2(path, "utf8");
 }
 function storedProfile(dir) {
   const path = join15(dir, PROFILE_FILE);
-  if (!existsSync4(path))
+  if (!existsSync3(path))
     return;
   return parseWorkingProfile(readText(path));
 }
 function officeProfile(dir, language) {
   const office = findOfficeDir(dir);
-  if (!office || !existsSync4(join15(office, "okf.config")))
+  if (!office || !existsSync3(join15(office, "okf.config")))
     return;
   const path = join15(office, "okf.config");
   if (!statSync(path).isFile())
     return;
-  return parseOfficeWorkingProfile(decodeText(readFileSync3(path)), language);
+  return parseOfficeWorkingProfile(decodeText(readFileSync2(path)), language);
 }
 function listMarkdown(root) {
   const out = [];
@@ -5701,7 +5767,7 @@ function listMarkdown(root) {
   return out.sort();
 }
 function detect(dir, hint) {
-  const isDir = existsSync4(dir) && statSync(dir).isDirectory();
+  const isDir = existsSync3(dir) && statSync(dir).isDirectory();
   const base = {
     dir,
     isDir,
@@ -5715,19 +5781,19 @@ function detect(dir, hint) {
   };
   if (!isDir)
     return base;
-  const type = ENTITY_TYPES.find((candidate) => CARD_ALIASES[candidate].some((name) => existsSync4(join15(dir, name)))) ?? null;
-  const hasAgents = existsSync4(join15(dir, "AGENTS.md"));
-  const hasClaude = existsSync4(join15(dir, "CLAUDE.md"));
+  const type = ENTITY_TYPES.find((candidate) => CARD_ALIASES[candidate].some((name) => existsSync3(join15(dir, name)))) ?? null;
+  const hasAgents = existsSync3(join15(dir, "AGENTS.md"));
+  const hasClaude = existsSync3(join15(dir, "CLAUDE.md"));
   const claudeIsMirror = hasAgents && hasClaude ? readText(join15(dir, "AGENTS.md")) === readText(join15(dir, "CLAUDE.md")) : null;
   const indexPath = join15(dir, "index.md");
-  const okfVersion = existsSync4(indexPath) ? parseFrontmatter(readText(indexPath))?.okf_version ?? null : null;
+  const okfVersion = existsSync3(indexPath) ? parseFrontmatter(readText(indexPath))?.okf_version ?? null : null;
   const effective = type ?? hint ?? null;
   const missing = effective ? plan({ type: effective, dir, title: "" }).entries.filter((entry) => entry.action === "create").map((entry) => entry.path) : [];
   return { ...base, type, hasAgents, hasClaude, claudeIsMirror, okfVersion, markdownCount: listMarkdown(dir).length, missing };
 }
 function plan(input) {
   const agents = join15(input.dir, "AGENTS.md");
-  const card = existingCard(input.type, (name) => existsSync4(join15(input.dir, name)));
+  const card = existingCard(input.type, (name) => existsSync3(join15(input.dir, name)));
   const existing = card ? parseFrontmatter(readText(join15(input.dir, card))) : null;
   const language = resolveDocumentLanguage(input.language ?? existing?.language, existing?.jurisdiction || input.jurisdiction);
   const templates = LOCALIZED_TEMPLATES[language];
@@ -5736,7 +5802,7 @@ function plan(input) {
   let clientCardPath;
   if (input.type === "spis") {
     for (let parent = dirname10(resolve13(input.dir));; parent = dirname10(parent)) {
-      const card = existingCard("klient", (name) => existsSync4(join15(parent, name)));
+      const card = existingCard("klient", (name) => existsSync3(join15(parent, name)));
       if (card) {
         clientCardPath = relative9(input.dir, join15(parent, card)).split("\\").join("/");
         break;
@@ -5745,8 +5811,8 @@ function plan(input) {
         break;
     }
   }
-  const result = planEntity({ ...input, language, advokat, workingProfile: profile, clientCardPath }, templates, (p) => existsSync4(join15(input.dir, p)));
-  if (existsSync4(agents)) {
+  const result = planEntity({ ...input, language, advokat, workingProfile: profile, clientCardPath }, templates, (p) => existsSync3(join15(input.dir, p)));
+  if (existsSync3(agents)) {
     const mirror = result.entries.find((entry) => entry.path === "CLAUDE.md" && entry.action === "create");
     if (mirror)
       mirror.content = readText(agents);
@@ -5757,7 +5823,7 @@ function apply(p) {
   const created = [];
   const skipped = [];
   const root = resolve13(p.dir);
-  const card = existingCard(p.type, (name) => existsSync4(join15(root, name)));
+  const card = existingCard(p.type, (name) => existsSync3(join15(root, name)));
   const plannedCard = p.entries.find((entry) => CARD_ALIASES[p.type].includes(entry.path));
   if (plannedCard && (card || plannedCard.action === "skip") && card !== plannedCard.path)
     throw new Error("Karta entity sa od náhľadu zmenila; načítaj nový plán.");
@@ -5766,14 +5832,14 @@ function apply(p) {
     if (!target.startsWith(root + sep10))
       throw new Error(`Cesta opúšťa priečinok entity: ${entry.path}`);
     for (let part = target;part !== root; part = dirname10(part)) {
-      if (lstatSync3(part, { throwIfNoEntry: false })?.isSymbolicLink())
+      if (lstatSync4(part, { throwIfNoEntry: false })?.isSymbolicLink())
         throw new Error(`Cesta vedie cez symbolický odkaz: ${entry.path}`);
     }
   }
   mkdirSync2(p.dir, { recursive: true });
   for (const entry of p.entries) {
     const full = join15(p.dir, entry.path);
-    if (entry.action !== "create" || existsSync4(full)) {
+    if (entry.action !== "create" || existsSync3(full)) {
       skipped.push(entry.path);
       continue;
     }
@@ -5784,7 +5850,7 @@ function apply(p) {
   return { created, skipped };
 }
 function validate(root) {
-  if (!existsSync4(root))
+  if (!existsSync3(root))
     return [{ path: root, message: "priečinok neexistuje" }];
   const errors = [];
   const documents = listMarkdown(root);
@@ -5809,7 +5875,7 @@ function validate(root) {
       cardsByFolder.set(folder, [...cardsByFolder.get(folder) ?? [], name]);
     }
     const parent = dirname10(join15(root, rel));
-    const bundleRoot = !rel.includes("/") || basename8(parent) === "memory" || ENTITY_TYPES.some((type) => CARD_ALIASES[type].some((name) => existsSync4(join15(parent, name))));
+    const bundleRoot = !rel.includes("/") || basename8(parent) === "memory" || ENTITY_TYPES.some((type) => CARD_ALIASES[type].some((name) => existsSync3(join15(parent, name))));
     const error = validateMarkdown(rel, readText(join15(root, rel)), bundleRoot);
     if (error)
       errors.push(error);
@@ -5833,7 +5899,7 @@ function realPathInside(realRoot, path) {
       if (!missing(error))
         throw error;
     }
-    if (lstatSync3(ancestor, { throwIfNoEntry: false }))
+    if (lstatSync4(ancestor, { throwIfNoEntry: false }))
       throw new Error(`Visiaci symbolický odkaz nemožno overiť: ${ancestor}`);
     const parent = dirname10(ancestor);
     if (parent === ancestor)
@@ -5856,16 +5922,16 @@ function render(root, selectedLanguage) {
   const agents = inside("AGENTS.md");
   const claude = inside("CLAUDE.md");
   const index = inside("index.md");
-  const cards = ENTITY_TYPES.flatMap((type) => CARD_ALIASES[type]).filter((name) => existsSync4(join15(realRoot, name)));
+  const cards = ENTITY_TYPES.flatMap((type) => CARD_ALIASES[type]).filter((name) => existsSync3(join15(realRoot, name)));
   if (cards.length > 1)
     throw new Error(`Viac kariet entity: ${cards.join(", ")}. Najprv zosúlaď ich obsah.`);
   const metadata = cards[0] ? parseFrontmatter(readText(inside(cards[0]))) : null;
   const language = resolveDocumentLanguage(selectedLanguage ?? metadata?.language, metadata?.jurisdiction);
   const written = [];
   const kept = [];
-  if (existsSync4(agents)) {
+  if (existsSync3(agents)) {
     const a = readText(agents);
-    if (!existsSync4(claude)) {
+    if (!existsSync3(claude)) {
       writeFileSync2(claude, a, "utf8");
       written.push("CLAUDE.md");
     } else if (readText(claude) === a)
@@ -5877,7 +5943,7 @@ function render(root, selectedLanguage) {
       written.push(backup, "CLAUDE.md");
     }
   }
-  if (existsSync4(index)) {
+  if (existsSync3(index)) {
     const text = readText(index);
     const fm = parseFrontmatter(text);
     const head = fm ? text.slice(0, text.indexOf(`
@@ -5901,7 +5967,7 @@ ${body}
 }
 
 // src/naming-fs.ts
-import { closeSync as closeSync3, constants as constants12, fstatSync as fstatSync3, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync3, opendirSync, readSync as readSync2, realpathSync as realpathSync5, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
+import { closeSync as closeSync3, constants as constants12, fstatSync as fstatSync3, fsyncSync, lstatSync as lstatSync5, mkdirSync as mkdirSync3, openSync as openSync3, opendirSync, readSync as readSync3, realpathSync as realpathSync5, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
 import { basename as basename9, dirname as dirname11, extname, isAbsolute as isAbsolute10, join as join16, relative as relative10, resolve as resolve14, sep as sep11 } from "node:path";
 
 // ../okf-pamat/src/workspace-memory-types.ts
@@ -6199,7 +6265,7 @@ var lockedMessage = (path) => `File is open in another program (for example Word
 var deniedMessage = (path, code) => `Access denied: ${path} (${code}). Check file and folder permissions, then create a new preview.`;
 function readOnlyFile(path) {
   try {
-    const stat = lstatSync4(path);
+    const stat = lstatSync5(path);
     return stat.isFile() && (stat.mode & 146) === 0;
   } catch {
     return false;
@@ -6256,11 +6322,11 @@ function exists(path, kind = "file") {
 }
 function rootDirectory(directory) {
   const path = checkedDirectory(directory);
-  return { path, identity: physical(lstatSync4(path, { bigint: true })) };
+  return { path, identity: physical(lstatSync5(path, { bigint: true })) };
 }
 function assertRoot(root) {
   checkedPath(root.path, "directory");
-  if (realpathSync5(root.path) !== root.path || physical(lstatSync4(root.path, { bigint: true })) !== root.identity)
+  if (realpathSync5(root.path) !== root.path || physical(lstatSync5(root.path, { bigint: true })) !== root.identity)
     conflict("Matter root changed");
 }
 function readNamingBinary(path, limit) {
@@ -6275,12 +6341,12 @@ function readNamingBinary(path, limit) {
     const data = Buffer.alloc(Math.min(Number(before.size) + 1, limit + 1));
     let count = 0;
     while (count < data.length) {
-      const n = readSync2(fd, data, count, data.length - count, null);
+      const n = readSync3(fd, data, count, data.length - count, null);
       if (!n)
         break;
       count += n;
     }
-    const after = fstatSync3(fd, { bigint: true }), named = lstatSync4(path, { bigint: true });
+    const after = fstatSync3(fd, { bigint: true }), named = lstatSync5(path, { bigint: true });
     if (BigInt(count) !== before.size || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || physical(before) !== physical(after) || physical(before) !== physical(named) || named.isSymbolicLink() || named.nlink !== 1n)
       conflict(`File changed during read: ${path}`);
     const bytes = data.subarray(0, count);
@@ -6350,7 +6416,7 @@ function memoryProtection(root) {
 function targetAbsent(root, target) {
   const path = join16(root, target.path);
   checkedPath(dirname11(path), "directory");
-  if (physical(lstatSync4(dirname11(path), { bigint: true })) !== target.parentPhysical)
+  if (physical(lstatSync5(dirname11(path), { bigint: true })) !== target.parentPhysical)
     conflict(`Target directory changed: ${target.path}`);
   checkCase(path, false);
   if (exists(path))
@@ -6376,7 +6442,7 @@ function planDocumentNaming(matterDir, input) {
     if (selected.has(fold2(targetPath)) || targets.has(fold2(targetPath)))
       conflict(`Source/target or target overlap: ${targetPath}`);
     targets.add(fold2(targetPath));
-    const target = { path: targetPath, mustBeAbsent: true, parentPhysical: physical(lstatSync4(dirname11(absoluteTarget), { bigint: true })) };
+    const target = { path: targetPath, mustBeAbsent: true, parentPhysical: physical(lstatSync5(dirname11(absoluteTarget), { bigint: true })) };
     targetAbsent(root.path, target);
     totalBytes += sourceRead.bytes;
     if (totalBytes > NAMING_LIMITS.totalBytes)
@@ -6466,7 +6532,7 @@ function finalStates(root, plan) {
   for (const doc of plan.documents) {
     const targetPath = join16(root, doc.target.path);
     checkedPath(dirname11(targetPath), "directory");
-    if (physical(lstatSync4(dirname11(targetPath), { bigint: true })) !== doc.target.parentPhysical)
+    if (physical(lstatSync5(dirname11(targetPath), { bigint: true })) !== doc.target.parentPhysical)
       conflict("Final target directory changed");
     checkCase(targetPath, true);
     const target = readNamingBinary(targetPath, NAMING_LIMITS.documentBytes);
@@ -6678,7 +6744,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
     if (lockIdentity)
       try {
         checkedPath(lock, "file");
-        if (physical(lstatSync4(lock, { bigint: true })) === lockIdentity)
+        if (physical(lstatSync5(lock, { bigint: true })) === lockIdentity)
           unlinkSync(lock);
       } catch {}
   }
