@@ -2,6 +2,8 @@
 export const LITE_TODAY_PATH = "/dnes";
 export const LITE_CLIENTS_PATH = "/klienti";
 export const LITE_MATTER_PATH = "/vec";
+/** Podrobný zoznam „Na zaradenie“; Dnes ukazuje len počet (rozhodnutie MČ 23. 10. 2026). */
+export const LITE_INPUTS_PATH = "/na-zaradenie";
 /** Nová vec cez ten istý formulár s náhľadom a potvrdením ako bočný panel (nie technický Nový spis). */
 export const NEW_MATTER_PATH = "/welcome?continue=matter";
 /** Nový klient cez ten istý tok ako úvodná obrazovka; viditeľné tlačidlo „Pridať klienta“ na stránke Klienti. */

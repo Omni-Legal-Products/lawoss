@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import { TodayView } from "../src/lawoss/lite/pages/today-page";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
 import { LiteMatterView, matterFromParams } from "../src/lawoss/lite/pages/matter-page";
-import { liteMatterLink, NEW_CLIENT_PATH, NEW_MATTER_PATH } from "../src/lawoss/lite/links";
+import { LITE_INPUTS_PATH, liteMatterLink, NEW_CLIENT_PATH, NEW_MATTER_PATH } from "../src/lawoss/lite/links";
 import type { TodayModel } from "../src/lawoss/lite/today-model";
 import type { Cockpit } from "../../../lawoss/okf/cockpit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -32,27 +32,23 @@ const html = (node: ReactElement) => renderToStaticMarkup(<MemoryRouter>{node}</
 const href = (to: string) => `href="${to}"`;
 
 describe("stránky LAWOSS-lite", () => {
-  test("Dnes: lhůta, úkol, vstup k zařazení a odkaz na věc", () => {
+  test("Dnes: lhůta, úkol, počet dokumentov na zaradenie s odkazom na zoznam a odkaz na věc", () => {
     const out = html(<TodayView model={model} locale="en" />);
     expect(out).toContain('data-lawoss-lite="today"');
     expect(out).toContain("Odvolání");
     expect(out).toContain("in 2 days");
     expect(out).toContain("Podepsat plnou moc");
-    expect(out).toContain("IN-1");
+    // Rozhodnutie MČ 23. 10. 2026 (N-A3-2): len počet a odkaz na podrobný zoznam, nie riadky vstupov.
+    expect(out).toContain('data-lawoss-inputs-count="1"');
+    expect(out).toContain(href(LITE_INPUTS_PATH));
+    expect(out).toContain("Documents not yet in any case.");
+    expect(out).not.toContain("IN-1");
+    expect(out).not.toContain("datová schránka");
     expect(out).toContain(href(liteMatterLink(matter.path)));
     expect(out).toContain(href(NEW_MATTER_PATH));
     // pořadí: Lhůty → K zařazení → Úkoly
-    expect(out.indexOf("Odvolání")).toBeLessThan(out.indexOf("IN-1"));
-    expect(out.indexOf("IN-1")).toBeLessThan(out.indexOf("Podepsat plnou moc"));
-  });
-  test("Dnes: vstup bez ID ukáže pomlčku (final review I1)", () => {
-    const out = html(<TodayView model={{ ...model, inputs: [{ ...model.inputs[0]!, id: "" }] }} locale="en" />);
-    expect(out).toContain('<span class="lw-no">-</span>');
-  });
-  test("Dnes: zdieľaný klientsky vstup vedie na klientov, nie na prvú vec", () => {
-    const out = html(<TodayView model={{ ...model, inputs: [{ ...model.inputs[0]!, scope: "client", matterPath: "Klienti/Novák" }] }} locale="en" />);
-    expect(out).toContain(href("/klienti"));
-    expect(out).not.toContain(href(liteMatterLink("Klienti/Novák")));
+    expect(out.indexOf("Odvolání")).toBeLessThan(out.indexOf("Documents not yet in any case."));
+    expect(out.indexOf("Documents not yet in any case.")).toBeLessThan(out.indexOf("Podepsat plnou moc"));
   });
   test("Dnes a Klienti: jediný vstup „+ New matter“, žádný duplicitní „New client“ (final review I4)", () => {
     for (const out of [html(<TodayView model={model} locale="en" />), html(<ClientsView groups={[]} />)]) {
