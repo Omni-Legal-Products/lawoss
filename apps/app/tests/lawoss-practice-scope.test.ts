@@ -154,6 +154,38 @@ describe("#240: zaregistrovaný vnorený klient – veľkosť písmen a klient p
     expect(data.clients.map((c) => c.title)).toContain("SYN Vnorený");
     expect(data.upcomingDeadlines.map((d) => d.title)).toContain("Lehota vnoreného");
   });
+  test("review: zaregistrovaný prípad odmietnutého vnoreného klienta sa do prehľadu nedostane", async () => {
+    const tree: Tree = {
+      ...ALFA_TREE,
+      "C1 Nezaregistrovany/client.md": "---\ntitle: C1 vnorený\n---\n",
+      "C1 Nezaregistrovany/M007 Vec C1/matter.md": "---\ntitle: Vec C1\n---\n",
+      "C1 Nezaregistrovany/memory/E-009-lehota.md": rec("evidence", "E-009", { title: "Lehota C1", deadlines: ["2026-10-21"] }),
+    };
+    const server = fakeServer({ alfa: tree, horak: HORAK_TREE });
+    const quick = ws("rychla-akcia", `${ROOT}/ALFA STAV s.r.o./C1 Nezaregistrovany/M007 Vec C1`);
+    const scope = okfScope([alfa, horak, quick], alfa, ROOT);
+    if (!scope) throw new Error("no scope");
+    const data = await readScopeMemory(server, scope, TODAY);
+    expect(data.matters.map((m) => m.title)).not.toContain("Vec C1");
+    expect(data.upcomingDeadlines.map((d) => d.title)).not.toContain("Lehota C1");
+  });
+  test("review: disk rozlišujúci veľkosť písmen – iný priečinok s rovnakým menom v inej veľkosti ostáva odmietnutý", async () => {
+    const tree: Tree = {
+      ...ALFA_TREE,
+      "Foo/client.md": "---\ntitle: Foo zaregistrovaný\n---\n",
+      "Foo/M001 A/matter.md": "---\ntitle: Vec Foo\n---\n",
+      "foo/client.md": "---\ntitle: foo odmietnutý\n---\n",
+      "foo/M002 B/matter.md": "---\ntitle: Vec foo\n---\n",
+    };
+    const server = fakeServer({ alfa: tree, horak: HORAK_TREE });
+    const registered = ws("foo-reg", `${ROOT}/ALFA STAV s.r.o./Foo`);
+    const scope = okfScope([alfa, horak, registered], alfa, ROOT);
+    if (!scope) throw new Error("no scope");
+    const data = await readScopeMemory(server, scope, TODAY);
+    expect(data.clients.map((c) => c.title)).toContain("Foo zaregistrovaný");
+    expect(data.clients.map((c) => c.title)).not.toContain("foo odmietnutý");
+    expect(data.matters.map((m) => m.title)).not.toContain("Vec foo");
+  });
   test("zaregistrovaný klient C2 pod nezaregistrovaným vnoreným C1 sa číta, C1 sám nie", async () => {
     const tree: Tree = {
       ...ALFA_TREE,

@@ -123,15 +123,34 @@ export async function readWorkspaceMemory(
     .filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name)).map((e) => e.path);
   const paths: string[] = [];
   const clientPaths: string[] = [];
-  // #240: cesta registrácie a cesta zo servera sa môžu líšiť veľkosťou písmen (APFS, NTFS) aj tvarom Unicode.
-  const nestedKey = (path: string): string => path.normalize("NFC").toLocaleLowerCase();
-  const registeredNested = new Set((options.registeredNested ?? []).map(nestedKey));
-  /** Pod nezaregistrovaným vnoreným klientom len cesta k zaregistrovaným priečinkom pod ním, nič z neho samého (#240). */
+  // #240: cesta registrácie a cesta zo servera sa môžu líšiť tvarom Unicode aj veľkosťou písmen (APFS, NTFS).
+  const nfc = (path: string): string => path.normalize("NFC");
+  const fold = (path: string): string => nfc(path).toLowerCase();
+  const exactNested = new Set((options.registeredNested ?? []).map(nfc));
+  const foldedNested = new Map<string, string[]>();
+  for (const path of exactNested) foldedNested.set(fold(path), [...(foldedNested.get(fold(path)) ?? []), path]);
+  /**
+   * Zaregistrovaný priečinok: presná zhoda, inak zhoda bez ohľadu na veľkosť písmen. Tá neplatí, keď vedľa leží priečinok
+   * s presne zaregistrovaným menom (disk rozlišuje veľkosť písmen a toto je iný priečinok).
+   */
+  const isRegistered = async (path: string): Promise<boolean> => {
+    if (exactNested.has(nfc(path))) return true;
+    const candidates = foldedNested.get(fold(path));
+    if (!candidates) return false;
+    const siblings = new Set((await list(path.split("/").slice(0, -1).join("/"))).filter((e) => e.kind === "dir").map((e) => nfc(e.path)));
+    return !candidates.some((candidate) => siblings.has(candidate));
+  };
+  const registeredBelow = (path: string): boolean => [...foldedNested.keys()].some((registered) => registered.startsWith(`${fold(path)}/`));
+  /**
+   * Pod nezaregistrovaným vnoreným klientom len cesta k zaregistrovanému klientovi (s kartou) pod ním; prípady a iné
+   * zaregistrované priečinky odmietnutého klienta sa nečítajú (#240).
+   */
   const descendToRegistered = async (path: string, depth: number): Promise<void> => {
     for (const child of await dirs(path)) {
-      const key = nestedKey(child);
-      if (registeredNested.has(key)) await discover(child, false, depth + 1, true);
-      else if ([...registeredNested].some((registered) => registered.startsWith(`${key}/`))) await descendToRegistered(child, depth + 1);
+      if (scanned >= MAX_DISCOVERY_DIRECTORIES || depth + 1 > MAX_DISCOVERY_DEPTH) { truncated = true; return; }
+      const registeredClient = await isRegistered(child) && (await list(child)).some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
+      if (registeredClient) await discover(child, false, depth + 1, true);
+      else if (registeredBelow(child)) { scanned++; await descendToRegistered(child, depth + 1); }
     }
   };
   let scanned = 0;
@@ -145,8 +164,8 @@ export async function readWorkspaceMemory(
     // prípady do prehľadu vonkajšieho klienta nepatria; ostáva len obyčajným priečinkom v Súboroch. Vnorený klient
     // zaregistrovaný ešte pred odmietaním ostáva vlastnou skupinou: prax ho číta cez vonkajšieho klienta (`okfScope`).
     const nestedClient = insideClient && !hasMatterCard && entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
-    if (nestedClient && !registeredNested.has(nestedKey(path))) {
-      if ([...registeredNested].some((registered) => registered.startsWith(`${nestedKey(path)}/`))) await descendToRegistered(path, depth);
+    if (nestedClient && !(await isRegistered(path))) {
+      if (registeredBelow(path)) await descendToRegistered(path, depth);
       return;
     }
     if ((directMatter && !nestedClient) || hasMatterCard) {
