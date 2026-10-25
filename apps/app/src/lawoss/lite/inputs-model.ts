@@ -105,23 +105,36 @@ function registeredFiles({ inputs, clients = [] }: FolderSources): Set<string> {
   return files;
 }
 
-/** One input for a file that lies in an inbox folder; `original` is a link, so the list shows the file's name. */
-function folderInput(path: string, owner: string, scope?: "client"): PendingInput {
+/** Súbor v priečinku na nezaradené bez riadku vo `VSTUPY.md`; `name` je jeho meno pre zoznam. */
+export type FolderInput = PendingInput & { name: string };
+
+/**
+ * One input for a file that lies in an inbox folder. `original` is a link with a percent-encoded target (any name,
+ * also with brackets or `%`, resolves to the file's path); the list shows `name`, never the Markdown.
+ */
+function folderInput(path: string, owner: string, scope?: "client"): FolderInput {
   const relative = owner && path.startsWith(`${owner}/`) ? path.slice(owner.length + 1) : path;
-  return { id: "", received: "", source: "", original: `[${lastSegment(path)}](<./${relative.replace(/%/g, "%25")}>)`, matterPath: owner,
+  // encodeURIComponent nechá zátvorky; nespárovaná zátvorka by odkaz v Markdowne ukončila.
+  const target = relative.split("/").map((part) => encodeURIComponent(part).replace(/[()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)).join("/");
+  return { id: "", received: "", source: "", original: `[-](./${target})`, matterPath: owner, name: lastSegment(path),
     file: owner ? `${owner}/VSTUPY.md` : "VSTUPY.md", ...(scope ? { scope } : {}) };
 }
+
+const isFolderInput = (input: PendingInput): input is FolderInput => "name" in input && typeof input.name === "string";
 
 /**
  * N-A5-3 (test 25. 10. 2026): súbory, ktoré advokát vložil do priečinka na nezaradené (prípadu alebo klienta) a ktoré
  * nemajú riadok vo `VSTUPY.md`. Súbor s riadkom (aj spracovaným) sa ráta podľa riadku, nie druhýkrát.
  */
 export function folderInputs(sources: FolderSources): PendingInput[] {
-  const registered = registeredFiles(sources);
+  const registered = [...registeredFiles(sources)];
   const items = new Map<string, PendingInput>();
   const add = (path: string, owner: string, scope?: "client") => {
     const key = folderKey(path);
-    if (!registered.has(key) && !items.has(key)) items.set(key, folderInput(path, owner, scope));
+    // Appka ukladá dokument do `<inbox>/IN-001/<súbor>` s riadkom na súbor: podpriečinok s registrovaným súborom je ten vstup.
+    if (registered.some((file) => file === key || file.startsWith(`${key}/`))) return;
+    const exact = path.normalize("NFC");
+    if (!items.has(exact)) items.set(exact, folderInput(path, owner, scope));
   };
   for (const input of sources.inputs) for (const path of input.inboxFiles ?? []) add(path, input.path);
   for (const client of sources.clients ?? []) for (const path of client.inboxFiles ?? []) add(path, client.path, "client");
@@ -162,7 +175,7 @@ export function inputGroups(result: Pick<OkfReadResult, "inputs" | "matters" | "
     const group = byKey.get(key) ?? { key, client, link: clientOverviewLink(key), rows: [] };
     group.rows.push({
       input,
-      label: inputOriginal(input.original).label || input.id || "-",
+      label: isFolderInput(input) ? input.name : inputOriginal(input.original).label || input.id || "-",
       ...(matter ? { matter: { path: matter.path, title: matter.title } } : {}),
       link: matter ? liteMatterLink(matter.path) : group.link,
     });

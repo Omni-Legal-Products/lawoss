@@ -79,7 +79,8 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
     const views = ownInputs.map((input) => [input.path, buildMatterViews(input, todayIso)] as const);
     const kinds = Object.fromEntries(views.map(([path, view]) => [path, familyNames(view.families, locale)]).filter(([, names]) => names));
     const statuses = Object.fromEntries(views.map(([path, view]) => [path, cardStatus(view)]));
-    const source = { ...own, inputs: ownInputs };
+    // Len vlastní klienti: `own` nesie všetkých klientov prehľadu, Domov nemá rátať priečinky na nezaradené iných.
+    const source = { ...own, inputs: ownInputs, clients: ownClients };
     return { own, ownInputs, kinds, statuses, events: agendaEvents(source), todayModel: buildToday(source, todayIso), inputs: inputCounts(ownInputs, own.matters.map((m) => m.path), ownClients), intakeFailed, folderMissing };
   }, [allowed, scope, data, model, nav.connection, nav.groups, workspaceId, todayIso, locale]);
   if (!scope || !data || !derived) return null;

@@ -69,8 +69,9 @@ export type OkfClient = {
 export const INBOX_FOLDERS: ReadonlySet<string> = new Set(["00_na_zatriedenie", "00_k_zarazeni", "00_inbox"]);
 /** Najviac toľko položiek z jedného priečinka na nezaradené (advokát môže vložiť stovky skenov naraz). */
 const INBOX_ITEMS_LIMIT = 200;
-/** Systémové súbory, ktoré advokát do priečinka nevložil. */
-const INBOX_IGNORED = new Set(["desktop.ini", "thumbs.db"]);
+/** Systémové súbory a zámky Office (`~$zmluva.docx`), ktoré advokát do priečinka nevložil. */
+const INBOX_IGNORED = new Set(["desktop.ini", "thumbs.db", "icon\r"]);
+const inboxIgnored = (name: string): boolean => name.startsWith(".") || name.startsWith("~$") || INBOX_IGNORED.has(name.toLowerCase());
 
 export const MAX_MATTERS = 200;
 const CONCURRENCY = 6;
@@ -298,10 +299,13 @@ export async function readWorkspaceMemory(
   const inboxItems = async (dir: string, entries: Listing["entries"], custom?: string): Promise<string[]> => {
     const folders = entries.filter((e) => e.kind === "dir" && INBOX_FOLDERS.has(e.name.toLowerCase())).map((e) => childPath(dir, e.name));
     const own = custom?.replace(/\\/g, "/").replace(/^(?:\.\/)+/, "").replace(/\/+$/, "");
-    if (own && !own.split("/").some((part) => part === ".." || part === "") && !folders.some((folder) => folder.toLowerCase() === childPath(dir, own).toLowerCase())) folders.push(childPath(dir, own));
+    const ownFolder = own && !own.split("/").some((part) => part === ".." || part === "") ? childPath(dir, own) : undefined;
+    if (ownFolder && !folders.some((folder) => folder.toLowerCase() === ownFolder.toLowerCase())) folders.push(ownFolder);
+    // Vlastný priečinok vnútri predvoleného (`00_Inbox/Posta`) nie je jedna položka predvoleného: jeho obsah sa ráta zvlášť.
+    const holdsOwn = (path: string) => ownFolder !== undefined && ownFolder.toLowerCase().startsWith(`${path.toLowerCase()}/`) || ownFolder?.toLowerCase() === path.toLowerCase();
     const items: string[] = [];
     for (const folder of folders) {
-      const listed = (await list(folder, true)).filter((e) => !e.name.startsWith(".") && !INBOX_IGNORED.has(e.name.toLowerCase()));
+      const listed = (await list(folder, true)).filter((e) => !inboxIgnored(e.name) && (folder === ownFolder || !holdsOwn(e.path)));
       items.push(...listed.map((e) => e.path).sort().slice(0, INBOX_ITEMS_LIMIT));
     }
     return items;

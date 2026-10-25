@@ -101,4 +101,35 @@ describe("N-A5-3: Na zaradenie ráta aj súbory v priečinkoch na nezaradené", 
     const data = await read({ ...TATRAN, "00_Na_zatriedenie/.keep": "", "Spisy/M001/matter.md": "---\ntitle: M001\n---\n", "Spisy/M001/01_Podklady/a.pdf": "%PDF" });
     expect(buildToday(data, TODAY).inputs).toEqual([]);
   });
+
+  test("review: dokument uložený appkou do <inbox>/IN-001/ s riadkom sa nezráta druhýkrát, ani po spracovaní", async () => {
+    const tree = (state: string) => ({
+      ...TATRAN,
+      "Spisy/M001/matter.md": "---\ntitle: M001\n---\n",
+      "Spisy/M001/00_K_zarazeni/IN-001/zmluva.pdf": "%PDF",
+      "Spisy/M001/VSTUPY.md": register(`| IN-001 | 2026-10-25 | appka | [zmluva.pdf](00_K_zarazeni/IN-001/zmluva.pdf) | ${state} | |`),
+    });
+    const scope = okfScope([hron, tatran], tatran, ROOT);
+    if (!scope) throw new Error("no scope");
+    const read = (state: string) => readScopeMemory(fakeServer({ hron: TATRAN, tatran: tree(state) }), scope, TODAY);
+    expect(unfiledInputs(await read("pending")).map((input) => input.id)).toEqual(["IN-001"]);
+    expect(unfiledInputs(await read("processed"))).toEqual([]);
+  });
+
+  test("review: mená so zátvorkami a %, zámky Office a vlastný priečinok vnútri predvoleného", async () => {
+    const scope = okfScope([hron, tatran], tatran, ROOT);
+    if (!scope) throw new Error("no scope");
+    const tatranData = await readScopeMemory(fakeServer({ hron: TATRAN, tatran: {
+      ...TATRAN,
+      "Spisy/M001/matter.md": "---\ntitle: M001\n---\n",
+      "Spisy/M001/PRACOVNY-PROFIL.md": profile.replace(/Posta\/Nezaradene/g, "00_Inbox/Posta"),
+      "Spisy/M001/00_Inbox/a(b.pdf": "%PDF",
+      "Spisy/M001/00_Inbox/a]b [1].pdf": "%PDF",
+      "Spisy/M001/00_Inbox/~$zmluva.docx": "lock",
+      "Spisy/M001/00_Inbox/Posta/list.pdf": "%PDF",
+      "00_Na_zatriedenie/c)d 100%.pdf": "%PDF",
+    } }), scope, TODAY);
+    expect(inputGroups(tatranData).flatMap((group) => group.rows).map((row) => row.label).sort()).toEqual(["a(b.pdf", "a]b [1].pdf", "c)d 100%.pdf", "list.pdf"]);
+  });
 });
+
