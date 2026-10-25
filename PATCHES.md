@@ -1485,3 +1485,13 @@ Alfa 2, úloha A1 (akceptácia 22. 10. 2026: N-13, N-21, dvojitá karta). Pravid
 | `apps/server/package.json` | Build zahŕňa `src/opencode-plugins/lawoss-file-operations.ts`. |
 | `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | Karta `lawoss_files` (`metadata.lawossFiles`): nadpis podľa úkonu, rozsah „pôvodná → nová“ / „Zmazať …“ po riadkoch (SK/CS/EN/DE v `lawoss/i18n/shell.ts`). Karta spravovaného shellu s `host.command`/`host.hostWide` ukáže príkaz a lokalizovanú vetu o rozsahu (`lawoss.shell_card.host_wide`). „Povoliť do konca konverzácie“ sa neponúka pri natívnej karte `edit` (engine by ho držal pre všetky chaty klienta), pri karte príkazu pre celý počítač, pri `external_directory` (engine si „always“ pamätá pre celú inštanciu klienta, nie konverzáciu; vlastné pripojené priečinky odpovedá plugin bez karty) ani pri `always: []`. +1 import, ~12 riadkov. |
 | `apps/server/src/agent-sandbox/service.test.ts`, `apps/server/src/runtime-opencode-config-store.test.ts` | Upstream scenáre so stavom „nič nenastavené“ teraz výslovne zapíšu `bash`/`edit` `allow` (engine default, ktorý testujú), resp. očakávajú predvolené `edit: "ask"`. |
+
+## Otváranie obrazoviek po aktivácii klienta (2026-10-25)
+
+Oprava používateľom hláseného zlyhania navigácie pri úspešne vytvorenom chate.
+
+| Súbor | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/shell/desktop-local-legalwork.ts` | Udalosť zmeny spojenia len pri zmene normalizovanej adresy, portu, tokenov alebo vzdialeného prístupu, prípadne po štarte enginu. Opakované otvorenie nad tým istým spojením už nezruší dotazy a neodpojí stránku čakajúcu na trasu chatu. Test `apps/app/tests/desktop-local-legalwork.test.ts`. |
+
+LAWOSS vrstva: `use-page-navigation.ts` vlastní pokračovanie v rodičovi nad obnovovaným panelom. Každá návšteva má vlastnú životnosť; Back neobnoví starý požiadavok. Detail prípadu ju používa pre nové aj existujúce chaty. Testy pokrývajú odpojenie panelu, inú vec, inú stránku, návrat cez PUSH aj POP a StrictMode.

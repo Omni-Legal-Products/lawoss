@@ -80,3 +80,13 @@ Toolchain mismatch found: prior local Bun1.4.0, CI1.4.2; previous source-suite r
 - Pinned Node24.21.0/Bun1.4.2: app2877pass2skip0fail; server3008pass81skip0fail; exact native helper glob379pass0skip0fail; focused PDF server9pass. App typecheck and root i18n audit exit0. Server/app/Office production builds exit0; Vite app50.42s, Office25.55s at CI6144MiB heap. Optional/runtime source skips do not establish VM or native Windows acceptance.
 - PR202 ordinary dev reconciliatione1b477a2 pushed; source tree was exactly identical before receipt changes and its watcher suite3/3 passed. Cancel requested for its own superseded desktop run39506866194 after new-head checks appeared.
 - Original PR200 failures remain historical and unclassified. One fresh exact52db9744 workflow39510917759 requests source plus packaging; no retry of a failed job snapshot and no weakened deadlines. PR201 Windows workflow39510914223 was admitted for42195bd0; final merge head requires its own PR checks.
+
+## 2026-10-25 — navigácia obrazoviek a ponuka akcií
+
+- Používateľom hlásené chyby: ponuku Ďalšie prekrýval panel rozhovorov; aktivácia priečinka oznamovala aj nezmenené spojenie, čím odpojila stránku a zahodila navigáciu do chatu.
+- Opravy: vrstva rodiča ponuky, oznámenie len pri skutočnej zmene spojenia/štarte enginu, pokračovanie navigácie v rodičovi nad obnovovaným panelom. Životnosť návštevy chráni pred oneskoreným presmerovaním vrátane Back.
+- Regresné testy: rovnaké spojenie bez oznámenia, zmena adresy/portu/tokenov/prístupu a reštart s oznámením; obnova panelu, odchod na inú vec/stránku, PUSH/POP, StrictMode.
+- Vizuálny dôkaz: docs/evidence/2026-10-25-screen-navigation.png; výhradne syntetické údaje. Browser hit-test8/8 a pripojená React navigácia5/5 boli overené pri oprave; pôvodná lokálna aplikácia preverila štyri obrazovky a návrat.
+- Znovupoužiteľný vzor: vlastník asynchrónnej navigácie musí prežiť obnovu dát, ale každá návšteva sa pri odchode definitívne zneplatní. Skutočná zmena pripojenia musí ďalej obnoviť odberateľov.
+
+- PR preflight nad dev `0bac4c6b`: frozen install úspešný; Bun 1.4.2 úplná app sada 3238 pass / 3 skip / 0 fail, 130871 assertions (3241 testov v 419 súboroch); Node24 app typecheck a diff check exit0. Snímka so syntetickými údajmi vizuálne overená. Bežiaca lokálna aplikácia zostala v pôvodnom pracovnom strome.
