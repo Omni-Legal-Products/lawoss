@@ -19,6 +19,8 @@ import {
 import { parseFilename, truncateText } from "@/components/tools/path"
 import { t } from "@/i18n";
 import { legalMemoryActivityLabel } from "@/lib/legalmemory-activity";
+// 🟡 LAWOSS: kroky agenta pre advokáta, nie názvy nástrojov (N-A5-7).
+import { lawossToolActivityLabel } from "@/lawoss/chat/tool-labels";
 
 type AnyToolPart = ToolUIPart | DynamicToolUIPart
 
@@ -82,6 +84,8 @@ function hostnameOf(url: string | undefined): string | undefined {
  */
 export function getToolActivityLabel(part: AnyToolPart): string {
   const name = part.type === "dynamic-tool" ? part.toolName : part.type.replace(/^tool-/, "");
+  const lawossLabel = lawossToolActivityLabel(name, part.input);
+  if (lawossLabel) return lawossLabel;
   const productLabel = productActivityLabels[name];
   if (productLabel) return t(productLabel);
   const memoryLabel = legalMemoryActivityLabel(name, part.input);

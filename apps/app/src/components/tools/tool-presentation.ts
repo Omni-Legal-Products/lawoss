@@ -4,6 +4,8 @@ import { isBashToolPart, isEditToolPart, isGlobToolPart, isGrepToolPart, isReadT
 import { getToolActivityLabel, isToolPartInFlight, isToolPermissionDenied } from "@/lib/tool-activity";
 import { t } from "@/i18n";
 import { parseFilename, truncateText } from "./path";
+// 🟡 LAWOSS: kroky agenta pre advokáta, nie názvy nástrojov (N-A5-7).
+import { lawossToolHistoryLabel } from "@/lawoss/chat/tool-labels";
 
 type ToolPart = ToolUIPart | DynamicToolUIPart;
 
@@ -70,6 +72,8 @@ export function getToolHistoryLabel(part: ToolPart): string {
   if (isToolPartInFlight(part)) return getToolActivityLabel(part);
   if (isToolPermissionDenied(part)) return t("tool_run.permission_denied");
   if (part.state === "output-error") return t("tool_run.action_failed");
+  const lawossLabel = lawossToolHistoryLabel(nameOf(part), part.input);
+  if (lawossLabel) return lawossLabel;
   if (isReadToolPart(part)) return t("tool_run.read_file", { file: parseFilename(part.input?.filePath) });
   if (isEditToolPart(part)) return t("tool_run.edited_file", { file: parseFilename(part.input?.filePath) });
   if (isWriteToolPart(part)) return t("tool_run.wrote_file", { file: parseFilename(part.input?.filePath) });

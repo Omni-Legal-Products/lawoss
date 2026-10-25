@@ -14,6 +14,7 @@ import {
 import { t } from "@/i18n";
 import { subscriptionModelErrorKey } from "@/lawoss/providers/subscription-models";
 import { eigenweltUsageLimitFromError, isAnthropicUsageLimitError, providerUsageLimitErrorText } from "@/app/lib/provider-usage-limit";
+import { isModelCommentary } from "@/lawoss/chat/commentary";
 
 function recordValue(value: unknown, key: string) {
   if (!value || typeof value !== "object") return undefined;
@@ -224,7 +225,8 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
         if (part.type === "text") {
           if (part.synthetic || part.ignored) return [];
           return [{
-            type: "text",
+            // 🟡 LAWOSS: komentár modelu (OpenAI `phase: commentary`) je uvažovanie, nie odpoveď (N-A5-2).
+            type: isModelCommentary(part) ? "reasoning" : "text",
             text: getTextPartValue(part),
             state: "done" as const,
             providerMetadata: { opencode: { partId: part.id } },
