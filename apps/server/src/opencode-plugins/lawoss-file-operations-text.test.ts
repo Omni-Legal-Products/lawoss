@@ -3,7 +3,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { LawossFileOperations } from "./lawoss-file-operations.js";
-import { FILE_REPORT_RULE, fileOperationReport, fileOperationToolText, MOVE_ACROSS_DRIVES_RULE } from "./lawoss-file-operations-text.js";
+import { EXACT_NAME_RULE, FILE_REPORT_RULE, fileOperationReport, fileOperationToolText, MOVE_ACROSS_DRIVES_RULE } from "./lawoss-file-operations-text.js";
 
 const moved = { operation: "move", kind: "file", from: "Spisy/M004/Podklady.pdf", to: "C002-podklady/Podklady.pdf", status: "done", trash: "system" };
 
@@ -86,4 +86,22 @@ test("the lawoss_files tool returns the report to the model after an approved mo
     await plugin["experimental.chat.system.transform"]({}, { system });
     expect(system.join("\n")).toContain(FILE_REPORT_RULE);
   } finally { await server.stop(true); }
+});
+
+test("N-A5-1: the exact name the user wrote wins, a similar one is a question, and the result names similar items", async () => {
+  expect(EXACT_NAME_RULE).toContain("Use the exact file or folder name the user wrote");
+  expect(EXACT_NAME_RULE).toContain("Never replace it with a similar existing name");
+  expect(EXACT_NAME_RULE).toContain("ask the user which item they mean before calling lawoss_files");
+  const plugin = await LawossFileOperations();
+  expect(plugin.tool.lawoss_files.description).toContain(EXACT_NAME_RULE);
+  const system: string[] = [];
+  await plugin["experimental.chat.system.transform"]({}, { system });
+  expect(system.join("\n")).toContain(EXACT_NAME_RULE);
+  const deleted = { operation: "delete", kind: "file", from: "Spisy/M004/podklad.pdf", similar: ["Podklady.pdf"], status: "done", trash: "system" };
+  expect(fileOperationReport({ complete: true, results: [deleted] })).toEqual([
+    "Spisy/M004/podklad.pdf: the file is now in the system Trash, where the user can restore it.",
+    "Spisy/M004/podklad.pdf: next to it are items with similar names (Podklady.pdf). Tell the user exactly which item was changed, so they can check it was the one they meant.",
+  ]);
+  // Not done: no claim about what changed.
+  expect(fileOperationReport({ complete: true, results: [{ ...deleted, status: "not_run", trash: undefined }] })).toEqual([]);
 });

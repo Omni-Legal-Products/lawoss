@@ -62,6 +62,8 @@ export type PublicFileOperation = {
   /** Items inside a folder that goes to the Trash or is copied; `entriesCapped` = at least this many. */
   entries?: number;
   entriesCapped?: true;
+  /** N-A5-1: other items next to the one deleted or moved with a confusable name (the card warns). */
+  similar?: string[];
 };
 type Planned = PublicFileOperation & {
   source?: string;
@@ -135,6 +137,49 @@ async function locate(roots: Root[], requested: string, nested: readonly string[
   throw new ApiError(403, "file_operation_outside_client", OUTSIDE);
 }
 
+/**
+ * N-A5-1 (test 25. 10. 2026): asked to delete `podklad.pdf`, the agent put `Podklady.pdf` on the card. The server
+ * cannot know which name the user said, so the card names every confusable item next to the one deleted or moved:
+ * same extension and a stem that differs only by case, accents or one or two letters.
+ */
+const SIMILAR_SHOWN = 5;
+const SIMILAR_SCAN = 2000;
+
+function nameParts(name: string): { stem: string; ext: string } {
+  const plain = name.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+  const dot = plain.lastIndexOf(".");
+  return dot > 0 ? { stem: plain.slice(0, dot), ext: plain.slice(dot) } : { stem: plain, ext: "" };
+}
+
+/** Levenshtein distance, cut off once it exceeds `limit`. */
+function editDistance(a: string, b: string, limit: number): number {
+  if (Math.abs(a.length - b.length) > limit) return limit + 1;
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) current[j] = Math.min(previous[j]! + 1, current[j - 1]! + 1, previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (Math.min(...current) > limit) return limit + 1;
+    previous = current;
+  }
+  return previous[b.length]!;
+}
+
+/** Two different names a person could mistake for each other. */
+export function confusableNames(name: string, other: string): boolean {
+  if (name.normalize("NFC") === other.normalize("NFC")) return false;
+  const a = nameParts(name), b = nameParts(other);
+  if (a.ext !== b.ext) return false;
+  const shorter = Math.min(a.stem.length, b.stem.length);
+  const allowed = shorter >= 6 ? 2 : shorter >= 3 ? 1 : 0;
+  return editDistance(a.stem, b.stem, allowed) <= allowed;
+}
+
+async function similarSiblings(location: string): Promise<string[]> {
+  const name = basename(location);
+  const siblings = (await readdir(dirname(location)).catch(() => [])).slice(0, SIMILAR_SCAN);
+  return siblings.filter((other) => !other.startsWith(".") && confusableNames(name, other)).sort().slice(0, SIMILAR_SHOWN).map(visibleName);
+}
+
 async function present(location: string): Promise<Stats | null> {
   return lstat(location).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; });
 }
@@ -202,9 +247,11 @@ async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, inpu
       if (!await exists(target.canonical)) throw new ApiError(404, "file_operation_missing", `${target.display} does not exist. Nothing was changed.`);
       const kind = await kindOf(target.canonical);
       const { identity: id, ...contents } = await identity(target.canonical, kind);
+      const similar = await similarSiblings(target.canonical);
       removed.add(target.canonical);
       created.delete(target.canonical);
-      planned.push({ operation: "delete", kind, from: target.display, source: target.canonical, sourceRoot: target.root, identity: id, ...(kind === "folder" ? contents : {}) });
+      planned.push({ operation: "delete", kind, from: target.display, source: target.canonical, sourceRoot: target.root, identity: id, ...(kind === "folder" ? contents : {}),
+        ...(similar.length ? { similar } : {}) });
       continue;
     }
     const source = await locate(roots, operation.from, nested), target = await locate(roots, operation.to, nested);
@@ -214,11 +261,12 @@ async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, inpu
     if (!caseOnly && isPathWithin(source.canonical, target.canonical)) throw new ApiError(400, "file_operation_into_itself", "A folder cannot be moved or copied into itself. Nothing was changed.");
     const kind = await kindOf(source.canonical);
     const { identity: id, ...contents } = await identity(source.canonical, kind);
+    const similar = operation.operation === "move" ? await similarSiblings(source.canonical) : [];
     if (operation.operation === "move") { removed.add(source.canonical); created.delete(source.canonical); }
     created.set(target.canonical, kind);
     planned.push({ operation: operation.operation, kind, from: source.display, to: target.display, source: source.canonical, target: target.canonical,
       sourceRoot: source.root, identity: id, ...(caseOnly ? { caseOnly: true as const } : {}),
-      ...(kind === "folder" && operation.operation === "copy" ? contents : {}) });
+      ...(kind === "folder" && operation.operation === "copy" ? contents : {}), ...(similar.length ? { similar } : {}) });
   }
   return planned;
 }

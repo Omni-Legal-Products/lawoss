@@ -15,7 +15,13 @@ export const FILE_REPORT_RULE = "When the lawoss_files result has a report, pass
  */
 export const MOVE_ACROSS_DRIVES_RULE = "A move to another drive or to a linked folder (for example a NAS) is a real move: the tool copies the item there, checks the copy, and moves the original to the Trash, where the user can restore it. When the user asks to move something (\"move\", \"presuň\", \"přesuň\"), use the move operation, not copy, even across drives; use copy only when the user asks for a copy or to keep the original in place.";
 
-type Result = { operation: string; kind?: string; from?: string; to?: string; status: string; trash?: string };
+/**
+ * N-A5-1 (test 25. 10. 2026): asked to delete `podklad.pdf`, the agent put a similar `Podklady.pdf` on the card.
+ * The exact name the user wrote wins; a similar name is never a correction, and several similar names mean a question.
+ */
+export const EXACT_NAME_RULE = "Use the exact file or folder name the user wrote, letter for letter, including case, accents and extension. Never replace it with a similar existing name (for example Podklady.pdf when the user wrote podklad.pdf). If no item has exactly that name, or several items have similar names, list the folder and ask the user which item they mean before calling lawoss_files. When the card or result names similar items next to the one changed, make sure it is the item the user meant.";
+
+type Result = { operation: string; kind?: string; from?: string; to?: string; status: string; trash?: string; similar?: string[] };
 
 const text = (value: unknown): string | undefined => typeof value === "string" ? value : undefined;
 
@@ -24,7 +30,9 @@ function resultOf(entry: unknown): Result | null {
   const operation = text(Reflect.get(entry, "operation")), status = text(Reflect.get(entry, "status"));
   if (!operation || !status) return null;
   const kind = text(Reflect.get(entry, "kind")), from = text(Reflect.get(entry, "from")), to = text(Reflect.get(entry, "to")), trash = text(Reflect.get(entry, "trash"));
-  return { operation, status, ...(kind ? { kind } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}), ...(trash ? { trash } : {}) };
+  const listed: unknown = Reflect.get(entry, "similar");
+  const similar = Array.isArray(listed) ? listed.filter((name): name is string => typeof name === "string") : [];
+  return { operation, status, ...(kind ? { kind } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}), ...(trash ? { trash } : {}), ...(similar.length ? { similar } : {}) };
 }
 
 const item = (kind: string | undefined) => kind === "folder" ? "folder" : "file";
@@ -60,7 +68,13 @@ export function fileOperationReport(raw: unknown): string[] {
   if (!raw || typeof raw !== "object") return [];
   const results: unknown = Reflect.get(raw, "results");
   if (!Array.isArray(results)) return [];
-  const lines = results.flatMap((entry) => { const value = resultOf(entry); const line = value ? sentence(value) : null; return line ? [line] : []; });
+  const lines = results.flatMap((entry) => {
+    const value = resultOf(entry);
+    const line = value ? sentence(value) : null;
+    // N-A5-1: a similar name next to the changed item may be the one the user meant.
+    const similar = value?.status === "done" && value.similar ? `${value.from ?? ""}: next to it are items with similar names (${value.similar.join(", ")}). Tell the user exactly which item was changed, so they can check it was the one they meant.` : null;
+    return [line, similar].filter((item): item is string => item !== null);
+  });
   if (Reflect.get(raw, "complete") === false) lines.push("Not every change was made: tell the user only about the changes with status done, and say which ones were not made and why.");
   return lines;
 }
