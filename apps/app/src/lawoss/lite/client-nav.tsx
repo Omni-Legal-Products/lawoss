@@ -43,6 +43,7 @@ import { matterSourceFresh, rowDeadline } from "./client-row";
 import { buildClientRows, useRootCards } from "./client-row-data";
 import { ANCESTOR_CLASS, rowDeadlineText, urgencyTextClass } from "./client-row-text";
 import { useUiMode } from "./ui-mode";
+import { cardTitles, rememberCardTitles } from "./client-titles";
 
 /**
  * Skupiny panela pre LAWOSS: režim wiki (session-route odovzdá len priečinok wiki) zoznam projektov nemení,
@@ -117,6 +118,12 @@ export function useClientNavData(live?: { groups?: readonly WorkspaceSessionGrou
   const excludedWorkspaceIds = useMemo(() => resolution.excludedWorkspaceIds, [excludedKey]);
   const query = useOkfOverview(connection, scope);
   const data = scope ? query.data : undefined;
+  // N-A5-6: meno z karty klienta pre titulok okna a panel (aj pri ďalšom štarte počas načítavania).
+  useEffect(() => {
+    // Mazanie len po úplnom čítaní celej praxe: opakovaný problém inde meno nezmaže, ostane len počas načítania.
+    if (!data?.clients || !connection) return;
+    rememberCardTitles(cardTitles(connection.workspaces, scope, data.clients, !data.truncated && data.problems.length === 0), connection.workspaces.length ? connection.workspaces.map((w) => w.id) : undefined);
+  }, [connection, scope, data]);
   const groups = useMemo(() => data ? groupByClient(data.matters, data.inputs, data.clients) : [], [data]);
   // #168: neoverená prax (chyba profilu, nebezpečná cesta) je nedostupná, nie „ešte sa číta“.
   const failed = resolution.state === "unavailable" || Boolean(scope && !data && query.isError) || (connection !== null && !connection.client) || (loaded === null && connectionError !== null);
@@ -140,8 +147,8 @@ export function useClientNavData(live?: { groups?: readonly WorkspaceSessionGrou
   // B3: fakty riadkov klientov raz pre celý panel; karty v koreňoch priečinkov nezávisle od výberu (I-1, I-4).
   const rootCards = useRootCards(connection, data);
   const todayIso = today();
-  const rows = useMemo(() => buildClientRows({ workspaces: connection?.workspaces ?? [], scope, data, groups, model, excludedWorkspaceIds, rootCards, todayIso }),
-    [connection?.workspaces, scope, data, groups, model, excludedWorkspaceIds, rootCards, todayIso]);
+  const rows = useMemo(() => buildClientRows({ workspaces: connection?.workspaces ?? [], scope, data, groups, model, excludedWorkspaceIds, rootCards, todayIso, reading: pending }),
+    [connection?.workspaces, scope, data, groups, model, excludedWorkspaceIds, rootCards, todayIso, pending]);
   return { connection, scope, data, groups, model, pending, failed, excludedWorkspaceIds, check, read, rows };
 }
 

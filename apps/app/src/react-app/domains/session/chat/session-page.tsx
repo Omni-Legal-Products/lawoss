@@ -1131,8 +1131,10 @@ export function SessionPage(props: SessionPageProps) {
     </Button>
   );
 
+  // 🟡 LAWOSS: titulok okna s menom klienta ako v bočnom paneli, nie s menom priečinka (N-A5-6).
+  const titleName = projectName !== props.selectedWorkspaceId ? projectName : workspaceName;
   const windowTitle = props.mainViewTitle ? props.mainViewTitle
-    : props.projectPage ? `${workspaceName} · ${projectViewLabel(props.projectPage)}`
+    : props.projectPage ? `${titleName} · ${projectViewLabel(props.projectPage)}`
     : props.homePage ? t("home.nav_label")
     : props.projectsPage ? t("projects.plural")
     : props.sidebar.activeNav === "scheduled" ? t("scheduled.title")
@@ -1144,7 +1146,7 @@ export function SessionPage(props: SessionPageProps) {
     : props.sidebar.activeNav === "evals" ? t("sidebar.evals")
     : props.sidebar.activeNav === "extensions" ? t("extensions.title")
     : showWorkspaceSetupEmptyState ? t("session.create_or_connect_workspace")
-    : workspaceName || selectedSessionTitle || t("session.default_title");
+    : titleName || selectedSessionTitle || t("session.default_title");
   const sidebarVisible = shellConfig.sidebar && chatSidebarOpen && !mobile;
   useEffect(() => {
     document.title = windowTitle;

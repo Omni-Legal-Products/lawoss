@@ -9,6 +9,7 @@ import { ChevronLeft, ChevronRight, CircleDashed } from "lucide-react";
 import { t, type Language } from "@/i18n";
 import { formatDay } from "../okf/read-model";
 import { AGENDA_KINDS, eventsByDay, monthOf, monthWeeks, shiftMonth, type AgendaEvent, type AgendaKind } from "./agenda-model";
+import { openAppTask } from "./app-tasks";
 import "./pages/agenda.css";
 
 export type ViewMode = "overview" | "month";
@@ -116,7 +117,7 @@ function DayAgenda({ day, items, todayIso, locale }: { day: string; items: reado
     </h3>
     {items.length === 0 ? <p className="lw-agenda-empty">{t("lawoss.lite.agenda_day_empty", locale)}</p> : <ul>
       {items.map((e) => <li key={e.key}>
-        <Link to={e.link} className="lw-agenda-item" data-kind={e.kind}>
+        <Link to={e.link} onClick={openAppTask(e.appTaskId)} className="lw-agenda-item" data-kind={e.kind}>
           <span className="lw-agenda-main">
             <span className="lw-agenda-name" title={e.title}>{e.title}</span>
             <small>{e.office ? t("lawoss.lite.scope_office", locale) : e.matter.title}</small>

@@ -34,6 +34,7 @@ import {
   resolveInteractionLineage, refreshWorkspaceInteractions, createInteractionSnapshot,
   interactionRequestKey, interactionSessionIds, interactionSessionsKey, noteInteractionFolder, type InteractionSessions, type InteractionSnapshot,
 } from "./interaction-state";
+import { isModelCommentary } from "@/lawoss/chat/commentary";
 export { permissionKey, questionKey, seedPermissionState, seedQuestionState } from "./interaction-state";
 
 type SyncOptions = {
@@ -528,7 +529,8 @@ function toUIPart(part: Part): UIMessage["parts"][number] | null {
   if (part.type === "text") {
     if (part.synthetic || part.ignored) return null;
     return {
-      type: "text",
+      // 🟡 LAWOSS: komentár modelu (OpenAI `phase: commentary`) je uvažovanie, nie odpoveď (N-A5-2).
+      type: isModelCommentary(part) ? "reasoning" : "text",
       text: part.text,
       state: "done",
       providerMetadata: { opencode: { partId: part.id } },

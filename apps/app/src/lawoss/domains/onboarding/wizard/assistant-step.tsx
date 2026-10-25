@@ -23,10 +23,14 @@ const STATE_TEXT: Record<AiModelView["state"], WizardTextKey> = {
   "pick-model": "aiStatePick",
   unavailable: "aiStateUnavailable",
   "no-workspace": "aiStateNoWorkspace",
+  unreachable: "aiStateUnreachable",
 };
 
 export const modelTone = (state: AiModelView["state"]): StatusTone =>
   state === "ready" ? "ok" : state === "checking" ? "checking" : state === "no-model" || state === "no-workspace" ? "missing" : "warn";
+
+/** Karta „Zatiaľ žiadny poskytovateľ“: pri neoverenom pripojení „Pozor“, nie „Chýba“ (N-A5-8). */
+const providerTone = (state: AiModelView["state"]): StatusTone => state === "checking" ? "checking" : state === "unreachable" ? "warn" : "missing";
 
 /** Stavy, v ktorých má výber modelu zmysel: pripojený poskytovateľ s modelom alebo bez neho. */
 const PICKABLE: ReadonlySet<AiModelView["state"]> = new Set(["ready", "pick-model", "unavailable"]);
@@ -99,8 +103,9 @@ export function AssistantStepView({ text, locale, model, boundariesOn, busy, nav
           )) : (
             <li className="lw-wiz-provider" data-connected="false">
               <Plug className="size-5" aria-hidden />
-              <span className="min-w-0 flex-1"><strong>{text("aiNoProvider")}</strong><small>{text("aiNotConnected")}</small></span>
-              <StatusBadge text={text} tone={model.state === "checking" ? "checking" : "missing"} icon={toneIcon(model.state === "checking" ? "checking" : "missing")} />
+              {/* N-A5-8: pri neoverenom pripojení stav poskytovateľa nepoznáme, „Nepripojené“ by bolo nepravdivé. */}
+              <span className="min-w-0 flex-1"><strong>{text("aiNoProvider")}</strong><small>{text(model.state === "unreachable" ? "aiStateUnreachable" : "aiNotConnected")}</small></span>
+              <StatusBadge text={text} tone={providerTone(model.state)} icon={toneIcon(providerTone(model.state))} />
             </li>
           )}
         </ul>
@@ -126,8 +131,10 @@ export function AssistantStepView({ text, locale, model, boundariesOn, busy, nav
           </>
         ) : (
           <>
+            {/* N-A5-8: poskytovateľ neodpovedal; prvé je znova overiť, nie pripájať. */}
+            {model.retry ? <button type="button" className="lw-btn gold" disabled={busy} onClick={model.retry} data-lawoss-ai-retry>{text("aiRetry")}</button> : null}
             {model.state === "no-workspace" ? null : (
-              <button type="button" className="lw-btn gold" disabled={busy || model.state === "checking"} onClick={onOpenAiSettings}>{text("aiConnect")}</button>
+              <button type="button" className={model.retry ? "lw-btn" : "lw-btn gold"} disabled={busy || model.state === "checking"} onClick={onOpenAiSettings}>{text("aiConnect")}</button>
             )}
             <button type="button" className={model.state === "no-workspace" ? "lw-btn gold" : "lw-btn"} disabled={busy || model.state === "checking"} onClick={onContinue}>{text("aiWithout")}</button>
           </>

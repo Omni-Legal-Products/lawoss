@@ -6,7 +6,7 @@ import type { OkfRecord } from "../../../lawoss/okf-pamat/src/record.ts";
 import { buildOverview, type MatterInput } from "../../../lawoss/okf/read";
 import { TodayView } from "../src/lawoss/lite/pages/today-page";
 import { agendaEvents } from "../src/lawoss/lite/agenda-model";
-import { buildToday } from "../src/lawoss/lite/today-model";
+import { appTodayTasks, buildToday } from "../src/lawoss/lite/today-model";
 
 // N-A5-9 (UI test dev 25. 10. 2026): „Termíny z prípadov“ mali ~132 riadkov (66× „Vyžiadať chýbajúcu prílohu“,
 // 66× „Porovnať vyjadrenie protistrany“), každý bez klienta, a „Otvorené úlohy“ ukázali ten istý zoznam druhýkrát.
@@ -54,6 +54,18 @@ describe("N-A5-9: Dnes prehľadne", () => {
     expect(cards).toContain("Najbližší termín");
     expect(cards).toContain("Pracovný termín");
     expect(cards).not.toContain("Bez blížiacej sa lehoty");
+  });
+
+  test("úloha aplikácie (Nová úloha, #258) s blízkym dátumom ostane v Otvorených úlohách s miestom, nie v termínoch prípadov", () => {
+    const base = buildToday(data, TODAY);
+    const model = { ...base, tasks: [...appTodayTasks([{ id: "t1", title: "Zavolať klientovi SYN", status: "open", dueDate: "2026-10-27", projectId: "p1", deletedAt: null }], () => "SYN Klient 001"), ...base.tasks] };
+    const out = renderToStaticMarkup(<MemoryRouter><TodayView model={model} locale="sk" now={new Date(`${TODAY}T09:00:00`)} events={agendaEvents(data)} /></MemoryRouter>);
+    const dates = out.slice(out.indexOf("data-lawoss-case-dates"), out.indexOf("</ul>", out.indexOf("data-lawoss-case-dates")));
+    expect(dates).not.toContain("Zavolať klientovi SYN");
+    const tasks = out.slice(out.indexOf("Otvorené úlohy</h2>"));
+    const list = tasks.slice(0, tasks.indexOf("</ul>"));
+    expect(list).toContain("Zavolať klientovi SYN");
+    expect(list).toMatch(/Zavolať klientovi SYN.*· SYN Klient 001/s);
   });
 
   test("review: zmeškaná lehota na karte nie je pracovný termín; ukáže sa pracovný termín úlohy", () => {

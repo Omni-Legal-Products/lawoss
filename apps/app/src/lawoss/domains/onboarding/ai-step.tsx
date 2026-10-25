@@ -27,6 +27,9 @@ type AiStepText = {
   open: string;
   continueReady: string;
   continueWithout: string;
+  /** N-A5-8: poskytovateľ ani po `CHECK_LIMIT_MS` neodpovedá (sieť, proxy, certifikát). */
+  unreachable: string;
+  retry: string;
 };
 
 const aiStepText: Record<Language, AiStepText> = {
@@ -40,6 +43,8 @@ const aiStepText: Record<Language, AiStepText> = {
     open: "Otvoriť nastavenia AI",
     continueReady: "Pokračovať",
     continueWithout: "Pokračovať bez modelu",
+    unreachable: "Pripojenie k AI sa nepodarilo overiť: poskytovateľ ani po dlhšom čase neodpovedá. Skontrolujte internet (firemná sieť, VPN alebo proxy) a skúste znova. Pokračovať môžete aj bez AI a model pripojiť neskôr v nastaveniach.",
+    retry: "Skúsiť znova",
   },
   cs: {
     checking: "Ověřuji připojení modelu…",
@@ -51,6 +56,8 @@ const aiStepText: Record<Language, AiStepText> = {
     open: "Otevřít nastavení AI",
     continueReady: "Pokračovat",
     continueWithout: "Pokračovat bez modelu",
+    unreachable: "Připojení k AI se nepodařilo ověřit: poskytovatel ani po delší době neodpovídá. Zkontrolujte internet (firemní síť, VPN nebo proxy) a zkuste to znovu. Pokračovat můžete i bez AI a model připojit později v nastavení.",
+    retry: "Zkusit znovu",
   },
   en: {
     checking: "Checking the model connection…",
@@ -62,6 +69,8 @@ const aiStepText: Record<Language, AiStepText> = {
     open: "Open AI settings",
     continueReady: "Continue",
     continueWithout: "Continue without a model",
+    unreachable: "The AI connection could not be checked: the provider has not answered for a while. Check the internet connection (company network, VPN or proxy) and try again. You can also continue without AI and connect a model later in the settings.",
+    retry: "Try again",
   },
   de: {
     checking: "Modellverbindung wird geprüft…",
@@ -73,12 +82,16 @@ const aiStepText: Record<Language, AiStepText> = {
     open: "KI-Einstellungen öffnen",
     continueReady: "Weiter",
     continueWithout: "Ohne Modell fortfahren",
+    unreachable: "Die KI-Verbindung ließ sich nicht prüfen: Der Anbieter antwortet seit längerer Zeit nicht. Prüfen Sie die Internetverbindung (Firmennetz, VPN oder Proxy) und versuchen Sie es erneut. Sie können auch ohne KI fortfahren und ein Modell später in den Einstellungen verbinden.",
+    retry: "Erneut versuchen",
   },
 };
 
 /** `no-workspace`: no engine is reachable yet (not even the hidden home workspace, spec P8), so providers cannot be listed here. */
 export type AiModelView = {
-  state: ComposerModelState | "checking" | "no-workspace";
+  state: ComposerModelState | "checking" | "no-workspace" | "unreachable";
+  /** N-A5-8: znova overiť pripojenie, keď poskytovateľ neodpovedal (stav `unreachable`). */
+  retry?: () => void;
   modelLabel?: string;
   /** Pripojení poskytovatelia (karty v kroku AI asistent, C1); bez enginu prázdne. */
   providers?: readonly { id: string; name: string }[];
@@ -121,6 +134,7 @@ export function AiStepView({
     "pick-model": text.pick,
     unavailable: text.unavailable,
     "no-workspace": text.noWorkspace,
+    unreachable: text.unreachable,
   }[model.state];
   const ready = model.state === "ready";
   return (
@@ -144,6 +158,7 @@ export function AiStepView({
         </span>
       </p>
       <div className="flex flex-wrap gap-2">
+        {model.retry ? <Button variant="outline" disabled={busy} onClick={model.retry}>{text.retry}</Button> : null}
         {model.state === "no-workspace" ? null : (
           <Button variant="outline" onClick={onOpenAiSettings}>
             <ExternalLink />
@@ -213,30 +228,70 @@ export function useOnboardingModelView<P extends ModelPrefs>(defaultModel: Model
   return view;
 }
 
+/**
+ * N-A5-8 (test 25. 10. 2026): keď poskytovateľ neodpovedá (sieť, proxy, certifikát), krok 4 ukazoval „Overujem
+ * pripojenie…“ viac ako 10 minút. Po tomto čase (alebo pri chybe zoznamu poskytovateľov) povie, že pripojenie sa
+ * nepodarilo overiť, čo skúsiť a ponúkne „Skúsiť znova“.
+ */
+export const CHECK_LIMIT_MS = 20_000;
+
+/** Stav overovania s časovým limitom: `checking` najviac `CHECK_LIMIT_MS` (`expired`), potom alebo pri chybe `unreachable` s opakovaním. */
+export function boundedCheck(view: AiModelView, checking: boolean, failed: boolean, expired: boolean, retry: () => void): AiModelView {
+  if (failed || (checking && expired)) return { state: "unreachable", retry };
+  return checking ? { state: "checking" } : view;
+}
+
 export function useOnboardingModel(scope?: OnboardingModelScope): AiModelView {
   const local = useLocal();
-  const [target, setTarget] = useState<OpencodeTarget | null | undefined>(undefined);
+  // `failed`: priestor sa nepodarilo zistiť (vypršaný čas, sieť), nie „žiadny priestor“ (review N-A5-8).
+  const [target, setTarget] = useState<OpencodeTarget | null | undefined | "failed">(undefined);
+  const [attempt, setAttempt] = useState(0);
+  const [expired, setExpired] = useState(false);
+  useEffect(() => {
+    setExpired(false);
+    const timer = setTimeout(() => setExpired(true), CHECK_LIMIT_MS);
+    return () => clearTimeout(timer);
+  }, [scope?.workspaceId, scope?.directory, attempt]);
   useEffect(() => {
     let cancelled = false;
     setTarget(undefined);
     void resolveOpencodeTarget(scope)
-      .catch(() => null)
+      .catch((): "failed" => "failed")
       .then((value) => {
         if (!cancelled) setTarget(value);
       });
     return () => {
       cancelled = true;
     };
-  }, [scope?.workspaceId, scope?.directory]);
+  }, [scope?.workspaceId, scope?.directory, attempt]);
+  const resolved = target === undefined || target === null || target === "failed" ? null : target;
   const query = useProviderListQuery({
-    client: target?.client ?? null,
-    baseUrl: target?.baseUrl,
-    directory: target?.directory,
+    client: resolved?.client ?? null,
+    baseUrl: resolved?.baseUrl,
+    directory: resolved?.directory,
   });
-  const view = useOnboardingModelView(local.prefs.defaultModel, target ? query.data : undefined, local.setPrefs);
-  if (target === undefined || (target && query.isPending)) return { state: "checking" };
-  if (target === null) return { state: "no-workspace" };
-  return query.data ? { ...view, workspaceId: target.workspaceId } : view;
+  const view = useOnboardingModelView(local.prefs.defaultModel, resolved ? query.data : undefined, local.setPrefs);
+  const retry = () => {
+    setAttempt((value) => value + 1);
+    // Zoznam poskytovateľov len pri zistenom priestore; inak ho obnoví nové zistenie priestoru.
+    if (resolved) void query.refetch();
+  };
+  return onboardingCheckView({
+    target: target === undefined ? "pending" : target === null ? "none" : target === "failed" ? "failed" : "found",
+    pending: query.isPending, failed: query.isError && !query.data, expired,
+  }, query.data && resolved ? { ...view, workspaceId: resolved.workspaceId } : view, retry);
+}
+
+/**
+ * Stav kroku zo zistenia priestoru a zoznamu poskytovateľov: priestor sa zisťuje (`pending`), nie je (`none`),
+ * nepodarilo sa ho zistiť (`failed`, vypršaný čas pri štarte) alebo je (`found`). Nezistený priestor nie je
+ * „žiadny priestor“: povie, že pripojenie sa nepodarilo overiť, a ponúkne opakovanie (review N-A5-8).
+ */
+export function onboardingCheckView(input: { target: "pending" | "none" | "failed" | "found"; pending: boolean; failed: boolean; expired: boolean }, view: AiModelView, retry: () => void): AiModelView {
+  if (input.target === "none") return { state: "no-workspace" };
+  const checking = input.target === "pending" || (input.target === "found" && input.pending);
+  const failed = input.target === "failed" || (input.target === "found" && input.failed);
+  return boundedCheck(view, checking, failed, input.expired, retry);
 }
 
 /** Zmena modelu v kroku AI asistent: uloží sa ako predvolený model v Nastaveniach AI. */
