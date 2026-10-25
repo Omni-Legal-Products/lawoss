@@ -421,3 +421,51 @@ test("absolute Windows drive-root practices preserve their root separator", () =
   }
   expect(okfScope([a,b],a,"Z:")).toBeNull();
 });
+
+describe("N-A4-4 (test 25. 10. 2026): prax bez Spisy/, odmietnutý vnorený priečinok C099 nie je prípadom C002", () => {
+  const C002: Tree = {
+    "client.md": "---\ntitle: SYN Hron Technológie, a. s.\n---\n",
+    "M004 Vyúčtovanie nájmu/zmluva.pdf": "%PDF",
+    "C099 SYN Vnoreny/zmluva-vnoreny.txt": "SYN",
+  };
+  test("klient je pracovným priečinkom: kód C099 s predponou klienta C002 je klient, nie vec; M004 ostáva vecou", async () => {
+    const c002 = ws("c002", `${ROOT}/C002 SYN Hron`);
+    const scope = okfScope([c002, horak], c002, ROOT);
+    if (!scope) throw new Error("no scope");
+    const data = await readScopeMemory(fakeServer({ c002: C002, horak: HORAK_TREE }), scope, TODAY);
+    expect(data.matters.map((m) => m.path)).toEqual(["C002 SYN Hron/M004 Vyúčtovanie nájmu", "Horák s.r.o./Spisy/2026-09 Platobný rozkaz"]);
+  });
+  test("review: prípady číslované pod kódom klienta a so slovom veci ostávajú prípadmi", async () => {
+    const c002 = ws("c002", `${ROOT}/C002 SYN Hron`), k001 = ws("k001", `${ROOT}/K001 Novák`);
+    const scope = okfScope([c002, k001], c002, ROOT);
+    if (!scope) throw new Error("no scope");
+    const data = await readScopeMemory(fakeServer({
+      c002: { ...C002, "C002-2024-01 Nájom/a.pdf": "%PDF", "C002 Spor s Alfa/b.pdf": "%PDF", "C003 Spor o náhradu/c.pdf": "%PDF" },
+      k001: { "client.md": "---\ntitle: Novák\n---\n", "K001-01 Spor/a.pdf": "%PDF", "K001-02 Zmluva/b.pdf": "%PDF" },
+    }), scope, TODAY);
+    expect(data.matters.map((m) => m.path).sort()).toEqual([
+      "C002 SYN Hron/C002 Spor s Alfa", "C002 SYN Hron/C002-2024-01 Nájom", "C002 SYN Hron/C003 Spor o náhradu", "C002 SYN Hron/M004 Vyúčtovanie nájmu",
+      "K001 Novák/K001-01 Spor", "K001 Novák/K001-02 Zmluva",
+    ]);
+  });
+  test("prax ako jeden priečinok (R8): to isté pravidlo pod koreňom", async () => {
+    const root = ws("prax", ROOT);
+    const tree = Object.fromEntries(Object.entries(C002).map(([path, content]) => [`C002 SYN Hron/${path}`, content]));
+    const scope = okfScope([root], root, ROOT);
+    if (!scope) throw new Error("no scope");
+    const data = await readScopeMemory(fakeServer({ prax: tree }), scope, TODAY);
+    expect(data.matters.map((m) => m.path)).toEqual(["C002 SYN Hron/M004 Vyúčtovanie nájmu"]);
+  });
+  test("vec s kartou je vecou aj s kódom C; klient bez kódu nemení doterajšie pravidlo", async () => {
+    const c002 = ws("c002", `${ROOT}/C002 SYN Hron`);
+    const scope = okfScope([c002], c002, ROOT);
+    if (!scope) throw new Error("no scope");
+    const carded = await readScopeMemory(fakeServer({ c002: { ...C002, "C100 Vec s kartou/matter.md": "---\ntitle: Vec s kartou\n---\n" } }), scope, TODAY);
+    expect(carded.matters.map((m) => m.title).sort()).toEqual(["M004 Vyúčtovanie nájmu", "Vec s kartou"]);
+    const plain = ws("hron", `${ROOT}/Hron bez kodu`);
+    const plainScope = okfScope([plain], plain, ROOT);
+    if (!plainScope) throw new Error("no scope");
+    const legacy = await readScopeMemory(fakeServer({ hron: C002 }), plainScope, TODAY);
+    expect(legacy.matters.map((m) => m.path).sort()).toEqual(["Hron bez kodu/C099 SYN Vnoreny", "Hron bez kodu/M004 Vyúčtovanie nájmu"]);
+  });
+});

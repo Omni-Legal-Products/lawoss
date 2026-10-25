@@ -348,3 +348,11 @@ test("#223 review: podpriečinok s kanceláriou ostáva v tvare na disku (z neho
   // Cesta zložená z mena existuje a je kanonická.
   expect(await realpath(join(root, suggestion.childOffices![0]!))).toBe(join(root, name));
 });
+test("N-A4-4 (test 25. 10. 2026): v náhľade klienta bez Spisy/ priečinok s kódom ďalšieho klienta nie je prípad, prípady pod kódom klienta áno", async () => {
+  const root = await tree([
+    "C002 SYN Hron/client.md", "C002 SYN Hron/M004 Vyúčtovanie nájmu/a.pdf", "C002 SYN Hron/C099 SYN Vnoreny/zmluva-vnoreny.txt",
+    "C002 SYN Hron/C002-2024-01 Nájom/b.pdf", "C002 SYN Hron/C003 Spor o náhradu/c.pdf",
+  ]);
+  const matters = (await suggestOnboardingLevel(join(root, "C002 SYN Hron"))).units.find(entry => entry.path === "")?.matters ?? [];
+  expect(matters.map(matter => matter.path).sort()).toEqual(["C002-2024-01 Nájom", "C003 Spor o náhradu", "M004 Vyúčtovanie nájmu"]);
+});

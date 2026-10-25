@@ -516,7 +516,7 @@ test("#242: „PR 001 Kampaň“ pod klientom s kartou je prípad, holé „HR 0
   expect(out.matters.map((m) => m.path)).toEqual(["PR 001 Kampaň"]);
 });
 
-test("#241: rola inbox z PRACOVNY-PROFIL.md sa číta len pri čakajúcom vstupe", async () => {
+test("#241: rola inbox z PRACOVNY-PROFIL.md; N-A5-3: číta sa vždy, keď profil je", async () => {
   const profile = '---\ntype: working-profile\nfolders: ["00_Prijate","01_Podklady"]\nfolder_roles: {"inbox":"00_Prijate","client_documents":"01_Podklady"}\ndocument_naming: "{date}_{description}"\n---\n';
   const intake = (state: string) => `| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |\n| --- | --- | --- | --- | --- | --- |\n| IN-1 | 2026-10-20 | e-mail | [a.pdf](00_Prijate/a.pdf) | ${state} | |\n`;
   const files = (state: string) => ({ "Spisy/A/matter.md": "---\ntitle: A\n---\n", "Spisy/A/VSTUPY.md": intake(state), "Spisy/A/PRACOVNY-PROFIL.md": profile });
@@ -524,10 +524,11 @@ test("#241: rola inbox z PRACOVNY-PROFIL.md sa číta len pri čakajúcom vstupe
   const pending = await readWorkspaceMemory(fakeClient(files("pending"), log), "ws", TODAY);
   expect(pending.inputs[0]?.inbox).toBe("00_Prijate");
   expect(log).toContain("read Spisy/A/PRACOVNY-PROFIL.md");
+  // N-A5-3: aj bez čakajúceho riadku, lebo súbor vložený do vlastného priečinka na nezaradené čaká na zaradenie.
   const done: string[] = [];
   const processed = await readWorkspaceMemory(fakeClient(files("processed"), done), "ws", TODAY);
-  expect(processed.inputs[0]?.inbox).toBeUndefined();
-  expect(done).not.toContain("read Spisy/A/PRACOVNY-PROFIL.md");
+  expect(processed.inputs[0]?.inbox).toBe("00_Prijate");
+  expect(done).toContain("read Spisy/A/PRACOVNY-PROFIL.md");
   // Čakajúci riadok len vo VSTUPY.md klienta (odkaz do prípadu): profil prípadu sa číta tiež; meno profilu malými písmenami.
   const clientRow = `| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |\n| --- | --- | --- | --- | --- | --- |\n| IN-9 | 2026-10-20 | e-mail | [b.pdf](Spisy/A/00_Prijate/b.pdf) | pending | |\n`;
   const inherited = await readWorkspaceMemory(fakeClient({
