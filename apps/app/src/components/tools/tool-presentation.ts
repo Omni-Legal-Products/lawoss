@@ -5,7 +5,7 @@ import { getToolActivityLabel, isToolPartInFlight, isToolPermissionDenied } from
 import { t } from "@/i18n";
 import { parseFilename, truncateText } from "./path";
 // 🟡 LAWOSS: kroky agenta pre advokáta, nie názvy nástrojov (N-A5-7).
-import { lawossToolHistoryLabel } from "@/lawoss/chat/tool-labels";
+import { lawossToolCategory, lawossToolHistoryLabel } from "@/lawoss/chat/tool-labels";
 
 type ToolPart = ToolUIPart | DynamicToolUIPart;
 
@@ -15,6 +15,8 @@ function nameOf(part: ToolPart) {
 
 function categoryOf(part: ToolPart) {
   const name = nameOf(part);
+  const lawossCategory = lawossToolCategory(name);
+  if (lawossCategory) return lawossCategory;
   if (name === "bash" || name === "exec_command") return "command";
   if (name === "task" || name === "task_status") return "agent";
   if (name === "question") return "question";

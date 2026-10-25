@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { DynamicToolUIPart, UIMessage } from "ai";
 import { setLocale, t, type Language } from "../src/i18n";
-import { getToolHistoryLabel } from "../src/components/tools/tool-presentation";
+import { getToolHistoryLabel, getToolIcon, getToolRunSummary } from "../src/components/tools/tool-presentation";
 import { getToolActivityLabel } from "../src/lib/tool-activity";
 import { getAssistantRenderGroups } from "../src/components/chat/utils";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
@@ -78,13 +78,41 @@ describe("N-A5-7: kroky agenta bez názvov nástrojov", () => {
 
   test("sk: konkrétne texty krokov, prepis chatu ses_….md ako predchádzajúci rozhovor", () => {
     setLocale("sk");
-    expect(getToolActivityLabel(tool("lawoss_documents_prepare", {}))).toBe("Pripravujem dokumenty na čítanie");
+    expect(getToolActivityLabel(tool("lawoss_documents_prepare", {}))).toBe("Príprava dokumentov na čítanie");
     expect(getToolHistoryLabel(tool("lawoss_files", {}, true))).toBe("Zmena súborov");
-    expect(getToolActivityLabel(tool("legalwork_project_remote_folders", {}))).toBe("Zisťujem pripojené priečinky");
-    expect(getToolActivityLabel(tool("storage_read_file", {}))).toBe("Čítam súbor");
+    expect(getToolActivityLabel(tool("legalwork_project_remote_folders", {}))).toBe("Zisťovanie pripojených priečinkov");
+    expect(getToolActivityLabel(tool("storage_read_file", {}))).toBe("Čítanie súboru");
     expect(getToolActivityLabel(tool("legalwork_shell", { command: "ls" }))).toBe(t("tool_activity.running_command"));
-    expect(getToolActivityLabel(read("/prax/Klienti/C001/.legalwork/ses_e8cd4536effeWZzSPl2kgqHfe1.md"))).toBe("Čítam predchádzajúci rozhovor");
+    expect(getToolActivityLabel(read("/prax/Klienti/C001/.legalwork/ses_e8cd4536effeWZzSPl2kgqHfe1.md"))).toBe("Čítanie predchádzajúceho rozhovoru");
     // Bežný súbor ostáva s menom.
     expect(getToolActivityLabel(read("/prax/Klienti/C001/zmluva.pdf"))).toBe(t("tool_activity.reading_file", { file: "zmluva.pdf" }));
   });
 });
+
+describe("review N-A5-2/7", () => {
+  test("legalwork_shell s popisom (povinný) ukáže popis, nie „legalwork shell“, a je príkaz", () => {
+    setLocale("sk");
+    const input = { command: "python format.py", description: "Formátujem zmluvu podľa vzoru kancelárie" };
+    expect(getToolActivityLabel(tool("legalwork_shell", input))).toBe("Formátujem zmluvu podľa vzoru kancelárie");
+    expect(getToolHistoryLabel(tool("legalwork_shell", input, true))).toBe("Formátujem zmluvu podľa vzoru kancelárie");
+    expect(getToolIcon(tool("legalwork_shell", input, true))).toBe(getToolIcon(tool("bash", { command: "ls" }, true)));
+  });
+
+  test("zmena súborov nie je „prehľadané súbory“, príprava dokumentov je čítanie", () => {
+    setLocale("sk");
+    expect(getToolRunSummary([tool("lawoss_files", {}, true), tool("lawoss_documents_prepare", {}, true)])).toBe(`${t("tool_run.summary.edit")} · ${t("tool_run.summary.read")}`);
+  });
+
+  test("hotová správa, ktorej jediný text je komentár, ho ukáže ako odpoveď", () => {
+    const snapshot = {
+      session: { id: "ses_c2" }, todos: [], status: { type: "idle" },
+      messages: [{ info: { id: "msg_c2", role: "assistant", sessionID: "ses_c2", time: { created: 1, completed: 2 } }, parts: [{ ...commentary, messageID: "msg_c2" }] }],
+    } as unknown as LegalworkSessionSnapshot; // Fixture: len polia, ktoré konverzia číta.
+    expect(snapshotToUIMessages(snapshot)[0]?.parts.map((part) => part.type)).toEqual(["text"]);
+    // Komentár pod iným menom poskytovateľa (Azure a iné kompatibilné) je tiež komentár.
+    const azure = { ...commentary, metadata: { azure: { phase: "commentary" } } };
+    const pending = { ...snapshot, messages: [{ ...snapshot.messages[0]!, info: { ...snapshot.messages[0]!.info, time: { created: 1 } }, parts: [azure] }] } as unknown as LegalworkSessionSnapshot;
+    expect(snapshotToUIMessages(pending)[0]?.parts.map((part) => part.type)).toEqual(["reasoning"]);
+  });
+});
+

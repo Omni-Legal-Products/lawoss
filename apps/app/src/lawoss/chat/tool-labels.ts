@@ -5,6 +5,7 @@
  * Volá ho `lib/tool-activity.ts` (počas behu) a `components/tools/tool-presentation.ts` (po skončení), PATCHES.md.
  */
 import { t } from "@/i18n";
+import { truncateText } from "@/components/tools/path";
 
 type Labels = { active: string; done: string };
 
@@ -36,15 +37,29 @@ const SESSION_FILE = /(?:^|[\\/])ses_[A-Za-z0-9]+\.md$/;
 
 function label(name: string, input: unknown, phase: keyof Labels): string | null {
   if (name === "read" && SESSION_FILE.test(field(input, "filePath") ?? "")) return t(phase === "active" ? "lawoss.tool.session_read" : "lawoss.tool.session_read_done");
+  // Príkaz s popisom od agenta (popis je v nástroji povinný) ukáže popis ako bežný príkaz `bash`.
+  const description = name === "legalwork_shell" ? field(input, "description") : undefined;
+  if (description) return truncateText(description, phase === "active" ? 64 : 80);
   const labels = TOOL_LABELS[name];
-  if (labels) {
-    // Príkaz s popisom od agenta ukáže popis, ako pri bežnom príkaze.
-    if (name === "legalwork_shell" && field(input, "description")) return null;
-    return t(labels[phase]);
-  }
+  if (labels) return t(labels[phase]);
   // Iný nástroj LAWOSS bez vlastného textu: všeobecný krok, nikdy názov nástroja.
-  return name.startsWith("lawoss_") ? t("tool.working") : null;
+  return name.startsWith("lawoss_") ? t(phase === "active" ? "tool.working" : "tool_run.summary.tool") : null;
 }
+
+/** Kategória kroku (ikona a súhrn behu) pre nástroje LAWOSS, ktoré vzor podľa mena zaradí zle. */
+export type LawossToolCategory = "command" | "read" | "edit" | "write" | "browse" | "search";
+const TOOL_CATEGORIES: Record<string, LawossToolCategory> = {
+  legalwork_shell: "command",
+  // Presun, kópia a Kôš nie je „prehľadávanie súborov“ (vzor `files`).
+  lawoss_files: "edit",
+  lawoss_documents_prepare: "read",
+  lawoss_documents_list: "read",
+  lawoss_documents_read: "read",
+  lawoss_documents_validate: "read",
+  lawoss_documents_export: "write",
+  legalwork_project_remote_folders: "browse",
+};
+export const lawossToolCategory = (name: string): LawossToolCategory | null => TOOL_CATEGORIES[name] ?? null;
 
 /** Krok počas behu, alebo `null`, keď má nástroj upstream text. */
 export const lawossToolActivityLabel = (name: string, input: unknown): string | null => label(name, input, "active");
