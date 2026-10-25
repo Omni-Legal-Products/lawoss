@@ -90,6 +90,8 @@ export type ClientRowFacts = {
   path: string | null;
   /** Najbližšia lehota len pri presnom klientovi (nie koreň praxe s viacerými klientmi). */
   deadline: RowDeadline | null;
+  /** Prehľad sa ešte číta a meno z karty zatiaľ nie je (N-A5-6: dovtedy meno zapamätané z predošlého prehľadu). */
+  pending?: true;
 };
 
 type RowInputs = {
@@ -117,7 +119,8 @@ export function buildClientRows(input: RowInputs): ReadonlyMap<string, ClientRow
     const title = (group ? cardTitle(data, group.key) : undefined) ?? root?.title;
     const fresh = group !== null && group.matters.every((m) => matterSourceFresh(data, scope, m.path));
     const deadline = group ? rowDeadline(group.matters.flatMap((m) => m.deadlines), todayIso, fresh) : null;
-    rows.set(w.id, { eligible: Boolean(root?.card) || group !== null || member, ...(title ? { cardTitle: title } : {}), path, deadline });
+    const pending = data === undefined && !title && !excluded.has(w.id);
+    rows.set(w.id, { eligible: Boolean(root?.card) || group !== null || member, ...(title ? { cardTitle: title } : {}), path, deadline, ...(pending ? { pending: true as const } : {}) });
   }
   return rows;
 }

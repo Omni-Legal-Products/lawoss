@@ -1,5 +1,7 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { join } from "node:path";
 import type { OkfScope } from "../src/lawoss/okf/read-model";
 
@@ -20,13 +22,15 @@ const storage: Storage = {
 const targets: object[] = [globalThis, ...(typeof window === "undefined" ? [] : [window])];
 const prior = targets.map((target) => Object.getOwnPropertyDescriptor(target, "localStorage"));
 for (const target of targets) Object.defineProperty(target, "localStorage", { configurable: true, value: storage });
+afterAll(() => { resetCardTitlesForTest(); });
 afterAll(() => targets.forEach((target, index) => {
   const descriptor = prior[index];
   if (descriptor) Object.defineProperty(target, "localStorage", descriptor); else Reflect.deleteProperty(target, "localStorage");
 }));
 
 const { cardTitles, cleanTitle, clientCardLabel, rememberCardTitles, resetCardTitlesForTest } = await import("../src/lawoss/lite/client-titles");
-const { clientProjectRow } = await import("../src/lawoss/lite/client-row-view");
+const { clientProjectRow, useClientProjectRow } = await import("../src/lawoss/lite/client-row-view");
+const { buildClientRows } = await import("../src/lawoss/lite/client-row-data");
 const { workspaceLabel } = await import("../src/react-app/shell/route-workspaces");
 
 const ROOT = "/Users/advokat/AK/Klienti";
@@ -54,6 +58,20 @@ describe("meno z karty klienta namiesto mena priečinka", () => {
     expect(row.nativeLabel).toBe(FOLDER);
   });
 
+  test("review: aj po pripojení, kým prehľad nie je načítaný (fakty `pending`), a v skutočnom hooku panela", () => {
+    remember(TITLE);
+    const rows = (data: Parameters<typeof buildClientRows>[0]["data"], excluded: string[] = []) => buildClientRows({ workspaces: [c002], scope, data,
+      groups: [], model: { clients: new Map() }, excludedWorkspaceIds: excluded, rootCards: new Map(), todayIso: "2026-10-25" });
+    expect(rows(undefined).get("c002")).toMatchObject({ eligible: false, pending: true });
+    expect(clientProjectRow({ rows: rows(undefined) }, c002, FOLDER, "sk").label).toBe(TITLE);
+    // Vylúčený priestor ostáva pri natívnom mene.
+    expect(rows(undefined, ["c002"]).get("c002")?.pending).toBeUndefined();
+    expect(clientProjectRow({ rows: rows(undefined, ["c002"]) }, c002, FOLDER, "sk").label).toBe(FOLDER);
+    // Hook, ktorý volá bočný panel (bez panela = bez faktov).
+    const Row = () => createElement("span", null, useClientProjectRow(c002, FOLDER).label);
+    expect(renderToStaticMarkup(createElement(Row))).toContain(TITLE);
+  });
+
   test("meno priestoru sa nemení: premenovanie v nastaveniach a exporty dostanú meno priečinka", () => {
     remember(TITLE);
     expect(workspaceLabel({ ...c002 })).toBe(FOLDER);
@@ -63,6 +81,8 @@ describe("meno z karty klienta namiesto mena priečinka", () => {
     remember(TITLE);
     expect(clientCardLabel("c002", "Hron (môj názov)")).toBeUndefined();
     expect(clientCardLabel("c002", "iny-priecinok")).toBeUndefined();
+    expect(clientCardLabel("c002", FOLDER, `/inde/${FOLDER}`)).toBeUndefined();
+    expect(clientCardLabel("c002", FOLDER, c002.path)).toBe(TITLE);
     expect(cardTitles([{ ...c002, workspaceType: "remote" }], scope, [{ path: FOLDER, title: TITLE }])).toEqual([]);
     expect(cardTitles([{ ...c002, displayName: "Hron" }], scope, [{ path: FOLDER, title: TITLE }])).toEqual([]);
     expect(cardTitles([c002], null, [{ path: FOLDER, title: TITLE }])).toEqual([]);
@@ -78,13 +98,21 @@ describe("meno z karty klienta namiesto mena priečinka", () => {
     remember(FOLDER);
     resetCardTitlesForTest();
     expect(clientCardLabel("c002", FOLDER)).toBeUndefined();
+    // Review: karta, ktorá sa práve nedala prečítať (neúplné čítanie), meno nezmaže.
+    remember(TITLE);
+    rememberCardTitles(cardTitles([c002], scope, [{ path: FOLDER }], false));
+    expect(clientCardLabel("c002", FOLDER)).toBe(TITLE);
+    // Odstránený priestor sa zo záznamu zahodí.
+    rememberCardTitles([], ["iny"]);
+    expect(clientCardLabel("c002", FOLDER)).toBeUndefined();
   });
 
   test("meno z karty len v tvare, ktorý server prijme (šablóna, úvodzovky, riadiace znaky, dĺžka)", () => {
     expect(cleanTitle("  SYN Hron\u0007\nTechnológie  ")).toBe("SYN Hron Technológie");
     expect(cleanTitle("{{KLIENT}}")).toBeUndefined();
     expect(cleanTitle(">")).toBeUndefined();
-    expect(cleanTitle("'SYN Hron, a. s.'")).toBeUndefined();
+    // Úvodzovky odstráni už čítanie karty; zvyšné patria k menu (ako v načítanom riadku).
+    expect(cleanTitle("'SYN Hron, a. s.'")).toBe("'SYN Hron, a. s.'");
     expect(cleanTitle("x".repeat(201))).toBeUndefined();
     expect(cardTitles([c002], scope, [{ path: FOLDER, title: "{{KLIENT}}" }])).toEqual([{ id: "c002", path: c002.path, title: null }]);
   });

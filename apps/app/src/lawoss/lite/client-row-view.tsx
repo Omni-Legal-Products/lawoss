@@ -35,10 +35,10 @@ export type ClientRow = {
 
 /**
  * Riadok z faktov panela: meno (karta → upravený priečinok, meno od používateľa ostáva), kód, bublinka a lehota.
- * Bez faktov (prehľad sa načítava) meno z karty, ktoré si appka zapamätala skôr (N-A5-6), inak natívne meno.
+ * Kým sa prehľad načítava (bez faktov alebo `pending`), meno z karty, ktoré si appka zapamätala skôr (N-A5-6).
  */
 export function clientRowFrom(facts: ClientRowFacts | undefined, nativeLabel: string, locale: Language, remembered?: string): ClientRow {
-  if (!facts) return { label: remembered ?? nativeLabel, nativeLabel, client: false };
+  if (!facts || (facts.pending && remembered)) return { label: remembered ?? nativeLabel, nativeLabel, client: false };
   const named = clientLabel({ nativeLabel, path: facts.path, eligible: facts.eligible, cardTitle: facts.cardTitle });
   if (!named.path) return { label: named.label, nativeLabel, client: false };
   return {
@@ -52,13 +52,13 @@ export function clientRowFrom(facts: ClientRowFacts | undefined, nativeLabel: st
 
 /** Test seam a natívne použitie: riadok projektu z dát panela. */
 export function clientProjectRow(nav: Pick<PublishedClientNav, "rows"> | null, project: ProjectRef, nativeLabel: string, locale: Language): ClientRow {
-  return clientRowFrom(nav?.rows.get(project.id), nativeLabel, locale, clientCardLabel(project.id, nativeLabel));
+  return clientRowFrom(nav?.rows.get(project.id), nativeLabel, locale, clientCardLabel(project.id, nativeLabel, project.path));
 }
 
 export function useClientProjectRow(project: ProjectRef, nativeLabel: string): ClientRow {
   const facts = useClientNav()?.rows.get(project.id);
   const locale = useLocale();
-  return useMemo(() => clientRowFrom(facts, nativeLabel, locale, facts ? undefined : clientCardLabel(project.id, nativeLabel)), [facts, nativeLabel, locale, project.id]);
+  return useMemo(() => clientRowFrom(facts, nativeLabel, locale, clientCardLabel(project.id, nativeLabel, project.path)), [facts, nativeLabel, locale, project.id, project.path]);
 }
 
 /** Meno projektu na Prehľade klienta (hlavička) – rovnaké ako v bočnom paneli. */

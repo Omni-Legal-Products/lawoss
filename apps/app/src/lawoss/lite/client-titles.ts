@@ -40,7 +40,8 @@ function load(): Record<string, Remembered> {
 /** Meno z karty, ako ho číta server (`cardTitleFromMarkdown`): bez riadiacich znakov, šablóny ani nadmernej dĺžky. */
 export function cleanTitle(raw: string): string | undefined {
   const title = raw.replace(/[\s\p{Cc}]+/gu, " ").trim();
-  return title && title.length <= 200 && !/^[>|[{&*!'"]/.test(title) && !title.includes("{{") ? title : undefined;
+  // Úvodzovky okolo mena odstráni už čítanie karty (rovnako ho ukáže aj načítaný riadok).
+  return title && title.length <= 200 && !/^[>|[{&*!]/.test(title) && !title.includes("{{") ? title : undefined;
 }
 
 const folderName = (path: string): string => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
@@ -52,9 +53,10 @@ const namedLikeFolder = (workspace: Workspace): boolean => {
 
 /**
  * Priestory klientov pomenované ako ich priečinok a meno z karty klienta pre ne. `title: null` = karta mena už nemá
- * (alebo sa volá ako priečinok): zapamätané meno sa zabudne. Klient, ktorého prehľad nepozná, sa nemení.
+ * (alebo sa volá ako priečinok): zapamätané meno sa zabudne, ale len po úplnom čítaní bez problémov (karta, ktorá
+ * sa práve nedala prečítať, meno nezmaže). Klient, ktorého prehľad nepozná, sa nemení.
  */
-export function cardTitles(workspaces: readonly Workspace[], scope: OkfScope | null, clients: readonly Pick<OkfClient, "path" | "title">[]): { id: string; path: string; title: string | null }[] {
+export function cardTitles(workspaces: readonly Workspace[], scope: OkfScope | null, clients: readonly Pick<OkfClient, "path" | "title">[], complete = true): { id: string; path: string; title: string | null }[] {
   if (!scope) return [];
   const byFolder = new Map(clients.flatMap((client) => {
     const folder = overviewFolder(scope, client.path);
@@ -65,14 +67,22 @@ export function cardTitles(workspaces: readonly Workspace[], scope: OkfScope | n
     const key = comparable(workspace.path);
     if (!byFolder.has(key)) return [];
     const title = byFolder.get(key) ?? null;
-    return [{ id: workspace.id, path: workspace.path, title: title && !same(title, workspace.name ?? "") ? title : null }];
+    const shown = title && !same(title, workspace.name ?? "") ? title : null;
+    return shown || complete ? [{ id: workspace.id, path: workspace.path, title: shown }] : [];
   });
 }
 
-/** Zapamätá mená z karty (prepíše staré pri tom istom priestore, `null` ho zabudne); zapíše len pri zmene. */
-export function rememberCardTitles(entries: readonly { id: string; path: string; title: string | null }[]): void {
+/**
+ * Zapamätá mená z karty (prepíše staré pri tom istom priestore, `null` ho zabudne); zapíše len pri zmene. `live`:
+ * všetky priestory appky, záznamy odstránených priestorov sa zahodia.
+ */
+export function rememberCardTitles(entries: readonly { id: string; path: string; title: string | null }[], live?: readonly string[]): void {
   const current = load();
   let changed = false;
+  if (live) {
+    const ids = new Set(live);
+    for (const id of Object.keys(current)) if (!ids.has(id)) { delete current[id]; changed = true; }
+  }
   for (const entry of entries) {
     const known = current[entry.id];
     if (entry.title === null) {
@@ -88,11 +98,12 @@ export function rememberCardTitles(entries: readonly { id: string; path: string;
 
 /**
  * Zapamätané meno z karty pre riadok, ktorý ešte nemá fakty z prehľadu; `undefined`, keď natívne meno už nie je meno
- * zapamätaného priečinka (advokát priestor premenoval alebo ho presunul inam).
+ * zapamätaného priečinka (advokát priestor premenoval) alebo priestor je v inom priečinku (`path`, ak je známa).
  */
-export function clientCardLabel(workspaceId: string, nativeLabel: string): string | undefined {
+export function clientCardLabel(workspaceId: string, nativeLabel: string, path?: string | null): string | undefined {
   const known = load()[workspaceId];
-  return known && same(nativeLabel.trim(), folderName(known.path)) ? known.title : undefined;
+  if (!known || !same(nativeLabel.trim(), folderName(known.path))) return undefined;
+  return path && comparable(path) !== comparable(known.path) ? undefined : known.title;
 }
 
 /** Len pre testy: zabudne načítané mená (nový štart appky). */
