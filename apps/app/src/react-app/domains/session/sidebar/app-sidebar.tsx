@@ -981,11 +981,13 @@ function WorkspaceHeader({
   const ctx = useSidebarContext();
   const isExpanded = ctx.expandedWorkspaceIds.has(workspace.id);
   const clientRow = useClientProjectRow(workspace, workspaceLabel(workspace));
+  // 🟡 LAWOSS (N-A5-11): v Lite (Pracovný priestor je vo „Viac“) a pri klientovi sa projekt otvorí na Prehľade.
+  const openHome = useUiMode() === "lite" || clientRow.client;
 
   return (
     <SidebarMenuButton
       {...props}
-      title={t("workspace.open_workspace")}
+      title={openHome ? t("projects.open_project") : t("workspace.open_workspace")}
       className={cn(
         "pr-10 [&_.lw-folder-icon]:size-5 group-hover/workspace-header:bg-sidebar-accent group-hover/workspace-header:text-sidebar-accent-foreground mac:group-hover/workspace-header:bg-black/5 dark:mac:group-hover/workspace-header:bg-white/10",
         statusLabel && "h-10",
@@ -993,7 +995,8 @@ function WorkspaceHeader({
       )}
       onClick={(event) => {
         onClick?.(event);
-        if (!event.defaultPrevented) void ctx.onOpenWorkspace(workspace.id);
+        // 🟡 LAWOSS (N-A5-11): Prehľad (ako pripnutý riadok), nie prázdny Pracovný priestor.
+        if (!event.defaultPrevented) void (openHome ? ctx.onOpenProjectPage(workspace.id, "home") : ctx.onOpenWorkspace(workspace.id));
       }}
       onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}
     >

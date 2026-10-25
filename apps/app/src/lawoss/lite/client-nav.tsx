@@ -34,7 +34,7 @@ import { clientGroupDirectory, clientNavAnchor, clientNavModel, type ClientOverv
 import { clientToggle, focusedClientKey, matterToggle, routeFocus, type TreeClient, type TreeMatter } from "./client-tree";
 import { useClientTree } from "./client-tree-data";
 import { linkedFolderCount } from "./linked-folders";
-import { focusLinkedFolders, LinkedFoldersNavView, useLinkedFolders, useLinkedFoldersFocus } from "./linked-folders-view";
+import { focusLinkedFolders, LinkedFoldersNavView, requestLinkFolder, useLinkedFolders, useLinkedFoldersFocus } from "./linked-folders-view";
 import { clientDeadlinesLink, clientOverviewLink, LEHOTY_PATH, liteMatterLink, NEW_CLIENT_PATH } from "./links";
 import { matterUrgency, useMinuteTick } from "./live";
 import { comparable, within, type MatterConversation } from "./matter-conversations";
@@ -433,7 +433,8 @@ export function ClientLinkedFoldersNavItem({ workspaceId, className, active = fa
   }, [focused, active]);
   if (!client) return null;
   return <LinkedFoldersNavView locale={locale} count={linkedFolderCount(query.data?.folders ?? [], nav?.scope?.practiceRoot ?? null)} className={className}
-    active={active && focused} onOpen={() => { focusLinkedFolders(workspaceId); onOpen?.(); }} />;
+    active={active && focused} onOpen={() => { focusLinkedFolders(workspaceId); onOpen?.(); }}
+    onAdd={() => { requestLinkFolder(workspaceId); onOpen?.(); }} />;
 }
 
 type TreeActions = {
