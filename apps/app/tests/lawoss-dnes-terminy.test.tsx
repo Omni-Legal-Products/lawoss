@@ -7,6 +7,7 @@ import type { OkfRecord } from "../../../lawoss/okf-pamat/src/record.ts";
 import { buildOverview, type MatterInput } from "../../../lawoss/okf/read";
 import { deadlineCoverage } from "../../../lawoss/okf/views";
 import { TodayView } from "../src/lawoss/lite/pages/today-page";
+import { ClientOverviewView } from "../src/lawoss/lite/client-overview";
 import { buildToday, caseDates, type TodayTask } from "../src/lawoss/lite/today-model";
 import { liteMatterLink } from "../src/lawoss/lite/links";
 
@@ -154,5 +155,19 @@ describe("#251: termín úlohy s inou evidovanou lehotou", () => {
     const m = buildToday({ ...buildOverview(odd, TODAY), inputs: odd }, TODAY);
     expect(m.deadlines.map((x) => [x.recordId, x.invalid ?? false])).toEqual([["M3-T1", true]]);
     expect(caseDates(m.tasks, TODAY, 14, m.deadlines).map((x) => [x.id, x.due])).toEqual([["M3-T2", "2026-10-26"]]);
+  });
+
+  test("P3 aj na Domove klienta (#246): os dní klienta má záznam s lehotou v ten istý deň raz", () => {
+    const same: MatterInput[] = [{ path: M049, cardFrontmatter: { title: "Reklamácia" }, records: [
+      { ...task("M2-T1", "Odvolanie podať", "2026-10-27"), deadlines: ["2026-10-27 Odvolanie"] },
+      task("M2-T2", "Pojednávanie", "2026-10-26 10:00"),
+    ] }];
+    const sd = { ...buildOverview(same, TODAY), inputs: same };
+    const out = html(<ClientOverviewView workspaceId="c" locale="sk" todayIso={TODAY} matters={sd.matters}
+      deadlines={sd.upcomingDeadlines} soon={sd.totals.deadlinesWithin7Days} today={buildToday(sd, TODAY)} />);
+    const strip = out.match(/<section class="lw-today-strip".*?<\/section>/)?.[0] ?? "";
+    const busy = strip.match(/<li[^>]*data-busy[^>]*>.*?<\/li>/g) ?? [];
+    // 26. 10. termín s časom (úloha), 27. 10. jedna bodka lehoty bez druhej bodky úlohy.
+    expect(busy.map((cell) => [cell.match(/<i /g)?.length, cell.includes('data-kind="task"')])).toEqual([[1, true], [1, false]]);
   });
 });
