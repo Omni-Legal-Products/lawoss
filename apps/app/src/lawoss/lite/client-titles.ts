@@ -4,9 +4,8 @@
  * registrácie berú meno z karty už pri zápise (server `registrationName`); priestory zaregistrované skôr nie.
  *
  * Len na zobrazenie: keď prehľad pozná meno z karty, appka si ho zapamätá (v tomto počítači, podľa priestoru a jeho
- * priečinka) a `workspaceLabel`/`mapDesktopWorkspace` ho ukážu namiesto mena priečinka, aj pri ďalšom štarte ešte
- * pred načítaním prehľadu. Meno priestoru na serveri sa nemení (export dokumentov ho používa ako identitu) a meno,
- * ktoré si advokát zvolil (zobrazované meno alebo iné než priečinok), ostáva.
+ * priečinka) a riadok bočného panela (`clientRowFrom`), z ktorého berie meno aj titulok okna, ho ukáže ešte pred
+ * načítaním prehľadu. Meno priestoru (server, exporty, premenovanie) sa nemení; meno, ktoré si advokát zvolil, ostáva.
  */
 import type { OkfClient, OkfScope } from "../okf/read-model";
 import { overviewFolder } from "./client-projects";
@@ -51,27 +50,35 @@ const namedLikeFolder = (workspace: Workspace): boolean => {
   return !workspace.displayName?.trim() && Boolean(workspace.path) && (!name || same(name, folderName(workspace.path ?? "")));
 };
 
-/** Priestory klientov pomenované ako ich priečinok a meno z karty klienta pre ne. */
-export function cardTitles(workspaces: readonly Workspace[], scope: OkfScope | null, clients: readonly Pick<OkfClient, "path" | "title">[]): { id: string; path: string; title: string }[] {
+/**
+ * Priestory klientov pomenované ako ich priečinok a meno z karty klienta pre ne. `title: null` = karta mena už nemá
+ * (alebo sa volá ako priečinok): zapamätané meno sa zabudne. Klient, ktorého prehľad nepozná, sa nemení.
+ */
+export function cardTitles(workspaces: readonly Workspace[], scope: OkfScope | null, clients: readonly Pick<OkfClient, "path" | "title">[]): { id: string; path: string; title: string | null }[] {
   if (!scope) return [];
   const byFolder = new Map(clients.flatMap((client) => {
-    const title = client.title ? cleanTitle(client.title) : undefined;
-    const folder = title ? overviewFolder(scope, client.path) : null;
-    return folder && title ? [[folder, title] as const] : [];
+    const folder = overviewFolder(scope, client.path);
+    return folder ? [[folder, client.title ? cleanTitle(client.title) ?? null : null] as const] : [];
   }));
   return workspaces.flatMap((workspace) => {
     if (workspace.workspaceType === "remote" || !workspace.path || !namedLikeFolder(workspace)) return [];
-    const title = byFolder.get(comparable(workspace.path));
-    return title && !same(title, workspace.name ?? "") ? [{ id: workspace.id, path: workspace.path, title }] : [];
+    const key = comparable(workspace.path);
+    if (!byFolder.has(key)) return [];
+    const title = byFolder.get(key) ?? null;
+    return [{ id: workspace.id, path: workspace.path, title: title && !same(title, workspace.name ?? "") ? title : null }];
   });
 }
 
-/** Zapamätá mená z karty (prepíše staré pri tom istom priestore); zapíše len pri zmene. */
-export function rememberCardTitles(entries: readonly { id: string; path: string; title: string }[]): void {
+/** Zapamätá mená z karty (prepíše staré pri tom istom priestore, `null` ho zabudne); zapíše len pri zmene. */
+export function rememberCardTitles(entries: readonly { id: string; path: string; title: string | null }[]): void {
   const current = load();
   let changed = false;
   for (const entry of entries) {
     const known = current[entry.id];
+    if (entry.title === null) {
+      if (known) { delete current[entry.id]; changed = true; }
+      continue;
+    }
     if (known?.path === entry.path && known.title === entry.title) continue;
     current[entry.id] = { path: entry.path, title: entry.title };
     changed = true;
@@ -79,11 +86,13 @@ export function rememberCardTitles(entries: readonly { id: string; path: string;
   if (changed) { try { storage()?.setItem(STORAGE_KEY, JSON.stringify(current)); } catch { /* bez úložiska len do konca behu */ } }
 }
 
-/** Meno z karty klienta namiesto mena priečinka; `undefined`, keď priestor má vlastné meno alebo karta nie je známa. */
-export function clientCardLabel(workspace: Workspace): string | undefined {
-  if (!namedLikeFolder(workspace)) return undefined;
-  const known = load()[workspace.id];
-  return known && known.path === workspace.path ? known.title : undefined;
+/**
+ * Zapamätané meno z karty pre riadok, ktorý ešte nemá fakty z prehľadu; `undefined`, keď natívne meno už nie je meno
+ * zapamätaného priečinka (advokát priestor premenoval alebo ho presunul inam).
+ */
+export function clientCardLabel(workspaceId: string, nativeLabel: string): string | undefined {
+  const known = load()[workspaceId];
+  return known && same(nativeLabel.trim(), folderName(known.path)) ? known.title : undefined;
 }
 
 /** Len pre testy: zabudne načítané mená (nový štart appky). */
