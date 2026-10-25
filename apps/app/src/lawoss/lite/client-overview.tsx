@@ -70,7 +70,7 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
       return folder !== null && ownerOfFolder(owners, folder) === workspaceId;
     };
     // Review #246 (P3): klientsky `VSTUPY.md` aj bez prípadov; register, ktorý sa nedal prečítať, nie je „neevidovaný“.
-    const clientIntakes = (data.clients ?? []).flatMap((client) => client.intake && ownFolder(client.path) ? [client.intake] : []);
+    const ownClients = (data.clients ?? []).filter((client) => ownFolder(client.path));
     const intakeFailed = data.problems.some((problem) => /(?:^|\/)VSTUPY\.md$/.test(problem.path) && ownFolder(problem.path.split("/").slice(0, -1).join("/")));
     // Priečinok klienta chýba (presunutý, odpojený disk): o registri nevieme nič. Iný problém zdroja (napr. zlý
     // záznam pamäte) register nespochybní.
@@ -79,8 +79,9 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
     const views = ownInputs.map((input) => [input.path, buildMatterViews(input, todayIso)] as const);
     const kinds = Object.fromEntries(views.map(([path, view]) => [path, familyNames(view.families, locale)]).filter(([, names]) => names));
     const statuses = Object.fromEntries(views.map(([path, view]) => [path, cardStatus(view)]));
-    const source = { ...own, inputs: ownInputs };
-    return { own, ownInputs, kinds, statuses, events: agendaEvents(source), todayModel: buildToday(source, todayIso), inputs: inputCounts(ownInputs, own.matters.map((m) => m.path), clientIntakes), intakeFailed, folderMissing };
+    // Len vlastní klienti: `own` nesie všetkých klientov prehľadu, Domov nemá rátať priečinky na nezaradené iných.
+    const source = { ...own, inputs: ownInputs, clients: ownClients };
+    return { own, ownInputs, kinds, statuses, events: agendaEvents(source), todayModel: buildToday(source, todayIso), inputs: inputCounts(ownInputs, own.matters.map((m) => m.path), ownClients), intakeFailed, folderMissing };
   }, [allowed, scope, data, model, nav.connection, nav.groups, workspaceId, todayIso, locale]);
   if (!scope || !data || !derived) return null;
   const { own, ownInputs, kinds, statuses, events, todayModel, inputs, intakeFailed, folderMissing } = derived;
