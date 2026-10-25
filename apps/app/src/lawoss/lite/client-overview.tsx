@@ -72,25 +72,27 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
     // Review #246 (P3): klientsky `VSTUPY.md` aj bez prípadov; register, ktorý sa nedal prečítať, nie je „neevidovaný“.
     const clientIntakes = (data.clients ?? []).flatMap((client) => client.intake && ownFolder(client.path) ? [client.intake] : []);
     const intakeFailed = data.problems.some((problem) => /(?:^|\/)VSTUPY\.md$/.test(problem.path) && ownFolder(problem.path.split("/").slice(0, -1).join("/")));
+    // Priečinok klienta chýba (presunutý, odpojený disk): o registri nevieme nič. Iný problém zdroja (napr. zlý
+    // záznam pamäte) register nespochybní.
+    const folderMissing = data.problems.some((problem) => problem.folderUnavailable !== undefined && ownFolder(problem.path));
     // Typ práce aj fáza a ďalší krok z tých istých súborov ako detail prípadu (views.ts).
     const views = ownInputs.map((input) => [input.path, buildMatterViews(input, todayIso)] as const);
     const kinds = Object.fromEntries(views.map(([path, view]) => [path, familyNames(view.families, locale)]).filter(([, names]) => names));
     const statuses = Object.fromEntries(views.map(([path, view]) => [path, cardStatus(view)]));
     const source = { ...own, inputs: ownInputs };
-    return { own, ownInputs, kinds, statuses, events: agendaEvents(source), todayModel: buildToday(source, todayIso), inputs: inputCounts(ownInputs, own.matters.map((m) => m.path), clientIntakes), intakeFailed };
+    return { own, ownInputs, kinds, statuses, events: agendaEvents(source), todayModel: buildToday(source, todayIso), inputs: inputCounts(ownInputs, own.matters.map((m) => m.path), clientIntakes), intakeFailed, folderMissing };
   }, [allowed, scope, data, model, nav.connection, nav.groups, workspaceId, todayIso, locale]);
   if (!scope || !data || !derived) return null;
-  const { own, ownInputs, kinds, statuses, events, todayModel, inputs, intakeFailed } = derived;
+  const { own, ownInputs, kinds, statuses, events, todayModel, inputs, intakeFailed, folderMissing } = derived;
   const clientRoot = nav.connection?.workspaces.find((w) => w.id === workspaceId)?.path ?? "";
   // Iní klienti: registrovaní klienti panela a priečinky klientov z prehľadu praxe (únik medzi klientmi).
   const otherClients = otherClientFolders(clientRoot, (nav.connection?.workspaces ?? []).filter((w) => model.clients.has(w.id)),
     nav.groups.flatMap((group) => clientGroupDirectory(scope, group) ?? []));
-  const readFailed = !canActOnSource(data, workspaceId);
   return <div className="space-y-4">
     <ClientOverviewView workspaceId={workspaceId} locale={locale} todayIso={todayIso} matters={own.matters}
       deadlines={[...own.overdue, ...own.upcomingDeadlines]} soon={own.totals.deadlinesWithin7Days} partial={data.coverage.status !== "complete"}
-      deadlineEvidence={deadlineCoverage(ownInputs)} readFailed={readFailed} kinds={kinds}
-      statuses={statuses} inputs={inputs} inputsFailed={intakeFailed || (inputs === null && readFailed)} events={events} today={todayModel} />
+      deadlineEvidence={deadlineCoverage(ownInputs)} readFailed={!canActOnSource(data, workspaceId)} kinds={kinds}
+      statuses={statuses} inputs={inputs} inputsFailed={intakeFailed || (inputs === null && folderMissing)} events={events} today={todayModel} />
     <LinkedFolders connection={nav.connection} workspaceId={workspaceId} practiceRoot={scope.practiceRoot ?? null} otherClients={otherClients} locale={locale} />
   </div>;
 }

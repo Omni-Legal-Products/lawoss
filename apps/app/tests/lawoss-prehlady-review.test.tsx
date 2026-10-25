@@ -5,12 +5,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LAYER_OF, type RecordType } from "../../../lawoss/okf-pamat/src/schema.ts";
 import { serializeRecord, type OkfRecord } from "../../../lawoss/okf-pamat/src/record.ts";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { LegalworkServerError } from "@/app/lib/legalwork-server";
+import { registerOwns } from "../src/lawoss/domains/lehoty/lehoty-page";
 import { ClientOverviewFrom } from "../src/lawoss/lite/client-overview";
-import { clientNavModel } from "../src/lawoss/lite/client-projects";
+import { clientNavModel, overviewFolder } from "../src/lawoss/lite/client-projects";
 import { linkedFoldersKey } from "../src/lawoss/lite/linked-folders-view";
 import { groupByClient } from "../src/lawoss/lite/today-model";
 import type { OkfConnection } from "../src/lawoss/okf/connection";
-import { okfScope, readScopeMemory, type OkfScopeClient } from "../src/lawoss/okf/read-model";
+import { FOLDER_UNAVAILABLE, okfScope, readScopeMemory, type OkfScopeClient } from "../src/lawoss/okf/read-model";
 import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 
 // Review VŘ k #246 (6cbb3fb8): Domov klienta počíta len svoje prípady, termíny a vstupy.
@@ -31,7 +33,7 @@ const intake = (...rows: string[]) => ["| ID | Prijaté | Zdroj | Originál | St
 
 type Tree = Record<string, string>;
 /** Falošný server: súbory podľa id pracovného priečinka; `broken` = súbor sa nedá prečítať (práva, placeholder). */
-function fakeServer(trees: Record<string, Tree>, broken: readonly string[] = []): OkfScopeClient {
+function fakeServer(trees: Record<string, Tree>, broken: readonly string[] = [], missing: readonly string[] = []): OkfScopeClient {
   const tree = (id: string): Tree => {
     const files = trees[id];
     if (!files) throw new Error(`404 workspace ${id}`);
@@ -39,6 +41,7 @@ function fakeServer(trees: Record<string, Tree>, broken: readonly string[] = [])
   };
   return {
     listWorkspaceDirectory: async (id, path) => {
+      if (missing.includes(id)) throw new LegalworkServerError(404, FOLDER_UNAVAILABLE, "Reconnect the project drive.");
       const prefix = path ? `${path}/` : "";
       const names = new Map<string, "file" | "dir">();
       for (const p of Object.keys(tree(id))) {
@@ -66,17 +69,17 @@ const ALFA_TREE: Tree = {
 const HORAK_TREE: Tree = { "client.md": "---\ntitle: Horák s.r.o.\nclient_type: po\n---\n" };
 
 /** Domov klienta tak, ako ho vykreslí panel: rozsah praxe, prehľad, skupiny a model panela z tých istých dát. */
-async function home(workspaces: RouteWorkspace[], trees: Record<string, Tree>, workspaceId: string, broken: readonly string[] = []) {
+async function home(workspaces: RouteWorkspace[], trees: Record<string, Tree>, workspaceId: string, broken: readonly string[] = [], missing: readonly string[] = []) {
   const scope = okfScope(workspaces, alfa, ROOT);
   if (!scope) throw new Error("no scope");
-  const data = await readScopeMemory(fakeServer(trees, broken), scope, TODAY);
+  const data = await readScopeMemory(fakeServer(trees, broken, missing), scope, TODAY);
   const groups = groupByClient(data.matters, data.inputs, data.clients ?? []);
   const model = clientNavModel(workspaces, ROOT, { status: "ready", scope, groups, matters: data.matters });
   const connection: OkfConnection = { client: null, baseUrl: "http://127.0.0.1:9", token: "t", workspaces, activeWorkspaceId: workspaceId, authGeneration: 1 };
   const queries = new QueryClient();
   queries.setQueryData(linkedFoldersKey(connection, workspaceId), { folders: [], hiddenCount: 0, workspaceRoot: "" });
   const nav = { connection, scope, data, groups, model, excludedWorkspaceIds: [] };
-  return { data, model, html: renderToStaticMarkup(
+  return { data, model, nav, html: renderToStaticMarkup(
     <QueryClientProvider client={queries}><MemoryRouter><SidebarProvider><ClientOverviewFrom nav={nav} workspaceId={workspaceId} /></SidebarProvider></MemoryRouter></QueryClientProvider>,
   ) };
 }
@@ -103,6 +106,14 @@ describe("P2: zaregistrovaný vnorený klient nepatrí na Domov vonkajšieho kli
     expect(html).not.toContain("Cudzí spor");
     expect(html).not.toContain("Lehota vnoreného");
     expect(html).toContain('data-lawoss-inputs="unrecorded"');
+  });
+
+  test("Lehoty klienta ALFA (odkaz z Domova a panela) majú to isté pravidlo ako Domov", async () => {
+    const { data, nav } = await home([alfa, horak, nested], trees, "alfa");
+    const owns = registerOwns(nav, nav.scope, alfa);
+    const folders = Object.fromEntries(data.matters.map((m) => [m.title, overviewFolder(nav.scope, m.path)!]));
+    expect(owns(folders["Spor BETA"]!)).toBe(true);
+    expect(owns(folders["Cudzí spor"]!)).toBe(false);
   });
 
   test("nezaregistrovaný vnorený klient: prehľad ho vôbec nečíta, ALFA ostáva bez zmeny", async () => {
@@ -167,5 +178,17 @@ describe("P3: vstupy klienta na Domove", () => {
     const { html } = await home([alfa, horak], trees, "alfa", ["horak:VSTUPY.md"]);
     expect(html).toContain('data-lawoss-inputs="1"');
     expect(html).not.toContain("data-lawoss-inputs-partial");
+  });
+
+  test("iný problém zdroja (zlý záznam pamäte) bez registra ostane „neevidované“", async () => {
+    const trees = { alfa: { ...ALFA_TREE, "Spisy/2026-03 Spor BETA/memory/E-009-zle.md": "nie je to záznam" }, horak: HORAK_TREE };
+    const { data, html } = await home([alfa, horak], trees, "alfa");
+    expect(data.problems.some((p) => p.path.endsWith("E-009-zle.md"))).toBe(true);
+    expect(html).toContain('data-lawoss-inputs="unrecorded"');
+  });
+
+  test("chýbajúci priečinok klienta (odpojený disk): vstupy „nenačítané“", async () => {
+    const { html } = await home([alfa, horak], { alfa: ALFA_TREE, horak: HORAK_TREE }, "horak", [], ["horak"]);
+    expect(html).toContain('data-lawoss-inputs="not_loaded"');
   });
 });
