@@ -19,7 +19,10 @@ const record = (id: string, truth: string) =>
 
 /** K1 s prípadom M001 (vlastný fakt) a K3 s tajomstvami, ktoré sa do výstupu K1 nesmú dostať. */
 function fixture() {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "okf-safe-read-")));
+  // The temporary root deliberately contains "K3": name checks look only below the root (random mkdtemp
+  // suffixes can contain it, CI 24. 10. 2026).
+  // Native realpath like the reader: on Windows plain realpathSync keeps 8.3 names (RUNNER~1), the reader prints long ones.
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "okf-safe-read-K3-")));
   const k1 = join(root, "K1"), m1 = join(k1, "Spisy", "M001"), k3 = join(root, "K3"), m3 = join(k3, "Spisy", "M003");
   mkdirSync(join(m1, "memory"), { recursive: true }); mkdirSync(m3, { recursive: true });
   writeFileSync(join(k1, "client.md"), "---\ntype: klient\n---\n");
@@ -94,7 +97,7 @@ test("pamäť nad celkový limit sa číta neúplne, nie celá", () => {
 });
 
 test("okf.config ako odkaz na zariadenie: čítanie skončí s chybou konfigu, nezasekne sa", { skip: process.platform === "win32" }, () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "okf-safe-config-")));
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "okf-safe-config-")));
   const matter = join(root, "K", "Spisy", "M");
   mkdirSync(join(matter, "memory"), { recursive: true });
   mkdirSync(join(root, "Office"));
@@ -137,7 +140,8 @@ test("hostiteľ s excludedRoots nečíta koreň ani zdroj profilu v cudzom prie�
   const report = readWorkspaceMemory(f.m1, { allowedRoots: [f.root], excludedRoots: [f.k3] });
   const text = renderWorkspaceMemory(report);
   assert.equal(report.complete, false);
-  assert.doesNotMatch(text, /SECRET|K3/);
+  assert.doesNotMatch(text.split(f.root).join("<root>"), /SECRET|K3/);
+  assert.ok(!text.includes(f.k3));
   assert.match(text, /SYN-01 pamäť/);
   // Without the host exclusion the portable CLI reads what its grants allow, as before.
   assert.match(renderWorkspaceMemory(readWorkspaceMemory(f.m1, { allowedRoots: [f.root] })), /SECRET-PROFILE-K3/);

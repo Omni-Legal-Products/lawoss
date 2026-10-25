@@ -22,7 +22,9 @@ async function memory(dir: string, file: string, text: string) {
 
 /** Synthetic practice: Office ban-list, client K1 with case M001, a client K2 registered inside K1, another client K3. */
 async function fixture() {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "lawoss-matter-memory-")));
+  // The temporary root deliberately contains the other clients' names: mkdtemp's random suffix once did
+  // (`…-aK3TL3`, CI 24. 10. 2026), so name checks must look only below the root (`belowRoot`).
+  const root = await realpath(await mkdtemp(join(tmpdir(), "lawoss-matter-memory-K3-Hron-M003-Vnoreny-")));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   await memory(join(root, "Office"), "A-301.md", record("A-301", "authority", "L3", "Prekonaný výklad SYN", "SYN 1 VSPH 1/2024 necitovať", "t", "banned"));
   const k1 = join(root, "K1-Tatran"), m1 = join(k1, "Spisy", "M001");
@@ -49,6 +51,8 @@ async function fixture() {
 }
 
 const none = async () => [];
+/** The output with the fixture's own temporary root replaced, so a name check never matches the random tmp path. */
+const belowRoot = (text: string, root: string) => text.split(root).join("<root>");
 const refusal = (promise: Promise<unknown>) => promise.then(() => null, (error: unknown) =>
   error && typeof error === "object" && "code" in error ? { code: String(error.code), message: String("message" in error ? error.message : ""), status: "status" in error ? error.status : 0 } : { code: "unknown", message: String(error), status: 0 });
 
@@ -221,7 +225,8 @@ for (const where of ["case", "client"] as const) {
     for (const action of ["read", "preamble"] as const) {
       const read = await readMatterMemoryForChat(f.config, f.own, { action, matter: f.m1 }, none);
       expect(read.text).not.toContain("SECRET");
-      expect(read.text).not.toMatch(/Hron|M003|K3/);
+      expect(belowRoot(read.text, f.root)).not.toMatch(/Hron|M003|K3/);
+      expect(read.text).not.toContain(f.m3);
       expect(read.complete).toBe(false);
       expect(read.text).toContain("Pamäť kancelárie sa nenačítala");
     }
@@ -262,7 +267,8 @@ test("profil pamäte s koreňom alebo zdrojom vo vnorenom klientovi ho nečíta 
   }));
   const read = await readMatterMemoryForChat(f.config, f.own, { action: "read", matter: f.m1 }, none);
   expect(read.text).not.toContain("SECRET");
-  expect(read.text).not.toMatch(/Vnoreny|Hron/);
+  expect(belowRoot(read.text, f.root)).not.toMatch(/Vnoreny|Hron/);
+  expect(read.text).not.toContain(f.nested);
   expect(read.complete).toBe(false);
   expect(read.text).toContain("SYN-MATTER-01 vlastná pamäť");
 });
