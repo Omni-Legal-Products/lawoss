@@ -54,7 +54,11 @@ export type OkfReadResult = Overview & {
   /** Priečinky s kartou klienta (`client.md`/`klient.md`) vrátane klientov bez vecí; názov z karty. */
   clients?: OkfClient[];
 };
-export type OkfClient = { path: string; title?: string };
+export type OkfClient = {
+  path: string; title?: string;
+  /** Klientsky `VSTUPY.md` (aj bez prípadov, review #246); nečitateľný súbor = problém s jeho cestou. */
+  intake?: { path: string; content: string };
+};
 
 export const MAX_MATTERS = 200;
 const CONCURRENCY = 6;
@@ -217,6 +221,19 @@ export async function readWorkspaceMemory(
     clientTitles.set(clientPath, pending);
     return pending;
   };
+  // Klientsky `VSTUPY.md`: jeden súbor sa číta raz (pre klienta aj pre každý jeho prípad) a hlási jeden problém.
+  const clientIntakes = new Map<string, Promise<OkfClient["intake"]>>();
+  const clientIntake = (clientPath: string): Promise<OkfClient["intake"]> => {
+    const cached = clientIntakes.get(clientPath);
+    if (cached) return cached;
+    const path = childPath(clientPath, "VSTUPY.md");
+    const pending = (async () => {
+      if (!(await list(clientPath)).some((entry) => entry.name === "VSTUPY.md" && entry.kind === "file")) return undefined;
+      return { path, content: (await readFile(path)).content };
+    })().catch((e: unknown) => { problems.push({ path, message: message(e), ...diagnosticFields(e), scope: "client" }); return undefined; });
+    clientIntakes.set(clientPath, pending);
+    return pending;
+  };
   // Oblasti kancelárie (`areas` v okf.config) pre prehľad podľa oblasti; jeden súbor sa číta raz.
   const officeAreaReads = new Map<string, Promise<MatterInput["officeAreas"]>>();
   const officeAreas = (officePath: string): Promise<MatterInput["officeAreas"]> => {
@@ -335,12 +352,8 @@ export async function readWorkspaceMemory(
       const card = (await list(clientPath)).find((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
       if (card) input.clientCardPath = childPath(clientPath, card.name);
     }
-    if (clientPath !== undefined && (await list(clientPath)).some((entry) => entry.name === "VSTUPY.md" && entry.kind === "file")) {
-      const intakePath = childPath(clientPath, "VSTUPY.md");
-      try {
-        input.inheritedIntakes = [{ content: (await readFile(intakePath)).content, path: intakePath, scope: "client" }];
-      } catch (e) { problems.push({ path: intakePath, message: message(e), ...diagnosticFields(e), scope: "client" }); }
-    }
+    const clientRegister = clientPath === undefined ? undefined : await clientIntake(clientPath);
+    if (clientRegister) input.inheritedIntakes = [{ ...clientRegister, scope: "client" }];
     // #241: vlastný priečinok na nezaradené (rola `inbox` pracovného profilu), kam appka vkladá dokumenty
     // (`matter-intake.ts`). Profil sa číta len vtedy, keď prípad alebo jeho klient má čakajúci vstup.
     const pending = [input.intake, ...(input.inheritedIntakes ?? []).map((intake) => intake.content)].some((text) => text !== undefined && /\|\s*pending\s*\|/.test(text));
@@ -400,8 +413,8 @@ export async function readWorkspaceMemory(
   // (inak by zdieľanie štruktúry v react-query hlásilo zmenu a pohľad by sa zbytočne prekreslil).
   // Klient bez vecí je stále klient: Klienti a veci ho ukážu (D1 2026-10-04). Poradie podľa cesty kvôli zdieľaniu štruktúry.
   const clients = (await mapLimit([...clientPaths].sort(), CONCURRENCY, async (clientPath): Promise<OkfClient> => {
-    const title = await clientTitle(clientPath);
-    return title ? { path: clientPath, title } : { path: clientPath };
+    const [title, intake] = await Promise.all([clientTitle(clientPath), clientIntake(clientPath)]);
+    return { path: clientPath, ...(title ? { title } : {}), ...(intake ? { intake } : {}) };
   }));
   problems.sort((a, b) => a.path.localeCompare(b.path) || a.message.localeCompare(b.message));
   options.signal?.throwIfAborted();
@@ -624,7 +637,7 @@ export async function readScopeMemory(client: OkfScopeClient, scope: OkfScope, t
   let inputs = selected.flatMap((part,i) => part.inputs.map(input => withOffice(prefixInput(input,scope.members[i].prefix),office,problems)));
   if (inputs.length > MAX_MATTERS) { inputs = inputs.slice(0,MAX_MATTERS); truncated = true; }
   if (!inputs.length && office?.records.length) problems.push({ path: office.directory, message: "Pamäť kancelárie obsahuje záznamy bez vecí; tento pohľad ich zatiaľ nevie zobraziť.", code: "okf.office_orphans", scope: "office" });
-  const clients = selected.flatMap((part,i) => part.clients.map(c => ({ ...c, path: joinPath(scope.members[i].prefix,c.path) }))).sort((a,b) => a.path.localeCompare(b.path));
+  const clients = selected.flatMap((part,i) => part.clients.map(c => ({ ...c, path: joinPath(scope.members[i].prefix,c.path), ...(c.intake ? { intake: { ...c.intake, path: joinPath(scope.members[i].prefix,c.intake.path) } } : {}) }))).sort((a,b) => a.path.localeCompare(b.path));
   const usable = sources.some(s => s.state === "fresh" || s.state === "stale") || inputs.length > 0 || clients.length > 0;
   const status = !problems.length && !truncated && sources.every(s => s.state === "fresh") ? "complete" : usable ? "partial" : "failed";
   problems.sort((a,b) => a.path.localeCompare(b.path) || a.message.localeCompare(b.message));

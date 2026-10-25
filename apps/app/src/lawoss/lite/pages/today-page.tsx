@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
-import { useMemo, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, CalendarClock, Check, FolderOpen, Inbox, ListChecks } from "lucide-react";
+import { ArrowRight, ArrowUpRight, CalendarClock, Check, FolderOpen, Inbox, ListChecks } from "lucide-react";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { useQuery } from "@tanstack/react-query";
@@ -14,7 +14,9 @@ import { addDays, formatDay, today, useOkfConnection, type OkfReadResult, type O
 import { deadlineKey, deadlineText, dueTextFromDays, isCalendarDay, urgencyOf, type Urgency } from "../../okf/view-rules";
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { deadlineCoverage } from "../../../../../../lawoss/okf/views";
-import { buildToday, caseDates, nextDeadline, type CaseDate, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
+import { buildToday, caseDates, nextDeadline, startHere, type CaseDate, type StartHere, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
+import { agendaEvents, type AgendaEvent } from "../agenda-model";
+import { CandidatesPanel, ModeSwitch, MonthCalendar, type ViewMode } from "../agenda-views";
 import { LITE_INPUTS_PATH, liteDeadlineLink, liteMatterLink } from "../links";
 import { clientPreferenceScope, practiceClientChoices, type ClientChoice } from "../client-choice";
 import { NewMatterAction } from "../client-picker";
@@ -55,6 +57,7 @@ function TodayLive({ data, meta, scope, locale, name }: { data: OkfReadResult; m
   const now = today();
   // Model len pri novom obsahu pamäte alebo novom dni, nie pri každom tichom obnovení.
   const model = useMemo(() => buildToday(data, now), [data, now]);
+  const events = useMemo(() => agendaEvents(data), [data]);
   useHotTitle(hotDeadlineCount(data, now));
   const { connection } = useOkfConnection();
   // Prax: „+ Nová vec“ sa najprv opýta, pre ktorého klienta (prehľad praxe).
@@ -62,10 +65,12 @@ function TodayLive({ data, meta, scope, locale, name }: { data: OkfReadResult; m
   // „Nič nehorí“ len po úplnom čítaní a pri evidovaných lehotách; inak to prehľad povie (UX P2 Denný prehľad).
   // Po prípadoch: jeden prípad s lehotami nerobí evidovanými ostatné (I-5b).
   const evidence = useMemo(() => ({ complete: data.coverage.status === "complete", ...deadlineCoverage(data.inputs) }), [data]);
-  return <TodayView model={model} locale={locale} meta={meta} name={name} choices={choices} evidence={evidence} preferenceScope={clientPreferenceScope(scope, connection?.baseUrl)} activeId={connection?.activeWorkspaceId} />;
+  return <TodayView model={model} locale={locale} meta={meta} name={name} choices={choices} evidence={evidence} events={events} preferenceScope={clientPreferenceScope(scope, connection?.baseUrl)} activeId={connection?.activeWorkspaceId} />;
 }
 
 type Text = (key: string, params?: Record<string, string | number>) => string;
+/** Texty `lawoss.lite.*` pre zdieľané časti (časová os aj na Domove klienta). */
+export const liteText = (locale: Language): Text => (key, params) => t(`lawoss.lite.${key}`, locale, params);
 
 
 /** Naléhavost lhůty podle společných pravidel (view-rules), stejně jako v detailu věci. */
@@ -87,10 +92,16 @@ const isWeekend = (iso: string) => [0, 6].includes(parseDay(iso).getUTCDay());
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });
 
 /** Ranní otázka „co mi dnes hoří": přehled, pás lhůt, lhůty, úkoly, k zařazení a věci. Jen čte, nic nezapisuje. */
-export function TodayView({ model, locale, now = new Date(), meta, name, choices, activeId, preferenceScope, evidence }: { model: TodayModel; locale: Language; now?: Date; meta?: OkfPageMeta; name?: string; choices?: readonly ClientChoice[]; activeId?: string | null; preferenceScope?: string;
+export function TodayView({ model, locale, now = new Date(), meta, name, choices, activeId, preferenceScope, evidence, events, initialMode = "overview" }: { model: TodayModel; locale: Language; now?: Date; meta?: OkfPageMeta; name?: string; choices?: readonly ClientChoice[]; activeId?: string | null; preferenceScope?: string;
   /** Úplnosť čítania a evidencia lehôt v podkladoch: bez nich prázdny zoznam nie je „nič nehorí“. */
-  evidence?: { complete: boolean; recorded: number; unrecorded: number } }) {
-  const text: Text = (key, params) => t(`lawoss.lite.${key}`, locale, params);
+  evidence?: { complete: boolean; recorded: number; unrecorded: number };
+  /** Udalosti praxe pre mesiac (spec 0020); bez nich sa prepínač ani mesiac neukážu. */
+  events?: readonly AgendaEvent[];
+  /** Režim po otvorení; voľba sa nepamätá (spec 0020). */
+  initialMode?: ViewMode }) {
+  const text = liteText(locale);
+  const [mode, setMode] = useState<ViewMode>(initialMode);
+  const month = Boolean(events) && mode === "month";
   const todayIso = today(now);
   // „Tento týždeň" = všetko, čo nie je v pokoji (po lehote, neplatné, do 7 dní) - rovnaké pravidlo ako farby.
   const thisWeek = model.deadlines.filter((d) => urgency(d, todayIso) !== "calm");
@@ -118,7 +129,10 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
           <h1 className="lw-today-greeting">{text(greetingKey(now.getHours()))}{name ? <span className="lw-today-name">, {name}</span> : null}</h1>
           <p className="lw-today-lead">{lead}</p>
         </div>
-        <NewMatterAction className="lw-today-primary" locale={locale} choices={choices} activeId={activeId} preferenceScope={preferenceScope}>+ {text("new_matter")}</NewMatterAction>
+        <div className="lw-today-actions">
+          {events ? <ModeSwitch mode={mode} onChange={setMode} locale={locale} /> : null}
+          <NewMatterAction className="lw-today-primary" locale={locale} choices={choices} activeId={activeId} preferenceScope={preferenceScope}>+ {text("new_matter")}</NewMatterAction>
+        </div>
         <dl className="lw-today-stats">
           <Stat label={text("stat_week")} value={thisWeek.length} hot={thisWeek.some((d) => urgency(d, todayIso) === "hot")} />
           <Stat label={text("tasks_title")} value={model.tasks.length} />
@@ -126,9 +140,12 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
         </dl>
       </header>
 
-      <DeadlineStrip deadlines={model.deadlines} dates={dates} todayIso={todayIso} locale={locale} text={text} />
-
+      {month && events ? <div className="lw-today-month" style={reveal(1)}>
+        <MonthCalendar events={events} todayIso={todayIso} locale={locale} variant="full" aside={<CandidatesPanel events={events} locale={locale} />} />
+      </div> : <>
       <div className="lw-today-grid">
+        <div className="lw-today-side">
+        <StartHereCard start={startHere(model.deadlines, dates)} lead={lead} todayIso={todayIso} locale={locale} text={text} />
         <Panel index={2} icon={<CalendarClock aria-hidden size={16} />} title={text("deadlines_title")} className="lw-today-deadlines">
           {evidence && evidence.complete && evidence.recorded > 0 && evidence.unrecorded > 0
             ? <p className="lw-today-empty" data-lawoss-deadlines="partial">{text("deadlines_partial_note", { count: evidence.unrecorded })}</p> : null}
@@ -157,8 +174,10 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
           </ul>}
           <CaseDates dates={dates} todayIso={todayIso} locale={locale} text={text} />
         </Panel>
+        </div>
 
         <div className="lw-today-side">
+          {events ? <div style={reveal(3)}><MonthCalendar events={events} todayIso={todayIso} locale={locale} variant="compact" /></div> : null}
           {/* Rozhodnutie MČ 23. 10. 2026 (N-A3-2): len počet dokumentov mimo prípadov a odkaz na podrobný zoznam. */}
           <Panel index={3} icon={<Inbox aria-hidden size={16} />} title={text("inputs_title")}>
             {model.inputs.length === 0 ? <Empty text={text("inputs_empty")} done /> : <Link className="lw-today-input" to={LITE_INPUTS_PATH} data-lawoss-inputs-count={model.inputs.length}>
@@ -191,6 +210,8 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
         </div>
       </div>
 
+      <DeadlineStrip deadlines={model.deadlines} tasks={model.tasks} todayIso={todayIso} locale={locale} text={text} />
+
       {model.recent.length > 0 ? <section className="lw-today-matters" style={reveal(5)} aria-label={text("matters_title")}>
         <h2 className="lw-today-section-title"><FolderOpen aria-hidden size={16} />{text("matters_title")}</h2>
         <div className="lw-today-cards">
@@ -212,9 +233,34 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
           })}
         </div>
       </section> : null}
+      </>}
 
     </div>
   );
+}
+
+/** Jeden dominantný ďalší krok (spec 0020); bez lehoty či termínu rovnaká veta ako úvod, s jej výhradami. */
+function StartHereCard({ start, lead, todayIso, locale, text }: { start: StartHere | null; lead: string; todayIso: string; locale: Language; text: Text }) {
+  const body = start?.kind === "deadline"
+    ? { title: deadlineText(start.item), kind: text("agenda_kind_deadline"), matters: isOfficeFile(start.item.file) ? text("scope_office") : matterList([start.item.matter, ...(start.item.alsoIn ?? [])], text),
+      when: `${formatDay(start.item.date, locale)} · ${dueTextFromDays(start.item.tier === "overdue" ? -1 : start.item.daysLeft, locale)}`, urgency: urgency(start.item, todayIso),
+      to: liteDeadlineLink(start.item.matter.path, start.item.recordId, start.item.date) }
+    : start?.kind === "work"
+    ? { title: start.item.title, kind: text("agenda_kind_work"), matters: matterList(start.item.matters, text),
+      when: `${formatDay(start.item.due, locale)} · ${caseDateWhen(start.item, locale, text)}`, urgency: urgencyOf(start.item.due, todayIso),
+      to: liteMatterLink(start.item.matters[0]?.path ?? "") }
+    : null;
+  return <section className="lw-today-panel lw-today-start" style={reveal(2)} data-lawoss-start={start?.kind ?? "none"} data-urgency={body?.urgency}>
+    <p className="lw-today-start-label">{text("start_title")}{body ? <span>{body.kind}</span> : null}</p>
+    {body ? <>
+      <h2 className="lw-today-start-title">{body.title}</h2>
+      <p className="lw-today-start-meta">{body.matters}</p>
+      <div className="lw-today-start-foot">
+        <span className="lw-today-start-when">{body.when}</span>
+        <Link className="lw-today-primary lw-today-start-open" to={body.to}>{text("start_open")}<ArrowRight aria-hidden size={15} /></Link>
+      </div>
+    </> : <p className="lw-today-start-meta">{lead}</p>}
+  </section>;
 }
 
 /** Termíny z prípadov pod lehotami: vlastný nadpis a veta, že nejde o evidované lehoty (N-A2-11). */
@@ -261,10 +307,11 @@ function Empty({ text, done = false }: { text: string; done?: boolean }) {
 }
 
 /**
- * Jeden diagram, který nese informaci: 14 dní, dnešek, lhůty jako body podle naléhavosti. Termíny z prípadov
- * berie z `caseDates` (#251), takže záznam s lehotou v ten istý deň nie je dvakrát.
+ * Jeden diagram, který nese informaci: 14 dní, dnešek, lhůty jako body podle naléhavosti. Úlohy ukáže ako termíny
+ * z prípadov (`caseDates`, #251) na Dnes aj na Domove klienta: záznam s lehotou v ten istý deň nie je dvakrát.
  */
-function DeadlineStrip({ deadlines, dates, todayIso, locale, text }: { deadlines: readonly TodayDeadline[]; dates: readonly CaseDate[]; todayIso: string; locale: Language; text: Text }) {
+export function DeadlineStrip({ deadlines, tasks, todayIso, locale, text }: { deadlines: readonly TodayDeadline[]; tasks: readonly TodayTask[]; todayIso: string; locale: Language; text: Text }) {
+  const dates = caseDates(tasks, todayIso, STRIP_DAYS, deadlines);
   const overdue = deadlines.filter((d) => !d.invalid && d.tier === "overdue");
   const days = Array.from({ length: STRIP_DAYS }, (_, i) => addDays(todayIso, i));
   const cells: { key: string; label: string; day: string; items: TodayDeadline[]; due: TodayTask[]; today?: boolean; weekend?: boolean; overdue?: boolean }[] = [

@@ -34,6 +34,26 @@ export function caseDates(tasks: readonly TodayTask[], todayIso: string, days: n
   })
     .sort((a, b) => a.due.localeCompare(b.due) || a.title.localeCompare(b.title, "cs"));
 }
+/** Blok „Začnite tu“ (spec 0020): jeden najbližší konkrétny krok, lehota alebo pracovný termín. */
+export type StartHere = { kind: "deadline"; item: TodayDeadline } | { kind: "work"; item: CaseDate };
+
+/**
+ * Poradie: lehota po termíne → lehota dnes → pracovný termín po termíne alebo dnes → lehota do 7 dní → najbližší
+ * pracovný termín. Neplatný dátum lehoty nie je krok (ukazuje ho zoznam lehôt k overeniu).
+ */
+export function startHere(deadlines: readonly TodayDeadline[], dates: readonly CaseDate[]): StartHere | null {
+  const dated = deadlines.filter((d) => !d.invalid);
+  const deadline = (pick: (d: TodayDeadline) => boolean): StartHere | null => {
+    const item = dated.find(pick);
+    return item ? { kind: "deadline", item } : null;
+  };
+  const work = (pick: (d: CaseDate) => boolean): StartHere | null => {
+    const item = dates.find(pick);
+    return item ? { kind: "work", item } : null;
+  };
+  return deadline((d) => d.tier === "overdue") ?? deadline((d) => d.daysLeft === 0) ?? work((d) => d.daysLeft <= 0)
+    ?? deadline((d) => d.daysLeft <= 7) ?? work(() => true);
+}
 export type TodayModel = { deadlines: TodayDeadline[]; tasks: TodayTask[]; inputs: PendingInput[]; recent: MatterOverview[] };
 /** `key` je jedinečný aj pri dvoch klientoch s rovnakým menom; `client` "" = klient bez názvu v karte. */
 export type ClientGroup = { key: string; client: string; matters: MatterOverview[] };
