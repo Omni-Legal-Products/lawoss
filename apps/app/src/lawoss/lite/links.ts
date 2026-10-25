@@ -17,6 +17,9 @@ export const organizeFolderLink = (root: string): string => `${ADD_FOLDER_PATH}&
 
 export const liteMatterLink = (path: string): string => `${LITE_MATTER_PATH}?vec=${encodeURIComponent(path)}`;
 
+/** Úloha aplikácie (Nová úloha) v natívnom paneli Úlohy (`/tasks?task=<id>`, session-route). */
+export const appTaskLink = (taskId: string): string => `/tasks?task=${encodeURIComponent(taskId)}`;
+
 /** Prehľad jedného klienta na stránke Klienti a veci (`?klient=<kľúč skupiny>`, kľúč z `groupByClient`). */
 export const clientOverviewLink = (key: string): string => `${LITE_CLIENTS_PATH}?klient=${encodeURIComponent(key)}`;
 

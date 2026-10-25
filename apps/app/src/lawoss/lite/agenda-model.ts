@@ -7,7 +7,8 @@
 import { deadlineKey, isOfficeFile, recordDeadlines, recordKey, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
 import { isManagedDeadline, managedDeadlineTrusted } from "../../../../../lawoss/okf/deadline-workflow";
 import { deadlineText, isCalendarDay } from "../okf/view-rules";
-import { liteDeadlineLink, liteMatterLink } from "./links";
+import { appTaskLink, liteDeadlineLink, liteMatterLink } from "./links";
+import type { TodayTask } from "./today-model";
 
 export type AgendaKind = "deadline" | "work" | "candidate";
 export const AGENDA_KINDS: readonly AgendaKind[] = ["deadline", "work", "candidate"];
@@ -34,8 +35,8 @@ type Source = {
 const byDateThenTitle = (a: AgendaEvent, b: AgendaEvent): number =>
   a.date.localeCompare(b.date) || AGENDA_KINDS.indexOf(a.kind) - AGENDA_KINDS.indexOf(b.kind) || a.title.localeCompare(b.title, "cs");
 
-/** Všetky udalosti rozsahu (prax alebo klient) bez časového okna; zdieľaný záznam raz. */
-export function agendaEvents(source: Source): AgendaEvent[] {
+/** Všetky udalosti rozsahu (prax alebo klient) bez časového okna; zdieľaný záznam raz. Úlohy aplikácie (N-A5-4) s dátumom sú pracovné termíny. */
+export function agendaEvents(source: Source, appTasks: readonly TodayTask[] = []): AgendaEvent[] {
   const out = new Map<string, AgendaEvent>();
   for (const d of [...source.overdue, ...source.upcomingDeadlines]) {
     if (d.invalid || !isCalendarDay(d.date)) continue;
@@ -60,6 +61,11 @@ export function agendaEvents(source: Source): AgendaEvent[] {
         out.set(key, { key, kind: "candidate", date: d.date, title: record.title, matter: { path: input.path, title: titles.get(input.path) ?? input.path }, link: liteMatterLink(input.path) });
       }
     }
+  }
+  for (const task of appTasks) {
+    const due = task.due?.trim().slice(0, 10);
+    if (!due || !isCalendarDay(due)) continue;
+    out.set(`work:${task.key}`, { key: `work:${task.key}`, kind: "work", date: due, title: task.title, matter: { path: "", title: task.app?.client ?? "" }, link: appTaskLink(task.id) });
   }
   return [...out.values()].sort(byDateThenTitle);
 }
