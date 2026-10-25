@@ -237,7 +237,7 @@ describe("dynamické pohľady z OKF", () => {
     // Klient v koreni bez názvu v karte nedostane meno podľa veci.
     const root = groupByClient([a], [{ path: a.path, scopePaths: [a.path, ""] }]);
     expect(root[0]?.client).toBe("");
-    expect(html(<ClientsView locale="en" groups={root} />)).toContain(">Client</h2>");
+    expect(html(<ClientsView locale="en" groups={root} />)).toContain(">Client</a></h2>");
   });
 
   test("review: lehota so zdrojom ukazuje aj dátum, text lehoty bez dlhej pomlčky na začiatku", () => {

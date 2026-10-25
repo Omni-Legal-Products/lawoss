@@ -993,7 +993,8 @@ function WorkspaceHeader({
       )}
       onClick={(event) => {
         onClick?.(event);
-        if (!event.defaultPrevented) void ctx.onOpenWorkspace(workspace.id);
+        // 🟡 LAWOSS (N-A5-11): klient sa otvorí na Prehľade (ako pripnutý riadok), nie v prázdnom Pracovnom priestore.
+        if (!event.defaultPrevented) void (clientRow.client ? ctx.onOpenProjectPage(workspace.id, "home") : ctx.onOpenWorkspace(workspace.id));
       }}
       onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "home")}
     >

@@ -92,14 +92,15 @@ export function LinkedFoldersView(props: {
 
 /**
  * Položka pod klientom v bočnom paneli: názov a počet. Bez pripojených priečinkov sa ukáže tiež (N-10), s akciou
- * „Pripojiť priečinok“; klik otvorí Domov klienta so sekciou a tlačidlom Pripojiť priečinok.
+ * „Pripojiť priečinok“ (+): vtedy klik otvorí Domov klienta so sekciou a rovno výber priečinka (N-A5-11), inak len
+ * Domov so sekciou.
  */
-export function LinkedFoldersNavView({ locale, count, active = false, className, onOpen }: {
-  locale: Language; count: number; active?: boolean; className?: string; onOpen?: () => void;
+export function LinkedFoldersNavView({ locale, count, active = false, className, onOpen, onAdd }: {
+  locale: Language; count: number; active?: boolean; className?: string; onOpen?: () => void; onAdd?: () => void;
 }) {
   const add = t("lawoss.lite.linked_folders_link", locale);
   return <SidebarMenuSubItem>
-    <SidebarMenuSubButton className={className} isActive={active} aria-current={active ? "page" : undefined} data-lawoss-project-linked-folders="" onClick={onOpen}
+    <SidebarMenuSubButton className={className} isActive={active} aria-current={active ? "page" : undefined} data-lawoss-project-linked-folders="" onClick={count > 0 ? onOpen : onAdd ?? onOpen}
       title={count > 0 ? undefined : add}>
       <FolderSymlink className="size-4" strokeWidth={1.5} />
       <span className="min-w-0 flex-1 truncate">{t("lawoss.lite.linked_folders_title", locale)}</span>
@@ -119,6 +120,19 @@ export function focusLinkedFolders(workspaceId: string | null): void {
 }
 export function useLinkedFoldersFocus(): string | null {
   return useSyncExternalStore((listener) => { focusListeners.add(listener); return () => { focusListeners.delete(listener); }; }, () => focusedClient, () => focusedClient);
+}
+
+// „+“ v paneli (N-A5-11): Domov tohto klienta po načítaní rovno otvorí výber priečinka, raz.
+let pickFor: string | null = null;
+export function requestLinkFolder(workspaceId: string): void {
+  pickFor = workspaceId;
+  focusLinkedFolders(workspaceId);
+}
+/** Vezme žiadosť o výber priečinka pre tohto klienta (len raz); iný klient ju nechá. */
+export function takeLinkFolderRequest(workspaceId: string): boolean {
+  if (pickFor !== workspaceId) return false;
+  pickFor = null;
+  return true;
 }
 
 /** Koncový bod projektu klienta zo spojenia OKF (lokálny server, id projektu ako ho čaká server); vzdialený = `null`. */
@@ -170,6 +184,7 @@ export function LinkedFolders({ connection, workspaceId, practiceRoot, otherClie
     if (empty) section.current?.querySelector<HTMLButtonElement>("[data-lawoss-linked-folders-link]")?.focus({ preventScroll: true });
   }, [focused, empty]);
   const clientRoot = connection?.workspaces.find((w) => w.id === workspaceId)?.path ?? "";
+  const canPick = Boolean(endpoint) && !policy.locked && isDesktopRuntime() && query.data !== undefined && !busy;
   const scope: Omit<LinkScope, "linked"> = { clientRoot, practiceRoot, otherClients };
 
   const run = async (action: (writer: ReturnType<typeof linkedFoldersWriter>) => Promise<Outcome>) => {
@@ -200,6 +215,11 @@ export function LinkedFolders({ connection, workspaceId, practiceRoot, otherClie
       return result.kind === "cancelled" ? null : result;
     });
   };
+
+  useEffect(() => {
+    // Zamknuté firmou alebo mimo desktopu žiadosť ostane, Domov len ukáže sekciu; Zrušiť vo výbere nič nezmení.
+    if (focused && canPick && takeLinkFolderRequest(workspaceId)) onLink();
+  });
 
   const state: LinkedFoldersViewState = !endpoint ? "unavailable" : query.isError ? "error" : query.data ? "ready" : "loading";
   return <div ref={section} data-lawoss-linked-folders-focused={focused ? "" : undefined}>
