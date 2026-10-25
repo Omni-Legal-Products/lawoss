@@ -1027,8 +1027,9 @@ export function LawossWelcomePage({
             <LawossWordmark className="lw-onb-wordmark" />
             <span className="sr-only">LAWOSS</span>
           </p>
-          {/* N-A5-5: v nastavenej praxi je „Pridať klienta“ pridaním klienta, nie nastavením praxe. */}
-          <h1 className="lw-onb-title">{sidebarFlow && step === "client" ? tr("addClientTitle") : tr("title")}</h1>
+          {/* N-A5-5: v nastavenej praxi je „Pridať klienta“ (aj jeho ďalší krok s prípadom) pridaním klienta a „Nový
+              prípad“ pridaním prípadu, nie nastavením praxe. */}
+          <h1 className="lw-onb-title">{sidebarFlow ? tr(initialStep === "matter" ? "newMatter" : "addClientTitle") : tr("title")}</h1>
           {mainPath && idx >= 0 ? (
             <WizardProgress text={wiz} steps={steps} current={idx} disabled={navBusy} onGo={wizard ? (target) => void move(target) : undefined} />
           ) : null}
@@ -1191,7 +1192,7 @@ export function LawossWelcomePage({
           ) : null}
           {step === "matter" && !openClientPending ? (
             <Matter
-              title={initialStep === "matter" ? tr("newMatter") : tr("matter")}
+              title={sidebarFlow ? tr("newMatter") : tr("matter")}
               nav={<>{backNav}<Button variant="ghost" disabled={busy} onClick={() => void move("done")}>{tr("skip")}</Button></>}
               chooserOpen={clientFolderError}
               clientTitle={clientTitle}

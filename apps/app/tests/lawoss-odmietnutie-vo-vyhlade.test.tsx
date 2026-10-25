@@ -25,8 +25,9 @@ describe("odmietnutie sa posunie do zorného poľa", () => {
     ]);
   });
 
-  test("onboarding volá posun pri každej novej chybe a hláška je zamerateľná", () => {
-    // SSR nespúšťa efekty: väzbu hlášky na posun overuje zdroj stránky (ref, tabIndex a efekt nad errorState).
+  test("onboarding volá posun pri každej novej chybe a hláška je zamerateľná (strážca väzby)", () => {
+    // SSR nespúšťa efekty a repozitár nemá DOM pre testy: väzbu hlášky na posun stráži zdroj stránky (ref, tabIndex,
+    // efekt nad errorState); správanie posunu a fokusu overuje test `revealError` vyššie.
     const page = readFileSync(join(import.meta.dir, "../src/lawoss/domains/onboarding/lawoss-welcome-page.tsx"), "utf8");
     expect(page).toContain("ref={errorBanner}");
     expect(page).toMatch(/role="alert"\s+tabIndex=\{-1\}/);
@@ -44,9 +45,9 @@ const api: WelcomeApi = {
   suggestOnboarding: async () => ({ root: "/x", level: "client", marked: false, score: 0.5, signals: [], clients: [], complete: true }),
   lawossTriage: <T,>(): Promise<T> => Promise.reject(new Error("pri SSR sa nevolá")),
 };
-const page = (completed: boolean) => renderToStaticMarkup(
+const page = (completed: boolean, initialStep: "client" | "matter" = "client") => renderToStaticMarkup(
   <QueryClientProvider client={new QueryClient()}><LocalProvider><MemoryRouter>
-    <LawossWelcomePage api={api} initialStep="client" hasCompletedOnboarding={completed} onCancel={() => {}} pickDirectory={async () => null} onOpenAiSettings={() => {}} onComplete={() => {}} />
+    <LawossWelcomePage api={api} initialStep={initialStep} hasCompletedOnboarding={completed} onCancel={() => {}} pickDirectory={async () => null} onOpenAiSettings={() => {}} onComplete={() => {}} />
   </MemoryRouter></LocalProvider></QueryClientProvider>,
 );
 
@@ -55,6 +56,11 @@ describe("Pridať klienta v nastavenej praxi", () => {
     // SSR jazyk rozhrania je angličtina (useLocale).
     expect(page(true)).toContain("Add a client");
     expect(page(true)).not.toContain("Set up your practice");
+    // Karta klienta na stránke dostane „Nový klient“ (prop addingClient), nie „Prvý klient“.
+    expect(page(true)).toContain("New client");
+    expect(page(true)).not.toContain("First client");
+    // „Nový prípad“ z bočného panela nie je nastavenie praxe.
+    expect(page(true, "matter")).not.toContain("Set up your practice");
     expect(page(false)).toContain("Set up your practice");
     const sk = (addingClient: boolean) => renderToStaticMarkup(<Client base={base} locale="sk" tr={welcomeText("sk")} busy={false} onPlan={async () => {}} addingClient={addingClient} />);
     expect(sk(true)).toContain("Nový klient");
