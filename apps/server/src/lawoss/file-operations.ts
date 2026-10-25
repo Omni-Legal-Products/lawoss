@@ -62,6 +62,8 @@ export type PublicFileOperation = {
   /** Items inside a folder that goes to the Trash or is copied; `entriesCapped` = at least this many. */
   entries?: number;
   entriesCapped?: true;
+  /** N-A5-1: other items next to the one deleted or moved with a confusable name (the card warns). */
+  similar?: string[];
 };
 type Planned = PublicFileOperation & {
   source?: string;
@@ -135,6 +137,59 @@ async function locate(roots: Root[], requested: string, nested: readonly string[
   throw new ApiError(403, "file_operation_outside_client", OUTSIDE);
 }
 
+/**
+ * N-A5-1 (test 25. 10. 2026): asked to delete `podklad.pdf`, the agent put `Podklady.pdf` on the card. The server
+ * cannot know which name the user said, so the card names every confusable item next to the one deleted or moved:
+ * same extension and a stem that differs only by case, accents or one or two letters.
+ */
+const SIMILAR_SHOWN = 5;
+
+function nameParts(name: string): { stem: string; ext: string } {
+  const plain = name.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+  const dot = plain.lastIndexOf(".");
+  return dot > 0 ? { stem: plain.slice(0, dot), ext: plain.slice(dot) } : { stem: plain, ext: "" };
+}
+
+/** Levenshtein distance, cut off once it exceeds `limit`. */
+function editDistance(a: string, b: string, limit: number): number {
+  if (Math.abs(a.length - b.length) > limit) return limit + 1;
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) current[j] = Math.min(previous[j]! + 1, current[j - 1]! + 1, previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (Math.min(...current) > limit) return limit + 1;
+    previous = current;
+  }
+  return previous[b.length]!;
+}
+
+/** Two different names a person could mistake for each other. */
+export function confusableNames(name: string, other: string): boolean {
+  if (name.normalize("NFC") === other.normalize("NFC")) return false;
+  const a = nameParts(name), b = nameParts(other);
+  if (a.ext !== b.ext) return false;
+  const shorter = Math.min(a.stem.length, b.stem.length);
+  const allowed = shorter >= 6 ? 2 : shorter >= 3 ? 1 : 0;
+  return editDistance(a.stem, b.stem, allowed) <= allowed;
+}
+
+/** Hidden files and Office lock files (`~$Zmluva.docx`) are not items the user could mean. */
+const notAnItem = (name: string) => name.startsWith(".") || name.startsWith("~$");
+
+async function similarSiblings(location: string): Promise<string[]> {
+  const name = basename(location), self = await present(location);
+  const candidates = (await readdir(dirname(location)).catch(() => [])).filter((other) => !notAnItem(other) && confusableNames(name, other)).sort();
+  const similar: string[] = [];
+  for (const other of candidates) {
+    if (similar.length >= SIMILAR_SHOWN) break;
+    // On APFS and NTFS the requested `PODKLAD.pdf` and the listed `podklad.pdf` are the same file, not a neighbour.
+    const info = await present(join(dirname(location), other));
+    if (info && self && info.dev === self.dev && info.ino === self.ino) continue;
+    similar.push(visibleName(other));
+  }
+  return similar;
+}
+
 async function present(location: string): Promise<Stats | null> {
   return lstat(location).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; });
 }
@@ -202,9 +257,11 @@ async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, inpu
       if (!await exists(target.canonical)) throw new ApiError(404, "file_operation_missing", `${target.display} does not exist. Nothing was changed.`);
       const kind = await kindOf(target.canonical);
       const { identity: id, ...contents } = await identity(target.canonical, kind);
+      const similar = await similarSiblings(target.canonical);
       removed.add(target.canonical);
       created.delete(target.canonical);
-      planned.push({ operation: "delete", kind, from: target.display, source: target.canonical, sourceRoot: target.root, identity: id, ...(kind === "folder" ? contents : {}) });
+      planned.push({ operation: "delete", kind, from: target.display, source: target.canonical, sourceRoot: target.root, identity: id, ...(kind === "folder" ? contents : {}),
+        ...(similar.length ? { similar } : {}) });
       continue;
     }
     const source = await locate(roots, operation.from, nested), target = await locate(roots, operation.to, nested);
@@ -214,11 +271,12 @@ async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, inpu
     if (!caseOnly && isPathWithin(source.canonical, target.canonical)) throw new ApiError(400, "file_operation_into_itself", "A folder cannot be moved or copied into itself. Nothing was changed.");
     const kind = await kindOf(source.canonical);
     const { identity: id, ...contents } = await identity(source.canonical, kind);
+    const similar = operation.operation === "move" ? await similarSiblings(source.canonical) : [];
     if (operation.operation === "move") { removed.add(source.canonical); created.delete(source.canonical); }
     created.set(target.canonical, kind);
     planned.push({ operation: operation.operation, kind, from: source.display, to: target.display, source: source.canonical, target: target.canonical,
       sourceRoot: source.root, identity: id, ...(caseOnly ? { caseOnly: true as const } : {}),
-      ...(kind === "folder" && operation.operation === "copy" ? contents : {}) });
+      ...(kind === "folder" && operation.operation === "copy" ? contents : {}), ...(similar.length ? { similar } : {}) });
   }
   return planned;
 }
@@ -228,9 +286,19 @@ function publicPlan(plan: Planned[]): PublicFileOperation[] {
   return plan.map(({ source: _source, target: _target, sourceRoot: _root, identity: _identity, caseOnly: _caseOnly, ...visible }) => visible);
 }
 
+/**
+ * `similar` is a hint for the card, not part of what was approved: a neighbour that appears or goes away between the
+ * card and the approval (a scan arriving, a Word lock file) must not refuse an unchanged item (review N-A5-1).
+ */
+function withoutHints(operations: unknown): unknown {
+  return Array.isArray(operations)
+    ? operations.map((item: unknown) => item && typeof item === "object" ? Object.fromEntries(Object.entries(item).filter(([key]) => key !== "similar")) : item)
+    : operations;
+}
+
 /** Binds the approval to canonical paths and file identity without exposing either. */
 function revisionOf(plan: Planned[]): string {
-  return createHash("sha256").update(JSON.stringify(plan)).digest("hex");
+  return createHash("sha256").update(JSON.stringify(withoutHints(plan))).digest("hex");
 }
 
 export async function planFileOperations(config: ServerConfig, workspace: WorkspaceInfo, input: unknown): Promise<FilePlan> {
@@ -378,7 +446,7 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
   // An earlier step of the same request may move a link (or a folder holding one) to a name the plan saw as free:
   // every path must still pass the plan's checks and lead to the same place right before its step.
   const unchanged = async (location: string | undefined) => !location || (await locate(roots, location, nested).catch(() => null))?.canonical === location;
-  if (JSON.stringify(publicPlan(plan)) !== JSON.stringify(approved) || revisionOf(plan) !== revision)
+  if (JSON.stringify(withoutHints(publicPlan(plan))) !== JSON.stringify(withoutHints(approved)) || revisionOf(plan) !== revision)
     throw new ApiError(409, "file_operation_changed", "The files changed after the approval card was shown. Nothing was changed. Ask the user before trying again.");
   return withFileEditorHandoff({ write: true, sessionID }, async () => {
     const results: FileOperationResult[] = [];

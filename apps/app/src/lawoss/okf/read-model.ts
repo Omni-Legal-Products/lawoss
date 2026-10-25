@@ -20,7 +20,7 @@ import { addDays, buildOverview, deadlineTier, ISO_DAY, isCalendarDay, missingSc
 import type { OkfRecord } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
 import { parseWorkingProfile, PROFILE_FILE } from "../../../../../lawoss/okf/src/profile";
-import { looksLikeMatterFolder } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
+import { looksLikeMatterFolder, nestedClientCode } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { validateStore } from "../../../../../lawoss/okf-pamat/src/validate.ts";
 import { selectSourceSnapshot } from "./practice-read-state";
@@ -41,6 +41,8 @@ export type OkfReadOptions = {
   signal?: AbortSignal; previous?: OkfReadResult; now?: () => number;
   /** Relatívne cesty (NFC) zaregistrovaných priečinkov vo vnútri čítaného priečinka (`OkfScopeMember.nested`). */
   registeredNested?: readonly string[];
+  /** Meno čítaného priečinka na disku (posledný segment cesty): kód klienta, keď je klient koreňom (N-A4-4). */
+  rootName?: string;
 };
 export type OkfReadResult = Overview & {
   coverage: OkfCoverage;
@@ -58,7 +60,20 @@ export type OkfClient = {
   path: string; title?: string;
   /** Klientsky `VSTUPY.md` (aj bez prípadov, review #246); nečitateľný súbor = problém s jeho cestou. */
   intake?: { path: string; content: string };
+  /** Položky v priečinku klienta na nezaradené (N-A5-3). */
+  inboxFiles?: readonly string[];
 };
+
+/**
+ * Predvolené priečinky na nezaradené (SK, CS, EN), porovnávané bez ohľadu na veľkosť písmen. Rola `inbox` pracovného
+ * profilu prípadu (#241) k nim pridá vlastný priečinok.
+ */
+export const INBOX_FOLDERS: ReadonlySet<string> = new Set(["00_na_zatriedenie", "00_k_zarazeni", "00_inbox"]);
+/** Najviac toľko položiek z jedného priečinka na nezaradené (advokát môže vložiť stovky skenov naraz). */
+const INBOX_ITEMS_LIMIT = 200;
+/** Systémové súbory a zámky Office (`~$zmluva.docx`), ktoré advokát do priečinka nevložil. */
+const INBOX_IGNORED = new Set(["desktop.ini", "thumbs.db", "icon\r"]);
+const inboxIgnored = (name: string): boolean => name.startsWith(".") || name.startsWith("~$") || INBOX_IGNORED.has(name.toLowerCase());
 
 export const MAX_MATTERS = 200;
 const CONCURRENCY = 6;
@@ -159,6 +174,13 @@ export async function readWorkspaceMemory(
     }
   };
   let scanned = 0;
+  /**
+   * N-A4-4 (test 25. 10. 2026): v praxi bez `Spisy/` je vec priamy podpriečinok klienta s kódom („M004 …“). Priečinok
+   * s kódom ďalšieho klienta („C099 SYN Vnoreny“ v „C002 SYN Hron“, `nestedClientCode`) appka do klienta nepustí a vec
+   * to nie je. Kartou veci (`matter.md`) sa vecou stane aj tak.
+   */
+  const folderName = (path: string): string => path ? path.slice(path.lastIndexOf("/") + 1) : options.rootName ?? "";
+  const clientCoded = (clientPath: string, name: string): boolean => nestedClientCode(folderName(clientPath), name);
   const discover = async (path: string, directMatter = false, depth = 0, insideClient = false): Promise<void> => {
     if (scanned >= MAX_DISCOVERY_DIRECTORIES || paths.length >= MAX_MATTERS || depth > MAX_DISCOVERY_DEPTH) { truncated = true; return; }
     scanned++;
@@ -200,7 +222,7 @@ export async function readWorkspaceMemory(
         for (const matter of await dirs(child.path)) await discover(matter, true, depth + 2, clientFolder);
       // Priamy podpriečinok klienta s kartou pomenovaný ako vec (`2025-01 Spor`, spisová značka) je vec aj bez
       // karty; rovnaký vzor ako rozpoznanie a roztriedenie (suggest-patterns.ts), D1 2026-10-09.
-      } else await discover(child.path, hasClientCard && !isWorkDir(child.name) && looksLikeMatterFolder(child.name), depth + 1, clientFolder);
+      } else await discover(child.path, hasClientCard && !isWorkDir(child.name) && looksLikeMatterFolder(child.name) && !clientCoded(path, child.name), depth + 1, clientFolder);
     }
   };
   await discover("");
@@ -277,6 +299,25 @@ export async function readWorkspaceMemory(
       bundles.set(dir, pending);
     }
     return pending;
+  };
+  /**
+   * N-A5-3 (test 25. 10. 2026): súbor, ktorý advokát vložil do `00_Na_zatriedenie` vo Finderi, nemá riadok vo
+   * `VSTUPY.md`, a „Na zaradenie“ ho nevidel. Položky priečinkov na nezaradené (predvolené mená a vlastná rola `inbox`);
+   * skryté súbory (`.keep`, `.DS_Store`) nie. Vložený podpriečinok je jedna položka.
+   */
+  const inboxItems = async (dir: string, entries: Listing["entries"], custom?: string): Promise<string[]> => {
+    const folders = entries.filter((e) => e.kind === "dir" && INBOX_FOLDERS.has(e.name.toLowerCase())).map((e) => childPath(dir, e.name));
+    const own = custom?.replace(/\\/g, "/").replace(/^(?:\.\/)+/, "").replace(/\/+$/, "");
+    const ownFolder = own && !own.split("/").some((part) => part === ".." || part === "") ? childPath(dir, own) : undefined;
+    if (ownFolder && !folders.some((folder) => folder.toLowerCase() === ownFolder.toLowerCase())) folders.push(ownFolder);
+    // Vlastný priečinok vnútri predvoleného (`00_Inbox/Posta`) nie je jedna položka predvoleného: jeho obsah sa ráta zvlášť.
+    const holdsOwn = (path: string) => ownFolder !== undefined && ownFolder.toLowerCase().startsWith(`${path.toLowerCase()}/`) || ownFolder?.toLowerCase() === path.toLowerCase();
+    const items: string[] = [];
+    for (const folder of folders) {
+      const listed = (await list(folder, true)).filter((e) => !inboxIgnored(e.name) && (folder === ownFolder || !holdsOwn(e.path)));
+      items.push(...listed.map((e) => e.path).sort().slice(0, INBOX_ITEMS_LIMIT));
+    }
+    return items;
   };
   const matters = await mapLimit(paths, CONCURRENCY, async (path): Promise<MatterInput> => {
     const scopePaths = [path];
@@ -355,16 +396,18 @@ export async function readWorkspaceMemory(
     const clientRegister = clientPath === undefined ? undefined : await clientIntake(clientPath);
     if (clientRegister) input.inheritedIntakes = [{ ...clientRegister, scope: "client" }];
     // #241: vlastný priečinok na nezaradené (rola `inbox` pracovného profilu), kam appka vkladá dokumenty
-    // (`matter-intake.ts`). Profil sa číta len vtedy, keď prípad alebo jeho klient má čakajúci vstup.
-    const pending = [input.intake, ...(input.inheritedIntakes ?? []).map((intake) => intake.content)].some((text) => text !== undefined && /\|\s*pending\s*\|/.test(text));
+    // (`matter-intake.ts`). N-A5-3: profil sa číta vždy, keď je, lebo aj súbor vložený do vlastného priečinka
+    // na nezaradené bez riadku vo `VSTUPY.md` čaká na zaradenie.
     // Meno profilu bez ohľadu na veľkosť písmen, ako ho nájde `matter-intake.ts` na macOS a Windows.
-    const profileEntry = pending ? entries.find((e) => e.kind === "file" && e.name.toLowerCase() === PROFILE_FILE.toLowerCase()) : undefined;
+    const profileEntry = entries.find((e) => e.kind === "file" && e.name.toLowerCase() === PROFILE_FILE.toLowerCase());
     if (profileEntry) {
       try {
         const inbox = parseWorkingProfile((await readFile(childPath(path, profileEntry.name))).content).roles.inbox;
         if (inbox) input.inbox = inbox;
       } catch { /* Neplatný profil: platí predvolený priečinok na nezaradené (00_Na_zatriedenie, 00_K_zarazeni, 00_Inbox). */ }
     }
+    const inboxFiles = await inboxItems(path, entries, input.inbox);
+    if (inboxFiles.length) input.inboxFiles = inboxFiles;
     const existingMemorySources: string[] = [];
     for (const dir of scopePaths) {
       const entries = await list(dir);
@@ -413,8 +456,8 @@ export async function readWorkspaceMemory(
   // (inak by zdieľanie štruktúry v react-query hlásilo zmenu a pohľad by sa zbytočne prekreslil).
   // Klient bez vecí je stále klient: Klienti a veci ho ukážu (D1 2026-10-04). Poradie podľa cesty kvôli zdieľaniu štruktúry.
   const clients = (await mapLimit([...clientPaths].sort(), CONCURRENCY, async (clientPath): Promise<OkfClient> => {
-    const [title, intake] = await Promise.all([clientTitle(clientPath), clientIntake(clientPath)]);
-    return { path: clientPath, ...(title ? { title } : {}), ...(intake ? { intake } : {}) };
+    const [title, intake, inboxFiles] = await Promise.all([clientTitle(clientPath), clientIntake(clientPath), list(clientPath).then((entries) => inboxItems(clientPath, entries))]);
+    return { path: clientPath, ...(title ? { title } : {}), ...(intake ? { intake } : {}), ...(inboxFiles.length ? { inboxFiles } : {}) };
   }));
   problems.sort((a, b) => a.path.localeCompare(b.path) || a.message.localeCompare(b.message));
   options.signal?.throwIfAborted();
@@ -555,6 +598,7 @@ function prefixInput(input: MatterInput, prefix: string): MatterInput {
     ...(input.cardPath !== undefined ? { cardPath: at(input.cardPath) } : {}),
     ...(input.scopePaths ? { scopePaths: input.scopePaths.map(at) } : {}),
     ...(input.inheritedIntakes ? { inheritedIntakes: input.inheritedIntakes.map((i) => ({ ...i, path: at(i.path) })) } : {}),
+    ...(input.inboxFiles ? { inboxFiles: input.inboxFiles.map(at) } : {}),
     ...(input.existingMemorySources ? { existingMemorySources: input.existingMemorySources.map(at) } : {}),
     ...(input.recordFiles ? { recordFiles: Object.fromEntries(Object.entries(input.recordFiles).map(([id, file]) => [id, at(file)])) } : {}),
   };
@@ -612,7 +656,8 @@ export async function readScopeMemory(client: OkfScopeClient, scope: OkfScope, t
   const checkedAt = (options.now ?? Date.now)();
   const sources: OkfSourceReadState[] = [];
   const snapshots: Record<string, SourceSnapshot> = {};
-  const parts = await mapLimit(scope.members, 2, member => readWorkspaceMemory(client, member.workspace.id, todayIso, { ...options, ...(member.nested ? { registeredNested: member.nested } : {}) }));
+  const parts = await mapLimit(scope.members, 2, member => readWorkspaceMemory(client, member.workspace.id, todayIso, { ...options, ...(member.nested ? { registeredNested: member.nested } : {}),
+    rootName: member.workspace.path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "" }));
   let truncated = false;
   const select = (id: string, source: "workspace" | "office", current: SourceSnapshot, issues: ReadProblem[], cut: boolean): SourceSnapshot => {
     problems.push(...issues);
@@ -637,7 +682,8 @@ export async function readScopeMemory(client: OkfScopeClient, scope: OkfScope, t
   let inputs = selected.flatMap((part,i) => part.inputs.map(input => withOffice(prefixInput(input,scope.members[i].prefix),office,problems)));
   if (inputs.length > MAX_MATTERS) { inputs = inputs.slice(0,MAX_MATTERS); truncated = true; }
   if (!inputs.length && office?.records.length) problems.push({ path: office.directory, message: "Pamäť kancelárie obsahuje záznamy bez vecí; tento pohľad ich zatiaľ nevie zobraziť.", code: "okf.office_orphans", scope: "office" });
-  const clients = selected.flatMap((part,i) => part.clients.map(c => ({ ...c, path: joinPath(scope.members[i].prefix,c.path), ...(c.intake ? { intake: { ...c.intake, path: joinPath(scope.members[i].prefix,c.intake.path) } } : {}) }))).sort((a,b) => a.path.localeCompare(b.path));
+  const clients = selected.flatMap((part,i) => part.clients.map(c => ({ ...c, path: joinPath(scope.members[i].prefix,c.path), ...(c.intake ? { intake: { ...c.intake, path: joinPath(scope.members[i].prefix,c.intake.path) } } : {}),
+    ...(c.inboxFiles ? { inboxFiles: c.inboxFiles.map(p => joinPath(scope.members[i].prefix,p)) } : {}) }))).sort((a,b) => a.path.localeCompare(b.path));
   const usable = sources.some(s => s.state === "fresh" || s.state === "stale") || inputs.length > 0 || clients.length > 0;
   const status = !problems.length && !truncated && sources.every(s => s.state === "fresh") ? "complete" : usable ? "partial" : "failed";
   problems.sort((a,b) => a.path.localeCompare(b.path) || a.message.localeCompare(b.message));

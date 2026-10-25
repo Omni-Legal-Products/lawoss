@@ -1391,6 +1391,13 @@ var codeOf = (raw) => {
     return;
   return { prefix, rest };
 };
+var DIGITS = /^\p{Lu}{1,3}[-_ ]?(\d{3,5})/u;
+var nestedClientCode = (clientName, name) => {
+  const own = codeOf(clientName), code = codeOf(name);
+  if (!own || !code || own.prefix !== code.prefix)
+    return false;
+  return DIGITS.exec(clientName.normalize("NFC"))?.[1] !== DIGITS.exec(name.normalize("NFC"))?.[1] && !startsWithMatterWord(code.rest);
+};
 var looksLikeMatterFolder = (name) => codeOf(name) !== undefined || looksLikeMatterName(name);
 
 // src/onboarding/suggest.ts
@@ -1506,14 +1513,14 @@ function legacyOffice(index) {
   return office && childrenOf(index, CLIENTS_DIR).some((client) => client.kind === "directory" && childrenOf(index, client.path).some((entry) => entry.kind === "file" && CLIENT_CARDS.has(nameOf(entry.path).toLowerCase())));
 }
 var depthOf = (path) => path ? path.split("/").length : 0;
-function mattersOf(index, files, unit) {
+function mattersOf(index, files, unit, unitName) {
   const prefix = unit ? `${unit}/` : "";
   const dirs = childrenOf(index, unit).filter((entry) => entry.kind === "directory");
   const folders = dirs.filter((entry) => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()));
   const card = (entry, cards) => childrenOf(index, entry.path).some((child) => child.kind === "file" && cards.has(nameOf(child.path).toLowerCase()));
   const nestedClient = (entry) => card(entry, CLIENT_CARDS) && !card(entry, MATTER_CARDS);
   const filed = folders.flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
-  const beside = dirs.filter((entry) => !folders.includes(entry) && ([...MATTER_CARDS].some((card) => files.has(`${entry.path}/${card}`)) || looksLikeMatterFolder(nameOf(entry.path))));
+  const beside = dirs.filter((entry) => !folders.includes(entry) && ([...MATTER_CARDS].some((card) => files.has(`${entry.path}/${card}`)) || looksLikeMatterFolder(nameOf(entry.path)) && !nestedClientCode(unitName, nameOf(entry.path))));
   return [...filed, ...beside].filter((entry) => !nestedClient(entry)).map((entry) => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
 }
 function unitsOf(survey, index, paths, clients = new Set) {
@@ -1522,7 +1529,7 @@ function unitsOf(survey, index, paths, clients = new Set) {
     const prefix = path ? `${path}/` : "";
     const inside = path ? survey.entries.filter((entry) => entry.path.startsWith(prefix)) : survey.entries;
     const exact = survey.complete && !inside.some((entry) => entry.kind === "directory" && depthOf(entry.path) >= SURVEY_DEPTH);
-    const matters = mattersOf(index, files, path).filter((matter) => path || !clients.has(matter.path));
+    const matters = mattersOf(index, files, path, path ? nameOf(path) : basename2(survey.root)).filter((matter) => path || !clients.has(matter.path));
     return { path, matters: matters.slice(0, UNIT_MATTERS), matterCount: matters.length, files: inside.filter((entry) => entry.kind === "file").length, exact };
   });
 }

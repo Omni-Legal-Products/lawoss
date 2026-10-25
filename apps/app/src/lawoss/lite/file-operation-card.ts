@@ -15,7 +15,7 @@ import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
 
 type Operation = "move" | "copy" | "create_folder" | "delete";
-type PlannedChange = { operation: Operation; kind: "file" | "folder"; from?: string; to?: string; entries?: number; entriesCapped?: boolean };
+type PlannedChange = { operation: Operation; kind: "file" | "folder"; from?: string; to?: string; entries?: number; entriesCapped?: boolean; similar?: string[] };
 
 /** Same bound as the server's folder survey (lawoss/file-operations.ts FOLDER_SURVEY_LIMIT). */
 const SURVEY_LIMIT = 1000;
@@ -32,10 +32,11 @@ function plannedChanges(metadata: Record<string, unknown>): PlannedChange[] | nu
     if (!item || typeof item !== "object") return null;
     const operation: unknown = Reflect.get(item, "operation"), kind: unknown = Reflect.get(item, "kind");
     const from: unknown = Reflect.get(item, "from"), to: unknown = Reflect.get(item, "to");
-    const entries: unknown = Reflect.get(item, "entries"), capped: unknown = Reflect.get(item, "entriesCapped");
+    const entries: unknown = Reflect.get(item, "entries"), capped: unknown = Reflect.get(item, "entriesCapped"), listed: unknown = Reflect.get(item, "similar");
     if (!isOperation(operation) || (kind !== "file" && kind !== "folder")) return null;
+    const similar = Array.isArray(listed) ? listed.filter((name): name is string => typeof name === "string") : [];
     changes.push({ operation, kind, ...(typeof from === "string" ? { from } : {}), ...(typeof to === "string" ? { to } : {}),
-      ...(typeof entries === "number" ? { entries } : {}), ...(capped === true ? { entriesCapped: true } : {}) });
+      ...(typeof entries === "number" ? { entries } : {}), ...(capped === true ? { entriesCapped: true } : {}), ...(similar.length ? { similar } : {}) });
   }
   return changes;
 }
@@ -79,6 +80,14 @@ function title(changes: PlannedChange[]): string {
   return t("lawoss.files.title_trash");
 }
 
+/**
+ * N-A5-1 (test 25. 10. 2026): the card showed `Podklady.pdf`, the lawyer had asked for `podklad.pdf`. A similar name
+ * next to the item deleted or moved is named right under the change, so the lawyer sees which one goes.
+ */
+function warnings(change: PlannedChange): string[] {
+  return change.similar?.length ? [t("lawoss.files.similar_warning", undefined, { path: change.from ?? "", names: change.similar.join(", ") })] : [];
+}
+
 /** The card's readable content, or `null` when the request is not from `lawoss_files`. */
 export type FileOperationDetails = { reason: string | null; lines: string[] };
 
@@ -87,12 +96,12 @@ export function fileOperationCard(metadata: Record<string, unknown>): { title: s
   if (!changes) return null;
   const reason = typeof metadata.description === "string" && metadata.description.trim() ? t("lawoss.files.reason", undefined, { text: metadata.description.trim() }) : null;
   return {
-    details: { reason, lines: changes.map(detailLine) },
+    details: { reason, lines: changes.flatMap((change) => [detailLine(change), ...warnings(change)]) },
     title: title(changes),
     message: t(changes.some((change) => change.operation === "delete") ? "lawoss.files.message_trash" : "lawoss.files.message"),
     permissionLabel: t("lawoss.files.permission_label"),
     scopeLabel: t("lawoss.files.scope"),
-    scopeValue: changes.map(line).join("\n"),
+    scopeValue: changes.flatMap((change) => [line(change), ...warnings(change)]).join("\n"),
   };
 }
 
