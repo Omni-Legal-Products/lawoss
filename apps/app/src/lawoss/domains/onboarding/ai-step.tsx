@@ -158,7 +158,7 @@ export function AiStepView({
         </span>
       </p>
       <div className="flex flex-wrap gap-2">
-        {model.retry ? <Button variant="outline" onClick={model.retry}>{text.retry}</Button> : null}
+        {model.retry ? <Button variant="outline" disabled={busy} onClick={model.retry}>{text.retry}</Button> : null}
         {model.state === "no-workspace" ? null : (
           <Button variant="outline" onClick={onOpenAiSettings}>
             <ExternalLink />
@@ -235,7 +235,7 @@ export function useOnboardingModelView<P extends ModelPrefs>(defaultModel: Model
  */
 export const CHECK_LIMIT_MS = 20_000;
 
-/** Stav overovania s časovým limitom: `checking` najviac `limitMs`, potom alebo pri chybe `unreachable` s opakovaním. */
+/** Stav overovania s časovým limitom: `checking` najviac `CHECK_LIMIT_MS` (`expired`), potom alebo pri chybe `unreachable` s opakovaním. */
 export function boundedCheck(view: AiModelView, checking: boolean, failed: boolean, expired: boolean, retry: () => void): AiModelView {
   if (failed || (checking && expired)) return { state: "unreachable", retry };
   return checking ? { state: "checking" } : view;
@@ -243,7 +243,8 @@ export function boundedCheck(view: AiModelView, checking: boolean, failed: boole
 
 export function useOnboardingModel(scope?: OnboardingModelScope): AiModelView {
   const local = useLocal();
-  const [target, setTarget] = useState<OpencodeTarget | null | undefined>(undefined);
+  // `failed`: priestor sa nepodarilo zistiť (vypršaný čas, sieť), nie „žiadny priestor“ (review N-A5-8).
+  const [target, setTarget] = useState<OpencodeTarget | null | undefined | "failed">(undefined);
   const [attempt, setAttempt] = useState(0);
   const [expired, setExpired] = useState(false);
   useEffect(() => {
@@ -255,7 +256,7 @@ export function useOnboardingModel(scope?: OnboardingModelScope): AiModelView {
     let cancelled = false;
     setTarget(undefined);
     void resolveOpencodeTarget(scope)
-      .catch(() => null)
+      .catch((): "failed" => "failed")
       .then((value) => {
         if (!cancelled) setTarget(value);
       });
@@ -263,17 +264,34 @@ export function useOnboardingModel(scope?: OnboardingModelScope): AiModelView {
       cancelled = true;
     };
   }, [scope?.workspaceId, scope?.directory, attempt]);
+  const resolved = target === undefined || target === null || target === "failed" ? null : target;
   const query = useProviderListQuery({
-    client: target?.client ?? null,
-    baseUrl: target?.baseUrl,
-    directory: target?.directory,
+    client: resolved?.client ?? null,
+    baseUrl: resolved?.baseUrl,
+    directory: resolved?.directory,
   });
-  const view = useOnboardingModelView(local.prefs.defaultModel, target ? query.data : undefined, local.setPrefs);
-  const retry = () => { setAttempt((value) => value + 1); void query.refetch(); };
-  const checking = target === undefined || Boolean(target && query.isPending);
-  if (!checking && target === null) return { state: "no-workspace" };
-  const bounded = boundedCheck(query.data && target ? { ...view, workspaceId: target.workspaceId } : view, checking, Boolean(target && query.isError && !query.data), expired, retry);
-  return bounded;
+  const view = useOnboardingModelView(local.prefs.defaultModel, resolved ? query.data : undefined, local.setPrefs);
+  const retry = () => {
+    setAttempt((value) => value + 1);
+    // Zoznam poskytovateľov len pri zistenom priestore; inak ho obnoví nové zistenie priestoru.
+    if (resolved) void query.refetch();
+  };
+  return onboardingCheckView({
+    target: target === undefined ? "pending" : target === null ? "none" : target === "failed" ? "failed" : "found",
+    pending: query.isPending, failed: query.isError && !query.data, expired,
+  }, query.data && resolved ? { ...view, workspaceId: resolved.workspaceId } : view, retry);
+}
+
+/**
+ * Stav kroku zo zistenia priestoru a zoznamu poskytovateľov: priestor sa zisťuje (`pending`), nie je (`none`),
+ * nepodarilo sa ho zistiť (`failed`, vypršaný čas pri štarte) alebo je (`found`). Nezistený priestor nie je
+ * „žiadny priestor“: povie, že pripojenie sa nepodarilo overiť, a ponúkne opakovanie (review N-A5-8).
+ */
+export function onboardingCheckView(input: { target: "pending" | "none" | "failed" | "found"; pending: boolean; failed: boolean; expired: boolean }, view: AiModelView, retry: () => void): AiModelView {
+  if (input.target === "none") return { state: "no-workspace" };
+  const checking = input.target === "pending" || (input.target === "found" && input.pending);
+  const failed = input.target === "failed" || (input.target === "found" && input.failed);
+  return boundedCheck(view, checking, failed, input.expired, retry);
 }
 
 /** Zmena modelu v kroku AI asistent: uloží sa ako predvolený model v Nastaveniach AI. */

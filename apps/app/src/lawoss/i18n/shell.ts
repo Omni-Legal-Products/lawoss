@@ -2236,7 +2236,7 @@ export const shellDe = {
   "lawoss.lite.state_off": "Tagesübersicht, Fristen und Mandanten entstehen aus der Fallorganisation, die ausgeschaltet ist. Sobald sie eingeschaltet ist, werden Fristen, Beteiligte und Aufgaben als Dateien in den Mandantenordnern gespeichert.",
   "lawoss.lite.state_turn_on": "Fallorganisation einschalten",
   "lawoss.lite.state_error": "Ihre Fälle konnten nicht geladen werden.",
-  "lawoss.lite.state_connection_hint": "Die App erreicht ihren Dienst oder das Internet nicht. Prüfen Sie die Verbindung (Firmennetz, VPN oder Proxy), warten Sie kurz und versuchen Sie es erneut. Wenn es weiter besteht, schließen und öffnen Sie LAWOSS erneut.",
+  "lawoss.lite.state_connection_hint": "Die App erreicht ihren Dienst oder das Internet nicht. Prüfen Sie die Verbindung (Firmennetz, VPN oder Proxy), warten Sie kurz und versuchen Sie es erneut. Wenn das Problem bleibt, schließen Sie LAWOSS und öffnen Sie es erneut.",
   "lawoss.lite.folder_missing": "Der Ordner {name} wurde nicht gefunden. Vielleicht wurde er verschoben oder umbenannt, oder das Laufwerk ist getrennt.",
   "lawoss.lite.folder_missing_choose": "Anderen Ordner wählen",
   "lawoss.lite.folder_missing_switch": "Zu {name} wechseln",

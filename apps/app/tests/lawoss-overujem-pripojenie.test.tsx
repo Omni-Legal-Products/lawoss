@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { setLocale } from "../src/i18n";
 import { LegalworkServerError } from "../src/app/lib/legalwork-server";
-import { AiStepView, boundedCheck, CHECK_LIMIT_MS, type AiModelView } from "../src/lawoss/domains/onboarding/ai-step";
+import { AiStepView, boundedCheck, CHECK_LIMIT_MS, onboardingCheckView, type AiModelView } from "../src/lawoss/domains/onboarding/ai-step";
 import { AssistantStepView } from "../src/lawoss/domains/onboarding/wizard/assistant-step";
 import { readyRows } from "../src/lawoss/domains/onboarding/wizard/ready-model";
 import { wizardText } from "../src/lawoss/domains/onboarding/wizard/wizard-text";
@@ -30,6 +30,16 @@ describe("krok 4: overovanie má časový limit a obyčajnú hlášku", () => {
     expect(boundedCheck(ready, true, false, true, noop).retry).toBe(noop);
   });
 
+  test("review: nezistený priestor (vypršaný čas pri štarte) nie je „žiadny priestor“, ale neoverené pripojenie", () => {
+    const ready: AiModelView = { state: "ready", modelLabel: "GPT-6 Luna" };
+    expect(onboardingCheckView({ target: "failed", pending: false, failed: false, expired: false }, ready, noop)).toMatchObject({ state: "unreachable" });
+    expect(onboardingCheckView({ target: "none", pending: false, failed: false, expired: true }, ready, noop)).toEqual({ state: "no-workspace" });
+    expect(onboardingCheckView({ target: "pending", pending: false, failed: false, expired: true }, ready, noop)).toMatchObject({ state: "unreachable" });
+    expect(onboardingCheckView({ target: "found", pending: true, failed: false, expired: false }, ready, noop)).toEqual({ state: "checking" });
+    expect(onboardingCheckView({ target: "found", pending: false, failed: true, expired: false }, ready, noop)).toMatchObject({ state: "unreachable" });
+    expect(onboardingCheckView({ target: "found", pending: false, failed: false, expired: true }, ready, noop)).toBe(ready);
+  });
+
   test("krok 4 povie, čo skúsiť, ponúkne Skúsiť znova a pokračovanie bez AI; súhrn v kroku 6 nie je „Overujem“", () => {
     const model: AiModelView = { state: "unreachable", retry: noop };
     const html = renderToStaticMarkup(<AssistantStepView text={sk} locale="sk" model={model} boundariesOn={false} busy={false} onOpenAiSettings={noop} onContinue={noop} />);
@@ -37,6 +47,7 @@ describe("krok 4: overovanie má časový limit a obyčajnú hlášku", () => {
     expect(html).toContain("data-lawoss-ai-retry");
     expect(html).toContain("Skúsiť znova");
     expect(html).not.toContain("Overujem");
+    expect(html).not.toContain("Nepripojené");
     const row = readyRows(sk, { model, agent: "ask" }).find((item) => item.id === "ai");
     expect(row).toMatchObject({ tone: "warn", fix: "ai" });
     // Starší krok AI (cesta bez OKF) tiež.
@@ -50,7 +61,12 @@ describe("Dnes: pri probléme so spojením obyčajná veta, čo skúsiť", () =>
   test("chyby spojenia sa rozpoznajú z typu, kódu a stavu; iné chyby nie", () => {
     const abort = new Error("This operation was aborted"); abort.name = "AbortError";
     expect(isConnectionProblem(abort)).toBe(true);
-    expect(isConnectionProblem(new LegalworkServerError(500, "internal", "Unexpected server error"))).toBe(true);
+    expect(isConnectionProblem(new LegalworkServerError(503, "unavailable", "Service unavailable"))).toBe(true);
+    // Chyba spojenia appky prichádza ako text (po reštarte: GET /workspaces po 8 s), aj po nemecky.
+    expect(isConnectionProblem("Vypršal časový limit požiadavky.")).toBe(true);
+    expect(isConnectionProblem("Zeitüberschreitung bei der Anfrage.")).toBe(true);
+    // 500 môže byť chyba appky pri čítaní, nie spojenie.
+    expect(isConnectionProblem(new LegalworkServerError(500, "internal", "Unexpected server error"))).toBe(false);
     expect(isConnectionProblem(new Error("…/activate failed after 10006ms: Vypršal časový limit požiadavky."))).toBe(true);
     expect(isConnectionProblem(Object.assign(new Error("x"), { cause: { code: "UNABLE_TO_GET_ISSUER_CERT_LOCALLY" } }))).toBe(true);
     expect(isConnectionProblem(new LegalworkServerError(404, "project_folder_unavailable", "Reconnect the project drive"))).toBe(false);
@@ -63,7 +79,7 @@ describe("Dnes: pri probléme so spojením obyčajná veta, čo skúsiť", () =>
     const render = (error: unknown) => renderToStaticMarkup(<MemoryRouter>
       <OkfPageState connection="ready" workspace="Prax" data={undefined} error={error} loading={false} stateText={liteStateText("sk")}>{() => null}</OkfPageState>
     </MemoryRouter>);
-    const timeout = render(new LegalworkServerError(500, "internal", "GET /opencode/provider failed"));
+    const timeout = render("Vypršal časový limit požiadavky.");
     expect(timeout).toContain("Vaše prípady sa nepodarilo načítať");
     expect(timeout).toContain("data-lawoss-connection-hint");
     // Jazyk nápovedy je jazyk rozhrania (`useLocale`, v SSR teste angličtina); SK/CS/DE overuje test:i18n.
