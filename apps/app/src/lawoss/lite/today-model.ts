@@ -12,7 +12,7 @@ import { isoDay } from "../../../../../lawoss/okf-pamat/src/schema.ts";
 
 /** `alsoIn`: další věci, do kterých patří tatáž lhůta ze sdíleného souboru (klient, kancelář). */
 export type TodayDeadline = UpcomingDeadline & { tier: DeadlineTier; daysLeft: number; alsoIn?: { path: string; title: string }[] };
-export type TodayTask = { key: string; id: string; title: string; due?: string; matters: { path: string; title: string }[] };
+export type TodayTask = { key: string; id: string; title: string; due?: string; matters: { path: string; title: string; client?: string }[] };
 /** Termín z prípadu: otvorená úloha s platným dátumom (`due`), nie evidovaná lehota. */
 export type CaseDate = TodayTask & { due: string; daysLeft: number };
 
@@ -80,12 +80,15 @@ export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDead
   const deadlines = [...invalid, ...dated];
   // Úkol ze sdíleného souboru se objeví ve více věcech: identita = soubor (ID se razí per spis).
   const tasks = new Map<string, TodayTask>();
+  // N-A5-9: termín prípadu nesie aj meno klienta (bez neho bol riadok len „<prípad> zákazka SYN-00xx“).
+  const inputs = new Map(result.inputs.map((input) => [input.path, input]));
   for (const matter of result.matters) {
+    const client = clientOf(matter, inputs.get(matter.path)).name;
     // openTasks už vylučuje hotové i nahrazené/zrušené úkoly (isOpenTask v read.ts).
     for (const task of matter.openTasks) {
       const key = recordKey(matter.path, task);
       const entry = tasks.get(key) ?? { key, id: task.id, title: task.title, due: task.due, matters: [] };
-      entry.matters.push({ path: matter.path, title: matter.title });
+      entry.matters.push({ path: matter.path, title: matter.title, ...(client && client !== matter.title ? { client } : {}) });
       tasks.set(key, entry);
     }
   }

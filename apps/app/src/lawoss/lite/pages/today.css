@@ -323,3 +323,6 @@
 .lw-today-start-when { font-family: var(--lw-font-mono); font-size: 13px; color: var(--lw-text-secondary); }
 .lw-today-start[data-urgency="hot"] .lw-today-start-when { color: var(--td-hot); font-weight: 600; }
 .lw-today-start-open { text-decoration: none; }
+
+/* N-A5-9: „+N ďalšie“ pod skráteným zoznamom termínov a úloh. */
+.lw-today-more { list-style: none; padding: 6px 4px 0; font-size: 12px; color: var(--lw-text-tertiary); }
