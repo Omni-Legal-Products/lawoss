@@ -99,7 +99,7 @@ describe("Dnes: termíny z prípadov oddelene od lehôt", () => {
       { path: M049, cardFrontmatter: { title: "Reklamácia" }, records: [
         { ...task("M049-D9", "Lehota o mesiac"), type: "deadline", deadlines: ["2026-11-30"] },
         task("M049-T2", "Zajtrajšia úloha", "2026-10-25"),
-        { ...task("M049-T5", "Úloha s lehotou", "2026-10-26"), deadlines: ["2026-10-30 Odvolanie"] },
+        { ...task("M049-T5", "Úloha s lehotou", "2026-10-30"), deadlines: ["2026-10-30 Odvolanie"] },
       ] },
       { path: OTHER, cardFrontmatter: { title: "Bez lehôt" }, records: [] },
     ];
@@ -113,5 +113,36 @@ describe("Dnes: termíny z prípadov oddelene od lehôt", () => {
     const farOnly = { ...model, deadlines: model.deadlines.filter((x) => x.recordId === "M049-D9") };
     const out = html(<TodayView model={farOnly} locale="sk" now={new Date(`${TODAY}T09:00:00`)} evidence={{ complete: true, ...coverage }} />);
     expect(out).toContain("Prípady bez evidovaných lehôt: 1. Termín z prípadu: Zajtrajšia úloha, zajtra.");
+  });
+});
+
+describe("#251: termín úlohy s inou evidovanou lehotou", () => {
+  // Repro z issue: zajtrajšie pojednávanie, evidovaná lehota toho istého záznamu až o 10 dní (tier `later`).
+  const hearing: MatterInput[] = [{ path: M049, cardFrontmatter: { title: "Reklamácia" }, records: [
+    { ...task("M1-T1", "Pojednávanie", "2026-10-25"), deadlines: ["2026-11-03 Odvolanie"] },
+  ] }];
+  const d = { ...buildOverview(hearing, TODAY), inputs: hearing };
+  const model = buildToday(d, TODAY);
+
+  test("P2: zajtrajší termín ostane medzi termínmi aj v úvode", () => {
+    expect(model.deadlines.map((x) => [x.recordId, x.date, x.tier])).toEqual([["M1-T1", "2026-11-03", "later"]]);
+    expect(caseDates(model.tasks, TODAY, 14, model.deadlines).map((x) => [x.id, x.due])).toEqual([["M1-T1", "2026-10-25"]]);
+    const out = html(<TodayView model={model} locale="sk" now={new Date(`${TODAY}T09:00:00`)} evidence={{ complete: true, ...deadlineCoverage(hearing) }} />);
+    expect(out).toContain("Termín z prípadu: Pojednávanie, zajtra.");
+  });
+
+  test("P3: os dní ukáže záznam s lehotou v ten istý deň raz, iný deň termínu úlohy osobitne", () => {
+    const same: MatterInput[] = [{ path: M049, cardFrontmatter: { title: "Reklamácia" }, records: [
+      { ...task("M2-T1", "Odvolanie podať", "2026-10-27"), deadlines: ["2026-10-27 Odvolanie"] },
+    ] }];
+    const sd = { ...buildOverview(same, TODAY), inputs: same };
+    const strip = html(<TodayView model={buildToday(sd, TODAY)} locale="sk" now={new Date(`${TODAY}T09:00:00`)} />);
+    const day = strip.match(/<li[^>]*data-busy[^>]*>.*?<\/li>/g) ?? [];
+    expect(day).toHaveLength(1);
+    expect(day[0]!.match(/<i /g)).toHaveLength(1);
+    expect(day[0]).not.toContain('data-kind="task"');
+    // Zajtrajší termín a lehota o 10 dní sú na osi dva rôzne dni.
+    const both = html(<TodayView model={model} locale="sk" now={new Date(`${TODAY}T09:00:00`)} />);
+    expect(both.match(/<li[^>]*data-busy[^>]*>.*?<\/li>/g)?.map((cell) => cell.includes('data-kind="task"'))).toEqual([true, false]);
   });
 });

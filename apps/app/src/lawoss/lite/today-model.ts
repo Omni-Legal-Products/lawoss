@@ -20,14 +20,16 @@ export type CaseDate = TodayTask & { due: string; daysLeft: number };
  * otvorená úloha prípadu s platným dátumom v najbližších `days` dňoch alebo už uplynulý (M049-T1 do 25. 10.).
  * Dátum s časom („2026-10-25 10:00“, pojednávanie) sa berie podľa dňa.
  */
-export function caseDates(tasks: readonly TodayTask[], todayIso: string, days: number, deadlines: readonly Pick<TodayDeadline, "recordId" | "matter" | "alsoIn">[] = []): CaseDate[] {
+export function caseDates(tasks: readonly TodayTask[], todayIso: string, days: number, deadlines: readonly Pick<TodayDeadline, "recordId" | "matter" | "alsoIn" | "date">[] = []): CaseDate[] {
   const last = addDays(todayIso, days - 1);
-  // #242: úloha s vlastnou evidovanou lehotou je už medzi lehotami; medzi termínmi by bola dvakrát.
-  const recorded = new Set(deadlines.flatMap((d) => [d.matter, ...(d.alsoIn ?? [])].map((m) => `${m.path}\u0000${d.recordId}`)));
+  // #242: termín úlohy, ktorý je zároveň jej evidovanou lehotou (ten istý deň), je už medzi lehotami; medzi termínmi
+  // by bol dvakrát. Iný dátum úlohy (zajtrajšie pojednávanie pri lehote o 10 dní) ostáva termínom (#251).
+  const recorded = new Set(deadlines.flatMap((d) => [d.matter, ...(d.alsoIn ?? [])].map((m) => `${m.path}\u0000${d.recordId}\u0000${d.date}`)));
   return tasks.flatMap((task) => {
     const due = task.due?.trim().slice(0, 10);
-    if (task.matters.some((m) => recorded.has(`${m.path}\u0000${task.id}`))) return [];
-    return due && isCalendarDay(due) && due <= last ? [{ ...task, due, daysLeft: daysBetween(todayIso, due) }] : [];
+    if (!due || !isCalendarDay(due) || due > last) return [];
+    if (task.matters.some((m) => recorded.has(`${m.path}\u0000${task.id}\u0000${due}`))) return [];
+    return [{ ...task, due, daysLeft: daysBetween(todayIso, due) }];
   })
     .sort((a, b) => a.due.localeCompare(b.due) || a.title.localeCompare(b.title, "cs"));
 }

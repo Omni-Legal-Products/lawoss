@@ -126,7 +126,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
         </dl>
       </header>
 
-      <DeadlineStrip deadlines={model.deadlines} tasks={model.tasks} todayIso={todayIso} locale={locale} text={text} />
+      <DeadlineStrip deadlines={model.deadlines} dates={dates} todayIso={todayIso} locale={locale} text={text} />
 
       <div className="lw-today-grid">
         <Panel index={2} icon={<CalendarClock aria-hidden size={16} />} title={text("deadlines_title")} className="lw-today-deadlines">
@@ -261,7 +261,8 @@ function Empty({ text, done = false }: { text: string; done?: boolean }) {
 }
 
 /** Jeden diagram, který nese informaci: 14 dní, dnešek, lhůty jako body podle naléhavosti. */
-function DeadlineStrip({ deadlines, tasks, todayIso, locale, text }: { deadlines: readonly TodayDeadline[]; tasks: readonly TodayTask[]; todayIso: string; locale: Language; text: Text }) {
+/** Os dní: lehoty a termíny z prípadov (`caseDates`, #251) – záznam s lehotou v ten istý deň nie je dvakrát. */
+function DeadlineStrip({ deadlines, dates, todayIso, locale, text }: { deadlines: readonly TodayDeadline[]; dates: readonly CaseDate[]; todayIso: string; locale: Language; text: Text }) {
   const overdue = deadlines.filter((d) => !d.invalid && d.tier === "overdue");
   const days = Array.from({ length: STRIP_DAYS }, (_, i) => addDays(todayIso, i));
   const cells: { key: string; label: string; day: string; items: TodayDeadline[]; due: TodayTask[]; today?: boolean; weekend?: boolean; overdue?: boolean }[] = [
@@ -271,7 +272,7 @@ function DeadlineStrip({ deadlines, tasks, todayIso, locale, text }: { deadlines
       label: i === 0 ? text("strip_today") : weekdayShort(iso, locale),
       day: String(dayOfMonth(iso)),
       items: deadlines.filter((d) => !d.invalid && d.date === iso),
-      due: tasks.filter((task) => task.due === iso),
+      due: dates.filter((date) => date.due === iso),
       today: i === 0,
       weekend: isWeekend(iso),
     })),
