@@ -15,6 +15,7 @@ import {
   safeStringify,
 } from "@/app/utils";
 import { t } from "@/i18n";
+import { clientCardLabel } from "@/lawoss/lite/client-titles";
 
 export type RouteWorkspace = LegalworkWorkspaceInfo & {
   displayNameResolved: string;
@@ -69,6 +70,8 @@ export function mapDesktopWorkspace(workspace: WorkspaceInfo): RouteWorkspace {
     ...workspace,
     displayNameResolved:
       workspace.displayName?.trim() ||
+      // 🟡 LAWOSS: meno z karty klienta namiesto mena priečinka (N-A5-6), len na zobrazenie.
+      clientCardLabel(workspace) ||
       workspace.name?.trim() ||
       workspace.path?.trim() ||
       t("session.workspace_fallback"),
@@ -78,6 +81,8 @@ export function mapDesktopWorkspace(workspace: WorkspaceInfo): RouteWorkspace {
 export function workspaceLabel(workspace: LegalworkWorkspaceInfo) {
   return (
     workspace.displayName?.trim() ||
+    // 🟡 LAWOSS: meno z karty klienta namiesto mena priečinka (N-A5-6), len na zobrazenie.
+    clientCardLabel(workspace) ||
     workspace.legalworkWorkspaceName?.trim() ||
     workspace.name?.trim() ||
     workspace.path?.trim() ||

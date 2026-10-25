@@ -12,6 +12,7 @@ Alfa 2, oprava P3a (N-A3-3, N-18, N-A2-7; rozhodnutie MČ: čítanie dokumentov 
 | `apps/server/package.json` | Build zahŕňa `src/opencode-plugins/lawoss-memory-tools.ts`. |
 | `.github/workflows/ci-tests.yml` | Krok so skutočným enginom spúšťa aj `apps/server/src/lawoss/okf-pamat-citanie.integration.test.ts` (`LAWOSS_PAMAT_ENGINE=1`): zhrnutie spisu cez `okf-pamat` + `lawoss_memory` + `glob`/`read` bez jedinej karty, cudzí spis odmietnutý. |
 | `apps/app/src/lib/tool-activity.ts`, `apps/app/src/components/tools/tool-presentation.ts` | `lawoss_memory` má počas behu existujúci popis „Čítanie obsahu priečinka klienta“ a po skončení kategóriu čítania, nie názov nástroja. Test `apps/app/tests/lawoss-memory-tool-label.test.ts`. |
+| `apps/app/src/react-app/shell/route-workspaces.ts` | N-A5-6 (25. 10. 2026): `workspaceLabel` a `mapDesktopWorkspace` pred menom priestoru skúsia `clientCardLabel` z LAWOSS súboru `apps/app/src/lawoss/lite/client-titles.ts` (+1 import a 1 riadok v každom). Priestor bez vlastného mena, ktorý sa volá ako jeho priečinok, ukáže v titulku okna a v paneli meno z karty klienta, ktoré si appka zapamätala z prehľadu (aj pri ďalšom štarte počas načítavania). Len zobrazenie: meno priestoru na serveri (identita exportov dokumentov) sa nemení. Test `apps/app/tests/lawoss-meno-klienta.test.ts`. |
 
 ## Technické texty pre advokáta (2026-10-23, P6, N-A3-6)
 

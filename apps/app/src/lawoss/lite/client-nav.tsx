@@ -43,6 +43,7 @@ import { matterSourceFresh, rowDeadline } from "./client-row";
 import { buildClientRows, useRootCards } from "./client-row-data";
 import { ANCESTOR_CLASS, rowDeadlineText, urgencyTextClass } from "./client-row-text";
 import { useUiMode } from "./ui-mode";
+import { cardTitles, rememberCardTitles } from "./client-titles";
 
 /**
  * Skupiny panela pre LAWOSS: režim wiki (session-route odovzdá len priečinok wiki) zoznam projektov nemení,
@@ -117,6 +118,8 @@ export function useClientNavData(live?: { groups?: readonly WorkspaceSessionGrou
   const excludedWorkspaceIds = useMemo(() => resolution.excludedWorkspaceIds, [excludedKey]);
   const query = useOkfOverview(connection, scope);
   const data = scope ? query.data : undefined;
+  // N-A5-6: meno z karty klienta pre titulok okna a panel (aj pri ďalšom štarte počas načítavania).
+  useEffect(() => { if (data?.clients) rememberCardTitles(cardTitles(connection?.workspaces ?? [], scope, data.clients)); }, [connection?.workspaces, scope, data?.clients]);
   const groups = useMemo(() => data ? groupByClient(data.matters, data.inputs, data.clients) : [], [data]);
   // #168: neoverená prax (chyba profilu, nebezpečná cesta) je nedostupná, nie „ešte sa číta“.
   const failed = resolution.state === "unavailable" || Boolean(scope && !data && query.isError) || (connection !== null && !connection.client) || (loaded === null && connectionError !== null);
