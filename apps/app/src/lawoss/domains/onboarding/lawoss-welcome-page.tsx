@@ -72,6 +72,7 @@ import type { ClientChatOutcome, ClientChatRequest } from "./client-chat";
 import { foundText } from "./found-text";
 import { unquotedTypedPath } from "./typed-paths";
 import { onboardingErrorMessage, onboardingRefusalAction } from "./onboarding-errors";
+import { revealError } from "./reveal-error";
 
 export { onboardingErrorMessage };
 
@@ -339,6 +340,8 @@ function PathInput({
 }
 const extraText: Record<Language, Record<string, string>> = {
   sk: {
+    addClientTitle: "Pridať klienta",
+    newClient: "Nový klient",
     newMatter: "Nový prípad",
     matterUnder: "Prípad vznikne pod klientom",
     noClientYet: "Vyberte priečinok klienta, pod ktorým prípad vznikne.",
@@ -365,6 +368,8 @@ const extraText: Record<Language, Record<string, string>> = {
     finish: "Dokončiť",
   },
   cs: {
+    addClientTitle: "Přidat klienta",
+    newClient: "Nový klient",
     newMatter: "Nový případ",
     matterUnder: "Případ vznikne pod klientem",
     noClientYet: "Vyberte složku klienta, pod kterým případ vznikne.",
@@ -391,6 +396,8 @@ const extraText: Record<Language, Record<string, string>> = {
     finish: "Dokončit",
   },
   en: {
+    addClientTitle: "Add a client",
+    newClient: "New client",
     newMatter: "New matter",
     matterUnder: "The matter will be created under client",
     noClientYet: "Choose the client folder the matter belongs to.",
@@ -417,6 +424,8 @@ const extraText: Record<Language, Record<string, string>> = {
     finish: "Finish",
   },
   de: {
+    addClientTitle: "Mandanten hinzufügen",
+    newClient: "Neuer Mandant",
     newMatter: "Neue Angelegenheit",
     matterUnder: "Die Angelegenheit wird angelegt für den Mandanten",
     noClientYet: "Wählen Sie den Mandantenordner, zu dem die Angelegenheit gehört.",
@@ -740,6 +749,11 @@ export function LawossWelcomePage({
   };
   // Náhľad zmien sa po vytvorení posunie do zorného poľa, aby jeho potvrdenie nebolo pod okrajom okna.
   const previewSection = useRef<HTMLElement | null>(null);
+  // N-A5-5: odmietnutie (napr. vnorený klient) je navrchu stránky; posunie sa do zorného poľa a dostane fokus.
+  const errorBanner = useRef<HTMLParagraphElement | null>(null);
+  useEffect(() => {
+    if (errorState) revealError(errorBanner.current, window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
+  }, [errorState]);
   // Nový krok začína hore; inak by po dlhom náhľade ostal posunutý a jeho nadpis by nebolo vidieť.
   const scrollArea = useRef<HTMLDivElement | null>(null);
   // Po prechode na iný krok sa fokus presunie na jeho obsah (čítačka oznámi nový krok, Tab pokračuje odtiaľ).
@@ -1013,14 +1027,17 @@ export function LawossWelcomePage({
             <LawossWordmark className="lw-onb-wordmark" />
             <span className="sr-only">LAWOSS</span>
           </p>
-          <h1 className="lw-onb-title">{tr("title")}</h1>
+          {/* N-A5-5: v nastavenej praxi je „Pridať klienta“ pridaním klienta, nie nastavením praxe. */}
+          <h1 className="lw-onb-title">{sidebarFlow && step === "client" ? tr("addClientTitle") : tr("title")}</h1>
           {mainPath && idx >= 0 ? (
             <WizardProgress text={wiz} steps={steps} current={idx} disabled={navBusy} onGo={wizard ? (target) => void move(target) : undefined} />
           ) : null}
         </header>
         {error ? (
           <p
+            ref={errorBanner}
             role="alert"
+            tabIndex={-1}
             className="lw-status err"
           >
             {error}
@@ -1166,6 +1183,7 @@ export function LawossWelcomePage({
               busy={busy}
               onPlan={plan}
               initialExisting={attachExisting && initialStep === "client"}
+              addingClient={sidebarFlow}
             />
           ) : null}
           {step === "matter" && openClientPending ? (
@@ -1372,6 +1390,7 @@ export function Client({
   busy,
   onPlan,
   initialExisting = false,
+  addingClient = false,
 }: {
   base: OnboardingProfile;
   locale: Language;
@@ -1379,6 +1398,8 @@ export function Client({
   busy: boolean;
   onPlan: (r: OnboardingPlanRequest) => Promise<void>;
   initialExisting?: boolean;
+  /** Prax je nastavená (bočný panel „Pridať klienta“): nadpis „Nový klient“, nie „Prvý klient“ (N-A5-5). */
+  addingClient?: boolean;
 }) {
   const [existing, setExisting] = useState(initialExisting);
   const [value, setValue] = useState("");
@@ -1429,7 +1450,7 @@ export function Client({
     (!existing || mode === "map" || confirmedClient);
   return (
     <>
-      <h2 className="text-xl font-semibold">{existing ? tr("attachTitle") : tr("client")}</h2>
+      <h2 className="text-xl font-semibold">{existing ? tr("attachTitle") : tr(addingClient ? "newClient" : "client")}</h2>
       <div className="flex gap-2">
         <Button
           variant={!existing ? "default" : "outline"}
