@@ -7,7 +7,8 @@ import { isOfficeFile, type MatterInput, type MatterOverview } from "../../../..
 import { pendingInputs } from "../../../../../lawoss/okf/inputs";
 import type { MatterViews } from "../../../../../lawoss/okf/views";
 import { deadlineText, isCalendarDay } from "../okf/view-rules";
-import { isFiled } from "./inputs-model";
+import type { OkfClient } from "../okf/read-model";
+import { folderInputs, isFiled } from "./inputs-model";
 
 /** Najviac toľko kariet pred „Zobraziť všetky prípady“. */
 export const CARDS_SHOWN = 6;
@@ -67,10 +68,12 @@ export function clientTerm(matters: readonly MatterOverview[], todayIso: string)
 export type InputCounts = { processed: number; waiting: number; unfiled: number };
 
 /**
- * Počty zo `VSTUPY.md` prípadov a klienta. Klientsky register (`clientIntakes`) sa ráta aj vtedy, keď klient
- * ešte nemá prípad (review #246); s registrom zdedeným v prípadoch sa zlúči podľa cesty.
+ * Počty zo `VSTUPY.md` prípadov a klienta. Klientsky register (`clients`) sa ráta aj vtedy, keď klient ešte nemá
+ * prípad (review #246); s registrom zdedeným v prípadoch sa zlúči podľa cesty. Súbory v priečinkoch na nezaradené
+ * bez riadku sú nezaradené vstupy ako na Dnes (N-A5-3).
  */
-export function inputCounts(matterInputs: readonly MatterInput[], matterPaths: readonly string[], clientIntakes: readonly { path: string; content: string }[] = []): InputCounts | null {
+export function inputCounts(matterInputs: readonly MatterInput[], matterPaths: readonly string[], clients: readonly Pick<OkfClient, "path" | "intake" | "inboxFiles">[] = []): InputCounts | null {
+  const clientIntakes = clients.flatMap((client) => client.intake ? [client.intake] : []);
   const inputs: readonly MatterInput[] = clientIntakes.length
     ? [...matterInputs, { path: "", records: [], inheritedIntakes: clientIntakes.map((intake) => ({ ...intake, scope: "client" as const })) }]
     : matterInputs;
@@ -79,7 +82,8 @@ export function inputCounts(matterInputs: readonly MatterInput[], matterPaths: r
     if (input.intake !== undefined) sources.set(`${input.path}/VSTUPY.md`, input.intake);
     for (const inherited of input.inheritedIntakes ?? []) sources.set(inherited.path, inherited.content);
   }
-  if (sources.size === 0) return null;
+  const folder = folderInputs({ inputs: matterInputs, clients });
+  if (sources.size === 0 && folder.length === 0) return null;
   let processed = 0;
   for (const content of sources.values()) {
     for (const line of content.split("\n")) {
@@ -87,6 +91,8 @@ export function inputCounts(matterInputs: readonly MatterInput[], matterPaths: r
     }
   }
   const pending = new Map(inputs.flatMap(pendingInputs).map((entry) => [`${entry.file}\u0000${entry.id}`, entry]));
-  const unfiled = [...pending.values()].filter((entry) => !isFiled(entry, matterPaths)).length;
-  return { processed, waiting: pending.size - unfiled, unfiled };
+  // Vlastný priečinok prípadu na nezaradené (#241) platí aj tu, nie len na Dnes.
+  const inboxes = new Map(matterInputs.flatMap((input) => input.inbox ? [[input.path, input.inbox] as const] : []));
+  const unfiled = [...pending.values(), ...folder].filter((entry) => !isFiled(entry, matterPaths, inboxes)).length;
+  return { processed, waiting: pending.size + folder.length - unfiled, unfiled };
 }

@@ -5,14 +5,11 @@
  * Bunka Originál je často odkaz v Markdowne (`[01-zmluva.docx](./01_Podklady/IN-001/01-zmluva%20v2.docx)`);
  * advokát vidí jeho text, nie surový Markdown. Bez Reactu, aby sa pravidlá dali otestovať.
  */
-import type { MatterOverview } from "../../../../../lawoss/okf/read";
+import type { MatterInput, MatterOverview } from "../../../../../lawoss/okf/read";
 import { pendingInputs, type PendingInput } from "../../../../../lawoss/okf/inputs";
-import type { OkfReadResult } from "../okf/read-model";
+import { INBOX_FOLDERS, type OkfClient, type OkfReadResult } from "../okf/read-model";
 import { clientOverviewLink, liteMatterLink } from "./links";
 import { groupByClient } from "./today-model";
-
-/** Priečinok prípadu na nezaradené dokumenty (rola `inbox` pracovného profilu: SK, CS, EN). */
-const INBOX_FOLDERS = new Set(["00_na_zatriedenie", "00_k_zarazeni", "00_inbox"]);
 
 const decode = (value: string): string => {
   try { return decodeURIComponent(value); } catch { return value; }
@@ -86,15 +83,64 @@ export function isFiled(input: Pick<PendingInput, "original" | "file" | "matterP
   });
 }
 
-/** Nezaradené vstupy celého prehľadu: `pending` riadky bez opakovaní, ktorých súbor ešte nie je v žiadnom prípade. */
-export function unfiledInputs(result: Pick<OkfReadResult, "inputs" | "matters">): PendingInput[] {
+type FolderSources = { inputs: readonly MatterInput[]; clients?: readonly Pick<OkfClient, "path" | "intake" | "inboxFiles">[] };
+
+/** Every row's file in the given `VSTUPY.md` registers (processed too): a file with a row is not a second input. */
+function registeredFiles({ inputs, clients = [] }: FolderSources): Set<string> {
+  const registers = [
+    ...inputs.flatMap((input) => [
+      ...(input.intake !== undefined ? [{ content: input.intake, file: input.path ? `${input.path}/VSTUPY.md` : "VSTUPY.md" }] : []),
+      ...(input.inheritedIntakes ?? []).map((intake) => ({ content: intake.content, file: intake.path })),
+    ]),
+    ...clients.flatMap((client) => client.intake ? [{ content: client.intake.content, file: client.intake.path }] : []),
+  ];
+  const files = new Set<string>();
+  for (const register of registers) {
+    for (const line of register.content.split("\n")) {
+      const original = line.trim().split("|").slice(1, -1).map((cell) => cell.trim())[3];
+      const path = original ? inputFilePath({ original, file: register.file }) : null;
+      if (path) files.add(folderKey(path));
+    }
+  }
+  return files;
+}
+
+/** One input for a file that lies in an inbox folder; `original` is a link, so the list shows the file's name. */
+function folderInput(path: string, owner: string, scope?: "client"): PendingInput {
+  const relative = owner && path.startsWith(`${owner}/`) ? path.slice(owner.length + 1) : path;
+  return { id: "", received: "", source: "", original: `[${lastSegment(path)}](<./${relative.replace(/%/g, "%25")}>)`, matterPath: owner,
+    file: owner ? `${owner}/VSTUPY.md` : "VSTUPY.md", ...(scope ? { scope } : {}) };
+}
+
+/**
+ * N-A5-3 (test 25. 10. 2026): súbory, ktoré advokát vložil do priečinka na nezaradené (prípadu alebo klienta) a ktoré
+ * nemajú riadok vo `VSTUPY.md`. Súbor s riadkom (aj spracovaným) sa ráta podľa riadku, nie druhýkrát.
+ */
+export function folderInputs(sources: FolderSources): PendingInput[] {
+  const registered = registeredFiles(sources);
+  const items = new Map<string, PendingInput>();
+  const add = (path: string, owner: string, scope?: "client") => {
+    const key = folderKey(path);
+    if (!registered.has(key) && !items.has(key)) items.set(key, folderInput(path, owner, scope));
+  };
+  for (const input of sources.inputs) for (const path of input.inboxFiles ?? []) add(path, input.path);
+  for (const client of sources.clients ?? []) for (const path of client.inboxFiles ?? []) add(path, client.path, "client");
+  return [...items.values()];
+}
+
+/**
+ * Nezaradené vstupy celého prehľadu: `pending` riadky bez opakovaní, ktorých súbor ešte nie je v žiadnom prípade,
+ * a súbory v priečinkoch na nezaradené bez riadku (N-A5-3).
+ */
+export function unfiledInputs(result: Pick<OkfReadResult, "inputs" | "matters"> & Partial<Pick<OkfReadResult, "clients">>): PendingInput[] {
   const matterPaths = result.matters.map((matter) => matter.path);
   const inboxes = new Map(result.inputs.flatMap((input) => input.inbox ? [[input.path, input.inbox] as const] : []));
   const unique = new Map(result.inputs.flatMap(pendingInputs).map((entry) => [
     entry.scope === "client" ? `${entry.scope}\u0000${entry.file}\u0000${entry.id}` : `${entry.matterPath}\u0000${entry.file}\u0000${entry.id}`,
     entry,
   ]));
-  return [...unique.values()].filter((entry) => !isFiled(entry, matterPaths, inboxes));
+  const rows = [...unique.values()].filter((entry) => !isFiled(entry, matterPaths, inboxes));
+  return [...rows, ...folderInputs({ inputs: result.inputs, ...(result.clients ? { clients: result.clients } : {}) }).filter((entry) => !isFiled(entry, matterPaths, inboxes))];
 }
 
 export type InputRow = { input: PendingInput; label: string; matter?: Pick<MatterOverview, "path" | "title">; link: string };
