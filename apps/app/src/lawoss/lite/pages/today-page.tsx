@@ -306,8 +306,12 @@ function Empty({ text, done = false }: { text: string; done?: boolean }) {
   return <p className="lw-today-empty">{done ? <Check aria-hidden size={15} /> : null}{text}</p>;
 }
 
-/** Jeden diagram, který nese informaci: 14 dní, dnešek, lhůty jako body podle naléhavosti. */
+/**
+ * Jeden diagram, který nese informaci: 14 dní, dnešek, lhůty jako body podle naléhavosti. Úlohy ukáže ako termíny
+ * z prípadov (`caseDates`, #251) na Dnes aj na Domove klienta: záznam s lehotou v ten istý deň nie je dvakrát.
+ */
 export function DeadlineStrip({ deadlines, tasks, todayIso, locale, text }: { deadlines: readonly TodayDeadline[]; tasks: readonly TodayTask[]; todayIso: string; locale: Language; text: Text }) {
+  const dates = caseDates(tasks, todayIso, STRIP_DAYS, deadlines);
   const overdue = deadlines.filter((d) => !d.invalid && d.tier === "overdue");
   const days = Array.from({ length: STRIP_DAYS }, (_, i) => addDays(todayIso, i));
   const cells: { key: string; label: string; day: string; items: TodayDeadline[]; due: TodayTask[]; today?: boolean; weekend?: boolean; overdue?: boolean }[] = [
@@ -317,7 +321,7 @@ export function DeadlineStrip({ deadlines, tasks, todayIso, locale, text }: { de
       label: i === 0 ? text("strip_today") : weekdayShort(iso, locale),
       day: String(dayOfMonth(iso)),
       items: deadlines.filter((d) => !d.invalid && d.date === iso),
-      due: tasks.filter((task) => task.due === iso),
+      due: dates.filter((date) => date.due === iso),
       today: i === 0,
       weekend: isWeekend(iso),
     })),
