@@ -143,7 +143,6 @@ async function locate(roots: Root[], requested: string, nested: readonly string[
  * same extension and a stem that differs only by case, accents or one or two letters.
  */
 const SIMILAR_SHOWN = 5;
-const SIMILAR_SCAN = 2000;
 
 function nameParts(name: string): { stem: string; ext: string } {
   const plain = name.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
@@ -174,10 +173,21 @@ export function confusableNames(name: string, other: string): boolean {
   return editDistance(a.stem, b.stem, allowed) <= allowed;
 }
 
+/** Hidden files and Office lock files (`~$Zmluva.docx`) are not items the user could mean. */
+const notAnItem = (name: string) => name.startsWith(".") || name.startsWith("~$");
+
 async function similarSiblings(location: string): Promise<string[]> {
-  const name = basename(location);
-  const siblings = (await readdir(dirname(location)).catch(() => [])).slice(0, SIMILAR_SCAN);
-  return siblings.filter((other) => !other.startsWith(".") && confusableNames(name, other)).sort().slice(0, SIMILAR_SHOWN).map(visibleName);
+  const name = basename(location), self = await present(location);
+  const candidates = (await readdir(dirname(location)).catch(() => [])).filter((other) => !notAnItem(other) && confusableNames(name, other)).sort();
+  const similar: string[] = [];
+  for (const other of candidates) {
+    if (similar.length >= SIMILAR_SHOWN) break;
+    // On APFS and NTFS the requested `PODKLAD.pdf` and the listed `podklad.pdf` are the same file, not a neighbour.
+    const info = await present(join(dirname(location), other));
+    if (info && self && info.dev === self.dev && info.ino === self.ino) continue;
+    similar.push(visibleName(other));
+  }
+  return similar;
 }
 
 async function present(location: string): Promise<Stats | null> {
@@ -276,9 +286,19 @@ function publicPlan(plan: Planned[]): PublicFileOperation[] {
   return plan.map(({ source: _source, target: _target, sourceRoot: _root, identity: _identity, caseOnly: _caseOnly, ...visible }) => visible);
 }
 
+/**
+ * `similar` is a hint for the card, not part of what was approved: a neighbour that appears or goes away between the
+ * card and the approval (a scan arriving, a Word lock file) must not refuse an unchanged item (review N-A5-1).
+ */
+function withoutHints(operations: unknown): unknown {
+  return Array.isArray(operations)
+    ? operations.map((item: unknown) => item && typeof item === "object" ? Object.fromEntries(Object.entries(item).filter(([key]) => key !== "similar")) : item)
+    : operations;
+}
+
 /** Binds the approval to canonical paths and file identity without exposing either. */
 function revisionOf(plan: Planned[]): string {
-  return createHash("sha256").update(JSON.stringify(plan)).digest("hex");
+  return createHash("sha256").update(JSON.stringify(withoutHints(plan))).digest("hex");
 }
 
 export async function planFileOperations(config: ServerConfig, workspace: WorkspaceInfo, input: unknown): Promise<FilePlan> {
@@ -426,7 +446,7 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
   // An earlier step of the same request may move a link (or a folder holding one) to a name the plan saw as free:
   // every path must still pass the plan's checks and lead to the same place right before its step.
   const unchanged = async (location: string | undefined) => !location || (await locate(roots, location, nested).catch(() => null))?.canonical === location;
-  if (JSON.stringify(publicPlan(plan)) !== JSON.stringify(approved) || revisionOf(plan) !== revision)
+  if (JSON.stringify(withoutHints(publicPlan(plan))) !== JSON.stringify(withoutHints(approved)) || revisionOf(plan) !== revision)
     throw new ApiError(409, "file_operation_changed", "The files changed after the approval card was shown. Nothing was changed. Ask the user before trying again.");
   return withFileEditorHandoff({ write: true, sessionID }, async () => {
     const results: FileOperationResult[] = [];

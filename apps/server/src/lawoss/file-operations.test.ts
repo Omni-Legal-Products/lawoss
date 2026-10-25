@@ -458,3 +458,26 @@ test("N-A5-1: confusable names differ only by case, accents or a letter or two, 
   expect(confusableNames("a1.pdf", "a2.pdf")).toBe(false);
   expect(confusableNames("Podklady.pdf", "Podklady.pdf".normalize("NFD"))).toBe(false);
 });
+
+test("review N-A5-1: the item itself in another case is no neighbour, and a neighbour arriving after the card does not refuse the change", async () => {
+  const { config, client, workspace } = await office();
+  const folder = join(client, "Pripady", "M005");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "podklad.pdf"), "SYN pdf");
+  await writeFile(join(folder, "Podklady.docx"), "SYN docx");
+  await writeFile(join(folder, "~$dklady.docx"), "lock");
+  if (await caseInsensitive(folder)) {
+    const upper = await planFileOperations(config, workspace, [{ operation: "delete", path: join(folder, "PODKLAD.pdf") }]);
+    expect(upper.operations[0]).not.toHaveProperty("similar");
+  }
+  // An Office lock file is not an item the user could mean.
+  expect((await planFileOperations(config, workspace, [{ operation: "delete", path: join(folder, "Podklady.docx") }])).operations[0]).not.toHaveProperty("similar");
+  const operations = [{ operation: "delete", path: join(folder, "podklad.pdf") }];
+  const plan = await planFileOperations(config, workspace, operations);
+  expect(plan.operations[0]).not.toHaveProperty("similar");
+  await writeFile(join(folder, "podklady.pdf"), "SYN novy sken");
+  const result = await applyFileOperations(config, workspace, operations, plan.operations, plan.revision, "ses_1");
+  expect(result.complete).toBe(true);
+  expect(result.results[0]).toMatchObject({ status: "done", similar: ["podklady.pdf"] });
+  expect((await readdir(folder)).sort()).toEqual(["Podklady.docx", "podklady.pdf", "~$dklady.docx"]);
+});
