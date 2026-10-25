@@ -25,7 +25,7 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { cp, link, lstat, mkdir, readdir, readlink, rename, rm, unlink } from "node:fs/promises";
 import type { Stats } from "node:fs";
-import { basename, dirname, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { withFileEditorHandoff } from "../file-editor-handoff.js";
@@ -123,8 +123,52 @@ function inNestedClient(nested: readonly string[], canonical: string): boolean {
   return nested.some((other) => isPathWithin(folded(other), folded(canonical)) || isPathWithin(folded(canonical), folded(other)));
 }
 
+/**
+ * N-A5-10 (test 25. 10. 2026): „v prípade M001 premenuj 01_Podklady/IN-007/poznamky.txt“ skončilo „sa nenašiel“,
+ * lebo priečinok prípadu je `Spisy/M001-uhrada-dodavok-…`; advokát celé meno nepozná. Priečinok cesty, ktorý
+ * neexistuje a je len kódom prípadu alebo klienta (`M001`, `C002`), sa nahradí jediným priečinkom vedľa, ktorý týmto
+ * kódom začína (`M001-…`, `M001 …`). Pri viacerých sa nič nehádže: odmietnutie ich vymenuje. Posledná časť cesty
+ * (súbor, nové meno) sa nemení; karta ukáže skutočnú cestu.
+ */
+const CASE_CODE = /^\p{Lu}{1,3}[-_ ]?\d{3,5}$/u;
+const CODE_SEPARATOR = /^[-_ .]/;
+
+async function expandCaseCodes(roots: Root[], requested: string, nested: readonly string[]): Promise<string> {
+  for (const root of roots) {
+    const absolute = isAbsolute(requested) ? requested : join(root.path, requested);
+    const inside = relative(root.path, absolute);
+    if (!inside || inside.startsWith("..") || isAbsolute(inside)) continue;
+    const parts = inside.split(sep);
+    let current = root.path, expanded = false, index = 0;
+    for (; index < parts.length - 1; index++) {
+      const part = parts[index]!;
+      const next = join(current, part);
+      const info = await present(next);
+      // A link is not followed: names behind it are not listed (locate refuses paths outside the client anyway).
+      if (info?.isSymbolicLink()) break;
+      if (info) { current = next; continue; }
+      const code = part.normalize("NFC");
+      if (!CASE_CODE.test(code)) break;
+      const matches = (await readdir(current, { withFileTypes: true }).catch(() => []))
+        .filter((entry) => entry.isDirectory() && entry.name.normalize("NFC").toUpperCase().startsWith(code.toUpperCase())
+          && CODE_SEPARATOR.test(entry.name.normalize("NFC").slice(code.length)) && !inNestedClient(nested, join(current, entry.name)))
+        .map((entry) => entry.name).sort();
+      if (matches.length > 1)
+        throw new ApiError(409, "file_operation_ambiguous_case", `Several folders match ${visibleName(code)}: ${matches.map(visibleName).join(", ")}. Nothing was changed. Ask the user which one they mean.`);
+      if (matches.length === 0) break;
+      current = join(current, matches[0]!);
+      expanded = true;
+    }
+    // Only a path that named a case by its code changes; any other stays as written for the next root.
+    if (!expanded) continue;
+    return join(current, ...parts.slice(index));
+  }
+  return requested;
+}
+
 /** The canonical path in the client's folder or a linked folder; a link itself is moved, not its target. */
-async function locate(roots: Root[], requested: string, nested: readonly string[]): Promise<Located> {
+async function locate(roots: Root[], written: string, nested: readonly string[]): Promise<Located> {
+  const requested = await expandCaseCodes(roots, written, nested);
   for (const root of roots) {
     const canonical = await resolveWorkspaceFilePath(root.path, requested, { preserveLeaf: true }).catch(() => null);
     if (!canonical) continue;

@@ -481,3 +481,33 @@ test("review N-A5-1: the item itself in another case is no neighbour, and a neig
   expect(result.results[0]).toMatchObject({ status: "done", similar: ["podklady.pdf"] });
   expect((await readdir(folder)).sort()).toEqual(["Podklady.docx", "podklady.pdf", "~$dklady.docx"]);
 });
+
+test("N-A5-10: a case written as its code alone resolves to its folder; several matches are refused, not guessed", async () => {
+  const { config, client, workspace } = await office();
+  const intake = join(client, "Spisy", "M001-uhrada-dodavok-riadiacich-jednotiek", "01_Podklady", "IN-007");
+  await mkdir(intake, { recursive: true });
+  await writeFile(join(intake, "poznamky.txt"), "SYN poznamky");
+  const operations = [{ operation: "move", from: join(client, "Spisy", "M001", "01_Podklady", "IN-007", "poznamky.txt"), to: join(client, "Spisy", "M001", "01_Podklady", "IN-007", "poznamky-k-uhrade.txt") }];
+  const plan = await planFileOperations(config, workspace, operations);
+  expect(plan.operations).toEqual([{ operation: "move", kind: "file",
+    from: "Spisy/M001-uhrada-dodavok-riadiacich-jednotiek/01_Podklady/IN-007/poznamky.txt",
+    to: "Spisy/M001-uhrada-dodavok-riadiacich-jednotiek/01_Podklady/IN-007/poznamky-k-uhrade.txt" }]);
+  const result = await applyFileOperations(config, workspace, operations, plan.operations, plan.revision, "ses_1");
+  expect(result.complete).toBe(true);
+  expect(await readdir(intake)).toEqual(["poznamky-k-uhrade.txt"]);
+  // Two folders with the same code: refused with both names, nothing guessed.
+  await mkdir(join(client, "Spisy", "M002 Spor A"), { recursive: true });
+  await mkdir(join(client, "Spisy", "M002-spor-b"), { recursive: true });
+  await expect(planFileOperations(config, workspace, [{ operation: "create_folder", path: join(client, "Spisy", "M002", "Nove") }]))
+    .rejects.toMatchObject({ code: "file_operation_ambiguous_case", message: expect.stringContaining("M002 Spor A, M002-spor-b") });
+  // A name that is not a code, or a code no folder starts with, is left as written.
+  await expect(planFileOperations(config, workspace, [{ operation: "delete", path: join(client, "Spisy", "M009", "x.txt") }])).rejects.toMatchObject({ code: "file_operation_missing" });
+  await expect(planFileOperations(config, workspace, [{ operation: "delete", path: join(client, "Spisy", "uhrada", "x.txt") }])).rejects.toMatchObject({ code: "file_operation_missing" });
+  // Relative to the chat's folder, as the agent usually writes it.
+  expect((await planFileOperations(config, workspace, [{ operation: "create_folder", path: "Spisy/M001/01_Podklady/Relativne" }])).operations[0]?.to)
+    .toBe("Spisy/M001-uhrada-dodavok-riadiacich-jednotiek/01_Podklady/Relativne");
+  // M0010 is not M001 followed by a separator.
+  await mkdir(join(client, "Spisy", "M0010-ine"), { recursive: true });
+  expect((await planFileOperations(config, workspace, [{ operation: "create_folder", path: join(client, "Spisy", "M001", "Nove") }])).operations[0]?.to)
+    .toBe("Spisy/M001-uhrada-dodavok-riadiacich-jednotiek/Nove");
+});

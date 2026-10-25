@@ -24,7 +24,7 @@ const operation = z.object({
   path: pathArg.optional().describe("create_folder/delete: the folder to create or the file/folder to delete."),
 });
 const args = z.object({
-  operations: z.array(operation).min(1).max(50).describe("Changes in order, 1–50. Paths are relative to the chat's folder (in a case chat, the case folder) or absolute inside this client's folder or its linked folders."),
+  operations: z.array(operation).min(1).max(50).describe("Changes in order, 1–50. Paths are relative to the chat's folder (in a case chat, the case folder) or absolute inside this client's folder or its linked folders. A case or client folder may be written as its code alone (Spisy/M001/…): the tool uses the one folder starting with that code, and refuses if several match."),
   description: z.string().max(300).optional().describe("Briefly say why, in the user's language."),
 });
 
