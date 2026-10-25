@@ -8,11 +8,38 @@ import { unfiledInputs } from "./inputs-model";
 import { clientFromPath } from "../../../../../lawoss/okf/cockpit";
 import type { OkfReadResult } from "../okf/read-model";
 import { HORIZON_DAYS } from "../okf/view-rules";
+import { APP_TASKS_PATH, liteMatterLink } from "./links";
+import { taskDueDateInputValue } from "@/react-app/domains/tasks/task-format";
 import { isoDay } from "../../../../../lawoss/okf-pamat/src/schema.ts";
 
 /** `alsoIn`: další věci, do kterých patří tatáž lhůta ze sdíleného souboru (klient, kancelář). */
 export type TodayDeadline = UpcomingDeadline & { tier: DeadlineTier; daysLeft: number; alsoIn?: { path: string; title: string }[] };
-export type TodayTask = { key: string; id: string; title: string; due?: string; matters: { path: string; title: string }[] };
+export type TodayTask = {
+  key: string; id: string; title: string; due?: string; matters: { path: string; title: string }[];
+  /** Úloha aplikácie (Nová úloha), nie úloha prípadu z pamäte (N-A5-4); `client` = meno klienta, ku ktorému patrí. */
+  app?: { client?: string };
+};
+
+/** Úloha aplikácie, ako ju vráti server (`LegalworkTask`), len polia, ktoré Dnes potrebuje. */
+export type AppTask = { id: string; title: string; status: string; dueDate: string | null; projectId?: string | null; deletedAt: string | null };
+
+/**
+ * N-A5-4 (test 25. 10. 2026): úloha z „Nová úloha“ (natívne úlohy aplikácie) sa na Dnes, v mesiaci ani na osi
+ * neukázala, lebo Dnes čítal len úlohy prípadov z pamäte. Otvorené úlohy aplikácie (nie hotové, zrušené ani v Koši)
+ * sa pridajú k úlohám; `clientOf` dá meno klienta podľa projektu úlohy.
+ */
+export function appTodayTasks(tasks: readonly AppTask[], clientOf: (projectId: string) => string | undefined = () => undefined): TodayTask[] {
+  return tasks.filter((task) => (task.status === "open" || task.status === "in_progress") && !task.deletedAt).map((task) => {
+    const client = task.projectId ? clientOf(task.projectId) : undefined;
+    // Deň v miestnom čase ako v paneli Úlohy (termín s časom „2026-10-25T23:30Z“ je v Bratislave 26. 10.).
+    const due = taskDueDateInputValue(task.dueDate);
+    return { key: `app:${task.id}`, id: task.id, title: task.title, ...(due ? { due } : {}), matters: [], app: client ? { client } : {} };
+  });
+}
+
+/** Kam vedie úloha alebo termín: úloha aplikácie do panela Úlohy, úloha prípadu do jej (prvého) prípadu. */
+export const taskLink = (task: Pick<TodayTask, "id" | "matters" | "app">): string =>
+  task.app ? APP_TASKS_PATH : liteMatterLink(task.matters[0]?.path ?? "");
 /** Termín z prípadu: otvorená úloha s platným dátumom (`due`), nie evidovaná lehota. */
 export type CaseDate = TodayTask & { due: string; daysLeft: number };
 
@@ -59,7 +86,7 @@ export type TodayModel = { deadlines: TodayDeadline[]; tasks: TodayTask[]; input
 export type ClientGroup = { key: string; client: string; matters: MatterOverview[] };
 
 
-export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDeadlines" | "overdue" | "inputs"> & Partial<Pick<OkfReadResult, "clients">>, todayIso: string, horizonDays = HORIZON_DAYS): TodayModel {
+export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDeadlines" | "overdue" | "inputs"> & Partial<Pick<OkfReadResult, "clients">>, todayIso: string, horizonDays = HORIZON_DAYS, appTasks: readonly TodayTask[] = []): TodayModel {
   const horizon = addDays(todayIso, horizonDays);
   // Lhůta ze sdíleného souboru přijde jednou za každou věc; ukázat ji jednou a vyjmenovat věci.
   const all: (UpcomingDeadline & { alsoIn?: { path: string; title: string }[] })[] = [];
@@ -92,7 +119,7 @@ export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDead
   const recent = [...result.matters].sort((a, b) => (b.lastEvent?.date ?? "").localeCompare(a.lastEvent?.date ?? ""));
   return {
     deadlines,
-    tasks: [...tasks.values()].sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999")),
+    tasks: [...tasks.values(), ...appTasks].sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999")),
     // N-A3-2: len vstupy, ktorých súbor ešte nie je v žiadnom prípade (`inputs-model.ts`).
     inputs: unfiledInputs(result),
     recent,
