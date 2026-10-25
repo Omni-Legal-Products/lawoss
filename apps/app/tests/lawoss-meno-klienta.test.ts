@@ -60,10 +60,12 @@ describe("meno z karty klienta namiesto mena priečinka", () => {
 
   test("review: aj po pripojení, kým prehľad nie je načítaný (fakty `pending`), a v skutočnom hooku panela", () => {
     remember(TITLE);
-    const rows = (data: Parameters<typeof buildClientRows>[0]["data"], excluded: string[] = []) => buildClientRows({ workspaces: [c002], scope, data,
-      groups: [], model: { clients: new Map() }, excludedWorkspaceIds: excluded, rootCards: new Map(), todayIso: "2026-10-25" });
+    const rows = (data: Parameters<typeof buildClientRows>[0]["data"], excluded: string[] = [], reading = true) => buildClientRows({ workspaces: [c002], scope, data,
+      groups: [], model: { clients: new Map() }, excludedWorkspaceIds: excluded, rootCards: new Map(), todayIso: "2026-10-25", reading });
     expect(rows(undefined).get("c002")).toMatchObject({ eligible: false, pending: true });
     expect(clientProjectRow({ rows: rows(undefined) }, c002, FOLDER, "sk").label).toBe(TITLE);
+    // Prehľad zlyhal alebo nemá rozsah (nečíta sa): zapamätané meno sa neukazuje donekonečna.
+    expect(rows(undefined, [], false).get("c002")?.pending).toBeUndefined();
     // Vylúčený priestor ostáva pri natívnom mene.
     expect(rows(undefined, ["c002"]).get("c002")?.pending).toBeUndefined();
     expect(clientProjectRow({ rows: rows(undefined, ["c002"]) }, c002, FOLDER, "sk").label).toBe(FOLDER);

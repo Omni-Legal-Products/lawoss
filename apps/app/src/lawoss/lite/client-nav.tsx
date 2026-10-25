@@ -120,6 +120,7 @@ export function useClientNavData(live?: { groups?: readonly WorkspaceSessionGrou
   const data = scope ? query.data : undefined;
   // N-A5-6: meno z karty klienta pre titulok okna a panel (aj pri ďalšom štarte počas načítavania).
   useEffect(() => {
+    // Mazanie len po úplnom čítaní celej praxe: opakovaný problém inde meno nezmaže, ostane len počas načítania.
     if (!data?.clients || !connection) return;
     rememberCardTitles(cardTitles(connection.workspaces, scope, data.clients, !data.truncated && data.problems.length === 0), connection.workspaces.length ? connection.workspaces.map((w) => w.id) : undefined);
   }, [connection, scope, data]);
@@ -146,8 +147,8 @@ export function useClientNavData(live?: { groups?: readonly WorkspaceSessionGrou
   // B3: fakty riadkov klientov raz pre celý panel; karty v koreňoch priečinkov nezávisle od výberu (I-1, I-4).
   const rootCards = useRootCards(connection, data);
   const todayIso = today();
-  const rows = useMemo(() => buildClientRows({ workspaces: connection?.workspaces ?? [], scope, data, groups, model, excludedWorkspaceIds, rootCards, todayIso }),
-    [connection?.workspaces, scope, data, groups, model, excludedWorkspaceIds, rootCards, todayIso]);
+  const rows = useMemo(() => buildClientRows({ workspaces: connection?.workspaces ?? [], scope, data, groups, model, excludedWorkspaceIds, rootCards, todayIso, reading: pending }),
+    [connection?.workspaces, scope, data, groups, model, excludedWorkspaceIds, rootCards, todayIso, pending]);
   return { connection, scope, data, groups, model, pending, failed, excludedWorkspaceIds, check, read, rows };
 }
 

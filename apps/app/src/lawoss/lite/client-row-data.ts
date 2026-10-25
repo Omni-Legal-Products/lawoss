@@ -103,6 +103,8 @@ type RowInputs = {
   excludedWorkspaceIds: readonly string[];
   rootCards: ReadonlyMap<string, RootCard>;
   todayIso: string;
+  /** Prehľad sa práve číta (nie zlyhal ani nemá rozsah); len vtedy platí zapamätané meno z karty (N-A5-6). */
+  reading?: boolean;
 };
 
 /** Fakty všetkých riadkov naraz (jedno prejdenie skupín na projekt; lehoty len zo skupiny presného klienta). */
@@ -119,7 +121,7 @@ export function buildClientRows(input: RowInputs): ReadonlyMap<string, ClientRow
     const title = (group ? cardTitle(data, group.key) : undefined) ?? root?.title;
     const fresh = group !== null && group.matters.every((m) => matterSourceFresh(data, scope, m.path));
     const deadline = group ? rowDeadline(group.matters.flatMap((m) => m.deadlines), todayIso, fresh) : null;
-    const pending = data === undefined && !title && !excluded.has(w.id);
+    const pending = Boolean(input.reading) && data === undefined && !title && !excluded.has(w.id);
     rows.set(w.id, { eligible: Boolean(root?.card) || group !== null || member, ...(title ? { cardTitle: title } : {}), path, deadline, ...(pending ? { pending: true as const } : {}) });
   }
   return rows;
