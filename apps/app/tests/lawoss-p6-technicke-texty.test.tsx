@@ -230,3 +230,21 @@ describe("stav praxe navrchu stránok kancelárie (N-A2-8)", () => {
     expect(t("lawoss.practice.details", "cs")).toBe("Podrobnosti o načtení");
   });
 });
+
+describe("N-A5-1: karta upozorní na podobný názov vedľa mazanej alebo presúvanej položky", () => {
+  const metadata = { lawossFiles: [
+    { operation: "delete", kind: "file", from: "Spisy/M004/podklad.pdf", similar: ["Podklady.pdf"] },
+    { operation: "delete", kind: "file", from: "stary.txt" },
+  ] };
+  test("hneď pod zmenou je podobný názov, v Zmenách aj v Podrobnostiach, v SK/CS/EN/DE", () => {
+    setLocale("sk");
+    const card = fileOperationCard(metadata);
+    expect(card?.scopeValue).toBe("Do Koša: Spisy/M004/podklad.pdf\nSkontrolujte názov: vedľa Spisy/M004/podklad.pdf je aj Podklady.pdf.\nDo Koša: stary.txt");
+    expect(card?.details.lines).toEqual(["Do Koša: Spisy/M004/podklad.pdf", "Skontrolujte názov: vedľa Spisy/M004/podklad.pdf je aj Podklady.pdf.", "Do Koša: stary.txt"]);
+    for (const [locale, start] of [["cs", "Zkontrolujte název"], ["en", "Check the name"], ["de", "Bitte den Namen prüfen"]] as const) {
+      setLocale(locale);
+      expect(fileOperationCard(metadata)?.details.lines[1]).toStartWith(start);
+    }
+  });
+});
+
