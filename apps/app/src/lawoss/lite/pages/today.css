@@ -326,3 +326,4 @@
 
 /* N-A5-9: „+N ďalšie“ pod skráteným zoznamom termínov a úloh. */
 .lw-today-more { list-style: none; padding: 6px 4px 0; font-size: 12px; color: var(--lw-text-tertiary); }
+.lw-today-more-link { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }

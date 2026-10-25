@@ -12,9 +12,8 @@ import { OnboardingResumeCardView } from "../../domains/onboarding/resume-card";
 import { litePageProps } from "../state-text";
 import { addDays, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
 import { deadlineKey, deadlineText, dueTextFromDays, isCalendarDay, urgencyOf, type Urgency } from "../../okf/view-rules";
-import { isOfficeFile } from "../../../../../../lawoss/okf/read";
+import { isOfficeFile, type MatterOverview } from "../../../../../../lawoss/okf/read";
 import { deadlineCoverage } from "../../../../../../lawoss/okf/views";
-import { matterTerm } from "../client-cards";
 import { buildToday, caseDates, nextDeadline, startHere, type CaseDate, type StartHere, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
 import { agendaEvents, type AgendaEvent } from "../agenda-model";
 import { CandidatesPanel, ModeSwitch, MonthCalendar, type ViewMode } from "../agenda-views";
@@ -113,7 +112,9 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
   // a „nič nehorí“ nie, keď termín uplynul alebo príde do 7 dní. Uplynulý termín má prednosť (zoradené podľa dátumu).
   const dates = caseDates(model.tasks, todayIso, STRIP_DAYS, model.deadlines);
   const datedKeys = new Set(dates.map((d) => d.key));
-  const otherTasks = model.tasks.filter((task) => !datedKeys.has(task.key));
+  // Úloha s nečitateľným dátumom (na kontrolu) nesmie skončiť za „+N ďalšie“: ide pred ostatné (review N-A5-9).
+  const otherTasks = model.tasks.filter((task) => !datedKeys.has(task.key))
+    .sort((a, b) => Number(Boolean(b.due && !isCalendarDay(b.due.trim().slice(0, 10)))) - Number(Boolean(a.due && !isCalendarDay(a.due.trim().slice(0, 10)))));
   const pressing = dates.find((d) => d.daysLeft <= 7);
   const dateParams = (d: CaseDate) => ({ title: d.title, when: caseDateWhen(d, locale, text) });
   const lead = !first || thisWeek.length === 0
@@ -177,7 +178,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
               </li>
             ))}
           </ul>}
-          <CaseDates dates={dates} todayIso={todayIso} locale={locale} text={text} />
+          <CaseDates dates={dates} todayIso={todayIso} locale={locale} text={text} onMore={events ? () => setMode("month") : undefined} />
         </Panel>
         </div>
 
@@ -202,7 +203,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
                   <span className="lw-today-main">
                     <span className="lw-today-title" title={task.title}>{task.title}</span>
                     <small>{task.matters.slice(0, MATTERS_SHOWN).map((m, i) => (
-                      <span key={m.path}>{i > 0 ? " · " : ""}<Link to={liteMatterLink(m.path)}>{m.title}</Link></span>
+                      <span key={m.path}>{i > 0 ? " · " : ""}<Link to={liteMatterLink(m.path)}>{m.client ? `${m.client} – ${m.title}` : m.title}</Link></span>
                     ))}{task.matters.length > MATTERS_SHOWN ? <span> · {text("more_items", { count: task.matters.length - MATTERS_SHOWN })}</span> : null}</small>
                   </span>
                   {task.due ? <span className="lw-today-chip" data-urgency={urgencyOf(task.due, todayIso)}>
@@ -224,8 +225,9 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
         <div className="lw-today-cards">
           {model.recent.slice(0, MATTER_CARDS).map((matter) => {
             const next = nextDeadline(matter.deadlines, todayIso);
-            // N-A5-9: bez lehoty ukáže najbližší pracovný termín prípadu, nie „Bez bližšej lehoty“ pri termíne o 3 dni.
-            const work = next ? undefined : matterTerm(matter, todayIso);
+            // N-A5-9: bez nadchádzajúcej lehoty ukáže najbližší pracovný termín prípadu (len úlohu, nikdy zmeškanú lehotu
+            // ako pracovný termín); lehoty a termíny ostávajú oddelené (N-A2-11).
+            const work = next ? undefined : nextWorkDate(matter, todayIso);
             return (
               <Link key={matter.path} className="lw-today-card" to={liteMatterLink(matter.path)}>
                 <span className="lw-today-card-top">
@@ -234,7 +236,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
                 </span>
                 {matter.matterRef ? <span className="lw-today-ref">{matter.matterRef}</span> : null}
                 <span className="lw-today-card-meta">
-                  <span><small>{text(work ? "next_term_title" : "next_deadline")}</small>{next ? formatDay(next, locale) : work ? `${formatDay(work.date, locale)} · ${text("agenda_kind_work")}` : text("no_next_deadline")}</span>
+                  <span><small>{text(work ? "next_term_title" : "next_deadline")}</small>{next ? formatDay(next, locale) : work ? `${formatDay(work, locale)} · ${text("agenda_kind_work")}` : text("no_next_deadline")}</span>
                   <span><small>{text("tasks_short")}</small>{matter.openTasks.length}</span>
                 </span>
               </Link>
@@ -273,7 +275,7 @@ function StartHereCard({ start, lead, todayIso, locale, text }: { start: StartHe
 }
 
 /** Termíny z prípadov pod lehotami: vlastný nadpis a veta, že nejde o evidované lehoty (N-A2-11). */
-function CaseDates({ dates, todayIso, locale, text }: { dates: readonly CaseDate[]; todayIso: string; locale: Language; text: Text }) {
+function CaseDates({ dates, todayIso, locale, text, onMore }: { dates: readonly CaseDate[]; todayIso: string; locale: Language; text: Text; onMore?: () => void }) {
   if (!dates.length) return null;
   return <div className="lw-today-case-dates" data-lawoss-case-dates="">
     <h3 className="lw-today-subtitle">{text("case_dates_title")}</h3>
@@ -291,7 +293,10 @@ function CaseDates({ dates, todayIso, locale, text }: { dates: readonly CaseDate
           </Link>
         </li>
       ))}
-      {dates.length > LIST_ROWS ? <li className="lw-today-more" data-lawoss-more="case-dates">{text("more_items", { count: dates.length - LIST_ROWS })}</li> : null}
+      {/* Ďalšie termíny sú v mesiaci: „+N ďalšie“ ho otvorí (review N-A5-9). */}
+      {dates.length > LIST_ROWS ? <li className="lw-today-more" data-lawoss-more="case-dates">{onMore
+        ? <button type="button" className="lw-today-more-link" onClick={onMore}>{text("more_items", { count: dates.length - LIST_ROWS })}</button>
+        : text("more_items", { count: dates.length - LIST_ROWS })}</li> : null}
     </ul>
   </div>;
 }
@@ -371,6 +376,11 @@ export function DeadlineStrip({ deadlines, tasks, todayIso, locale, text }: { de
       </ol>
     </section>
   );
+}
+
+/** Najbližší pracovný termín prípadu (úloha s platným dátumom dnes alebo neskôr). */
+function nextWorkDate(matter: Pick<MatterOverview, "openTasks">, todayIso: string): string | undefined {
+  return matter.openTasks.map((task) => task.due?.trim().slice(0, 10) ?? "").filter((due) => isCalendarDay(due) && due >= todayIso).sort()[0];
 }
 
 function matterList(matters: readonly { title: string; client?: string }[], text: Text): string {

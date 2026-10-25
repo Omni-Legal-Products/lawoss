@@ -5,6 +5,7 @@ import { LAYER_OF } from "../../../lawoss/okf-pamat/src/schema.ts";
 import type { OkfRecord } from "../../../lawoss/okf-pamat/src/record.ts";
 import { buildOverview, type MatterInput } from "../../../lawoss/okf/read";
 import { TodayView } from "../src/lawoss/lite/pages/today-page";
+import { agendaEvents } from "../src/lawoss/lite/agenda-model";
 import { buildToday } from "../src/lawoss/lite/today-model";
 
 // N-A5-9 (UI test dev 25. 10. 2026): „Termíny z prípadov“ mali ~132 riadkov (66× „Vyžiadať chýbajúcu prílohu“,
@@ -25,7 +26,7 @@ const inputs: MatterInput[] = Array.from({ length: 20 }, (_, i) => {
   };
 });
 const data = { ...buildOverview(inputs, TODAY), inputs };
-const html = renderToStaticMarkup(<MemoryRouter><TodayView model={buildToday(data, TODAY)} locale="sk" now={new Date(`${TODAY}T09:00:00`)} /></MemoryRouter>);
+const html = renderToStaticMarkup(<MemoryRouter><TodayView model={buildToday(data, TODAY)} locale="sk" now={new Date(`${TODAY}T09:00:00`)} events={agendaEvents(data)} /></MemoryRouter>);
 const section = (marker: string) => html.slice(html.indexOf(marker), html.indexOf("</ul>", html.indexOf(marker)));
 
 describe("N-A5-9: Dnes prehľadne", () => {
@@ -34,6 +35,8 @@ describe("N-A5-9: Dnes prehľadne", () => {
     expect(dates.match(/data-kind="case-date"/g)).toHaveLength(8);
     expect(dates).toContain('data-lawoss-more="case-dates"');
     expect(dates).toContain("+12 ďalšie");
+    // Ďalšie termíny sú v mesiaci: „+N ďalšie“ je tlačidlo, ktoré ho otvorí.
+    expect(dates).toMatch(/<button type="button" class="lw-today-more-link">\+12 ďalšie<\/button>/);
     expect(dates).toContain("SYN Klient 001 – zákazka SYN-001");
   });
 
@@ -43,12 +46,25 @@ describe("N-A5-9: Dnes prehľadne", () => {
     expect(list).not.toContain("Vyžiadať chýbajúcu prílohu");
     expect(list.match(/class="lw-today-task"/g)).toHaveLength(8);
     expect(list).toContain('data-lawoss-more="tasks"');
+    expect(list).toContain("SYN Klient 001 – zákazka SYN-001");
   });
 
   test("karta prípadu bez lehoty ukáže najbližší pracovný termín", () => {
     const cards = html.slice(html.indexOf("lw-today-cards"));
     expect(cards).toContain("Najbližší termín");
     expect(cards).toContain("Pracovný termín");
-    expect(cards).not.toContain("Bez bližšej lehoty");
+    expect(cards).not.toContain("Bez blížiacej sa lehoty");
+  });
+
+  test("review: zmeškaná lehota na karte nie je pracovný termín; ukáže sa pracovný termín úlohy", () => {
+    const missed: MatterInput[] = [{ path: "Klienti/C001/Spisy/M001", cardFrontmatter: { title: "Úhrada" }, records: [
+      { ...task("M001-D1", "Lehota"), type: "deadline", deadlines: ["2026-10-20"] },
+      task("M001-T1", "Vyžiadať prílohu", "2026-10-28"),
+    ] }];
+    const missedData = { ...buildOverview(missed, TODAY), inputs: missed };
+    const card = renderToStaticMarkup(<MemoryRouter><TodayView model={buildToday(missedData, TODAY)} locale="sk" now={new Date(`${TODAY}T09:00:00`)} /></MemoryRouter>);
+    const cards = card.slice(card.indexOf("lw-today-cards"));
+    expect(cards).toContain("st 28. 10. · Pracovný termín");
+    expect(cards).not.toMatch(/20\. 10\. · Pracovný termín/);
   });
 });
