@@ -20,7 +20,7 @@ import { addDays, buildOverview, deadlineTier, ISO_DAY, isCalendarDay, missingSc
 import type { OkfRecord } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
 import { parseWorkingProfile, PROFILE_FILE } from "../../../../../lawoss/okf/src/profile";
-import { looksLikeMatterFolder } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
+import { codeOf, looksLikeMatterFolder } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { validateStore } from "../../../../../lawoss/okf-pamat/src/validate.ts";
 import { selectSourceSnapshot } from "./practice-read-state";
@@ -41,6 +41,8 @@ export type OkfReadOptions = {
   signal?: AbortSignal; previous?: OkfReadResult; now?: () => number;
   /** Relatívne cesty (NFC) zaregistrovaných priečinkov vo vnútri čítaného priečinka (`OkfScopeMember.nested`). */
   registeredNested?: readonly string[];
+  /** Meno čítaného priečinka na disku (posledný segment cesty): kód klienta, keď je klient koreňom (N-A4-4). */
+  rootName?: string;
 };
 export type OkfReadResult = Overview & {
   coverage: OkfCoverage;
@@ -159,6 +161,16 @@ export async function readWorkspaceMemory(
     }
   };
   let scanned = 0;
+  /**
+   * N-A4-4 (test 25. 10. 2026): v praxi bez `Spisy/` je vec priamy podpriečinok klienta s kódom („M004 …“). Priečinok
+   * s kódom s tou istou predponou ako kód klienta („C099 SYN Vnoreny“ v „C002 SYN Hron“) je ďalší klient, ktorého
+   * appka do klienta nepustí, nie vec. Kartou veci (`matter.md`) sa vecou stane aj tak.
+   */
+  const folderName = (path: string): string => path ? path.slice(path.lastIndexOf("/") + 1) : options.rootName ?? "";
+  const clientCoded = (clientPath: string, name: string): boolean => {
+    const own = codeOf(folderName(clientPath)), code = codeOf(name);
+    return own !== undefined && code !== undefined && own.prefix === code.prefix;
+  };
   const discover = async (path: string, directMatter = false, depth = 0, insideClient = false): Promise<void> => {
     if (scanned >= MAX_DISCOVERY_DIRECTORIES || paths.length >= MAX_MATTERS || depth > MAX_DISCOVERY_DEPTH) { truncated = true; return; }
     scanned++;
@@ -200,7 +212,7 @@ export async function readWorkspaceMemory(
         for (const matter of await dirs(child.path)) await discover(matter, true, depth + 2, clientFolder);
       // Priamy podpriečinok klienta s kartou pomenovaný ako vec (`2025-01 Spor`, spisová značka) je vec aj bez
       // karty; rovnaký vzor ako rozpoznanie a roztriedenie (suggest-patterns.ts), D1 2026-10-09.
-      } else await discover(child.path, hasClientCard && !isWorkDir(child.name) && looksLikeMatterFolder(child.name), depth + 1, clientFolder);
+      } else await discover(child.path, hasClientCard && !isWorkDir(child.name) && looksLikeMatterFolder(child.name) && !clientCoded(path, child.name), depth + 1, clientFolder);
     }
   };
   await discover("");
@@ -612,7 +624,8 @@ export async function readScopeMemory(client: OkfScopeClient, scope: OkfScope, t
   const checkedAt = (options.now ?? Date.now)();
   const sources: OkfSourceReadState[] = [];
   const snapshots: Record<string, SourceSnapshot> = {};
-  const parts = await mapLimit(scope.members, 2, member => readWorkspaceMemory(client, member.workspace.id, todayIso, { ...options, ...(member.nested ? { registeredNested: member.nested } : {}) }));
+  const parts = await mapLimit(scope.members, 2, member => readWorkspaceMemory(client, member.workspace.id, todayIso, { ...options, ...(member.nested ? { registeredNested: member.nested } : {}),
+    rootName: member.workspace.path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "" }));
   let truncated = false;
   const select = (id: string, source: "workspace" | "office", current: SourceSnapshot, issues: ReadProblem[], cut: boolean): SourceSnapshot => {
     problems.push(...issues);
