@@ -17,7 +17,7 @@ import { buildMatterViews, deadlineCoverage } from "../../../../../lawoss/okf/vi
 import { familyNames } from "./matter-views";
 import { canActOnSource, dayClass, formatDay, today } from "../okf/read-model";
 import { deadlineText, urgencyOf } from "../okf/view-rules";
-import { clientDeadlines, clientGroupDirectory, ownerOfFolder } from "./client-projects";
+import { clientDeadlines, clientGroupDirectory, overviewOwners, ownerOfFolder } from "./client-projects";
 import { useClientNavData, usePublishedClientNav, type PublishedClientNav } from "./client-nav";
 import { clientDeadlinesLink, LITE_INPUTS_PATH, liteDeadlineLink, liteMatterLink } from "./links";
 import { otherClientFolders } from "./linked-folders";
@@ -60,7 +60,9 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
   const allowed = Boolean(scope && data && model.clients.has(workspaceId) && !nav.excludedWorkspaceIds.includes(workspaceId));
   const derived = useMemo(() => {
     if (!allowed || !scope || !data) return null;
-    const own = clientDeadlines(data, scope, (folder) => ownerOfFolder(model.visible, folder) === workspaceId, todayIso);
+    // Review #246 (P2): prípad zaregistrovaného vnoreného klienta (skrytého v paneli) patrí jemu, nie vonkajšiemu.
+    const owners = overviewOwners(model, nav.connection?.workspaces ?? [], scope, nav.groups);
+    const own = clientDeadlines(data, scope, (folder) => ownerOfFolder(owners, folder) === workspaceId, todayIso);
     const ownPaths = new Set(own.matters.map((m) => m.path));
     const ownInputs = data.inputs.filter((input) => ownPaths.has(input.path));
     // Typ práce aj fáza a ďalší krok z tých istých súborov ako detail prípadu (views.ts).
@@ -69,7 +71,7 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
     const statuses = Object.fromEntries(views.map(([path, view]) => [path, cardStatus(view)]));
     const source = { ...own, inputs: ownInputs };
     return { own, ownInputs, kinds, statuses, events: agendaEvents(source), todayModel: buildToday(source, todayIso), inputs: inputCounts(ownInputs, own.matters.map((m) => m.path)) };
-  }, [allowed, scope, data, model.visible, workspaceId, todayIso, locale]);
+  }, [allowed, scope, data, model, nav.connection, nav.groups, workspaceId, todayIso, locale]);
   if (!scope || !data || !derived) return null;
   const { own, ownInputs, kinds, statuses, events, todayModel, inputs } = derived;
   const clientRoot = nav.connection?.workspaces.find((w) => w.id === workspaceId)?.path ?? "";

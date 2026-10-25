@@ -55,6 +55,17 @@ export function overviewFolder(scope: OkfScope, relative: string): string | null
 const groupFolder = (group: Group): string | null =>
   clientFolderFor(group.key, group.matters[0]?.path ?? "") ?? group.matters[0]?.path ?? null;
 
+/**
+ * Kandidáti na vlastníka priečinka prípadu pre domov klienta (review #246, P2): viditeľné projekty a k nim skrytí
+ * zaregistrovaní vnorení klienti, ktorí majú vlastnú skupinu klienta (karta). Ich prípady, termíny a vstupy tak patria
+ * im, nie vonkajšiemu klientovi; zaregistrovaná staršia vec (bez karty klienta) ostáva vonkajšiemu klientovi.
+ */
+export function overviewOwners(model: Pick<ClientNavModel, "visible" | "hidden">, workspaces: readonly Workspace[], scope: OkfScope, groups: readonly Group[]): Workspace[] {
+  const clientDirs = new Set(groups.flatMap((group) => clientGroupDirectory(scope, group) ?? []).map(comparable));
+  const nested = workspaces.filter((w) => model.hidden.has(w.id) && isLocal(w) && clientDirs.has(comparable(w.path)));
+  return [...model.visible, ...nested];
+}
+
 /** Najhlbší viditeľný projekt, v ktorom priečinok leží; `null` = žiadny. */
 export function ownerOfFolder(visible: readonly Workspace[], folder: string): string | null {
   let best: Workspace | null = null;
