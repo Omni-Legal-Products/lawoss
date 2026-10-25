@@ -13,8 +13,8 @@ import {
   type OkfScope,
 } from "../../okf/read-model";
 import type { OkfConnection } from "../../okf/connection";
-import { clientDeadlines, ownerOfFolder } from "../../lite/client-projects";
-import { usePublishedClientNav } from "../../lite/client-nav";
+import { clientDeadlines, overviewOwners, ownerOfFolder } from "../../lite/client-projects";
+import { usePublishedClientNav, type PublishedClientNav } from "../../lite/client-nav";
 import { comparable, within } from "../../lite/matter-conversations";
 import { LEHOTY_PATH } from "../../lite/links";
 import type { UpcomingDeadline } from "../../../../../../lawoss/okf/read";
@@ -32,14 +32,23 @@ export function LehotyPage() {
     : <><DeadlineWorkflowPanel data={data} scope={scope} /><RealRegister data={data} /></>}</OkfPage>;
 }
 
+/**
+ * Vlastník veci ako na Domove klienta (koreň praxe nevidí veci registrovaných klientov, vonkajší klient veci
+ * zaregistrovaného vnoreného klienta, review #246); bez panela priečinok klienta. Export pre testy.
+ */
+export function registerOwns(nav: Pick<PublishedClientNav, "model" | "connection" | "scope" | "groups"> | null, scope: OkfScope, workspace: OkfScope["anchor"]): (folder: string) => boolean {
+  if (!nav) return (folder) => within(comparable(workspace.path), folder);
+  const owners = overviewOwners(nav.model, nav.connection?.workspaces ?? [], nav.scope ?? scope, nav.groups);
+  return (folder) => ownerOfFolder(owners, folder) === workspace.id;
+}
+
 /** Register jedného klienta; neznámy priečinok (napr. odpojený) ukáže celý register. */
 function ClientRegister({ data, scope, workspaceId }: { data: OkfReadResult; scope: OkfScope | null; workspaceId: string }) {
   const { locale } = useMatterText();
   const nav = usePublishedClientNav();
   if (!scope || scope.anchor.id !== workspaceId) return <><DeadlineWorkflowPanel data={data} scope={scope} /><RealRegister data={data} /></>;
   const workspace = scope.anchor;
-  // Vlastník veci ako v bočnom paneli (koreň praxe nevidí veci registrovaných klientov); bez panela priečinok klienta.
-  const owns = (folder: string) => nav ? ownerOfFolder(nav.model.visible, folder) === workspaceId : within(comparable(workspace.path), folder);
+  const owns = registerOwns(nav, scope, workspace);
   const name = workspace.displayNameResolved || workspace.name || workspace.path;
   // Postup lehôt (#168) len nad prípadmi tohto klienta, ako register pod ním.
   const own = clientDeadlines(data, scope, owns, today());
