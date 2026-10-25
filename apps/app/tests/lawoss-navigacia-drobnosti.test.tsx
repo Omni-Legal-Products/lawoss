@@ -45,15 +45,23 @@ describe("N-A5-11: navigácia", () => {
     expect(takeLinkFolderRequest("c002")).toBe(false);
     expect(takeLinkFolderRequest("c001")).toBe(true);
     expect(takeLinkFolderRequest("c001")).toBe(false);
+    // Review: žiadosť, ktorú Domov nevybavil, zanikne odchodom a neotvorí výber neskôr sama.
+    requestLinkFolder("c001");
     focusLinkedFolders(null);
-    // Domov klienta žiadosť vezme, keď je sekcia pripravená (strážca väzby; SSR efekty nespúšťa).
+    focusLinkedFolders("c001");
+    expect(takeLinkFolderRequest("c001")).toBe(false);
+    focusLinkedFolders(null);
+    // Domov klienta žiadosť vezme, keď je sekcia pripravená, a zahodí ju, keď sa vybrať nedá (strážca väzby; SSR
+    // efekty nespúšťa).
     const source = readFileSync(join(import.meta.dir, "../src/lawoss/lite/linked-folders-view.tsx"), "utf8");
-    expect(source).toContain("if (focused && canPick && takeLinkFolderRequest(workspaceId)) onLink();");
+    expect(source).toContain("if (canPick) { if (takeLinkFolderRequest(workspaceId)) onLink(); }");
+    expect(source).toContain("else if (!endpoint || policy.locked || !isDesktopRuntime() || query.isError) takeLinkFolderRequest(workspaceId);");
   });
 
-  test("klik na klienta v bočnom paneli otvorí Prehľad, iný projekt Pracovný priestor (strážca väzby)", () => {
+  test("klik na klienta v bočnom paneli otvorí Prehľad, v Lite aj pred načítaním prehľadu (strážca väzby)", () => {
     // `WorkspaceHeader` nie je exportovaný a panel potrebuje celý kontext appky; väzbu stráži zdroj.
     const sidebar = readFileSync(join(import.meta.dir, "../src/react-app/domains/session/sidebar/app-sidebar.tsx"), "utf8");
-    expect(sidebar).toContain(`void (clientRow.client ? ctx.onOpenProjectPage(workspace.id, "home") : ctx.onOpenWorkspace(workspace.id))`);
+    expect(sidebar).toContain(`const openHome = useUiMode() === "lite" || clientRow.client;`);
+    expect(sidebar).toContain(`void (openHome ? ctx.onOpenProjectPage(workspace.id, "home") : ctx.onOpenWorkspace(workspace.id))`);
   });
 });

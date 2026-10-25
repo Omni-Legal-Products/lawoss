@@ -116,8 +116,11 @@ const focusListeners = new Set<() => void>();
 export function focusLinkedFolders(workspaceId: string | null): void {
   if (focusedClient === workspaceId) return;
   focusedClient = workspaceId;
-  for (const listener of focusListeners) listener();
+  // Žiadosť o výber priečinka platí len pre práve otvorenú sekciu (N-A5-11, review): odchodom zanikne.
+  if (pickFor !== workspaceId) pickFor = null;
+  notifyFocus();
 }
+const notifyFocus = () => { for (const listener of focusListeners) listener(); };
 export function useLinkedFoldersFocus(): string | null {
   return useSyncExternalStore((listener) => { focusListeners.add(listener); return () => { focusListeners.delete(listener); }; }, () => focusedClient, () => focusedClient);
 }
@@ -126,7 +129,8 @@ export function useLinkedFoldersFocus(): string | null {
 let pickFor: string | null = null;
 export function requestLinkFolder(workspaceId: string): void {
   pickFor = workspaceId;
-  focusLinkedFolders(workspaceId);
+  if (focusedClient === workspaceId) notifyFocus();
+  else focusLinkedFolders(workspaceId);
 }
 /** Vezme žiadosť o výber priečinka pre tohto klienta (len raz); iný klient ju nechá. */
 export function takeLinkFolderRequest(workspaceId: string): boolean {
@@ -217,8 +221,11 @@ export function LinkedFolders({ connection, workspaceId, practiceRoot, otherClie
   };
 
   useEffect(() => {
-    // Zamknuté firmou alebo mimo desktopu žiadosť ostane, Domov len ukáže sekciu; Zrušiť vo výbere nič nezmení.
-    if (focused && canPick && takeLinkFolderRequest(workspaceId)) onLink();
+    if (!focused) return;
+    // Výber priečinka raz, keď je sekcia pripravená. Keď sa vybrať nedá (zamknuté firmou, mimo desktopu, bez
+    // spojenia, chyba zoznamu), žiadosť zanikne a Domov len ukáže sekciu; nikdy neskôr sama.
+    if (canPick) { if (takeLinkFolderRequest(workspaceId)) onLink(); }
+    else if (!endpoint || policy.locked || !isDesktopRuntime() || query.isError) takeLinkFolderRequest(workspaceId);
   });
 
   const state: LinkedFoldersViewState = !endpoint ? "unavailable" : query.isError ? "error" : query.data ? "ready" : "loading";
