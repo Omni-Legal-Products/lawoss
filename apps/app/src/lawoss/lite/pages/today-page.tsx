@@ -15,8 +15,7 @@ import { deadlineKey, deadlineText, dueTextFromDays, isCalendarDay, urgencyOf, t
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { deadlineCoverage } from "../../../../../../lawoss/okf/views";
 import { appTodayTasks, buildToday, caseDates, nextDeadline, startHere, taskLink, type CaseDate, type StartHere, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
-import { overviewFolder } from "../client-projects";
-import { comparable } from "../matter-conversations";
+import { appTaskClient, inPractice, openAppTask, useAppTasks } from "../app-tasks";
 import { agendaEvents, type AgendaEvent } from "../agenda-model";
 import { CandidatesPanel, ModeSwitch, MonthCalendar, type ViewMode } from "../agenda-views";
 import { LITE_INPUTS_PATH, liteDeadlineLink, liteMatterLink } from "../links";
@@ -59,22 +58,16 @@ function TodayLive({ data, meta, scope, locale, name }: { data: OkfReadResult; m
   const now = today();
   // Model len pri novom obsahu pamäte alebo novom dni, nie pri každom tichom obnovení.
   const { connection } = useOkfConnection();
-  // N-A5-4: úlohy aplikácie (Nová úloha) patria na Dnes, do mesiaca aj na os. Kľúč pod „tasks“, aby ho panel Úlohy
-  // po zmene obnovil; nedostupný zoznam úloh Dnes nezastaví.
-  const workspaceId = connection?.activeWorkspaceId ?? "";
-  const appTasksQuery = useQuery({
-    queryKey: ["tasks", workspaceId, { lawossToday: true }],
-    enabled: Boolean(connection?.client && workspaceId),
-    retry: false,
-    queryFn: async () => (await connection?.client?.listTasks(workspaceId, { statuses: ["open", "in_progress"], sort: "due", order: "asc", limit: 200 }))?.tasks ?? [],
-  });
-  const appTasks = useMemo(() => appTodayTasks(appTasksQuery.data ?? [], (projectId) => {
-    const workspace = connection?.workspaces.find((w) => w.id === projectId);
-    if (!workspace) return undefined;
-    // Meno z karty klienta (client.md), nie názov priečinka.
-    const card = scope ? data.clients?.find((client) => overviewFolder(scope, client.path) === comparable(workspace.path))?.title : undefined;
-    return card || workspace.displayNameResolved || workspace.name;
-  }), [appTasksQuery.data, connection?.workspaces, scope, data.clients]);
+  // N-A5-4: úlohy aplikácie (Nová úloha) praxe patria na Dnes, do mesiaca aj na os (app-tasks.ts).
+  const rawAppTasks = useAppTasks(connection);
+  // Spojenie sa obnovuje každých 15 s s novým poľom priečinkov: model sa prepočíta len pri skutočnej zmene.
+  const workspacesKey = JSON.stringify(connection?.workspaces.map((w) => [w.id, w.path, w.displayNameResolved]) ?? []);
+  const appTasks = useMemo(() => {
+    const workspaces = connection?.workspaces ?? [];
+    const belongs = scope ? inPractice(workspaces, scope) : () => true;
+    return appTodayTasks(rawAppTasks.filter(belongs), appTaskClient(workspaces, scope, data.clients ?? []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- workspacesKey nesie obsah connection.workspaces.
+  }, [rawAppTasks, workspacesKey, scope, data.clients]);
   const model = useMemo(() => buildToday(data, now, undefined, appTasks), [data, now, appTasks]);
   const events = useMemo(() => agendaEvents(data, appTasks), [data, appTasks]);
   useHotTitle(hotDeadlineCount(data, now));
@@ -127,11 +120,13 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
   // N-A2-11: termíny z prípadov (úlohy s dátumom) oddelene od lehôt; „nie sú evidované“ len keď nie je ani termín
   // a „nič nehorí“ nie, keď termín uplynul alebo príde do 7 dní. Uplynulý termín má prednosť (zoradené podľa dátumu).
   const dates = caseDates(model.tasks, todayIso, STRIP_DAYS, model.deadlines);
-  const pressing = dates.find((d) => d.daysLeft <= 7);
+  // Úvod a „Termíny z prípadov“ hovoria o prípadoch; úloha aplikácie je v Začnite tu, na osi a v Otvorených úlohách.
+  const caseOnly = dates.filter((d) => !d.app);
+  const pressing = caseOnly.find((d) => d.daysLeft <= 7);
   const dateParams = (d: CaseDate) => ({ title: d.title, when: caseDateWhen(d, locale, text) });
   const lead = !first || thisWeek.length === 0
     ? evidence && !evidence.complete ? text("hero_partial")
-      : evidence && evidence.recorded === 0 ? dates[0] ? text("hero_unrecorded_dates", dateParams(dates[0])) : text("hero_unrecorded")
+      : evidence && evidence.recorded === 0 ? caseOnly[0] ? text("hero_unrecorded_dates", dateParams(caseOnly[0])) : text("hero_unrecorded")
       // #242: počet prípadov bez evidovaných lehôt nezmizne kvôli termínu; termín sa pridá ako druhá veta.
       : evidence && evidence.unrecorded > 0 ? [text("hero_calm_partial", { count: evidence.unrecorded }), ...(pressing ? [text("hero_date_line", dateParams(pressing))] : [])].join(" ")
       : pressing ? text("hero_calm_dates", dateParams(pressing))
@@ -190,7 +185,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
               </li>
             ))}
           </ul>}
-          <CaseDates dates={dates} todayIso={todayIso} locale={locale} text={text} />
+          <CaseDates dates={caseOnly} todayIso={todayIso} locale={locale} text={text} />
         </Panel>
         </div>
 
@@ -213,7 +208,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
                   <span className="lw-today-ring" aria-hidden />
                   <span className="lw-today-main">
                     <span className="lw-today-title" title={task.title}>{task.title}</span>
-                    <small>{task.app ? <Link to={taskLink(task)}>{taskPlace(task, text)}</Link> : task.matters.slice(0, MATTERS_SHOWN).map((m, i) => (
+                    <small>{task.app ? <Link to={taskLink(task)} onClick={openAppTask(task.id)}>{taskPlace(task, text)}</Link> : task.matters.slice(0, MATTERS_SHOWN).map((m, i) => (
                       <span key={m.path}>{i > 0 ? " · " : ""}<Link to={liteMatterLink(m.path)}>{m.title}</Link></span>
                     ))}{task.matters.length > MATTERS_SHOWN ? <span> · {text("more_items", { count: task.matters.length - MATTERS_SHOWN })}</span> : null}</small>
                   </span>
@@ -266,7 +261,7 @@ function StartHereCard({ start, lead, todayIso, locale, text }: { start: StartHe
     : start?.kind === "work"
     ? { title: start.item.title, kind: text("agenda_kind_work"), matters: taskPlace(start.item, text),
       when: `${formatDay(start.item.due, locale)} · ${caseDateWhen(start.item, locale, text)}`, urgency: urgencyOf(start.item.due, todayIso),
-      to: taskLink(start.item) }
+      to: taskLink(start.item), onClick: start.item.app ? openAppTask(start.item.id) : undefined }
     : null;
   return <section className="lw-today-panel lw-today-start" style={reveal(2)} data-lawoss-start={start?.kind ?? "none"} data-urgency={body?.urgency}>
     <p className="lw-today-start-label">{text("start_title")}{body ? <span>{body.kind}</span> : null}</p>
@@ -275,7 +270,7 @@ function StartHereCard({ start, lead, todayIso, locale, text }: { start: StartHe
       <p className="lw-today-start-meta">{body.matters}</p>
       <div className="lw-today-start-foot">
         <span className="lw-today-start-when">{body.when}</span>
-        <Link className="lw-today-primary lw-today-start-open" to={body.to}>{text("start_open")}<ArrowRight aria-hidden size={15} /></Link>
+        <Link className="lw-today-primary lw-today-start-open" to={body.to} onClick={"onClick" in body ? body.onClick : undefined}>{text("start_open")}<ArrowRight aria-hidden size={15} /></Link>
       </div>
     </> : <p className="lw-today-start-meta">{lead}</p>}
   </section>;
@@ -290,7 +285,7 @@ function CaseDates({ dates, todayIso, locale, text }: { dates: readonly CaseDate
     <ul className="lw-today-list">
       {dates.map((d) => (
         <li key={d.key}>
-          <Link className="lw-today-deadline" data-urgency={urgencyOf(d.due, todayIso)} data-kind="case-date" to={taskLink(d)}>
+          <Link className="lw-today-deadline" data-urgency={urgencyOf(d.due, todayIso)} data-kind="case-date" to={taskLink(d)} onClick={d.app ? openAppTask(d.id) : undefined}>
             <span className="lw-today-cal" aria-hidden><span>{weekdayShort(d.due, locale)}</span><strong>{dayOfMonth(d.due)}</strong></span>
             <span className="lw-today-main">
               <span className="lw-today-title" title={d.title}>{d.title}</span>
@@ -369,10 +364,11 @@ export function DeadlineStrip({ deadlines, tasks, todayIso, locale, text }: { de
           </>;
           const lead = cell.items[0];
           const target = lead ? liteDeadlineLink(lead.matter.path, lead.recordId, lead.date) : cell.due[0] && (cell.due[0].app || cell.due[0].matters[0]) ? taskLink(cell.due[0]) : undefined;
+          const open = !lead && cell.due[0]?.app ? openAppTask(cell.due[0].id) : undefined;
           const names = [...cell.items.map(deadlineText), ...cell.due.map((task) => task.title)];
           return (
             <li key={cell.key} className="lw-today-day" data-today={cell.today || undefined} data-weekend={cell.weekend || undefined} data-overdue={cell.overdue || undefined} data-busy={names.length > 0 || undefined}>
-              {target ? <Link to={target} aria-label={`${cell.label} ${cell.day}: ${names.join(", ")}`}>{body}</Link> : <span>{body}</span>}
+              {target ? <Link to={target} onClick={open} aria-label={`${cell.label} ${cell.day}: ${names.join(", ")}`}>{body}</Link> : <span>{body}</span>}
             </li>
           );
         })}

@@ -8,7 +8,8 @@ import { unfiledInputs } from "./inputs-model";
 import { clientFromPath } from "../../../../../lawoss/okf/cockpit";
 import type { OkfReadResult } from "../okf/read-model";
 import { HORIZON_DAYS } from "../okf/view-rules";
-import { appTaskLink, liteMatterLink } from "./links";
+import { APP_TASKS_PATH, liteMatterLink } from "./links";
+import { taskDueDateInputValue } from "@/react-app/domains/tasks/task-format";
 import { isoDay } from "../../../../../lawoss/okf-pamat/src/schema.ts";
 
 /** `alsoIn`: další věci, do kterých patří tatáž lhůta ze sdíleného souboru (klient, kancelář). */
@@ -30,13 +31,15 @@ export type AppTask = { id: string; title: string; status: string; dueDate: stri
 export function appTodayTasks(tasks: readonly AppTask[], clientOf: (projectId: string) => string | undefined = () => undefined): TodayTask[] {
   return tasks.filter((task) => (task.status === "open" || task.status === "in_progress") && !task.deletedAt).map((task) => {
     const client = task.projectId ? clientOf(task.projectId) : undefined;
-    return { key: `app:${task.id}`, id: task.id, title: task.title, ...(task.dueDate ? { due: task.dueDate } : {}), matters: [], app: client ? { client } : {} };
+    // Deň v miestnom čase ako v paneli Úlohy (termín s časom „2026-10-25T23:30Z“ je v Bratislave 26. 10.).
+    const due = taskDueDateInputValue(task.dueDate);
+    return { key: `app:${task.id}`, id: task.id, title: task.title, ...(due ? { due } : {}), matters: [], app: client ? { client } : {} };
   });
 }
 
 /** Kam vedie úloha alebo termín: úloha aplikácie do panela Úlohy, úloha prípadu do jej (prvého) prípadu. */
 export const taskLink = (task: Pick<TodayTask, "id" | "matters" | "app">): string =>
-  task.app ? appTaskLink(task.id) : liteMatterLink(task.matters[0]?.path ?? "");
+  task.app ? APP_TASKS_PATH : liteMatterLink(task.matters[0]?.path ?? "");
 /** Termín z prípadu: otvorená úloha s platným dátumom (`due`), nie evidovaná lehota. */
 export type CaseDate = TodayTask & { due: string; daysLeft: number };
 

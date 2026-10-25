@@ -7,7 +7,7 @@
 import { deadlineKey, isOfficeFile, recordDeadlines, recordKey, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
 import { isManagedDeadline, managedDeadlineTrusted } from "../../../../../lawoss/okf/deadline-workflow";
 import { deadlineText, isCalendarDay } from "../okf/view-rules";
-import { appTaskLink, liteDeadlineLink, liteMatterLink } from "./links";
+import { APP_TASKS_PATH, liteDeadlineLink, liteMatterLink } from "./links";
 import type { TodayTask } from "./today-model";
 
 export type AgendaKind = "deadline" | "work" | "candidate";
@@ -23,6 +23,8 @@ export type AgendaEvent = {
   /** Lehota z kancelárie, nie z prípadu. */
   office?: true;
   link: string;
+  /** Úloha aplikácie (N-A5-4): odkaz otvorí panel Úlohy a v ňom túto úlohu. */
+  appTaskId?: string;
 };
 
 type Source = {
@@ -65,7 +67,7 @@ export function agendaEvents(source: Source, appTasks: readonly TodayTask[] = []
   for (const task of appTasks) {
     const due = task.due?.trim().slice(0, 10);
     if (!due || !isCalendarDay(due)) continue;
-    out.set(`work:${task.key}`, { key: `work:${task.key}`, kind: "work", date: due, title: task.title, matter: { path: "", title: task.app?.client ?? "" }, link: appTaskLink(task.id) });
+    out.set(`work:${task.key}`, { key: `work:${task.key}`, kind: "work", date: due, title: task.title, matter: { path: "", title: task.app?.client ?? "" }, link: APP_TASKS_PATH, appTaskId: task.id });
   }
   return [...out.values()].sort(byDateThenTitle);
 }

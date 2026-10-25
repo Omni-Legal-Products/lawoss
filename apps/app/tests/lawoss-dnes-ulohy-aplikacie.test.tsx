@@ -5,6 +5,9 @@ import { buildOverview, type MatterInput } from "../../../lawoss/okf/read";
 import { agendaEvents } from "../src/lawoss/lite/agenda-model";
 import { TodayView } from "../src/lawoss/lite/pages/today-page";
 import { appTodayTasks, buildToday, caseDates, startHere, type AppTask } from "../src/lawoss/lite/today-model";
+import { appTaskClient, inPractice, openAppTask } from "../src/lawoss/lite/app-tasks";
+import { takePendingTasksPaneRequest } from "../src/react-app/domains/tasks/tasks-pane-request";
+import type { OkfScope } from "../src/lawoss/okf/read-model";
 
 // N-A5-4 (UI test dev 25. 10. 2026): úloha z „Nová úloha“ (natívne úlohy aplikácie) s dátumom zajtra sa na Dnes,
 // v mesiaci ani na osi neukázala a „Začnite tu“ ostal na neskoršom termíne prípadu.
@@ -43,7 +46,7 @@ describe("N-A5-4: úlohy aplikácie na Dnes", () => {
   test("mesiac má úlohu ako pracovný termín s odkazom do panela Úlohy", () => {
     const events = agendaEvents(data, tasks);
     expect(events.map((event) => [event.kind, event.date, event.title, event.matter.title, event.link])).toEqual([
-      ["work", "2026-10-26", "SYN test: zavolať klientovi k prílohe", "SYN Tatran Automatika", "/tasks?task=tsk_1"],
+      ["work", "2026-10-26", "SYN test: zavolať klientovi k prílohe", "SYN Tatran Automatika", "/tasks"],
       ["work", "2026-10-28", "Vyžiadať chýbajúcu prílohu", "Úhrada dodávok", `/vec?vec=${encodeURIComponent(M001)}`],
     ]);
   });
@@ -53,10 +56,47 @@ describe("N-A5-4: úlohy aplikácie na Dnes", () => {
     const html = renderToStaticMarkup(<MemoryRouter><TodayView model={model} locale="sk" now={new Date(`${TODAY}T09:00:00`)} events={agendaEvents(data, tasks)} /></MemoryRouter>);
     expect(html).toContain('data-lawoss-start="work"');
     expect(html).toContain("Úloha · SYN Tatran Automatika");
-    expect(html).toContain('href="/tasks?task=tsk_1"');
+    expect(html).toContain('href="/tasks"');
+    // Úvod hovorí o termíne z prípadu, nie o úlohe aplikácie; „Termíny z prípadov“ ju neuvádzajú.
+    expect(html).not.toContain("Termín z prípadu: SYN test");
+    expect(html.match(/data-lawoss-case-dates=""[\s\S]*?<\/ul>/)?.[0] ?? "").not.toContain("SYN test");
     const strip = html.match(/<section class="lw-today-strip".*?<\/section>/)?.[0] ?? "";
     const busy = strip.match(/<li[^>]*data-busy[^>]*>.*?<\/li>/g) ?? [];
     expect(busy[0]).toContain("SYN test: zavolať klientovi k prílohe");
-    expect(busy[0]).toContain('href="/tasks?task=tsk_1"');
+    expect(busy[0]).toContain('href="/tasks"');
+  });
+
+  test("review: odkaz otvorí v paneli Úlohy práve túto úlohu", () => {
+    const prior = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", { value: new EventTarget(), configurable: true, writable: true });
+    try {
+      expect(openAppTask(undefined)).toBeUndefined();
+      openAppTask("tsk_1")?.();
+      expect(takePendingTasksPaneRequest()).toEqual({ taskId: "tsk_1" });
+    } finally {
+      if (prior) Object.defineProperty(globalThis, "window", prior); else Reflect.deleteProperty(globalThis, "window");
+    }
+  });
+
+  test("review: termín s časom podľa miestneho dňa ako v paneli Úlohy", () => {
+    const local = new Date(2026, 9, 26, 0, 30);
+    expect(appTodayTasks([app({ dueDate: local.toISOString() })])[0]?.due).toBe("2026-10-26");
+    expect(appTodayTasks([app({ dueDate: "2026-10-26" })])[0]?.due).toBe("2026-10-26");
+  });
+
+  test("review: len úlohy klientov praxe (a bez projektu), meno z karty klienta", () => {
+    const ROOT = "/Users/advokat/AK/Klienti";
+    const workspaces = [
+      { id: "ws_c001", path: `${ROOT}/C001 SYN Tatran`, name: "C001-syn-tatran", displayNameResolved: "C001-syn-tatran" },
+      { id: "ws_ina", path: "/Users/advokat/Ina prax/Klient", name: "Iny" },
+    ];
+    const scope: OkfScope = { anchor: { ...workspaces[0]!, workspaceType: "local" }, members: [{ workspace: { ...workspaces[0]!, workspaceType: "local" }, prefix: "C001 SYN Tatran" }], practiceRoot: ROOT };
+    const belongs = inPractice(workspaces, scope);
+    expect([app(), app({ projectId: "ws_ina" }), app({ projectId: null }), app({ projectId: "ws_neznamy" })].map(belongs)).toEqual([true, false, true, false]);
+    const client = appTaskClient(workspaces, scope, [{ path: "C001 SYN Tatran", title: "SYN Tatran Automatika" }]);
+    expect(client("ws_c001")).toBe("SYN Tatran Automatika");
+    expect(appTaskClient(workspaces, scope, [])("ws_c001")).toBe("C001-syn-tatran");
+    expect(client("ws_neznamy")).toBeUndefined();
   });
 });
+

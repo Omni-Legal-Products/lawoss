@@ -22,7 +22,8 @@ import { useClientNavData, usePublishedClientNav, type PublishedClientNav } from
 import { clientDeadlinesLink, LITE_INPUTS_PATH, liteDeadlineLink, liteMatterLink } from "./links";
 import { otherClientFolders } from "./linked-folders";
 import { LinkedFolders } from "./linked-folders-view";
-import { buildToday, type TodayModel } from "./today-model";
+import { appTodayTasks, buildToday, type TodayModel } from "./today-model";
+import { appTaskClient, useAppTasks } from "./app-tasks";
 import { agendaEvents, type AgendaEvent } from "./agenda-model";
 import { CandidatesPanel, ModeSwitch, MonthCalendar, type ViewMode } from "./agenda-views";
 import { CARDS_SHOWN, caseCards, cardStatus, clientTerm, inputCounts, type CardStatus, type CardTerm, type InputCounts } from "./client-cards";
@@ -58,6 +59,7 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
   const todayIso = today();
   // #168: priečinok mimo rozsahu praxe (`excludedWorkspaceIds`) prehľad klienta nedostane.
   const allowed = Boolean(scope && data && model.clients.has(workspaceId) && !nav.excludedWorkspaceIds.includes(workspaceId));
+  const rawAppTasks = useAppTasks(nav.connection);
   const derived = useMemo(() => {
     if (!allowed || !scope || !data) return null;
     // Review #246 (P2): prípad zaregistrovaného vnoreného klienta (skrytého v paneli) patrí jemu, nie vonkajšiemu.
@@ -80,8 +82,10 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
     const kinds = Object.fromEntries(views.map(([path, view]) => [path, familyNames(view.families, locale)]).filter(([, names]) => names));
     const statuses = Object.fromEntries(views.map(([path, view]) => [path, cardStatus(view)]));
     const source = { ...own, inputs: ownInputs };
-    return { own, ownInputs, kinds, statuses, events: agendaEvents(source), todayModel: buildToday(source, todayIso), inputs: inputCounts(ownInputs, own.matters.map((m) => m.path), clientIntakes), intakeFailed, folderMissing };
-  }, [allowed, scope, data, model, nav.connection, nav.groups, workspaceId, todayIso, locale]);
+    // N-A5-4: úlohy z „Nová úloha“ tohto klienta (projekt = jeho priečinok) aj na jeho osi a v mesiaci.
+    const appTasks = appTodayTasks(rawAppTasks.filter((task) => task.projectId === workspaceId), appTaskClient(nav.connection?.workspaces ?? [], scope, data.clients ?? []));
+    return { own, ownInputs, kinds, statuses, events: agendaEvents(source, appTasks), todayModel: buildToday(source, todayIso, undefined, appTasks), inputs: inputCounts(ownInputs, own.matters.map((m) => m.path), clientIntakes), intakeFailed, folderMissing };
+  }, [allowed, scope, data, model, nav.connection, nav.groups, workspaceId, todayIso, locale, rawAppTasks]);
   if (!scope || !data || !derived) return null;
   const { own, ownInputs, kinds, statuses, events, todayModel, inputs, intakeFailed, folderMissing } = derived;
   const clientRoot = nav.connection?.workspaces.find((w) => w.id === workspaceId)?.path ?? "";
