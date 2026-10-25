@@ -29,6 +29,7 @@ function aiRow(text: WizardText, model: AiModelView): ReadyRow {
   const row = { id: "ai", label: "readyAi" } as const;
   if (model.state === "ready") return { ...row, tone: "ok", value: model.modelLabel ?? text("aiStateReady") };
   if (model.state === "checking") return { ...row, tone: "checking", value: text("aiStateChecking") };
+  if (model.state === "unreachable") return { ...row, tone: "warn", value: text("aiStateUnreachable"), fix: "ai" };
   return { ...row, tone: model.state === "no-model" || model.state === "no-workspace" ? "missing" : "warn", value: text("readyNoAi"), fix: "ai" };
 }
 

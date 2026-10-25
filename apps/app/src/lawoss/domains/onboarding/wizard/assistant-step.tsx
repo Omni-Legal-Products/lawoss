@@ -23,6 +23,7 @@ const STATE_TEXT: Record<AiModelView["state"], WizardTextKey> = {
   "pick-model": "aiStatePick",
   unavailable: "aiStateUnavailable",
   "no-workspace": "aiStateNoWorkspace",
+  unreachable: "aiStateUnreachable",
 };
 
 export const modelTone = (state: AiModelView["state"]): StatusTone =>
@@ -126,8 +127,10 @@ export function AssistantStepView({ text, locale, model, boundariesOn, busy, nav
           </>
         ) : (
           <>
+            {/* N-A5-8: poskytovateľ neodpovedal; prvé je znova overiť, nie pripájať. */}
+            {model.retry ? <button type="button" className="lw-btn gold" disabled={busy} onClick={model.retry} data-lawoss-ai-retry>{text("aiRetry")}</button> : null}
             {model.state === "no-workspace" ? null : (
-              <button type="button" className="lw-btn gold" disabled={busy || model.state === "checking"} onClick={onOpenAiSettings}>{text("aiConnect")}</button>
+              <button type="button" className={model.retry ? "lw-btn" : "lw-btn gold"} disabled={busy || model.state === "checking"} onClick={onOpenAiSettings}>{text("aiConnect")}</button>
             )}
             <button type="button" className={model.state === "no-workspace" ? "lw-btn gold" : "lw-btn"} disabled={busy || model.state === "checking"} onClick={onContinue}>{text("aiWithout")}</button>
           </>
