@@ -8,7 +8,7 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 import { realpath } from "../canonical-path.ts";
 import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
 import { findAncestorOffice, VOLATILE_ENTRY } from "./classify.ts";
-import { codeOf, hasLegalForm, isBareDate, looksLikeMatterFolder, looksLikeMatterName, startsWithMatterWord } from "./suggest-patterns.ts";
+import { codeOf, hasLegalForm, isBareDate, looksLikeMatterFolder, looksLikeMatterName, nestedClientCode, startsWithMatterWord } from "./suggest-patterns.ts";
 
 export type SuggestedLevel = "practice" | "client" | "matter" | "unknown";
 export type SuggestionSignal = "office_config" | "office_without_config" | "client_card" | "matter_card" | "legal_form_children" | "matter_named_children" | "coded_hierarchy" | "letter_buckets" | "matter_named_root" | "documents_only" | "plain_directories" | "empty" | "inside_office";
@@ -160,7 +160,7 @@ const depthOf = (path: string): number => path ? path.split("/").length : 0;
  * alebo menom veci. Prázdny `Spisy/` z pomocných súborov tak prípady vedľa neho neskryje (N-A2-3, 23. 10. 2026).
  * Pracovné priečinky klienta („01_Podklady“) prípadmi nie sú.
  */
-function mattersOf(index: ChildIndex, files: ReadonlySet<string>, unit: string): SuggestedClient[] {
+function mattersOf(index: ChildIndex, files: ReadonlySet<string>, unit: string, unitName: string): SuggestedClient[] {
   const prefix = unit ? `${unit}/` : "";
   const dirs = childrenOf(index, unit).filter(entry => entry.kind === "directory");
   const folders = dirs.filter(entry => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()));
@@ -169,7 +169,8 @@ function mattersOf(index: ChildIndex, files: ReadonlySet<string>, unit: string):
   const nestedClient = (entry: SurveyEntry) => card(entry, CLIENT_CARDS) && !card(entry, MATTER_CARDS);
   const filed = folders.flatMap(folder => childrenOf(index, folder.path).filter(entry => entry.kind === "directory"));
   const beside = dirs.filter(entry => !folders.includes(entry)
-    && ([...MATTER_CARDS].some(card => files.has(`${entry.path}/${card}`)) || looksLikeMatterFolder(nameOf(entry.path))));
+    && ([...MATTER_CARDS].some(card => files.has(`${entry.path}/${card}`))
+      || (looksLikeMatterFolder(nameOf(entry.path)) && !nestedClientCode(unitName, nameOf(entry.path)))));
   return [...filed, ...beside].filter(entry => !nestedClient(entry)).map(entry => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
 }
 
@@ -184,7 +185,7 @@ function unitsOf(survey: FolderSurvey, index: ChildIndex, paths: readonly string
     const inside = path ? survey.entries.filter(entry => entry.path.startsWith(prefix)) : survey.entries;
     // Priečinok v najväčšej hĺbke prieskumu sa už neotvoril: počty pod ním chýbajú.
     const exact = survey.complete && !inside.some(entry => entry.kind === "directory" && depthOf(entry.path) >= SURVEY_DEPTH);
-    const matters = mattersOf(index, files, path).filter(matter => path || !clients.has(matter.path));
+    const matters = mattersOf(index, files, path, path ? nameOf(path) : basename(survey.root)).filter(matter => path || !clients.has(matter.path));
     return { path, matters: matters.slice(0, UNIT_MATTERS), matterCount: matters.length, files: inside.filter(entry => entry.kind === "file").length, exact };
   });
 }

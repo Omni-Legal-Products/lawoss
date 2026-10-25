@@ -20,7 +20,7 @@ import { addDays, buildOverview, deadlineTier, ISO_DAY, isCalendarDay, missingSc
 import type { OkfRecord } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
 import { parseWorkingProfile, PROFILE_FILE } from "../../../../../lawoss/okf/src/profile";
-import { codeOf, looksLikeMatterFolder } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
+import { looksLikeMatterFolder, nestedClientCode } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { validateStore } from "../../../../../lawoss/okf-pamat/src/validate.ts";
 import { selectSourceSnapshot } from "./practice-read-state";
@@ -163,14 +163,11 @@ export async function readWorkspaceMemory(
   let scanned = 0;
   /**
    * N-A4-4 (test 25. 10. 2026): v praxi bez `Spisy/` je vec priamy podpriečinok klienta s kódom („M004 …“). Priečinok
-   * s kódom s tou istou predponou ako kód klienta („C099 SYN Vnoreny“ v „C002 SYN Hron“) je ďalší klient, ktorého
-   * appka do klienta nepustí, nie vec. Kartou veci (`matter.md`) sa vecou stane aj tak.
+   * s kódom ďalšieho klienta („C099 SYN Vnoreny“ v „C002 SYN Hron“, `nestedClientCode`) appka do klienta nepustí a vec
+   * to nie je. Kartou veci (`matter.md`) sa vecou stane aj tak.
    */
   const folderName = (path: string): string => path ? path.slice(path.lastIndexOf("/") + 1) : options.rootName ?? "";
-  const clientCoded = (clientPath: string, name: string): boolean => {
-    const own = codeOf(folderName(clientPath)), code = codeOf(name);
-    return own !== undefined && code !== undefined && own.prefix === code.prefix;
-  };
+  const clientCoded = (clientPath: string, name: string): boolean => nestedClientCode(folderName(clientPath), name);
   const discover = async (path: string, directMatter = false, depth = 0, insideClient = false): Promise<void> => {
     if (scanned >= MAX_DISCOVERY_DIRECTORIES || paths.length >= MAX_MATTERS || depth > MAX_DISCOVERY_DEPTH) { truncated = true; return; }
     scanned++;

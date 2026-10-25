@@ -80,5 +80,17 @@ export const codeOf = (raw: string): Code | undefined => {
   if (separator === " " && (NOT_CODE_WITH_SPACE.has(prefix) || (NOT_CODE_BARE.has(prefix) && !rest))) return undefined;
   return { prefix, rest };
 };
+const DIGITS = /^\p{Lu}{1,3}[-_ ]?(\d{3,5})/u;
+/**
+ * N-A4-4 (test 25. 10. 2026): v klientovi bez `Spisy/` je vec priamy podpriečinok s kódom. Priečinok s kódom s tou istou
+ * predponou ako kód klienta, ale iným číslom a bez slova veci za kódom („C099 SYN Vnoreny“ v „C002 SYN Hron“), je ďalší
+ * klient, nie vec. Vec číslovaná pod kódom klienta („K001-01“, „C002-2024-01“) a vec so slovom veci („C003 Spor
+ * o náhradu“) ostávajú vecami. Spoločné pravidlo čítania prehľadu (read-model) aj náhľadu onboardingu (suggest).
+ */
+export const nestedClientCode = (clientName: string, name: string): boolean => {
+  const own = codeOf(clientName), code = codeOf(name);
+  if (!own || !code || own.prefix !== code.prefix) return false;
+  return DIGITS.exec(clientName.normalize("NFC"))?.[1] !== DIGITS.exec(name.normalize("NFC"))?.[1] && !startsWithMatterWord(code.rest);
+};
 /** Podpriečinok klienta pomenovaný ako vec: kód („M001 Úhrada…“), dátum, spisová značka alebo slovo veci. */
 export const looksLikeMatterFolder = (name: string): boolean => codeOf(name) !== undefined || looksLikeMatterName(name);
