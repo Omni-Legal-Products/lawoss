@@ -66,7 +66,14 @@ export function clientTerm(matters: readonly MatterOverview[], todayIso: string)
 /** Vstupy klienta z `VSTUPY.md`; `null` = register vôbec nie je (neevidované, nie nula). */
 export type InputCounts = { processed: number; waiting: number; unfiled: number };
 
-export function inputCounts(inputs: readonly MatterInput[], matterPaths: readonly string[]): InputCounts | null {
+/**
+ * Počty zo `VSTUPY.md` prípadov a klienta. Klientsky register (`clientIntakes`) sa ráta aj vtedy, keď klient
+ * ešte nemá prípad (review #246); s registrom zdedeným v prípadoch sa zlúči podľa cesty.
+ */
+export function inputCounts(matterInputs: readonly MatterInput[], matterPaths: readonly string[], clientIntakes: readonly { path: string; content: string }[] = []): InputCounts | null {
+  const inputs: readonly MatterInput[] = clientIntakes.length
+    ? [...matterInputs, { path: "", records: [], inheritedIntakes: clientIntakes.map((intake) => ({ ...intake, scope: "client" as const })) }]
+    : matterInputs;
   const sources = new Map<string, string>();
   for (const input of inputs) {
     if (input.intake !== undefined) sources.set(`${input.path}/VSTUPY.md`, input.intake);

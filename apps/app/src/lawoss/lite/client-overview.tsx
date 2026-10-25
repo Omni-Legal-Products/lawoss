@@ -17,7 +17,7 @@ import { buildMatterViews, deadlineCoverage } from "../../../../../lawoss/okf/vi
 import { familyNames } from "./matter-views";
 import { canActOnSource, dayClass, formatDay, today } from "../okf/read-model";
 import { deadlineText, urgencyOf } from "../okf/view-rules";
-import { clientDeadlines, clientGroupDirectory, overviewOwners, ownerOfFolder } from "./client-projects";
+import { clientDeadlines, clientGroupDirectory, overviewFolder, overviewOwners, ownerOfFolder } from "./client-projects";
 import { useClientNavData, usePublishedClientNav, type PublishedClientNav } from "./client-nav";
 import { clientDeadlinesLink, LITE_INPUTS_PATH, liteDeadlineLink, liteMatterLink } from "./links";
 import { otherClientFolders } from "./linked-folders";
@@ -65,29 +65,37 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
     const own = clientDeadlines(data, scope, (folder) => ownerOfFolder(owners, folder) === workspaceId, todayIso);
     const ownPaths = new Set(own.matters.map((m) => m.path));
     const ownInputs = data.inputs.filter((input) => ownPaths.has(input.path));
+    const ownFolder = (relative: string) => {
+      const folder = overviewFolder(scope, relative);
+      return folder !== null && ownerOfFolder(owners, folder) === workspaceId;
+    };
+    // Review #246 (P3): klientsky `VSTUPY.md` aj bez prípadov; register, ktorý sa nedal prečítať, nie je „neevidovaný“.
+    const clientIntakes = (data.clients ?? []).flatMap((client) => client.intake && ownFolder(client.path) ? [client.intake] : []);
+    const intakeFailed = data.problems.some((problem) => /(?:^|\/)VSTUPY\.md$/.test(problem.path) && ownFolder(problem.path.split("/").slice(0, -1).join("/")));
     // Typ práce aj fáza a ďalší krok z tých istých súborov ako detail prípadu (views.ts).
     const views = ownInputs.map((input) => [input.path, buildMatterViews(input, todayIso)] as const);
     const kinds = Object.fromEntries(views.map(([path, view]) => [path, familyNames(view.families, locale)]).filter(([, names]) => names));
     const statuses = Object.fromEntries(views.map(([path, view]) => [path, cardStatus(view)]));
     const source = { ...own, inputs: ownInputs };
-    return { own, ownInputs, kinds, statuses, events: agendaEvents(source), todayModel: buildToday(source, todayIso), inputs: inputCounts(ownInputs, own.matters.map((m) => m.path)) };
+    return { own, ownInputs, kinds, statuses, events: agendaEvents(source), todayModel: buildToday(source, todayIso), inputs: inputCounts(ownInputs, own.matters.map((m) => m.path), clientIntakes), intakeFailed };
   }, [allowed, scope, data, model, nav.connection, nav.groups, workspaceId, todayIso, locale]);
   if (!scope || !data || !derived) return null;
-  const { own, ownInputs, kinds, statuses, events, todayModel, inputs } = derived;
+  const { own, ownInputs, kinds, statuses, events, todayModel, inputs, intakeFailed } = derived;
   const clientRoot = nav.connection?.workspaces.find((w) => w.id === workspaceId)?.path ?? "";
   // Iní klienti: registrovaní klienti panela a priečinky klientov z prehľadu praxe (únik medzi klientmi).
   const otherClients = otherClientFolders(clientRoot, (nav.connection?.workspaces ?? []).filter((w) => model.clients.has(w.id)),
     nav.groups.flatMap((group) => clientGroupDirectory(scope, group) ?? []));
+  const readFailed = !canActOnSource(data, workspaceId);
   return <div className="space-y-4">
     <ClientOverviewView workspaceId={workspaceId} locale={locale} todayIso={todayIso} matters={own.matters}
       deadlines={[...own.overdue, ...own.upcomingDeadlines]} soon={own.totals.deadlinesWithin7Days} partial={data.coverage.status !== "complete"}
-      deadlineEvidence={deadlineCoverage(ownInputs)} readFailed={!canActOnSource(data, workspaceId)} kinds={kinds}
-      statuses={statuses} inputs={inputs} events={events} today={todayModel} />
+      deadlineEvidence={deadlineCoverage(ownInputs)} readFailed={readFailed} kinds={kinds}
+      statuses={statuses} inputs={inputs} inputsFailed={intakeFailed || (inputs === null && readFailed)} events={events} today={todayModel} />
     <LinkedFolders connection={nav.connection} workspaceId={workspaceId} practiceRoot={scope.practiceRoot ?? null} otherClients={otherClients} locale={locale} />
   </div>;
 }
 
-export function ClientOverviewView({ workspaceId, locale, todayIso, matters, deadlines, soon, partial = false, deadlineEvidence, readFailed = false, kinds = {}, statuses = {}, inputs, events, today: todayModel }: {
+export function ClientOverviewView({ workspaceId, locale, todayIso, matters, deadlines, soon, partial = false, deadlineEvidence, readFailed = false, kinds = {}, statuses = {}, inputs, inputsFailed = false, events, today: todayModel }: {
   workspaceId: string; locale: Language; todayIso: string; matters: readonly MatterOverview[]; deadlines: readonly UpcomingDeadline[];
   /** Lehoty do 7 dní, spočítané ako register (`totals.deadlinesWithin7Days`). */
   soon: number;
@@ -103,6 +111,8 @@ export function ClientOverviewView({ workspaceId, locale, todayIso, matters, dea
   statuses?: Readonly<Record<string, CardStatus>>;
   /** Vstupy klienta z `VSTUPY.md`; `null` = neevidované, `undefined` = karta sa neukáže. */
   inputs?: InputCounts | null;
+  /** Niektorý `VSTUPY.md` klienta sa nedal prečítať: bez počtov „nenačítané“, s počtami „čiastočné“. */
+  inputsFailed?: boolean;
   /** Udalosti klienta pre mesiac (spec 0020); bez nich sa prepínač ani mesiac neukážu. */
   events?: readonly AgendaEvent[];
   /** Lehoty a termíny klienta pre 14-dňovú časovú os. */
@@ -121,7 +131,7 @@ export function ClientOverviewView({ workspaceId, locale, todayIso, matters, dea
     {partial ? <p className="lw-status warn" role="alert" data-lawoss-client-overview-partial="">{t("lawoss.practice.incomplete", locale)}</p> : null}
     {month && events ? <MonthCalendar events={events} todayIso={todayIso} locale={locale} variant="full" aside={<CandidatesPanel events={events} locale={locale} />} /> : <>
       <div className="lw-client-summary">
-        {inputs !== undefined ? <InputsCard counts={inputs} evidence={evidence} locale={locale} /> : null}
+        {inputs !== undefined ? <InputsCard counts={inputs} failed={inputsFailed} evidence={evidence} locale={locale} /> : null}
         <TermCard term={clientTerm(matters, todayIso)} soon={soon} todayIso={todayIso} locale={locale} />
         <TasksCard matters={matters} locale={locale} />
       </div>
@@ -165,7 +175,7 @@ const RING_R = 30;
 const RING_C = 2 * Math.PI * RING_R;
 
 /** Prstenec vstupov z `VSTUPY.md`: spracované / čakajú na spracovanie / nezaradené; bez registra „neevidované“. */
-function InputsCard({ counts, evidence, locale }: { counts: InputCounts | null; evidence: number; locale: Language }) {
+function InputsCard({ counts, failed, evidence, locale }: { counts: InputCounts | null; failed: boolean; evidence: number; locale: Language }) {
   const total = counts ? counts.processed + counts.waiting + counts.unfiled : 0;
   const parts = counts ? [
     { key: "processed", value: counts.processed, label: t("lawoss.lite.inputs_processed", locale) },
@@ -173,7 +183,7 @@ function InputsCard({ counts, evidence, locale }: { counts: InputCounts | null; 
     { key: "unfiled", value: counts.unfiled, label: t("lawoss.lite.inputs_unfiled", locale) },
   ] : [];
   let offset = 0;
-  return <section className="lw-month-panel lw-client-card" data-lawoss-inputs={counts ? total : "unrecorded"}>
+  return <section className="lw-month-panel lw-client-card" data-lawoss-inputs={counts ? total : failed ? "not_loaded" : "unrecorded"} data-lawoss-inputs-partial={counts && failed ? "" : undefined}>
     <h3 className="lw-client-title"><Inbox aria-hidden size={16} />{t("lawoss.lite.inputs_ring_title", locale)}</h3>
     {counts ? <div className="lw-client-ring-row">
       <svg className="lw-client-ring" viewBox="0 0 80 80" role="img" aria-label={parts.map((p) => `${p.label}: ${p.value}`).join(", ")}>
@@ -189,7 +199,8 @@ function InputsCard({ counts, evidence, locale }: { counts: InputCounts | null; 
       <ul className="lw-client-ring-legend">
         {parts.map((part) => <li key={part.key} data-part={part.key}><i aria-hidden /><b>{part.value}</b> {part.label}</li>)}
       </ul>
-    </div> : <p className="lw-client-empty">{t("lawoss.lite.inputs_unrecorded", locale)}</p>}
+    </div> : <p className="lw-client-empty">{t(failed ? "lawoss.lite.inputs_not_loaded" : "lawoss.lite.inputs_unrecorded", locale)}</p>}
+    {counts && failed ? <p className="lw-client-empty" role="note">{t("lawoss.lite.inputs_partial", locale)}</p> : null}
     <dl className="lw-client-mini">
       <div><dt>{t("lawoss.lite.client_overview_evidence", locale)}</dt><dd>{evidence}</dd></div>
     </dl>

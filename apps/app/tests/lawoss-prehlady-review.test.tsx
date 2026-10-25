@@ -111,3 +111,61 @@ describe("P2: zaregistrovaný vnorený klient nepatrí na Domov vonkajšieho kli
     expect(html).not.toContain("Cudzí spor");
   });
 });
+
+describe("P3: vstupy klienta na Domove", () => {
+  test("klient s VSTUPY.md bez prípadu: počty z registra, nie „neevidované“", async () => {
+    const trees = {
+      alfa: ALFA_TREE,
+      horak: {
+        ...HORAK_TREE,
+        "VSTUPY.md": intake(
+          "| IN-001 | 2026-10-01 | mail | [a.pdf](./00_Na_zatriedenie/a.pdf) | pending | |",
+          "| IN-002 | 2026-10-02 | mail | [b.pdf](./00_Na_zatriedenie/b.pdf) | processed | |",
+        ),
+      },
+    };
+    const { data, html } = await home([alfa, horak], trees, "horak");
+    expect(data.matters.some((m) => m.path.startsWith("Horák"))).toBe(false);
+    expect(html).toContain('data-lawoss-inputs="2"');
+    expect(html).toContain('<b>1</b> not filed');
+    expect(html).not.toContain("Inputs are not recorded.");
+  });
+
+  test("klientsky register s prípadmi sa nezráta dvakrát", async () => {
+    const trees = { alfa: { ...ALFA_TREE, "VSTUPY.md": intake("| IN-001 | 2026-10-01 | mail | [a.pdf](./Spisy/2026-03 Spor BETA/01_Podklady/a.pdf) | processed | E-001 |") }, horak: HORAK_TREE };
+    const { html } = await home([alfa, horak], trees, "alfa");
+    expect(html).toContain('data-lawoss-inputs="1"');
+  });
+
+  test("nečitateľný VSTUPY.md: „nenačítané“, nie „neevidované“", async () => {
+    const trees = { alfa: ALFA_TREE, horak: { ...HORAK_TREE, "VSTUPY.md": intake("| IN-001 | 2026-10-01 | mail | a.pdf | pending | |") } };
+    const { data, html } = await home([alfa, horak], trees, "horak", ["horak:VSTUPY.md"]);
+    // Jeden problém na súbor, s cestou voči koreňu praxe.
+    expect(data.problems.filter((p) => p.path.endsWith("VSTUPY.md")).map((p) => p.path)).toEqual(["Horák s.r.o./VSTUPY.md"]);
+    expect(html).toContain('data-lawoss-inputs="not_loaded"');
+    expect(html).toContain("The inputs register could not be read");
+    expect(html).not.toContain("Inputs are not recorded.");
+  });
+
+  test("jeden z registrov sa nedá prečítať: počty z ostatných s upozornením „čiastočné“", async () => {
+    const trees = {
+      alfa: {
+        ...ALFA_TREE,
+        "VSTUPY.md": intake("| IN-001 | 2026-10-01 | mail | a.pdf | processed | |"),
+        "Spisy/2026-03 Spor BETA/VSTUPY.md": intake("| IN-002 | 2026-10-02 | mail | b.pdf | processed | |"),
+      },
+      horak: HORAK_TREE,
+    };
+    const { html } = await home([alfa, horak], trees, "alfa", ["alfa:Spisy/2026-03 Spor BETA/VSTUPY.md"]);
+    expect(html).toContain('data-lawoss-inputs="1"');
+    expect(html).toContain("data-lawoss-inputs-partial");
+    expect(html).toContain("the counts are incomplete");
+  });
+
+  test("problém v registri iného klienta Domov tohto klienta neovplyvní", async () => {
+    const trees = { alfa: { ...ALFA_TREE, "VSTUPY.md": intake("| IN-001 | 2026-10-01 | mail | a.pdf | processed | |") }, horak: { ...HORAK_TREE, "VSTUPY.md": intake("") } };
+    const { html } = await home([alfa, horak], trees, "alfa", ["horak:VSTUPY.md"]);
+    expect(html).toContain('data-lawoss-inputs="1"');
+    expect(html).not.toContain("data-lawoss-inputs-partial");
+  });
+});
