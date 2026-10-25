@@ -145,4 +145,14 @@ describe("#251: termín úlohy s inou evidovanou lehotou", () => {
     const both = html(<TodayView model={model} locale="sk" now={new Date(`${TODAY}T09:00:00`)} />);
     expect(both.match(/<li[^>]*data-busy[^>]*>.*?<\/li>/g)?.map((cell) => cell.includes('data-kind="task"'))).toEqual([true, false]);
   });
+
+  test("dátum úlohy platí tým istým pravidlom ako lehota: neplatný zápis nie je termínom ani druhou položkou", () => {
+    const odd: MatterInput[] = [{ path: M049, cardFrontmatter: { title: "Reklamácia" }, records: [
+      { ...task("M3-T1", "Odvolanie", "2026-10-27, Odv"), deadlines: ["2026-10-27, Odv"] },
+      task("M3-T2", "Pojednávanie o 10:00", "2026-10-26 10:00"),
+    ] }];
+    const m = buildToday({ ...buildOverview(odd, TODAY), inputs: odd }, TODAY);
+    expect(m.deadlines.map((x) => [x.recordId, x.invalid ?? false])).toEqual([["M3-T1", true]]);
+    expect(caseDates(m.tasks, TODAY, 14, m.deadlines).map((x) => [x.id, x.due])).toEqual([["M3-T2", "2026-10-26"]]);
+  });
 });

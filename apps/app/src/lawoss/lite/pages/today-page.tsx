@@ -260,8 +260,10 @@ function Empty({ text, done = false }: { text: string; done?: boolean }) {
   return <p className="lw-today-empty">{done ? <Check aria-hidden size={15} /> : null}{text}</p>;
 }
 
-/** Jeden diagram, který nese informaci: 14 dní, dnešek, lhůty jako body podle naléhavosti. */
-/** Os dní: lehoty a termíny z prípadov (`caseDates`, #251) – záznam s lehotou v ten istý deň nie je dvakrát. */
+/**
+ * Jeden diagram, který nese informaci: 14 dní, dnešek, lhůty jako body podle naléhavosti. Termíny z prípadov
+ * berie z `caseDates` (#251), takže záznam s lehotou v ten istý deň nie je dvakrát.
+ */
 function DeadlineStrip({ deadlines, dates, todayIso, locale, text }: { deadlines: readonly TodayDeadline[]; dates: readonly CaseDate[]; todayIso: string; locale: Language; text: Text }) {
   const overdue = deadlines.filter((d) => !d.invalid && d.tier === "overdue");
   const days = Array.from({ length: STRIP_DAYS }, (_, i) => addDays(todayIso, i));
