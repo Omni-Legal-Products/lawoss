@@ -8,7 +8,7 @@ import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
 import { fileOperationReport } from "../opencode-plugins/lawoss-file-operations-text.js";
-import { applyFileOperations, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, LAWOSS_TRASH_FOLDER, planFileOperations, systemTrashReliable, visibleName, type PlannedFileOperation } from "./file-operations.js";
+import { applyFileOperations, confusableNames, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, LAWOSS_TRASH_FOLDER, planFileOperations, systemTrashReliable, visibleName, type PlannedFileOperation } from "./file-operations.js";
 
 const roots: string[] = [];
 const stops: Array<() => void | Promise<void>> = [];
@@ -425,4 +425,59 @@ test("an existing target name tells the agent to propose another name, at plan a
   await writeFile(join(client, "nove.pdf"), "SYN medzitym");
   await expect(applyFileOperations(config, workspace, operations, plan.operations, plan.revision)).rejects.toThrow(/Propose a different name/);
   expect(await readFile(join(client, "zmluva.pdf"), "utf8")).toBe("SYN obsadene");
+});
+
+test("N-A5-1: the card names a similar item next to the one deleted or moved, so the user sees which one goes", async () => {
+  const { config, client, workspace } = await office();
+  const folder = join(client, "Pripady", "M004");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "Podklady.pdf"), "SYN pdf");
+  await writeFile(join(folder, "podklad.pdf"), "SYN pdf");
+  await writeFile(join(folder, "faktura.pdf"), "SYN faktura");
+  const remove = await planFileOperations(config, workspace, [{ operation: "delete", path: join(folder, "podklad.pdf") }]);
+  expect(remove.operations).toEqual([{ operation: "delete", kind: "file", from: "Pripady/M004/podklad.pdf", similar: ["Podklady.pdf"] }]);
+  const rename = await planFileOperations(config, workspace, [{ operation: "move", from: join(folder, "Podklady.pdf"), to: join(folder, "zmluva.pdf") }]);
+  expect(rename.operations[0]?.similar).toEqual(["podklad.pdf"]);
+  // No similar name: nothing extra on the card; a copy keeps the original, so it needs no warning.
+  expect((await planFileOperations(config, workspace, [{ operation: "delete", path: join(folder, "faktura.pdf") }])).operations[0]).not.toHaveProperty("similar");
+  expect((await planFileOperations(config, workspace, [{ operation: "copy", from: join(folder, "podklad.pdf"), to: join(folder, "kopia.pdf") }])).operations[0]).not.toHaveProperty("similar");
+  // The approved plan still runs, and the right file goes to the Trash.
+  const result = await applyFileOperations(config, workspace, [{ operation: "delete", path: join(folder, "podklad.pdf") }], remove.operations, remove.revision, "ses_1");
+  expect(result.complete).toBe(true);
+  expect((await readdir(folder)).sort()).toEqual(["Podklady.pdf", "faktura.pdf"]);
+});
+
+test("N-A5-1: confusable names differ only by case, accents or a letter or two, with the same extension", () => {
+  expect(confusableNames("podklad.pdf", "Podklady.pdf")).toBe(true);
+  expect(confusableNames("zmluva.docx", "Zmluva.DOCX")).toBe(true);
+  expect(confusableNames("vyjadrenie.pdf", "vyjadrenie2.pdf")).toBe(true);
+  expect(confusableNames("Uznesenie.pdf", "uznesenie.pdf".normalize("NFD"))).toBe(true);
+  expect(confusableNames("Žaloba.pdf", "zaloba.pdf")).toBe(true);
+  expect(confusableNames("podklad.pdf", "podklad.docx")).toBe(false);
+  expect(confusableNames("zmluva.pdf", "faktura.pdf")).toBe(false);
+  expect(confusableNames("a1.pdf", "a2.pdf")).toBe(false);
+  expect(confusableNames("Podklady.pdf", "Podklady.pdf".normalize("NFD"))).toBe(false);
+});
+
+test("review N-A5-1: the item itself in another case is no neighbour, and a neighbour arriving after the card does not refuse the change", async () => {
+  const { config, client, workspace } = await office();
+  const folder = join(client, "Pripady", "M005");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "podklad.pdf"), "SYN pdf");
+  await writeFile(join(folder, "Podklady.docx"), "SYN docx");
+  await writeFile(join(folder, "~$dklady.docx"), "lock");
+  if (await caseInsensitive(folder)) {
+    const upper = await planFileOperations(config, workspace, [{ operation: "delete", path: join(folder, "PODKLAD.pdf") }]);
+    expect(upper.operations[0]).not.toHaveProperty("similar");
+  }
+  // An Office lock file is not an item the user could mean.
+  expect((await planFileOperations(config, workspace, [{ operation: "delete", path: join(folder, "Podklady.docx") }])).operations[0]).not.toHaveProperty("similar");
+  const operations = [{ operation: "delete", path: join(folder, "podklad.pdf") }];
+  const plan = await planFileOperations(config, workspace, operations);
+  expect(plan.operations[0]).not.toHaveProperty("similar");
+  await writeFile(join(folder, "podklady.pdf"), "SYN novy sken");
+  const result = await applyFileOperations(config, workspace, operations, plan.operations, plan.revision, "ses_1");
+  expect(result.complete).toBe(true);
+  expect(result.results[0]).toMatchObject({ status: "done", similar: ["podklady.pdf"] });
+  expect((await readdir(folder)).sort()).toEqual(["Podklady.docx", "podklady.pdf", "~$dklady.docx"]);
 });
