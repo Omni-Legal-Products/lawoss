@@ -506,6 +506,14 @@ test("N-A5-10: a case written as its code alone resolves to its folder; several 
   // Relative to the chat's folder, as the agent usually writes it.
   expect((await planFileOperations(config, workspace, [{ operation: "create_folder", path: "Spisy/M001/01_Podklady/Relativne" }])).operations[0]?.to)
     .toBe("Spisy/M001-uhrada-dodavok-riadiacich-jednotiek/01_Podklady/Relativne");
+  // Review: names with a separator are not codes, even when one folder starts with them (FA 2024-storno, IN-007-faktura).
+  await mkdir(join(client, "Faktury", "FA 2024-storno"), { recursive: true });
+  await mkdir(join(intake, "..", "IN-008-faktura"), { recursive: true });
+  expect((await planFileOperations(config, workspace, [{ operation: "create_folder", path: "Faktury/FA 2024/januar" }])).operations[0]?.to).toBe("Faktury/FA 2024/januar");
+  expect((await planFileOperations(config, workspace, [{ operation: "create_folder", path: "Spisy/M001/01_Podklady/IN-008/novy" }])).operations[0]?.to)
+    .toBe("Spisy/M001-uhrada-dodavok-riadiacich-jednotiek/01_Podklady/IN-008/novy");
+  // Review: a file in the middle of the path is refused as before, not a server error.
+  await expect(planFileOperations(config, workspace, [{ operation: "delete", path: join(intake, "poznamky-k-uhrade.txt", "x", "y.txt") }])).rejects.toMatchObject({ code: "file_operation_outside_client" });
   // M0010 is not M001 followed by a separator.
   await mkdir(join(client, "Spisy", "M0010-ine"), { recursive: true });
   expect((await planFileOperations(config, workspace, [{ operation: "create_folder", path: join(client, "Spisy", "M001", "Nove") }])).operations[0]?.to)
