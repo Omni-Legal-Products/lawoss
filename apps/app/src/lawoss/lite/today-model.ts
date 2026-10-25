@@ -86,7 +86,7 @@ export type TodayModel = { deadlines: TodayDeadline[]; tasks: TodayTask[]; input
 export type ClientGroup = { key: string; client: string; matters: MatterOverview[] };
 
 
-export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDeadlines" | "overdue" | "inputs">, todayIso: string, horizonDays = HORIZON_DAYS, appTasks: readonly TodayTask[] = []): TodayModel {
+export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDeadlines" | "overdue" | "inputs"> & Partial<Pick<OkfReadResult, "clients">>, todayIso: string, horizonDays = HORIZON_DAYS, appTasks: readonly TodayTask[] = []): TodayModel {
   const horizon = addDays(todayIso, horizonDays);
   // Lhůta ze sdíleného souboru přijde jednou za každou věc; ukázat ji jednou a vyjmenovat věci.
   const all: (UpcomingDeadline & { alsoIn?: { path: string; title: string }[] })[] = [];
