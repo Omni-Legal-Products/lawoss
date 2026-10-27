@@ -1,13 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
-import { currentLanguagePreference, currentLocale, LANGUAGE_PREF_KEY, setLanguagePreference } from "../src/i18n";
+import { currentLanguagePreference, currentLocale, LANGUAGE_PREF_KEY, setLanguagePreference, setLocale } from "../src/i18n";
 import { applyOfficeUiLocale, clearOfficeUiLocale, prepareOfficeUiLocale } from "../src/word-addin/ui-locale";
 
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 const preference = currentLanguagePreference();
+const locale = currentLocale();
 afterEach(() => {
   if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
   else Reflect.deleteProperty(globalThis, "window");
   setLanguagePreference(preference);
+  // „system“ sa v Bune bez navigatora rozvinie na „sk“ a ďalší súbor (review-card) by sa vykreslil po slovensky.
+  // Pôvodnú dvojicu („system“, „en“ pred initLocale) verejné API nevie obnoviť, preto vrátime aspoň viditeľný jazyk.
+  if (currentLocale() !== locale) setLocale(locale);
 });
 
 test("Office follows live host locale; pairing changes invalidate only presentation cache, never cache capability bytes", async () => {
