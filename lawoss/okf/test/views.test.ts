@@ -65,6 +65,17 @@ describe("odvodenie oblasti a typu práce", () => {
     expect(areaFamilies("rozpory v účtovníctve")).toEqual([]);
   });
 
+  test("množné „spory“, anglické „disputes“ a trestné veci sú procesné; podiel na nehnuteľnosti nie je korporátny (#223)", () => {
+    for (const area of ["Spory", "Súdne spory", "Soudní spory", "Disputes", "dispute resolution", "trestné veci", "Trestní právo"]) {
+      expect(areaFamilies(area)).toEqual(["procedural"]);
+    }
+    expect(areaFamilies("převod podílu na nemovitosti")).toEqual([]);
+    expect(areaFamilies("prevod podielu na pozemku")).toEqual([]);
+    for (const area of ["prevod obchodného podielu", "převod obchodního podílu", "obchodní podíl", "obchodný podiel"]) {
+      expect(areaFamilies(area)).toEqual(["corporate"]);
+    }
+  });
+
   test("zoznam z karty v tvare JSON aj bez úvodzoviek; šablóna je neevidovaná", () => {
     expect(cardList('["obchodné záväzky", "iné"]')).toEqual(["obchodné záväzky", "iné"]);
     expect(cardList("[a, b]")).toEqual(["a", "b"]);
