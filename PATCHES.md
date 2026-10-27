@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Testy sandboxu bez živého example.com (2026-10-27, #222)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/agent-sandbox/vm.integration.test.ts`, `scripts/sandbox/probe.ts` | Schválené HTTPS požiadavky (curl, Python, Node) dostanú pevnú stránku od hostiteľskej strany brokera (`VmSandbox` s voľbou `request`, ten istý zdieľaný VM), nie zo živého `https://example.com/`. Inšpekcia TLS v hosťovi, klienti aj prenos sa overujú ďalej. Dôvod: HTTP 4xx/5xx z example.com zčervenali povinné `LegalWork Tests` (beh 39940431227, curl exit 22) aj `Package and launch` (beh 40206610712, HTTP 503) bez zmeny kódu. Zamietnuté požiadavky internet nepotrebovali ani predtým. Test `network.integration.test.ts` s priamou sieťou (`allow`) živý internet používa ďalej. Pri syncu zachovať. |
+
 ## Čítanie pamäte spisu bez karty (2026-10-23)
 
 Alfa 2, oprava P3a (N-A3-3, N-18, N-A2-7; rozhodnutie MČ: čítanie dokumentov a pamäte bez karty, zápis s kartou). Skill `okf-pamat` čítal pamäť cez `node …/okf-memory.js preamble|read` v spravovanom shelli a každé zhrnutie spisu ukázalo dve najširšie karty („celý počítač + internet“). Nový nástroj `lawoss_memory` (plugin `apps/server/src/opencode-plugins/lawoss-memory-tools.ts`, server `apps/server/src/lawoss/matter-memory.ts`, most `lawoss/okf-handoff/matter-memory-read.mjs`) číta tým istým kódom pamäte bez podprocesu, len v koreni klienta chatu a v jeho pripojených priečinkoch; spis iného (aj vnoreného) klienta sa odmietne bez mena. Zápis pamäte ostáva v CLI so schválením. Po bezpečnostnom review číta okf-pamat každý súbor pamäte a kontextu (`_STATUS.md`, `VSTUPY.md`, `KOMUNIKACNE-KANALY.md`, karty, `okf.config`, `memory/*.md`) ako bežný súbor bez symbolického odkazu, bez blokovania a do limitu 2 MiB na súbor a 16 MiB na adresár `memory/` (`lawoss/okf-pamat/src/safe-read.ts`). Kanceláriu (`Office/`, `_kancelaria/`) nad spisom server prečíta len vtedy, keď je to kancelária praxe z profilu, priečinok tohto klienta alebo skutočný priečinok vedľa klientov mimo iného klienta; inak ju vynechá a čítanie je neúplné (`ScopeOptions.office`); s profilom praxe len kanceláriu praxe. Pamäť s profilom (`.lawoss/memory-profile.json`) nečíta koreň ani zdroj v inom registrovanom klientovi (`excludedRoots`). Adresár `memory/` má najviac 2 000 položiek.
