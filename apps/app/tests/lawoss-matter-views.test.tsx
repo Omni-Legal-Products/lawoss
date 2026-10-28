@@ -147,6 +147,16 @@ describe("I-4: zdroj a dokument len v priečinku klienta prípadu", () => {
     expect(isOfficeFile("Office/memory/RULE-SYN-01.md")).toBe(true);
   });
 
+  test("prípad ako koreň: dokument vo vnorenom registrovanom klientovi sa neotvorí (#223)", () => {
+    const matter = ws("m001", "/prax/M001");
+    const scope: OkfScope = { anchor: matter, members: [{ workspace: matter, prefix: "", nested: ["C002", "Archív/Č003"] }] };
+    expect(locateCaseFile(scope, "01_Podklady/x.pdf", "m001")).toMatchObject({ path: "01_Podklady/x.pdf" });
+    expect(locateCaseFile(scope, "C002x/x.pdf", "m001")).toMatchObject({ path: "C002x/x.pdf" });
+    for (const file of ["C002/private.pdf", "c002/private.pdf", "C002", "Archív/Č003/x.pdf".normalize("NFD")]) {
+      expect(locateCaseFile(scope, file, "m001")).toBeNull();
+    }
+  });
+
   test("zdroj kancelárie je text s vysvetlením, nie nefunkčné tlačidlo; dokument iného klienta nemá ↗", () => {
     const withForeign = input("Klienti/C022/Spisy/M066", { matter_kind: "advisory" }, [
       rec("X1", "evidence", "Cudzí podklad", ["sources:", '  - title: "cudzi.pdf"', '    resource: "../../../../C002/Spisy/M006/cudzi.pdf"']),

@@ -273,6 +273,20 @@ describe("rozpory a stav návrh / schválené / vykonané", () => {
     expect(items(v.base, "documents")[0]).toMatchObject({ label: "x.pdf" });
     expect(items(v.base, "documents")[0]?.document).toBeUndefined();
   });
+
+  test("prípad otvorený priamo ako koreň (path „“) dostane odkaz na dokument vo svojom priečinku (#223)", () => {
+    const evidence = (resource: string): Rec => ({ id: "E1", type: "evidence", title: "Podklad", fields: { "sources:\n  - title": `"x.pdf"\n    resource: "${resource}"` } });
+    const root = (resource: string) => buildMatterViews({
+      ...matter("", M001_CARD, [evidence(resource)]),
+      cardPath: "matter.md", recordFiles: { E1: "memory/E1.md" }, scopePaths: [""], clientTitle: undefined, clientCardPath: undefined,
+    }, TODAY);
+    expect(items(root("../01_Podklady/x.pdf").base, "documents")[0]?.document).toBe("01_Podklady/x.pdf");
+    // Mimo koreňa pracovného priestoru odkaz nevznikne.
+    expect(items(root("../../iny/x.pdf").base, "documents")[0]?.document).toBeUndefined();
+    // Explicitný koreň „“ volajúceho povolí; prázdny zoznam koreňov nič.
+    expect(resolveDocument("memory/x.md", "../01/doc.pdf", [""])).toBe("01/doc.pdf");
+    expect(resolveDocument("memory/x.md", "../01/doc.pdf", [])).toBeUndefined();
+  });
 });
 
 describe("oprava typu zápisom do poľa tags karty", () => {
