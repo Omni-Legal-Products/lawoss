@@ -9,7 +9,7 @@
  */
 import { realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { isPathWithin } from "./path-within.js";
+import { foldedPath, isPathWithin } from "./path-within.js";
 
 export const LINKED_FOLDERS_MAP_FILE = "lawoss-linked-folders.json";
 
@@ -121,6 +121,49 @@ export function externalDirectoryAllowed(map: LinkedFoldersMap, directory: strin
     if (protectedDirs.some((dir) => isPathWithin(dir, target))) return false;
     const targetOwner = ownerOf(map, target);
     return !targetOwner || targetOwner === owner || isPathWithin(targetOwner.root, owner.root);
+  });
+}
+
+const GLOB_CHARS = /[*?]/;
+const segmentsOf = (path: string): string[] => path.split(/[\\/]+/).filter(Boolean);
+
+/** Jeden segment vzoru (`C002*`, `C00?`) ako regulárny výraz; `[`, `{` a ostatné znaky sú doslovné (aj v menách priečinkov). */
+const segmentPattern = (segment: string): RegExp =>
+  new RegExp(`^${segment.replace(/[.+^$|()[\]{}\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")}$`, "su");
+
+/**
+ * Môže sa priečinok zo vzoru (s `*` alebo `?`) rozvinúť na `root` alebo priečinok v ňom? Porovnáva
+ * po segmentoch; `**` pokryje všetko pod sebou. Priečinok, ktorý `root` len obsahuje (je jeho predkom), nie.
+ */
+function patternReaches(pattern: string, root: string): boolean {
+  const wanted = segmentsOf(foldedPath(pattern));
+  const segments = segmentsOf(foldedPath(root));
+  for (let index = 0; index < segments.length; index++) {
+    const segment = wanted[index];
+    if (segment === undefined) return false;
+    if (segment === "**") return true;
+    if (GLOB_CHARS.test(segment) ? !segmentPattern(segment).test(segments[index]!) : segment !== segments[index]) return false;
+  }
+  return true;
+}
+
+/**
+ * N-A7-14 (test E2): požiadavka chatu klienta smeruje do priečinka iného registrovaného klienta tej istej mapy.
+ * Cieľ v ňom leží (najhlbší registrovaný priečinok cieľa je iný klient, aj klient zaregistrovaný vnútri klienta
+ * chatu), alebo vzor s `*` sa naň rozvinie (`…/Klienti/C002*`). Klient chatu ani jeho kontajner (koreň praxe)
+ * nie sú iný klient; pripojený priečinok mimo praxe nepatrí nikomu (E1), takže sa tu nikdy neodmietne. Chat
+ * kontajnera praxe ani bez klienta sa nerozhoduje (ostane karta), firemné pravidlá tiež nie.
+ */
+export function externalDirectoryOtherClient(map: LinkedFoldersMap, directory: string, targets: readonly (string | null)[]): boolean {
+  if (map.firmManaged) return false;
+  const owner = ownerOf(map, directory);
+  if (!owner || (map.officeRoot && isPathWithin(owner.root, map.officeRoot))) return false;
+  const others = map.clients.filter((client) => client !== owner && !isPathWithin(client.root, owner.root));
+  return targets.some((target) => {
+    if (target === null) return false;
+    if (GLOB_CHARS.test(target)) return others.some((client) => patternReaches(target, client.root));
+    const targetOwner = ownerOf(map, target);
+    return targetOwner !== null && others.includes(targetOwner);
   });
 }
 

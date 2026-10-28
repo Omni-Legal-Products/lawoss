@@ -22,7 +22,7 @@ test.skipIf(!binary)("klient A číta svoje pripojené priečinky a koreň aj z 
   const linkedB = join(root, "Hron podklady");
   for (const folder of [matterA, clientB, join(linkedA, "Rok 2026"), linkedA2, linkedB]) await mkdir(folder, { recursive: true });
   const files = {
-    linkedA: join(linkedA, "Rok 2026", "vzor.md"), linkedA2: join(linkedA2, "rozsudok.md"), linkedB: join(linkedB, "hron.md"), clientA: join(clientA, "Klient.md"),
+    linkedA: join(linkedA, "Rok 2026", "vzor.md"), linkedA2: join(linkedA2, "rozsudok.md"), linkedB: join(linkedB, "hron.md"), clientA: join(clientA, "Klient.md"), clientB: join(clientB, "Klient.md"),
   };
   for (const [name, path] of Object.entries(files)) await writeFile(path, `Obsah ${name}`);
 
@@ -35,11 +35,17 @@ test.skipIf(!binary)("klient A číta svoje pripojené priečinky a koreň aj z 
   await writeMap([linkedA]);
 
   let target = files.linkedA;
+  // N-A7-14: nástroj a argumenty prvého kroku (predvolene `read` súboru `target`); text výsledku nástroja pre model.
+  let call: { name: string; args: Record<string, string> } | null = null;
+  let toolResult = "";
   const model = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
-    const input = z.object({ messages: z.array(z.object({ role: z.string() })) }).parse(await request.json());
-    const step = input.messages.filter((message) => message.role === "tool").length;
+    const input = z.object({ messages: z.array(z.object({ role: z.string(), content: z.unknown().optional() })) }).parse(await request.json());
+    const results = input.messages.filter((message) => message.role === "tool");
+    const step = results.length;
+    if (step > 0) toolResult = JSON.stringify(results.at(-1)?.content ?? "");
+    const first = call ?? { name: "read", args: { filePath: target } };
     const delta = step === 0
-      ? { tool_calls: [{ index: 0, id: "read_0", type: "function", function: { name: "read", arguments: JSON.stringify({ filePath: target }) } }] }
+      ? { tool_calls: [{ index: 0, id: "read_0", type: "function", function: { name: first.name, arguments: JSON.stringify(first.args) } }] }
       : { content: "Hotovo." };
     const chunk = (body: unknown, finish: string | null) => `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta: body, finish_reason: finish }] })}\n\n`;
     return new Response(chunk({ role: "assistant", ...delta }, null) + chunk({}, step === 0 ? "tool_calls" : "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
@@ -67,9 +73,14 @@ test.skipIf(!binary)("klient A číta svoje pripojené priečinky a koreň aj z 
   const at = (directory: string, path: string) => `${base}${path}?directory=${encodeURIComponent(directory)}`;
   const approvals = async (directory: string) => z.array(z.object({ id: z.string(), permission: z.string() })).parse(await (await fetch(at(directory, "/permission"))).json());
 
-  /** Chat v `directory` prečíta `file`: „read“ = prečítal bez otázky, „asked“ = otázka ostala používateľovi (zamietne sa). */
-  const attempt = async (directory: string, file: string): Promise<"read" | "asked"> => {
+  /**
+   * Chat v `directory` prečíta `file`: „read“ = prečítal bez otázky, „asked“ = otázka ostala používateľovi (zamietne sa),
+   * „rejected“ = plugin otázku odmietol sám (N-A7-14), nástroj nič nevrátil a agent dostal vetu o inom klientovi.
+   */
+  const attempt = async (directory: string, file: string, tool?: { name: string; args: Record<string, string> }): Promise<"read" | "asked" | "rejected"> => {
     target = file;
+    call = tool ?? null;
+    toolResult = "";
     const session = z.object({ id: z.string() }).parse(await (await fetch(at(directory, "/session"), { method: "POST", headers: json, body: "{}" })).json());
     const pending = fetch(at(directory, `/session/${session.id}/message`), { method: "POST", headers: json,
       body: JSON.stringify({ agent: "build", model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: "Prečítaj súbor." }] }), signal: AbortSignal.timeout(60000) });
@@ -84,8 +95,16 @@ test.skipIf(!binary)("klient A číta svoje pripojené priečinky a koreň aj z 
       return "asked";
     }
     await settled;
-    const parts = z.array(z.object({ parts: z.array(z.object({ tool: z.string().optional(), state: z.object({ status: z.string(), output: z.string().optional() }).optional() })) }))
-      .parse(await (await fetch(at(directory, `/session/${session.id}/message`))).json()).flatMap((message) => message.parts).filter((part) => part.tool === "read");
+    const parts = z.array(z.object({ parts: z.array(z.object({ tool: z.string().optional(), state: z.object({ status: z.string(), output: z.string().optional(), error: z.string().optional() }).optional() })) }))
+      .parse(await (await fetch(at(directory, `/session/${session.id}/message`))).json()).flatMap((message) => message.parts).filter((part) => part.tool === (tool?.name ?? "read"));
+    if (parts[0]?.state?.status === "error") {
+      expect(parts[0].state.error).toContain("belongs to another client");
+      // Agent pokračuje a dostane vetu bez cesty a bez obsahu.
+      expect(toolResult).toContain("belongs to another client");
+      expect(toolResult).not.toContain("Obsah ");
+      expect(toolResult).not.toContain(clientB);
+      return "rejected";
+    }
     expect(parts.map((part) => part.state?.status)).toEqual(["completed"]);
     expect(parts[0]?.state?.output).toContain("Obsah ");
     return "read";
@@ -108,6 +127,12 @@ test.skipIf(!binary)("klient A číta svoje pripojené priečinky a koreň aj z 
     expect(await attempt(clientB, files.linkedB)).toBe("read");
     // A nevidí B a nepripojený priečinok.
     expect(await attempt(clientA, files.linkedB)).toBe("asked");
+    // N-A7-14 (E2): súbor v priečinku iného klienta tej istej praxe sa odmietne bez karty, aj vzor `Hr*` hľadania.
+    expect(await attempt(clientA, files.clientB)).toBe("rejected");
+    expect(await attempt(matterA, files.clientB)).toBe("rejected");
+    expect(await attempt(clientA, files.clientB, { name: "glob", args: { pattern: "**/hron.md", path: join(root, "prax", "Klienti", "Hr*") } })).toBe("rejected");
+    // Opačne tiež; vlastný klient a pripojený priečinok mimo praxe (E1) ostávajú bez karty.
+    expect(await attempt(clientB, files.clientA)).toBe("rejected");
     expect(await attempt(clientA, files.linkedA2)).toBe("asked");
     // Server pripojí ďalší priečinok: platí hneď, bez reštartu enginu; odpojenie tiež.
     await writeMap([linkedA, linkedA2]);
