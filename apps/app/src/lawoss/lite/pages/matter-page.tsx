@@ -13,7 +13,7 @@ import { deadlineAnchor, hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick
 import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
 import { canActOnSource, localMatter, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
-import { daysUntil, deadlineKey, deadlineText, dueText, inHorizon, urgencyOf } from "../../okf/view-rules";
+import { daysUntil, deadlineKey, deadlineText, dueText, inHorizon, taskDueView, urgencyOf } from "../../okf/view-rules";
 import { MORE_ACTIONS, QUICK_ACTIONS, quickActionPrompt } from "../quick-actions";
 import { POSTPROCESS_RESOURCE_NAME, postprocessSource, VYSTUP_SKILL_NAME, vystupSkillBody } from "../../okf/skill-bundle";
 import { clientOf, nextDeadline } from "../today-model";
@@ -418,18 +418,18 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
             <section className="lw-matter-panel" style={reveal(6)}>
               <h2 className="lw-matter-section">{text("tasks_title")}</h2>
               {(cockpit?.tasks.length ?? 0) === 0 ? <p className="lw-matter-empty">{text("tasks_empty")}</p> : <ul className="lw-matter-list">
-                {cockpit?.tasks.map((task) => (
-                  <li key={`${task.file}/${task.id}`} className="lw-matter-item lw-matter-task" data-urgency={task.due ? urgencyOf(task.due, now, task.invalid) : "calm"}>
+                {cockpit?.tasks.map((task) => { const due = taskDueView(task.due, now, locale); return (
+                  <li key={`${task.file}/${task.id}`} className="lw-matter-item lw-matter-task" data-urgency={due?.urgency ?? "calm"}>
                     <span className="lw-matter-ring" aria-hidden />
                     <span className="lw-matter-item-main">
                       <span className="lw-matter-item-title">{task.title}</span>
                       {/* Neplatný termín: súbor, v ktorom ho treba opraviť. */}
                       {task.assignee || task.invalid ? <small>{[task.assignee, task.invalid ? task.file : undefined].filter(Boolean).join(" · ")}</small> : null}
                     </span>
-                    {task.due ? <span className="lw-matter-chip" data-invalid={task.invalid || undefined}>{task.invalid ? `? ${task.due}` : formatDay(task.due, locale)}</span> : null}
-                    {task.invalid ? <span className="lw-matter-flag">{text("due_invalid")}</span> : task.overdue ? <span className="lw-matter-flag">{text("overdue")}</span> : null}
+                    {due ? <span className="lw-matter-chip" data-invalid={due.flag === "invalid" || undefined}>{due.label}</span> : null}
+                    {due?.flag === "invalid" ? <span className="lw-matter-flag">{text("due_invalid")}</span> : due?.flag === "overdue" ? <span className="lw-matter-flag">{text("overdue")}</span> : null}
                   </li>
-                ))}
+                ); })}
               </ul>}
             </section>
 

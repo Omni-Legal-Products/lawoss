@@ -117,13 +117,16 @@ export function daysBetween(from: string, to: string): number {
 }
 
 /**
- * Termín úlohy (`due`): platný deň (`RRRR-MM-DD`, prípadne s časom) alebo `invalid`. Zlý zápis
- * ostáva pri úlohe ako text - nesmie zhodiť prípad ani klienta, ani sa textovo porovnať s dneškom.
+ * Termín úlohy (`due`): platný deň (`RRRR-MM-DD`, prípadne s časom `time`) alebo `invalid`. Zlý zápis,
+ * aj prázdne pole, ostáva pri úlohe ako text - nesmie zhodiť prípad ani klienta, ani sa textovo
+ * porovnať s dneškom. Chýbajúce pole nie je termín.
  */
-export function taskDue(due: string | undefined): { day?: string; invalid?: true } {
-  if (!due?.trim()) return {};
+export function taskDue(due: string | undefined): { day?: string; time?: string; invalid?: true } {
+  if (due === undefined) return {};
   const day = isoDay(due);
-  return day ? { day } : { invalid: true };
+  if (!day) return { invalid: true };
+  const time = /^\d{4}-\d{2}-\d{2}[T ](\d{1,2}:\d{2})/.exec(due.trim())?.[1];
+  return time ? { day, time } : { day };
 }
 
 /**

@@ -11,8 +11,8 @@ import { onboardingIncomplete } from "../../domains/onboarding/resume";
 import { OnboardingResumeCardView } from "../../domains/onboarding/resume-card";
 import { litePageProps } from "../state-text";
 import { addDays, formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope } from "../../okf/read-model";
-import { deadlineKey, deadlineText, dueTextFromDays, isCalendarDay, urgencyOf, type Urgency } from "../../okf/view-rules";
-import { isOfficeFile, type MatterOverview } from "../../../../../../lawoss/okf/read";
+import { deadlineKey, deadlineText, dueTextFromDays, isCalendarDay, taskDueView, urgencyOf, type Urgency } from "../../okf/view-rules";
+import { isOfficeFile, taskDue, type MatterOverview } from "../../../../../../lawoss/okf/read";
 import { deadlineCoverage } from "../../../../../../lawoss/okf/views";
 import { appTodayTasks, buildToday, caseDates, nextDeadline, startHere, taskLink, type CaseDate, type StartHere, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
 import { appTaskClient, inPractice, openAppTask, useAppTasks } from "../app-tasks";
@@ -129,7 +129,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
   const datedKeys = new Set(caseOnly.map((d) => d.key));
   // Úloha s nečitateľným dátumom (na kontrolu) nesmie skončiť za „+N ďalšie“: ide pred ostatné (review N-A5-9).
   const otherTasks = model.tasks.filter((task) => !datedKeys.has(task.key))
-    .sort((a, b) => Number(Boolean(b.due && !isCalendarDay(b.due.trim().slice(0, 10)))) - Number(Boolean(a.due && !isCalendarDay(a.due.trim().slice(0, 10)))));
+    .sort((a, b) => Number(Boolean(taskDue(b.due).invalid)) - Number(Boolean(taskDue(a.due).invalid)));
   const pressing = caseOnly.find((d) => d.daysLeft <= 7);
   const dateParams = (d: CaseDate) => ({ title: d.title, when: caseDateWhen(d, locale, text) });
   const lead = !first || thisWeek.length === 0
@@ -212,7 +212,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
           <Panel index={4} icon={<ListChecks aria-hidden size={16} />} title={text("tasks_title")}>
             {/* N-A5-9: úlohy s termínom do 14 dní sú v „Termínoch z prípadov“; tu ostatné, nie ten istý zoznam druhýkrát. */}
             {model.tasks.length === 0 ? <Empty text={text("tasks_empty")} /> : otherTasks.length === 0 ? <Empty text={text("tasks_all_dated")} /> : <ul className="lw-today-list">
-              {otherTasks.slice(0, LIST_ROWS).map((task) => (
+              {otherTasks.slice(0, LIST_ROWS).map((task) => { const due = taskDueView(task.due, todayIso, locale); return (
                 <li key={task.key} className="lw-today-task">
                   <span className="lw-today-ring" aria-hidden />
                   <span className="lw-today-main">
@@ -221,11 +221,11 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
                       <span key={m.path}>{i > 0 ? " · " : ""}<Link to={liteMatterLink(m.path)}>{m.client ? `${m.client} – ${m.title}` : m.title}</Link></span>
                     ))}{task.matters.length > MATTERS_SHOWN ? <span> · {text("more_items", { count: task.matters.length - MATTERS_SHOWN })}</span> : null}</small>
                   </span>
-                  {task.due ? <span className="lw-today-chip" data-urgency={urgencyOf(task.due, todayIso)}>
-                    {isCalendarDay(task.due) ? "" : "? "}{formatDay(task.due, locale)}{isCalendarDay(task.due) && task.due < todayIso ? ` · ${text("overdue")}` : !isCalendarDay(task.due) ? ` · ${text("due_invalid")}` : ""}
+                  {due ? <span className="lw-today-chip" data-urgency={due.urgency}>
+                    {due.label}{due.flag === "overdue" ? ` · ${text("overdue")}` : due.flag === "invalid" ? ` · ${text("due_invalid")}` : ""}
                   </span> : null}
                 </li>
-              ))}
+              ); })}
               {otherTasks.length > LIST_ROWS ? <li className="lw-today-more" data-lawoss-more="tasks">{text("more_items", { count: otherTasks.length - LIST_ROWS })}</li> : null}
             </ul>}
           </Panel>

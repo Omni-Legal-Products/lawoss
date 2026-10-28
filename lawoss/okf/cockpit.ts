@@ -200,7 +200,7 @@ function tasks(input: MatterInput, todayIso: string): CockpitTask[] {
         file: fileOf(input, r),
       };
       if (r.assignee) task.assignee = r.assignee;
-      if (r.due) task.due = r.due;
+      if (r.due !== undefined) task.due = r.due;
       if (due.invalid) task.invalid = true;
       return task;
     });
@@ -321,14 +321,14 @@ export function attention(
 
   for (const t of tasks(input, todayIso)) {
     // Neplatný termín úlohy ide na overenie so súborom, rovnako ako neplatná lehota.
-    if ((!t.overdue && !t.invalid) || t.due === undefined) continue;
+    if (!t.overdue && !t.invalid) continue;
     rows.push({
       id: `uloha:${t.id}`,
       kind: "úloha",
       state: t.invalid ? "neparsovateľné" : "po termíne",
       title: t.title,
       detail: t.assignee ? `zodpovedá ${t.assignee}` : "bez zodpovednej osoby",
-      date: t.due,
+      ...(t.due ? { date: t.due } : {}),
       file: t.file,
     });
   }

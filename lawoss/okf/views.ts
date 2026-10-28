@@ -451,7 +451,9 @@ function clientItem(ctx: Ctx, conflicts: ViewConflict[]): ViewItem[] {
 /** Stavová lišta: stav (karta), fáza a ďalší krok (`_STATUS.md`), najbližší budúci termín. */
 function strip(ctx: Ctx): ViewSection[] {
   const status = clean(ctx.card.status);
-  const next = [...allDeadlines(ctx), ...taskItems(ctx, false)].filter((d) => d.date && /^\d{4}-\d{2}-\d{2}$/.test(d.date) && d.date >= ctx.today)
+  // Termín úlohy smie mať čas („2026-11-20 10:00“); neplatný dátum najbližším termínom nie je.
+  const dayOf = (d: ViewItem): string | undefined => d.flags?.includes("invalid") ? undefined : taskDue(d.date).day;
+  const next = [...allDeadlines(ctx), ...taskItems(ctx, false)].filter((d) => (dayOf(d) ?? "") >= ctx.today)
     .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""))[0];
   return [
     section("status", status ? [{ key: "status", label: status, source: cardSource(ctx, "status") }] : [], { file: ctx.cardFile, field: "status" }),
