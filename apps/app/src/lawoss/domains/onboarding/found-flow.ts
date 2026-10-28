@@ -3,7 +3,7 @@
  * OKF súborov, pripojenie praxe a začiatok usporiadania na mieste. Bez Reactu, aby sa dala testovať.
  */
 import type { Language } from "@/i18n";
-import { hasLegalForm } from "../../../../../../lawoss/okf/src/onboarding/suggest-patterns";
+import { hasLegalForm, nestedClientCode } from "../../../../../../lawoss/okf/src/onboarding/suggest-patterns";
 import { triageGrant, triagePlan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { LITE_CLIENTS_PATH } from "../../lite/links";
 import type { OnboardingCompletion } from "./lawoss-welcome-page";
@@ -34,6 +34,29 @@ export function parentPath(root: string): string {
 export function matterClientPath(root: string): string {
   const parent = parentPath(root);
   return folderName(parent).toLowerCase() === "spisy" ? parentPath(parent) : parent;
+}
+
+/**
+ * N-A7-3 (test 28. 10. 2026): vybraný priečinok má kód iného klienta než priečinok nad ním („C099 …“ v „C030 …“),
+ * je teda vnoreným klientom, nie prípadom. Podľa rozhodnutia MČ z 23. 10. 2026 sa ako klient neregistruje; ponúkne
+ * sa vonkajší klient (`matterClientPath`). Priečinok s kartou (klienta či veci) rozhoduje sám kartou.
+ */
+export function nestedInClient(suggestion: { root: string; marked: boolean }): boolean {
+  return !suggestion.marked && nestedClientCode(folderName(parentPath(suggestion.root)), folderName(suggestion.root));
+}
+
+/**
+ * N-A7-3: pripájaní klienti, v ktorých priečinku je priečinok ďalšieho klienta (kód iného klienta alebo karta klienta).
+ * Pri klientovi koreň, pri praxi každý jej klient. Agent klienta by súbory toho priečinka videl, preto upozornenie.
+ */
+export function nestedClientWarnings(suggestion: OnboardingSuggestion, level: "practice" | "client" | "matter"): { client: string; names: string[] }[] {
+  const unitNames = (path: string) => (suggestion.units?.find(unit => unit.path === path)?.nestedClients ?? []).map(nested => nested.name);
+  if (level === "client") {
+    const names = unitNames("");
+    return names.length ? [{ client: rootClientName(suggestion), names }] : [];
+  }
+  if (level !== "practice") return [];
+  return suggestion.clients.flatMap(client => { const names = unitNames(client.path); return names.length ? [{ client: clientName(client), names }] : []; });
 }
 
 /** Meno klienta pre advokáta (N-A4-2): názov z karty ako v bočnom paneli, inak meno priečinka. */
