@@ -20,12 +20,18 @@ const inside = (outer: string, inner: string): boolean => {
   return normalizeDirectoryPath(inner).startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`);
 };
 
+/** Všetky priestory, ktorým pri čítaní chýbal priečinok (napr. všetci klienti presunutej praxe). */
+export function unavailableWorkspaceIds(data: OkfReadResult | undefined): Set<string> {
+  return new Set((data?.problems ?? []).flatMap(problem => problem.folderUnavailable ? [problem.folderUnavailable] : []));
+}
+
 /**
  * Kam sa dá prepnúť: iné lokálne priestory mimo chýbajúceho priečinka, len najvzdialenejšie
- * (klient vnútri kancelárie sa neponúka zvlášť, ako `officeOf`). Aktívny priestor nie (už je otvorený).
+ * (klient vnútri kancelárie sa neponúka zvlášť, ako `officeOf`). Aktívny priestor nie (už je otvorený)
+ * a ani priestor, ktorému tiež chýba priečinok (N-A7-1: prepnutie naň by nič neurobilo).
  */
-export function missingFolderAlternatives<W extends FolderWorkspace>(workspaces: readonly W[], missing: W, activeId?: string): W[] {
-  const local = workspaces.filter(workspace => workspace.id !== missing.id && workspace.workspaceType !== "remote" && workspace.path && !inside(missing.path, workspace.path));
+export function missingFolderAlternatives<W extends FolderWorkspace>(workspaces: readonly W[], missing: W, activeId?: string, unavailable: ReadonlySet<string> = new Set()): W[] {
+  const local = workspaces.filter(workspace => workspace.id !== missing.id && !unavailable.has(workspace.id) && workspace.workspaceType !== "remote" && workspace.path && !inside(missing.path, workspace.path));
   return local.filter(workspace => workspace.id !== activeId && !local.some(other => other.id !== workspace.id && inside(other.path, workspace.path)));
 }
 

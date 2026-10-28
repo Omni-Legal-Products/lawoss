@@ -14,6 +14,7 @@ import { registrationName, withClientCardTitles } from "./client-card-title.js";
 import { registerTriageRoutes } from "./triage.js";
 import { readOfficeMemory } from "./office-memory.js";
 import { assertClientFolderNotNested } from "./nested-client.js";
+import { assertClientNotMoved, folderGone, previewMovedFolder, rebaseOfficeGrants } from "./moved-practice.js";
 import { executeOnboarding, inspectCardLevel, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, suggestOnboardingLevel, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
 
 /** OKF is opt-in; enabling it requires a dated acknowledgement of a versioned notice. */
@@ -69,7 +70,11 @@ function clientFoldersOf(preview: { action: string; mode: string; root?: string;
   return [...(registered ? [{ folder: registered, use: "in_place" as const }] : []), ...(source ? [{ folder: source, use: "copy" as const }] : [])];
 }
 const assertClientFolders = async (config: ServerConfig, preview: Parameters<typeof clientFoldersOf>[0]) => {
-  for (const { folder, use } of clientFoldersOf(preview)) await assertClientFolderNotNested(config, folder, use);
+  for (const { folder, use } of clientFoldersOf(preview)) {
+    await assertClientFolderNotNested(config, folder, use);
+    // N-A7-1: klient s chýbajúcim priečinkom sa prepojí („Nájsť presunutý priečinok“), nepridá sa druhýkrát.
+    if (use === "in_place") await assertClientNotMoved(config, folder);
+  }
 };
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
 
@@ -198,6 +203,28 @@ export function registerOnboardingRoutes(options: {
         catch (error) { if (!missing(error)) throw error; profile.trial = false; }
       }
       await ensureStorage(); await writeJson(profilePath, profile, true); return profile;
+    };
+    const pending = profileQueue.then(change); profileQueue = pending.catch(() => undefined); return pending;
+  });
+  // N-A7-1: presunutá prax alebo klient. Náhľad nič nezapisuje; klientov prepojí `POST /workspace/:id/reconnect`
+  // (stabilné id, chaty a nastavenia ostanú) a pri praxi potom `moved-practice` presunie profil a povolenie kancelárie.
+  route("POST", "moved-folder", async ctx => {
+    const input = z.strictObject({ workspaceId: z.string().min(1).max(200), folderPath: z.string().min(1).max(4096) }).parse(await body(ctx));
+    return await previewMovedFolder(config, (await readProfile())?.officeRoot, input);
+  });
+  route("POST", "moved-practice", async ctx => {
+    const input = z.strictObject({ previousRoot: z.string().min(1).max(4096), folderPath: z.string().min(1).max(4096) }).parse(await body(ctx));
+    const change = async () => {
+      const previous = await readProfile();
+      if (!previous || previous.officeRoot !== input.previousRoot) throw new ApiError(409, "practice_scope_changed", "The selected practice changed. Refresh the overview.");
+      if (!(await folderGone(input.previousRoot))) throw new ApiError(409, "project_folder_available", "The original practice folder is still present");
+      const folder = await canonicalDirectory(input.folderPath);
+      if ((await inspectCardLevel(folder)).level !== "office") throw new ApiError(409, "moved_folder_not_practice", "The chosen folder is not the moved practice. Nothing was changed.");
+      // Uložené priečinky praxe (klient, vec, obnova) sa posunú s praxou; mimo praxe ostanú, ako sú.
+      const moved = (path: string | undefined) => path && inside(input.previousRoot, path) ? join(folder, relative(input.previousRoot, path)) : path;
+      const profile = profileSchema.parse({ ...previous, officeRoot: folder, clientRoot: moved(previous.clientRoot), subjectRoot: moved(previous.subjectRoot), matterRoot: moved(previous.matterRoot), foundRoot: moved(previous.foundRoot) });
+      await ensureStorage(); await writeJson(profilePath, profile, true);
+      return { profile, grants: await rebaseOfficeGrants(config, resolve(input.previousRoot), folder) };
     };
     const pending = profileQueue.then(change); profileQueue = pending.catch(() => undefined); return pending;
   });

@@ -154,6 +154,21 @@ const nestedClientMessage = (error: unknown, locale: Language) => {
   const names = Array.isArray(details?.clients) ? details.clients.map(clientRefOf).filter((client) => client !== undefined).map((client) => client.name) : [];
   return names.length ? containsClients[locale](names.join(", ")) : undefined;
 };
+/**
+ * Klient už zaregistrovaný, len jeho priečinok chýba (presunutá alebo premenovaná prax, N-A7-1): nepridá sa druhýkrát,
+ * advokát ho prepojí na stránke Dnes („Nájsť presunutý priečinok“), aby chaty a nastavenia ostali.
+ */
+const MOVED_CLIENT_CODE = "onboarding_client_moved";
+const movedClient: Record<Language, (client: string) => string> = {
+  sk: (client) => `Klient „${client}“ už v LAWOSS je, len sa nenašiel jeho priečinok. Nepridávajte ho znova: na stránke Dnes ho prepojte tlačidlom „Nájsť presunutý priečinok“. Nič sa nezmenilo.`,
+  cs: (client) => `Klient „${client}“ už v LAWOSS je, jen se nenašla jeho složka. Nepřidávejte ho znovu: na stránce Dnes ho propojte tlačítkem „Najít přesunutou složku“. Nic se nezměnilo.`,
+  en: (client) => `The client “${client}” is already in LAWOSS, only its folder was not found. Do not add it again: reconnect it on the Today page with “Find moved folder”. Nothing was changed.`,
+  de: (client) => `Der Mandant „${client}“ ist bereits in LAWOSS, nur sein Ordner wurde nicht gefunden. Fügen Sie ihn nicht erneut hinzu: Verbinden Sie ihn auf der Seite Heute mit „Verschobenen Ordner suchen“ neu. Es wurde nichts geändert.`,
+};
+const movedClientMessage = (error: unknown, locale: Language) => {
+  const client = clientRefOf(refusal(error, MOVED_CLIENT_CODE));
+  return client ? movedClient[locale](client.name) : undefined;
+};
 /** Ďalší krok pri odmietnutí: otvoriť klienta, ktorému priečinok patrí. Iné chyby ho nemajú. */
 export function onboardingRefusalAction(error: unknown, locale: Language): { workspaceId: string; label: string } | undefined {
   const outer = nestedClientOf(error);
@@ -169,6 +184,7 @@ export function onboardingErrorMessage(error: unknown, locale: Language): string
   if (error instanceof Error && error.message === FRESH_NOT_EMPTY) return foundText(locale)("freshNotEmpty");
   if (error instanceof Error && error.message === CLIENT_UNAVAILABLE) return clientUnavailable[locale];
   return nestedClientMessage(error, locale) ??
+    movedClientMessage(error, locale) ??
     officeMessage(error, locale) ??
     lockedFilesMessage(error, locale) ??
     identityMessage(error, locale) ??
