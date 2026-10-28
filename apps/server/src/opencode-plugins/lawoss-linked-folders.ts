@@ -83,8 +83,9 @@ async function linkedFoldersState(directory: string | undefined): Promise<string
   return [
     "Linked folders of this client (linked by the user; they belong to this client, also in its cases' chats).",
     "Read and list them without asking, like the client's own folder. For PDF, EML, Office or scanned files call lawoss_documents_prepare with the absolute file path, then lawoss_documents_list and lawoss_documents_read. Only read; change files there only when the user asks.",
-    // N-A7-5: glob bez `path` aj legalwork_review_files hľadajú len v koreni klienta; priečinok sa nepripravuje.
-    "Project file search (legalwork_review_files, and glob without a path) covers only the client's own folder. To find a file in a linked folder, run glob with that folder's absolute path as path. lawoss_documents_prepare takes file paths only, never a folder.",
+    // N-A7-5: glob bez `path` hľadá len v priečinku chatu (v chate prípadu len v prípade), legalwork_review_files len v klientovi;
+    // pripojené priečinky nepokrýva ani jeden. Priečinok sa nepripravuje.
+    "glob without a path searches only this chat's folder, and legalwork_review_files only this client's folder; neither covers linked folders. To find a file in a linked folder, run glob with that folder's absolute path as path. lawoss_documents_prepare takes file paths only, never a folder.",
     ...folders.map((folder) => `- ${basename(folder)}: ${folder}`),
   ].join("\n");
 }
