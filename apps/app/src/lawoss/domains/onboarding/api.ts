@@ -185,7 +185,11 @@ export type OnboardingSuggestion = {
 export type SuggestedClient = { path: string; name: string; title?: string };
 
 /** Jednotka náhľadu stromu; `exact: false` znamená, že počty sú dolná hranica (veľký alebo hlboký priečinok). */
-export type SuggestedUnit = { path: string; matters: readonly { path: string; name: string }[]; matterCount: number; files: number; exact: boolean };
+/**
+ * `nestedClients`: priečinky jednotky, ktoré nie sú prípadmi, lebo vyzerajú ako ďalší klient (kód iného klienta alebo
+ * vlastná karta klienta, N-A7-3); starší server ich neposiela.
+ */
+export type SuggestedUnit = { path: string; matters: readonly { path: string; name: string }[]; matterCount: number; files: number; exact: boolean; nestedClients?: readonly { path: string; name: string }[] };
 
 export type OnboardingApi = {
   onboardingStatus(): Promise<OnboardingStatus>;
