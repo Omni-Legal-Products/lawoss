@@ -5,7 +5,7 @@ import { requireBrowserNetwork } from "./browser-network-policy.js";
 import { serverConnected, serverUrl, workspaceToolHeaders } from "./office-plugin-shared.js";
 import { uiBridgeRequest, taskDocumentSnapshot, inAppDocumentSurface, documentMatchesSession, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "../inapp-document-bridge.js";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
-import { approveEditorWrite, approveNewFile, refuseEditorWriteAction, type EditorApprovalAsk } from "./lawoss-editor-approval.js";
+import { approveEditorWrite, approveNewFile, EDITOR_WRITE_HEADERS, type EditorApprovalAsk } from "./lawoss-editor-approval.js";
 import { z } from "zod";
 import { connectorDefinitions } from "@legalwork/types/connectors";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT } from "../scheduled-tasks/access.js";
@@ -199,7 +199,7 @@ async function callInAppOfficeTool(context: OpenCodeContext, format: "xlsx" | "p
   const surface = inAppDocumentSurface(await taskDocumentSnapshot(context.sessionID), context.sessionID, args.path);
   if (!surface || surface.format !== format) return JSON.stringify({ ok: false, error: "Prepare this task's file with inapp_documents_open before using its format's tools. The user's view does not need to change." });
   await approveEditorWrite(context, format, toolName, args); // LAWOSS N-A7-8: karta pred zápisom
-  return JSON.stringify(await uiBridgeRequest("/execute", { method: "POST", body: { actionId: format === "md" ? "markdown.agent_tool" : "office.agent_tool", args: { sessionId: context.sessionID, path: args.path, format, toolName, args } }, timeoutMs: 120_000 }));
+  return JSON.stringify(await uiBridgeRequest("/execute", { method: "POST", body: { actionId: format === "md" ? "markdown.agent_tool" : "office.agent_tool", args: { sessionId: context.sessionID, path: args.path, format, toolName, args } }, timeoutMs: 120_000, headers: EDITOR_WRITE_HEADERS }));
 }
 
 const pptxVisualResultSchema = z.object({
@@ -252,6 +252,7 @@ async function callInAppDocxTool(
   const payload = await uiBridgeRequest("/execute", {
     method: "POST",
     timeoutMs: 120_000,
+    headers: EDITOR_WRITE_HEADERS,
     body: {
       actionId: "document.agent_tool",
       args: { sessionId: context.sessionID ?? "", toolName, ...(path ? { path } : {}), args },
@@ -379,7 +380,7 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
         if (!context.sessionID) throw new Error("A task is required to create a document.");
         const args = z.object({ path: z.string().min(1).max(4096), content: z.string().max(4 * 1024 * 1024), append: z.boolean().default(false), complete: z.boolean().default(false) }).parse(rawArgs);
         await approveNewFile(context, args.complete ? args.path : null); // LAWOSS N-A7-8: súbor vznikne až s complete
-        const response = await uiBridgeRequest("/execute", { method: "POST", timeoutMs: 120_000, body: { actionId: "markdown.create", args: { ...args, sessionId: context.sessionID } } });
+        const response = await uiBridgeRequest("/execute", { method: "POST", timeoutMs: 120_000, headers: EDITOR_WRITE_HEADERS, body: { actionId: "markdown.create", args: { ...args, sessionId: context.sessionID } } });
         if (getBooleanProperty(response, "ok") !== true) throw new Error(getStringProperty(response, "error") ?? "The Markdown draft could not be saved.");
         return JSON.stringify(response);
       },
@@ -391,7 +392,7 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
         if (!context.sessionID) return JSON.stringify({ ok: false, error: "A session is required to open a file." });
         const args = inAppDocumentsOpenArgsSchema.parse(rawArgs);
         await approveNewFile(context, args.copy_to); // LAWOSS N-A7-8: kópia šablóny je nový súbor
-        return JSON.stringify(await uiBridgeRequest("/execute", { method: "POST", timeoutMs: 900_000, body: {
+        return JSON.stringify(await uiBridgeRequest("/execute", { method: "POST", timeoutMs: 900_000, headers: EDITOR_WRITE_HEADERS, body: {
           actionId: "documents.open", args: { sessionId: context.sessionID, path: args.path, ...(args.connection_id ? { connectionId: args.connection_id } : {}), ...(args.copy_to ? { copyTo: args.copy_to } : {}), ...(args.show ? { show: true } : {}) },
         } }));
       },
@@ -658,7 +659,6 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
       async execute(rawArgs: unknown, context: OpenCodeContext = {}) {
         requireInteractiveRun(context);
         const { actionId, args } = uiExecuteArgsSchema.parse(rawArgs);
-        refuseEditorWriteAction(actionId, args); // LAWOSS N-A7-8: zápis len cez inapp_* s kartou
         const browserContext = actionId.startsWith("browser.") ? await requireBrowserNetwork(context) : {};
         const result = await uiBridgeRequest("/execute", {
           method: "POST",

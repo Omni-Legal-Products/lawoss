@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { LegalWorkExtensionsPreview } from "./legalwork-extensions-preview.js";
+import { withFileEditorHandoff } from "../file-editor-handoff.js";
 
 const roots: string[] = [];
 let originalFetch: typeof globalThis.fetch | null = null;
@@ -42,7 +43,7 @@ async function withBridge(active: object | null) {
     originalFetch = globalThis.fetch;
   }
   process.env.LEGALWORK_UI_CONTROL_DISCOVERY = discovery;
-  const actions: { actionId: string; args: Record<string, unknown> }[] = [];
+  const actions: { actionId: string; args: Record<string, unknown>; editorWrite: boolean }[] = [];
   globalThis.fetch = Object.assign(
     async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const url = input instanceof Request ? input.url : input.toString();
@@ -52,7 +53,7 @@ async function withBridge(active: object | null) {
       const body: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : null;
       const actionId = String(Reflect.get(Object(body), "actionId"));
       if (actionId === "documents.list") return Response.json({ ok: true, result: snapshot });
-      actions.push({ actionId, args: Object(Reflect.get(Object(body), "args")) });
+      actions.push({ actionId, args: Object(Reflect.get(Object(body), "args")), editorWrite: new Headers(init?.headers).get("x-lawoss-editor-write") === "1" });
       return Response.json({ ok: true, result: { ok: true, saved: true } });
     },
     { preconnect: originalFetch.preconnect },
@@ -72,7 +73,7 @@ function approver(reply: "once" | "reject" = "once") {
 }
 
 const WRITES = new Set(["markdown.create", "markdown.agent_tool", "office.agent_tool", "document.agent_tool", "documents.open"]);
-const writesSent = (actions: { actionId: string; args: Record<string, unknown> }[]) =>
+const writesSent = (actions: { actionId: string; args: Record<string, unknown>; editorWrite: boolean }[]) =>
   actions.filter(({ actionId, args }) => WRITES.has(actionId) && (actionId !== "documents.open" || args.copyTo));
 
 describe("editor writes ask with the native edit card first", () => {
@@ -83,7 +84,7 @@ describe("editor writes ask with the native edit card first", () => {
     await plugin.tool.inapp_md_replace_text.execute({ path: PROFILE, search: "Telefón: —", replacement: "Telefón: 0900 000 000" }, context);
     expect(cards).toEqual([{ permission: "edit", patterns: [PROFILE], always: [],
       metadata: { filepath: PROFILE, diff: "- Telefón: —\n+ Telefón: 0900 000 000" } }]);
-    expect(actions).toEqual([{ actionId: "markdown.agent_tool", args: expect.objectContaining({ sessionId: SESSION, path: PROFILE, toolName: "replace_text" }) }]);
+    expect(actions).toEqual([{ actionId: "markdown.agent_tool", args: expect.objectContaining({ sessionId: SESSION, path: PROFILE, toolName: "replace_text" }) , editorWrite: true }]);
   });
 
   test("a Word edit without a path asks for the task's document and addresses exactly that document", async () => {
@@ -92,7 +93,7 @@ describe("editor writes ask with the native edit card first", () => {
     const { cards, context } = approver();
     await plugin.tool.inapp_docx_suggest_change.execute({ paraId: "p1", search: "30 dní", replaceWith: "15 dní" }, context);
     expect(cards.map((card) => [card.permission, card.patterns, card.metadata])).toEqual([["edit", [CONTRACT], { filepath: CONTRACT, diff: "- 30 dní\n+ 15 dní" }]]);
-    expect(actions).toEqual([{ actionId: "document.agent_tool", args: expect.objectContaining({ path: CONTRACT, toolName: "suggest_change" }) }]);
+    expect(actions).toEqual([{ actionId: "document.agent_tool", args: expect.objectContaining({ path: CONTRACT, toolName: "suggest_change" }) , editorWrite: true }]);
   });
 
   test("every writing tool asks; a new copy or file asks for its own name", async () => {
@@ -166,23 +167,33 @@ describe("a rejected or impossible card changes nothing", () => {
     expect(writesSent(actions)).toEqual([]);
   });
 
-  test("editor write actions cannot be run through the general UI action tool", async () => {
-    const actions = await withBridge(null);
+  test("only the approved editor calls carry the editor-write header; the general UI action tool never does", async () => {
+    // The desktop bridge refuses an editor write without it (apps/desktop/electron/lawoss-editor-write-gate.mjs).
+    const markdown = await withBridge(surface("md", PROFILE));
     const plugin = await LegalWorkExtensionsPreview();
+    const { context } = approver();
+    await plugin.tool.inapp_md_replace_text.execute({ path: PROFILE, search: "a", replacement: "b" }, context);
+    const word = await withBridge(surface("docx", CONTRACT));
+    await plugin.tool.inapp_docx_suggest_change.execute({ paraId: "p1", search: "a", replaceWith: "b" }, context);
+    const general = await withBridge(null);
+    await plugin.tool.inapp_documents_open.execute({ path: "Sablona.docx", copy_to: "Kopia.docx" }, context);
+    await plugin.tool.inapp_markdown_create.execute({ path: "Nova.md", content: "x", complete: true }, context);
     for (const [actionId, args] of [
       ["markdown.agent_tool", { sessionId: SESSION, path: PROFILE, toolName: "replace_text", args: { search: "a", replacement: "b" } }],
-      ["office.agent_tool", { sessionId: SESSION, path: "Trovy.xlsx", toolName: "write" }],
       ["document.agent_tool", { sessionId: SESSION, toolName: "suggest_change" }],
-      ["document.propose_change", { name: "x" }],
-      ["markdown.create", { sessionId: SESSION, path: "Nova.md", content: "x", complete: true }],
       ["documents.open", { sessionId: SESSION, path: "Sablona.docx", copyTo: "Kopia.docx" }],
-    ] as const) {
-      await expect(plugin.tool.legalwork_ui_execute_action.execute({ actionId, args }, { agent: "legalwork", sessionID: SESSION })).rejects.toThrow("inapp_*");
-    }
-    expect(actions).toEqual([]);
-    await plugin.tool.legalwork_ui_execute_action.execute({ actionId: "documents.open", args: { sessionId: SESSION, path: "Zmluva.docx" } }, { agent: "legalwork", sessionID: SESSION });
-    await plugin.tool.legalwork_ui_execute_action.execute({ actionId: "settings.panel.open", args: { panel: "general" } }, { agent: "legalwork" });
-    expect(actions.map((action) => action.actionId)).toEqual(["documents.open", "settings.panel.open"]);
+      ["documents.begin_file_edit", { sessionId: SESSION, operationId: "x" }],
+    ] as const) await plugin.tool.legalwork_ui_execute_action.execute({ actionId, args }, { agent: "legalwork", sessionID: SESSION });
+    expect([...markdown, ...word, ...general].map((action) => [action.actionId, action.editorWrite])).toEqual([
+      ["markdown.agent_tool", true], ["document.agent_tool", true], ["documents.open", true], ["markdown.create", true],
+      ["markdown.agent_tool", false], ["document.agent_tool", false], ["documents.open", false], ["documents.begin_file_edit", false],
+    ]);
+  });
+
+  test("saving open editors before a file write carries the editor-write header", async () => {
+    const headers: unknown[] = [];
+    await withFileEditorHandoff({ write: true, sessionID: SESSION }, async () => "written", async (_path, options) => { headers.push(options?.headers); return { ok: true }; });
+    expect(headers).toEqual([{ "x-lawoss-editor-write": "1" }, { "x-lawoss-editor-write": "1" }]);
   });
 });
 

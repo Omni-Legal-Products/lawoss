@@ -10,10 +10,14 @@
  * aj tak neponúka). Čítanie sa nepýta.
  *
  * Upstream súbor volá tieto funkcie jedným riadkom v `callInAppOfficeTool`, `callInAppDocxTool`,
- * `inapp_documents_open` (`copy_to`), `inapp_markdown_create` (`complete`) a `legalwork_ui_execute_action`.
+ * `inapp_documents_open` (`copy_to`) a `inapp_markdown_create` (`complete`). Tieto volania nesú hlavičku
+ * `EDITOR_WRITE_HEADERS`; most UI v desktope akciu editora, ktorá zapisuje, bez nej odmietne, takže ju
+ * nespustí ani `legalwork_ui_execute_action`, ani MCP `legalwork-ui` (`lawoss-editor-write-gate.mjs`).
  */
 import { inAppDocumentSurface, taskDocumentSnapshot } from "../inapp-document-bridge.js";
 import type { OpenCodeContext } from "./office-plugin-shared.js";
+
+export { EDITOR_WRITE_HEADERS } from "../lawoss/editor-write-header.js";
 
 /** The engine's approval request in a tool context (`context.ask`). */
 export type EditorApprovalAsk = NonNullable<OpenCodeContext["ask"]>;
@@ -31,9 +35,6 @@ const READ_ONLY: Record<"docx" | "xlsx" | "pptx" | "md", readonly string[]> = {
 
 /** Word operations whose result is a new file named `fileName`, not a change of the open document. */
 const DOCX_COPIES = ["create_comparison_copy", "create_clean_copy"];
-
-/** UI actions behind the editor tools; called directly they would write without this card. */
-const EDITOR_WRITE_ACTIONS = ["document.agent_tool", "office.agent_tool", "markdown.agent_tool", "markdown.create", "document.propose_change"];
 
 const MAX_SHOWN = 2000;
 
@@ -78,10 +79,4 @@ export async function approveEditorWrite(context: OpenCodeContext, format: "docx
 /** Asks before a new file is created (a template copy or a new Markdown file); nothing to ask without a path. */
 export async function approveNewFile(context: OpenCodeContext, path: string | null | undefined): Promise<void> {
   if (path) await ask(context, path);
-}
-
-/** Refuses UI actions that write through the editor outside its tools, and a template copy through the UI. */
-export function refuseEditorWriteAction(actionId: string, args: Record<string, unknown> | undefined): void {
-  if (EDITOR_WRITE_ACTIONS.includes(actionId) || (actionId === "documents.open" && text(args?.copyTo)))
-    throw new Error(`${actionId} is not available here. Use the inapp_* document tools, which ask the user before saving a file. Nothing was changed.`);
 }

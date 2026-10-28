@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getBooleanProperty, getStringProperty, uiBridgeRequest } from "./inapp-document-bridge.js";
+import { EDITOR_WRITE_HEADERS } from "./lawoss/editor-write-header.js";
 
 type BridgeRequest = typeof uiBridgeRequest;
 
@@ -9,7 +10,7 @@ type BridgeRequest = typeof uiBridgeRequest;
 export async function beginFileEditorHandoff(sessionId: string, paths?: string[], request: BridgeRequest = uiBridgeRequest) {
   const operationId = randomUUID();
   const call = async (actionId: string) => {
-    const result = await request("/execute", { method: "POST", timeoutMs: 900_000,
+    const result = await request("/execute", { method: "POST", timeoutMs: 900_000, headers: EDITOR_WRITE_HEADERS, // LAWOSS N-A7-8
       body: { actionId, args: { sessionId, operationId, ...(paths ? { paths } : {}) }, callerSessionId: sessionId } });
     const nested: unknown = result && typeof result === "object" ? Reflect.get(result, "result") : undefined;
     if (getBooleanProperty(result, "ok") !== true || getBooleanProperty(nested, "ok") === false) throw new Error(getStringProperty(nested, "error") ?? getStringProperty(result, "error") ?? "Could not coordinate the open document editors.");
