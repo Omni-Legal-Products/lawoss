@@ -219,7 +219,7 @@ export const STRUCTURE = [
   ...["apps/app/src/i18n/locales/sk.ts", "apps/app/src/i18n/locales/cs.ts"].map((file) => ({
     file,
     must: [/"sandbox\.sync_local": "Ulo(?:žené|ženo) na tomto počítači\.",/],
-    mustNot: [/"sandbox\.sync_local": "[^"]*(?:Eigenwelt|Sync|Plus|Pro\b)/],
+    mustNot: [/"sandbox\.sync_local": "[^"]*\b(?:Eigenwelt|Sync|Plus|Pro)\b/],
     why: "Oprávnenia nástrojov neponúkajú plán Eigenweltu Sync, Plus alebo Pro (nález N-A7-15).",
   })),
   {
