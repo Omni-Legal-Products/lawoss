@@ -1,5 +1,15 @@
 # LAWOSS downstream patches
 
+## Správa z frontu po reštarte appky (2026-10-28, N-A7-17)
+
+Úplný UI test dev `f8acb4bd` (28. 10. 2026), J2: správa čakajúca vo fronte počas behu sa po reštarte servera doručila sama (`SessionMessageQueue.tick`), bez požiadavky advokáta. Pôvod chatu pre nástroje (`grantWikiAgentSession`) žije len v pamäti procesu a zapisoval sa iba pri `POST …/queue`, preto nástroje doručeného ťahu dostali 403 `wiki_agent_session_unknown` a model advokátovi hlásil „chybu 403“. Regresia v `apps/server/src/lawoss/queue-restart-agent-access.e2e.test.ts`.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `packages/types/src/session-queue.ts`, `apps/server/src/session-message-queue.ts` | Položka frontu má voliteľné `wikiScope`. Zapíše ho server pri zaradení alebo úprave správy z overenej osoby (`act(…, wikiScope)`); akcia z požiadavky ho nenesie. Staré súbory bez neho fungujú ako doteraz. |
+| `apps/server/src/routes/sessions.ts` | `grantQueueOrigin` (spoločné pre `POST …/queue` a doručenie). Doručenie mimo chráneného behu pred `session.prompt` znova overí chat voči aktuálnemu priečinku klienta (`queueSession`) a zapíše jeho pôvod so zaznamenaným `wikiScope`, rovnako ako naplánované úlohy s `task.wikiScope`. Zlyhanie je chyba prípravy (správa sa neodošle). |
+| `apps/server/src/wiki/agent-access.ts` | Neznámy chat dostane namiesto „Run this task through an authenticated LegalWork session before accessing wikis.“ vetu `CHAT_NOT_REGISTERED` pre model: úlohu zastaviť a advokátovi povedať v jeho jazyku, bez kódov, že po reštarte ju treba poslať znova. Kód chyby ostáva. |
+
 ## Čítanie pamäte spisu bez karty (2026-10-23)
 
 Alfa 2, oprava P3a (N-A3-3, N-18, N-A2-7; rozhodnutie MČ: čítanie dokumentov a pamäte bez karty, zápis s kartou). Skill `okf-pamat` čítal pamäť cez `node …/okf-memory.js preamble|read` v spravovanom shelli a každé zhrnutie spisu ukázalo dve najširšie karty („celý počítač + internet“). Nový nástroj `lawoss_memory` (plugin `apps/server/src/opencode-plugins/lawoss-memory-tools.ts`, server `apps/server/src/lawoss/matter-memory.ts`, most `lawoss/okf-handoff/matter-memory-read.mjs`) číta tým istým kódom pamäte bez podprocesu, len v koreni klienta chatu a v jeho pripojených priečinkoch; spis iného (aj vnoreného) klienta sa odmietne bez mena. Zápis pamäte ostáva v CLI so schválením. Po bezpečnostnom review číta okf-pamat každý súbor pamäte a kontextu (`_STATUS.md`, `VSTUPY.md`, `KOMUNIKACNE-KANALY.md`, karty, `okf.config`, `memory/*.md`) ako bežný súbor bez symbolického odkazu, bez blokovania a do limitu 2 MiB na súbor a 16 MiB na adresár `memory/` (`lawoss/okf-pamat/src/safe-read.ts`). Kanceláriu (`Office/`, `_kancelaria/`) nad spisom server prečíta len vtedy, keď je to kancelária praxe z profilu, priečinok tohto klienta alebo skutočný priečinok vedľa klientov mimo iného klienta; inak ju vynechá a čítanie je neúplné (`ScopeOptions.office`); s profilom praxe len kanceláriu praxe. Pamäť s profilom (`.lawoss/memory-profile.json`) nečíta koreň ani zdroj v inom registrovanom klientovi (`excludedRoots`). Adresár `memory/` má najviac 2 000 položiek.

@@ -103,7 +103,8 @@ export class SessionMessageQueue {
     this.writes.set(key, operation);
     try { return await operation; } finally { if (this.writes.get(key) === operation) this.writes.delete(key); }
   }
-  async act(workspaceId: string, sessionId: string, action: QueueAction) {
+  /** `wikiScope`: the authenticated person's scope, recorded on what they queue or edit (LAWOSS N-A7-17). */
+  async act(workspaceId: string, sessionId: string, action: QueueAction, wikiScope?: QueueEntry["wikiScope"]) {
     const result = await this.change(workspaceId, sessionId, queue => {
       if ("revision" in action && action.revision !== queue.revision) throw conflict();
       const now = Date.now();
@@ -119,11 +120,12 @@ export class SessionMessageQueue {
           if (entry.lastEditToken === action.editToken) return;
           if (entry.status === "sending" || entry.edit?.token !== action.editToken) throw conflict();
           Object.assign(entry, { draft: action.draft, execution: action.execution, status: "queued", lastEditToken: action.editToken });
-          delete entry.edit; delete entry.error;
+          delete entry.edit; delete entry.error; delete entry.wikiScope;
+          if (wikiScope) entry.wikiScope = wikiScope;
         } else {
           if (action.editToken) throw conflict();
           if (queue.entries.length >= 100) throw new ApiError(400, "queue_full", "The queue is full.");
-          queue.entries.push({ id: action.id, draft: action.draft, execution: action.execution, status: "queued" });
+          queue.entries.push({ id: action.id, draft: action.draft, execution: action.execution, status: "queued", ...(wikiScope ? { wikiScope } : {}) });
           if (queue.paused && queue.pauseReason === "stop" && !queue.entries.some(item => item.status === "uncertain")) {
             queue.paused = false; delete queue.pauseReason;
             queue.resumeRevision = queue.revision + 1;

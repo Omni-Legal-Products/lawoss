@@ -94,6 +94,16 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       assertNoHostShellInterpolation(definition.template);
     }
   }
+  /** Records the chat's authenticated origin for its tool calls, in the chat's own folder. */
+  async function grantQueueOrigin(workspace: WorkspaceInfo, sessionId: string, session: Awaited<ReturnType<typeof queueSession>>["session"], scope: TokenScope) {
+    const folder = await sessionFolder(workspace, session);
+    await grantWikiAgentSession(config, {
+      sessionId,
+      // LAWOSS: the chat's own folder (a case subfolder), the directory its tools claim.
+      directory: joinSessionFolder(workspace, folder, workspace.directory?.trim() || workspace.path),
+      scope,
+    });
+  }
   async function queueClient(workspace: WorkspaceInfo, sessionID: string) {
     return (await queueSession(workspace, sessionID)).client;
   }
@@ -162,9 +172,13 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       const client = await (async () => {
         try {
           const workspace = await resolveWorkspace(config, workspaceId);
-          const client = await queueClient(workspace, sessionID);
+          const { client, session } = await queueSession(workspace, sessionID);
           // Revalidate restored queues and shortcut definitions changed since enqueue.
           await validateQueuedExecution(client, entry.execution);
+          // LAWOSS (N-A7-17): a queue restored after a restart is delivered without a request,
+          // so register the chat again, revalidated against the current folder, with the scope
+          // the server recorded from the person who queued it. Old entries without it are not registered.
+          if (entry.wikiScope) await grantQueueOrigin(workspace, sessionID, session, entry.wikiScope);
           unwrapOpencodeResult(await client.session.update({ sessionID, time: { archived: 0 } }), "session/update");
           return client;
         } catch (error) {
@@ -204,14 +218,9 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       }
       // Queued prompts bypass the public engine proxy. Refresh their authenticated
       // origin here too, including an existing chat resumed after server restart.
-      const folder = await sessionFolder(workspace, session);
-      if (!protectedRuntime) await grantWikiAgentSession(config, {
-        sessionId: ctx.params.sessionId,
-        // LAWOSS: the chat's own folder (a case subfolder), the directory its tools claim.
-        directory: joinSessionFolder(workspace, folder, workspace.directory?.trim() || workspace.path),
-        scope: ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer",
-    });
-    return jsonResponse(await messageQueue.act(workspace.id, ctx.params.sessionId, parsed.data));
+      const scope: TokenScope = ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer";
+      if (!protectedRuntime) await grantQueueOrigin(workspace, ctx.params.sessionId, session, scope);
+    return jsonResponse(await messageQueue.act(workspace.id, ctx.params.sessionId, parsed.data, protectedRuntime ? undefined : scope));
     });
   });
 
