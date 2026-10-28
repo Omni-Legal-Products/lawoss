@@ -21,7 +21,7 @@ async function fixture() {
   const linkedA = join(root, "pripojeny-A"), linkedB = join(root, "Hron podklady"), runtime = join(root, "runtime");
   for (const folder of [matterA, clientB, linkedA, linkedB, runtime]) await mkdir(folder, { recursive: true });
   const writeMap = (aFolders: string[]) => writeFile(join(runtime, LINKED_FOLDERS_MAP_FILE), JSON.stringify({
-    version: 1, officeRoot: join(root, "prax"), firmManaged: false, clients: [{ root: clientA, folders: aFolders }, { root: clientB, folders: [linkedB] }],
+    version: 1, officeRoot: join(root, "prax"), firmManaged: false, clients: [{ root: clientA, folders: aFolders, client: clientA }, { root: clientB, folders: [linkedB], client: clientB }],
   } satisfies LinkedFoldersMap));
   await writeMap([linkedA]);
   process.env.OPENCODE_CONFIG = join(runtime, "runtime-opencode-config.json");
@@ -90,4 +90,51 @@ test("systémový text je pevný: nemení sa so zoznamom pripojených priečinko
   expect(new Set(texts).size).toBe(1);
   expect(texts[0]).toContain("linked-folders reminder");
   expect(texts[0]).not.toContain("pripojeny-A");
+});
+
+// N-A7-14 (test E2): chat klienta C001 žiada priečinok klienta C002 tej istej praxe. Plugin odmietne s vetou pre agenta
+// (bez cesty a mena), advokát kartu nedostane. Pripojený priečinok mimo praxe (E1) ostane povolený bez karty.
+test("priečinok iného klienta: odmietnutie s vetou; vlastný pripojený priečinok „once“; neznámy priečinok bez odpovede", async () => {
+  const { clientA, matterA, clientB, linkedA } = await fixture();
+  const ask = async (directory: string, patterns: string[], options: { raw?: boolean; rawFails?: boolean } = {}) => {
+    const v1: unknown[] = [], v2: unknown[] = [];
+    const raw = options.raw === false ? undefined : { post: async (request: unknown) => { v2.push(request); return options.rawFails ? { error: { name: "NotFound" }, response: { ok: false } } : { data: true, response: { ok: true } }; } };
+    const hooks = await LawossLinkedFolders({ directory, client: {
+      postSessionIdPermissionsPermissionId: async (request: unknown) => { v1.push(request); return {}; },
+      _client: raw,
+      session: { get: async () => ({ data: { directory } }), messages: async () => ({ data: [] }) },
+    } });
+    await hooks.event({ event: { type: "permission.asked", properties: { id: "per_1", sessionID: "ses_1", permission: "external_directory", patterns } } });
+    return { v1, v2 };
+  };
+
+  // Vzor z testu E2 (`…/Klienti/C002*/*`) aj súbor klienta B, aj z chatu prípadu.
+  for (const [directory, pattern] of [[clientA, `${join(clientB, "..")}/Hr*/*`], [matterA, `${clientB}/*`]] as const) {
+    const { v1, v2 } = await ask(directory, [pattern]);
+    expect(v1).toEqual([]);
+    expect(v2).toHaveLength(1);
+    const request = v2[0] as { url: string; path: { requestID: string }; body: { reply: string; message: string }; query: { directory: string } };
+    expect(request.url).toBe("/permission/{requestID}/reply");
+    expect(request.path.requestID).toBe("per_1");
+    expect(request.body.reply).toBe("reject");
+    expect(request.body.message).toContain("belongs to another client");
+    expect(request.body.message).not.toContain("Hron");
+    expect(request.query.directory).toBe(directory);
+  }
+  // Engine bez trasy s vetou: holé odmietnutie ako „Zamietnuť“ na karte.
+  for (const options of [{ raw: false }, { rawFails: true }]) {
+    const { v1 } = await ask(clientA, [`${clientB}/*`], options);
+    expect(v1).toEqual([{ path: { id: "ses_1", permissionID: "per_1" }, body: { response: "reject" }, query: { directory: clientA } }]);
+  }
+  // E1: pripojený priečinok mimo praxe ostane „once“; nepripojený priečinok mimo klientov zostane na karte.
+  const linked = await ask(clientA, [`${linkedA}/*`]);
+  expect(linked.v2).toEqual([]);
+  expect(linked.v1).toEqual([{ path: { id: "ses_1", permissionID: "per_1" }, body: { response: "once" }, query: { directory: clientA } }]);
+  const unknown = await ask(clientA, [`${join(clientA, "..", "..", "..")}/Iny/*`]);
+  expect([...unknown.v1, ...unknown.v2]).toEqual([]);
+  // Vzor cez celý priečinok klientov (aj vlastného) a neistý vzor: bez odpovede, rozhodne karta (review #295).
+  for (const pattern of [`${join(clientB, "..")}/*/*`, `${join(clientB, "..")}/{Hron,Iny}/*`]) {
+    const open = await ask(clientA, [pattern]);
+    expect([...open.v1, ...open.v2]).toEqual([]);
+  }
 });

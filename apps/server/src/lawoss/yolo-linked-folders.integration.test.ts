@@ -198,7 +198,7 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("YOLO Mode a prip
   try {
     // Mapa od servera: L patrí len klientovi A.
     await writeLinkedFoldersMap(config);
-    expect(parseLinkedFoldersMap(JSON.parse(await readFile(linkedFoldersMapPath(config), "utf8")))?.clients).toEqual([{ root: clientA, folders: [linked] }, { root: clientB, folders: [] }]);
+    expect(parseLinkedFoldersMap(JSON.parse(await readFile(linkedFoldersMapPath(config), "utf8")))?.clients).toEqual([{ root: clientA, folders: [linked], client: null }, { root: clientB, folders: [], client: null }]);
 
     // 1. YOLO vypnutý, chat A.
     const off = await runPhase("off", clientA, async () => ({
@@ -257,7 +257,7 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("YOLO Mode a prip
     const back = await runPhase("off-again", clientB, async () => ({
       ruleB: await engineFolderRule(clientB, "legalwork"), readB: await attempt(clientB, "legalwork", [read]), readA: await attempt(clientA, "legalwork", [read]),
     }));
-    expect(parseLinkedFoldersMap(JSON.parse(await readFile(linkedFoldersMapPath(config), "utf8")))?.clients).toEqual([{ root: clientA, folders: [linked] }, { root: clientB, folders: [] }]);
+    expect(parseLinkedFoldersMap(JSON.parse(await readFile(linkedFoldersMapPath(config), "utf8")))?.clients).toEqual([{ root: clientA, folders: [linked], client: null }, { root: clientB, folders: [], client: null }]);
     expect(agentFolders(back.production, "legalwork")).toBeUndefined();
     expect(back.result.ruleB).toBe("ask");
     expect(back.result.readB.prompts).toEqual(["external_directory"]);

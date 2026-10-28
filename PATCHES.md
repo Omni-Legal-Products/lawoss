@@ -9,6 +9,39 @@ N-A7-10 z úplného UI testu (MČ 23. 10. 2026: zápis s kartou „čo a kam“)
 | `apps/server/src/server.ts` | Trasa `POST /workspace/:id/lawoss/memory/write` (+8 riadkov, import) volá `writeMatterMemoryForChat`; server len na čítanie ju odmietne (`ensureWritable`, 403 `read_only`), ako pri čítaní prijme len poverenie chatu enginu (`engineAgent`), bežný bearer token dostane 403 `memory_agent_only`. Bez `apply` vráti náhľad pre kartu, s `apply` zapíše len so značkou `approved` z toho istého náhľadu (inak 409 `memory_write_changed`). |
 | `apps/server/src/wiki/agent-access.ts` | Poverenie chatu smie `POST lawoss/memory/write` vo vlastnom priečinku klienta (pravidlo `lawoss/memory/(?:read\|write)`), telo musí niesť `sessionID` tohto chatu ako `lawoss/files/apply` (2 zmenené riadky). |
 
+## Priečinok iného klienta v chate klienta (2026-10-28, N-A7-14)
+
+Úplný UI test dev `f8acb4bd`, test E2: v chate klienta C001 agent žiadal `external_directory` s rozsahom `…/Klienti/C002*` a karta nepovedala, že ide o iného klienta. Priečinok iného klienta (klient = priečinok s kartou `client.md`/`klient.md`, registrované spisy patria svojmu klientovi) odmietne plugin `lawoss-linked-folders` (LAWOSS súbor, pravidlo `externalDirectoryOtherClient` v `lawoss/linked-folders-rules.ts`, `client` v mape z `lawoss/linked-folders.ts`); karta je pre prípady, o ktorých plugin nerozhoduje (vzor cez vlastného klienta, priečinok s klientmi, neisté znaky).
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | `PermissionApprovalPanel` má voliteľnú prop `chatDirectory` a pod nadpisom karty `external_directory` vetu z `useOtherClientFolderText` (`apps/app/src/lawoss/lite/other-client-folder.ts`): „Priečinok patrí inému klientovi: <meno>. Agent by videl jeho súbory.“, resp. „obsahuje priečinky iných klientov“ (aj pre vzory) alebo varovanie pri neistom rozsahu (+1 import, +1 prop, +1 riadok hooku, +1 riadok renderu). Klienti a mená sú z prehľadu bočného panela (karty klientov); bez neho (samostatné okno) karta ostane ako upstream. Test `apps/app/tests/lawoss-karta-iny-klient.test.tsx`. |
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `PermissionApprovalPanel` dostane `chatDirectory={props.workspaceRoot}` (+1 riadok). |
+| `.github/workflows/ci-tests.yml` | Krok so skutočným enginom spúšťa aj `apps/server/src/lawoss/linked-folders-engine.integration.test.ts`: pripojené priečinky po chatoch a odmietnutie priečinka iného klienta s vetou pre agenta v engine 1.18.29. |
+
+## Karta pred zápisom cez editor dokumentov (2026-10-28, N-A7-8)
+
+Nález N-A7-8, see coordination issue. Pred každým zapisujúcim volaním editora dokumentov (`inapp_*`) sa plugin pýta enginu s povolením `edit` (karta „Upraviť súbory?“) a cestou od koreňa klienta; čítanie sa nepýta. Logika je v `apps/server/src/opencode-plugins/lawoss-editor-approval.ts`, test `lawoss-editor-approval.test.ts` (aj zoznam všetkých `inapp_*` nástrojov, aby nový nástroj po syncu nezostal nezaradený). Tieto volania a odovzdanie editorov pred zápisom súborov nesú hlavičku `x-lawoss-editor-write: 1` (`apps/server/src/lawoss/editor-write-header.ts`). Most UI v desktope akciu editora, ktorá zapisuje (vrátane `documents.begin_file_edit` a `documents.open` s `copyTo`), bez nej odmietne (`apps/desktop/electron/lawoss-editor-write-gate.mjs`), takže ju nespustí ani `legalwork_ui_execute_action`, ani MCP `legalwork-ui` (`ui_execute_action`, aj verzia z npm). Test `lawoss-editor-write-gate.test.mjs` zaradí každú akciu dokumentových plôch v appke, aby nová akcia editora nezostala mimo zoznamu.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/opencode-plugins/legalwork-extensions-preview.ts` | +1 import, `ask?` v lokálnom type kontextu, po jednom riadku v `callInAppOfficeTool` (po kontrole návrhu), `callInAppDocxTool` (len pri dokumente Wordu pripravenom pre úlohu; do mosta ide cesta zo schválenej karty, aj keď ju model nezadal), `inapp_markdown_create` (len pri `complete`) a `inapp_documents_open` (len pri `copy_to`). Tie isté štyri volania mosta majú `headers: EDITOR_WRITE_HEADERS`. Zamietnutie karty = výnimka enginu, do editora nič neodíde. Pri syncu zachovať a nový `inapp_*` nástroj zaradiť v `lawoss-editor-approval.ts`. |
+| `apps/server/src/opencode-plugins/legalwork-extensions-preview.test.ts` | Volania zapisujúcich nástrojov majú v kontexte schvaľujúce `ask`; pri troch volaniach Wordu bez cesty očakávaná požiadavka obsahuje `path` vybraného dokumentu; test pätnástich nástrojov Wordu má pripravený dokument `Contract.docx`. |
+| `apps/server/src/inapp-document-bridge.ts` | `uiBridgeRequest` prijme voliteľné `headers` a pošle ich pred `Authorization` (+1 riadok, 1 zmenený). |
+| `apps/server/src/file-editor-handoff.ts` | +1 import; `documents.begin_file_edit`/`end_file_edit` posielajú `EDITOR_WRITE_HEADERS`. Odovzdanie beží až za kartou príkazu alebo `lawoss_files`. |
+| `apps/desktop/electron/ui-control-server.mjs` | +1 import; `POST /execute` najprv volá `editorWriteRefusal(input, request.headers)` z `lawoss-editor-write-gate.mjs` (+2 riadky, 1 zmenený). Bez hlavičky servera vráti akcia editora, ktorá zapisuje, `{ ok: false }` a do renderera nič neodíde. |
+| `apps/desktop/electron/ui-control-server.test.mjs` | Test „agent commands execute in a minimized window…“ posiela akcie editora s hlavičkou servera, ako to robí server (1 riadok, +1 komentár). |
+| `apps/desktop/package.json` | +1 súbor v skripte `test`: `electron/lawoss-editor-write-gate.test.mjs`. |
+
+## Cesta v prvom riadku správy ako príloha len v priečinku klienta (2026-10-28, N-A7-13)
+
+Composer robil z každej cesty v prvom riadku správy (`file://`, `~/`, `C:\`, `/…`) priložený súbor alebo priečinok. Teraz sa pripojí len cesta v priečinku klienta (koreň klienta alebo priečinok pod ním); ostatné ostanú textom a agent k nim ide cez svoje nástroje. Keď koreň chatu obsahuje iný registrovaný priečinok (prax s klientmi, vnorený klient), nepripojí sa nič. Pravidlo je v LAWOSS súbore `apps/app/src/lawoss/chat/prompt-file-parts.ts` (`clientFirstLineFileParts`, `clientPathScope`), porovnanie cez `isWithinClientFolder` z `apps/app/src/lawoss/shell/session-directory.ts`. Test `apps/app/tests/lawoss-cesta-v-chate.test.ts`.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/sync/prompt-file-parts.ts` | `firstLineLocalFileParts` má voliteľný tretí parameter `allow(absolutePath)`; cestu, ktorú odmietne, vynechá (+1 parameter, +1 riadok, 1 komentár). Bez parametra sa správa ako upstream. |
+| `apps/app/src/react-app/shell/session-route.tsx`, `apps/app/src/react-app/domains/session/sync/actions-store.ts` | Namiesto `firstLineLocalFileParts` volajú `clientFirstLineFileParts` (zmenený import a volanie). `draftToParts` dostane voliteľný `client` (`ClientPathScope`); `sendNativeDraft` mu posiela `clientPathScope(workspaces, scope.projectId, scope.directory)`: koreň registrovaného klienta (chat prípadu porovnáva s koreňom klienta, nie s priečinkom prípadu) a cesty všetkých registrovaných priečinkov z už načítaného `workspaces` (+1 parameter, zmenený import, 3 zmenené volania). `actions-store.ts` (bez volajúceho v appke) zoznam nemá a porovnáva len s koreňom. Pri syncu zachovať. |
+
 ## Jazyk appky medzi testami (2026-10-28)
 
 Kontrola `legalwork-tests (ubuntu-latest)` občas padala na 8 testoch appky (review-card, subagent-tool-rows, plugin-import-exclusions), ktoré čakajú angličtinu. `bun test` spúšťa všetky súbory v jednom procese a ich poradie sa líši podľa stroja. Modul `src/i18n` začína s jazykom `en` a voľbou „Systém“; bez `navigator.languages` v Bune však „Systém“ znamená `sk` (LAWOSS `preferredSystemLanguage`). Testy, ktoré po sebe obnovia voľbu „Systém“, tak nechali slovenčinu ďalšiemu súboru. Nový `apps/app/bunfig.toml` načíta `apps/app/test-preload-lawoss.ts`, ktorý pred a po každom teste vráti počiatočný stav. Test `apps/app/tests/lawoss-locale-reset.test.ts`.
@@ -1503,3 +1536,20 @@ Alfa 2, úloha A1 (akceptácia 22. 10. 2026: N-13, N-21, dvojitá karta). Pravid
 | `apps/server/package.json` | Build zahŕňa `src/opencode-plugins/lawoss-file-operations.ts`. |
 | `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | Karta `lawoss_files` (`metadata.lawossFiles`): nadpis podľa úkonu, rozsah „pôvodná → nová“ / „Zmazať …“ po riadkoch (SK/CS/EN/DE v `lawoss/i18n/shell.ts`). Karta spravovaného shellu s `host.command`/`host.hostWide` ukáže príkaz a lokalizovanú vetu o rozsahu (`lawoss.shell_card.host_wide`). „Povoliť do konca konverzácie“ sa neponúka pri natívnej karte `edit` (engine by ho držal pre všetky chaty klienta), pri karte príkazu pre celý počítač, pri `external_directory` (engine si „always“ pamätá pre celú inštanciu klienta, nie konverzáciu; vlastné pripojené priečinky odpovedá plugin bez karty) ani pri `always: []`. +1 import, ~12 riadkov. |
 | `apps/server/src/agent-sandbox/service.test.ts`, `apps/server/src/runtime-opencode-config-store.test.ts` | Upstream scenáre so stavom „nič nenastavené“ teraz výslovne zapíšu `bash`/`edit` `allow` (engine default, ktorý testujú), resp. očakávajú predvolené `edit: "ask"`. |
+
+### Upraviť pri poskytovateľovi prihlásenom cez účet (2026-10-28, fix/upravit-poskytovatela-oauth)
+
+Nález N-A7-12 z úplného UI testu dev `f8acb4bd`: pri „OpenAI · Vlastné“ (predplatné ChatGPT, OAuth) ponuka „…“ → „Upraviť“ ukázala len anglické „Couldn't load configuration for openai.“ OpenCode 1.18.29 dáva poskytovateľovi pripojenému loaderom pluginu z prihlásenia zdroj `custom` bez bloku v konfigurácii a bez adresy; upstream z toho odvodil „Vlastné“ aj „Upraviť“. Pravidlo a popis sú v `apps/app/src/lawoss/providers/provider-row.ts`, texty v `apps/app/src/lawoss/i18n/shell.ts` (SK/CS/EN/DE).
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/settings-route.tsx` | Riadok pripojeného poskytovateľa berie `editableAsCustom` a `sourceLabel` z `lawossProviderRow(provider)`: „Upraviť“ len pri poskytovateľovi s vlastnou adresou (`options.baseURL`), ktorú formulár vlastného poskytovateľa číta aj ukladá; predplatné ChatGPT má popis „Predplatné ChatGPT“. Natvrdo anglická hláška pri neúspešnom načítaní je kľúč `lawoss.providers.edit_unavailable` s ďalším krokom (Odpojiť a pripojiť znova); ostáva pre „Obnoviť modely“, ktoré otvára rovnaký formulár (+1 import, −5 riadkov výpočtu adresy, 1 riadok spread, 1 riadok hlášky). |
+| `apps/app/src/react-app/domains/settings/pages/ai-view.tsx` | `ConnectedProvider` má voliteľné `sourceLabel`, riadok ho ukáže pred `providerSourceLabel(provider.source)` (+2 riadky typu, 1 výraz). |
+
+### Presunutá prax bez duplicitných klientov (2026-10-28, fix/presunuta-prax-bez-duplicit, N-A7-1)
+
+Nové LAWOSS súbory: `apps/server/src/lawoss/moved-practice.ts` (náhľad prepojenia, presun povolenia kancelárie, otázka pri možno presunutom klientovi, odvodenie nedokončeného presunu praxe), `apps/app/src/lawoss/okf/moved-folder.ts`, `apps/app/src/lawoss/domains/practice-move-notice.tsx`, test `apps/server/src/lawoss/moved-practice.e2e.test.ts`. Prepojenie klientov ide existujúcim upstream `POST /workspace/:id/reconnect` bez zmeny.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/app/lib/legalwork-server.ts` | +1 import typu `MovedFolderApiPath`, +1 metóda `lawossMovedFolder(path, body)` volajúca hostové `/lawoss/onboarding/moved-folder`, `/lawoss/onboarding/moved-practice` a `/lawoss/onboarding/reconnected` (rovnaký `requestJson` a host token ako onboarding). Dôvod: N-A7-1, „Nájsť presunutý priečinok“ na stránke Dnes prepojí klientov presunutej praxe namiesto ich nového pridania. |
