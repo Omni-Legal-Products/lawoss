@@ -18,6 +18,7 @@ import { openingStep, resumeFound } from "../resume";
 
 type ProgressStorage = (Pick<Storage, "getItem"> & Pick<Storage, "setItem">) | null;
 type ProfileApi = Pick<OnboardingApi, "updateOnboardingProfile">;
+type ProfilePatch = Parameters<ProfileApi["updateOnboardingProfile"]>[0];
 
 export type WizardResume = {
   step: OnboardingStep;
@@ -70,8 +71,8 @@ export type WizardFlowDeps = {
 };
 
 export function createWizardFlow(deps: WizardFlowDeps) {
-  /** Uloží krok do úložiska prehliadača (bez straty volieb) aj na server cez živého klienta. */
-  const move = async (next: OnboardingStep, patch: Pick<Partial<OnboardingProfile>, "okf"> = {}): Promise<OnboardingProfile> => {
+  /** Uloží krok do úložiska prehliadača (bez straty volieb) aj na server cez živého klienta; vybraný priečinok v tom istom zápise. */
+  const move = async (next: OnboardingStep, patch: Pick<ProfilePatch, "okf" | "foundRoot"> = {}): Promise<OnboardingProfile> => {
     patchOnboardingProgress(deps.storage(), { lane: "detailed", step: next });
     const profile = await deps.live().updateOnboardingProfile({ ...patch, step: next });
     deps.onStep(next, profile);
@@ -89,5 +90,8 @@ export function createWizardFlow(deps: WizardFlowDeps) {
     await move("ai");
     return true;
   };
-  return { move, connected };
+  /** Priečinok na obnovu po prerušení (M1) cez živého klienta, nie cez klienta spred registrácie. */
+  const rememberFoundRoot = (root: string | null): Promise<OnboardingProfile> =>
+    deps.live().updateOnboardingProfile(root ? { foundRoot: root, step: "found" } : { foundRoot: null });
+  return { move, connected, rememberFoundRoot };
 }
