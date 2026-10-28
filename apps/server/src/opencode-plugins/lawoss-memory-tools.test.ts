@@ -49,6 +49,12 @@ test("lawoss_memory posts the case folder of this chat to its own client and nev
     await plugin["experimental.chat.system.transform"]({}, output);
     expect(output.system.join("\n")).toContain("lawoss_memory");
     expect(output.system.join("\n")).toContain("instead of ls");
+    // N-A7-7: glob lists files only (rg --files), so an empty folder such as 02_Resers/prazdny-SYN is seen with read
+    // on the folder path; opencode v1.18.29 read lists subfolders with a trailing / and an empty one as (0 entries).
+    expect(output.system.join("\n")).toContain("glob and grep return files only, so an empty folder never appears in their results.");
+    expect(output.system.join("\n")).toContain("call read on the folder's path");
+    expect(output.system.join("\n")).toContain("subfolders with a trailing /, and an empty folder shows (0 entries)");
+    expect(output.system.join("\n")).toContain("Never conclude that a folder is missing from glob or grep alone.");
   } finally {
     server.stop(true);
     if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;

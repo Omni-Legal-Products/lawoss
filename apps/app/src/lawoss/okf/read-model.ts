@@ -1,5 +1,6 @@
 import { diagnosticFields, OkfDiagnostic, type DiagnosticFields } from "../../../../../lawoss/okf/diagnostics";
 import { isManagedDeadline } from "../../../../../lawoss/okf/deadline-workflow.ts";
+import { INBOX_FOLDERS } from "../../../../../lawoss/okf/inputs";
 /**
  * Načítanie pamäte spisov cez server API — iba čítanie, nič nezapisuje.
  *
@@ -64,11 +65,8 @@ export type OkfClient = {
   inboxFiles?: readonly string[];
 };
 
-/**
- * Predvolené priečinky na nezaradené (SK, CS, EN), porovnávané bez ohľadu na veľkosť písmen. Rola `inbox` pracovného
- * profilu prípadu (#241) k nim pridá vlastný priečinok.
- */
-export const INBOX_FOLDERS: ReadonlySet<string> = new Set(["00_na_zatriedenie", "00_k_zarazeni", "00_inbox"]);
+/** Predvolené priečinky na nezaradené; zdieľa ich aj server pri presune z nezaradených (N-A7-6). */
+export { INBOX_FOLDERS };
 /** Najviac toľko položiek z jedného priečinka na nezaradené (advokát môže vložiť stovky skenov naraz). */
 const INBOX_ITEMS_LIMIT = 200;
 /** Systémové súbory a zámky Office (`~$zmluva.docx`), ktoré advokát do priečinka nevložil. */
@@ -91,6 +89,13 @@ const AK_CLIENT = /^AK\/[^/]+\/[^/]+$/;
 const WORK_DIRS = new Set(["DS", "Prilohy", "Přílohy", "research", "drafts", "final", "analysis", "sources", "qa", "logs"]);
 const isWorkDir = (name: string): boolean => WORK_DIRS.has(name) || /^\d{2}_/.test(name) || name.startsWith("_");
 const RESERVED = new Set(["index.md", "log.md", "INDEX.md"]);
+/**
+ * Chyba kontroly, ktorá robí zdroj neúplným. Neplatný dátum (`DATE_INVALID`) nie: záznam sa načíta,
+ * lehota či termín ostane pri ňom s pôvodným textom a výzvou „overiť dátum“ aj s cestou k súboru.
+ * Inak by jeden preklep v jednej úlohe urobil celého klienta „Nedostupným“ (N-A7-4).
+ */
+const isReadProblem = (finding: { severity: string; code: string }): boolean => finding.severity === "error" && finding.code !== "DATE_INVALID";
+
 export const missing = (e: unknown): boolean => /(?:\b404\b|\bENOENT\b|not[_ ]found)/i.test(message(e));
 export const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -427,7 +432,7 @@ export async function readWorkspaceMemory(
       return "office";
     };
     for (const finding of validateStore(input.records, { today: todayIso })) {
-      if (finding.severity !== "error") continue;
+      if (!isReadProblem(finding)) continue;
       const source = recordFiles[finding.recordId];
       problems.push({
         path: source ?? path,
@@ -625,7 +630,7 @@ async function readOfficeBundle(client: OkfScopeClient, problems: ReadProblem[],
     } catch (e) { problems.push({ path: file.path, message: message(e), ...diagnosticFields(e), scope: "office" }); }
   }
   for (const finding of validateStore(bundle.records, { today: todayIso })) {
-    if (finding.severity === "error") problems.push({ path: bundle.files[finding.recordId] ?? bundle.directory, message: finding.message, code: "okf.validation_failed", kind: "validation", scope: "office" });
+    if (isReadProblem(finding)) problems.push({ path: bundle.files[finding.recordId] ?? bundle.directory, message: finding.message, code: "okf.validation_failed", kind: "validation", scope: "office" });
   }
   return bundle;
 }
