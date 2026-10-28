@@ -162,7 +162,7 @@ import { buildLegalworkEnvSystemContext } from "@/react-app/domains/session/sync
 import {
   applySessionRevert,
 } from "@/react-app/domains/session/sync/session-sync";
-import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
+import { clientFirstLineFileParts, clientPathScope, type ClientPathScope } from "@/lawoss/chat/prompt-file-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useHostApprovalSync } from "./use-host-approval-sync";
 import { seedInteractionSessions } from "@/react-app/domains/session/sync/interaction-state";
@@ -327,7 +327,7 @@ function attachmentMime(attachment: ComposerAttachment) {
   return "text/plain";
 }
 
-async function draftToParts(draft: ComposerDraft, workspaceRoot: string, uploads?: ReadonlyMap<ComposerPart, FilePartInput>) {
+async function draftToParts(draft: ComposerDraft, workspaceRoot: string, uploads?: ReadonlyMap<ComposerPart, FilePartInput>, client?: ClientPathScope) {
   const parts: Array<TextPartInput | FilePartInput | AgentPartInput> = [];
   const root = workspaceRoot.trim();
 
@@ -385,7 +385,7 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string, uploads
     }
   }
 
-  parts.push(...firstLineLocalFileParts(draft.resolvedText ?? draft.text, root));
+  parts.push(...clientFirstLineFileParts(draft.resolvedText ?? draft.text, root, client));
 
   parts.push(
     ...(await Promise.all(
@@ -1495,7 +1495,7 @@ export function SessionRoute() {
       // resolves only original-hash matches and never forwards file URLs to the VM.
       const registeredRoot = workspaces.find(workspace => workspace.id === scope.projectId)?.path ?? "";
       const uploads = protectedWorkspaceUploadParts(draft, registeredRoot);
-      const parts = await draftToParts(draft,scope.directory, uploads);
+      const parts = await draftToParts(draft,scope.directory, uploads, clientPathScope(workspaces, scope.projectId, scope.directory));
       if (options?.queue) {await enqueue({kind: "prompt", parts, model: sendModel, agent: "legalwork", variant: sendVariant ?? undefined}); return;}
       const request = {...buildSessionPromptRequest({sessionID: targetSessionId, parts, model: sendModel, agent: "legalwork", variant: sendVariant ?? undefined}), ...(options?.messageID ? {messageID: options.messageID} : {})};
       if (options?.waitForCompletion) {
@@ -1537,7 +1537,7 @@ export function SessionRoute() {
       workspaceId: scope.projectId,
       readStatuses: async () => unwrap(await scope.opencode.mcp.status({ directory: scope.directory || undefined })),
     });
-    const parts = await draftToParts(draft, scope.directory);
+    const parts = await draftToParts(draft, scope.directory, undefined, clientPathScope(workspaces, scope.projectId, scope.directory));
     const envSystemContext = await buildLegalworkEnvSystemContext(scope.legalwork, {
       cacheKey: targetSessionId,
       runtimeKey: scope.runtimeKey,

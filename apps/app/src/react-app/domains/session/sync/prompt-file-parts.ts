@@ -71,7 +71,8 @@ function toFileUrl(path: string) {
   return `file://${encodeFilePath(normalized)}`;
 }
 
-export function firstLineLocalFileParts(text: string, workspaceRoot: string): FilePartInput[] {
+// LAWOSS: `allow` (apps/app/src/lawoss/chat/prompt-file-parts.ts) keeps only paths inside the client folder.
+export function firstLineLocalFileParts(text: string, workspaceRoot: string, allow?: (absolutePath: string) => boolean): FilePartInput[] {
   const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
   const parts: FilePartInput[] = [];
   const seen = new Set<string>();
@@ -81,6 +82,7 @@ export function firstLineLocalFileParts(text: string, workspaceRoot: string): Fi
     const raw = stripTrailingPunctuation(match[0]);
     const absolute = toAbsolutePath(raw, workspaceRoot);
     if (!absolute || seen.has(absolute)) continue;
+    if (allow && !allow(absolute)) continue;
     seen.add(absolute);
     parts.push({
       type: "file",

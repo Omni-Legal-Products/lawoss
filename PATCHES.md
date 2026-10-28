@@ -1,5 +1,14 @@
 # LAWOSS downstream patches
 
+## Cesta v prvom riadku správy ako príloha len v priečinku klienta (2026-10-28, N-A7-13)
+
+Composer robil z každej cesty v prvom riadku správy (`file://`, `~/`, `C:\`, `/…`) priložený súbor alebo priečinok. Teraz sa pripojí len cesta v priečinku klienta (koreň klienta alebo priečinok pod ním); ostatné ostanú textom a agent k nim ide cez svoje nástroje. Keď koreň chatu obsahuje iný registrovaný priečinok (prax s klientmi, vnorený klient), nepripojí sa nič. Pravidlo je v LAWOSS súbore `apps/app/src/lawoss/chat/prompt-file-parts.ts` (`clientFirstLineFileParts`, `clientPathScope`), porovnanie cez `isWithinClientFolder` z `apps/app/src/lawoss/shell/session-directory.ts`. Test `apps/app/tests/lawoss-cesta-v-chate.test.ts`.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/sync/prompt-file-parts.ts` | `firstLineLocalFileParts` má voliteľný tretí parameter `allow(absolutePath)`; cestu, ktorú odmietne, vynechá (+1 parameter, +1 riadok, 1 komentár). Bez parametra sa správa ako upstream. |
+| `apps/app/src/react-app/shell/session-route.tsx`, `apps/app/src/react-app/domains/session/sync/actions-store.ts` | Namiesto `firstLineLocalFileParts` volajú `clientFirstLineFileParts` (zmenený import a volanie). `draftToParts` dostane voliteľný `client` (`ClientPathScope`); `sendNativeDraft` mu posiela `clientPathScope(workspaces, scope.projectId, scope.directory)`: koreň registrovaného klienta (chat prípadu porovnáva s koreňom klienta, nie s priečinkom prípadu) a cesty všetkých registrovaných priečinkov z už načítaného `workspaces` (+1 parameter, zmenený import, 3 zmenené volania). `actions-store.ts` (bez volajúceho v appke) zoznam nemá a porovnáva len s koreňom. Pri syncu zachovať. |
+
 ## Jazyk appky medzi testami (2026-10-28)
 
 Kontrola `legalwork-tests (ubuntu-latest)` občas padala na 8 testoch appky (review-card, subagent-tool-rows, plugin-import-exclusions), ktoré čakajú angličtinu. `bun test` spúšťa všetky súbory v jednom procese a ich poradie sa líši podľa stroja. Modul `src/i18n` začína s jazykom `en` a voľbou „Systém“; bez `navigator.languages` v Bune však „Systém“ znamená `sk` (LAWOSS `preferredSystemLanguage`). Testy, ktoré po sebe obnovia voľbu „Systém“, tak nechali slovenčinu ďalšiemu súboru. Nový `apps/app/bunfig.toml` načíta `apps/app/test-preload-lawoss.ts`, ktorý pred a po každom teste vráti počiatočný stav. Test `apps/app/tests/lawoss-locale-reset.test.ts`.
