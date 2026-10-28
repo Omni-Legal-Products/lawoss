@@ -1,5 +1,14 @@
 # LAWOSS downstream patches
 
+## Skrátenie rozhovoru namiesto „Vrátiť späť“ (2026-10-28, N-A7-9)
+
+Rozhodnutie MČ 28. 10. 2026: variant C návrhu k N-A7-9. Engine 1.18.29 vracia súbory len v git projekte a priečinky klientov git nie sú, preto akcia len skráti rozhovor. Texty a okno sú v LAWOSS súboroch (`lawoss/chat/trim-confirm.ts`, `trim-confirm-host.tsx`, `lawoss/i18n/shell.ts`, `terms.ts`, `sk.ts`, `cs.ts`).
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `handleRevertToUserMessage` a `handleEditUserMessage` sa pred `onRevertToMessage` opýtajú cez `confirmChatTrim()` (Zrušiť / Rozvetviť do nového chatu / Skrátiť rozhovor, pri úprave Zrušiť / Upraviť). Rozvetvenie dostane prvú odstránenú otázku, takže nový chat obsahuje skrátený rozhovor a pôvodný ostane celý. Po skrátení krátke hlásenie, že súbory sa nezmenili. |
+| `apps/app/src/react-app/shell/providers.tsx` | Pripája `ChatTrimConfirmHost` vedľa `ProviderOverwriteConfirmHost`. |
+
 ## Čítanie pamäte spisu bez karty (2026-10-23)
 
 Alfa 2, oprava P3a (N-A3-3, N-18, N-A2-7; rozhodnutie MČ: čítanie dokumentov a pamäte bez karty, zápis s kartou). Skill `okf-pamat` čítal pamäť cez `node …/okf-memory.js preamble|read` v spravovanom shelli a každé zhrnutie spisu ukázalo dve najširšie karty („celý počítač + internet“). Nový nástroj `lawoss_memory` (plugin `apps/server/src/opencode-plugins/lawoss-memory-tools.ts`, server `apps/server/src/lawoss/matter-memory.ts`, most `lawoss/okf-handoff/matter-memory-read.mjs`) číta tým istým kódom pamäte bez podprocesu, len v koreni klienta chatu a v jeho pripojených priečinkoch; spis iného (aj vnoreného) klienta sa odmietne bez mena. Zápis pamäte ostáva v CLI so schválením. Po bezpečnostnom review číta okf-pamat každý súbor pamäte a kontextu (`_STATUS.md`, `VSTUPY.md`, `KOMUNIKACNE-KANALY.md`, karty, `okf.config`, `memory/*.md`) ako bežný súbor bez symbolického odkazu, bez blokovania a do limitu 2 MiB na súbor a 16 MiB na adresár `memory/` (`lawoss/okf-pamat/src/safe-read.ts`). Kanceláriu (`Office/`, `_kancelaria/`) nad spisom server prečíta len vtedy, keď je to kancelária praxe z profilu, priečinok tohto klienta alebo skutočný priečinok vedľa klientov mimo iného klienta; inak ju vynechá a čítanie je neúplné (`ScopeOptions.office`); s profilom praxe len kanceláriu praxe. Pamäť s profilom (`.lawoss/memory-profile.json`) nečíta koreň ani zdroj v inom registrovanom klientovi (`excludedRoots`). Adresár `memory/` má najviac 2 000 položiek.

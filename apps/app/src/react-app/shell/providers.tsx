@@ -17,6 +17,7 @@ import { startDebugLogger, stopDebugLogger } from "./debug-logger";
 import { resolveLegalworkConnection } from "./legalwork-connection";
 import { ReloadCoordinatorProvider } from "./reload-coordinator";
 import { ProviderOverwriteConfirmHost } from "@/lawoss/providers/overwrite-confirm-host";
+import { ChatTrimConfirmHost } from "@/lawoss/chat/trim-confirm-host";
 
 function resolveDefaultServerUrl(): string {
   if (isDesktopRuntime()) return "http://127.0.0.1:4096";
@@ -70,6 +71,7 @@ export function AppProviders({ children }: AppProvidersProps) {
             <ReloadCoordinatorProvider>{children}</ReloadCoordinatorProvider>
             <Toaster />
             <ProviderOverwriteConfirmHost />
+            <ChatTrimConfirmHost />
           </LocalProvider>
         </ArchitectureMismatchGate>
       </ServerProvider>

@@ -392,6 +392,9 @@ export const termsEn: Readonly<Record<string, string>> = {
   "projects.schema.matter_number": "Case number",
   "legalmemory.shared_matter": "Shared case or thread",
   "legalmemory_activity.listing_matters": "Listing cases you can read",
+  // N-A7-9: the engine does not restore files in client folders; the action only trims the chat.
+  "message_list.revert": "Trim conversation from here",
+  "session.revert_failed": "Could not trim the conversation. Try again once the current run finishes.",
 };
 
 export const termsDe: Readonly<Record<string, string>> = {
@@ -764,4 +767,6 @@ export const termsDe: Readonly<Record<string, string>> = {
   "legalmemory_activity.listing_matters": "Für Sie lesbare Fälle werden aufgelistet",
   "task_suggestions.wiki_dashboard_desc": "Mandanten und Fälle auf einen Blick.",
   "task_suggestions.wiki_dashboard_prompt": "Erstellen Sie ein Kanzlei-Dashboard aus den Mandanten und Fällen in diesem Wiki.",
+  "message_list.revert": "Unterhaltung ab hier kürzen",
+  "session.revert_failed": "Die Unterhaltung konnte nicht gekürzt werden. Versuchen Sie es erneut, sobald der aktuelle Lauf beendet ist.",
 };

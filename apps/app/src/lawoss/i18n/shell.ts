@@ -643,7 +643,23 @@ export const shellEn = {
   "lawoss.lite.ov_right_design": "design",
   // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
   "lawoss.word_addin.editor_unavailable_title": "Open in the LAWOSS app",
-  "lawoss.word_addin.editor_unavailable_description": "The add-in pane cannot open spreadsheets and presentations. Open {name} in the LAWOSS app."
+  "lawoss.word_addin.editor_unavailable_description": "The add-in pane cannot open spreadsheets and presentations. Open {name} in the LAWOSS app.",
+  // Skrátenie rozhovoru (N-A7-9): engine v priečinku klienta súbory nevracia, preto okno hovorí pravdu.
+  "lawoss.chat.trim.title": "Trim the conversation?",
+  "lawoss.chat.trim.description": "I will remove the question “{question}” and everything after it from the conversation. Removed messages cannot be restored.",
+  "lawoss.chat.trim.description_no_question": "I will remove this message and everything after it from the conversation. Removed messages cannot be restored.",
+  "lawoss.chat.trim.files_unchanged": "Files stay unchanged. Whatever the agent moved, copied, edited or put in the Trash in this part stays as it is.",
+  "lawoss.chat.trim.files_changed": "The agent made {count} file changes in this part. To undo them, do it in the client folder or ask the agent in a new message.",
+  "lawoss.chat.trim.files_changed_one": "The agent made {count} file change in this part. To undo it, do it in the client folder or ask the agent in a new message.",
+  "lawoss.chat.trim.files_changed_few": "The agent made {count} file changes in this part. To undo them, do it in the client folder or ask the agent in a new message.",
+  "lawoss.chat.trim.files_changed_other": "The agent made {count} file changes in this part. To undo them, do it in the client folder or ask the agent in a new message.",
+  "lawoss.chat.trim.fork_hint": "To keep the original conversation, choose “Branch in new chat”.",
+  "lawoss.chat.trim.cancel": "Cancel",
+  "lawoss.chat.trim.confirm": "Trim conversation",
+  "lawoss.chat.trim.edit_title": "Edit message?",
+  "lawoss.chat.trim.edit_description": "The message returns to the input field and the replies from it onward are removed from the conversation. Files stay unchanged.",
+  "lawoss.chat.trim.edit_confirm": "Edit",
+  "lawoss.chat.trim.done": "The conversation is trimmed. Files are unchanged."
 };
 
 /** Čeština a slovenština potřebují navíc tvary few/many (Intl.PluralRules, viz `t()` v i18n/index.ts). */
@@ -1298,7 +1314,23 @@ export const shellCs = {
   "lawoss.lite.ov_right_design": "průmyslový vzor",
   // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
   "lawoss.word_addin.editor_unavailable_title": "Otevřete v aplikaci LAWOSS",
-  "lawoss.word_addin.editor_unavailable_description": "Panel doplňku neotevírá tabulky a prezentace. Soubor {name} otevřete v aplikaci LAWOSS."
+  "lawoss.word_addin.editor_unavailable_description": "Panel doplňku neotevírá tabulky a prezentace. Soubor {name} otevřete v aplikaci LAWOSS.",
+  // Zkrácení konverzace (N-A7-9).
+  "lawoss.chat.trim.title": "Zkrátit konverzaci?",
+  "lawoss.chat.trim.description": "Z konverzace odstraním otázku „{question}“ a vše, co následuje. Odstraněné zprávy nelze obnovit.",
+  "lawoss.chat.trim.description_no_question": "Z konverzace odstraním tuto zprávu a vše, co následuje. Odstraněné zprávy nelze obnovit.",
+  "lawoss.chat.trim.files_unchanged": "Soubory se nezmění. Co agent v této části přesunul, zkopíroval, upravil nebo dal do Koše, zůstane tak, jak je.",
+  "lawoss.chat.trim.files_changed": "Agent v této části provedl {count} změn souborů. Pokud je chcete vrátit, udělejte to ve složce klienta nebo o to požádejte agenta v nové zprávě.",
+  "lawoss.chat.trim.files_changed_one": "Agent v této části provedl {count} změnu souborů. Pokud ji chcete vrátit, udělejte to ve složce klienta nebo o to požádejte agenta v nové zprávě.",
+  "lawoss.chat.trim.files_changed_few": "Agent v této části provedl {count} změny souborů. Pokud je chcete vrátit, udělejte to ve složce klienta nebo o to požádejte agenta v nové zprávě.",
+  "lawoss.chat.trim.files_changed_other": "Agent v této části provedl {count} změn souborů. Pokud je chcete vrátit, udělejte to ve složce klienta nebo o to požádejte agenta v nové zprávě.",
+  "lawoss.chat.trim.fork_hint": "Pokud chcete původní konverzaci ponechat, zvolte „Rozvětvit do nového chatu“.",
+  "lawoss.chat.trim.cancel": "Zrušit",
+  "lawoss.chat.trim.confirm": "Zkrátit konverzaci",
+  "lawoss.chat.trim.edit_title": "Upravit zprávu?",
+  "lawoss.chat.trim.edit_description": "Zpráva se vrátí do pole pro psaní a odpovědi od ní dál z konverzace odstraním. Soubory se nezmění.",
+  "lawoss.chat.trim.edit_confirm": "Upravit",
+  "lawoss.chat.trim.done": "Konverzace je zkrácená. Soubory se nezměnily."
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
@@ -1950,7 +1982,23 @@ export const shellSk = {
   "lawoss.lite.ov_right_design": "dizajn",
   // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
   "lawoss.word_addin.editor_unavailable_title": "Otvorte v aplikácii LAWOSS",
-  "lawoss.word_addin.editor_unavailable_description": "Panel doplnku neotvára tabuľky a prezentácie. Súbor {name} otvorte v aplikácii LAWOSS."
+  "lawoss.word_addin.editor_unavailable_description": "Panel doplnku neotvára tabuľky a prezentácie. Súbor {name} otvorte v aplikácii LAWOSS.",
+  // Skrátenie rozhovoru (N-A7-9).
+  "lawoss.chat.trim.title": "Skrátiť rozhovor?",
+  "lawoss.chat.trim.description": "Z rozhovoru odstránim otázku „{question}“ a všetko, čo nasleduje. Odstránené správy sa nedajú obnoviť.",
+  "lawoss.chat.trim.description_no_question": "Z rozhovoru odstránim túto správu a všetko, čo nasleduje. Odstránené správy sa nedajú obnoviť.",
+  "lawoss.chat.trim.files_unchanged": "Súbory sa nezmenia. Čo agent v tejto časti presunul, skopíroval, upravil alebo dal do Koša, ostane tak, ako je.",
+  "lawoss.chat.trim.files_changed": "Agent v tejto časti urobil {count} zmien súborov. Ak ich chcete vrátiť, urobte to v priečinku klienta alebo o to požiadajte agenta v novej správe.",
+  "lawoss.chat.trim.files_changed_one": "Agent v tejto časti urobil {count} zmenu súborov. Ak ju chcete vrátiť, urobte to v priečinku klienta alebo o to požiadajte agenta v novej správe.",
+  "lawoss.chat.trim.files_changed_few": "Agent v tejto časti urobil {count} zmeny súborov. Ak ich chcete vrátiť, urobte to v priečinku klienta alebo o to požiadajte agenta v novej správe.",
+  "lawoss.chat.trim.files_changed_other": "Agent v tejto časti urobil {count} zmien súborov. Ak ich chcete vrátiť, urobte to v priečinku klienta alebo o to požiadajte agenta v novej správe.",
+  "lawoss.chat.trim.fork_hint": "Ak chcete pôvodný rozhovor ponechať, zvoľte „Rozvetviť do nového chatu“.",
+  "lawoss.chat.trim.cancel": "Zrušiť",
+  "lawoss.chat.trim.confirm": "Skrátiť rozhovor",
+  "lawoss.chat.trim.edit_title": "Upraviť správu?",
+  "lawoss.chat.trim.edit_description": "Správa sa vráti do poľa na písanie a odpovede od nej ďalej z rozhovoru odstránim. Súbory sa nezmenia.",
+  "lawoss.chat.trim.edit_confirm": "Upraviť",
+  "lawoss.chat.trim.done": "Rozhovor je skrátený. Súbory sa nezmenili."
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
@@ -2598,5 +2646,21 @@ export const shellDe = {
   "lawoss.lite.ov_right_design": "Design",
   // Panel doplnku Office: editory xlsx/pptx sú v ňom nahradené (lawoss/word-addin/office-editor-stub.tsx).
   "lawoss.word_addin.editor_unavailable_title": "In der LAWOSS-App öffnen",
-  "lawoss.word_addin.editor_unavailable_description": "Der Add-in-Bereich öffnet keine Tabellen und Präsentationen. Öffnen Sie {name} in der LAWOSS-App."
+  "lawoss.word_addin.editor_unavailable_description": "Der Add-in-Bereich öffnet keine Tabellen und Präsentationen. Öffnen Sie {name} in der LAWOSS-App.",
+  // Unterhaltung kürzen (N-A7-9).
+  "lawoss.chat.trim.title": "Unterhaltung kürzen?",
+  "lawoss.chat.trim.description": "Ich entferne die Frage „{question}“ und alles Folgende aus der Unterhaltung. Entfernte Nachrichten lassen sich nicht wiederherstellen.",
+  "lawoss.chat.trim.description_no_question": "Ich entferne diese Nachricht und alles Folgende aus der Unterhaltung. Entfernte Nachrichten lassen sich nicht wiederherstellen.",
+  "lawoss.chat.trim.files_unchanged": "Dateien bleiben unverändert. Was der Agent in diesem Teil verschoben, kopiert, bearbeitet oder in den Papierkorb gelegt hat, bleibt so.",
+  "lawoss.chat.trim.files_changed": "Der Agent hat in diesem Teil {count} Dateiänderungen vorgenommen. Um sie rückgängig zu machen, tun Sie das im Mandantenordner oder bitten Sie den Agenten in einer neuen Nachricht darum.",
+  "lawoss.chat.trim.files_changed_one": "Der Agent hat in diesem Teil {count} Dateiänderung vorgenommen. Um sie rückgängig zu machen, tun Sie das im Mandantenordner oder bitten Sie den Agenten in einer neuen Nachricht darum.",
+  "lawoss.chat.trim.files_changed_few": "Der Agent hat in diesem Teil {count} Dateiänderungen vorgenommen. Um sie rückgängig zu machen, tun Sie das im Mandantenordner oder bitten Sie den Agenten in einer neuen Nachricht darum.",
+  "lawoss.chat.trim.files_changed_other": "Der Agent hat in diesem Teil {count} Dateiänderungen vorgenommen. Um sie rückgängig zu machen, tun Sie das im Mandantenordner oder bitten Sie den Agenten in einer neuen Nachricht darum.",
+  "lawoss.chat.trim.fork_hint": "Um die ursprüngliche Unterhaltung zu behalten, wählen Sie „In neuem Chat verzweigen“.",
+  "lawoss.chat.trim.cancel": "Abbrechen",
+  "lawoss.chat.trim.confirm": "Unterhaltung kürzen",
+  "lawoss.chat.trim.edit_title": "Nachricht bearbeiten?",
+  "lawoss.chat.trim.edit_description": "Die Nachricht kehrt ins Eingabefeld zurück, die Antworten ab ihr entferne ich aus der Unterhaltung. Dateien bleiben unverändert.",
+  "lawoss.chat.trim.edit_confirm": "Bearbeiten",
+  "lawoss.chat.trim.done": "Die Unterhaltung ist gekürzt. Dateien sind unverändert."
 } satisfies Record<keyof typeof shellEn, string>;

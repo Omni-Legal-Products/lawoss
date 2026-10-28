@@ -40,6 +40,7 @@ import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
 import { t } from "@/i18n";
 import { AI_BOUNDARIES_STORED_MESSAGE, aiBoundariesRefusal } from "@/lawoss/domains/ai/boundaries-refusal";
 import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
+import { chatTrimDoneMessage, confirmChatTrim } from "@/lawoss/chat/trim-confirm";
 import type { ImportedPlugin } from "@/app/lib/extension-imports";
 import type { ComposerConnector } from "./composer/tool-menu";
 import type { ComposerSettingsSection } from "@/react-app/shell/workspace-routes";
@@ -1879,8 +1880,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }, [typeComposerText]);
 
   const handleRevertToUserMessage = useCallback((messageId: string) => {
-    void props.onRevertToMessage?.(messageId, props.sessionId);
-  }, [props.onRevertToMessage, props.sessionId]);
+    void (async () => {
+      // 🟡 LAWOSS: engine v priečinku klienta súbory nevracia, len skráti rozhovor; najprv sa opýtať (N-A7-9).
+      const { choice, boundaryId } = await confirmChatTrim(renderedMessages, messageId, "trim");
+      if (choice === "fork") props.onForkAtMessage?.(boundaryId, props.sessionId);
+      if (choice !== "trim") return;
+      if (await props.onRevertToMessage?.(messageId, props.sessionId)) toast.success(chatTrimDoneMessage());
+    })();
+  }, [props.onForkAtMessage, props.onRevertToMessage, props.sessionId, renderedMessages]);
 
   const handleForkAtMessage = useCallback((messageId: string) => {
     // OpenCode's fork copies messages strictly before the given id, so pass
@@ -1892,11 +1899,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     void (async () => {
       // Rewind the session to just before this prompt, then restore the
       // prompt text into the composer so the user can rewrite and resend it.
+      // 🟡 LAWOSS: úprava tiež skracuje rozhovor, preto rovnaké potvrdenie (N-A7-9).
+      if ((await confirmChatTrim(renderedMessages, messageId, "edit")).choice !== "trim") return;
       const reverted = await props.onRevertToMessage?.(messageId, props.sessionId);
       if (reverted === false) return;
       await typeComposerText(text);
     })();
-  }, [props.onRevertToMessage, props.sessionId, typeComposerText]);
+  }, [props.onRevertToMessage, props.sessionId, renderedMessages, typeComposerText]);
 
   const sessionScrollTopControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.scroll_top",
