@@ -1494,3 +1494,11 @@ Alfa 2, úloha A1 (akceptácia 22. 10. 2026: N-13, N-21, dvojitá karta). Pravid
 | `apps/server/package.json` | Build zahŕňa `src/opencode-plugins/lawoss-file-operations.ts`. |
 | `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | Karta `lawoss_files` (`metadata.lawossFiles`): nadpis podľa úkonu, rozsah „pôvodná → nová“ / „Zmazať …“ po riadkoch (SK/CS/EN/DE v `lawoss/i18n/shell.ts`). Karta spravovaného shellu s `host.command`/`host.hostWide` ukáže príkaz a lokalizovanú vetu o rozsahu (`lawoss.shell_card.host_wide`). „Povoliť do konca konverzácie“ sa neponúka pri natívnej karte `edit` (engine by ho držal pre všetky chaty klienta), pri karte príkazu pre celý počítač, pri `external_directory` (engine si „always“ pamätá pre celú inštanciu klienta, nie konverzáciu; vlastné pripojené priečinky odpovedá plugin bez karty) ani pri `always: []`. +1 import, ~12 riadkov. |
 | `apps/server/src/agent-sandbox/service.test.ts`, `apps/server/src/runtime-opencode-config-store.test.ts` | Upstream scenáre so stavom „nič nenastavené“ teraz výslovne zapíšu `bash`/`edit` `allow` (engine default, ktorý testujú), resp. očakávajú predvolené `edit: "ask"`. |
+
+### Presunutá prax bez duplicitných klientov (2026-10-28, fix/presunuta-prax-bez-duplicit, N-A7-1)
+
+Nové LAWOSS súbory: `apps/server/src/lawoss/moved-practice.ts` (náhľad prepojenia, presun povolenia kancelárie, otázka pri možno presunutom klientovi, odvodenie nedokončeného presunu praxe), `apps/app/src/lawoss/okf/moved-folder.ts`, `apps/app/src/lawoss/domains/practice-move-notice.tsx`, test `apps/server/src/lawoss/moved-practice.e2e.test.ts`. Prepojenie klientov ide existujúcim upstream `POST /workspace/:id/reconnect` bez zmeny.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/app/lib/legalwork-server.ts` | +1 import typu `MovedFolderApiPath`, +1 metóda `lawossMovedFolder(path, body)` volajúca hostové `/lawoss/onboarding/moved-folder`, `/lawoss/onboarding/moved-practice` a `/lawoss/onboarding/reconnected` (rovnaký `requestJson` a host token ako onboarding). Dôvod: N-A7-1, „Nájsť presunutý priečinok“ na stránke Dnes prepojí klientov presunutej praxe namiesto ich nového pridania. |
