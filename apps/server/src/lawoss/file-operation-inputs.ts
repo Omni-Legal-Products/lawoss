@@ -5,24 +5,30 @@
  * Rovnaký riadok ako pri vložení dokumentu v appke (`matter-intake.ts`, spoločné `lawoss/okf/inputs.ts`):
  * nové ID `IN-00N`, čas prijatia, zdroj, odkaz na súbor voči priečinku `VSTUPY.md` a stav `pending`. `processed`
  * nastaví až agent po prečítaní celého podkladu (šablóna `templates/spis/AGENTS.md`). Riadok, ktorý už súbor
- * v priečinku na nezaradené menuje (vložený appkou), sa nepridá druhý raz: jeho Originál ukáže na nové miesto.
+ * v priečinku na nezaradené menuje (vložený appkou), sa nepridá druhý raz: v registri cieľového prípadu jeho Originál
+ * ukáže na nové miesto. Riadok v inom prípade alebo u klienta sa uzavrie (`processed`, „presunuté do …, IN-00X“),
+ * aby neostal `pending` s neplatnou cestou (review #292).
  *
  * Len súbory; presun v rámci prípadu, do priečinka na nezaradené alebo mimo prípadu register nemení.
  */
 import { randomUUID } from "node:crypto";
-import { readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { withFileWriteLocks } from "../file-write-lock.js";
+import { statWithAdvancedMtime } from "./advance-mtime.js";
 import {
-  appendInputRow, INBOX_FOLDERS, INPUT_REGISTER_FILE, inputRow, MATTER_CARD_FILES, moveInputOriginal, nextInputId, originalCell,
+  appendInputRow, codeSpan, INBOX_FOLDERS, INPUT_REGISTER_FILE, inputRow, MATTER_CARD_FILES, moveInputOriginal, nextInputId, originalCell,
   parseWorkingProfile, PROFILE_FILE, receivedStamp,
 } from "./input-register-runtime.js";
 import { isPathWithin } from "./path-within.js";
 
 /** Koreň, v ktorom súbor leží: priečinok klienta alebo pripojený priečinok (`label`). */
 export type InputRoot = { canonical: string; label: string | null };
-/** Kam sa vstup zapísal: register (čitateľná cesta ako na karte), ID riadku a či sa existujúci riadok len presmeroval. `path` (skutočná cesta) je len pre audit. */
-export type FiledInput = { register: string; id: string; updated?: true };
+/**
+ * Kam sa vstup zapísal: register (čitateľná cesta ako na karte), ID riadku a či sa existujúci riadok len presmeroval.
+ * `handedOver`: riadok v inom registri (iný prípad, klient), ktorý sa uzavrel odkazom na tento.
+ */
+export type FiledInput = { register: string; id: string; updated?: true; handedOver?: { register: string; id: string } };
 
 /** Zdroj nového riadku; za dvojbodkou pôvodné miesto súboru. */
 export const FILED_INPUT_SOURCE = "presun z priečinka na nezaradené (LAWOSS)";
@@ -69,16 +75,30 @@ async function matterOf(path: string, root: string): Promise<string | undefined>
   return undefined;
 }
 
-async function readRegister(path: string): Promise<string | null> {
-  return readFile(path, "utf8").catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; });
+type Register = { content: string; mtimeMs: number };
+
+/** Review #292: len obyčajný súbor; odkaz (symlink) ani priečinok s menom registra sa nečíta ani neprepíše. */
+async function readRegister(path: string): Promise<Register | null> {
+  const info = await lstat(path).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; });
+  if (!info) return null;
+  if (!info.isFile()) throw new Error(`${basename(path)} is not a regular file; the input register was not changed.`);
+  return { content: await readFile(path, "utf8"), mtimeMs: info.mtimeMs };
 }
 
-/** Celý obsah naraz: dočasný súbor vedľa a premenovanie, ako zápis súboru na serveri. */
-async function writeRegister(path: string, content: string): Promise<void> {
-  const temporary = `${path}.tmp-${randomUUID().slice(0, 8)}`;
-  await writeFile(temporary, content, { encoding: "utf8", flag: "wx" });
-  try { await rename(temporary, path); }
-  catch (error) { await rm(temporary, { force: true }); throw error; }
+/**
+ * Celý obsah naraz: dočasný súbor vedľa a premenovanie, ako zápis súboru na serveri. Chýbajúci register sa len založí
+ * (`wx`), nikdy neprepíše ten, ktorý medzitým vznikol. Čas zmeny sa posunie ako pri zápise cez server (Windows),
+ * aby appka so starou revíziou dostala konflikt.
+ */
+async function writeRegister(path: string, content: string, before: Register | null): Promise<void> {
+  if (!before) await writeFile(path, content, { encoding: "utf8", flag: "wx" });
+  else {
+    const temporary = `${path}.tmp-${randomUUID().slice(0, 8)}`;
+    await writeFile(temporary, content, { encoding: "utf8", flag: "wx" });
+    try { await rename(temporary, path); }
+    catch (error) { await rm(temporary, { force: true }); throw error; }
+  }
+  await statWithAdvancedMtime(path, before?.mtimeMs ?? null);
 }
 
 /** Relatívna cesta vnútri priečinka, inak `null`. */
@@ -87,10 +107,11 @@ const inside = (dir: string, path: string): string | null => isPathWithin(dir, p
 /**
  * Po overenom presune alebo kópii súboru: zapíše vstup, ak súbor prišiel z priečinka na nezaradené do prípadu.
  * `null` = nejde o zaradenie. Chyba čítania alebo zápisu registra sa vyhodí; súbor ostáva tam, kam ho zmena dala.
+ * `paths`: skutočné cesty zapísaných registrov, len pre audit.
  */
 export async function recordFiledInput(
   item: { operation: "move" | "copy"; kind: "file" | "folder"; source: string; target: string }, roots: readonly InputRoot[], now = new Date(),
-): Promise<(FiledInput & { path: string }) | null> {
+): Promise<(FiledInput & { paths: string[] }) | null> {
   if (item.kind !== "file") return null;
   const rootOf = (path: string) => roots.find((root) => isPathWithin(root.canonical, path));
   const sourceRoot = rootOf(item.source), targetRoot = rootOf(item.target);
@@ -103,25 +124,35 @@ export async function recordFiledInput(
     return root.label ? `${root.label}/${relativePath}` : relativePath;
   };
   const register = join(matter, INPUT_REGISTER_FILE);
-  // Riadok, ktorý súbor už menuje: najprv register cieľového prípadu, potom registre nad pôvodným miestom v tom istom koreni.
-  const candidates = [register, ...(sourceRoot === targetRoot ? ancestors(item.source, sourceRoot.canonical).map((dir) => join(dir, INPUT_REGISTER_FILE)) : [])]
-    .filter((path, index, all) => all.indexOf(path) === index);
-  return withFileWriteLocks(candidates, async () => {
-    // Kópia nechá originál na mieste: jeho riadok ostáva a kópia dostane vlastný.
-    for (const candidate of item.operation === "move" ? candidates : []) {
-      const content = await readRegister(candidate);
-      const from = inside(dirname(candidate), item.source), to = inside(dirname(candidate), item.target);
-      if (content === null || from === null || to === null) continue;
-      const moved = moveInputOriginal(content, from, originalCell(to));
-      if (!moved) continue;
-      await writeRegister(candidate, moved.content);
-      return { register: shown(targetRoot, candidate), id: moved.id, updated: true, path: candidate };
+  // Registre nad pôvodným miestom v tom istom koreni (iný prípad, klient), kde môže mať súbor riadok z appky.
+  const earlier = sourceRoot === targetRoot
+    ? ancestors(item.source, sourceRoot.canonical).map((dir) => join(dir, INPUT_REGISTER_FILE)).filter((path) => path !== register) : [];
+  const target = originalCell(slash(relative(matter, item.target)));
+  return withFileWriteLocks([register, ...earlier], async () => {
+    const current = await readRegister(register);
+    // Riadok v registri cieľového prípadu (vložené appkou do jeho priečinka na nezaradené): zmení sa len cesta.
+    const from = inside(matter, item.source);
+    const moved = item.operation === "move" && current && from !== null ? moveInputOriginal(current.content, from, target) : null;
+    if (moved) {
+      await writeRegister(register, moved.content, current);
+      return { register: shown(targetRoot, register), id: moved.id, updated: true, paths: [register] };
     }
-    const content = await readRegister(register);
-    const id = nextInputId(content);
-    const origin = inside(matter, item.source) ?? shown(sourceRoot, item.source);
-    const row = inputRow(id, receivedStamp(now), originalCell(slash(relative(matter, item.target))), `${FILED_INPUT_SOURCE}: ${origin}`);
-    await writeRegister(register, appendInputRow(content, row, basename(matter)));
-    return { register: shown(targetRoot, register), id, path: register };
+    const id = nextInputId(current?.content ?? null);
+    const origin = from ?? shown(sourceRoot, item.source);
+    const row = inputRow(id, receivedStamp(now), target, `${FILED_INPUT_SOURCE}: ${codeSpan(origin)}`);
+    await writeRegister(register, appendInputRow(current?.content ?? null, row, basename(matter)), current);
+    const filed: FiledInput & { paths: string[] } = { register: shown(targetRoot, register), id, paths: [register] };
+    // Review #292: riadok v inom prípade alebo u klienta nesmie ostať `pending` s neplatnou cestou. Kópia ho nechá.
+    for (const other of item.operation === "move" ? earlier : []) {
+      const before = await readRegister(other);
+      const was = inside(dirname(other), item.source);
+      if (!before || was === null) continue;
+      const handed = moveInputOriginal(before.content, was, originalCell(slash(relative(dirname(other), item.target))),
+        `presunuté do ${codeSpan(filed.register)}, ${id}`);
+      if (!handed) continue;
+      await writeRegister(other, handed.content, before);
+      return { ...filed, handedOver: { register: shown(sourceRoot, other), id: handed.id }, paths: [register, other] };
+    }
+    return filed;
   });
 }

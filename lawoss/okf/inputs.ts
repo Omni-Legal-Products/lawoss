@@ -73,7 +73,8 @@ export function originalCell(relativePath: string): string {
   const path = relativePath.split(/[\\/]+/).filter(Boolean).join("/");
   if (!/[\u0000-\u001f|[\]`<>]/.test(path) && path === path.trim()) return path;
   const target = path.split("/").map((part) => encodeURIComponent(part).replace(/[()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)).join("/");
-  return `[${safeFileName(path).replace(/[[\]]/g, "")}](./${target})`;
+  // Text odkazu bez znakov Markdownu a HTML (review #292); cieľ je kódovaný celý.
+  return `[${safeFileName(path).replace(/[[\]<>`]/g, "")}](./${target})`;
 }
 
 /**
@@ -130,9 +131,13 @@ export function inputOriginal(cell: string): { label: string; target: string } {
 
 /**
  * N-A7-6: riadok registra, ktorého Originál je daná cesta (voči priečinku `VSTUPY.md`, bez ohľadu na veľkosť písmen
- * a tvar Unicode), dostane nový Originál. Vráti `null`, keď taký riadok nie je; ID, stav a ostatné bunky ostanú.
+ * a tvar Unicode), dostane nový Originál. Vráti `null`, keď taký riadok nie je; ID a ostatné bunky ostanú.
+ *
+ * `handedOver` (review #292): súbor odišiel do iného prípadu, ktorý ho eviduje vlastným riadkom. Tu je o ňom rozhodnuté
+ * bez ďalšej akcie, preto stav `processed` a odôvodnenie (napr. „presunuté do …/VSTUPY.md, IN-004“) v stĺpci
+ * Výsledné záznamy, za tým, čo v ňom už bolo.
  */
-export function moveInputOriginal(intake: string, from: string, to: string): { content: string; id: string } | null {
+export function moveInputOriginal(intake: string, from: string, to: string, handedOver?: string): { content: string; id: string } | null {
   const key = (path: string) => path.normalize("NFC").replace(/\\/g, "/").split("/").filter((part) => part && part !== ".").join("/").toLowerCase();
   const wanted = key(from);
   const lines = intake.split("\n");
@@ -141,8 +146,24 @@ export function moveInputOriginal(intake: string, from: string, to: string): { c
     if (cells.length < 5 || !/^\s*IN-\d+\s*$/.test(cells[0]!)) continue;
     if (key(inputOriginal(cells[3]!).target) !== wanted) continue;
     cells[3] = ` ${to} `;
+    if (handedOver !== undefined) {
+      const results = (cells[5] ?? "").trim();
+      cells[4] = " processed ";
+      cells[5] = ` ${[results, cellText(handedOver)].filter(Boolean).join("; ")} `;
+    }
     lines[index] = `${line.slice(0, line.indexOf("|"))}|${cells.join("|")}|`;
     return { content: lines.join("\n"), id: cells[0]!.trim() };
   }
   return null;
+}
+
+/**
+ * Text ako kódový span (review #292): cesta v bunke sa nečíta ako odkaz, obrázok ani HTML. `|` a riadiace znaky
+ * by rozbili riadok tabuľky, preto ich nahradí medzera; plot je dlhší než najdlhší rad `` ` `` v texte.
+ */
+export function codeSpan(text: string): string {
+  const clean = cellText(text);
+  const fence = "`".repeat(Math.max(0, ...[...clean.matchAll(/`+/g)].map((run) => run[0].length)) + 1);
+  const pad = clean.startsWith("`") || clean.endsWith("`") ? " " : "";
+  return `${fence}${pad}${clean}${pad}${fence}`;
 }

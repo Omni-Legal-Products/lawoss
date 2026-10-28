@@ -8,5 +8,6 @@ export function receivedStamp(now: Date): string;
 export function inputRow(id: string, received: string, original: string, source?: string): string;
 export function originalCell(relativePath: string): string;
 export function appendInputRow(intake: string | null, row: string, title: string): string;
-export function moveInputOriginal(intake: string, from: string, to: string): { content: string; id: string } | null;
+export function moveInputOriginal(intake: string, from: string, to: string, handedOver?: string): { content: string; id: string } | null;
+export function codeSpan(text: string): string;
 export function parseWorkingProfile(content: string): { folders: string[]; roles: Record<string, string>; naming: string };

@@ -101,6 +101,36 @@ describe("uložení do věci", () => {
     expect(text[1]?.content).toContain("00_K_zarazeni/IN-008/a.pdf");
   });
 
+  test("review #292: chýbajúci register len založí; keď ho medzitým založil server, riadok servera ostane a pridá sa vedľa", async () => {
+    const serverRow = "| IN-001 | 2026-10-28T10:00:00+01:00 | presun z priečinka na nezaradené (LAWOSS): `00_Na_zatriedenie/sken.pdf` | 01_Podklady/sken.pdf | pending | |";
+    const created = { content: appendInputRow(null, serverRow, "X"), updatedAt: 200 };
+    let registerExists = false;
+    const text: { content: string; baseUpdatedAt?: number | null; createOnly?: boolean }[] = [];
+    const client = {
+      readWorkspaceFile: async (_ws: string, path: string) => {
+        if (path.endsWith("PRACOVNY-PROFIL.md") || !registerExists) throw new Error("404 not found");
+        return { path, bytes: 0, ...created };
+      },
+      writeWorkspaceBinaryFile: async (_ws: string, payload: { path: string }) => ({ ok: true, path: payload.path, bytes: 1, updatedAt: 1 }),
+      writeWorkspaceFile: async (_ws: string, payload: { content: string; baseUpdatedAt?: number | null; createOnly?: boolean }) => {
+        text.push(payload);
+        if (text.length === 1) {
+          // Server založil register po presune z nezaradených skôr, ako appka zapísala svoj.
+          registerExists = true;
+          throw Object.assign(new Error("A file already exists at this path. Choose a new filename."), { status: 409, code: "file_exists" });
+        }
+        return { ok: true, path: "AK/B/X/VSTUPY.md", bytes: 1, updatedAt: 201 };
+      },
+    };
+
+    const saved = await saveDocumentsToMatter(client as never, "office", { path: "AK/B/X", title: "X" }, [new File(["a"], "a.pdf")], new Date(2026, 9, 28, 10, 5));
+
+    expect(text.map(({ baseUpdatedAt, createOnly }) => ({ baseUpdatedAt, createOnly }))).toEqual([{ baseUpdatedAt: null, createOnly: true }, { baseUpdatedAt: 200, createOnly: undefined }]);
+    expect(saved.map(({ id }) => id)).toEqual(["IN-002"]);
+    expect(text[1]?.content).toContain(serverRow);
+    expect(text[1]?.content).toContain("| IN-002 |");
+  });
+
   test("pri nevybavenom konflikte neoznámi úspech a uvedie cestu už uloženého originálu", async () => {
     const path = "AK/B/X/00_K_zarazeni/IN-008/a.pdf";
     let writes = 0;

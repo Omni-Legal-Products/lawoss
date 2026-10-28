@@ -19,7 +19,9 @@ export { appendInputRow, inputRow, nextInputId, receivedStamp, safeFileName };
 type IntakeClient = Pick<LegalworkServerClient, "readWorkspaceFile" | "writeWorkspaceFile" | "writeWorkspaceBinaryFile">;
 type SavedInput = { id: string; name: string; path: string };
 
-const conflict = (error: unknown) => /\b409\b|\bconflict\b|changed since it was loaded/i.test(error instanceof Error ? error.message : String(error));
+/** 409 aj ako stav chyby servera: založenie registra, ktorý medzitým vznikol, hlási `file_exists` bez slova „conflict“. */
+const conflict = (error: unknown) => (error instanceof Error && Reflect.get(error, "status") === 409)
+  || /\b409\b|\bconflict\b|changed since it was loaded/i.test(error instanceof Error ? error.message : String(error));
 const CREATE_ONLY_UPDATED_AT = -1;
 const REGISTRATION_ATTEMPTS = 2;
 
@@ -82,6 +84,9 @@ export async function saveDocumentsToMatter(
             path: registerPath,
             content: appendInputRow(register?.content ?? null, inputRow(id, received, original), matter.title),
             baseUpdatedAt: register?.updatedAt ?? null,
+            // Review #292: chýbajúci register len založiť. Bez revízie by zápis prepísal register, ktorý medzitým
+            // založil server po presune z nezaradených (`lawoss_files`); takto skončí 409 a riadok sa pridá znova.
+            ...(register ? {} : { createOnly: true }),
           });
           saved.push({ id, name, path });
           break;
