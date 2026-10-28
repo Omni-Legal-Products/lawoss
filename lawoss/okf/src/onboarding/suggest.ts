@@ -23,7 +23,7 @@ export type SuggestedClient = { path: string; name: string };
  * jeho prípady a počet súborov. Len z už nasnímaných mien, bez ďalšieho čítania disku. `exact: false`, ak prieskum
  * pod jednotkou narazil na hĺbku alebo limit: počty sú vtedy dolná hranica. Mená sú mená priečinkov.
  */
-export type SuggestedUnit = { path: string; matters: SuggestedClient[]; matterCount: number; files: number; exact: boolean };
+export type SuggestedUnit = { path: string; matters: SuggestedClient[]; matterCount: number; files: number; exact: boolean; nestedClients: SuggestedClient[] };
 export type OnboardingSuggestion = { root: string; level: SuggestedLevel; marked: boolean; score: number; signals: SuggestionSignal[]; clientPattern?: string; clients: SuggestedClient[]; practiceCandidates: SuggestedClient[]; practicePattern: string; complete: boolean; childOffices?: string[]; units: SuggestedUnit[] };
 export type SurveyEntry = { path: string; kind: "file" | "directory" };
 export type FolderSurvey = { root: string; complete: boolean; entries: SurveyEntry[] };
@@ -158,9 +158,11 @@ const depthOf = (path: string): number => path ? path.split("/").length : 0;
 /**
  * Prípady jednotky: podpriečinky `Spisy/` (štruktúra OKF) a popri nich podpriečinky s kartou veci, kódom („M004 …“)
  * alebo menom veci. Prázdny `Spisy/` z pomocných súborov tak prípady vedľa neho neskryje (N-A2-3, 23. 10. 2026).
- * Pracovné priečinky klienta („01_Podklady“) prípadmi nie sú.
+ * Pracovné priečinky klienta („01_Podklady“) prípadmi nie sú. `nested`: priečinky jednotky, ktoré prípadmi nie sú, lebo
+ * vyzerajú ako ďalší klient (kód iného klienta alebo vlastná karta klienta); obrazovka pred pripojením na ne upozorní
+ * (N-A7-3, test 28. 10. 2026).
  */
-function mattersOf(index: ChildIndex, files: ReadonlySet<string>, unit: string, unitName: string): SuggestedClient[] {
+function mattersOf(index: ChildIndex, files: ReadonlySet<string>, unit: string, unitName: string): { matters: SuggestedClient[]; nested: SuggestedClient[] } {
   const prefix = unit ? `${unit}/` : "";
   const dirs = childrenOf(index, unit).filter(entry => entry.kind === "directory");
   const folders = dirs.filter(entry => MATTER_FOLDERS.has(nameOf(entry.path).toLowerCase()));
@@ -168,10 +170,13 @@ function mattersOf(index: ChildIndex, files: ReadonlySet<string>, unit: string, 
   const card = (entry: SurveyEntry, cards: ReadonlySet<string>) => childrenOf(index, entry.path).some(child => child.kind === "file" && cards.has(nameOf(child.path).toLowerCase()));
   const nestedClient = (entry: SurveyEntry) => card(entry, CLIENT_CARDS) && !card(entry, MATTER_CARDS);
   const filed = folders.flatMap(folder => childrenOf(index, folder.path).filter(entry => entry.kind === "directory"));
-  const beside = dirs.filter(entry => !folders.includes(entry)
-    && ([...MATTER_CARDS].some(card => files.has(`${entry.path}/${card}`))
-      || (looksLikeMatterFolder(nameOf(entry.path)) && !nestedClientCode(unitName, nameOf(entry.path)))));
-  return [...filed, ...beside].filter(entry => !nestedClient(entry)).map(entry => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
+  const matterCard = (entry: SurveyEntry) => [...MATTER_CARDS].some(card => files.has(`${entry.path}/${card}`));
+  const otherCode = (entry: SurveyEntry) => !matterCard(entry) && nestedClientCode(unitName, nameOf(entry.path));
+  const beside = dirs.filter(entry => !folders.includes(entry) && (matterCard(entry) || (looksLikeMatterFolder(nameOf(entry.path)) && !otherCode(entry))));
+  const named = (entry: SurveyEntry): SuggestedClient => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) });
+  // `Spisy/<…>` je vec vždy, kód iného klienta ju vnoreným klientom neurobí; karta klienta áno.
+  const nested = [...filed.filter(nestedClient), ...dirs.filter(entry => !folders.includes(entry) && (nestedClient(entry) || otherCode(entry)))];
+  return { matters: [...filed, ...beside].filter(entry => !nestedClient(entry)).map(named), nested: nested.map(named) };
 }
 
 /**
@@ -185,8 +190,11 @@ function unitsOf(survey: FolderSurvey, index: ChildIndex, paths: readonly string
     const inside = path ? survey.entries.filter(entry => entry.path.startsWith(prefix)) : survey.entries;
     // Priečinok v najväčšej hĺbke prieskumu sa už neotvoril: počty pod ním chýbajú.
     const exact = survey.complete && !inside.some(entry => entry.kind === "directory" && depthOf(entry.path) >= SURVEY_DEPTH);
-    const matters = mattersOf(index, files, path, path ? nameOf(path) : basename(survey.root)).filter(matter => path || !clients.has(matter.path));
-    return { path, matters: matters.slice(0, UNIT_MATTERS), matterCount: matters.length, files: inside.filter(entry => entry.kind === "file").length, exact };
+    const found = mattersOf(index, files, path, path ? nameOf(path) : basename(survey.root));
+    const matters = found.matters.filter(matter => path || !clients.has(matter.path));
+    // Pri návrhu praxe sú jej klienti v koreni klientmi, nie vnorenými klientmi koreňa.
+    const nestedClients = found.nested.filter(nested => path || !clients.has(nested.path)).slice(0, UNIT_MATTERS);
+    return { path, matters: matters.slice(0, UNIT_MATTERS), matterCount: matters.length, files: inside.filter(entry => entry.kind === "file").length, exact, nestedClients };
   });
 }
 

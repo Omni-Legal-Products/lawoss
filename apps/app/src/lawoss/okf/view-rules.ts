@@ -3,9 +3,9 @@
  * názov okna). Pohľady nič nepočítajú po svojom: okno, naliehavosť aj text lehoty idú odtiaľto
  * a naliehavosť priamo z `deadlineTier` vrstvy OKF, takže Lite aj Pro ukazujú to isté.
  */
-import { deadlineLabel, deadlineTier } from "../../../../../lawoss/okf/read";
+import { deadlineLabel, deadlineTier, taskDue } from "../../../../../lawoss/okf/read";
 import { t, type Language } from "@/i18n";
-import { addDays } from "./read-model";
+import { addDays, formatDay } from "./read-model";
 
 /** Koľko dní dopredu ukazujú prehľady lehôt (po lehote a neplatné dátumy vždy). */
 export const HORIZON_DAYS = 14;
@@ -38,6 +38,18 @@ export function urgencyOf(date: string | undefined, todayIso: string, invalid?: 
   const tier = deadlineTier(date, todayIso);
   if (tier === "overdue" || tier === "today") return "hot";
   return tier === "soon" ? "near" : "calm";
+}
+
+/**
+ * Termín úlohy pre Dnes a detail prípadu: platný deň (aj s časom) sa formátuje a radí podľa dňa;
+ * neplatný zápis je „? pôvodný text“, horí a nesie výzvu „overiť dátum“. Bez poľa `due` nič.
+ */
+export type TaskDueView = { label: string; urgency: Urgency; flag?: "overdue" | "invalid" };
+export function taskDueView(due: string | undefined, todayIso: string, locale: Language): TaskDueView | null {
+  const { day, time, invalid } = taskDue(due);
+  if (invalid) return { label: `? ${due?.trim() ?? ""}`.trim(), urgency: "hot", flag: "invalid" };
+  if (!day) return null;
+  return { label: `${formatDay(day, locale)}${time ? ` ${time}` : ""}`, urgency: urgencyOf(day, todayIso), ...(day < todayIso ? { flag: "overdue" as const } : {}) };
 }
 
 /** Patrí lehota do prehľadu: po lehote, neplatná, alebo do `HORIZON_DAYS`. */

@@ -122,7 +122,7 @@ describe("sprievodca C1: obrazovky", () => {
 
   test("Toto sme našli (prax): strom so skutočnými menami a počtami, zaškrtnutie v strome, čo pribudne", () => {
     const html = renderToStaticMarkup(
-      <WizardFoundView text={sk} found={found} busy={false} suggestion={practice} headline="Vyzerá to ako celá prax: 2 klientov." level="practice" scope="client" selected={["Klienti/C001-syn-tatran"]}
+      <WizardFoundView text={sk} found={found} busy={false} suggestion={practice} headline="Vyzerá to ako celá prax: 2 klienti." level="practice" scope="client" selected={["Klienti/C001-syn-tatran"]}
         onLevel={noop} onScope={noop} onToggle={noop} onAll={noop} onAdd={noop} onTable={noop} onPickRoot={noop} childPath={(name) => name} />,
     );
     expect(html).toContain("4-usporiadana-kancelaria");

@@ -1520,8 +1520,12 @@ function mattersOf(index, files, unit, unitName) {
   const card = (entry, cards) => childrenOf(index, entry.path).some((child) => child.kind === "file" && cards.has(nameOf(child.path).toLowerCase()));
   const nestedClient = (entry) => card(entry, CLIENT_CARDS) && !card(entry, MATTER_CARDS);
   const filed = folders.flatMap((folder) => childrenOf(index, folder.path).filter((entry) => entry.kind === "directory"));
-  const beside = dirs.filter((entry) => !folders.includes(entry) && ([...MATTER_CARDS].some((card) => files.has(`${entry.path}/${card}`)) || looksLikeMatterFolder(nameOf(entry.path)) && !nestedClientCode(unitName, nameOf(entry.path))));
-  return [...filed, ...beside].filter((entry) => !nestedClient(entry)).map((entry) => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) }));
+  const matterCard = (entry) => [...MATTER_CARDS].some((card) => files.has(`${entry.path}/${card}`));
+  const otherCode = (entry) => !matterCard(entry) && nestedClientCode(unitName, nameOf(entry.path));
+  const beside = dirs.filter((entry) => !folders.includes(entry) && (matterCard(entry) || looksLikeMatterFolder(nameOf(entry.path)) && !otherCode(entry)));
+  const named = (entry) => ({ path: entry.path.slice(prefix.length), name: nameOf(entry.path) });
+  const nested = [...filed.filter(nestedClient), ...dirs.filter((entry) => !folders.includes(entry) && (nestedClient(entry) || otherCode(entry)))];
+  return { matters: [...filed, ...beside].filter((entry) => !nestedClient(entry)).map(named), nested: nested.map(named) };
 }
 function unitsOf(survey, index, paths, clients = new Set) {
   const files = new Set(survey.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));
@@ -1529,8 +1533,10 @@ function unitsOf(survey, index, paths, clients = new Set) {
     const prefix = path ? `${path}/` : "";
     const inside = path ? survey.entries.filter((entry) => entry.path.startsWith(prefix)) : survey.entries;
     const exact = survey.complete && !inside.some((entry) => entry.kind === "directory" && depthOf(entry.path) >= SURVEY_DEPTH);
-    const matters = mattersOf(index, files, path, path ? nameOf(path) : basename2(survey.root)).filter((matter) => path || !clients.has(matter.path));
-    return { path, matters: matters.slice(0, UNIT_MATTERS), matterCount: matters.length, files: inside.filter((entry) => entry.kind === "file").length, exact };
+    const found = mattersOf(index, files, path, path ? nameOf(path) : basename2(survey.root));
+    const matters = found.matters.filter((matter) => path || !clients.has(matter.path));
+    const nestedClients = found.nested.filter((nested) => path || !clients.has(nested.path)).slice(0, UNIT_MATTERS);
+    return { path, matters: matters.slice(0, UNIT_MATTERS), matterCount: matters.length, files: inside.filter((entry) => entry.kind === "file").length, exact, nestedClients };
   });
 }
 async function suggestOnboardingLevel(root) {
