@@ -1,5 +1,19 @@
 # LAWOSS downstream patches
 
+## Karta pred zápisom cez editor dokumentov (2026-10-28, N-A7-8)
+
+Nález N-A7-8, see coordination issue. Pred každým zapisujúcim volaním editora dokumentov (`inapp_*`) sa plugin pýta enginu s povolením `edit` (karta „Upraviť súbory?“) a cestou od koreňa klienta; čítanie sa nepýta. Logika je v `apps/server/src/opencode-plugins/lawoss-editor-approval.ts`, test `lawoss-editor-approval.test.ts` (aj zoznam všetkých `inapp_*` nástrojov, aby nový nástroj po syncu nezostal nezaradený). Tieto volania a odovzdanie editorov pred zápisom súborov nesú hlavičku `x-lawoss-editor-write: 1` (`apps/server/src/lawoss/editor-write-header.ts`). Most UI v desktope akciu editora, ktorá zapisuje (vrátane `documents.begin_file_edit` a `documents.open` s `copyTo`), bez nej odmietne (`apps/desktop/electron/lawoss-editor-write-gate.mjs`), takže ju nespustí ani `legalwork_ui_execute_action`, ani MCP `legalwork-ui` (`ui_execute_action`, aj verzia z npm). Test `lawoss-editor-write-gate.test.mjs` zaradí každú akciu dokumentových plôch v appke, aby nová akcia editora nezostala mimo zoznamu.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/opencode-plugins/legalwork-extensions-preview.ts` | +1 import, `ask?` v lokálnom type kontextu, po jednom riadku v `callInAppOfficeTool` (po kontrole návrhu), `callInAppDocxTool` (len pri dokumente Wordu pripravenom pre úlohu; do mosta ide cesta zo schválenej karty, aj keď ju model nezadal), `inapp_markdown_create` (len pri `complete`) a `inapp_documents_open` (len pri `copy_to`). Tie isté štyri volania mosta majú `headers: EDITOR_WRITE_HEADERS`. Zamietnutie karty = výnimka enginu, do editora nič neodíde. Pri syncu zachovať a nový `inapp_*` nástroj zaradiť v `lawoss-editor-approval.ts`. |
+| `apps/server/src/opencode-plugins/legalwork-extensions-preview.test.ts` | Volania zapisujúcich nástrojov majú v kontexte schvaľujúce `ask`; pri troch volaniach Wordu bez cesty očakávaná požiadavka obsahuje `path` vybraného dokumentu; test pätnástich nástrojov Wordu má pripravený dokument `Contract.docx`. |
+| `apps/server/src/inapp-document-bridge.ts` | `uiBridgeRequest` prijme voliteľné `headers` a pošle ich pred `Authorization` (+1 riadok, 1 zmenený). |
+| `apps/server/src/file-editor-handoff.ts` | +1 import; `documents.begin_file_edit`/`end_file_edit` posielajú `EDITOR_WRITE_HEADERS`. Odovzdanie beží až za kartou príkazu alebo `lawoss_files`. |
+| `apps/desktop/electron/ui-control-server.mjs` | +1 import; `POST /execute` najprv volá `editorWriteRefusal(input, request.headers)` z `lawoss-editor-write-gate.mjs` (+2 riadky, 1 zmenený). Bez hlavičky servera vráti akcia editora, ktorá zapisuje, `{ ok: false }` a do renderera nič neodíde. |
+| `apps/desktop/electron/ui-control-server.test.mjs` | Test „agent commands execute in a minimized window…“ posiela akcie editora s hlavičkou servera, ako to robí server (1 riadok, +1 komentár). |
+| `apps/desktop/package.json` | +1 súbor v skripte `test`: `electron/lawoss-editor-write-gate.test.mjs`. |
+
 ## Cesta v prvom riadku správy ako príloha len v priečinku klienta (2026-10-28, N-A7-13)
 
 Composer robil z každej cesty v prvom riadku správy (`file://`, `~/`, `C:\`, `/…`) priložený súbor alebo priečinok. Teraz sa pripojí len cesta v priečinku klienta (koreň klienta alebo priečinok pod ním); ostatné ostanú textom a agent k nim ide cez svoje nástroje. Keď koreň chatu obsahuje iný registrovaný priečinok (prax s klientmi, vnorený klient), nepripojí sa nič. Pravidlo je v LAWOSS súbore `apps/app/src/lawoss/chat/prompt-file-parts.ts` (`clientFirstLineFileParts`, `clientPathScope`), porovnanie cez `isWithinClientFolder` z `apps/app/src/lawoss/shell/session-directory.ts`. Test `apps/app/tests/lawoss-cesta-v-chate.test.ts`.

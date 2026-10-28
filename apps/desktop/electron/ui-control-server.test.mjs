@@ -159,7 +159,8 @@ test("agent commands execute in a minimized window without stealing focus", asyn
     await bridge.start();
     const { baseUrl, token } = JSON.parse(await readFile(path.join(root, "legalwork-ui-control.json"), "utf8"));
     for (const actionId of ["documents.open", "office.agent_tool", "document.agent_tool", "markdown.agent_tool"]) {
-      const response = await fetch(`${baseUrl}/execute`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ actionId }) });
+      // LAWOSS N-A7-8: agent edits come from the server with its editor-write header.
+      const response = await fetch(`${baseUrl}/execute`, { method: "POST", headers: { authorization: `Bearer ${token}`, "x-lawoss-editor-write": "1" }, body: JSON.stringify({ actionId }) });
       assert.equal(response.status, 200);
     }
     assert.deepEqual(calls, Array.from({ length: 4 }, () => ({ userGesture: false })));

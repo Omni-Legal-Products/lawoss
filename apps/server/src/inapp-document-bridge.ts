@@ -43,7 +43,7 @@ async function discoverUiBridge(): Promise<UiBridge | null> {
   return null;
 }
 
-export async function uiBridgeRequest(path: string, options: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<unknown> {
+export async function uiBridgeRequest(path: string, options: { method?: string; body?: unknown; timeoutMs?: number; headers?: Record<string, string> } = {}): Promise<unknown> {
   const bridge = await discoverUiBridge();
   if (!bridge) return { ok: false, error: "LegalWork UI bridge not available. The desktop app may not be running." };
   try {
@@ -51,6 +51,7 @@ export async function uiBridgeRequest(path: string, options: { method?: string; 
       method: options.method || "GET",
       signal: AbortSignal.timeout(options.timeoutMs ?? BRIDGE_TIMEOUT_MS),
       headers: {
+        ...options.headers, // LAWOSS N-A7-8: editor writes after the approval card
         Authorization: `Bearer ${bridge.token}`,
         ...(options.body ? { "Content-Type": "application/json" } : {}),
       },
