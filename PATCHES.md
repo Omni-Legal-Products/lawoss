@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Jeden dialóg pri zahodení zmien v dokumente (2026-10-28, N-A7-16)
+
+Úplný UI test dev `f8acb4bd` (28. 10. 2026): po „Zahodiť zmeny“ pri zatváraní karty DOCX advokát videl ešte „Zahodiť zmeny v súbore ? …“. Druhá výzva nevzniká (`confirmDiscard` bez mien výzvu nevytvorí); išlo o ten istý dialóg počas zatváracej animácie, keď už bola výzva vymazaná.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/artifacts/document-discard-dialog.tsx` | Mená súborov v texte dialógu idú cez `useShownDiscardNames(prompt)` z LAWOSS súboru `apps/app/src/lawoss/documents/discard-dialog-names.ts` (+1 import, 1 riadok, 1 komentár, 1 zmenený riadok). Kým je výzva otvorená, vracia jej mená, po jej skončení mená poslednej výzvy, takže zatvárajúci sa dialóg ostane rovnaký. Logika výzvy v `docx-document-state.ts` sa nemení. Test `apps/app/tests/lawoss-zahodit-zmeny-jeden-dialog.test.tsx`. Vhodné ponúknuť upstreamu. |
+
 ## Čítanie pamäte spisu bez karty (2026-10-23)
 
 Alfa 2, oprava P3a (N-A3-3, N-18, N-A2-7; rozhodnutie MČ: čítanie dokumentov a pamäte bez karty, zápis s kartou). Skill `okf-pamat` čítal pamäť cez `node …/okf-memory.js preamble|read` v spravovanom shelli a každé zhrnutie spisu ukázalo dve najširšie karty („celý počítač + internet“). Nový nástroj `lawoss_memory` (plugin `apps/server/src/opencode-plugins/lawoss-memory-tools.ts`, server `apps/server/src/lawoss/matter-memory.ts`, most `lawoss/okf-handoff/matter-memory-read.mjs`) číta tým istým kódom pamäte bez podprocesu, len v koreni klienta chatu a v jeho pripojených priečinkoch; spis iného (aj vnoreného) klienta sa odmietne bez mena. Zápis pamäte ostáva v CLI so schválením. Po bezpečnostnom review číta okf-pamat každý súbor pamäte a kontextu (`_STATUS.md`, `VSTUPY.md`, `KOMUNIKACNE-KANALY.md`, karty, `okf.config`, `memory/*.md`) ako bežný súbor bez symbolického odkazu, bez blokovania a do limitu 2 MiB na súbor a 16 MiB na adresár `memory/` (`lawoss/okf-pamat/src/safe-read.ts`). Kanceláriu (`Office/`, `_kancelaria/`) nad spisom server prečíta len vtedy, keď je to kancelária praxe z profilu, priečinok tohto klienta alebo skutočný priečinok vedľa klientov mimo iného klienta; inak ju vynechá a čítanie je neúplné (`ScopeOptions.office`); s profilom praxe len kanceláriu praxe. Pamäť s profilom (`.lawoss/memory-profile.json`) nečíta koreň ani zdroj v inom registrovanom klientovi (`excludedRoots`). Adresár `memory/` má najviac 2 000 položiek.
