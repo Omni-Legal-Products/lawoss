@@ -13,6 +13,7 @@ import {
 import { OFFICE_CONFIG_ENCODING_MESSAGE } from "../../../../../../lawoss/okf/src/profile";
 import { foundText } from "./found-text";
 import { canonicalPathRejection, folderNotFoundMessage } from "./typed-paths";
+import { movedClientChoice } from "../../okf/moved-folder";
 
 /** „Začať nanovo“ do neprázdneho priečinka (folder-step.tsx); appka ho vysvetlí vetou kroku Priečinok. */
 export const FRESH_NOT_EMPTY = "fresh_not_empty";
@@ -154,6 +155,35 @@ const nestedClientMessage = (error: unknown, locale: Language) => {
   const names = Array.isArray(details?.clients) ? details.clients.map(clientRefOf).filter((client) => client !== undefined).map((client) => client.name) : [];
   return names.length ? containsClients[locale](names.join(", ")) : undefined;
 };
+/**
+ * Priečinok môže byť zaregistrovaný klient, ktorému len chýba priečinok (presunutá alebo premenovaná prax, N-A7-1).
+ * Appka sa opýta, či ide o toho istého klienta: „Prepojiť“ zachová chaty a nastavenia, „Pridať ako nového“ ho pridá.
+ * Pri zhode len podľa mena to povie výslovne (dvaja rôzni klienti môžu mať rovnaké meno).
+ */
+const movedClient: Record<Language, { message: (client: string, marker: boolean) => string; link: string; addNew: string }> = {
+  sk: {
+    message: (client, marker) => `Tento priečinok môže patriť klientovi „${client}“, ktorý už v LAWOSS je, len sa nenašiel jeho priečinok. ${marker ? "Priečinok nesie značku LAWOSS s pôvodným umiestnením tohto klienta." : "Zhoduje sa však len meno, môže ísť aj o iného klienta s rovnakým menom."} Je to ten istý klient?`,
+    link: "Prepojiť", addNew: "Pridať ako nového",
+  },
+  cs: {
+    message: (client, marker) => `Tato složka může patřit klientovi „${client}“, který už v LAWOSS je, jen se nenašla jeho složka. ${marker ? "Složka nese značku LAWOSS s původním umístěním tohoto klienta." : "Shoduje se však jen jméno, může jít i o jiného klienta se stejným jménem."} Je to tentýž klient?`,
+    link: "Propojit", addNew: "Přidat jako nového",
+  },
+  en: {
+    message: (client, marker) => `This folder may belong to the client “${client}”, who is already in LAWOSS but whose folder was not found. ${marker ? "The folder carries the LAWOSS mark with this client's original location." : "Only the name matches, so it may also be a different client with the same name."} Is it the same client?`,
+    link: "Reconnect", addNew: "Add as new client",
+  },
+  de: {
+    message: (client, marker) => `Dieser Ordner kann zum Mandanten „${client}“ gehören, der bereits in LAWOSS ist, dessen Ordner aber nicht gefunden wurde. ${marker ? "Der Ordner trägt die LAWOSS-Kennzeichnung mit dem ursprünglichen Speicherort dieses Mandanten." : "Es stimmt jedoch nur der Name überein; es kann auch ein anderer Mandant mit demselben Namen sein."} Ist es derselbe Mandant?`,
+    link: "Neu verbinden", addNew: "Als neuen Mandanten hinzufügen",
+  },
+};
+const movedClientMessage = (error: unknown, locale: Language) => {
+  const choice = movedClientChoice(error);
+  return choice ? movedClient[locale].message(choice.name, choice.evidence === "marker") : undefined;
+};
+/** Popisy volieb pri otázke „Je to ten istý klient?“. */
+export const movedClientActions = (locale: Language): { link: string; addNew: string } => ({ link: movedClient[locale].link, addNew: movedClient[locale].addNew });
 /** Ďalší krok pri odmietnutí: otvoriť klienta, ktorému priečinok patrí. Iné chyby ho nemajú. */
 export function onboardingRefusalAction(error: unknown, locale: Language): { workspaceId: string; label: string } | undefined {
   const outer = nestedClientOf(error);
@@ -169,6 +199,7 @@ export function onboardingErrorMessage(error: unknown, locale: Language): string
   if (error instanceof Error && error.message === FRESH_NOT_EMPTY) return foundText(locale)("freshNotEmpty");
   if (error instanceof Error && error.message === CLIENT_UNAVAILABLE) return clientUnavailable[locale];
   return nestedClientMessage(error, locale) ??
+    movedClientMessage(error, locale) ??
     officeMessage(error, locale) ??
     lockedFilesMessage(error, locale) ??
     identityMessage(error, locale) ??

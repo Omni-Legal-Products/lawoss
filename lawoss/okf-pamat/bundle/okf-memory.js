@@ -2337,6 +2337,11 @@ var BRAIN_FILE = "BRAIN.md";
 var STATUS_FILE = "_STATUS.md";
 var MEMORY_DIR = "memory";
 var MATTER_CARDS = ["matter.md", "spis.md", "project.md", "projekt.md"];
+function assertNoLink(path, what) {
+  if (lstatSync2(path, { throwIfNoEntry: false })?.isSymbolicLink()) {
+    throw new Error(`${what} je symbolický odkaz; zápis bol odmietnutý.`);
+  }
+}
 function jurisdictionFromCard(dir) {
   for (const name of MATTER_CARDS) {
     const path = join2(dir, name);
@@ -2542,10 +2547,15 @@ function applyRecordWrite(dir, diff, approval, leakScopeDir = dir) {
   withRecordWriteLock(dir, () => {
     const store = readStore(dir);
     assertNotStale(store, diff);
+    assertNoLink(store.memoryDir, "Adresár pamäte");
     mkdirSync(store.memoryDir, { recursive: true });
+    assertNoLink(store.memoryDir, "Adresár pamäte");
     if (diff.kind === "delete") {
-      if (diff.before)
-        rmSync(fileFor(store, diff.before));
+      if (diff.before) {
+        const file = fileFor(store, diff.before);
+        assertNoLink(file, "Súbor záznamu");
+        rmSync(file);
+      }
       return;
     }
     const after = diff.after;
@@ -2553,6 +2563,7 @@ function applyRecordWrite(dir, diff, approval, leakScopeDir = dir) {
       throw new Error(`Návrh ${diff.kind} nemá nový stav záznamu`);
     const zapis = { ...after, truth_digest: truthDigest(after.truth) };
     const target = fileFor(store, zapis);
+    assertNoLink(target, "Súbor záznamu");
     if (diff.kind === "create" && existsSync2(target)) {
       throw new ConcurrentWriteError(`Cieľový súbor pre ID ${zapis.id} už existuje; možná kolízia veľkosti písmen. Zvoľ iné ID.`);
     }
@@ -3797,6 +3808,93 @@ function workspaceArguments(rest, save) {
     file: values.get("--file")
   };
 }
+function writeRecord(dir, text, { reason, approveAs, expectedRevision, apply }) {
+  let after;
+  try {
+    after = parseRecord(text);
+  } catch (e) {
+    return { code: 2, out: `Návrh sa nedá prečítať: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  const office = findOfficeDir(dir);
+  const cielovy = after.layer !== "L2" && office && resolve4(office) !== resolve4(dir) ? office : dir;
+  const store = readStore(cielovy);
+  const before = store.records.find((r) => r.id === after.id);
+  if (before && before.created !== after.created) {
+    const prefix = after.id.replace(/\d+$/, "");
+    const max = store.records.filter((r) => r.id.startsWith(prefix)).reduce((m, r) => Math.max(m, Number(r.id.slice(prefix.length)) || 0), 0);
+    const volne = `${prefix}${String(max + 1).padStart(3, "0")}`;
+    return {
+      code: 1,
+      out: `ODMIETNUTÉ: identifikátor ${after.id} už v ${cielovy === dir ? "spise" : OFFICE_DIR + "/"} ` + `patrí inému záznamu („${before.title}", založený ${before.created}). ` + `Voľné je ${volne} — prečísluj návrh aj odkazy naň.`
+    };
+  }
+  if (before && expectedRevision === undefined) {
+    return { code: 1, out: `ODMIETNUTÉ: úprava ${after.id} vyžaduje --if-revision <SHA256 z read>. Načítaj záznam a priprav návrh z jeho aktuálneho stavu.` };
+  }
+  if (expectedRevision !== undefined && (!before || revisionHash(before) !== expectedRevision)) {
+    return { code: 1, out: `ODMIETNUTÉ: revízia ${after.id} sa nezhoduje alebo záznam už neexistuje. Načítaj ho znova, zosúlaď zmeny a priprav nový návrh; neopakuj starý zápis.` };
+  }
+  let diff;
+  try {
+    assertHasSource(after);
+    diff = planWrite(before, after, reason);
+  } catch (e) {
+    return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  let plan;
+  try {
+    plan = { diff, targetDir: cielovy, file: fileFor(store, after) };
+  } catch (e) {
+    return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  const out = [
+    `${nadpisZapisu(diff.kind)} ${diff.id} (${after.type}, ${diff.layer})`,
+    `Dôvod: ${diff.reason}`,
+    "",
+    ...diff.lines,
+    ""
+  ];
+  if (cielovy !== dir)
+    out.push(`Cieľ: ${OFFICE_DIR}/ — vrstva ${diff.layer} patrí kancelárii, nie spisu.`, "");
+  if (after.layer !== "L2" && !office)
+    out.push(`Upozornenie: nad spisom sa nenašla kancelária (${OFFICE_DIR}/) — vrstva ${after.layer} ostáva v spise.`, "");
+  const trvale = approveAs === undefined ? standingApproval(dir, diff) : undefined;
+  const approval = approveAs !== undefined ? { by: approveAs, at: new Date().toISOString() } : trvale;
+  if (!apply) {
+    out.push(!diff.requiresApproval ? "dry-run: nič sa nezapísalo. Zapíš s --apply." : trvale !== undefined ? `dry-run: zápis do vrstvy ${diff.layer} kryje trvalé poverenie ` + `(${trvale.by}). Zapíš s --apply.` : `dry-run: zápis do vrstvy ${diff.layer} vyžaduje schválenie človekom. ` + `Zapíš s --apply --approve-as "<meno>".`);
+    return { ...ok(out.join(`
+`)), plan };
+  }
+  if (diff.requiresApproval && approval === undefined) {
+    out.push(`ODMIETNUTÉ: zápis do vrstvy ${diff.layer} vyžaduje --approve-as "<meno advokáta>" ` + `alebo trvalé poverenie v ${OFFICE_DIR}/${CONFIG_FILE}. ` + `Meno zadáva človek, agent si ho nekonštruuje sám.`);
+    return { code: 1, out: out.join(`
+`) };
+  }
+  let zapis = diff;
+  if (approval !== undefined) {
+    const auditovany = {
+      ...after,
+      updated: after.updated > approval.at.slice(0, 10) ? after.updated : approval.at.slice(0, 10),
+      timeline: [
+        ...after.timeline,
+        { date: approval.at.slice(0, 10), text: `schválil ${approval.by} — ${diff.reason}` }
+      ]
+    };
+    try {
+      zapis = planWrite(before, auditovany, reason);
+    } catch (e) {
+      return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
+    }
+  }
+  try {
+    applyRecordWrite(cielovy, zapis, approval, dir);
+  } catch (e) {
+    return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  out.push(`Zapísané: ${diff.id}${cielovy !== dir ? ` do ${OFFICE_DIR}/` : ""}${approval ? ` (schválil ${approval.by})` : ""}.`);
+  return { ...ok(out.join(`
+`)), plan };
+}
 function runCli(argv, options = {}) {
   const [cmd, dir, ...rest] = argv;
   const apply = rest.includes("--apply");
@@ -4014,85 +4112,7 @@ ${USAGE}` };
       }
       if (!existsSync3(file))
         return { code: 2, out: `Súbor návrhu neexistuje: ${file}` };
-      let after;
-      try {
-        after = parseRecord(decodeText(readFileSync2(file)));
-      } catch (e) {
-        return { code: 2, out: `Návrh sa nedá prečítať: ${e instanceof Error ? e.message : String(e)}` };
-      }
-      const office = findOfficeDir(dir);
-      const cielovy = after.layer !== "L2" && office && resolve4(office) !== resolve4(dir) ? office : dir;
-      const store = readStore(cielovy);
-      const before = store.records.find((r) => r.id === after.id);
-      if (before && before.created !== after.created) {
-        const prefix = after.id.replace(/\d+$/, "");
-        const max = store.records.filter((r) => r.id.startsWith(prefix)).reduce((m, r) => Math.max(m, Number(r.id.slice(prefix.length)) || 0), 0);
-        const volne = `${prefix}${String(max + 1).padStart(3, "0")}`;
-        return {
-          code: 1,
-          out: `ODMIETNUTÉ: identifikátor ${after.id} už v ${cielovy === dir ? "spise" : OFFICE_DIR + "/"} ` + `patrí inému záznamu („${before.title}", založený ${before.created}). ` + `Voľné je ${volne} — prečísluj návrh aj odkazy naň.`
-        };
-      }
-      if (before && expectedRevision === undefined) {
-        return { code: 1, out: `ODMIETNUTÉ: úprava ${after.id} vyžaduje --if-revision <SHA256 z read>. Načítaj záznam a priprav návrh z jeho aktuálneho stavu.` };
-      }
-      if (expectedRevision !== undefined && (!before || revisionHash(before) !== expectedRevision)) {
-        return { code: 1, out: `ODMIETNUTÉ: revízia ${after.id} sa nezhoduje alebo záznam už neexistuje. Načítaj ho znova, zosúlaď zmeny a priprav nový návrh; neopakuj starý zápis.` };
-      }
-      let diff;
-      try {
-        assertHasSource(after);
-        diff = planWrite(before, after, reason);
-      } catch (e) {
-        return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
-      }
-      const out = [
-        `${nadpisZapisu(diff.kind)} ${diff.id} (${after.type}, ${diff.layer})`,
-        `Dôvod: ${diff.reason}`,
-        "",
-        ...diff.lines,
-        ""
-      ];
-      if (cielovy !== dir)
-        out.push(`Cieľ: ${OFFICE_DIR}/ — vrstva ${diff.layer} patrí kancelárii, nie spisu.`, "");
-      if (after.layer !== "L2" && !office)
-        out.push(`Upozornenie: nad spisom sa nenašla kancelária (${OFFICE_DIR}/) — vrstva ${after.layer} ostáva v spise.`, "");
-      const trvale = approveAs === undefined ? standingApproval(dir, diff) : undefined;
-      const approval = approveAs !== undefined ? { by: approveAs, at: new Date().toISOString() } : trvale;
-      if (!apply) {
-        out.push(!diff.requiresApproval ? "dry-run: nič sa nezapísalo. Zapíš s --apply." : trvale !== undefined ? `dry-run: zápis do vrstvy ${diff.layer} kryje trvalé poverenie ` + `(${trvale.by}). Zapíš s --apply.` : `dry-run: zápis do vrstvy ${diff.layer} vyžaduje schválenie človekom. ` + `Zapíš s --apply --approve-as "<meno>".`);
-        return ok(out.join(`
-`));
-      }
-      if (diff.requiresApproval && approval === undefined) {
-        out.push(`ODMIETNUTÉ: zápis do vrstvy ${diff.layer} vyžaduje --approve-as "<meno advokáta>" ` + `alebo trvalé poverenie v ${OFFICE_DIR}/${CONFIG_FILE}. ` + `Meno zadáva človek, agent si ho nekonštruuje sám.`);
-        return { code: 1, out: out.join(`
-`) };
-      }
-      let zapis = diff;
-      if (approval !== undefined) {
-        const auditovany = {
-          ...after,
-          updated: after.updated > approval.at.slice(0, 10) ? after.updated : approval.at.slice(0, 10),
-          timeline: [
-            ...after.timeline,
-            { date: approval.at.slice(0, 10), text: `schválil ${approval.by} — ${diff.reason}` }
-          ]
-        };
-        try {
-          zapis = planWrite(before, auditovany, reason);
-        } catch (e) {
-          return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
-        }
-      }
-      try {
-        applyRecordWrite(cielovy, zapis, approval, dir);
-      } catch (e) {
-        return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
-      }
-      out.push(`Zapísané: ${diff.id}${cielovy !== dir ? ` do ${OFFICE_DIR}/` : ""}${approval ? ` (schválil ${approval.by})` : ""}.`);
-      return ok(out.join(`
-`));
+      return writeRecord(dir, decodeText(readFileSync2(file)), { reason, approveAs, expectedRevision, apply });
     }
     case "init": {
       const zKarty = jurisdictionFromCard(dir);

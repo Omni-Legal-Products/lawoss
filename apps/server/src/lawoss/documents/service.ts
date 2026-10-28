@@ -106,7 +106,10 @@ export class LawossDocuments {
     if (!linked && !within(root, absolute)) throw new ApiError(403, "document_path", "Document is outside this workspace.");
     if (inNestedClient(absolute)) throw nestedClient();
     const info = await stat(absolute);
-    if (!info.isFile() || info.size > LIMIT.bytes) throw new ApiError(400, "document_size", "Document exceeds 64 MiB.");
+    // N-A7-5: priečinok nie je „príliš veľký dokument“; model má vypísať jeho súbory a pripraviť každý zvlášť.
+    if (info.isDirectory()) throw new ApiError(400, "document_not_file", "This path is a folder, not a file. Nothing was read. List the folder's files and prepare each file you need.");
+    if (!info.isFile()) throw new ApiError(400, "document_not_file", "This path is not a regular file. Nothing was read. Prepare a regular file instead.");
+    if (info.size > LIMIT.bytes) throw new ApiError(400, "document_size", "Document exceeds 64 MiB.");
     if (info.size > availableBytes) throw new ApiError(429, "document_queue_bytes", "Queued documents exceed 128 MiB; narrow the batch.");
     const bytes = await readFile(absolute);
     if (bytes.length > availableBytes) throw new ApiError(429, "document_queue_bytes", "Queued documents exceed 128 MiB; narrow the batch.");

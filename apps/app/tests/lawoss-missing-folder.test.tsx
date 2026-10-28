@@ -3,7 +3,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { LegalworkServerError } from "../src/app/lib/legalwork-server";
 import { readWorkspaceMemory, type OkfReadClient } from "../src/lawoss/okf/read-model";
-import { missingFolderAlternatives, switchToWorkspace, unavailableWorkspace } from "../src/lawoss/okf/missing-folder";
+import { missingFolderAlternatives, switchToWorkspace, unavailableWorkspace, unavailableWorkspaceIds } from "../src/lawoss/okf/missing-folder";
+import { movedClientChoice, reconnectMovedFolder, withReconnectedPaths, type MovedClientChoice, type MovedFolderPreview } from "../src/lawoss/okf/moved-folder";
+import type { OnboardingApplyResult } from "../src/lawoss/domains/onboarding/api";
+import { movedClientActions, onboardingErrorMessage } from "../src/lawoss/domains/onboarding/onboarding-errors";
+import { BatchView } from "../src/lawoss/domains/onboarding/found-screen";
+import { addMovedAsNew, linkMovedItem, type BatchItem } from "../src/lawoss/domains/onboarding/found-flow";
+import { foundText } from "../src/lawoss/domains/onboarding/found-text";
+import { PracticeMoveNoticeView } from "../src/lawoss/domains/practice-move-notice";
 import { MissingFolderView } from "../src/lawoss/domains/missing-folder";
 import { OkfPageState } from "../src/lawoss/domains/okf-page";
 import { ADD_FOLDER_PATH } from "../src/lawoss/lite/links";
@@ -92,5 +99,101 @@ describe("prepnutie na iný priečinok (review 6d: zapojenie)", () => {
       expect(await switchToWorkspace(async () => { throw new Error("engine"); }, { id: "ws-new", path: "/x" }, events)).toBe(false);
     } finally { warn.mockRestore(); }
     expect(reloaded).toBe(false);
+  });
+});
+
+// N-A7-1 (test A10, 28. 10. 2026): premenovaná prax s klientmi C002 a C017.
+describe("presunutá prax: prepojiť, nie pridať znova (N-A7-1)", () => {
+  const practice = "/Users/advokat/Prax/3-neusporiadana-prax";
+  const workspaces = [ws("ws-c002", `${practice}/C002 SYN Hron`), ws("ws-c017", `${practice}/C017 SYN Šimková`), ws("ws-iny", "/Users/advokat/Iný klient")];
+
+  test("„Prepnúť na“ neponúkne klienta, ktorému tiež chýba priečinok", () => {
+    const empty = { ...buildOverview([], "2026-10-28"), truncated: false, inputs: [] };
+    const data = { ...empty, problems: [{ path: "", message: "x", folderUnavailable: "ws-c002" }, { path: "", message: "x", folderUnavailable: "ws-c017" }] };
+    expect([...unavailableWorkspaceIds(data)].sort()).toEqual(["ws-c002", "ws-c017"]);
+    expect(missingFolderAlternatives(workspaces, workspaces[0]!, undefined, unavailableWorkspaceIds(data)).map(item => item.id)).toEqual(["ws-iny"]);
+  });
+
+  test("ponuka Nájsť presunutý priečinok a náhľad s menami pred prepojením", () => {
+    const find = renderToStaticMarkup(<MemoryRouter><MissingFolderView locale="sk" name="C002 SYN Hron" alternatives={[]} busy={false} onSwitch={() => undefined} onFind={() => undefined} /></MemoryRouter>);
+    expect(find).toContain("Nájsť presunutý priečinok");
+    expect(find).toContain("Vybrať iný priečinok");
+    const review = renderToStaticMarkup(<MemoryRouter><MissingFolderView locale="sk" name="C002 SYN Hron" alternatives={[]} busy={false} onSwitch={() => undefined} onFind={() => undefined} review={{ folder: "3-neusporiadana-prax-PREMENOVANA", names: ["C002 SYN Hron", "C017 SYN Šimková"], notFound: ["C030 SYN Iný"] }} /></MemoryRouter>);
+    expect(review).toContain("V priečinku 3-neusporiadana-prax-PREMENOVANA som našiel: C002 SYN Hron, C017 SYN Šimková. Prepojím ich, ich chaty a nastavenia ostanú.");
+    expect(review).toContain("Nenašiel som: C030 SYN Iný. Tie ostanú nedostupné.");
+    expect(review).toContain("Prepojiť");
+    // Počas náhľadu sa neponúka pridanie ani prepnutie.
+    expect(review).not.toContain("Vybrať iný priečinok");
+  });
+
+  test("po potvrdení prepojí len spoznaných klientov s ich id a potom presunie prax", async () => {
+    const renamed = `${practice}-PREMENOVANA`;
+    const preview: MovedFolderPreview = { kind: "practice", previousRoot: practice, folderPath: renamed, notFound: [],
+      matches: [{ workspaceId: "ws-c002", name: "C002", expectedPath: `${practice}/C002 SYN Hron`, folderPath: `${renamed}/C002 SYN Hron`, evidence: "marker" }, { workspaceId: "ws-c017", name: "C017", expectedPath: `${practice}/C017 SYN Šimková`, folderPath: `${renamed}/C017 SYN Šimková`, evidence: "name" }] };
+    const calls: unknown[] = [];
+    const client = {
+      reconnectWorkspace: async (id: string, payload: { folderPath: string; expectedPath: string }) => { calls.push(["reconnect", id, payload.folderPath]); return { workspace: ws(id, payload.folderPath), persisted: true as const }; },
+      lawossMovedFolder: async (path: string, body: unknown) => { calls.push([path, body]); return {}; },
+    };
+    const outcome = await reconnectMovedFolder(client, preview);
+    // Po každom prepojení server presunie povolenie kancelárie, až potom sa dokončí presun praxe.
+    expect(calls).toEqual([["reconnect", "ws-c002", `${renamed}/C002 SYN Hron`], ["reconnected", { workspaceId: "ws-c002" }], ["reconnect", "ws-c017", `${renamed}/C017 SYN Šimková`], ["reconnected", { workspaceId: "ws-c017" }], ["moved-practice", { previousRoot: practice, folderPath: renamed }]]);
+    expect(outcome).toEqual({ reconnected: preview.matches, failed: [] });
+    expect(withReconnectedPaths(workspaces, outcome.reconnected).map(item => [item.id, item.path])).toEqual([["ws-c002", `${renamed}/C002 SYN Hron`], ["ws-c017", `${renamed}/C017 SYN Šimková`], ["ws-iny", "/Users/advokat/Iný klient"]]);
+  });
+
+  test("zlyhané prepojenie jedného klienta nezastaví ostatných a appka ho vymenuje", async () => {
+    const preview: MovedFolderPreview = { kind: "client", previousRoot: "/a/C002", folderPath: "/b/C002", notFound: [], matches: [{ workspaceId: "ws-c002", name: "C002 SYN Hron", expectedPath: "/a/C002", folderPath: "/b/C002", evidence: "marker" }] };
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const client = { reconnectWorkspace: async () => { throw new Error("busy"); }, lawossMovedFolder: async () => { throw new Error("nemá sa volať"); } };
+      expect(await reconnectMovedFolder(client, preview)).toEqual({ reconnected: [], failed: [{ workspaceId: "ws-c002", name: "C002 SYN Hron" }] });
+    } finally { warn.mockRestore(); }
+  });
+
+  test("zhoda len podľa mena: náhľad to povie výslovne", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><MissingFolderView locale="sk" name="C002" alternatives={[]} busy={false} onSwitch={() => undefined} review={{ folder: "Prax", names: ["C002 SYN Hron", "C017 SYN Šimková"], notFound: [], nameOnly: ["C017 SYN Šimková"] }} /></MemoryRouter>);
+    expect(html).toContain("Pri C017 SYN Šimková sa zhoduje len meno priečinka, nie značka LAWOSS. Prepojte ich, len ak ide o toho istého klienta; inak zrušte.");
+  });
+
+  test("Pridať klienta sa pri možno presunutom klientovi opýta a pomenuje, čo sa zhoduje", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const details = { workspaceId: "ws-c002", name: "C002 SYN Hron", expectedPath: `${practice}/C002 SYN Hron`, folderPath: `${practice}-PREMENOVANA/C002 SYN Hron` };
+      const marker = new LegalworkServerError(409, "onboarding_client_moved", "x", { ...details, evidence: "marker" });
+      expect(movedClientChoice(marker)).toEqual({ ...details, evidence: "marker" });
+      expect(onboardingErrorMessage(marker, "sk")).toBe("Tento priečinok môže patriť klientovi „C002 SYN Hron“, ktorý už v LAWOSS je, len sa nenašiel jeho priečinok. Priečinok nesie značku LAWOSS s pôvodným umiestnením tohto klienta. Je to ten istý klient?");
+      const nameOnly = new LegalworkServerError(409, "onboarding_client_moved", "x", { ...details, evidence: "name" });
+      expect(onboardingErrorMessage(nameOnly, "sk")).toContain("Zhoduje sa však len meno, môže ísť aj o iného klienta s rovnakým menom.");
+      expect(movedClientActions("sk")).toEqual({ link: "Prepojiť", addNew: "Pridať ako nového" });
+      expect(movedClientChoice(new LegalworkServerError(409, "onboarding_client_nested", "x", details))).toBeUndefined();
+    } finally { warn.mockRestore(); }
+  });
+
+  test("dávka praxe: otázka s Prepojiť / Pridať ako nového; Pridať ako nového pošle potvrdenie, Prepojiť zachová id", async () => {
+    const root = `${practice}-PREMENOVANA/C002 SYN Hron`;
+    const moved: MovedClientChoice = { workspaceId: "ws-c002", name: "C002 SYN Hron", expectedPath: `${practice}/C002 SYN Hron`, folderPath: root, evidence: "name" };
+    const items: BatchItem[] = [{ root, name: "C002 SYN Hron", status: "failed", error: "otázka", moved }, { root: "/x/C022", name: "C022", status: "done" }];
+    const html = renderToStaticMarkup(<BatchView text={foundText("sk")} busy={false} items={items} onRetry={() => undefined} onContinue={() => undefined} moved={{ labels: movedClientActions("sk"), onLink: () => undefined, onAddNew: () => undefined }} />);
+    expect(html).toContain("Prepojiť");
+    expect(html).toContain("Pridať ako nového");
+    const planned: unknown[] = [];
+    const api = {
+      planOnboarding: async (request: unknown) => { planned.push(request); return { id: "p", fingerprint: "f", preview: {} }; },
+      applyOnboarding: async (): Promise<OnboardingApplyResult> => ({ result: "applied", workspace: { id: "ws-new", path: root } }),
+      updateOnboardingProfile: async () => { throw new Error("nemá sa volať"); },
+    };
+    const added = await addMovedAsNew(api, items, root, { lawyerName: "SYN", jurisdiction: "sk", language: "sk" }, new Date(2026, 9, 28), String);
+    expect(planned).toEqual([expect.objectContaining({ action: "existing", root, confirmNewClient: true })]);
+    expect(added.map(item => item.status)).toEqual(["done", "done"]);
+    const linked = await linkMovedItem(items, root, async (choice) => ({ id: choice.workspaceId, path: choice.folderPath, name: choice.name }), String);
+    expect(linked[0]).toMatchObject({ status: "done", result: { workspace: { id: "ws-c002", path: root } } });
+    expect(linked[1]).toBe(items[1]!);
+  });
+
+  test("nedokončený presun praxe: ponuka Dokončiť presun praxe", () => {
+    const html = renderToStaticMarkup(<PracticeMoveNoticeView locale="sk" folder="3-neusporiadana-prax-PREMENOVANA" busy={false} failed={false} onFinish={() => undefined} />);
+    expect(html).toContain("Prax sa presunula do priečinka 3-neusporiadana-prax-PREMENOVANA.");
+    expect(html).toContain("Dokončiť presun praxe");
   });
 });
