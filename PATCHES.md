@@ -2,12 +2,11 @@
 
 ## Správa z frontu po reštarte appky (2026-10-28, N-A7-17)
 
-Úplný UI test dev `f8acb4bd` (28. 10. 2026), J2: správa čakajúca vo fronte počas behu sa po reštarte servera doručila sama (`SessionMessageQueue.tick`), bez požiadavky advokáta. Pôvod chatu pre nástroje (`grantWikiAgentSession`) žije len v pamäti procesu a zapisoval sa iba pri `POST …/queue`, preto nástroje doručeného ťahu dostali 403 `wiki_agent_session_unknown` a model advokátovi hlásil „chybu 403“. Regresia v `apps/server/src/lawoss/queue-restart-agent-access.e2e.test.ts`.
+Úplný UI test dev `f8acb4bd` (28. 10. 2026), J2: správa čakajúca vo fronte počas behu sa po reštarte servera doručila sama (`SessionMessageQueue.tick`), bez požiadavky advokáta. Pôvod chatu pre nástroje (`grantWikiAgentSession`) žije len v pamäti procesu a zapisuje sa pri `POST …/queue`, preto nástroje doručeného ťahu dostali 403 `wiki_agent_session_unknown` a model advokátovi hlásil „chybu 403“. Regresia v `apps/server/src/lawoss/queue-restart-agent-access.e2e.test.ts`.
 
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
-| `packages/types/src/session-queue.ts`, `apps/server/src/session-message-queue.ts` | Položka frontu má voliteľné `wikiScope`. Zapíše ho server pri zaradení alebo úprave správy z overenej osoby (`act(…, wikiScope)`); akcia z požiadavky ho nenesie. Staré súbory bez neho fungujú ako doteraz. |
-| `apps/server/src/routes/sessions.ts` | `grantQueueOrigin` (spoločné pre `POST …/queue` a doručenie). Doručenie mimo chráneného behu pred `session.prompt` znova overí chat voči aktuálnemu priečinku klienta (`queueSession`) a zapíše jeho pôvod so zaznamenaným `wikiScope`, rovnako ako naplánované úlohy s `task.wikiScope`. Zlyhanie je chyba prípravy (správa sa neodošle). |
+| `apps/server/src/session-message-queue.ts` | `load()`: front obnovený po reštarte s čakajúcou správou (`queued`) sa pozastaví (`pauseReason: "stop"`) a sám nič nedoručí. Advokát vidí „Front je pozastavený“ s tlačidlom „Obnoviť front“; to alebo jeho ďalšia správa v chate (`POST …/queue`) zaregistruje chat s jeho rozsahom a až potom sa správa doručí. Doručenie na pozadí tak nepripne proces enginu ku klientovi (`clientRoot`) ani nezníži `credentialScope`. Už pozastavený front a položky `uncertain` sa správajú ako doteraz. |
 | `apps/server/src/wiki/agent-access.ts` | Neznámy chat dostane namiesto „Run this task through an authenticated LegalWork session before accessing wikis.“ vetu `CHAT_NOT_REGISTERED` pre model: úlohu zastaviť a advokátovi povedať v jeho jazyku, bez kódov, že po reštarte ju treba poslať znova. Kód chyby ostáva. |
 
 ## Čítanie pamäte spisu bez karty (2026-10-23)
