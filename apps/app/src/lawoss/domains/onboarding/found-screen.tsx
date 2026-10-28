@@ -56,10 +56,16 @@ const LEVEL_KEY: Record<FoundLevel, ProposalKey> = { client: "clientFound", prac
 /**
  * Veta nad voľbou „Toto je“ nasleduje zvolenú úroveň (MČ 19. 10. 2026); návrh určuje len predvoľbu.
  * Kým advokát voľbu nezmení, ostáva veta návrhu (aj „Môže to byť jeden klient…“ či „Neviem s istotou…“).
+ * Pri „Celá prax“ počíta klientov z `practiceView`, teda tých istých, ktorých ukáže strom a výber (N-A7-2: sprievodca
+ * dával vete pôvodný návrh klienta bez klientov a veta tvrdila „nenašiel som“ nad stromom s klientom C001).
  */
-export function headline(text: Text, suggestion: OnboardingSuggestion, level: FoundLevel): string {
+export function headline(text: Text, proposed: OnboardingSuggestion, level: FoundLevel): string {
+  const suggestion = level === "practice" ? practiceView(proposed) : proposed;
   if (level === "practice" && suggestion.clients.length === 0) return text("practiceNoClients");
-  const proposal = foundProposal(suggestion);
+  const proposal = foundProposal(proposed);
+  const [only] = suggestion.clients;
+  // Jeden klient: veta ho menuje, nie „1 klientov“ (meno končiace bodkou nedostane druhú).
+  if (level === "practice" && suggestion.clients.length === 1 && only) return text("practiceFoundOne", { name: clientName(only).replace(/\.$/, "") });
   return text(level === proposal.level ? proposal.key : LEVEL_KEY[level], { count: suggestion.clients.length, name: level === "matter" ? folderName(suggestion.root) : rootClientName(suggestion) });
 }
 

@@ -297,3 +297,39 @@ describe("drobnosti z review 6c", () => {
     expect(log).toEqual(["start", "work", "end", "start", "fail:x", "end"]);
   });
 });
+
+describe("priečinok s jedným klientom, ručne „Celá prax“ (N-A7-2, test 28. 10. 2026)", () => {
+  // Strom ako v teste A3: koreň obsahuje len „C001 …/“ s prípadmi M001–M003; návrh je klient s neistotou.
+  const C001 = "C001 SYN Tatran Automatika, s. r. o.";
+  const proposed = base({ root: "/Users/advokat/Prax/2-jeden-klient", level: "client", score: 0.5, signals: ["plain_directories"], clients: [], practiceCandidates: [{ path: C001, name: C001 }], practicePattern: "*" });
+  test("veta sprievodcu (pôvodný návrh) aj bočného panela sedí so stromom: jeden klient, nie „nenašiel som“", async () => {
+    const { headline, FoundView: View } = await import("../src/lawoss/domains/onboarding/found-screen");
+    const { practiceView } = await import("../src/lawoss/domains/onboarding/found-flow");
+    const expected = "Vyzerá to ako celá prax s jedným klientom: C001 SYN Tatran Automatika, s. r. o.";
+    // Sprievodca volá vetu s pôvodným návrhom (klienti []), strom dostane `practiceView`.
+    expect(headline(foundText("sk"), proposed, "practice")).toBe(expected);
+    expect(headline(foundText("sk"), practiceView(proposed), "practice")).toBe(expected);
+    const html = renderToStaticMarkup(<View {...props} suggestion={proposed} level="practice" selected={[C001]} />);
+    expect(html).toContain(expected);
+    expect(html).not.toContain("nenašiel priečinky klientov");
+    expect(html).not.toContain("1 klientov");
+    expect(html).not.toContain("Bez priečinkov klientov");
+  });
+  test("veta pre jedného klienta vo všetkých jazykoch, bez dvojitej bodky", async () => {
+    const { headline } = await import("../src/lawoss/domains/onboarding/found-screen");
+    expect(headline(foundText("cs"), proposed, "practice")).toBe("Vypadá to jako celá praxe s jedním klientem: C001 SYN Tatran Automatika, s. r. o.");
+    expect(headline(foundText("en"), proposed, "practice")).toBe("This looks like a whole practice with one client: C001 SYN Tatran Automatika, s. r. o.");
+    expect(headline(foundText("de"), proposed, "practice")).toBe("Das sieht aus wie eine ganze Kanzlei mit einem Mandanten: C001 SYN Tatran Automatika, s. r. o.");
+    // Názov z karty má prednosť pred menom priečinka (ako strom).
+    const titled = base({ ...proposed, practiceCandidates: [{ path: C001, name: C001, title: "Tatran Automatika" }] });
+    expect(headline(foundText("sk"), titled, "practice")).toBe("Vyzerá to ako celá prax s jedným klientom: Tatran Automatika.");
+  });
+  test("bez kandidátov ostáva „nenašiel som“; dvaja a viac klientov ostávajú pri počte", async () => {
+    const { headline } = await import("../src/lawoss/domains/onboarding/found-screen");
+    expect(headline(foundText("sk"), base({ ...proposed, practiceCandidates: [] }), "practice")).toBe("V priečinku som nenašiel priečinky klientov.");
+    const two = base({ ...proposed, practiceCandidates: [{ path: "A", name: "A" }, { path: "B", name: "B" }] });
+    expect(headline(foundText("sk"), two, "practice")).toBe("Vyzerá to ako celá prax: 2 klientov.");
+    // Pôvodná voľba „Klient“ ostáva pri vete návrhu.
+    expect(headline(foundText("sk"), proposed, "client")).toBe("Neviem s istotou, čo tento priečinok je.");
+  });
+});
