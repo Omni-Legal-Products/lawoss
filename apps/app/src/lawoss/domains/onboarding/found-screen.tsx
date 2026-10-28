@@ -7,7 +7,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { toggledLeave, triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { friendlyError, TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
-import { addOkfFiles, answerClient, batchOffersChat, chatTarget, childPath, clientName, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientName, matterClientPath, createReorganizeFlow, nestedClientWarnings, nestedInClient, practiceView, retryFailed, rootClientName, workspaceResults, type Answer, type BatchItem, type FoundIdentity } from "./found-flow";
+import { addOkfFiles, answerClient, batchOffersChat, chatTarget, childPath, clientName, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientName, matterClientPath, createReorganizeFlow, nestedClientWarnings, nestedClientWarningText, nestedInClient, practiceView, retryFailed, rootClientName, workspaceResults, type Answer, type BatchItem, type FoundIdentity } from "./found-flow";
 import { clientChatPrompt, type ClientChatOutcome, type ClientChatRequest, type ClientChatUnavailable } from "./client-chat";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
@@ -119,7 +119,7 @@ export function FoundView({ text, busy, suggestion: proposed, level, scope, sele
       {!suggestion.complete ? <p className="lw-status warn">{text("incomplete")}</p> : null}
       {/* Zápis do zdieľaného alebo cloudového priečinka uvidia aj iní; upozornenie raz, pred odpoveďami (MČ 19. 10.). */}
       {cloud ? <p className="lw-status warn">{text(cloud === "shared" ? "cloudShared" : "cloudSynced")}</p> : null}
-      {nestedWarnings.map(({ client, names }) => <p key={client} className="lw-status warn">{text("nestedClientsWarn", { client, names: names.join(", ") })}</p>)}
+      {nestedWarnings.map((warning) => <p key={warning.key} className="lw-status warn">{nestedClientWarningText(text, warning)}</p>)}
       <label className="grid gap-1.5 text-sm font-medium">
         {text("correctLabel")}
         <select className="lw-onb-select" value={level} disabled={busy} onChange={(event) => { const value = event.target.value; if (value === "practice" || value === "client" || value === "matter") onLevel(value); }}>

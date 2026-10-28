@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { OnboardingSuggestion } from "../src/lawoss/domains/onboarding/api";
 import { FoundView, foundProposal, headline } from "../src/lawoss/domains/onboarding/found-screen";
-import { nestedClientWarnings, nestedInClient } from "../src/lawoss/domains/onboarding/found-flow";
+import { nestedClientWarningText, nestedClientWarnings, nestedInClient } from "../src/lawoss/domains/onboarding/found-flow";
 import { foundText } from "../src/lawoss/domains/onboarding/found-text";
 import { WizardFoundView } from "../src/lawoss/domains/onboarding/wizard/found-step";
 import { wizardText } from "../src/lawoss/domains/onboarding/wizard/wizard-text";
@@ -29,7 +29,7 @@ describe("klient s priečinkom ďalšieho klienta: upozornenie pred pripojením"
       root: "/Users/advokat/Prax", level: "practice", signals: ["coded_hierarchy"], clients: [{ path: "C030 SYN Vonkajsi klient", name: "C030 SYN Vonkajsi klient" }, { path: "C031 Iny", name: "C031 Iny" }],
       units: [{ path: "C030 SYN Vonkajsi klient", matters: [], matterCount: 0, files: 2, exact: true, nestedClients: [{ path: "C099 SYN Vnoreny klient", name: "C099 SYN Vnoreny klient" }] }, { path: "C031 Iny", matters: [], matterCount: 0, files: 1, exact: true, nestedClients: [] }],
     });
-    expect(nestedClientWarnings(practice, "practice")).toEqual([{ client: "C030 SYN Vonkajsi klient", names: ["C099 SYN Vnoreny klient"] }]);
+    expect(nestedClientWarnings(practice, "practice")).toEqual([{ key: "C030 SYN Vonkajsi klient", client: "C030 SYN Vonkajsi klient", names: ["C099 SYN Vnoreny klient"] }]);
     expect(renderToStaticMarkup(<WizardFoundView {...wizard} suggestion={practice} headline="h" level="practice" />)).toContain(warning);
   });
   test("bez takého priečinka (aj zo staršieho servera bez poľa) nič", () => {
@@ -37,13 +37,37 @@ describe("klient s priečinkom ďalšieho klienta: upozornenie pred pripojením"
     expect(nestedClientWarnings(plain, "client")).toEqual([]);
     expect(renderToStaticMarkup(<FoundView {...props} suggestion={plain} level="client" />)).not.toContain("vyzerá ako iný klient");
   });
-  test("text vo všetkých jazykoch nesie meno klienta aj priečinka", () => {
+  test("text vo všetkých jazykoch nesie meno klienta aj priečinka, pri viacerých menách v množnom čísle (review #294)", () => {
     for (const locale of ["sk", "cs", "en", "de"] as const) {
-      const sentence = foundText(locale)("nestedClientsWarn", { client: "C030 X", names: "C099 Y" });
-      expect(sentence).toContain("C030 X");
-      expect(sentence).toContain("C099 Y");
-      expect(sentence).not.toContain("{");
+      for (const names of [["C099 Y"], ["C098 Z", "C099 Y"]]) {
+        const sentence = nestedClientWarningText(foundText(locale), { key: "k", client: "C030 X", names });
+        expect(sentence).toContain("C030 X");
+        expect(sentence).toContain(names.join(", "));
+        expect(sentence).not.toContain("{");
+      }
     }
+    expect(nestedClientWarningText(foundText("sk"), { key: "k", client: "C030 X", names: ["C098 Z", "C099 Y"] })).toBe("V priečinku klienta C030 X sú priečinky, ktoré vyzerajú ako iní klienti: C098 Z, C099 Y. Prípadmi nie sú, ale agent klienta C030 X uvidí aj ich súbory.");
+    expect(nestedClientWarningText(foundText("cs"), { key: "k", client: "C030 X", names: ["C098 Z", "C099 Y"] })).toContain("jsou složky, které vypadají jako jiní klienti");
+  });
+  test("dvaja klienti praxe s rovnakým menom dostanú rôzne kľúče (cesta), obe upozornenia sa zobrazia", () => {
+    const nested = [{ path: "C099 X", name: "C099 X" }];
+    const practice = base({
+      root: "/Users/advokat/Prax", level: "practice", signals: ["letter_buckets"], clients: [{ path: "A/C030 Novak", name: "C030 Novak" }, { path: "B/C030 Novak", name: "C030 Novak" }],
+      units: [{ path: "A/C030 Novak", matters: [], matterCount: 0, files: 1, exact: true, nestedClients: nested }, { path: "B/C030 Novak", matters: [], matterCount: 0, files: 1, exact: true, nestedClients: nested }],
+    });
+    expect(nestedClientWarnings(practice, "practice").map(warning => warning.key)).toEqual(["A/C030 Novak", "B/C030 Novak"]);
+    const html = renderToStaticMarkup(<FoundView {...props} suggestion={practice} level="practice" />);
+    expect(html.split("V priečinku klienta C030 Novak je priečinok")).toHaveLength(3);
+  });
+  test("návrh praxe ručne prepnutý na Klient upozorní na klientov v koreni (review #294)", () => {
+    const practice = base({
+      root: "/Users/advokat/Prax", level: "practice", signals: ["coded_hierarchy"], clients: [{ path: "C030 Alfa", name: "C030 Alfa", title: "Alfa s. r. o." }, { path: "C031 Beta", name: "C031 Beta" }],
+      units: [{ path: "", matters: [], matterCount: 0, files: 0, exact: true, nestedClients: [{ path: "Novak Jan", name: "Novak Jan" }] }],
+    });
+    expect(nestedClientWarnings(practice, "client")).toEqual([{ key: "/Users/advokat/Prax", client: "Prax", names: ["Novak Jan", "Alfa s. r. o.", "C031 Beta"] }]);
+    expect(renderToStaticMarkup(<WizardFoundView {...wizard} suggestion={practice} headline="h" level="client" />)).toContain("V priečinku klienta Prax sú priečinky, ktoré vyzerajú ako iní klienti: Novak Jan, Alfa s. r. o., C031 Beta.");
+    // Pri voľbe Celá prax sa koreň neupozorňuje (klienti sú klientmi praxe).
+    expect(nestedClientWarnings(practice, "practice")).toEqual([]);
   });
 });
 

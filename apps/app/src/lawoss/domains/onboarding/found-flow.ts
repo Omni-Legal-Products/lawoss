@@ -45,18 +45,31 @@ export function nestedInClient(suggestion: { root: string; marked: boolean }): b
   return !suggestion.marked && nestedClientCode(folderName(parentPath(suggestion.root)), folderName(suggestion.root));
 }
 
+/** Upozornenie na priečinky ďalších klientov v pripájanom klientovi; `key` je cesta (mená klientov sa môžu opakovať). */
+export type NestedClientWarning = { key: string; client: string; names: string[] };
+
 /**
  * N-A7-3: pripájaní klienti, v ktorých priečinku je priečinok ďalšieho klienta (kód iného klienta alebo karta klienta).
  * Pri klientovi koreň, pri praxi každý jej klient. Agent klienta by súbory toho priečinka videl, preto upozornenie.
+ * Návrh praxe ručne prepnutý na „Klient“: klienti praxe sú tiež priečinkami iných klientov v koreni (review #294).
  */
-export function nestedClientWarnings(suggestion: OnboardingSuggestion, level: "practice" | "client" | "matter"): { client: string; names: string[] }[] {
-  const unitNames = (path: string) => (suggestion.units?.find(unit => unit.path === path)?.nestedClients ?? []).map(nested => nested.name);
+export function nestedClientWarnings(suggestion: OnboardingSuggestion, level: "practice" | "client" | "matter"): NestedClientWarning[] {
+  const nestedOf = (path: string) => suggestion.units?.find(unit => unit.path === path)?.nestedClients ?? [];
   if (level === "client") {
-    const names = unitNames("");
-    return names.length ? [{ client: rootClientName(suggestion), names }] : [];
+    const found = new Map<string, string>(nestedOf("").map(nested => [nested.path, nested.name]));
+    if (suggestion.level === "practice") for (const client of suggestion.clients) found.set(client.path, clientName(client));
+    return found.size ? [{ key: suggestion.root, client: rootClientName(suggestion), names: [...found.values()] }] : [];
   }
   if (level !== "practice") return [];
-  return suggestion.clients.flatMap(client => { const names = unitNames(client.path); return names.length ? [{ client: clientName(client), names }] : []; });
+  return suggestion.clients.flatMap(client => {
+    const names = nestedOf(client.path).map(nested => nested.name);
+    return names.length ? [{ key: client.path, client: clientName(client), names }] : [];
+  });
+}
+
+/** Veta upozornenia: jeden priečinok, alebo viac priečinkov (tvar množného čísla). */
+export function nestedClientWarningText(text: (key: "nestedClientsWarn" | "nestedClientsWarnMany", params: Record<string, string>) => string, warning: NestedClientWarning): string {
+  return text(warning.names.length === 1 ? "nestedClientsWarn" : "nestedClientsWarnMany", { client: warning.client, names: warning.names.join(", ") });
 }
 
 /** Meno klienta pre advokáta (N-A4-2): názov z karty ako v bočnom paneli, inak meno priečinka. */

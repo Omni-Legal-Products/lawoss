@@ -7,7 +7,7 @@
 import { useId, type ReactNode } from "react";
 import { Briefcase, Check, CircleAlert, FilePlus2, FileText, Folder, Landmark, ShieldCheck, UserRound } from "lucide-react";
 import type { OnboardingSuggestion, SuggestedClient, SuggestedUnit } from "../api";
-import { childPath, clientName, folderName, matterClientName, nestedClientWarnings, nestedInClient, rootClientName, type BatchItem } from "../found-flow";
+import { childPath, clientName, folderName, matterClientName, nestedClientWarnings, nestedClientWarningText, nestedInClient, rootClientName, type BatchItem } from "../found-flow";
 import type { FoundTextKey } from "../found-text";
 import { OkfNotice } from "../okf-notice";
 import type { ConnectedClient, WizardConnected } from "../onboarding-state";
@@ -255,7 +255,7 @@ export function WizardFoundView({ text, found, busy, suggestion, headline, level
       ) : null}
       <FoundTree text={text} suggestion={suggestion} level={level} scope={scope} selected={selected} busy={busy} onToggle={onToggle} />
       {level === "matter" ? <p className="text-muted-foreground">{nestedInClient(suggestion) ? found("nestedClientHint", { client: matterClientName(suggestion) }) : found("matterHint", { name: matterClientName(suggestion) })}</p> : null}
-      {nestedWarnings.map(({ client, names }) => <p key={client} className="lw-status warn">{found("nestedClientsWarn", { client, names: names.join(", ") })}</p>)}
+      {nestedWarnings.map((warning) => <p key={warning.key} className="lw-status warn">{nestedClientWarningText(found, warning)}</p>)}
       {noClients ? <p className="lw-status warn">{found("noClientsHint")}</p> : null}
       <AddsPanel text={text} found={found} />
       <div className="lw-wiz-actions">
