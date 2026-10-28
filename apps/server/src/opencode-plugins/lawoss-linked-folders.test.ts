@@ -49,6 +49,9 @@ test("chat klienta aj chat prípadu dostanú pripojené priečinky klienta; chat
   expect(a).toContain('<system-reminder topic="linked-folders">');
   expect(a).toContain(`- pripojeny-A: ${linkedA}`);
   expect(a).toContain("lawoss_documents_prepare");
+  // N-A7-5: glob bez cesty hľadá len v koreni klienta; pripomienka hovorí, ako hľadať v pripojenom priečinku.
+  expect(a).toContain("run glob with that folder's absolute path as path");
+  expect(a).toContain("takes file paths only, never a folder");
   expect(a).not.toContain(clientA);
   expect(a).not.toContain(linkedB);
   const matter = await (await chat(matterA)).send("ses_m");
