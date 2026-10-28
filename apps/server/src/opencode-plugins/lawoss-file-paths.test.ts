@@ -20,6 +20,14 @@ test("cesta od koreňa klienta, ktorá začína prípadom, sa nezdvojí", () => 
   expect(chatFilePath("Spisy/M001-uhrada-dodavok-2/x.docx", matter, client)).toBe(join(matter, "Spisy", "M001-uhrada-dodavok-2", "x.docx"));
 });
 
+test("cesta od koreňa klienta sa nezdvojí ani pri inej veľkosti písmen alebo NFD (#223)", () => {
+  const accented = join(client, "Spisy", "M002-úhrada");
+  // Predpona sa nahradí presným zápisom priečinka chatu: na Linuxe by „spisy/m001…“ bol iný priečinok.
+  expect(chatFilePath("spisy/m001-UHRADA-dodavok/01_Podklady/a.docx", matter, client)).toBe(join(matter, "01_Podklady", "a.docx"));
+  expect(chatFilePath("Spisy/M002-úhrada/a.docx".normalize("NFD"), accented, client)).toBe(join(accented, "a.docx"));
+  expect(chatFilePath("Spisy/M002-úhrada-2/a.docx".normalize("NFD"), accented, client)).toBe(join(accented, "Spisy/M002-úhrada-2/a.docx".normalize("NFD")));
+});
+
 test("chat klienta a absolútne cesty sa nemenia", () => {
   expect(chatFilePath("Spisy/M001-uhrada-dodavok/a.docx", client, client)).toBe(join(client, "Spisy", "M001-uhrada-dodavok", "a.docx"));
   const absolute = join("/iny", "a.docx");
