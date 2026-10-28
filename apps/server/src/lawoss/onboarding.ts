@@ -14,7 +14,7 @@ import { registrationName, withClientCardTitles } from "./client-card-title.js";
 import { registerTriageRoutes } from "./triage.js";
 import { readOfficeMemory } from "./office-memory.js";
 import { assertClientFolderNotNested } from "./nested-client.js";
-import { assertClientNotMoved, folderGone, previewMovedFolder, rebaseOfficeGrants } from "./moved-practice.js";
+import { folderGone, inferPracticeMove, movedClientOf, previewMovedFolder, rebaseOfficeGrants, syncOfficeGrant } from "./moved-practice.js";
 import { executeOnboarding, inspectCardLevel, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, suggestOnboardingLevel, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
 
 /** OKF is opt-in; enabling it requires a dated acknowledgement of a versioned notice. */
@@ -55,7 +55,8 @@ const previewSchema = z.looseObject({
   if (value.mode === "map" && (!value.root || value.appFiles !== "outside" || typeof value.sourceDigest !== "string" || !value.externalProfile || typeof value.externalProfile !== "object")) ctx.addIssue({ code: "custom", message: "Invalid map preview." });
   if (value.mode === "trial_clone" && (!value.source || !value.target || value.appFiles !== "inside" || typeof value.sourceDigest !== "string" || value.trial !== true)) ctx.addIssue({ code: "custom", message: "Invalid trial preview." });
 });
-const ticketSchema = z.strictObject({ version: z.literal(1), id: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/), preview: previewSchema, name: z.string(), officeMemoryRoot: z.string().min(1).optional() });
+// `confirmedNewClient`: advokát na otázku „Je to ten istý klient?“ zvolil „Pridať ako nového“ (N-A7-1).
+const ticketSchema = z.strictObject({ version: z.literal(1), id: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/), preview: previewSchema, name: z.string(), officeMemoryRoot: z.string().min(1).optional(), confirmedNewClient: z.literal(true).optional() });
 type Ticket = z.infer<typeof ticketSchema>;
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const inside = (root: string, path: string) => { const rel = relative(root, path); return !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`); };
@@ -69,11 +70,16 @@ function clientFoldersOf(preview: { action: string; mode: string; root?: string;
   const source = preview.mode === "trial_clone" ? preview.source : undefined;
   return [...(registered ? [{ folder: registered, use: "in_place" as const }] : []), ...(source ? [{ folder: source, use: "copy" as const }] : [])];
 }
-const assertClientFolders = async (config: ServerConfig, preview: Parameters<typeof clientFoldersOf>[0]) => {
+/** Akcie, pri ktorých sa registruje klient; vec a subjekt patria existujúcemu klientovi (`clientRoot`). */
+const CREATES_CLIENT = new Set(["client", "existing"]);
+const assertClientFolders = async (config: ServerConfig, preview: Parameters<typeof clientFoldersOf>[0], confirmedNewClient = false) => {
   for (const { folder, use } of clientFoldersOf(preview)) {
     await assertClientFolderNotNested(config, folder, use);
-    // N-A7-1: klient s chýbajúcim priečinkom sa prepojí („Nájsť presunutý priečinok“), nepridá sa druhýkrát.
-    if (use === "in_place") await assertClientNotMoved(config, folder);
+    // N-A7-1: priečinok môže byť zaregistrovaný klient, ktorému len chýba priečinok. Appka sa opýta (Prepojiť /
+    // Pridať ako nového); meno ani značka nie sú dôkaz, preto rozhoduje advokát. Len keď vzniká nový priestor.
+    if (use !== "in_place" || !CREATES_CLIENT.has(preview.action) || confirmedNewClient) continue;
+    const moved = await movedClientOf(config, folder);
+    if (moved) throw new ApiError(409, "onboarding_client_moved", "This folder may belong to a registered client whose folder was not found. Choose whether to reconnect it or add it as a new client. Nothing was changed.", { ...moved, folderPath: folder });
   }
 };
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
@@ -154,7 +160,9 @@ export function registerOnboardingRoutes(options: {
     const profile = await readProfile();
     // Obnova po prerušení (M1): zmiznutý priečinok kroku „Toto som našiel“ appka ohlási a vráti výber priečinka.
     const foundRootMissing = profile?.foundRoot ? await missingDirectory(profile.foundRoot) : false;
-    return { profile, capabilities: { map: true, trialClone: true }, ...(foundRootMissing ? { foundRootMissing: true } : {}) };
+    // N-A7-1: klienti presunutej praxe sú prepojení, ale presun praxe sa nedokončil: appka ponúkne jeho dokončenie.
+    const practiceMove = await inferPracticeMove(config, profile?.officeRoot).catch(() => null);
+    return { profile, capabilities: { map: true, trialClone: true }, ...(foundRootMissing ? { foundRootMissing: true } : {}), ...(practiceMove ? { practiceMove } : {}) };
   });
   // Prehľad praxe (N1, MČ 16. 10. 2026): pamäť kancelárie v koreni praxe číta len hostiteľ, agent ju má cez grant.
   route("GET", "office-memory", async ctx => {
@@ -216,10 +224,13 @@ export function registerOnboardingRoutes(options: {
     const input = z.strictObject({ previousRoot: z.string().min(1).max(4096), folderPath: z.string().min(1).max(4096) }).parse(await body(ctx));
     const change = async () => {
       const previous = await readProfile();
-      if (!previous || previous.officeRoot !== input.previousRoot) throw new ApiError(409, "practice_scope_changed", "The selected practice changed. Refresh the overview.");
-      if (!(await folderGone(input.previousRoot))) throw new ApiError(409, "project_folder_available", "The original practice folder is still present");
       const folder = await canonicalDirectory(input.folderPath);
+      // Opakovanie po čiastočnom zlyhaní: profil už ukazuje na nový koreň, dobehnú len povolenia.
+      const repeated = previous?.officeRoot === folder;
+      if (!previous || (!repeated && previous.officeRoot !== input.previousRoot)) throw new ApiError(409, "practice_scope_changed", "The selected practice changed. Refresh the overview.");
+      if (!(await folderGone(input.previousRoot))) throw new ApiError(409, "project_folder_available", "The original practice folder is still present");
       if ((await inspectCardLevel(folder)).level !== "office") throw new ApiError(409, "moved_folder_not_practice", "The chosen folder is not the moved practice. Nothing was changed.");
+      if (repeated) return { profile: previous, grants: await rebaseOfficeGrants(config, resolve(input.previousRoot), folder) };
       // Uložené priečinky praxe (klient, vec, obnova) sa posunú s praxou; mimo praxe ostanú, ako sú.
       const moved = (path: string | undefined) => path && inside(input.previousRoot, path) ? join(folder, relative(input.previousRoot, path)) : path;
       const profile = profileSchema.parse({ ...previous, officeRoot: folder, clientRoot: moved(previous.clientRoot), subjectRoot: moved(previous.subjectRoot), matterRoot: moved(previous.matterRoot), foundRoot: moved(previous.foundRoot) });
@@ -227,6 +238,11 @@ export function registerOnboardingRoutes(options: {
       return { profile, grants: await rebaseOfficeGrants(config, resolve(input.previousRoot), folder) };
     };
     const pending = profileQueue.then(change); profileQueue = pending.catch(() => undefined); return pending;
+  });
+  // Po každom prepojení klienta (aj samostatnom): stará pamäť kancelárie prestane byť povolená, aktuálna podľa profilu áno.
+  route("POST", "reconnected", async ctx => {
+    const input = z.strictObject({ workspaceId: z.string().min(1).max(200) }).parse(await body(ctx));
+    return { changed: await syncOfficeGrant(config, input.workspaceId, (await readProfile())?.officeRoot) };
   });
   route("POST", "classify", async ctx => {
     const input = z.strictObject({ root: z.string().min(1).max(4096) }).parse(await body(ctx));
@@ -248,7 +264,8 @@ export function registerOnboardingRoutes(options: {
     // The state/journal must never live inside an inspected client or parent.
     const original = preview.mode === "map" ? preview.root : preview.mode === "trial_clone" ? preview.source : preview.plan?.root;
     if (!original || inside(original, storage)) throw new ApiError(400, "invalid_storage", "Application state must be outside the selected source directory.");
-    await assertClientFolders(config, preview);
+    const confirmedNewClient = input.confirmNewClient === true;
+    await assertClientFolders(config, preview, confirmedNewClient);
     await ensureStorage();
     const id = randomUUID();
     const name = typeof input.title === "string" ? input.title : basename(preview.target ?? preview.root ?? original);
@@ -265,7 +282,7 @@ export function registerOnboardingRoutes(options: {
     }
     const confirmedPreview = { ...preview, ...(officeMemoryRoot ? { officeMemoryRoot } : {}) };
     const fingerprint = digest(confirmedPreview);
-    const ticket: Ticket = { version: 1, id, fingerprint, preview: confirmedPreview, name, ...(officeMemoryRoot ? { officeMemoryRoot } : {}) };
+    const ticket: Ticket = { version: 1, id, fingerprint, preview: confirmedPreview, name, ...(officeMemoryRoot ? { officeMemoryRoot } : {}), ...(confirmedNewClient ? { confirmedNewClient } : {}) };
     await writeJson(join(storage, `${id}.json`), ticket);
     return { id, fingerprint, preview: { ...preview, operations: preview.plan?.operations.map(operation => operation.path) ?? [], warnings: preview.mode === "trial_clone" ? ["trial_clone"] : [], label: preview.target ?? preview.root, officeMemoryRoot } };
   });
@@ -279,7 +296,7 @@ export function registerOnboardingRoutes(options: {
       if (ticket.version !== 1 || ticket.id !== input.id || ticket.fingerprint !== input.fingerprint || digest(ticket.preview) !== input.fingerprint || ticket.officeMemoryRoot !== ticket.preview.officeMemoryRoot) throw new ApiError(409, "stale_preview", "Preview fingerprint does not match. Create a new preview.");
       checkpoint("ticket-done");
       // Register klientov sa mohol od náhľadu zmeniť: overí sa znova pred prvým zápisom (N-A3-1).
-      await assertClientFolders(config, ticket.preview);
+      await assertClientFolders(config, ticket.preview, ticket.confirmedNewClient === true);
       const receiptPath = join(storage, `${input.id}.result.json`);
       let result: OnboardingResult;
       let repeated = false;

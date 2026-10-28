@@ -1489,8 +1489,8 @@ Alfa 2, úloha A1 (akceptácia 22. 10. 2026: N-13, N-21, dvojitá karta). Pravid
 
 ### Presunutá prax bez duplicitných klientov (2026-10-28, fix/presunuta-prax-bez-duplicit, N-A7-1)
 
-Nové LAWOSS súbory: `apps/server/src/lawoss/moved-practice.ts` (náhľad prepojenia, presun povolenia kancelárie, odmietnutie duplicitného klienta), `apps/app/src/lawoss/okf/moved-folder.ts`, test `apps/server/src/lawoss/moved-practice.e2e.test.ts`. Prepojenie klientov ide existujúcim upstream `POST /workspace/:id/reconnect` bez zmeny.
+Nové LAWOSS súbory: `apps/server/src/lawoss/moved-practice.ts` (náhľad prepojenia, presun povolenia kancelárie, otázka pri možno presunutom klientovi, odvodenie nedokončeného presunu praxe), `apps/app/src/lawoss/okf/moved-folder.ts`, `apps/app/src/lawoss/domains/practice-move-notice.tsx`, test `apps/server/src/lawoss/moved-practice.e2e.test.ts`. Prepojenie klientov ide existujúcim upstream `POST /workspace/:id/reconnect` bez zmeny.
 
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
-| `apps/app/src/app/lib/legalwork-server.ts` | +1 import typu `MovedFolderApiPath`, +1 metóda `lawossMovedFolder(path, body)` volajúca hostové `/lawoss/onboarding/moved-folder` a `/lawoss/onboarding/moved-practice` (rovnaký `requestJson` a host token ako onboarding). Dôvod: N-A7-1, „Nájsť presunutý priečinok“ na stránke Dnes prepojí klientov presunutej praxe namiesto ich nového pridania. |
+| `apps/app/src/app/lib/legalwork-server.ts` | +1 import typu `MovedFolderApiPath`, +1 metóda `lawossMovedFolder(path, body)` volajúca hostové `/lawoss/onboarding/moved-folder`, `/lawoss/onboarding/moved-practice` a `/lawoss/onboarding/reconnected` (rovnaký `requestJson` a host token ako onboarding). Dôvod: N-A7-1, „Nájsť presunutý priečinok“ na stránke Dnes prepojí klientov presunutej praxe namiesto ich nového pridania. |

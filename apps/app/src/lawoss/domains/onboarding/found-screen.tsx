@@ -7,12 +7,13 @@ import { useLocale } from "@/i18n/use-locale";
 import { toggledLeave, triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { friendlyError, TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
-import { addOkfFiles, answerClient, batchOffersChat, chatTarget, childPath, clientName, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientName, matterClientPath, createReorganizeFlow, practiceView, retryFailed, rootClientName, workspaceResults, type Answer, type BatchItem, type FoundIdentity } from "./found-flow";
+import { addMovedAsNew, addOkfFiles, answerClient, linkMovedItem, batchOffersChat, chatTarget, childPath, clientName, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientName, matterClientPath, createReorganizeFlow, practiceView, retryFailed, rootClientName, workspaceResults, type Answer, type BatchItem, type FoundIdentity } from "./found-flow";
 import { clientChatPrompt, type ClientChatOutcome, type ClientChatRequest, type ClientChatUnavailable } from "./client-chat";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
 import { ScreenHead } from "./folder-step";
-import { onboardingErrorMessage } from "./onboarding-errors";
+import { movedClientActions, onboardingErrorMessage } from "./onboarding-errors";
+import type { MovedClientChoice } from "../../okf/moved-folder";
 export { OkfNotice } from "./okf-notice";
 import type { OnboardingCompletion } from "./lawoss-welcome-page";
 import type { ConnectedClient, FoundChoice, WizardConnected } from "./onboarding-state";
@@ -189,7 +190,10 @@ export function FoundView({ text, busy, suggestion: proposed, level, scope, sele
   );
 }
 
-export function BatchView({ text, busy, items, answer, onRetry, onContinue, onChangeFolder, onChat, continueLabel }: { text: Text; busy: boolean; items: readonly BatchItem[]; answer?: Answer; onRetry: () => void; onContinue: () => void; onChangeFolder?: () => void; onChat?: () => void; /** Sprievodca pokračuje ďalším krokom, nie otvorením appky. */ continueLabel?: string }) {
+/** Otázka „Je to ten istý klient?“ pri položke dávky (N-A7-1); bez `onLink` (bez spojenia so serverom) len „Pridať ako nového“. */
+export type MovedBatchActions = { labels: { link: string; addNew: string }; onLink?: (root: string) => void; onAddNew: (root: string) => void };
+
+export function BatchView({ text, busy, items, answer, onRetry, onContinue, onChangeFolder, onChat, continueLabel, moved }: { text: Text; busy: boolean; items: readonly BatchItem[]; answer?: Answer; onRetry: () => void; onContinue: () => void; onChangeFolder?: () => void; onChat?: () => void; /** Sprievodca pokračuje ďalším krokom, nie otvorením appky. */ continueLabel?: string; moved?: MovedBatchActions }) {
   const done = items.filter(item => item.status === "done").length;
   // Kedy sa chat ponúka, rozhoduje volajúci (`batchOffersChat`); s kým, `chatTarget`.
   const chatWith = onChat ? chatTarget(items) : undefined;
@@ -198,7 +202,15 @@ export function BatchView({ text, busy, items, answer, onRetry, onContinue, onCh
   return (
     <div className="grid gap-3" data-lawoss-batch>
       <p role="status">{pending ? text("working", { done, total: items.length }) : text("batchDone", { done, total: items.length })}</p>
-      {failed.map(item => <p key={item.root} className="lw-status err">{text("batchFailed", { name: item.name.replace(/\.$/, ""), error: item.error ?? "" })}</p>)}
+      {failed.map(item => item.moved && moved ? (
+        <div key={item.root} className="lw-status warn grid gap-2" data-lawoss-moved-client>
+          <p>{text("batchFailed", { name: item.name.replace(/\.$/, ""), error: item.error ?? "" })}</p>
+          <div className="flex flex-wrap gap-2">
+            {moved.onLink ? <button type="button" className="lw-btn gold" disabled={busy} onClick={() => moved.onLink?.(item.root)}>{moved.labels.link}</button> : null}
+            <button type="button" className="lw-btn" disabled={busy} onClick={() => moved.onAddNew(item.root)}>{moved.labels.addNew}</button>
+          </div>
+        </div>
+      ) : <p key={item.root} className="lw-status err">{text("batchFailed", { name: item.name.replace(/\.$/, ""), error: item.error ?? "" })}</p>)}
       {!pending ? (
         <div className="flex gap-2">
           {failed.length ? <button type="button" className="lw-btn" disabled={busy} onClick={onRetry}>{text("retry")}</button> : null}
@@ -295,6 +307,8 @@ type Props = {
    * Bez neho obrazovka chat neponúka. Vráti trasu chatu alebo dôvod, prečo sa neotvoril.
    */
   onOpenChat?: (request: ClientChatRequest) => Promise<ClientChatOutcome>;
+  /** „Prepojiť“ pri otázke „Je to ten istý klient?“ (N-A7-1); bez neho sa ponúka len „Pridať ako nového“. */
+  onLinkMoved?: (choice: MovedClientChoice) => Promise<{ id: string; path: string; name: string }>;
   /**
    * Sprievodca po krokoch (C1): obrazovka len pridá pomocné súbory (prípadne usporiada podľa tabuľky) a namiesto
    * dokončenia onboardingu odovzdá, čo pripojila; chat a prvá úloha sú až v kroku Pripravené. Bez neho ostáva
@@ -340,7 +354,7 @@ type Phase =
   | { name: "reorganizeFailed"; queue: BatchItem[]; message: string; result?: OnboardingApplyResult }
   | { name: "chatUnavailable"; queue: BatchItem[]; reason: ClientChatUnavailable; result?: OnboardingApplyResult };
 
-export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, onDone, onRegister, onChangeFolder, onPickRoot, onError, onClearError, onOpenChat, wizard }: Props) {
+export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, onDone, onRegister, onChangeFolder, onPickRoot, onError, onClearError, onOpenChat, onLinkMoved, wizard }: Props) {
   const locale = useLocale();
   const triageText = useTriageText(locale);
   const [phase, setPhase] = useState<Phase>({ name: "loading" });
@@ -532,7 +546,13 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
       batchClients.current = workspaceResults(phase.items);
       await chat.begin(phase.items.filter(item => item.status === "done"), firstWorkspaceResult(phase.items));
     }) : undefined;
-    return <BatchView text={text} busy={busy} items={phase.items} answer={phase.answer} onRetry={() => void retry()} onContinue={() => void continueBatch()} onChangeFolder={onChangeFolder} onChat={chatBatch ? () => void chatBatch() : undefined} continueLabel={wizard?.text("continue")} />;
+    // N-A7-1: „Je to ten istý klient?“ – Prepojiť zachová id, Pridať ako nového pridá len tento priečinok.
+    const movedActions: MovedBatchActions = {
+      labels: movedClientActions(locale),
+      onLink: onLinkMoved ? (root) => void run(async () => setPhase({ name: "batch", items: await linkMovedItem(phase.items, root, onLinkMoved, describe), answer: phase.answer })) : undefined,
+      onAddNew: (root) => void run(async () => setPhase({ name: "batch", items: await addMovedAsNew(api, phase.items, root, identity, today, describe), answer: phase.answer })),
+    };
+    return <BatchView text={text} busy={busy} items={phase.items} answer={phase.answer} onRetry={() => void retry()} onContinue={() => void continueBatch()} onChangeFolder={onChangeFolder} onChat={chatBatch ? () => void chatBatch() : undefined} continueLabel={wizard?.text("continue")} moved={movedActions} />;
   }
   const [current, ...rest] = phase.queue;
   if (phase.name === "chatUnavailable") {

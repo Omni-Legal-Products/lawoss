@@ -24,7 +24,7 @@ const MAX_ALTERNATIVES = 3;
 const nameOf = (workspace: Workspace): string => workspace.displayNameResolved || workspace.name || workspace.path;
 
 /** Náhľad prepojenia pre advokáta: kam, koho prepojí a koho nenašiel. */
-export type MovedFolderReview = { folder: string; names: readonly string[]; notFound: readonly string[] };
+export type MovedFolderReview = { folder: string; names: readonly string[]; notFound: readonly string[]; /** Spoznaní len podľa mena (bez značky LAWOSS). */ nameOnly?: readonly string[] };
 
 type ViewProps = {
   locale: Language; name: string; alternatives: readonly Choice[]; busy: boolean; failed?: boolean; onSwitch: (id: string) => void;
@@ -39,6 +39,7 @@ export function MissingFolderView({ locale, name, alternatives, busy, failed = f
       {review ? (
         <div className="grid gap-2" data-lawoss-moved-folder-review>
           <p>{t("lawoss.lite.folder_missing_review", locale, { folder: review.folder, names: review.names.join(", ") })}</p>
+          {review.nameOnly?.length ? <p data-lawoss-moved-name-only>{t("lawoss.lite.folder_missing_review_name", locale, { names: review.nameOnly.join(", ") })}</p> : null}
           {review.notFound.length ? <p>{t("lawoss.lite.folder_missing_review_missing", locale, { names: review.notFound.join(", ") })}</p> : null}
           <div className="flex flex-wrap gap-2">
             <button type="button" className="lw-btn gold" disabled={busy} onClick={onConfirm}>{t("lawoss.lite.folder_missing_connect", locale)}</button>
@@ -116,7 +117,7 @@ export function MissingFolder({ connection, missing, unavailable }: { connection
     }
     setBusy(false);
   };
-  const review = preview ? { folder: lastSegment(preview.folderPath), names: preview.matches.map(item => item.name), notFound: preview.notFound.map(item => item.name) } : null;
+  const review = preview ? { folder: lastSegment(preview.folderPath), names: preview.matches.map(item => item.name), notFound: preview.notFound.map(item => item.name), nameOnly: preview.matches.filter(item => item.evidence === "name").map(item => item.name) } : null;
   return <MissingFolderView locale={locale} name={nameOf(missing)} alternatives={alternatives.map(workspace => ({ id: workspace.id, name: nameOf(workspace) }))} busy={busy} failed={failed} onSwitch={(id) => void onSwitch(id)}
     onFind={onFind ? () => void onFind() : undefined} review={review} notice={notice} onConfirm={() => void onConfirm()} onCancel={() => setPreview(null)} />;
 }

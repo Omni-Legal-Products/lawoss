@@ -7,12 +7,14 @@ import { hasLegalForm } from "../../../../../../lawoss/okf/src/onboarding/sugges
 import { triageGrant, triagePlan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { LITE_CLIENTS_PATH } from "../../lite/links";
 import type { OnboardingCompletion } from "./lawoss-welcome-page";
+import { movedClientChoice, type MovedClientChoice } from "../../okf/moved-folder";
 import type { ClientChatOutcome, ClientChatPrompt, ClientChatRequest, ClientChatUnavailable } from "./client-chat";
 import type { DocumentLanguage, ExistingPlanRequest, Jurisdiction, OfficePlanRequest, OnboardingApi, OnboardingApplyResult, OnboardingSuggestion, PracticePlanRequest } from "./api";
 
 export type FoundIdentity = { lawyerName: string; jurisdiction: Jurisdiction; language: Language };
 /** `error` je už veta pre advokáta (DescribeError), nie surová správa servera. */
-export type BatchItem = { root: string; name: string; status: "pending" | "done" | "failed"; error?: string; result?: OnboardingApplyResult };
+/** `moved`: priečinok môže byť zaregistrovaný klient s chýbajúcim priečinkom; advokát zvolí Prepojiť alebo Pridať ako nového (N-A7-1). */
+export type BatchItem = { root: string; name: string; status: "pending" | "done" | "failed"; error?: string; result?: OnboardingApplyResult; moved?: MovedClientChoice };
 type FlowApi = Pick<OnboardingApi, "planOnboarding" | "applyOnboarding" | "updateOnboardingProfile">;
 
 const separatorOf = (root: string) => (root.includes("\\") && !root.includes("/") ? "\\" : "/");
@@ -113,16 +115,37 @@ export function practiceRequest(root: string, identity: FoundIdentity, suggestio
 /** Chyba klienta ako veta pre advokáta v jazyku rozhrania (volajúci zapíše surovú správu do konzoly). */
 export type DescribeError = (reason: unknown) => string;
 
-async function convertOne(api: FlowApi, item: { root: string; name: string }, identity: FoundIdentity, today: Date, describe: DescribeError): Promise<BatchItem> {
+async function convertOne(api: FlowApi, item: { root: string; name: string }, identity: FoundIdentity, today: Date, describe: DescribeError, confirmNewClient = false): Promise<BatchItem> {
   try {
-    const preview = await api.planOnboarding(convertRequest(item.root, identity, today));
+    const request = convertRequest(item.root, identity, today);
+    const preview = await api.planOnboarding(confirmNewClient ? { ...request, confirmNewClient } : request);
     const result = await api.applyOnboarding({ id: preview.id, fingerprint: preview.fingerprint, confirm: true });
     // N-A4-2: ďalej (krok Pripravené, chat a jeho prvá správa) platí meno, pod ktorým server klienta zaregistroval
     // (názov z karty alebo meno zadané skôr), teda to isté, ktoré ukáže bočný panel.
     return { ...item, name: registeredName(item, result.workspace), status: "done", result };
   } catch (reason) {
-    return { ...item, status: "failed", error: describe(reason) };
+    const moved = movedClientChoice(reason);
+    return { ...item, status: "failed", error: describe(reason), ...(moved ? { moved } : {}) };
   }
+}
+
+/** „Pridať ako nového“ pri otázke „Je to ten istý klient?“: pridá len tento priečinok, ostatné položky ostanú. */
+export async function addMovedAsNew(api: FlowApi, items: readonly BatchItem[], root: string, identity: FoundIdentity, today: Date, describe: DescribeError): Promise<BatchItem[]> {
+  return Promise.all(items.map(item => item.root === root && item.moved ? convertOne(api, { root: item.root, name: item.name }, identity, today, describe, true) : item));
+}
+
+/**
+ * „Prepojiť“: zaregistrovaný klient dostane tento priečinok (rovnaké id, chaty a nastavenia). Položka je potom hotová
+ * s výsledkom ako po pridaní, aby sa ďalej (výber v paneli, chat) správala ako ostatní klienti dávky.
+ */
+export async function linkMovedItem(items: readonly BatchItem[], root: string, link: (choice: MovedClientChoice) => Promise<{ id: string; path: string; name: string }>, describe: DescribeError): Promise<BatchItem[]> {
+  return Promise.all(items.map(async (item): Promise<BatchItem> => {
+    if (item.root !== root || !item.moved) return item;
+    try {
+      const workspace = await link(item.moved);
+      return { root: item.root, name: item.moved.name, status: "done", result: { result: "applied", root: workspace.path, clientRoot: workspace.path, workspace } };
+    } catch (reason) { return { ...item, error: describe(reason) }; }
+  }));
 }
 
 /**

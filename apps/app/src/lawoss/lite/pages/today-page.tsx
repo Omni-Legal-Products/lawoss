@@ -6,6 +6,7 @@ import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { useQuery } from "@tanstack/react-query";
 import { useOptionalLocal } from "@/react-app/kernel/local-provider";
+import { PracticeMoveNotice } from "../../domains/practice-move-notice";
 import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
 import { onboardingIncomplete } from "../../domains/onboarding/resume";
 import { OnboardingResumeCardView } from "../../domains/onboarding/resume-card";
@@ -50,7 +51,8 @@ export function TodayPage() {
   const resume = profile.data && onboardingIncomplete(profile.data, local?.prefs.hasCompletedOnboarding ?? false)
     ? <OnboardingResumeCardView locale={locale} />
     : null;
-  return <OkfPage {...litePageProps(locale)} notice={resume}>
+  // N-A7-1: nedokončený presun praxe sa ponúkne dokončiť (klienti sú už prepojení).
+  return <OkfPage {...litePageProps(locale)} notice={<>{resume}<PracticeMoveNotice /></>}>
     {(data, meta, scope) => <TodayLive data={data} meta={meta} scope={scope} locale={locale} name={profile.data?.lawyerName || undefined} />}
   </OkfPage>;
 }
