@@ -2,12 +2,12 @@
 
 ## Karta pred zápisom cez editor dokumentov (2026-10-28, N-A7-8)
 
-Nástroje editora dokumentov (`inapp_*`) zapisovali súbor bez karty „Upraviť súbory?“, hoci engine má `edit: ask`. Pred každým zapisujúcim volaním sa teraz plugin pýta enginu s povolením `edit` a cestou od koreňa klienta; čítanie sa nepýta. Logika je v `apps/server/src/opencode-plugins/lawoss-editor-approval.ts`, test `lawoss-editor-approval.test.ts` (aj zoznam všetkých `inapp_*` nástrojov, aby nový nástroj po syncu nezostal nezaradený).
+Nález N-A7-8, see coordination issue. Pred každým zapisujúcim volaním editora dokumentov (`inapp_*`) sa plugin pýta enginu s povolením `edit` (karta „Upraviť súbory?“) a cestou od koreňa klienta; čítanie sa nepýta. Logika je v `apps/server/src/opencode-plugins/lawoss-editor-approval.ts`, test `lawoss-editor-approval.test.ts` (aj zoznam všetkých `inapp_*` nástrojov, aby nový nástroj po syncu nezostal nezaradený).
 
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
-| `apps/server/src/opencode-plugins/legalwork-extensions-preview.ts` | +1 import, `ask?` v lokálnom type kontextu, po jednom riadku v `callInAppOfficeTool` (po kontrole návrhu), `callInAppDocxTool` (do mosta ide cesta zo schválenej karty, aj keď ju model nezadal), `inapp_markdown_create` (len pri `complete`), `inapp_documents_open` (len pri `copy_to`) a `legalwork_ui_execute_action` (akcie editora, ktoré zapisujú, a `documents.open` s `copyTo` odmietne s odkazom na nástroje `inapp_*`). Zamietnutie karty = výnimka enginu, do editora nič neodíde. Pri syncu zachovať a nový `inapp_*` nástroj zaradiť v `lawoss-editor-approval.ts`. |
-| `apps/server/src/opencode-plugins/legalwork-extensions-preview.test.ts` | Volania zapisujúcich nástrojov majú v kontexte schvaľujúce `ask`; pri troch volaniach Wordu bez cesty očakávaná požiadavka obsahuje `path` vybraného dokumentu. |
+| `apps/server/src/opencode-plugins/legalwork-extensions-preview.ts` | +1 import, `ask?` v lokálnom type kontextu, po jednom riadku v `callInAppOfficeTool` (po kontrole návrhu), `callInAppDocxTool` (len pri dokumente Wordu pripravenom pre úlohu; do mosta ide cesta zo schválenej karty, aj keď ju model nezadal), `inapp_markdown_create` (len pri `complete`), `inapp_documents_open` (len pri `copy_to`) a `legalwork_ui_execute_action` (akcie editora, ktoré zapisujú, a `documents.open` s `copyTo` odmietne s odkazom na nástroje `inapp_*`). Zamietnutie karty = výnimka enginu, do editora nič neodíde. Pri syncu zachovať a nový `inapp_*` nástroj zaradiť v `lawoss-editor-approval.ts`. |
+| `apps/server/src/opencode-plugins/legalwork-extensions-preview.test.ts` | Volania zapisujúcich nástrojov majú v kontexte schvaľujúce `ask`; pri troch volaniach Wordu bez cesty očakávaná požiadavka obsahuje `path` vybraného dokumentu; test pätnástich nástrojov Wordu má pripravený dokument `Contract.docx`. |
 
 ## Čítanie pamäte spisu bez karty (2026-10-23)
 

@@ -54,16 +54,23 @@ async function ask(context: OpenCodeContext, path: string, change?: string): Pro
   await context.ask({ permission: EDITOR_WRITE_PERMISSION, patterns: [path], always: [], metadata: { filepath: path, ...(change ? { diff: change } : {}) } });
 }
 
+/** The task's prepared Word document (the given one, else the selected one); none for another format. */
+async function wordDocument(context: OpenCodeContext, given: string | undefined): Promise<string | undefined> {
+  if (!context.sessionID) return undefined;
+  const surface = inAppDocumentSurface(await taskDocumentSnapshot(context.sessionID), context.sessionID, given);
+  return surface?.format === "docx" ? surface.path : undefined;
+}
+
 /**
  * Asks before an editor operation that saves a file; returns the document path the editor must address.
- * Without `path` a Word call uses the task's selected document: its path is resolved here, shown on the card
- * and sent with the call, so the approved file and the written file are the same.
+ * A Word call is checked against the task's prepared Word document (without `path`, the selected one): its path
+ * is shown on the card and sent with the call, so the approved file and the written file are the same.
  */
 export async function approveEditorWrite(context: OpenCodeContext, format: "docx" | "xlsx" | "pptx" | "md", toolName: string, args: Record<string, unknown>): Promise<string | undefined> {
   const given = text(args.path);
   if (READ_ONLY[format].includes(toolName)) return given;
-  const path = given ?? (format === "docx" && context.sessionID ? inAppDocumentSurface(await taskDocumentSnapshot(context.sessionID), context.sessionID)?.path : undefined);
-  if (!path) throw new Error("No document is selected for this task. Prepare it with inapp_documents_open first. Nothing was changed.");
+  const path = format === "docx" ? await wordDocument(context, given) : given;
+  if (!path) throw new Error("No Word document is selected for this task. Prepare it with inapp_documents_open first. Nothing was changed.");
   await ask(context, DOCX_COPIES.includes(toolName) ? text(args.fileName) ?? path : path, proposedChange(args));
   return path;
 }

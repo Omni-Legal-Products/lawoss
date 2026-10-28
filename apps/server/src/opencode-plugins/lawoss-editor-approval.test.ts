@@ -156,7 +156,12 @@ describe("a rejected or impossible card changes nothing", () => {
     expect(writesSent(actions)).toEqual([]);
     actions = await withBridge(null);
     const { cards, context } = approver();
-    await expect(plugin.tool.inapp_docx_suggest_change.execute({ paraId: "p1", search: "a", replaceWith: "b" }, context)).rejects.toThrow("No document is selected");
+    await expect(plugin.tool.inapp_docx_suggest_change.execute({ paraId: "p1", search: "a", replaceWith: "b" }, context)).rejects.toThrow("No Word document is selected");
+    // A selected workbook or an unprepared path is not a Word document: no card that the editor would then refuse.
+    actions = await withBridge(surface("xlsx", "Trovy.xlsx"));
+    await expect(plugin.tool.inapp_docx_suggest_change.execute({ paraId: "p1", search: "a", replaceWith: "b" }, context)).rejects.toThrow("No Word document is selected");
+    actions = await withBridge(surface("docx", CONTRACT));
+    await expect(plugin.tool.inapp_docx_accept_changes.execute({ path: "Spisy/M004-syn/Iny.docx", changeIds: [1] }, context)).rejects.toThrow("No Word document is selected");
     expect(cards).toEqual([]);
     expect(writesSent(actions)).toEqual([]);
   });

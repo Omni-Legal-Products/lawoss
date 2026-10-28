@@ -669,7 +669,9 @@ test("Word reads treat empty or null optional selectors as whole-document defaul
 
 test("Word exposes fifteen focused tools and routes typed batches, controls and copy workflows", async () => {
   const requests: unknown[] = [];
-  await withBridge({}, body => { requests.push(body); return { ok: true, result: { ok: true, saved: true } }; });
+  // LAWOSS N-A7-8: zápis Wordu sa pýta len pri dokumente pripravenom pre úlohu.
+  const prepared = { activeSurface: { kind: "document", format: "docx", sessionId: "ses_open", name: "Contract.docx", path: "Contract.docx", editable: true } };
+  await withBridge(prepared, body => { requests.push(body); return { ok: true, result: { ok: true, saved: true } }; });
   const plugin = await LegalWorkExtensionsPreview();
   const names = Object.keys(plugin.tool).filter(name => name.startsWith("inapp_docx"));
   expect(names).toHaveLength(15); expect(names).not.toContain("inapp_docx");
