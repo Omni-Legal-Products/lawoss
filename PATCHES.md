@@ -2,11 +2,11 @@
 
 ## Jeden dialóg pri zahodení zmien v dokumente (2026-10-28, N-A7-16)
 
-Úplný UI test dev `f8acb4bd` (28. 10. 2026): po „Zahodiť zmeny“ pri zatváraní karty DOCX advokát videl ešte „Zahodiť zmeny v súbore ? …“. Druhá výzva nevzniká (`confirmDiscard` bez mien výzvu nevytvorí); išlo o ten istý dialóg počas zatváracej animácie, keď už bola výzva vymazaná.
+Úplný UI test dev `f8acb4bd` (28. 10. 2026): po „Zahodiť zmeny“ pri zatváraní karty DOCX ostal viditeľný dialóg „Zahodiť zmeny v súbore ? …“ a dalo sa v ňom kliknúť na „Zrušiť“. Druhá výzva nevzniká; bol to ten istý `ConfirmModal` s `open=false`, ktorý Base UI nechá pripojený, kým nedobehne zatváracia animácia (pozadie je počas nej inertné, okno dialógu nie).
 
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
-| `apps/app/src/react-app/domains/session/artifacts/document-discard-dialog.tsx` | Mená súborov v texte dialógu idú cez `useShownDiscardNames(prompt)` z LAWOSS súboru `apps/app/src/lawoss/documents/discard-dialog-names.ts` (+1 import, 1 riadok, 1 komentár, 1 zmenený riadok). Kým je výzva otvorená, vracia jej mená, po jej skončení mená poslednej výzvy, takže zatvárajúci sa dialóg ostane rovnaký. Logika výzvy v `docx-document-state.ts` sa nemení. Test `apps/app/tests/lawoss-zahodit-zmeny-jeden-dialog.test.tsx`. Vhodné ponúknuť upstreamu. |
+| `apps/app/src/react-app/domains/session/artifacts/document-discard-dialog.tsx` | `if (!prompt) return null;` (+1 riadok, 1 komentár): bez výzvy sa dialóg odstráni hneď, bez zatváracej animácie, takže po „Zahodiť zmeny“ aj „Zrušiť“ nič neostane visieť ani klikateľné. Otvárací stav, texty a logika výzvy v `docx-document-state.ts` sa nemenia. Test `apps/app/tests/lawoss-zahodit-zmeny-jeden-dialog.test.tsx`. Vhodné ponúknuť upstreamu. |
 
 ## Čítanie pamäte spisu bez karty (2026-10-23)
 
