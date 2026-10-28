@@ -564,6 +564,9 @@ test("N-A7-6: a file moved from the case's inbox into the case gets one pending 
     "lawoss_files: Added input IN-002 in Spisy/M001-najom-skladu-SYN/VSTUPY.md",
   ]);
   expect(audit[0]).toMatchObject({ workspaceId: "ws_c001", action: "workspace.file.write", target: join(matter, "01_Podklady", "2025-09-20_rozhodnutie-sudu.pdf") });
+  expect(audit[1]).toMatchObject({ action: "workspace.file.write", target: join(matter, "VSTUPY.md") });
+  // No canonical path reaches the model.
+  expect(JSON.stringify(result)).not.toContain(client);
 
   // A move inside the case that does not come from an inbox adds nothing.
   const inside = await run(config, workspace, [{ operation: "move", from: "Spisy/M001/01_Podklady/zmluva-SYN.pdf", to: "Spisy/M001/02_Resers/zmluva-SYN.pdf" }]);

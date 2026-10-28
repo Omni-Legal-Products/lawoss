@@ -510,8 +510,8 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
         const trash = await execute(config, item);
         if (!await verified(item)) throw new Error("The change is not visible on disk.");
         const filed = await fileInput(item, roots);
-        results.push({ ...visible, status: "done", ...(trash ? { trash } : {}), ...filed });
-        await audit(workspace, actor, item, filed.input);
+        results.push({ ...visible, status: "done", ...(trash ? { trash } : {}), ...filed.result });
+        await audit(workspace, actor, item, filed.result.input && filed.register ? { ...filed.result.input, path: filed.register } : undefined);
       } catch (error) {
         failed = true;
         results.push({ ...visible, status: "failed", error: error instanceof Error ? error.message : String(error) });
@@ -522,23 +522,26 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
 }
 
 /** N-A7-6: the input register follows a file filed from an inbox; its failure does not undo the change already made. */
-async function fileInput(item: Planned, roots: Root[]): Promise<Pick<FileOperationResult, "input" | "inputError">> {
-  if ((item.operation !== "move" && item.operation !== "copy") || !item.source || !item.target) return {};
+async function fileInput(item: Planned, roots: Root[]): Promise<{ result: Pick<FileOperationResult, "input" | "inputError">; register?: string }> {
+  if ((item.operation !== "move" && item.operation !== "copy") || !item.source || !item.target) return { result: {} };
   try {
     const filed = await recordFiledInput({ operation: item.operation, kind: item.kind, source: item.source, target: item.target }, roots);
-    return filed ? { input: { ...filed, register: visibleName(filed.register) } } : {};
+    if (!filed) return { result: {} };
+    // The canonical path is for the audit only: the card and the model see readable paths.
+    const { path, ...input } = filed;
+    return { result: { input: { ...input, register: visibleName(input.register) } }, register: path };
   } catch (error) {
-    return { inputError: error instanceof Error ? error.message : String(error) };
+    return { result: { inputError: error instanceof Error ? error.message : String(error) } };
   }
 }
 
 /** T6 (test 28. 10. 2026): an approved change and the register line it wrote are in the server audit, like other file writes. */
-async function audit(workspace: WorkspaceInfo, actor: Actor, item: Planned, filed: FiledInput | undefined): Promise<void> {
+async function audit(workspace: WorkspaceInfo, actor: Actor, item: Planned, filed: (FiledInput & { path: string }) | undefined): Promise<void> {
   const entry = (target: string, summary: string) => ({ id: randomUUID(), workspaceId: workspace.id, actor, action: "workspace.file.write", target, summary, timestamp: Date.now() });
   const change = item.operation === "create_folder" ? `Created folder ${item.to}` : item.operation === "delete" ? `Moved ${item.from} to the Trash` : `${item.operation === "move" ? "Moved" : "Copied"} ${item.from} to ${item.to}`;
   // The change is done; a full audit disk must not report it as failed.
   await recordAudit(workspace.path, entry(item.target ?? item.source ?? workspace.path, `lawoss_files: ${change}`)).catch(() => undefined);
-  if (filed) await recordAudit(workspace.path, entry(filed.register, `lawoss_files: ${filed.updated ? "Updated" : "Added"} input ${filed.id} in ${filed.register}`)).catch(() => undefined);
+  if (filed) await recordAudit(workspace.path, entry(filed.path, `lawoss_files: ${filed.updated ? "Updated" : "Added"} input ${filed.id} in ${filed.register}`)).catch(() => undefined);
 }
 
 /**

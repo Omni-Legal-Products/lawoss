@@ -21,7 +21,7 @@ import { isPathWithin } from "./path-within.js";
 
 /** Koreň, v ktorom súbor leží: priečinok klienta alebo pripojený priečinok (`label`). */
 export type InputRoot = { canonical: string; label: string | null };
-/** Kam sa vstup zapísal: register (čitateľná cesta ako na karte), ID riadku a či sa existujúci riadok len presmeroval. */
+/** Kam sa vstup zapísal: register (čitateľná cesta ako na karte), ID riadku a či sa existujúci riadok len presmeroval. `path` (skutočná cesta) je len pre audit. */
 export type FiledInput = { register: string; id: string; updated?: true };
 
 /** Zdroj nového riadku; za dvojbodkou pôvodné miesto súboru. */
@@ -90,7 +90,7 @@ const inside = (dir: string, path: string): string | null => isPathWithin(dir, p
  */
 export async function recordFiledInput(
   item: { operation: "move" | "copy"; kind: "file" | "folder"; source: string; target: string }, roots: readonly InputRoot[], now = new Date(),
-): Promise<FiledInput | null> {
+): Promise<(FiledInput & { path: string }) | null> {
   if (item.kind !== "file") return null;
   const rootOf = (path: string) => roots.find((root) => isPathWithin(root.canonical, path));
   const sourceRoot = rootOf(item.source), targetRoot = rootOf(item.target);
@@ -115,13 +115,13 @@ export async function recordFiledInput(
       const moved = moveInputOriginal(content, from, originalCell(to));
       if (!moved) continue;
       await writeRegister(candidate, moved.content);
-      return { register: shown(targetRoot, candidate), id: moved.id, updated: true };
+      return { register: shown(targetRoot, candidate), id: moved.id, updated: true, path: candidate };
     }
     const content = await readRegister(register);
     const id = nextInputId(content);
     const origin = inside(matter, item.source) ?? shown(sourceRoot, item.source);
     const row = inputRow(id, receivedStamp(now), originalCell(slash(relative(matter, item.target))), `${FILED_INPUT_SOURCE}: ${origin}`);
     await writeRegister(register, appendInputRow(content, row, basename(matter)));
-    return { register: shown(targetRoot, register), id };
+    return { register: shown(targetRoot, register), id, path: register };
   });
 }
