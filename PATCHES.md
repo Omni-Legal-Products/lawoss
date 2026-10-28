@@ -1518,6 +1518,15 @@ Alfa 2, úloha A1 (akceptácia 22. 10. 2026: N-13, N-21, dvojitá karta). Pravid
 | `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | Karta `lawoss_files` (`metadata.lawossFiles`): nadpis podľa úkonu, rozsah „pôvodná → nová“ / „Zmazať …“ po riadkoch (SK/CS/EN/DE v `lawoss/i18n/shell.ts`). Karta spravovaného shellu s `host.command`/`host.hostWide` ukáže príkaz a lokalizovanú vetu o rozsahu (`lawoss.shell_card.host_wide`). „Povoliť do konca konverzácie“ sa neponúka pri natívnej karte `edit` (engine by ho držal pre všetky chaty klienta), pri karte príkazu pre celý počítač, pri `external_directory` (engine si „always“ pamätá pre celú inštanciu klienta, nie konverzáciu; vlastné pripojené priečinky odpovedá plugin bez karty) ani pri `always: []`. +1 import, ~12 riadkov. |
 | `apps/server/src/agent-sandbox/service.test.ts`, `apps/server/src/runtime-opencode-config-store.test.ts` | Upstream scenáre so stavom „nič nenastavené“ teraz výslovne zapíšu `bash`/`edit` `allow` (engine default, ktorý testujú), resp. očakávajú predvolené `edit: "ask"`. |
 
+### Upraviť pri poskytovateľovi prihlásenom cez účet (2026-10-28, fix/upravit-poskytovatela-oauth)
+
+Nález N-A7-12 z úplného UI testu dev `f8acb4bd`: pri „OpenAI · Vlastné“ (predplatné ChatGPT, OAuth) ponuka „…“ → „Upraviť“ ukázala len anglické „Couldn't load configuration for openai.“ OpenCode 1.18.29 dáva poskytovateľovi pripojenému loaderom pluginu z prihlásenia zdroj `custom` bez bloku v konfigurácii a bez adresy; upstream z toho odvodil „Vlastné“ aj „Upraviť“. Pravidlo a popis sú v `apps/app/src/lawoss/providers/provider-row.ts`, texty v `apps/app/src/lawoss/i18n/shell.ts` (SK/CS/EN/DE).
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/settings-route.tsx` | Riadok pripojeného poskytovateľa berie `editableAsCustom` a `sourceLabel` z `lawossProviderRow(provider)`: „Upraviť“ len pri poskytovateľovi s vlastnou adresou (`options.baseURL`), ktorú formulár vlastného poskytovateľa číta aj ukladá; predplatné ChatGPT má popis „Predplatné ChatGPT“. Natvrdo anglická hláška pri neúspešnom načítaní je kľúč `lawoss.providers.edit_unavailable` s ďalším krokom (Odpojiť a pripojiť znova); ostáva pre „Obnoviť modely“, ktoré otvára rovnaký formulár (+1 import, −5 riadkov výpočtu adresy, 1 riadok spread, 1 riadok hlášky). |
+| `apps/app/src/react-app/domains/settings/pages/ai-view.tsx` | `ConnectedProvider` má voliteľné `sourceLabel`, riadok ho ukáže pred `providerSourceLabel(provider.source)` (+2 riadky typu, 1 výraz). |
+
 ### Presunutá prax bez duplicitných klientov (2026-10-28, fix/presunuta-prax-bez-duplicit, N-A7-1)
 
 Nové LAWOSS súbory: `apps/server/src/lawoss/moved-practice.ts` (náhľad prepojenia, presun povolenia kancelárie, otázka pri možno presunutom klientovi, odvodenie nedokončeného presunu praxe), `apps/app/src/lawoss/okf/moved-folder.ts`, `apps/app/src/lawoss/domains/practice-move-notice.tsx`, test `apps/server/src/lawoss/moved-practice.e2e.test.ts`. Prepojenie klientov ide existujúcim upstream `POST /workspace/:id/reconnect` bez zmeny.
