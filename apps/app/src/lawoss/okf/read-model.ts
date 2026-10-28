@@ -1,5 +1,6 @@
 import { diagnosticFields, OkfDiagnostic, type DiagnosticFields } from "../../../../../lawoss/okf/diagnostics";
 import { isManagedDeadline } from "../../../../../lawoss/okf/deadline-workflow.ts";
+import { INBOX_FOLDERS } from "../../../../../lawoss/okf/inputs";
 /**
  * Načítanie pamäte spisov cez server API — iba čítanie, nič nezapisuje.
  *
@@ -64,11 +65,8 @@ export type OkfClient = {
   inboxFiles?: readonly string[];
 };
 
-/**
- * Predvolené priečinky na nezaradené (SK, CS, EN), porovnávané bez ohľadu na veľkosť písmen. Rola `inbox` pracovného
- * profilu prípadu (#241) k nim pridá vlastný priečinok.
- */
-export const INBOX_FOLDERS: ReadonlySet<string> = new Set(["00_na_zatriedenie", "00_k_zarazeni", "00_inbox"]);
+/** Predvolené priečinky na nezaradené; zdieľa ich aj server pri presune z nezaradených (N-A7-6). */
+export { INBOX_FOLDERS };
 /** Najviac toľko položiek z jedného priečinka na nezaradené (advokát môže vložiť stovky skenov naraz). */
 const INBOX_ITEMS_LIMIT = 200;
 /** Systémové súbory a zámky Office (`~$zmluva.docx`), ktoré advokát do priečinka nevložil. */

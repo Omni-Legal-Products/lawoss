@@ -6,43 +6,12 @@
  * advokát vidí jeho text, nie surový Markdown. Bez Reactu, aby sa pravidlá dali otestovať.
  */
 import type { MatterInput, MatterOverview } from "../../../../../lawoss/okf/read";
-import { pendingInputs, type PendingInput } from "../../../../../lawoss/okf/inputs";
+import { inputOriginal, pendingInputs, type PendingInput } from "../../../../../lawoss/okf/inputs";
 import { INBOX_FOLDERS, type OkfClient, type OkfReadResult } from "../okf/read-model";
 import { clientOverviewLink, liteMatterLink } from "./links";
 import { groupByClient } from "./today-model";
 
-const decode = (value: string): string => {
-  try { return decodeURIComponent(value); } catch { return value; }
-};
-
-/** Prvý odkaz v Markdowne v bunke: zátvorky v ceste (`sken (1).pdf`), cieľ v `<…>` a titulok za cieľom. */
-function firstLink(cell: string): { label: string; target: string } | null {
-  const open = cell.indexOf("[");
-  const close = open < 0 ? -1 : cell.indexOf("](", open);
-  if (close < 0) return null;
-  let depth = 0, end = close + 2;
-  for (; end < cell.length; end++) {
-    if (cell[end] === "(") depth++;
-    else if (cell[end] === ")") { if (depth === 0) break; depth--; }
-  }
-  if (end >= cell.length) return null;
-  let target = cell.slice(close + 2, end).trim();
-  if (target.startsWith("<") && target.includes(">")) target = target.slice(1, target.indexOf(">"));
-  else target = target.replace(/\s+(?:"[^"]*"|'[^']*')$/, "");
-  return { label: cell.slice(open + 1, close).trim(), target: target.trim() };
-}
-
-/** Text a cieľ bunky Originál: odkaz v Markdowne → jeho text a dekódovaný cieľ; inak bunka sama (bez `…`). */
-export function inputOriginal(cell: string): { label: string; target: string } {
-  const trimmed = cell.trim();
-  const link = firstLink(trimmed);
-  if (!link) {
-    const plain = trimmed.replace(/^`(.*)`$/, "$1").trim();
-    return { label: plain, target: plain };
-  }
-  const target = decode(link.target);
-  return { label: link.label || lastSegment(target), target };
-}
+export { inputOriginal };
 
 const lastSegment = (path: string): string => path.split(/[\\/]+/).filter(Boolean).pop() ?? path;
 
