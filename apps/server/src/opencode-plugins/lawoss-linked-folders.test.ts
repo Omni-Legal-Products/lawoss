@@ -21,7 +21,7 @@ async function fixture() {
   const linkedA = join(root, "pripojeny-A"), linkedB = join(root, "Hron podklady"), runtime = join(root, "runtime");
   for (const folder of [matterA, clientB, linkedA, linkedB, runtime]) await mkdir(folder, { recursive: true });
   const writeMap = (aFolders: string[]) => writeFile(join(runtime, LINKED_FOLDERS_MAP_FILE), JSON.stringify({
-    version: 1, officeRoot: join(root, "prax"), firmManaged: false, clients: [{ root: clientA, folders: aFolders }, { root: clientB, folders: [linkedB] }],
+    version: 1, officeRoot: join(root, "prax"), firmManaged: false, clients: [{ root: clientA, folders: aFolders, client: clientA }, { root: clientB, folders: [linkedB], client: clientB }],
   } satisfies LinkedFoldersMap));
   await writeMap([linkedA]);
   process.env.OPENCODE_CONFIG = join(runtime, "runtime-opencode-config.json");
@@ -125,4 +125,9 @@ test("priečinok iného klienta: odmietnutie s vetou; vlastný pripojený prieč
   expect(linked.v1).toEqual([{ path: { id: "ses_1", permissionID: "per_1" }, body: { response: "once" }, query: { directory: clientA } }]);
   const unknown = await ask(clientA, [`${join(clientA, "..", "..", "..")}/Iny/*`]);
   expect([...unknown.v1, ...unknown.v2]).toEqual([]);
+  // Vzor cez celý priečinok klientov (aj vlastného) a neistý vzor: bez odpovede, rozhodne karta (review #295).
+  for (const pattern of [`${join(clientB, "..")}/*/*`, `${join(clientB, "..")}/{Hron,Iny}/*`]) {
+    const open = await ask(clientA, [pattern]);
+    expect([...open.v1, ...open.v2]).toEqual([]);
+  }
 });

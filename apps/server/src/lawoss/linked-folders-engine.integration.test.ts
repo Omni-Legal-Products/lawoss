@@ -17,12 +17,15 @@ test.skipIf(!binary)("klient A číta svoje pripojené priečinky a koreň aj z 
   const clientA = join(root, "prax", "Klienti", "Tatran");
   const matterA = join(clientA, "Spisy", "Úhrada");
   const clientB = join(root, "prax", "Klienti", "Hron");
+  // Review #295: dva samostatne registrované spisy klienta A (starší stav) sú stále klient A, nie „iný klient“.
+  const matterA2 = join(clientA, "Spisy", "Nájom"), matterA3 = join(clientA, "Spisy", "Kúpa");
   const linkedA = join(root, "Zdieľané", "Vzory zmlúv");
   const linkedA2 = join(root, "Zdieľané", "Judikatúra");
   const linkedB = join(root, "Hron podklady");
-  for (const folder of [matterA, clientB, join(linkedA, "Rok 2026"), linkedA2, linkedB]) await mkdir(folder, { recursive: true });
+  for (const folder of [matterA, matterA2, matterA3, clientB, join(linkedA, "Rok 2026"), linkedA2, linkedB]) await mkdir(folder, { recursive: true });
   const files = {
     linkedA: join(linkedA, "Rok 2026", "vzor.md"), linkedA2: join(linkedA2, "rozsudok.md"), linkedB: join(linkedB, "hron.md"), clientA: join(clientA, "Klient.md"), clientB: join(clientB, "Klient.md"),
+    matterA3: join(matterA3, "zmluva.md"),
   };
   for (const [name, path] of Object.entries(files)) await writeFile(path, `Obsah ${name}`);
 
@@ -30,7 +33,8 @@ test.skipIf(!binary)("klient A číta svoje pripojené priečinky a koreň aj z 
   await mkdir(engineDir);
   const writeMap = (aFolders: string[]) => writeFile(join(engineDir, LINKED_FOLDERS_MAP_FILE), JSON.stringify({
     version: 1, officeRoot: join(root, "prax"), firmManaged: false,
-    clients: [{ root: clientA, folders: aFolders }, { root: clientB, folders: [linkedB] }],
+    clients: [{ root: clientA, folders: aFolders, client: clientA }, { root: clientB, folders: [linkedB], client: clientB },
+      { root: matterA2, folders: [], client: clientA }, { root: matterA3, folders: [], client: clientA }],
   } satisfies LinkedFoldersMap));
   await writeMap([linkedA]);
 
@@ -133,6 +137,10 @@ test.skipIf(!binary)("klient A číta svoje pripojené priečinky a koreň aj z 
     expect(await attempt(clientA, files.clientB, { name: "glob", args: { pattern: "**/hron.md", path: join(root, "prax", "Klienti", "Hr*") } })).toBe("rejected");
     // Opačne tiež; vlastný klient a pripojený priečinok mimo praxe (E1) ostávajú bez karty.
     expect(await attempt(clientB, files.clientA)).toBe("rejected");
+    // Registrované spisy toho istého klienta sa neodmietnu (ostane bežná karta); vzor cez celý priečinok klientov tiež nie.
+    expect(await attempt(matterA, files.matterA3)).toBe("asked");
+    expect(await attempt(matterA2, files.matterA3)).toBe("asked");
+    expect(await attempt(clientA, files.clientB, { name: "glob", args: { pattern: "**/hron.md", path: join(root, "prax", "Klienti", "*") } })).toBe("asked");
     expect(await attempt(clientA, files.linkedA2)).toBe("asked");
     // Server pripojí ďalší priečinok: platí hneď, bez reštartu enginu; odpojenie tiež.
     await writeMap([linkedA, linkedA2]);

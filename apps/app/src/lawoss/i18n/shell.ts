@@ -273,6 +273,7 @@ export const shellEn = {
   "lawoss.shell_card.host_wide": "The command runs directly on this computer. This one approval covers everything it does: reading and changing files, internet access and folders outside this client.",
   "lawoss.permission_card.other_client": "This folder belongs to another client: {name}. The agent would see that client's files.",
   "lawoss.permission_card.other_clients_inside": "This folder contains folders of other clients: {names}. The agent would see their files.",
+  "lawoss.permission_card.uncertain_scope": "The scope contains characters that make it impossible to check whether it reaches another client's folder. Check it before allowing.",
   // lawoss_files (lawoss/lite/file-operation-card.ts): jedna karta na zmenu súborov.
   "lawoss.files.title_rename": "Rename?",
   "lawoss.files.title_move": "Move?",
@@ -928,6 +929,7 @@ export const shellCs = {
   "lawoss.shell_card.host_wide": "Příkaz běží přímo v tomto počítači. Toto jedno schválení pokrývá vše, co udělá: čtení a změny souborů, přístup na internet a ke složkám mimo tohoto klienta.",
   "lawoss.permission_card.other_client": "Složka patří jinému klientovi: {name}. Agent by viděl jeho soubory.",
   "lawoss.permission_card.other_clients_inside": "Složka obsahuje složky jiných klientů: {names}. Agent by viděl jejich soubory.",
+  "lawoss.permission_card.uncertain_scope": "Rozsah obsahuje znaky, podle kterých nelze ověřit, zda nezasahuje do složky jiného klienta. Před povolením ho zkontrolujte.",
   // lawoss_files (lawoss/lite/file-operation-card.ts): jedna karta na zmenu súborov.
   "lawoss.files.title_rename": "Přejmenovat?",
   "lawoss.files.title_move": "Přesunout?",
@@ -1582,6 +1584,7 @@ export const shellSk = {
   "lawoss.shell_card.host_wide": "Príkaz beží priamo v tomto počítači. Toto jedno schválenie pokrýva všetko, čo urobí: čítanie a zmeny súborov, prístup na internet a k priečinkom mimo tohto klienta.",
   "lawoss.permission_card.other_client": "Priečinok patrí inému klientovi: {name}. Agent by videl jeho súbory.",
   "lawoss.permission_card.other_clients_inside": "Priečinok obsahuje priečinky iných klientov: {names}. Agent by videl ich súbory.",
+  "lawoss.permission_card.uncertain_scope": "Rozsah obsahuje znaky, podľa ktorých sa nedá overiť, či nesiaha do priečinka iného klienta. Pred povolením ho skontrolujte.",
   // lawoss_files (lawoss/lite/file-operation-card.ts): jedna karta na zmenu súborov.
   "lawoss.files.title_rename": "Premenovať?",
   "lawoss.files.title_move": "Presunúť?",
@@ -2234,6 +2237,7 @@ export const shellDe = {
   "lawoss.shell_card.host_wide": "Der Befehl läuft direkt auf diesem Computer. Diese eine Freigabe umfasst alles, was er tut: Dateien lesen und ändern, Internetzugriff und Ordner außerhalb dieses Mandanten.",
   "lawoss.permission_card.other_client": "Dieser Ordner gehört einem anderen Mandanten: {name}. Der Agent würde dessen Dateien sehen.",
   "lawoss.permission_card.other_clients_inside": "Dieser Ordner enthält Ordner anderer Mandanten: {names}. Der Agent würde deren Dateien sehen.",
+  "lawoss.permission_card.uncertain_scope": "Der Bereich enthält Zeichen, mit denen sich nicht prüfen lässt, ob er in den Ordner eines anderen Mandanten reicht. Prüfen Sie ihn vor der Freigabe.",
   // lawoss_files (lawoss/lite/file-operation-card.ts): jedna karta na zmenu súborov.
   "lawoss.files.title_rename": "Umbenennen?",
   "lawoss.files.title_move": "Verschieben?",

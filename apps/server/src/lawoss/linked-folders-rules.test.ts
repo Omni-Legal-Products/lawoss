@@ -136,48 +136,62 @@ describe("oprava 3", () => {
 });
 
 // N-A7-14 (test E2): chat klienta C001 žiada priečinok klienta C002 tej istej praxe → plugin odmietne bez karty.
+// Klient = priečinok s kartou (`client` v mape); registrované spisy toho istého klienta nie sú iný klient (review #295).
 describe("priečinok iného klienta", () => {
+  const P = "/Users/advokat/Prax", c001 = `${P}/Klienti/C001-Tatran`, c002 = `${P}/Klienti/C002-Hron`, c003 = `${c001}/Dcera C003`;
+  const m1 = `${c001}/Spisy/M001 Úhrada`, m2 = `${c001}/Spisy/M002 Nájom`;
   const prax = (over: Partial<LinkedFoldersMap> = {}): LinkedFoldersMap => ({
-    version: 1, officeRoot: "/Users/advokat/Prax", firmManaged: false,
+    version: 1, officeRoot: P, firmManaged: false,
     clients: [
-      { root: "/Users/advokat/Prax", folders: [] },
-      { root: "/Users/advokat/Prax/Klienti/C001-Tatran", folders: ["/Users/advokat/Zdielane/Vzory"] },
-      { root: "/Users/advokat/Prax/Klienti/C002-Hron", folders: [] },
-      { root: "/Users/advokat/Prax/Klienti/C001-Tatran/Dcera C003", folders: [] },
+      { root: P, folders: [], client: null },
+      { root: c001, folders: ["/Users/advokat/Zdielane/Vzory"], client: c001 },
+      { root: m1, folders: [], client: c001 },
+      { root: m2, folders: [], client: c001 },
+      { root: c002, folders: [], client: c002 },
+      { root: c003, folders: [], client: c003 },
+      { root: `${P}/Klienti/C004-Bez-karty`, folders: [], client: null },
     ],
     ...over,
   });
-  const c001 = "/Users/advokat/Prax/Klienti/C001-Tatran", c002 = "/Users/advokat/Prax/Klienti/C002-Hron";
 
-  test("cieľ v inom klientovi, aj z chatu prípadu a aj vzor `C002*` hľadania", () => {
-    for (const chat of [c001, `${c001}/Spisy/M001 Úhrada`]) {
-      expect(externalDirectoryOtherClient(prax(), chat, [c002])).toBe(true);
-      expect(externalDirectoryOtherClient(prax(), chat, [`${c002}/Spisy/M004`])).toBe(true);
-      expect(externalDirectoryOtherClient(prax(), chat, ["/Users/advokat/Prax/Klienti/C002*"])).toBe(true);
-      expect(externalDirectoryOtherClient(prax(), chat, ["/Users/advokat/Prax/Klienti/C00?-Hron/Spisy"])).toBe(true);
-      expect(externalDirectoryOtherClient(prax(), chat, ["/Users/advokat/Prax/**"])).toBe(true);
+  test("cieľ v inom klientovi, aj z chatu prípadu a registrovaného spisu, aj vzor `C002*` hľadania", () => {
+    for (const chat of [c001, `${c001}/Spisy/M009 Nový`, m1]) {
+      for (const target of [c002, `${c002}/Spisy/M004`, `${P}/Klienti/C002*`, `${P}/Klienti/C00?-Hron/Spisy`, `${P}/Klienti/*-Hron`])
+        expect(externalDirectoryOtherClient(prax(), chat, [target])).toBe(true);
     }
-    // Aj keď je medzi cieľmi aj vlastný priečinok; macOS nerozlišuje veľkosť písmen vo vzore.
-    expect(externalDirectoryOtherClient(prax(), c001, [c001, c002])).toBe(true);
     if (process.platform !== "linux") expect(externalDirectoryOtherClient(prax(), c001, ["/users/advokat/prax/klienti/c002*"])).toBe(true);
-    // Klient zaregistrovaný vnútri C001 je pre chat C001 iný klient (ako v `externalDirectoryAllowed`).
-    expect(externalDirectoryOtherClient(prax(), c001, [`${c001}/Dcera C003/Zmluvy`])).toBe(true);
+    // Klient zaregistrovaný vnútri C001 má vlastnú kartu: pre chat C001 je iný klient.
+    expect(externalDirectoryOtherClient(prax(), c001, [`${c003}/Zmluvy`])).toBe(true);
   });
 
-  test("vlastný klient, pripojený priečinok mimo praxe (E1), nezaregistrovaný priečinok praxe a celá prax: bez odmietnutia", () => {
-    expect(externalDirectoryOtherClient(prax(), c001, [c001, `${c001}/Spisy`])).toBe(false);
+  test("dva registrované spisy toho istého klienta sa navzájom neodmietnu; ani koreň klienta zo spisu", () => {
+    expect(externalDirectoryOtherClient(prax(), m1, [m2])).toBe(false);
+    expect(externalDirectoryOtherClient(prax(), m2, [m1, `${m1}/Podklady`])).toBe(false);
+    expect(externalDirectoryOtherClient(prax(), m1, [c001, `${c001}/Spisy/*`])).toBe(false);
+    expect(externalDirectoryOtherClient(prax(), c001, [m2])).toBe(false);
+  });
+
+  test("vzor cez vlastného klienta alebo priečinok s klientmi: karta, nie odmietnutie", () => {
+    for (const target of [`${P}/Klienti/*`, `${P}/Klienti/C00*`, `${P}/**`, `${P}/K*`, `${P}/Klienti`, "/Users/advokat", `${P}/*/C002-Hron`])
+      expect(externalDirectoryOtherClient(prax(), c001, [target])).toBe(target === `${P}/*/C002-Hron`);
+    // Aj keď je v otázke popri inom klientovi aj vlastný priečinok.
+    expect(externalDirectoryOtherClient(prax(), c001, [c001, c002])).toBe(false);
+  });
+
+  test("neisté znaky `[ ] { } $ \`` sa neodmietajú (rozhodne karta)", () => {
+    for (const target of [`${P}/Klienti/C002[-_]Hron`, `${P}/Klienti/{C002-Hron,C009}`, `$HOME/Prax/Klienti/C002-Hron`, `${P}/Klienti/\`ls\``])
+      expect(externalDirectoryOtherClient(prax(), c001, [target])).toBe(false);
+  });
+
+  test("pripojený priečinok mimo praxe (E1), priečinok bez karty a chat bez známeho klienta: bez odmietnutia", () => {
     expect(externalDirectoryOtherClient(prax(), c001, ["/Users/advokat/Zdielane/Vzory", "/Users/advokat/Zdielane/Vzory/2026"])).toBe(false);
-    expect(externalDirectoryOtherClient(prax(), c001, ["/Users/advokat/Prax/Vzory", "/Users/advokat/Prax/Klienti/C004-Nezaregistrovany"])).toBe(false);
-    // Priečinok, ktorý klientov len obsahuje, a vzor, ktorý sa rozvinie len na vlastného klienta: rozhodne advokát na karte.
-    expect(externalDirectoryOtherClient(prax(), c001, ["/Users/advokat/Prax/Klienti", "/Users/advokat"])).toBe(false);
-    expect(externalDirectoryOtherClient(prax(), c001, ["/Users/advokat/Prax/Klienti/C001*", "/Users/advokat/Prax/Klienti/*-Nezaregistrovany"])).toBe(false);
+    expect(externalDirectoryOtherClient(prax(), c001, [`${P}/Vzory`, `${P}/Klienti/C004-Bez-karty`, `${P}/Klienti/C005-Nezaregistrovany`])).toBe(false);
     expect(externalDirectoryOtherClient(prax(), c001, [null])).toBe(false);
-  });
-
-  test("chat kontajnera praxe, chat mimo klientov a firemné pravidlá sa nerozhodujú", () => {
-    expect(externalDirectoryOtherClient(prax(), "/Users/advokat/Prax", [c002])).toBe(false);
-    expect(externalDirectoryOtherClient(prax(), "/Users/advokat/Prax/Klienti/C004-Nezaregistrovany", [c002])).toBe(false);
-    expect(externalDirectoryOtherClient(prax(), "/Users/advokat/Iny", [c002])).toBe(false);
+    for (const chat of [P, `${P}/Klienti/C004-Bez-karty`, `${P}/Klienti/C005-Nezaregistrovany`, "/Users/advokat/Iny"])
+      expect(externalDirectoryOtherClient(prax(), chat, [c002])).toBe(false);
     expect(externalDirectoryOtherClient(prax({ firmManaged: true }), c001, [c002])).toBe(false);
+    // Starší súbor mapy bez `client`: nerozhoduje sa.
+    const legacy = parseLinkedFoldersMap({ version: 1, officeRoot: P, clients: [{ root: c001, folders: [] }, { root: c002, folders: [] }] });
+    expect(legacy && externalDirectoryOtherClient(legacy, c001, [c002])).toBe(false);
   });
 });

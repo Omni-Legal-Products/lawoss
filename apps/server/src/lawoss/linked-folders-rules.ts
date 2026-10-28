@@ -13,7 +13,15 @@ import { foldedPath, isPathWithin } from "./path-within.js";
 
 export const LINKED_FOLDERS_MAP_FILE = "lawoss-linked-folders.json";
 
-export type LinkedFoldersClient = { root: string; folders: string[] };
+export type LinkedFoldersClient = {
+  root: string; folders: string[];
+  /**
+   * N-A7-14: priečinok klienta, ku ktorému registrovaný priečinok patrí (najbližší s kartou `client.md`/`klient.md`,
+   * sám alebo predok pod koreňom praxe), kanonicky. Registrovaný spis klienta tak patrí tomu istému klientovi ako
+   * jeho koreň. `null`/chýba = nevie sa (kontajner praxe, priečinok bez karty, starší súbor mapy).
+   */
+  client?: string | null;
+};
 export type LinkedFoldersMap = {
   version: 1;
   /** Koreň praxe z profilu (kanonický), ak je. */
@@ -125,46 +133,61 @@ export function externalDirectoryAllowed(map: LinkedFoldersMap, directory: strin
 }
 
 const GLOB_CHARS = /[*?]/;
+/** Znaky, pri ktorých sa nedá spoľahlivo povedať, kam vzor siaha (triedy, alternatívy, premenné shellu): rozhodne karta. */
+export const UNCERTAIN_CHARS = /[[\]{}$`]/;
 const segmentsOf = (path: string): string[] => path.split(/[\\/]+/).filter(Boolean);
 
-/** Jeden segment vzoru (`C002*`, `C00?`) ako regulárny výraz; `[`, `{` a ostatné znaky sú doslovné (aj v menách priečinkov). */
+/** Jeden segment vzoru (`C002*`, `C00?`) ako regulárny výraz. */
 const segmentPattern = (segment: string): RegExp =>
   new RegExp(`^${segment.replace(/[.+^$|()[\]{}\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")}$`, "su");
 
 /**
- * Môže sa priečinok zo vzoru (s `*` alebo `?`) rozvinúť na `root` alebo priečinok v ňom? Porovnáva
- * po segmentoch; `**` pokryje všetko pod sebou. Priečinok, ktorý `root` len obsahuje (je jeho predkom), nie.
+ * Vzťah priečinka zo vzoru (aj s `*`, `?`, `**`) k priečinku `root`: `inside` = rozvinie sa na `root` alebo priečinok
+ * v ňom, `contains` = rozvinie sa na jeho predka (napr. `…/Klienti`, `…/Prax/K*`), inak `null`. Po segmentoch.
  */
-function patternReaches(pattern: string, root: string): boolean {
+export function patternRelation(pattern: string, root: string): "inside" | "contains" | null {
   const wanted = segmentsOf(foldedPath(pattern));
   const segments = segmentsOf(foldedPath(root));
   for (let index = 0; index < segments.length; index++) {
     const segment = wanted[index];
-    if (segment === undefined) return false;
-    if (segment === "**") return true;
-    if (GLOB_CHARS.test(segment) ? !segmentPattern(segment).test(segments[index]!) : segment !== segments[index]) return false;
+    if (segment === undefined) return "contains";
+    if (segment === "**") return "inside";
+    if (GLOB_CHARS.test(segment) ? !segmentPattern(segment).test(segments[index]!) : segment !== segments[index]) return null;
   }
-  return true;
+  return "inside";
 }
 
 /**
- * N-A7-14 (test E2): požiadavka chatu klienta smeruje do priečinka iného registrovaného klienta tej istej mapy.
- * Cieľ v ňom leží (najhlbší registrovaný priečinok cieľa je iný klient, aj klient zaregistrovaný vnútri klienta
- * chatu), alebo vzor s `*` sa naň rozvinie (`…/Klienti/C002*`). Klient chatu ani jeho kontajner (koreň praxe)
- * nie sú iný klient; pripojený priečinok mimo praxe nepatrí nikomu (E1), takže sa tu nikdy neodmietne. Chat
- * kontajnera praxe ani bez klienta sa nerozhoduje (ostane karta), firemné pravidlá tiež nie.
+ * N-A7-14 (test E2): požiadavka chatu klienta smeruje len do priečinka iného klienta. Klient = priečinok s kartou
+ * (`client` v mape): spisy toho istého klienta, aj registrované samostatne, sú ten istý klient. Odmietne sa, keď
+ * aspoň jeden cieľ leží v inom známom klientovi alebo sa naň vzor rozvinie (`…/Klienti/C002*`) a žiadny cieľ
+ * nezasiahne vlastného klienta. Nerozhoduje (ostane karta): vzor cez vlastného klienta (`…/Klienti/*`), priečinok,
+ * ktorý klientov len obsahuje, cieľ so znakmi `[ ] { } $ \``, pripojený priečinok mimo klientov (E1), chat bez známeho
+ * klienta (kontajner praxe, priečinok bez karty, starší súbor mapy) a firemné pravidlá.
  */
 export function externalDirectoryOtherClient(map: LinkedFoldersMap, directory: string, targets: readonly (string | null)[]): boolean {
   if (map.firmManaged) return false;
-  const owner = ownerOf(map, directory);
-  if (!owner || (map.officeRoot && isPathWithin(owner.root, map.officeRoot))) return false;
-  const others = map.clients.filter((client) => client !== owner && !isPathWithin(client.root, owner.root));
-  return targets.some((target) => {
-    if (target === null) return false;
-    if (GLOB_CHARS.test(target)) return others.some((client) => patternReaches(target, client.root));
-    const targetOwner = ownerOf(map, target);
-    return targetOwner !== null && others.includes(targetOwner);
-  });
+  const own = ownerOf(map, directory)?.client;
+  if (!own) return false;
+  const known = [...new Set(map.clients.flatMap((client) => client.client ? [client.client] : []))];
+  let other = false;
+  for (const target of targets) {
+    if (target === null || UNCERTAIN_CHARS.test(target)) continue;
+    // Cieľ, ktorý vlastného klienta obsahuje (`…/Klienti`, `…/Prax/K*`), rozhodne advokát na karte.
+    if (patternRelation(target, own) === "contains") return false;
+    const reached = known.filter((client) => patternRelation(target, client) === "inside");
+    if (GLOB_CHARS.test(target)) {
+      // Vzor, ktorý sa rozvinie aj na vlastného klienta (`…/Klienti/*`), tiež.
+      if (reached.includes(own)) return false;
+      if (reached.length) other = true;
+      continue;
+    }
+    // Cesta bez `*` patrí najhlbšiemu klientovi (klient vnútri klienta je iný klient).
+    const deepest = reached.sort((a, b) => b.length - a.length)[0];
+    if (deepest === own) return false;
+    if (deepest) other = true;
+  }
+  return other;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -177,7 +200,8 @@ export function parseLinkedFoldersMap(value: unknown): LinkedFoldersMap | null {
   const clients: LinkedFoldersClient[] = [];
   for (const client of value.clients) {
     if (!isRecord(client) || typeof client.root !== "string" || !isStringArray(client.folders)) return null;
-    clients.push({ root: client.root, folders: client.folders });
+    const owner = typeof client.client === "string" ? client.client : null;
+    clients.push({ root: client.root, folders: client.folders, client: owner });
   }
   return { version: 1, officeRoot, clients, firmManaged: value.firmManaged === true };
 }
