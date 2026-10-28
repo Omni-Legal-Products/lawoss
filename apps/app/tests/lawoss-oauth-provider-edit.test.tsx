@@ -32,6 +32,15 @@ describe("N-A7-12: Upraviť len pri poskytovateľovi s vlastnou adresou", () => 
     expect(lawossProviderRow({ ...ownProvider, options: { baseURL: "  " } }).editableAsCustom).toBe(false);
   });
 
+  test("popis predplatného len pri OpenAI bez vlastnej adresy", () => {
+    setLocale("sk");
+    expect(lawossProviderRow(chatgptOAuth).sourceLabel).toBe("Predplatné ChatGPT");
+    const openaiWithBaseURL = { ...chatgptOAuth, options: { baseURL: "https://proxy.kancelaria.invalid/v1" } };
+    expect(lawossProviderRow(openaiWithBaseURL).sourceLabel).toBeUndefined();
+    expect(lawossProviderRow(openaiWithBaseURL).editableAsCustom).toBe(true);
+    expect(lawossProviderRow(openaiApiKey).sourceLabel).toBeUndefined();
+  });
+
   test("predplatné ChatGPT nie je „Vlastné“", () => {
     setLocale("sk");
     const html = renderToStaticMarkup(

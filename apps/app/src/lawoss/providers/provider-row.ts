@@ -22,11 +22,11 @@ const hasBaseURL = (provider: ListedProvider): boolean => {
  * Upraviť sa preto dá len poskytovateľ s vlastnou adresou; ostatným ostáva „Odpojiť“.
  *
  * Zdroj `custom` sa v upstream riadku ukazuje ako „Vlastné“; pri predplatnom ChatGPT
- * dostane riadok výstižnejší popis.
+ * bez vlastnej adresy dostane riadok výstižnejší popis.
  */
 export function lawossProviderRow(provider: ListedProvider): { editableAsCustom: boolean; sourceLabel?: string } {
   return {
     editableAsCustom: hasBaseURL(provider),
-    ...(isChatgptSubscription(provider) ? { sourceLabel: t("lawoss.providers.chatgpt_subscription") } : {}),
+    ...(isChatgptSubscription(provider) && !hasBaseURL(provider) ? { sourceLabel: t("lawoss.providers.chatgpt_subscription") } : {}),
   };
 }
