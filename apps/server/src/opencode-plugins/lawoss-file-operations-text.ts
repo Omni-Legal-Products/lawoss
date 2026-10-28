@@ -18,8 +18,9 @@ export const MOVE_ACROSS_DRIVES_RULE = "A move to another drive or to a linked f
 /**
  * N-A5-1 (test 25. 10. 2026): asked to delete `podklad.pdf`, the agent put a similar `Podklady.pdf` on the card.
  * The exact name the user wrote wins; a similar name is never a correction, and several similar names mean a question.
+ * N-A7-7 (test 28. 10. 2026): the folder is listed with read, because glob lists files only and hides an empty folder.
  */
-export const EXACT_NAME_RULE = "Use the exact file or folder name the user wrote, letter for letter, including case, accents and extension. Never replace it with a similar existing name (for example Podklady.pdf when the user wrote podklad.pdf). If no item has exactly that name, or several items have similar names, list the folder and ask the user which item they mean before calling lawoss_files. When the card or result names similar items next to the one changed, make sure it is the item the user meant.";
+export const EXACT_NAME_RULE = "Use the exact file or folder name the user wrote, letter for letter, including case, accents and extension. Never replace it with a similar existing name (for example Podklady.pdf when the user wrote podklad.pdf). If no item has exactly that name, or several items have similar names, list the folder with read on its path (glob does not show empty folders) and ask the user which item they mean before calling lawoss_files. When the card or result names similar items next to the one changed, make sure it is the item the user meant.";
 
 type Result = { operation: string; kind?: string; from?: string; to?: string; status: string; trash?: string; similar?: string[] };
 
