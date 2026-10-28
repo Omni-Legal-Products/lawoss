@@ -1057,7 +1057,7 @@ Baseline `dev` `34df1a4f` (po syncu v0.2.4, #161), upstream `v0.2.9`. Merge má 
 | `apps/server/src/opencode-plugins/legalwork-word-tools-shared.ts` | `isOpenWordFilePipelineCall` pozná aj upstream nástroj `legalwork_shell`. |
 | `apps/server/src/mcp.oauth-flow.e2e.test.ts` | Nový upstream test spúšťa mock cez `spawnOwnedChild`/`stopOwnedChild` ako ostatné testy LAWOSS. |
 | `apps/server/src/scheduled-tasks/engine.test.ts` | Zdroje obsahu projektu nesú `scope` (hranica viewera z #159). |
-| `apps/server/package.json` | `build` = upstream bundly + `lawoss-okf-handoff.ts` + `src/lawoss/{workspace-memory-runtime,onboarding-runtime,chatgpt-subscription}.ts`; `test:node` popri upstream `test:reasoning`. |
+| `apps/server/package.json` | `build` = upstream bundly + `lawoss-okf-handoff.ts` + `src/lawoss/{workspace-memory-runtime,onboarding-runtime,chatgpt-subscription,input-register-runtime}.ts`; `test:node` popri upstream `test:reasoning`. `input-register-runtime` (N-A7-6): register vstupov `lawoss/okf/inputs.ts` cez seam `lawoss/okf/input-register.mjs` pre zápis `VSTUPY.md` po presune z nezaradených (`lawoss/file-operation-inputs.ts`). |
 | `apps/orchestrator/src/cli.ts` | Bez predvolenej adresy katalógu Eigenweltu a bez `modelCatalogUrl` na relé servera; `OPENCODE_MODELS_URL` len pri výslovne zadanej adrese. |
 | `lawoss/okf-handoff/plugin.mjs` | Systémový text pluginu sa mení len so stavom (úspech alebo zlyhanie), bez textu chyby, aby nezhadzoval cache promptu (upstream #220/#249/#259); zlyhanie (aj odobratý prístup k pamäti) ostáva viditeľné. Zelená zóna, uvedené kvôli úplnosti. |
 
