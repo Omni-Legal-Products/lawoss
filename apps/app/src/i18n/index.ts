@@ -178,6 +178,16 @@ export const setFirmLanguage = (language: Language | null) => {
 };
 
 /**
+ * LAWOSS: počiatočný stav modulu (angličtina, voľba „Systém“, bez jazyka kancelárie) pre testy appky;
+ * volá ho `apps/app/test-preload-lawoss.ts` pred a po každom teste, aby jazyk neprešiel do ďalšieho súboru.
+ */
+export const resetLocaleForTests = () => {
+  firmLanguage = null;
+  preferenceValue = SYSTEM_LANGUAGE;
+  applyLocale("en");
+};
+
+/**
  * Set locale and persist to localStorage
  */
 export const setLocale = (newLocale: Language) => {
