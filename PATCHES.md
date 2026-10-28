@@ -2,12 +2,12 @@
 
 ## Cesta v prvom riadku správy ako príloha len v priečinku klienta (2026-10-28, N-A7-13)
 
-Composer robil z každej cesty v prvom riadku správy (`file://`, `~/`, `C:\`, `/…`) priložený súbor alebo priečinok. Teraz sa pripojí len cesta v priečinku klienta (koreň klienta alebo priečinok pod ním); ostatné ostanú textom a agent k nim ide cez svoje nástroje. Pravidlo je v LAWOSS súbore `apps/app/src/lawoss/chat/prompt-file-parts.ts` (`clientFirstLineFileParts`), porovnanie cez `isWithinClientFolder` z `apps/app/src/lawoss/shell/session-directory.ts`. Test `apps/app/tests/lawoss-cesta-v-chate.test.ts`.
+Composer robil z každej cesty v prvom riadku správy (`file://`, `~/`, `C:\`, `/…`) priložený súbor alebo priečinok. Teraz sa pripojí len cesta v priečinku klienta (koreň klienta alebo priečinok pod ním); ostatné ostanú textom a agent k nim ide cez svoje nástroje. Keď koreň chatu obsahuje iný registrovaný priečinok (prax s klientmi, vnorený klient), nepripojí sa nič. Pravidlo je v LAWOSS súbore `apps/app/src/lawoss/chat/prompt-file-parts.ts` (`clientFirstLineFileParts`, `clientPathScope`), porovnanie cez `isWithinClientFolder` z `apps/app/src/lawoss/shell/session-directory.ts`. Test `apps/app/tests/lawoss-cesta-v-chate.test.ts`.
 
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
 | `apps/app/src/react-app/domains/session/sync/prompt-file-parts.ts` | `firstLineLocalFileParts` má voliteľný tretí parameter `allow(absolutePath)`; cestu, ktorú odmietne, vynechá (+1 parameter, +1 riadok, 1 komentár). Bez parametra sa správa ako upstream. |
-| `apps/app/src/react-app/shell/session-route.tsx`, `apps/app/src/react-app/domains/session/sync/actions-store.ts` | Namiesto `firstLineLocalFileParts` volajú `clientFirstLineFileParts` (zmenený import a volanie). `draftToParts` dostane voliteľný `clientRoot` (predvolene `workspaceRoot`); `sendNativeDraft` mu posiela cestu registrovaného klienta (`workspaces.find(…).path`), takže chat prípadu porovnáva s koreňom klienta, nie s priečinkom prípadu (+1 parameter, zmenený import, 3 zmenené volania). Pri syncu zachovať. |
+| `apps/app/src/react-app/shell/session-route.tsx`, `apps/app/src/react-app/domains/session/sync/actions-store.ts` | Namiesto `firstLineLocalFileParts` volajú `clientFirstLineFileParts` (zmenený import a volanie). `draftToParts` dostane voliteľný `client` (`ClientPathScope`); `sendNativeDraft` mu posiela `clientPathScope(workspaces, scope.projectId, scope.directory)`: koreň registrovaného klienta (chat prípadu porovnáva s koreňom klienta, nie s priečinkom prípadu) a cesty všetkých registrovaných priečinkov z už načítaného `workspaces` (+1 parameter, zmenený import, 3 zmenené volania). `actions-store.ts` (bez volajúceho v appke) zoznam nemá a porovnáva len s koreňom. Pri syncu zachovať. |
 
 ## Čítanie pamäte spisu bez karty (2026-10-23)
 

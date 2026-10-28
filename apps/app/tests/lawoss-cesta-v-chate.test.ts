@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { clientFirstLineFileParts } from "../src/lawoss/chat/prompt-file-parts";
+import { clientFirstLineFileParts, clientPathScope } from "../src/lawoss/chat/prompt-file-parts";
 import { firstLineLocalFileParts } from "../src/react-app/domains/session/sync/prompt-file-parts";
 
 // N-A7-13: cesta v prvom riadku správy je príloha len v priečinku klienta, inak obyčajný text.
@@ -20,7 +20,8 @@ afterEach(() => {
   else Reflect.deleteProperty(globalThis, "navigator");
 });
 
-const urls = (text: string, root = ROOT, clientRoot?: string) => clientFirstLineFileParts(text, root, clientRoot).map((part) => part.url);
+const urls = (text: string, root = ROOT, clientRoot?: string, registeredRoots?: string[]) =>
+  clientFirstLineFileParts(text, root, clientRoot === undefined ? undefined : { root: clientRoot, registeredRoots }).map((part) => part.url);
 
 describe("cesta v chate klienta", () => {
   test("cesta v priečinku klienta sa pripojí ako doteraz", () => {
@@ -88,6 +89,52 @@ describe("cesta v chate klienta", () => {
     expect(urls("Pozri /Users/advokat/Prax/Klienti/C002-SYN-Hron/zmluva.pdf", caseFolder, ROOT)).toEqual([]);
     expect(urls(`Pozri ${ROOT}/zmluva.pdf`, "")).toEqual([]);
     expect(urls(`Pozri ${ROOT}/zmluva.pdf`, ROOT, "  ")).toEqual([]);
+  });
+
+  test("vnorený registrovaný klient a koreň praxe: nič z cudzieho klienta", () => {
+    platform("Linux x86_64");
+    const practice = "/Users/advokat/Prax/Klienti";
+    const nested = `${ROOT}/Dcera-C003-SYN-Lipa`;
+    const hron = `${practice}/C002-SYN-Hron`;
+    const registered = [practice, ROOT, nested, hron];
+    // Scenár A: chat C001 obsahuje registrovaného klienta C003; súbor C003 sa nepripojí.
+    expect(urls(`Pozri ${nested}/zmluva.pdf`, ROOT, ROOT, registered)).toEqual([]);
+    expect(urls(`Pozri ${nested}/zmluva.pdf`, ROOT, ROOT, [ROOT, nested])).toEqual([]);
+    // Scenár B: chat registrovaného koreňa praxe nepripojí súbor klienta ani vlastný súbor.
+    expect(urls(`Pozri ${hron}/zmluva.pdf`, practice, practice, registered)).toEqual([]);
+    expect(urls(`Pozri ${ROOT}/zmluva.pdf`, practice, practice, registered)).toEqual([]);
+    expect(urls(`Pozri ${practice}/Office/sablona.docx`, practice, practice, registered)).toEqual([]);
+    // Chat vnoreného C003 a chat C002: vlastný súbor áno, iný klient nie; nadradená prax nevadí.
+    expect(urls(`Pozri ${nested}/zmluva.pdf`, nested, nested, registered)).toEqual([`file://${nested}/zmluva.pdf`]);
+    expect(urls(`Pozri ${hron}/zmluva.pdf`, hron, hron, registered)).toEqual([`file://${hron}/zmluva.pdf`]);
+    expect(urls(`Pozri ${ROOT}/zmluva.pdf`, hron, hron, registered)).toEqual([]);
+    // Rovnaký koreň zapísaný inak (koncová lomka) nie je iný klient.
+    expect(urls(`Pozri ${hron}/zmluva.pdf`, hron, hron, [`${hron}/`, practice])).toHaveLength(1);
+  });
+
+  test("clientPathScope: koreň registrovaného klienta chatu, inak priečinok chatu", () => {
+    const workspaces = [{ id: "c001", path: ` ${ROOT} ` }, { id: "c002", path: "/Users/advokat/Prax/Klienti/C002-SYN-Hron" }, { id: "x", path: null }];
+    expect(clientPathScope(workspaces, "c001", `${ROOT}/Spisy/M001`)).toEqual({ root: ROOT, registeredRoots: [ROOT, "/Users/advokat/Prax/Klienti/C002-SYN-Hron"] });
+    expect(clientPathScope(workspaces, "nie", "/iny")).toEqual({ root: "/iny", registeredRoots: [ROOT, "/Users/advokat/Prax/Klienti/C002-SYN-Hron"] });
+  });
+
+  test("Windows: file:///C:/… v klientovi sa pripojí, mimo klienta nie", () => {
+    platform("Win32");
+    const win = "C:\\Prax\\Klienti\\C001-SYN-Tatran";
+    expect(urls("Pozri file:///C:/Prax/Klienti/C001-SYN-Tatran/Spisy/zmluva.docx", win)).toEqual(["file:///C:/Prax/Klienti/C001-SYN-Tatran/Spisy/zmluva.docx"]);
+    expect(urls("Pozri file:///c:/prax/klienti/c001-syn-tatran/zmluva.docx", win)).toEqual(["file:///c:/prax/klienti/c001-syn-tatran/zmluva.docx"]);
+    expect(urls("Pozri file:///C:/Users/advokat/Documents", win)).toEqual([]);
+    expect(urls("Pozri file:///C:/Prax/Klienti/C001-SYN-Tatran-2/zmluva.docx", win)).toEqual([]);
+    expect(urls("Pozri file:///D:/Prax/Klienti/C001-SYN-Tatran/zmluva.docx", win)).toEqual([]);
+  });
+
+  test("dvojité kódovanie: %2e, %2f a %5c po dekódovaní sa nepripoja", () => {
+    platform("Linux x86_64");
+    expect(urls(`Pozri file://${ROOT}/%252e%252e/C002-SYN-Hron/zmluva.pdf`)).toEqual([]);
+    expect(urls(`Pozri file://${ROOT}/Spisy%252F..%252F..%252FC002/zmluva.pdf`)).toEqual([]);
+    expect(urls(`Pozri file://${ROOT}/Spisy%255c..%255cC002/zmluva.pdf`)).toEqual([]);
+    expect(urls(`Pozri ${ROOT}/%2E%2E/C002-SYN-Hron/zmluva.pdf`)).toEqual([]);
+    expect(urls(`Pozri ${ROOT}/Spisy/zmluva%20nova.pdf`)).toHaveLength(1);
   });
 
   test("odoslanie správy volá len verziu obmedzenú na klienta", () => {
