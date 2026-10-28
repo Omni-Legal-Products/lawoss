@@ -2,12 +2,13 @@
 // nástrojom lawoss_memory_write s jednou kartou „čo a kam“ namiesto štyroch kariet príkazu `node …`.
 // Skutočný server a poverenie chatu; karta enginu je `context.ask`, zamietnutie je výnimka ako `RejectedError`.
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
+import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { engineAgentSession } from "./lawoss/test-support/engine-agent.js";
 import { writeMatterMemoryForChat } from "./lawoss/matter-memory.js";
 import { LawossMemoryTools } from "./opencode-plugins/lawoss-memory-tools.js";
@@ -27,8 +28,10 @@ const record = (id: string, truth: string, updated = "2026-10-23", history = "")
   `---\nokf: 1\nid: ${id}\ntype: matter\ntitle: Stav ${id}\ndescription: SYN\nlayer: L2\njurisdiction: sk\nstatus: active\ncreated: 2026-10-23\nupdated: ${updated}\n---\n\n## Truth\n\n${truth}\n\n## History\n\n- 2026-10-23 — založené\n${history}`;
 const changed = (id: string, truth: string) => record(id, `${truth}\n\n${PREFERENCE}`, "2026-10-28", "- 2026-10-28 — klient preferuje e-mail\n");
 
+/** A case: a folder with its matter card and memory. */
 async function matter(dir: string, id: string, truth: string) {
   await mkdir(join(dir, "memory"), { recursive: true });
+  await writeFile(join(dir, "matter.md"), "---\njurisdiction: sk\n---\n");
   await writeFile(join(dir, "memory", `${id}.md`), record(id, truth));
 }
 
@@ -42,7 +45,7 @@ async function setup() {
   const base = await realpath(await mkdtemp(join(tmpdir(), "lawoss-memory-write-e2e-"))); roots.push(base);
   process.env.LEGALWORK_DATA_DIR = join(base, "data"); process.env.LEGALWORK_TOKEN_STORE = join(base, "tokens.json");
   await mkdir(join(base, "runtime"));
-  const client = join(base, "Prax", "Klienti", "C001-SYN"), other = join(base, "Prax", "Klienti", "C002-SYN");
+  const practice = join(base, "Prax"), client = join(practice, "Klienti", "C001-SYN"), other = join(practice, "Klienti", "C002-SYN");
   const case1 = join(client, "Spisy", "M001"), case2 = join(other, "Spisy", "M002");
   await matter(case1, "M-001", "SYN stav veci 1101");
   await matter(case2, "M-002", "SYN cudzí 2202");
@@ -62,7 +65,7 @@ async function setup() {
     const read = JSON.parse(await tools.lawoss_memory.execute({ action: "read" }, { ...agent.context, ask: async () => { throw new Error("no card expected"); } }));
     return /Revision M-001: ([0-9a-f]{64})/.exec(read.text)?.[1];
   };
-  return { base, config, client, other, case1, case2, agent, tools, revision, url: `http://127.0.0.1:${server.port}/workspace/c1` };
+  return { base, practice, config, client, other, case1, case2, agent, tools, revision, url: `http://127.0.0.1:${server.port}/workspace/c1` };
 }
 
 type Card = { permission: string; patterns: string[]; always: string[]; metadata: Record<string, unknown> };
@@ -95,11 +98,54 @@ test("one card with the text and the target file; declined writes nothing, appro
   expect(await readFile(join(case1, "memory", "M-001.md"), "utf8")).toContain(PREFERENCE);
   expect(await files(client)).toEqual(listed);
 
-  // A new record goes to memory/<id>-<title>.md, also with one card.
+  // A new record goes to memory/<id>-<title>.md, also with one card that lists every field it brings.
   const fresh: Card[] = [];
-  await tools.lawoss_memory_write.execute({ record: record("M-010", PREFERENCE), reason: "Nový poznatok" }, { ...agent.context, ask: async (card: Card) => { fresh.push(card); } });
+  const created = record("M-010", PREFERENCE).replace("status: active\n", "status: active\ncourt: SYN Okresný súd\nparties: [SYN strana A, SYN strana B]\n");
+  await tools.lawoss_memory_write.execute({ record: created, reason: "Nový poznatok" }, { ...agent.context, ask: async (card: Card) => { fresh.push(card); } });
   expect(fresh.map((card) => card.patterns)).toEqual([["Spisy/M001/memory/M-010-stav-m-010.md"]]);
+  expect(fresh[0]?.metadata.lawossMemory).toMatchObject({ kind: "create", title: "Stav M-010", type: "matter" });
+  expect(Reflect.get(Object(fresh[0]?.metadata.lawossMemory), "fields")).toEqual(expect.arrayContaining([
+    "id: M-010", "type: matter", "description: SYN", "layer: L2", "court: SYN Okresný súd", expect.stringMatching(/^parties: .*SYN strana A.*SYN strana B/)]));
   expect(await readFile(join(case1, "memory", "M-010-stav-m-010.md"), "utf8")).toContain(PREFERENCE);
+});
+
+test("only a case under this client's own root: no office (also a linked one), linked folder, client root, inbox, memory/ or link", async () => {
+  const { base, practice, config, client, case1, agent, tools, url } = await setup();
+  const headers = { authorization: "Bearer synthetic-client", "content-type": "application/json" };
+  // The practice's office, linked to this client and shaped like a case, and an office folder inside the client.
+  const office = join(practice, "Office"), inner = join(client, "Office"), linked = join(base, "Zdielane", "C001-podklady", "M003");
+  for (const dir of [office, inner, linked]) await matter(dir, "M-030", "SYN");
+  await mkdir(join(runtimeStorageDir(config), "lawoss-onboarding"), { recursive: true });
+  await writeFile(join(runtimeStorageDir(config), "lawoss-onboarding", "profile.json"), JSON.stringify({ officeRoot: practice }));
+  expect((await fetch(`${url}/authorized-folders`, { method: "PUT", headers, body: JSON.stringify({ folders: [office, join(base, "Zdielane", "C001-podklady")] }) })).status).toBe(200);
+  // A case whose memory/ is a link to another folder of the client.
+  const linkedMemory = join(client, "Spisy", "M004");
+  await mkdir(linkedMemory, { recursive: true });
+  await writeFile(join(linkedMemory, "matter.md"), "---\njurisdiction: sk\n---\n");
+  await symlink(join(client, "Spisy", "M001", "memory"), join(linkedMemory, "memory"), "dir");
+  await mkdir(join(client, "00_Na_zatriedenie"), { recursive: true });
+
+  const refusals: [string, string][] = [[office, "403"], [inner, "403"], [linked, "403"], [linkedMemory, "403"],
+    [client, "422"], [join(client, "00_Na_zatriedenie"), "422"], [join(case1, "memory"), "422"]];
+  const before = await Promise.all([office, inner, linked].map((dir) => readdir(join(dir, "memory"))));
+  const caseFiles = await files(case1);
+  for (const [matterPath, status] of refusals) {
+    const cards: Card[] = [];
+    const attempt = tools.lawoss_memory_write.execute({ matter: matterPath, record: record("M-031", PREFERENCE), reason: "SYN" }, { ...agent.context, ask: async (card: Card) => { cards.push(card); } });
+    await expect(attempt).rejects.toThrow(status);
+    expect(cards).toHaveLength(0);
+  }
+  expect(await Promise.all([office, inner, linked].map((dir) => readdir(join(dir, "memory"))))).toEqual(before);
+  expect(await files(case1)).toEqual(caseFiles);
+});
+
+test("a read-only server writes nothing", async () => {
+  const { config, case1, agent, tools } = await setup();
+  config.readOnly = true;
+  const cards: Card[] = [];
+  await expect(tools.lawoss_memory_write.execute({ record: record("M-040", PREFERENCE), reason: "SYN" }, { ...agent.context, ask: async (card: Card) => { cards.push(card); } })).rejects.toThrow("read_only");
+  expect(cards).toHaveLength(0);
+  expect(await readdir(join(case1, "memory"))).toEqual(["M-001.md"]);
 });
 
 test("a case outside this client is refused before any card and nothing is written", async () => {

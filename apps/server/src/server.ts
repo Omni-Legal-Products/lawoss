@@ -2666,6 +2666,7 @@ function createRoutes(
   // 🟡 LAWOSS: lawoss_memory_write zapíše jeden záznam pamäte spisu po karte „čo a kam“ (lawoss/matter-memory.ts).
   addRoute(routes, "POST", "/workspace/:id/lawoss/memory/write", "client", async (ctx) => {
     requireClientScope(ctx, "collaborator");
+    ensureWritable(config);
     if (!await engineAgent(config, ctx.actor)) throw new ApiError(403, "memory_agent_only", "Only a chat's case memory tool, after the user's approval, can use this route.");
     const workspace = await resolveWorkspace(config, ctx.params.id, { bootstrap: false });
     return jsonResponse(await writeMatterMemoryForChat(config, workspace, await readJsonBody(ctx.request)));

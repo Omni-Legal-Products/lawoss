@@ -27,12 +27,23 @@ describe("karta zápisu do pamäte prípadu", () => {
     const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, { permission, respondPermission: () => {} }));
     expect(html).toContain("Zapísať do pamäte prípadu?");
     expect(html).toContain("Súbor: Spisy/M004-SYN/memory/M004-MAT.md");
+    expect(html).toContain("Zmena záznamu: Stav veci SYN");
     expect(html).toContain("Klient preferuje komunikáciu e-mailom.");
     expect(html).toContain("Do histórie: 2026-10-28 — klient preferuje e-mail");
     expect(html).toContain("Doteraz: Strany rokovali o náhradnom nájomcovi.");
     expect(html).toContain("Dôvod: Pokyn advokáta v chate");
     for (const raw of ["lawossMemory", "previousTruth", "&quot;truth&quot;", "Spustiť príkaz", "node "]) expect(html.includes(raw) ? raw : null).toBeNull();
     expect(buttons(html)).toEqual([t("session.deny"), t("session.allow_once")]);
+  });
+
+  test("nový záznam ukáže všetky svoje údaje, aj identifikátory subjektu", () => {
+    setLocale("sk");
+    const card = fileOperationCard({ lawossMemory: { ...lawossMemory, kind: "create", title: "SYN Subjekt", previousTruth: undefined,
+      fields: ["type: subject", "description: SYN", "birth_number: 000000/0000", "id_document_number: SYN000000"] } });
+    expect(card?.scopeValue.split("\n").slice(0, 2)).toEqual(["Súbor: Spisy/M004-SYN/memory/M004-MAT.md", "Nový záznam: SYN Subjekt"]);
+    for (const line of ["Údaj: type: subject", "Údaj: description: SYN", "Údaj: birth_number: 000000/0000", "Údaj: id_document_number: SYN000000"])
+      expect(card?.scopeValue).toContain(line);
+    expect(card?.details.lines).not.toContain("Doteraz: Strany rokovali o náhradnom nájomcovi.");
   });
 
   test("nadpis v SK, CS, EN a DE; neúplné údaje kartu nevytvoria", () => {
@@ -43,6 +54,7 @@ describe("karta zápisu do pamäte prípadu", () => {
     }
     expect(fileOperationCard({ lawossMemory: { ...lawossMemory, target: "" } })).toBeNull();
     expect(fileOperationCard({ lawossMemory: { truth: "x" } })).toBeNull();
+    expect(fileOperationCard({ lawossMemory: { ...lawossMemory, kind: "delete" } })).toBeNull();
   });
 
   test("krok v chate má text pre advokáta, nie názov nástroja", () => {

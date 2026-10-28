@@ -43,6 +43,18 @@ export const MEMORY_DIR = "memory";
 /** Karty veci, z ktorých sa dá prečítať jurisdikcia prázdneho spisu. */
 const MATTER_CARDS = ["matter.md", "spis.md", "project.md", "projekt.md"];
 
+/** Je `dir` spis: má kartu veci ako bežný súbor (nie symbolický odkaz)? */
+export function hasMatterCard(dir: string): boolean {
+  return MATTER_CARDS.some((name) => lstatSync(join(dir, name), { throwIfNoEntry: false })?.isFile() === true);
+}
+
+/** Symbolický odkaz na adresár pamäte alebo na súbor záznamu sa nezapisuje ani nemaže (cieľ by bol inde). */
+function assertNoLink(path: string, what: string): void {
+  if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) {
+    throw new Error(`${what} je symbolický odkaz; zápis bol odmietnutý.`);
+  }
+}
+
 export function jurisdictionFromCard(dir: string): Jurisdiction | undefined {
   for (const name of MATTER_CARDS) {
     const path = join(dir, name);
@@ -331,15 +343,22 @@ export function applyRecordWrite(
   withRecordWriteLock(dir, () => {
     const store = readStore(dir);
     assertNotStale(store, diff);
+    assertNoLink(store.memoryDir, "Adresár pamäte");
     mkdirSync(store.memoryDir, { recursive: true });
+    assertNoLink(store.memoryDir, "Adresár pamäte");
     if (diff.kind === "delete") {
-      if (diff.before) rmSync(fileFor(store, diff.before));
+      if (diff.before) {
+        const file = fileFor(store, diff.before);
+        assertNoLink(file, "Súbor záznamu");
+        rmSync(file);
+      }
       return;
     }
     const after = diff.after;
     if (!after) throw new Error(`Návrh ${diff.kind} nemá nový stav záznamu`);
     const zapis: OkfRecord = { ...after, truth_digest: truthDigest(after.truth) };
     const target = fileFor(store, zapis);
+    assertNoLink(target, "Súbor záznamu");
     if (diff.kind === "create" && existsSync(target)) {
       throw new ConcurrentWriteError(`Cieľový súbor pre ID ${zapis.id} už existuje; možná kolízia veľkosti písmen. Zvoľ iné ID.`);
     }

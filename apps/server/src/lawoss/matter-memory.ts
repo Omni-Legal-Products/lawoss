@@ -10,7 +10,8 @@
  * Zápis (N-A7-10, MČ 23. 10. 2026: zápis s kartou „čo a kam“): nástroj `lawoss_memory_write` pošle celý
  * záznam sem; `writeMatterMemoryForChat` v tej istej hranici pripraví náhľad (`okf-memory write` bez `--apply`),
  * nástroj ukáže jednu kartu s textom a cieľovým súborom a po schválení sa zapíše tým istým kódom. Len jeden
- * záznam vrstvy L2 v spise; L1/L3 (kancelária, meno schvaľujúceho) a mazanie ostávajú v CLI.
+ * záznam vrstvy L2 v spise s kartou veci pod koreňom klienta chatu (nie v pripojenom priečinku ani v kancelárii,
+ * ktorej pamäť čítajú všetci klienti); L1/L3 (kancelária, meno schvaľujúceho) a mazanie ostávajú v CLI.
  */
 import { createHash } from "node:crypto";
 import { lstat, stat } from "node:fs/promises";
@@ -151,6 +152,8 @@ export type MatterMemoryWritePreview = {
   target: string;
   kind: "create" | "update";
   title: string;
+  /** The record type (matter, decision, subject…). */
+  type: string;
   truth: string;
   previousTruth?: string;
   history: string[];
@@ -161,35 +164,62 @@ export type MatterMemoryWritePreview = {
 };
 export type MatterMemoryWriteResult = { status: "written"; target: string; id: string; text: string };
 
-/** A path for the lawyer: relative to the client's folder, or inside a linked folder named by its last segment. */
-function shownPath(file: string, own: OwnFolders): string {
-  const base = isPathWithin(own.root, file) ? own.root : own.linked.find((folder) => isPathWithin(folder, file));
-  if (!base) return basename(file);
-  const inside = relative(base, file).split(sep).join("/");
-  return base === own.root ? inside : `${basename(base)}/${inside}`;
+/** A path for the lawyer, relative to the client's folder. */
+const shownPath = (file: string, root: string): string => relative(root, file).split(sep).join("/");
+
+/** Written memory stays with this client: under its own root, in no other registered client. */
+function writable(path: string, own: OwnFolders): boolean {
+  return isPathWithin(own.root, path) && !own.others.some((other) => isPathWithin(other, path) && !isPathWithin(other, own.root));
+}
+
+const OFFICE_NAMES = new Set(["office", "_kancelaria"]);
+
+/**
+ * The office memory (`Office/`, `_kancelaria/`) is read by every client of the practice: never written from one
+ * client's chat. Refused when the case, or any folder from the client root down to it, is an office folder, or when
+ * it lies in the practice's office (onboarding profile), even if that office is linked to this client.
+ */
+function inOffice(target: string, root: string, practice: string | null): boolean {
+  const below = relative(root, target).split(sep).filter(Boolean);
+  if ([basename(root), ...below].some((name) => OFFICE_NAMES.has(name.toLowerCase()))) return true;
+  if (!practice) return false;
+  for (let folder = target; ; folder = dirname(folder)) {
+    if (isOfficeMemoryFolder(folder, practice)) return true;
+    if (dirname(folder) === folder) return false;
+  }
+}
+
+/** `memory/` must be a real folder (or not exist yet), never a link to somewhere else. */
+async function memoryFolderIsLink(target: string): Promise<boolean> {
+  return (await lstat(join(target, "memory")).catch(() => null))?.isSymbolicLink() === true;
 }
 
 const refused = (out: string) => new ApiError(422, "memory_write_refused", `${out.trim()}\nNothing was written.`);
 
 /**
  * One case memory record for the chat's `lawoss_memory_write`: without `apply` the preview for the card, with
- * `apply` and the preview's `approved` token the write itself (`okf-memory write … --apply`). The case, its
- * `memory/` folder and the record file must lie in this client's folder or its linked folders, never in another
- * client; only a layer L2 record that stays in the case is written (no office, no approver's name, no deletion).
+ * `apply` and the preview's `approved` token the write itself (`okf-memory write … --apply`). The case (with its
+ * matter card), its `memory/` folder and the record file must lie under this client's own root, never in a linked
+ * folder, another client or an office; only a layer L2 record that stays in the case is written (no approver's name,
+ * no deletion).
  */
 export async function writeMatterMemoryForChat(config: ServerConfig, workspace: WorkspaceInfo, body: unknown,
   linkedFolders: (config: ServerConfig, workspace: WorkspaceInfo) => Promise<readonly string[]> = documentLinkedFolders): Promise<MatterMemoryWritePreview | MatterMemoryWriteResult> {
   if (workspace.workspaceType === "remote") throw new ApiError(400, "memory_local_workspace_required", "Case memory can be written only in a local client folder.");
+  if (config.readOnly) throw new ApiError(403, "read_only", "This server is read-only. Nothing was written.");
   const parsed = writeSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "memory_arguments", "Send the case folder, the whole record, the reason and, for a change of an existing record, its revision.");
   const { matter, record, reason, ifRevision, apply = false, approved } = parsed.data;
   if (!isAbsolute(matter) || matter.includes("\0") || record.includes("\0")) throw new ApiError(400, "memory_arguments", "Use the absolute path of this client's case folder.");
   const own = await ownFolders(config, workspace, linkedFolders);
   const target = await canonicalPath(matter);
-  if (!readable(target, own)) throw notOwn("written");
+  if (!writable(target, own)) throw notOwn("written");
+  if (inOffice(target, own.root, await officeRoot(config))) {
+    throw new ApiError(403, "memory_write_office", "This is the office memory, shared by every client of the practice. Nothing was written. Write only to this client's case.");
+  }
   if (!(await stat(target).catch(() => null))?.isDirectory()) throw new ApiError(404, "memory_folder_missing", "This case folder does not exist. Nothing was written.");
-  // The record goes to `<case>/memory/`: that folder (also through a link) must be this client's too.
-  if (!readable(await canonicalPath(join(target, "memory")), own)) throw notOwn("written");
+  // The record goes to `<case>/memory/`: a real folder of this client, not a link (okf-pamat checks it again under its lock).
+  if (await memoryFolderIsLink(target) || !writable(await canonicalPath(join(target, "memory")), own)) throw notOwn("written");
 
   const options = { reason, expectedRevision: ifRevision };
   const preview = writeMatterMemory(target, record, { ...options, apply: false });
@@ -200,11 +230,12 @@ export async function writeMatterMemoryForChat(config: ServerConfig, workspace: 
       `Record ${plan.id} is layer ${plan.layer}: it belongs to the office or needs the lawyer's name, so this tool does not write it. Nothing was written. Tell the user.`);
   }
   const file = await canonicalPath(plan.file);
-  if (!readable(file, own)) throw notOwn("written");
-  const token = createHash("sha256").update(`${file}\0${preview.out}`).digest("hex");
-  const shown = shownPath(file, own);
+  if (!writable(file, own)) throw notOwn("written");
+  // Bound to the file, the preview and the exact bytes of the record that will be written.
+  const token = createHash("sha256").update(`${file}\0${plan.recordHash}\0${preview.out}`).digest("hex");
+  const shown = shownPath(file, own.root);
   if (!apply) {
-    return { status: "preview", target: shown, kind: plan.kind, title: plan.title, truth: plan.truth,
+    return { status: "preview", target: shown, kind: plan.kind, title: plan.title, type: plan.type, truth: plan.truth,
       ...(plan.previousTruth === undefined ? {} : { previousTruth: plan.previousTruth }),
       history: plan.history, fields: plan.fields, reason, approved: token };
   }

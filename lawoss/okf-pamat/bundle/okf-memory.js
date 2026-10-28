@@ -2337,6 +2337,11 @@ var BRAIN_FILE = "BRAIN.md";
 var STATUS_FILE = "_STATUS.md";
 var MEMORY_DIR = "memory";
 var MATTER_CARDS = ["matter.md", "spis.md", "project.md", "projekt.md"];
+function assertNoLink(path, what) {
+  if (lstatSync2(path, { throwIfNoEntry: false })?.isSymbolicLink()) {
+    throw new Error(`${what} je symbolický odkaz; zápis bol odmietnutý.`);
+  }
+}
 function jurisdictionFromCard(dir) {
   for (const name of MATTER_CARDS) {
     const path = join2(dir, name);
@@ -2542,10 +2547,15 @@ function applyRecordWrite(dir, diff, approval, leakScopeDir = dir) {
   withRecordWriteLock(dir, () => {
     const store = readStore(dir);
     assertNotStale(store, diff);
+    assertNoLink(store.memoryDir, "Adresár pamäte");
     mkdirSync(store.memoryDir, { recursive: true });
+    assertNoLink(store.memoryDir, "Adresár pamäte");
     if (diff.kind === "delete") {
-      if (diff.before)
-        rmSync(fileFor(store, diff.before));
+      if (diff.before) {
+        const file = fileFor(store, diff.before);
+        assertNoLink(file, "Súbor záznamu");
+        rmSync(file);
+      }
       return;
     }
     const after = diff.after;
@@ -2553,6 +2563,7 @@ function applyRecordWrite(dir, diff, approval, leakScopeDir = dir) {
       throw new Error(`Návrh ${diff.kind} nemá nový stav záznamu`);
     const zapis = { ...after, truth_digest: truthDigest(after.truth) };
     const target = fileFor(store, zapis);
+    assertNoLink(target, "Súbor záznamu");
     if (diff.kind === "create" && existsSync2(target)) {
       throw new ConcurrentWriteError(`Cieľový súbor pre ID ${zapis.id} už existuje; možná kolízia veľkosti písmen. Zvoľ iné ID.`);
     }

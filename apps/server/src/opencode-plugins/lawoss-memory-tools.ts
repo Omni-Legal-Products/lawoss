@@ -34,7 +34,7 @@ const writeArgs = z.object({
 });
 
 const preview = z.object({
-  status: z.literal("preview"), target: z.string(), kind: z.enum(["create", "update"]), title: z.string(), truth: z.string(),
+  status: z.literal("preview"), target: z.string(), kind: z.enum(["create", "update"]), title: z.string(), type: z.string(), truth: z.string(),
   previousTruth: z.string().optional(), history: z.array(z.string()), fields: z.array(z.string()), reason: z.string(), approved: z.string(),
 });
 
@@ -79,7 +79,7 @@ export const LawossMemoryTools = async () => ({
       },
     },
     lawoss_memory_write: {
-      description: "Write one case memory (OKF) record of this client: a new record or a change of an existing one (with if_revision from lawoss_memory read). Shows the user one approval card with the record's text and its file (no card when YOLO Mode is on); after approval the server writes it with the same code as okf-memory write --apply. A declined card writes nothing. Only layer L2 records of the case; office records (L1/L3) and deletions are refused.",
+      description: "Write one case memory (OKF) record of this client: a new record or a change of an existing one (with if_revision from lawoss_memory read). Shows the user one approval card with the record's text and its file (no card when YOLO Mode is on); after approval the server writes it with the same code as okf-memory write --apply. A declined card writes nothing. Only layer L2 records of a case (a folder with matter.md) in this client's own folder; the office memory, linked folders, L1/L3 records and deletions are refused.",
       args: writeArgs.shape,
       async execute(raw: unknown, context: OpenCodeContext) {
         const input = writeArgs.parse(raw);
