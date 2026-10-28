@@ -23,7 +23,7 @@ describe("Toto som našiel", () => {
   test("prax: počet, rozsah a zaškrtnutí klienti", () => {
     const clients = [{ path: "Alfa s. r. o.", name: "Alfa s. r. o." }, { path: "Beta a. s.", name: "Beta a. s." }];
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ level: "practice", clients, clientPattern: "*" })} level="practice" selected={["Alfa s. r. o."]} />);
-    expect(html).toContain("celá prax: 2 klientov");
+    expect(html).toContain("celá prax: 2 klienti");
     expect(html).toContain("Každý klient zvlášť");
     expect(html).toMatch(/type="checkbox"[^>]*checked=""[^>]*\/?>[^<]*<span>Alfa s\. r\. o\./);
     expect(html).toMatch(/type="checkbox"[^>]*\/?>[^<]*<span>Beta a\. s\./);
@@ -153,8 +153,8 @@ describe("veta návrhu a predvolená úroveň sa zhodujú (MČ 19. 10.)", () => 
     // N-9 (22. 10. 2026): najslabší signál netvrdí „Vyzerá to ako klient“; predvolený ostáva klient.
     ["obyčajné podpriečinky", base({ root: "/p/LAWOSS-synteticke-data", level: "client", score: 0.5, signals: ["plain_directories"] }), "Neviem s istotou, čo tento priečinok je.", "client"],
     ["karta klienta", base({ level: "client", marked: true, score: 1, signals: ["client_card"] }), "Vyzerá to ako klient Novák.", "client"],
-    ["istá prax", base({ level: "practice", score: 0.83, signals: ["legal_form_children"], clients }), "Vyzerá to ako celá prax: 2 klientov.", "practice"],
-    ["označená prax", base({ level: "practice", marked: true, score: 1, signals: ["office_config"], clients }), "Vyzerá to ako celá prax: 2 klientov.", "practice"],
+    ["istá prax", base({ level: "practice", score: 0.83, signals: ["legal_form_children"], clients }), "Vyzerá to ako celá prax: 2 klienti.", "practice"],
+    ["označená prax", base({ level: "practice", marked: true, score: 1, signals: ["office_config"], clients }), "Vyzerá to ako celá prax: 2 klienti.", "practice"],
     ["slabá prax", base({ level: "practice", score: 0.5, signals: ["matter_named_children"], clients }), "Predvolený je klient.", "client"],
     ["vec", base({ root: "/p/Novák/2024-03 Zmluva", level: "matter", score: 0.8, signals: ["matter_named_root"] }), "Vyzerá to ako jeden prípad: 2024-03 Zmluva.", "matter"],
     ["neznámy", base({ level: "unknown", score: 0, signals: ["empty"] }), "Neviem s istotou, čo tento priečinok je.", "client"],
@@ -204,14 +204,14 @@ describe("Toto som našiel: veta podľa voľby, kancelária v podpriečinku, pra
     const clients = [{ path: "A", name: "A" }, { path: "B", name: "B" }];
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ level: "client", signals: ["plain_directories"], clients })} level="practice" selected={["A"]} />);
     expect(html).not.toContain("Vyzerá to ako klient");
-    expect(html).toContain("Vyzerá to ako celá prax: 2 klientov.");
+    expect(html).toContain("Vyzerá to ako celá prax: 2 klienti.");
     expect(html).toContain('<option value="practice" selected="">');
   });
   test("klient s kandidátmi praxe ručne prepnutý na celú prax: zoznam troch klientov a aktívne odpovede (N-9)", () => {
     const practiceCandidates = [{ path: "C002 Hron, a. s.", name: "C002 Hron, a. s." }, { path: "C017 Šimková", name: "C017 Šimková" }, { path: "C022 Ľupták", name: "C022 Ľupták" }];
     const suggestion = base({ root: "/p/3-neusporiadana-prax", level: "client", score: 0.5, signals: ["plain_directories"], practiceCandidates, practicePattern: "*" });
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={suggestion} level="practice" scope="client" selected={practiceCandidates.map(client => client.path)} />);
-    expect(html).toContain("Vyzerá to ako celá prax: 3 klientov.");
+    expect(html).toContain("Vyzerá to ako celá prax: 3 klienti.");
     expect(html).not.toContain("V priečinku som nenašiel priečinky klientov.");
     for (const client of practiceCandidates) expect(html).toMatch(new RegExp(`type="checkbox"[^>]*checked=""[^>]*/?>[^<]*<span>${client.name.replace(/\./g, "\\.")}`));
     expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Nie, nechaj ho tak, ako je/);
@@ -295,5 +295,41 @@ describe("drobnosti z review 6c", () => {
     await runStep(async () => { log.push("work"); }, hooks);
     await runStep(async () => { throw "x"; }, hooks);
     expect(log).toEqual(["start", "work", "end", "start", "fail:x", "end"]);
+  });
+});
+
+describe("priečinok s jedným klientom, ručne „Celá prax“ (N-A7-2, test 28. 10. 2026)", () => {
+  // Strom ako v teste A3: koreň obsahuje len „C001 …/“ s prípadmi M001–M003; návrh je klient s neistotou.
+  const C001 = "C001 SYN Tatran Automatika, s. r. o.";
+  const proposed = base({ root: "/Users/advokat/Prax/2-jeden-klient", level: "client", score: 0.5, signals: ["plain_directories"], clients: [], practiceCandidates: [{ path: C001, name: C001 }], practicePattern: "*" });
+  test("veta sprievodcu (pôvodný návrh) aj bočného panela sedí so stromom: jeden klient, nie „nenašiel som“", async () => {
+    const { headline, FoundView: View } = await import("../src/lawoss/domains/onboarding/found-screen");
+    const { practiceView } = await import("../src/lawoss/domains/onboarding/found-flow");
+    const expected = "Vyzerá to ako celá prax s jedným klientom: C001 SYN Tatran Automatika, s. r. o.";
+    // Sprievodca volá vetu s pôvodným návrhom (klienti []), strom dostane `practiceView`.
+    expect(headline(foundText("sk"), proposed, "practice")).toBe(expected);
+    expect(headline(foundText("sk"), practiceView(proposed), "practice")).toBe(expected);
+    const html = renderToStaticMarkup(<View {...props} suggestion={proposed} level="practice" selected={[C001]} />);
+    expect(html).toContain(expected);
+    expect(html).not.toContain("nenašiel priečinky klientov");
+    expect(html).not.toContain("1 klientov");
+    expect(html).not.toContain("Bez priečinkov klientov");
+  });
+  test("veta pre jedného klienta vo všetkých jazykoch, bez dvojitej bodky", async () => {
+    const { headline } = await import("../src/lawoss/domains/onboarding/found-screen");
+    expect(headline(foundText("cs"), proposed, "practice")).toBe("Vypadá to jako celá praxe s jedním klientem: C001 SYN Tatran Automatika, s. r. o.");
+    expect(headline(foundText("en"), proposed, "practice")).toBe("This looks like a whole practice with one client: C001 SYN Tatran Automatika, s. r. o.");
+    expect(headline(foundText("de"), proposed, "practice")).toBe("Das sieht aus wie eine ganze Kanzlei mit einem Mandanten: C001 SYN Tatran Automatika, s. r. o.");
+    // Názov z karty má prednosť pred menom priečinka (ako strom).
+    const titled = base({ ...proposed, practiceCandidates: [{ path: C001, name: C001, title: "Tatran Automatika" }] });
+    expect(headline(foundText("sk"), titled, "practice")).toBe("Vyzerá to ako celá prax s jedným klientom: Tatran Automatika.");
+  });
+  test("bez kandidátov ostáva „nenašiel som“; dvaja a viac klientov ostávajú pri počte", async () => {
+    const { headline } = await import("../src/lawoss/domains/onboarding/found-screen");
+    expect(headline(foundText("sk"), base({ ...proposed, practiceCandidates: [] }), "practice")).toBe("V priečinku som nenašiel priečinky klientov.");
+    const two = base({ ...proposed, practiceCandidates: [{ path: "A", name: "A" }, { path: "B", name: "B" }] });
+    expect(headline(foundText("sk"), two, "practice")).toBe("Vyzerá to ako celá prax: 2 klienti.");
+    // Pôvodná voľba „Klient“ ostáva pri vete návrhu.
+    expect(headline(foundText("sk"), proposed, "client")).toBe("Neviem s istotou, čo tento priečinok je.");
   });
 });
