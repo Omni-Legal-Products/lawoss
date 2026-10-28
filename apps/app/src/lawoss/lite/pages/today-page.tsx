@@ -222,7 +222,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
                     ))}{task.matters.length > MATTERS_SHOWN ? <span> · {text("more_items", { count: task.matters.length - MATTERS_SHOWN })}</span> : null}</small>
                   </span>
                   {task.due ? <span className="lw-today-chip" data-urgency={urgencyOf(task.due, todayIso)}>
-                    {formatDay(task.due, locale)}{isCalendarDay(task.due) && task.due < todayIso ? ` · ${text("overdue")}` : !isCalendarDay(task.due) ? ` · ${text("due_invalid")}` : ""}
+                    {isCalendarDay(task.due) ? "" : "? "}{formatDay(task.due, locale)}{isCalendarDay(task.due) && task.due < todayIso ? ` · ${text("overdue")}` : !isCalendarDay(task.due) ? ` · ${text("due_invalid")}` : ""}
                   </span> : null}
                 </li>
               ))}

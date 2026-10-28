@@ -419,14 +419,15 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
               <h2 className="lw-matter-section">{text("tasks_title")}</h2>
               {(cockpit?.tasks.length ?? 0) === 0 ? <p className="lw-matter-empty">{text("tasks_empty")}</p> : <ul className="lw-matter-list">
                 {cockpit?.tasks.map((task) => (
-                  <li key={`${task.file}/${task.id}`} className="lw-matter-item lw-matter-task" data-urgency={task.due ? urgencyOf(task.due, now) : "calm"}>
+                  <li key={`${task.file}/${task.id}`} className="lw-matter-item lw-matter-task" data-urgency={task.due ? urgencyOf(task.due, now, task.invalid) : "calm"}>
                     <span className="lw-matter-ring" aria-hidden />
                     <span className="lw-matter-item-main">
                       <span className="lw-matter-item-title">{task.title}</span>
-                      {task.assignee ? <small>{task.assignee}</small> : null}
+                      {/* Neplatný termín: súbor, v ktorom ho treba opraviť. */}
+                      {task.assignee || task.invalid ? <small>{[task.assignee, task.invalid ? task.file : undefined].filter(Boolean).join(" · ")}</small> : null}
                     </span>
-                    {task.due ? <span className="lw-matter-chip">{formatDay(task.due, locale)}</span> : null}
-                    {task.overdue ? <span className="lw-matter-flag">{text("overdue")}</span> : null}
+                    {task.due ? <span className="lw-matter-chip" data-invalid={task.invalid || undefined}>{task.invalid ? `? ${task.due}` : formatDay(task.due, locale)}</span> : null}
+                    {task.invalid ? <span className="lw-matter-flag">{text("due_invalid")}</span> : task.overdue ? <span className="lw-matter-flag">{text("overdue")}</span> : null}
                   </li>
                 ))}
               </ul>}

@@ -12,7 +12,7 @@ import { isManagedDeadline, managedDeadlineTrusted, type DeadlineWorkflowEvidenc
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
 import { isRecordType, valueLabel, type KnownRecordType, type RecordType } from "../okf-pamat/src/schema.ts";
 import { pendingInputs } from "./inputs.ts";
-import { deadlineLabel, deadlineTier, isOpenTask, isRetired, recordDeadlines, type MatterInput, type MatterOverview } from "./read.ts";
+import { deadlineLabel, deadlineTier, isOpenTask, isRetired, recordDeadlines, taskDue, type MatterInput, type MatterOverview } from "./read.ts";
 
 /** Odkiaľ údaj pochádza. Slovo, nie farba — stav musí byť čitateľný aj bez nej. */
 type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené" | "strojovo overené";
@@ -40,7 +40,8 @@ export type CockpitFact = {
   provenance: Provenance;
   file: string;
 };
-type CockpitTask = { id: string; title: string; assignee?: string; due?: string; overdue: boolean; file: string };
+/** `invalid`: `due` nie je dátum RRRR-MM-DD - ostáva pôvodný text na overenie, nikdy „po termíne“. */
+type CockpitTask = { id: string; title: string; assignee?: string; due?: string; invalid?: true; overdue: boolean; file: string };
 export type CockpitDeadline = {
   date: string;
   title: string;
@@ -191,14 +192,16 @@ function tasks(input: MatterInput, todayIso: string): CockpitTask[] {
     .filter(isOpenTask)
     .sort((a, b) => (a.id < b.id ? -1 : 1))
     .map((r) => {
+      const due = taskDue(r.due);
       const task: CockpitTask = {
         id: r.id,
         title: r.title,
-        overdue: r.due !== undefined && r.due < todayIso,
+        overdue: due.day !== undefined && due.day < todayIso,
         file: fileOf(input, r),
       };
       if (r.assignee) task.assignee = r.assignee;
       if (r.due) task.due = r.due;
+      if (due.invalid) task.invalid = true;
       return task;
     });
 }
@@ -317,11 +320,12 @@ export function attention(
   }
 
   for (const t of tasks(input, todayIso)) {
-    if (!t.overdue || t.due === undefined) continue;
+    // Neplatný termín úlohy ide na overenie so súborom, rovnako ako neplatná lehota.
+    if ((!t.overdue && !t.invalid) || t.due === undefined) continue;
     rows.push({
       id: `uloha:${t.id}`,
       kind: "úloha",
-      state: "po termíne",
+      state: t.invalid ? "neparsovateľné" : "po termíne",
       title: t.title,
       detail: t.assignee ? `zodpovedá ${t.assignee}` : "bez zodpovednej osoby",
       date: t.due,

@@ -15,7 +15,8 @@ import { isIsoDate, isoDay } from "../okf-pamat/src/schema.ts";
 /** `invalid`: datum lhůty nemá tvar RRRR-MM-DD - UI ho ukáže k ověření, nikdy ho tiše nezahodí. */
 /** `file`: skutočný súbor záznamu - totožnosť zdieľaného záznamu (ID sa razia per spis, nie sú jedinečné). */
 type OverviewDeadline = { date: string; title: string; recordId: string; invalid?: true; file?: string; /** Pôvodný zápis lehoty: dve lehoty toho istého záznamu v jeden deň sú dve lehoty. */ raw?: string };
-type OverviewTask = { id: string; title: string; assignee?: string; due?: string; file?: string };
+/** `invalid`: termín úlohy nemá tvar RRRR-MM-DD - `due` ostáva pôvodný text a UI ho ukáže k overeniu. */
+type OverviewTask = { id: string; title: string; assignee?: string; due?: string; invalid?: true; file?: string };
 
 export type MatterOverview = {
   /** Cesta priečinka veci relatívne ku koreňu workspace-u. */
@@ -116,6 +117,16 @@ export function daysBetween(from: string, to: string): number {
 }
 
 /**
+ * Termín úlohy (`due`): platný deň (`RRRR-MM-DD`, prípadne s časom) alebo `invalid`. Zlý zápis
+ * ostáva pri úlohe ako text - nesmie zhodiť prípad ani klienta, ani sa textovo porovnať s dneškom.
+ */
+export function taskDue(due: string | undefined): { day?: string; invalid?: true } {
+  if (!due?.trim()) return {};
+  const day = isoDay(due);
+  return day ? { day } : { invalid: true };
+}
+
+/**
  * Lehoty záznamu pre prehľad a cockpit: vyradený záznam žiadne nemá; `RRRR-MM-DD` s časom
  * sa oreže na deň; iný tvar ostáva ako text s `invalid` (`raw` = pôvodná hodnota pre potvrdenie).
  */
@@ -174,7 +185,7 @@ function matterOverview(input: MatterInput): MatterOverview {
   const openTasks = input.records
     .filter(isOpenTask)
     .sort((a, b) => (a.id < b.id ? -1 : 1))
-    .map((t) => ({ id: t.id, title: t.title, assignee: t.assignee, due: t.due, ...(input.recordFiles?.[t.id] ? { file: input.recordFiles[t.id] } : {}) }));
+    .map((t) => ({ id: t.id, title: t.title, assignee: t.assignee, due: t.due, ...(taskDue(t.due).invalid ? { invalid: true as const } : {}), ...(input.recordFiles?.[t.id] ? { file: input.recordFiles[t.id] } : {}) }));
 
   const out: MatterOverview = {
     path: input.path,

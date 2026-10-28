@@ -119,7 +119,8 @@ function Item({ item, locale, access }: { item: ViewItem; locale: Language; acce
       {item.detail || tags.length ? <small>{[...tags, item.detail].filter(Boolean).join(" · ")}</small> : null}
     </span>
     <span className="lw-views-meta">
-      {valid && item.date ? <span className="lw-matter-chip">{shortDay(item.date, locale)}</span> : null}
+      {valid && item.date ? <span className="lw-matter-chip">{shortDay(item.date, locale)}</span>
+        : item.date && item.flags?.includes("invalid") ? <span className="lw-matter-chip" data-invalid="">? {item.date}</span> : null}
       {item.state ? <span className="lw-views-state" data-state={item.state}>{t(STATE_TEXT[item.state], locale)}</span> : null}
       {(item.flags ?? []).map((flag) => <span key={flag} className="lw-matter-flag" data-flag={flag}>{t(FLAG_TEXT[flag], locale)}</span>)}
       {item.document && access?.canOpen(item.document) ? <button type="button" className="lw-views-source" data-lawoss-document={item.document}
