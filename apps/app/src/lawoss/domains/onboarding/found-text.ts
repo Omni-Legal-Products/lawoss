@@ -18,8 +18,11 @@ const sk = {
   foundTitle: "Toto sme našli",
   clientFound: "Vyzerá to ako klient {name}.",
   practiceFound: "Vyzerá to ako celá prax: {count} klientov.",
+  practiceFound_few: "Vyzerá to ako celá prax: {count} klienti.",
+  practiceFoundOne: "Vyzerá to ako celá prax s jedným klientom: {name}.",
   practiceUncertain: "Môže to byť jeden klient {name} s prípadmi, alebo celá prax s {count} klientmi. Predvolený je klient. Ak ide o prax, zmeňte to nižšie.",
   matterFound: "Vyzerá to ako jeden prípad: {name}.",
+  nestedClientFound: "Priečinok {name} má kód iného klienta než priečinok, v ktorom leží. Klient nemôže byť vnútri iného klienta.",
   unknownFound: "Neviem s istotou, čo tento priečinok je.",
   incomplete: "Priečinok je veľký, prezrel som len časť. Návrh nemusí byť úplný.",
   correctLabel: "Toto je",
@@ -27,6 +30,9 @@ const sk = {
   asPractice: "Celá prax",
   asMatter: "Jeden prípad",
   matterHint: "Prípad patrí pod klienta. Pripojím nadradený priečinok {name} ako klienta.",
+  nestedClientHint: "Ako prípad ho nepripojím. Pripojím klienta {client}, ktorému priečinok patrí; v jeho súboroch ostane ako obyčajný priečinok.",
+  nestedClientsWarn: "V priečinku klienta {client} je priečinok, ktorý vyzerá ako iný klient: {names}. Prípadom nie je, ale agent klienta {client} uvidí aj jeho súbory.",
+  nestedClientsWarnMany: "V priečinku klienta {client} sú priečinky, ktoré vyzerajú ako iní klienti: {names}. Prípadmi nie sú, ale agent klienta {client} uvidí aj ich súbory.",
   useParent: "Pripojiť klienta {name}",
   scopeTitle: "Ako pracovať s praxou",
   scopeEach: "Každý klient zvlášť (odporúčané)",
@@ -103,8 +109,11 @@ const cs: Dictionary = {
   foundTitle: "Toto jsme našli",
   clientFound: "Vypadá to jako klient {name}.",
   practiceFound: "Vypadá to jako celá praxe: {count} klientů.",
+  practiceFound_few: "Vypadá to jako celá praxe: {count} klienti.",
+  practiceFoundOne: "Vypadá to jako celá praxe s jedním klientem: {name}.",
   practiceUncertain: "Může to být jeden klient {name} s případy, nebo celá praxe s {count} klienty. Předvolen je klient. Pokud jde o praxi, změňte to níže.",
   matterFound: "Vypadá to jako jeden případ: {name}.",
+  nestedClientFound: "Složka {name} má kód jiného klienta než složka, ve které leží. Klient nemůže být uvnitř jiného klienta.",
   unknownFound: "Nevím s jistotou, co tato složka je.",
   incomplete: "Složka je velká, prohlédl jsem jen část. Návrh nemusí být úplný.",
   correctLabel: "Tohle je",
@@ -112,6 +121,9 @@ const cs: Dictionary = {
   asPractice: "Celá praxe",
   asMatter: "Jeden případ",
   matterHint: "Případ patří pod klienta. Připojím nadřazenou složku {name} jako klienta.",
+  nestedClientHint: "Jako případ ji nepřipojím. Připojím klienta {client}, kterému složka patří; v jeho souborech zůstane jako obyčejná složka.",
+  nestedClientsWarn: "Ve složce klienta {client} je složka, která vypadá jako jiný klient: {names}. Případem není, ale agent klienta {client} uvidí i její soubory.",
+  nestedClientsWarnMany: "Ve složce klienta {client} jsou složky, které vypadají jako jiní klienti: {names}. Případy nejsou, ale agent klienta {client} uvidí i jejich soubory.",
   useParent: "Připojit klienta {name}",
   scopeTitle: "Jak pracovat s praxí",
   scopeEach: "Každý klient zvlášť (doporučeno)",
@@ -186,8 +198,11 @@ const en: Dictionary = {
   foundTitle: "What we found",
   clientFound: "This looks like the client {name}.",
   practiceFound: "This looks like a whole practice: {count} clients.",
+  practiceFound_few: "This looks like a whole practice: {count} clients.",
+  practiceFoundOne: "This looks like a whole practice with one client: {name}.",
   practiceUncertain: "This may be one client, {name}, with cases, or a whole practice with {count} clients. I preselected the client; if it is a practice, change it below.",
   matterFound: "This looks like one case: {name}.",
+  nestedClientFound: "The folder {name} has a different client code than the folder it lies in. A client cannot be inside another client.",
   unknownFound: "I am not sure what this folder is.",
   incomplete: "The folder is large and I only looked at part of it. The suggestion may be incomplete.",
   correctLabel: "This is",
@@ -195,6 +210,9 @@ const en: Dictionary = {
   asPractice: "A whole practice",
   asMatter: "One case",
   matterHint: "A case belongs to a client. I will connect the parent folder {name} as the client.",
+  nestedClientHint: "I will not connect it as a case. I will connect the client {client}, to whom the folder belongs; it stays an ordinary folder in that client's files.",
+  nestedClientsWarn: "The folder of the client {client} contains a folder that looks like another client: {names}. It is not a case, but the agent of the client {client} will also see its files.",
+  nestedClientsWarnMany: "The folder of the client {client} contains folders that look like other clients: {names}. They are not cases, but the agent of the client {client} will also see their files.",
   useParent: "Connect client {name}",
   scopeTitle: "How to work with the practice",
   scopeEach: "Each client separately (recommended)",
@@ -269,8 +287,11 @@ const de: Dictionary = {
   foundTitle: "Gefunden",
   clientFound: "Das sieht aus wie der Mandant {name}.",
   practiceFound: "Das sieht aus wie eine ganze Kanzlei: {count} Mandanten.",
+  practiceFound_few: "Das sieht aus wie eine ganze Kanzlei: {count} Mandanten.",
+  practiceFoundOne: "Das sieht aus wie eine ganze Kanzlei mit einem Mandanten: {name}.",
   practiceUncertain: "Das kann ein Mandant {name} mit Fällen sein oder eine ganze Kanzlei mit {count} Mandanten. Ich habe den Mandanten vorausgewählt; ist es eine Kanzlei, ändern Sie das unten.",
   matterFound: "Das sieht aus wie ein Fall: {name}.",
+  nestedClientFound: "Der Ordner {name} trägt ein anderes Mandantenkürzel als der Ordner, in dem er liegt. Ein Mandant kann nicht in einem anderen Mandanten liegen.",
   unknownFound: "Ich bin nicht sicher, was dieser Ordner ist.",
   incomplete: "Der Ordner ist groß, ich habe nur einen Teil angesehen. Der Vorschlag ist evtl. unvollständig.",
   correctLabel: "Das ist",
@@ -278,6 +299,9 @@ const de: Dictionary = {
   asPractice: "Eine ganze Kanzlei",
   asMatter: "Ein Fall",
   matterHint: "Ein Fall gehört zu einem Mandanten. Ich verbinde den übergeordneten Ordner {name} als Mandanten.",
+  nestedClientHint: "Als Fall verbinde ich ihn nicht. Ich verbinde den Mandanten {client}, dem der Ordner gehört; in dessen Dateien bleibt er ein gewöhnlicher Ordner.",
+  nestedClientsWarn: "Im Ordner des Mandanten {client} liegt ein Ordner, der wie ein anderer Mandant aussieht: {names}. Er ist kein Fall, aber der Agent des Mandanten {client} sieht auch seine Dateien.",
+  nestedClientsWarnMany: "Im Ordner des Mandanten {client} liegen Ordner, die wie andere Mandanten aussehen: {names}. Sie sind keine Fälle, aber der Agent des Mandanten {client} sieht auch ihre Dateien.",
   useParent: "Mandant {name} verbinden",
   scopeTitle: "Wie mit der Kanzlei arbeiten",
   scopeEach: "Jeder Mandant einzeln (empfohlen)",
@@ -338,7 +362,19 @@ const de: Dictionary = {
 export const FOUND_TEXT: Record<"sk" | "cs" | "en" | "de", Dictionary> = { sk, cs, en, de };
 export type { FoundTextKey };
 
+/**
+ * Pri číselnom `count` sa použije tvar podľa pravidiel množného čísla jazyka (`_one`, `_few`, `_many`), ak ho kľúč má,
+ * inak základný tvar (SK/CS 0 a 5+), ako `wizardText`.
+ */
 export function foundText(locale: Language): (key: FoundTextKey, params?: Record<string, string | number>) => string {
-  const dictionary = locale === "sk" || locale === "cs" || locale === "de" ? FOUND_TEXT[locale] : FOUND_TEXT.en;
-  return (key, params) => dictionary[key].replace(/\{(\w+)\}/g, (match, name: string) => (params && name in params ? String(params[name]) : match));
+  const language = locale === "sk" || locale === "cs" || locale === "de" ? locale : "en";
+  const dictionary = FOUND_TEXT[language];
+  const plural = new Intl.PluralRules(language);
+  const isKey = (key: string): key is FoundTextKey => Object.hasOwn(dictionary, key);
+  return (key, params) => {
+    const count = params?.count;
+    const variant = typeof count === "number" ? `${key}_${plural.select(count)}` : "";
+    const chosen = variant && isKey(variant) ? variant : key;
+    return dictionary[chosen].replace(/\{(\w+)\}/g, (match, name: string) => (params && name in params ? String(params[name]) : match));
+  };
 }

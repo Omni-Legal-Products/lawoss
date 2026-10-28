@@ -9,6 +9,7 @@
  */
 import { useEffect, useState } from "react";
 import { t, type Language } from "@/i18n";
+import { taskDue } from "../../../../../lawoss/okf/read";
 import { viewTagsLine, VIEW_FAMILIES, type ItemFlag, type ItemState, type MatterViews, type SectionId, type SourceRef, type ViewBlock, type ViewConflict, type ViewFamily, type ViewItem, type ViewSection } from "../../../../../lawoss/okf/views";
 
 /** Položky viditeľné bez rozbalenia; zvyšok je „Zobraziť všetko“. */
@@ -112,14 +113,16 @@ function SourceLink({ source, locale, access }: { source: SourceRef; locale: Lan
 
 function Item({ item, locale, access }: { item: ViewItem; locale: Language; access?: SourceAccess }) {
   const tags = (item.tags ?? []).map((tag) => tagText(tag, locale)).filter(Boolean);
-  const valid = item.date && ISO.test(item.date) && !item.flags?.includes("invalid");
+  // Termín úlohy smie mať aj čas („2026-11-20 10:00“): ukáže sa deň a čas, nie „?“.
+  const due = item.flags?.includes("invalid") ? {} : taskDue(item.date);
   return <li className="lw-views-item" data-state={item.state} data-flags={item.flags?.join(" ") || undefined}>
     <span className="lw-views-main">
       <span className="lw-views-label">{item.label}</span>
       {item.detail || tags.length ? <small>{[...tags, item.detail].filter(Boolean).join(" · ")}</small> : null}
     </span>
     <span className="lw-views-meta">
-      {valid && item.date ? <span className="lw-matter-chip">{shortDay(item.date, locale)}</span> : null}
+      {due.day ? <span className="lw-matter-chip">{shortDay(due.day, locale)}{due.time ? ` ${due.time}` : ""}</span>
+        : item.date && item.flags?.includes("invalid") ? <span className="lw-matter-chip" data-invalid="">? {item.date}</span> : null}
       {item.state ? <span className="lw-views-state" data-state={item.state}>{t(STATE_TEXT[item.state], locale)}</span> : null}
       {(item.flags ?? []).map((flag) => <span key={flag} className="lw-matter-flag" data-flag={flag}>{t(FLAG_TEXT[flag], locale)}</span>)}
       {item.document && access?.canOpen(item.document) ? <button type="button" className="lw-views-source" data-lawoss-document={item.document}

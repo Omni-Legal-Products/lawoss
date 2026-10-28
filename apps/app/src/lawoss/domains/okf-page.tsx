@@ -13,7 +13,7 @@ import type { CockpitParty } from "../../../../../lawoss/okf/cockpit";
 import { ENABLE_OKF_ROUTE, useOkfChoice } from "./onboarding/entry-actions";
 import { PracticeCoverage } from "../okf/practice-coverage";
 import { NEW_MATTER_PATH } from "../lite/links";
-import { unavailableWorkspace } from "../okf/missing-folder";
+import { unavailableWorkspace, unavailableWorkspaceIds } from "../okf/missing-folder";
 import { MissingFolder } from "./missing-folder";
 import { isConnectionProblem } from "../lite/connection-problem";
 import "../lite/pages/okf-glass.css";
@@ -76,7 +76,7 @@ function OkfPageQuery({ children, notice, stateText, pickWorkspace = activeWorks
   // Priečinok priestoru na disku chýba (404 `project_folder_unavailable`): veta s menom priečinka a cesta ďalej.
   const missing = connection ? unavailableWorkspace(connection.workspaces, query.data, query.error, workspace) : null;
   return <OkfPageState
-    missingFolder={connection && missing ? <MissingFolder connection={connection} missing={missing} /> : null}
+    missingFolder={connection && missing ? <MissingFolder connection={connection} missing={missing} unavailable={unavailableWorkspaceIds(query.data)} /> : null}
     okfOff={okfChoice.known && okfChoice.offered === true}
     meta={{ checkedAt: query.dataUpdatedAt, changedAt, failed: query.isRefetchError }}
     firstRun={firstRun}
