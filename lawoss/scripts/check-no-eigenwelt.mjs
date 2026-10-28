@@ -28,7 +28,10 @@
  *    (ADR 0015, MČ 5. 10. 2026): v `apps/server/src/lawoss/marketplace-updates.ts` presne
  *    adresy `api.github.com/repos/Omni-Legal-Products/lawoss-marketplace/…` a raw obsah toho
  *    repozitára, interval presne 7 dní, nikdy hneď pri štarte, nič neinštaluje; GitHub ani
- *    plánované sieťové volanie nikde inde v kóde LAWOSS a upozornenie v appke bez siete.
+ *    plánované sieťové volanie nikde inde v kóde LAWOSS a upozornenie v appke bez siete;
+ * 10. sa v nastaveniach vráti prepínač „Aktualizovať zoznam modelov online“ (sťahovanie
+ *    od Eigenweltu) alebo veta o pláne Eigenweltu „Sync, Plus alebo Pro“ v Oprávneniach
+ *    nástrojov (`sandbox.sync_local` v SK/CS a prepis EN/DE v `terms.ts`; nález N-A7-15).
  *
  * Spolu s ňou beží stráž značky `check-branding.mjs` (LAWOSS namiesto LegalWork,
  * nemenný APP_IDENTIFIER, releasy forku), aby stačil jeden krok v CI.
