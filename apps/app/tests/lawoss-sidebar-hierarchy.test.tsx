@@ -10,9 +10,9 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { t } from "@/i18n";
 import { cardTitle, clientCode, clientGroupOfProject, clientLabel, expandedAfter, liteProjectNav, matterOfDirectory, matterSourceFresh, prettyFolderName, rowDeadline, sameName } from "../src/lawoss/lite/client-row";
 import { buildClientRows, MAX_CARD_BYTES, readRootCards, type RootCard } from "../src/lawoss/lite/client-row-data";
-import { chatContextText, clientProjectRow, ClientMoreNavItem, ClientRowLabel, ClientRowStatusLine } from "../src/lawoss/lite/client-row-view";
+import { chatContextText, clientProjectRow, ClientMoreNavItem, ClientRowLabel, ClientRowStatusLine, useClientRowActive } from "../src/lawoss/lite/client-row-view";
 import { shortDay } from "../src/lawoss/lite/client-row-text";
-import { ClientMattersView, matterRowStatus } from "../src/lawoss/lite/client-nav";
+import { ClientMattersView, ClientNavTestProvider, matterRowStatus, useMatterChatOpen } from "../src/lawoss/lite/client-nav";
 import { clientNavModel, type ClientOverviewState } from "../src/lawoss/lite/client-projects";
 import type { TreeClient } from "../src/lawoss/lite/client-tree";
 import type { ClientGroup } from "../src/lawoss/lite/today-model";
@@ -228,7 +228,24 @@ describe("hierarchia a aktívni predkovia", () => {
     expect(html(<ul><ClientMattersView nodes={nodes} open locale="sk" /></ul>)).not.toContain("data-lawoss-row-status");
   });
 
-  test("natívne Chaty nie sú aktívne, keď je otvorený chat vo veci (patrí pod Prípady)", () => {
+  test("natívne Chaty nie sú aktívne, keď je otvorený chat vo veci (patrí pod Prípady); riadok klienta podľa trasy", () => {
+    function Probe({ id, selected = false }: { id: string; selected?: boolean }) {
+      return <i data-chat-in-matter={String(useMatterChatOpen(id))} data-row-active={String(useClientRowActive(id, selected))} />;
+    }
+    const probe = (current: boolean, entry: string, focused: string | null, id = "tatran", selected = false) => {
+      const value = { ...nav(), tree: { nodes: tree(current), toggle: () => {}, openConversation: () => {}, newConversation: () => {} }, open: {}, setOpen: () => {}, focused, startNewChat: () => false };
+      return html(<ClientNavTestProvider value={value}><Probe id={id} selected={selected} /></ClientNavTestProvider>, entry);
+    };
+    const chat = "/workspace/tatran/session/s-uhrada";
+    expect(probe(true, chat, "tatran")).toContain('<i data-chat-in-matter="true" data-row-active="true"></i>');
+    // Chat klienta bez prípadu, iná stránka než chat, iný projekt: natívne Chaty ostávajú.
+    expect(probe(false, chat, "tatran")).toContain('data-chat-in-matter="false"');
+    expect(probe(true, `/vec?vec=${encodeURIComponent(UHRADA.path)}`, "tatran")).toContain('data-chat-in-matter="false"');
+    expect(probe(true, chat, "tatran", "ine", true)).toContain('<i data-chat-in-matter="false" data-row-active="false"></i>');
+    // Bez trasy v klientovi rozhoduje natívny výber projektu.
+    expect(probe(false, "/dnes", null, "tatran", true)).toContain('data-row-active="true"');
+    expect(probe(false, "/dnes", null, "tatran", false)).toContain('data-row-active="false"');
+    // Stráž patchu app-sidebar.tsx (PATCHES.md): hooky sú zapojené do natívnych riadkov.
     const sidebar = source("react-app/domains/session/sidebar/app-sidebar.tsx");
     expect(sidebar).toContain('isActive={isSelected && ctx.activeProjectFeature === "sessions" && !chatInMatter}');
     expect(sidebar).toContain("const chatInMatter = useMatterChatOpen(workspace.id);");
