@@ -11,7 +11,7 @@
  *   leží v praxi (okrem pamäte kancelárie). Mapa aj plugin tie isté pravidlá uplatnia znova, takže ani
  *   položka zapísaná inou cestou (napr. migrácia starej konfigurácie) nič neotvorí.
  */
-import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { ApiError } from "../errors.js";
@@ -119,16 +119,40 @@ const conflictErrors: Record<LinkedFolderConflict, () => ApiError> = {
 const practiceLikeError = (folder: string, clients: string[]) => new ApiError(409, "linked_folder_practice_like",
   "This folder looks like it holds the folders of several clients. Link a specific folder, or confirm this folder in the app.", { folder, clients });
 
-/** Mapa pre plugin: kanonický koreň každého lokálneho klienta a jeho pripojené priečinky bez kolízií. */
+/** Karta klienta presne týmto menom (ako prehľad OKF v appke); odkaz ani priečinok sa nerátajú. */
+const CLIENT_CARDS = new Set(["client.md", "klient.md"]);
+/** Koľko úrovní nad registrovaným priečinkom sa hľadá karta (spis `Klienti/C001/Spisy/M001` = 2). */
+const CLIENT_CARD_LEVELS = 4;
+
+/**
+ * N-A7-14: priečinok klienta, ku ktorému registrovaný priečinok patrí: on sám alebo najbližší predok s kartou klienta,
+ * nikdy koreň praxe ani nič nad ním. Registrovaný spis tak patrí klientovi, nie je „iný klient“. Bez karty `null`.
+ */
+export async function clientCardFolder(root: string, practice: string | null): Promise<string | null> {
+  let folder = root;
+  for (let level = 0; level <= CLIENT_CARD_LEVELS; level++) {
+    // Koreň praxe ani jeho predok (napr. domov s registrovaným kontajnerom) nie je klient.
+    if (practice && isPathWithin(folder, practice)) return null;
+    const entries = await readdir(folder, { withFileTypes: true }).catch(() => []);
+    if (entries.some((entry) => entry.isFile() && CLIENT_CARDS.has(entry.name))) return folder;
+    const parent = dirname(folder);
+    if (parent === folder) return null;
+    folder = parent;
+  }
+  return null;
+}
+
+/** Mapa pre plugin: kanonický koreň každého lokálneho klienta, jeho pripojené priečinky bez kolízií a priečinok klienta s kartou. */
 export async function buildLinkedFoldersMap(config: ServerConfig): Promise<LinkedFoldersMap> {
   const firm = await appliedOrgPolicy(config, "tools.permissions").catch(() => null);
   if (firm?.value.external_directory !== undefined) return { version: 1, officeRoot: null, clients: [], firmManaged: true };
+  const practice = await officeRoot(config);
   const clients = [];
   for (const workspace of await clientWorkspaces(config)) {
     const linked = await clientLinkedFolders(config, workspace);
-    if (linked) clients.push(linked);
+    if (linked) clients.push({ ...linked, client: await clientCardFolder(linked.root, practice) });
   }
-  return { version: 1, officeRoot: await officeRoot(config), clients, firmManaged: false };
+  return { version: 1, officeRoot: practice, clients, firmManaged: false };
 }
 
 /** Kanonický koreň klienta a jeho pripojené priečinky z natívneho zoznamu, ktoré prejdú pravidlami; bez koreňa `null`. */

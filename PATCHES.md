@@ -1,5 +1,15 @@
 # LAWOSS downstream patches
 
+## Priečinok iného klienta v chate klienta (2026-10-28, N-A7-14)
+
+Úplný UI test dev `f8acb4bd`, test E2: v chate klienta C001 agent žiadal `external_directory` s rozsahom `…/Klienti/C002*` a karta nepovedala, že ide o iného klienta. Priečinok iného klienta (klient = priečinok s kartou `client.md`/`klient.md`, registrované spisy patria svojmu klientovi) odmietne plugin `lawoss-linked-folders` (LAWOSS súbor, pravidlo `externalDirectoryOtherClient` v `lawoss/linked-folders-rules.ts`, `client` v mape z `lawoss/linked-folders.ts`); karta je pre prípady, o ktorých plugin nerozhoduje (vzor cez vlastného klienta, priečinok s klientmi, neisté znaky).
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | `PermissionApprovalPanel` má voliteľnú prop `chatDirectory` a pod nadpisom karty `external_directory` vetu z `useOtherClientFolderText` (`apps/app/src/lawoss/lite/other-client-folder.ts`): „Priečinok patrí inému klientovi: <meno>. Agent by videl jeho súbory.“, resp. „obsahuje priečinky iných klientov“ (aj pre vzory) alebo varovanie pri neistom rozsahu (+1 import, +1 prop, +1 riadok hooku, +1 riadok renderu). Klienti a mená sú z prehľadu bočného panela (karty klientov); bez neho (samostatné okno) karta ostane ako upstream. Test `apps/app/tests/lawoss-karta-iny-klient.test.tsx`. |
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `PermissionApprovalPanel` dostane `chatDirectory={props.workspaceRoot}` (+1 riadok). |
+| `.github/workflows/ci-tests.yml` | Krok so skutočným enginom spúšťa aj `apps/server/src/lawoss/linked-folders-engine.integration.test.ts`: pripojené priečinky po chatoch a odmietnutie priečinka iného klienta s vetou pre agenta v engine 1.18.29. |
+
 ## Karta pred zápisom cez editor dokumentov (2026-10-28, N-A7-8)
 
 Nález N-A7-8, see coordination issue. Pred každým zapisujúcim volaním editora dokumentov (`inapp_*`) sa plugin pýta enginu s povolením `edit` (karta „Upraviť súbory?“) a cestou od koreňa klienta; čítanie sa nepýta. Logika je v `apps/server/src/opencode-plugins/lawoss-editor-approval.ts`, test `lawoss-editor-approval.test.ts` (aj zoznam všetkých `inapp_*` nástrojov, aby nový nástroj po syncu nezostal nezaradený). Tieto volania a odovzdanie editorov pred zápisom súborov nesú hlavičku `x-lawoss-editor-write: 1` (`apps/server/src/lawoss/editor-write-header.ts`). Most UI v desktope akciu editora, ktorá zapisuje (vrátane `documents.begin_file_edit` a `documents.open` s `copyTo`), bez nej odmietne (`apps/desktop/electron/lawoss-editor-write-gate.mjs`), takže ju nespustí ani `legalwork_ui_execute_action`, ani MCP `legalwork-ui` (`ui_execute_action`, aj verzia z npm). Test `lawoss-editor-write-gate.test.mjs` zaradí každú akciu dokumentových plôch v appke, aby nová akcia editora nezostala mimo zoznamu.
