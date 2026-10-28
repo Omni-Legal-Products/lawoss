@@ -3,7 +3,7 @@
  * OKF súborov, pripojenie praxe a začiatok usporiadania na mieste. Bez Reactu, aby sa dala testovať.
  */
 import type { Language } from "@/i18n";
-import { hasLegalForm } from "../../../../../../lawoss/okf/src/onboarding/suggest-patterns";
+import { hasLegalForm, nestedClientCode } from "../../../../../../lawoss/okf/src/onboarding/suggest-patterns";
 import { triageGrant, triagePlan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { LITE_CLIENTS_PATH } from "../../lite/links";
 import type { OnboardingCompletion } from "./lawoss-welcome-page";
@@ -34,6 +34,42 @@ export function parentPath(root: string): string {
 export function matterClientPath(root: string): string {
   const parent = parentPath(root);
   return folderName(parent).toLowerCase() === "spisy" ? parentPath(parent) : parent;
+}
+
+/**
+ * N-A7-3 (test 28. 10. 2026): vybraný priečinok má kód iného klienta než priečinok nad ním („C099 …“ v „C030 …“),
+ * je teda vnoreným klientom, nie prípadom. Podľa rozhodnutia MČ z 23. 10. 2026 sa ako klient neregistruje; ponúkne
+ * sa vonkajší klient (`matterClientPath`). Priečinok s kartou (klienta či veci) rozhoduje sám kartou.
+ */
+export function nestedInClient(suggestion: { root: string; marked: boolean }): boolean {
+  return !suggestion.marked && nestedClientCode(folderName(parentPath(suggestion.root)), folderName(suggestion.root));
+}
+
+/** Upozornenie na priečinky ďalších klientov v pripájanom klientovi; `key` je cesta (mená klientov sa môžu opakovať). */
+export type NestedClientWarning = { key: string; client: string; names: string[] };
+
+/**
+ * N-A7-3: pripájaní klienti, v ktorých priečinku je priečinok ďalšieho klienta (kód iného klienta alebo karta klienta).
+ * Pri klientovi koreň, pri praxi každý jej klient. Agent klienta by súbory toho priečinka videl, preto upozornenie.
+ * Návrh praxe ručne prepnutý na „Klient“: klienti praxe sú tiež priečinkami iných klientov v koreni (review #294).
+ */
+export function nestedClientWarnings(suggestion: OnboardingSuggestion, level: "practice" | "client" | "matter"): NestedClientWarning[] {
+  const nestedOf = (path: string) => suggestion.units?.find(unit => unit.path === path)?.nestedClients ?? [];
+  if (level === "client") {
+    const found = new Map<string, string>(nestedOf("").map(nested => [nested.path, nested.name]));
+    if (suggestion.level === "practice") for (const client of suggestion.clients) found.set(client.path, clientName(client));
+    return found.size ? [{ key: suggestion.root, client: rootClientName(suggestion), names: [...found.values()] }] : [];
+  }
+  if (level !== "practice") return [];
+  return suggestion.clients.flatMap(client => {
+    const names = nestedOf(client.path).map(nested => nested.name);
+    return names.length ? [{ key: client.path, client: clientName(client), names }] : [];
+  });
+}
+
+/** Veta upozornenia: jeden priečinok, alebo viac priečinkov (tvar množného čísla). */
+export function nestedClientWarningText(text: (key: "nestedClientsWarn" | "nestedClientsWarnMany", params: Record<string, string>) => string, warning: NestedClientWarning): string {
+  return text(warning.names.length === 1 ? "nestedClientsWarn" : "nestedClientsWarnMany", { client: warning.client, names: warning.names.join(", ") });
 }
 
 /** Meno klienta pre advokáta (N-A4-2): názov z karty ako v bočnom paneli, inak meno priečinka. */

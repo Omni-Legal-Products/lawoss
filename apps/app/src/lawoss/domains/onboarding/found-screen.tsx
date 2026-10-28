@@ -7,7 +7,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { toggledLeave, triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { friendlyError, TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
-import { addOkfFiles, answerClient, batchOffersChat, chatTarget, childPath, clientName, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientName, matterClientPath, createReorganizeFlow, practiceView, retryFailed, rootClientName, workspaceResults, type Answer, type BatchItem, type FoundIdentity } from "./found-flow";
+import { addOkfFiles, answerClient, batchOffersChat, chatTarget, childPath, clientName, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientName, matterClientPath, createReorganizeFlow, nestedClientWarnings, nestedClientWarningText, nestedInClient, practiceView, retryFailed, rootClientName, workspaceResults, type Answer, type BatchItem, type FoundIdentity } from "./found-flow";
 import { clientChatPrompt, type ClientChatOutcome, type ClientChatRequest, type ClientChatUnavailable } from "./client-chat";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
@@ -34,7 +34,7 @@ export function isUncertainPractice(suggestion: OnboardingSuggestion): boolean {
   return suggestion.level === "practice" && !suggestion.marked && suggestion.signals.length === 1 && suggestion.signals[0] === "matter_named_children";
 }
 
-type ProposalKey = "practiceUncertain" | "practiceFound" | "clientFound" | "matterFound" | "unknownFound";
+type ProposalKey = "practiceUncertain" | "practiceFound" | "clientFound" | "matterFound" | "unknownFound" | "nestedClientFound";
 
 /**
  * Veta návrhu a predvolená voľba „Toto je“ z jedného rozhodnutia, aby si nemohli protirečiť
@@ -43,6 +43,8 @@ type ProposalKey = "practiceUncertain" | "practiceFound" | "clientFound" | "matt
 export function foundProposal(suggestion: OnboardingSuggestion): { key: ProposalKey; level: FoundLevel } {
   if (isUncertainPractice(suggestion)) return { key: "practiceUncertain", level: "client" };
   if (suggestion.level === "practice") return { key: "practiceFound", level: "practice" };
+  // N-A7-3: priečinok s kódom iného klienta vo vnútri klienta nie je prípad; ponúkne sa vonkajší klient (MČ 23. 10. 2026).
+  if (nestedInClient(suggestion)) return { key: "nestedClientFound", level: "matter" };
   if (suggestion.level === "matter") return { key: "matterFound", level: "matter" };
   // Len obyčajné podpriečinky (najslabší signál, istota 0,5): appka netvrdí „Vyzerá to ako klient“ (N-9, R1 bod 1 P2).
   if (suggestion.level === "client" && !(suggestion.signals.length === 1 && suggestion.signals[0] === "plain_directories")) return { key: "clientFound", level: "client" };
@@ -94,6 +96,8 @@ export function FoundView({ text, busy, suggestion: proposed, level, scope, sele
   // Prax po klientoch bez označeného klienta: nie je čo urobiť, kancelária sa nezapíše.
   const nothingSelected = level === "practice" && scope === "client" && selected.length === 0;
   const parentName = matterClientName(suggestion);
+  const nested = level === "matter" && nestedInClient(suggestion);
+  const nestedWarnings = nestedClientWarnings(suggestion, level);
   const noClients = level === "practice" && scope === "client" && suggestion.clients.length === 0;
   const cloud = cloudFolderKind(suggestion.root);
   // Chat s klientom len pri jednom klientovi; prax ho ponúkne po pridaní súborov (BatchView), prípad pripája klienta.
@@ -121,6 +125,7 @@ export function FoundView({ text, busy, suggestion: proposed, level, scope, sele
       {!suggestion.complete ? <p className="lw-status warn">{text("incomplete")}</p> : null}
       {/* Zápis do zdieľaného alebo cloudového priečinka uvidia aj iní; upozornenie raz, pred odpoveďami (MČ 19. 10.). */}
       {cloud ? <p className="lw-status warn">{text(cloud === "shared" ? "cloudShared" : "cloudSynced")}</p> : null}
+      {nestedWarnings.map((warning) => <p key={warning.key} className="lw-status warn">{nestedClientWarningText(text, warning)}</p>)}
       <label className="grid gap-1.5 text-sm font-medium">
         {text("correctLabel")}
         <select className="lw-onb-select" value={level} disabled={busy} onChange={(event) => { const value = event.target.value; if (value === "practice" || value === "client" || value === "matter") onLevel(value); }}>
@@ -131,7 +136,7 @@ export function FoundView({ text, busy, suggestion: proposed, level, scope, sele
       </label>
       {level === "matter" ? (
         <div className="lw-onb-inset grid gap-2">
-          <p>{text("matterHint", { name: parentName })}</p>
+          <p>{nested ? text("nestedClientHint", { client: parentName }) : text("matterHint", { name: parentName })}</p>
           <OkfNotice text={text} />
           {/* R9: vec sa nepripája sama, pripojí sa nadradený klient s odpoveďou „Nie“. */}
           <div><button type="button" className="lw-btn gold" disabled={busy} onClick={() => onAnswer("no")}>{text("useParent", { name: parentName })}</button></div>
