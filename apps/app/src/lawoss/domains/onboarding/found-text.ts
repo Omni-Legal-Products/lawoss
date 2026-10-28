@@ -18,6 +18,7 @@ const sk = {
   foundTitle: "Toto sme našli",
   clientFound: "Vyzerá to ako klient {name}.",
   practiceFound: "Vyzerá to ako celá prax: {count} klientov.",
+  practiceFound_few: "Vyzerá to ako celá prax: {count} klienti.",
   practiceFoundOne: "Vyzerá to ako celá prax s jedným klientom: {name}.",
   practiceUncertain: "Môže to byť jeden klient {name} s prípadmi, alebo celá prax s {count} klientmi. Predvolený je klient. Ak ide o prax, zmeňte to nižšie.",
   matterFound: "Vyzerá to ako jeden prípad: {name}.",
@@ -104,6 +105,7 @@ const cs: Dictionary = {
   foundTitle: "Toto jsme našli",
   clientFound: "Vypadá to jako klient {name}.",
   practiceFound: "Vypadá to jako celá praxe: {count} klientů.",
+  practiceFound_few: "Vypadá to jako celá praxe: {count} klienti.",
   practiceFoundOne: "Vypadá to jako celá praxe s jedním klientem: {name}.",
   practiceUncertain: "Může to být jeden klient {name} s případy, nebo celá praxe s {count} klienty. Předvolen je klient. Pokud jde o praxi, změňte to níže.",
   matterFound: "Vypadá to jako jeden případ: {name}.",
@@ -188,6 +190,7 @@ const en: Dictionary = {
   foundTitle: "What we found",
   clientFound: "This looks like the client {name}.",
   practiceFound: "This looks like a whole practice: {count} clients.",
+  practiceFound_few: "This looks like a whole practice: {count} clients.",
   practiceFoundOne: "This looks like a whole practice with one client: {name}.",
   practiceUncertain: "This may be one client, {name}, with cases, or a whole practice with {count} clients. I preselected the client; if it is a practice, change it below.",
   matterFound: "This looks like one case: {name}.",
@@ -272,6 +275,7 @@ const de: Dictionary = {
   foundTitle: "Gefunden",
   clientFound: "Das sieht aus wie der Mandant {name}.",
   practiceFound: "Das sieht aus wie eine ganze Kanzlei: {count} Mandanten.",
+  practiceFound_few: "Das sieht aus wie eine ganze Kanzlei: {count} Mandanten.",
   practiceFoundOne: "Das sieht aus wie eine ganze Kanzlei mit einem Mandanten: {name}.",
   practiceUncertain: "Das kann ein Mandant {name} mit Fällen sein oder eine ganze Kanzlei mit {count} Mandanten. Ich habe den Mandanten vorausgewählt; ist es eine Kanzlei, ändern Sie das unten.",
   matterFound: "Das sieht aus wie ein Fall: {name}.",
@@ -342,7 +346,19 @@ const de: Dictionary = {
 export const FOUND_TEXT: Record<"sk" | "cs" | "en" | "de", Dictionary> = { sk, cs, en, de };
 export type { FoundTextKey };
 
+/**
+ * Pri číselnom `count` sa použije tvar podľa pravidiel množného čísla jazyka (`_one`, `_few`, `_many`), ak ho kľúč má,
+ * inak základný tvar (SK/CS 0 a 5+), ako `wizardText`.
+ */
 export function foundText(locale: Language): (key: FoundTextKey, params?: Record<string, string | number>) => string {
-  const dictionary = locale === "sk" || locale === "cs" || locale === "de" ? FOUND_TEXT[locale] : FOUND_TEXT.en;
-  return (key, params) => dictionary[key].replace(/\{(\w+)\}/g, (match, name: string) => (params && name in params ? String(params[name]) : match));
+  const language = locale === "sk" || locale === "cs" || locale === "de" ? locale : "en";
+  const dictionary = FOUND_TEXT[language];
+  const plural = new Intl.PluralRules(language);
+  const isKey = (key: string): key is FoundTextKey => Object.hasOwn(dictionary, key);
+  return (key, params) => {
+    const count = params?.count;
+    const variant = typeof count === "number" ? `${key}_${plural.select(count)}` : "";
+    const chosen = variant && isKey(variant) ? variant : key;
+    return dictionary[chosen].replace(/\{(\w+)\}/g, (match, name: string) => (params && name in params ? String(params[name]) : match));
+  };
 }
