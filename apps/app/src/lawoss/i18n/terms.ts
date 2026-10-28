@@ -392,6 +392,8 @@ export const termsEn: Readonly<Record<string, string>> = {
   "projects.schema.matter_number": "Case number",
   "legalmemory.shared_matter": "Shared case or thread",
   "legalmemory_activity.listing_matters": "Listing cases you can read",
+  // LAWOSS nemá plány Eigenweltu ani synchronizáciu medzi zariadeniami (nález N-A7-15).
+  "sandbox.sync_local": "Saved on this computer.",
 };
 
 export const termsDe: Readonly<Record<string, string>> = {
@@ -764,4 +766,6 @@ export const termsDe: Readonly<Record<string, string>> = {
   "legalmemory_activity.listing_matters": "Für Sie lesbare Fälle werden aufgelistet",
   "task_suggestions.wiki_dashboard_desc": "Mandanten und Fälle auf einen Blick.",
   "task_suggestions.wiki_dashboard_prompt": "Erstellen Sie ein Kanzlei-Dashboard aus den Mandanten und Fällen in diesem Wiki.",
+  // LAWOSS nemá plány Eigenweltu ani synchronizáciu medzi zariadeniami (nález N-A7-15).
+  "sandbox.sync_local": "Auf diesem Computer gespeichert.",
 };

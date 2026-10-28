@@ -204,8 +204,25 @@ export const STRUCTURE = [
         (surface) => new RegExp(`HIDDEN_COMMERCIAL_SURFACES[\\s\\S]*"${surface}",[\\s\\S]*\\]\\);\\s*\\n\\s*export const isCommercialSurfaceHidden`),
       ),
       /HIDDEN_SETTINGS_TABS[\s\S]*"account",/,
+      /export const isModelCatalogUpdatesHidden = \(\): boolean => true;/,
     ],
-    why: "Prepínač analytiky a plochy Eigenweltu ostávajú skryté.",
+    why: "Prepínač analytiky, prepínač online katalógu modelov a plochy Eigenweltu ostávajú skryté.",
+  },
+  {
+    file: "apps/app/src/react-app/domains/settings/pages/preferences-view.tsx",
+    must: [/\{isModelCatalogUpdatesHidden\(\) \? null : <LayoutSectionItem>\s*<LayoutSectionItemHeader>\s*<LayoutSectionItemTitle>\{t\("settings\.model_catalog_updates"\)\}/],
+    why: "Nastavenia > Súkromie neponúkajú mŕtvy prepínač sťahovania katalógu modelov od Eigenweltu (nález N-A7-15).",
+  },
+  ...["apps/app/src/i18n/locales/sk.ts", "apps/app/src/i18n/locales/cs.ts"].map((file) => ({
+    file,
+    must: [/"sandbox\.sync_local": "Ulo(?:žené|ženo) na tomto počítači\.",/],
+    mustNot: [/"sandbox\.sync_local": "[^"]*(?:Eigenwelt|Sync|Plus|Pro\b)/],
+    why: "Oprávnenia nástrojov neponúkajú plán Eigenweltu Sync, Plus alebo Pro (nález N-A7-15).",
+  })),
+  {
+    file: "apps/app/src/lawoss/i18n/terms.ts",
+    must: [/"sandbox\.sync_local": "Saved on this computer\.",/, /"sandbox\.sync_local": "Auf diesem Computer gespeichert\.",/],
+    why: "EN a DE prepisujú upstream vetu o pláne Sync, Plus alebo Pro (nález N-A7-15).",
   },
   {
     file: "apps/app/src/lawoss/domains/onboarding/ai-step.tsx",
