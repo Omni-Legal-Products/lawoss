@@ -161,6 +161,15 @@ export const allowChatGptSubscription = (upstreamAllowed: boolean): boolean =>
 export const isAnalyticsChoiceHidden = (): boolean => true;
 
 /**
+ * Prepínač „Aktualizovať zoznam modelov online“ v Nastaveniach > Súkromie sa nezobrazí
+ * (nález N-A7-15). Katalóg modelov sa zo siete nesťahuje nikdy (MČ 5. 10. 2026,
+ * `apps/server/src/lawoss/engine-network.ts`): `GET /model-catalog/settings` v `server.ts`
+ * vracia stále `onlineUpdatesEnabled: false` a zapnutie odmietne 409. Prepínač bol mŕtvy
+ * a jeho popis sľuboval sťahovanie zoznamu od Eigenweltu.
+ */
+export const isModelCatalogUpdatesHidden = (): boolean => true;
+
+/**
  * Je záložka nastavení skrytá? Onboarding sa pýta rovnako ako zoznam záložiek:
  * krok, ktorý zapína funkciu, ku ktorej sa používateľ potom nikde nedostane,
  * je slepá ulička.

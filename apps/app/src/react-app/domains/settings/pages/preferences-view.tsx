@@ -3,7 +3,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { t } from "@/i18n";
-import { isAnalyticsChoiceHidden } from "@/lawoss/feature-flags";
+import { isAnalyticsChoiceHidden, isModelCatalogUpdatesHidden } from "@/lawoss/feature-flags";
 import type { HideAppMode } from "@/react-app/kernel/local-provider";
 import { useOrgPolicy } from "../../connections/org-policy";
 import { OrgPolicyNote } from "../../connections/org-policy-ui";
@@ -48,7 +48,7 @@ export function PreferencesView(props: PreferencesViewProps) {
           <LayoutSectionDescription>{t("settings.privacy_section_desc")}</LayoutSectionDescription>
         </LayoutSectionHeader>
 
-        <LayoutSectionItem>
+        {isModelCatalogUpdatesHidden() ? null : <LayoutSectionItem>
           <LayoutSectionItemHeader>
             <LayoutSectionItemTitle>{t("settings.model_catalog_updates")}</LayoutSectionItemTitle>
             <LayoutSectionItemDescription>
@@ -63,7 +63,7 @@ export function PreferencesView(props: PreferencesViewProps) {
               />
             </LayoutSectionItemHeaderActions>
           </LayoutSectionItemHeader>
-        </LayoutSectionItem>
+        </LayoutSectionItem>}
 
         <LayoutSectionItem>
           <LayoutSectionItemHeader>

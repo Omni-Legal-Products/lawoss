@@ -395,6 +395,8 @@ export const termsEn: Readonly<Record<string, string>> = {
   // N-A7-9: the engine does not restore files in client folders; the action only trims the chat.
   "message_list.revert": "Trim conversation from here",
   "session.revert_failed": "Could not trim the conversation. Try again once the current run finishes.",
+  // LAWOSS nemá plány Eigenweltu ani synchronizáciu medzi zariadeniami (nález N-A7-15).
+  "sandbox.sync_local": "Saved on this computer.",
 };
 
 export const termsDe: Readonly<Record<string, string>> = {
@@ -769,4 +771,6 @@ export const termsDe: Readonly<Record<string, string>> = {
   "task_suggestions.wiki_dashboard_prompt": "Erstellen Sie ein Kanzlei-Dashboard aus den Mandanten und Fällen in diesem Wiki.",
   "message_list.revert": "Unterhaltung ab hier kürzen",
   "session.revert_failed": "Die Unterhaltung konnte nicht gekürzt werden. Versuchen Sie es erneut, sobald der aktuelle Lauf beendet ist.",
+  // LAWOSS nemá plány Eigenweltu ani synchronizáciu medzi zariadeniami (nález N-A7-15).
+  "sandbox.sync_local": "Auf diesem Computer gespeichert.",
 };

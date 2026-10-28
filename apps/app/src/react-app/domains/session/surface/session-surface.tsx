@@ -2247,6 +2247,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     busy={props.permissionReplyBusy}
                     respondPermission={props.respondPermission}
                     safeStringify={props.safeStringify}
+                    chatDirectory={props.workspaceRoot}
                   />
                 ) : null}
               </div>

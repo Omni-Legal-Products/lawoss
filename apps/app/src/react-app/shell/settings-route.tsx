@@ -185,6 +185,7 @@ import { OLLAMA_PROVIDER_CONFIG, type LocalProviderInstallInput } from "@/react-
 import { conversationWorkspaceId, isLawossHomeWorkspace, preferRealWorkspace } from "@/lawoss/home-workspace";
 import { localProviderTimeouts } from "@/lawoss/providers/local-timeouts";
 import { patchProviderConfirmingOverwrite } from "@/lawoss/providers/overwrite-confirm";
+import { lawossProviderRow } from "@/lawoss/providers/provider-row";
 
 function reconcileSelectedWorkspaceId(
   currentId: string,
@@ -798,7 +799,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     try {
       const data = await providerAuthStore.readCustomProviderForEdit(providerId);
       if (!data) {
-        setCustomProviderEditError(`Couldn't load configuration for ${providerId}.`);
+        setCustomProviderEditError(t("lawoss.providers.edit_unavailable", { name: resolveProviderDisplayName(providerId) }));
         return;
       }
       setCustomProviderEdit(data);
@@ -1737,16 +1738,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const connectedProviders = providers.flatMap((provider) => {
     if (provider.id === EIGENWELT_PROVIDER_ID) return [];
     if (!providerConnectedIdSet.has(provider.id)) return [];
-    const providerOptions =
-      provider.options && typeof provider.options === "object"
-        ? (provider.options as Record<string, unknown>)
-        : null;
-    const hasBaseURL = typeof providerOptions?.baseURL === "string" && providerOptions.baseURL.trim().length > 0;
     return [{
       id: provider.id,
       name: provider.name ?? provider.id,
       source: provider.source,
-      editableAsCustom: provider.source === "custom" || hasBaseURL,
+      ...lawossProviderRow(provider),
     }];
   });
   const mcpConnectedAppsCount = connectionsSnapshot.mcpServers.length;

@@ -6040,7 +6040,7 @@ export default {
   "sandbox.setup": "Chráněné prostředí není k dispozici. Opravte nebo přeinstalujte LegalWork. Příkazy zůstanou blokovány, dokud nebude ochrana obnovena.",
   "sandbox.status_unavailable": "Ochranu příkazů se nepodařilo ověřit. Zkuste to znovu, až bude worker připojen.",
   "sandbox.sync_conflict": "Bylo použito novější výchozí nastavení z jiného zařízení. Pokud chcete jiné, změňte ho zde znovu.",
-  "sandbox.sync_local": "Uloženo na tomto počítači. S tarifem Sync, Plus nebo Pro se výchozí nastavení aplikace synchronizuje i mezi vašimi zařízeními.",
+  "sandbox.sync_local": "Uloženo na tomto počítači.",
   "sandbox.sync_pending": "Uloženo na tomto počítači. Synchronizace se zopakuje, až bude účet a server dostupný.",
   "sandbox.sync_synced": "Výchozí nastavení aplikace je synchronizováno. Přepsání v chatech zůstávají na tomto počítači.",
   "sandbox.sync_syncing": "Synchronizuje se výchozí nastavení aplikace…",

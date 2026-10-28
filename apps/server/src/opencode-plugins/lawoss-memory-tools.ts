@@ -7,6 +7,11 @@
  * istým kódom ako CLI, len v koreni klienta chatu a v jeho pripojených priečinkoch. Zápis pamäte tu nie je:
  * ostáva v CLI so schválením. Pevný text pre model (nemení sa medzi ťahmi, AGENTS.md „Prompt caching“) ešte
  * hovorí, že priečinky sa prezerajú nástrojmi enginu, nie `ls` v shelli.
+ *
+ * N-A7-7 (test 28. 10. 2026): glob enginu je `rg --files` a vracia len súbory, preto agent prázdny priečinok
+ * nevidel a dávku so zmazaním `02_Resers/prazdny-SYN` skrátil. Nástroj `read` na cestu priečinka vypíše
+ * všetky položky vrátane prázdnych podpriečinkov (`nazov/`), prázdny priečinok vráti „(0 entries)“
+ * (opencode v1.18.29, `tool/read.ts`). Pevný text to modelu hovorí.
  */
 // Exportovaný je len vstupný bod pluginu: OpenCode volá každý export modulu.
 import { z } from "zod";
@@ -22,6 +27,7 @@ const args = z.object({
 const SYSTEM = [
   "Case memory: read it with lawoss_memory (action preamble before your first answer about a case, then action read) instead of running okf-memory preamble or read in the shell. It reads the same memory without an approval card. Writing memory stays with the okf-pamat CLI and its approval.",
   "To see which files and folders exist, use the engine's glob, grep and read tools instead of ls, find or tree in the shell: they need no approval card. Use the shell only when no other tool can do the task.",
+  "glob and grep return files only, so an empty folder never appears in their results. To see everything inside a folder, including empty subfolders, call read on the folder's path: it lists the entries one per line, subfolders with a trailing /, and an empty folder shows (0 entries). Never conclude that a folder is missing from glob or grep alone.",
 ].join("\n");
 
 export const LawossMemoryTools = async () => ({

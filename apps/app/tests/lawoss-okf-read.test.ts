@@ -5,6 +5,7 @@ import type { OkfRecord } from "../../../lawoss/okf-pamat/src/record.ts";
 import { addDays, buildOverview, deadlineTier, type MatterInput } from "../../../lawoss/okf/read";
 import { pendingInputs } from "../../../lawoss/okf/inputs";
 import { buildCockpit } from "../../../lawoss/okf/cockpit";
+import { buildMatterViews } from "../../../lawoss/okf/views";
 import { MAX_DISCOVERY_DIRECTORIES, MAX_MATTERS, readWorkspaceMemory, type OkfReadClient } from "../src/lawoss/okf/read-model";
 import { groupByClient } from "../src/lawoss/lite/today-model";
 
@@ -195,6 +196,52 @@ test("root matter validation diagnostics retain matter scope", async () => {
     "memory/Q-001.md": record("Q-001", "question", "related: [Q-missing]\n"),
   }), "ws", TODAY);
   expect(out.problems).toContainEqual(expect.objectContaining({ path: "memory/Q-001.md", kind: "validation", scope: "matter" }));
+});
+
+test("N-A7-4: neplatný dátum v úlohe ostane pri úlohe ako text a nezhodí klienta ani prípad", async () => {
+  const client = "Klienti/C001-SYN Lipa";
+  const matter = `${client}/Spisy/M010-SYN`;
+  const other = `${client}/Spisy/M011-SYN`;
+  const out = await readWorkspaceMemory(fakeClient({
+    [`${client}/client.md`]: "---\ntype: client\ntitle: SYN Lipa\n---\n",
+    [`${matter}/matter.md`]: "---\ntitle: Vec M010\n---\n",
+    [`${matter}/memory/M010-T1.md`]: record("M010-T1", "task", 'state: open\ndue: "31. 2. 2026"\n'),
+    [`${matter}/memory/M010-T2.md`]: record("M010-T2", "task", 'state: open\ndue: "2-10-2026"\n'),
+    [`${matter}/memory/M010-T3.md`]: record("M010-T3", "task", 'state: open\ndue: "2026-09-20"\n'),
+    [`${matter}/memory/M010-T4.md`]: record("M010-T4", "task", 'state: open\ndue: ""\n'),
+    [`${matter}/memory/M010-E1.md`]: record("M010-E1", "evidence", 'deadlines: ["30. 9. 2026", 2026-09-18]\n'),
+    [`${other}/matter.md`]: "---\ntitle: Vec M011\n---\n",
+    [`${other}/memory/M011-T1.md`]: record("M011-T1", "task", "state: open\ndue: 2026-09-25\n"),
+  }), "ws", TODAY);
+
+  // Žiadny problém čítania: klient aj prípad ostanú čerstvo načítané (nie „Nedostupné“ / „Nenačítané“).
+  expect(out.problems).toEqual([]);
+  expect(out.coverage.status).toBe("complete");
+  expect(out.coverage.sources[0]!.state).toBe("fresh");
+
+  const m010 = out.matters.find((m) => m.path === matter)!;
+  expect(m010.openTasks).toEqual([
+    { id: "M010-T1", title: "task M010-T1", assignee: undefined, due: "31. 2. 2026", invalid: true, file: `${matter}/memory/M010-T1.md` },
+    { id: "M010-T2", title: "task M010-T2", assignee: undefined, due: "2-10-2026", invalid: true, file: `${matter}/memory/M010-T2.md` },
+    { id: "M010-T3", title: "task M010-T3", assignee: undefined, due: "2026-09-20", file: `${matter}/memory/M010-T3.md` },
+    { id: "M010-T4", title: "task M010-T4", assignee: undefined, due: "", invalid: true, file: `${matter}/memory/M010-T4.md` },
+  ]);
+  // Neplatná lehota v `deadlines` ostane pri zázname s pôvodným textom, platná vedľa nej tiež.
+  expect(out.upcomingDeadlines.filter((d) => d.recordId === "M010-E1").map((d) => [d.date, d.invalid ?? false])).toEqual([["2026-09-18", false], ["30. 9. 2026", true]]);
+  expect(out.matters.find((m) => m.path === other)?.openTasks.map((t) => t.due)).toEqual(["2026-09-25"]);
+
+  // „2-10-2026“ sa textovo nesmie porovnať s dneškom: nie je „po termíne“, je na overenie aj so súborom.
+  const input = out.inputs.find((i) => i.path === matter)!;
+  const cockpit = buildCockpit(out, matter, TODAY)!;
+  expect(cockpit.tasks.map((t) => [t.id, t.overdue, t.invalid ?? false])).toEqual([["M010-T1", false, true], ["M010-T2", false, true], ["M010-T3", false, false], ["M010-T4", false, true]]);
+  expect(cockpit.attention.filter((r) => r.kind === "úloha").map((r) => [r.state, r.date, r.file]).sort((a, b) => String(a[2]).localeCompare(String(b[2])))).toEqual([
+    ["neparsovateľné", "31. 2. 2026", `${matter}/memory/M010-T1.md`],
+    ["neparsovateľné", "2-10-2026", `${matter}/memory/M010-T2.md`],
+    ["neparsovateľné", undefined, `${matter}/memory/M010-T4.md`],
+  ]);
+  const views = buildMatterViews(input, TODAY);
+  const items = [views.base, ...views.blocks].flatMap((b) => b.sections).flatMap((s) => s.items ?? []).filter((i) => i.key.startsWith("task:"));
+  expect(items.map((i) => [i.date, i.flags ?? []])).toEqual([["2-10-2026", ["invalid"]], ["2026-09-20", []], ["31. 2. 2026", ["invalid"]]]);
 });
 
 describe("readWorkspaceMemory — čítanie cez server API", () => {
