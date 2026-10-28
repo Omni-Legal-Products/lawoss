@@ -13,6 +13,7 @@
  */
 import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
+import { memoryWriteCard } from "./memory-write-card";
 
 type Operation = "move" | "copy" | "create_folder" | "delete";
 type PlannedChange = { operation: Operation; kind: "file" | "folder"; from?: string; to?: string; entries?: number; entriesCapped?: boolean; similar?: string[] };
@@ -93,7 +94,8 @@ export type FileOperationDetails = { reason: string | null; lines: string[] };
 
 export function fileOperationCard(metadata: Record<string, unknown>): { title: string; message: string; permissionLabel: string; scopeLabel: string; scopeValue: string; details: FileOperationDetails } | null {
   const changes = plannedChanges(metadata);
-  if (!changes) return null;
+  // `lawoss_memory_write` asks with the same permission: one card "what and where" (memory-write-card.ts).
+  if (!changes) return memoryWriteCard(metadata);
   const reason = typeof metadata.description === "string" && metadata.description.trim() ? t("lawoss.files.reason", undefined, { text: metadata.description.trim() }) : null;
   return {
     details: { reason, lines: changes.flatMap((change) => [detailLine(change), ...warnings(change)]) },

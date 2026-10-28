@@ -188,7 +188,8 @@ function slug(s: string): string {
     .slice(0, 48);
 }
 
-function fileFor(store: Store, r: OkfRecord): string {
+/** Súbor záznamu v `memory/`: existujúci podľa ID, inak `<id>-<titulok>.md`. */
+export function fileFor(store: Store, r: OkfRecord): string {
   const existing = existsSync(store.memoryDir)
     ? readdirSync(store.memoryDir).find((n) => n.startsWith(`${r.id}-`) || n === `${r.id}.md`)
     : undefined;
