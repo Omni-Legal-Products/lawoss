@@ -8,6 +8,8 @@ import { LegalWorkExtensionsPreview } from "./legalwork-extensions-preview.js";
 import { ALL_PROJECTS_TASK_AGENT, PROJECT_TASK_AGENT } from "../scheduled-tasks/access.js";
 
 const roots: string[] = [];
+/** LAWOSS N-A7-8: zapisujúce nástroje editora sa pýtajú enginu (`context.ask`); tu advokát kartu schváli. */
+const ask = async () => {};
 let originalFetch: typeof globalThis.fetch | null = null;
 let previousDiscovery: string | undefined;
 
@@ -228,7 +230,7 @@ describe("in-app Word document routing", () => {
     });
     const plugin = await LegalWorkExtensionsPreview();
     const path = "compensation-memo.docx";
-    const result = JSON.parse(await plugin.tool.inapp_docx_prepare_file_edit.execute({ path }, { sessionID: "ses_open" }));
+    const result = JSON.parse(await plugin.tool.inapp_docx_prepare_file_edit.execute({ path }, { sessionID: "ses_open", ask }));
     expect(request).toEqual({ actionId: "document.agent_tool", args: { sessionId: "ses_open", path, toolName: "prepare_file_edit", args: { path } } });
     expect(result.result).toEqual({ ok: false, saved: false, error: "Save failed" });
     expect((await modelContext(plugin, "ses_open")).reminder).toContain("inapp_docx_prepare_file_edit");
@@ -271,13 +273,13 @@ describe("in-app Word document routing", () => {
     const plugin = await LegalWorkExtensionsPreview();
     const fill = { paraId: "p1", placeholder: "[DATE]", value: "11 October 2026" };
     const reply = { commentId: 2, text: "Agreed." };
-    await plugin.tool.inapp_docx_fill_template.execute(fill, { sessionID: "ses_open" });
-    await plugin.tool.inapp_docx_reply_comment.execute(reply, { sessionID: "ses_open" });
+    await plugin.tool.inapp_docx_fill_template.execute(fill, { sessionID: "ses_open", ask });
+    await plugin.tool.inapp_docx_reply_comment.execute(reply, { sessionID: "ses_open", ask });
     expect(requests).toEqual([
-      { actionId: "document.agent_tool", args: { sessionId: "ses_open", toolName: "fill_template", args: fill } },
-      { actionId: "document.agent_tool", args: { sessionId: "ses_open", toolName: "reply_comment", args: reply } },
+      { actionId: "document.agent_tool", args: { sessionId: "ses_open", toolName: "fill_template", path: "compensation-memo.docx", args: fill } },
+      { actionId: "document.agent_tool", args: { sessionId: "ses_open", toolName: "reply_comment", path: "compensation-memo.docx", args: reply } },
     ]);
-    await expect(plugin.tool.inapp_docx_reply_comment.execute({ commentId: -1, text: "Agreed." }, { sessionID: "ses_open" })).rejects.toThrow();
+    await expect(plugin.tool.inapp_docx_reply_comment.execute({ commentId: -1, text: "Agreed." }, { sessionID: "ses_open", ask })).rejects.toThrow();
     expect(requests).toHaveLength(2);
   });
 
@@ -291,7 +293,7 @@ describe("in-app Word document routing", () => {
 
     await plugin.tool.inapp_docx_reject_changes.execute(
       { changeIds: [11, 12] },
-      { sessionID: "ses_open" },
+      { sessionID: "ses_open", ask },
     );
 
     expect(request).toEqual({
@@ -299,6 +301,7 @@ describe("in-app Word document routing", () => {
       args: {
         sessionId: "ses_open",
         toolName: "reject_changes",
+        path: "compensation-memo.docx", // LAWOSS N-A7-8: dokument zo schválenej karty
         args: { changeIds: [11, 12] },
       },
     });
@@ -329,7 +332,7 @@ describe("in-app Office sidebar routing", () => {
     await withBridge(snapshot, (body) => { called = body; return { ok: true, result: { saved: true } }; });
     const plugin = await LegalWorkExtensionsPreview();
     const args = { path: surface.path, sheet: "Budget", range: "B4", values: [[18]] };
-    await plugin.tool.inapp_xlsx_write.execute(args, { sessionID: "ses_office" });
+    await plugin.tool.inapp_xlsx_write.execute(args, { sessionID: "ses_office", ask });
     expect(called).toEqual({ actionId: "office.agent_tool", args: { sessionId: "ses_office", path: surface.path, format: "xlsx", toolName: "write", args } });
   });
   test("dispatches explicit targets without consulting the foreground editor", async () => {
@@ -345,7 +348,7 @@ describe("in-app Office sidebar routing", () => {
     await withBridge(snapshot, (body) => { calls.push(body); return { ok: true }; });
     const plugin = await LegalWorkExtensionsPreview();
     await plugin.tool.inapp_documents_select.execute({ path: surface.path }, { sessionID: "ses_office" });
-    await plugin.tool.inapp_office_save.execute({ path: surface.path }, { sessionID: "ses_office" });
+    await plugin.tool.inapp_office_save.execute({ path: surface.path }, { sessionID: "ses_office", ask });
     expect(calls).toEqual([
       { actionId: "documents.select_open", args: { sessionId: "ses_office", path: surface.path } },
       { actionId: "office.agent_tool", args: { sessionId: "ses_office", path: surface.path, format: "xlsx", toolName: "save", args: { path: surface.path } } },
@@ -364,7 +367,7 @@ describe("in-app Office sidebar routing", () => {
     await withBridge({ activeSurface: pptx }, (body) => { call = body; return { ok: true }; });
     const plugin = await LegalWorkExtensionsPreview();
     const args = { path: pptx.path, slideIndex: 0, elementId: "title", search: "Draft", replaceWith: "Approved" };
-    await plugin.tool.inapp_pptx_replace_text.execute(args, { sessionID: "ses_office" });
+    await plugin.tool.inapp_pptx_replace_text.execute(args, { sessionID: "ses_office", ask });
     expect(call).toEqual({ actionId: "office.agent_tool", args: { sessionId: "ses_office", path: pptx.path, format: "pptx", toolName: "replace_text", args } });
   });
 });
@@ -397,7 +400,7 @@ describe("in-app Markdown routing", () => {
     const plugin = await LegalWorkExtensionsPreview();
     expect((await modelContext(plugin, "ses_md")).reminder).toContain("inapp_md_replace_text");
     const args = { path: surface.path, search: "draft", replacement: "final" };
-    await plugin.tool.inapp_md_replace_text.execute(args, { sessionID: "ses_md" });
+    await plugin.tool.inapp_md_replace_text.execute(args, { sessionID: "ses_md", ask });
     expect(calls).toEqual([{ actionId: "markdown.agent_tool", args: { sessionId: "ses_md", path: surface.path, format: "md", toolName: "replace_text", args } }]);
 
     expect(calls).toHaveLength(1);
@@ -410,9 +413,9 @@ test("opens workspace and connected files in the engine session, then exposes li
   const plugin = await LegalWorkExtensionsPreview();
   expect(JSON.parse(await plugin.tool.inapp_documents_open.execute({ path: "draft.md" }, {})).ok).toBe(false);
   expect(calls).toEqual([]);
-  await plugin.tool.inapp_documents_open.execute({ path: "draft.md" }, { sessionID: "ses_this" });
-  await plugin.tool.inapp_documents_open.execute({ path: "Matter/draft.docx", connection_id: "team:s3" }, { sessionID: "ses_this" });
-  await plugin.tool.inapp_documents_open.execute({ path: "Templates/Pitch.pptx", connection_id: "team:s3", copy_to: "Client pitch.pptx" }, { sessionID: "ses_this" });
+  await plugin.tool.inapp_documents_open.execute({ path: "draft.md" }, { sessionID: "ses_this", ask });
+  await plugin.tool.inapp_documents_open.execute({ path: "Matter/draft.docx", connection_id: "team:s3" }, { sessionID: "ses_this", ask });
+  await plugin.tool.inapp_documents_open.execute({ path: "Templates/Pitch.pptx", connection_id: "team:s3", copy_to: "Client pitch.pptx" }, { sessionID: "ses_this", ask });
   expect(calls).toEqual([
     { actionId: "documents.open", args: { sessionId: "ses_this", path: "draft.md" } },
     { actionId: "documents.open", args: { sessionId: "ses_this", path: "Matter/draft.docx", connectionId: "team:s3" } },
@@ -474,9 +477,9 @@ describe("PowerPoint visual feedback", () => {
     await withBridge(snapshot, body => { calls.push(body); return { ok: true, result: { saved: true, data: { slideIndex: 0 } } }; });
     const plugin = await LegalWorkExtensionsPreview();
     const args = { path: "Deck.pptx", templateSlideIndex: 2, insertIndex: 0, replacements: [{ elementId: "title", text: "Introduction" }] };
-    await plugin.tool.inapp_pptx_add_slide.execute(args, { sessionID: "ses_slides" });
+    await plugin.tool.inapp_pptx_add_slide.execute(args, { sessionID: "ses_slides", ask });
     expect(calls).toEqual([{ actionId: "office.agent_tool", args: { sessionId: "ses_slides", path: "Deck.pptx", format: "pptx", toolName: "add_slide", args } }]);
-    await plugin.tool.inapp_pptx_add_slide.execute(args, { sessionID: "other" });
+    await plugin.tool.inapp_pptx_add_slide.execute(args, { sessionID: "other", ask });
     expect(calls).toHaveLength(1);
     const output: { system: string[] } = { system: [] };
     await plugin["experimental.chat.system.transform"]({ sessionID: "ses_slides" }, output);
@@ -516,8 +519,8 @@ describe("PowerPoint visual feedback", () => {
     expect(request).toMatchObject({ actionId: "office.agent_tool", args: { toolName: "preview", args: { slideIndex: 2 } } });
     const edits = [
       await plugin.tool.inapp_pptx_read.execute({ path: "Deck.pptx", slideIndex: 2 }, { sessionID: "ses_slides" }),
-      await plugin.tool.inapp_pptx_replace_text.execute({ path: "Deck.pptx", slideIndex: 2, elementId: "title", search: "Draft", replaceWith: "Final" }, { sessionID: "ses_slides" }),
-      await plugin.tool.inapp_pptx_update_layout.execute({ path: "Deck.pptx", slideIndex: 2, elementId: "title", height: 120, fontSize: 28 }, { sessionID: "ses_slides" }),
+      await plugin.tool.inapp_pptx_replace_text.execute({ path: "Deck.pptx", slideIndex: 2, elementId: "title", search: "Draft", replaceWith: "Final" }, { sessionID: "ses_slides", ask }),
+      await plugin.tool.inapp_pptx_update_layout.execute({ path: "Deck.pptx", slideIndex: 2, elementId: "title", height: 120, fontSize: 28 }, { sessionID: "ses_slides", ask }),
     ];
     for (const edit of edits) {
       if (typeof edit !== "string") throw new Error("Routine calls must not return attachments");
@@ -536,7 +539,7 @@ describe("PowerPoint visual feedback", () => {
   test("retains saved edits and reports unavailable preview honestly", async () => {
     await withBridge(snapshot, () => ({ ok: true, result: { ok: true, saved: true, data: { slideIndex: 0, preview: { available: false, error: "Canvas unavailable" } } } }));
     const plugin = await LegalWorkExtensionsPreview();
-    const result = await plugin.tool.inapp_pptx_replace_text.execute({ path: "Deck.pptx", slideIndex: 0, elementId: "title", search: "Draft", replaceWith: "Final" }, { sessionID: "ses_slides" });
+    const result = await plugin.tool.inapp_pptx_replace_text.execute({ path: "Deck.pptx", slideIndex: 0, elementId: "title", search: "Draft", replaceWith: "Final" }, { sessionID: "ses_slides", ask });
     expect(typeof result).toBe("string");
     if (typeof result !== "string") throw new Error("Unexpected attachment");
     expect(JSON.parse(result)).toMatchObject({ result: { saved: true, data: { preview: { available: false } } } });
@@ -614,10 +617,10 @@ test("Markdown chunks are scoped to the originating task and a failed save is a 
   await withBridge({}, body => { calls.push(body); return fail ? { ok: false, error: "File already exists" } : { ok: true, result: { saved: false } }; });
   const plugin = await LegalWorkExtensionsPreview();
   const args = { path: "Draft.md", content: "# Draft\n", append: false, complete: false };
-  await plugin.tool.inapp_markdown_create.execute(args, { sessionID: "background-task" });
+  await plugin.tool.inapp_markdown_create.execute(args, { sessionID: "background-task", ask });
   expect(calls).toEqual([{ actionId: "markdown.create", args: { ...args, sessionId: "background-task" } }]);
   fail = true;
-  await expect(plugin.tool.inapp_markdown_create.execute({ ...args, append: true, complete: true }, { sessionID: "background-task" })).rejects.toThrow("File already exists");
+  await expect(plugin.tool.inapp_markdown_create.execute({ ...args, append: true, complete: true }, { sessionID: "background-task", ask })).rejects.toThrow("File already exists");
   await expect(plugin.tool.inapp_markdown_create.execute(args, {})).rejects.toThrow("A task is required");
 });
 
@@ -672,13 +675,13 @@ test("Word exposes fifteen focused tools and routes typed batches, controls and 
   expect(names).toHaveLength(15); expect(names).not.toContain("inapp_docx");
   const identity = { documentId: "live-1", draftRevision: 2, path: "Contract.docx" };
   const edit = { ...identity, operations: [{ operation: "apply_formatting", paraId: "P1", marks: { bold: false, fontSize: 11 }, paragraph: { spaceAfter: 6 } }, { operation: "insert_cross_reference", paraId: "P2", targetParaId: "P3", kind: "number", search: "clause 3" }] };
-  await plugin.tool.inapp_docx_edit.execute(edit, { sessionID: "ses_open" });
-  await plugin.tool.inapp_docx_edit.execute({ ...identity, action: "save" }, { sessionID: "ses_open" });
-  await plugin.tool.inapp_docx_fill_template.execute({ ...identity, tag: "ClientName", value: "Nordfeld GmbH" }, { sessionID: "ses_open" });
+  await plugin.tool.inapp_docx_edit.execute(edit, { sessionID: "ses_open", ask });
+  await plugin.tool.inapp_docx_edit.execute({ ...identity, action: "save" }, { sessionID: "ses_open", ask });
+  await plugin.tool.inapp_docx_fill_template.execute({ ...identity, tag: "ClientName", value: "Nordfeld GmbH" }, { sessionID: "ses_open", ask });
   await plugin.tool.inapp_docx_read_document.execute({ path: identity.path, view: "formatting", paraId: "P1", includeStyles: true }, { sessionID: "ses_open" });
-  await plugin.tool.inapp_docx_compare_documents.execute({ ...identity, fileName: "Compared.docx", versions: [{ path: "Returned.docx", author: "Counsel" }] }, { sessionID: "ses_open" });
-  await plugin.tool.inapp_docx_inspect_document.execute({ path: identity.path }, { sessionID: "ses_open" });
-  await plugin.tool.inapp_docx_inspect_document.execute({ ...identity, fileName: "Outgoing.docx", categories: ["properties"] }, { sessionID: "ses_open" });
+  await plugin.tool.inapp_docx_compare_documents.execute({ ...identity, fileName: "Compared.docx", versions: [{ path: "Returned.docx", author: "Counsel" }] }, { sessionID: "ses_open", ask });
+  await plugin.tool.inapp_docx_inspect_document.execute({ path: identity.path }, { sessionID: "ses_open", ask });
+  await plugin.tool.inapp_docx_inspect_document.execute({ ...identity, fileName: "Outgoing.docx", categories: ["properties"] }, { sessionID: "ses_open", ask });
   expect(requests.map(body => body && typeof body === "object" ? Reflect.get(body, "args") : undefined)).toMatchObject([
     { sessionId: "ses_open", path: identity.path, toolName: "edit", args: edit },
     { sessionId: "ses_open", path: identity.path, toolName: "edit", args: { action: "save" } },
@@ -689,10 +692,10 @@ test("Word exposes fifteen focused tools and routes typed batches, controls and 
     { sessionId: "ses_open", path: identity.path, toolName: "create_clean_copy" },
   ]);
   const count = requests.length;
-  await expect(plugin.tool.inapp_docx_edit.execute({ ...identity, operations: [{ operation: "set_bookmark" }] }, { sessionID: "ses_open" })).rejects.toThrow("Use create_bookmark (not set_bookmark)");
-  await expect(plugin.tool.inapp_docx_edit.execute({ ...identity, action: "save", operations: edit.operations }, { sessionID: "ses_open" })).rejects.toThrow();
-  await expect(plugin.tool.inapp_docx_compare_documents.execute({ ...identity, fileName: "x.docx", versions: [{ path: "../foreign.docx", author: "X" }] }, { sessionID: "ses_open" })).rejects.toThrow();
-  await expect(plugin.tool.inapp_docx_fill_template.execute({ tag: "ClientName", value: "X" }, { sessionID: "ses_open" })).rejects.toThrow();
+  await expect(plugin.tool.inapp_docx_edit.execute({ ...identity, operations: [{ operation: "set_bookmark" }] }, { sessionID: "ses_open", ask })).rejects.toThrow("Use create_bookmark (not set_bookmark)");
+  await expect(plugin.tool.inapp_docx_edit.execute({ ...identity, action: "save", operations: edit.operations }, { sessionID: "ses_open", ask })).rejects.toThrow();
+  await expect(plugin.tool.inapp_docx_compare_documents.execute({ ...identity, fileName: "x.docx", versions: [{ path: "../foreign.docx", author: "X" }] }, { sessionID: "ses_open", ask })).rejects.toThrow();
+  await expect(plugin.tool.inapp_docx_fill_template.execute({ tag: "ClientName", value: "X" }, { sessionID: "ses_open", ask })).rejects.toThrow();
   expect(requests).toHaveLength(count);
   for (const name of ["inapp_docx_edit", "inapp_docx_compare_documents", "inapp_docx_inspect_document"]) {
     const method = Object.entries(plugin.tool).find(([key]) => key === name)?.[1];
