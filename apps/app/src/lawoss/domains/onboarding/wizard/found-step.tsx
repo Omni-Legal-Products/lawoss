@@ -5,9 +5,9 @@
  * nepresunie. Hlavná akcia len pridá pomocné súbory; usporiadanie podľa tabuľky je v Pokročilé.
  */
 import { useId, type ReactNode } from "react";
-import { Briefcase, Check, CircleAlert, FilePlus2, FileText, Landmark, ShieldCheck, UserRound } from "lucide-react";
+import { Briefcase, Check, CircleAlert, FilePlus2, FileText, Folder, Landmark, ShieldCheck, UserRound } from "lucide-react";
 import type { OnboardingSuggestion, SuggestedClient, SuggestedUnit } from "../api";
-import { childPath, clientName, folderName, matterClientName, rootClientName, type BatchItem } from "../found-flow";
+import { childPath, clientName, folderName, matterClientName, nestedClientWarnings, nestedClientWarningText, nestedInClient, rootClientName, type BatchItem } from "../found-flow";
 import type { FoundTextKey } from "../found-text";
 import { OkfNotice } from "../okf-notice";
 import type { ConnectedClient, WizardConnected } from "../onboarding-state";
@@ -143,9 +143,11 @@ export function FoundTree({ text, suggestion, level, scope, selected, busy, onTo
       </Node>
     );
   } else if (level === "matter") {
+    // N-A7-3: priečinok s kódom iného klienta nie je prípad; v strome je obyčajným priečinkom vonkajšieho klienta.
+    const nested = nestedInClient(suggestion);
     tree = (
       <Node icon={<UserRound className="size-4" />} kind={text("treeClient")} name={matterClientName(suggestion)}>
-        <Node icon={<Briefcase className="size-4" />} kind={text("treeCase")} name={name}>
+        <Node icon={nested ? <Folder className="size-4" /> : <Briefcase className="size-4" />} kind={text(nested ? "treeFolder" : "treeCase")} name={name}>
           <DocsLeaf text={text} meta={unitMeta(text, root, false)} />
         </Node>
       </Node>
@@ -208,6 +210,7 @@ export function WizardFoundView({ text, found, busy, suggestion, headline, level
   const nothingSelected = practiceEach && selected.length === 0;
   const noClients = practiceEach && suggestion.clients.length === 0;
   const tableDisabled = level === "practice" && scope === "practice";
+  const nestedWarnings = nestedClientWarnings(suggestion, level);
   const primary = level === "matter"
     ? found("useParent", { name: matterClientName(suggestion) })
     : practiceEach ? text("foundAddClients", { count: selected.length }) : text("foundAdd");
@@ -251,7 +254,8 @@ export function WizardFoundView({ text, found, busy, suggestion, headline, level
         </div>
       ) : null}
       <FoundTree text={text} suggestion={suggestion} level={level} scope={scope} selected={selected} busy={busy} onToggle={onToggle} />
-      {level === "matter" ? <p className="text-muted-foreground">{found("matterHint", { name: matterClientName(suggestion) })}</p> : null}
+      {level === "matter" ? <p className="text-muted-foreground">{nestedInClient(suggestion) ? found("nestedClientHint", { client: matterClientName(suggestion) }) : found("matterHint", { name: matterClientName(suggestion) })}</p> : null}
+      {nestedWarnings.map((warning) => <p key={warning.key} className="lw-status warn">{nestedClientWarningText(found, warning)}</p>)}
       {noClients ? <p className="lw-status warn">{found("noClientsHint")}</p> : null}
       <AddsPanel text={text} found={found} />
       <div className="lw-wiz-actions">

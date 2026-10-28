@@ -48,6 +48,8 @@ export type OnboardingStatus = {
   capabilities: { map: boolean; trialClone: boolean };
   /** Uložený `foundRoot` už neexistuje (presunutý, premenovaný); obnova ponúkne výber priečinka (M1). */
   foundRootMissing?: boolean;
+  /** Klienti presunutej praxe sú prepojení, presun praxe sa však nedokončil (N-A7-1); appka ponúkne dokončenie. */
+  practiceMove?: { previousRoot: string; folderPath: string };
 };
 
 export type OfficePlanRequest = {
@@ -68,6 +70,8 @@ export type ClientPlanRequest = {
   jurisdiction: Jurisdiction;
   date: string;
   language: DocumentLanguage;
+  /** Advokát na „Je to ten istý klient?“ zvolil „Pridať ako nového“ (N-A7-1). */
+  confirmNewClient?: true;
 };
 export type SubjectPlanRequest = {
   action: "subject";
@@ -100,6 +104,8 @@ export type ExistingPlanRequest = {
   memoryPath?: string;
   identityAnchor?: string;
   cloneParent?: string;
+  /** Advokát na „Je to ten istý klient?“ zvolil „Pridať ako nového“ (N-A7-1). */
+  confirmNewClient?: true;
 };
 /** Plán zápisu praxe alebo klienta z vybraného priečinka (spec 2026-10-08). */
 export type PracticePlanRequest = {
@@ -179,7 +185,11 @@ export type OnboardingSuggestion = {
 export type SuggestedClient = { path: string; name: string; title?: string };
 
 /** Jednotka náhľadu stromu; `exact: false` znamená, že počty sú dolná hranica (veľký alebo hlboký priečinok). */
-export type SuggestedUnit = { path: string; matters: readonly { path: string; name: string }[]; matterCount: number; files: number; exact: boolean };
+/**
+ * `nestedClients`: priečinky jednotky, ktoré nie sú prípadmi, lebo vyzerajú ako ďalší klient (kód iného klienta alebo
+ * vlastná karta klienta, N-A7-3); starší server ich neposiela.
+ */
+export type SuggestedUnit = { path: string; matters: readonly { path: string; name: string }[]; matterCount: number; files: number; exact: boolean; nestedClients?: readonly { path: string; name: string }[] };
 
 export type OnboardingApi = {
   onboardingStatus(): Promise<OnboardingStatus>;

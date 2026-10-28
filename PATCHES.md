@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Jazyk appky medzi testami (2026-10-28)
+
+Kontrola `legalwork-tests (ubuntu-latest)` občas padala na 8 testoch appky (review-card, subagent-tool-rows, plugin-import-exclusions), ktoré čakajú angličtinu. `bun test` spúšťa všetky súbory v jednom procese a ich poradie sa líši podľa stroja. Modul `src/i18n` začína s jazykom `en` a voľbou „Systém“; bez `navigator.languages` v Bune však „Systém“ znamená `sk` (LAWOSS `preferredSystemLanguage`). Testy, ktoré po sebe obnovia voľbu „Systém“, tak nechali slovenčinu ďalšiemu súboru. Nový `apps/app/bunfig.toml` načíta `apps/app/test-preload-lawoss.ts`, ktorý pred a po každom teste vráti počiatočný stav. Test `apps/app/tests/lawoss-locale-reset.test.ts`.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/i18n/index.ts` | Export `resetLocaleForTests` (+9 riadkov s komentárom): jazyk kancelárie `null`, voľba „Systém“, jazyk `en`, teda počiatočný stav modulu, ktorý verejné API nevie obnoviť. Volá ho len preload testov appky. |
+
 ## Čítanie pamäte spisu bez karty (2026-10-23)
 
 Alfa 2, oprava P3a (N-A3-3, N-18, N-A2-7; rozhodnutie MČ: čítanie dokumentov a pamäte bez karty, zápis s kartou). Skill `okf-pamat` čítal pamäť cez `node …/okf-memory.js preamble|read` v spravovanom shelli a každé zhrnutie spisu ukázalo dve najširšie karty („celý počítač + internet“). Nový nástroj `lawoss_memory` (plugin `apps/server/src/opencode-plugins/lawoss-memory-tools.ts`, server `apps/server/src/lawoss/matter-memory.ts`, most `lawoss/okf-handoff/matter-memory-read.mjs`) číta tým istým kódom pamäte bez podprocesu, len v koreni klienta chatu a v jeho pripojených priečinkoch; spis iného (aj vnoreného) klienta sa odmietne bez mena. Zápis pamäte ostáva v CLI so schválením. Po bezpečnostnom review číta okf-pamat každý súbor pamäte a kontextu (`_STATUS.md`, `VSTUPY.md`, `KOMUNIKACNE-KANALY.md`, karty, `okf.config`, `memory/*.md`) ako bežný súbor bez symbolického odkazu, bez blokovania a do limitu 2 MiB na súbor a 16 MiB na adresár `memory/` (`lawoss/okf-pamat/src/safe-read.ts`). Kanceláriu (`Office/`, `_kancelaria/`) nad spisom server prečíta len vtedy, keď je to kancelária praxe z profilu, priečinok tohto klienta alebo skutočný priečinok vedľa klientov mimo iného klienta; inak ju vynechá a čítanie je neúplné (`ScopeOptions.office`); s profilom praxe len kanceláriu praxe. Pamäť s profilom (`.lawoss/memory-profile.json`) nečíta koreň ani zdroj v inom registrovanom klientovi (`excludedRoots`). Adresár `memory/` má najviac 2 000 položiek.
@@ -1057,7 +1065,7 @@ Baseline `dev` `34df1a4f` (po syncu v0.2.4, #161), upstream `v0.2.9`. Merge má 
 | `apps/server/src/opencode-plugins/legalwork-word-tools-shared.ts` | `isOpenWordFilePipelineCall` pozná aj upstream nástroj `legalwork_shell`. |
 | `apps/server/src/mcp.oauth-flow.e2e.test.ts` | Nový upstream test spúšťa mock cez `spawnOwnedChild`/`stopOwnedChild` ako ostatné testy LAWOSS. |
 | `apps/server/src/scheduled-tasks/engine.test.ts` | Zdroje obsahu projektu nesú `scope` (hranica viewera z #159). |
-| `apps/server/package.json` | `build` = upstream bundly + `lawoss-okf-handoff.ts` + `src/lawoss/{workspace-memory-runtime,onboarding-runtime,chatgpt-subscription}.ts`; `test:node` popri upstream `test:reasoning`. |
+| `apps/server/package.json` | `build` = upstream bundly + `lawoss-okf-handoff.ts` + `src/lawoss/{workspace-memory-runtime,onboarding-runtime,chatgpt-subscription,input-register-runtime}.ts`; `test:node` popri upstream `test:reasoning`. `input-register-runtime` (N-A7-6): register vstupov `lawoss/okf/inputs.ts` cez seam `lawoss/okf/input-register.mjs` pre zápis `VSTUPY.md` po presune z nezaradených (`lawoss/file-operation-inputs.ts`). |
 | `apps/orchestrator/src/cli.ts` | Bez predvolenej adresy katalógu Eigenweltu a bez `modelCatalogUrl` na relé servera; `OPENCODE_MODELS_URL` len pri výslovne zadanej adrese. |
 | `lawoss/okf-handoff/plugin.mjs` | Systémový text pluginu sa mení len so stavom (úspech alebo zlyhanie), bez textu chyby, aby nezhadzoval cache promptu (upstream #220/#249/#259); zlyhanie (aj odobratý prístup k pamäti) ostáva viditeľné. Zelená zóna, uvedené kvôli úplnosti. |
 
@@ -1495,3 +1503,11 @@ Nález N-A7-12 z úplného UI testu dev `f8acb4bd`: pri „OpenAI · Vlastné“
 |---|---|
 | `apps/app/src/react-app/shell/settings-route.tsx` | Riadok pripojeného poskytovateľa berie `editableAsCustom` a `sourceLabel` z `lawossProviderRow(provider)`: „Upraviť“ len pri poskytovateľovi s vlastnou adresou (`options.baseURL`), ktorú formulár vlastného poskytovateľa číta aj ukladá; predplatné ChatGPT má popis „Predplatné ChatGPT“. Natvrdo anglická hláška pri neúspešnom načítaní je kľúč `lawoss.providers.edit_unavailable` s ďalším krokom (Odpojiť a pripojiť znova); ostáva pre „Obnoviť modely“, ktoré otvára rovnaký formulár (+1 import, −5 riadkov výpočtu adresy, 1 riadok spread, 1 riadok hlášky). |
 | `apps/app/src/react-app/domains/settings/pages/ai-view.tsx` | `ConnectedProvider` má voliteľné `sourceLabel`, riadok ho ukáže pred `providerSourceLabel(provider.source)` (+2 riadky typu, 1 výraz). |
+
+### Presunutá prax bez duplicitných klientov (2026-10-28, fix/presunuta-prax-bez-duplicit, N-A7-1)
+
+Nové LAWOSS súbory: `apps/server/src/lawoss/moved-practice.ts` (náhľad prepojenia, presun povolenia kancelárie, otázka pri možno presunutom klientovi, odvodenie nedokončeného presunu praxe), `apps/app/src/lawoss/okf/moved-folder.ts`, `apps/app/src/lawoss/domains/practice-move-notice.tsx`, test `apps/server/src/lawoss/moved-practice.e2e.test.ts`. Prepojenie klientov ide existujúcim upstream `POST /workspace/:id/reconnect` bez zmeny.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/app/lib/legalwork-server.ts` | +1 import typu `MovedFolderApiPath`, +1 metóda `lawossMovedFolder(path, body)` volajúca hostové `/lawoss/onboarding/moved-folder`, `/lawoss/onboarding/moved-practice` a `/lawoss/onboarding/reconnected` (rovnaký `requestJson` a host token ako onboarding). Dôvod: N-A7-1, „Nájsť presunutý priečinok“ na stránke Dnes prepojí klientov presunutej praxe namiesto ich nového pridania. |
