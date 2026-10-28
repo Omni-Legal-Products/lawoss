@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chatDirectory, chatSendDirectory, effectiveSessionDirectory, isWithinClientFolder } from "../src/lawoss/shell/session-directory";
+import { chatDirectory, chatEngine, chatSendDirectory, effectiveSessionDirectory, isWithinClientFolder } from "../src/lawoss/shell/session-directory";
 import { sessionDirectoryWithinWorkspace, sessionsWithinWorkspace } from "../src/react-app/shell/use-workspace-route-state";
 import type { RouteSession, RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 
@@ -63,4 +63,22 @@ test("priame odoslanie: len vlastný načítaný priečinok cieľového chatu, i
   // Priečinok mimo klienta nikdy: koreň klienta (server ho aj tak overí).
   expect(chatSendDirectory("/prax/Klient_A", false, "ses_cudzi", snapshot("ses_cudzi", "/prax/Klient-A/Spis"))).toBe("/prax/Klient_A");
   expect(chatSendDirectory("/remote/Klient_A", true, "ses_pripad", null)).toBe("/remote/Klient_A");
+});
+
+test("revert, abort a vetva idú do priečinka cieľového chatu, nie vybraného (#223)", () => {
+  const snapshot = (id: string, directory: string) => ({ session: { id, directory } });
+  const created: string[] = [];
+  const create = (directory: string) => { created.push(directory); return `klient:${directory}`; };
+  // Vybraný je chat prípadu, cieľom revertu je chat klienta v inej karte.
+  const selected = { directory: matter, client: `klient:${matter}` };
+  expect(chatEngine("ses_klient", { clientRoot: "/prax/Klient_A", remote: false, loaded: snapshot("ses_klient", "/prax/Klient_A"), selected }, create))
+    .toEqual({ directory: "/prax/Klient_A", client: "klient:/prax/Klient_A" });
+  expect(created).toEqual(["/prax/Klient_A"]);
+  // Cieľ je vybraný chat: jeho klient sa použije znova.
+  expect(chatEngine("ses_pripad", { clientRoot: "/prax/Klient_A", remote: false, loaded: snapshot("ses_pripad", matter), selected }, create))
+    .toEqual({ directory: matter, client: selected.client });
+  expect(created).toHaveLength(1);
+  // Bez vlastného snapshotu cieľa nič: nie priečinok vybraného chatu.
+  expect(chatEngine("ses_klient", { clientRoot: "/prax/Klient_A", remote: false, loaded: snapshot("ses_pripad", matter), selected }, create)).toBeNull();
+  expect(chatEngine("ses_klient", { clientRoot: "/prax/Klient_A", remote: false, loaded: snapshot("ses_klient", "/prax/Klient_A"), selected: null }, create)).toBeNull();
 });

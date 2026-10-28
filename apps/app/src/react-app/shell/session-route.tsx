@@ -154,7 +154,7 @@ import { AppHome } from "@/react-app/domains/session/home/app-home";
 import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/session/home/home-submission";
 import { replaceHomeAttachmentTokens, type HomeDraftAttachment } from "@/react-app/domains/session/home/home-attachments";
 import { seedSubmittedMessage, snapshotKey } from "@/react-app/domains/session/sync/session-sync";
-import { chatSendDirectory } from "@/lawoss/shell/session-directory";
+import { chatEngine } from "@/lawoss/shell/session-directory";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
@@ -1618,6 +1618,12 @@ export function SessionRoute() {
     if (!client || !selectedWorkspaceId || !opencodeBaseUrl || !token || !sessionOpencodeClient) {
       return null;
     }
+    // 🟡 LAWOSS: engine client in the target chat's own folder (send, revert, branch), never the selected chat's (#223).
+    const chatEngineFor = (sessionId: string) => chatEngine(sessionId, {
+      clientRoot: selectedWorkspaceRoot, remote: selectedWorkspace?.workspaceType === "remote",
+      loaded: getReactQueryClient().getQueryData<LegalworkSessionSnapshot>(snapshotKey(selectedWorkspaceEndpoint?.workspaceId ?? "", sessionId)),
+      selected: { directory: selectedSessionDirectory || selectedWorkspaceRoot, client: sessionOpencodeClient },
+    }, (directory) => createClient(opencodeBaseUrl, directory || undefined, { token: selectedWorkspaceServerToken, mode: "legalwork" }));
 
     // Transient-safety: when the user switches workspaces the URL-driven
     // selectedSessionId may still point at a session from the old workspace
@@ -1701,13 +1707,9 @@ export function SessionRoute() {
       onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution">; modelSelection?: { model: ModelRef; variant: string | null } }) => {
         // LAWOSS: the target chat's own folder (a case chat's case subfolder), from its loaded snapshot;
         // never the selected chat's folder or a case chat's root fallback.
-        const target = sessionId.trim() || selectedSessionId || "";
-        const directory = chatSendDirectory(selectedWorkspaceRoot, selectedWorkspace?.workspaceType === "remote", target,
-          getReactQueryClient().getQueryData<LegalworkSessionSnapshot>(snapshotKey(selectedWorkspaceEndpoint?.workspaceId ?? "", target)));
-        if (directory === null) throw new Error(t("session.loading_detail"));
-        const opencode = directory === (selectedSessionDirectory || selectedWorkspaceRoot) ? sessionOpencodeClient
-          : createClient(opencodeBaseUrl, directory || undefined, { token: selectedWorkspaceServerToken, mode: "legalwork" });
-        return sendNativeDraft(draft, sessionId, options, { opencode, legalwork: client, directory, projectId: selectedWorkspaceId, runtimeKey: environmentRuntimeKey });
+        const engine = chatEngineFor(sessionId.trim() || selectedSessionId || "");
+        if (!engine) throw new Error(t("session.loading_detail"));
+        return sendNativeDraft(draft, sessionId, options, { opencode: engine.client, legalwork: client, directory: engine.directory, projectId: selectedWorkspaceId, runtimeKey: environmentRuntimeKey });
       },
       onDraftChange: () => {
         // Draft persistence will be wired once the full React shell owns session state.
@@ -1745,9 +1747,11 @@ export function SessionRoute() {
         const targetSessionId = sessionId.trim() || selectedSessionId;
         if (!targetSessionId) return false;
         try {
+          const engine = chatEngineFor(targetSessionId);
+          if (!engine) throw new Error("revert_chat_folder_unknown");
           // Abort any running generation first; OpenCode rejects revert on busy sessions.
-          await abortSessionSafe(sessionOpencodeClient, targetSessionId, selectedSessionDirectory || selectedWorkspaceRoot || undefined);
-          const reverted = await revertSession(sessionOpencodeClient, targetSessionId, messageId);
+          await abortSessionSafe(engine.client, targetSessionId, engine.directory || undefined);
+          const reverted = await revertSession(engine.client, targetSessionId, messageId);
           // Stamp the revert cursor into the local caches so the transcript
           // rewinds immediately instead of waiting for a full reload.
           applySessionRevert(selectedWorkspaceId, reverted);
@@ -1763,7 +1767,9 @@ export function SessionRoute() {
           const targetSessionId = sessionId.trim() || selectedSessionId;
           if (!targetSessionId) return;
           try {
-            const forked = await forkSession(sessionOpencodeClient, targetSessionId, messageId ?? undefined);
+            const engine = chatEngineFor(targetSessionId);
+            if (!engine) throw new Error("fork_chat_folder_unknown");
+            const forked = await forkSession(engine.client, targetSessionId, messageId ?? undefined);
             writeLastSessionFor(selectedWorkspaceId, forked.id);
             rememberPendingCreatedSession(selectedWorkspaceId, forked.id);
             setSessionsByWorkspaceId((current) => ({
