@@ -9,7 +9,7 @@ import type { ServerConfig } from "../types.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
 import { auditLogPath } from "../audit.js";
 import { fileOperationReport } from "../opencode-plugins/lawoss-file-operations-text.js";
-import { applyFileOperations, confusableNames, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, LAWOSS_TRASH_FOLDER, planFileOperations, systemTrashReliable, visibleName, type PlannedFileOperation } from "./file-operations.js";
+import { applyFileOperations, confusableNames, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, moveAcrossVolumes, LAWOSS_TRASH_FOLDER, planFileOperations, systemTrashReliable, visibleName, type PlannedFileOperation } from "./file-operations.js";
 
 const roots: string[] = [];
 const stops: Array<() => void | Promise<void>> = [];
@@ -329,6 +329,35 @@ test.skipIf(!otherVolumeReady)("a move to a linked folder on another volume copi
   // The originals are recoverable in the client's own Trash folder (no desktop host in this test).
   for (const entry of result.results) expect(entry.trash).toMatch(new RegExp(`^${LAWOSS_TRASH_FOLDER}/`));
   expect(await readdir(client)).not.toContain("poznamky.txt");
+});
+
+// #223: zrušený chat (alebo odpojená požiadavka) nenechá na druhom disku polovičnú kópiu, z ktorej by opakovanie skončilo „target exists“.
+test("a cancelled move to another drive removes its copy and keeps the original (#223)", async () => {
+  const { config, client } = await office();
+  const step = { operation: "move" as const, kind: "folder" as const, from: "Pripady", to: "Presunute", source: join(client, "Pripady"), target: join(client, "Presunute"), sourceRoot: client };
+  const before = new AbortController();
+  before.abort();
+  await expect(moveAcrossVolumes(config, step, before.signal)).rejects.toMatchObject({ name: "AbortError" });
+  expect(await readdir(client)).not.toContain("Presunute");
+  // Zrušené počas kopírovania: kópia sa odstráni, originál ostáva a do Koša nejde nič.
+  const during = new AbortController();
+  const moving = moveAcrossVolumes(config, step, during.signal);
+  during.abort();
+  await expect(moving).rejects.toMatchObject({ name: "AbortError" });
+  expect(await readdir(client)).not.toContain("Presunute");
+  expect(await readdir(client)).not.toContain(LAWOSS_TRASH_FOLDER);
+  expect(await readFile(join(client, "Pripady", "M001", "zmluva.txt"), "utf8")).toBe("SYN zmluva");
+});
+
+test("a cancelled request runs no further step (#223)", async () => {
+  const { config, client, workspace } = await office();
+  const operations = [{ operation: "create_folder", path: join(client, "Novy") }];
+  const plan = await planFileOperations(config, workspace, operations);
+  const cancelled = new AbortController();
+  cancelled.abort();
+  const result = await applyFileOperations(config, workspace, operations, plan.operations, plan.revision, undefined, undefined, cancelled.signal);
+  expect(result).toMatchObject({ complete: false, results: [{ status: "failed" }] });
+  expect(await readdir(client)).not.toContain("Novy");
 });
 
 test("on Windows only the system drive's Recycle Bin is trusted; network and other drives use .lawoss-kos (review #221)", () => {

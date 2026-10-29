@@ -34,10 +34,16 @@ type Plan = { operations: unknown[]; revision: string };
 /** The tool's own permission (not `edit`): see the file header. */
 const PERMISSION = "lawoss_file_change";
 
-async function post(context: OpenCodeContext, workspace: string, route: string, body: unknown): Promise<unknown> {
+/**
+ * An approved change has no time limit (#223): moving a large folder to another drive copies and compares every
+ * file. A stopped chat aborts it and the server removes a partial copy; the plan stays bounded.
+ */
+async function post(context: OpenCodeContext, workspace: string, route: "plan" | "apply", body: unknown): Promise<unknown> {
+  const limit = route === "plan" ? [AbortSignal.timeout(120_000)] : [];
+  const signals = [...(context.abort ? [context.abort] : []), ...limit];
   const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace)}/lawoss/files/${route}`, {
     method: "POST", headers: { ...await workspaceToolHeaders(context), "Content-Type": "application/json" }, body: JSON.stringify(body),
-    signal: context.abort ? AbortSignal.any([context.abort, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000),
+    ...(signals.length ? { signal: AbortSignal.any(signals) } : {}),
   });
   const text = await response.text();
   if (!response.ok) throw new Error(`File change refused (${response.status}): ${text}`);

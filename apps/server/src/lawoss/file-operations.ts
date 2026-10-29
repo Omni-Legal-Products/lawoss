@@ -390,10 +390,12 @@ const errorCode = (error: unknown) => error instanceof Error && "code" in error 
 const targetExists = (item: Planned) => new ApiError(409, "file_operation_target_exists", `${item.to} already exists. This tool never overwrites. Nothing was changed. ${NEW_NAME}`);
 
 /** Content of a file or folder tree: names, kinds, sizes, SHA-256 of files and link targets. */
-async function treeDigest(location: string): Promise<string> {
+async function treeDigest(location: string, signal?: AbortSignal): Promise<string> {
   const hash = createHash("sha256");
   const pending = [location];
   while (pending.length) {
+    // Between files, not inside a read: the copy is removed after an abort, and an open handle would block that on Windows.
+    signal?.throwIfAborted();
     const current = pending.shift() ?? location;
     const info = await lstat(current);
     // A network share may store names in another Unicode form: compare the names, not their bytes.
@@ -415,11 +417,15 @@ async function treeDigest(location: string): Promise<string> {
 /**
  * Another drive, a NAS or another mount (`EXDEV`): copy, compare the content, then send the original to the
  * Trash, so it stays recoverable. A failed or different copy is removed and the original stays (review #221).
+ * A cancelled chat removes the copy too (#223): `cp` itself cannot be interrupted, so the check follows it.
+ * Exported for tests: a real second volume is rarely available to them.
  */
-async function moveAcrossVolumes(config: ServerConfig, item: Planned & { source: string; target: string }): Promise<string> {
+export async function moveAcrossVolumes(config: ServerConfig, item: Planned & { source: string; target: string }, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
   try {
     await cp(item.source, item.target, { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true, preserveTimestamps: true });
-    if (await treeDigest(item.source) !== await treeDigest(item.target)) throw new Error("The copy on the other drive differs from the original. The original was kept; nothing was moved.");
+    signal?.throwIfAborted();
+    if (await treeDigest(item.source, signal) !== await treeDigest(item.target, signal)) throw new Error("The copy on the other drive differs from the original. The original was kept; nothing was moved.");
   } catch (error) {
     // Only the copy this call made is removed: the plan checked that the target did not exist.
     if (errorCode(error) !== "EEXIST" && errorCode(error) !== "ERR_FS_CP_EEXIST") await rm(item.target, { recursive: true, force: true });
@@ -430,10 +436,10 @@ async function moveAcrossVolumes(config: ServerConfig, item: Planned & { source:
 }
 
 /** A folder, a link, or a file on a volume without hard links: rename only after checking the target is still free. */
-async function checkedRename(config: ServerConfig, item: Planned & { source: string; target: string }): Promise<string | undefined> {
+async function checkedRename(config: ServerConfig, item: Planned & { source: string; target: string }, signal?: AbortSignal): Promise<string | undefined> {
   if (await present(item.target)) throw targetExists(item);
   try { await rename(item.source, item.target); return undefined; }
-  catch (error) { if (errorCode(error) === "EXDEV") return moveAcrossVolumes(config, item); throw error; }
+  catch (error) { if (errorCode(error) === "EXDEV") return moveAcrossVolumes(config, item, signal); throw error; }
 }
 
 /**
@@ -442,16 +448,16 @@ async function checkedRename(config: ServerConfig, item: Planned & { source: str
  * one. A symbolic link is renamed, never hard-linked: `link` follows it on macOS and would give this client a second
  * name for the file it points to. Returns where the original went when the move had to copy it to another drive.
  */
-async function moveWithoutReplacing(config: ServerConfig, item: Planned & { source: string; target: string }): Promise<string | undefined> {
+async function moveWithoutReplacing(config: ServerConfig, item: Planned & { source: string; target: string }, signal?: AbortSignal): Promise<string | undefined> {
   if (item.caseOnly) { await rename(item.source, item.target); return undefined; }
-  if (item.kind === "folder" || (await lstat(item.source)).isSymbolicLink()) return checkedRename(config, item);
+  if (item.kind === "folder" || (await lstat(item.source)).isSymbolicLink()) return checkedRename(config, item, signal);
   try { await link(item.source, item.target); }
   catch (error) {
     const code = errorCode(error);
     if (code === "EEXIST") throw targetExists(item);
-    if (code === "EXDEV") return moveAcrossVolumes(config, item);
+    if (code === "EXDEV") return moveAcrossVolumes(config, item, signal);
     // No hard links on this volume (FAT, exFAT, some network shares): rename after checking the target is free.
-    return checkedRename(config, item);
+    return checkedRename(config, item, signal);
   }
   // The old name stays when the file is held open (Windows): drop the new one so the move fails cleanly.
   try { await unlink(item.source); }
@@ -459,13 +465,13 @@ async function moveWithoutReplacing(config: ServerConfig, item: Planned & { sour
   return undefined;
 }
 
-async function execute(config: ServerConfig, item: Planned): Promise<string | undefined> {
+async function execute(config: ServerConfig, item: Planned, signal?: AbortSignal): Promise<string | undefined> {
   if (item.operation === "create_folder" && item.target) { await mkdir(item.target, { recursive: true }); return undefined; }
   if (item.operation === "delete") return moveToTrash(config, item);
   const { source, target } = item;
   if (!source || !target) throw new Error("Incomplete plan.");
   await mkdir(dirname(target), { recursive: true });
-  if (item.operation === "move") return moveWithoutReplacing(config, { ...item, source, target });
+  if (item.operation === "move") return moveWithoutReplacing(config, { ...item, source, target }, signal);
   await cp(source, target, { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true });
   return undefined;
 }
@@ -489,7 +495,7 @@ async function verified(item: Planned): Promise<boolean> {
  * Re-plan from the current disk and run only when it matches the plan and revision the user approved.
  * Operations run in order; after the first failure the rest do not run.
  */
-export async function applyFileOperations(config: ServerConfig, workspace: WorkspaceInfo, input: unknown, approved: unknown, revision: unknown, sessionID?: string, actor: Actor = { type: "remote" }): Promise<{ results: FileOperationResult[]; complete: boolean }> {
+export async function applyFileOperations(config: ServerConfig, workspace: WorkspaceInfo, input: unknown, approved: unknown, revision: unknown, sessionID?: string, actor: Actor = { type: "remote" }, signal?: AbortSignal): Promise<{ results: FileOperationResult[]; complete: boolean }> {
   if (config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
   const plan = await planInternal(config, workspace, input);
   const roots = await clientRoots(config, workspace), nested = await nestedClientRoots(config, workspace);
@@ -506,8 +512,10 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
       const visible = publicPlan([item])[0]!;
       if (failed) { results.push({ ...visible, status: "not_run" }); continue; }
       try {
+        // #223: the chat was stopped or its request dropped; later steps do not run either.
+        signal?.throwIfAborted();
         if (!await unchanged(item.source) || !await unchanged(item.target)) throw new ApiError(403, "file_operation_outside_client", OUTSIDE);
-        const trash = await execute(config, item);
+        const trash = await execute(config, item, signal);
         if (!await verified(item)) throw new Error("The change is not visible on disk.");
         const filed = await fileInput(item, roots);
         results.push({ ...visible, status: "done", ...(trash ? { trash } : {}), ...filed.result });
@@ -567,16 +575,16 @@ export function registerFileOperationRoutes(options: {
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
 }) {
   const { routes, config, jsonResponse } = options;
-  const route = (suffix: string, action: (workspace: WorkspaceInfo, body: Record<string, unknown>, actor: Actor) => Promise<unknown>) =>
+  const route = (suffix: string, action: (workspace: WorkspaceInfo, body: Record<string, unknown>, actor: Actor, signal: AbortSignal) => Promise<unknown>) =>
     addRoute(routes, "POST", `/workspace/:id/lawoss/files/${suffix}`, "client", async (ctx) => {
       options.requireClientScope(ctx, "collaborator");
       // The approval is the engine card the chat's tool showed; other clients have their own file routes and approvals.
       if (!await engineAgent(config, ctx.actor)) throw new ApiError(403, "file_operation_agent_only", "Only a chat's file tool, after the user's approval, can use this route.");
       const workspace = await options.resolveWorkspace(config, ctx.params.id);
-      try { return jsonResponse(await action(workspace, await options.readJsonBodyLimited(ctx.request, 512 * 1024), ctx.actor ?? { type: "remote" })); }
+      try { return jsonResponse(await action(workspace, await options.readJsonBodyLimited(ctx.request, 512 * 1024), ctx.actor ?? { type: "remote" }, ctx.request.signal)); }
       catch (error) { if (error instanceof z.ZodError) throw new ApiError(400, "file_operation_input", `Send 1–${MAX_FILE_OPERATIONS} operations: move/copy {from, to}, create_folder/delete {path}.`); throw error; }
     });
   route("plan", async (workspace, body) => planFileOperations(config, workspace, body.operations));
-  route("apply", async (workspace, body, actor) => applyFileOperations(config, workspace, body.operations, body.approved, body.revision,
-    typeof body.sessionID === "string" ? body.sessionID : undefined, actor));
+  route("apply", async (workspace, body, actor, signal) => applyFileOperations(config, workspace, body.operations, body.approved, body.revision,
+    typeof body.sessionID === "string" ? body.sessionID : undefined, actor, signal));
 }
