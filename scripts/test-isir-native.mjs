@@ -510,6 +510,8 @@ try {
     for(const folder of await readdir(base).catch(()=>[])){
       if(attachmentDirsBefore.has(folder))continue;
       for(const name of await readdir(path.join(base,folder)).catch(()=>[])){
+        // An atomic upload holds the complete bytes under <name>.tmp-<id> until its rename.
+        if(/\.tmp-[0-9a-f-]+$/i.test(name))continue;
         const target=path.join(base,folder,name);
         try{if(sha256(await readFile(target))===sha256(chatSource.bytes))return target}catch{}
       }
