@@ -1,5 +1,15 @@
 # LAWOSS downstream patches
 
+## Sandbox VM pod softvérovou emuláciou nepanikári pri štarte (2026-10-29)
+
+CI `sandbox-runtime (macos-15-intel)` beží bez hypervízora (`[sandbox] tcg`). V 3 z 9 zlyhaní z 20.–28. 10. 2026 jadro hosťa padlo hneď pri štarte: „MP-BIOS bug: 8254 timer not connected to IO-APIC … Kernel panic … IO-APIC + timer doesn't work!“. Kontrola časovača jadra x86 pri pomalej emulácii nestihne svoje okno. Rovnaký `tcg` použije aj počítač používateľa bez hypervízora (napr. Windows bez WHPX).
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/agent-sandbox/vm.ts` | +1 import; `-append` berie reťazec z nového `apps/server/src/lawoss/sandbox-kernel-command-line.ts`, ktorý pre x86 pod `tcg` pridá `no_timer_check` (ako bežné VM obrazy). Hardvérová akcelerácia a ARM majú argumenty bez zmeny. Upstream `v0.3.0` aj `upstream/dev` majú rovnaký `-append`. |
+
+Nový LAWOSS súbor: `apps/server/src/lawoss/sandbox-kernel-command-line.ts` + test.
+
 ## Jeden dialóg pri zahodení zmien v dokumente (2026-10-28, N-A7-16)
 
 Úplný UI test dev `f8acb4bd` (28. 10. 2026): po „Zahodiť zmeny“ pri zatváraní karty DOCX ostal viditeľný dialóg „Zahodiť zmeny v súbore ? …“ a dalo sa v ňom kliknúť na „Zrušiť“. Druhá výzva nevzniká; bol to ten istý `ConfirmModal` s `open=false`, ktorý Base UI nechá pripojený, kým nedobehne zatváracia animácia (pozadie je počas nej inertné, okno dialógu nie).

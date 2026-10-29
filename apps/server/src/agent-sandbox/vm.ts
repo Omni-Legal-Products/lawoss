@@ -12,6 +12,7 @@ import { validateMounts, type SandboxMount } from "./files.js";
 import { SandboxFilesystem, filesystemError, filesystemRequestSchema } from "./filesystem.js";
 import { SharedVmRuntime } from "./runtime.js";
 import { bootWithFallback, canUseMacHypervisor, type Accelerator } from "./acceleration.js";
+import { sandboxKernelCommandLine } from "../lawoss/sandbox-kernel-command-line.js";
 import { vmResources } from "./resources.js";
 export { validateMounts, within, type SandboxMount } from "./files.js";
 
@@ -143,7 +144,7 @@ export class VmSandbox {
         // Direct kernel boot needs no PCI network boot ROM.
         ...(directNetwork ? ["-netdev", "user,id=outbound", "-device", `${arm ? "virtio-net-device" : "virtio-net-pci,romfile="},netdev=outbound`] : ["-nic", "none"]),
         "-kernel", join(this.resources, "kernel"), "-initrd", join(this.resources, "initrd.gz"),
-        "-append", `rdinit=/init panic=1 quiet console=${arm ? "ttyAMA0" : "ttyS0"}${directNetwork ? " legalwork.network=allow" : ""}`,
+        "-append", sandboxKernelCommandLine({ arm, accelerator, directNetwork }),
         "-chardev", pipeName ? `pipe,id=rpc,path=${pipeName}` : "stdio,id=rpc", "-device", arm ? "virtio-serial-device" : "virtio-serial-pci",
         "-device", "virtserialport,chardev=rpc,name=org.legalwork.rpc"];
       let vm!: SharedVmRuntime;
