@@ -342,6 +342,7 @@ function PathInput({
 const extraText: Record<Language, Record<string, string>> = {
   sk: {
     addClientTitle: "Pridať klienta",
+    addFolderTitle: "Pridať priečinok",
     newClient: "Nový klient",
     newMatter: "Nový prípad",
     matterUnder: "Prípad vznikne pod klientom",
@@ -370,6 +371,7 @@ const extraText: Record<Language, Record<string, string>> = {
   },
   cs: {
     addClientTitle: "Přidat klienta",
+    addFolderTitle: "Přidat složku",
     newClient: "Nový klient",
     newMatter: "Nový případ",
     matterUnder: "Případ vznikne pod klientem",
@@ -398,6 +400,7 @@ const extraText: Record<Language, Record<string, string>> = {
   },
   en: {
     addClientTitle: "Add a client",
+    addFolderTitle: "Add a folder",
     newClient: "New client",
     newMatter: "New matter",
     matterUnder: "The matter will be created under client",
@@ -426,6 +429,7 @@ const extraText: Record<Language, Record<string, string>> = {
   },
   de: {
     addClientTitle: "Mandanten hinzufügen",
+    addFolderTitle: "Ordner hinzufügen",
     newClient: "Neuer Mandant",
     newMatter: "Neue Angelegenheit",
     matterUnder: "Die Angelegenheit wird angelegt für den Mandanten",
@@ -1036,8 +1040,8 @@ export function LawossWelcomePage({
             <span className="sr-only">LAWOSS</span>
           </p>
           {/* N-A5-5: v nastavenej praxi je „Pridať klienta“ (aj jeho ďalší krok s prípadom) pridaním klienta a „Nový
-              prípad“ pridaním prípadu, nie nastavením praxe. */}
-          <h1 className="lw-onb-title">{sidebarFlow ? tr(initialStep === "matter" ? "newMatter" : "addClientTitle") : tr("title")}</h1>
+              prípad“ pridaním prípadu, nie nastavením praxe. „Pridať priečinok“ a odkaz `?root=` pridávajú priečinok (#272). */}
+          <h1 className="lw-onb-title">{tr(!sidebarFlow ? "title" : initialStep === "matter" ? "newMatter" : initialStep === "client" ? "addClientTitle" : "addFolderTitle")}</h1>
           {mainPath && idx >= 0 ? (
             <WizardProgress text={wiz} steps={steps} current={idx} disabled={navBusy} onGo={wizard ? (target) => void move(target) : undefined} />
           ) : null}
