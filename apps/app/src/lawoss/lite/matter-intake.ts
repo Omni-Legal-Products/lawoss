@@ -5,63 +5,23 @@ import { OkfDiagnostic } from "../../../../../lawoss/okf/diagnostics";
  * Dnes ho pak započítá „K zařazení“ (soubor je ve složce na nezařazené, `inputs-model.ts`). Nic se neodesílá, nic se nemaže.
  */
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
-import { missing, today } from "../okf/read-model";
+import { missing } from "../okf/read-model";
+import { appendInputRow, inputRow, nextInputId, receivedStamp, safeFileName } from "../../../../../lawoss/okf/inputs";
 import { parseWorkingProfile, PROFILE_FILE } from "../../../../../lawoss/okf/src/profile";
 
 const INTAKE_DIR = "00_K_zarazeni";
-const INTAKE_SOURCE = "ruční vložení (LAWOSS)";
 /** Horní mez jednoho souboru - přenáší se jako base64 v JSON. */
 const MAX_INTAKE_BYTES = 50 * 1024 * 1024;
 
-const TABLE_HEADER = "| ID | Přijato | Zdroj | Originál | Stav | Výsledné záznamy |";
-const TABLE_RULE = "|---|---|---|---|---|---|";
-
-/** Další volné ID vstupu: nejvyšší `IN-<číslo>` v registru + 1, tři číslice. */
-export function nextInputId(intake: string | null): string {
-  const numbers = [...(intake ?? "").matchAll(/\|\s*IN-(\d+)\s*\|/g)].map((m) => Number(m[1]));
-  return `IN-${String(Math.max(0, ...numbers) + 1).padStart(3, "0")}`;
-}
-
-/** Čas přijetí s časovým pásmem počítače, např. `2026-09-24T14:32:05+02:00`. */
-export function receivedStamp(now: Date): string {
-  const pad = (n: number) => String(Math.abs(n)).padStart(2, "0");
-  const offset = -now.getTimezoneOffset();
-  const zone = `${offset >= 0 ? "+" : "-"}${pad(Math.trunc(offset / 60))}:${pad(offset % 60)}`;
-  return `${today(now)}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}${zone}`;
-}
-
-/** Název souboru bez cesty a znaků, které by rozbily cestu nebo tabulku. */
-export function safeFileName(name: string): string {
-  const base = name.split(/[\\/]/).pop() ?? "";
-  const clean = base.replace(/[\u0000-\u001f|]/g, "").trim().replace(/^\.+/, "");
-  return clean || "dokument";
-}
-
-export function inputRow(id: string, received: string, original: string): string {
-  return `| ${id} | ${received} | ${INTAKE_SOURCE} | ${original} | pending | |`;
-}
-
-/**
- * Přidá řádek na konec první tabulky registru (za poslední její řádek). Registr bez tabulky
- * dostane tabulku na konec; chybějící registr se založí. Ostatní text zůstává beze změny.
- */
-export function appendInputRow(intake: string | null, row: string, title: string): string {
-  if (intake === null) {
-    return `---\ntype: input-register\ntitle: ${JSON.stringify(`${title} - Vstupy`)}\n---\n\n# Vstupy a komunikace\n\n${TABLE_HEADER}\n${TABLE_RULE}\n${row}\n`;
-  }
-  const lines = intake.split("\n");
-  const rule = lines.findIndex((line) => /^\|(\s*:?-{3,}:?\s*\|)+\s*$/.test(line.trim()));
-  if (rule === -1) return `${intake.replace(/\n*$/, "\n")}\n${TABLE_HEADER}\n${TABLE_RULE}\n${row}\n`;
-  let end = rule + 1;
-  while (end < lines.length && lines[end]!.trim().startsWith("|")) end++;
-  lines.splice(end, 0, row);
-  return lines.join("\n");
-}
+// Řádek a registr zapisuje i server po přesunu z nezařazených (`lawoss_files`, N-A7-6): jedna sdílená implementace.
+export { appendInputRow, inputRow, nextInputId, receivedStamp, safeFileName };
 
 type IntakeClient = Pick<LegalworkServerClient, "readWorkspaceFile" | "writeWorkspaceFile" | "writeWorkspaceBinaryFile">;
 type SavedInput = { id: string; name: string; path: string };
 
-const conflict = (error: unknown) => /\b409\b|\bconflict\b|changed since it was loaded/i.test(error instanceof Error ? error.message : String(error));
+/** 409 aj ako stav chyby servera: založenie registra, ktorý medzitým vznikol, hlási `file_exists` bez slova „conflict“. */
+const conflict = (error: unknown) => (error instanceof Error && Reflect.get(error, "status") === 409)
+  || /\b409\b|\bconflict\b|changed since it was loaded/i.test(error instanceof Error ? error.message : String(error));
 const CREATE_ONLY_UPDATED_AT = -1;
 const REGISTRATION_ATTEMPTS = 2;
 
@@ -124,6 +84,9 @@ export async function saveDocumentsToMatter(
             path: registerPath,
             content: appendInputRow(register?.content ?? null, inputRow(id, received, original), matter.title),
             baseUpdatedAt: register?.updatedAt ?? null,
+            // Review #292: chýbajúci register len založiť. Bez revízie by zápis prepísal register, ktorý medzitým
+            // založil server po presune z nezaradených (`lawoss_files`); takto skončí 409 a riadok sa pridá znova.
+            ...(register ? {} : { createOnly: true }),
           });
           saved.push({ id, name, path });
           break;

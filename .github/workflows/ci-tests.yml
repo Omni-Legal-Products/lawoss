@@ -169,7 +169,7 @@ jobs:
           export LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)"
           # Bez enginu by sa testy potichu preskočili a krok by bol zelený.
           test -x "$LEGALWORK_TEST_OPENCODE_BIN"
-          bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts --timeout 180000 apps/server/src/lawoss/linked-folders-documents.integration.test.ts apps/server/src/lawoss/matter-chat-engine.integration.test.ts apps/server/src/lawoss/approval-cards.integration.test.ts apps/server/src/lawoss/okf-triedenie-flow.integration.test.ts apps/server/src/lawoss/okf-pamat-citanie.integration.test.ts
+          bun test --preload ./apps/server/test-preload.ts --preload ./apps/server/test-preload-lawoss.ts --timeout 180000 apps/server/src/lawoss/linked-folders-documents.integration.test.ts apps/server/src/lawoss/linked-folders-engine.integration.test.ts apps/server/src/lawoss/matter-chat-engine.integration.test.ts apps/server/src/lawoss/approval-cards.integration.test.ts apps/server/src/lawoss/okf-triedenie-flow.integration.test.ts apps/server/src/lawoss/okf-pamat-citanie.integration.test.ts
           cd apps/app && bun test --timeout 180000 tests/lawoss-matter-chat-engine.test.ts
 
       - name: Verify built draft routes load in Node
