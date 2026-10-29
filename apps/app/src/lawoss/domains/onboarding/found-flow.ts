@@ -3,16 +3,18 @@
  * OKF súborov, pripojenie praxe a začiatok usporiadania na mieste. Bez Reactu, aby sa dala testovať.
  */
 import type { Language } from "@/i18n";
-import { hasLegalForm } from "../../../../../../lawoss/okf/src/onboarding/suggest-patterns";
+import { hasLegalForm, nestedClientCode } from "../../../../../../lawoss/okf/src/onboarding/suggest-patterns";
 import { triageGrant, triagePlan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { LITE_CLIENTS_PATH } from "../../lite/links";
 import type { OnboardingCompletion } from "./lawoss-welcome-page";
+import { movedClientChoice, type MovedClientChoice } from "../../okf/moved-folder";
 import type { ClientChatOutcome, ClientChatPrompt, ClientChatRequest, ClientChatUnavailable } from "./client-chat";
 import type { DocumentLanguage, ExistingPlanRequest, Jurisdiction, OfficePlanRequest, OnboardingApi, OnboardingApplyResult, OnboardingSuggestion, PracticePlanRequest } from "./api";
 
 export type FoundIdentity = { lawyerName: string; jurisdiction: Jurisdiction; language: Language };
 /** `error` je už veta pre advokáta (DescribeError), nie surová správa servera. */
-export type BatchItem = { root: string; name: string; status: "pending" | "done" | "failed"; error?: string; result?: OnboardingApplyResult };
+/** `moved`: priečinok môže byť zaregistrovaný klient s chýbajúcim priečinkom; advokát zvolí Prepojiť alebo Pridať ako nového (N-A7-1). */
+export type BatchItem = { root: string; name: string; status: "pending" | "done" | "failed"; error?: string; result?: OnboardingApplyResult; moved?: MovedClientChoice };
 type FlowApi = Pick<OnboardingApi, "planOnboarding" | "applyOnboarding" | "updateOnboardingProfile">;
 
 const separatorOf = (root: string) => (root.includes("\\") && !root.includes("/") ? "\\" : "/");
@@ -34,6 +36,42 @@ export function parentPath(root: string): string {
 export function matterClientPath(root: string): string {
   const parent = parentPath(root);
   return folderName(parent).toLowerCase() === "spisy" ? parentPath(parent) : parent;
+}
+
+/**
+ * N-A7-3 (test 28. 10. 2026): vybraný priečinok má kód iného klienta než priečinok nad ním („C099 …“ v „C030 …“),
+ * je teda vnoreným klientom, nie prípadom. Podľa rozhodnutia MČ z 23. 10. 2026 sa ako klient neregistruje; ponúkne
+ * sa vonkajší klient (`matterClientPath`). Priečinok s kartou (klienta či veci) rozhoduje sám kartou.
+ */
+export function nestedInClient(suggestion: { root: string; marked: boolean }): boolean {
+  return !suggestion.marked && nestedClientCode(folderName(parentPath(suggestion.root)), folderName(suggestion.root));
+}
+
+/** Upozornenie na priečinky ďalších klientov v pripájanom klientovi; `key` je cesta (mená klientov sa môžu opakovať). */
+export type NestedClientWarning = { key: string; client: string; names: string[] };
+
+/**
+ * N-A7-3: pripájaní klienti, v ktorých priečinku je priečinok ďalšieho klienta (kód iného klienta alebo karta klienta).
+ * Pri klientovi koreň, pri praxi každý jej klient. Agent klienta by súbory toho priečinka videl, preto upozornenie.
+ * Návrh praxe ručne prepnutý na „Klient“: klienti praxe sú tiež priečinkami iných klientov v koreni (review #294).
+ */
+export function nestedClientWarnings(suggestion: OnboardingSuggestion, level: "practice" | "client" | "matter"): NestedClientWarning[] {
+  const nestedOf = (path: string) => suggestion.units?.find(unit => unit.path === path)?.nestedClients ?? [];
+  if (level === "client") {
+    const found = new Map<string, string>(nestedOf("").map(nested => [nested.path, nested.name]));
+    if (suggestion.level === "practice") for (const client of suggestion.clients) found.set(client.path, clientName(client));
+    return found.size ? [{ key: suggestion.root, client: rootClientName(suggestion), names: [...found.values()] }] : [];
+  }
+  if (level !== "practice") return [];
+  return suggestion.clients.flatMap(client => {
+    const names = nestedOf(client.path).map(nested => nested.name);
+    return names.length ? [{ key: client.path, client: clientName(client), names }] : [];
+  });
+}
+
+/** Veta upozornenia: jeden priečinok, alebo viac priečinkov (tvar množného čísla). */
+export function nestedClientWarningText(text: (key: "nestedClientsWarn" | "nestedClientsWarnMany", params: Record<string, string>) => string, warning: NestedClientWarning): string {
+  return text(warning.names.length === 1 ? "nestedClientsWarn" : "nestedClientsWarnMany", { client: warning.client, names: warning.names.join(", ") });
 }
 
 /** Meno klienta pre advokáta (N-A4-2): názov z karty ako v bočnom paneli, inak meno priečinka. */
@@ -113,16 +151,37 @@ export function practiceRequest(root: string, identity: FoundIdentity, suggestio
 /** Chyba klienta ako veta pre advokáta v jazyku rozhrania (volajúci zapíše surovú správu do konzoly). */
 export type DescribeError = (reason: unknown) => string;
 
-async function convertOne(api: FlowApi, item: { root: string; name: string }, identity: FoundIdentity, today: Date, describe: DescribeError): Promise<BatchItem> {
+async function convertOne(api: FlowApi, item: { root: string; name: string }, identity: FoundIdentity, today: Date, describe: DescribeError, confirmNewClient = false): Promise<BatchItem> {
   try {
-    const preview = await api.planOnboarding(convertRequest(item.root, identity, today));
+    const request = convertRequest(item.root, identity, today);
+    const preview = await api.planOnboarding(confirmNewClient ? { ...request, confirmNewClient } : request);
     const result = await api.applyOnboarding({ id: preview.id, fingerprint: preview.fingerprint, confirm: true });
     // N-A4-2: ďalej (krok Pripravené, chat a jeho prvá správa) platí meno, pod ktorým server klienta zaregistroval
     // (názov z karty alebo meno zadané skôr), teda to isté, ktoré ukáže bočný panel.
     return { ...item, name: registeredName(item, result.workspace), status: "done", result };
   } catch (reason) {
-    return { ...item, status: "failed", error: describe(reason) };
+    const moved = movedClientChoice(reason);
+    return { ...item, status: "failed", error: describe(reason), ...(moved ? { moved } : {}) };
   }
+}
+
+/** „Pridať ako nového“ pri otázke „Je to ten istý klient?“: pridá len tento priečinok, ostatné položky ostanú. */
+export async function addMovedAsNew(api: FlowApi, items: readonly BatchItem[], root: string, identity: FoundIdentity, today: Date, describe: DescribeError): Promise<BatchItem[]> {
+  return Promise.all(items.map(item => item.root === root && item.moved ? convertOne(api, { root: item.root, name: item.name }, identity, today, describe, true) : item));
+}
+
+/**
+ * „Prepojiť“: zaregistrovaný klient dostane tento priečinok (rovnaké id, chaty a nastavenia). Položka je potom hotová
+ * s výsledkom ako po pridaní, aby sa ďalej (výber v paneli, chat) správala ako ostatní klienti dávky.
+ */
+export async function linkMovedItem(items: readonly BatchItem[], root: string, link: (choice: MovedClientChoice) => Promise<{ id: string; path: string; name: string }>, describe: DescribeError): Promise<BatchItem[]> {
+  return Promise.all(items.map(async (item): Promise<BatchItem> => {
+    if (item.root !== root || !item.moved) return item;
+    try {
+      const workspace = await link(item.moved);
+      return { root: item.root, name: item.moved.name, status: "done", result: { result: "applied", root: workspace.path, clientRoot: workspace.path, workspace } };
+    } catch (reason) { return { ...item, error: describe(reason) }; }
+  }));
 }
 
 /**

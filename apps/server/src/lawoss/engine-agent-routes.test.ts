@@ -127,7 +127,10 @@ test("a chat reads case memory only through its own client's route (lawoss_memor
   const { config, request } = await fixture();
   expect((await authenticateWikiAgentRequest(config, request("/workspace/ws_a/lawoss/memory/read", { session: "chat_a", method: "POST", body: { action: "read", matter: "/x" } })))?.workspaceId).toBe("ws_a");
   await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_b/lawoss/memory/read", { session: "chat_a", method: "POST", body: {} }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
-  // Only the read route: no write path for memory exists for the chat credential.
-  await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_a/lawoss/memory/write", { session: "chat_a", method: "POST", body: {} }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+  // Writing (lawoss_memory_write, N-A7-10): this client only and bound to this chat, like lawoss/files/apply.
+  expect((await authenticateWikiAgentRequest(config, request("/workspace/ws_a/lawoss/memory/write", { session: "chat_a", method: "POST", body: { sessionID: "chat_a" } })))?.workspaceId).toBe("ws_a");
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_a/lawoss/memory/write", { session: "chat_a", method: "POST", body: { sessionID: "chat_b" } }))).rejects.toMatchObject({ code: "wiki_agent_session_mismatch" });
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_b/lawoss/memory/write", { session: "chat_a", method: "POST", body: { sessionID: "chat_a" } }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_a/lawoss/memory/delete", { session: "chat_a", method: "POST", body: {} }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
   await expect(authenticateWikiAgentRequest(config, request("/workspace/ws_a/lawoss/memory/read", { session: "chat_a" }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
 });

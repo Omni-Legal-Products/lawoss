@@ -1,7 +1,7 @@
 // LAWOSS alfa2 A3 (N-18, N-19): príprava dokumentov z pripojených priečinkov klienta. Zdroj mimo koreňa sa prijme len
 // v práve pripojenom priečinku (overené pri každom čítaní); cudzí priečinok sa odmietne skôr, než sa čokoľvek prečíta.
 import { expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
@@ -9,6 +9,7 @@ import { DocumentPreparation } from "../../document-preparation/service.js";
 import { OcrManager } from "../../ocr/manager.js";
 import type { WorkspaceInfo } from "../../types.js";
 import { LawossDocuments } from "./service.js";
+import { DOCUMENT_LIMITS } from "./types.js";
 
 async function pdf(text: string) {
   const doc = await PDFDocument.create(); const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -80,6 +81,21 @@ test("zdroj v koreni klienta ostáva relatívny ako doteraz", () => fixture(asyn
   expect(started.path).toBe("zmluva.pdf");
   await settled(service, client);
   expect((await service.read(client, started.id)).text).toContain("SYN zmluva");
+}));
+
+// N-A7-5: agent poslal na prípravu cestu pripojeného priečinka a dostal „Document exceeds 64 MiB.“ pri 1 MB obsahu.
+test("priečinok namiesto súboru vráti document_not_file bez záznamu; veľký súbor ostáva document_size", () => fixture(async ({ service, client, linked }) => {
+  await mkdir(join(client.path, "01_Podklady"));
+  for (const path of [linked, "01_Podklady", join(client.path, "01_Podklady")]) {
+    const refused = await failure(service.prepare(client, [path]));
+    expect({ path, ...refused }).toMatchObject({ path, code: "document_not_file" });
+    expect(refused?.message).toContain("folder, not a file");
+    expect(refused?.message).not.toContain("64 MiB");
+  }
+  // Riedky súbor: `stat` hlási veľkosť nad limit, na disku nič nezaberá a služba ho pred odmietnutím nečíta.
+  await writeFile(join(linked, "Velky.pdf"), ""); await truncate(join(linked, "Velky.pdf"), DOCUMENT_LIMITS.bytes + 1);
+  expect(await failure(service.prepare(client, [join(linked, "Velky.pdf")]))).toMatchObject({ code: "document_size" });
+  expect(await service.list(client)).toEqual([]);
 }));
 
 // N-A3-1 (bezpečnostná kontrola bb025062): klient zaregistrovaný vnútri tohto klienta je cudzí klient aj pre dokumenty.

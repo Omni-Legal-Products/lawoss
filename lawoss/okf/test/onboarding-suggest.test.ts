@@ -356,3 +356,24 @@ test("N-A4-4 (test 25. 10. 2026): v náhľade klienta bez Spisy/ priečinok s k�
   const matters = (await suggestOnboardingLevel(join(root, "C002 SYN Hron"))).units.find(entry => entry.path === "")?.matters ?? [];
   expect(matters.map(matter => matter.path).sort()).toEqual(["C002-2024-01 Nájom", "C003 Spor o náhradu", "M004 Vyúčtovanie nájmu"]);
 });
+test("N-A7-3 (test 28. 10. 2026): náhľad klienta vymenuje priečinky ďalších klientov, ktoré nie sú prípadmi", async () => {
+  const root = await tree([
+    "C030 SYN Vonkajsi klient/zmluva-vonkajsi.pdf", "C030 SYN Vonkajsi klient/C099 SYN Vnoreny klient/zmluva-vnoreny.pdf",
+    // Vnorený klient s kartou (bez kódu), prípady pod kódom klienta, so slovom veci a v Spisy/ ostávajú bez upozornenia.
+    "C030 SYN Vonkajsi klient/Novak Jan/client.md", "C030 SYN Vonkajsi klient/C030-2024-01 Najom/a.pdf",
+    "C030 SYN Vonkajsi klient/C031 Spor o nahradu/b.pdf", "C030 SYN Vonkajsi klient/Spisy/C098 Iny/c.pdf",
+    "C030 SYN Vonkajsi klient/M001 Zmluva s kartou/matter.md", "C030 SYN Vonkajsi klient/01_Podklady/d.pdf",
+  ]);
+  const unit = (await suggestOnboardingLevel(join(root, "C030 SYN Vonkajsi klient"))).units.find(entry => entry.path === "");
+  expect(unit?.nestedClients.map(nested => nested.name).sort()).toEqual(["C099 SYN Vnoreny klient", "Novak Jan"]);
+  expect(unit?.matters.map(matter => matter.path).sort()).toEqual(["C030-2024-01 Najom", "C031 Spor o nahradu", "M001 Zmluva s kartou", "Spisy/C098 Iny"]);
+  // Vybraný nadradený priečinok: jednotka klienta C030 nesie to isté upozornenie.
+  const parent = await suggestOnboardingLevel(root);
+  expect(parent.units.find(entry => entry.path === "C030 SYN Vonkajsi klient")?.nestedClients.map(nested => nested.name).sort()).toEqual(["C099 SYN Vnoreny klient", "Novak Jan"]);
+});
+test("N-A7-3: klienti praxe nie sú vnorenými klientmi koreňa praxe", async () => {
+  const root = await tree(["C001 Alfa s. r. o./M001 Spor/a.pdf", "C002 Beta a. s./M002 Zmluva/b.pdf", "C001 Alfa s. r. o./client.md", "C002 Beta a. s./client.md", "C003 Gama/M003 Najom/c.pdf"]);
+  const suggestion = await suggestOnboardingLevel(root);
+  expect(suggestion.level).toBe("practice");
+  expect(suggestion.units.find(entry => entry.path === "")?.nestedClients).toEqual([]);
+});

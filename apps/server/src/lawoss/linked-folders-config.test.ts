@@ -8,8 +8,8 @@ import { join } from "node:path";
 
 import { buildLegalworkRuntimeConfigObject, keepLegalworkRuntimeConfigFileFresh, legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "../legalwork-runtime-config.js";
 import { readRuntimeOpencodeConfig, runtimeStorageDir, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
-import { documentLinkedFolders, linkableFolders, linkedFoldersMapPath, writeLinkedFoldersMap } from "./linked-folders.js";
-import { parseLinkedFoldersMap } from "./linked-folders-rules.js";
+import { clientCardFolder, documentLinkedFolders, linkableFolders, linkedFoldersMapPath, writeLinkedFoldersMap } from "./linked-folders.js";
+import { externalDirectoryOtherClient, parseLinkedFoldersMap } from "./linked-folders-rules.js";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 
@@ -110,7 +110,7 @@ describe("pripojené priečinky klienta: spoločný súbor enginu a mapa pre plu
       await new Promise((resolve) => setTimeout(resolve, 20));
       map = await readMap();
     }
-    expect(map?.clients).toEqual([{ root: client, folders: [] }, { root: other, folders: [linked] }]);
+    expect(map?.clients).toEqual([{ root: client, folders: [], client: null }, { root: other, folders: [linked], client: null }]);
     expect(map?.firmManaged).toBe(false);
     expect(map?.officeRoot).toBeNull();
   });
@@ -356,5 +356,37 @@ describe("pripojené priečinky klienta: alfa2 A3 (N-16, N-20)", () => {
     if (!own || !other) throw new Error("fixture");
     expect(await documentLinkedFolders(config, own)).toEqual([linked]);
     expect(await documentLinkedFolders(config, other)).toEqual([]);
+  });
+});
+
+// N-A7-14 (review #295): klient v mape je priečinok s kartou klienta; registrovaný spis patrí svojmu klientovi.
+describe("klient v mape podľa karty klienta", () => {
+  test("registrované spisy toho istého klienta sú ten istý klient; iný klient s kartou je iný; bez karty nevie sa", async () => {
+    const { config, client, other, practiceRoot, writeProfile, readMap } = await practice();
+    await writeProfile();
+    const matter = join(client, "Spisy", "Uhrada"), sibling = join(client, "Spisy", "Najom"), bare = join(practiceRoot, "Klienti", "Bez karty");
+    for (const folder of [sibling, bare]) await mkdir(folder, { recursive: true });
+    await writeFile(join(client, "client.md"), "---\ntitle: SYN Tatran\n---\n");
+    await writeFile(join(other, "klient.md"), "---\ntitle: SYN Hron\n---\n");
+    await writeFile(join(bare, "KLIENT.MD"), "karta s iným menom sa neráta (ako prehľad v appke)");
+    config.workspaces.push(
+      { id: "ws_matter", name: "Úhrada", path: matter, preset: "starter", workspaceType: "local" },
+      { id: "ws_sibling", name: "Nájom", path: sibling, preset: "starter", workspaceType: "local" },
+      { id: "ws_bare", name: "Bez karty", path: bare, preset: "starter", workspaceType: "local" },
+      { id: "ws_practice", name: "Prax", path: practiceRoot, preset: "starter", workspaceType: "local" },
+    );
+    await writeLinkedFoldersMap(config);
+    const map = await readMap();
+    if (!map) throw new Error("map");
+    const clientOf = (root: string) => map.clients.find((entry) => entry.root === root)?.client;
+    expect([clientOf(client), clientOf(matter), clientOf(sibling), clientOf(other), clientOf(bare), clientOf(practiceRoot)]).toEqual([client, client, client, other, null, null]);
+    expect(externalDirectoryOtherClient(map, matter, [sibling])).toBe(false);
+    expect(externalDirectoryOtherClient(map, sibling, [matter, client])).toBe(false);
+    expect(externalDirectoryOtherClient(map, matter, [other])).toBe(true);
+    expect(externalDirectoryOtherClient(map, bare, [other])).toBe(false);
+    // Nad koreňom praxe sa karta nehľadá (ani keď by tam bola).
+    await writeFile(join(practiceRoot, "client.md"), "---\ntitle: Prax\n---\n");
+    expect(await clientCardFolder(bare, practiceRoot)).toBeNull();
+    expect(await clientCardFolder(join(matter, "Podklady"), practiceRoot)).toBe(client);
   });
 });

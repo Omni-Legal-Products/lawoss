@@ -19,6 +19,7 @@ import { currentUiMode, useUiMode } from "@/lawoss/lite/ui-mode";
 import { describeMemoryWrite, keepsMemoryWriteGate } from "@/lawoss/lite/memory-write";
 import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
 import { fileOperationCard, offersRememberedApproval, rememberedApprovalKeys, type FileOperationDetails } from "@/lawoss/lite/file-operation-card";
+import { useOtherClientFolderText } from "@/lawoss/lite/other-client-folder";
 import { networkApprovalContent } from "./network-approval-content";
 import { InteractionSource } from "./interaction-source";
 
@@ -54,6 +55,8 @@ type PermissionApprovalModalProps = {
   busy?: boolean;
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject") => void;
   safeStringify?: (value: unknown) => string;
+  /** LAWOSS (N-A7-14): priečinok chatu; karta povie, keď rozsah patrí inému klientovi. */
+  chatDirectory?: string;
 };
 
 const metadataDetailKeys: Array<{ key: string; labelKey: string; multiline?: boolean }> = [
@@ -434,6 +437,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
   const Icon = network?.search ? Search : network ? Globe : presentation.isDoomLoop ? RefreshCcw : ShieldCheck;
   const lite = useUiMode() === "lite";
   const memoryWriteProposal = describeMemoryWrite(String(metadata.command ?? ""));
+  const otherClient = useOtherClientFolderText(props.permission, props.chatDirectory); // LAWOSS (N-A7-14)
 
   return (
     <div className="overflow-hidden border-b border-dls-border bg-transparent">
@@ -449,6 +453,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               {host?.description && !network?.search ? <div className="mt-1 text-[12px] leading-5 text-dls-secondary">{t("sandbox.approval_task", undefined, { description: host.description })}</div> : null}
               {/* LAWOSS: one card per command on this computer – say what it covers (lawoss/i18n/shell.ts). */}
               {host?.hostWide && !network ? <div className="mt-1 text-[12px] leading-5 text-dls-text">{t("lawoss.shell_card.host_wide")}</div> : null}
+              {otherClient ? <div className="mt-1 text-[12px] font-medium leading-5 text-red-11" data-lawoss-other-client="">{otherClient}</div> : null}
               {presentation.note ? (
                 <div className="mt-1 text-[12px] leading-5 text-dls-secondary">{presentation.note}</div>
               ) : null}
