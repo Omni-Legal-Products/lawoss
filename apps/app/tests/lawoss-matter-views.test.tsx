@@ -11,7 +11,8 @@ import type { ReactElement } from "react";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { parseRecord } from "../../../lawoss/okf-pamat/src/record";
-import { buildOverview, isOfficeFile, type MatterInput } from "../../../lawoss/okf/read";
+import { buildOverview, isOfficeFile, taskDue, type MatterInput } from "../../../lawoss/okf/read";
+import { buildCockpit } from "../../../lawoss/okf/cockpit";
 import { buildMatterViews } from "../../../lawoss/okf/views";
 import { MatterViewsPanel, type SourceAccess } from "../src/lawoss/lite/matter-views";
 import { LiteMatterView } from "../src/lawoss/lite/pages/matter-page";
@@ -228,6 +229,60 @@ describe("poctivé prázdne stavy lehôt (UX P2 Denný prehľad)", () => {
     expect(out).toContain("Konanie · Duševné vlastníctvo");
     expect(view({ readFailed: true })).toContain('data-lawoss-deadlines="not_loaded"');
     expect(view({ deadlineEvidence: { recorded: 1, unrecorded: 0 } })).toContain("Žiadne nadchádzajúce evidované lehoty");
+  });
+});
+
+describe("N-A7-4: termín úlohy s časom, neplatný a prázdny", () => {
+  // Ďaleko v budúcnosti: detail prípadu počíta s dnešným dňom počítača.
+  const M010 = input("Klienti/C022/Spisy/M010", {}, [
+    rec("M10-T1", "task", "Pojednávanie s časom", ['state: "open"', 'due: "2099-11-20 10:00"']),
+    rec("M10-T2", "task", "Zlý dátum", ['state: "open"', 'due: "31. 2. 2026"']),
+    rec("M10-T3", "task", "Prázdny termín", ['state: "open"', 'due: "  "']),
+  ]);
+  const overview = buildOverview([M010], TODAY);
+  const cockpit = buildCockpit({ ...overview, inputs: [M010], problems: [] }, M010.path, TODAY)!;
+  const tasks = (out: string) => [...out.matchAll(/<li[^>]*lw-matter-task[^>]*data-urgency="(\w+)"[^>]*>(.*?)<\/li>/g)].map((m) => [m[1], visible(m[2]!).replace(/\s+/g, " ").trim()]);
+
+  test("taskDue: deň s časom je platný; prázdne pole je neplatné, chýbajúce nie je termín", () => {
+    expect(taskDue("2026-11-20 10:00")).toEqual({ day: "2026-11-20", time: "10:00" });
+    expect(taskDue("2026-11-20T09:30:00+01:00")).toEqual({ day: "2026-11-20", time: "09:30" });
+    expect(taskDue("2026-11-20")).toEqual({ day: "2026-11-20" });
+    expect(taskDue("")).toEqual({ invalid: true });
+    expect(taskDue("   ")).toEqual({ invalid: true });
+    expect(taskDue(undefined)).toEqual({});
+    expect(overview.matters[0]!.openTasks.map((t) => [t.id, t.invalid ?? false])).toEqual([["M10-T1", false], ["M10-T2", true], ["M10-T3", true]]);
+    expect(cockpit.attention.filter((r) => r.kind === "úloha").map((r) => [r.id, r.state]).sort()).toEqual([["uloha:M10-T2", "neparsovateľné"], ["uloha:M10-T3", "neparsovateľné"]]);
+  });
+
+  test("detail prípadu: termín s časom je deň a čas bez „?“; neplatný a prázdny sú „?“ s výzvou a súborom", () => {
+    const out = html(<LiteMatterView matter={overview.matters[0]!} cockpit={cockpit} busy={null} error={null} onAction={() => {}} />);
+    const rows = tasks(out);
+    expect(rows[0]![0]).toBe("calm");
+    expect(rows[0]![1]).toContain("Pojednávanie s časom");
+    expect(rows[0]![1]).toContain("10:00");
+    expect(rows[0]![1]).not.toContain("?");
+    expect(rows[0]![1]).not.toContain("check the date");
+    expect(rows[1]).toEqual(["hot", "Zlý dátum Klienti/C022/Spisy/M010/memory/M10-T2.md ? 31. 2. 2026 check the date"]);
+    expect(rows[2]).toEqual(["hot", "Prázdny termín Klienti/C022/Spisy/M010/memory/M10-T3.md ? check the date"]);
+  });
+
+  test("bloky prípadu: termín s časom ukáže deň a čas aj ako najbližší termín, neplatný „?“ s pôvodným textom", () => {
+    const views = buildMatterViews(M010, TODAY);
+    const next = views.strip.find((s) => s.id === "next_date");
+    expect(next?.status === "recorded" ? next.items.map((i) => i.date) : []).toEqual(["2099-11-20 10:00"]);
+    const out = visible(html(<MatterViewsPanel views={views} locale="sk" />));
+    expect(out).toContain("20. 11. 2099 10:00");
+    expect(out).toContain("? 31. 2. 2026");
+  });
+
+  test("Dnes, Otvorené úlohy: termín s časom nie je „? … overiť dátum“", () => {
+    const model = { deadlines: [], inputs: [], recent: [], tasks: [
+      { key: "a", id: "M10-T1", title: "Pojednávanie s časom", due: "2099-11-20 10:00", matters: [{ path: M010.path, title: "SYN prípad" }] },
+      { key: "b", id: "M10-T2", title: "Zlý dátum", due: "31. 2. 2026", matters: [{ path: M010.path, title: "SYN prípad" }] },
+    ] };
+    const out = html(<TodayView model={model} locale="sk" now={new Date(`${TODAY}T09:00:00`)} />);
+    const chips = [...out.matchAll(/<span class="lw-today-chip" data-urgency="(\w+)">(.*?)<\/span>/g)].map((m) => [m[1], visible(m[2]!).replace(/\s+/g, " ").trim()]);
+    expect(chips).toEqual([["hot", "? 31. 2. 2026 · overiť dátum"], ["calm", expect.stringMatching(/20\. 11\. 2099 10:00$/)]]);
   });
 });
 

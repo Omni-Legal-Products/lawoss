@@ -27,6 +27,17 @@ test("voľby „Toto je“ začínajú veľkým písmenom vo všetkých jazykoch
     const text = foundText(locale);
     expect([text("asClient"), text("asPractice"), text("asMatter")]).toEqual([...expected[locale]]);
   }
-  expect(foundText("sk")("practiceFound", { count: 3 })).toBe("Vyzerá to ako celá prax: 3 klientov.");
+  expect(foundText("sk")("practiceFound", { count: 3 })).toBe("Vyzerá to ako celá prax: 3 klienti.");
   expect(foundText("sk")("connectExistingHint")).toBe("Klient, celá prax alebo jeden prípad. Rozpoznám to a spýtam sa.");
+});
+
+test("počet klientov praxe v správnom tvare (review #293): 2 až 4 inak než 5 a viac, v SK aj CS", () => {
+  expect([2, 4, 5, 24].map((count) => foundText("sk")("practiceFound", { count }))).toEqual([
+    "Vyzerá to ako celá prax: 2 klienti.", "Vyzerá to ako celá prax: 4 klienti.", "Vyzerá to ako celá prax: 5 klientov.", "Vyzerá to ako celá prax: 24 klientov.",
+  ]);
+  expect([3, 7].map((count) => foundText("cs")("practiceFound", { count }))).toEqual(["Vypadá to jako celá praxe: 3 klienti.", "Vypadá to jako celá praxe: 7 klientů."]);
+  expect(foundText("en")("practiceFound", { count: 3 })).toBe("This looks like a whole practice: 3 clients.");
+  expect(foundText("de")("practiceFound", { count: 3 })).toBe("Das sieht aus wie eine ganze Kanzlei: 3 Mandanten.");
+  // Kľúč bez tvarov ostáva pri základnom texte aj s počtom.
+  expect(foundText("sk")("working", { done: 1, total: 3, count: 3 })).toBe("Pridávam pomocné súbory: 1 z 3");
 });

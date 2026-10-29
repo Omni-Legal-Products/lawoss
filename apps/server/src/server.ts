@@ -20,7 +20,7 @@ import { sessionFolder, sessionOwnershipChecked, workspaceReadsSession } from ".
 import { sessionInfoSchema } from "./session-read-model.js";
 import { historicalWorkspaceSessions } from "./lawoss/workspace-history-sessions.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
-import { readMatterMemoryForChat } from "./lawoss/matter-memory.js";
+import { readMatterMemoryForChat, writeMatterMemoryForChat } from "./lawoss/matter-memory.js";
 import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { stopMessageQueue } from "./session-message-queue.js";
@@ -2662,6 +2662,14 @@ function createRoutes(
     if (!await engineAgent(config, ctx.actor)) throw new ApiError(403, "memory_agent_only", "Only a chat's case memory tool can use this route.");
     const workspace = await resolveWorkspace(config, ctx.params.id, { bootstrap: false });
     return jsonResponse(await readMatterMemoryForChat(config, workspace, await readJsonBody(ctx.request)));
+  });
+  // 🟡 LAWOSS: lawoss_memory_write zapíše jeden záznam pamäte spisu po karte „čo a kam“ (lawoss/matter-memory.ts).
+  addRoute(routes, "POST", "/workspace/:id/lawoss/memory/write", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    ensureWritable(config);
+    if (!await engineAgent(config, ctx.actor)) throw new ApiError(403, "memory_agent_only", "Only a chat's case memory tool, after the user's approval, can use this route.");
+    const workspace = await resolveWorkspace(config, ctx.params.id, { bootstrap: false });
+    return jsonResponse(await writeMatterMemoryForChat(config, workspace, await readJsonBody(ctx.request)));
   });
 
   addRoute(routes, "GET", "/workspace/:id/lawoss/memory", "client", async (ctx) => {

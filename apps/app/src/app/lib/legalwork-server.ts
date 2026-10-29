@@ -2,6 +2,7 @@ import type { AiGovernanceView, PublicAiResult, ProtectedDocumentProfiles } from
 import type { OnboardingApi, OnboardingSuggestion } from "../../lawoss/domains/onboarding/api";
 import type { TriageApiPath } from "../../lawoss/domains/roztriedenie/api";
 import type { OfficeMemoryRead } from "../../lawoss/okf/office-memory";
+import type { MovedFolderApiPath } from "../../lawoss/okf/moved-folder";
 import type { LawossOcrView } from "../../lawoss/domains/settings/ocr-opt-in";
 import { lawossMarketplaceMethods } from "../../lawoss/domains/marketplace/marketplace-api";
 import type { WorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
@@ -2012,6 +2013,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     planOnboarding: (input: Parameters<OnboardingApi["planOnboarding"]>[0]): ReturnType<OnboardingApi["planOnboarding"]> => requestJson(baseUrl, "/lawoss/onboarding/plan", { token, hostToken, method: "POST", body: input, timeoutMs: 120_000 }),
     recoverOnboarding: (input: Parameters<NonNullable<OnboardingApi["recoverOnboarding"]>>[0]): Promise<unknown> => requestJson(baseUrl, "/lawoss/onboarding/recover", { token, hostToken, method: "POST", body: input, timeoutMs: 180_000 }),
     applyOnboarding: (input: Parameters<OnboardingApi["applyOnboarding"]>[0]): ReturnType<OnboardingApi["applyOnboarding"]> => requestJson(baseUrl, "/lawoss/onboarding/apply", { token, hostToken, method: "POST", body: input, timeoutMs: 180_000 }),
+    lawossMovedFolder: <T,>(path: MovedFolderApiPath, body: unknown): Promise<T> => requestJson<T>(baseUrl, `/lawoss/onboarding/${path}`, { token, hostToken, method: "POST", body, timeoutMs: 120_000 }),
     lawossTriage: <T,>(path: TriageApiPath, body: unknown): Promise<T> => requestJson<T>(baseUrl, `/lawoss/triage/${path}`, { token, hostToken, method: "POST", body, timeoutMs: 600_000 }),
     createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; registerExisting?: boolean; appFiles?: "inside" | "outside"; templateId?: string | null; templateLanguage?: "en" | "de" | "cs" | "sk"; projectFields?: ProjectField[]; remoteFolders?: RemoteFolderSelection[]; initializeFromFolders?: boolean; fromRemoteFolder?: boolean }) =>
       requestJson<WorkspaceList>(baseUrl, "/workspaces/local", {
