@@ -426,6 +426,8 @@ export async function moveAcrossVolumes(config: ServerConfig, item: Planned & { 
     await cp(item.source, item.target, { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true, preserveTimestamps: true });
     signal?.throwIfAborted();
     if (await treeDigest(item.source, signal) !== await treeDigest(item.target, signal)) throw new Error("The copy on the other drive differs from the original. The original was kept; nothing was moved.");
+    // The last file is read after treeDigest's own check: a chat stopped during that read keeps its original.
+    signal?.throwIfAborted();
   } catch (error) {
     // Only the copy this call made is removed: the plan checked that the target did not exist.
     if (errorCode(error) !== "EEXIST" && errorCode(error) !== "ERR_FS_CP_EEXIST") await rm(item.target, { recursive: true, force: true });

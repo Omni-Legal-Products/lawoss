@@ -349,6 +349,34 @@ test("a cancelled move to another drive removes its copy and keeps the original 
   expect(await readFile(join(client, "Pripady", "M001", "zmluva.txt"), "utf8")).toBe("SYN zmluva");
 });
 
+test("a move cancelled at its last check, after the copy is verified, keeps the original out of the Trash (#223, Codex)", async () => {
+  const { config, client } = await office();
+  await mkdir(join(client, "Druhe", "M001"), { recursive: true });
+  await writeFile(join(client, "Druhe", "M001", "zmluva.txt"), "SYN zmluva");
+  const step = (from: string) => ({ operation: "move" as const, kind: "folder" as const, from, to: `${from}-presun`, source: join(client, from), target: join(client, `${from}-presun`), sourceRoot: client });
+  /** Counts the checks made while hashing; the chat stops right after the given one has passed. */
+  const checks = (abortAt: number) => {
+    const controller = new AbortController();
+    let count = 0;
+    const own = controller.signal.throwIfAborted.bind(controller.signal);
+    controller.signal.throwIfAborted = () => {
+      own();
+      if (!new Error().stack?.includes("treeDigest")) return;
+      count += 1;
+      if (count === abortAt) controller.abort();
+    };
+    return { signal: controller.signal, count: () => count };
+  };
+  // A full move of an identical folder tells how many; the chat stops after the last one, while the last file is read.
+  const full = checks(0);
+  await moveAcrossVolumes(config, step("Pripady"), full.signal);
+  expect(full.count()).toBeGreaterThan(0);
+  const last = checks(full.count());
+  await expect(moveAcrossVolumes(config, step("Druhe"), last.signal)).rejects.toMatchObject({ name: "AbortError" });
+  expect(await readFile(join(client, "Druhe", "M001", "zmluva.txt"), "utf8")).toBe("SYN zmluva");
+  expect(await readdir(client)).not.toContain("Druhe-presun");
+});
+
 test("a cancelled request runs no further step (#223)", async () => {
   const { config, client, workspace } = await office();
   const operations = [{ operation: "create_folder", path: join(client, "Novy") }];
