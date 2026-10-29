@@ -6041,7 +6041,7 @@ export default {
   "sandbox.setup": "Chránené prostredie nie je dostupné. Opravte alebo preinštalujte LegalWork. Príkazy zostanú zablokované, kým sa ochrana neobnoví.",
   "sandbox.status_unavailable": "Ochranu príkazov sa nepodarilo overiť. Skúste to znova, keď bude worker pripojený.",
   "sandbox.sync_conflict": "Použilo sa novšie predvolené nastavenie z iného zariadenia. Ak chcete iné, zmeňte ho tu znova.",
-  "sandbox.sync_local": "Uložené na tomto počítači. S plánom Sync, Plus alebo Pro sa predvolené nastavenie aplikácie synchronizuje aj medzi vašimi zariadeniami.",
+  "sandbox.sync_local": "Uložené na tomto počítači.",
   "sandbox.sync_pending": "Uložené na tomto počítači. Synchronizácia sa zopakuje, keď bude účet a server dostupný.",
   "sandbox.sync_synced": "Predvolené nastavenie aplikácie je synchronizované. Prepísania v konverzáciách zostávajú na tomto počítači.",
   "sandbox.sync_syncing": "Synchronizuje sa predvolené nastavenie aplikácie…",

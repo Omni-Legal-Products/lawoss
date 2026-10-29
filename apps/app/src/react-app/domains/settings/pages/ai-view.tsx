@@ -29,6 +29,8 @@ type ConnectedProvider = {
   source?: "env" | "api" | "config" | "custom";
   /** True when this is a user-defined OpenAI-spec provider our form can edit. */
   editableAsCustom?: boolean;
+  /** LAWOSS: popis zdroja namiesto `providerSourceLabel` (predplatné ChatGPT namiesto „Vlastné“). */
+  sourceLabel?: string;
 };
 
 /** One of the firm's chat providers, by its engine id; `key` says whose key it uses. */
@@ -139,7 +141,7 @@ export function AiSettingsView(props: AiSettingsViewProps) {
                     <SettingsStatusBadge label="Cloud" tone="neutral" className="min-h-6 px-2" />
                   ) : null}
                 </div>
-                {firm ? <FirmItemNote /> : <p className="text-xs text-dls-secondary">{providerSourceLabel(provider.source) ?? provider.id}</p>}
+                {firm ? <FirmItemNote /> : <p className="text-xs text-dls-secondary">{provider.sourceLabel ?? providerSourceLabel(provider.source) ?? provider.id}</p>}
               </div>
             </div>
             {/* The firm's key is not the member's to disconnect. */}

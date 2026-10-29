@@ -92,6 +92,8 @@ test("N-A5-1: the exact name the user wrote wins, a similar one is a question, a
   expect(EXACT_NAME_RULE).toContain("Use the exact file or folder name the user wrote");
   expect(EXACT_NAME_RULE).toContain("Never replace it with a similar existing name");
   expect(EXACT_NAME_RULE).toContain("ask the user which item they mean before calling lawoss_files");
+  // N-A7-7: the folder is listed with read, which also shows an empty subfolder that glob never returns.
+  expect(EXACT_NAME_RULE).toContain("list the folder with read on its path (glob does not show empty folders)");
   const plugin = await LawossFileOperations();
   expect(plugin.tool.lawoss_files.description).toContain(EXACT_NAME_RULE);
   const system: string[] = [];
