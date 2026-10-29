@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Jeden dialóg pri zahodení zmien v dokumente (2026-10-28, N-A7-16)
+
+Úplný UI test dev `f8acb4bd` (28. 10. 2026): po „Zahodiť zmeny“ pri zatváraní karty DOCX ostal viditeľný dialóg „Zahodiť zmeny v súbore ? …“ a dalo sa v ňom kliknúť na „Zrušiť“. Druhá výzva nevzniká; bol to ten istý `ConfirmModal` s `open=false`, ktorý Base UI nechá pripojený, kým nedobehne zatváracia animácia (pozadie je počas nej inertné, okno dialógu nie).
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/artifacts/document-discard-dialog.tsx` | `if (!prompt) return null;` (+1 riadok, 1 komentár): bez výzvy sa dialóg odstráni hneď, bez zatváracej animácie, takže po „Zahodiť zmeny“ aj „Zrušiť“ nič neostane visieť ani klikateľné. Otvárací stav, texty a logika výzvy v `docx-document-state.ts` sa nemenia. Test `apps/app/tests/lawoss-zahodit-zmeny-jeden-dialog.test.tsx`. Vhodné ponúknuť upstreamu. |
+
 ## Zápis do pamäte prípadu jednou kartou (2026-10-28)
 
 N-A7-10 z úplného UI testu (MČ 23. 10. 2026: zápis s kartou „čo a kam“). Zápis do pamäte prípadu ukázal štyri karty „Spustiť príkaz v počítači?“ s kódom `node -e …` a `okf-memory.js write … --apply` a nechal návrh v `.legalwork/scratch/` klienta. Nový nástroj `lawoss_memory_write` (plugin `apps/server/src/opencode-plugins/lawoss-memory-tools.ts`, server `writeMatterMemoryForChat` v `apps/server/src/lawoss/matter-memory.ts`, most `lawoss/okf-handoff/matter-memory-write.mjs`, `writeRecord` v `lawoss/okf-pamat/src/cli.ts`, ktorý volá aj `okf-memory write`) pošle celý záznam serveru, ten pripraví náhľad, nástroj ukáže jednu kartu s povolením `lawoss_file_change` (pravidlo ako pri `lawoss_files`, preto bez zmeny konfigurácie enginu) so zapisovaným textom a súborom relatívne ku klientovi a po schválení server zapíše tým istým kódom. Len záznam vrstvy L2 v spise s kartou veci (`matter.md`, `spis.md`, `project.md`, `projekt.md`) pod koreňom klienta chatu; pripojený priečinok, kancelária (`Office/`, `_kancelaria/`, aj kancelária praxe pripojená ku klientovi), koreň klienta a `memory/` ako symbolický odkaz sa odmietnu. Schválenie sa viaže na súbor, výpis náhľadu a bajty zapisovaného záznamu. `applyRecordWrite` pod zámkom odmietne `memory/` alebo súbor záznamu, ktorý je symbolický odkaz. L1/L3 a mazanie ostávajú v CLI. Karta v appke: `apps/app/src/lawoss/lite/memory-write-card.ts` (volaná z `file-operation-card.ts`, bez zmeny upstream modalu).
