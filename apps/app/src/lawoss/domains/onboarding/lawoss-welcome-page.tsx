@@ -71,7 +71,8 @@ import { FRESH_OFFICE_COMPLETION } from "./found-flow";
 import type { ClientChatOutcome, ClientChatRequest } from "./client-chat";
 import { foundText } from "./found-text";
 import { unquotedTypedPath } from "./typed-paths";
-import { onboardingErrorMessage, onboardingRefusalAction } from "./onboarding-errors";
+import { movedClientActions, onboardingErrorMessage, onboardingRefusalAction } from "./onboarding-errors";
+import { linkMovedClient, movedClientChoice, type MovedClientChoice } from "../../okf/moved-folder";
 import { revealError } from "./reveal-error";
 
 export { onboardingErrorMessage };
@@ -481,7 +482,7 @@ function DocumentLanguageSelect({
 }
 /** Server client in the app; tests pass only the onboarding API. */
 // Krok „Ako agent pracuje“ (C1) číta a mení YOLO a pravidlá zmien existujúcimi metódami klienta servera.
-export type WelcomeApi = OnboardingApi & Partial<OpenClientReader & Pick<LegalworkServerClient, "listWorkspaces" | "lawossMarketplace" | "lawossTriage" | "lawossYolo" | "setLawossYolo" | "getConfig" | "patchConfig" | "reloadEngine" | "canApprove">>;
+export type WelcomeApi = OnboardingApi & Partial<OpenClientReader & Pick<LegalworkServerClient, "listWorkspaces" | "lawossMarketplace" | "lawossTriage" | "lawossYolo" | "setLawossYolo" | "getConfig" | "patchConfig" | "reloadEngine" | "canApprove" | "reconnectWorkspace" | "lawossMovedFolder">>;
 const sameFolder = (a: string | undefined, b: string | undefined) =>
   (a ?? "").replaceAll("\\", "/").replace(/\/+$/, "") === (b ?? "").replaceAll("\\", "/").replace(/\/+$/, "");
 /**
@@ -604,9 +605,13 @@ export function LawossWelcomePage({
   >();
   const [busy, setBusy] = useState(false);
   // Chyba môže mať ďalší krok (N-A3-1): pri klientovi vnútri iného klienta tlačidlo otvorí toho klienta.
-  const [errorState, setErrorState] = useState<{ text: string; action?: { workspaceId: string; label: string } } | null>(null);
+  // N-A7-1: pri možno presunutom klientovi otázka „Je to ten istý klient?“ s voľbami Prepojiť / Pridať ako nového.
+  const [errorState, setErrorState] = useState<{ text: string; action?: { workspaceId: string; label: string }; moved?: { choice: MovedClientChoice; addNew: () => void } } | null>(null);
   const error = errorState?.text ?? null;
   const errorAction = errorState?.action;
+  const errorMoved = errorState?.moved;
+  const movedServer = api.reconnectWorkspace && api.lawossMovedFolder ? { reconnectWorkspace: api.reconnectWorkspace, lawossMovedFolder: api.lawossMovedFolder } : undefined;
+  const linkMoved = movedServer ? (choice: MovedClientChoice) => linkMovedClient(movedServer, choice) : undefined;
   const setError = useCallback((text: string | null) => setErrorState(text === null ? null : { text }), []);
   const failWith = useCallback(
     (reason: unknown) => setErrorState({ text: onboardingErrorMessage(reason, locale), action: onboardingRefusalAction(reason, locale) }),
@@ -778,7 +783,9 @@ export function LawossWelcomePage({
       setPreview(pending);
       writePendingOnboarding(window.localStorage, pending);
     } catch (reason) {
-      failWith(reason);
+      const choice = movedClientChoice(reason);
+      if (choice && (request.action === "existing" || request.action === "client")) setErrorState({ text: onboardingErrorMessage(reason, locale), moved: { choice, addNew: () => void plan({ ...request, confirmNewClient: true }) } });
+      else failWith(reason);
     } finally {
       setBusy(false);
     }
@@ -986,6 +993,7 @@ export function LawossWelcomePage({
   ) : foundRoot && triage ? (
     <FoundScreen
       api={api}
+      onLinkMoved={linkMoved}
       triage={triage}
       identity={identity}
       text={found}
@@ -1045,6 +1053,16 @@ export function LawossWelcomePage({
             {errorAction ? (
               <Button type="button" variant="outline" size="sm" className="ml-2" onClick={() => navigate(workspaceProjectRoute(errorAction.workspaceId))}>
                 {errorAction.label}
+              </Button>
+            ) : null}
+            {errorMoved && linkMoved ? (
+              <Button type="button" variant="outline" size="sm" className="ml-2" disabled={busy} onClick={() => void linkMoved(errorMoved.choice).then((workspace) => navigate(workspaceProjectRoute(workspace.id)), failWith)}>
+                {movedClientActions(locale).link}
+              </Button>
+            ) : null}
+            {errorMoved ? (
+              <Button type="button" variant="outline" size="sm" className="ml-2" disabled={busy} onClick={errorMoved.addNew}>
+                {movedClientActions(locale).addNew}
               </Button>
             ) : null}
           </p>
@@ -1139,6 +1157,7 @@ export function LawossWelcomePage({
             foundRoot ? (
               <FoundScreen
                 api={api}
+                onLinkMoved={linkMoved}
                 triage={triage}
                 identity={identity}
                 text={found}

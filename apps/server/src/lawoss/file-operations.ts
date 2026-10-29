@@ -27,6 +27,7 @@ import { cp, link, lstat, mkdir, readdir, readlink, rename, rm, unlink } from "n
 import type { Stats } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { z } from "zod";
+import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
 import { withFileEditorHandoff } from "../file-editor-handoff.js";
 import { readRuntimeOpencodeConfig, runtimeExternalDirectory } from "../runtime-opencode-config-store.js";
@@ -35,6 +36,7 @@ import { addRoute, type RequestContext, type Route } from "../routes/registry.js
 import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ensureWikiAgentToken } from "../wiki/agent-access.js";
 import { isSensitiveWorkspacePath, resolveWorkspaceFilePath } from "./filesystem-boundary.js";
+import { recordFiledInput, type FiledInput } from "./file-operation-inputs.js";
 import { linkableFolders, nestedClientRoots } from "./linked-folders.js";
 import { foldedPath as folded, isPathWithin } from "./path-within.js";
 
@@ -80,6 +82,10 @@ export type FileOperationResult = PublicFileOperation & {
   error?: string;
   /** Where a deleted item went: the OS Trash or the fallback folder (readable path). */
   trash?: "system" | string;
+  /** N-A7-6: a file filed from an inbox folder into a case, recorded in that case's `VSTUPY.md`. */
+  input?: FiledInput;
+  /** N-A7-6: the file was filed, but the input register could not be written. */
+  inputError?: string;
 };
 export type FilePlan = { operations: PublicFileOperation[]; revision: string };
 
@@ -483,7 +489,7 @@ async function verified(item: Planned): Promise<boolean> {
  * Re-plan from the current disk and run only when it matches the plan and revision the user approved.
  * Operations run in order; after the first failure the rest do not run.
  */
-export async function applyFileOperations(config: ServerConfig, workspace: WorkspaceInfo, input: unknown, approved: unknown, revision: unknown, sessionID?: string): Promise<{ results: FileOperationResult[]; complete: boolean }> {
+export async function applyFileOperations(config: ServerConfig, workspace: WorkspaceInfo, input: unknown, approved: unknown, revision: unknown, sessionID?: string, actor: Actor = { type: "remote" }): Promise<{ results: FileOperationResult[]; complete: boolean }> {
   if (config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
   const plan = await planInternal(config, workspace, input);
   const roots = await clientRoots(config, workspace), nested = await nestedClientRoots(config, workspace);
@@ -503,7 +509,9 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
         if (!await unchanged(item.source) || !await unchanged(item.target)) throw new ApiError(403, "file_operation_outside_client", OUTSIDE);
         const trash = await execute(config, item);
         if (!await verified(item)) throw new Error("The change is not visible on disk.");
-        results.push({ ...visible, status: "done", ...(trash ? { trash } : {}) });
+        const filed = await fileInput(item, roots);
+        results.push({ ...visible, status: "done", ...(trash ? { trash } : {}), ...filed.result });
+        await audit(workspace, actor, item, filed.filed);
       } catch (error) {
         failed = true;
         results.push({ ...visible, status: "failed", error: error instanceof Error ? error.message : String(error) });
@@ -511,6 +519,33 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
     }
     return { results, complete: !failed };
   });
+}
+
+/** N-A7-6: the input register follows a file filed from an inbox; its failure does not undo the change already made. */
+async function fileInput(item: Planned, roots: Root[]): Promise<{ result: Pick<FileOperationResult, "input" | "inputError">; filed?: FiledInput & { paths: string[] } }> {
+  if ((item.operation !== "move" && item.operation !== "copy") || !item.source || !item.target) return { result: {} };
+  try {
+    const filed = await recordFiledInput({ operation: item.operation, kind: item.kind, source: item.source, target: item.target }, roots);
+    if (!filed) return { result: {} };
+    // The canonical paths are for the audit only: the card and the model see readable paths.
+    const { paths: _paths, handedOver, ...input } = filed;
+    return { result: { input: { ...input, register: visibleName(input.register),
+      ...(handedOver ? { handedOver: { ...handedOver, register: visibleName(handedOver.register) } } : {}) } }, filed };
+  } catch (error) {
+    return { result: { inputError: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** T6 (test 28. 10. 2026): an approved change and the register lines it wrote are in the server audit, like other file writes. */
+async function audit(workspace: WorkspaceInfo, actor: Actor, item: Planned, filed: (FiledInput & { paths: string[] }) | undefined): Promise<void> {
+  const entry = (target: string, summary: string) => ({ id: randomUUID(), workspaceId: workspace.id, actor, action: "workspace.file.write", target, summary, timestamp: Date.now() });
+  const change = item.operation === "create_folder" ? `Created folder ${item.to}` : item.operation === "delete" ? `Moved ${item.from} to the Trash` : `${item.operation === "move" ? "Moved" : "Copied"} ${item.from} to ${item.to}`;
+  // The change is done; a full audit disk must not report it as failed.
+  await recordAudit(workspace.path, entry(item.target ?? item.source ?? workspace.path, `lawoss_files: ${change}`)).catch(() => undefined);
+  if (!filed) return;
+  await recordAudit(workspace.path, entry(filed.paths[0]!, `lawoss_files: ${filed.updated ? "Updated" : "Added"} input ${filed.id} in ${filed.register}`)).catch(() => undefined);
+  if (filed.handedOver && filed.paths[1])
+    await recordAudit(workspace.path, entry(filed.paths[1], `lawoss_files: Closed input ${filed.handedOver.id} in ${filed.handedOver.register}, moved to ${filed.register} as ${filed.id}`)).catch(() => undefined);
 }
 
 /**
@@ -532,16 +567,16 @@ export function registerFileOperationRoutes(options: {
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
 }) {
   const { routes, config, jsonResponse } = options;
-  const route = (suffix: string, action: (workspace: WorkspaceInfo, body: Record<string, unknown>) => Promise<unknown>) =>
+  const route = (suffix: string, action: (workspace: WorkspaceInfo, body: Record<string, unknown>, actor: Actor) => Promise<unknown>) =>
     addRoute(routes, "POST", `/workspace/:id/lawoss/files/${suffix}`, "client", async (ctx) => {
       options.requireClientScope(ctx, "collaborator");
       // The approval is the engine card the chat's tool showed; other clients have their own file routes and approvals.
       if (!await engineAgent(config, ctx.actor)) throw new ApiError(403, "file_operation_agent_only", "Only a chat's file tool, after the user's approval, can use this route.");
       const workspace = await options.resolveWorkspace(config, ctx.params.id);
-      try { return jsonResponse(await action(workspace, await options.readJsonBodyLimited(ctx.request, 512 * 1024))); }
+      try { return jsonResponse(await action(workspace, await options.readJsonBodyLimited(ctx.request, 512 * 1024), ctx.actor ?? { type: "remote" })); }
       catch (error) { if (error instanceof z.ZodError) throw new ApiError(400, "file_operation_input", `Send 1–${MAX_FILE_OPERATIONS} operations: move/copy {from, to}, create_folder/delete {path}.`); throw error; }
     });
   route("plan", async (workspace, body) => planFileOperations(config, workspace, body.operations));
-  route("apply", async (workspace, body) => applyFileOperations(config, workspace, body.operations, body.approved, body.revision,
-    typeof body.sessionID === "string" ? body.sessionID : undefined));
+  route("apply", async (workspace, body, actor) => applyFileOperations(config, workspace, body.operations, body.approved, body.revision,
+    typeof body.sessionID === "string" ? body.sessionID : undefined, actor));
 }
