@@ -7,6 +7,7 @@ import { closeRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runti
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
+import { auditLogPath } from "../audit.js";
 import { fileOperationReport } from "../opencode-plugins/lawoss-file-operations-text.js";
 import { applyFileOperations, confusableNames, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, LAWOSS_TRASH_FOLDER, planFileOperations, systemTrashReliable, visibleName, type PlannedFileOperation } from "./file-operations.js";
 
@@ -480,4 +481,185 @@ test("review N-A5-1: the item itself in another case is no neighbour, and a neig
   expect(result.complete).toBe(true);
   expect(result.results[0]).toMatchObject({ status: "done", similar: ["podklady.pdf"] });
   expect((await readdir(folder)).sort()).toEqual(["Podklady.docx", "podklady.pdf", "~$dklady.docx"]);
+});
+
+test("N-A5-10: a case written as its code alone resolves to its folder; several matches are refused, not guessed", async () => {
+  const { config, client, workspace } = await office();
+  const intake = join(client, "Spisy", "M001-uhrada-dodavok-riadiacich-jednotiek", "01_Podklady", "IN-007");
+  await mkdir(intake, { recursive: true });
+  await writeFile(join(intake, "poznamky.txt"), "SYN poznamky");
+  const operations = [{ operation: "move", from: join(client, "Spisy", "M001", "01_Podklady", "IN-007", "poznamky.txt"), to: join(client, "Spisy", "M001", "01_Podklady", "IN-007", "poznamky-k-uhrade.txt") }];
+  const plan = await planFileOperations(config, workspace, operations);
+  expect(plan.operations).toEqual([{ operation: "move", kind: "file",
+    from: "Spisy/M001-uhrada-dodavok-riadiacich-jednotiek/01_Podklady/IN-007/poznamky.txt",
+    to: "Spisy/M001-uhrada-dodavok-riadiacich-jednotiek/01_Podklady/IN-007/poznamky-k-uhrade.txt" }]);
+  const result = await applyFileOperations(config, workspace, operations, plan.operations, plan.revision, "ses_1");
+  expect(result.complete).toBe(true);
+  expect(await readdir(intake)).toEqual(["poznamky-k-uhrade.txt"]);
+  // Two folders with the same code: refused with both names, nothing guessed.
+  await mkdir(join(client, "Spisy", "M002 Spor A"), { recursive: true });
+  await mkdir(join(client, "Spisy", "M002-spor-b"), { recursive: true });
+  await expect(planFileOperations(config, workspace, [{ operation: "create_folder", path: join(client, "Spisy", "M002", "Nove") }]))
+    .rejects.toMatchObject({ code: "file_operation_ambiguous_case", message: expect.stringContaining("M002 Spor A, M002-spor-b") });
+  // A name that is not a code, or a code no folder starts with, is left as written.
+  await expect(planFileOperations(config, workspace, [{ operation: "delete", path: join(client, "Spisy", "M009", "x.txt") }])).rejects.toMatchObject({ code: "file_operation_missing" });
+  await expect(planFileOperations(config, workspace, [{ operation: "delete", path: join(client, "Spisy", "uhrada", "x.txt") }])).rejects.toMatchObject({ code: "file_operation_missing" });
+  // Relative to the chat's folder, as the agent usually writes it.
+  expect((await planFileOperations(config, workspace, [{ operation: "create_folder", path: "Spisy/M001/01_Podklady/Relativne" }])).operations[0]?.to)
+    .toBe("Spisy/M001-uhrada-dodavok-riadiacich-jednotiek/01_Podklady/Relativne");
+  // Review: names with a separator are not codes, even when one folder starts with them (FA 2024-storno, IN-007-faktura).
+  await mkdir(join(client, "Faktury", "FA 2024-storno"), { recursive: true });
+  await mkdir(join(intake, "..", "IN-008-faktura"), { recursive: true });
+  expect((await planFileOperations(config, workspace, [{ operation: "create_folder", path: "Faktury/FA 2024/januar" }])).operations[0]?.to).toBe("Faktury/FA 2024/januar");
+  expect((await planFileOperations(config, workspace, [{ operation: "create_folder", path: "Spisy/M001/01_Podklady/IN-008/novy" }])).operations[0]?.to)
+    .toBe("Spisy/M001-uhrada-dodavok-riadiacich-jednotiek/01_Podklady/IN-008/novy");
+  // Review: a file in the middle of the path is refused as before, not a server error.
+  await expect(planFileOperations(config, workspace, [{ operation: "delete", path: join(intake, "poznamky-k-uhrade.txt", "x", "y.txt") }])).rejects.toMatchObject({ code: "file_operation_outside_client" });
+  // M0010 is not M001 followed by a separator.
+  await mkdir(join(client, "Spisy", "M0010-ine"), { recursive: true });
+  expect((await planFileOperations(config, workspace, [{ operation: "create_folder", path: join(client, "Spisy", "M001", "Nove") }])).operations[0]?.to)
+    .toBe("Spisy/M001-uhrada-dodavok-riadiacich-jednotiek/Nove");
+});
+
+/** N-A7-6: a synthetic case with a card, its input register (one row) and an inbox folder, like the OKF template. */
+async function caseWithInbox(client: string) {
+  const matter = join(client, "Spisy", "M001-najom-skladu-SYN");
+  for (const folder of ["00_Na_zatriedenie", "01_Podklady", "02_Resers"]) await mkdir(join(matter, folder), { recursive: true });
+  await writeFile(join(client, "klient.md"), "---\ntype: client\n---\n");
+  await writeFile(join(matter, "spis.md"), "---\ntype: matter\n---\n");
+  const register = ["---", "type: input-register", "---", "", "# Vstupy a komunikácia", "",
+    "| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |", "|---|---|---|---|---|---|",
+    "| IN-001 | 2025-09-01T09:00:00+02:00 | e-mail SYN | 01_Podklady/zmluva-SYN.pdf | processed | MEM-1 |", "", "## Pracovné súbory", ""].join("\n");
+  await writeFile(join(matter, "VSTUPY.md"), register);
+  await writeFile(join(matter, "01_Podklady", "zmluva-SYN.pdf"), "SYN zmluva");
+  await writeFile(join(matter, "00_Na_zatriedenie", "scan_rozhodnutie_SYN.pdf"), "SYN sken");
+  return { matter, register };
+}
+
+async function run(config: ServerConfig, workspace: ServerConfig["workspaces"][number], operations: unknown[]) {
+  const plan = await planFileOperations(config, workspace, operations);
+  return applyFileOperations(config, workspace, operations, plan.operations, plan.revision, "ses_1");
+}
+
+test("N-A7-6: a file moved from the case's inbox into the case gets one pending row in the case's VSTUPY.md, and the move is audited", async () => {
+  const { config, client, workspace } = await office();
+  const { matter, register } = await caseWithInbox(client);
+  // As the agent wrote it in D2: the case by its code, relative to the client's folder.
+  const result = await run(config, workspace, [{ operation: "move", from: "Spisy/M001/00_Na_zatriedenie/scan_rozhodnutie_SYN.pdf", to: "Spisy/M001/01_Podklady/2025-09-20_rozhodnutie-sudu.pdf" }]);
+  expect(result.complete).toBe(true);
+  expect(result.results[0]).toMatchObject({ status: "done", input: { register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-002" } });
+  const after = await readFile(join(matter, "VSTUPY.md"), "utf8");
+  const added = after.split("\n").filter((line) => !register.split("\n").includes(line));
+  expect(added).toHaveLength(1);
+  expect(added[0]).toMatch(/^\| IN-002 \| \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2} \| presun z priečinka na nezaradené \(LAWOSS\): `00_Na_zatriedenie\/scan_rozhodnutie_SYN\.pdf` \| 01_Podklady\/2025-09-20_rozhodnutie-sudu\.pdf \| pending \| \|$/);
+  // The row is in the table, right after the last row; the text below the table stays.
+  expect(after.split("\n").indexOf(added[0]!)).toBe(register.split("\n").indexOf("| IN-001 | 2025-09-01T09:00:00+02:00 | e-mail SYN | 01_Podklady/zmluva-SYN.pdf | processed | MEM-1 |") + 1);
+  expect(after).toContain("## Pracovné súbory");
+  // The model is told the row exists, so it does not write a second one.
+  expect(fileOperationReport(result).join(" ")).toContain("recorded in Spisy/M001-najom-skladu-SYN/VSTUPY.md as input IN-002 with status pending");
+  // T6: the approved move and the register line are in the server audit.
+  const audit = (await readFile(auditLogPath("ws_c001"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+  expect(audit.map((entry) => entry.summary)).toEqual([
+    "lawoss_files: Moved Spisy/M001-najom-skladu-SYN/00_Na_zatriedenie/scan_rozhodnutie_SYN.pdf to Spisy/M001-najom-skladu-SYN/01_Podklady/2025-09-20_rozhodnutie-sudu.pdf",
+    "lawoss_files: Added input IN-002 in Spisy/M001-najom-skladu-SYN/VSTUPY.md",
+  ]);
+  expect(audit[0]).toMatchObject({ workspaceId: "ws_c001", action: "workspace.file.write", target: join(matter, "01_Podklady", "2025-09-20_rozhodnutie-sudu.pdf") });
+  expect(audit[1]).toMatchObject({ action: "workspace.file.write", target: join(matter, "VSTUPY.md") });
+  // No canonical path reaches the model.
+  expect(JSON.stringify(result)).not.toContain(client);
+
+  // A move inside the case that does not come from an inbox adds nothing.
+  const inside = await run(config, workspace, [{ operation: "move", from: "Spisy/M001/01_Podklady/zmluva-SYN.pdf", to: "Spisy/M001/02_Resers/zmluva-SYN.pdf" }]);
+  expect(inside.results[0]).toEqual({ operation: "move", kind: "file", from: "Spisy/M001-najom-skladu-SYN/01_Podklady/zmluva-SYN.pdf", to: "Spisy/M001-najom-skladu-SYN/02_Resers/zmluva-SYN.pdf", status: "done" });
+  expect(await readFile(join(matter, "VSTUPY.md"), "utf8")).toBe(after);
+});
+
+test("N-A7-6: from the client's inbox a new row; a file the app already registered keeps its row; into an inbox, a folder or outside a case nothing", async () => {
+  const { config, client, workspace } = await office();
+  const { matter } = await caseWithInbox(client);
+  await mkdir(join(client, "00_Na_zatriedenie", "balik"), { recursive: true });
+  await writeFile(join(client, "00_Na_zatriedenie", "posta | SYN.pdf"), "SYN posta");
+  await writeFile(join(client, "00_Na_zatriedenie", "balik", "a.pdf"), "SYN a");
+  await mkdir(join(matter, "00_K_zarazeni", "IN-002"), { recursive: true });
+  await writeFile(join(matter, "00_K_zarazeni", "IN-002", "zmluva v2.pdf"), "SYN v2");
+  const appRow = "| IN-002 | 2025-09-02T10:00:00+02:00 | ruční vložení (LAWOSS) | 00_K_zarazeni/IN-002/zmluva v2.pdf | pending | |";
+  await writeFile(join(matter, "VSTUPY.md"), `${await readFile(join(matter, "VSTUPY.md"), "utf8")}`.replace("| MEM-1 |\n", `| MEM-1 |\n${appRow}\n`));
+
+  const result = await run(config, workspace, [
+    { operation: "move", from: join(client, "00_Na_zatriedenie", "posta | SYN.pdf"), to: join(matter, "01_Podklady", "posta | SYN.pdf") },
+    { operation: "move", from: join(matter, "00_K_zarazeni", "IN-002", "zmluva v2.pdf"), to: join(matter, "01_Podklady", "zmluva v2.pdf") },
+    { operation: "move", from: join(client, "00_Na_zatriedenie", "balik"), to: join(matter, "01_Podklady", "balik") },
+    { operation: "copy", from: join(matter, "01_Podklady", "zmluva-SYN.pdf"), to: join(matter, "00_Na_zatriedenie", "zmluva-kopia.pdf") },
+    { operation: "copy", from: join(matter, "01_Podklady", "zmluva-SYN.pdf"), to: join(client, "zmluva-kopia.pdf") },
+  ]);
+  expect(result.complete).toBe(true);
+  expect(result.results.map((item) => item.input ?? null)).toEqual([
+    { register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-003" },
+    { register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-002", updated: true },
+    null, null, null,
+  ]);
+  const rows = (await readFile(join(matter, "VSTUPY.md"), "utf8")).split("\n").filter((line) => line.startsWith("| IN-"));
+  expect(rows).toHaveLength(3);
+  // The app's row now names the file where it lies; its ID, source and state stay.
+  expect(rows[1]).toBe("| IN-002 | 2025-09-02T10:00:00+02:00 | ruční vložení (LAWOSS) | 01_Podklady/zmluva v2.pdf | pending | |");
+  // A name with "|" does not break the table: a link with an encoded target, the source without the character.
+  expect(rows[2]).toContain("| presun z priečinka na nezaradené (LAWOSS): `00_Na_zatriedenie/posta   SYN.pdf` | [posta  SYN.pdf](./01_Podklady/posta%20%7C%20SYN.pdf) | pending | |");
+  expect(rows[2]!.split("|")).toHaveLength(8);
+});
+
+test("review #292: a file the app registered in case A and moved to case B gets a row in B; A's row is closed with a reference, not left pending", async () => {
+  const { config, client, workspace } = await office();
+  const { matter } = await caseWithInbox(client);
+  const other = join(client, "Spisy", "M002-spor-SYN");
+  await mkdir(join(other, "01_Podklady"), { recursive: true });
+  await writeFile(join(other, "spis.md"), "---\ntype: matter\n---\n");
+  await mkdir(join(matter, "00_K_zarazeni", "IN-002"), { recursive: true });
+  await writeFile(join(matter, "00_K_zarazeni", "IN-002", "vyzva.pdf"), "SYN vyzva");
+  const appRow = "| IN-002 | 2025-09-02T10:00:00+02:00 | ruční vložení (LAWOSS) | 00_K_zarazeni/IN-002/vyzva.pdf | pending | |";
+  await writeFile(join(matter, "VSTUPY.md"), (await readFile(join(matter, "VSTUPY.md"), "utf8")).replace("| MEM-1 |\n", `| MEM-1 |\n${appRow}\n`));
+
+  const result = await run(config, workspace, [{ operation: "move", from: join(matter, "00_K_zarazeni", "IN-002", "vyzva.pdf"), to: join(other, "01_Podklady", "vyzva.pdf") }]);
+  expect(result.results[0]?.input).toEqual({ register: "Spisy/M002-spor-SYN/VSTUPY.md", id: "IN-001",
+    handedOver: { register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-002" } });
+  // B had no register: it is created with the row.
+  const created = await readFile(join(other, "VSTUPY.md"), "utf8");
+  expect(created.split("\n").filter((line) => line.startsWith("| IN-"))).toEqual([
+    expect.stringMatching(/^\| IN-001 \| .+ \| presun z priečinka na nezaradené \(LAWOSS\): `Spisy\/M001-najom-skladu-SYN\/00_K_zarazeni\/IN-002\/vyzva\.pdf` \| 01_Podklady\/vyzva\.pdf \| pending \| \|$/),
+  ]);
+  // A's row: ID and source stay, the link follows the file, the decision says where it went.
+  const closed = (await readFile(join(matter, "VSTUPY.md"), "utf8")).split("\n").filter((line) => line.startsWith("| IN-"));
+  expect(closed).toEqual([
+    "| IN-001 | 2025-09-01T09:00:00+02:00 | e-mail SYN | 01_Podklady/zmluva-SYN.pdf | processed | MEM-1 |",
+    "| IN-002 | 2025-09-02T10:00:00+02:00 | ruční vložení (LAWOSS) | ../M002-spor-SYN/01_Podklady/vyzva.pdf | processed | presunuté do `Spisy/M002-spor-SYN/VSTUPY.md`, IN-001 |",
+  ]);
+  expect(fileOperationReport(result).join(" ")).toContain("Its earlier input IN-002 in Spisy/M001-najom-skladu-SYN/VSTUPY.md is closed as moved there.");
+  const audit = (await readFile(auditLogPath("ws_c001"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+  expect(audit.map((entry) => entry.target)).toEqual([join(other, "01_Podklady", "vyzva.pdf"), join(other, "VSTUPY.md"), join(matter, "VSTUPY.md")]);
+});
+
+test("review #292: the source path is a code span, not a link or HTML, and a register that is a symbolic link is neither read nor replaced", async () => {
+  const { config, client, root, workspace } = await office();
+  const { matter } = await caseWithInbox(client);
+  const name = "[klik](e) <img src=x> `kod`.pdf";
+  await writeFile(join(matter, "00_Na_zatriedenie", name), "SYN");
+  const result = await run(config, workspace, [{ operation: "move", from: join(matter, "00_Na_zatriedenie", name), to: join(matter, "01_Podklady", name) }]);
+  expect(result.results[0]?.input?.id).toBe("IN-002");
+  const row = (await readFile(join(matter, "VSTUPY.md"), "utf8")).split("\n").find((line) => line.startsWith("| IN-002"))!;
+  // Zdroj: code span with a fence longer than the backticks inside. Originál: plain link text, the whole target encoded.
+  expect(row).toContain("| presun z priečinka na nezaradené (LAWOSS): ``00_Na_zatriedenie/[klik](e) <img src=x> `kod`.pdf`` | [klik(e) img src=x kod.pdf](./01_Podklady/%5Bklik%5D%28e%29%20%3Cimg%20src%3Dx%3E%20%60kod%60.pdf) | pending | |");
+
+  // A register replaced by a link to a file elsewhere: the move is done, the register is reported as not updated.
+  const elsewhere = join(root, "mimo-SYN.md");
+  await writeFile(elsewhere, "SYN mimo");
+  await rm(join(matter, "VSTUPY.md"));
+  await symlink(elsewhere, join(matter, "VSTUPY.md"));
+  await writeFile(join(matter, "00_Na_zatriedenie", "druhy-SYN.pdf"), "SYN");
+  const linked = await run(config, workspace, [{ operation: "move", from: join(matter, "00_Na_zatriedenie", "druhy-SYN.pdf"), to: join(matter, "01_Podklady", "druhy-SYN.pdf") }]);
+  expect(linked.complete).toBe(true);
+  expect(linked.results[0]?.status).toBe("done");
+  expect(linked.results[0]?.inputError).toContain("not a regular file");
+  expect(linked.results[0]?.input).toBeUndefined();
+  expect(await readFile(elsewhere, "utf8")).toBe("SYN mimo");
+  expect((await lstat(join(matter, "VSTUPY.md"))).isSymbolicLink()).toBe(true);
+  expect(fileOperationReport(linked).join(" ")).toContain("could not be updated");
 });

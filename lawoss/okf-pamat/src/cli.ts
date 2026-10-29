@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import {
-  readStore, readScope, type ScopeOptions, syncProjections, ProjectionWriteError, retrofitStatusFile, ensureBrain, applyRecordWrite, standingApproval,
+  readStore, readScope, fileFor, type ScopeOptions, syncProjections, ProjectionWriteError, retrofitStatusFile, ensureBrain, applyRecordWrite, standingApproval,
   findOfficeDir, OFFICE_DIR,
   jurisdictionFromCard, documentLanguageFromCard, MEMORY_DIR, statusLinkResolver, findClientDir, STATUS_FILE,
 } from "./store.ts";
@@ -143,6 +143,163 @@ function workspaceArguments(rest: readonly string[], save: boolean) {
   const matterId = values.get("--matter");
   return { options: { allowedRoots, ...(matterId !== undefined ? { matterId } : {}) },
     json: switches.has("--json"), apply: switches.has("--apply"), file: values.get("--file") };
+}
+
+/** Plánovaný zápis: diff, priečinok, kam záznam ide (spis alebo kancelária), a súbor záznamu v ňom. */
+export interface RecordWritePlan {
+  readonly diff: WriteDiff;
+  readonly targetDir: string;
+  readonly file: string;
+}
+
+export interface RecordWriteResult extends CliResult {
+  /** Prítomný, keď návrh prešiel bránami (náhľad aj zápis); pri odmietnutí chýba. */
+  readonly plan?: RecordWritePlan;
+}
+
+/**
+ * `okf-memory write` nad textom návrhu namiesto súboru: ten istý kód pre CLI aj hostiteľa
+ * (LAWOSS `lawoss_memory_write`), ktorý návrh nepíše do priečinka klienta. Bez `apply` iba náhľad.
+ */
+export function writeRecord(
+  dir: string,
+  text: string,
+  { reason, approveAs, expectedRevision, apply }: { reason: string; approveAs?: string | undefined; expectedRevision?: string | undefined; apply: boolean },
+): RecordWriteResult {
+  let after: OkfRecord;
+  try {
+    after = parseRecord(text);
+  } catch (e) {
+    return { code: 2, out: `Návrh sa nedá prečítať: ${e instanceof Error ? e.message : String(e)}` };
+  }
+
+  // L1 a L3 patria kancelárii. `write <spis>` ich doteraz nechal v spise —
+  // z jedného testu skončilo jedenásť prameňov vo veciach a kancelária
+  // zostala prázdna. Ak kancelária existuje, smerujú tam. Brána úniku sa
+  // ale posudzuje voči spisu, z ktorého zápis prichádza (viď applyRecordWrite).
+  const office = findOfficeDir(dir);
+  const cielovy =
+    after.layer !== "L2" && office && resolve(office) !== resolve(dir) ? office : dir;
+  const store = readStore(cielovy);
+  const before = store.records.find((r) => r.id === after.id);
+
+  // Identifikátory sa razia v spise, kancelária je spoločná. Keď do nej
+  // druhá vec pošle svoje vlastné A-001, vyzerá to ako prepis prvého —
+  // append-only brána ho odmietne, ale s vysvetlením o histórii, ktoré
+  // nikomu nič nepovie. `created` je nemenné, takže iný dátum založenia
+  // pod tým istým id je iný záznam, nie úprava.
+  if (before && before.created !== after.created) {
+    const prefix = after.id.replace(/\d+$/, "");
+    const max = store.records
+      .filter((r) => r.id.startsWith(prefix))
+      .reduce((m, r) => Math.max(m, Number(r.id.slice(prefix.length)) || 0), 0);
+    const volne = `${prefix}${String(max + 1).padStart(3, "0")}`;
+    return {
+      code: 1,
+      out:
+        `ODMIETNUTÉ: identifikátor ${after.id} už v ${cielovy === dir ? "spise" : OFFICE_DIR + "/"} ` +
+        `patrí inému záznamu („${before.title}", založený ${before.created}). ` +
+        `Voľné je ${volne} — prečísluj návrh aj odkazy naň.`,
+    };
+  }
+
+  if (before && expectedRevision === undefined) {
+    return { code: 1, out: `ODMIETNUTÉ: úprava ${after.id} vyžaduje --if-revision <SHA256 z read>. Načítaj záznam a priprav návrh z jeho aktuálneho stavu.` };
+  }
+  if (expectedRevision !== undefined && (!before || revisionHash(before) !== expectedRevision)) {
+    return { code: 1, out: `ODMIETNUTÉ: revízia ${after.id} sa nezhoduje alebo záznam už neexistuje. Načítaj ho znova, zosúlaď zmeny a priprav nový návrh; neopakuj starý zápis.` };
+  }
+
+  let diff: WriteDiff;
+  try {
+    assertHasSource(after);
+    diff = planWrite(before, after, reason);
+  } catch (e) {
+    return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
+  }
+
+  // Súbor záznamu tak, ako ho určí zápis (existujúci názov, inak `<id>-<titulok>.md`).
+  let plan: RecordWritePlan;
+  try {
+    plan = { diff, targetDir: cielovy, file: fileFor(store, after) };
+  } catch (e) {
+    return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
+  }
+
+  const out: string[] = [
+    `${nadpisZapisu(diff.kind)} ${diff.id} (${after.type}, ${diff.layer})`,
+    `Dôvod: ${diff.reason}`,
+    "",
+    ...diff.lines,
+    "",
+  ];
+  if (cielovy !== dir) out.push(`Cieľ: ${OFFICE_DIR}/ — vrstva ${diff.layer} patrí kancelárii, nie spisu.`, "");
+  // Bez kancelárie ostáva L1/L3 v spise ako pred smerovaním — ale nahlas.
+  // Potichu to skončilo prameňom v spise a prázdnou kanceláriou.
+  if (after.layer !== "L2" && !office)
+    out.push(`Upozornenie: nad spisom sa nenašla kancelária (${OFFICE_DIR}/) — vrstva ${after.layer} ostáva v spise.`, "");
+
+  // Trvalé poverenie je schválenie udelené vopred písomne. Agent si ho
+  // nekonštruuje — číta ho zo súboru, ktorý napísal advokát.
+  const trvale = approveAs === undefined ? standingApproval(dir, diff) : undefined;
+  const approval: Approval | undefined =
+    approveAs !== undefined ? { by: approveAs, at: new Date().toISOString() } : trvale;
+
+  if (!apply) {
+    out.push(
+      !diff.requiresApproval
+        ? "dry-run: nič sa nezapísalo. Zapíš s --apply."
+        : trvale !== undefined
+          ? `dry-run: zápis do vrstvy ${diff.layer} kryje trvalé poverenie ` +
+            `(${trvale.by}). Zapíš s --apply.`
+          : `dry-run: zápis do vrstvy ${diff.layer} vyžaduje schválenie človekom. ` +
+            `Zapíš s --apply --approve-as "<meno>".`,
+    );
+    return { ...ok(out.join("\n")), plan };
+  }
+
+  if (diff.requiresApproval && approval === undefined) {
+    out.push(
+      `ODMIETNUTÉ: zápis do vrstvy ${diff.layer} vyžaduje --approve-as "<meno advokáta>" ` +
+        `alebo trvalé poverenie v ${OFFICE_DIR}/${CONFIG_FILE}. ` +
+        `Meno zadáva človek, agent si ho nekonštruuje sám.`,
+    );
+    return { code: 1, out: out.join("\n") };
+  }
+
+  // Audit riadok sa pridáva AŽ po tom, čo návrh prešiel bránami. Keby sa
+  // pridal skôr, história by rástla pri každom zápise a brána atomicity
+  // pravdy by bola splnená vždy — teda by neplatila.
+  let zapis = diff;
+  if (approval !== undefined) {
+    const auditovany: OkfRecord = {
+      ...after,
+      // Audit riadok je zmena obsahu, takže musí posunúť updated —
+      // inak by ho zastavila kontrola bumpu. Nikdy ale dozadu: keď návrh
+      // nesie neskorší dátum, deň schválenia ho nesmie prepísať.
+      updated: after.updated > approval.at.slice(0, 10) ? after.updated : approval.at.slice(0, 10),
+      timeline: [
+        ...after.timeline,
+        { date: approval.at.slice(0, 10), text: `schválil ${approval.by} — ${diff.reason}` },
+      ],
+    };
+    // Druhý prechod bránami — tá istá chyba musí skončiť rovnako ako prvá:
+    // kódom 1 a vetou, nie výpisom interpretu.
+    try {
+      zapis = planWrite(before, auditovany, reason);
+    } catch (e) {
+      return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
+    }
+  }
+
+  try {
+    applyRecordWrite(cielovy, zapis, approval, dir);
+  } catch (e) {
+    return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
+  }
+
+  out.push(`Zapísané: ${diff.id}${cielovy !== dir ? ` do ${OFFICE_DIR}/` : ""}${approval ? ` (schválil ${approval.by})` : ""}.`);
+  return { ...ok(out.join("\n")), plan };
 }
 
 /** `options` (host only): see `ScopeOptions`; used by `read` and `preamble`. */
@@ -381,134 +538,8 @@ export function runCli(argv: readonly string[], options: ScopeOptions = {}): Cli
         return { code: 2, out: `Príkaz write vyžaduje --file a --reason.\n\n${USAGE}` };
       }
       if (!existsSync(file)) return { code: 2, out: `Súbor návrhu neexistuje: ${file}` };
-
-      let after: OkfRecord;
-      try {
-        // Návrh z PowerShellu 5.1 býva v UTF-16 alebo s BOM.
-        after = parseRecord(decodeText(readFileSync(file)));
-      } catch (e) {
-        return { code: 2, out: `Návrh sa nedá prečítať: ${e instanceof Error ? e.message : String(e)}` };
-      }
-
-      // L1 a L3 patria kancelárii. `write <spis>` ich doteraz nechal v spise —
-      // z jedného testu skončilo jedenásť prameňov vo veciach a kancelária
-      // zostala prázdna. Ak kancelária existuje, smerujú tam. Brána úniku sa
-      // ale posudzuje voči spisu, z ktorého zápis prichádza (viď applyRecordWrite).
-      const office = findOfficeDir(dir);
-      const cielovy =
-        after.layer !== "L2" && office && resolve(office) !== resolve(dir) ? office : dir;
-      const store = readStore(cielovy);
-      const before = store.records.find((r) => r.id === after.id);
-
-      // Identifikátory sa razia v spise, kancelária je spoločná. Keď do nej
-      // druhá vec pošle svoje vlastné A-001, vyzerá to ako prepis prvého —
-      // append-only brána ho odmietne, ale s vysvetlením o histórii, ktoré
-      // nikomu nič nepovie. `created` je nemenné, takže iný dátum založenia
-      // pod tým istým id je iný záznam, nie úprava.
-      if (before && before.created !== after.created) {
-        const prefix = after.id.replace(/\d+$/, "");
-        const max = store.records
-          .filter((r) => r.id.startsWith(prefix))
-          .reduce((m, r) => Math.max(m, Number(r.id.slice(prefix.length)) || 0), 0);
-        const volne = `${prefix}${String(max + 1).padStart(3, "0")}`;
-        return {
-          code: 1,
-          out:
-            `ODMIETNUTÉ: identifikátor ${after.id} už v ${cielovy === dir ? "spise" : OFFICE_DIR + "/"} ` +
-            `patrí inému záznamu („${before.title}", založený ${before.created}). ` +
-            `Voľné je ${volne} — prečísluj návrh aj odkazy naň.`,
-        };
-      }
-
-      if (before && expectedRevision === undefined) {
-        return { code: 1, out: `ODMIETNUTÉ: úprava ${after.id} vyžaduje --if-revision <SHA256 z read>. Načítaj záznam a priprav návrh z jeho aktuálneho stavu.` };
-      }
-      if (expectedRevision !== undefined && (!before || revisionHash(before) !== expectedRevision)) {
-        return { code: 1, out: `ODMIETNUTÉ: revízia ${after.id} sa nezhoduje alebo záznam už neexistuje. Načítaj ho znova, zosúlaď zmeny a priprav nový návrh; neopakuj starý zápis.` };
-      }
-
-      let diff: WriteDiff;
-      try {
-        assertHasSource(after);
-        diff = planWrite(before, after, reason);
-      } catch (e) {
-        return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
-      }
-
-      const out: string[] = [
-        `${nadpisZapisu(diff.kind)} ${diff.id} (${after.type}, ${diff.layer})`,
-        `Dôvod: ${diff.reason}`,
-        "",
-        ...diff.lines,
-        "",
-      ];
-      if (cielovy !== dir) out.push(`Cieľ: ${OFFICE_DIR}/ — vrstva ${diff.layer} patrí kancelárii, nie spisu.`, "");
-      // Bez kancelárie ostáva L1/L3 v spise ako pred smerovaním — ale nahlas.
-      // Potichu to skončilo prameňom v spise a prázdnou kanceláriou.
-      if (after.layer !== "L2" && !office)
-        out.push(`Upozornenie: nad spisom sa nenašla kancelária (${OFFICE_DIR}/) — vrstva ${after.layer} ostáva v spise.`, "");
-
-      // Trvalé poverenie je schválenie udelené vopred písomne. Agent si ho
-      // nekonštruuje — číta ho zo súboru, ktorý napísal advokát.
-      const trvale = approveAs === undefined ? standingApproval(dir, diff) : undefined;
-      const approval: Approval | undefined =
-        approveAs !== undefined ? { by: approveAs, at: new Date().toISOString() } : trvale;
-
-      if (!apply) {
-        out.push(
-          !diff.requiresApproval
-            ? "dry-run: nič sa nezapísalo. Zapíš s --apply."
-            : trvale !== undefined
-              ? `dry-run: zápis do vrstvy ${diff.layer} kryje trvalé poverenie ` +
-                `(${trvale.by}). Zapíš s --apply.`
-              : `dry-run: zápis do vrstvy ${diff.layer} vyžaduje schválenie človekom. ` +
-                `Zapíš s --apply --approve-as "<meno>".`,
-        );
-        return ok(out.join("\n"));
-      }
-
-      if (diff.requiresApproval && approval === undefined) {
-        out.push(
-          `ODMIETNUTÉ: zápis do vrstvy ${diff.layer} vyžaduje --approve-as "<meno advokáta>" ` +
-            `alebo trvalé poverenie v ${OFFICE_DIR}/${CONFIG_FILE}. ` +
-            `Meno zadáva človek, agent si ho nekonštruuje sám.`,
-        );
-        return { code: 1, out: out.join("\n") };
-      }
-
-      // Audit riadok sa pridáva AŽ po tom, čo návrh prešiel bránami. Keby sa
-      // pridal skôr, história by rástla pri každom zápise a brána atomicity
-      // pravdy by bola splnená vždy — teda by neplatila.
-      let zapis = diff;
-      if (approval !== undefined) {
-        const auditovany: OkfRecord = {
-          ...after,
-          // Audit riadok je zmena obsahu, takže musí posunúť updated —
-          // inak by ho zastavila kontrola bumpu. Nikdy ale dozadu: keď návrh
-          // nesie neskorší dátum, deň schválenia ho nesmie prepísať.
-          updated: after.updated > approval.at.slice(0, 10) ? after.updated : approval.at.slice(0, 10),
-          timeline: [
-            ...after.timeline,
-            { date: approval.at.slice(0, 10), text: `schválil ${approval.by} — ${diff.reason}` },
-          ],
-        };
-        // Druhý prechod bránami — tá istá chyba musí skončiť rovnako ako prvá:
-        // kódom 1 a vetou, nie výpisom interpretu.
-        try {
-          zapis = planWrite(before, auditovany, reason);
-        } catch (e) {
-          return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
-        }
-      }
-
-      try {
-        applyRecordWrite(cielovy, zapis, approval, dir);
-      } catch (e) {
-        return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
-      }
-
-      out.push(`Zapísané: ${diff.id}${cielovy !== dir ? ` do ${OFFICE_DIR}/` : ""}${approval ? ` (schválil ${approval.by})` : ""}.`);
-      return ok(out.join("\n"));
+      // Návrh z PowerShellu 5.1 býva v UTF-16 alebo s BOM.
+      return writeRecord(dir, decodeText(readFileSync(file)), { reason, approveAs, expectedRevision, apply });
     }
 
     case "init": {

@@ -241,6 +241,24 @@ describe("LAWOSS stráž Eigenweltu a analytiky", () => {
     assert.equal(checkSources(fixture({[file]: method + '\nconst endpoint = "https://api.github.com/repos/a/b";'}), [file]).length, 1);
   });
 
+  test("nastavenia bez prepínača katalógu modelov a plánu Sync, Plus alebo Pro (N-A7-15)", () => {
+    assertCaught("apps/app/src/lawoss/feature-flags.ts", (text) => text.replace("isModelCatalogUpdatesHidden = (): boolean => true", "isModelCatalogUpdatesHidden = (): boolean => false"));
+    assertCaught("apps/app/src/react-app/domains/settings/pages/preferences-view.tsx", (text) => text.replace("{isModelCatalogUpdatesHidden() ? null : <LayoutSectionItem>", "{<LayoutSectionItem>"));
+    const plan = {
+      "apps/app/src/i18n/locales/sk.ts": ["Uložené na tomto počítači.", "Uložené na tomto počítači. S plánom Sync, Plus alebo Pro sa predvolené nastavenie aplikácie synchronizuje aj medzi vašimi zariadeniami."],
+      "apps/app/src/i18n/locales/cs.ts": ["Uloženo na tomto počítači.", "Uloženo na tomto počítači. S tarifem Sync, Plus nebo Pro se výchozí nastavení aplikace synchronizuje i mezi vašimi zařízeními."],
+    };
+    for (const [file, [current, old]] of Object.entries(plan)) {
+      assertCaught(file, (text) => text.replace(`"sandbox.sync_local": "${current}"`, `"sandbox.sync_local": "${old}"`));
+    }
+    assertCaught("apps/app/src/lawoss/i18n/terms.ts", (text) => text.replace('"sandbox.sync_local": "Saved on this computer.",', ""));
+    // Zákaz plánu hľadá celé slová: bežné „Synchronizácia“ či „Prostredie“ nevadí.
+    const [rule] = STRUCTURE.filter((item) => item.file === "apps/app/src/i18n/locales/sk.ts");
+    const [plans] = rule.mustNot;
+    assert.ok(plans.test('"sandbox.sync_local": "S plánom Sync, Plus alebo Pro"'));
+    assert.ok(!plans.test('"sandbox.sync_local": "Uložené na tomto počítači. Synchronizácia medzi zariadeniami nie je. Prostredie Prosperity."'));
+  });
+
   test("buildnutý výstup s kľúčom analytiky zlyhá", () => {
     const root = fixture({
       "apps/app/dist/assets/index.js": 'fetch("https://eu.i.posthog.com/batch/",{body:JSON.stringify({api_key:"phc_abcdefghijklmnopqrstuvwxyz123"})})',

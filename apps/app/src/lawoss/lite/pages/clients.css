@@ -92,3 +92,6 @@
 /* Prehľad klienta: rozhovory nad celým klientom (nad kartou jeho vecí). */
 .lw-clients-conversations { margin: 0 0 18px; }
 .lw-clients-conversations .lw-clients-matter { width: 100%; grid-template-columns: minmax(0, 1fr) auto; border: 0; background: none; font: inherit; color: inherit; text-align: start; cursor: pointer; }
+/* N-A5-11: hlavička klienta je odkaz na jeho prehľad, vyzerá ako nadpis. */
+.lw-clients-card-link { color: inherit; text-decoration: none; }
+.lw-clients-card-link:hover, .lw-clients-card-link:focus-visible { text-decoration: underline; text-underline-offset: 3px; }

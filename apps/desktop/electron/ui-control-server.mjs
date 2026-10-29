@@ -8,6 +8,7 @@ import { createServer } from "node:http";
 import { rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { editorWriteRefusal } from "./lawoss-editor-write-gate.mjs";
 
 export function createUiControlServer({ appName, appIdentifier, getWindow, getUserDataDir }) {
   let uiControlServer = null;
@@ -137,7 +138,9 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
           return;
         }
         if (request.method === "POST" && url.pathname === "/execute") {
-          sendJsonResponse(response, 200, await runLegalworkControlCommand("execute", await readJsonRequestBody(request)));
+          const input = await readJsonRequestBody(request);
+          // LAWOSS N-A7-8: an editor write runs only from the server's approved path (lawoss-editor-write-gate.mjs).
+          sendJsonResponse(response, 200, editorWriteRefusal(input, request.headers) ?? await runLegalworkControlCommand("execute", input));
           return;
         }
         sendJsonResponse(response, 404, { ok: false, error: "Not found" });

@@ -35,7 +35,7 @@ import type {
 } from "../../../../app/types";
 import { addOpencodeCacheHint, safeStringify } from "../../../../app/utils";
 import { clearSessionDraft, saveSessionDraft } from "./draft-store";
-import { firstLineLocalFileParts } from "./prompt-file-parts";
+import { clientFirstLineFileParts } from "@/lawoss/chat/prompt-file-parts";
 import { appMentionInstruction } from "../surface/composer/app-mentions";
 
 type SessionModelConfig = {
@@ -211,7 +211,7 @@ export function createSessionActionsStore(options: {
       }
     }
 
-    parts.push(...firstLineLocalFileParts(text, root));
+    parts.push(...clientFirstLineFileParts(text, root));
     parts.push(...(await Promise.all(draft.attachments.map(attachmentToFilePart))));
     return parts;
   };

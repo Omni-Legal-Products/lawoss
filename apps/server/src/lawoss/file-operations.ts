@@ -25,8 +25,9 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { cp, link, lstat, mkdir, readdir, readlink, rename, rm, unlink } from "node:fs/promises";
 import type { Stats } from "node:fs";
-import { basename, dirname, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { z } from "zod";
+import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
 import { withFileEditorHandoff } from "../file-editor-handoff.js";
 import { readRuntimeOpencodeConfig, runtimeExternalDirectory } from "../runtime-opencode-config-store.js";
@@ -35,6 +36,7 @@ import { addRoute, type RequestContext, type Route } from "../routes/registry.js
 import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ensureWikiAgentToken } from "../wiki/agent-access.js";
 import { isSensitiveWorkspacePath, resolveWorkspaceFilePath } from "./filesystem-boundary.js";
+import { recordFiledInput, type FiledInput } from "./file-operation-inputs.js";
 import { linkableFolders, nestedClientRoots } from "./linked-folders.js";
 import { foldedPath as folded, isPathWithin } from "./path-within.js";
 
@@ -80,6 +82,10 @@ export type FileOperationResult = PublicFileOperation & {
   error?: string;
   /** Where a deleted item went: the OS Trash or the fallback folder (readable path). */
   trash?: "system" | string;
+  /** N-A7-6: a file filed from an inbox folder into a case, recorded in that case's `VSTUPY.md`. */
+  input?: FiledInput;
+  /** N-A7-6: the file was filed, but the input register could not be written. */
+  inputError?: string;
 };
 export type FilePlan = { operations: PublicFileOperation[]; revision: string };
 
@@ -123,8 +129,52 @@ function inNestedClient(nested: readonly string[], canonical: string): boolean {
   return nested.some((other) => isPathWithin(folded(other), folded(canonical)) || isPathWithin(folded(canonical), folded(other)));
 }
 
+/**
+ * N-A5-10 (test 25. 10. 2026): „v prípade M001 premenuj 01_Podklady/IN-007/poznamky.txt“ skončilo „sa nenašiel“,
+ * lebo priečinok prípadu je `Spisy/M001-uhrada-dodavok-…`; advokát celé meno nepozná. Priečinok cesty, ktorý
+ * neexistuje a je len kódom prípadu alebo klienta (`M001`, `C002`, bez oddeľovača: `FA 2024` ani `IN-007` kódom nie
+ * je), sa nahradí jediným priečinkom vedľa, ktorý týmto kódom začína (`M001-…`, `M001 …`). Pri viacerých sa nič
+ * nehádže: odmietnutie ich vymenuje. Posledná časť cesty (súbor, nové meno) sa nemení; karta ukáže skutočnú cestu.
+ * Relatívna cesta sa dopĺňa len v priečinku chatu (prvý koreň), nie v pripojených priečinkoch.
+ */
+const CASE_CODE = /^\p{Lu}{1,3}\d{3,5}$/u;
+const CODE_SEPARATOR = /^[-_ .]/;
+
+async function expandCaseCodes(roots: Root[], requested: string, nested: readonly string[]): Promise<string> {
+  for (const root of isAbsolute(requested) ? roots : roots.slice(0, 1)) {
+    const inside = relative(root.path, isAbsolute(requested) ? requested : join(root.path, requested));
+    if (!inside || inside.startsWith("..") || isAbsolute(inside)) continue;
+    const parts = inside.split(sep);
+    // `real` je ten istý priečinok od skutočnej cesty koreňa (vnorení klienti sú zapísaní skutočnými cestami).
+    let current = root.path, real = root.canonical, expanded = false, index = 0;
+    for (; index < parts.length - 1; index++) {
+      const part = parts[index]!;
+      const info = await present(join(current, part)).catch(() => undefined);
+      // Odkaz sa nesleduje (mená za ním sa nevypíšu); chyba čítania nechá cestu tak, ako je, na kontrolu v `locate`.
+      if (info === undefined || info?.isSymbolicLink()) break;
+      if (info) { current = join(current, part); real = join(real, part); continue; }
+      const code = part.normalize("NFC");
+      if (!CASE_CODE.test(code)) break;
+      const matches = (await readdir(real, { withFileTypes: true }).catch(() => []))
+        .filter((entry) => entry.isDirectory() && entry.name.normalize("NFC").toUpperCase().startsWith(code.toUpperCase())
+          && CODE_SEPARATOR.test(entry.name.normalize("NFC").slice(code.length)) && !inNestedClient(nested, join(real, entry.name)))
+        .map((entry) => entry.name).sort();
+      if (matches.length > 1)
+        throw new ApiError(409, "file_operation_ambiguous_case", `Several folders match ${visibleName(code)}: ${matches.map(visibleName).join(", ")}. Nothing was changed. Ask the user which one they mean.`);
+      if (matches.length === 0) break;
+      current = join(current, matches[0]!);
+      real = join(real, matches[0]!);
+      expanded = true;
+    }
+    // Len cesta, ktorá menovala prípad kódom, sa mení; iná ostane, ako bola napísaná.
+    if (expanded) return join(current, ...parts.slice(index));
+  }
+  return requested;
+}
+
 /** The canonical path in the client's folder or a linked folder; a link itself is moved, not its target. */
-async function locate(roots: Root[], requested: string, nested: readonly string[]): Promise<Located> {
+async function locate(roots: Root[], written: string, nested: readonly string[], expand = true): Promise<Located> {
+  const requested = expand ? await expandCaseCodes(roots, written, nested) : written;
   for (const root of roots) {
     const canonical = await resolveWorkspaceFilePath(root.path, requested, { preserveLeaf: true }).catch(() => null);
     if (!canonical) continue;
@@ -439,13 +489,14 @@ async function verified(item: Planned): Promise<boolean> {
  * Re-plan from the current disk and run only when it matches the plan and revision the user approved.
  * Operations run in order; after the first failure the rest do not run.
  */
-export async function applyFileOperations(config: ServerConfig, workspace: WorkspaceInfo, input: unknown, approved: unknown, revision: unknown, sessionID?: string): Promise<{ results: FileOperationResult[]; complete: boolean }> {
+export async function applyFileOperations(config: ServerConfig, workspace: WorkspaceInfo, input: unknown, approved: unknown, revision: unknown, sessionID?: string, actor: Actor = { type: "remote" }): Promise<{ results: FileOperationResult[]; complete: boolean }> {
   if (config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
   const plan = await planInternal(config, workspace, input);
   const roots = await clientRoots(config, workspace), nested = await nestedClientRoots(config, workspace);
   // An earlier step of the same request may move a link (or a folder holding one) to a name the plan saw as free:
   // every path must still pass the plan's checks and lead to the same place right before its step.
-  const unchanged = async (location: string | undefined) => !location || (await locate(roots, location, nested).catch(() => null))?.canonical === location;
+  // Plánované cesty sú už skutočné: kód prípadu sa tu znova nedopĺňa (priečinok vytvorený skôr v tej istej zmene).
+  const unchanged = async (location: string | undefined) => !location || (await locate(roots, location, nested, false).catch(() => null))?.canonical === location;
   if (JSON.stringify(withoutHints(publicPlan(plan))) !== JSON.stringify(withoutHints(approved)) || revisionOf(plan) !== revision)
     throw new ApiError(409, "file_operation_changed", "The files changed after the approval card was shown. Nothing was changed. Ask the user before trying again.");
   return withFileEditorHandoff({ write: true, sessionID }, async () => {
@@ -458,7 +509,9 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
         if (!await unchanged(item.source) || !await unchanged(item.target)) throw new ApiError(403, "file_operation_outside_client", OUTSIDE);
         const trash = await execute(config, item);
         if (!await verified(item)) throw new Error("The change is not visible on disk.");
-        results.push({ ...visible, status: "done", ...(trash ? { trash } : {}) });
+        const filed = await fileInput(item, roots);
+        results.push({ ...visible, status: "done", ...(trash ? { trash } : {}), ...filed.result });
+        await audit(workspace, actor, item, filed.filed);
       } catch (error) {
         failed = true;
         results.push({ ...visible, status: "failed", error: error instanceof Error ? error.message : String(error) });
@@ -466,6 +519,33 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
     }
     return { results, complete: !failed };
   });
+}
+
+/** N-A7-6: the input register follows a file filed from an inbox; its failure does not undo the change already made. */
+async function fileInput(item: Planned, roots: Root[]): Promise<{ result: Pick<FileOperationResult, "input" | "inputError">; filed?: FiledInput & { paths: string[] } }> {
+  if ((item.operation !== "move" && item.operation !== "copy") || !item.source || !item.target) return { result: {} };
+  try {
+    const filed = await recordFiledInput({ operation: item.operation, kind: item.kind, source: item.source, target: item.target }, roots);
+    if (!filed) return { result: {} };
+    // The canonical paths are for the audit only: the card and the model see readable paths.
+    const { paths: _paths, handedOver, ...input } = filed;
+    return { result: { input: { ...input, register: visibleName(input.register),
+      ...(handedOver ? { handedOver: { ...handedOver, register: visibleName(handedOver.register) } } : {}) } }, filed };
+  } catch (error) {
+    return { result: { inputError: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+/** T6 (test 28. 10. 2026): an approved change and the register lines it wrote are in the server audit, like other file writes. */
+async function audit(workspace: WorkspaceInfo, actor: Actor, item: Planned, filed: (FiledInput & { paths: string[] }) | undefined): Promise<void> {
+  const entry = (target: string, summary: string) => ({ id: randomUUID(), workspaceId: workspace.id, actor, action: "workspace.file.write", target, summary, timestamp: Date.now() });
+  const change = item.operation === "create_folder" ? `Created folder ${item.to}` : item.operation === "delete" ? `Moved ${item.from} to the Trash` : `${item.operation === "move" ? "Moved" : "Copied"} ${item.from} to ${item.to}`;
+  // The change is done; a full audit disk must not report it as failed.
+  await recordAudit(workspace.path, entry(item.target ?? item.source ?? workspace.path, `lawoss_files: ${change}`)).catch(() => undefined);
+  if (!filed) return;
+  await recordAudit(workspace.path, entry(filed.paths[0]!, `lawoss_files: ${filed.updated ? "Updated" : "Added"} input ${filed.id} in ${filed.register}`)).catch(() => undefined);
+  if (filed.handedOver && filed.paths[1])
+    await recordAudit(workspace.path, entry(filed.paths[1], `lawoss_files: Closed input ${filed.handedOver.id} in ${filed.handedOver.register}, moved to ${filed.register} as ${filed.id}`)).catch(() => undefined);
 }
 
 /**
@@ -487,16 +567,16 @@ export function registerFileOperationRoutes(options: {
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
 }) {
   const { routes, config, jsonResponse } = options;
-  const route = (suffix: string, action: (workspace: WorkspaceInfo, body: Record<string, unknown>) => Promise<unknown>) =>
+  const route = (suffix: string, action: (workspace: WorkspaceInfo, body: Record<string, unknown>, actor: Actor) => Promise<unknown>) =>
     addRoute(routes, "POST", `/workspace/:id/lawoss/files/${suffix}`, "client", async (ctx) => {
       options.requireClientScope(ctx, "collaborator");
       // The approval is the engine card the chat's tool showed; other clients have their own file routes and approvals.
       if (!await engineAgent(config, ctx.actor)) throw new ApiError(403, "file_operation_agent_only", "Only a chat's file tool, after the user's approval, can use this route.");
       const workspace = await options.resolveWorkspace(config, ctx.params.id);
-      try { return jsonResponse(await action(workspace, await options.readJsonBodyLimited(ctx.request, 512 * 1024))); }
+      try { return jsonResponse(await action(workspace, await options.readJsonBodyLimited(ctx.request, 512 * 1024), ctx.actor ?? { type: "remote" })); }
       catch (error) { if (error instanceof z.ZodError) throw new ApiError(400, "file_operation_input", `Send 1–${MAX_FILE_OPERATIONS} operations: move/copy {from, to}, create_folder/delete {path}.`); throw error; }
     });
   route("plan", async (workspace, body) => planFileOperations(config, workspace, body.operations));
-  route("apply", async (workspace, body) => applyFileOperations(config, workspace, body.operations, body.approved, body.revision,
-    typeof body.sessionID === "string" ? body.sessionID : undefined));
+  route("apply", async (workspace, body, actor) => applyFileOperations(config, workspace, body.operations, body.approved, body.revision,
+    typeof body.sessionID === "string" ? body.sessionID : undefined, actor));
 }

@@ -10,7 +10,7 @@ import { formatDay, today, useOkfConnection, type OkfReadResult, type OkfScope }
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { urgencyOf } from "../../okf/view-rules";
 import { groupByClient, nextDeadline, type ClientGroup } from "../today-model";
-import { ATTACH_EXISTING_CLIENT_PATH, LITE_CLIENTS_PATH, liteMatterLink, NEW_CLIENT_PATH } from "../links";
+import { ATTACH_EXISTING_CLIENT_PATH, clientOverviewLink, LITE_CLIENTS_PATH, liteMatterLink, NEW_CLIENT_PATH } from "../links";
 import { clientPreferenceScope, clientRootOf, practiceClientChoices, type ClientChoice } from "../client-choice";
 import { NewMatterAction } from "../client-picker";
 import { conversationFailureKey, openCheckedConversation, useClientConversations } from "../client-tree-data";
@@ -113,7 +113,9 @@ export function ClientsView({ groups: all, meta, locale: forced, actions, choice
             <section key={group.key} className="lw-clients-card" style={reveal(index + 1)} data-urgency={hot ? "hot" : undefined}>
               <header className="lw-clients-card-head">
                 <span className="lw-matter-avatar" aria-hidden>{initials(group.client || text("client_unnamed"))}</span>
-                <h2>{group.client || text("client_unnamed")}</h2>
+                {/* N-A5-11: hlavička klienta vedie na jeho prehľad (ako klient v bočnom paneli). */}
+                <h2>{focus === group.key ? group.client || text("client_unnamed")
+                  : <Link className="lw-clients-card-link" to={clientOverviewLink(group.key)}>{group.client || text("client_unnamed")}</Link>}</h2>
                 <span className="lw-matter-count">{group.matters.length}</span>
               </header>
               {group.matters.length === 0 ? <p className="lw-clients-none">{text("client_no_matters")} <NewMatterAction locale={locale} clientRoot={clientRoot?.(group.key)}>{text("new_matter")}</NewMatterAction></p> : null}
