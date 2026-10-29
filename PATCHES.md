@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Chyba štartu enginu nestratí posledný výstup (2026-10-29)
+
+CI `legalwork-tests (ubuntu-latest)` na #314 (29. 10. 2026): `does NOT retry a non-lock start failure` dostal iba „OpenCode server exited with code 1“ bez stderr. Udalosť `exit` môže prísť skôr než posledný kus stderr; rovnako by sa stratilo „database is locked“ a štart enginu by sa namiesto opakovania vzdal.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/managed-opencode.ts` | `waitForServerReady()` hlási skončenie enginu na `close` (stdio vyprázdnené); `exit` iba zapamätá kód a spustí poistku `EXIT_OUTPUT_DRAIN_MS = 1000` pre potomka, ktorý drží rúru otvorenú. Po skončení sa už nečíta „listening“ zo stdout a limit štartu po zaznamenanom skončení hlási skončenie so zachyteným výstupom, nie všeobecný timeout. +1 konštanta, +2 komentáre. Testy: oneskorená správa o zámku stále opakuje štart; potomok so stderr neodloží chybu; limit v čase poistky zachová zámok a opakuje štart. Upstream `v0.3.0` aj `upstream/dev` majú stále `exit`. |
+
 ## Jeden dialóg pri zahodení zmien v dokumente (2026-10-28, N-A7-16)
 
 Úplný UI test dev `f8acb4bd` (28. 10. 2026): po „Zahodiť zmeny“ pri zatváraní karty DOCX ostal viditeľný dialóg „Zahodiť zmeny v súbore ? …“ a dalo sa v ňom kliknúť na „Zrušiť“. Druhá výzva nevzniká; bol to ten istý `ConfirmModal` s `open=false`, ktorý Base UI nechá pripojený, kým nedobehne zatváracia animácia (pozadie je počas nej inertné, okno dialógu nie).

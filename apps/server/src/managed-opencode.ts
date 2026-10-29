@@ -42,6 +42,9 @@ const SECRET_ENV_PATTERN = /(TOKEN|PASSWORD|USERNAME|AUTH|SECRET|KEY|CREDENTIAL)
 const START_MAX_ATTEMPTS = 4;
 const START_RETRY_BASE_MS = 500;
 const DB_LOCKED_PATTERN = /database is locked|database table is locked|SQLITE_BUSY/i;
+// 🟡 LAWOSS: how long a start failure waits for the engine's remaining output
+// when a descendant keeps its stdio open after the engine itself exited.
+const EXIT_OUTPUT_DRAIN_MS = 1000;
 
 // close() gives the engine this long to handle SIGTERM (flush + WAL checkpoint
 // + release the lock cleanly) before escalating to SIGKILL. It resolves as soon
@@ -90,12 +93,19 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number): Promise<str
   return new Promise<string>((resolve, reject) => {
     let output = "";
     let settled = false;
+    // 🟡 LAWOSS: "exit" can precede the last stderr chunk (e.g. the lock
+    // message). Report on "close", once stdio is drained; a descendant that
+    // keeps the pipe open gets only a short grace period.
+    let exitCode: number | null | undefined;
+    let exitDrain: ReturnType<typeof setTimeout> | undefined;
     const cleanup = () => {
       clearTimeout(timeout);
+      clearTimeout(exitDrain);
       child.stdout?.off("data", onStdout);
       child.stderr?.off("data", onStderr);
       child.off("error", fail);
       child.off("exit", onExit);
+      child.off("close", reportExit);
     };
     const done = (value: string) => {
       if (settled) return;
@@ -111,6 +121,7 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number): Promise<str
     };
     const onStdout = (chunk: Buffer) => {
       output += chunk.toString();
+      if (exitCode !== undefined) return;
       for (const line of output.split("\n")) {
         if (!line.startsWith("opencode server listening")) continue;
         const match = line.match(/on\s+(https?:\/\/[^\s]+)/);
@@ -121,16 +132,23 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number): Promise<str
     const onStderr = (chunk: Buffer) => {
       output += chunk.toString();
     };
-    const onExit = (code: number | null) =>
-      fail(new Error(`OpenCode server exited with code ${code}${output.trim() ? `\n${output}` : ""}`));
+    const reportExit = () =>
+      fail(new Error(`OpenCode server exited with code ${exitCode ?? child.exitCode}${output.trim() ? `\n${output}` : ""}`));
+    const onExit = (code: number | null) => {
+      exitCode = code;
+      exitDrain = setTimeout(reportExit, EXIT_OUTPUT_DRAIN_MS);
+    };
     const timeout = setTimeout(
-      () => fail(new Error(`Timeout waiting for OpenCode server after ${timeoutMs}ms`)),
+      () => exitCode !== undefined
+        ? reportExit()
+        : fail(new Error(`Timeout waiting for OpenCode server after ${timeoutMs}ms`)),
       timeoutMs,
     );
     child.stdout?.on("data", onStdout);
     child.stderr?.on("data", onStderr);
     child.once("error", fail);
     child.once("exit", onExit);
+    child.once("close", reportExit);
   });
 }
 
