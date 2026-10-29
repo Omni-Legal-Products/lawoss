@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Test plánovania so skutočným enginom čaká na studený štart priečinkov (2026-10-29)
+
+CI `legalwork-tests (ubuntu-latest)` „Verify scheduling with the shipped engine“ zlyhal 23. 10. a 29. 10. 2026 rovnako po ~12 s: `TimeoutError: The operation timed out.` Test čakal iba na `/global/health`, ktoré inštanciu priečinka nezaloží; prvé volanie s limitom 10 s (`session.create`) tak nieslo aj studený štart priečinka.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/scheduled-tasks/engine.test.ts` | Po `/global/health` počká na `GET /mcp?directory=…` (rovnaká pripravenosť ako `createOpencodeDirectoryFetch` v serveri) pre oba priečinky testu s vlastným limitom 90 s a overí stav 200 a JSON objekt. Limity 10 s/25 s jednotlivých operácií ostávajú. Celkový limit testu 60 s → 180 s (rovnako ako `--timeout` v CI), aby sa zmestil štart 20 s, pripravenosť 90 s a operácie. +2 komentáre. |
+
 ## Jeden dialóg pri zahodení zmien v dokumente (2026-10-28, N-A7-16)
 
 Úplný UI test dev `f8acb4bd` (28. 10. 2026): po „Zahodiť zmeny“ pri zatváraní karty DOCX ostal viditeľný dialóg „Zahodiť zmeny v súbore ? …“ a dalo sa v ňom kliknúť na „Zrušiť“. Druhá výzva nevzniká; bol to ten istý `ConfirmModal` s `open=false`, ktorý Base UI nechá pripojený, kým nedobehne zatváracia animácia (pozadie je počas nej inertné, okno dialógu nie).

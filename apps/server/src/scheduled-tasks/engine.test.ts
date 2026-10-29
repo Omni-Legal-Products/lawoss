@@ -99,6 +99,15 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
       await Bun.sleep(100);
     }
     if (!ready) throw new Error("Engine did not start: " + (engine.exitCode !== null ? await logs : "timed out"));
+    // LAWOSS: global health does not initialize a directory's instance; the first
+    // directory-scoped request does, cold. Await both instances under their own
+    // startup deadline so the 10s limits below bound only the operations.
+    const instanceDeadline = Date.now() + 90000;
+    for (const directory of [otherFolder, folder]) {
+      const response = await fetch(`${base}/mcp?directory=${encodeURIComponent(directory)}`, { signal: AbortSignal.timeout(Math.max(1, instanceDeadline - Date.now())) });
+      expect(response.status).toBe(200);
+      z.record(z.string(), z.unknown()).parse(await response.json());
+    }
     const client = createOpencodeClient({ baseUrl: base, directory: otherFolder });
     const { data: sourceSession } = await client.session.create({ title: "Other project chat" }, { throwOnError: true, signal: AbortSignal.timeout(10000) });
     sourceSessionId = sourceSession.id;
@@ -170,4 +179,5 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
     expect(serverAuth.length).toBeGreaterThan(0);
     expect(serverAuth.every(entry => entry.authorization === null && Boolean(entry.session))).toBe(true);
   } finally { engine.kill("SIGKILL"); await engine.exited; fixture.stop(true); await rm(root, { recursive: true, force: true }); }
-}, 60000);
+  // 20s engine start + 90s cold instances + the bounded operations above.
+}, 180000);
