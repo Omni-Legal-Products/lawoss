@@ -67,7 +67,8 @@ export async function ensureDesktopLocalLegalworkConnection(
 
   try {
     const engine = await engineInfo().catch(() => null) as EngineInfo | null;
-    if (!engine?.running || !engine.baseUrl) {
+    const restarting = !engine?.running || !engine.baseUrl;
+    if (restarting) {
       await engineStart(workspaceRoot, {
         runtime: "direct",
         workspacePaths,
@@ -80,14 +81,18 @@ export async function ensureDesktopLocalLegalworkConnection(
       throw new Error(t("desktop.no_base_url"));
     }
 
-    writeLegalworkServerSettings({
+    const previous = readLegalworkServerSettings();
+    const next = writeLegalworkServerSettings({
       urlOverride: info.baseUrl,
       token: info.ownerToken?.trim() || info.clientToken?.trim() || undefined,
       hostToken: info.hostToken?.trim() || undefined,
       portOverride: info.port ?? undefined,
       remoteAccessEnabled: info.remoteAccessEnabled === true,
     });
-    emitLegalworkSettingsChanged();
+    // Re-selecting a client must not tear down the page awaiting its chat route.
+    if (restarting || previous.urlOverride !== next.urlOverride || previous.token !== next.token
+      || previous.hostToken !== next.hostToken || previous.portOverride !== next.portOverride
+      || previous.remoteAccessEnabled !== next.remoteAccessEnabled) emitLegalworkSettingsChanged();
 
     recordInspectorEvent("route.local_legalwork.ensure.success", {
       route: options.route,

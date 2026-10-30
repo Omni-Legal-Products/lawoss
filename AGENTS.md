@@ -80,6 +80,8 @@ Rules:
 ## TypeScript and package management
 
 - Use strict TypeScript.
+- For dropdowns inside animated panels, order the parent stacking contexts and verify pointer hit targets with animations enabled and reduced motion.
+- Async navigation belongs above refreshable data panels; invalidate requests on departure, including Back/Forward visits. Emit connection-change events for changed settings or engine restarts, keeping identical connection checks quiet.
 - For synchronous Word LCS alignment, materialize immutable XML-derived keys once after the size admission check. Keep revision/formatting assertions at the real DOCX comparison boundary and preserve the existing size and test-time limits.
 - Static network guards must distinguish typed method declarations from calls while still scanning the complete method body. Preserve mutation regressions for real network calls when refining a classifier.
 - Never use `any`, typecasts, or `as` unless necessary and justified.
