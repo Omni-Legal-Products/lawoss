@@ -25,7 +25,7 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { cp, link, lstat, mkdir, readdir, readlink, rename, rm, unlink } from "node:fs/promises";
 import type { Stats } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, sep, type PlatformPath } from "node:path";
 import { z } from "zod";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
@@ -102,16 +102,25 @@ export function visibleName(text: string): string {
 
 type Root = { path: string; canonical: string; label: string | null };
 
+/**
+ * Card labels of linked folders. Two with the same name are told apart by their parent, then by the full path.
+ * A drive root (`Z:\`) has no base name: it is labelled by the drive (`Z:`), never left blank, so the card
+ * cannot show `Z:\Smlouva.pdf` exactly like a file in the client folder (review #221).
+ */
+export function linkedFolderLabels(linked: readonly string[], paths: Pick<PlatformPath, "basename" | "dirname"> = { basename, dirname }): string[] {
+  const name = (folder: string) => paths.basename(folder) || folder.replace(/[\\/]+$/, "") || folder;
+  const names = linked.map(name);
+  const parentLabel = (folder: string) => `${paths.basename(paths.dirname(folder))}/${name(folder)}`;
+  return linked.map((folder, index) => {
+    if (names.filter((other) => other === names[index]).length === 1) return names[index]!;
+    return linked.filter((other) => parentLabel(other) === parentLabel(folder)).length === 1 ? parentLabel(folder) : folder;
+  });
+}
+
 async function clientRoots(config: ServerConfig, workspace: WorkspaceInfo): Promise<Root[]> {
   const linked = await linkableFolders(config, workspace, authorizedFolders(runtimeExternalDirectory(await readRuntimeOpencodeConfig(config, workspace.id))));
-  const names = linked.map((folder) => basename(folder));
-  // Two linked folders with the same name are told apart by their parent, then by the full path.
-  const label = (folder: string, index: number) => {
-    if (names.filter((name) => name === names[index]).length === 1) return names[index]!;
-    const parentLabel = `${basename(dirname(folder))}/${names[index]}`;
-    return linked.filter((other) => `${basename(dirname(other))}/${basename(other)}` === parentLabel).length === 1 ? parentLabel : folder;
-  };
-  const roots = [{ path: workspace.path, label: null }, ...linked.map((folder, index) => ({ path: folder, label: label(folder, index) }))];
+  const labels = linkedFolderLabels(linked);
+  const roots = [{ path: workspace.path, label: null }, ...linked.map((folder, index) => ({ path: folder, label: labels[index]! }))];
   return Promise.all(roots.map(async (root) => ({ ...root, canonical: await resolveWorkspaceFilePath(root.path, ".", { allowRoot: true }) })));
 }
 

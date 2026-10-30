@@ -2,14 +2,14 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { access, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix, win32 } from "node:path";
 import { closeRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
 import { auditLogPath } from "../audit.js";
 import { fileOperationReport } from "../opencode-plugins/lawoss-file-operations-text.js";
-import { applyFileOperations, confusableNames, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, LAWOSS_TRASH_FOLDER, planFileOperations, systemTrashReliable, visibleName, type PlannedFileOperation } from "./file-operations.js";
+import { applyFileOperations, confusableNames, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, LAWOSS_TRASH_FOLDER, linkedFolderLabels, planFileOperations, systemTrashReliable, visibleName, type PlannedFileOperation } from "./file-operations.js";
 
 const roots: string[] = [];
 const stops: Array<() => void | Promise<void>> = [];
@@ -519,6 +519,15 @@ test("N-A5-10: a case written as its code alone resolves to its folder; several 
   await mkdir(join(client, "Spisy", "M0010-ine"), { recursive: true });
   expect((await planFileOperations(config, workspace, [{ operation: "create_folder", path: join(client, "Spisy", "M001", "Nove") }])).operations[0]?.to)
     .toBe("Spisy/M001-uhrada-dodavok-riadiacich-jednotiek/Nove");
+});
+
+test("a linked drive root is labelled by its drive on the card, never left blank like the client folder (review #221)", () => {
+  expect(linkedFolderLabels(["Z:\\", "C:\\Data\\Podklady"], win32)).toEqual(["Z:", "Podklady"]);
+  expect(linkedFolderLabels(["Z:\\", "Y:/"], win32)).toEqual(["Z:", "Y:"]);
+  // UNC shares and ordinary folders keep their names; same names are still told apart by the parent.
+  expect(linkedFolderLabels(["\\\\nas\\share", "D:\\A\\Spisy", "D:\\B\\Spisy"], win32)).toEqual(["share", "A/Spisy", "B/Spisy"]);
+  expect(linkedFolderLabels(["/Volumes/NAS", "/mnt/x/NAS"], posix)).toEqual(["Volumes/NAS", "x/NAS"]);
+  expect(linkedFolderLabels(["Z:\\"], win32).every(Boolean)).toBe(true);
 });
 
 test("#274: a nested client inside one of two case folders does not hide that case; the code stays ambiguous", async () => {
