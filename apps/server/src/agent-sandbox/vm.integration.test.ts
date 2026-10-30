@@ -299,14 +299,18 @@ print(json.dumps(results))
   }, 180_000);
 
   test("approved curl, Python and Node HTTPS can complete through the broker", async () => {
+    // LAWOSS #222: the host side of the broker answers with a fixed page instead of fetching example.com, whose 4xx/5xx
+    // turned the required check red. Guest TLS interception, the three clients and the transport are still exercised.
     const requests: string[] = [];
-    const result = await sandbox.run({ command: `set -e
+    const page = { status: 200, headers: { "content-type": "text/html" }, bodyBase64: Buffer.from("<title>Example Domain</title>").toString("base64") };
+    const brokered = new VmSandbox(sandbox.resources, "auto", { maxRequests: 3, request: async (request) => { requests.push(request.url); return page; } });
+    const result = await brokered.run({ command: `set -e
 curl --silent --show-error --fail https://example.com/
 python3 -c 'import urllib.request; assert b"Example Domain" in urllib.request.urlopen("https://example.com/").read(); print("Python HTTPS passed")'
 node -e 'fetch("https://example.com/").then(r=>r.text()).then(t=>{if(!t.includes("Example Domain")) process.exit(1); console.log("Node HTTPS passed")})'`,
       cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }],
       timeoutMs: 30_000, signal: new AbortController().signal,
-      authorizeNetwork: async (request) => { requests.push(request.url); return true; },
+      authorizeNetwork: async () => { throw new Error("The recorded broker decides"); },
     });
     expect(result.exitCode).toBe(0);
     expect(requests).toEqual(Array(3).fill("https://example.com/"));

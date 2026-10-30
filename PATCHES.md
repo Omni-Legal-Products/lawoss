@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Testy sandboxu bez živého example.com (2026-10-27, #222)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/agent-sandbox/vm.integration.test.ts`, `scripts/sandbox/probe.ts` | Schválené HTTPS požiadavky (curl, Python, Node) dostanú pevnú stránku od hostiteľskej strany brokera (`VmSandbox` s voľbou `request`, ten istý zdieľaný VM), nie zo živého `https://example.com/`. Inšpekcia TLS v hosťovi, klienti aj prenos sa overujú ďalej. Dôvod: HTTP 4xx/5xx z example.com zčervenali povinné `LegalWork Tests` (beh 39940431227, curl exit 22) aj `Package and launch` (beh 40206610712, HTTP 503) bez zmeny kódu. Zamietnuté požiadavky internet nepotrebovali ani predtým. Test `network.integration.test.ts` s priamou sieťou (`allow`) živý internet používa ďalej. Pri syncu zachovať. |
+
 ## Test plánovania so skutočným enginom čaká na studený štart priečinkov (2026-10-29)
 
 CI `legalwork-tests (ubuntu-latest)` „Verify scheduling with the shipped engine“ zlyhal 23. 10. a 29. 10. 2026 rovnako po ~12 s: `TimeoutError: The operation timed out.` Test čakal iba na `/global/health`, ktoré inštanciu priečinka nezaloží; prvé volanie s limitom 10 s (`session.create`) tak nieslo aj studený štart priečinka.
