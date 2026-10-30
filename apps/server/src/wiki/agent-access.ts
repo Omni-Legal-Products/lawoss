@@ -181,8 +181,8 @@ const WORKSPACE_TOOL_ROUTES: readonly ToolRule[] = [
   { methods: WRITE, route: /^scheduled-tasks(?:\/preview)?$/ },
   { methods: READ, route: /^project\/(?:setup|remote-folders)$/ },
   { methods: READ, route: /^lawoss\/memory\/(?:grants|context)$/ },
-  // LAWOSS: lawoss_memory (lawoss/matter-memory.ts) reads case memory of this client only; the path goes in the body.
-  { methods: WRITE, route: /^lawoss\/memory\/read$/ },
+  // LAWOSS: lawoss_memory reads, lawoss_memory_write writes after its card (lawoss/matter-memory.ts), this client only; the path goes in the body.
+  { methods: WRITE, route: /^lawoss\/memory\/(?:read|write)$/ },
   { methods: READ, route: /^project\/(?:contents|content)$/, crossProject: true },
   { methods: ["PATCH"], route: /^project\/(?:setup|metadata)$/ },
   { methods: ["GET", "POST"], route: /^files\/content$/ },
@@ -241,6 +241,12 @@ export async function ownWorkspaceFor(config: ServerConfig, directory: string): 
  */
 export const CLIENT_RUNTIME_REQUIRED = "This chat cannot use this client's files now. In this version LAWOSS works with one client at a time: since LAWOSS started, its AI has worked with another client, so this client's files stay closed to protect them. Nothing was read or changed. Tell the user in their language: quit LAWOSS completely, open it again and start with this client's chat; chats of the other client keep working until then.";
 
+/**
+ * LAWOSS (N-A7-17): the model relays this refusal to the lawyer. The usual cause is a task that
+ * continued after LAWOSS restarted, before the lawyer sent anything in this chat again.
+ */
+export const CHAT_NOT_REGISTERED = "This chat cannot use this client's files now: LAWOSS has not confirmed this chat since it last started, for example because LAWOSS restarted during the task. Nothing was read or changed. Stop the task and tell the user in their language, without error codes or technical terms: the task could not be finished after LAWOSS restarted; send the message again.";
+
 /** Engine requests get the session's own data; an all-projects scheduled run may read other projects. */
 export function agentMayList(agent: { workspaceId: string | null; allProjects: boolean }, pathname: string, workspaceId: string): boolean {
   return workspaceId === agent.workspaceId || (agent.allProjects && pathname === "/scheduled-tasks/projects");
@@ -283,7 +289,7 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   const directory = decoded ? await realpath(decoded).catch(() => null) : null;
   if (!directory) throw new ApiError(403, "wiki_agent_directory_mismatch", "The wiki request does not match this session's working directory.");
   const origin = access.sessions.get(sessionId) ?? await inheritedOrigin(config, access, sessionId, directory, request.signal);
-  if (!origin) throw new ApiError(403, "wiki_agent_session_unknown", "Run this task through an authenticated LegalWork session before accessing wikis.");
+  if (!origin) throw new ApiError(403, "wiki_agent_session_unknown", CHAT_NOT_REGISTERED);
   if (directory !== origin.directory)
     throw new ApiError(403, "wiki_agent_directory_mismatch", "The wiki request does not match this session's working directory.");
   const own = await ownWorkspaceFor(config, directory);
@@ -302,7 +308,7 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
       throw new ApiError(403, "wiki_agent_session_mismatch", "Use this route only for this chat.");
     if (tool.workspaceId !== undefined && own?.id !== tool.workspaceId && !(tool.crossProject && allProjects))
       throw new ApiError(403, "wiki_agent_workspace_denied", "Use project tools only in this session's own workspace.");
-    if (/^\/workspace\/[^/]+\/(?:sandbox\/(?:execute|web)|lawoss\/files\/apply)$/.test(pathname)
+    if (/^\/workspace\/[^/]+\/(?:sandbox\/(?:execute|web)|lawoss\/files\/apply|lawoss\/memory\/write)$/.test(pathname)
       && z.object({ sessionID: z.string() }).parse(await request.clone().json()).sessionID !== sessionId)
       throw new ApiError(403, "wiki_agent_session_mismatch", "Use this session's execution settings and approvals.");
     // A scheduled run reaching every project is granted only by a person, never by an agent.

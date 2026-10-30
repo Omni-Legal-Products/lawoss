@@ -24,7 +24,8 @@ test("lawoss_memory posts the case folder of this chat to its own client and nev
   let asked = 0;
   try {
     const plugin = await LawossMemoryTools();
-    expect(Object.keys(plugin.tool)).toEqual([LAWOSS_MEMORY_TOOL]);
+    // Reading has its own tool; writing is lawoss_memory_write with one card (N-A7-10).
+    expect(Object.keys(plugin.tool)).toEqual([LAWOSS_MEMORY_TOOL, "lawoss_memory_write"]);
     const tool = plugin.tool.lawoss_memory;
     const schema = z.object(tool.args), wire = z.fromJSONSchema(z.toJSONSchema(schema));
     expect(wire.safeParse({ action: "write" }).success).toBe(false);
@@ -49,6 +50,7 @@ test("lawoss_memory posts the case folder of this chat to its own client and nev
     await plugin["experimental.chat.system.transform"]({}, output);
     expect(output.system.join("\n")).toContain("lawoss_memory");
     expect(output.system.join("\n")).toContain("instead of ls");
+    expect(output.system.join("\n")).toContain("call lawoss_memory_write");
     // N-A7-7: glob lists files only (rg --files), so an empty folder such as 02_Resers/prazdny-SYN is seen with read
     // on the folder path; opencode v1.18.29 read lists subfolders with a trailing / and an empty one as (0 entries).
     expect(output.system.join("\n")).toContain("glob and grep return files only, so an empty folder never appears in their results.");

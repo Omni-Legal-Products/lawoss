@@ -13,7 +13,14 @@ shell: `action: "preamble"` namiesto `okf-memory preamble`, `action: "read"` nam
 Nástroj vráti ten istý text ako CLI, len v priečinku tohto klienta a bez schvaľovacej karty;
 `complete: false` znamená to isté ako kód 1 CLI a pri `nextOffset` čítaj ďalej. Priečinky
 prezeraj nástrojmi `glob` a `read`, nie `ls` v shelli. Mimo LAWOSS (alebo bez tohto nástroja) spusti CLI.
-Zápis a kontroly (`write`, `init`, `sync`, `retrofit`, `workspace-save`, `validate`, `aml`) idú vždy
+
+**Zápis v LAWOSS jednou kartou.** Záznam pamäte zapisuj nástrojom `lawoss_memory_write`, nie
+`okf-memory write`, `node -e` ani súborom návrhu v shelli: `record` je celý záznam (to isté, čo by
+čítal `--file`), `reason` dôvod, `if_revision` revízia z `lawoss_memory` `read` pri úprave existujúceho
+záznamu, `matter` ako pri čítaní. Nástroj pripraví ten istý náhľad ako `write` bez `--apply`, advokát
+uvidí jednu kartu so zapisovaným textom a súborom a až po schválení sa zapíše tým istým kódom. Ak
+kartu zamietne, nič sa nezapísalo; nezopakuj ju hneď. Nástroj zapisuje len záznam vrstvy L2 v spise;
+L1/L3, mazanie a ostatné príkazy (`init`, `sync`, `retrofit`, `workspace-save`, `validate`, `aml`) idú
 cez CLI a jeho schválenie.
 
 V aplikácii LAWOSS je skill nainštalovaný do `.opencode/skills/okf-pamat/` aj s CLI
@@ -25,7 +32,8 @@ node "<cesta k tomuto skillu>/resources/okf-memory.js" <príkaz> …
 Kancelária je priečinok `Office/` s `okf.config` (trvalé poverenie advokáta);
 `AK/<písmeno>/<klient>/Spisy/<vec>` je predvolený profil. Klienta určuje karta
 `client.md` / `klient.md` v nadradenom priečinku alebo `client_path` v konfigurácii.
-Skill aj CLI fungujú nad obyčajnými Markdown súbormi bez LAWOSS aj bez Obsidianu. Návrh
+Skill aj CLI fungujú nad obyčajnými Markdown súbormi bez LAWOSS aj bez Obsidianu. V LAWOSS
+súbor návrhu nevytváraj vôbec (pošli záznam nástroju `lawoss_memory_write`). Inde návrh
 záznamu (`--file`) píš mimo spis (do dočasného priečinka systému, na Windows `%TEMP%`,
 v PowerShelli `$env:TEMP`) alebo ho po zápise zmaž — do spisu patrí iba to, čo prešlo
 bránou. Ak `node` nie je k dispozícii, **zastav sa a povedz to**.
@@ -317,6 +325,9 @@ Na ban-list (sekcia „Necitovať" v preambule) sa prameň dostane nastavením
 
 ## Zápis
 
+V LAWOSS zapíš záznam L2 nástrojom `lawoss_memory_write` (náhľad a schválenie sú jedna karta).
+Príkazy nižšie platia mimo LAWOSS a pre L1, L3 a mazanie.
+
 ```bash
 # Náhľad — vypíše diff a nič nezapíše
 okf-memory write <spis> --file navrh.md --reason "prečo sa to mení"
@@ -433,8 +444,8 @@ Píš, čo musí čitateľ vedieť, aby našiel podklad:
 Než skončíš, prejdi čo sa v session stalo a navrhni zápisy:
 
 1. zmena stavu veci → `matter` · taktická voľba → `decision` · nový termín → `deadlines` v príslušnom zázname
-2. návrhy priprav cez `okf-memory write <spis> --file <navrh.md> --reason "…"` **bez `--apply`** a ukáž diff; pri úprave pridaj `--if-revision` z aktuálneho čítania
-3. Nové, podložené poznatky L2 zapíš s `--apply` v rozsahu zadania; L1/L3 vyžaduje schválenie advokáta (`--approve-as`)
+2. návrhy priprav cez `okf-memory write <spis> --file <navrh.md> --reason "…"` **bez `--apply`** a ukáž diff; pri úprave pridaj `--if-revision` z aktuálneho čítania (v LAWOSS `lawoss_memory_write`, ktorý náhľad ukáže na karte)
+3. Nové, podložené poznatky L2 zapíš s `--apply` (v LAWOSS po schválení karty `lawoss_memory_write`) v rozsahu zadania; L1/L3 vyžaduje schválenie advokáta (`--approve-as`)
    alebo platné trvalé poverenie, ktoré danú vrstvu pokrýva
 4. ak advokát tvoj výstup v session prepísal, navrhni `lesson` — čo nabudúce inak
 
