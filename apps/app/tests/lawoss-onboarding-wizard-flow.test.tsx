@@ -145,6 +145,24 @@ describe("C1 fix 1: riadenie sprievodcu", () => {
     expect([registered.length, steps, current]).toEqual([1, ["new:ai"], "ai"]);
     expect(readOnboardingProgress(storage)).toMatchObject({ step: "ai", connected: clients, found: { selected: ["A"] } });
   });
+  test("vybraný priečinok sa po skorej registrácii uloží cez klienta z registrácie, s krokom v jednom zápise", async () => {
+    const patches: string[] = [];
+    const writer = (name: string) => ({ updateOnboardingProfile: async (patch: object) => { patches.push(`${name}:${JSON.stringify(patch)}`); return profile(); } });
+    let live = writer("old");
+    const flow = createWizardFlow({
+      live: () => live, storage: () => null, currentStep: () => "found",
+      register: async () => undefined, onStep: () => undefined,
+    });
+    live = writer("new");
+    await flow.rememberFoundRoot("/p/ina");
+    await flow.rememberFoundRoot(null);
+    await flow.move("found", { foundRoot: "/p/prax" });
+    expect(patches).toEqual([
+      'new:{"foundRoot":"/p/ina","step":"found"}',
+      'new:{"foundRoot":null}',
+      'new:{"foundRoot":"/p/prax","step":"found"}',
+    ]);
+  });
   test("ak advokát počas zápisu odišiel na iný krok, sprievodca ho neprenesie; nová kancelária sa neregistruje", async () => {
     let current: OnboardingStep = "folder";
     let registered = 0;

@@ -729,7 +729,7 @@ export function LawossWelcomePage({
    */
   const acknowledgeOkf = async (patch: Pick<Partial<OnboardingProfile>, "step"> = {}) => {
     if (!needsOkfAcknowledgement(profile)) return;
-    setProfile(await api.updateOnboardingProfile({ okf: okfChoice(true, new Date()), ...patch }));
+    setProfile(await (registeredApi.current ?? api).updateOnboardingProfile({ okf: okfChoice(true, new Date()), ...patch }));
   };
   // Formulár klienta (`?continue=client`) zapisuje súbory OKF do priečinka klienta.
   const writesClientOkf = preview?.request.action === "client" || preview?.request.action === "existing";
@@ -743,7 +743,7 @@ export function LawossWelcomePage({
   });
   const move = async (
     next: OnboardingStep,
-    patch: Pick<Partial<OnboardingProfile>, "okf"> = {},
+    patch: Parameters<typeof flow.move>[1] = {},
   ) => {
     setBusy(true);
     setError(null);
@@ -892,10 +892,12 @@ export function LawossWelcomePage({
   /**
    * Vybraný priečinok sa uloží do profilu na obnovu po prerušení (M1); tok z bočného panela po dokončenom
    * onboardingu obnovu nemá. Zlyhaný zápis výber nezastaví, obnova len nebude vedieť priečinok.
+   * Sprievodca ho posiela spolu s krokom (`foundRootPatch`), aby staršia odpoveď neprepísala novší profil.
    */
+  const foundRootPatch = (root: string | null) => (sidebarFlow || !profile ? {} : { foundRoot: root });
   const rememberFoundRoot = (root: string | null) => {
     if (sidebarFlow || !profile) return;
-    void api.updateOnboardingProfile(root ? { foundRoot: root, step: "found" } : { foundRoot: null })
+    void flow.rememberFoundRoot(root)
       .then(setProfile, (reason: unknown) => console.warn("[lawoss] onboarding resume folder", reason));
   };
   /** Nový priečinok: staré voľby a pripojenie patria inému priečinku a zabudnú sa. */
@@ -908,15 +910,15 @@ export function LawossWelcomePage({
     setError(null);
     if (root !== foundRoot || connected?.kind === "fresh") forgetConnection();
     setFoundRoot(root);
-    rememberFoundRoot(root);
-    if (wizard) void move("found");
+    if (wizard) void move("found", foundRootPatch(root));
+    else rememberFoundRoot(root);
   };
   const changeFolder = () => {
     setError(null);
     setFoundRoot(null);
-    rememberFoundRoot(null);
     forgetConnection();
-    if (wizard) void move("folder");
+    if (wizard) void move("folder", foundRootPatch(null));
+    else rememberFoundRoot(null);
   };
   /**
    * Krok „Toto sme našli“ pripojil priečinok: zapamätá sa (návrat, obnova, súhrn), priečinok sa zaregistruje,
@@ -973,12 +975,11 @@ export function LawossWelcomePage({
         if (!root) { await complete(result, FRESH_OFFICE_COMPLETION); return; }
         // Nová kancelária: predtým vybraný priečinok sa zabudne aj na serveri (krok Dokumenty ho už neponúkne).
         setFoundRoot(null);
-        rememberFoundRoot(null);
         setSavedChoice(undefined);
         const next: WizardConnected = { kind: "fresh", root, result };
         setConnected(next);
         patchOnboardingProgress(storage(), { found: undefined, connected: next });
-        await move("found");
+        await move("found", foundRootPatch(null));
       }}
       onError={reportError}
       onClearError={clearError}
