@@ -1,5 +1,14 @@
 # LAWOSS downstream patches
 
+## Skrátenie rozhovoru namiesto „Vrátiť späť“ (2026-10-28, N-A7-9)
+
+Rozhodnutie MČ 28. 10. 2026: variant C návrhu k N-A7-9. Engine 1.18.29 vracia súbory len v git projekte a priečinky klientov git nie sú, preto akcia len skráti rozhovor. Texty a okno sú v LAWOSS súboroch (`lawoss/chat/trim-confirm.ts`, `trim-confirm-host.tsx`, `lawoss/i18n/shell.ts`, `terms.ts`, `sk.ts`, `cs.ts`).
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `handleRevertToUserMessage` a `handleEditUserMessage` sa pred `onRevertToMessage` opýtajú cez `confirmChatTrim()` (Zrušiť / Rozvetviť do nového chatu / Skrátiť rozhovor, pri úprave Zrušiť / Upraviť). Rozvetvenie dostane prvú odstránenú otázku, takže nový chat obsahuje skrátený rozhovor a pôvodný ostane celý. Po skrátení krátke hlásenie, že súbory sa nezmenili. |
+| `apps/app/src/react-app/shell/providers.tsx` | Pripája `ChatTrimConfirmHost` vedľa `ProviderOverwriteConfirmHost`. |
+
 ## Správa z frontu po reštarte appky (2026-10-28, N-A7-17)
 
 Úplný UI test dev `f8acb4bd` (28. 10. 2026), J2: správa čakajúca vo fronte počas behu sa po reštarte servera doručila sama (`SessionMessageQueue.tick`), bez požiadavky advokáta. Pôvod chatu pre nástroje (`grantWikiAgentSession`) žije len v pamäti procesu a zapisuje sa pri `POST …/queue`, preto nástroje doručeného ťahu dostali 403 `wiki_agent_session_unknown` a model advokátovi hlásil „chybu 403“. Regresia v `apps/server/src/lawoss/queue-restart-agent-access.e2e.test.ts`.
