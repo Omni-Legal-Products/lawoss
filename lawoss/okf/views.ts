@@ -156,7 +156,7 @@ const within = (dir: string, path: string): boolean => dir === "" || path === di
 
 /**
  * `../01_Podklady/x.pdf` voči `memory/` záznamu → cesta v rozsahu prehľadu. Výsledok musí ležať
- * v niektorom z `roots` (priečinok prípadu, jeho klienta); inak nič — dokument iného klienta sa neotvorí.
+ * v niektorom z `roots` (priečinok prípadu, jeho klienta; „“ len pri prípade v koreni); inak nič — dokument iného klienta sa neotvorí.
  */
 export function resolveDocument(recordFile: string | undefined, resource: string | undefined, roots: readonly string[]): string | undefined {
   if (!recordFile || !resource || /^[a-z]+:/i.test(resource) || resource.startsWith("/") || resource.includes("\\")) return undefined;
@@ -166,7 +166,7 @@ export function resolveDocument(recordFile: string | undefined, resource: string
     if (part === "..") { if (!parts.length) return undefined; parts.pop(); } else parts.push(part);
   }
   const path = parts.join("/");
-  return path && roots.some((root) => root !== "" && within(root, path)) ? path : undefined;
+  return path && roots.some((root) => within(root, path)) ? path : undefined;
 }
 
 type Ctx = {
@@ -585,7 +585,9 @@ export function buildMatterViews(input: MatterInput, today: string): MatterViews
   const office = input.records.filter((r) => !isRetired(r) && isOfficeFile(input.recordFiles?.[r.id]));
   const titles = new Map(input.records.map((r) => [r.id, r.title]));
   const matterRecord = own.find((r) => r.type === "matter");
-  const roots = [input.path, ...scopeLevels(input.scopePaths ?? []).filter((s) => s.level === "client").map((s) => s.path)].filter((p) => p !== "");
+  // Prípad otvorený priamo ako koreň (path „“): celý pracovný priestor je prípad. Inak „“ (koreň nad klientom) koreňom nie je.
+  const roots = input.path === "" ? [""]
+    : [input.path, ...scopeLevels(input.scopePaths ?? []).filter((s) => s.level === "client").map((s) => s.path)].filter((p) => p !== "");
   const ctx: Ctx = {
     input, card, today, own, live, office, roots,
     cardFile: input.cardPath ?? joinPath(input.path, "matter.md"),
