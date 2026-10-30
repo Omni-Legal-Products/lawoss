@@ -8,6 +8,24 @@ CI `legalwork-tests (ubuntu-latest)` „Verify scheduling with the shipped engin
 | --- | --- |
 | `apps/server/src/scheduled-tasks/engine.test.ts` | Po `/global/health` počká na `GET /mcp?directory=…` (rovnaká pripravenosť ako `createOpencodeDirectoryFetch` v serveri) pre oba priečinky testu s vlastným limitom 90 s a overí stav 200 a JSON objekt. Limity 10 s/25 s jednotlivých operácií ostávajú. Celkový limit testu 60 s → 180 s (rovnako ako `--timeout` v CI), aby sa zmestil štart 20 s, pripravenosť 90 s a operácie. +2 komentáre. |
 
+## Skrátenie rozhovoru namiesto „Vrátiť späť“ (2026-10-28, N-A7-9)
+
+Rozhodnutie MČ 28. 10. 2026: variant C návrhu k N-A7-9. Engine 1.18.29 vracia súbory len v git projekte a priečinky klientov git nie sú, preto akcia len skráti rozhovor. Texty a okno sú v LAWOSS súboroch (`lawoss/chat/trim-confirm.ts`, `trim-confirm-host.tsx`, `lawoss/i18n/shell.ts`, `terms.ts`, `sk.ts`, `cs.ts`).
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `handleRevertToUserMessage` a `handleEditUserMessage` sa pred `onRevertToMessage` opýtajú cez `confirmChatTrim()` (Zrušiť / Rozvetviť do nového chatu / Skrátiť rozhovor, pri úprave Zrušiť / Upraviť). Rozvetvenie dostane prvú odstránenú otázku, takže nový chat obsahuje skrátený rozhovor a pôvodný ostane celý. Po skrátení krátke hlásenie, že súbory sa nezmenili. |
+| `apps/app/src/react-app/shell/providers.tsx` | Pripája `ChatTrimConfirmHost` vedľa `ProviderOverwriteConfirmHost`. |
+
+## Správa z frontu po reštarte appky (2026-10-28, N-A7-17)
+
+Úplný UI test dev `f8acb4bd` (28. 10. 2026), J2: správa čakajúca vo fronte počas behu sa po reštarte servera doručila sama (`SessionMessageQueue.tick`), bez požiadavky advokáta. Pôvod chatu pre nástroje (`grantWikiAgentSession`) žije len v pamäti procesu a zapisuje sa pri `POST …/queue`, preto nástroje doručeného ťahu dostali 403 `wiki_agent_session_unknown` a model advokátovi hlásil „chybu 403“. Regresia v `apps/server/src/lawoss/queue-restart-agent-access.e2e.test.ts`.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/session-message-queue.ts` | `load()`: front obnovený po reštarte s čakajúcou správou (`queued`) sa pozastaví (`pauseReason: "stop"`) a sám nič nedoručí. Advokát vidí „Front je pozastavený“ s tlačidlom „Obnoviť front“; to alebo jeho ďalšia správa v chate (`POST …/queue`) zaregistruje chat s jeho rozsahom a až potom sa správa doručí. Doručenie na pozadí tak nepripne proces enginu ku klientovi (`clientRoot`) ani nezníži `credentialScope`. Už pozastavený front a položky `uncertain` sa správajú ako doteraz. |
+| `apps/server/src/wiki/agent-access.ts` | Neznámy chat dostane namiesto „Run this task through an authenticated LegalWork session before accessing wikis.“ vetu `CHAT_NOT_REGISTERED` pre model: úlohu zastaviť a advokátovi povedať v jeho jazyku, bez kódov, že po reštarte ju treba poslať znova. Kód chyby ostáva. |
+
 ## Jeden dialóg pri zahodení zmien v dokumente (2026-10-28, N-A7-16)
 
 Úplný UI test dev `f8acb4bd` (28. 10. 2026): po „Zahodiť zmeny“ pri zatváraní karty DOCX ostal viditeľný dialóg „Zahodiť zmeny v súbore ? …“ a dalo sa v ňom kliknúť na „Zrušiť“. Druhá výzva nevzniká; bol to ten istý `ConfirmModal` s `open=false`, ktorý Base UI nechá pripojený, kým nedobehne zatváracia animácia (pozadie je počas nej inertné, okno dialógu nie).
