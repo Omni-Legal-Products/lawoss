@@ -1,5 +1,15 @@
 # LAWOSS downstream patches
 
+## Sandbox VM pod softvérovou emuláciou nepanikári pri štarte (2026-10-29)
+
+CI `sandbox-runtime (macos-15-intel)` beží bez hypervízora (`[sandbox] tcg`). V 3 z 9 zlyhaní z 20.–28. 10. 2026 jadro hosťa padlo hneď pri štarte: „MP-BIOS bug: 8254 timer not connected to IO-APIC … Kernel panic … IO-APIC + timer doesn't work!“. Kontrola časovača jadra x86 pri pomalej emulácii nestihne svoje okno. Rovnaký `tcg` použije aj počítač používateľa bez hypervízora (napr. Windows bez WHPX).
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/agent-sandbox/vm.ts` | +1 import; `-append` berie reťazec z nového `apps/server/src/lawoss/sandbox-kernel-command-line.ts`, ktorý pre x86 pod `tcg` pridá `no_timer_check` (ako bežné VM obrazy). Hardvérová akcelerácia a ARM majú argumenty bez zmeny. Upstream `v0.3.0` aj `upstream/dev` majú rovnaký `-append`. |
+
+Nový LAWOSS súbor: `apps/server/src/lawoss/sandbox-kernel-command-line.ts` + test.
+
 ## Chyba štartu enginu nestratí posledný výstup (2026-10-29)
 
 CI `legalwork-tests (ubuntu-latest)` na #314 (29. 10. 2026): `does NOT retry a non-lock start failure` dostal iba „OpenCode server exited with code 1“ bez stderr. Udalosť `exit` môže prísť skôr než posledný kus stderr; rovnako by sa stratilo „database is locked“ a štart enginu by sa namiesto opakovania vzdal.
