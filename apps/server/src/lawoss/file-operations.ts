@@ -149,7 +149,33 @@ function inNestedClient(nested: readonly string[], canonical: string): boolean {
 const CASE_CODE = /^\p{Lu}{1,3}\d{3,5}$/u;
 const CODE_SEPARATOR = /^[-_ .]/;
 
-async function expandCaseCodes(roots: Root[], requested: string, nested: readonly string[]): Promise<string> {
+/** What earlier operations of the same request created or took away, as the plan sees the disk after them. */
+type Pending = { created: ReadonlyMap<string, "file" | "folder">; removed: ReadonlySet<string> };
+
+/**
+ * Folders in `directory` after the earlier operations of the request (#274): a folder created earlier counts, one moved
+ * or deleted earlier does not. Without this, a code could resolve to the folder that is leaving, or skip a new one.
+ */
+async function foldersAfterPlan(directory: string, pending: Pending): Promise<string[]> {
+  const here = folded(directory);
+  // The first folder below `directory` on the way to each planned path: create_folder also creates missing parents.
+  // Its name comes from the planned path itself; only `directory` is compared folded, as it may be written differently.
+  const depth = directory.split(sep).length;
+  const added = [...pending.created].flatMap(([path, kind]) => {
+    const parts = path.split(sep);
+    const below = parts.length - depth;
+    if (!isPathWithin(here, folded(path)) || !(below > 1 || (below === 1 && kind === "folder"))) return [];
+    // A planned child of a folder moved away later went with it, unless that folder was created again since.
+    const folder = parts.slice(0, depth + 1).join(sep);
+    return pending.created.has(folder) || ![...pending.removed].some((gone) => isPathWithin(gone, path)) ? [parts[depth]!] : [];
+  });
+  // The name is compared exactly: NFC and NFD spellings are separate folders on Linux (review #274).
+  const gone = (name: string) => [...pending.removed].some((path) => (folded(dirname(path)) === here && basename(path) === name) || isPathWithin(folded(path), here));
+  const listed = (await readdir(directory, { withFileTypes: true }).catch(() => [])).filter((entry) => entry.isDirectory() && !gone(entry.name)).map((entry) => entry.name);
+  return [...new Set([...listed, ...added])];
+}
+
+async function expandCaseCodes(roots: Root[], requested: string, nested: readonly string[], pending: Pending): Promise<string> {
   for (const root of isAbsolute(requested) ? roots : roots.slice(0, 1)) {
     const inside = relative(root.path, isAbsolute(requested) ? requested : join(root.path, requested));
     if (!inside || inside.startsWith("..") || isAbsolute(inside)) continue;
@@ -164,10 +190,13 @@ async function expandCaseCodes(roots: Root[], requested: string, nested: readonl
       if (info) { current = join(current, part); real = join(real, part); continue; }
       const code = part.normalize("NFC");
       if (!CASE_CODE.test(code)) break;
-      const matches = (await readdir(real, { withFileTypes: true }).catch(() => []))
-        .filter((entry) => entry.isDirectory() && entry.name.normalize("NFC").toUpperCase().startsWith(code.toUpperCase())
-          && CODE_SEPARATOR.test(entry.name.normalize("NFC").slice(code.length)) && !inNestedClient(nested, join(real, entry.name)))
-        .map((entry) => entry.name).sort();
+      // Len priečinok, ktorý sám leží vo vnorenom klientovi, sa vynechá; vec, ktorá vnoreného klienta obsahuje, ostane
+      // v porovnaní, inak by sa nejednoznačný kód ticho rozvinul na inú vec (#274). `locate` ju pritom neodmietne.
+      const matches = (await foldersAfterPlan(real, pending))
+        .filter((name) => name.normalize("NFC").toUpperCase().startsWith(code.toUpperCase())
+          && CODE_SEPARATOR.test(name.normalize("NFC").slice(code.length))
+          && !nested.some((other) => isPathWithin(folded(other), folded(join(real, name)))))
+        .sort();
       if (matches.length > 1)
         throw new ApiError(409, "file_operation_ambiguous_case", `Several folders match ${visibleName(code)}: ${matches.map(visibleName).join(", ")}. Nothing was changed. Ask the user which one they mean.`);
       if (matches.length === 0) break;
@@ -182,8 +211,8 @@ async function expandCaseCodes(roots: Root[], requested: string, nested: readonl
 }
 
 /** The canonical path in the client's folder or a linked folder; a link itself is moved, not its target. */
-async function locate(roots: Root[], written: string, nested: readonly string[], expand = true): Promise<Located> {
-  const requested = expand ? await expandCaseCodes(roots, written, nested) : written;
+async function locate(roots: Root[], written: string, nested: readonly string[], pending: Pending | null): Promise<Located> {
+  const requested = pending ? await expandCaseCodes(roots, written, nested, pending) : written;
   for (const root of roots) {
     const canonical = await resolveWorkspaceFilePath(root.path, requested, { preserveLeaf: true }).catch(() => null);
     if (!canonical) continue;
@@ -291,7 +320,7 @@ async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, inpu
   if (workspace.preset === "wiki") throw new ApiError(409, "file_operation_wiki", "Use the wiki tools to change wiki pages.");
   const operations = operationsSchema.parse(input);
   const roots = await clientRoots(config, workspace), nested = await nestedClientRoots(config, workspace);
-  const created = new Map<string, "file" | "folder">(), removed = new Set<string>();
+  const created = new Map<string, "file" | "folder">(), removed = new Set<string>(), pending: Pending = { created, removed };
   const exists = async (location: string) => created.has(location)
     || ![...removed].some((gone) => isPathWithin(gone, location)) && (await present(location)) !== null;
   const kindOf = async (location: string): Promise<"file" | "folder"> => created.get(location) ?? ((await lstat(location)).isDirectory() ? "folder" : "file");
@@ -306,7 +335,7 @@ async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, inpu
   for (const operation of operations) {
     if (operation.operation === "create_folder" || operation.operation === "delete") {
       // The client's folder or a linked folder itself is never a target (resolveWorkspaceFilePath refuses the root).
-      const target = await locate(roots, operation.path, nested);
+      const target = await locate(roots, operation.path, nested, pending);
       if (operation.operation === "create_folder") {
         if (await exists(target.canonical)) throw new ApiError(409, "file_operation_target_exists", `${target.display} already exists. Nothing was changed. ${NEW_NAME}`);
         created.set(target.canonical, "folder");
@@ -323,7 +352,7 @@ async function planInternal(config: ServerConfig, workspace: WorkspaceInfo, inpu
         ...(similar.length ? { similar } : {}) });
       continue;
     }
-    const source = await locate(roots, operation.from, nested), target = await locate(roots, operation.to, nested);
+    const source = await locate(roots, operation.from, nested, pending), target = await locate(roots, operation.to, nested, pending);
     if (!await exists(source.canonical)) throw new ApiError(404, "file_operation_missing", `${source.display} does not exist. Nothing was changed.`);
     const caseOnly = operation.operation === "move" && !created.has(target.canonical) && await sameNode(source.canonical, target.canonical);
     if (!caseOnly && await exists(target.canonical)) throw new ApiError(409, "file_operation_target_exists", `${target.display} already exists. This tool never overwrites. Nothing was changed. ${NEW_NAME}`);
@@ -505,7 +534,7 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
   // An earlier step of the same request may move a link (or a folder holding one) to a name the plan saw as free:
   // every path must still pass the plan's checks and lead to the same place right before its step.
   // Plánované cesty sú už skutočné: kód prípadu sa tu znova nedopĺňa (priečinok vytvorený skôr v tej istej zmene).
-  const unchanged = async (location: string | undefined) => !location || (await locate(roots, location, nested, false).catch(() => null))?.canonical === location;
+  const unchanged = async (location: string | undefined) => !location || (await locate(roots, location, nested, null).catch(() => null))?.canonical === location;
   if (JSON.stringify(withoutHints(publicPlan(plan))) !== JSON.stringify(withoutHints(approved)) || revisionOf(plan) !== revision)
     throw new ApiError(409, "file_operation_changed", "The files changed after the approval card was shown. Nothing was changed. Ask the user before trying again.");
   return withFileEditorHandoff({ write: true, sessionID }, async () => {

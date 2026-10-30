@@ -1,10 +1,14 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { lstat, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findOfficeConfigs, inspectOnboardingParent, inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
 import { planClientConversion, planShallowClientConversion } from "../src/onboarding/plan.ts";
+
+// Zápis onboardingu robí fsync každého súboru. Na runneri Windows zriedka trvá jeden test vyše 5 s
+// (predvolený limit Bunu), inak menej ako 1 s; po vypršaní limitu afterEach zmaže priečinok bežiaceho zápisu.
+setDefaultTimeout(30_000);
 
 /**
  * „Nie, len pridaj OKF súbory“ (convert) na skutočnom priečinku klienta: plán stojí na plytkej

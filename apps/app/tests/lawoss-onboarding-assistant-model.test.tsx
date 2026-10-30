@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 import type { ModelRef } from "../src/app/types";
+import { isFreeModel } from "../src/lawoss/shell/free-models";
 import {
-  isFreeModel,
   onboardingAutoModel,
   onboardingModelChoices,
   onboardingModelView,
