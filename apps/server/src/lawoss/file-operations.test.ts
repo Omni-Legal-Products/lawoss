@@ -9,7 +9,7 @@ import type { ServerConfig } from "../types.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
 import { auditLogPath } from "../audit.js";
 import { fileOperationReport } from "../opencode-plugins/lawoss-file-operations-text.js";
-import { applyFileOperations, confusableNames, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, LAWOSS_TRASH_FOLDER, linkedFolderLabels, planFileOperations, systemTrashReliable, visibleName, type PlannedFileOperation } from "./file-operations.js";
+import { applyFileOperations, confusableNames, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, moveAcrossVolumes, LAWOSS_TRASH_FOLDER, linkedFolderLabels, planFileOperations, systemTrashReliable, visibleName, type PlannedFileOperation } from "./file-operations.js";
 
 const roots: string[] = [];
 const stops: Array<() => void | Promise<void>> = [];
@@ -329,6 +329,63 @@ test.skipIf(!otherVolumeReady)("a move to a linked folder on another volume copi
   // The originals are recoverable in the client's own Trash folder (no desktop host in this test).
   for (const entry of result.results) expect(entry.trash).toMatch(new RegExp(`^${LAWOSS_TRASH_FOLDER}/`));
   expect(await readdir(client)).not.toContain("poznamky.txt");
+});
+
+// #223: zrušený chat (alebo odpojená požiadavka) nenechá na druhom disku polovičnú kópiu, z ktorej by opakovanie skončilo „target exists“.
+test("a cancelled move to another drive removes its copy and keeps the original (#223)", async () => {
+  const { config, client } = await office();
+  const step = { operation: "move" as const, kind: "folder" as const, from: "Pripady", to: "Presunute", source: join(client, "Pripady"), target: join(client, "Presunute"), sourceRoot: client };
+  const before = new AbortController();
+  before.abort();
+  await expect(moveAcrossVolumes(config, step, before.signal)).rejects.toMatchObject({ name: "AbortError" });
+  expect(await readdir(client)).not.toContain("Presunute");
+  // Zrušené počas kopírovania: kópia sa odstráni, originál ostáva a do Koša nejde nič.
+  const during = new AbortController();
+  const moving = moveAcrossVolumes(config, step, during.signal);
+  during.abort();
+  await expect(moving).rejects.toMatchObject({ name: "AbortError" });
+  expect(await readdir(client)).not.toContain("Presunute");
+  expect(await readdir(client)).not.toContain(LAWOSS_TRASH_FOLDER);
+  expect(await readFile(join(client, "Pripady", "M001", "zmluva.txt"), "utf8")).toBe("SYN zmluva");
+});
+
+test("a move cancelled at its last check, after the copy is verified, keeps the original out of the Trash (#223, Codex)", async () => {
+  const { config, client } = await office();
+  await mkdir(join(client, "Druhe", "M001"), { recursive: true });
+  await writeFile(join(client, "Druhe", "M001", "zmluva.txt"), "SYN zmluva");
+  const step = (from: string) => ({ operation: "move" as const, kind: "folder" as const, from, to: `${from}-presun`, source: join(client, from), target: join(client, `${from}-presun`), sourceRoot: client });
+  /** Counts the checks made while hashing; the chat stops right after the given one has passed. */
+  const checks = (abortAt: number) => {
+    const controller = new AbortController();
+    let count = 0;
+    const own = controller.signal.throwIfAborted.bind(controller.signal);
+    controller.signal.throwIfAborted = () => {
+      own();
+      if (!new Error().stack?.includes("treeDigest")) return;
+      count += 1;
+      if (count === abortAt) controller.abort();
+    };
+    return { signal: controller.signal, count: () => count };
+  };
+  // A full move of an identical folder tells how many; the chat stops after the last one, while the last file is read.
+  const full = checks(0);
+  await moveAcrossVolumes(config, step("Pripady"), full.signal);
+  expect(full.count()).toBeGreaterThan(0);
+  const last = checks(full.count());
+  await expect(moveAcrossVolumes(config, step("Druhe"), last.signal)).rejects.toMatchObject({ name: "AbortError" });
+  expect(await readFile(join(client, "Druhe", "M001", "zmluva.txt"), "utf8")).toBe("SYN zmluva");
+  expect(await readdir(client)).not.toContain("Druhe-presun");
+});
+
+test("a cancelled request runs no further step (#223)", async () => {
+  const { config, client, workspace } = await office();
+  const operations = [{ operation: "create_folder", path: join(client, "Novy") }];
+  const plan = await planFileOperations(config, workspace, operations);
+  const cancelled = new AbortController();
+  cancelled.abort();
+  const result = await applyFileOperations(config, workspace, operations, plan.operations, plan.revision, undefined, undefined, cancelled.signal);
+  expect(result).toMatchObject({ complete: false, results: [{ status: "failed" }] });
+  expect(await readdir(client)).not.toContain("Novy");
 });
 
 test("on Windows only the system drive's Recycle Bin is trusted; network and other drives use .lawoss-kos (review #221)", () => {
