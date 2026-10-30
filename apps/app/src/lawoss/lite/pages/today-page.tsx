@@ -15,7 +15,7 @@ import { addDays, formatDay, today, useOkfConnection, type OkfReadResult, type O
 import { deadlineKey, deadlineText, dueTextFromDays, isCalendarDay, taskDueView, urgencyOf, type Urgency } from "../../okf/view-rules";
 import { isOfficeFile, taskDue, type MatterOverview } from "../../../../../../lawoss/okf/read";
 import { deadlineCoverage } from "../../../../../../lawoss/okf/views";
-import { appTodayTasks, buildToday, caseDates, nextDeadline, startHere, taskLink, type CaseDate, type StartHere, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
+import { appTodayTasks, buildToday, caseDateRows, caseDates, nextDeadline, startHere, taskLink, type CaseDate, type StartHere, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
 import { appTaskClient, inPractice, openAppTask, useAppTasks } from "../app-tasks";
 import { agendaEvents, type AgendaEvent } from "../agenda-model";
 import { CandidatesPanel, ModeSwitch, MonthCalendar, type ViewMode } from "../agenda-views";
@@ -298,7 +298,7 @@ function CaseDates({ dates, todayIso, locale, text, onMore }: { dates: readonly 
     <h3 className="lw-today-subtitle">{text("case_dates_title")}</h3>
     <p className="lw-today-note">{text("case_dates_note")}</p>
     <ul className="lw-today-list">
-      {dates.slice(0, LIST_ROWS).map((d) => (
+      {caseDateRows(dates, LIST_ROWS).map((d) => (
         <li key={d.key}>
           <Link className="lw-today-deadline" data-urgency={urgencyOf(d.due, todayIso)} data-kind="case-date" to={taskLink(d)} onClick={d.app ? openAppTask(d.id) : undefined}>
             <span className="lw-today-cal" aria-hidden><span>{weekdayShort(d.due, locale)}</span><strong>{dayOfMonth(d.due)}</strong></span>
