@@ -97,3 +97,21 @@ test("matching engine credentials cannot share another host owner's readiness re
   expect(await cachedEngineResponse(await first).json()).toEqual({ owner: "first" });
   expect(await cachedEngineResponse(await second).json()).toEqual({ owner: "second" });
 });
+
+test("a caller cancelled before it waits still observes the shared start's later failure", async () => {
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    let fail: (error: Error) => void = () => {};
+    const shared = new Promise<never>((_, reject) => { fail = reject; });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(abortable(shared, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    fail(new Error("engine unreachable"));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(unhandled).toEqual([]);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+});
