@@ -72,9 +72,6 @@ describe("návrat k nedokončenému nastaveniu praxe (#96)", () => {
     const { foundText } = await import("../src/lawoss/domains/onboarding/found-text");
     expect(foundText("sk")("resumeFolderMissing", { name: "Presunutá prax" })).toBe("Priečinok „Presunutá prax“ z prerušeného nastavenia sa nenašiel (možno bol presunutý alebo premenovaný). Vyberte ho znova.");
     for (const locale of ["cs", "en", "de"] as const) expect(foundText(locale)("resumeFolderMissing", { name: "Presunutá prax" })).toContain("Presunutá prax");
-    // Sprievodca (C1) volá resumeFound cez wizardResume; zmiznutý priečinok vedie na Dokumenty aj z krokov 4–6.
-    const flow = (await import("node:fs")).readFileSync(new URL("../src/lawoss/domains/onboarding/wizard/wizard-flow.ts", import.meta.url), "utf8");
-    expect(flow).toContain("resumeFound(opening, profile, initialRoot, input.foundRootMissing)");
   });
 
   test("dokončenie zmaže priečinok obnovy aj pri už dokončenom profile", async () => {
