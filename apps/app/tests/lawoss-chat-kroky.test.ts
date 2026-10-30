@@ -114,5 +114,32 @@ describe("review N-A5-2/7", () => {
     const pending = { ...snapshot, messages: [{ ...snapshot.messages[0]!, info: { ...snapshot.messages[0]!.info, time: { created: 1 } }, parts: [azure] }] } as unknown as LegalworkSessionSnapshot;
     expect(snapshotToUIMessages(pending)[0]?.parts.map((part) => part.type)).toEqual(["reasoning"]);
   });
+
+  test("#269: krok s nástrojom je hotová správa, jeho komentár ostane po znovuotvorení uvažovaním", () => {
+    // opencode ukladá každý krok s nástrojom ako hotovú správu s finish „tool-calls“; odpoveď príde v ďalšej správe.
+    const step = { id: "prt_step", sessionID: "ses_c3", messageID: "msg_c3", type: "step-start" };
+    const read = { id: "prt_tool", sessionID: "ses_c3", messageID: "msg_c3", type: "tool", tool: "read", callID: "call_1",
+      state: { status: "completed", input: { filePath: "a.md" }, output: "", title: "", metadata: {}, time: { start: 1, end: 2 } } };
+    const message = (id: string, finish: string, parts: unknown[], error?: unknown) => ({
+      info: { id, role: "assistant", sessionID: "ses_c3", finish, ...(error ? { error } : {}), time: { created: 1, completed: 2 } }, parts,
+    });
+    const snapshot = {
+      session: { id: "ses_c3" }, todos: [], status: { type: "idle" },
+      messages: [
+        message("msg_c3", "tool-calls", [step, { ...commentary, messageID: "msg_c3" }, read]),
+        message("msg_c4", "unknown", [{ ...commentary, id: "prt_c4", messageID: "msg_c4" }]),
+        message("msg_c5", "stop", [{ ...answer, messageID: "msg_c5" }]),
+      ],
+    } as unknown as LegalworkSessionSnapshot; // Fixture: len polia, ktoré konverzia číta.
+    const messages = snapshotToUIMessages(snapshot);
+    expect(messages.flatMap((entry) => visibleText(entry.parts, false))).toEqual(["text:## Zhrnutie spisu"]);
+    expect(messages[0]?.parts.filter((part) => part.type === "text" || part.type === "reasoning").map((part) => part.type)).toEqual(["reasoning"]);
+
+    // Ťah, ktorý skončil hneď po komentári (limit krokov, chyba), komentár ukáže ako odpoveď.
+    for (const [finish, error] of [["length", undefined], ["tool-calls", { name: "MessageAbortedError" }]] as const) {
+      const last = { ...snapshot, messages: [message("msg_c6", finish, [{ ...commentary, messageID: "msg_c6" }], error)] } as unknown as LegalworkSessionSnapshot;
+      expect(snapshotToUIMessages(last)[0]?.parts.map((part) => part.type)).toEqual(["text"]);
+    }
+  });
 });
 

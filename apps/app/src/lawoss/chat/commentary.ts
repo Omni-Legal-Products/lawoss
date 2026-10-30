@@ -13,11 +13,22 @@ export function isModelCommentary(part: { type: string }): boolean {
   return Object.values(metadata).some((provider: unknown) => Boolean(provider && typeof provider === "object" && Reflect.get(provider, "phase") === "commentary"));
 }
 
+/** Polia `info` správy z engine, z ktorých sa číta, či končí ťah (správa používateľa ťah nekončí, nemá `completed`). */
+type AssistantTurnInfo = { finish?: unknown; error?: unknown; time?: { created?: unknown; completed?: unknown } };
+
 /**
- * Hotová správa bez inej odpovede (prerušená, chyba, limit krokov hneď po komentári): komentár ostane textom, aby
- * advokát nevidel kroky bez slova odpovede (review N-A5-2).
+ * Správa končí ťah, keď je hotová a nie je len krokom s nástrojom: opencode ukladá každý krok ako hotovú správu
+ * s `finish` „tool-calls“ (či „unknown“) a odpoveď príde až v ďalšej (#269). Chyba ťah ukončí vždy. Rovnaké pravidlo
+ * ako pri koncovej odpovedi v `session-sync.ts`, len chýbajúci `finish` (staršie správy) sa berie ako koniec.
  */
-export function commentaryIsAnswer(parts: readonly { type: string }[], completed: boolean): boolean {
-  return completed && !parts.some((part) => part.type === "text" && !isModelCommentary(part)
+const endsTurn = (info: AssistantTurnInfo): boolean => typeof info.time?.completed === "number"
+  && (Boolean(info.error) || (info.finish !== "tool-calls" && info.finish !== "unknown"));
+
+/**
+ * Správa, ktorá končí ťah bez inej odpovede (prerušená, chyba, limit krokov hneď po komentári): komentár ostane
+ * textom, aby advokát nevidel kroky bez slova odpovede (review N-A5-2).
+ */
+export function commentaryIsAnswer(parts: readonly { type: string }[], info: AssistantTurnInfo): boolean {
+  return endsTurn(info) && !parts.some((part) => part.type === "text" && !isModelCommentary(part)
     && !Reflect.get(part, "synthetic") && !Reflect.get(part, "ignored"));
 }

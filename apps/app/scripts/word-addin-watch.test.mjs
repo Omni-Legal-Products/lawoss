@@ -45,11 +45,13 @@ test('real configuration discovery watches CSS theme, Vite env, build identity a
   try {
     const app=path.join(root,'apps/app'),desktop=path.join(root,'apps/desktop'),shared=path.join(root,'packages/ui');
     for(const dir of [app,desktop,shared])await mkdir(dir,{recursive:true});
-    let runs=0;watcher=await startBuildWatch({directories:wordAddinWatchDirectories(app),debounceMs:10,run:async()=>{runs++;}});
+    // macOS FSEvents can report one write twice, up to ~60ms apart. The production
+    // 100ms debounce coalesces them; each check waits past debounce and latency.
+    let runs=0;watcher=await startBuildWatch({directories:wordAddinWatchDirectories(app),run:async()=>{runs++;}});
     await until(()=>runs===1);await new Promise(r=>setTimeout(r,150)); // macOS FSEvents môže stratiť prvú udalosť v práve vytvorenom priečinku
     for(const file of [path.join(app,'tailwind.config.ts'),path.join(app,'.env.production.local'),path.join(desktop,'package.json'),path.join(shared,'package.json')]){
-      const before=runs;await writeFile(file,'synthetic config');await until(()=>runs>before);await new Promise(r=>setTimeout(r,30));assert.equal(runs,before+1);
+      const before=runs;await writeFile(file,'synthetic config');await until(()=>runs>before);await new Promise(r=>setTimeout(r,150));assert.equal(runs,before+1);
     }
-    const before=runs;await mkdir(path.join(app,'dist-word-addin'));await writeFile(path.join(app,'dist-word-addin/output.js'),'build output');await new Promise(r=>setTimeout(r,40));assert.equal(runs,before,'output writes must not start a build loop');
+    const before=runs;await mkdir(path.join(app,'dist-word-addin'));await writeFile(path.join(app,'dist-word-addin/output.js'),'build output');await new Promise(r=>setTimeout(r,250));assert.equal(runs,before,'output writes must not start a build loop');
   } finally {await watcher?.close();await rm(root,{recursive:true,force:true});}
 });

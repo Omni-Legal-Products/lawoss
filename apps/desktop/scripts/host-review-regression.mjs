@@ -8,17 +8,21 @@ const userData = process.env.LEGALWORK_HOST_REVIEW_USERDATA;
 if (!userData) throw new Error("Use the owned run-host-review-regression.mjs launcher");
 app.setPath("userData", userData);
 app.on("window-all-closed", () => {});
-const watchdog = setTimeout(() => {console.error("Owned host review regression timed out"); app.exit(1);}, 45000);
+// The last entered step names where a hang stopped; it holds fixed labels only.
+let phase = "startup";
+const watchdog = setTimeout(() => {console.error(`Owned host review regression timed out at ${phase}`); app.exit(1);}, 45000);
 let parent;
 const observations = [];
 app.whenReady().then(async () => {
 try {
+  phase = "parent";
   parent = new BrowserWindow({show: false, width: 800, height: 600, webPreferences: {sandbox: true, contextIsolation: true, nodeIntegration: false}});
   await parent.loadURL("data:text/html,<html><body>Owned host review fixture</body></html>");
   const show = createContextReview({BrowserWindow, ipcMain, screen});
   const detail = "EXACT-START\n" + '<script>globalThis.unsafe=true</script>\n<img src="https://invalid.test/">\n'.repeat(180) + "EXACT-END";
   const handler = createHostApprovalHandler({getWindow: () => parent, showContextReview: show, showMessageBox: async () => assert.fail("unbounded native dialog")});
   const run = async action => {
+    phase = `${action}:context`;
     const controller = new AbortController();
     const decision = handler({workspaceId: "synthetic", action: "ai.public.synthetic", actor: {type: "host"}, summary: "Synthetic full context", description: detail, paths: []}, controller.signal);
     let review, state;
@@ -48,9 +52,11 @@ try {
     const area = screen.getDisplayMatching(parent.getBounds()).workArea, bounds = review.getBounds();
     assert.ok(bounds.width <= area.width && bounds.height <= area.height);
     assert.ok(bounds.x >= area.x && bounds.y >= area.y && bounds.x + bounds.width <= area.x + area.width && bounds.y + bounds.height <= area.y + area.height, JSON.stringify({bounds, area}));
+    phase = `${action}:window-open`;
     const count = BrowserWindow.getAllWindows().length;
     await review.webContents.executeJavaScript("window.open('https://invalid.test/')");
     assert.equal(BrowserWindow.getAllWindows().length, count);
+    phase = `${action}:decision`;
     const textHash = createHash("sha256").update(state.text).digest("hex");
     if (action === "allow") await review.webContents.executeJavaScript("document.getElementById('allow').click()");
     if (action === "deny") await review.webContents.executeJavaScript("document.getElementById('deny').click()");

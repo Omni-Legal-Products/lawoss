@@ -67,8 +67,6 @@ export type OkfClient = {
 
 /** Predvolené priečinky na nezaradené; zdieľa ich aj server pri presune z nezaradených (N-A7-6). */
 export { INBOX_FOLDERS };
-/** Najviac toľko položiek z jedného priečinka na nezaradené (advokát môže vložiť stovky skenov naraz). */
-const INBOX_ITEMS_LIMIT = 200;
 /** Systémové súbory a zámky Office (`~$zmluva.docx`), ktoré advokát do priečinka nevložil. */
 const INBOX_IGNORED = new Set(["desktop.ini", "thumbs.db", "icon\r"]);
 const inboxIgnored = (name: string): boolean => name.startsWith(".") || name.startsWith("~$") || INBOX_IGNORED.has(name.toLowerCase());
@@ -310,17 +308,35 @@ export async function readWorkspaceMemory(
    * `VSTUPY.md`, a „Na zaradenie“ ho nevidel. Položky priečinkov na nezaradené (predvolené mená a vlastná rola `inbox`);
    * skryté súbory (`.keep`, `.DS_Store`) nie. Vložený podpriečinok je jedna položka.
    */
+  /**
+   * Cesta z profilu tak, ako ju vracia server (#263: meno v NFD na disku, profil v NFC). Presné meno má prednosť,
+   * inak jediná zhoda bez ohľadu na tvar Unicode a veľkosť písmen; chýbajúci alebo nejednoznačný priečinok ostane z profilu.
+   */
+  const listedPath = async (dir: string, relative: string): Promise<string> => {
+    let path = dir;
+    for (const part of relative.split("/")) {
+      const wanted = childPath(path, part);
+      const subdirs = (await list(path, true)).filter((e) => e.kind === "dir");
+      const exact = subdirs.find((e) => e.path === wanted);
+      const folded = subdirs.filter((e) => fold(e.path) === fold(wanted));
+      path = exact?.path ?? (folded.length === 1 ? folded[0]!.path : wanted);
+    }
+    return path;
+  };
   const inboxItems = async (dir: string, entries: Listing["entries"], custom?: string): Promise<string[]> => {
     const folders = entries.filter((e) => e.kind === "dir" && INBOX_FOLDERS.has(e.name.toLowerCase())).map((e) => childPath(dir, e.name));
     const own = custom?.replace(/\\/g, "/").replace(/^(?:\.\/)+/, "").replace(/\/+$/, "");
-    const ownFolder = own && !own.split("/").some((part) => part === ".." || part === "") ? childPath(dir, own) : undefined;
-    if (ownFolder && !folders.some((folder) => folder.toLowerCase() === ownFolder.toLowerCase())) folders.push(ownFolder);
+    const ownFolder = own && !own.split("/").some((part) => part === ".." || part === "") ? await listedPath(dir, own) : undefined;
+    if (ownFolder && !folders.includes(ownFolder)) folders.push(ownFolder);
     // Vlastný priečinok vnútri predvoleného (`00_Inbox/Posta`) nie je jedna položka predvoleného: jeho obsah sa ráta zvlášť.
-    const holdsOwn = (path: string) => ownFolder !== undefined && ownFolder.toLowerCase().startsWith(`${path.toLowerCase()}/`) || ownFolder?.toLowerCase() === path.toLowerCase();
+    // `ownFolder` je meno zo servera (`listedPath`), preto presné porovnanie: súrodenec v inom tvare Unicode ostane položkou.
+    const holdsOwn = (path: string) => ownFolder !== undefined && (ownFolder === path || ownFolder.startsWith(`${path}/`));
     const items: string[] = [];
     for (const folder of folders) {
       const listed = (await list(folder, true)).filter((e) => !inboxIgnored(e.name) && (folder === ownFolder || !holdsOwn(e.path)));
-      items.push(...listed.map((e) => e.path).sort().slice(0, INBOX_ITEMS_LIMIT));
+      // Bez vlastného limitu (#263): limit pred vyradením zaradených `IN-…` priečinkov (`folderInputs`) ticho stratil
+      // voľné súbory. Výpis ohraničuje server a neúplný výpis hlási ako `okf.listing_incomplete`.
+      items.push(...listed.map((e) => e.path).sort());
     }
     return items;
   };

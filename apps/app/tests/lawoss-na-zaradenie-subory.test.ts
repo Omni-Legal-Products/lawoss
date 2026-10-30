@@ -133,3 +133,72 @@ describe("N-A5-3: Na zaradenie ráta aj súbory v priečinkoch na nezaradené", 
   });
 });
 
+
+// #263: limit sa uplatnil pred vyradením zaradených `IN-…` priečinkov a voľný súbor zmizol bez hlásenia.
+describe("#263: voľný súbor pri stovkách zaradených IN- priečinkov", () => {
+  const filed = Array.from({ length: 210 }, (_, i) => `IN-${String(i + 1).padStart(3, "0")}`);
+  const tree: Tree = {
+    ...HRON,
+    "VSTUPY.md": register(...filed.map((id) => `| ${id} | 2026-10-20 | e-mail | [-](./00_Na_zatriedenie/${id}/sken.pdf) | spracované | — |`)),
+    ...Object.fromEntries(filed.map((id) => [`00_Na_zatriedenie/${id}/sken.pdf`, "%PDF"])),
+    "00_Na_zatriedenie/Sken.pdf": "%PDF",
+  };
+
+  test("voľný súbor ostane na zaradenie a čítanie nie je orezané", async () => {
+    const data = await read(tree);
+    const labels = inputGroups(data).flatMap((group) => group.rows.map((row) => row.label));
+    expect(labels).toContain("Sken.pdf");
+    expect(labels.filter((label) => label.startsWith("IN-"))).toEqual([]);
+    expect(data.truncated).toBe(false);
+  });
+});
+
+// #263 P3: vlastný inbox vnorený v predvolenom, uložený v NFD (Dropbox, HFS+), sa nesmie zrátať dvakrát.
+describe("#263: vlastný inbox v NFD vnorený v predvolenom", () => {
+  const nfd = "Pošta".normalize("NFD");
+  const ownProfile = '---\ntype: working-profile\nfolders: ["00_Inbox/Pošta"]\nfolder_roles: {"inbox":"00_Inbox/Pošta"}\ndocument_naming: "{date}_{description}"\n---\n';
+  const M006 = "Spisy/M006 Inbox";
+  const tree: Tree = {
+    ...HRON,
+    [`${M006}/matter.md`]: "---\ntitle: Inbox\n---\n",
+    [`${M006}/PRACOVNY-PROFIL.md`]: ownProfile,
+    [`${M006}/00_Inbox/${nfd}/list.pdf`]: "%PDF",
+  };
+
+  test("obsah vlastného priečinka sa ráta raz a priečinok nie je ďalšia položka", async () => {
+    const data = await read(tree);
+    const rows = inputGroups(data).flatMap((group) => group.rows).filter((row) => row.matter?.title === "Inbox");
+    expect(rows.map((row) => row.label)).toEqual(["list.pdf"]);
+  });
+});
+
+// Review #263: na disku rozlišujúcom veľkosť písmen má presné meno z profilu prednosť pred súrodencom `POSTA`.
+test("#263: vlastný inbox s presným menom vedľa súrodenca inej veľkosti písmen", async () => {
+  const ownProfile = '---\ntype: working-profile\nfolders: ["Posta/Nezaradene"]\nfolder_roles: {"inbox":"Posta/Nezaradene"}\ndocument_naming: "{date}_{description}"\n---\n';
+  const M007 = "Spisy/M007 Dve posty";
+  const data = await read({
+    ...HRON,
+    [`${M007}/matter.md`]: "---\ntitle: Dve posty\n---\n",
+    [`${M007}/PRACOVNY-PROFIL.md`]: ownProfile,
+    [`${M007}/POSTA/Nezaradene/cudzi.pdf`]: "%PDF",
+    [`${M007}/Posta/Nezaradene/spravny.pdf`]: "%PDF",
+  });
+  const rows = inputGroups(data).flatMap((group) => group.rows).filter((row) => row.matter?.title === "Dve posty");
+  expect(rows.map((row) => row.label)).toEqual(["spravny.pdf"]);
+});
+
+// Review #263: na disku s presnými bajtmi (Linux) sú „Pošta“ v NFC a v NFD dva priečinky; druhý sa nesmie stratiť.
+test("#263: súrodenec vlastného inboxu v inom tvare Unicode ostane položkou", async () => {
+  const ownProfile = '---\ntype: working-profile\nfolders: ["00_Inbox/Pošta"]\nfolder_roles: {"inbox":"00_Inbox/Pošta"}\ndocument_naming: "{date}_{description}"\n---\n';
+  const M008 = "Spisy/M008 Dva tvary";
+  const nfd = "Pošta".normalize("NFD");
+  const data = await read({
+    ...HRON,
+    [`${M008}/matter.md`]: "---\ntitle: Dva tvary\n---\n",
+    [`${M008}/PRACOVNY-PROFIL.md`]: ownProfile,
+    [`${M008}/00_Inbox/Pošta/vlastny.pdf`]: "%PDF",
+    [`${M008}/00_Inbox/${nfd}/druhy.pdf`]: "%PDF",
+  });
+  const rows = inputGroups(data).flatMap((group) => group.rows).filter((row) => row.matter?.title === "Dva tvary");
+  expect(rows.map((row) => row.label).sort()).toEqual([nfd, "vlastny.pdf"].sort());
+});

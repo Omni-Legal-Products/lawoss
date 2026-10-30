@@ -24,6 +24,21 @@ const providerList = (connected: string[], models: Record<string, string[]>): Pr
 const CLAUDE = { providerID: "anthropic", modelID: "claude-sonnet" };
 
 describe("model readiness shared by the composer and onboarding", () => {
+  // #231: composer odmietne odoslať, keď je model nedostupný (session-route `model_unavailable`); bezplatný model k podkladom klienta nesmie.
+  test("a saved free model is unavailable, so the composer refuses to send client data to it", () => {
+    const list = providerList(["openrouter"], { openrouter: ["deepseek/deepseek-chat:free", "anthropic/claude-sonnet"] });
+    const readiness = modelReadiness({ defaultModel: { providerID: "openrouter", modelID: "deepseek/deepseek-chat:free" }, providerList: list });
+    expect(readiness.modelUnavailable).toBe(true);
+    expect(readiness.hasUsableModel).toBe(false);
+    expect(composerModelState(readiness)).toBe("unavailable");
+  });
+
+  test("a saved :free model is unavailable even before the provider list loads", () => {
+    const readiness = modelReadiness({ defaultModel: { providerID: "openrouter", modelID: "deepseek/deepseek-chat:free" }, providerList: undefined });
+    expect(readiness.modelUnavailable).toBe(true);
+    expect(readiness.hasUsableModel).toBe(false);
+  });
+
   test("a connected, available selection is ready", () => {
     const readiness = modelReadiness({ defaultModel: CLAUDE, providerList: providerList(["anthropic"], { anthropic: ["claude-sonnet"] }) });
     expect(readiness).toEqual({ selectedModel: CLAUDE, modelUnavailable: false, hasUsableModel: true, providerConnectedCount: 1 });
