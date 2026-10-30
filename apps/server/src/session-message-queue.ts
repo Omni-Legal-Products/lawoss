@@ -57,6 +57,13 @@ export class SessionMessageQueue {
           queue.pauseReason = "error";
         }
       }
+      // LAWOSS (N-A7-17): a restored message waits for the lawyer. Delivery needs the chat's
+      // authenticated origin, which lives only in the previous process; the lawyer's Resume or
+      // next message re-registers this chat and chooses the client this process works with.
+      if (!queue.paused && queue.entries.some(entry => entry.status === "queued")) {
+        queue.paused = true;
+        queue.pauseReason = "stop";
+      }
       queue.revision++;
       await this.persist(queue);
       const key = keyOf(queue.workspaceId, queue.sessionId);

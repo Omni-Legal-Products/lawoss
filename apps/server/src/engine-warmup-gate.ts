@@ -58,7 +58,12 @@ export function sharedEngineResponse(
 
 export function abortable<T>(promise: Promise<T>, signal?: AbortSignal | null): Promise<T> {
   if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(signal.reason ?? abortError());
+  if (signal.aborted) {
+    // The shared start may already be queued for this caller; its failure
+    // still needs an observer, or it becomes an unhandled rejection.
+    promise.catch(() => undefined);
+    return Promise.reject(signal.reason ?? abortError());
+  }
   return new Promise((resolve, reject) => {
     const onAbort = () => reject(signal.reason ?? abortError());
     signal.addEventListener("abort", onAbort, { once: true });

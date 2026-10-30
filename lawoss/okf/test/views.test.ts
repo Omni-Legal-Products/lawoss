@@ -65,6 +65,17 @@ describe("odvodenie oblasti a typu práce", () => {
     expect(areaFamilies("rozpory v účtovníctve")).toEqual([]);
   });
 
+  test("množné „spory“, anglické „disputes“ a trestné veci sú procesné; podiel na nehnuteľnosti nie je korporátny (#223)", () => {
+    for (const area of ["Spory", "Súdne spory", "Soudní spory", "Disputes", "dispute resolution", "trestné veci", "Trestní právo"]) {
+      expect(areaFamilies(area)).toEqual(["procedural"]);
+    }
+    expect(areaFamilies("převod podílu na nemovitosti")).toEqual([]);
+    expect(areaFamilies("prevod podielu na pozemku")).toEqual([]);
+    for (const area of ["prevod obchodného podielu", "převod obchodního podílu", "obchodní podíl", "obchodný podiel"]) {
+      expect(areaFamilies(area)).toEqual(["corporate"]);
+    }
+  });
+
   test("zoznam z karty v tvare JSON aj bez úvodzoviek; šablóna je neevidovaná", () => {
     expect(cardList('["obchodné záväzky", "iné"]')).toEqual(["obchodné záväzky", "iné"]);
     expect(cardList("[a, b]")).toEqual(["a", "b"]);
@@ -272,6 +283,20 @@ describe("rozpory a stav návrh / schválené / vykonané", () => {
     const v = buildMatterViews(matter("Klienti/C001/Spisy/M001", M001_CARD, [{ id: "E9", type: "evidence", title: "Cudzí", fields: { "sources:\n  - title": '"x.pdf"\n    resource: "../../../../C002/Spisy/M006/x.pdf"' } }]), TODAY);
     expect(items(v.base, "documents")[0]).toMatchObject({ label: "x.pdf" });
     expect(items(v.base, "documents")[0]?.document).toBeUndefined();
+  });
+
+  test("prípad otvorený priamo ako koreň (path „“) dostane odkaz na dokument vo svojom priečinku (#223)", () => {
+    const evidence = (resource: string): Rec => ({ id: "E1", type: "evidence", title: "Podklad", fields: { "sources:\n  - title": `"x.pdf"\n    resource: "${resource}"` } });
+    const root = (resource: string) => buildMatterViews({
+      ...matter("", M001_CARD, [evidence(resource)]),
+      cardPath: "matter.md", recordFiles: { E1: "memory/E1.md" }, scopePaths: [""], clientTitle: undefined, clientCardPath: undefined,
+    }, TODAY);
+    expect(items(root("../01_Podklady/x.pdf").base, "documents")[0]?.document).toBe("01_Podklady/x.pdf");
+    // Mimo koreňa pracovného priestoru odkaz nevznikne.
+    expect(items(root("../../iny/x.pdf").base, "documents")[0]?.document).toBeUndefined();
+    // Explicitný koreň „“ volajúceho povolí; prázdny zoznam koreňov nič.
+    expect(resolveDocument("memory/x.md", "../01/doc.pdf", [""])).toBe("01/doc.pdf");
+    expect(resolveDocument("memory/x.md", "../01/doc.pdf", [])).toBeUndefined();
   });
 });
 

@@ -45,9 +45,10 @@ const api: WelcomeApi = {
   suggestOnboarding: async () => ({ root: "/x", level: "client", marked: false, score: 0.5, signals: [], clients: [], complete: true }),
   lawossTriage: <T,>(): Promise<T> => Promise.reject(new Error("pri SSR sa nevolá")),
 };
-const page = (completed: boolean, initialStep: "client" | "matter" = "client") => renderToStaticMarkup(
+// `null`: bez kroku, len odkaz `?root=`.
+const page = (completed: boolean, initialStep: "client" | "matter" | "folder" | null = "client", initialRoot?: string) => renderToStaticMarkup(
   <QueryClientProvider client={new QueryClient()}><LocalProvider><MemoryRouter>
-    <LawossWelcomePage api={api} initialStep={initialStep} hasCompletedOnboarding={completed} onCancel={() => {}} pickDirectory={async () => null} onOpenAiSettings={() => {}} onComplete={() => {}} />
+    <LawossWelcomePage api={api} initialStep={initialStep ?? undefined} initialRoot={initialRoot} hasCompletedOnboarding={completed} onCancel={() => {}} pickDirectory={async () => null} onOpenAiSettings={() => {}} onComplete={() => {}} />
   </MemoryRouter></LocalProvider></QueryClientProvider>,
 );
 
@@ -62,6 +63,11 @@ describe("Pridať klienta v nastavenej praxi", () => {
     // „Nový prípad“ z bočného panela nie je nastavenie praxe.
     expect(page(true, "matter")).not.toContain("Set up your practice");
     expect(page(false)).toContain("Set up your practice");
+    // #272: „Pridať priečinok“ (`?continue=folder`) a odkaz `?root=` nie sú pridaním klienta.
+    for (const html of [page(true, "folder"), page(true, null, "/Klienti/C001 SYN Tatran")]) {
+      expect(html).toContain("Add a folder");
+      expect(html).not.toContain("Add a client");
+    }
     const sk = (addingClient: boolean) => renderToStaticMarkup(<Client base={base} locale="sk" tr={welcomeText("sk")} busy={false} onPlan={async () => {}} addingClient={addingClient} />);
     expect(sk(true)).toContain("Nový klient");
     expect(sk(true)).not.toContain("Prvý klient");

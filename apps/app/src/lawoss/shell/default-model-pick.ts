@@ -1,4 +1,5 @@
 import type { ModelRef, ProviderListItem } from "@/app/types";
+import { isFreeModel } from "./free-models";
 
 type ProviderModel = ProviderListItem["models"][string];
 
@@ -30,7 +31,8 @@ export function pickDefaultModel(
 ): ModelRef | null {
   if (providers.length !== 1) return null;
   const provider = providers[0];
-  const entries = Object.entries(provider.models ?? {});
+  // A free model is never picked on its own, not even as the advertised default (#231).
+  const entries = Object.entries(provider.models ?? {}).filter(([modelID, model]) => !isFreeModel(provider, modelID, model));
   const advertisedID = advertisedDefaults[provider.id];
   const chosen =
     entries.find(([modelID, model]) => modelID === advertisedID && isAgentCapableModel(modelID, model)) ??

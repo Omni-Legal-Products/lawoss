@@ -14,7 +14,8 @@ const isText = (value: unknown, max = 4_096): value is string =>
 const isCanonicalRoot = (value: unknown): value is string => {
   if (!isText(value, 16_384)) return false;
   const path = value.trim();
-  if (!/^(?:\/|[A-Za-z]:[\\/])/.test(path)) return false;
+  // Unix, písmeno disku alebo UNC `\\server\share` (prax na NAS).
+  if (!/^(?:\/|[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)/.test(path)) return false;
   return !path.split(/[\\/]+/).some((part) => part === "." || part === "..");
 };
 export function readPendingOnboarding(

@@ -118,6 +118,91 @@ process.exit(1);
   expect(Number(readFileSync(counter, "utf8"))).toBe(1); // exactly one attempt
 }, 20000);
 
+// A descendant of the fake engine inherits its stderr. "wait-exit" writes the
+// lock message only after the engine has been reaped (kill(pid, 0) fails), so
+// it reaches the server after "exit"; "hold" keeps the pipe open and silent.
+function fakeWithDescendant(firstStart: "wait-exit" | "hold" | "lock-then-hold"): { bin: string; counter: string; pidFile: string } {
+  dir = mkdtempSync(join(tmpdir(), "managed-opencode-"));
+  const bin = join(dir, "fake-opencode");
+  const counter = join(dir, "counter");
+  const pidFile = join(dir, "descendant.pid");
+  const waitExit = 'const parent = Number(process.argv[1]); const poll = setInterval(() => { try { process.kill(parent, 0); } catch { clearInterval(poll); process.stderr.write("database is locked\\n"); } }, 5);';
+  const hold = "setTimeout(() => {}, 10000);";
+  writeFileSync(
+    bin,
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const counter = process.env.FAKE_OPENCODE_COUNTER;
+let n = 0; try { n = Number(fs.readFileSync(counter, "utf8")) || 0; } catch {}
+fs.writeFileSync(counter, String(n + 1));
+if (n === 0) {
+  const mode = ${JSON.stringify(firstStart)};
+  const descendant = require("node:child_process").spawn(process.execPath, ["-e", mode === "wait-exit" ? ${JSON.stringify(waitExit)} : ${JSON.stringify(hold)}, String(process.pid)], { stdio: ["ignore", "ignore", "inherit"] });
+  fs.writeFileSync(${JSON.stringify(pidFile)}, String(descendant.pid));
+  if (mode === "lock-then-hold") process.stderr.write("database is locked\\n");
+} else {
+  process.stderr.write("Error: config parse failed\\n");
+}
+process.exit(1);
+`,
+    "utf8",
+  );
+  chmodSync(bin, 0o755);
+  return { bin, counter, pidFile };
+}
+
+async function killDescendant(pidFile: string): Promise<void> {
+  let pid: number;
+  try { pid = Number(readFileSync(pidFile, "utf8")); } catch { return; }
+  try { process.kill(pid, "SIGKILL"); } catch { return; }
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    try { process.kill(pid, 0); } catch { return; }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`descendant ${pid} survived SIGKILL`);
+}
+
+test("a lock message that arrives after the engine exits still retries", async () => {
+  const { bin, counter, pidFile } = fakeWithDescendant("wait-exit");
+  try {
+    await expect(
+      createManagedOpencodeServer({ bin, cwd: dir!, env: { FAKE_OPENCODE_COUNTER: counter } }),
+    ).rejects.toThrow(/config parse failed/);
+    expect(Number(readFileSync(counter, "utf8"))).toBe(2);
+  } finally {
+    await killDescendant(pidFile);
+  }
+}, 20000);
+
+test("a descendant holding stderr open does not delay the exit failure", async () => {
+  const { bin, counter, pidFile } = fakeWithDescendant("hold");
+  const started = Date.now();
+  try {
+    // The held first start is reported as an exit (not a lock), so it is not retried.
+    await expect(
+      createManagedOpencodeServer({ bin, cwd: dir!, env: { FAKE_OPENCODE_COUNTER: counter } }),
+    ).rejects.toThrow(/exited with code 1/);
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(Number(readFileSync(counter, "utf8"))).toBe(1);
+  } finally {
+    await killDescendant(pidFile);
+  }
+}, 20000);
+
+test("a startup deadline after the exit still reports the captured lock and retries", async () => {
+  const { bin, counter, pidFile } = fakeWithDescendant("lock-then-hold");
+  try {
+    // The deadline falls inside the post-exit grace period of the held pipe.
+    await expect(
+      createManagedOpencodeServer({ bin, cwd: dir!, timeoutMs: 600, env: { FAKE_OPENCODE_COUNTER: counter } }),
+    ).rejects.toThrow(/config parse failed/);
+    expect(Number(readFileSync(counter, "utf8"))).toBe(2);
+  } finally {
+    await killDescendant(pidFile);
+  }
+}, 20000);
+
 for (const mode of ["html", "status", "unauthorized", "shape", "malformed", "false", "version", "oversized", "truncated", "idle", "exit"]) {
   test(`rejects unhealthy HTTP response: ${mode}`, async () => {
     const { bin, counter } = fakeBin(0);

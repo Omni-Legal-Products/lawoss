@@ -44,7 +44,9 @@ setInterval(()=>{},1000);`;
     descendant=Number(String((await once(leader.stdout,'data'))[0]).trim());
     assert.ok(Number.isInteger(descendant)&&descendant>0);
     const stages=[],signals=[];
-    try {await stopNativeChild(leader,100,{observe:row=>stages.push(row),kill:(pid,kind)=>{signals.push({kind,elapsedMs:stages.at(-1)?.elapsedMs??0});process.kill(pid,kind);}});}
+    // Production budget: a fresh ps snapshot precedes each signal and the leader
+    // is signalled last, so 100ms can expire before its SIGTERM on a loaded runner.
+    try {await stopNativeChild(leader,undefined,{observe:row=>stages.push(row),kill:(pid,kind)=>{signals.push({kind,elapsedMs:stages.at(-1)?.elapsedMs??0});process.kill(pid,kind);}});}
     catch(error){console.error('OWNED_PROCESS_FIXED_BUDGET',JSON.stringify({stages,signals}));throw error;}
     assert.equal(leader.signalCode,'SIGTERM');
     assert.equal(isRunning(descendant),false,'Owned same-group descendant must not survive resolved cleanup');

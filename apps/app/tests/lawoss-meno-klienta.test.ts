@@ -29,7 +29,7 @@ afterAll(() => targets.forEach((target, index) => {
 }));
 
 const { cardTitles, cleanTitle, clientCardLabel, rememberCardTitles, resetCardTitlesForTest } = await import("../src/lawoss/lite/client-titles");
-const { clientProjectRow, useClientProjectRow } = await import("../src/lawoss/lite/client-row-view");
+const { clientProjectRow, useClientDisplayName, useClientProjectRow } = await import("../src/lawoss/lite/client-row-view");
 const { buildClientRows } = await import("../src/lawoss/lite/client-row-data");
 const { workspaceLabel } = await import("../src/react-app/shell/route-workspaces");
 
@@ -90,6 +90,14 @@ describe("meno z karty klienta namiesto mena priečinka", () => {
     expect(cardTitles([c002], null, [{ path: FOLDER, title: TITLE }])).toEqual([]);
     // Klient, ktorého prehľad nepozná, sa nemení.
     expect(cardTitles([c002], scope, [])).toEqual([]);
+  });
+
+  // #273: titulok okna a hlavička Prehľadu (`useClientDisplayName`) volali riadok bez cesty a stráž cesty preskočili.
+  test("titulok okna a hlavička Prehľadu: priestor presmerovaný do inej praxe nemá meno predchádzajúceho klienta (#273)", () => {
+    remember(TITLE);
+    const Name = ({ path }: { path: string }) => createElement("span", null, useClientDisplayName("c002", FOLDER, path));
+    expect(renderToStaticMarkup(createElement(Name, { path: `/B/Klienti/${FOLDER}` }))).toBe(`<span>${FOLDER}</span>`);
+    expect(renderToStaticMarkup(createElement(Name, { path: c002.path }))).toBe(`<span>${TITLE}</span>`);
   });
 
   test("karta stratí meno alebo sa volá ako priečinok: zapamätané meno sa zabudne", () => {
