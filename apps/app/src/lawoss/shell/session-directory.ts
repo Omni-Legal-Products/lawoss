@@ -43,3 +43,14 @@ export function chatSendDirectory(clientRoot: string, remote: boolean, sessionId
   if (!sessionId || loaded?.session.id !== sessionId) return null;
   return chatDirectory(clientRoot, false, sessionId, loaded);
 }
+
+/**
+ * Engine client for an action on one chat (send, revert, abort, branch): the target chat's own folder from its
+ * loaded snapshot (`chatSendDirectory`), never the selected chat's. The selected chat's client is reused when the
+ * folder is the same; otherwise one is created for the target folder. Unknown folder or no client → `null` (#223).
+ */
+export function chatEngine<C>(sessionId: string, scope: { clientRoot: string; remote: boolean; loaded?: { session: { id: string; directory?: string | null } } | null; selected: { directory: string; client: C } | null }, create: (directory: string) => C): { directory: string; client: C } | null {
+  const directory = chatSendDirectory(scope.clientRoot, scope.remote, sessionId, scope.loaded);
+  if (directory === null || !scope.selected) return null;
+  return { directory, client: directory === scope.selected.directory ? scope.selected.client : create(directory) };
+}
