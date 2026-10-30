@@ -245,8 +245,8 @@ const section = (id: SectionId, items: ViewItem[], where?: SourceRef): ViewSecti
 /** Kľúčové slová oblastí (bez diakritiky, začiatok slova), SK aj CS aj EN. Neznáma oblasť → len spoločný základ. */
 const AREA_KEYWORDS: Record<ViewFamily, readonly string[]> = {
   ip: ["ochrann", "znamk", "autorsk", "patent", "dizajn", "design", "priemyseln", "prumyslov", "uzitkov", "uzitn", "dusevn", "licenc", "ip", "trademark", "copyright", "intellectual property", "marken", "urheber"],
-  corporate: ["obchodne spolocnost", "obchodni spolecnost", "obchodni korporac", "korporat", "corporate", "m&a", "akvizic", "fuzi", "zluceni", "zlucen", "valne zhromazden", "valna hromad", "spolocnik", "spolecnik", "prevod podiel", "prevod podil", "konatel", "jednatel", "obchodny register", "obchodni rejstrik", "gesellschaftsrecht"],
-  procedural: ["spor", "sporov", "litig", "sudne konan", "soudni rizeni", "exekuc", "rozhodcov", "rozhodci", "insolvenc", "konkurz"],
+  corporate: ["obchodne spolocnost", "obchodni spolecnost", "obchodni korporac", "korporat", "corporate", "m&a", "akvizic", "fuzi", "zluceni", "zlucen", "valne zhromazden", "valna hromad", "spolocnik", "spolecnik", "obchodny podiel", "obchodneho podiel", "obchodni podil", "obchodniho podil", "konatel", "jednatel", "obchodny register", "obchodni rejstrik", "gesellschaftsrecht"],
+  procedural: ["spor", "spory", "sporov", "dispute", "trestn", "litig", "sudne konan", "soudni rizeni", "exekuc", "rozhodcov", "rozhodci", "insolvenc", "konkurz"],
 };
 
 export function areaFamilies(area: string): ViewFamily[] {
