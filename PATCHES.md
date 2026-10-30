@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Chyba štartu enginu nestratí posledný výstup (2026-10-29)
+
+CI `legalwork-tests (ubuntu-latest)` na #314 (29. 10. 2026): `does NOT retry a non-lock start failure` dostal iba „OpenCode server exited with code 1“ bez stderr. Udalosť `exit` môže prísť skôr než posledný kus stderr; rovnako by sa stratilo „database is locked“ a štart enginu by sa namiesto opakovania vzdal.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/managed-opencode.ts` | `waitForServerReady()` hlási skončenie enginu na `close` (stdio vyprázdnené); `exit` iba zapamätá kód a spustí poistku `EXIT_OUTPUT_DRAIN_MS = 1000` pre potomka, ktorý drží rúru otvorenú. Po skončení sa už nečíta „listening“ zo stdout a limit štartu po zaznamenanom skončení hlási skončenie so zachyteným výstupom, nie všeobecný timeout. +1 konštanta, +2 komentáre. Testy: oneskorená správa o zámku stále opakuje štart; potomok so stderr neodloží chybu; limit v čase poistky zachová zámok a opakuje štart. Upstream `v0.3.0` aj `upstream/dev` majú stále `exit`. |
+
 ## Testy sandboxu bez živého example.com (2026-10-27, #222)
 
 | Súbory | Downstream doplnenie a dôvod |
