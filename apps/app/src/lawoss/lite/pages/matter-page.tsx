@@ -3,7 +3,7 @@ import { DiagnosticMessage } from "../../i18n/diagnostic-message";
 import { revalidateScopeTarget } from "../../okf/scope-target";
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { missingScopeLevels, scopeLevels, type MatterOverview } from "../../../../../../lawoss/okf/read";
@@ -26,6 +26,7 @@ import { buildMatterViews, type MatterViews, type ViewFamily } from "../../../..
 import { MatterViewsPanel, type SourceAccess, type ViewsEdit } from "../matter-views";
 import { openScopeFile } from "../source-open";
 import { loadCaseCard, locateCaseFile, saveCaseViewTags } from "../case-files";
+import { usePageNavigation } from "../../shell/use-page-navigation";
 import "./lite.css";
 import "./okf-glass.css";
 import "./matter.css";
@@ -45,8 +46,9 @@ export function LiteMatterPage() {
   const locale = useLocale();
   // Bez nadpisu stránky: hlavním nadpisem je název věci (LiteMatterView), ne „Klienti a věci“.
   const [params] = useSearchParams();
+  const navigate = usePageNavigation();
   // Kľúč podľa veci: pri prechode na inú vec sa vynulujú aj stavy akcií, potvrdenia a chyby.
-  return <OkfPage {...litePageProps(locale)}>{(data, meta, scope) => <LiteMatterBody key={params.get("vec") ?? ""} data={data} meta={meta} scope={scope} />}</OkfPage>;
+  return <OkfPage {...litePageProps(locale)}>{(data, meta, scope) => <LiteMatterBody key={params.get("vec") ?? ""} data={data} meta={meta} scope={scope} navigate={navigate} />}</OkfPage>;
 }
 
 /** Jen přesná shoda `?vec=`; na rozdíl od `selectMatter` nikdy nespadne na první věc (akce by běžely nad jinou). */
@@ -55,15 +57,11 @@ export function matterFromParams(matters: readonly MatterOverview[], params: URL
   return path === null ? null : matters.find((m) => m.path === path) ?? null;
 }
 
-function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfPageMeta; scope: OkfScope | null }) {
+function LiteMatterBody({ data, meta, scope, navigate }: { data: OkfReadResult; meta: OkfPageMeta; scope: OkfScope | null; navigate: (to: string) => void }) {
   const locale = useLocale();
   const [params] = useSearchParams();
-  const navigate = useNavigate();
   const { connection } = useOkfConnection();
   const running = useRef(false);
-  // Akcia dobehne až po prechode na inú vec: výsledok staršej veci už nesmie nikam presmerovať.
-  const alive = useRef(true);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const [busy, setBusy] = useState<ActionId | null>(null);
   const [error, setError] = useState<unknown>(null);
   // „+ Nový rozhovor“ v bočnom strome zlyhal a priviedol sem: povedať to (pod tým aj medzera v modeli, ak je).
@@ -96,7 +94,7 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
       // Shared client and office access remains controlled by native Permissions.
       const current = await revalidateScopeTarget(scope,connection,target.workspace.id);
       const route = await openMatterSession(current.connection, current.workspace, target.selected, target.discovered, prompt, id === "document" ? installVystupSkill : undefined);
-      if (alive.current) navigate(route);
+      navigate(route);
     } catch (failure) {
       // Surová hláška může obsahovat interní pojmy; advokát vidí obecný text, diagnostika jde do konzole.
       console.warn("LAWOSS-lite: quick action failed", failure);
@@ -110,7 +108,7 @@ function LiteMatterBody({ data, meta, scope }: { data: OkfReadResult; meta: OkfP
     try {
       const current = await revalidateScopeTarget(scope,connection,target.workspace.id);
       const route = await openMatterConversation(current.connection, conversation);
-      if (alive.current) navigate(route);
+      navigate(route);
     } catch (failure) {
       console.warn("LAWOSS-lite: continue conversation failed", failure);
       setError(failure);

@@ -5,7 +5,7 @@ import { buildOverview, type MatterInput } from "../../../lawoss/okf/read";
 import { agendaEvents } from "../src/lawoss/lite/agenda-model";
 import { TodayView } from "../src/lawoss/lite/pages/today-page";
 import { appTodayTasks, buildToday, caseDates, startHere, type AppTask } from "../src/lawoss/lite/today-model";
-import { appTaskClient, inPractice, openAppTask } from "../src/lawoss/lite/app-tasks";
+import { appTaskClient, currentTasks, inPractice, openAppTask, readOpenTasks } from "../src/lawoss/lite/app-tasks";
 import { takePendingTasksPaneRequest } from "../src/react-app/domains/tasks/tasks-pane-request";
 import type { OkfScope } from "../src/lawoss/okf/read-model";
 
@@ -100,3 +100,42 @@ describe("N-A5-4: úlohy aplikácie na Dnes", () => {
   });
 });
 
+
+// #271: úlohy sú celostrojové a server vráti najviac 200 na stránku; Dnes a Domov klienta čítali len prvú stránku.
+describe("#271: všetky otvorené úlohy, nie prvých 200 celého stroja", () => {
+  type Params = { projectId?: string; cursor?: string; limit?: number };
+  const pages = (all: AppTask[], calls: Params[] = []) => async (_workspace: string, params: Params) => {
+    calls.push(params);
+    const own = params.projectId ? all.filter((task) => task.projectId === params.projectId) : all;
+    const start = params.cursor ? own.findIndex((task) => task.id === params.cursor) + 1 : 0;
+    const page = own.slice(start, start + (params.limit ?? 200));
+    return { tasks: page, nextCursor: start + page.length < own.length ? page[page.length - 1]?.id ?? null : null };
+  };
+  const many = Array.from({ length: 450 }, (_, i) => app({ id: `tsk_${i}`, projectId: i === 449 ? "ws_c001" : "ws_ine" }));
+
+  test("Dnes dočíta všetky stránky", async () => {
+    const read = await readOpenTasks(pages(many), "ws_c001");
+    expect(read.complete).toBe(true);
+    expect(read.tasks.map((task) => task.id)).toContain("tsk_449");
+  });
+
+  test("Domov klienta nechá filtrovať server podľa projektu", async () => {
+    const calls: Params[] = [];
+    const read = await readOpenTasks(pages(many, calls), "ws_c001", "ws_c001");
+    expect(read.tasks.map((task) => task.id)).toEqual(["tsk_449"]);
+    expect(calls).toEqual([expect.objectContaining({ projectId: "ws_c001" })]);
+  });
+
+  test("načítavanie a chyba čítania nie sú úplný prázdny zoznam (Codex)", () => {
+    expect(currentTasks(undefined, false)).toEqual({ tasks: [], complete: false });
+    const cached = { tasks: [app()], complete: true };
+    expect(currentTasks(cached, true)).toEqual({ tasks: [app()], complete: false });
+    expect(currentTasks(cached, false)).toBe(cached);
+  });
+
+  test("pri priveľa stránkach sa zoznam nehlási ako úplný", async () => {
+    const read = await readOpenTasks(pages(Array.from({ length: 30 * 200 }, (_, i) => app({ id: `tsk_${i}` }))), "ws_c001");
+    expect(read.complete).toBe(false);
+    expect(read.tasks.length).toBeGreaterThan(200);
+  });
+});

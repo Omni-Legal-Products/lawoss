@@ -15,7 +15,7 @@ import { addDays, formatDay, today, useOkfConnection, type OkfReadResult, type O
 import { deadlineKey, deadlineText, dueTextFromDays, isCalendarDay, taskDueView, urgencyOf, type Urgency } from "../../okf/view-rules";
 import { isOfficeFile, taskDue, type MatterOverview } from "../../../../../../lawoss/okf/read";
 import { deadlineCoverage } from "../../../../../../lawoss/okf/views";
-import { appTodayTasks, buildToday, caseDates, nextDeadline, startHere, taskLink, type CaseDate, type StartHere, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
+import { appTodayTasks, buildToday, caseDateRows, caseDates, nextDeadline, startHere, taskLink, type CaseDate, type StartHere, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
 import { appTaskClient, inPractice, openAppTask, useAppTasks } from "../app-tasks";
 import { agendaEvents, type AgendaEvent } from "../agenda-model";
 import { CandidatesPanel, ModeSwitch, MonthCalendar, type ViewMode } from "../agenda-views";
@@ -63,7 +63,7 @@ function TodayLive({ data, meta, scope, locale, name }: { data: OkfReadResult; m
   // Model len pri novom obsahu pamäte alebo novom dni, nie pri každom tichom obnovení.
   const { connection } = useOkfConnection();
   // N-A5-4: úlohy aplikácie (Nová úloha) praxe patria na Dnes, do mesiaca aj na os (app-tasks.ts).
-  const rawAppTasks = useAppTasks(connection);
+  const { tasks: rawAppTasks, complete: appTasksComplete } = useAppTasks(connection);
   // Spojenie sa obnovuje každých 15 s s novým poľom priečinkov: model sa prepočíta len pri skutočnej zmene.
   const workspacesKey = JSON.stringify(connection?.workspaces.map((w) => [w.id, w.path, w.displayNameResolved]) ?? []);
   const appTasks = useMemo(() => {
@@ -79,7 +79,8 @@ function TodayLive({ data, meta, scope, locale, name }: { data: OkfReadResult; m
   const choices = useMemo(() => practiceClientChoices(scope, data.clients), [scope, data.clients]);
   // „Nič nehorí“ len po úplnom čítaní a pri evidovaných lehotách; inak to prehľad povie (UX P2 Denný prehľad).
   // Po prípadoch: jeden prípad s lehotami nerobí evidovanými ostatné (I-5b).
-  const evidence = useMemo(() => ({ complete: data.coverage.status === "complete", ...deadlineCoverage(data.inputs) }), [data]);
+  // #271: nedočítaný zoznam úloh aplikácie robí prehľad neúplným rovnako ako nedočítaná pamäť.
+  const evidence = useMemo(() => ({ complete: data.coverage.status === "complete" && appTasksComplete, ...deadlineCoverage(data.inputs) }), [data, appTasksComplete]);
   return <TodayView model={model} locale={locale} meta={meta} name={name} choices={choices} evidence={evidence} events={events} preferenceScope={clientPreferenceScope(scope, connection?.baseUrl)} activeId={connection?.activeWorkspaceId} />;
 }
 
@@ -298,7 +299,7 @@ function CaseDates({ dates, todayIso, locale, text, onMore }: { dates: readonly 
     <h3 className="lw-today-subtitle">{text("case_dates_title")}</h3>
     <p className="lw-today-note">{text("case_dates_note")}</p>
     <ul className="lw-today-list">
-      {dates.slice(0, LIST_ROWS).map((d) => (
+      {caseDateRows(dates, LIST_ROWS).map((d) => (
         <li key={d.key}>
           <Link className="lw-today-deadline" data-urgency={urgencyOf(d.due, todayIso)} data-kind="case-date" to={taskLink(d)} onClick={d.app ? openAppTask(d.id) : undefined}>
             <span className="lw-today-cal" aria-hidden><span>{weekdayShort(d.due, locale)}</span><strong>{dayOfMonth(d.due)}</strong></span>

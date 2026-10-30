@@ -241,6 +241,12 @@ export async function ownWorkspaceFor(config: ServerConfig, directory: string): 
  */
 export const CLIENT_RUNTIME_REQUIRED = "This chat cannot use this client's files now. In this version LAWOSS works with one client at a time: since LAWOSS started, its AI has worked with another client, so this client's files stay closed to protect them. Nothing was read or changed. Tell the user in their language: quit LAWOSS completely, open it again and start with this client's chat; chats of the other client keep working until then.";
 
+/**
+ * LAWOSS (N-A7-17): the model relays this refusal to the lawyer. The usual cause is a task that
+ * continued after LAWOSS restarted, before the lawyer sent anything in this chat again.
+ */
+export const CHAT_NOT_REGISTERED = "This chat cannot use this client's files now: LAWOSS has not confirmed this chat since it last started, for example because LAWOSS restarted during the task. Nothing was read or changed. Stop the task and tell the user in their language, without error codes or technical terms: the task could not be finished after LAWOSS restarted; send the message again.";
+
 /** Engine requests get the session's own data; an all-projects scheduled run may read other projects. */
 export function agentMayList(agent: { workspaceId: string | null; allProjects: boolean }, pathname: string, workspaceId: string): boolean {
   return workspaceId === agent.workspaceId || (agent.allProjects && pathname === "/scheduled-tasks/projects");
@@ -283,7 +289,7 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   const directory = decoded ? await realpath(decoded).catch(() => null) : null;
   if (!directory) throw new ApiError(403, "wiki_agent_directory_mismatch", "The wiki request does not match this session's working directory.");
   const origin = access.sessions.get(sessionId) ?? await inheritedOrigin(config, access, sessionId, directory, request.signal);
-  if (!origin) throw new ApiError(403, "wiki_agent_session_unknown", "Run this task through an authenticated LegalWork session before accessing wikis.");
+  if (!origin) throw new ApiError(403, "wiki_agent_session_unknown", CHAT_NOT_REGISTERED);
   if (directory !== origin.directory)
     throw new ApiError(403, "wiki_agent_directory_mismatch", "The wiki request does not match this session's working directory.");
   const own = await ownWorkspaceFor(config, directory);

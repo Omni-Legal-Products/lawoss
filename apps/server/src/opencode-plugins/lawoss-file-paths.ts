@@ -17,11 +17,21 @@ export function chatWorkspace<T extends { id: string; path: string }>(workspaces
   return [...workspaces].filter((item) => item.path && inside(item.path, directory)).sort((a, b) => b.path.length - a.path.length)[0];
 }
 
-/** Absolútna cesta pre server: od priečinka chatu, alebo od koreňa klienta, ak už začína priečinkom chatu. */
+/** NFC a bez ohľadu na veľkosť písmen: model opíše „spisy/m001“ alebo NFD z macOS a myslí ten istý priečinok (#223). */
+const folded = (path: string) => path.normalize("NFC").toLowerCase();
+
+/**
+ * Absolútna cesta pre server: od priečinka chatu, alebo — ak už začína priečinkom chatu voči koreňu klienta —
+ * zvyšok od skutočného priečinka chatu. Predpona sa nahradí jeho presným zápisom, takže iná veľkosť písmen
+ * alebo NFD nevedie na súrodenca s podobným menom (na Linuxe iný priečinok).
+ */
 export function chatFilePath(value: string, directory: string, clientRoot: string): string {
   if (isAbsolute(value)) return value;
-  const chat = relative(resolve(clientRoot), resolve(directory)).split(sep).join("/");
-  const written = value.split(/[\\/]+/).filter((part) => part && part !== ".").join("/");
-  if (chat && !chat.startsWith("..") && (written === chat || written.startsWith(`${chat}/`))) return resolve(clientRoot, value);
+  const chat = relative(resolve(clientRoot), resolve(directory)).split(sep);
+  const written = value.split(/[\\/]+/).filter((part) => part && part !== ".");
+  const prefix = written.slice(0, chat.length);
+  if (chat[0] && chat[0] !== ".." && prefix.length === chat.length && folded(prefix.join("/")) === folded(chat.join("/"))) {
+    return resolve(directory, ...written.slice(chat.length));
+  }
   return resolve(directory, value);
 }

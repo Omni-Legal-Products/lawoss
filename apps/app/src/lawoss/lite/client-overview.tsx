@@ -59,7 +59,8 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
   const todayIso = today();
   // #168: priečinok mimo rozsahu praxe (`excludedWorkspaceIds`) prehľad klienta nedostane.
   const allowed = Boolean(scope && data && model.clients.has(workspaceId) && !nav.excludedWorkspaceIds.includes(workspaceId));
-  const rawAppTasks = useAppTasks(nav.connection);
+  // #271: server vráti len úlohy tohto klienta, nie prvých 200 celého stroja.
+  const { tasks: rawAppTasks, complete: appTasksComplete } = useAppTasks(nav.connection, workspaceId);
   const derived = useMemo(() => {
     if (!allowed || !scope || !data) return null;
     // Review #246 (P2): prípad zaregistrovaného vnoreného klienta (skrytého v paneli) patrí jemu, nie vonkajšiemu.
@@ -95,7 +96,7 @@ export function ClientOverviewFrom({ nav, workspaceId }: { nav: PublishedClientN
     nav.groups.flatMap((group) => clientGroupDirectory(scope, group) ?? []));
   return <div className="space-y-4">
     <ClientOverviewView workspaceId={workspaceId} locale={locale} todayIso={todayIso} matters={own.matters}
-      deadlines={[...own.overdue, ...own.upcomingDeadlines]} soon={own.totals.deadlinesWithin7Days} partial={data.coverage.status !== "complete"}
+      deadlines={[...own.overdue, ...own.upcomingDeadlines]} soon={own.totals.deadlinesWithin7Days} partial={data.coverage.status !== "complete" || !appTasksComplete}
       deadlineEvidence={deadlineCoverage(ownInputs)} readFailed={!canActOnSource(data, workspaceId)} kinds={kinds}
       statuses={statuses} inputs={inputs} inputsFailed={intakeFailed || (inputs === null && folderMissing)} events={events} today={todayModel} />
     <LinkedFolders connection={nav.connection} workspaceId={workspaceId} practiceRoot={scope.practiceRoot ?? null} otherClients={otherClients} locale={locale} />

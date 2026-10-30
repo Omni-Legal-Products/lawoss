@@ -9,11 +9,13 @@ import { buildWorkspaceInfos } from "./workspaces.js";
 import type { ServerConfig } from "./types.js";
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { while (cleanup.length) await cleanup.pop()?.(); });
-async function fixture() {
+// Windows refuses renaming A while anything holds a descendant open; content created after
+// the server started can still be open when the test renames A. Prepare it before the start.
+async function fixture(prepare?: (a: string, root: string) => Promise<unknown>) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "reconnect-")));
   cleanup.push(() => removeSyntheticTestDir(root));
   const a = join(root, "A"), b = join(root, "B");
-  await mkdir(a); await writeFile(join(a, "source.pdf"), "%PDF-original");
+  await mkdir(a); await writeFile(join(a, "source.pdf"), "%PDF-original"); await prepare?.(a, root);
   const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "client", hostToken: "host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"], workspaces: [{id: "stable", name: "Matter", displayName: "Matter", path: a, preset: "starter", workspaceType: "local", appFiles: "outside"}], authorizedRoots: [a], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   const server = await startServer(config); cleanup.push(() => Promise.resolve(server.stop()));
   const request = (folderPath = b, expectedPath = a, authorized = true) => fetch(`http://127.0.0.1:${server.port}/workspace/stable/reconnect`, { method: "POST", headers: { "Content-Type": "application/json", ...(authorized ? { "X-LegalWork-Host-Token": "host" } : { Authorization: "Bearer client" }) }, body: JSON.stringify({ folderPath, expectedPath }) });
@@ -158,7 +160,7 @@ test.each(["derived", "custom"])("registering a freed path allocates distinct ID
 });
 
 test("supported session rebind preserves subdirectories and rolls back on persistence failure", async () => {
-  const f = await fixture(); await mkdir(join(f.a, "sub")); await rename(f.a, f.b);
+  const f = await fixture(a => mkdir(join(a, "sub"))); await rename(f.a, f.b);
   const directories = new Map([["root-chat", f.a], ["nested-chat", join(f.a, "sub")]]);
   const moves: Array<{ sessionID: string; destination: { directory: string }; moveChanges: boolean }> = [];
   const engine = Bun.serve({ port: 0, fetch: async request => {
@@ -178,7 +180,7 @@ test("supported session rebind preserves subdirectories and rolls back on persis
 });
 
 test("unsupported session rebind and nested destination escape fail without registry changes", async () => {
-  const f = await fixture(); const outside = join(f.root,"outside"); await mkdir(outside); await symlink(outside,join(f.a,"linked")); await rename(f.a,f.b);
+  const f = await fixture(async (a,root) => { await mkdir(join(root,"outside")); await symlink(join(root,"outside"),join(a,"linked")); }); await rename(f.a,f.b);
   let nested = false; let moves = 0;
   const engine=Bun.serve({port:0,fetch:request=>{
     if(new URL(request.url).pathname==="/experimental/session") return Response.json([{id:"original",directory:nested?join(f.a,"linked"):f.a,time:{updated:1}}]);

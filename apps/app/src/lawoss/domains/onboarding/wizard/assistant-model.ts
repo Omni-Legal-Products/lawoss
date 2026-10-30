@@ -7,7 +7,7 @@
  * Nastavenia AI (`defaultModel`, variant sa pri inom modeli vynuluje). Zmeniť ho ide v malom výbere.
  */
 import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
-import type { ModelRef, ProviderListItem } from "@/app/types";
+import type { ModelRef } from "@/app/types";
 import { formatModelLabel } from "@/app/utils";
 import {
   getConnectedProviderItems,
@@ -15,6 +15,7 @@ import {
   RETIRED_FREE_PROVIDER_IDS,
 } from "@/react-app/infra/provider-list-query";
 import { isAgentCapableModel } from "../../../shell/default-model-pick";
+import { isFreeModel, withoutFreeModels } from "../../../shell/free-models";
 import { composerModelState, onboardingModelReadiness } from "../../../shell/model-readiness";
 import type { AiModelView } from "../ai-step";
 
@@ -26,39 +27,6 @@ const sameModel = (a: ModelRef | null | undefined, b: ModelRef | null | undefine
 
 const connectedProviders = (list: ProviderListResponse | null | undefined) =>
   getConnectedProviderItems(list).filter((provider) => !RETIRED_FREE_PROVIDER_IDS.has(provider.id));
-
-type ProviderModel = ProviderListItem["models"][string];
-
-const FREE_VARIANT = /:free$/i;
-/** Zdroje s cenníkom katalógu (API kľúč, premenná prostredia): nulová cena tam znamená bezplatný koncový bod. */
-const PRICED_SOURCES: ReadonlySet<ProviderListItem["source"]> = new Set(["api", "env"]);
-
-/**
- * Bezplatný model, ktorý nepatrí k podkladom klientov (AGENTS.md: „Do not use upstream free models
- * with client, privileged, or matter data“; review PR #226). Appka iný predikát nemá (`isFree` vo výbere
- * modelov je vždy `false`), okrem ukončených bezplatných poskytovateľov (`RETIRED_FREE_PROVIDER_IDS`).
- * - Variant `:free` (OpenRouter a podobní) v kľúči, `id` alebo `api.id`.
- * - Nulová cena vstupu aj výstupu len pri poskytovateľovi s cenníkom katalógu (`api`, `env`). Predplatné
- *   cez OAuth (ChatGPT, zdroj `custom`) a vlastné či lokálne modely (`config`, `custom`) majú v OpenCode
- *   cenu 0 bez toho, aby boli verejným bezplatným koncovým bodom; tie ostávajú.
- */
-export function isFreeModel(provider: Pick<ProviderListItem, "source">, modelID: string, model: ProviderModel): boolean {
-  if ([modelID, model.id, model.api?.id].some((id) => typeof id === "string" && FREE_VARIANT.test(id))) return true;
-  const cost = model.cost;
-  return PRICED_SOURCES.has(provider.source) && cost !== undefined && cost.input === 0 && cost.output === 0;
-}
-
-/** Zoznam poskytovateľov bez bezplatných modelov; z neho krok 4 vyberá, ponúka aj hodnotí pripravenosť. */
-export function withoutFreeModels(list: ProviderListResponse | null | undefined): ProviderListResponse | null | undefined {
-  if (!list) return list;
-  return {
-    ...list,
-    all: list.all.map((provider) => ({
-      ...provider,
-      models: Object.fromEntries(Object.entries(provider.models ?? {}).filter(([modelID, model]) => !isFreeModel(provider, modelID, model))),
-    })),
-  };
-}
 
 /** Pripojený poskytovateľ má modely pre asistenta, ale všetky sú bezplatné. */
 function onlyFreeModels(list: ProviderListResponse | null | undefined): boolean {

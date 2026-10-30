@@ -342,6 +342,7 @@ function PathInput({
 const extraText: Record<Language, Record<string, string>> = {
   sk: {
     addClientTitle: "Pridať klienta",
+    addFolderTitle: "Pridať priečinok",
     newClient: "Nový klient",
     newMatter: "Nový prípad",
     matterUnder: "Prípad vznikne pod klientom",
@@ -370,6 +371,7 @@ const extraText: Record<Language, Record<string, string>> = {
   },
   cs: {
     addClientTitle: "Přidat klienta",
+    addFolderTitle: "Přidat složku",
     newClient: "Nový klient",
     newMatter: "Nový případ",
     matterUnder: "Případ vznikne pod klientem",
@@ -398,6 +400,7 @@ const extraText: Record<Language, Record<string, string>> = {
   },
   en: {
     addClientTitle: "Add a client",
+    addFolderTitle: "Add a folder",
     newClient: "New client",
     newMatter: "New matter",
     matterUnder: "The matter will be created under client",
@@ -426,6 +429,7 @@ const extraText: Record<Language, Record<string, string>> = {
   },
   de: {
     addClientTitle: "Mandanten hinzufügen",
+    addFolderTitle: "Ordner hinzufügen",
     newClient: "Neuer Mandant",
     newMatter: "Neue Angelegenheit",
     matterUnder: "Die Angelegenheit wird angelegt für den Mandanten",
@@ -725,7 +729,7 @@ export function LawossWelcomePage({
    */
   const acknowledgeOkf = async (patch: Pick<Partial<OnboardingProfile>, "step"> = {}) => {
     if (!needsOkfAcknowledgement(profile)) return;
-    setProfile(await api.updateOnboardingProfile({ okf: okfChoice(true, new Date()), ...patch }));
+    setProfile(await (registeredApi.current ?? api).updateOnboardingProfile({ okf: okfChoice(true, new Date()), ...patch }));
   };
   // Formulár klienta (`?continue=client`) zapisuje súbory OKF do priečinka klienta.
   const writesClientOkf = preview?.request.action === "client" || preview?.request.action === "existing";
@@ -739,7 +743,7 @@ export function LawossWelcomePage({
   });
   const move = async (
     next: OnboardingStep,
-    patch: Pick<Partial<OnboardingProfile>, "okf"> = {},
+    patch: Parameters<typeof flow.move>[1] = {},
   ) => {
     setBusy(true);
     setError(null);
@@ -888,10 +892,12 @@ export function LawossWelcomePage({
   /**
    * Vybraný priečinok sa uloží do profilu na obnovu po prerušení (M1); tok z bočného panela po dokončenom
    * onboardingu obnovu nemá. Zlyhaný zápis výber nezastaví, obnova len nebude vedieť priečinok.
+   * Sprievodca ho posiela spolu s krokom (`foundRootPatch`), aby staršia odpoveď neprepísala novší profil.
    */
+  const foundRootPatch = (root: string | null) => (sidebarFlow || !profile ? {} : { foundRoot: root });
   const rememberFoundRoot = (root: string | null) => {
     if (sidebarFlow || !profile) return;
-    void api.updateOnboardingProfile(root ? { foundRoot: root, step: "found" } : { foundRoot: null })
+    void flow.rememberFoundRoot(root)
       .then(setProfile, (reason: unknown) => console.warn("[lawoss] onboarding resume folder", reason));
   };
   /** Nový priečinok: staré voľby a pripojenie patria inému priečinku a zabudnú sa. */
@@ -904,15 +910,15 @@ export function LawossWelcomePage({
     setError(null);
     if (root !== foundRoot || connected?.kind === "fresh") forgetConnection();
     setFoundRoot(root);
-    rememberFoundRoot(root);
-    if (wizard) void move("found");
+    if (wizard) void move("found", foundRootPatch(root));
+    else rememberFoundRoot(root);
   };
   const changeFolder = () => {
     setError(null);
     setFoundRoot(null);
-    rememberFoundRoot(null);
     forgetConnection();
-    if (wizard) void move("folder");
+    if (wizard) void move("folder", foundRootPatch(null));
+    else rememberFoundRoot(null);
   };
   /**
    * Krok „Toto sme našli“ pripojil priečinok: zapamätá sa (návrat, obnova, súhrn), priečinok sa zaregistruje,
@@ -969,12 +975,11 @@ export function LawossWelcomePage({
         if (!root) { await complete(result, FRESH_OFFICE_COMPLETION); return; }
         // Nová kancelária: predtým vybraný priečinok sa zabudne aj na serveri (krok Dokumenty ho už neponúkne).
         setFoundRoot(null);
-        rememberFoundRoot(null);
         setSavedChoice(undefined);
         const next: WizardConnected = { kind: "fresh", root, result };
         setConnected(next);
         patchOnboardingProgress(storage(), { found: undefined, connected: next });
-        await move("found");
+        await move("found", foundRootPatch(null));
       }}
       onError={reportError}
       onClearError={clearError}
@@ -1036,8 +1041,8 @@ export function LawossWelcomePage({
             <span className="sr-only">LAWOSS</span>
           </p>
           {/* N-A5-5: v nastavenej praxi je „Pridať klienta“ (aj jeho ďalší krok s prípadom) pridaním klienta a „Nový
-              prípad“ pridaním prípadu, nie nastavením praxe. */}
-          <h1 className="lw-onb-title">{sidebarFlow ? tr(initialStep === "matter" ? "newMatter" : "addClientTitle") : tr("title")}</h1>
+              prípad“ pridaním prípadu, nie nastavením praxe. „Pridať priečinok“ a odkaz `?root=` pridávajú priečinok (#272). */}
+          <h1 className="lw-onb-title">{tr(!sidebarFlow ? "title" : initialStep === "matter" ? "newMatter" : initialStep === "client" ? "addClientTitle" : "addFolderTitle")}</h1>
           {mainPath && idx >= 0 ? (
             <WizardProgress text={wiz} steps={steps} current={idx} disabled={navBusy} onGo={wizard ? (target) => void move(target) : undefined} />
           ) : null}

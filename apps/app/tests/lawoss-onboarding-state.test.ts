@@ -48,6 +48,24 @@ describe("LAWOSS onboarding progress", () => {
     expect(readOnboardingProgress(storage)).toEqual(progress);
   });
 
+  test("obnova zachová voľby a pripojených klientov aj pri priečinku na UNC (\\\\nas\\share)", () => {
+    const storage = memoryStorage();
+    const prax = String.raw`\\nas\share\Klienti`, klient = String.raw`\\nas\share\Klienti\C001 Alfa`;
+    const applied = { result: "applied" as const, clientRoot: klient, workspace: { id: "ws_c001", path: klient } };
+    const progress: OnboardingProgress = {
+      lane: "detailed", step: "ready",
+      found: { root: prax, level: "practice", scope: "client", selected: ["C001 Alfa"] },
+      connected: { kind: "clients", root: prax, clients: [{ root: klient, name: "C001 Alfa", result: applied }] },
+    };
+    writeOnboardingProgress(storage, progress);
+    expect(readOnboardingProgress(storage)).toEqual(progress);
+    // Neúplná UNC cesta (bez zdieľania) a `..` ostávajú odmietnuté.
+    for (const root of [String.raw`\\nas`, String.raw`\\nas\share\..\iny`, String.raw`\\\share\x`]) {
+      writeOnboardingProgress(storage, { ...progress, connected: { kind: "practice", root } });
+      expect(readOnboardingProgress(storage).connected).toBeUndefined();
+    }
+  });
+
   test("falls back safely for malformed or unsupported progress", () => {
     const storage = memoryStorage();
     storage.setItem(

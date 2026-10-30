@@ -2,14 +2,14 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { access, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix, win32 } from "node:path";
 import { closeRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
 import { auditLogPath } from "../audit.js";
 import { fileOperationReport } from "../opencode-plugins/lawoss-file-operations-text.js";
-import { applyFileOperations, confusableNames, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, LAWOSS_TRASH_FOLDER, planFileOperations, systemTrashReliable, visibleName, type PlannedFileOperation } from "./file-operations.js";
+import { applyFileOperations, confusableNames, executePlannedFileOperation, FOLDER_SURVEY_LIMIT, LAWOSS_TRASH_FOLDER, linkedFolderLabels, planFileOperations, systemTrashReliable, visibleName, type PlannedFileOperation } from "./file-operations.js";
 
 const roots: string[] = [];
 const stops: Array<() => void | Promise<void>> = [];
@@ -519,6 +519,78 @@ test("N-A5-10: a case written as its code alone resolves to its folder; several 
   await mkdir(join(client, "Spisy", "M0010-ine"), { recursive: true });
   expect((await planFileOperations(config, workspace, [{ operation: "create_folder", path: join(client, "Spisy", "M001", "Nove") }])).operations[0]?.to)
     .toBe("Spisy/M001-uhrada-dodavok-riadiacich-jednotiek/Nove");
+});
+
+test("a linked drive root is labelled by its drive on the card, never left blank like the client folder (review #221)", () => {
+  expect(linkedFolderLabels(["Z:\\", "C:\\Data\\Podklady"], win32)).toEqual(["Z:", "Podklady"]);
+  expect(linkedFolderLabels(["Z:\\", "Y:/"], win32)).toEqual(["Z:", "Y:"]);
+  // UNC shares and ordinary folders keep their names; same names are still told apart by the parent.
+  expect(linkedFolderLabels(["\\\\nas\\share", "D:\\A\\Spisy", "D:\\B\\Spisy"], win32)).toEqual(["share", "A/Spisy", "B/Spisy"]);
+  expect(linkedFolderLabels(["/Volumes/NAS", "/mnt/x/NAS"], posix)).toEqual(["Volumes/NAS", "x/NAS"]);
+  expect(linkedFolderLabels(["Z:\\"], win32).every(Boolean)).toBe(true);
+});
+
+test("#274: a nested client inside one of two case folders does not hide that case; the code stays ambiguous", async () => {
+  const { config, client, workspace } = await office();
+  const novak = join(client, "Spisy", "M001-Novak"), svoboda = join(client, "Spisy", "M001-Svoboda");
+  for (const folder of [join(novak, "Podklady"), join(svoboda, "Podklady"), join(novak, "Spolocnost XY")]) await mkdir(folder, { recursive: true });
+  await writeFile(join(svoboda, "Podklady", "zmluva.pdf"), "SYN Svoboda");
+  config.workspaces.push({ id: "ws_xy", name: "Spolocnost XY", path: join(novak, "Spolocnost XY"), preset: "starter", workspaceType: "local" });
+  await expect(planFileOperations(config, workspace, [{ operation: "delete", path: "Spisy/M001/Podklady/zmluva.pdf" }]))
+    .rejects.toMatchObject({ code: "file_operation_ambiguous_case", message: expect.stringContaining("M001-Novak, M001-Svoboda") });
+  // A case folder that is itself the nested client stays out of the comparison.
+  await mkdir(join(client, "Spisy", "M002-Klient"), { recursive: true });
+  await mkdir(join(client, "Spisy", "M002-Vec", "Podklady"), { recursive: true });
+  config.workspaces.push({ id: "ws_m002", name: "M002", path: join(client, "Spisy", "M002-Klient"), preset: "starter", workspaceType: "local" });
+  expect((await planFileOperations(config, workspace, [{ operation: "create_folder", path: "Spisy/M002/Podklady/Nove" }])).operations[0]?.to)
+    .toBe("Spisy/M002-Vec/Podklady/Nove");
+});
+
+test("#274: a case code sees folders created or moved away earlier in the same request", async () => {
+  const { config, client, workspace } = await office();
+  await mkdir(join(client, "Spisy", "M001-stary"), { recursive: true });
+  await mkdir(join(client, "Inbox"), { recursive: true });
+  await writeFile(join(client, "Inbox", "a.pdf"), "SYN a");
+  await expect(planFileOperations(config, workspace, [
+    { operation: "create_folder", path: "Spisy/M001-novy" },
+    { operation: "move", from: "Inbox/a.pdf", to: "Spisy/M001/a.pdf" },
+  ])).rejects.toMatchObject({ code: "file_operation_ambiguous_case", message: expect.stringContaining("M001-novy, M001-stary") });
+  // The only folder with the code moved away earlier: the code no longer names it.
+  const plan = await planFileOperations(config, workspace, [
+    { operation: "move", from: "Spisy/M001-stary", to: "Archiv-M001-stary" },
+    { operation: "create_folder", path: "Spisy/M001/Nove" },
+  ]);
+  expect(plan.operations[1]?.to).toBe("Spisy/M001/Nove");
+  // A folder created earlier is a candidate on its own.
+  const created = await planFileOperations(config, workspace, [
+    { operation: "move", from: "Spisy/M001-stary", to: "Archiv-M001-stary" },
+    { operation: "create_folder", path: "Spisy/M001-novy" },
+    { operation: "move", from: "Inbox/a.pdf", to: "Spisy/M001/a.pdf" },
+  ]);
+  expect(created.operations[2]?.to).toBe("Spisy/M001-novy/a.pdf");
+  // Review: a folder created together with its parents counts too.
+  await expect(planFileOperations(config, workspace, [
+    { operation: "create_folder", path: "Spisy/M001-novy/Podklady" },
+    { operation: "move", from: "Inbox/a.pdf", to: "Spisy/M001/a.pdf" },
+  ])).rejects.toMatchObject({ code: "file_operation_ambiguous_case", message: expect.stringContaining("M001-novy, M001-stary") });
+  // Review: a folder created with a child and then moved away is not a candidate any more.
+  const away = await planFileOperations(config, workspace, [
+    { operation: "create_folder", path: "Spisy/M001-novy" },
+    { operation: "create_folder", path: "Spisy/M001-novy/Podklady" },
+    { operation: "move", from: "Spisy/M001-novy", to: "Archiv-M001-novy" },
+    { operation: "create_folder", path: "Spisy/M001/Nove" },
+  ]);
+  expect(away.operations[3]?.to).toBe("Spisy/M001-stary/Nove");
+});
+
+test.skipIf(process.platform !== "linux")("#274 review: moving one Unicode spelling away keeps its distinct sibling in the comparison", async () => {
+  const { config, client, workspace } = await office();
+  const nfc = "M001-Pošta".normalize("NFC"), nfd = "M001-Pošta".normalize("NFD");
+  for (const name of [nfc, nfd, "M001-ine"]) await mkdir(join(client, "Spisy", name), { recursive: true });
+  await expect(planFileOperations(config, workspace, [
+    { operation: "move", from: join(client, "Spisy", nfc), to: join(client, "Archiv") },
+    { operation: "create_folder", path: "Spisy/M001/Nove" },
+  ])).rejects.toMatchObject({ code: "file_operation_ambiguous_case" });
 });
 
 /** N-A7-6: a synthetic case with a card, its input register (one row) and an inbox folder, like the OKF template. */
