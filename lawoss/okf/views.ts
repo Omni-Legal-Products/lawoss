@@ -45,7 +45,7 @@
 import type { FmValue, OkfRecord } from "../okf-pamat/src/record.ts";
 import { isManagedDeadline, managedDeadlineTrusted } from "./deadline-workflow.ts";
 import { provenance } from "./cockpit.ts";
-import { deadlineLabel, isOfficeFile, isRetired, recordDeadlines, scopeLevels, type MatterInput } from "./read.ts";
+import { deadlineLabel, isOfficeFile, isRetired, recordDeadlines, scopeLevels, taskDue, type MatterInput } from "./read.ts";
 
 export const VIEW_FAMILIES = ["procedural", "corporate", "ip"] as const;
 export type ViewFamily = (typeof VIEW_FAMILIES)[number];
@@ -350,7 +350,9 @@ const allDeadlines = (ctx: Ctx): ViewItem[] =>
 function taskItems(ctx: Ctx, includeDone: boolean): ViewItem[] {
   return ctx.live.filter((r) => r.type === "task" && (includeDone || r.state !== "done")).map((r) => {
     const st: StateResult = r.state === "done" ? recordState(r) : {};
-    const flags: ItemFlag[] = [...(st.flags ?? []), ...(r.due && r.state !== "done" && r.due < ctx.today ? ["overdue" as const] : [])];
+    const due = taskDue(r.due);
+    const dueFlag: ItemFlag[] = r.state === "done" ? [] : due.invalid ? ["invalid"] : due.day && due.day < ctx.today ? ["overdue"] : [];
+    const flags: ItemFlag[] = [...(st.flags ?? []), ...dueFlag];
     return { key: `task:${fileOf(ctx, r)}`, label: r.title, ...(r.due ? { date: r.due } : {}), ...(r.assignee ? { detail: r.assignee } : {}), tags: ["task"],
       ...(st.state ? { state: st.state } : {}), ...(flags.length ? { flags } : {}), source: recordSource(ctx, r, { field: r.due ? "due" : "state" }) };
   }).sort((a, b) => (a.date ?? "9999").localeCompare(b.date ?? "9999"));
@@ -449,7 +451,9 @@ function clientItem(ctx: Ctx, conflicts: ViewConflict[]): ViewItem[] {
 /** Stavová lišta: stav (karta), fáza a ďalší krok (`_STATUS.md`), najbližší budúci termín. */
 function strip(ctx: Ctx): ViewSection[] {
   const status = clean(ctx.card.status);
-  const next = [...allDeadlines(ctx), ...taskItems(ctx, false)].filter((d) => d.date && /^\d{4}-\d{2}-\d{2}$/.test(d.date) && d.date >= ctx.today)
+  // Termín úlohy smie mať čas („2026-11-20 10:00“); neplatný dátum najbližším termínom nie je.
+  const dayOf = (d: ViewItem): string | undefined => d.flags?.includes("invalid") ? undefined : taskDue(d.date).day;
+  const next = [...allDeadlines(ctx), ...taskItems(ctx, false)].filter((d) => (dayOf(d) ?? "") >= ctx.today)
     .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""))[0];
   return [
     section("status", status ? [{ key: "status", label: status, source: cardSource(ctx, "status") }] : [], { file: ctx.cardFile, field: "status" }),

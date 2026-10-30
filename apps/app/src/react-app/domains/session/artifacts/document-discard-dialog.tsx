@@ -5,6 +5,8 @@ import { getDocumentDiscardPrompt, resolveDocumentDiscardPrompt, subscribeDocume
 
 export function DocumentDiscardDialog() {
   const prompt = useSyncExternalStore(subscribeDocumentDiscardPrompt, getDocumentDiscardPrompt, () => null);
+  // 🟡 LAWOSS (N-A7-16): bez výzvy sa dialóg hneď odstráni, nedobieha zatváranie s prázdnym menom.
+  if (!prompt) return null;
   return <ConfirmModal open={Boolean(prompt)} variant="danger"
     title={t("document_discard.title")}
     message={t("document_discard.body", { names: prompt?.names.join(", ") ?? "" })}
