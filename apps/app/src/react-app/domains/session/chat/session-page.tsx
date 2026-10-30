@@ -371,7 +371,7 @@ function controlStringArg(args: unknown, key: string) {
 export function SessionPage(props: SessionPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const projectName = useClientDisplayName(props.selectedWorkspaceId, props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId);
+  const projectName = useClientDisplayName(props.selectedWorkspaceId, props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId, props.selectedWorkspaceRoot);
   const wikiWorkspace = props.wikiWorkspace;
   const [wikiNavigationStates, setWikiNavigationStates] = useState<Record<string, boolean>>({});
   const wikiNavigationOpen = wikiWorkspace ? wikiNavigationStates[wikiWorkspace.workspaceId] ?? readWikiNavigationOpen(wikiWorkspace.workspaceId) : false;

@@ -1,9 +1,13 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { symlinkSync } from "node:fs";
 import { lstat, mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
+
+// Zápis onboardingu robí fsync každého súboru. Na runneri Windows zriedka trvá jeden test vyše 5 s
+// (predvolený limit Bunu), inak menej ako 1 s; po vypršaní limitu afterEach zmaže priečinok bežiaceho zápisu.
+setDefaultTimeout(30_000);
 
 const paths: string[] = [];
 afterEach(async () => { await Promise.all(paths.splice(0).map(path => rm(path, { recursive: true, force: true }))); });

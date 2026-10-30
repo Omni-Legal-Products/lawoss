@@ -73,7 +73,8 @@
 .lw-matter-countdown[data-urgency="calm"] strong { color: var(--lw-text-primary); }
 
 /* Akcie */
-.lw-matter-dock { display: grid; gap: 8px; }
+/* Animované susedné panely nesmú prekryť rozbalené menu akcií. */
+.lw-matter-dock { display: grid; gap: 8px; z-index: 1; }
 .lw-matter-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .lw-matter-action {
   padding: 8px 15px;

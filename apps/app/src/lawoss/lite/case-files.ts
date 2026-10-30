@@ -9,11 +9,20 @@ import { isOfficeFile } from "../../../../../lawoss/okf/read";
 import { setCardViewTags, type ViewFamily } from "../../../../../lawoss/okf/views";
 import { locateInScope, type OkfScope } from "../okf/read-model";
 
-/** Súbor prehľadu → cesta v priečinku klienta `workspaceId`; priečinok, kancelária alebo iný klient → `null`. */
+/** NFC a bez ohľadu na veľkosť písmen: na APFS/NTFS je „c002“ ten istý priečinok ako „C002“; odmietnuť viac je bezpečná strana. */
+const folded = (path: string) => path.normalize("NFC").toLowerCase();
+
+/**
+ * Súbor prehľadu → cesta v priečinku klienta `workspaceId`; priečinok, kancelária, iný klient alebo
+ * zaregistrovaný klient vnorený v tomto priečinku (prípad otvorený ako koreň nad ním, #223) → `null`.
+ */
 export function locateCaseFile(scope: OkfScope | null, file: string, workspaceId: string): { workspace: RouteWorkspace; path: string } | null {
   if (!scope || !file || file.endsWith("/") || isOfficeFile(file)) return null;
   const located = locateInScope(scope, file);
-  return located?.path && located.workspace.id === workspaceId ? located : null;
+  if (!located?.path || located.workspace.id !== workspaceId) return null;
+  const path = folded(located.path);
+  const nested = scope.members.find((member) => member.workspace.id === workspaceId)?.nested ?? [];
+  return nested.map(folded).some((dir) => path === dir || path.startsWith(`${dir}/`)) ? null : located;
 }
 
 type CardClient = Pick<LegalworkServerClient, "readWorkspaceFile" | "writeWorkspaceFile">;

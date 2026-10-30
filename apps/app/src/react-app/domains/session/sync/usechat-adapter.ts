@@ -217,8 +217,8 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
   return snapshot.messages.flatMap((message) => {
     const created = message.info.time?.created;
     const summary = message.info.role === "assistant" && "summary" in message.info && message.info.summary === true;
-    // 🟡 LAWOSS: hotová správa, ktorej jediný text je komentár modelu, ho ukáže ako odpoveď (review N-A5-2).
-    const commentaryAnswer = commentaryIsAnswer(message.parts, Boolean(Reflect.get(message.info.time ?? {}, "completed")));
+    // 🟡 LAWOSS: správa, ktorá končí ťah a jej jediný text je komentár modelu, ho ukáže ako odpoveď (N-A5-2, #269).
+    const commentaryAnswer = commentaryIsAnswer(message.parts, message.info);
     const uiMessage = {
       id: message.info.id,
       role: message.info.role,

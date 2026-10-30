@@ -5,6 +5,7 @@ import {
   isModelAvailableInConnectedProviders,
   RETIRED_FREE_PROVIDER_IDS,
 } from "@/react-app/infra/provider-list-query";
+import { isFreeVariantId, withoutFreeModels } from "./free-models";
 
 /**
  * Model state of the composer, computed once for every surface that shows it.
@@ -29,8 +30,11 @@ export function modelReadiness(input: {
   fallbackConnectedCount?: number;
 }): ModelReadiness {
   const { defaultModel, providerList } = input;
+  // A free model never counts as available: the composer refuses to send with it (#231, AGENTS.md).
+  const usableList = withoutFreeModels(providerList);
   const modelUnavailable = Boolean(
-    defaultModel && providerList && !isModelAvailableInConnectedProviders(providerList, defaultModel),
+    defaultModel &&
+      (isFreeVariantId(defaultModel.modelID) || (usableList && !isModelAvailableInConnectedProviders(usableList, defaultModel))),
   );
   const hasUsableModel = Boolean(defaultModel && !modelUnavailable);
   // A usable selection guarantees a connected provider even before the query

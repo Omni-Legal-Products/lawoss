@@ -61,6 +61,16 @@ export function caseDates(tasks: readonly TodayTask[], todayIso: string, days: n
   })
     .sort((a, b) => a.due.localeCompare(b.due) || a.title.localeCompare(b.title, "cs"));
 }
+/**
+ * Riadky „Termínov z prípadov“, keď sa všetky nezmestia (#276): miesto dostane najprv termín dnes a zajtra, potom
+ * včerajší, potom ostatné podľa dátumu (najstaršie zmeškané najprv). Inak desať augustových úloh vytlačilo zajtrajšie
+ * pojednávanie za „+N ďalšie“. Vybrané riadky ostanú zoradené podľa dátumu.
+ */
+export function caseDateRows<T extends Pick<CaseDate, "daysLeft">>(dates: readonly T[], rows: number): T[] {
+  const rank = (d: T) => d.daysLeft === 0 || d.daysLeft === 1 ? 0 : d.daysLeft === -1 ? 1 : 2;
+  const shown = new Set([...dates].sort((a, b) => rank(a) - rank(b)).slice(0, rows));
+  return dates.filter((d) => shown.has(d));
+}
 /** Blok „Začnite tu“ (spec 0020): jeden najbližší konkrétny krok, lehota alebo pracovný termín. */
 export type StartHere = { kind: "deadline"; item: TodayDeadline } | { kind: "work"; item: CaseDate };
 

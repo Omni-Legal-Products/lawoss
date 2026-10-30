@@ -24,12 +24,22 @@ export async function findDocumentProject<W extends ProjectWorkspace>(sessionId:
   const candidates = workspaces.flatMap(workspace => {
     const endpoint = endpointFor(workspace);
     if (!endpoint) return [];
-    return [(async () => {
+    return [{ workspace, endpoint, lookup: (async () => {
       const { item } = await endpoint.client.getSession(endpoint.workspaceId, sessionId);
       if (!endpoint.isRemote && !isWithinClientFolder(workspace.path || "", item.directory)) throw new Error("Different project");
-      return { projectId: workspace.id, workspaceId: endpoint.workspaceId, workspaceRoot: workspace.path || "", client: endpoint.client, isRemoteWorkspace: endpoint.isRemote };
-    })()];
+      return { directory: item.directory, project: { projectId: workspace.id, workspaceId: endpoint.workspaceId, workspaceRoot: workspace.path || "", client: endpoint.client, isRemoteWorkspace: endpoint.isRemote } };
+    })() }];
   });
-  try { return await Promise.any(candidates); }
-  catch { throw new Error("The task's project is unavailable. Its data could not be loaded from the project server."); }
+  // LAWOSS: with a nested registered folder (a practice root around its clients) several workspaces
+  // can own the chat; the innermost one is its client, not whichever answers first (#223). A local
+  // workspace inside the chosen one that holds the chat but failed to answer is never replaced by
+  // the broader scope: the task stays unavailable instead.
+  const settled = await Promise.allSettled(candidates.map(candidate => candidate.lookup));
+  const found = settled.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
+  const inside = (outer: string, inner: string) => Boolean(outer) && Boolean(inner) && isWithinClientFolder(outer, inner);
+  const chosen = found.reduce<(typeof found)[number] | undefined>((best, next) => !best || inside(best.project.workspaceRoot, next.project.workspaceRoot) ? next : best, undefined);
+  const deeperFailed = chosen && candidates.some(({ workspace, endpoint }, index) => settled[index]!.status === "rejected" && !endpoint.isRemote
+    && inside(chosen.project.workspaceRoot, workspace.path || "") && isWithinClientFolder(workspace.path || "", chosen.directory));
+  if (!chosen || deeperFailed) throw new Error("The task's project is unavailable. Its data could not be loaded from the project server.");
+  return chosen.project;
 }

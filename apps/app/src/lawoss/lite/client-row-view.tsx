@@ -61,9 +61,12 @@ export function useClientProjectRow(project: ProjectRef, nativeLabel: string): C
   return useMemo(() => clientRowFrom(facts, nativeLabel, locale, clientCardLabel(project.id, nativeLabel, project.path)), [facts, nativeLabel, locale, project.id, project.path]);
 }
 
-/** Meno projektu na Prehľade klienta (hlavička) – rovnaké ako v bočnom paneli. */
-export function useClientDisplayName(projectId: string, nativeLabel: string): string {
-  return useClientProjectRow({ id: projectId }, nativeLabel).label;
+/**
+ * Meno projektu na Prehľade klienta (hlavička) – rovnaké ako v bočnom paneli. `path`: dnešný priečinok priestoru,
+ * aby meno zapamätané pre iný priečinok neprežilo presmerovanie priestoru (#273).
+ */
+export function useClientDisplayName(projectId: string, nativeLabel: string, path: string): string {
+  return useClientProjectRow({ id: projectId, path }, nativeLabel).label;
 }
 
 /** Riadok klienta je aktívny podľa trasy (vec alebo chat vo veci patrí jemu); inak natívny vybraný projekt. */

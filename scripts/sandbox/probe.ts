@@ -70,14 +70,16 @@ print(json.dumps(checks))
   assert.notEqual(blocked.exitCode, 0);
   assert.deepEqual(requests, ["https://example.com/"]);
   results.https_request_inspected_and_denied = true;
+  // LAWOSS #222: the approved requests get a fixed page from the host side of the broker instead of the live
+  // example.com, whose 503 failed the packaging check. Guest TLS interception and both clients are still exercised.
   const approvedRequests: string[] = [];
-  const approved = await sandbox.run({ command: `set -e
+  const page = { status: 200, headers: { "content-type": "text/html" }, bodyBase64: Buffer.from("<title>Example Domain</title>").toString("base64") };
+  const brokered = new VmSandbox(sandbox.resources, "auto", { maxRequests: 2, request: async (request) => { approvedRequests.push(request.url); return page; } });
+  const approved = await brokered.run({ command: `set -e
 python3 -c 'import urllib.request; assert b"Example Domain" in urllib.request.urlopen("https://example.com/").read(); print("Python HTTPS passed")'
 node -e 'fetch("https://example.com/").then(r=>r.text()).then(t=>{if(!t.includes("Example Domain")) process.exit(1); console.log("Node HTTPS passed")})'`,
     cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }], timeoutMs: 30000,
-    signal: AbortSignal.timeout(180000), authorizeNetwork: async (request) => {
-      approvedRequests.push(request.url); return true;
-    } });
+    signal: AbortSignal.timeout(180000), authorizeNetwork: async () => { throw new Error("The recorded broker decides"); } });
   assert.equal(approved.exitCode, 0, approved.output);
   assert.deepEqual(approvedRequests, Array(2).fill("https://example.com/"));
   assert.ok(approved.output.includes("Python HTTPS passed"));

@@ -74,6 +74,24 @@ describe("pickDefaultModel", () => {
   });
 });
 
+describe("pickDefaultModel never picks a free model (#231)", () => {
+  const free = provider("openrouter", {
+    "deepseek/deepseek-chat:free": { toolcall: true },
+    "anthropic/claude-sonnet-4.5": { toolcall: true },
+  });
+
+  test("skips an advertised free default and takes the first paid tool-capable model", () => {
+    expect(pickDefaultModel([free], { openrouter: "deepseek/deepseek-chat:free" })).toEqual({
+      providerID: "openrouter",
+      modelID: "anthropic/claude-sonnet-4.5",
+    });
+  });
+
+  test("picks nothing when every tool-capable model is free", () => {
+    expect(pickDefaultModel([provider("openrouter", { "deepseek/deepseek-chat:free": { toolcall: true } })])).toBeNull();
+  });
+});
+
 describe("getDefaultModelForSingleConnectedProvider", () => {
   // The auto-pick in session-route goes through this upstream function; the
   // upstream body took the catalogue's first entry, so this fails without the
