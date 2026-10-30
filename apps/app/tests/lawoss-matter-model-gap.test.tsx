@@ -51,6 +51,20 @@ describe("quick actions know in advance whether a model is connected", () => {
   test("a connected, available selection lets the actions run", () => {
     expect(matterModelGap(CLAUDE, providerList(["anthropic", "openai"], TWO))).toBeNull();
   });
+
+  // #231: AGENTS.md „Do not use upstream free models with client, privileged, or matter data“ platí aj mimo onboardingu.
+  test("a saved free model does not let client data reach it", () => {
+    const list = providerList(["openrouter", "anthropic"], { openrouter: ["deepseek/deepseek-chat:free"], anthropic: ["claude-sonnet"] });
+    expect(matterModelGap({ providerID: "openrouter", modelID: "deepseek/deepseek-chat:free" }, list)).toBe("unavailable");
+  });
+
+  test("a single provider whose only model is free is not picked automatically", () => {
+    expect(matterModelGap(null, providerList(["openrouter"], { openrouter: ["deepseek/deepseek-chat:free"] }))).toBe("pick-model");
+  });
+
+  test("a single provider with a free and a paid model picks the paid one", () => {
+    expect(matterModelGap(null, providerList(["openrouter"], { openrouter: ["deepseek/deepseek-chat:free", "anthropic/claude-sonnet"] }))).toBeNull();
+  });
 });
 
 describe("matter detail without a model", () => {
