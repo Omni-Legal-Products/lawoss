@@ -80,3 +80,9 @@ Toolchain mismatch found: prior local Bun1.4.0, CI1.4.2; previous source-suite r
 - Pinned Node24.21.0/Bun1.4.2: app2877pass2skip0fail; server3008pass81skip0fail; exact native helper glob379pass0skip0fail; focused PDF server9pass. App typecheck and root i18n audit exit0. Server/app/Office production builds exit0; Vite app50.42s, Office25.55s at CI6144MiB heap. Optional/runtime source skips do not establish VM or native Windows acceptance.
 - PR202 ordinary dev reconciliatione1b477a2 pushed; source tree was exactly identical before receipt changes and its watcher suite3/3 passed. Cancel requested for its own superseded desktop run39506866194 after new-head checks appeared.
 - Original PR200 failures remain historical and unclassified. One fresh exact52db9744 workflow39510917759 requests source plus packaging; no retry of a failed job snapshot and no weakened deadlines. PR201 Windows workflow39510914223 was admitted for42195bd0; final merge head requires its own PR checks.
+
+2026-10-21 12:22:43 UTC — Published-scope security review documentation
+
+- Prepared docs/security/2026-10-21-review-summary.md: public-safe audit summary, exact historical revisions, 184 selected passes/1 skip plus separate finding-confirming regression failure, and explicit partial/native coverage limits.
+- Detailed findings, vulnerable locations, repro inputs and private evidence stay outside Git under SECURITY.md disclosure policy. No claim of maintainer delivery, remediation, fresh current-dev test acceptance or whole-application security.
+- Documentation-only change; no module implementation or API changes. Validate whitespace, internal link, disclosure scope and exact changed-file set before publication. General lesson: public audit metadata must remain distinct from private reproducibility evidence until coordinated disclosure.
