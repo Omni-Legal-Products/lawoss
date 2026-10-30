@@ -510,6 +510,8 @@ try {
     for(const folder of await readdir(base).catch(()=>[])){
       if(attachmentDirsBefore.has(folder))continue;
       for(const name of await readdir(path.join(base,folder)).catch(()=>[])){
+        // Upload píše `<názov>.tmp-<id>` a potom ho premenuje (routes/files.ts); dočasný súbor nie je príloha.
+        if(/\.tmp-[^/\\]+$/.test(name))continue;
         const target=path.join(base,folder,name);
         try{if(sha256(await readFile(target))===sha256(chatSource.bytes))return target}catch{}
       }
