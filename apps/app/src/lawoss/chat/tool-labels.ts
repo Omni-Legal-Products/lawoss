@@ -30,6 +30,20 @@ const TOOL_LABELS: Record<string, Labels> = {
   legalwork_shell: { active: "tool_activity.running_command", done: "tool_run.ran_command" },
 };
 
+/**
+ * Nástroje dokumentu otvoreného v appke (`inapp_*`, N-A8-2: „Spúšťanie inapp markdown create“): krok podľa toho, čo
+ * s dokumentom robia. Poradie rozhoduje: prvá zhoda vyhrá; zvyšok `inapp_*` je úprava dokumentu.
+ */
+const INAPP_LABELS: readonly [RegExp, Labels][] = [
+  [/^inapp_markdown_create$/, { active: "lawoss.tool.inapp_create", done: "lawoss.tool.inapp_create_done" }],
+  [/^inapp_documents_(?:open|navigate|select)$/, { active: "lawoss.tool.inapp_open", done: "lawoss.tool.inapp_open_done" }],
+  [/^inapp_(?:office|md)_save$/, { active: "lawoss.tool.inapp_save", done: "lawoss.tool.inapp_save_done" }],
+  [/_compare_documents$/, { active: "lawoss.tool.inapp_compare", done: "lawoss.tool.inapp_compare_done" }],
+  [/^inapp_(?:documents_list|.*_(?:read|inspect|find|preview)(?:_[a-z]+)?)$/, { active: "lawoss.tool.inapp_read", done: "lawoss.tool.inapp_read_done" }],
+  [/^inapp_/, { active: "lawoss.tool.inapp_edit", done: "lawoss.tool.inapp_edit_done" }],
+];
+const inappLabels = (name: string): Labels | undefined => INAPP_LABELS.find(([pattern]) => pattern.test(name))?.[1];
+
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim() : undefined;
 const field = (input: unknown, key: string): string | undefined => input && typeof input === "object" ? text(Reflect.get(input, key)) : undefined;
 
@@ -41,7 +55,7 @@ function label(name: string, input: unknown, phase: keyof Labels): string | null
   // Príkaz s popisom od agenta (popis je v nástroji povinný) ukáže popis ako bežný príkaz `bash`.
   const description = name === "legalwork_shell" ? field(input, "description") : undefined;
   if (description) return truncateText(description, phase === "active" ? 64 : 80);
-  const labels = TOOL_LABELS[name];
+  const labels = TOOL_LABELS[name] ?? inappLabels(name);
   if (labels) return t(labels[phase]);
   // Iný nástroj LAWOSS bez vlastného textu: všeobecný krok, nikdy názov nástroja.
   return name.startsWith("lawoss_") ? t(phase === "active" ? "tool.working" : "tool_run.summary.tool") : null;

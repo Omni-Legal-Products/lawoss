@@ -19,6 +19,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { OcrSettingsView } from "@legalwork/types/ocr";
 import { ApiError } from "../errors.js";
+import { OCR_SETTING } from "./app-setting-names.js";
 import type { ServerConfig } from "../types.js";
 import { addRoute, type RequestContext, type Route } from "../routes/registry.js";
 import { OcrManager } from "../ocr/manager.js";
@@ -29,8 +30,8 @@ import type { OcrEngine } from "../ocr/types.js";
 export const OCR_OPT_IN_FILE = "lawoss-ocr.json";
 export const OCR_DISABLED_CODE = "ocr_disabled";
 /** Text pre agenta a záznam prípravy; kód v hranatých zátvorkách rozpozná appka a ukáže preklad. */
-export const OCR_DISABLED = `Text recognition from scans (OCR) is off. Scanned pages were not read; only the document's own text layer was used. To read scans, turn on Settings → AI Providers → Text recognition from scans (OCR). [${OCR_DISABLED_CODE}]`;
-const DOWNLOAD_REFUSED = "Text recognition from scans (OCR) is off. Turn it on in Settings → AI Providers → Text recognition from scans (OCR) before downloading the model.";
+export const OCR_DISABLED = `OCR is off. Scanned pages were not read; only the document's own text layer was used. To read scans, turn on ${OCR_SETTING}. [${OCR_DISABLED_CODE}]`;
+const DOWNLOAD_REFUSED = `OCR is off. Turn it on in ${OCR_SETTING} before downloading the model.`;
 export const OCR_MODEL_SOURCE = "huggingface.co (PaddlePaddle)";
 export const OCR_MODEL_BYTES = smallModelAssets.reduce((total, asset) => total + asset.bytes, 0);
 export const OCR_LAYOUT_BYTES = layoutModelAsset.bytes;

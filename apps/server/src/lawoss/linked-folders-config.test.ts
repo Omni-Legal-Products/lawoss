@@ -380,10 +380,10 @@ describe("klient v mape podľa karty klienta", () => {
     if (!map) throw new Error("map");
     const clientOf = (root: string) => map.clients.find((entry) => entry.root === root)?.client;
     expect([clientOf(client), clientOf(matter), clientOf(sibling), clientOf(other), clientOf(bare), clientOf(practiceRoot)]).toEqual([client, client, client, other, null, null]);
-    expect(externalDirectoryOtherClient(map, matter, [sibling])).toBe(false);
-    expect(externalDirectoryOtherClient(map, sibling, [matter, client])).toBe(false);
-    expect(externalDirectoryOtherClient(map, matter, [other])).toBe(true);
-    expect(externalDirectoryOtherClient(map, bare, [other])).toBe(false);
+    expect(externalDirectoryOtherClient(map, matter, [sibling])).toBeNull();
+    expect(externalDirectoryOtherClient(map, sibling, [matter, client])).toBeNull();
+    expect(externalDirectoryOtherClient(map, matter, [other])).toBe("inside");
+    expect(externalDirectoryOtherClient(map, bare, [other])).toBeNull();
     // Nad koreňom praxe sa karta nehľadá (ani keď by tam bola).
     await writeFile(join(practiceRoot, "client.md"), "---\ntitle: Prax\n---\n");
     expect(await clientCardFolder(bare, practiceRoot)).toBeNull();

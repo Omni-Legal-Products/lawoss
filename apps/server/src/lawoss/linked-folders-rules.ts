@@ -157,37 +157,52 @@ export function patternRelation(pattern: string, root: string): "inside" | "cont
   return "inside";
 }
 
+/** Prečo plugin odmietne `external_directory`: cieľ leží v inom klientovi, alebo obsahuje priečinky iných klientov. */
+export type OtherClientRefusal = "inside" | "contains";
+
 /**
- * N-A7-14 (test E2): požiadavka chatu klienta smeruje len do priečinka iného klienta. Klient = priečinok s kartou
- * (`client` v mape): spisy toho istého klienta, aj registrované samostatne, sú ten istý klient. Odmietne sa, keď
- * aspoň jeden cieľ leží v inom známom klientovi alebo sa naň vzor rozvinie (`…/Klienti/C002*`) a žiadny cieľ
- * nezasiahne vlastného klienta. Nerozhoduje (ostane karta): vzor cez vlastného klienta (`…/Klienti/*`), priečinok,
- * ktorý klientov len obsahuje, cieľ so znakmi `[ ] { } $ \``, pripojený priečinok mimo klientov (E1), chat bez známeho
- * klienta (kontajner praxe, priečinok bez karty, starší súbor mapy) a firemné pravidlá.
+ * N-A7-14 (test E2) a rozhodnutie MČ z 30. 10. 2026: požiadavka chatu klienta siaha na priečinok iného klienta. Klient =
+ * priečinok s kartou (`client` v mape): spisy toho istého klienta, aj registrované samostatne, sú ten istý klient.
+ * - `inside`: cieľ leží v inom známom klientovi alebo sa naň vzor rozvinie (`…/Klienti/C002*`).
+ * - `contains`: cieľ obsahuje priečinok iného klienta (`…/Klienti`, koreň praxe, domov) alebo sa vzor rozvinie aj na
+ *   iného klienta popri vlastnom (`…/Klienti/*`, `…/Prax/K*`, `…/Prax/**`). Od 30. 10. sa aj tento odmieta bez karty.
+ * Nerozhoduje (ostane karta): cieľ len vo vlastnom klientovi a jeho spisoch, cieľ so znakmi `[ ] { } $ \``, pripojený
+ * priečinok mimo klientov (E1), priečinok, ktorý obsahuje len vlastného klienta, chat bez známeho klienta (kontajner
+ * praxe, priečinok bez karty, starší súbor mapy) a firemné pravidlá.
  */
-export function externalDirectoryOtherClient(map: LinkedFoldersMap, directory: string, targets: readonly (string | null)[]): boolean {
-  if (map.firmManaged) return false;
+export function externalDirectoryOtherClient(map: LinkedFoldersMap, directory: string, targets: readonly (string | null)[]): OtherClientRefusal | null {
+  if (map.firmManaged) return null;
   const own = ownerOf(map, directory)?.client;
-  if (!own) return false;
-  const known = [...new Set(map.clients.flatMap((client) => client.client ? [client.client] : []))];
-  let other = false;
+  if (!own) return null;
+  const others = [...new Set(map.clients.flatMap((client) => client.client && client.client !== own ? [client.client] : []))];
+  let refusal: OtherClientRefusal | null = null;
   for (const target of targets) {
     if (target === null || UNCERTAIN_CHARS.test(target)) continue;
-    // Cieľ, ktorý vlastného klienta obsahuje (`…/Klienti`, `…/Prax/K*`), rozhodne advokát na karte.
-    if (patternRelation(target, own) === "contains") return false;
-    const reached = known.filter((client) => patternRelation(target, client) === "inside");
+    // Cieľ, ktorý priečinok iného klienta obsahuje (aj keď obsahuje aj vlastného), sa odmietne vždy.
+    if (others.some((client) => patternRelation(target, client) === "contains")) return "contains";
+    const reached = others.filter((client) => patternRelation(target, client) === "inside");
+    if (!reached.length) continue;
     if (GLOB_CHARS.test(target)) {
-      // Vzor, ktorý sa rozvinie aj na vlastného klienta (`…/Klienti/*`), tiež.
-      if (reached.includes(own)) return false;
-      if (reached.length) other = true;
+      // Vzor, ktorý sa rozvinie na iného klienta aj na vlastného (`…/Klienti/*`), zasahuje viac klientov.
+      if (patternRelation(target, own) !== null) return "contains";
+      refusal = "inside";
       continue;
     }
     // Cesta bez `*` patrí najhlbšiemu klientovi (klient vnútri klienta je iný klient).
-    const deepest = reached.sort((a, b) => b.length - a.length)[0];
-    if (deepest === own) return false;
-    if (deepest) other = true;
+    const deepest: string | undefined = [own, ...reached].filter((client) => patternRelation(target, client) === "inside").sort((a, b) => b.length - a.length)[0];
+    if (deepest !== own) refusal = "inside";
   }
-  return other;
+  return refusal;
+}
+
+/**
+ * N-A7-14 (rozhodnutie MČ 30. 10. 2026): advokát v tomto chate už rovnaký rozsah zamietol. Cieľ sa zhoduje so zamietnutým,
+ * alebo (bez `*`/`?`) leží v zamietnutom priečinku. Zamietnuté aj ciele sú kanonické cesty z `patternDirectory`.
+ */
+export function refusedEarlier(refused: Iterable<string>, targets: readonly (string | null)[]): boolean {
+  const earlier = [...refused];
+  return targets.some((target) => target !== null && earlier.some((folder) =>
+    foldedPath(folder) === foldedPath(target) || (!GLOB_CHARS.test(folder) && !GLOB_CHARS.test(target) && isPathWithin(folder, target))));
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);

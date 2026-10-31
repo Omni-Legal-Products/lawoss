@@ -110,7 +110,7 @@ async function conflictScope(config: ServerConfig, workspace: WorkspaceInfo) {
 
 const conflictErrors: Record<LinkedFolderConflict, () => ApiError> = {
   relative: () => new ApiError(400, "linked_folder_relative", "Use an absolute folder path."),
-  app_data: () => new ApiError(409, "linked_folder_app_data", "This folder is inside or contains LegalWork application data and cannot be linked."),
+  app_data: () => new ApiError(409, "linked_folder_app_data", "This folder is inside or contains LAWOSS application data and cannot be linked."),
   other_client: () => new ApiError(409, "linked_folder_other_client", "This folder belongs to another client and cannot be linked."),
   practice: () => new ApiError(409, "linked_folder_practice", "Folders of the practice cannot be linked. Link a folder outside the practice."),
 };

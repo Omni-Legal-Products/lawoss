@@ -132,9 +132,76 @@ test("priečinok iného klienta: odmietnutie s vetou; vlastný pripojený prieč
   expect(linked.v1).toEqual([{ path: { id: "ses_1", permissionID: "per_1" }, body: { response: "once" }, query: { directory: clientA } }]);
   const unknown = await ask(clientA, [`${join(clientA, "..", "..", "..")}/Iny/*`]);
   expect([...unknown.v1, ...unknown.v2]).toEqual([]);
-  // Vzor cez celý priečinok klientov (aj vlastného) a neistý vzor: bez odpovede, rozhodne karta (review #295).
-  for (const pattern of [`${join(clientB, "..")}/*/*`, `${join(clientB, "..")}/{Hron,Iny}/*`]) {
-    const open = await ask(clientA, [pattern]);
-    expect([...open.v1, ...open.v2]).toEqual([]);
+  // Neistý vzor: bez odpovede, rozhodne karta (review #295).
+  const open = await ask(clientA, [`${join(clientB, "..")}/{Hron,Iny}/*`]);
+  expect([...open.v1, ...open.v2]).toEqual([]);
+});
+
+// Rozhodnutie MČ 30. 10. 2026 (N-A7-14, N-A8-2): priečinok klientov (`…/Klienti`) a vzor cez všetkých klientov sa odmietnu
+// bez karty a bez mien; veta zakáže radiť povolenie. Rozsah zamietnutý na karte sa v tom istom rozhovore neukáže znova.
+type Sent = { body: { reply: string; message: string } };
+async function plugin(directory: string, sessions: Record<string, { parentID?: string }> = {}) {
+  const v1: unknown[] = [], v2: Sent[] = [];
+  const hooks = await LawossLinkedFolders({ directory, client: {
+    postSessionIdPermissionsPermissionId: async (request: unknown) => { v1.push(request); return {}; },
+    _client: { post: async (request: unknown) => { v2.push(request as Sent); return { response: { ok: true } }; } },
+    session: { get: async ({ path }: { path: { id: string } }) => ({ data: { directory, ...sessions[path.id] } }), messages: async () => ({ data: [] }) },
+  } });
+  const ask = (id: string, sessionID: string, patterns: string[]) => hooks.event({ event: { type: "permission.asked", properties: { id, sessionID, permission: "external_directory", patterns } } });
+  const reply = (id: string, sessionID: string, answer: string) => hooks.event({ event: { type: "permission.replied", properties: { sessionID, requestID: id, reply: answer } } });
+  return { v1, v2, ask, reply, hooks };
+}
+
+test("priečinok klientov a vzor cez všetkých klientov: odmietnutie bez karty, bez mien a bez rady povoliť", async () => {
+  const { clientA, matterA, clientB } = await fixture();
+  const klienti = join(clientB, "..");
+  for (const [directory, pattern] of [[clientA, `${klienti}/*`], [clientA, `${klienti}/*/*`], [matterA, `${join(klienti, "..")}/*`], [clientA, `${klienti}/H*/*`]] as const) {
+    const { v1, v2, ask } = await plugin(directory);
+    await ask("per_1", "ses_1", [pattern]);
+    expect(v1).toEqual([]);
+    expect(v2).toHaveLength(1);
+    const { reply, message } = v2[0]!.body;
+    expect(reply).toBe("reject");
+    for (const name of ["Hron", "Tatran", "Klienti", "prax"]) expect(message).not.toContain(name);
+    expect(message).toContain("Never advise the user to allow, authorize or link");
+    expect(message).not.toMatch(/Settings|Permissions|AI Providers/);
+    expect(message).toContain(pattern.endsWith("/H*/*") ? "belongs to another client" : "contains folders of other clients");
   }
+});
+
+test("rozsah zamietnutý na karte: ďalšia rovnaká žiadosť (aj z podagenta) bez karty; iný rozsah a iný chat kartu dostanú", async () => {
+  const { clientA, clientB } = await fixture();
+  const missing = join(clientB, "..", "Neexistuje");
+  const { v1, v2, ask, reply } = await plugin(clientA, { ses_sub: { parentID: "ses_1" } });
+  await ask("per_1", "ses_1", [`${missing}/*`]);
+  expect([...v1, ...v2]).toEqual([]);
+  await reply("per_1", "ses_1", "reject");
+  for (const [id, session, pattern] of [["per_2", "ses_1", `${missing}/*`], ["per_3", "ses_1", `${missing}/Spisy/*`], ["per_4", "ses_sub", `${missing}/*`]] as const) {
+    await ask(id, session, [pattern]);
+    expect(v2.at(-1)?.body.reply).toBe("reject");
+    expect(v2.at(-1)?.body.message).toContain("already refused access to this folder");
+    expect(v2.at(-1)?.body.message).toContain("Never advise the user to allow");
+  }
+  expect(v2).toHaveLength(3);
+  // Iný priečinok, iný chat a rozsah, ktorý advokát povolil: bežná karta.
+  await ask("per_5", "ses_1", [`${join(missing, "..", "Iny")}/*`]);
+  await ask("per_6", "ses_2", [`${missing}/*`]);
+  await ask("per_7", "ses_1", [`${join(missing, "..", "Povoleny")}/*`]);
+  await reply("per_7", "ses_1", "once");
+  await ask("per_8", "ses_1", [`${join(missing, "..", "Povoleny")}/*`]);
+  expect(v2).toHaveLength(3);
+  expect(v1).toEqual([]);
+});
+
+test("systémový text: názvy nastavení po slovensky, bez anglických názvov a bez rady povoliť iného klienta", async () => {
+  const { clientA } = await fixture();
+  const { hooks } = await plugin(clientA);
+  const output: string[] = [];
+  await hooks["experimental.chat.system.transform"]({}, { system: output });
+  const text = output.join("\n");
+  expect(text).toContain("Nastavenia → Poskytovatelia AI");
+  expect(text).toContain("Nastavenia → Oprávnenia nástrojov");
+  expect(text).toContain("never LegalWork");
+  expect(text).toContain("Never advise the user to allow, authorize or link a folder of another client");
+  expect(text).not.toMatch(/Settings ?[>→]|AI Providers|Text recognition/);
 });

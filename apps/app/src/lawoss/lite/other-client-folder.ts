@@ -3,7 +3,7 @@
  * a karta „Pristúpiť k externému priečinku?“ nepovedala, že ide o priečinok iného klienta tej istej praxe.
  *
  * Priečinok iného klienta (podľa karty klienta) odmietne už plugin enginu `lawoss-linked-folders`
- * (`externalDirectoryOtherClient` na serveri), karta sa preto ukáže len vtedy, keď plugin nerozhodne (napr. firemné
+ * (`externalDirectoryOtherClient` na serveri; od 30. 10. 2026 aj priečinok, ktorý iných klientov obsahuje), karta sa preto ukáže len vtedy, keď plugin nerozhodne (napr. firemné
  * pravidlá, vzor cez celý priečinok klientov, neisté znaky). Táto veta je pre ten prípad: karta povie meno klienta z prehľadu.
  * Iba zobrazenie, o prístupe nerozhoduje.
  */

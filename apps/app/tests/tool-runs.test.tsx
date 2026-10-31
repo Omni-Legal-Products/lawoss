@@ -36,7 +36,7 @@ test("preserves prose whitespace and splits at files and real prose", () => {
 test("expanded compact groups show activity labels without raw commands, arguments, output or reasoning", () => {
   let detailedRenders = 0;
   const html = renderToStaticMarkup(<ToolRun defaultOpen parts={[bash, reasoning, appTool]} showDetails={false} renderTool={() => { detailedRenders++; return <pre>private details</pre>; }} />);
-  expect(html).toContain("Running inapp pptx read");
+  expect(html).toContain("Reading the document"); // 🟡 LAWOSS (N-A8-2): krok `inapp_*` bez názvu nástroja (PATCHES.md)
   expect(html).toContain("A long generated description");
   expect(html).toContain("lw-tool-shimmer");
   expect(html).not.toContain("private");
@@ -46,7 +46,7 @@ test("expanded compact groups show activity labels without raw commands, argumen
 
 test("reasoning enables details within the same collapsible group", () => {
   const html = renderToStaticMarkup(<ToolRun defaultOpen parts={[bash, appTool]} showDetails renderTool={(part) => <pre>{JSON.stringify(part.input)}</pre>} />);
-  expect(html).toContain("Running inapp pptx read");
+  expect(html).toContain("Reading the document"); // 🟡 LAWOSS (N-A8-2): krok `inapp_*` bez názvu nástroja (PATCHES.md)
   expect(html).toContain("python3");
   expect(html).toContain("private/matter.pptx");
 });

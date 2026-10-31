@@ -1,5 +1,16 @@
 # LAWOSS downstream patches
 
+## Priečinok s inými klientmi, neexistujúci priečinok a slovenské názvy nastavení pre agenta (2026-10-31)
+
+Regresia N-A7 z 30. 10. 2026 (N-A7-14 čiastočne, N-A8-2), rozhodnutie MČ v koordinačnej issue #134. Odmietanie robí LAWOSS plugin `lawoss-linked-folders` a pravidlo `externalDirectoryOtherClient` (`apps/server/src/lawoss/linked-folders-rules.ts`); názvy nastavení pre model sú v novom `apps/server/src/lawoss/app-setting-names.ts`.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | +1 import a +1 hook `useMissingFolderText` (`apps/app/src/lawoss/lite/missing-folder.ts`), pod vetou o inom klientovi +1 riadok renderu: karta `external_directory` povie, že priečinok neexistuje. |
+| `apps/desktop/electron/main.mjs`, `packages/types/src/desktop-ipc.ts`, `apps/desktop/package.json` | +1 import a +1 handler `lawossFolderState` (nový `apps/desktop/electron/lawoss-folder-state.mjs`), +1 záznam v `DesktopCommandMap`, test v zozname `test`. Renderer nevie overiť cestu mimo pracovných priestorov; odpoveď dostane len okno appky, nie agent ani server (žiadny nový zdroj, z ktorého by model zistil, ktoré priečinky klientov existujú). |
+| `apps/server/src/opencode-plugins/legalwork-capabilities-knowledge.ts` | Sekcia „Fixing Authorized Folders“ (`Settings > Permissions`, „authorize the specific folder or its parent“) nahradená jednou vetou bez názvu nastavení a so zákazom radiť povolenie nadradeného priečinka, priečinka s inými klientmi alebo iného klienta (+1 komentár). Model podľa nej radil povoliť nadradený priečinok v „Settings > Permissions“. Ostatné anglické názvy v tomto upstream prompte prekrýva pevné pravidlo LAWOSS v `lawoss-linked-folders` (`APP_NAMES_SYSTEM`). |
+| `apps/app/tests/tool-runs.test.tsx` | 2 riadky: krok `inapp_pptx_read` sa už nevolá „Running inapp pptx read“, ale „Reading the document“ (`apps/app/src/lawoss/chat/tool-labels.ts`, N-A8-2: „Spúšťanie inapp markdown create“). |
+
 ## Sandbox VM pod softvérovou emuláciou nepanikári pri štarte (2026-10-29)
 
 CI `sandbox-runtime (macos-15-intel)` beží bez hypervízora (`[sandbox] tcg`). V 3 z 9 zlyhaní z 20.–28. 10. 2026 jadro hosťa padlo hneď pri štarte: „MP-BIOS bug: 8254 timer not connected to IO-APIC … Kernel panic … IO-APIC + timer doesn't work!“. Kontrola časovača jadra x86 pri pomalej emulácii nestihne svoje okno. Rovnaký `tcg` použije aj počítač používateľa bez hypervízora (napr. Windows bez WHPX).
