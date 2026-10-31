@@ -339,8 +339,9 @@ export const shellEn = {
   "lawoss.files.line_rename": "Rename: {from} → {to}",
   "lawoss.files.line_move": "Move: {from} → {to}",
   "lawoss.files.reason": "Reason: {text}",
-  // N-A8-3 (lawoss/lite/permission-details.ts): Podrobnosti karty úpravy súboru a externého priečinka.
+  // N-A8-3 (lawoss/lite/permission-details.tsx): Podrobnosti karty úpravy súboru a externého priečinka.
   "lawoss.permission_details.file": "File: {path}",
+  "lawoss.permission_review.change": "Proposed change (+ added, - removed)", // blok „Kontrola“ v dialógu (MČ 31. 10.)
   "lawoss.permission_details.change": "Proposed change (+ added, - removed):",
   "lawoss.permission_details.no_change": "The change cannot be shown in advance.",
   "lawoss.permission_details.more_lines": "… and {count} more lines",
@@ -1048,8 +1049,9 @@ export const shellCs = {
   "lawoss.files.line_rename": "Přejmenovat: {from} → {to}",
   "lawoss.files.line_move": "Přesunout: {from} → {to}",
   "lawoss.files.reason": "Důvod: {text}",
-  // N-A8-3 (lawoss/lite/permission-details.ts): Podrobnosti karty úpravy súboru a externého priečinka.
+  // N-A8-3 (lawoss/lite/permission-details.tsx): Podrobnosti karty úpravy súboru a externého priečinka.
   "lawoss.permission_details.file": "Soubor: {path}",
+  "lawoss.permission_review.change": "Navržená změna (+ přidáno, - odebráno)", // blok „Kontrola“ v dialógu (MČ 31. 10.)
   "lawoss.permission_details.change": "Navržená změna (+ přidáno, - odebráno):",
   "lawoss.permission_details.no_change": "Změnu nelze předem zobrazit.",
   "lawoss.permission_details.more_lines": "… a dalších {count} řádků",
@@ -1756,8 +1758,9 @@ export const shellSk = {
   "lawoss.files.line_rename": "Premenovať: {from} → {to}",
   "lawoss.files.line_move": "Presunúť: {from} → {to}",
   "lawoss.files.reason": "Dôvod: {text}",
-  // N-A8-3 (lawoss/lite/permission-details.ts): Podrobnosti karty úpravy súboru a externého priečinka.
+  // N-A8-3 (lawoss/lite/permission-details.tsx): Podrobnosti karty úpravy súboru a externého priečinka.
   "lawoss.permission_details.file": "Súbor: {path}",
+  "lawoss.permission_review.change": "Navrhnutá zmena (+ pridané, - odobraté)", // blok „Kontrola“ v dialógu (MČ 31. 10.)
   "lawoss.permission_details.change": "Navrhnutá zmena (+ pridané, - odobraté):",
   "lawoss.permission_details.no_change": "Zmenu sa nedá vopred zobraziť.",
   "lawoss.permission_details.more_lines": "… a ďalších {count} riadkov",
@@ -2462,8 +2465,9 @@ export const shellDe = {
   "lawoss.files.line_rename": "Umbenennen: {from} → {to}",
   "lawoss.files.line_move": "Verschieben: {from} → {to}",
   "lawoss.files.reason": "Grund: {text}",
-  // N-A8-3 (lawoss/lite/permission-details.ts): Podrobnosti karty úpravy súboru a externého priečinka.
+  // N-A8-3 (lawoss/lite/permission-details.tsx): Podrobnosti karty úpravy súboru a externého priečinka.
   "lawoss.permission_details.file": "Datei: {path}",
+  "lawoss.permission_review.change": "Vorgeschlagene Änderung (+ hinzugefügt, - entfernt)", // blok „Kontrola“ v dialógu (MČ 31. 10.)
   "lawoss.permission_details.change": "Vorgeschlagene Änderung (+ hinzugefügt, - entfernt):",
   "lawoss.permission_details.no_change": "Die Änderung lässt sich vorab nicht anzeigen.",
   "lawoss.permission_details.more_lines": "… und {count} weitere Zeilen",

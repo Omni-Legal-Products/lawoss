@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import type { PendingPermission } from "@/app/types";
-import { usePermissionDetails } from "@/lawoss/lite/permission-details";
+import { usePermissionDetails, useReviewRows } from "@/lawoss/lite/permission-details";
 import { currentUiMode, useUiMode } from "@/lawoss/lite/ui-mode";
 import { describeMemoryWrite, keepsMemoryWriteGate } from "@/lawoss/lite/memory-write";
 import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
@@ -251,7 +251,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
       ? props.permission.metadata
       : {};
   const hasMetadata = Object.keys(metadata).length > 0;
-  const detailRows = permissionDetailRows(metadata);
+  const detailRows = useReviewRows(permissionDetailRows(metadata), props.chatDirectory); // LAWOSS: Kontrola bez surového diffu
   const lite = useUiMode() === "lite";
   const memoryWriteProposal = describeMemoryWrite(String(metadata.command ?? ""));
   const Icon = presentation.isDoomLoop ? RefreshCcw : ShieldCheck;

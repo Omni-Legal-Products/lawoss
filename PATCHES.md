@@ -2,11 +2,11 @@
 
 ## Čitateľné Podrobnosti na karte úpravy súboru a externého priečinka (2026-10-31)
 
-Regresia N-A7 z 30. 10. 2026, nález N-A8-3: Podrobnosti ukazovali surový JSON `{ "filepath": …, "diff": … }` a `{ "filepath": …, "parentDir": … }`.
+Regresia N-A7 z 30. 10. 2026, nález N-A8-3: Podrobnosti ukazovali surový JSON `{ "filepath": …, "diff": … }` a `{ "filepath": …, "parentDir": … }`, blok „Kontrola“ v dialógu surový diff s hlavičkami `@@`, `+++`, `---`.
 
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
-| `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | +1 import a v `PermissionApprovalModal` aj `PermissionApprovalPanel` +1 hook `usePermissionDetails` (nový `apps/app/src/lawoss/lite/permission-details.ts`); Podrobnosti ukážu jeho riadky namiesto JSON (2 riadky renderu: `presentation.details` → `details`). Pri `edit` súbor voči priečinku klienta a pridané/odobraté riadky, pri `external_directory` priečinok a súbor s popisom. Karta `lawoss_files` má svoje riadky ako doteraz; iné otázky ostávajú pri JSON. |
+| `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | +1 import a v `PermissionApprovalModal` aj `PermissionApprovalPanel` +1 hook `usePermissionDetails` (nový `apps/app/src/lawoss/lite/permission-details.tsx`); Podrobnosti ukážu jeho riadky namiesto JSON (2 riadky renderu: `presentation.details` → `details`). Pri `edit` súbor voči priečinku klienta a pridané/odobraté riadky, pri `external_directory` priečinok a súbor s popisom. Karta `lawoss_files` má svoje riadky ako doteraz; iné otázky ostávajú pri JSON. V `PermissionApprovalModal` aj blok „Kontrola“ (rozhodnutie MČ 31. 10.): 1 riadok `detailRows = useReviewRows(permissionDetailRows(metadata), …)`, súbor voči priečinku klienta a zmena bez hlavičiek diffu, pridané zelené, odobraté červené a prečiarknuté, najviac 200 riadkov; ostatné riadky bloku bez zmeny. |
 
 ## Sandbox VM pod softvérovou emuláciou nepanikári pri štarte (2026-10-29)
 

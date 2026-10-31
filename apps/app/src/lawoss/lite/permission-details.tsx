@@ -1,10 +1,16 @@
+/** @jsxImportSource react */
 /**
  * N-A8-3 (regresia 30. 10. 2026): „Podrobnosti“ na karte „Upraviť súbory?“ ukazovali surový JSON `{ "filepath": …, "diff": … }`
  * a na karte „Pristúpiť k externému priečinku?“ `{ "filepath": …, "parentDir": … }`. Advokát pred schválením nevidel
  * čitateľne, čo sa zmení. Pre tieto dve otázky enginu sú Podrobnosti zoznam riadkov: súbor (pri úprave voči priečinku
  * klienta, ak v ňom leží) a pridané/odobraté riadky zmeny, pri externom priečinku priečinok a súbor s popisom.
  * Iné otázky ostanú pri doterajšom zobrazení. Iba zobrazenie, o prístupe nerozhoduje.
+ *
+ * Blok „Kontrola“ v dialógu (rozhodnutie MČ 31. 10. 2026) ukazoval surový diff s hlavičkami `Index:`, `---`, `+++`, `@@`.
+ * Teraz tie isté riadky zmeny ako Podrobnosti (`changeLines`), pridané zelené, odobraté červené a prečiarknuté, a súbor
+ * voči priečinku klienta. Ostatné riadky bloku ostanú.
  */
+import type { ReactNode } from "react";
 import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
 import type { FileOperationDetails } from "./file-operation-card";
@@ -57,6 +63,32 @@ export function permissionDetails(permission: Pick<PendingPermission, "permissio
   return null;
 }
 
+/** Riadky zmeny s farbou: pridané zelené, odobraté červené a prečiarknuté (ako sledované zmeny); znak `+`/`-` ostáva pre čítanie bez farby. */
+export function ChangeLineList({ lines }: { lines: string[] }) {
+  return <span className="block space-y-0.5 font-sans" data-lawoss-change-lines="">
+    {lines.map((line, index) => {
+      const mark = line[0] === "+" ? "added" : line[0] === "-" ? "removed" : null;
+      const tone = mark === "added" ? "rounded bg-green-3/40 px-1 text-green-11"
+        : mark === "removed" ? "rounded bg-red-3/40 px-1 text-red-11 line-through decoration-red-11/60" : "text-dls-secondary";
+      return <span key={index} className={`block ${tone}`} data-change={mark ?? "more"}>{line}</span>;
+    })}
+  </span>;
+}
+
+type ReviewRow = { label: string; value: string; multiline?: boolean };
+
+/** Riadky bloku „Kontrola“: súbor voči priečinku klienta a zmena bez hlavičiek diffu s farbou; ostatné riadky bez zmeny. */
+export function readableReviewRows<R extends ReviewRow>(rows: R[], clientFolder?: string | null): Array<Omit<R, "value"> & { value: ReactNode }> {
+  const fileLabel = t("session.permission_detail_file");
+  const diffLabel = t("session.permission_detail_diff");
+  return rows.map((row) => {
+    if (row.label === fileLabel) return { ...row, value: clientRelativePath(row.value, clientFolder) };
+    if (row.label !== diffLabel) return row;
+    const change = changeLines(row.value);
+    return { ...row, label: t("lawoss.permission_review.change"), value: change.length ? <ChangeLineList lines={change} /> : t("lawoss.permission_details.no_change") };
+  });
+}
+
 /** Priečinok klienta chatu z prehľadu bočného panela (najhlbší klient s kartou, v ktorom chat leží); inak priečinok chatu. */
 function useClientFolder(chatDirectory: string | null | undefined): string | null {
   const nav = useClientNav();
@@ -74,4 +106,9 @@ function useClientFolder(chatDirectory: string | null | undefined): string | nul
 export function usePermissionDetails(permission: Pick<PendingPermission, "permission" | "metadata">, chatDirectory?: string | null, own?: FileOperationDetails): FileOperationDetails | null {
   const clientFolder = useClientFolder(chatDirectory);
   return own ?? permissionDetails(permission, clientFolder);
+}
+
+/** Háčik pre blok „Kontrola“ v dialógu: riadky upstream `permissionDetailRows` prepíše čitateľne (`readableReviewRows`). */
+export function useReviewRows<R extends ReviewRow>(rows: R[], chatDirectory?: string | null) {
+  return readableReviewRows(rows, useClientFolder(chatDirectory));
 }
