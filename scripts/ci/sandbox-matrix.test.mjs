@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { sandboxMatrices } from '../sandbox/ci-matrix.mjs';
 
 test('CI and release defaults build every runtime and one guest per architecture', () => {
@@ -29,4 +30,16 @@ test('invalid and duplicate targets fail before creating jobs or colliding artif
   for (const targets of ['', 'windows-x64', 'all,win32-x64', 'win32-x64,', 'win32-x64,win32-x64']) {
     assert.throws(() => sandboxMatrices(targets), /Unknown sandbox target|Duplicate sandbox targets/);
   }
+});
+
+test('Windows runtimes install the reviewed QEMU package by SHA-256, never the repository head', () => {
+  const windows = sandboxMatrices('win32-x64,win32-arm64').runtime.include;
+  for (const { package: prefix, qemuPackage, qemuSha256 } of windows) {
+    assert.equal(qemuPackage, `${prefix}-qemu-11.1.2-1-any.pkg.tar.zst`);
+    assert.match(qemuSha256, /^[0-9a-f]{64}$/);
+  }
+  const workflow = readFileSync(new URL('../../.github/workflows/sandbox-runtime.yml', import.meta.url), 'utf8');
+  assert.doesNotMatch(workflow, /pacman -S[^\n]*-qemu\b/);
+  assert.match(workflow, /\$\{\{ matrix\.qemuSha256 \}\}  \$qemu_package" \| sha256sum -c -/);
+  assert.match(workflow, /pacman -U --noconfirm --needed "\$qemu_package"/);
 });
