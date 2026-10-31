@@ -1,5 +1,15 @@
 # LAWOSS downstream patches
 
+## Zoznam chatov klienta bez chatov subagentov (2026-10-31, N-A8-4)
+
+Regresia 30. 10. 2026: stránka „Chaty“ klienta ukazovala „Prečítať textové súbory … (@general subagent) · Vetva · Prebieha“. Engine 1.18.29 dáva `parentID` len chatu subagenta (nástroj `task`); „Rozvetviť do nového chatu“ (`session.fork`) zakladá chat bez `parentID`. Upstream bočný panel subagentov už skrýva (`sidebarSessionGroups`), stránka „Chaty“ nie.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/workspace/project-sessions-page.tsx` | +1 import, +1 podmienka vo filtri `sessions`: `isListedClientChat(session)` z nového `apps/app/src/lawoss/chat/listed-chats.ts` vynechá chaty s `parentID`. Ikona a text „Vetva“ pri `parentID` ostávajú v upstream kóde bez zmeny (už sa neukážu). Upstream `upstream/dev` má stránku stále bez filtra. |
+
+Nový LAWOSS súbor: `apps/app/src/lawoss/chat/listed-chats.ts` + test `apps/app/tests/lawoss-chaty-bez-subagentov.test.tsx`.
+
 ## Sandbox VM pod softvérovou emuláciou nepanikári pri štarte (2026-10-29)
 
 CI `sandbox-runtime (macos-15-intel)` beží bez hypervízora (`[sandbox] tcg`). V 3 z 9 zlyhaní z 20.–28. 10. 2026 jadro hosťa padlo hneď pri štarte: „MP-BIOS bug: 8254 timer not connected to IO-APIC … Kernel panic … IO-APIC + timer doesn't work!“. Kontrola časovača jadra x86 pri pomalej emulácii nestihne svoje okno. Rovnaký `tcg` použije aj počítač používateľa bez hypervízora (napr. Windows bez WHPX).
