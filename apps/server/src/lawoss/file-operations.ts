@@ -36,7 +36,7 @@ import { addRoute, type RequestContext, type Route } from "../routes/registry.js
 import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ensureWikiAgentToken } from "../wiki/agent-access.js";
 import { isSensitiveWorkspacePath, resolveWorkspaceFilePath } from "./filesystem-boundary.js";
-import { recordFiledInput, type FiledInput, type Followed } from "./file-operation-inputs.js";
+import { recordFiledInput, recordTrashedInput, type FiledInput, type RecordedInput } from "./file-operation-inputs.js";
 import { linkableFolders, nestedClientRoots } from "./linked-folders.js";
 import { foldedPath as folded, isPathWithin } from "./path-within.js";
 
@@ -82,7 +82,7 @@ export type FileOperationResult = PublicFileOperation & {
   error?: string;
   /** Where a deleted item went: the OS Trash or the fallback folder (readable path). */
   trash?: "system" | string;
-  /** N-A7-6: a file filed from an inbox folder into a case, recorded in that case's `VSTUPY.md`. */
+  /** N-A7-6: a file filed from an inbox folder into a case, recorded in that case's `VSTUPY.md`; N-A8-1: rows that followed it. */
   input?: FiledInput;
   /** N-A7-6: the file was filed, but the input register could not be written. */
   inputError?: string;
@@ -405,13 +405,17 @@ export function systemTrashReliable(location: string, platform: NodeJS.Platform 
   return drive !== undefined && drive.toLowerCase() === systemDrive.replace(/[:\\/]+$/, "").toLowerCase();
 }
 
+/** Where a deleted item went: `shown` as the result reports it; `destination` its real path in `.lawoss-kos/` (N-A8-1). */
+type Trashed = { shown: string; destination: string | null };
+
 /** Recoverable delete: the OS Trash via the desktop host, else `.lawoss-kos/` next to the item. */
-async function moveToTrash(config: ServerConfig, item: Planned): Promise<string> {
+async function moveToTrash(config: ServerConfig, item: Planned): Promise<Trashed> {
   if (!item.source || !item.sourceRoot) throw new Error("Incomplete plan.");
+  const system = { shown: "system", destination: null };
   if (config.trashItem && systemTrashReliable(item.source)) {
-    try { await config.trashItem(item.source); return "system"; }
+    try { await config.trashItem(item.source); return system; }
     catch { /* The OS Trash may be unavailable on a network volume: keep the item in the client's own Trash folder. */ }
-    if ((await present(item.source)) === null) return "system";
+    if ((await present(item.source)) === null) return system;
   }
   const inside = relative(item.sourceRoot, item.source);
   const batch = `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
@@ -421,7 +425,7 @@ async function moveToTrash(config: ServerConfig, item: Planned): Promise<string>
   // `item.from` is already escaped by visibleName(): compare and cut with the escaped form, not the raw path.
   const shown = visibleName(inside.split(sep).join("/"));
   const prefix = item.from?.endsWith(shown) ? item.from.slice(0, item.from.length - shown.length) : "";
-  return `${prefix}${LAWOSS_TRASH_FOLDER}/${batch}/${shown}`;
+  return { shown: `${prefix}${LAWOSS_TRASH_FOLDER}/${batch}/${shown}`, destination };
 }
 
 const errorCode = (error: unknown) => error instanceof Error && "code" in error ? error.code : undefined;
@@ -471,7 +475,7 @@ export async function moveAcrossVolumes(config: ServerConfig, item: Planned & { 
     if (errorCode(error) !== "EEXIST" && errorCode(error) !== "ERR_FS_CP_EEXIST") await rm(item.target, { recursive: true, force: true });
     throw errorCode(error) === "EEXIST" || errorCode(error) === "ERR_FS_CP_EEXIST" ? targetExists(item) : error;
   }
-  try { return await moveToTrash(config, item); }
+  try { return (await moveToTrash(config, item)).shown; }
   catch (error) { throw new Error(`The copy on the other drive is complete, but the original could not be moved to the Trash, so both exist now: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
@@ -505,13 +509,17 @@ async function moveWithoutReplacing(config: ServerConfig, item: Planned & { sour
   return undefined;
 }
 
-async function execute(config: ServerConfig, item: Planned, signal?: AbortSignal): Promise<string | undefined> {
+async function execute(config: ServerConfig, item: Planned, signal?: AbortSignal): Promise<Trashed | undefined> {
   if (item.operation === "create_folder" && item.target) { await mkdir(item.target, { recursive: true }); return undefined; }
   if (item.operation === "delete") return moveToTrash(config, item);
   const { source, target } = item;
   if (!source || !target) throw new Error("Incomplete plan.");
   await mkdir(dirname(target), { recursive: true });
-  if (item.operation === "move") return moveWithoutReplacing(config, { ...item, source, target }, signal);
+  if (item.operation === "move") {
+    // On another drive the original goes to the Trash, but the item itself is at its target: the register follows that.
+    const original = await moveWithoutReplacing(config, { ...item, source, target }, signal);
+    return original === undefined ? undefined : { shown: original, destination: null };
+  }
   await cp(source, target, { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true });
   return undefined;
 }
@@ -555,10 +563,10 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
         // #223: the chat was stopped or its request dropped; later steps do not run either.
         signal?.throwIfAborted();
         if (!await unchanged(item.source) || !await unchanged(item.target)) throw new ApiError(403, "file_operation_outside_client", OUTSIDE);
-        const trash = await execute(config, item, signal);
+        const trashed = await execute(config, item, signal);
         if (!await verified(item)) throw new Error("The change is not visible on disk.");
-        const filed = await fileInput(item, roots);
-        results.push({ ...visible, status: "done", ...(trash ? { trash } : {}), ...filed.result });
+        const filed = await fileInput(item, roots, trashed);
+        results.push({ ...visible, status: "done", ...(trashed ? { trash: trashed.shown } : {}), ...filed.result });
         await audit(workspace, actor, item, filed.filed);
       } catch (error) {
         failed = true;
@@ -569,32 +577,41 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
   });
 }
 
-/** N-A7-6: the input register follows a file filed from an inbox; its failure does not undo the change already made. */
-async function fileInput(item: Planned, roots: Root[]): Promise<{ result: Pick<FileOperationResult, "input" | "inputError">; filed?: FiledInput & { paths: string[]; followed?: Followed[] } }> {
-  if ((item.operation !== "move" && item.operation !== "copy") || !item.source || !item.target) return { result: {} };
+/**
+ * N-A7-6: the input register follows a file filed from an inbox; N-A8-1: rows follow any move, rename or folder move,
+ * and a row whose item went to the Trash is closed. A register failure does not undo the change already made.
+ */
+async function fileInput(item: Planned, roots: Root[], trashed: Trashed | undefined): Promise<{ result: Pick<FileOperationResult, "input" | "inputError">; filed?: RecordedInput }> {
+  const { operation, kind, source, target, sourceRoot } = item;
+  if (!source) return { result: {} };
+  const recorded = operation === "delete" && sourceRoot ? () => recordTrashedInput({ kind, source, sourceRoot, destination: trashed?.destination ?? null }, roots)
+    : (operation === "move" || operation === "copy") && target ? () => recordFiledInput({ operation, kind, source, target }, roots) : null;
+  if (!recorded) return { result: {} };
   try {
-    const filed = await recordFiledInput({ operation: item.operation, kind: item.kind, source: item.source, target: item.target }, roots);
+    const filed = await recorded();
     if (!filed) return { result: {} };
     // The canonical paths are for the audit only: the card and the model see readable paths.
-    const { paths: _paths, followed: _followed, handedOver, ...input } = filed;
+    const { paths: _paths, followed: _followed, handedOver, also, ...input } = filed;
     return { result: { input: { ...input, register: visibleName(input.register),
-      ...(handedOver ? { handedOver: { ...handedOver, register: visibleName(handedOver.register) } } : {}) } }, filed };
+      ...(handedOver ? { handedOver: { ...handedOver, register: visibleName(handedOver.register) } } : {}),
+      ...(also ? { also: also.map((other) => ({ ...other, register: visibleName(other.register) })) } : {}) } }, filed };
   } catch (error) {
     return { result: { inputError: error instanceof Error ? error.message : String(error) } };
   }
 }
 
 /** T6 (test 28. 10. 2026): an approved change and the register lines it wrote are in the server audit, like other file writes. */
-async function audit(workspace: WorkspaceInfo, actor: Actor, item: Planned, filed: (FiledInput & { paths: string[]; followed?: Followed[] }) | undefined): Promise<void> {
+async function audit(workspace: WorkspaceInfo, actor: Actor, item: Planned, filed: RecordedInput | undefined): Promise<void> {
   const entry = (target: string, summary: string) => ({ id: randomUUID(), workspaceId: workspace.id, actor, action: "workspace.file.write", target, summary, timestamp: Date.now() });
   const change = item.operation === "create_folder" ? `Created folder ${item.to}` : item.operation === "delete" ? `Moved ${item.from} to the Trash` : `${item.operation === "move" ? "Moved" : "Copied"} ${item.from} to ${item.to}`;
   // The change is done; a full audit disk must not report it as failed.
   await recordAudit(workspace.path, entry(item.target ?? item.source ?? workspace.path, `lawoss_files: ${change}`)).catch(() => undefined);
   if (!filed) return;
-  // N-A8-1: a moved or renamed file's existing rows followed it, in every register that lists it.
+  // N-A8-1: the existing rows of a moved, renamed or trashed item, in every register that lists it.
   if (filed.followed) {
     for (const followed of filed.followed)
-      await recordAudit(workspace.path, entry(followed.path, `lawoss_files: Updated input ${followed.id} in ${followed.register}`)).catch(() => undefined);
+      await recordAudit(workspace.path, entry(followed.path, filed.trashed ? `lawoss_files: Closed input ${followed.id} in ${followed.register}, moved to the Trash`
+        : `lawoss_files: Updated input ${followed.id} in ${followed.register}`)).catch(() => undefined);
     return;
   }
   await recordAudit(workspace.path, entry(filed.paths[0]!, `lawoss_files: ${filed.updated ? "Updated" : "Added"} input ${filed.id} in ${filed.register}`)).catch(() => undefined);

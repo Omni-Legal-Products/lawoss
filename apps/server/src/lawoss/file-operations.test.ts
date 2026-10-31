@@ -826,7 +826,8 @@ test("N-A8-1: renaming a file the case's VSTUPY.md lists moves its link in the e
   await writeFile(join(client, "VSTUPY.md"), ["| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |", "|---|---|---|---|---|---|",
     "| IN-001 | 2025-09-04T08:00:00+02:00 | e-mail SYN | Spisy/M001-najom-skladu-SYN/01_Podklady/IN-003/2025-03-10_Podklady.pdf | processed | |", ""].join("\n"));
   const again = await run(config, workspace, [{ operation: "move", from: "Spisy/M001/01_Podklady/IN-003/2025-03-10_Podklady.pdf", to: "Spisy/M001/02_Resers/2025-03-10_Podklady.pdf" }]);
-  expect(again.results[0]?.input).toEqual({ register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-003", updated: true });
+  expect(again.results[0]?.input).toEqual({ register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-003", updated: true, also: [{ register: "VSTUPY.md", id: "IN-001" }] });
+  expect(fileOperationReport(again).join(" ")).toContain("its existing inputs IN-003 in Spisy/M001-najom-skladu-SYN/VSTUPY.md, IN-001 in VSTUPY.md now point to the new place.");
   expect(await readFile(join(matter, "VSTUPY.md"), "utf8")).toBe(before.replace("| ./01_Podklady/IN-003/Podklady.pdf |", "| 02_Resers/2025-03-10_Podklady.pdf |"));
   expect(await readFile(join(client, "VSTUPY.md"), "utf8")).toContain("| IN-001 | 2025-09-04T08:00:00+02:00 | e-mail SYN | Spisy/M001-najom-skladu-SYN/02_Resers/2025-03-10_Podklady.pdf | processed | |");
 });
@@ -841,4 +842,97 @@ test("N-A8-1: a register that is a symbolic link is neither read nor changed by 
   const result = await run(config, workspace, [{ operation: "move", from: "Spisy/M001/01_Podklady/zmluva-SYN.pdf", to: "Spisy/M001/01_Podklady/zmluva-2-SYN.pdf" }]);
   expect(result.results[0]).toEqual({ operation: "move", kind: "file", from: "Spisy/M001-najom-skladu-SYN/01_Podklady/zmluva-SYN.pdf", to: "Spisy/M001-najom-skladu-SYN/01_Podklady/zmluva-2-SYN.pdf", status: "done" });
   expect(await readFile(elsewhere, "utf8")).toBe("| IN-009 | x | y | 01_Podklady/zmluva-SYN.pdf | pending | |\n");
+});
+
+test("N-A8-1 (a): renaming or moving a folder moves the links of every listed file in it, in the case's and the client's register", async () => {
+  const { config, client, workspace } = await office();
+  const { matter } = await caseWithInbox(client);
+  for (const folder of ["IN-003", "IN-0030"]) await mkdir(join(matter, "01_Podklady", folder), { recursive: true });
+  await writeFile(join(matter, "01_Podklady", "IN-003", "Podklady.pdf"), "SYN podklady");
+  await writeFile(join(matter, "01_Podklady", "IN-003", "b v2.pdf"), "SYN b");
+  await writeFile(join(matter, "01_Podklady", "IN-0030", "x.pdf"), "SYN x");
+  const rows = [
+    "| IN-003 | 2025-09-03T08:00:00+02:00 | ruční vložení (LAWOSS) | ./01_Podklady/IN-003/Podklady.pdf | processed | MEM-2 |",
+    "| IN-004 | 2025-09-04T08:00:00+02:00 | ruční vložení (LAWOSS) | [b v2.pdf](./01_Podklady/IN-003/b%20v2.pdf) | pending | |",
+    "| IN-005 | 2025-09-05T08:00:00+02:00 | e-mail SYN | 01_Podklady/IN-0030/x.pdf | pending | |",
+  ];
+  await writeFile(join(matter, "VSTUPY.md"), (await readFile(join(matter, "VSTUPY.md"), "utf8")).replace("| MEM-1 |\n", `| MEM-1 |\n${rows.join("\n")}\n`));
+  await writeFile(join(client, "VSTUPY.md"), ["| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |", "|---|---|---|---|---|---|",
+    "| IN-001 | 2025-09-06T08:00:00+02:00 | e-mail SYN | Spisy/M001-najom-skladu-SYN/01_Podklady/IN-003/Podklady.pdf | processed | |", ""].join("\n"));
+  const before = await readFile(join(matter, "VSTUPY.md"), "utf8");
+
+  const renamed = await run(config, workspace, [{ operation: "move", from: "Spisy/M001/01_Podklady/IN-003", to: "Spisy/M001/01_Podklady/IN-003_zmluva" }]);
+  expect(renamed.complete).toBe(true);
+  expect(renamed.results[0]?.input).toEqual({ register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-003", updated: true,
+    also: [{ register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-004" }, { register: "VSTUPY.md", id: "IN-001" }] });
+  const after = await readFile(join(matter, "VSTUPY.md"), "utf8");
+  // Both files in the folder follow it; IN-0030 only starts with the same letters and stays; nothing is added.
+  expect(after).toBe(before.replace("| ./01_Podklady/IN-003/Podklady.pdf |", "| 01_Podklady/IN-003_zmluva/Podklady.pdf |")
+    .replace("| [b v2.pdf](./01_Podklady/IN-003/b%20v2.pdf) |", "| 01_Podklady/IN-003_zmluva/b v2.pdf |"));
+  expect(await readFile(join(client, "VSTUPY.md"), "utf8")).toContain("| Spisy/M001-najom-skladu-SYN/01_Podklady/IN-003_zmluva/Podklady.pdf | processed |");
+  expect(fileOperationReport(renamed).join(" ")).toContain("its existing inputs IN-003 in Spisy/M001-najom-skladu-SYN/VSTUPY.md, IN-004 in Spisy/M001-najom-skladu-SYN/VSTUPY.md, IN-001 in VSTUPY.md now point to the new place.");
+  const audit = (await readFile(auditLogPath("ws_c001"), "utf8")).trim().split("\n").map((line) => JSON.parse(line).summary);
+  expect(audit).toContain("lawoss_files: Updated input IN-004 in Spisy/M001-najom-skladu-SYN/VSTUPY.md");
+  expect(audit).toContain("lawoss_files: Updated input IN-001 in VSTUPY.md");
+
+  // The case folder itself renamed: its own register moves with it and stays valid; the client's row follows.
+  const moved = await run(config, workspace, [{ operation: "move", from: "Spisy/M001-najom-skladu-SYN", to: "Spisy/M001-najom-skladu-SYN-uzavrety" }]);
+  expect(moved.results[0]?.input).toEqual({ register: "VSTUPY.md", id: "IN-001", updated: true });
+  expect(await readFile(join(client, "Spisy", "M001-najom-skladu-SYN-uzavrety", "VSTUPY.md"), "utf8")).toBe(after);
+  expect(await readFile(join(client, "VSTUPY.md"), "utf8")).toContain("| Spisy/M001-najom-skladu-SYN-uzavrety/01_Podklady/IN-003_zmluva/Podklady.pdf | processed |");
+});
+
+test("N-A8-1 (b): a move to a linked folder (NAS) writes the absolute path there, for a listed file and for one filed from the client's inbox", async () => {
+  const { config, client, linked, workspace } = await office();
+  const { matter } = await caseWithInbox(client);
+  await mkdir(join(linked, "M009-SYN"), { recursive: true });
+  await writeFile(join(linked, "M009-SYN", "spis.md"), "---\ntype: matter\n---\n");
+  await mkdir(join(client, "00_Na_zatriedenie"), { recursive: true });
+  await writeFile(join(client, "00_Na_zatriedenie", "posta-SYN.pdf"), "SYN posta");
+  await writeFile(join(client, "VSTUPY.md"), ["| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |", "|---|---|---|---|---|---|",
+    "| IN-001 | 2025-09-06T08:00:00+02:00 | ruční vložení (LAWOSS) | 00_Na_zatriedenie/posta-SYN.pdf | pending | |", ""].join("\n"));
+  const before = await readFile(join(matter, "VSTUPY.md"), "utf8");
+
+  const result = await run(config, workspace, [
+    { operation: "move", from: "Spisy/M001/01_Podklady/zmluva-SYN.pdf", to: join(linked, "Archiv", "zmluva-SYN.pdf") },
+    { operation: "move", from: join(client, "00_Na_zatriedenie", "posta-SYN.pdf"), to: join(linked, "M009-SYN", "posta-SYN.pdf") },
+  ]);
+  expect(result.complete).toBe(true);
+  expect(result.results[0]?.input).toEqual({ register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-001", updated: true });
+  // The absolute path the user linked: the lawyer finds it, and the app does not read it as a path in the client's folder.
+  expect(await readFile(join(matter, "VSTUPY.md"), "utf8")).toBe(before.replace("| 01_Podklady/zmluva-SYN.pdf |", `| \`${join(linked, "Archiv", "zmluva-SYN.pdf")}\` |`));
+  // Filed into a case on the NAS: a new row there, and the client's row is closed with the new place, not left pending.
+  expect(result.results[1]?.input).toEqual({ register: "pripojeny-A/M009-SYN/VSTUPY.md", id: "IN-001", handedOver: { register: "VSTUPY.md", id: "IN-001" } });
+  expect(await readFile(join(client, "VSTUPY.md"), "utf8")).toContain(`| IN-001 | 2025-09-06T08:00:00+02:00 | ruční vložení (LAWOSS) | \`${join(linked, "M009-SYN", "posta-SYN.pdf")}\` | processed | presunuté do \`pripojeny-A/M009-SYN/VSTUPY.md\`, IN-001 |`);
+  expect(await readFile(join(linked, "M009-SYN", "VSTUPY.md"), "utf8")).toContain("| posta-SYN.pdf | pending | |");
+});
+
+test("N-A8-1 (c): a listed file or folder sent to the Trash keeps its row, closed with where it went", async () => {
+  const { config, client, workspace } = await office();
+  const { matter } = await caseWithInbox(client);
+  await mkdir(join(matter, "01_Podklady", "IN-003"), { recursive: true });
+  await writeFile(join(matter, "01_Podklady", "IN-003", "Podklady.pdf"), "SYN podklady");
+  const listed = "| IN-003 | 2025-09-03T08:00:00+02:00 | ruční vložení (LAWOSS) | ./01_Podklady/IN-003/Podklady.pdf | pending | |";
+  await writeFile(join(matter, "VSTUPY.md"), (await readFile(join(matter, "VSTUPY.md"), "utf8")).replace("| MEM-1 |\n", `| MEM-1 |\n${listed}\n`));
+  const before = await readFile(join(matter, "VSTUPY.md"), "utf8");
+
+  // No system Trash here: the file goes to `.lawoss-kos/` in the client's folder, and the row points there.
+  const deleted = await run(config, workspace, [{ operation: "delete", path: "Spisy/M001/01_Podklady/zmluva-SYN.pdf" }]);
+  expect(deleted.complete).toBe(true);
+  expect(deleted.results[0]?.input).toEqual({ register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-001", trashed: true });
+  const trash = deleted.results[0]?.trash ?? "";
+  expect(trash).toMatch(new RegExp(`^${LAWOSS_TRASH_FOLDER}/[^/]+/Spisy/M001-najom-skladu-SYN/01_Podklady/zmluva-SYN\\.pdf$`));
+  const after = await readFile(join(matter, "VSTUPY.md"), "utf8");
+  expect(after).toBe(before.replace("| 01_Podklady/zmluva-SYN.pdf | processed | MEM-1 |", `| ../../${trash} | processed | MEM-1; presunuté do Koša (skrytý priečinok .lawoss-kos) |`));
+  expect(await readFile(join(matter, "..", "..", trash), "utf8")).toBe("SYN zmluva");
+  expect(fileOperationReport(deleted).join(" ")).toContain("its input IN-001 in Spisy/M001-najom-skladu-SYN/VSTUPY.md stays in the register, closed as moved to the Trash.");
+  const audit = (await readFile(auditLogPath("ws_c001"), "utf8")).trim().split("\n").map((line) => JSON.parse(line).summary);
+  expect(audit).toContain("lawoss_files: Closed input IN-001 in Spisy/M001-najom-skladu-SYN/VSTUPY.md, moved to the Trash");
+
+  // The system Trash: the row keeps the original place, where the Trash puts the item back, and is closed; a folder too.
+  config.trashItem = async (path) => { await rm(path, { recursive: true }); };
+  const folder = await run(config, workspace, [{ operation: "delete", path: "Spisy/M001/01_Podklady/IN-003" }]);
+  expect(folder.results[0]).toMatchObject({ status: "done", trash: "system", input: { register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-003", trashed: true } });
+  expect(await readFile(join(matter, "VSTUPY.md"), "utf8")).toBe(after.replace(listed, "| IN-003 | 2025-09-03T08:00:00+02:00 | ruční vložení (LAWOSS) | ./01_Podklady/IN-003/Podklady.pdf | processed | presunuté do Koša |"));
+  expect((await readFile(join(matter, "VSTUPY.md"), "utf8")).split("\n").filter((line) => line.startsWith("| IN-"))).toHaveLength(2);
 });
