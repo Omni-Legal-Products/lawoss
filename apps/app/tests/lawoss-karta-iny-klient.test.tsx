@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { currentLocale, setLocale, type Language } from "../src/i18n";
 import type { PendingPermission } from "../src/app/types";
 import { ClientNavTestProvider } from "../src/lawoss/lite/client-nav";
-import { otherClientFolder, otherClientFolderText, type CardClient } from "../src/lawoss/lite/other-client-folder";
+import { clientDisplayName, otherClientFolder, otherClientFolderText, type CardClient } from "../src/lawoss/lite/other-client-folder";
 import { PermissionApprovalPanel } from "../src/react-app/domains/session/chat/permission-approval-modal";
 
 const P = "/Users/advokat/Prax";
@@ -55,20 +55,30 @@ describe("priečinok iného klienta", () => {
       expect(otherClientFolder([pattern], c001, clients)).toEqual({ kind: "uncertain" });
   });
 
-  test("veta karty po slovensky, česky, anglicky aj nemecky", () => {
-    const expected: Record<Language, string> = {
-      sk: "Priečinok patrí inému klientovi: SYN Hron Technológie, a. s. Agent by videl jeho súbory.",
-      cs: "Složka patří jinému klientovi: SYN Hron Technológie, a. s. Agent by viděl jeho soubory.",
-      en: "This folder belongs to another client: SYN Hron Technológie, a. s. The agent would see that client's files.",
-      de: "Dieser Ordner gehört einem anderen Mandanten: SYN Hron Technológie, a. s. Der Agent würde dessen Dateien sehen.",
-    } as Record<Language, string>;
-    for (const [locale, text] of Object.entries(expected)) {
+  // Rozhodnutie MČ 31. 10. 2026: priečinok iného klienta sa neodmieta, karta výrazne varuje kódom a menom klienta.
+  test("varovanie karty po slovensky, česky, anglicky aj nemecky: kód a meno klienta, najviac traja a počet ďalších", () => {
+    const name = "C002 SYN Hron Technológie, a. s.";
+    const expected: Record<Language, [string, string]> = {
+      sk: [`Pozor: priečinok patrí inému klientovi (${name}). Ak ho povolíte, agent uvidí jeho súbory.`, "Pozor: priečinok obsahuje priečinky iných klientov (C002 A, C003 B, C004 C a ďalší 2). Ak ho povolíte, agent uvidí ich súbory."],
+      cs: [`Pozor: složka patří jinému klientovi (${name}). Pokud ji povolíte, agent uvidí jeho soubory.`, "Pozor: složka obsahuje složky jiných klientů (C002 A, C003 B, C004 C a další 2). Pokud ji povolíte, agent uvidí jejich soubory."],
+      en: [`Warning: this folder belongs to another client (${name}). If you allow it, the agent will see that client's files.`, "Warning: this folder contains folders of other clients (C002 A, C003 B, C004 C and 2 more). If you allow it, the agent will see their files."],
+      de: [`Achtung: Dieser Ordner gehört einem anderen Mandanten (${name}). Wenn Sie ihn freigeben, sieht der Agent dessen Dateien.`, "Achtung: Dieser Ordner enthält Ordner anderer Mandanten (C002 A, C003 B, C004 C und 2 weitere). Wenn Sie ihn freigeben, sieht der Agent deren Dateien."],
+    } as Record<Language, [string, string]>;
+    for (const [locale, [inside, many]] of Object.entries(expected)) {
       setLocale(locale as Language);
-      expect(otherClientFolderText({ kind: "inside", name: "SYN Hron Technológie, a. s." })).toBe(text);
+      expect(otherClientFolderText({ kind: "inside", name })).toBe(inside);
+      expect(otherClientFolderText({ kind: "contains", names: ["C002 A", "C003 B", "C004 C", "C005 D", "C006 E"] })).toBe(many);
     }
     setLocale("sk");
-    expect(otherClientFolderText({ kind: "contains", names: ["A", "B", "C", "D", "E"] })).toBe("Priečinok obsahuje priečinky iných klientov: A, B, C +2. Agent by videl ich súbory.");
-    expect(otherClientFolderText({ kind: "uncertain" })).toBe("Rozsah obsahuje znaky, podľa ktorých sa nedá overiť, či nesiaha do priečinka iného klienta. Pred povolením ho skontrolujte.");
+    expect(otherClientFolderText({ kind: "contains", names: ["C002 A", "C003 B"] })).toBe("Pozor: priečinok obsahuje priečinky iných klientov (C002 A, C003 B). Ak ho povolíte, agent uvidí ich súbory.");
+    expect(otherClientFolderText({ kind: "uncertain" })).toBe("Pozor: pri tejto ceste sa nedá overiť, či nesiaha do priečinka iného klienta. Pred povolením ju skontrolujte.");
+  });
+
+  test("meno klienta na karte: kód z priečinka pred menom z karty, ak ho meno ešte nemá", () => {
+    expect(clientDisplayName(c002, "SYN Hron Technológie, a. s.")).toBe("C002 SYN Hron Technológie, a. s.");
+    expect(clientDisplayName(c002, "C002 SYN Hron")).toBe("C002 SYN Hron");
+    expect(clientDisplayName(c002, undefined)).toBe("C002-syn-hron-technologie");
+    expect(clientDisplayName(`${P}/Klienti/Hron`, "SYN Hron")).toBe("SYN Hron");
   });
 
   test("karta v chate C001 pri rozsahu `…/Klienti/C002*/*` ukáže meno klienta C002 z karty klienta", () => {
@@ -85,7 +95,9 @@ describe("priečinok iného klienta", () => {
     } as unknown as React.ComponentProps<typeof ClientNavTestProvider>["value"];
     const html = renderToStaticMarkup(<ClientNavTestProvider value={nav}><PermissionApprovalPanel permission={permission} respondPermission={() => {}} chatDirectory={`${c001}/Spisy/M001 Úhrada`} /></ClientNavTestProvider>);
     expect(html).toContain("Pristúpiť k externému priečinku?");
-    expect(html).toContain("Priečinok patrí inému klientovi: SYN Hron Technológie, a. s. Agent by videl jeho súbory.");
+    // Výrazné varovanie: rámček s ikonou a rolou upozornenia, kód aj meno klienta.
+    expect(html).toContain("Pozor: priečinok patrí inému klientovi (C002 SYN Hron Technológie, a. s.). Ak ho povolíte, agent uvidí jeho súbory.");
+    expect(html).toMatch(/<div role="alert" data-lawoss-other-client="" class="[^"]*border-red-7\/30[^"]*bg-red-3\/40[^"]*font-semibold/);
     // Bez prehľadu (samostatné okno) karta ostane ako doteraz.
     expect(renderToStaticMarkup(<PermissionApprovalPanel permission={permission} respondPermission={() => {}} chatDirectory={c001} />)).not.toContain("data-lawoss-other-client");
   });

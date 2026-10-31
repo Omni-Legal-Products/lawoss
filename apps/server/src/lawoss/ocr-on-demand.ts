@@ -19,6 +19,7 @@
  * Stráž: `lawoss/scripts/check-no-eigenwelt.mjs`.
  */
 import { ApiError } from "../errors.js";
+import { AI_PROVIDERS_SETTING } from "./app-setting-names.js";
 import type { OcrManager } from "../ocr/manager.js";
 import type { LocalEngineSettings } from "../ocr/settings.js";
 import { OCR_LAYOUT_BYTES, OCR_MODEL_BYTES, requireOcrEnabled } from "./ocr-opt-in.js";
@@ -29,7 +30,7 @@ const megabytes = (bytes: number) => Math.round(bytes / 1_000_000);
 /** Text pre agenta a záznam prípravy. Appka ukazuje preložený text (`lawoss.ocr.*`). */
 export const OCR_DOWNLOAD_NOTICE = `LAWOSS is downloading the text recognition model once: about ${megabytes(OCR_MODEL_BYTES)} MB for text recognition and ${megabytes(OCR_LAYOUT_BYTES)} MB for document layout, from huggingface.co (PaddlePaddle). Scanned pages are then read on this computer.`;
 export const OCR_DOWNLOAD_FAILED = "The text recognition model could not be downloaded from huggingface.co. Check the internet connection and free disk space, then run it again. Scanned pages were not read; the document itself is unchanged.";
-const NOT_READY = "Download the selected OCR model in Settings → AI Providers, then retry the review.";
+const NOT_READY = `Download the selected OCR model in ${AI_PROVIDERS_SETTING}, then retry the review.`;
 const LOCAL_SETUP_IDS = ["local-fast", "local-layout"];
 const POLL_MS = 500;
 /** Ako dlho čakať, kým iná operácia OCR (test, iná inštalácia) uvoľní miesto. */
