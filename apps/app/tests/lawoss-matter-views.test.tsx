@@ -279,7 +279,8 @@ describe("N-A7-4: termín úlohy s časom, neplatný a prázdny", () => {
   test("bloky prípadu: termín s časom ukáže deň a čas aj ako najbližší termín, neplatný „?“ s pôvodným textom", () => {
     const views = buildMatterViews(M010, TODAY);
     const next = views.strip.find((s) => s.id === "next_date");
-    expect(next?.status === "recorded" ? next.items.map((i) => i.date) : []).toEqual(["2099-11-20 10:00"]);
+    // Najbližší termín je platný deň; neplatné dátumy idú za ním na overenie (N-A7-4, nie „Neevidované“).
+    expect(next?.status === "recorded" ? next.items.map((i) => [i.date, i.flags ?? []]) : []).toEqual([["2099-11-20 10:00", []], ["  ", ["invalid"]], ["31. 2. 2026", ["invalid"]]]);
     const out = visible(html(<MatterViewsPanel views={views} locale="sk" />));
     expect(out).toContain("20. 11. 2099 10:00");
     expect(out).toContain("? 31. 2. 2026");
@@ -293,6 +294,46 @@ describe("N-A7-4: termín úlohy s časom, neplatný a prázdny", () => {
     const out = html(<TodayView model={model} locale="sk" now={new Date(`${TODAY}T09:00:00`)} />);
     const chips = [...out.matchAll(/<span class="lw-today-chip" data-urgency="(\w+)">(.*?)<\/span>/g)].map((m) => [m[1], visible(m[2]!).replace(/\s+/g, " ").trim()]);
     expect(chips).toEqual([["hot", "? 31. 2. 2026 · overiť dátum"], ["calm", expect.stringMatching(/20\. 11\. 2099 10:00$/)]]);
+  });
+});
+
+describe("N-A7-4: neplatný dátum úlohy vidno v prehľade prípadu a na Domove klienta", () => {
+  // Procesný prípad: jeho blok úlohy neukazuje, termíny úloh sú len v lište a v zbalenom registri.
+  const M020 = input("Klienti/C022/Spisy/M020", { matter_kind: "dispute", spisova_znacka: "SYN-M020/2026", sud: "SYN testový súd" }, [
+    rec("M20-T1", "task", "Vyžiadať chýbajúcu prílohu", ['state: "pending"', 'due: "31. 2. 2026"']),
+    rec("M20-T2", "task", "Porovnať vyjadrenie", ['state: "blocked"', 'due: "2-10-2026"']),
+  ]);
+  const overview = buildOverview([M020], TODAY);
+  const outsideRegister = (markup: string) => visible(markup.slice(0, markup.indexOf("data-lawoss-register")));
+
+  test("prípad: lišta „Najbližší termín“ ukáže „? 31. 2. 2026 · overiť dátum“ mimo zbaleného registra", () => {
+    const views = buildMatterViews(M020, TODAY);
+    expect(views.families).toContain("procedural");
+    const strip = visible(html(<MatterViewsPanel views={views} locale="sk" />).match(/<div data-section="next_date".*?<\/div>/)?.[0] ?? "").replace(/\s+/g, " ");
+    expect(strip).toContain("? 31. 2. 2026 overiť dátum");
+    expect(strip).toContain("? 2-10-2026 overiť dátum");
+    expect(strip).not.toContain("Neevidované");
+    // Celá stránka prípadu: značka je v otvorenom prehľade, nie len v „Podrobnom registri“ (<details>).
+    const cockpit = buildCockpit({ ...overview, inputs: [M020], problems: [] }, M020.path, TODAY)!;
+    const page = html(<LiteMatterView matter={overview.matters[0]!} cockpit={cockpit} busy={null} error={null} onAction={() => {}} views={views} />);
+    expect(page).toContain("data-lawoss-register");
+    expect(outsideRegister(page)).toContain("? 31. 2. 2026");
+  });
+
+  test("prípad s platným termínom: najbližší termín ostane, neplatný dátum je vedľa neho", () => {
+    const withDate = input("Klienti/C022/Spisy/M021", { matter_kind: "dispute", sud: "SYN testový súd" }, [
+      rec("M21-T1", "task", "Pojednávanie", ['state: "pending"', 'due: "2099-11-20"']),
+      rec("M21-T2", "task", "Zlý dátum", ['state: "pending"', 'due: "31. 2. 2026"']),
+    ]);
+    const strip = visible(html(<MatterViewsPanel views={buildMatterViews(withDate, TODAY)} locale="sk" />).match(/<div data-section="next_date".*?<\/div>/)?.[0] ?? "").replace(/\s+/g, " ");
+    expect(strip).toContain("Pojednávanie · 20. 11. 2099");
+    expect(strip).toContain("Zlý dátum ? 31. 2. 2026 overiť dátum");
+  });
+
+  test("Domov klienta: karta prípadu nie je „bez termínu“, ale „? 31. 2. 2026 · overiť dátum“", () => {
+    const out = visible(html(<ClientOverviewView workspaceId="c022" locale="sk" todayIso={TODAY} matters={overview.matters} deadlines={[]} soon={0} />)).replace(/\s+/g, " ");
+    expect(out).toMatch(/\? (31\. 2\. 2026|2-10-2026) · overiť dátum/);
+    expect(out).not.toContain("bez termínu");
   });
 });
 
