@@ -16,7 +16,8 @@ export const CARDS_SHOWN = 6;
 export type CardTerm = { kind: "deadline" | "work"; date: string; title: string; overdue: boolean };
 /** Fáza a ďalší krok z `_STATUS.md`; `stale` = ručný stav je starší než pamäť. */
 export type CardStatus = { phase?: string; nextStep?: string; stale?: true };
-export type CaseCard = { matter: MatterOverview; term?: CardTerm; status: CardStatus };
+/** `invalid`: pôvodný text neplatného dátumu úlohy alebo lehoty prípadu (N-A7-4), na overenie. */
+export type CaseCard = { matter: MatterOverview; term?: CardTerm; invalid?: string; status: CardStatus };
 
 /** Ručné riadky stavovej lišty prípadu (iba to, čo súbor skutočne obsahuje). */
 export function cardStatus(views: Pick<MatterViews, "strip">): CardStatus {
@@ -44,12 +45,23 @@ export function matterTerm(matter: Pick<MatterOverview, "deadlines" | "openTasks
   return deadlines.filter((d) => d.overdue).sort(byDate)[0] ?? [...deadlines.filter((d) => !d.overdue), ...work].sort(byDate)[0];
 }
 
-/** Poradie: lehota po termíne → najbližší termín → bez termínu podľa poslednej zmeny (novšie skôr), potom názov. */
+/**
+ * N-A7-4: neplatný dátum úlohy alebo lehoty prípadu (nie kancelárie). Karta ho ukáže namiesto termínu
+ * („? 31. 2. 2026 · overiť dátum“), inak by mala „bez termínu“ a advokát by sa o chybe nedozvedel.
+ */
+export function matterInvalidDate(matter: Pick<MatterOverview, "deadlines" | "openTasks">): string | undefined {
+  const task = matter.openTasks.find((t) => t.invalid);
+  if (task) return task.due?.trim() ?? "";
+  return matter.deadlines.find((d) => d.invalid && !isOfficeFile(d.file))?.date.trim();
+}
+
+/** Poradie: neplatný dátum alebo lehota po termíne → najbližší termín → bez termínu podľa poslednej zmeny (novšie skôr), potom názov. */
 export function caseCards(matters: readonly MatterOverview[], statuses: Readonly<Record<string, CardStatus>>, todayIso: string): CaseCard[] {
-  const rank = (card: CaseCard) => (card.term?.overdue ? 0 : card.term ? 1 : 2);
+  const rank = (card: CaseCard) => (card.invalid !== undefined || card.term?.overdue ? 0 : card.term ? 1 : 2);
   return matters.map((matter): CaseCard => {
     const term = matterTerm(matter, todayIso);
-    return { matter, status: statuses[matter.path] ?? {}, ...(term ? { term } : {}) };
+    const invalid = matterInvalidDate(matter);
+    return { matter, status: statuses[matter.path] ?? {}, ...(term ? { term } : {}), ...(invalid !== undefined ? { invalid } : {}) };
   })
     .sort((a, b) => rank(a) - rank(b)
       || (a.term && b.term ? a.term.date.localeCompare(b.term.date) : (b.matter.lastEvent?.date ?? "").localeCompare(a.matter.lastEvent?.date ?? ""))

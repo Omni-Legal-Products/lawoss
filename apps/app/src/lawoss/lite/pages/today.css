@@ -300,6 +300,8 @@
 /* Termín nie je lehota: prerušovaný okraj kalendára a bez červenej/zlatej výplne lehoty. */
 .lw-today-deadline[data-kind="case-date"] .lw-today-cal { border-style: dashed; background: transparent; box-shadow: none; }
 .lw-today-deadline[data-kind="case-date"] .lw-today-cal strong { color: inherit; }
+/* N-A7-4: neplatný dátum úlohy navrchu termínov, pôvodný text ako pri neplatnej lehote. */
+.lw-today-deadline[data-invalid] .lw-today-date-short { color: var(--td-hot); overflow-wrap: anywhere; }
 .lw-today-subtitle { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
 .lw-today-note { margin: 0 0 8px; font-size: 12px; color: var(--lw-text-secondary); }
 

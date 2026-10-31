@@ -15,7 +15,7 @@ import { addDays, formatDay, today, useOkfConnection, type OkfReadResult, type O
 import { deadlineKey, deadlineText, dueTextFromDays, isCalendarDay, taskDueView, urgencyOf, type Urgency } from "../../okf/view-rules";
 import { isOfficeFile, taskDue, type MatterOverview } from "../../../../../../lawoss/okf/read";
 import { deadlineCoverage } from "../../../../../../lawoss/okf/views";
-import { appTodayTasks, buildToday, caseDateRows, caseDates, nextDeadline, startHere, taskLink, type CaseDate, type StartHere, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
+import { appTodayTasks, buildToday, caseDateRows, caseDates, invalidCaseDates, nextDeadline, startHere, taskLink, type CaseDate, type StartHere, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
 import { appTaskClient, inPractice, openAppTask, useAppTasks } from "../app-tasks";
 import { agendaEvents, type AgendaEvent } from "../agenda-model";
 import { CandidatesPanel, ModeSwitch, MonthCalendar, type ViewMode } from "../agenda-views";
@@ -127,6 +127,9 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
   const dates = caseDates(model.tasks, todayIso, STRIP_DAYS, model.deadlines);
   // Úvod a „Termíny z prípadov“ hovoria o prípadoch; úloha aplikácie je v Začnite tu, na osi a v Otvorených úlohách.
   const caseOnly = dates.filter((d) => !d.app);
+  // N-A7-4 (MČ 31. 10. 2026): neplatný dátum úlohy prípadu je aj navrchu „Termínov z prípadov“; v „Otvorených
+  // úlohách“ ostáva (nie je v `datedKeys`).
+  const unreadable = invalidCaseDates(model.tasks);
   // Otvorené úlohy bez tých, ktoré už sú v „Termínoch z prípadov“ (N-A5-9); úloha aplikácie s dátumom tam nie je,
   // preto ostane v Otvorených úlohách.
   const datedKeys = new Set(caseOnly.map((d) => d.key));
@@ -176,7 +179,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
           {model.deadlines.length === 0 ? evidence && !evidence.complete
             ? <p className="lw-today-empty" data-lawoss-deadlines="not_loaded">{text("deadlines_not_loaded")}</p>
             : evidence && evidence.recorded === 0
-            ? dates.length ? <p className="lw-today-empty" data-lawoss-deadlines="unrecorded_dates">{text("deadlines_unrecorded_dates")} {text("deadlines_unrecorded_hint")}</p>
+            ? dates.length || unreadable.length ? <p className="lw-today-empty" data-lawoss-deadlines="unrecorded_dates">{text("deadlines_unrecorded_dates")} {text("deadlines_unrecorded_hint")}</p>
               : <p className="lw-today-empty" data-lawoss-deadlines="unrecorded">{text("deadlines_unrecorded")} {text("deadlines_unrecorded_hint")}</p>
             : <Empty text={text("deadlines_empty")} /> : <ul className="lw-today-list">
             {model.deadlines.map((d, index) => (
@@ -196,7 +199,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
               </li>
             ))}
           </ul>}
-          <CaseDates dates={caseOnly} todayIso={todayIso} locale={locale} text={text} onMore={events ? () => setMode("month") : undefined} />
+          <CaseDates dates={caseOnly} invalid={unreadable} todayIso={todayIso} locale={locale} text={text} onMore={events ? () => setMode("month") : undefined} />
         </Panel>
         </div>
 
@@ -293,12 +296,25 @@ function StartHereCard({ start, lead, todayIso, locale, text }: { start: StartHe
 }
 
 /** Termíny z prípadov pod lehotami: vlastný nadpis a veta, že nejde o evidované lehoty (N-A2-11). */
-function CaseDates({ dates, todayIso, locale, text, onMore }: { dates: readonly CaseDate[]; todayIso: string; locale: Language; text: Text; onMore?: () => void }) {
-  if (!dates.length) return null;
+function CaseDates({ dates, invalid = [], todayIso, locale, text, onMore }: { dates: readonly CaseDate[]; invalid?: readonly TodayTask[]; todayIso: string; locale: Language; text: Text; onMore?: () => void }) {
+  if (!dates.length && !invalid.length) return null;
   return <div className="lw-today-case-dates" data-lawoss-case-dates="">
     <h3 className="lw-today-subtitle">{text("case_dates_title")}</h3>
     <p className="lw-today-note">{text("case_dates_note")}</p>
     <ul className="lw-today-list">
+      {/* N-A7-4: neplatný dátum vždy a navrchu („? 31. 2. 2026 · overiť dátum“), mimo počtu riadkov, ako v Lehotách. */}
+      {invalid.map((d) => (
+        <li key={d.key}>
+          <Link className="lw-today-deadline" data-urgency="hot" data-kind="case-date" data-invalid="" to={taskLink(d)}>
+            <span className="lw-today-cal" aria-hidden><span>?</span><strong>!</strong></span>
+            <span className="lw-today-main">
+              <span className="lw-today-title" title={d.title}>{d.title}</span>
+              <small>{taskPlace(d, text)}</small>
+            </span>
+            <span className="lw-today-when"><span className="lw-today-date-short">{taskDueView(d.due, todayIso, locale)?.label ?? "?"}</span><span className="lw-today-due">{text("due_invalid")}</span></span>
+          </Link>
+        </li>
+      ))}
       {caseDateRows(dates, LIST_ROWS).map((d) => (
         <li key={d.key}>
           <Link className="lw-today-deadline" data-urgency={urgencyOf(d.due, todayIso)} data-kind="case-date" to={taskLink(d)} onClick={d.app ? openAppTask(d.id) : undefined}>
