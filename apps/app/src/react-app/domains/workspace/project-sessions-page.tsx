@@ -16,6 +16,7 @@ import { currentLocale, t } from "@/i18n";
 import { isSessionArchived, isStreamingSessionStatus } from "../session/sidebar/utils";
 import { startSessionsDrag } from "../session/sidebar/session-drag";
 import { useSessionManagementStore } from "../session/sidebar/session-management-store";
+import { isListedClientChat } from "@/lawoss/chat/listed-chats";
 
 type SessionFilter = "recent" | "pinned" | "archived";
 
@@ -38,7 +39,7 @@ export function ProjectSessionsPage(props: {
   const pinnedIds = useSessionManagementStore(state => state.pinnedIds);
   const togglePin = useSessionManagementStore(state => state.togglePin);
   const groups = useSessionManagementStore(state => state.groupsByWorkspace[props.workspaceId]);
-  const sessions = useMemo(() => (props.group?.sessions ?? []).filter(session =>
+  const sessions = useMemo(() => (props.group?.sessions ?? []).filter(session => isListedClientChat(session) &&
     (filter === "archived" ? isSessionArchived(session) : !isSessionArchived(session)) &&
     (filter !== "pinned" || pinnedIds.includes(session.id)) && matchesSearch(getDisplaySessionTitle(session.title), query),
   ).sort((a, b) => ((b.time?.updated ?? b.time?.created ?? 0) - (a.time?.updated ?? a.time?.created ?? 0)) * (newestFirst ? 1 : -1)), [props.group?.sessions, filter, pinnedIds, query, newestFirst]);
