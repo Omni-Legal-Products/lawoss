@@ -9,6 +9,8 @@ import { getToolHistoryLabel, getToolIcon, getToolRunSummary } from "@/component
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import { MessageContent } from "@/components/ui/message";
+// 🟡 LAWOSS: dávka zmien súborov sa v počte krokov ráta po vykonaných zmenách (N-A8-5).
+import { toolRunStepCount } from "@/lawoss/chat/file-changes";
 
 type ToolPart = ToolUIPart | DynamicToolUIPart;
 export function ToolRun({ parts, showDetails, renderTool, active = false, defaultOpen = false }: {
@@ -47,7 +49,7 @@ export function ToolRun({ parts, showDetails, renderTool, active = false, defaul
     <CollapsibleTrigger className="group flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-sm py-1 text-left text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
       <Icon className="size-4 shrink-0" strokeWidth={1.6} aria-hidden />
       <span className={cn("min-w-0 truncate", working && !needsInput && "lw-tool-shimmer")} title={label}>{label}</span>
-      <span className="min-w-4 shrink-0 text-xs tabular-nums opacity-50">{tools.length || ""}</span>
+      <span className="min-w-4 shrink-0 text-xs tabular-nums opacity-50">{toolRunStepCount(tools) || ""}</span>
       {failedTool && <CircleAlert className="size-3.5 shrink-0 text-destructive" aria-label={t("tool_run.failed")} />}
       {deniedTool && !failedTool && <Ban className="size-3.5 shrink-0" aria-label={t("tool_run.permission_denied")} />}
       <ChevronDown className="size-3.5 shrink-0 opacity-50 transition-[transform,opacity] group-hover:opacity-100 group-data-panel-open:rotate-180" aria-hidden />

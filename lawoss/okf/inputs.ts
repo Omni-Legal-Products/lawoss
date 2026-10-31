@@ -158,6 +158,35 @@ export function moveInputOriginal(intake: string, from: string, to: string, hand
 }
 
 /**
+ * N-A8-1 (MČ 31. 10. 2026): všetky riadky, ktorých Originál je `from` alebo pri priečinku (`folder`) leží v ňom.
+ * `to` dostane zvyšok cesty za `from` v pôvodnom tvare (`""` pri tom istom súbore, inak `IN-003/a.pdf`) a vráti novú
+ * bunku Originál; `null` bunku nechá. `handedOver` uzavrie riadok ako pri #292 (`processed`, dôvod vo Výsledných
+ * záznamoch). `null`, keď žiadny riadok nesedí; ID ostanú, nič sa nepridá ani neodoberie.
+ */
+export function moveInputOriginals(intake: string, from: string, to: (rest: string) => string | null, options: { folder?: boolean; handedOver?: string } = {}): { content: string; ids: string[] } | null {
+  const parts = (path: string) => path.normalize("NFC").replace(/\\/g, "/").split("/").filter((part) => part && part !== ".");
+  const wanted = parts(from).map((part) => part.toLowerCase());
+  const lines = intake.split("\n"), ids: string[] = [];
+  for (const [index, line] of lines.entries()) {
+    const cells = line.trim().split("|").slice(1, -1);
+    if (cells.length < 5 || !/^\s*IN-\d+\s*$/.test(cells[0]!)) continue;
+    const original = parts(inputOriginal(cells[3]!).target);
+    if (original.length < wanted.length || (!options.folder && original.length !== wanted.length)) continue;
+    if (wanted.some((part, at) => original[at]!.toLowerCase() !== part)) continue;
+    const cell = to(original.slice(wanted.length).join("/"));
+    if (cell !== null) cells[3] = ` ${cell} `;
+    if (options.handedOver !== undefined) {
+      const results = (cells[5] ?? "").trim();
+      cells[4] = " processed ";
+      cells[5] = ` ${[results, cellText(options.handedOver)].filter(Boolean).join("; ")} `;
+    }
+    lines[index] = `${line.slice(0, line.indexOf("|"))}|${cells.join("|")}|`;
+    ids.push(cells[0]!.trim());
+  }
+  return ids.length ? { content: lines.join("\n"), ids } : null;
+}
+
+/**
  * Text ako kódový span (review #292): cesta v bunke sa nečíta ako odkaz, obrázok ani HTML. `|` a riadiace znaky
  * by rozbili riadok tabuľky, preto ich nahradí medzera; plot je dlhší než najdlhší rad `` ` `` v texte.
  */
