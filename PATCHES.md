@@ -50,6 +50,7 @@ Rozhodnutie MČ 28. 10. 2026: variant C návrhu k N-A7-9. Engine 1.18.29 vracia 
 | --- | --- |
 | `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `handleRevertToUserMessage` a `handleEditUserMessage` sa pred `onRevertToMessage` opýtajú cez `confirmChatTrim()` (Zrušiť / Rozvetviť do nového chatu / Skrátiť rozhovor, pri úprave Zrušiť / Upraviť). Rozvetvenie dostane prvú odstránenú otázku, takže nový chat obsahuje skrátený rozhovor a pôvodný ostane celý. Po skrátení krátke hlásenie, že súbory sa nezmenili. |
 | `apps/app/src/react-app/shell/providers.tsx` | Pripája `ChatTrimConfirmHost` vedľa `ProviderOverwriteConfirmHost`. |
+| `apps/app/src/components/chat/tool-run.tsx` | N-A8-5 (rozhodnutie MČ 31. 10. 2026): +1 import; číslo v hlavičke krokov je `toolRunStepCount(tools)` z LAWOSS súboru `lawoss/chat/file-changes.ts` namiesto `tools.length`. Dávka `lawoss_files` sa ráta po vykonaných zmenách tou istou funkciou ako okno „Skrátiť rozhovor?“ (zamietnutá alebo neúspešná 0, čakajúca 1), ostatné kroky po jednom. Test `apps/app/tests/lawoss-chat-kroky-pocet.test.tsx`. |
 
 ## Správa z frontu po reštarte appky (2026-10-28, N-A7-17)
 

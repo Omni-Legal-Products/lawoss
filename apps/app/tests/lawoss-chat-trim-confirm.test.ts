@@ -45,6 +45,22 @@ describe("skrátenie rozhovoru (N-A7-9)", () => {
     expect(chatTrimSummary([user("u1", "Ahoj"), assistant("a1", [tool("read")])], "u1")).toMatchObject({ question: "Ahoj", fileChanges: 0 });
   });
 
+  test("dávka lawoss_files sa ráta po vykonaných zmenách, nie ako jedno volanie (N-A8-5)", () => {
+    const operations = ["a", "b", "c", "d", "e"].map((name) => ({ operation: "move", from: `00_Na_zatriedenie/${name}.txt`, to: `Korespondencia/${name}.txt` }));
+    const batch = (statuses: string[] | null, output?: string) => ({
+      type: "dynamic-tool" as const, toolName: "lawoss_files", toolCallId: "batch-call", state: "output-available" as const, input: { operations },
+      output: output ?? JSON.stringify({ results: (statuses ?? []).map((status, index) => ({ ...operations[index], kind: "file", status })), complete: statuses?.every((status) => status === "done") }),
+    });
+    const count = (part: UIMessage["parts"][number]) => chatTrimSummary([user("u1", "Presuň všetky .txt"), assistant("a1", [part])], "a1").fileChanges;
+    expect(count(batch(["done", "done", "done", "done", "done"]))).toBe(5);
+    expect(count(batch(["done", "done", "failed", "not_run", "not_run"]))).toBe(2);
+    expect(count(batch(["failed", "not_run", "not_run", "not_run", "not_run"]))).toBe(0);
+    expect(count(batch(null, "nečitateľný výsledok"))).toBe(5);
+    expect(count({ type: "dynamic-tool", toolName: "lawoss_files", toolCallId: "rejected", state: "output-error", input: { operations }, errorText: "zamietnuté" })).toBe(0);
+    setLocale("sk");
+    expect(chatTrimCopy({ mode: "trim", question: "x", fileChanges: count(batch(["done", "done", "done", "done", "done"])) }).changed).toStartWith("Agent v tejto časti urobil 5 zmien súborov.");
+  });
+
   test("okno po slovensky hovorí, že súbory sa nezmenia a správy sa nedajú obnoviť", () => {
     setLocale("sk");
     const copy = chatTrimCopy({ mode: "trim", question: "Zhrň spis M004", fileChanges: 2 });

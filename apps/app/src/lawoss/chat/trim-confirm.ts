@@ -12,6 +12,7 @@
  */
 import type { UIMessage } from "ai";
 import { t } from "@/i18n";
+import { fileChangesOf } from "./file-changes";
 
 export type ChatTrimMode = "trim" | "edit";
 export type ChatTrimChoice = "cancel" | "fork" | "trim";
@@ -73,7 +74,9 @@ function countFileChanges(messages: readonly UIMessage[]): number {
   let count = 0;
   for (const message of messages) {
     for (const part of message.parts) {
-      if (part.type === "dynamic-tool" && part.state === "output-available" && FILE_CHANGING_TOOLS.has(part.toolName)) count += 1;
+      // N-A8-5: dávka `lawoss_files` sa ráta po vykonaných zmenách (`file-changes.ts`).
+      if (part.type === "dynamic-tool" && part.state === "output-available" && FILE_CHANGING_TOOLS.has(part.toolName))
+        count += fileChangesOf(part.toolName, part.input, part.output);
     }
   }
   return count;
