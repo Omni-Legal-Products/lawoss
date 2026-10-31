@@ -69,11 +69,35 @@ function questionPreview(message: UIMessage | undefined): string {
   return text.length > QUESTION_PREVIEW_LENGTH ? `${text.slice(0, QUESTION_PREVIEW_LENGTH).trimEnd()}…` : text;
 }
 
+function parsedOutput(output: unknown): unknown {
+  if (typeof output !== "string") return output;
+  try {
+    return JSON.parse(output);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * N-A8-5: jedno volanie `lawoss_files` je celá dávka (karta „Vykonať 5 zmien súborov?“). Rátajú sa zmeny,
+ * ktoré server vo výsledku hlási ako vykonané (`status: "done"`). Ak výsledok nejde prečítať, rátajú sa
+ * položky schválenej dávky zo vstupu; ostatné nástroje sú jedna zmena na volanie.
+ */
+function fileChangesOf(toolName: string, input: unknown, output: unknown): number {
+  if (toolName !== "lawoss_files") return 1;
+  const result = parsedOutput(output);
+  const results: unknown = result && typeof result === "object" ? Reflect.get(result, "results") : undefined;
+  if (Array.isArray(results)) return results.filter((entry) => entry && typeof entry === "object" && Reflect.get(entry, "status") === "done").length;
+  const operations: unknown = input && typeof input === "object" ? Reflect.get(input, "operations") : undefined;
+  return Array.isArray(operations) && operations.length > 0 ? operations.length : 1;
+}
+
 function countFileChanges(messages: readonly UIMessage[]): number {
   let count = 0;
   for (const message of messages) {
     for (const part of message.parts) {
-      if (part.type === "dynamic-tool" && part.state === "output-available" && FILE_CHANGING_TOOLS.has(part.toolName)) count += 1;
+      if (part.type === "dynamic-tool" && part.state === "output-available" && FILE_CHANGING_TOOLS.has(part.toolName))
+        count += fileChangesOf(part.toolName, part.input, part.output);
     }
   }
   return count;
