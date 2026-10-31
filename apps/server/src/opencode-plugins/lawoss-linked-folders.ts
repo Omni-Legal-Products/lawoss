@@ -18,8 +18,9 @@
  */
 // Exportovaný je len vstupný bod pluginu: OpenCode volá každý export modulu.
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { allowedFolders, canonicalPath, externalDirectoryAllowed, externalDirectoryOtherClient, LINKED_FOLDERS_MAP_FILE, ownerOf, parseLinkedFoldersMap, patternDirectory, refusedEarlier, type OtherClientRefusal } from "../lawoss/linked-folders-rules.js";
+import { allowedFolders, canonicalPath, expandScope, externalDirectoryAllowed, externalDirectoryOtherClient, LINKED_FOLDERS_MAP_FILE, ownerOf, parseLinkedFoldersMap, patternDirectory, refusedEarlier, type OtherClientRefusal } from "../lawoss/linked-folders-rules.js";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { APP_NAMES_SYSTEM } from "../lawoss/app-setting-names.js";
 
@@ -86,15 +87,18 @@ type Decision = { kind: "once" } | { kind: "reject"; refusal: OtherClientRefusal
 /** Rozhodnutie pre jednu otázku: „once“, odmietnutie (iný klient) alebo „open“ = karta pre advokáta. `null` = nerozhodovať. Neexportuje sa: engine volá každý export. */
 async function linkedFolderDecision(directory: string, request: Asked): Promise<Decision | null> {
   if (request.permission !== "external_directory") return null;
-  const targets = await Promise.all(request.patterns.map((pattern) => {
+  // Rozsah sa najprv normalizuje (domov, alternatívy `{a,b}`); čo sa normalizovať nedá, nemá cieľ a odmietne sa.
+  const folders = request.patterns.map((pattern) => {
     const folder = patternDirectory(pattern);
-    return folder ? canonicalPath(folder) : null;
-  }));
+    return folder ? expandScope(folder, homedir()) : [null];
+  });
+  const ambiguous = folders.some((expanded) => expanded === null);
+  const targets = await Promise.all(folders.flatMap((expanded) => expanded ?? [null]).map((folder) => folder ? canonicalPath(folder) : null));
   const read = await readMap();
   if (!read) return { kind: "open", targets };
   const chat = await canonicalPath(directory);
-  if (externalDirectoryAllowed(read.map, chat, targets, [read.appData])) return { kind: "once" };
-  const refusal = externalDirectoryOtherClient(read.map, chat, targets);
+  if (!ambiguous && externalDirectoryAllowed(read.map, chat, targets, [read.appData])) return { kind: "once" };
+  const refusal = externalDirectoryOtherClient(read.map, chat, targets, ambiguous);
   return refusal ? { kind: "reject", refusal } : { kind: "open", targets };
 }
 
@@ -108,6 +112,7 @@ const NO_WIDENING = "Never advise the user to allow, authorize or link this fold
 const REFUSALS = {
   inside: `LAWOSS refused this request: the folder belongs to another client of the practice, and this chat belongs to a different client. Nothing in it was read or listed. Tell the user in one short sentence, in their language, that the folder belongs to another client and cannot be opened in this client's chat; it can be opened in that client's own chat. Do not repeat the folder path, the other client's name or any file names, and do not try another way to reach it. ${NO_WIDENING}`,
   contains: `LAWOSS refused this request: the folder contains folders of other clients of the practice, and this chat may work only with its own client's folders. Nothing in it was read or listed. Tell the user in one short sentence, in their language, that this chat works only with this client's own folders and the folders linked to this client. Do not name or guess any other client, folder path or file name, and do not try another way to reach that folder or a folder above it. ${NO_WIDENING}`,
+  ambiguous: `LAWOSS refused this request: the folder path contains variables, commands or patterns that cannot be resolved to definite folders, so it cannot be checked against this client's folders. Nothing was read or listed. For a folder of this client, use its plain absolute path without variables, commands or patterns. If the user asked for it, tell them in one short sentence, in their language, that the folder could not be opened. ${NO_WIDENING}`,
   repeated: `LAWOSS refused this request without asking the user again: earlier in this chat the user already refused access to this folder. Nothing was read. Do not ask for this folder or a folder inside it again in this chat and do not try another way to reach it. Continue without it, or tell the user in one short sentence, in their language, that the folder was not opened because they refused it. ${NO_WIDENING}`,
 } as const;
 

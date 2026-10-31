@@ -2,7 +2,7 @@
 // systémového promptu). Chat klienta aj chat prípadu ich dostanú; chat iného klienta nie (ani mená).
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { LINKED_FOLDERS_MAP_FILE, type LinkedFoldersMap } from "../lawoss/linked-folders-rules.js";
 import { LawossLinkedFolders } from "./lawoss-linked-folders.js";
@@ -132,9 +132,43 @@ test("priečinok iného klienta: odmietnutie s vetou; vlastný pripojený prieč
   expect(linked.v1).toEqual([{ path: { id: "ses_1", permissionID: "per_1" }, body: { response: "once" }, query: { directory: clientA } }]);
   const unknown = await ask(clientA, [`${join(clientA, "..", "..", "..")}/Iny/*`]);
   expect([...unknown.v1, ...unknown.v2]).toEqual([]);
-  // Neistý vzor: bez odpovede, rozhodne karta (review #295).
-  const open = await ask(clientA, [`${join(clientB, "..")}/{Hron,Iny}/*`]);
-  expect([...open.v1, ...open.v2]).toEqual([]);
+});
+
+// Rozhodnutie MČ 31. 10. 2026: rozsah so znakmi `[ ] { } $ \`` sa normalizuje a vyhodnotí ako ostatné cesty (dovtedy karta).
+test("rozsah so znakmi `[ ] { } $ \``: iný klient a nejednoznačný rozsah bez karty, vlastný klient ostane", async () => {
+  const { clientA, clientB, matterA } = await fixture();
+  const klienti = join(clientB, "..");
+  const home = homedir();
+  const cases: [string, string | null][] = [
+    [`${klienti}/H[a-z]on/*`, "belongs to another client"],
+    [`${klienti}/{Hron,Iny}/*`, "belongs to another client"],
+    [`${klienti}/{Tatran,Hron}/*`, "belongs to another client"],
+    [`${klienti}/[HT]*/*`, "contains folders of other clients"],
+    [`${klienti}/\`ls\`/*`, "cannot be resolved to definite folders"],
+    [`$PRAX/Klienti/Hron/*`, "cannot be resolved to definite folders"],
+    [`${klienti}/{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}/*`, "cannot be resolved to definite folders"],
+  ];
+  // `$HOME` a `~` sa rozvinú na domov; mimo neho by sa nič neodmietlo, preto sa skúšajú len v ňom.
+  if (klienti.startsWith(`${home}/`)) cases.push([`$HOME${klienti.slice(home.length)}/Hron/*`, "belongs to another client"], [`~${klienti.slice(home.length)}/*`, "contains folders of other clients"]);
+  for (const [pattern, sentence] of cases) {
+    const { v1, v2, ask } = await plugin(clientA);
+    await ask("per_1", "ses_1", [pattern]);
+    expect(v1).toEqual([]);
+    expect(v2).toHaveLength(1);
+    expect(v2[0]!.body.reply).toBe("reject");
+    expect(v2[0]!.body.message).toContain(sentence!);
+    for (const name of ["Hron", "Tatran", "Klienti"]) expect(v2[0]!.body.message).not.toContain(name);
+    expect(v2[0]!.body.message).toContain("Never advise the user to allow");
+  }
+  // Vlastný klient a jeho spisy so znakmi `[ ]` a `{ }`: povolené bez karty ako doteraz.
+  for (const pattern of [`${clientA}/Spisy/M00[1]*/*`, `${clientA}/{Spisy,Zmluvy}/*`]) {
+    for (const directory of [clientA, matterA]) {
+      const { v1, v2, ask } = await plugin(directory);
+      await ask("per_1", "ses_1", [pattern]);
+      expect(v2).toEqual([]);
+      expect(v1).toEqual([{ path: { id: "ses_1", permissionID: "per_1" }, body: { response: "once" }, query: { directory } }]);
+    }
+  }
 });
 
 // Rozhodnutie MČ 30. 10. 2026 (N-A7-14, N-A8-2): priečinok klientov (`…/Klienti`) a vzor cez všetkých klientov sa odmietnu

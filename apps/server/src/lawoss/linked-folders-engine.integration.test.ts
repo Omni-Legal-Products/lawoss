@@ -102,9 +102,9 @@ test.skipIf(!binary)("klient A číta svoje pripojené priečinky a koreň aj z 
     const parts = z.array(z.object({ parts: z.array(z.object({ tool: z.string().optional(), state: z.object({ status: z.string(), output: z.string().optional(), error: z.string().optional() }).optional() })) }))
       .parse(await (await fetch(at(directory, `/session/${session.id}/message`))).json()).flatMap((message) => message.parts).filter((part) => part.tool === (tool?.name ?? "read"));
     if (parts[0]?.state?.status === "error") {
-      expect(parts[0].state.error).toMatch(/belongs to another client|contains folders of other clients/);
+      expect(parts[0].state.error).toMatch(/belongs to another client|contains folders of other clients|cannot be resolved/);
       // Agent pokračuje a dostane vetu bez cesty, bez obsahu a bez rady povoliť priečinok (N-A8-2).
-      expect(toolResult).toMatch(/belongs to another client|contains folders of other clients/);
+      expect(toolResult).toMatch(/belongs to another client|contains folders of other clients|cannot be resolved/);
       expect(toolResult).toContain("Never advise the user to allow");
       expect(toolResult).not.toContain("Obsah ");
       expect(toolResult).not.toContain(clientB);
@@ -144,6 +144,9 @@ test.skipIf(!binary)("klient A číta svoje pripojené priečinky a koreň aj z 
     // Rozhodnutie MČ 30. 10. 2026: vzor cez celý priečinok klientov aj priečinok klientov sám sa odmietnu bez karty.
     expect(await attempt(clientA, files.clientB, { name: "glob", args: { pattern: "**/hron.md", path: join(root, "prax", "Klienti", "*") } })).toBe("rejected");
     expect(await attempt(clientA, files.clientB, { name: "glob", args: { pattern: "**/hron.md", path: join(root, "prax", "Klienti") } })).toBe("rejected");
+    // Rozhodnutie MČ 31. 10. 2026: rozsah so znakmi `[ ]` a `{ }` sa normalizuje a vyhodnotí rovnako (dovtedy karta).
+    for (const folder of ["H[r]on", "{Hron,Iny}"])
+      expect(await attempt(clientA, files.clientB, { name: "glob", args: { pattern: "**/hron.md", path: join(root, "prax", "Klienti", folder) } })).toBe("rejected");
     expect(await attempt(clientA, files.linkedA2)).toBe("asked");
     // Server pripojí ďalší priečinok: platí hneď, bez reštartu enginu; odpojenie tiež.
     await writeMap([linkedA, linkedA2]);

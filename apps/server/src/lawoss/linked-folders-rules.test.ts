@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { allowedFolders, canonicalPath, externalDirectoryAllowed, externalDirectoryOtherClient, folderOfGrant, isOfficeMemoryFolder, linkedFolderConflict, parseLinkedFoldersMap, patternDirectory, refusedEarlier, type LinkedFoldersMap } from "./linked-folders-rules.js";
+import { allowedFolders, canonicalPath, expandScope, externalDirectoryAllowed, externalDirectoryOtherClient, folderOfGrant, isOfficeMemoryFolder, linkedFolderConflict, parseLinkedFoldersMap, patternDirectory, refusedEarlier, type LinkedFoldersMap } from "./linked-folders-rules.js";
 import { withoutClientFolderGrants } from "./linked-folders.js";
 
 const map = (over: Partial<LinkedFoldersMap> = {}): LinkedFoldersMap => ({
@@ -194,9 +194,56 @@ describe("priečinok iného klienta", () => {
     expect(externalDirectoryOtherClient(prax(), c001, [`${P}/Klienti/C002`])).toBeNull();
   });
 
-  test("neisté znaky `[ ] { } $ \`` sa neodmietajú (rozhodne karta)", () => {
-    for (const target of [`${P}/Klienti/C002[-_]Hron`, `${P}/Klienti/{C002-Hron,C009}`, `$HOME/Prax/Klienti/C002-Hron`, `${P}/Klienti/\`ls\``])
-      expect(externalDirectoryOtherClient(prax(), c001, [target])).toBeNull();
+  // Rozhodnutie MČ 31. 10. 2026: rozsah so znakmi `[ ] { } $ \`` sa normalizuje a vyhodnotí ako ostatné cesty; čo sa
+  // normalizovať nedá, sa odmietne bez karty.
+  const HOME = "/Users/advokat";
+  const decide = (chat: string, folder: string, map = prax()) => {
+    const expanded = expandScope(folder, HOME);
+    return externalDirectoryOtherClient(map, chat, expanded ?? [null], expanded === null);
+  };
+
+  test("normalizácia rozsahu: domov, alternatívy, limit a nejednoznačné tvary", () => {
+    expect(expandScope(`$HOME/Prax/Klienti/C002-Hron`, HOME)).toEqual([c002]);
+    expect(expandScope(`\${HOME}/Prax`, HOME)).toEqual([P]);
+    expect(expandScope("~/Prax", HOME)).toEqual([P]);
+    expect(expandScope("~", HOME)).toEqual([HOME]);
+    expect(expandScope(`${P}/Klienti/{C002-Hron,C009}`, HOME)).toEqual([c002, `${P}/Klienti/C009`]);
+    expect(expandScope(`${P}/{Klienti/{C001-Tatran,C002-Hron},Vzory}`, HOME)).toEqual([`${P}/Vzory`, c001, c002]);
+    // `{…}` bez čiarky a nespárovaná zátvorka sú doslovný názov priečinka.
+    expect(expandScope(`${c001}/Spis {2024}`, HOME)).toEqual([`${c001}/Spis {2024}`]);
+    expect(expandScope(`${c001}/Spis {x`, HOME)).toEqual([`${c001}/Spis {x`]);
+    for (const folder of [`${P}/\`ls\``, `$USER/Prax`, `$HOMEDIR/x`, `\${PWD}/x`, "~advokat/Prax", `${P}/Klienti/{C001..C009}`, `${P}/{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}`])
+      expect(expandScope(folder, HOME)).toBeNull();
+    expect(expandScope(`${P}/{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}`, HOME)).toHaveLength(64);
+  });
+
+  test("triedy `[…]`, alternatívy `{a,b}`, `$HOME` a príkazy: iný klient alebo nejednoznačné sa odmietne", () => {
+    expect(decide(c001, `${P}/Klienti/C002[-_]Hron`)).toBe("inside");
+    expect(decide(c001, `${P}/Klienti/C00[!1]-Hron/Spisy`)).toBe("inside");
+    expect(decide(c001, `${P}/Klienti/C00[0-9]*`)).toBe("contains");
+    expect(decide(c001, `${P}/[K]lienti`)).toBe("contains");
+    expect(decide(c001, `${P}/Klienti/{C002-Hron,C009}`)).toBe("inside");
+    expect(decide(c001, `${P}/Klienti/{C001-Tatran/Spisy,C002-Hron}`)).toBe("inside");
+    expect(decide(c001, `${P}/{Vzory,Klienti}`)).toBe("contains");
+    expect(decide(c001, `$HOME/Prax/Klienti/C002-Hron`)).toBe("inside");
+    expect(decide(c001, "~/Prax")).toBe("contains");
+    for (const folder of [`${P}/Klienti/\`ls\``, `$OTHER/Klienti/C002-Hron`, `${P}/Klienti/{C001..C009}`, `${P}/{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}`])
+      expect(decide(c001, folder)).toBe("ambiguous");
+    // Neplatná trieda sa berie ako ľubovoľný segment, teda zasiahne vlastného aj iných klientov.
+    expect(decide(c001, `${P}/Klienti/C00[z-a]-Hron`)).toBe("contains");
+  });
+
+  test("vlastný klient a jeho spisy so znakmi `[ ] { }` ostanú bez odmietnutia; doslovný `[` v názve iného klienta nie", () => {
+    for (const folder of [`${c001}/Spisy/M00[12]*`, `${c001}/Spisy/{M001 Úhrada,M002 Nájom}`, `${c001}/Spis [2024]`, `${c001}/Spis {2024}`, `$HOME/Prax/Klienti/C001-Tatran/Spisy`, "~/Zdielane/Vzory"])
+      expect(decide(c001, folder)).toBeNull();
+    // Klient, ktorého priečinok má `[` v názve: doslovná cesta do neho sa odmietne, do vlastného nie.
+    const zatvorky = `${P}/Klienti/C010 [Hron]`;
+    const map = prax({ clients: [...prax().clients, { root: zatvorky, folders: [], client: zatvorky }] });
+    expect(decide(c001, `${zatvorky}/Spisy`, map)).toBe("inside");
+    expect(decide(zatvorky, `${zatvorky}/Spisy`, map)).toBeNull();
+    // Chat bez známeho klienta a firemné pravidlá: nerozhoduje sa ani pri nejednoznačnom rozsahu.
+    expect(decide(P, `${P}/\`ls\``)).toBeNull();
+    expect(decide(c001, `${P}/\`ls\``, prax({ firmManaged: true }))).toBeNull();
   });
 
   test("pripojený priečinok mimo praxe (E1), priečinok bez karty a chat bez známeho klienta: bez odmietnutia", () => {

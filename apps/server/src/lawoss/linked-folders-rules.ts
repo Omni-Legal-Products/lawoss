@@ -132,33 +132,109 @@ export function externalDirectoryAllowed(map: LinkedFoldersMap, directory: strin
   });
 }
 
-const GLOB_CHARS = /[*?]/;
-/** Znaky, pri ktorých sa nedá spoľahlivo povedať, kam vzor siaha (triedy, alternatívy, premenné shellu): rozhodne karta. */
-export const UNCERTAIN_CHARS = /[[\]{}$`]/;
+/** Znaky vzoru: `*`, `?` a trieda `[…]`. Takýto cieľ sa porovná ako vzor aj ako doslovná cesta. */
+const GLOB_CHARS = /[*?[]/;
 const segmentsOf = (path: string): string[] => path.split(/[\\/]+/).filter(Boolean);
+const escapeRegExp = (text: string): string => text.replace(/[.+^$|()[\]{}\\*?]/g, "\\$&");
 
-/** Jeden segment vzoru (`C002*`, `C00?`) ako regulárny výraz. */
-const segmentPattern = (segment: string): RegExp =>
-  new RegExp(`^${segment.replace(/[.+^$|()[\]{}\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")}$`, "su");
+/** Jeden segment vzoru (`C002*`, `C00?`, `C00[12]`, `C00[!3]`) ako regulárny výraz; neplatná trieda = ľubovoľný segment. */
+function segmentPattern(segment: string): RegExp {
+  let source = "";
+  for (let index = 0; index < segment.length; index++) {
+    const char = segment[index]!;
+    if (char === "*") source += ".*";
+    else if (char === "?") source += ".";
+    else if (char === "[") {
+      const negate = segment[index + 1] === "!" || segment[index + 1] === "^";
+      const first = index + (negate ? 2 : 1);
+      const end = segment.indexOf("]", segment[first] === "]" ? first + 1 : first);
+      if (end === -1) { source += "\\["; continue; }
+      source += `[${negate ? "^" : ""}${segment.slice(first, end).replace(/[\\\][^]/g, "\\$&")}]`;
+      index = end;
+    } else source += escapeRegExp(char);
+  }
+  try {
+    return new RegExp(`^${source}$`, "su");
+  } catch {
+    return /^.*$/su;
+  }
+}
 
 /**
- * Vzťah priečinka zo vzoru (aj s `*`, `?`, `**`) k priečinku `root`: `inside` = rozvinie sa na `root` alebo priečinok
+ * Vzťah priečinka zo vzoru (aj s `*`, `?`, `[…]`, `**`) k priečinku `root`: `inside` = rozvinie sa na `root` alebo priečinok
  * v ňom, `contains` = rozvinie sa na jeho predka (napr. `…/Klienti`, `…/Prax/K*`), inak `null`. Po segmentoch.
+ * `literal`: znaky vzoru sa berú doslovne (priečinok s `[` alebo `*` v názve).
  */
-export function patternRelation(pattern: string, root: string): "inside" | "contains" | null {
+export function patternRelation(pattern: string, root: string, literal = false): "inside" | "contains" | null {
   const wanted = segmentsOf(foldedPath(pattern));
   const segments = segmentsOf(foldedPath(root));
   for (let index = 0; index < segments.length; index++) {
     const segment = wanted[index];
     if (segment === undefined) return "contains";
-    if (segment === "**") return "inside";
-    if (GLOB_CHARS.test(segment) ? !segmentPattern(segment).test(segments[index]!) : segment !== segments[index]) return null;
+    if (!literal && segment === "**") return "inside";
+    if (!literal && GLOB_CHARS.test(segment) ? !segmentPattern(segment).test(segments[index]!) : segment !== segments[index]) return null;
   }
   return "inside";
 }
 
-/** Prečo plugin odmietne `external_directory`: cieľ leží v inom klientovi, alebo obsahuje priečinky iných klientov. */
-export type OtherClientRefusal = "inside" | "contains";
+/** Najviac toľko ciest z alternatív `{a,b}` v jednom rozsahu; viac = nejednoznačný rozsah. */
+export const SCOPE_EXPANSION_LIMIT = 64;
+const HOME_VARIABLE = /\$\{HOME\}|\$HOME(?![A-Za-z0-9_])/g;
+
+/** Prvá skupina `{a,b}` (aj vnorená v alternatíve); `{…}` bez čiarky je doslovný text; `{x..y}` je nejednoznačné. */
+function braceGroup(text: string): { start: number; end: number; parts: string[] } | "ambiguous" | null {
+  for (let start = text.indexOf("{"); start !== -1; start = text.indexOf("{", start + 1)) {
+    let depth = 0;
+    const commas: number[] = [];
+    for (let index = start; index < text.length; index++) {
+      const char = text[index];
+      if (char === "{") depth++;
+      else if (char === "," && depth === 1) commas.push(index);
+      else if (char === "}" && --depth === 0) {
+        if (commas.length) return { start, end: index, parts: [start, ...commas].map((from, at) => text.slice(from + 1, [...commas, index][at])) };
+        if (text.slice(start + 1, index).includes("..")) return "ambiguous";
+        break;
+      }
+    }
+  }
+  return null;
+}
+
+/** Všetky cesty z alternatív `{a,b}`; `null` nad limit alebo pri nejednoznačnej skupine. */
+function expandBraces(text: string): string[] | null {
+  const done = new Set<string>();
+  const queue = [text];
+  for (let current = queue.shift(); current !== undefined; current = queue.shift()) {
+    const group = braceGroup(current);
+    if (group === "ambiguous") return null;
+    if (group) {
+      const { start, end, parts } = group;
+      queue.push(...parts.map((part) => current.slice(0, start) + part + current.slice(end + 1)));
+    } else done.add(current);
+    if (done.size + queue.length > SCOPE_EXPANSION_LIMIT) return null;
+  }
+  return [...done];
+}
+
+/**
+ * Priečinok z otázky `external_directory` ako obyčajné cesty, skôr než sa vyhodnotí (rozhodnutie MČ 31. 10. 2026):
+ * `$HOME`, `${HOME}` a `~` na začiatku = domov, `{a,b}` = jednotlivé alternatívy (najviac `SCOPE_EXPANSION_LIMIT`).
+ * Triedy `[…]`, `*` a `?` ostanú: porovnajú sa ako vzor. `null` = rozsah sa nedá jednoznačne určiť (iná premenná,
+ * príkaz v spätných apostrofoch, `~meno`, `{x..y}`, priveľa alternatív): odmietne sa, nie karta.
+ */
+export function expandScope(folder: string, home: string): string[] | null {
+  if (folder.includes("`") || folder.replace(HOME_VARIABLE, "").includes("$")) return null;
+  let path = folder.replace(HOME_VARIABLE, () => home);
+  if (path === "~" || /^~[\\/]/.test(path)) path = home + path.slice(1);
+  else if (path.startsWith("~")) return null;
+  return expandBraces(path);
+}
+
+/**
+ * Prečo plugin odmietne `external_directory`: cieľ leží v inom klientovi, obsahuje priečinky iných klientov, alebo
+ * sa rozsah nedá jednoznačne určiť (`expandScope` vrátil `null`).
+ */
+export type OtherClientRefusal = "inside" | "contains" | "ambiguous";
 
 /**
  * N-A7-14 (test E2) a rozhodnutie MČ z 30. 10. 2026: požiadavka chatu klienta siaha na priečinok iného klienta. Klient =
@@ -166,33 +242,42 @@ export type OtherClientRefusal = "inside" | "contains";
  * - `inside`: cieľ leží v inom známom klientovi alebo sa naň vzor rozvinie (`…/Klienti/C002*`).
  * - `contains`: cieľ obsahuje priečinok iného klienta (`…/Klienti`, koreň praxe, domov) alebo sa vzor rozvinie aj na
  *   iného klienta popri vlastnom (`…/Klienti/*`, `…/Prax/K*`, `…/Prax/**`). Od 30. 10. sa aj tento odmieta bez karty.
- * Nerozhoduje (ostane karta): cieľ len vo vlastnom klientovi a jeho spisoch, cieľ so znakmi `[ ] { } $ \``, pripojený
- * priečinok mimo klientov (E1), priečinok, ktorý obsahuje len vlastného klienta, chat bez známeho klienta (kontajner
- * praxe, priečinok bez karty, starší súbor mapy) a firemné pravidlá.
+ * - `ambiguous`: rozsah sa nedal normalizovať (`expandScope`); neistota nevedie ku karte.
+ * Ciele sú už normalizované (`expandScope`, potom `canonicalPath`); cieľ so znakmi vzoru sa porovná ako vzor aj doslovne.
+ * Nerozhoduje (ostane karta): cieľ len vo vlastnom klientovi a jeho spisoch, pripojený priečinok mimo klientov (E1),
+ * priečinok, ktorý obsahuje len vlastného klienta, chat bez známeho klienta (kontajner praxe, priečinok bez karty,
+ * starší súbor mapy) a firemné pravidlá.
  */
-export function externalDirectoryOtherClient(map: LinkedFoldersMap, directory: string, targets: readonly (string | null)[]): OtherClientRefusal | null {
+export function externalDirectoryOtherClient(map: LinkedFoldersMap, directory: string, targets: readonly (string | null)[], ambiguous = false): OtherClientRefusal | null {
   if (map.firmManaged) return null;
   const own = ownerOf(map, directory)?.client;
   if (!own) return null;
+  if (ambiguous) return "ambiguous";
   const others = [...new Set(map.clients.flatMap((client) => client.client && client.client !== own ? [client.client] : []))];
   let refusal: OtherClientRefusal | null = null;
   for (const target of targets) {
-    if (target === null || UNCERTAIN_CHARS.test(target)) continue;
-    // Cieľ, ktorý priečinok iného klienta obsahuje (aj keď obsahuje aj vlastného), sa odmietne vždy.
-    if (others.some((client) => patternRelation(target, client) === "contains")) return "contains";
-    const reached = others.filter((client) => patternRelation(target, client) === "inside");
-    if (!reached.length) continue;
-    if (GLOB_CHARS.test(target)) {
-      // Vzor, ktorý sa rozvinie na iného klienta aj na vlastného (`…/Klienti/*`), zasahuje viac klientov.
-      if (patternRelation(target, own) !== null) return "contains";
-      refusal = "inside";
-      continue;
+    if (target === null) continue;
+    for (const literal of GLOB_CHARS.test(target) ? [false, true] : [true]) {
+      const found = targetRefusal(target, own, others, literal);
+      if (found === "contains") return found;
+      refusal = found ?? refusal;
     }
-    // Cesta bez `*` patrí najhlbšiemu klientovi (klient vnútri klienta je iný klient).
-    const deepest: string | undefined = [own, ...reached].filter((client) => patternRelation(target, client) === "inside").sort((a, b) => b.length - a.length)[0];
-    if (deepest !== own) refusal = "inside";
   }
   return refusal;
+}
+
+/** Jeden cieľ ako vzor alebo doslovne (`literal`) voči vlastnému a ostatným klientom. */
+function targetRefusal(target: string, own: string, others: readonly string[], literal: boolean): "inside" | "contains" | null {
+  const relation = (client: string) => patternRelation(target, client, literal);
+  // Cieľ, ktorý priečinok iného klienta obsahuje (aj keď obsahuje aj vlastného), sa odmietne vždy.
+  if (others.some((client) => relation(client) === "contains")) return "contains";
+  const reached = others.filter((client) => relation(client) === "inside");
+  if (!reached.length) return null;
+  // Vzor, ktorý sa rozvinie na iného klienta aj na vlastného (`…/Klienti/*`), zasahuje viac klientov.
+  if (!literal) return relation(own) !== null ? "contains" : "inside";
+  // Cesta bez vzoru patrí najhlbšiemu klientovi (klient vnútri klienta je iný klient).
+  const deepest: string | undefined = [own, ...reached].filter((client) => relation(client) === "inside").sort((a, b) => b.length - a.length)[0];
+  return deepest === own ? null : "inside";
 }
 
 /**
