@@ -107,6 +107,9 @@ test("only a pause set by a restart is marked as such; Stop before it and the la
   expect(await restored.read("w", "stopped")).toMatchObject({ paused: true, pauseReason: "stop" });
   expect((await restored.read("w", "stopped")).restartPause).toBeUndefined();
   expect(await restored.read("w", "waiting")).toMatchObject({ paused: true, pauseReason: "stop", restartPause: "waiting" });
+  await restored.act("w", "waiting", { type: "pause", paused: true, reason: "stop" });
+  expect(await restored.read("w", "waiting")).toMatchObject({ paused: true, pauseReason: "stop" });
+  expect((await restored.read("w", "waiting")).restartPause).toBeUndefined();
   await restored.act("w", "waiting", message("next"));
   expect((await restored.read("w", "waiting")).paused).toBe(false);
   expect((await restored.read("w", "waiting")).restartPause).toBeUndefined();
