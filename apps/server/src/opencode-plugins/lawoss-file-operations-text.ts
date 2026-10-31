@@ -22,10 +22,17 @@ export const MOVE_ACROSS_DRIVES_RULE = "A move to another drive or to a linked f
  */
 export const EXACT_NAME_RULE = "Use the exact file or folder name the user wrote, letter for letter, including case, accents and extension. Never replace it with a similar existing name (for example Podklady.pdf when the user wrote podklad.pdf). If no item has exactly that name, or several items have similar names, list the folder with read on its path (glob does not show empty folders) and ask the user which item they mean before calling lawoss_files. When the card or result names similar items next to the one changed, make sure it is the item the user meant.";
 
-type Input = { register: string; id: string; updated: boolean; handedOver?: { register: string; id: string } };
+type Row = { register: string; id: string };
+type Input = Row & { updated: boolean; trashed: boolean; handedOver?: Row; also?: Row[] };
 type Result = { operation: string; kind?: string; from?: string; to?: string; status: string; trash?: string; similar?: string[]; input?: Input; inputError?: string };
 
 const text = (value: unknown): string | undefined => typeof value === "string" ? value : undefined;
+
+function rowOf(value: unknown): Row | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const register = text(Reflect.get(value, "register")), id = text(Reflect.get(value, "id"));
+  return register && id ? { register, id } : undefined;
+}
 
 function resultOf(entry: unknown): Result | null {
   if (!entry || typeof entry !== "object") return null;
@@ -35,13 +42,12 @@ function resultOf(entry: unknown): Result | null {
   const listed: unknown = Reflect.get(entry, "similar");
   const similar = Array.isArray(listed) ? listed.filter((name): name is string => typeof name === "string") : [];
   const filed: unknown = Reflect.get(entry, "input"), inputError = text(Reflect.get(entry, "inputError"));
-  const register = filed && typeof filed === "object" ? text(Reflect.get(filed, "register")) : undefined;
-  const id = filed && typeof filed === "object" ? text(Reflect.get(filed, "id")) : undefined;
-  const handed: unknown = filed && typeof filed === "object" ? Reflect.get(filed, "handedOver") : undefined;
-  const handedRegister = handed && typeof handed === "object" ? text(Reflect.get(handed, "register")) : undefined;
-  const handedId = handed && typeof handed === "object" ? text(Reflect.get(handed, "id")) : undefined;
-  const input = register && id && filed && typeof filed === "object" ? { register, id, updated: Reflect.get(filed, "updated") === true,
-    ...(handedRegister && handedId ? { handedOver: { register: handedRegister, id: handedId } } : {}) } : undefined;
+  const row = rowOf(filed);
+  const handedOver = filed && typeof filed === "object" ? rowOf(Reflect.get(filed, "handedOver")) : undefined;
+  const listedAlso: unknown = filed && typeof filed === "object" ? Reflect.get(filed, "also") : undefined;
+  const also = Array.isArray(listedAlso) ? listedAlso.map(rowOf).filter((other): other is Row => other !== undefined) : [];
+  const input = row && filed && typeof filed === "object" ? { ...row, updated: Reflect.get(filed, "updated") === true, trashed: Reflect.get(filed, "trashed") === true,
+    ...(handedOver ? { handedOver } : {}), ...(also.length ? { also } : {}) } : undefined;
   return { operation, status, ...(kind ? { kind } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}), ...(trash ? { trash } : {}), ...(similar.length ? { similar } : {}),
     ...(input ? { input } : {}), ...(inputError ? { inputError } : {}) };
 }
@@ -49,10 +55,16 @@ function resultOf(entry: unknown): Result | null {
 /**
  * N-A7-6: a file filed from an inbox folder into a case is already in the case's input register (the server wrote it,
  * as the app does): the agent must not add a second row, and sets `processed` only after reading the whole document.
+ * N-A8-1: rows of a moved or renamed file or folder point to the new place; rows of an item in the Trash are closed.
  */
 function inputSentence(value: Result): string | null {
   if (value.status !== "done") return null;
   const change = `${value.from ?? ""} → ${value.to ?? ""}`;
+  const rows = value.input ? [value.input, ...(value.input.also ?? [])] : [];
+  const listed = rows.map((row) => `${row.id} in ${row.register}`).join(", ");
+  if (value.input?.trashed)
+    return `${value.from ?? ""}: ${rows.length > 1 ? `its inputs ${listed} stay in the register, closed` : `its input ${listed} stays in the register, closed`} as moved to the Trash. Tell the user. Do not remove or reopen ${rows.length > 1 ? "these rows" : "this row"}.`;
+  if (value.input?.updated && rows.length > 1) return `${change}: its existing inputs ${listed} now point to the new place. Do not add other rows for these files.`;
   if (value.input?.updated) return `${change}: its existing input ${value.input.id} in ${value.input.register} now points to the new place. Do not add another row for this file.`;
   const handed = value.input?.handedOver ? ` Its earlier input ${value.input.handedOver.id} in ${value.input.handedOver.register} is closed as moved there.` : "";
   if (value.input) return `${change}: recorded in ${value.input.register} as input ${value.input.id} with status pending.${handed} Tell the user. Do not add another row for this file; set it to processed only after reading the whole document.`;

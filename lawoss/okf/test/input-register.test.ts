@@ -1,6 +1,6 @@
 // N-A7-6 a review #292: zápis do registra vstupov, ktorý zdieľa appka aj server.
 import { expect, test } from "bun:test";
-import { codeSpan, inputOriginal, moveInputOriginal, originalCell, pendingInputs } from "../inputs.ts";
+import { codeSpan, inputOriginal, moveInputOriginal, moveInputOriginals, originalCell, pendingInputs } from "../inputs.ts";
 
 const REGISTER = [
   "| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |", "|---|---|---|---|---|---|",
@@ -31,4 +31,22 @@ test("a moved file keeps its row; a row handed over to another case is closed wi
   const closed = moveInputOriginal(REGISTER, "00_K_zarazeni/IN-002/b v2.pdf", "../M002/01_Podklady/b.pdf", "presunuté do `Spisy/M002/VSTUPY.md`, IN-005");
   expect(pendingInputs({ path: "Spisy/M001", intake: closed?.content } as never)).toEqual([]);
   expect(moveInputOriginal(REGISTER, "00_K_zarazeni/iný.pdf", "x.pdf")).toBeNull();
+});
+
+test("N-A8-1: a moved folder takes every row under it, by whole folder names; a row can be closed or keep its link", () => {
+  const register = [REGISTER, "| IN-003 | 2025-09-03 | e-mail | 00_K_zarazeni/IN-0020/c.pdf | pending | |", "| IN-004 | 2025-09-04 | e-mail | 00_K_zarazeni/IN-002 | pending | |"].join("\n");
+  const moved = moveInputOriginals(register, "00_k_zarazeni/IN-002", (rest) => originalCell(["01_Podklady/IN-002", rest].filter(Boolean).join("/")), { folder: true });
+  expect(moved?.ids).toEqual(["IN-002", "IN-004"]);
+  expect(moved?.content.split("\n").slice(3)).toEqual([
+    "| IN-002 | 2025-09-02 | ruční vložení (LAWOSS) | 01_Podklady/IN-002/b v2.pdf | pending | |",
+    "| IN-003 | 2025-09-03 | e-mail | 00_K_zarazeni/IN-0020/c.pdf | pending | |",
+    "| IN-004 | 2025-09-04 | e-mail | 01_Podklady/IN-002 | pending | |",
+  ]);
+  // A file is matched only by its own name, never as a folder of other rows.
+  expect(moveInputOriginals(register, "00_K_zarazeni/IN-002", () => "x", {})?.ids).toEqual(["IN-004"]);
+  const trashed = moveInputOriginals(register, "01_Podklady/a.pdf", () => null, { handedOver: "presunuté do Koša" });
+  expect(trashed?.content.split("\n")[2]).toBe("| IN-001 | 2025-09-01 | e-mail | 01_Podklady/a.pdf | processed | MEM-1; presunuté do Koša |");
+  expect(moveInputOriginals(register, "01_Podklady", () => "x")).toBeNull();
+  // An absolute path on a linked folder (NAS) is a code span: the app reads it as a place outside the client's folder.
+  expect(inputOriginal(codeSpan("/Volumes/NAS/Klient SYN/a.pdf")).target).toBe("/Volumes/NAS/Klient SYN/a.pdf");
 });
