@@ -33,10 +33,14 @@ test('build error remains visible and an atomic source replacement still trigger
   const root=await mkdtemp(path.join(tmpdir(),'word-watch-error-'));let watcher;
   try {
     const errors=[];let runs=0;
-    watcher=await startBuildWatch({directories:[{path:root,recursive:true}],debounceMs:10,onError:e=>errors.push(e),run:async()=>{if(++runs===1)throw new Error('synthetic build failure');}});
+    // macOS FSEvents reports the creation of a just-made root to a watcher started right after it,
+    // and reports the write and rename in two batches ~50ms apart. Let the creation age out
+    // first; the production 100ms debounce coalesces the batches and the final check waits past it.
+    await new Promise(r=>setTimeout(r,150));
+    watcher=await startBuildWatch({directories:[{path:root,recursive:true}],onError:e=>errors.push(e),run:async()=>{if(++runs===1)throw new Error('synthetic build failure');}});
     await until(()=>errors.length===1);assert.equal(errors[0].message,'synthetic build failure');
     const {rename}=await import('node:fs/promises');await writeFile(path.join(root,'source.tmp'),'fixed');await rename(path.join(root,'source.tmp'),path.join(root,'source.ts'));
-    await until(()=>runs===2);await new Promise(r=>setTimeout(r,40));assert.equal(runs,2);
+    await until(()=>runs===2);await new Promise(r=>setTimeout(r,250));assert.equal(runs,2);
   } finally {await watcher?.close();await rm(root,{recursive:true,force:true});}
 });
 
