@@ -40,6 +40,8 @@ export const shellEn = {
   "lawoss.ai_boundaries.save_failed": "The AI boundaries setting could not be saved.",
   "lawoss.ai_boundaries.chat_refused": "The message was not sent: AI boundaries are on, so the app sends no content to ordinary chat. You can switch them off in Settings → AI Providers.",
   "lawoss.ai_boundaries.open_settings": "Open AI boundaries setting",
+  "lawoss.queue.paused_after_restart": "The queue is paused after the app restarted. The first task was interrupted; check its result, then resume the queue.",
+  "lawoss.queue.paused_after_restart_waiting": "The queue is paused after the app restarted. Resume it when you are ready.",
 
   "lawoss.practice.selected": "Selected practice",
   "lawoss.practice.single": "Only this client",
@@ -740,6 +742,8 @@ export const shellCs = {
   "lawoss.ai_boundaries.save_failed": "Nastavení hranic AI se nepodařilo uložit.",
   "lawoss.ai_boundaries.chat_refused": "Zpráva nebyla odeslána: hranice AI jsou zapnuté, proto aplikace neposílá obsah běžnému chatu. Vypnout je můžete v Nastavení → Poskytovatelé AI.",
   "lawoss.ai_boundaries.open_settings": "Otevřít nastavení hranic AI",
+  "lawoss.queue.paused_after_restart": "Fronta je pozastavena po restartu aplikace. První úloha byla přerušena, zkontrolujte její výsledek a frontu poté obnovte.",
+  "lawoss.queue.paused_after_restart_waiting": "Fronta je pozastavena po restartu aplikace. Obnovte ji, až budete připraveni.",
 
   "lawoss.practice.selected": "Vybraná praxe",
   "lawoss.practice.single": "Pouze tento klient",
@@ -1441,6 +1445,8 @@ export const shellSk = {
   "lawoss.ai_boundaries.save_failed": "Nastavenie AI hraníc sa nepodarilo uložiť.",
   "lawoss.ai_boundaries.chat_refused": "Správa sa neodoslala: AI hranice sú zapnuté, preto appka neposiela obsah bežnému chatu. Vypnúť ich môžete v Nastaveniach → Poskytovatelia AI.",
   "lawoss.ai_boundaries.open_settings": "Otvoriť nastavenie AI hraníc",
+  "lawoss.queue.paused_after_restart": "Front je pozastavený po reštarte aplikácie. Prvá úloha bola prerušená, skontrolujte jej výsledok a front potom obnovte.",
+  "lawoss.queue.paused_after_restart_waiting": "Front je pozastavený po reštarte aplikácie. Obnovte ho, keď budete pripravení.",
 
   "lawoss.practice.selected": "Vybraná prax",
   "lawoss.practice.single": "Iba tento klient",
@@ -2142,6 +2148,8 @@ export const shellDe = {
   "lawoss.ai_boundaries.save_failed": "Die Einstellung der KI-Grenzen konnte nicht gespeichert werden.",
   "lawoss.ai_boundaries.chat_refused": "Die Nachricht wurde nicht gesendet: Die KI-Grenzen sind aktiv, daher sendet die App keine Inhalte an den normalen Chat. Sie können sie unter Einstellungen → KI-Provider ausschalten.",
   "lawoss.ai_boundaries.open_settings": "Einstellung der KI-Grenzen öffnen",
+  "lawoss.queue.paused_after_restart": "Die Warteschlange ist nach dem Neustart der App pausiert. Die erste Aufgabe wurde unterbrochen; prüfen Sie ihr Ergebnis und setzen Sie die Warteschlange dann fort.",
+  "lawoss.queue.paused_after_restart_waiting": "Die Warteschlange ist nach dem Neustart der App pausiert. Setzen Sie sie fort, wenn Sie bereit sind.",
 
   "lawoss.practice.selected": "Ausgewählte Kanzlei",
   "lawoss.practice.single": "Nur dieser Mandant",

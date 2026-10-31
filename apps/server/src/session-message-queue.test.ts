@@ -97,6 +97,20 @@ test("restart retains queued attachments, pause, order and independent conversat
   expect((await restored.read("w", "s")).paused).toBe(true);
   expect((await restored.read("other", "s")).entries).toEqual([]);
 });
+test("only a pause set by a restart is marked as such; Stop before it and the lawyer's next message clear the mark (N-A7-17)", async () => {
+  const busy = { idle: async () => false, send: async () => {} };
+  const { queue, dir } = await setup(busy);
+  await queue.act("w", "stopped", message()); await queue.act("w", "stopped", { type: "pause", paused: true, reason: "stop" });
+  await queue.act("w", "waiting", message());
+  queue.stop();
+  const restored = new SessionMessageQueue(dir, busy); cleanups.push(async () => restored.stop());
+  expect(await restored.read("w", "stopped")).toMatchObject({ paused: true, pauseReason: "stop" });
+  expect((await restored.read("w", "stopped")).restartPause).toBeUndefined();
+  expect(await restored.read("w", "waiting")).toMatchObject({ paused: true, pauseReason: "stop", restartPause: "waiting" });
+  await restored.act("w", "waiting", message("next"));
+  expect((await restored.read("w", "waiting")).paused).toBe(false);
+  expect((await restored.read("w", "waiting")).restartPause).toBeUndefined();
+});
 test("hidden queued context survives validation and restart without changing the system prompt", async () => {
   const transport = { idle: async () => false, send: async () => {} };
   const { queue, dir } = await setup(transport);

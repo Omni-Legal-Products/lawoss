@@ -74,7 +74,7 @@ function queueApi(port: number) {
     enqueue: (id: string, text: string) => post({ type: "enqueue", id, draft: { mode: "prompt", text, parts: [], attachments: [], editor: { mentions: {}, pasteParts: [] } },
       execution: { kind: "prompt", model: { providerID: "test", modelID: "test" }, parts: [{ type: "text", text }] } }),
     resume: () => post({ type: "pause", paused: false }),
-    read: async () => (await fetch(url, { headers: { Authorization: "Bearer owt_test_token" } })).json() as Promise<{ paused: boolean; pauseReason?: string; completedIds: string[]; entries: Array<{ id: string; status: string }> }>,
+    read: async () => (await fetch(url, { headers: { Authorization: "Bearer owt_test_token" } })).json() as Promise<{ paused: boolean; pauseReason?: string; restartPause?: string; completedIds: string[]; entries: Array<{ id: string; status: string }> }>,
   };
 }
 
@@ -114,12 +114,14 @@ test("after a restart during a run, the message waiting behind it waits for the 
   // Several dispatcher ticks after the first message is reconciled.
   await Bun.sleep(1_500);
   expect(setup.fake.state.delivered).toEqual([]);
-  expect(await queue.read()).toMatchObject({ paused: true, pauseReason: "stop", entries: [{ id: waiting, status: "queued" }] });
+  // The app shows why: "Front je pozastavený po reštarte aplikácie. Prvá úloha bola prerušená, …".
+  expect(await queue.read()).toMatchObject({ paused: true, pauseReason: "stop", restartPause: "interrupted", entries: [{ id: waiting, status: "queued" }] });
   expect(await toolAccess(config, setup.client)).toMatchObject({ code: "wiki_agent_session_unknown", message: CHAT_NOT_REGISTERED });
 
   // "Obnoviť front" registers the chat and only then delivers the waiting message.
   expect((await queue.resume()).status).toBe(200);
   expect(await until(() => setup.fake.state.delivered.length === 1)).toBe(true);
   expect(setup.fake.state.delivered).toEqual([messageId(waiting)]);
+  expect((await queue.read()).restartPause).toBeUndefined();
   expect(await toolAccess(config, setup.client)).toMatchObject({ workspaceId: "ws_a" });
 });

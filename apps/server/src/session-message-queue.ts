@@ -68,6 +68,8 @@ export class SessionMessageQueue {
       if (liftsItself && queue.entries.some(entry => entry.status === "queued")) {
         queue.paused = true;
         queue.pauseReason = "stop";
+        // The app tells this pause apart from Stop; "interrupted" survives the engine's confirmation.
+        queue.restartPause = queue.entries.some(entry => entry.status === "uncertain") ? "interrupted" : "waiting";
       }
       queue.revision++;
       await this.persist(queue);
@@ -137,13 +139,14 @@ export class SessionMessageQueue {
           if (queue.entries.length >= 100) throw new ApiError(400, "queue_full", "The queue is full.");
           queue.entries.push({ id: action.id, draft: action.draft, execution: action.execution, status: "queued" });
           if (queue.paused && queue.pauseReason === "stop" && !queue.entries.some(item => item.status === "uncertain")) {
-            queue.paused = false; delete queue.pauseReason;
+            queue.paused = false; delete queue.pauseReason; delete queue.restartPause;
             queue.resumeRevision = queue.revision + 1;
           }
         }
       } else if (action.type === "pause") {
         if (!action.paused && queue.entries.some(item => item.edit || item.status === "uncertain")) throw conflict();
         queue.paused = action.paused;
+        delete queue.restartPause;
         if (action.paused) queue.pauseReason = action.reason;
         else { delete queue.pauseReason; queue.resumeRevision = queue.revision + 1; }
         if (!action.paused) for (const item of queue.entries) { if (item.status === "failed") item.status = "queued"; delete item.error; }

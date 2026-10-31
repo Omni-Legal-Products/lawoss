@@ -62,3 +62,19 @@ test("a delivery refused by AI hranice shows the localized sentence and a link t
   expect(other).toContain("Shell interpolation in shortcuts is disabled.");
   expect(other).not.toContain(t("lawoss.ai_boundaries.open_settings"));
 });
+
+test("a queue paused after an app restart says why; Stop keeps the plain pause label (N-A7-17)", () => {
+  const interrupted = renderQueue({ messages: [message], paused: true, restartPause: "interrupted" });
+  expect(interrupted).toContain(t("lawoss.queue.paused_after_restart"));
+  expect(interrupted).toContain(t("composer.resume_queue"));
+  expect(interrupted).not.toContain(t("composer.queue_paused"));
+  expect(t("lawoss.queue.paused_after_restart", "sk")).toBe("Front je pozastavený po reštarte aplikácie. Prvá úloha bola prerušená, skontrolujte jej výsledok a front potom obnovte.");
+  // Nothing was running when the app quit: no claim about an interrupted task.
+  const waiting = renderQueue({ messages: [message], paused: true, restartPause: "waiting" });
+  expect(waiting).toContain(t("lawoss.queue.paused_after_restart_waiting"));
+  expect(waiting).not.toContain(t("lawoss.queue.paused_after_restart"));
+  expect(t("lawoss.queue.paused_after_restart_waiting", "sk")).not.toContain("prerušená");
+  const stopped = renderQueue({ messages: [message], paused: true });
+  expect(stopped).toContain(t("composer.queue_paused"));
+  expect(stopped).not.toContain(t("lawoss.queue.paused_after_restart_waiting"));
+});
