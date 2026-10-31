@@ -107,3 +107,16 @@ test("N-A5-1: the exact name the user wrote wins, a similar one is a question, a
   // Not done: no claim about what changed.
   expect(fileOperationReport({ complete: true, results: [{ ...deleted, status: "not_run", trash: undefined }] })).toEqual([]);
 });
+
+test("N-A8-1: rows that followed a folder are all named, and a row of an item in the Trash is reported as kept and closed", () => {
+  const input = { register: "Spisy/M001/VSTUPY.md", id: "IN-003" };
+  const folder = { operation: "move", kind: "folder", from: "Spisy/M001/IN-003", to: "Spisy/M001/IN-003_zmluva", status: "done",
+    input: { ...input, updated: true, also: [{ register: "VSTUPY.md", id: "IN-001" }] } };
+  expect(fileOperationReport({ complete: true, results: [folder] }))
+    .toEqual(["Spisy/M001/IN-003 → Spisy/M001/IN-003_zmluva: its existing inputs IN-003 in Spisy/M001/VSTUPY.md, IN-001 in VSTUPY.md now point to the new place. Do not add other rows for these files."]);
+  const trashed = { operation: "delete", kind: "file", from: "Spisy/M001/a.pdf", status: "done", trash: "system", input: { ...input, trashed: true } };
+  expect(fileOperationReport({ complete: true, results: [trashed] })).toEqual([
+    "Spisy/M001/a.pdf: the file is now in the system Trash, where the user can restore it.",
+    "Spisy/M001/a.pdf: its input IN-003 in Spisy/M001/VSTUPY.md stays in the register, closed as moved to the Trash. Tell the user. Do not remove or reopen this row.",
+  ]);
+});

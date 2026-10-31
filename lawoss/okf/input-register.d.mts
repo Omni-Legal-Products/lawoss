@@ -9,5 +9,6 @@ export function inputRow(id: string, received: string, original: string, source?
 export function originalCell(relativePath: string): string;
 export function appendInputRow(intake: string | null, row: string, title: string): string;
 export function moveInputOriginal(intake: string, from: string, to: string, handedOver?: string): { content: string; id: string } | null;
+export function moveInputOriginals(intake: string, from: string, to: (rest: string) => string | null, options?: { folder?: boolean; handedOver?: string }): { content: string; ids: string[] } | null;
 export function codeSpan(text: string): string;
 export function parseWorkingProfile(content: string): { folders: string[]; roles: Record<string, string>; naming: string };
