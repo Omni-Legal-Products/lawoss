@@ -1637,3 +1637,9 @@ Nález N-A8-6 z regresie 30. 10. 2026: po skončení behu ostal nad composerom p
 | Súbory | Zmena a dôvod |
 |---|---|
 | `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `hasActivePlan` sa počíta až za `chatStreaming` cez `planBarVisible(props.todos ?? [], chatStreaming)` namiesto `hasUnfinishedTodos(...)` (+1 import, presun 1 riadku, +1 komentár). Pruh aj jeho miesto nad composerom sú len počas behu (odosielanie, beh, opakovanie, čakanie na povolenie či odpoveď). `todo-panel.tsx` sa nemení. |
+
+### Pripnutý QEMU 11.1.2 pre Windows runtime (2026-10-31, fix/ci-qemu-11-1-2-pin)
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `scripts/sandbox/ci-matrix.mjs`, `.github/workflows/sandbox-runtime.yml`, `scripts/ci/sandbox-matrix.test.mjs` | Windows položky matice nesú `qemuPackage` a `qemuSha256` balíka `qemu-11.1.2-1` z repozitára MSYS2. Krok „Download QEMU packages with retries (Windows)“ balík stiahne, overí SHA-256 a nainštaluje cez `pacman -U`; `-cc` ostáva cez `pacman -S`. Test overí pripnutie aj to, že workflow neinštaluje QEMU z hlavy repozitára. Dôvod: MSYS2 vydal 11.1.3 a `package-runtime.mjs` prijíma len overenú 11.1.2, takže `sandbox-runtime` na Windowse zlyhal a povinné „Package and launch“ sa preskočili (rozhodnutie MČ 31. 10.). Prechod na 11.1.3 je samostatný krok. |
