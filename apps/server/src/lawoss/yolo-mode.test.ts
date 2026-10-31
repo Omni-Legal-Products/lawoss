@@ -100,10 +100,12 @@ test("the overlay removes asking, never a prohibition, never widens the network 
 test("the managed shell keeps the YOLO folder allow: the chat agent's folder ask is only for the plugin", () => {
   const rules = [
     { permission: "external_directory", pattern: "*", action: "ask" },
+    // The lawyer's own scoped „ask“ came before YOLO's `*` allow and never asked under YOLO.
+    { permission: "external_directory", pattern: "/spolocne/*", action: "ask" },
     { permission: "external_directory", pattern: "/tajne/*", action: "deny" },
     { permission: "read", pattern: "*", action: "ask" },
   ];
-  expect(yoloShellAgentRules(rules, "legalwork", true)).toEqual(rules.slice(1));
+  expect(yoloShellAgentRules(rules, "legalwork", true)).toEqual(rules.slice(2));
   // Off, other agents (scheduled runs, subagents) and a folder denial: unchanged.
   expect(yoloShellAgentRules(rules, "legalwork", false)).toEqual(rules);
   expect(yoloShellAgentRules(rules, "legalwork-scheduled-all", true)).toEqual(rules);

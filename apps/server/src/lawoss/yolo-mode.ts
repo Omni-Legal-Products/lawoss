@@ -67,12 +67,13 @@ export function yoloPermissions(permission: Record<string, unknown>): Record<str
 
 /**
  * The managed shell's whole-command folder check reads the agent's engine rules too. While YOLO Mode
- * is on, the chat agent's whole-tool „ask“ there exists only for the plugin, so the shell skips it and
- * keeps the YOLO allow (denied patterns still apply). Other agents keep their rules.
+ * is on, the chat agent's folder „ask“ rules there exist only for the plugin (before, YOLO's trailing
+ * `*` allow overrode them, scoped ones included), so the shell skips them and keeps the YOLO allow;
+ * denials still apply. Other agents keep their rules.
  */
 export function yoloShellAgentRules<T extends { permission: string; pattern: string; action: string }>(rules: T[], agent: string | undefined, enabled: boolean): T[] {
   if (!enabled || agent !== CHAT_AGENT) return rules;
-  return rules.filter((rule) => !(rule.permission === "external_directory" && rule.pattern === "*" && rule.action === "ask"));
+  return rules.filter((rule) => !(rule.permission === "external_directory" && rule.action === "ask"));
 }
 
 const LOCKED: YoloMode = { enabled: false, locked: true, source: "organization" };

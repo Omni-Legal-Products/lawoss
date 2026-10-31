@@ -71,7 +71,8 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("YOLO Mode a prip
   };
   // Advokát sa pýta pred úpravami a príkazmi; klient A má pripojený priečinok L (natívny zápis riadku klienta).
   await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { edit: "ask", bash: "ask" } }));
-  await writeRuntimeOpencodeConfig(config, "ws_a", (current) => ({ ...current, permission: { external_directory: { [`${linked}/*`]: "allow" } } }));
+  // Aj vlastné „pýtať sa“ pre jeden priečinok: v YOLO sa naň spravovaný shell nepýta (ako doteraz).
+  await writeRuntimeOpencodeConfig(config, "ws_a", (current) => ({ ...current, permission: { external_directory: { [`${linked}/*`]: "allow", [`${join(root, "Archív")}/*`]: "ask" } } }));
   const hostApprovals: string[] = [];
   const approvals: ApprovalService = new ApprovalService(config.approval, undefined, () => queueMicrotask(() => {
     for (const request of approvals.list()) { hostApprovals.push(request.action); approvals.respond(request.id, "deny"); }
