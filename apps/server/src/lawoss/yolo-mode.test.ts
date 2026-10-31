@@ -14,7 +14,7 @@ import {
 import type { ServerConfig } from "../types.js";
 import { writeAiBoundaries } from "./ai-boundaries.js";
 import { requireAiBoundariesAdmission } from "./ai-governance-engine.js";
-import { applyYoloPermissions, readYoloMode, writeYoloMode, yoloPermissions } from "./yolo-mode.js";
+import { applyYoloPermissions, readYoloMode, writeYoloMode, yoloPermissions, yoloShellAgentRules } from "./yolo-mode.js";
 
 const realFetch = globalThis.fetch;
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -87,9 +87,29 @@ test("the overlay removes asking, never a prohibition, never widens the network 
   expect(Object.keys(Object(on.bash))).toEqual(["*", "rm -rf *"]);
   expect(applyYoloPermissions({ webfetch: "deny" }, true).webfetch).toBe("deny");
   expect(applyYoloPermissions({}, true)).not.toHaveProperty("webfetch");
-  // A tool the lawyer forbade stays forbidden; folder denials stay too.
+  // A tool the lawyer forbade stays forbidden; folder denials stay too. The chat agent's engine still asks for
+  // folders (the linked-folders plugin answers without a card, except for another client's folder, MČ 31. 10. 2026).
   expect(yoloPermissions({ edit: "deny", bash: { "*": "deny", "ls *": "allow" }, external_directory: { "/x/*": "allow", "/tajne/*": "deny" } }))
-    .toEqual({ edit: "deny", bash: { "*": "deny", "ls *": "allow" }, external_directory: { "*": "allow", "/tajne/*": "deny" } });
+    .toEqual({ edit: "deny", bash: { "*": "deny", "ls *": "allow" }, external_directory: { "*": "ask", "/tajne/*": "deny" } });
+  // A folder rule the lawyer allowed or forbade outright keeps that rule.
+  expect(yoloPermissions({ external_directory: "allow" }).external_directory).toEqual({ "*": "allow" });
+  expect(yoloPermissions({ external_directory: { "*": "allow", "/tajne/*": "deny" } }).external_directory).toEqual({ "*": "allow", "/tajne/*": "deny" });
+  expect(yoloPermissions({ external_directory: "deny" }).external_directory).toBe("deny");
+});
+
+test("the managed shell keeps the YOLO folder allow: the chat agent's folder ask is only for the plugin", () => {
+  const rules = [
+    { permission: "external_directory", pattern: "*", action: "ask" },
+    { permission: "external_directory", pattern: "/tajne/*", action: "deny" },
+    { permission: "read", pattern: "*", action: "ask" },
+  ];
+  expect(yoloShellAgentRules(rules, "legalwork", true)).toEqual(rules.slice(1));
+  // Off, other agents (scheduled runs, subagents) and a folder denial: unchanged.
+  expect(yoloShellAgentRules(rules, "legalwork", false)).toEqual(rules);
+  expect(yoloShellAgentRules(rules, "legalwork-scheduled-all", true)).toEqual(rules);
+  expect(yoloShellAgentRules(rules, "explore", true)).toEqual(rules);
+  const denied = [{ permission: "external_directory", pattern: "*", action: "deny" }];
+  expect(yoloShellAgentRules(denied, "legalwork", true)).toEqual(denied);
 });
 
 test("on gives only the chat agent the allow rules; off restores the previous config byte for byte", async () => {
@@ -105,7 +125,7 @@ test("on gives only the chat agent the allow rules; off restores the previous co
   expect(await writeYoloMode(config, true)).toEqual({ enabled: true, locked: false, source: "user" });
   const on = await engineConfig(config);
   // Desktop engines run commands through the managed shell; host bash stays denied.
-  expect(on.agent.legalwork?.permission).toEqual({ edit: "allow", external_directory: { "*": "allow" }, lawoss_file_change: "allow", legalwork_shell: "allow", bash: "deny", webfetch: "deny", websearch: "deny" });
+  expect(on.agent.legalwork?.permission).toEqual({ edit: "allow", external_directory: { "*": "ask" }, lawoss_file_change: "allow", legalwork_shell: "allow", bash: "deny", webfetch: "deny", websearch: "deny" });
   // Every other agent, scheduled runs included, keeps the lawyer's rules: the shared map is unchanged.
   expect(on.permission).toEqual(off.permission);
   expect(on.agent["legalwork-scheduled-all"]).toEqual(off.agent["legalwork-scheduled-all"]);

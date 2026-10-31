@@ -135,7 +135,7 @@ describe("oprava 3", () => {
   });
 });
 
-// N-A7-14 (test E2): chat klienta C001 žiada priečinok klienta C002 tej istej praxe → plugin odmietne bez karty.
+// N-A7-14 (test E2): chat klienta C001 žiada priečinok klienta C002 tej istej praxe → pravidlo ho rozpozná (od 31. 10. 2026 karta s varovaním, aj v YOLO).
 // Klient = priečinok s kartou (`client` v mape); registrované spisy toho istého klienta nie sú iný klient (review #295).
 describe("priečinok iného klienta", () => {
   const P = "/Users/advokat/Prax", c001 = `${P}/Klienti/C001-Tatran`, c002 = `${P}/Klienti/C002-Hron`, c003 = `${c001}/Dcera C003`;
@@ -174,9 +174,9 @@ describe("priečinok iného klienta", () => {
     expect(externalDirectoryOtherClient(bezVnoreneho, m1, [c001, `${c001}/Spisy/*`])).toBeNull();
   });
 
-  // Rozhodnutie MČ 30. 10. 2026 (N-A7-14): priečinok alebo vzor, ktorý obsahuje priečinky iných klientov, sa odmietne
-  // bez karty, aj keď obsahuje aj vlastného klienta.
-  test("koreň klientov, vzor cez všetkých klientov aj vlastný klient popri inom: odmietnutie „contains“", () => {
+  // N-A7-14: priečinok alebo vzor, ktorý obsahuje priečinky iných klientov, sa rozpozná ako „contains“, aj keď obsahuje aj
+  // vlastného klienta (rozhodnutie MČ 31. 10. 2026: karta s varovaním, aj v YOLO).
+  test("koreň klientov, vzor cez všetkých klientov aj vlastný klient popri inom: „contains“", () => {
     for (const target of [`${P}/Klienti/*`, `${P}/Klienti/C00*`, `${P}/**`, `${P}/K*`, `${P}/Klienti`, P, "/Users/advokat", "/"])
       expect(externalDirectoryOtherClient(prax(), c001, [target])).toBe("contains");
     for (const chat of [`${c001}/Spisy/M009 Nový`, m1]) expect(externalDirectoryOtherClient(prax(), chat, [`${P}/Klienti`])).toBe("contains");
@@ -187,7 +187,7 @@ describe("priečinok iného klienta", () => {
     expect(externalDirectoryOtherClient(prax(), m1, [c001])).toBe("contains");
   });
 
-  test("priečinok, ktorý obsahuje len vlastného klienta, a cesta, ktorá neexistuje: karta, nie odmietnutie", () => {
+  test("priečinok, ktorý obsahuje len vlastného klienta, a cesta, ktorá neexistuje: obyčajná karta bez varovania o inom klientovi", () => {
     const jediny = prax({ clients: [{ root: c001, folders: [], client: c001 }] });
     expect(externalDirectoryOtherClient(jediny, c001, [`${P}/Klienti`, `${P}/Klienti/*`])).toBeNull();
     // `…/Klienti/C002` bez zvyšku názvu priečinka klienta nepatrí žiadnemu klientovi (karta povie, že neexistuje).
@@ -217,7 +217,7 @@ describe("priečinok iného klienta", () => {
     expect(expandScope(`${P}/{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}`, HOME)).toHaveLength(64);
   });
 
-  test("triedy `[…]`, alternatívy `{a,b}`, `$HOME` a príkazy: iný klient alebo nejednoznačné sa odmietne", () => {
+  test("triedy `[…]`, alternatívy `{a,b}`, `$HOME` a príkazy: iný klient sa rozpozná, nejednoznačné sa odmietne", () => {
     expect(decide(c001, `${P}/Klienti/C002[-_]Hron`)).toBe("inside");
     expect(decide(c001, `${P}/Klienti/C00[!1]-Hron/Spisy`)).toBe("inside");
     expect(decide(c001, `${P}/Klienti/C00[0-9]*`)).toBe("contains");
@@ -233,10 +233,10 @@ describe("priečinok iného klienta", () => {
     expect(decide(c001, `${P}/Klienti/C00[z-a]-Hron`)).toBe("contains");
   });
 
-  test("vlastný klient a jeho spisy so znakmi `[ ] { }` ostanú bez odmietnutia; doslovný `[` v názve iného klienta nie", () => {
+  test("vlastný klient a jeho spisy so znakmi `[ ] { }` nie sú iný klient; doslovný `[` v názve iného klienta áno", () => {
     for (const folder of [`${c001}/Spisy/M00[12]*`, `${c001}/Spisy/{M001 Úhrada,M002 Nájom}`, `${c001}/Spis [2024]`, `${c001}/Spis {2024}`, `$HOME/Prax/Klienti/C001-Tatran/Spisy`, "~/Zdielane/Vzory"])
       expect(decide(c001, folder)).toBeNull();
-    // Klient, ktorého priečinok má `[` v názve: doslovná cesta do neho sa odmietne, do vlastného nie.
+    // Klient, ktorého priečinok má `[` v názve: doslovná cesta do neho je iný klient, do vlastného nie.
     const zatvorky = `${P}/Klienti/C010 [Hron]`;
     const map = prax({ clients: [...prax().clients, { root: zatvorky, folders: [], client: zatvorky }] });
     expect(decide(c001, `${zatvorky}/Spisy`, map)).toBe("inside");
@@ -246,7 +246,7 @@ describe("priečinok iného klienta", () => {
     expect(decide(c001, `${P}/\`ls\``, prax({ firmManaged: true }))).toBeNull();
   });
 
-  test("pripojený priečinok mimo praxe (E1), priečinok bez karty a chat bez známeho klienta: bez odmietnutia", () => {
+  test("pripojený priečinok mimo praxe (E1), priečinok bez karty a chat bez známeho klienta: nie je iný klient", () => {
     expect(externalDirectoryOtherClient(prax(), c001, ["/Users/advokat/Zdielane/Vzory", "/Users/advokat/Zdielane/Vzory/2026"])).toBeNull();
     expect(externalDirectoryOtherClient(prax(), c001, [`${P}/Vzory`, `${P}/Klienti/C004-Bez-karty`, `${P}/Klienti/C005-Nezaregistrovany`])).toBeNull();
     expect(externalDirectoryOtherClient(prax(), c001, [null])).toBeNull();

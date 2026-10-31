@@ -6,11 +6,13 @@
  * Tento plugin počúva udalosť `permission.asked` vo svojej inštancii (priečinok chatu) a odpovie „once“
  * len vtedy, keď každý cieľ leží v koreni klienta tohto chatu alebo v jeho pripojených priečinkoch
  * (mapa od servera vedľa `OPENCODE_CONFIG`, pravidlá v `lawoss/linked-folders-rules.ts`). Keď cieľ patrí
- * inému registrovanému klientovi alebo obsahuje priečinky iných klientov (`…/Klienti`, `…/Klienti/*`), odmietne
- * s vetou pre agenta (N-A7-14, test E2, rozhodnutie MČ 30. 10. 2026: odmietnutie bez obsahu, bez mien a bez karty).
- * Rozsah, ktorý advokát na karte v tomto chate už zamietol, odmietne znova bez karty (model inak ponúkal tú istú
- * kartu opakovane). Inak nerobí nič a otázka ostane používateľovi. Keď konfigurácia povolí širšie (napr. všetko),
- * engine sa nepýta a plugin sa ani neozve.
+ * inému registrovanému klientovi alebo obsahuje priečinky iných klientov (`…/Klienti`, `…/Klienti/*`), nechá kartu
+ * advokátovi a appka na nej výrazne varuje (N-A7-14, rozhodnutie MČ 31. 10. 2026: nič neobmedzovať navyše, prístup
+ * k inému klientovi je vedomé rozhodnutie advokáta). Rozsah, ktorý sa nedá jednoznačne určiť, odmietne s vetou pre
+ * agenta. Rozsah, ktorý advokát na karte v tomto chate už zamietol, odmietne znova bez karty (model inak ponúkal tú
+ * istú kartu opakovane). V režime YOLO (príznak v mape) povolí chat agentovi bez karty všetko ostatné; kartu iného
+ * klienta ukáže aj vtedy. Inak nerobí nič a otázka ostane používateľovi. Keď konfigurácia povolí širšie (napr.
+ * všetko), engine sa nepýta a plugin sa ani neozve.
  *
  * Agent o pripojených priečinkoch vie z pripomienky (alfa2 A3, N-18): zoznam pripojených priečinkov klienta chatu
  * (aj chatu prípadu) ide ako `<system-reminder topic="linked-folders">` do konverzácie, nie do systémového promptu
@@ -20,7 +22,7 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { allowedFolders, canonicalPath, expandScope, externalDirectoryAllowed, externalDirectoryOtherClient, LINKED_FOLDERS_MAP_FILE, ownerOf, parseLinkedFoldersMap, patternDirectory, refusedEarlier, type OtherClientRefusal } from "../lawoss/linked-folders-rules.js";
+import { allowedFolders, canonicalPath, CHAT_AGENT, expandScope, externalDirectoryAllowed, externalDirectoryOtherClient, LINKED_FOLDERS_MAP_FILE, ownerOf, parseLinkedFoldersMap, patternDirectory, refusedEarlier } from "../lawoss/linked-folders-rules.js";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { APP_NAMES_SYSTEM } from "../lawoss/app-setting-names.js";
 
@@ -31,6 +33,7 @@ type RawClient = { post?: (options: { url: string; path: { requestID: string }; 
 type SessionGet = (options: { path: { id: string }; query?: { directory?: string } }) => Promise<{ data?: unknown }>;
 type SessionMessages = NonNullable<NonNullable<SavedConversations["client"]>["session"]>["messages"];
 type PluginInput = { directory?: string; client?: { postSessionIdPermissionsPermissionId?: (options: ReplyOptions) => Promise<unknown>; _client?: RawClient; session?: { get?: SessionGet; messages?: SessionMessages } } };
+type ChatMessage = { message: { id: string; agent?: unknown }; parts: object[] };
 type BusEvent = { type?: string; properties?: unknown };
 
 type Asked = { id: string; sessionID: string; permission: string; patterns: string[] };
@@ -82,9 +85,13 @@ async function rootSession(input: PluginInput, sessionID: string, info: SessionI
   return id;
 }
 
-type Decision = { kind: "once" } | { kind: "reject"; refusal: OtherClientRefusal } | { kind: "open"; targets: (string | null)[] };
+/**
+ * „open“ = karta pre advokáta; `otherClient`: rozsah siaha na iného klienta (karta aj v YOLO), `yolo`: mapa hlási
+ * režim YOLO (ostatné žiadosti chat agenta bez karty).
+ */
+type Decision = { kind: "once" } | { kind: "reject" } | { kind: "open"; targets: (string | null)[]; otherClient: boolean; yolo: boolean };
 
-/** Rozhodnutie pre jednu otázku: „once“, odmietnutie (iný klient) alebo „open“ = karta pre advokáta. `null` = nerozhodovať. Neexportuje sa: engine volá každý export. */
+/** Rozhodnutie pre jednu otázku: „once“, odmietnutie (nejednoznačný rozsah) alebo „open“. `null` = nerozhodovať. Neexportuje sa: engine volá každý export. */
 async function linkedFolderDecision(directory: string, request: Asked): Promise<Decision | null> {
   if (request.permission !== "external_directory") return null;
   // Rozsah sa najprv normalizuje (domov, alternatívy `{a,b}`); čo sa normalizovať nedá, nemá cieľ a odmietne sa.
@@ -95,11 +102,12 @@ async function linkedFolderDecision(directory: string, request: Asked): Promise<
   const ambiguous = folders.some((expanded) => expanded === null);
   const targets = await Promise.all(folders.flatMap((expanded) => expanded ?? [null]).map((folder) => folder ? canonicalPath(folder) : null));
   const read = await readMap();
-  if (!read) return { kind: "open", targets };
+  if (!read) return { kind: "open", targets, otherClient: false, yolo: false };
   const chat = await canonicalPath(directory);
   if (!ambiguous && externalDirectoryAllowed(read.map, chat, targets, [read.appData])) return { kind: "once" };
-  const refusal = externalDirectoryOtherClient(read.map, chat, targets, ambiguous);
-  return refusal ? { kind: "reject", refusal } : { kind: "open", targets };
+  const scope = externalDirectoryOtherClient(read.map, chat, targets, ambiguous);
+  if (scope === "ambiguous") return { kind: "reject" };
+  return { kind: "open", targets, otherClient: scope !== null, yolo: read.map.yolo === true };
 }
 
 /** Spoločný záver viet pre agenta (N-A8-2): agent nikdy neradí povoliť priečinok iného klienta ani zmeniť nastavenia. */
@@ -107,11 +115,10 @@ const NO_WIDENING = "Never advise the user to allow, authorize or link this fold
 
 /**
  * Vety pre agenta pri odmietnutí (N-A7-14). Engine ich vráti ako výsledok nástroja a agent pokračuje; bez nich by
- * holé odmietnutie ukončilo odpoveď bez vysvetlenia. Žiadna cesta ani meno klienta v nich nie sú.
+ * holé odmietnutie ukončilo odpoveď bez vysvetlenia. Žiadna cesta ani meno klienta v nich nie sú. Priečinok iného
+ * klienta sa neodmieta (karta advokátovi); keď ho advokát zamietne, agent dostane zamietnutie enginu.
  */
 const REFUSALS = {
-  inside: `LAWOSS refused this request: the folder belongs to another client of the practice, and this chat belongs to a different client. Nothing in it was read or listed. Tell the user in one short sentence, in their language, that the folder belongs to another client and cannot be opened in this client's chat; it can be opened in that client's own chat. Do not repeat the folder path, the other client's name or any file names, and do not try another way to reach it. ${NO_WIDENING}`,
-  contains: `LAWOSS refused this request: the folder contains folders of other clients of the practice, and this chat may work only with its own client's folders. Nothing in it was read or listed. Tell the user in one short sentence, in their language, that this chat works only with this client's own folders and the folders linked to this client. Do not name or guess any other client, folder path or file name, and do not try another way to reach that folder or a folder above it. ${NO_WIDENING}`,
   ambiguous: `LAWOSS refused this request: the folder path contains variables, commands or patterns that cannot be resolved to definite folders, so it cannot be checked against this client's folders. Nothing was read or listed. For a folder of this client, use its plain absolute path without variables, commands or patterns. If the user asked for it, tell them in one short sentence, in their language, that the folder could not be opened. ${NO_WIDENING}`,
   repeated: `LAWOSS refused this request without asking the user again: earlier in this chat the user already refused access to this folder. Nothing was read. Do not ask for this folder or a folder inside it again in this chat and do not try another way to reach it. Continue without it, or tell the user in one short sentence, in their language, that the folder was not opened because they refused it. ${NO_WIDENING}`,
 } as const;
@@ -136,7 +143,7 @@ function replied(properties: unknown): { requestID: string; reply: string } | nu
 }
 
 /** Pevná veta systémového promptu (nemení sa počas konverzácie). */
-const LINKED_FOLDERS_SYSTEM = "A linked-folders reminder, when present, lists folders the user linked to this client. They belong to this client: read them like the client's own folder, without asking, and pass absolute file paths from them to lawoss_documents_prepare. Never use folders of other clients.";
+const LINKED_FOLDERS_SYSTEM = "A linked-folders reminder, when present, lists folders the user linked to this client. They belong to this client: read them like the client's own folder, without asking, and pass absolute file paths from them to lawoss_documents_prepare. Open folders of other clients only when the user asks for them; the user then decides on an approval card.";
 
 /** Pripojené priečinky klienta tohto chatu ako text pripomienky; "" bez nich, `null` pri nečitateľnej mape. */
 async function linkedFoldersState(directory: string | undefined): Promise<string | null> {
@@ -159,14 +166,49 @@ async function linkedFoldersState(directory: string | undefined): Promise<string
 
 /** Zamietnuté rozsahy po chatoch tejto inštancie a karty, ktoré čakajú na advokáta (len v pamäti, do reštartu enginu). */
 const PENDING_LIMIT = 200;
+/** Agent chatov tejto inštancie (z „chat.message“), aby YOLO platil len pre chat agenta. */
+const AGENTS_LIMIT = 500;
+
+/** Agent poslednej správy používateľa v uložených správach chatu (napr. po prvej otázke pred novou správou). */
+function lastUserAgent(data: unknown): string | null {
+  if (!Array.isArray(data)) return null;
+  for (const message of [...data].reverse()) {
+    const info: unknown = message && typeof message === "object" ? Reflect.get(message, "info") : undefined;
+    if (!info || typeof info !== "object" || Reflect.get(info, "role") !== "user") continue;
+    const agent: unknown = Reflect.get(info, "agent");
+    return typeof agent === "string" ? agent : null;
+  }
+  return null;
+}
 
 export const LawossLinkedFolders = async (input: PluginInput) => {
   const saved: SavedConversations = { directory: input.directory, client: input.client?.session?.messages ? { session: { messages: input.client.session.messages.bind(input.client.session) } } : undefined };
   const reminders = appStateReminders("linked-folders", () => linkedFoldersState(input.directory), "This client has no linked folders any more.", saved);
   const refused = new Map<string, Set<string>>();
   const pending = new Map<string, { root: string; targets: string[] }>();
+  const agents = new Map<string, string>();
+  const remember = (sessionID: string, agent: string) => {
+    agents.delete(sessionID);
+    agents.set(sessionID, agent);
+    const oldest = agents.size > AGENTS_LIMIT ? agents.keys().next() : null;
+    if (oldest && !oldest.done) agents.delete(oldest.value);
+  };
+  const agentOf = async (sessionID: string): Promise<string | null> => {
+    const known = agents.get(sessionID);
+    if (known) return known;
+    const messages = input.client?.session?.messages;
+    if (!messages) return null;
+    const { data } = await messages.call(input.client?.session, { path: { id: sessionID }, query: { directory: input.directory } }).catch(() => ({ data: undefined }));
+    const agent = lastUserAgent(data);
+    if (agent) remember(sessionID, agent);
+    return agent;
+  };
   return ({
-  "chat.message": reminders.userMessage,
+  "chat.message": async (hook: { sessionID: string; agent?: string }, output: ChatMessage) => {
+    const agent = typeof output.message.agent === "string" ? output.message.agent : hook.agent;
+    if (agent) remember(hook.sessionID, agent);
+    await reminders.userMessage(hook, output);
+  },
   "tool.execute.after": reminders.toolResult,
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => { output.system.push(LINKED_FOLDERS_SYSTEM, APP_NAMES_SYSTEM); },
   event: async ({ event }: { event: BusEvent }) => {
@@ -192,10 +234,15 @@ export const LawossLinkedFolders = async (input: PluginInput) => {
       const info = await sessionInfo(input, request.sessionID, input.directory);
       if (!(await sessionInDirectory(info, input.directory))) return;
       if (decision.kind === "reject") {
-        await rejectWithMessage(input, request, input.directory, REFUSALS[decision.refusal]);
+        await rejectWithMessage(input, request, input.directory, REFUSALS.ambiguous);
         return;
       }
       if (decision.kind === "once") {
+        await reply.call(input.client, { path: { id: request.sessionID, permissionID: request.id }, body: { response: "once" }, query: { directory: input.directory } });
+        return;
+      }
+      // YOLO: chat agent ide bez karty všade okrem priečinka iného klienta (ten má kartu s varovaním aj v YOLO).
+      if (decision.yolo && !decision.otherClient && await agentOf(request.sessionID) === CHAT_AGENT) {
         await reply.call(input.client, { path: { id: request.sessionID, permissionID: request.id }, body: { response: "once" }, query: { directory: input.directory } });
         return;
       }

@@ -29,7 +29,15 @@ export type LinkedFoldersMap = {
   clients: LinkedFoldersClient[];
   /** Priečinky mimo projektu určuje firma: plugin nerozhoduje nič. */
   firmManaged: boolean;
+  /**
+   * Režim YOLO (`yolo-mode.ts`, rozhodnutie MČ 31. 10. 2026): engine sa chat agenta (`CHAT_AGENT`) na priečinky mimo
+   * chatu pýta, aby plugin videl žiadosť o iného klienta; ostatné žiadosti tohto agenta plugin povolí bez karty.
+   */
+  yolo?: boolean;
 };
+
+/** Agent chatu advokáta (`agent.legalwork` v súbore enginu); YOLO platí len preň, nie pre podagentov a plánované behy. */
+export const CHAT_AGENT = "legalwork";
 
 const OFFICE_MEMORY = new Set(["office", "_kancelaria"]);
 
@@ -231,45 +239,46 @@ export function expandScope(folder: string, home: string): string[] | null {
 }
 
 /**
- * Prečo plugin odmietne `external_directory`: cieľ leží v inom klientovi, obsahuje priečinky iných klientov, alebo
- * sa rozsah nedá jednoznačne určiť (`expandScope` vrátil `null`).
+ * Čoho sa týka `external_directory` mimo vlastného klienta: cieľ leží v inom klientovi (`inside`), obsahuje priečinky
+ * iných klientov (`contains`), alebo sa rozsah nedá jednoznačne určiť (`ambiguous`, `expandScope` vrátil `null`).
  */
-export type OtherClientRefusal = "inside" | "contains" | "ambiguous";
+export type OtherClientScope = "inside" | "contains" | "ambiguous";
 
 /**
- * N-A7-14 (test E2) a rozhodnutie MČ z 30. 10. 2026: požiadavka chatu klienta siaha na priečinok iného klienta. Klient =
+ * N-A7-14 (test E2), rozhodnutie MČ z 31. 10. 2026: požiadavka chatu klienta siaha na priečinok iného klienta. Klient =
  * priečinok s kartou (`client` v mape): spisy toho istého klienta, aj registrované samostatne, sú ten istý klient.
  * - `inside`: cieľ leží v inom známom klientovi alebo sa naň vzor rozvinie (`…/Klienti/C002*`).
  * - `contains`: cieľ obsahuje priečinok iného klienta (`…/Klienti`, koreň praxe, domov) alebo sa vzor rozvinie aj na
- *   iného klienta popri vlastnom (`…/Klienti/*`, `…/Prax/K*`, `…/Prax/**`). Od 30. 10. sa aj tento odmieta bez karty.
- * - `ambiguous`: rozsah sa nedal normalizovať (`expandScope`); neistota nevedie ku karte.
+ *   iného klienta popri vlastnom (`…/Klienti/*`, `…/Prax/K*`, `…/Prax/**`).
+ *   Pri `inside` aj `contains` plugin nechá kartu advokátovi (aj v režime YOLO) a appka na nej varuje.
+ * - `ambiguous`: rozsah sa nedal normalizovať (`expandScope`); nevie sa, či nesiaha na iného klienta, plugin ho odmietne.
  * Ciele sú už normalizované (`expandScope`, potom `canonicalPath`); cieľ so znakmi vzoru sa porovná ako vzor aj doslovne.
- * Nerozhoduje (ostane karta): cieľ len vo vlastnom klientovi a jeho spisoch, pripojený priečinok mimo klientov (E1),
- * priečinok, ktorý obsahuje len vlastného klienta, chat bez známeho klienta (kontajner praxe, priečinok bez karty,
- * starší súbor mapy) a firemné pravidlá.
+ * `null` (karta alebo YOLO bez karty ako doteraz): cieľ len vo vlastnom klientovi a jeho spisoch, pripojený priečinok
+ * mimo klientov (E1), priečinok, ktorý obsahuje len vlastného klienta, chat bez známeho klienta (kontajner praxe,
+ * priečinok bez karty, starší súbor mapy) a firemné pravidlá.
  */
-export function externalDirectoryOtherClient(map: LinkedFoldersMap, directory: string, targets: readonly (string | null)[], ambiguous = false): OtherClientRefusal | null {
+export function externalDirectoryOtherClient(map: LinkedFoldersMap, directory: string, targets: readonly (string | null)[], ambiguous = false): OtherClientScope | null {
   if (map.firmManaged) return null;
   const own = ownerOf(map, directory)?.client;
   if (!own) return null;
   if (ambiguous) return "ambiguous";
   const others = [...new Set(map.clients.flatMap((client) => client.client && client.client !== own ? [client.client] : []))];
-  let refusal: OtherClientRefusal | null = null;
+  let found: OtherClientScope | null = null;
   for (const target of targets) {
     if (target === null) continue;
     for (const literal of GLOB_CHARS.test(target) ? [false, true] : [true]) {
-      const found = targetRefusal(target, own, others, literal);
-      if (found === "contains") return found;
-      refusal = found ?? refusal;
+      const scope = targetScope(target, own, others, literal);
+      if (scope === "contains") return scope;
+      found = scope ?? found;
     }
   }
-  return refusal;
+  return found;
 }
 
 /** Jeden cieľ ako vzor alebo doslovne (`literal`) voči vlastnému a ostatným klientom. */
-function targetRefusal(target: string, own: string, others: readonly string[], literal: boolean): "inside" | "contains" | null {
+function targetScope(target: string, own: string, others: readonly string[], literal: boolean): "inside" | "contains" | null {
   const relation = (client: string) => patternRelation(target, client, literal);
-  // Cieľ, ktorý priečinok iného klienta obsahuje (aj keď obsahuje aj vlastného), sa odmietne vždy.
+  // Cieľ, ktorý priečinok iného klienta obsahuje (aj keď obsahuje aj vlastného), zasahuje iných klientov.
   if (others.some((client) => relation(client) === "contains")) return "contains";
   const reached = others.filter((client) => relation(client) === "inside");
   if (!reached.length) return null;
@@ -303,5 +312,5 @@ export function parseLinkedFoldersMap(value: unknown): LinkedFoldersMap | null {
     const owner = typeof client.client === "string" ? client.client : null;
     clients.push({ root: client.root, folders: client.folders, client: owner });
   }
-  return { version: 1, officeRoot, clients, firmManaged: value.firmManaged === true };
+  return { version: 1, officeRoot, clients, firmManaged: value.firmManaged === true, ...(value.yolo === true ? { yolo: true } : {}) };
 }

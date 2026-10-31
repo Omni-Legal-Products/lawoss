@@ -11,6 +11,7 @@ import { readRuntimeOpencodeConfig, runtimeStorageDir, writeRuntimeOpencodeConfi
 import { clientCardFolder, documentLinkedFolders, linkableFolders, linkedFoldersMapPath, writeLinkedFoldersMap } from "./linked-folders.js";
 import { externalDirectoryOtherClient, parseLinkedFoldersMap } from "./linked-folders-rules.js";
 import { startServer } from "../server.js";
+import { writeYoloMode } from "./yolo-mode.js";
 import type { ServerConfig } from "../types.js";
 
 const CLIENT_TOKEN = "owt_linked_folders_client";
@@ -113,6 +114,26 @@ describe("pripojené priečinky klienta: spoločný súbor enginu a mapa pre plu
     expect(map?.clients).toEqual([{ root: client, folders: [], client: null }, { root: other, folders: [linked], client: null }]);
     expect(map?.firmManaged).toBe(false);
     expect(map?.officeRoot).toBeNull();
+  });
+
+  // Rozhodnutie MČ 31. 10. 2026: plugin podľa mapy vie, že je zapnutý YOLO (karta len pri priečinku iného klienta).
+  test("mapa hlási režim YOLO; prepnutie ju obnoví so súborom enginu", async () => {
+    const { config, readMap } = await practice();
+    await writeLegalworkRuntimeConfigFile(config, "ws_client");
+    stops.push(keepLegalworkRuntimeConfigFileFresh(config, "ws_client"));
+    expect((await readMap())?.yolo).toBeUndefined();
+    const settled = async (yolo: boolean) => {
+      let map = await readMap();
+      for (let attempt = 0; attempt < 50 && (map?.yolo === true) !== yolo; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        map = await readMap();
+      }
+      return map;
+    };
+    await writeYoloMode(config, true);
+    expect((await settled(true))?.yolo).toBe(true);
+    await writeYoloMode(config, false);
+    expect((await settled(false))?.yolo).toBeUndefined();
   });
 
   test("odpojenie cez natívny zápis zachová položky, ktoré zoznam neukazuje (napr. odmietnutia)", async () => {

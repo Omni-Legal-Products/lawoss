@@ -20,6 +20,7 @@ import { describeMemoryWrite, keepsMemoryWriteGate } from "@/lawoss/lite/memory-
 import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
 import { fileOperationCard, offersRememberedApproval, rememberedApprovalKeys, type FileOperationDetails } from "@/lawoss/lite/file-operation-card";
 import { useOtherClientFolderText } from "@/lawoss/lite/other-client-folder";
+import { OtherClientWarning } from "@/lawoss/lite/other-client-warning";
 import { useMissingFolderText } from "@/lawoss/lite/missing-folder";
 import { networkApprovalContent } from "./network-approval-content";
 import { InteractionSource } from "./interaction-source";
@@ -455,7 +456,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               {host?.description && !network?.search ? <div className="mt-1 text-[12px] leading-5 text-dls-secondary">{t("sandbox.approval_task", undefined, { description: host.description })}</div> : null}
               {/* LAWOSS: one card per command on this computer – say what it covers (lawoss/i18n/shell.ts). */}
               {host?.hostWide && !network ? <div className="mt-1 text-[12px] leading-5 text-dls-text">{t("lawoss.shell_card.host_wide")}</div> : null}
-              {otherClient ? <div className="mt-1 text-[12px] font-medium leading-5 text-red-11" data-lawoss-other-client="">{otherClient}</div> : null}
+              <OtherClientWarning text={otherClient} />
               {missingFolder ? <div className="mt-1 text-[12px] font-medium leading-5 text-amber-11" data-lawoss-missing-folder="">{missingFolder}</div> : null}
               {presentation.note ? (
                 <div className="mt-1 text-[12px] leading-5 text-dls-secondary">{presentation.note}</div>
