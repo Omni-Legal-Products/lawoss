@@ -2206,7 +2206,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onToggleRealtimeVoice={() => props.onRealtimeVoiceActiveChange?.(!props.realtimeVoiceActive)}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
           queueAccessory={queuePaused || queuedDrafts.length > 0 || editingQueuedDraftId ? (
-            <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} onResume={resumeQueue} disabled={sendBlocked || queueSaving} onOpenAiSettings={openAiSettings} />
+            <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} restartPause={sharedQueue.restartPause} onResume={resumeQueue} disabled={sendBlocked || queueSaving} onOpenAiSettings={openAiSettings} />
           ) : null}
           compactTopSpacing={Boolean(subscriptionEndedAccessoryVisible || trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || hasActivePlan || props.activePermission || queuedDrafts.length > 0)}
           topAccessory={

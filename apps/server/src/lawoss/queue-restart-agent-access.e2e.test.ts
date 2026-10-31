@@ -67,7 +67,7 @@ function queueApi(port: number, workspace: string, session: string) {
     enqueue: (id: string, text: string) => post({ type: "enqueue", id, draft: { mode: "prompt", text, parts: [], attachments: [], editor: { mentions: {}, pasteParts: [] } },
       execution: { kind: "prompt", model: { providerID: "test", modelID: "test" }, parts: [{ type: "text", text }] } }),
     resume: () => post({ type: "pause", paused: false }),
-    read: async () => (await fetch(url, { headers: { Authorization: "Bearer owt_test_token" } })).json() as Promise<{ paused: boolean; pauseReason?: string; entries: Array<{ id: string; status: string }> }>,
+    read: async () => (await fetch(url, { headers: { Authorization: "Bearer owt_test_token" } })).json() as Promise<{ paused: boolean; pauseReason?: string; restartPause?: string; entries: Array<{ id: string; status: string }> }>,
   };
 }
 
@@ -104,12 +104,14 @@ test("a message queued before a restart waits; the lawyer's Resume delivers it w
   const { id, config, port } = await queueBeforeRestart(setup);
   const queue = queueApi(port, "ws_a", "ses_a");
   expect(setup.fake.state.delivered).toEqual([]);
-  expect(await queue.read()).toMatchObject({ paused: true, pauseReason: "stop", entries: [{ id, status: "queued" }] });
+  // No queued delivery was running, so the app shows the shorter restart sentence.
+  expect(await queue.read()).toMatchObject({ paused: true, pauseReason: "stop", restartPause: "waiting", entries: [{ id, status: "queued" }] });
   expect(await toolAccess(config, "ses_a", setup.a)).toMatchObject({ code: "wiki_agent_session_unknown", message: CHAT_NOT_REGISTERED });
 
   expect((await queue.resume()).status).toBe(200);
   expect(await until(() => setup.fake.state.delivered.length === 1)).toBe(true);
   expect(setup.fake.state.delivered).toEqual([`ses_a:msg_${id.replaceAll("-", "")}`]);
+  expect((await queue.read()).restartPause).toBeUndefined();
   expect(await toolAccess(config, "ses_a", setup.a)).toMatchObject({ workspaceId: "ws_a" });
 });
 
