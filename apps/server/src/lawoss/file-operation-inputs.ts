@@ -9,7 +9,9 @@
  * ukáže na nové miesto. Riadok v inom prípade alebo u klienta sa uzavrie (`processed`, „presunuté do …, IN-00X“),
  * aby neostal `pending` s neplatnou cestou (review #292).
  *
- * Len súbory; presun v rámci prípadu, do priečinka na nezaradené alebo mimo prípadu register nemení.
+ * N-A8-1 (regresia 30. 10. 2026): iný presun alebo premenovanie súboru (aj v rámci prípadu, aj v režime YOLO, kde
+ * nástroj len nepýta kartu) nový riadok nepridá, ale riadok registra nad pôvodným miestom, ktorý súbor menuje, dostane
+ * novú cestu (`followMovedInput`). Kópia register nemení, originál ostáva na mieste. Len súbory v tom istom koreni.
  */
 import { randomUUID } from "node:crypto";
 import { lstat, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -29,6 +31,8 @@ export type InputRoot = { canonical: string; label: string | null };
  * `handedOver`: riadok v inom registri (iný prípad, klient), ktorý sa uzavrel odkazom na tento.
  */
 export type FiledInput = { register: string; id: string; updated?: true; handedOver?: { register: string; id: string } };
+/** N-A8-1: každý register, ktorého riadok nasledoval presunutý súbor (len pre audit; `path` je skutočná cesta). */
+export type Followed = { register: string; id: string; path: string };
 
 /** Zdroj nového riadku; za dvojbodkou pôvodné miesto súboru. */
 export const FILED_INPUT_SOURCE = "presun z priečinka na nezaradené (LAWOSS)";
@@ -104,6 +108,37 @@ async function writeRegister(path: string, content: string, before: Register | n
 /** Relatívna cesta vnútri priečinka, inak `null`. */
 const inside = (dir: string, path: string): string | null => isPathWithin(dir, path) ? slash(relative(dir, path)) : null;
 
+/** Cesta registra, ako ju ukazuje karta: relatívne ku koreňu, pripojený priečinok s menom. */
+const shown = (root: InputRoot, path: string) => {
+  const relativePath = slash(relative(root.canonical, path));
+  return root.label ? `${root.label}/${relativePath}` : relativePath;
+};
+
+/**
+ * N-A8-1: presunutý alebo premenovaný súbor, ktorý register nad pôvodným miestom (prípad, klient) už eviduje: jeho
+ * riadok dostane novú cestu voči priečinku registra (aj `../…` pri inom prípade, ako pri #292). ID, zdroj, stav
+ * a výsledné záznamy ostanú, nič sa nepridá. Register, ktorý nie je obyčajný súbor (odkaz, priečinok), sa pri tomto
+ * sledovaní ani nečíta, ani nehlási ako chyba: bežné premenovanie neevidovaného súboru nesmie zlyhať pre cudzí
+ * register vyššie. Výsledok menuje najbližší zmenený register; audit dostane všetky.
+ */
+async function followMovedInput(source: string, target: string, root: InputRoot): Promise<(FiledInput & { paths: string[]; followed: Followed[] }) | null> {
+  const registers = ancestors(source, root.canonical).map((dir) => join(dir, INPUT_REGISTER_FILE));
+  return withFileWriteLocks(registers, async () => {
+    const followed: Followed[] = [];
+    for (const path of registers) {
+      const before = await readRegister(path).catch(() => null);
+      const dir = dirname(path), was = inside(dir, source);
+      if (!before || was === null) continue;
+      const moved = moveInputOriginal(before.content, was, originalCell(slash(relative(dir, target))));
+      if (!moved) continue;
+      await writeRegister(path, moved.content, before);
+      followed.push({ register: shown(root, path), id: moved.id, path });
+    }
+    const [first] = followed;
+    return first ? { register: first.register, id: first.id, updated: true, paths: followed.map((item) => item.path), followed } : null;
+  });
+}
+
 /**
  * Po overenom presune alebo kópii súboru: zapíše vstup, ak súbor prišiel z priečinka na nezaradené do prípadu.
  * `null` = nejde o zaradenie. Chyba čítania alebo zápisu registra sa vyhodí; súbor ostáva tam, kam ho zmena dala.
@@ -111,18 +146,15 @@ const inside = (dir: string, path: string): string | null => isPathWithin(dir, p
  */
 export async function recordFiledInput(
   item: { operation: "move" | "copy"; kind: "file" | "folder"; source: string; target: string }, roots: readonly InputRoot[], now = new Date(),
-): Promise<(FiledInput & { paths: string[] }) | null> {
+): Promise<(FiledInput & { paths: string[]; followed?: Followed[] }) | null> {
   if (item.kind !== "file") return null;
   const rootOf = (path: string) => roots.find((root) => isPathWithin(root.canonical, path));
   const sourceRoot = rootOf(item.source), targetRoot = rootOf(item.target);
   if (!sourceRoot || !targetRoot) return null;
-  if (!await inInbox(item.source, sourceRoot.canonical) || await inInbox(item.target, targetRoot.canonical)) return null;
+  const follow = () => item.operation === "move" && sourceRoot === targetRoot ? followMovedInput(item.source, item.target, sourceRoot) : null;
+  if (!await inInbox(item.source, sourceRoot.canonical) || await inInbox(item.target, targetRoot.canonical)) return follow();
   const matter = await matterOf(item.target, targetRoot.canonical);
-  if (!matter) return null;
-  const shown = (root: InputRoot, path: string) => {
-    const relativePath = slash(relative(root.canonical, path));
-    return root.label ? `${root.label}/${relativePath}` : relativePath;
-  };
+  if (!matter) return follow();
   const register = join(matter, INPUT_REGISTER_FILE);
   // Registre nad pôvodným miestom v tom istom koreni (iný prípad, klient), kde môže mať súbor riadok z appky.
   const earlier = sourceRoot === targetRoot

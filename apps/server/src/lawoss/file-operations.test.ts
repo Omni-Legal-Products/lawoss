@@ -697,10 +697,11 @@ test("N-A7-6: a file moved from the case's inbox into the case gets one pending 
   // No canonical path reaches the model.
   expect(JSON.stringify(result)).not.toContain(client);
 
-  // A move inside the case that does not come from an inbox adds nothing.
+  // A move inside the case that does not come from an inbox adds nothing; N-A8-1: the listed file's row follows it.
   const inside = await run(config, workspace, [{ operation: "move", from: "Spisy/M001/01_Podklady/zmluva-SYN.pdf", to: "Spisy/M001/02_Resers/zmluva-SYN.pdf" }]);
-  expect(inside.results[0]).toEqual({ operation: "move", kind: "file", from: "Spisy/M001-najom-skladu-SYN/01_Podklady/zmluva-SYN.pdf", to: "Spisy/M001-najom-skladu-SYN/02_Resers/zmluva-SYN.pdf", status: "done" });
-  expect(await readFile(join(matter, "VSTUPY.md"), "utf8")).toBe(after);
+  expect(inside.results[0]).toEqual({ operation: "move", kind: "file", from: "Spisy/M001-najom-skladu-SYN/01_Podklady/zmluva-SYN.pdf", to: "Spisy/M001-najom-skladu-SYN/02_Resers/zmluva-SYN.pdf", status: "done",
+    input: { register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-001", updated: true } });
+  expect(await readFile(join(matter, "VSTUPY.md"), "utf8")).toBe(after.replace("| 01_Podklady/zmluva-SYN.pdf |", "| 02_Resers/zmluva-SYN.pdf |"));
 });
 
 test("N-A7-6: from the client's inbox a new row; a file the app already registered keeps its row; into an inbox, a folder or outside a case nothing", async () => {
@@ -791,4 +792,53 @@ test("review #292: the source path is a code span, not a link or HTML, and a reg
   expect(await readFile(elsewhere, "utf8")).toBe("SYN mimo");
   expect((await lstat(join(matter, "VSTUPY.md"))).isSymbolicLink()).toBe(true);
   expect(fileOperationReport(linked).join(" ")).toContain("could not be updated");
+});
+
+test("N-A8-1: renaming a file the case's VSTUPY.md lists moves its link in the existing row; nothing is added, other rows and unlisted files stay", async () => {
+  const { config, client, workspace } = await office();
+  const { matter } = await caseWithInbox(client);
+  await mkdir(join(matter, "01_Podklady", "IN-003"), { recursive: true });
+  await writeFile(join(matter, "01_Podklady", "IN-003", "Podklady.pdf"), "SYN podklady");
+  await writeFile(join(matter, "01_Podklady", "poznamka-SYN.pdf"), "SYN poznamka");
+  const listed = "| IN-003 | 2025-09-03T08:00:00+02:00 | ruční vložení (LAWOSS) | ./01_Podklady/IN-003/Podklady.pdf | processed | MEM-2 |";
+  await writeFile(join(matter, "VSTUPY.md"), (await readFile(join(matter, "VSTUPY.md"), "utf8")).replace("| MEM-1 |\n", `| MEM-1 |\n${listed}\n`));
+  const before = await readFile(join(matter, "VSTUPY.md"), "utf8");
+
+  // The same server call runs after the card and in YOLO Mode (the tool only skips the card there).
+  const result = await run(config, workspace, [
+    { operation: "move", from: "Spisy/M001/01_Podklady/IN-003/Podklady.pdf", to: "Spisy/M001/01_Podklady/IN-003/2025-03-10_Podklady.pdf" },
+    { operation: "move", from: "Spisy/M001/01_Podklady/poznamka-SYN.pdf", to: "Spisy/M001/01_Podklady/2025-03-11_poznamka-SYN.pdf" },
+    { operation: "copy", from: "Spisy/M001/01_Podklady/zmluva-SYN.pdf", to: "Spisy/M001/02_Resers/zmluva-SYN.pdf" },
+  ]);
+  expect(result.complete).toBe(true);
+  expect(result.results.map((item) => item.input ?? null)).toEqual([
+    { register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-003", updated: true }, null, null,
+  ]);
+  const after = await readFile(join(matter, "VSTUPY.md"), "utf8");
+  // Only the link of IN-003 changed: its ID, source, state and records stay; no row is added.
+  expect(after).toBe(before.replace("| ./01_Podklady/IN-003/Podklady.pdf |", "| 01_Podklady/IN-003/2025-03-10_Podklady.pdf |"));
+  expect(after.split("\n").filter((line) => line.startsWith("| IN-"))).toHaveLength(2);
+  expect(fileOperationReport(result).join(" ")).toContain("its existing input IN-003 in Spisy/M001-najom-skladu-SYN/VSTUPY.md now points to the new place. Do not add another row for this file.");
+  const audit = (await readFile(auditLogPath("ws_c001"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+  expect(audit.map((entry) => entry.summary)).toContain("lawoss_files: Updated input IN-003 in Spisy/M001-najom-skladu-SYN/VSTUPY.md");
+
+  // Renamed again, now to another folder of the case: the row follows; the client's register follows its own row too.
+  await writeFile(join(client, "VSTUPY.md"), ["| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |", "|---|---|---|---|---|---|",
+    "| IN-001 | 2025-09-04T08:00:00+02:00 | e-mail SYN | Spisy/M001-najom-skladu-SYN/01_Podklady/IN-003/2025-03-10_Podklady.pdf | processed | |", ""].join("\n"));
+  const again = await run(config, workspace, [{ operation: "move", from: "Spisy/M001/01_Podklady/IN-003/2025-03-10_Podklady.pdf", to: "Spisy/M001/02_Resers/2025-03-10_Podklady.pdf" }]);
+  expect(again.results[0]?.input).toEqual({ register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-003", updated: true });
+  expect(await readFile(join(matter, "VSTUPY.md"), "utf8")).toBe(before.replace("| ./01_Podklady/IN-003/Podklady.pdf |", "| 02_Resers/2025-03-10_Podklady.pdf |"));
+  expect(await readFile(join(client, "VSTUPY.md"), "utf8")).toContain("| IN-001 | 2025-09-04T08:00:00+02:00 | e-mail SYN | Spisy/M001-najom-skladu-SYN/02_Resers/2025-03-10_Podklady.pdf | processed | |");
+});
+
+test("N-A8-1: a register that is a symbolic link is neither read nor changed by a rename, and the rename is not reported as failed", async () => {
+  const { config, client, root, workspace } = await office();
+  const { matter } = await caseWithInbox(client);
+  const elsewhere = join(root, "mimo-SYN.md");
+  await writeFile(elsewhere, "| IN-009 | x | y | 01_Podklady/zmluva-SYN.pdf | pending | |\n");
+  await rm(join(matter, "VSTUPY.md"));
+  await symlink(elsewhere, join(matter, "VSTUPY.md"));
+  const result = await run(config, workspace, [{ operation: "move", from: "Spisy/M001/01_Podklady/zmluva-SYN.pdf", to: "Spisy/M001/01_Podklady/zmluva-2-SYN.pdf" }]);
+  expect(result.results[0]).toEqual({ operation: "move", kind: "file", from: "Spisy/M001-najom-skladu-SYN/01_Podklady/zmluva-SYN.pdf", to: "Spisy/M001-najom-skladu-SYN/01_Podklady/zmluva-2-SYN.pdf", status: "done" });
+  expect(await readFile(elsewhere, "utf8")).toBe("| IN-009 | x | y | 01_Podklady/zmluva-SYN.pdf | pending | |\n");
 });

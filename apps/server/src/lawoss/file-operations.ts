@@ -36,7 +36,7 @@ import { addRoute, type RequestContext, type Route } from "../routes/registry.js
 import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ensureWikiAgentToken } from "../wiki/agent-access.js";
 import { isSensitiveWorkspacePath, resolveWorkspaceFilePath } from "./filesystem-boundary.js";
-import { recordFiledInput, type FiledInput } from "./file-operation-inputs.js";
+import { recordFiledInput, type FiledInput, type Followed } from "./file-operation-inputs.js";
 import { linkableFolders, nestedClientRoots } from "./linked-folders.js";
 import { foldedPath as folded, isPathWithin } from "./path-within.js";
 
@@ -570,13 +570,13 @@ export async function applyFileOperations(config: ServerConfig, workspace: Works
 }
 
 /** N-A7-6: the input register follows a file filed from an inbox; its failure does not undo the change already made. */
-async function fileInput(item: Planned, roots: Root[]): Promise<{ result: Pick<FileOperationResult, "input" | "inputError">; filed?: FiledInput & { paths: string[] } }> {
+async function fileInput(item: Planned, roots: Root[]): Promise<{ result: Pick<FileOperationResult, "input" | "inputError">; filed?: FiledInput & { paths: string[]; followed?: Followed[] } }> {
   if ((item.operation !== "move" && item.operation !== "copy") || !item.source || !item.target) return { result: {} };
   try {
     const filed = await recordFiledInput({ operation: item.operation, kind: item.kind, source: item.source, target: item.target }, roots);
     if (!filed) return { result: {} };
     // The canonical paths are for the audit only: the card and the model see readable paths.
-    const { paths: _paths, handedOver, ...input } = filed;
+    const { paths: _paths, followed: _followed, handedOver, ...input } = filed;
     return { result: { input: { ...input, register: visibleName(input.register),
       ...(handedOver ? { handedOver: { ...handedOver, register: visibleName(handedOver.register) } } : {}) } }, filed };
   } catch (error) {
@@ -585,12 +585,18 @@ async function fileInput(item: Planned, roots: Root[]): Promise<{ result: Pick<F
 }
 
 /** T6 (test 28. 10. 2026): an approved change and the register lines it wrote are in the server audit, like other file writes. */
-async function audit(workspace: WorkspaceInfo, actor: Actor, item: Planned, filed: (FiledInput & { paths: string[] }) | undefined): Promise<void> {
+async function audit(workspace: WorkspaceInfo, actor: Actor, item: Planned, filed: (FiledInput & { paths: string[]; followed?: Followed[] }) | undefined): Promise<void> {
   const entry = (target: string, summary: string) => ({ id: randomUUID(), workspaceId: workspace.id, actor, action: "workspace.file.write", target, summary, timestamp: Date.now() });
   const change = item.operation === "create_folder" ? `Created folder ${item.to}` : item.operation === "delete" ? `Moved ${item.from} to the Trash` : `${item.operation === "move" ? "Moved" : "Copied"} ${item.from} to ${item.to}`;
   // The change is done; a full audit disk must not report it as failed.
   await recordAudit(workspace.path, entry(item.target ?? item.source ?? workspace.path, `lawoss_files: ${change}`)).catch(() => undefined);
   if (!filed) return;
+  // N-A8-1: a moved or renamed file's existing rows followed it, in every register that lists it.
+  if (filed.followed) {
+    for (const followed of filed.followed)
+      await recordAudit(workspace.path, entry(followed.path, `lawoss_files: Updated input ${followed.id} in ${followed.register}`)).catch(() => undefined);
+    return;
+  }
   await recordAudit(workspace.path, entry(filed.paths[0]!, `lawoss_files: ${filed.updated ? "Updated" : "Added"} input ${filed.id} in ${filed.register}`)).catch(() => undefined);
   if (filed.handedOver && filed.paths[1])
     await recordAudit(workspace.path, entry(filed.paths[1], `lawoss_files: Closed input ${filed.handedOver.id} in ${filed.handedOver.register}, moved to ${filed.register} as ${filed.id}`)).catch(() => undefined);
