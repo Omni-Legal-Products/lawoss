@@ -1643,6 +1643,14 @@ Nové LAWOSS súbory: `apps/server/src/lawoss/moved-practice.ts` (náhľad prepo
 | --- | --- |
 | `apps/app/src/app/lib/legalwork-server.ts` | +1 import typu `MovedFolderApiPath`, +1 metóda `lawossMovedFolder(path, body)` volajúca hostové `/lawoss/onboarding/moved-folder`, `/lawoss/onboarding/moved-practice` a `/lawoss/onboarding/reconnected` (rovnaký `requestJson` a host token ako onboarding). Dôvod: N-A7-1, „Nájsť presunutý priečinok“ na stránke Dnes prepojí klientov presunutej praxe namiesto ich nového pridania. |
 
+### Pruh „Priebeh“ len počas behu (2026-10-31, fix/priebeh-pruh-po-behu, N-A8-6)
+
+Nález N-A8-6 z regresie 30. 10. 2026: po skončení behu ostal nad composerom pruh „Priebeh · 1/3“ a advokát si mohol myslieť, že úloha ešte beží. Upstream (aj `v0.3.5`) ukazuje pruh, kým má plán agenta nedokončený krok, bez ohľadu na beh. Pravidlo je v novom súbore `apps/app/src/lawoss/chat/plan-bar.ts` (`planBarVisible`), test `apps/app/tests/lawoss-priebeh-po-behu.test.tsx`.
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `hasActivePlan` sa počíta až za `chatStreaming` cez `planBarVisible(props.todos ?? [], chatStreaming)` namiesto `hasUnfinishedTodos(...)` (+1 import, presun 1 riadku, +1 komentár). Pruh aj jeho miesto nad composerom sú len počas behu (odosielanie, beh, opakovanie, čakanie na povolenie či odpoveď). `todo-panel.tsx` sa nemení. |
+
 ### Pripnutý QEMU 11.1.2 pre Windows runtime (2026-10-31, fix/ci-qemu-11-1-2-pin)
 
 | Súbory | Downstream zmena a dôvod |
