@@ -60,7 +60,12 @@ export class SessionMessageQueue {
       // LAWOSS (N-A7-17): a restored message waits for the lawyer. Delivery needs the chat's
       // authenticated origin, which lives only in the previous process; the lawyer's Resume or
       // next message re-registers this chat and chooses the client this process works with.
-      if (!queue.paused && queue.entries.some(entry => entry.status === "queued")) {
+      // In the app the running message is itself an entry in delivery, restored above as
+      // "uncertain" with an "error" pause that lifts itself once the engine confirms it
+      // (tick). A waiting message behind it must not ride on that, so it gets the "stop" pause
+      // too. A failed entry already keeps the queue paused until Resume.
+      const liftsItself = !queue.paused || (queue.pauseReason === "error" && !queue.entries.some(entry => entry.status === "failed"));
+      if (liftsItself && queue.entries.some(entry => entry.status === "queued")) {
         queue.paused = true;
         queue.pauseReason = "stop";
       }
