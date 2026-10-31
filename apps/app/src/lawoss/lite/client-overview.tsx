@@ -147,7 +147,7 @@ export function ClientOverviewView({ workspaceId, locale, todayIso, matters, dea
       <section className="lw-client-cases" aria-label={mattersLabel}>
         <h3 className="lw-client-title"><FolderOpen aria-hidden size={16} />{mattersLabel}<span className="lw-matter-count">{matters.length}</span></h3>
         {matters.length === 0 ? <p className="lw-client-empty">{t("lawoss.lite.project_matters_empty", locale)}</p> : <div className="lw-client-grid">
-          {shown.map((card) => <CaseCardView key={card.matter.path} matter={card.matter} term={card.term} status={card.status} kind={kinds[card.matter.path]} todayIso={todayIso} locale={locale} />)}
+          {shown.map((card) => <CaseCardView key={card.matter.path} matter={card.matter} term={card.term} invalid={card.invalid} status={card.status} kind={kinds[card.matter.path]} todayIso={todayIso} locale={locale} />)}
         </div>}
         {!showAll && cards.length > CARDS_SHOWN ? <button type="button" className="lw-client-more" onClick={() => setShowAll(true)}>{t("lawoss.lite.cards_show_all", locale, { count: cards.length })}</button> : null}
       </section>
@@ -251,8 +251,8 @@ function TasksCard({ matters, locale }: { matters: readonly MatterOverview[]; lo
   </section>;
 }
 
-function CaseCardView({ matter, term, status, kind, todayIso, locale }: { matter: MatterOverview; term?: CardTerm; status: CardStatus; kind?: string; todayIso: string; locale: Language }) {
-  return <Link to={liteMatterLink(matter.path)} className="lw-case" data-urgency={term ? urgencyOf(term.date, todayIso) : undefined} title={matter.title}>
+function CaseCardView({ matter, term, invalid, status, kind, todayIso, locale }: { matter: MatterOverview; term?: CardTerm; invalid?: string; status: CardStatus; kind?: string; todayIso: string; locale: Language }) {
+  return <Link to={liteMatterLink(matter.path)} className="lw-case" data-urgency={invalid !== undefined ? "hot" : term ? urgencyOf(term.date, todayIso) : undefined} title={matter.title}>
     <span className="lw-case-top">
       <span className="lw-case-title">{matter.title}</span>
       <ArrowUpRight aria-hidden size={15} className="lw-case-arrow" />
@@ -268,8 +268,10 @@ function CaseCardView({ matter, term, status, kind, todayIso, locale }: { matter
     </span>
     {status.nextStep ? <span className="lw-case-line"><small>{t("lawoss.lite.card_next_step", locale)}</small><span>{status.nextStep}</span></span> : null}
     <span className="lw-case-foot">
-      <span className="lw-case-term" data-kind={term?.kind}>{term
-        ? `${formatDay(term.date, locale)} · ${t(TERM_KIND[term.kind], locale)}`
+      {/* N-A7-4: neplatný dátum má prednosť pred termínom, rovnako ako na Dnes (vždy a navrchu). */}
+      <span className="lw-case-term" data-kind={invalid !== undefined ? "invalid" : term?.kind}>{invalid !== undefined
+        ? `${`? ${invalid}`.trim()} · ${t("lawoss.lite.due_invalid", locale)}`
+        : term ? `${formatDay(term.date, locale)} · ${t(TERM_KIND[term.kind], locale)}`
         : t("lawoss.lite.card_no_date", locale)}</span>
       <span>{t("lawoss.lite.tasks_short", locale)} {matter.openTasks.length}</span>
     </span>

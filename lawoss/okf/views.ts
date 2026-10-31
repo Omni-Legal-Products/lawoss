@@ -453,13 +453,17 @@ function strip(ctx: Ctx): ViewSection[] {
   const status = clean(ctx.card.status);
   // Termín úlohy smie mať čas („2026-11-20 10:00“); neplatný dátum najbližším termínom nie je.
   const dayOf = (d: ViewItem): string | undefined => d.flags?.includes("invalid") ? undefined : taskDue(d.date).day;
-  const next = [...allDeadlines(ctx), ...taskItems(ctx, false)].filter((d) => (dayOf(d) ?? "") >= ctx.today)
+  const dates = [...allDeadlines(ctx), ...taskItems(ctx, false)];
+  const next = dates.filter((d) => (dayOf(d) ?? "") >= ctx.today)
     .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""))[0];
+  // N-A7-4: neplatný dátum lehoty či úlohy ide za najbližší termín s výzvou „overiť dátum“. Inak by procesný
+  // prípad, ktorého blok úlohy neukazuje, hlásil „Najbližší termín: Neevidované“ a advokát by sa o chybe nedozvedel.
+  const unreadable = dates.filter((d) => d.flags?.includes("invalid"));
   return [
     section("status", status ? [{ key: "status", label: status, source: cardSource(ctx, "status") }] : [], { file: ctx.cardFile, field: "status" }),
     section("phase", manualItem(ctx, "phase", ["Fáza", "Fáze", "Phase"]), { file: ctx.statusFile, section: "Fáza" }),
     section("next_step", manualItem(ctx, "next_step", ["Ďalší krok", "Další krok", "Next step", "Nächster Schritt"]), { file: ctx.statusFile, section: "Ďalší krok" }),
-    section("next_date", next ? [next] : [], { file: joinPath(ctx.input.path, "memory/"), field: "deadlines" }),
+    section("next_date", [...(next ? [next] : []), ...unreadable], { file: joinPath(ctx.input.path, "memory/"), field: "deadlines" }),
   ];
 }
 
