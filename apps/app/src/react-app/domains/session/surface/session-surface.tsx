@@ -79,7 +79,8 @@ import {
 import { useControlAction, type LegalworkControlAction } from "@/react-app/shell/control/control-provider";
 import { ReactSessionComposer } from "./composer/composer";
 import { buildComposerDraft } from "./composer/composer-draft";
-import { hasUnfinishedTodos, TodoPanel } from "./todo-panel";
+import { TodoPanel } from "./todo-panel";
+import { planBarVisible } from "@/lawoss/chat/plan-bar";
 import {
   VoicePanel,
   type VoiceOpenCodeJobSnapshot,
@@ -871,7 +872,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
     refetchOnWindowFocus: "always",
   });
   const statusState = statusQuery.data ?? currentSnapshot?.status ?? IDLE_STATUS;
-  const hasActivePlan = hasUnfinishedTodos(props.todos ?? []);
 
   useEffect(() => {
     if (!currentSnapshot) return;
@@ -955,6 +955,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const liveStatus = statusState ?? snapshot?.status ?? IDLE_STATUS;
   const activityRunning = sessionActivityStatus !== "idle" && sessionActivityStatus !== "error";
   const chatStreaming = sending || activityRunning || liveStatus.type === "busy" || liveStatus.type === "retry";
+  // LAWOSS N-A8-6: pruh „Priebeh“ len počas behu, nie po jeho skončení (lawoss/chat/plan-bar.ts).
+  const hasActivePlan = planBarVisible(props.todos ?? [], chatStreaming);
   const status = useMemo((): ThreadStatus => {
     if (sending) {
       return "submitted";
