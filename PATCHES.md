@@ -1631,3 +1631,9 @@ Nové LAWOSS súbory: `apps/server/src/lawoss/moved-practice.ts` (náhľad prepo
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
 | `apps/app/src/app/lib/legalwork-server.ts` | +1 import typu `MovedFolderApiPath`, +1 metóda `lawossMovedFolder(path, body)` volajúca hostové `/lawoss/onboarding/moved-folder`, `/lawoss/onboarding/moved-practice` a `/lawoss/onboarding/reconnected` (rovnaký `requestJson` a host token ako onboarding). Dôvod: N-A7-1, „Nájsť presunutý priečinok“ na stránke Dnes prepojí klientov presunutej praxe namiesto ich nového pridania. |
+
+### Pripnutý QEMU 11.1.2 pre Windows runtime (2026-10-31, fix/ci-qemu-11-1-2-pin)
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `scripts/sandbox/ci-matrix.mjs`, `.github/workflows/sandbox-runtime.yml`, `scripts/ci/sandbox-matrix.test.mjs` | Windows položky matice nesú `qemuPackage` a `qemuSha256` balíka `qemu-11.1.2-1` z repozitára MSYS2. Krok „Download QEMU packages with retries (Windows)“ balík stiahne, overí SHA-256 a nainštaluje cez `pacman -U`; `-cc` ostáva cez `pacman -S`. Test overí pripnutie aj to, že workflow neinštaluje QEMU z hlavy repozitára. Dôvod: MSYS2 vydal 11.1.3 a `package-runtime.mjs` prijíma len overenú 11.1.2, takže `sandbox-runtime` na Windowse zlyhal a povinné „Package and launch“ sa preskočili (rozhodnutie MČ 31. 10.). Prechod na 11.1.3 je samostatný krok. |
