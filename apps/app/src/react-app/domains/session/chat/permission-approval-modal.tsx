@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import type { PendingPermission } from "@/app/types";
+import { usePermissionDetails } from "@/lawoss/lite/permission-details";
 import { currentUiMode, useUiMode } from "@/lawoss/lite/ui-mode";
 import { describeMemoryWrite, keepsMemoryWriteGate } from "@/lawoss/lite/memory-write";
 import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
@@ -244,6 +245,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
   const locale = useLocale();
   // LAWOSS: the card text is translated while describing it, so the language is a dependency.
   const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission, locale]);
+  const details = usePermissionDetails(props.permission, props.chatDirectory, presentation.details); // LAWOSS (N-A8-3): bez surového JSON
   const metadata =
     props.permission.metadata && typeof props.permission.metadata === "object"
       ? props.permission.metadata
@@ -378,7 +380,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
                 <span>{t("session.details_label")}</span>
                 <ChevronRight size={15} className="text-dls-secondary transition-transform group-open:rotate-90" />
               </summary>
-              {presentation.details ? <FileOperationDetailList details={presentation.details} reason={false} className="mt-3 max-h-44 space-y-1 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-dls-border bg-dls-hover/45 px-3 py-2.5 text-[12px] leading-5 text-dls-text" /> : <pre className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-dls-border bg-dls-hover/45 px-3 py-2.5 text-[12px] leading-5 text-dls-secondary">
+              {details ? <FileOperationDetailList details={details} reason={false} className="mt-3 max-h-44 space-y-1 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-dls-border bg-dls-hover/45 px-3 py-2.5 text-[12px] leading-5 text-dls-text" /> : <pre className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-dls-border bg-dls-hover/45 px-3 py-2.5 text-[12px] leading-5 text-dls-secondary">
                 {stringifyMetadata(metadata, props.safeStringify)}
               </pre>}
             </details>
@@ -427,6 +429,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
   const locale = useLocale();
   // LAWOSS: the card text is translated while describing it, so the language is a dependency.
   const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission, locale]);
+  const details = usePermissionDetails(props.permission, props.chatDirectory, presentation.details); // LAWOSS (N-A8-3): bez surového JSON
   const host = props.permission.host;
   const network = host?.network ? networkApprovalContent(host.network) : null;
   const metadata =
@@ -555,7 +558,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
                 <span>{t("session.details_label")}</span>
                 <ChevronRight size={14} className="text-dls-secondary transition-transform group-open:rotate-90" />
               </summary>
-              {presentation.details ? <FileOperationDetailList details={presentation.details} reason className="mt-2 max-h-32 space-y-1 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-dls-hover/45 px-3 py-2 text-[12px] leading-5 text-dls-text" /> : <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-dls-hover/45 px-3 py-2 text-[11px] leading-5 text-dls-secondary">
+              {details ? <FileOperationDetailList details={details} reason className="mt-2 max-h-32 space-y-1 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-dls-hover/45 px-3 py-2 text-[12px] leading-5 text-dls-text" /> : <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-dls-hover/45 px-3 py-2 text-[11px] leading-5 text-dls-secondary">
                 {stringifyMetadata(metadata, props.safeStringify)}
               </pre>}
             </details>

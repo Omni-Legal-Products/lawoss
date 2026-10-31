@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Čitateľné Podrobnosti na karte úpravy súboru a externého priečinka (2026-10-31)
+
+Regresia N-A7 z 30. 10. 2026, nález N-A8-3: Podrobnosti ukazovali surový JSON `{ "filepath": …, "diff": … }` a `{ "filepath": …, "parentDir": … }`.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | +1 import a v `PermissionApprovalModal` aj `PermissionApprovalPanel` +1 hook `usePermissionDetails` (nový `apps/app/src/lawoss/lite/permission-details.ts`); Podrobnosti ukážu jeho riadky namiesto JSON (2 riadky renderu: `presentation.details` → `details`). Pri `edit` súbor voči priečinku klienta a pridané/odobraté riadky, pri `external_directory` priečinok a súbor s popisom. Karta `lawoss_files` má svoje riadky ako doteraz; iné otázky ostávajú pri JSON. |
+
 ## Sandbox VM pod softvérovou emuláciou nepanikári pri štarte (2026-10-29)
 
 CI `sandbox-runtime (macos-15-intel)` beží bez hypervízora (`[sandbox] tcg`). V 3 z 9 zlyhaní z 20.–28. 10. 2026 jadro hosťa padlo hneď pri štarte: „MP-BIOS bug: 8254 timer not connected to IO-APIC … Kernel panic … IO-APIC + timer doesn't work!“. Kontrola časovača jadra x86 pri pomalej emulácii nestihne svoje okno. Rovnaký `tcg` použije aj počítač používateľa bez hypervízora (napr. Windows bez WHPX).
