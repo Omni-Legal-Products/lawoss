@@ -13,11 +13,13 @@ import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { parseRecord } from "../../../lawoss/okf-pamat/src/record";
 import { buildOverview, isOfficeFile, taskDue, type MatterInput } from "../../../lawoss/okf/read";
 import { buildCockpit } from "../../../lawoss/okf/cockpit";
-import { buildMatterViews } from "../../../lawoss/okf/views";
+import { buildMatterViews, deadlineCoverage } from "../../../lawoss/okf/views";
 import { MatterViewsPanel, type SourceAccess } from "../src/lawoss/lite/matter-views";
 import { LiteMatterView } from "../src/lawoss/lite/pages/matter-page";
 import { TodayView } from "../src/lawoss/lite/pages/today-page";
 import { ClientOverviewView } from "../src/lawoss/lite/client-overview";
+import { buildToday } from "../src/lawoss/lite/today-model";
+import { liteMatterLink } from "../src/lawoss/lite/links";
 import { loadCaseCard, locateCaseFile, saveCaseViewTags } from "../src/lawoss/lite/case-files";
 import type { OkfScope } from "../src/lawoss/okf/read-model";
 import { shellCs, shellDe, shellEn, shellSk } from "../src/lawoss/i18n/shell";
@@ -328,6 +330,38 @@ describe("N-A7-4: neplatný dátum úlohy vidno v prehľade prípadu a na Domove
     const strip = visible(html(<MatterViewsPanel views={buildMatterViews(withDate, TODAY)} locale="sk" />).match(/<div data-section="next_date".*?<\/div>/)?.[0] ?? "").replace(/\s+/g, " ");
     expect(strip).toContain("Pojednávanie · 20. 11. 2099");
     expect(strip).toContain("Zlý dátum ? 31. 2. 2026 overiť dátum");
+  });
+
+  // Rozhodnutie MČ 31. 10. 2026: na Dnes aj navrchu „Termínov z prípadov“, v „Otvorených úlohách“ ostáva.
+  test("Dnes: neplatný dátum je navrchu „Termínov z prípadov“ s odkazom na prípad a ostáva v „Otvorených úlohách“", () => {
+    const mixed = input("Klienti/C022/Spisy/M020", { matter_kind: "dispute", sud: "SYN testový súd" }, [
+      ...M020.records,
+      rec("M20-T3", "task", "Zajtrajšie pojednávanie", ['state: "pending"', 'due: "2026-10-24"']),
+      rec("M20-T4", "task", "Bez termínu", ['state: "pending"']),
+    ]);
+    const data = { ...buildOverview([mixed], TODAY), inputs: [mixed] };
+    const out = html(<TodayView model={buildToday(data, TODAY)} locale="sk" now={new Date(`${TODAY}T09:00:00`)} evidence={{ complete: true, ...deadlineCoverage([mixed]) }} />);
+    const after = out.slice(out.indexOf("data-lawoss-case-dates"));
+    const section = after.slice(0, after.indexOf("</ul>"));
+    const rows = [...section.matchAll(/<li>(.*?)<\/li>/g)].map((m) => [m[1]!.match(/href="([^"]*)"/)?.[1], visible(m[1]!).replace(/\s+/g, " ").trim()]);
+    const link = liteMatterLink(mixed.path).replace(/&/g, "&amp;");
+    expect(rows).toEqual([
+      [link, "? ! Porovnať vyjadrenie SYN Michal Lupták Servis – SYN prípad ? 2-10-2026 overiť dátum"],
+      [link, "? ! Vyžiadať chýbajúcu prílohu SYN Michal Lupták Servis – SYN prípad ? 31. 2. 2026 overiť dátum"],
+      [link, expect.stringMatching(/^so 24 Zajtrajšie pojednávanie .* zajtra$/)],
+    ]);
+    expect(section).not.toContain("Bez termínu");
+    // „aj“: v „Otvorených úlohách“ sú obe neplatné ďalej s výzvou (a úloha bez termínu), platný termín nie dvakrát.
+    const chips = [...out.matchAll(/<span class="lw-today-chip" data-urgency="(\w+)">(.*?)<\/span>/g)].map((m) => visible(m[2]!).replace(/\s+/g, " ").trim());
+    expect(chips).toEqual(["? 2-10-2026 · overiť dátum", "? 31. 2. 2026 · overiť dátum"]);
+  });
+
+  test("Dnes: prípad len s neplatným dátumom má „Termíny z prípadov“, nie prázdny stav", () => {
+    const data = { ...buildOverview([M020], TODAY), inputs: [M020] };
+    const out = html(<TodayView model={buildToday(data, TODAY)} locale="sk" now={new Date(`${TODAY}T09:00:00`)} evidence={{ complete: true, ...deadlineCoverage([M020]) }} />);
+    expect(out).toContain("data-lawoss-case-dates");
+    expect(out).toContain('data-lawoss-deadlines="unrecorded_dates"');
+    expect(visible(out.slice(out.indexOf("data-lawoss-case-dates"))).replace(/\s+/g, " ")).toContain("? 31. 2. 2026 overiť dátum");
   });
 
   test("Domov klienta: karta prípadu nie je „bez termínu“, ale „? 31. 2. 2026 · overiť dátum“", () => {
