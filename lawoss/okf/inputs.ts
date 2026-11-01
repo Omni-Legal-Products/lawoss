@@ -72,9 +72,23 @@ export function inputRow(id: string, received: string, original: string, source 
 export function originalCell(relativePath: string): string {
   const path = relativePath.split(/[\\/]+/).filter(Boolean).join("/");
   if (!/[\u0000-\u001f|[\]`<>]/.test(path) && path === path.trim()) return path;
+  return linkCell(path);
+}
+
+/** Odkaz v Markdowne na cestu voči priečinku `VSTUPY.md`; text bez znakov Markdownu a HTML (review #292), cieľ kódovaný celý. */
+function linkCell(path: string): string {
   const target = path.split("/").map((part) => encodeURIComponent(part).replace(/[()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)).join("/");
-  // Text odkazu bez znakov Markdownu a HTML (review #292); cieľ je kódovaný celý.
   return `[${safeFileName(path).replace(/[[\]<>`]/g, "")}](./${target})`;
+}
+
+/**
+ * N-A9-2 (alfa test 1. 11. 2026): riadok, ktorý mal Originál ako odkaz, ho po presune alebo premenovaní nestratí.
+ * Obyčajná relatívna cesta od appky sa v takom riadku zapíše opäť ako odkaz; kódový span (NAS) a odkaz ostanú.
+ */
+function keepLink(previous: string, next: string): string {
+  const cell = next.trim();
+  if (!firstLink(previous.trim()) || cell.startsWith("`") || cell.startsWith("[") || !cell) return next;
+  return linkCell(cell);
 }
 
 /**
@@ -145,7 +159,7 @@ export function moveInputOriginal(intake: string, from: string, to: string, hand
     const cells = line.trim().split("|").slice(1, -1);
     if (cells.length < 5 || !/^\s*IN-\d+\s*$/.test(cells[0]!)) continue;
     if (key(inputOriginal(cells[3]!).target) !== wanted) continue;
-    cells[3] = ` ${to} `;
+    cells[3] = ` ${keepLink(cells[3]!, to)} `;
     if (handedOver !== undefined) {
       const results = (cells[5] ?? "").trim();
       cells[4] = " processed ";
@@ -174,7 +188,7 @@ export function moveInputOriginals(intake: string, from: string, to: (rest: stri
     if (original.length < wanted.length || (!options.folder && original.length !== wanted.length)) continue;
     if (wanted.some((part, at) => original[at]!.toLowerCase() !== part)) continue;
     const cell = to(original.slice(wanted.length).join("/"));
-    if (cell !== null) cells[3] = ` ${cell} `;
+    if (cell !== null) cells[3] = ` ${keepLink(cells[3]!, cell)} `;
     if (options.handedOver !== undefined) {
       const results = (cells[5] ?? "").trim();
       cells[4] = " processed ";
