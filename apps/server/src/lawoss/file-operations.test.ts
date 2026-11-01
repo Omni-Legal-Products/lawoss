@@ -866,9 +866,9 @@ test("N-A8-1 (a): renaming or moving a folder moves the links of every listed fi
   expect(renamed.results[0]?.input).toEqual({ register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-003", updated: true,
     also: [{ register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-004" }, { register: "VSTUPY.md", id: "IN-001" }] });
   const after = await readFile(join(matter, "VSTUPY.md"), "utf8");
-  // Both files in the folder follow it; IN-0030 only starts with the same letters and stays; nothing is added.
+  // Both files in the folder follow it, a link stays a link (N-A9-2); IN-0030 only starts with the same letters and stays; nothing is added.
   expect(after).toBe(before.replace("| ./01_Podklady/IN-003/Podklady.pdf |", "| 01_Podklady/IN-003_zmluva/Podklady.pdf |")
-    .replace("| [b v2.pdf](./01_Podklady/IN-003/b%20v2.pdf) |", "| 01_Podklady/IN-003_zmluva/b v2.pdf |"));
+    .replace("| [b v2.pdf](./01_Podklady/IN-003/b%20v2.pdf) |", "| [b v2.pdf](./01_Podklady/IN-003_zmluva/b%20v2.pdf) |"));
   expect(await readFile(join(client, "VSTUPY.md"), "utf8")).toContain("| Spisy/M001-najom-skladu-SYN/01_Podklady/IN-003_zmluva/Podklady.pdf | processed |");
   expect(fileOperationReport(renamed).join(" ")).toContain("its existing inputs IN-003 in Spisy/M001-najom-skladu-SYN/VSTUPY.md, IN-004 in Spisy/M001-najom-skladu-SYN/VSTUPY.md, IN-001 in VSTUPY.md now point to the new place.");
   const audit = (await readFile(auditLogPath("ws_c001"), "utf8")).trim().split("\n").map((line) => JSON.parse(line).summary);
