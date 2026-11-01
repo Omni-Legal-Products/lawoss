@@ -74,6 +74,7 @@ import { migrateInstalledWorkflows } from "./skill-migration.mjs";
 // LAWOSS: značka a releasy forku z jedného miesta (kópia lawoss/branding.mjs).
 import { FORK_RELEASE_DOWNLOAD_BASE_URL, FORK_RELEASES_URL, brandAppName } from "./lawoss-branding.mjs";
 import { canonicalTypedDirectory, pickedDirectories } from "./lawoss-picked-path.mjs";
+import { lawossFolderState } from "./lawoss-folder-state.mjs";
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
 const openComputerUse = createOpenComputerUseIntegration({ getDataDir: () => app.getPath("userData") });
@@ -1991,6 +1992,8 @@ const desktopCommandHandlers = {
   "canonicalDirectoryPath": async (event, ...args) => {
       return canonicalTypedDirectory(args[0]);
   },
+  // 🟡 LAWOSS (N-A7-14): karta externého priečinka povie, že priečinok neexistuje (lawoss-folder-state.mjs).
+  "lawossFolderState": async (_event, ...args) => lawossFolderState(args[0]),
   "pickFile": async (event, ...args) => {
       const options = args[0] ?? {};
       /** @type {import("electron").OpenDialogOptions["properties"]} */

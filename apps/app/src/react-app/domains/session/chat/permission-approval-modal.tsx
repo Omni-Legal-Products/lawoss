@@ -20,6 +20,8 @@ import { describeMemoryWrite, keepsMemoryWriteGate } from "@/lawoss/lite/memory-
 import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
 import { fileOperationCard, offersRememberedApproval, rememberedApprovalKeys, type FileOperationDetails } from "@/lawoss/lite/file-operation-card";
 import { useOtherClientFolderText } from "@/lawoss/lite/other-client-folder";
+import { OtherClientWarning } from "@/lawoss/lite/other-client-warning";
+import { useMissingFolderText } from "@/lawoss/lite/missing-folder";
 import { networkApprovalContent } from "./network-approval-content";
 import { InteractionSource } from "./interaction-source";
 
@@ -438,6 +440,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
   const lite = useUiMode() === "lite";
   const memoryWriteProposal = describeMemoryWrite(String(metadata.command ?? ""));
   const otherClient = useOtherClientFolderText(props.permission, props.chatDirectory); // LAWOSS (N-A7-14)
+  const missingFolder = useMissingFolderText(props.permission); // LAWOSS (N-A7-14): cesta, ktorá neexistuje
 
   return (
     <div className="overflow-hidden border-b border-dls-border bg-transparent">
@@ -453,7 +456,8 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               {host?.description && !network?.search ? <div className="mt-1 text-[12px] leading-5 text-dls-secondary">{t("sandbox.approval_task", undefined, { description: host.description })}</div> : null}
               {/* LAWOSS: one card per command on this computer – say what it covers (lawoss/i18n/shell.ts). */}
               {host?.hostWide && !network ? <div className="mt-1 text-[12px] leading-5 text-dls-text">{t("lawoss.shell_card.host_wide")}</div> : null}
-              {otherClient ? <div className="mt-1 text-[12px] font-medium leading-5 text-red-11" data-lawoss-other-client="">{otherClient}</div> : null}
+              <OtherClientWarning text={otherClient} />
+              {missingFolder ? <div className="mt-1 text-[12px] font-medium leading-5 text-amber-11" data-lawoss-missing-folder="">{missingFolder}</div> : null}
               {presentation.note ? (
                 <div className="mt-1 text-[12px] leading-5 text-dls-secondary">{presentation.note}</div>
               ) : null}
