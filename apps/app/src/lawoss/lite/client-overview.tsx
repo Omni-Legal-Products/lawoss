@@ -261,8 +261,8 @@ function CaseCardView({ matter, term, invalid, status, kind, todayIso, locale }:
       {matter.matterRef ? <span className="lw-today-ref">{matter.matterRef}</span> : null}
       {kind ? <span data-lawoss-matter-kind="">{kind}</span> : null}
     </span> : null}
-    <span className="lw-case-line">
-      <small>{t("lawoss.lite.card_phase", locale)}</small>
+    <span className="lw-case-line lw-case-phase" data-missing={status.phase ? undefined : ""} title={t("lawoss.lite.card_phase", locale)}>
+      <i aria-hidden className="lw-case-dot" />
       {status.phase ? <span>{status.phase}</span> : <em>{t("lawoss.lite.card_phase_missing", locale)}</em>}
       {status.stale ? <span className="lw-case-stale">{t("lawoss.lite.card_phase_stale", locale)}</span> : null}
     </span>
