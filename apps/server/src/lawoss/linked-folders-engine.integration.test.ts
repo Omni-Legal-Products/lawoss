@@ -79,7 +79,7 @@ test.skipIf(!binary)("klient A číta svoje pripojené priečinky a koreň aj z 
 
   /**
    * Chat v `directory` prečíta `file`: „read“ = prečítal bez otázky, „asked“ = otázka ostala používateľovi (zamietne sa),
-   * „rejected“ = plugin otázku odmietol sám (N-A7-14), nástroj nič nevrátil a agent dostal vetu o inom klientovi.
+   * „rejected“ = plugin otázku odmietol sám (nejednoznačný rozsah), nástroj nič nevrátil a agent dostal vetu bez rady povoliť.
    */
   const attempt = async (directory: string, file: string, tool?: { name: string; args: Record<string, string> }): Promise<"read" | "asked" | "rejected"> => {
     target = file;
@@ -102,9 +102,10 @@ test.skipIf(!binary)("klient A číta svoje pripojené priečinky a koreň aj z 
     const parts = z.array(z.object({ parts: z.array(z.object({ tool: z.string().optional(), state: z.object({ status: z.string(), output: z.string().optional(), error: z.string().optional() }).optional() })) }))
       .parse(await (await fetch(at(directory, `/session/${session.id}/message`))).json()).flatMap((message) => message.parts).filter((part) => part.tool === (tool?.name ?? "read"));
     if (parts[0]?.state?.status === "error") {
-      expect(parts[0].state.error).toContain("belongs to another client");
-      // Agent pokračuje a dostane vetu bez cesty a bez obsahu.
-      expect(toolResult).toContain("belongs to another client");
+      expect(parts[0].state.error).toMatch(/cannot be resolved/);
+      // Agent pokračuje a dostane vetu bez cesty, bez obsahu a bez rady povoliť priečinok (N-A8-2).
+      expect(toolResult).toMatch(/cannot be resolved/);
+      expect(toolResult).toContain("Never advise the user to allow");
       expect(toolResult).not.toContain("Obsah ");
       expect(toolResult).not.toContain(clientB);
       return "rejected";
@@ -131,16 +132,23 @@ test.skipIf(!binary)("klient A číta svoje pripojené priečinky a koreň aj z 
     expect(await attempt(clientB, files.linkedB)).toBe("read");
     // A nevidí B a nepripojený priečinok.
     expect(await attempt(clientA, files.linkedB)).toBe("asked");
-    // N-A7-14 (E2): súbor v priečinku iného klienta tej istej praxe sa odmietne bez karty, aj vzor `Hr*` hľadania.
-    expect(await attempt(clientA, files.clientB)).toBe("rejected");
-    expect(await attempt(matterA, files.clientB)).toBe("rejected");
-    expect(await attempt(clientA, files.clientB, { name: "glob", args: { pattern: "**/hron.md", path: join(root, "prax", "Klienti", "Hr*") } })).toBe("rejected");
+    // N-A7-14 (E2), rozhodnutie MČ 31. 10. 2026: súbor v priečinku iného klienta tej istej praxe aj vzor `Hr*` hľadania
+    // dostanú kartu (appka na nej varuje), nič sa neodmietne bez advokáta.
+    expect(await attempt(clientA, files.clientB)).toBe("asked");
+    expect(await attempt(matterA, files.clientB)).toBe("asked");
+    expect(await attempt(clientA, files.clientB, { name: "glob", args: { pattern: "**/hron.md", path: join(root, "prax", "Klienti", "Hr*") } })).toBe("asked");
     // Opačne tiež; vlastný klient a pripojený priečinok mimo praxe (E1) ostávajú bez karty.
-    expect(await attempt(clientB, files.clientA)).toBe("rejected");
-    // Registrované spisy toho istého klienta sa neodmietnu (ostane bežná karta); vzor cez celý priečinok klientov tiež nie.
+    expect(await attempt(clientB, files.clientA)).toBe("asked");
+    // Registrované spisy toho istého klienta sa neodmietnu (ostane bežná karta).
     expect(await attempt(matterA, files.matterA3)).toBe("asked");
     expect(await attempt(matterA2, files.matterA3)).toBe("asked");
+    // Vzor cez celý priečinok klientov aj priečinok klientov sám: karta s varovaním.
     expect(await attempt(clientA, files.clientB, { name: "glob", args: { pattern: "**/hron.md", path: join(root, "prax", "Klienti", "*") } })).toBe("asked");
+    expect(await attempt(clientA, files.clientB, { name: "glob", args: { pattern: "**/hron.md", path: join(root, "prax", "Klienti") } })).toBe("asked");
+    // Rozsah so znakmi `[ ]` a `{ }` sa normalizuje a vyhodnotí rovnako; čo sa normalizovať nedá (`{x..y}`), sa odmietne.
+    for (const folder of ["H[r]on", "{Hron,Iny}"])
+      expect(await attempt(clientA, files.clientB, { name: "glob", args: { pattern: "**/hron.md", path: join(root, "prax", "Klienti", folder) } })).toBe("asked");
+    expect(await attempt(clientA, files.clientB, { name: "glob", args: { pattern: "**/hron.md", path: join(root, "prax", "Klienti", "{Hron..Iny}") } })).toBe("rejected");
     expect(await attempt(clientA, files.linkedA2)).toBe("asked");
     // Server pripojí ďalší priečinok: platí hneď, bez reštartu enginu; odpojenie tiež.
     await writeMap([linkedA, linkedA2]);

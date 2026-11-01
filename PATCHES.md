@@ -8,6 +8,28 @@ Regresia N-A7 z 30. 10. 2026, nález N-A8-3: Podrobnosti ukazovali surový JSON 
 | --- | --- |
 | `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | +1 import a v `PermissionApprovalModal` aj `PermissionApprovalPanel` +1 hook `usePermissionDetails` (nový `apps/app/src/lawoss/lite/permission-details.tsx`); Podrobnosti ukážu jeho riadky namiesto JSON (2 riadky renderu: `presentation.details` → `details`). Pri `edit` súbor voči priečinku klienta a pridané/odobraté riadky, pri `external_directory` priečinok a súbor s popisom. Karta `lawoss_files` má svoje riadky ako doteraz; iné otázky ostávajú pri JSON. V `PermissionApprovalModal` aj blok „Kontrola“ (rozhodnutie MČ 31. 10.): 1 riadok `detailRows = useReviewRows(permissionDetailRows(metadata), …)`, súbor voči priečinku klienta a zmena bez hlavičiek diffu, pridané zelené, odobraté červené a prečiarknuté, najviac 200 riadkov; ostatné riadky bloku bez zmeny. |
 
+## Karta s varovaním pri priečinku iného klienta (aj v YOLO), neexistujúci priečinok a slovenské názvy nastavení pre agenta (2026-10-31)
+
+Regresia N-A7 z 30. 10. 2026 (N-A7-14 čiastočne, N-A8-2), rozhodnutie MČ z 31. 10. 2026 (koordinačná issue #134). Priečinok iného klienta rozpozná LAWOSS plugin `lawoss-linked-folders` a pravidlo `externalDirectoryOtherClient` (`apps/server/src/lawoss/linked-folders-rules.ts`) a nechá ho na karte; v YOLO sa engine chat agenta na priečinky pýta a plugin povolí bez karty všetko ostatné (`apps/server/src/lawoss/yolo-mode.ts`). Názvy nastavení pre model sú v novom `apps/server/src/lawoss/app-setting-names.ts`.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | +1 import a +1 hook `useMissingFolderText` (`apps/app/src/lawoss/lite/missing-folder.ts`), pod vetou o inom klientovi +1 riadok renderu: karta `external_directory` povie, že priečinok neexistuje. Riadok vety o inom klientovi nahradený komponentom `OtherClientWarning` (`apps/app/src/lawoss/lite/other-client-warning.tsx`, +1 import): výrazné varovanie v červenom rámčeku s ikonou. |
+| `apps/server/src/server.ts` | +1 import a v `agentRules` sandboxu 2 riadky: `yoloShellAgentRules` (`apps/server/src/lawoss/yolo-mode.ts`) v režime YOLO vynechá pre chat agenta pravidlá „ask“ na `external_directory`. To je v súbore enginu len preto, aby plugin videl žiadosť o priečinok iného klienta; spravovaný shell ostane v YOLO bez otázky ako doteraz. Ostatní agenti a odmietnutia ostávajú. |
+| `apps/desktop/electron/main.mjs`, `packages/types/src/desktop-ipc.ts`, `apps/desktop/package.json` | +1 import a +1 handler `lawossFolderState` (nový `apps/desktop/electron/lawoss-folder-state.mjs`), +1 záznam v `DesktopCommandMap`, test v zozname `test`. Renderer nevie overiť cestu mimo pracovných priestorov; odpoveď dostane len okno appky, nie agent ani server (žiadny nový zdroj, z ktorého by model zistil, ktoré priečinky klientov existujú). |
+| `apps/server/src/opencode-plugins/legalwork-capabilities-knowledge.ts` | Sekcia „Fixing Authorized Folders“ (`Settings > Permissions`, „authorize the specific folder or its parent“) nahradená jednou vetou bez názvu nastavení a so zákazom radiť povolenie nadradeného priečinka, priečinka s inými klientmi alebo iného klienta (+1 komentár). Model podľa nej radil povoliť nadradený priečinok v „Settings > Permissions“. Ostatné anglické názvy v tomto upstream prompte prekrýva pevné pravidlo LAWOSS v `lawoss-linked-folders` (`APP_NAMES_SYSTEM`). |
+| `apps/app/tests/tool-runs.test.tsx` | 2 riadky: krok `inapp_pptx_read` sa už nevolá „Running inapp pptx read“, ale „Reading the document“ (`apps/app/src/lawoss/chat/tool-labels.ts`, N-A8-2: „Spúšťanie inapp markdown create“). |
+
+## Zoznam chatov klienta bez chatov subagentov (2026-10-31, N-A8-4)
+
+Regresia 30. 10. 2026: stránka „Chaty“ klienta ukazovala „Prečítať textové súbory … (@general subagent) · Vetva · Prebieha“. Engine 1.18.29 dáva `parentID` len chatu subagenta (nástroj `task`); „Rozvetviť do nového chatu“ (`session.fork`) zakladá chat bez `parentID`. Upstream bočný panel subagentov už skrýva (`sidebarSessionGroups`), stránka „Chaty“ nie.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/workspace/project-sessions-page.tsx` | +1 import, +1 podmienka vo filtri `sessions`: `isListedClientChat(session)` z nového `apps/app/src/lawoss/chat/listed-chats.ts` vynechá chaty s `parentID`. Ikona a text „Vetva“ pri `parentID` ostávajú v upstream kóde bez zmeny (už sa neukážu). Upstream `upstream/dev` má stránku stále bez filtra. |
+
+Nový LAWOSS súbor: `apps/app/src/lawoss/chat/listed-chats.ts` + test `apps/app/tests/lawoss-chaty-bez-subagentov.test.tsx`.
+
 ## Sandbox VM pod softvérovou emuláciou nepanikári pri štarte (2026-10-29)
 
 CI `sandbox-runtime (macos-15-intel)` beží bez hypervízora (`[sandbox] tcg`). V 3 z 9 zlyhaní z 20.–28. 10. 2026 jadro hosťa padlo hneď pri štarte: „MP-BIOS bug: 8254 timer not connected to IO-APIC … Kernel panic … IO-APIC + timer doesn't work!“. Kontrola časovača jadra x86 pri pomalej emulácii nestihne svoje okno. Rovnaký `tcg` použije aj počítač používateľa bez hypervízora (napr. Windows bez WHPX).
@@ -48,6 +70,7 @@ Rozhodnutie MČ 28. 10. 2026: variant C návrhu k N-A7-9. Engine 1.18.29 vracia 
 | --- | --- |
 | `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `handleRevertToUserMessage` a `handleEditUserMessage` sa pred `onRevertToMessage` opýtajú cez `confirmChatTrim()` (Zrušiť / Rozvetviť do nového chatu / Skrátiť rozhovor, pri úprave Zrušiť / Upraviť). Rozvetvenie dostane prvú odstránenú otázku, takže nový chat obsahuje skrátený rozhovor a pôvodný ostane celý. Po skrátení krátke hlásenie, že súbory sa nezmenili. |
 | `apps/app/src/react-app/shell/providers.tsx` | Pripája `ChatTrimConfirmHost` vedľa `ProviderOverwriteConfirmHost`. |
+| `apps/app/src/components/chat/tool-run.tsx` | N-A8-5 (rozhodnutie MČ 31. 10. 2026): +1 import; číslo v hlavičke krokov je `toolRunStepCount(tools)` z LAWOSS súboru `lawoss/chat/file-changes.ts` namiesto `tools.length`. Dávka `lawoss_files` sa ráta po vykonaných zmenách tou istou funkciou ako okno „Skrátiť rozhovor?“ (zamietnutá alebo neúspešná 0, čakajúca 1), ostatné kroky po jednom. Test `apps/app/tests/lawoss-chat-kroky-pocet.test.tsx`. |
 
 ## Správa z frontu po reštarte appky (2026-10-28, N-A7-17)
 
@@ -55,7 +78,9 @@ Rozhodnutie MČ 28. 10. 2026: variant C návrhu k N-A7-9. Engine 1.18.29 vracia 
 
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
-| `apps/server/src/session-message-queue.ts` | `load()`: front obnovený po reštarte s čakajúcou správou (`queued`) sa pozastaví (`pauseReason: "stop"`) a sám nič nedoručí. Advokát vidí „Front je pozastavený“ s tlačidlom „Obnoviť front“; to alebo jeho ďalšia správa v chate (`POST …/queue`) zaregistruje chat s jeho rozsahom a až potom sa správa doručí. Doručenie na pozadí tak nepripne proces enginu ku klientovi (`clientRoot`) ani nezníži `credentialScope`. Už pozastavený front a položky `uncertain` sa správajú ako doteraz. |
+| `apps/server/src/session-message-queue.ts` | `load()`: front obnovený po reštarte s čakajúcou správou (`queued`) sa pozastaví (`pauseReason: "stop"`) a sám nič nedoručí. Advokát vidí „Front je pozastavený“ s tlačidlom „Obnoviť front“; to alebo jeho ďalšia správa v chate (`POST …/queue`) zaregistruje chat s jeho rozsahom a až potom sa správa doručí. Doručenie na pozadí tak nepripne proces enginu ku klientovi (`clientRoot`) ani nezníži `credentialScope`. Doplnok 31. 10. (regresia 30. 10., N-A7-17): v appke ide cez front aj bežiaca prvá správa, po reštarte je `uncertain` s pauzou `error`, ktorú `tick()` po potvrdení enginom sám zruší. Preto aj taký front s čakajúcou správou dostane pauzu `stop`; regresia v `apps/server/src/lawoss/queue-restart-running-message.e2e.test.ts`. Pauza od používateľa a front s položkou `failed` sa správajú ako doteraz. Pauza z `load()` dostane aj značku `restartPause`: `interrupted`, keď front obsahuje prerušené doručenie (`uncertain`), inak `waiting`. Značka ostane aj po potvrdení prvej správy a zmizne pri „Obnoviť front“, „Zastaviť“ aj pri ďalšej správe advokáta (`act()`, +3 riadky). Rozhodnutie MČ 31. 10.: text o reštarte len pri tejto pauze. |
+| `packages/types/src/session-queue.ts` | `sessionQueueSchema`: voliteľné pole `restartPause: "interrupted" \| "waiting"` (+1 pole). Staršia verzia ho pri načítaní zahodí, súbor frontu ostane platný. |
+| `apps/app/src/react-app/domains/session/surface/use-session-message-queue.ts`, `session-surface.tsx`, `../modals/queued-messages-panel.tsx` | Hook vráti `restartPause` pozastaveného frontu (+1 riadok), plocha ho podá panelu (+1 prop). Panel namiesto „Front je pozastavený“ ukáže `lawoss.queue.paused_after_restart` („… Prvá úloha bola prerušená, skontrolujte jej výsledok a front potom obnovte.“), pri `waiting` kratšie `lawoss.queue.paused_after_restart_waiting` bez vety o prerušenej úlohe. Riadok sa môže zalomiť (`min-h-7`, tlačidlo `shrink-0`). Texty sú v `apps/app/src/lawoss/i18n/shell.ts` (EN, CS, SK, DE). |
 | `apps/server/src/wiki/agent-access.ts` | Neznámy chat dostane namiesto „Run this task through an authenticated LegalWork session before accessing wikis.“ vetu `CHAT_NOT_REGISTERED` pre model: úlohu zastaviť a advokátovi povedať v jeho jazyku, bez kódov, že po reštarte ju treba poslať znova. Kód chyby ostáva. |
 
 ## Jeden dialóg pri zahodení zmien v dokumente (2026-10-28, N-A7-16)
@@ -1637,6 +1662,14 @@ Nové LAWOSS súbory: `apps/server/src/lawoss/moved-practice.ts` (náhľad prepo
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
 | `apps/app/src/app/lib/legalwork-server.ts` | +1 import typu `MovedFolderApiPath`, +1 metóda `lawossMovedFolder(path, body)` volajúca hostové `/lawoss/onboarding/moved-folder`, `/lawoss/onboarding/moved-practice` a `/lawoss/onboarding/reconnected` (rovnaký `requestJson` a host token ako onboarding). Dôvod: N-A7-1, „Nájsť presunutý priečinok“ na stránke Dnes prepojí klientov presunutej praxe namiesto ich nového pridania. |
+
+### Pruh „Priebeh“ len počas behu (2026-10-31, fix/priebeh-pruh-po-behu, N-A8-6)
+
+Nález N-A8-6 z regresie 30. 10. 2026: po skončení behu ostal nad composerom pruh „Priebeh · 1/3“ a advokát si mohol myslieť, že úloha ešte beží. Upstream (aj `v0.3.5`) ukazuje pruh, kým má plán agenta nedokončený krok, bez ohľadu na beh. Pravidlo je v novom súbore `apps/app/src/lawoss/chat/plan-bar.ts` (`planBarVisible`), test `apps/app/tests/lawoss-priebeh-po-behu.test.tsx`.
+
+| Súbory | Zmena a dôvod |
+|---|---|
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `hasActivePlan` sa počíta až za `chatStreaming` cez `planBarVisible(props.todos ?? [], chatStreaming)` namiesto `hasUnfinishedTodos(...)` (+1 import, presun 1 riadku, +1 komentár). Pruh aj jeho miesto nad composerom sú len počas behu (odosielanie, beh, opakovanie, čakanie na povolenie či odpoveď). `todo-panel.tsx` sa nemení. |
 
 ### Pripnutý QEMU 11.1.2 pre Windows runtime (2026-10-31, fix/ci-qemu-11-1-2-pin)
 

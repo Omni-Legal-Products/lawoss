@@ -84,7 +84,7 @@ export class LawossDocuments {
   }
   /** LAWOSS: zdroj mimo koreňa klienta smie byť len v jeho práve pripojenom priečinku; inak sa nič nečíta. */
   private async linkedSource(workspace: WorkspaceInfo, requested: string): Promise<string> {
-    const notLinked = () => new ApiError(403, "document_folder_not_linked", "This file is outside this client's folder and its linked folders. Nothing was read. If the folder belongs to this client, the user can link it under Linked folders on the client's overview; otherwise work only with this client's own folders.");
+    const notLinked = () => new ApiError(403, "document_folder_not_linked", "This file is outside this client's folder and its linked folders. Nothing was read. If the folder belongs to this client, the user can link it under Pripojené priečinky (Připojené složky) on the client's overview; otherwise work only with this client's own folders.");
     const canonical = await canonicalPath(requested);
     const folders = await this.linkedFolders(workspace);
     if (!folders.some(folder => within(folder, canonical))) throw notLinked();

@@ -2,7 +2,7 @@
  * Datový model obrazovky „Dnes" a seskupení věcí podle klienta pro LAWOSS-lite.
  * Čistá funkce nad již načteným přehledem (`OkfReadResult`) - nesiaha na disk.
  */
-import { addDays, daysBetween, deadlineKey, deadlineTier, lastSegment, recordKey, scopeLevels, type DeadlineTier, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
+import { addDays, daysBetween, deadlineKey, deadlineTier, lastSegment, recordKey, scopeLevels, taskDue, type DeadlineTier, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
 import type { PendingInput } from "../../../../../lawoss/okf/inputs";
 import { unfiledInputs } from "./inputs-model";
 import { clientFromPath } from "../../../../../lawoss/okf/cockpit";
@@ -60,6 +60,13 @@ export function caseDates(tasks: readonly TodayTask[], todayIso: string, days: n
     return [{ ...task, due, daysLeft: daysBetween(todayIso, due) }];
   })
     .sort((a, b) => a.due.localeCompare(b.due) || a.title.localeCompare(b.title, "cs"));
+}
+/**
+ * N-A7-4 (rozhodnutie MČ 31. 10. 2026): úloha prípadu s neplatným dátumom („31. 2. 2026“) patrí aj navrch „Termínov
+ * z prípadov“ s výzvou „overiť dátum“, nie len do „Otvorených úloh“. Úloha bez dátumu nie je neplatná.
+ */
+export function invalidCaseDates(tasks: readonly TodayTask[]): TodayTask[] {
+  return tasks.filter((task) => !task.app && taskDue(task.due).invalid);
 }
 /**
  * Riadky „Termínov z prípadov“, keď sa všetky nezmestia (#276): miesto dostane najprv termín dnes a zajtra, potom

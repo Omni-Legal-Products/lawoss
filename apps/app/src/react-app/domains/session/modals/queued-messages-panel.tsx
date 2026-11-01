@@ -16,6 +16,8 @@ export type QueuedMessagesPanelProps = {
   editingId?: string;
   onCancelEdit: () => void;
   paused: boolean;
+  /** LAWOSS (N-A7-17): the server paused the queue after an app restart. */
+  restartPause?: "interrupted" | "waiting";
   onResume: () => void;
   disabled: boolean;
   /** LAWOSS: opens Settings → AI Providers for an entry refused by AI hranice. */
@@ -43,9 +45,9 @@ export function QueuedMessagesPanel(props: QueuedMessagesPanelProps) {
       aria-label={t("composer.queued_count", { count: props.messages.length })}
       className="mx-3 -mb-3 rounded-t-[18px] border border-b-0 border-border/70 bg-background/90 px-1.5 pt-1 pb-3"
     >
-      {props.paused && props.messages.length > 0 && <div className="flex h-7 items-center justify-between gap-3 px-2 text-xs text-muted-foreground">
-        <span>{t("composer.queue_paused")}</span>
-        <Button variant="ghost" size="xs" disabled={props.disabled || props.messages.some(item => item.status === "uncertain" || item.locked) || Boolean(props.editingId)} onClick={props.onResume}>
+      {props.paused && props.messages.length > 0 && <div className="flex min-h-7 items-center justify-between gap-3 px-2 text-xs text-muted-foreground">
+        <span>{t(props.restartPause === "interrupted" ? "lawoss.queue.paused_after_restart" : props.restartPause === "waiting" ? "lawoss.queue.paused_after_restart_waiting" : "composer.queue_paused")}</span>
+        <Button variant="ghost" size="xs" className="shrink-0" disabled={props.disabled || props.messages.some(item => item.status === "uncertain" || item.locked) || Boolean(props.editingId)} onClick={props.onResume}>
           <Play className="size-3" />{t("composer.resume_queue")}
         </Button>
       </div>}

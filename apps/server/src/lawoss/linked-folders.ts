@@ -21,6 +21,7 @@ import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { canonicalPath, folderOfGrant, isOfficeMemoryFolder, LINKED_FOLDERS_MAP_FILE, linkedFolderConflict, type LinkedFolderConflict, type LinkedFoldersMap } from "./linked-folders-rules.js";
 import { surveyLinkedFolder } from "./linked-folder-survey.js";
 import { isPathWithin } from "./path-within.js";
+import { yoloModeActive } from "./yolo-mode.js";
 
 export function linkedFoldersMapPath(config: ServerConfig): string {
   return join(runtimeStorageDir(config), LINKED_FOLDERS_MAP_FILE);
@@ -110,7 +111,7 @@ async function conflictScope(config: ServerConfig, workspace: WorkspaceInfo) {
 
 const conflictErrors: Record<LinkedFolderConflict, () => ApiError> = {
   relative: () => new ApiError(400, "linked_folder_relative", "Use an absolute folder path."),
-  app_data: () => new ApiError(409, "linked_folder_app_data", "This folder is inside or contains LegalWork application data and cannot be linked."),
+  app_data: () => new ApiError(409, "linked_folder_app_data", "This folder is inside or contains LAWOSS application data and cannot be linked."),
   other_client: () => new ApiError(409, "linked_folder_other_client", "This folder belongs to another client and cannot be linked."),
   practice: () => new ApiError(409, "linked_folder_practice", "Folders of the practice cannot be linked. Link a folder outside the practice."),
 };
@@ -142,7 +143,10 @@ export async function clientCardFolder(root: string, practice: string | null): P
   return null;
 }
 
-/** Mapa pre plugin: kanonický koreň každého lokálneho klienta, jeho pripojené priečinky bez kolízií a priečinok klienta s kartou. */
+/**
+ * Mapa pre plugin: kanonický koreň každého lokálneho klienta, jeho pripojené priečinky bez kolízií, priečinok klienta
+ * s kartou a či je zapnutý režim YOLO (zapíše sa s každým súborom enginu, teda aj po prepnutí YOLO).
+ */
 export async function buildLinkedFoldersMap(config: ServerConfig): Promise<LinkedFoldersMap> {
   const firm = await appliedOrgPolicy(config, "tools.permissions").catch(() => null);
   if (firm?.value.external_directory !== undefined) return { version: 1, officeRoot: null, clients: [], firmManaged: true };
@@ -152,7 +156,7 @@ export async function buildLinkedFoldersMap(config: ServerConfig): Promise<Linke
     const linked = await clientLinkedFolders(config, workspace);
     if (linked) clients.push({ ...linked, client: await clientCardFolder(linked.root, practice) });
   }
-  return { version: 1, officeRoot: practice, clients, firmManaged: false };
+  return { version: 1, officeRoot: practice, clients, firmManaged: false, ...(await yoloModeActive(config) ? { yolo: true } : {}) };
 }
 
 /** Kanonický koreň klienta a jeho pripojené priečinky z natívneho zoznamu, ktoré prejdú pravidlami; bez koreňa `null`. */

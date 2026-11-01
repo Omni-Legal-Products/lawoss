@@ -171,8 +171,10 @@ function Strip({ sections, locale, access, failed }: { sections: readonly ViewSe
   return <dl className="lw-views-strip" data-lawoss-views-strip="">
     {sections.map((section) => <div key={section.id} data-section={section.id} data-status={section.status}>
       <dt>{t(SECTION_TITLE[section.id], locale)}</dt>
-      <dd>{section.status === "recorded" ? section.items.slice(0, 1).map((item) => <span key={item.key} className="lw-views-strip-item">
+      {/* N-A7-4: k najbližšiemu termínu aj každý neplatný dátum („? 31. 2. 2026 · overiť dátum“). */}
+      <dd>{section.status === "recorded" ? section.items.filter((item, i) => i === 0 || item.flags?.includes("invalid")).map((item) => <span key={item.key} className="lw-views-strip-item">
         <span>{item.label}{item.date && ISO.test(item.date) && section.id === "next_date" ? ` · ${shortDay(item.date, locale)}` : ""}</span>
+        {item.flags?.includes("invalid") ? <span className="lw-matter-chip" data-invalid="">{`? ${item.date?.trim() ?? ""}`.trim()}</span> : null}
         {(item.flags ?? []).map((flag) => <span key={flag} className="lw-matter-flag" data-flag={flag}>{t(FLAG_TEXT[flag], locale)}</span>)}
         <SourceLink source={item.source} locale={locale} access={access} />
       </span>) : <span className="lw-views-missing">{t(failed ? "lawoss.lite.ov_not_loaded" : "lawoss.lite.ov_not_recorded", locale)}</span>}</dd>

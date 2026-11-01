@@ -1,5 +1,5 @@
 import { registerAiGovernanceRoutes } from "./lawoss/ai-governance-routes.js";
-import { registerYoloModeRoutes } from "./lawoss/yolo-mode.js";
+import { registerYoloModeRoutes, yoloModeActive, yoloShellAgentRules } from "./lawoss/yolo-mode.js";
 import { engineAgent, registerFileOperationRoutes } from "./lawoss/file-operations.js";
 import { ProtectedDocumentRuntime } from "./lawoss/protected-ai/runtime.js";
 import { protectedGuestBundleFactory } from "./lawoss/protected-ai/bundle.js";
@@ -1058,7 +1058,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: { schedu
       // Built-in host shell and web tools stay denied. Managed tools carry
       // the original permissions under their separate identities.
       const engineConfig = unwrapOpencodeResult(await client.config.get(), "/config");
-      return managedPermissionRules(explicitFileApprovals(agent.permission, [engineConfig.permission, engineConfig.agent?.[agentName]?.permission]), session.permission ?? []);
+      const rules = managedPermissionRules(explicitFileApprovals(agent.permission, [engineConfig.permission, engineConfig.agent?.[agentName]?.permission]), session.permission ?? []);
+      // LAWOSS: in YOLO the chat agent's folder „ask“ is for the linked-folders plugin only; the shell keeps the YOLO allow.
+      return yoloShellAgentRules(rules, agentName, await yoloModeActive(config));
     },
   });
   const guardWikiWorkspace = async (actor: Actor | undefined, workspaceId: string, method: string) => {

@@ -44,7 +44,7 @@ export const queueExecutionSchema = z.discriminatedUnion("kind", [
 export const queueInputSchema = z.object({ id: z.string().uuid(), draft: queuedDraftSchema, execution: queueExecutionSchema, editToken: z.string().uuid().optional() });
 export const queueEditSchema = z.object({ token: z.string().uuid(), expires: z.number() });
 export const queueEntrySchema = queueInputSchema.omit({ editToken: true }).extend({ status: z.enum(["queued", "sending", "failed", "uncertain"]), edit: queueEditSchema.optional(), lastEditToken: z.string().optional(), error: z.string().optional() });
-export const sessionQueueSchema = z.object({ workspaceId: z.string(), sessionId: z.string(), revision: z.number(), paused: z.boolean(), pauseReason: z.enum(["stop", "error"]).optional(), resumeRevision: z.number().optional(), completedIds: z.array(z.string()).default([]), entries: z.array(queueEntrySchema) });
+export const sessionQueueSchema = z.object({ workspaceId: z.string(), sessionId: z.string(), revision: z.number(), paused: z.boolean(), pauseReason: z.enum(["stop", "error"]).optional(), restartPause: z.enum(["interrupted", "waiting"]).optional(), resumeRevision: z.number().optional(), completedIds: z.array(z.string()).default([]), entries: z.array(queueEntrySchema) });
 export const queueActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("enqueue"), ...queueInputSchema.shape }),
   z.object({ type: z.literal("pause"), paused: z.boolean(), reason: z.literal("stop").optional() }),

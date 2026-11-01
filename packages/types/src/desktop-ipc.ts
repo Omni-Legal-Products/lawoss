@@ -599,6 +599,8 @@ export type DesktopCommandMap = {
   };
   // 🟡 LAWOSS: napísaná alebo vložená cesta v tvare ako z `pickDirectory` s `canonical` (Windows), inak bez zmeny.
   canonicalDirectoryPath: { args: [value: string]; result: string };
+  // 🟡 LAWOSS (N-A7-14): či priečinok z karty `external_directory` existuje; len pre okno appky.
+  lawossFolderState: { args: [path: string]; result: "dir" | "other" | "missing" | null };
   pickFile: {
     args: [
       options?: {

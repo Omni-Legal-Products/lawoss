@@ -80,6 +80,8 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
   }, [client.baseUrl, workspaceId, sessionId]);
   return {
     ready: query.isSuccess, error: query.error,
+    // LAWOSS (N-A7-17): the panel explains a pause the server set after an app restart.
+    restartPause: query.data?.paused && query.data.pauseReason === "stop" ? query.data.restartPause : undefined,
     enqueue: async (draft: ComposerDraft, send: (input: Omit<QueueInput, "execution">) => Promise<void>, preparedEditor?: ComposerSessionState) => {
       const editor = preparedEditor ?? useComposerStateStore.getState().sessions[sessionId];
       const snapshot = await snapshotQueuedDraft(draft, editor);

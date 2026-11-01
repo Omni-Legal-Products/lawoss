@@ -4,6 +4,7 @@ import { appliedOrgPolicy } from "../org-policy.js";
 import { addRoute, type Route } from "../routes/registry.js";
 import { GLOBAL_TOOL_PERMISSIONS_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
+import { CHAT_AGENT } from "./linked-folders-rules.js";
 
 /**
  * „YOLO Mode" (owner decision MČ 20. 10. 2026): the agent moves, renames, edits,
@@ -24,7 +25,8 @@ import type { ServerConfig } from "../types.js";
 export type YoloMode = { enabled: boolean; locked: boolean; source: "default" | "user" | "organization" };
 
 /** Device-wide, never per client: one engine config file serves every client folder. The folder
- * rule stays a bare `*` key, which the linked-folders plugin leaves in place. */
+ * rule stays a bare `*` key, which the linked-folders plugin leaves in place; for the chat agent's
+ * engine rule it is „ask“, answered by the plugin (`yoloPermissions`). */
 const YOLO_TOOLS = ["edit", "bash", "external_directory"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -43,9 +45,35 @@ function yoloRule(own: unknown, tool: (typeof YOLO_TOOLS)[number]): unknown {
   return { "*": "allow", ...Object.fromEntries(denied) };
 }
 
-/** The allow rules for the chat agent while YOLO Mode is on, derived from the rules in effect. */
-export function yoloPermissions(permission: Record<string, unknown>): Record<string, unknown> {
+/** The allow rules while YOLO Mode is on, derived from the rules in effect (the managed shell's own read). */
+function yoloRules(permission: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(YOLO_TOOLS.map((tool) => [tool, yoloRule(permission[tool], tool)]));
+}
+
+/**
+ * The chat agent's engine rules while YOLO Mode is on. Folders outside the chat still ask the engine
+ * (owner decision MČ 31. 10. 2026): the linked-folders plugin answers „once“ for this agent without a
+ * card, except a folder of another client or one holding other clients' folders, which keeps its card
+ * with a warning. A tool the lawyer forbade or allowed outright keeps that rule; denied patterns follow.
+ */
+export function yoloPermissions(permission: Record<string, unknown>): Record<string, unknown> {
+  const rules = yoloRules(permission);
+  const folders = rules.external_directory;
+  const own = permission.external_directory;
+  const allowedOutright = own === "allow" || (isRecord(own) && own["*"] === "allow");
+  if (!isRecord(folders) || folders["*"] !== "allow" || allowedOutright) return rules;
+  return { ...rules, external_directory: { ...folders, "*": "ask" } };
+}
+
+/**
+ * The managed shell's whole-command folder check reads the agent's engine rules too. While YOLO Mode
+ * is on, the chat agent's folder „ask“ rules there exist only for the plugin (before, YOLO's trailing
+ * `*` allow overrode them, scoped ones included), so the shell skips them and keeps the YOLO allow;
+ * denials still apply. Other agents keep their rules.
+ */
+export function yoloShellAgentRules<T extends { permission: string; pattern: string; action: string }>(rules: T[], agent: string | undefined, enabled: boolean): T[] {
+  if (!enabled || agent !== CHAT_AGENT) return rules;
+  return rules.filter((rule) => !(rule.permission === "external_directory" && rule.action === "ask"));
 }
 
 const LOCKED: YoloMode = { enabled: false, locked: true, source: "organization" };
@@ -89,7 +117,7 @@ async function clearYoloFlag(config: ServerConfig): Promise<void> {
  */
 export function applyYoloPermissions(permission: Record<string, unknown>, enabled: boolean): Record<string, unknown> {
   if (!enabled) return permission;
-  const rules = yoloPermissions(permission);
+  const rules = yoloRules(permission);
   const next = { ...permission };
   for (const tool of YOLO_TOOLS) delete next[tool];
   return { ...next, ...rules };

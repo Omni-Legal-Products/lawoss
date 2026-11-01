@@ -13,7 +13,7 @@ import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, runtimeStorageD
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { linkedFoldersMapPath, writeLinkedFoldersMap } from "./linked-folders.js";
 import { parseLinkedFoldersMap } from "./linked-folders-rules.js";
-import { writeYoloMode } from "./yolo-mode.js";
+import { writeYoloMode, yoloModeActive, yoloShellAgentRules } from "./yolo-mode.js";
 
 /**
  * YOLO Mode (#198) a pripojené priečinky klienta (#199) spolu v pribalenom engine: produkčná mapa
@@ -21,7 +21,8 @@ import { writeYoloMode } from "./yolo-mode.js";
  * (`legalwork-sandbox`, `lawoss-linked-folders`) a mapa pripojených priečinkov zo servera.
  * Klient A má pripojený priečinok L mimo svojho koreňa, klient B nie.
  * - YOLO vypnutý: chat A číta L bez otázky (plugin), `mv` z A do L sa pýta (`sandbox.bash`), odmietnuté, nič sa nepresunie.
- * - YOLO zapnutý: chat A presunie súbor z A do L bez otázky, v L sú tie isté bajty.
+ * - YOLO zapnutý: chat A presunie súbor z A do L bez otázky, v L sú tie isté bajty. Nepripojený priečinok mimo klientov
+ *   číta bez karty (odpovie plugin), priečinok klienta B len po karte (rozhodnutie MČ 31. 10. 2026).
  * - YOLO zapnutý, plánovaný beh: stále sa pýta, nič sa nepresunie.
  * - YOLO znova vypnutý: chat B sa pri čítaní L pýta (ochrana medzi klientmi platí aj po prepnutí); A číta L ďalej bez otázky.
  * Voliteľný: potrebuje zostavené pluginy servera a binárku enginu.
@@ -50,6 +51,13 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("YOLO Mode a prip
   await writeFile(join(clientA, "zmluva.txt"), contract);
   await writeFile(join(clientA, "dodatok.txt"), addendum);
   await writeFile(join(linked, "vzor.md"), "Obsah vzoru zmluvy");
+  // Karty klientov: plugin tak vie, že Hron je iný klient ako Tatran (N-A7-14).
+  await writeFile(join(clientA, "client.md"), "# SYN Tatran\n");
+  await writeFile(join(clientB, "client.md"), "# SYN Hron\n");
+  await writeFile(join(clientB, "hron.md"), "Obsah klienta Hron");
+  const outside = join(root, "Iné");
+  await mkdir(outside, { recursive: true });
+  await writeFile(join(outside, "poznamka.md"), "Obsah poznámky mimo klientov");
   const previousDb = process.env.LEGALWORK_RUNTIME_DB;
   process.env.LEGALWORK_RUNTIME_DB = join(root, "private", "runtime.sqlite");
   const workspaces: WorkspaceInfo[] = [
@@ -63,7 +71,8 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("YOLO Mode a prip
   };
   // Advokát sa pýta pred úpravami a príkazmi; klient A má pripojený priečinok L (natívny zápis riadku klienta).
   await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { edit: "ask", bash: "ask" } }));
-  await writeRuntimeOpencodeConfig(config, "ws_a", (current) => ({ ...current, permission: { external_directory: { [`${linked}/*`]: "allow" } } }));
+  // Aj vlastné „pýtať sa“ pre jeden priečinok: v YOLO sa naň spravovaný shell nepýta (ako doteraz).
+  await writeRuntimeOpencodeConfig(config, "ws_a", (current) => ({ ...current, permission: { external_directory: { [`${linked}/*`]: "allow", [`${join(root, "Archív")}/*`]: "ask" } } }));
   const hostApprovals: string[] = [];
   const approvals: ApprovalService = new ApprovalService(config.approval, undefined, () => queueMicrotask(() => {
     for (const request of approvals.list()) { hostApprovals.push(request.action); approvals.respond(request.id, "deny"); }
@@ -89,8 +98,9 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("YOLO Mode a prip
       const agents = agentRuleSchema.parse(await (await fetch(at(workspace.path, "/agent"))).json());
       const engineConfig = z.object({ permission: z.unknown(), agent: z.record(z.string(), z.object({ permission: z.unknown() }).partial()).optional() })
         .parse(await (await fetch(at(workspace.path, "/config"))).json());
-      const rules: AgentPermissionRule[] = managedPermissionRules(explicitFileApprovals(agents.find(agent => agent.name === command.agent)?.permission ?? [],
-        [engineConfig.permission, engineConfig.agent?.[command.agent]?.permission]), []);
+      // Ako server (`server.ts` agentRules): v YOLO je „ask“ chat agenta na priečinky len pre plugin, nie pre shell.
+      const rules: AgentPermissionRule[] = yoloShellAgentRules(managedPermissionRules(explicitFileApprovals(agents.find(agent => agent.name === command.agent)?.permission ?? [],
+        [engineConfig.permission, engineConfig.agent?.[command.agent]?.permission]), []), command.agent, await yoloModeActive(config));
       try { return Response.json(await service.run(workspace, { ...command, timeoutMs: 10000 }, { type: "host" }, request.signal, rules, [command.sessionID])); }
       catch (error) { return Response.json({ code: error instanceof ApiError ? error.code : "failed" }, { status: error instanceof ApiError ? error.status : 500 }); }
     }
@@ -104,6 +114,8 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("YOLO Mode a prip
   } });
 
   const read: ToolCall = { name: "read", args: { filePath: join(linked, "vzor.md") } };
+  const readOutside: ToolCall = { name: "read", args: { filePath: join(outside, "poznamka.md") } };
+  const readOtherClient: ToolCall = { name: "read", args: { filePath: join(clientB, "hron.md") } };
   const move = (file: string): ToolCall => ({ name: "legalwork_shell", args: { command: `mv ${file} '${linked}/${file}'`, description: "Presuň do pripojeného priečinka", write: true } });
   const exists = (path: string) => access(path).then(() => true, () => false);
 
@@ -198,7 +210,7 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("YOLO Mode a prip
   try {
     // Mapa od servera: L patrí len klientovi A.
     await writeLinkedFoldersMap(config);
-    expect(parseLinkedFoldersMap(JSON.parse(await readFile(linkedFoldersMapPath(config), "utf8")))?.clients).toEqual([{ root: clientA, folders: [linked], client: null }, { root: clientB, folders: [], client: null }]);
+    expect(parseLinkedFoldersMap(JSON.parse(await readFile(linkedFoldersMapPath(config), "utf8")))?.clients).toEqual([{ root: clientA, folders: [linked], client: clientA }, { root: clientB, folders: [], client: clientB }]);
 
     // 1. YOLO vypnutý, chat A.
     const off = await runPhase("off", clientA, async () => ({
@@ -227,15 +239,18 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("YOLO Mode a prip
     const on = await runPhase("on", clientA, async () => ({
       rule: await engineFolderRule(clientA, "legalwork"), scheduledRule: await engineFolderRule(clientA, "legalwork-scheduled-all"),
       move: await attempt(clientA, "legalwork", [move("zmluva.txt")]), approvals: [...hostApprovals], shellCalls: [...shellCalls],
+      outside: await attempt(clientA, "legalwork", [readOutside]), otherClient: await attempt(clientA, "legalwork", [readOtherClient]),
       scheduled: await (async () => { hostApprovals.length = 0; shellCalls.length = 0;
         const result = await attempt(clientA, "legalwork-scheduled-all", [move("dodatok.txt")]);
         return { ...result, approvals: [...hostApprovals], shellCalls: [...shellCalls] }; })(),
     }));
     // YOLO ide len na chat agenta; spoločný súbor ostáva bez L a plánované behy bez povolenia všetkého.
     expect(Object.keys(sharedFolders(on.production))).not.toContain(`${linked}/*`);
-    expect(agentFolders(on.production, "legalwork")).toEqual({ "*": "allow" });
+    // Engine sa chat agenta na priečinky mimo chatu pýta, aby plugin videl iného klienta; ostatné povolí sám.
+    expect(agentFolders(on.production, "legalwork")).toEqual({ "*": "ask" });
     expect(agentFolders(on.production, "legalwork-scheduled-all")).not.toEqual({ "*": "allow" });
-    expect(on.result.rule).toBe("allow");
+    expect(parseLinkedFoldersMap(JSON.parse(await readFile(linkedFoldersMapPath(config), "utf8")))?.yolo).toBe(true);
+    expect(on.result.rule).toBe("ask");
     expect(on.result.scheduledRule).not.toBe("allow");
     expect(on.result.move.prompts).toEqual([]);
     expect(on.result.move.events).toEqual([]);
@@ -244,6 +259,15 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("YOLO Mode a prip
     expect(on.result.move.tools.map(part => [part.tool, part.status])).toEqual([["legalwork_shell", "completed"]]);
     expect((await readFile(join(linked, "zmluva.txt"))).equals(contract)).toBe(true);
     expect(await exists(join(clientA, "zmluva.txt"))).toBe(false);
+    // Nepripojený priečinok mimo klientov: bez karty (engine sa spýtal, plugin povolil „once“).
+    expect(on.result.outside.prompts).toEqual([]);
+    expect(on.result.outside.events).toEqual([{ type: "permission.asked", permission: "external_directory", reply: undefined }, { type: "permission.replied", permission: undefined, reply: "once" }]);
+    expect(on.result.outside.tools).toEqual([{ tool: "read", status: "completed", output: expect.stringContaining("Obsah poznámky mimo klientov") }]);
+    // Priečinok klienta B: karta aj v YOLO (advokát tu zamietne, nič sa neprečíta).
+    expect(on.result.otherClient.prompts).toEqual(["external_directory"]);
+    expect(on.result.otherClient.events).toEqual([{ type: "permission.asked", permission: "external_directory", reply: undefined }, { type: "permission.replied", permission: undefined, reply: "reject" }]);
+    expect(on.result.otherClient.tools.map(part => part.status)).toEqual(["error"]);
+    expect(JSON.stringify(on.result.otherClient.tools)).not.toContain("Obsah klienta Hron");
 
     // 3. YOLO zapnutý, plánovaný beh: pýta sa pred príkazom, nič sa nepresunie.
     expect([...on.result.scheduled.prompts, ...on.result.scheduled.approvals]).toContain("sandbox.bash");
@@ -257,7 +281,7 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("YOLO Mode a prip
     const back = await runPhase("off-again", clientB, async () => ({
       ruleB: await engineFolderRule(clientB, "legalwork"), readB: await attempt(clientB, "legalwork", [read]), readA: await attempt(clientA, "legalwork", [read]),
     }));
-    expect(parseLinkedFoldersMap(JSON.parse(await readFile(linkedFoldersMapPath(config), "utf8")))?.clients).toEqual([{ root: clientA, folders: [linked], client: null }, { root: clientB, folders: [], client: null }]);
+    expect(parseLinkedFoldersMap(JSON.parse(await readFile(linkedFoldersMapPath(config), "utf8")))?.clients).toEqual([{ root: clientA, folders: [linked], client: clientA }, { root: clientB, folders: [], client: clientB }]);
     expect(agentFolders(back.production, "legalwork")).toBeUndefined();
     expect(back.result.ruleB).toBe("ask");
     expect(back.result.readB.prompts).toEqual(["external_directory"]);
