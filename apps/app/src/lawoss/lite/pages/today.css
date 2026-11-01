@@ -75,7 +75,7 @@
   border-top: 1px solid var(--td-line);
   border-bottom: 1px solid var(--td-line);
 }
-.lw-today-stat { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 12px; padding: 4px 18px; }
+.lw-today-stat { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px; padding: 4px 18px; }
 .lw-today-stat + .lw-today-stat { border-left: 1px solid var(--td-line); }
 .lw-today-stat-icon {
   display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px;
@@ -83,7 +83,7 @@
   background: color-mix(in srgb, var(--td-gold) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--td-gold) 22%, transparent);
 }
-.lw-today-stat dd { margin: 0; font-size: 30px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--lw-text-primary); }
+.lw-today-stat dd { order: -1; display: flex; align-items: center; gap: 12px; margin: 0; font-size: 30px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--lw-text-primary); }
 .lw-today-stat dt { display: grid; gap: 2px; font-size: 13px; color: var(--lw-text-primary); }
 .lw-today-stat dt small { font-size: 11px; color: var(--lw-text-tertiary); }
 .lw-today-stat[data-hot] dd { color: var(--td-hot); }

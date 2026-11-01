@@ -342,10 +342,10 @@ function caseDateWhen(d: CaseDate, locale: Language, text: Text): string {
 
 /** Číslo prehľadu ako v návrhu 0020: ikona, veľké číslo, názov a vysvetlenie pod ním. */
 function Stat({ icon, label, sub, value, hot = false }: { icon: ReactNode; label: string; sub: string; value: number; hot?: boolean }) {
+  // Názov pred číslom kvôli čítačke obrazovky; vizuálne ide ikona s číslom prvá (CSS order).
   return <div className="lw-today-stat" data-hot={hot || undefined}>
-    <span className="lw-today-stat-icon">{icon}</span>
-    <dd>{value}</dd>
     <dt>{label}<small>{sub}</small></dt>
+    <dd><span className="lw-today-stat-icon">{icon}</span>{value}</dd>
   </div>;
 }
 
