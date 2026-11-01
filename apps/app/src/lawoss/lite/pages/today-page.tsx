@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, ArrowUpRight, CalendarClock, Check, FolderOpen, Inbox, ListChecks } from "lucide-react";
+import { ArrowRight, ArrowUpRight, CalendarClock, Check, Clock, FolderOpen, Inbox, Info, ListChecks } from "lucide-react";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { useQuery } from "@tanstack/react-query";
@@ -161,9 +161,9 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
           <NewMatterAction className="lw-today-primary" locale={locale} choices={choices} activeId={activeId} preferenceScope={preferenceScope}>+ {text("new_matter")}</NewMatterAction>
         </div>
         <dl className="lw-today-stats">
-          <Stat label={text("stat_week")} value={thisWeek.length} hot={thisWeek.some((d) => urgency(d, todayIso) === "hot")} />
-          <Stat label={text("tasks_title")} value={model.tasks.length} />
-          <Stat label={text("inputs_title")} value={model.inputs.length} />
+          <Stat icon={<CalendarClock aria-hidden size={18} />} label={text("stat_week")} sub={text("stat_week_sub")} value={thisWeek.length} hot={thisWeek.some((d) => urgency(d, todayIso) === "hot")} />
+          <Stat icon={<ListChecks aria-hidden size={18} />} label={text("tasks_title")} sub={text("stat_tasks_sub", { count: dates.length })} value={model.tasks.length} />
+          <Stat icon={<Inbox aria-hidden size={18} />} label={text("inputs_title")} sub={text("stat_inputs_sub")} value={model.inputs.length} />
         </dl>
       </header>
 
@@ -175,12 +175,12 @@ export function TodayView({ model, locale, now = new Date(), meta, name, choices
         <StartHereCard start={startHere(model.deadlines, dates)} lead={lead} todayIso={todayIso} locale={locale} text={text} />
         <Panel index={2} icon={<CalendarClock aria-hidden size={16} />} title={text("deadlines_title")} className="lw-today-deadlines">
           {evidence && evidence.complete && evidence.recorded > 0 && evidence.unrecorded > 0
-            ? <p className="lw-today-empty" data-lawoss-deadlines="partial">{text("deadlines_partial_note", { count: evidence.unrecorded })}</p> : null}
+            ? <Callout data="partial">{text("deadlines_partial_note", { count: evidence.unrecorded })}</Callout> : null}
           {model.deadlines.length === 0 ? evidence && !evidence.complete
-            ? <p className="lw-today-empty" data-lawoss-deadlines="not_loaded">{text("deadlines_not_loaded")}</p>
+            ? <Callout data="not_loaded">{text("deadlines_not_loaded")}</Callout>
             : evidence && evidence.recorded === 0
-            ? dates.length || unreadable.length ? <p className="lw-today-empty" data-lawoss-deadlines="unrecorded_dates">{text("deadlines_unrecorded_dates")} {text("deadlines_unrecorded_hint")}</p>
-              : <p className="lw-today-empty" data-lawoss-deadlines="unrecorded">{text("deadlines_unrecorded")} {text("deadlines_unrecorded_hint")}</p>
+            ? dates.length || unreadable.length ? <Callout data="unrecorded_dates">{text("deadlines_unrecorded_dates")} {text("deadlines_unrecorded_hint")}</Callout>
+              : <Callout data="unrecorded">{text("deadlines_unrecorded")} {text("deadlines_unrecorded_hint")}</Callout>
             : <Empty text={text("deadlines_empty")} /> : <ul className="lw-today-list">
             {model.deadlines.map((d, index) => (
               <li key={`${d.matter.path}/${deadlineKey(d, index)}`}>
@@ -288,7 +288,7 @@ function StartHereCard({ start, lead, todayIso, locale, text }: { start: StartHe
       <h2 className="lw-today-start-title">{body.title}</h2>
       <p className="lw-today-start-meta">{body.matters}</p>
       <div className="lw-today-start-foot">
-        <span className="lw-today-start-when">{body.when}</span>
+        <span className="lw-today-start-when"><Clock aria-hidden size={14} />{body.when}</span>
         <Link className="lw-today-primary lw-today-start-open" to={body.to} onClick={"onClick" in body ? body.onClick : undefined}>{text("start_open")}<ArrowRight aria-hidden size={15} /></Link>
       </div>
     </> : <p className="lw-today-start-meta">{lead}</p>}
@@ -299,7 +299,7 @@ function StartHereCard({ start, lead, todayIso, locale, text }: { start: StartHe
 function CaseDates({ dates, invalid = [], todayIso, locale, text, onMore }: { dates: readonly CaseDate[]; invalid?: readonly TodayTask[]; todayIso: string; locale: Language; text: Text; onMore?: () => void }) {
   if (!dates.length && !invalid.length) return null;
   return <div className="lw-today-case-dates" data-lawoss-case-dates="">
-    <h3 className="lw-today-subtitle">{text("case_dates_title")}</h3>
+    <h3 className="lw-today-subtitle">{text("case_dates_title")}<Info aria-hidden size={13} className="lw-today-subtitle-info" /></h3>
     <p className="lw-today-note">{text("case_dates_note")}</p>
     <ul className="lw-today-list">
       {/* N-A7-4: neplatný dátum vždy a navrchu („? 31. 2. 2026 · overiť dátum“), mimo počtu riadkov, ako v Lehotách. */}
@@ -340,8 +340,18 @@ function caseDateWhen(d: CaseDate, locale: Language, text: Text): string {
   return d.daysLeft < 0 ? text("case_date_passed") : dueTextFromDays(d.daysLeft, locale);
 }
 
-function Stat({ label, value, hot = false }: { label: string; value: number; hot?: boolean }) {
-  return <div className="lw-today-stat" data-hot={hot || undefined}><dt>{label}</dt><dd>{value}</dd></div>;
+/** Číslo prehľadu ako v návrhu 0020: ikona, veľké číslo, názov a vysvetlenie pod ním. */
+function Stat({ icon, label, sub, value, hot = false }: { icon: ReactNode; label: string; sub: string; value: number; hot?: boolean }) {
+  // Názov pred číslom kvôli čítačke obrazovky; vizuálne ide ikona s číslom prvá (CSS order).
+  return <div className="lw-today-stat" data-hot={hot || undefined}>
+    <dt>{label}<small>{sub}</small></dt>
+    <dd><span className="lw-today-stat-icon">{icon}</span>{value}</dd>
+  </div>;
+}
+
+/** Krátka poznámka s ikonou namiesto odseku textu (prázdne alebo neúplné lehoty). */
+function Callout({ data, children }: { data: string; children: ReactNode }) {
+  return <p className="lw-today-callout" data-lawoss-deadlines={data}><Info aria-hidden size={15} /><span>{children}</span></p>;
 }
 
 function Panel({ index, icon, title, className, children }: { index: number; icon: ReactNode; title: string; className?: string; children: ReactNode }) {

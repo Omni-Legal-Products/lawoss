@@ -65,20 +65,40 @@
 }
 .lw-today-lead { margin: 10px 0 0; max-width: 62ch; color: var(--lw-text-secondary); font-size: 15px; line-height: 1.5; }
 
-.lw-today-stats { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 0; }
-.lw-today-stat {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 8px 14px;
-  border: 1px solid var(--td-line);
-  border-radius: 999px;
-  background: var(--td-glass);
+/* Čísla prehľadu ako v návrhu 0020: pás s ikonou, veľkým číslom, názvom a vysvetlením, oddelený čiarami. */
+.lw-today-stats {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  margin: 10px 0 0;
+  padding: 14px 0;
+  border-top: 1px solid var(--td-line);
+  border-bottom: 1px solid var(--td-line);
 }
-.lw-today-stat dt { order: 2; font-size: 13px; color: var(--lw-text-secondary); }
-.lw-today-stat dd { margin: 0; font-family: var(--lw-font-mono); font-size: 15px; font-weight: 600; color: var(--lw-text-primary); }
-.lw-today-stat[data-hot] { border-color: color-mix(in srgb, var(--td-hot) 45%, transparent); }
+.lw-today-stat { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px; padding: 4px 18px; }
+.lw-today-stat + .lw-today-stat { border-left: 1px solid var(--td-line); }
+.lw-today-stat-icon {
+  display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px;
+  color: var(--td-gold);
+  background: color-mix(in srgb, var(--td-gold) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--td-gold) 22%, transparent);
+}
+.lw-today-stat dd { order: -1; display: flex; align-items: center; gap: 12px; margin: 0; font-size: 30px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--lw-text-primary); }
+.lw-today-stat dt { display: grid; gap: 2px; font-size: 13px; color: var(--lw-text-primary); }
+.lw-today-stat dt small { font-size: 11px; color: var(--lw-text-tertiary); }
 .lw-today-stat[data-hot] dd { color: var(--td-hot); }
+.lw-today-stat[data-hot] .lw-today-stat-icon { color: var(--td-hot); background: color-mix(in srgb, var(--td-hot) 12%, transparent); border-color: color-mix(in srgb, var(--td-hot) 28%, transparent); }
+@media (max-width: 720px) { .lw-today-stat + .lw-today-stat { border-left: 0; border-top: 1px solid var(--td-line); } }
+
+/* Poznámka s ikonou namiesto odseku textu. */
+.lw-today-callout {
+  display: flex; align-items: flex-start; gap: 9px; margin: 2px 0 10px; padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--td-gold) 30%, var(--td-line)); border-radius: 12px;
+  background: color-mix(in srgb, var(--td-gold) 7%, transparent);
+  font-size: 12.5px; line-height: 1.45; color: var(--lw-text-secondary);
+}
+.lw-today-callout svg { flex: none; margin-top: 1px; color: var(--td-gold); }
+.lw-today-subtitle-info { margin-left: 6px; vertical-align: -1px; color: var(--lw-text-tertiary); }
 
 /* Sklo: panely, pás a karty */
 .lw-today-strip, .lw-today-panel, .lw-today-card {
@@ -125,7 +145,7 @@
 }
 .lw-today-day > a:hover { background: color-mix(in srgb, var(--td-gold) 9%, transparent); transform: translateY(-2px); }
 .lw-today-dow { font-size: 11px; color: var(--lw-text-tertiary); text-transform: lowercase; }
-.lw-today-dom { font-family: var(--lw-font-mono); font-size: 16px; font-weight: 500; color: var(--lw-text-secondary); }
+.lw-today-dom { font-variant-numeric: tabular-nums; font-size: 16px; font-weight: 500; color: var(--lw-text-secondary); }
 .lw-today-day[data-weekend] .lw-today-dom { color: var(--lw-text-tertiary); opacity: 0.7; }
 .lw-today-day[data-busy] .lw-today-dom { color: var(--lw-text-primary); font-weight: 600; }
 .lw-today-day[data-today] > a, .lw-today-day[data-today] > span {
@@ -193,7 +213,7 @@
 .lw-today-main small a:hover { color: var(--lw-text-secondary); }
 .lw-today-ref { font-family: var(--lw-font-mono); font-size: 11px; color: var(--lw-text-tertiary); letter-spacing: 0.02em; }
 .lw-today-when { display: grid; justify-items: end; gap: 2px; text-align: right; }
-.lw-today-date-short { font-family: var(--lw-font-mono); font-size: 12px; color: var(--lw-text-secondary); }
+.lw-today-date-short { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--lw-text-secondary); }
 .lw-today-due { font-size: 12px; color: var(--lw-text-tertiary); }
 .lw-today-deadline[data-urgency="hot"] .lw-today-due { color: var(--td-hot); font-weight: 600; }
 .lw-today-deadline[data-urgency="near"] .lw-today-due { color: var(--td-gold); font-weight: 600; }
@@ -209,7 +229,7 @@
   background: color-mix(in srgb, var(--lw-text-primary) 3%, transparent);
 }
 .lw-today-cal span { font-size: 10px; color: var(--lw-text-tertiary); text-transform: lowercase; }
-.lw-today-cal strong { font-family: var(--lw-font-mono); font-size: 18px; line-height: 1.1; font-weight: 600; }
+.lw-today-cal strong { font-variant-numeric: tabular-nums; font-size: 18px; line-height: 1.1; font-weight: 600; }
 .lw-today-deadline[data-urgency="hot"] .lw-today-cal { border-color: color-mix(in srgb, var(--td-hot) 55%, transparent); background: color-mix(in srgb, var(--td-hot) 10%, transparent); }
 .lw-today-deadline[data-urgency="hot"] .lw-today-cal strong { color: var(--td-hot); }
 .lw-today-deadline[data-urgency="near"] .lw-today-cal { border-color: color-mix(in srgb, var(--td-gold) 55%, transparent); background: color-mix(in srgb, var(--td-gold) 10%, transparent); box-shadow: 0 0 18px -6px color-mix(in srgb, var(--td-gold) 60%, transparent); }
@@ -255,7 +275,7 @@
 .lw-today-card-top .lw-today-title { white-space: normal; font-size: 15px; }
 .lw-today-card-arrow { flex: none; color: var(--lw-text-tertiary); transition: color 200ms, transform 260ms var(--td-ease); }
 .lw-today-card:hover .lw-today-card-arrow { color: var(--td-gold); transform: translate(2px, -2px); }
-.lw-today-card-meta { display: flex; gap: 18px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--td-line); font-family: var(--lw-font-mono); font-size: 13px; color: var(--lw-text-primary); }
+.lw-today-card-meta { display: flex; gap: 18px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--td-line); font-variant-numeric: tabular-nums; font-size: 13px; color: var(--lw-text-primary); }
 .lw-today-card-meta span { display: grid; gap: 2px; }
 .lw-today-card-meta small { font-family: var(--lw-font-sans); font-size: 11px; color: var(--lw-text-tertiary); }
 
@@ -322,7 +342,7 @@
 .lw-today-start-title { margin: 0; font-size: clamp(20px, 2.2vw, 26px); line-height: 1.2; font-weight: 600; color: var(--lw-text-primary); overflow-wrap: anywhere; }
 .lw-today-start-meta { margin: 0; font-size: 14px; color: var(--lw-text-secondary); }
 .lw-today-start-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--td-line); }
-.lw-today-start-when { font-family: var(--lw-font-mono); font-size: 13px; color: var(--lw-text-secondary); }
+.lw-today-start-when { display: inline-flex; align-items: center; gap: 7px; font-variant-numeric: tabular-nums; font-size: 13px; color: var(--lw-text-secondary); }
 .lw-today-start[data-urgency="hot"] .lw-today-start-when { color: var(--td-hot); font-weight: 600; }
 .lw-today-start-open { text-decoration: none; }
 
