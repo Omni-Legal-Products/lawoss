@@ -23,7 +23,7 @@ import { MAX_TRIAGE_MATTERS, PLAN_SCHEMA, TOO_MANY_MATTERS_CODE, type TriageMove
 export class TriageConflictError extends Error { readonly code = "triage_conflict"; }
 /** Dokument drží iný program (Word); po jeho zatvorení stačí to isté zopakovať. Appka má pre to vlastnú vetu. */
 export class TriageLockedError extends Error { readonly code = "triage_locked"; }
-const lockedError = (paths: readonly string[], next: string) => new TriageLockedError(`Dokument je otvorený v inom programe (napríklad vo Worde): ${paths.slice(0, 10).join(", ")}${paths.length > 10 ? " …" : ""}. Nič sa nepresunulo. ${next}`);
+const lockedError = (paths: readonly string[], next: string) => new TriageLockedError(`Dokument je otvorený v inom programe (napríklad vo Worde): ${paths.slice(0, 10).join(", ")}${paths.length > 10 ? " …" : ""}. Nič sa nepresunulo. ${next}${process.platform === "win32" ? "" : " Ak dokument otvorený nie je, v jeho priečinku ostal po Worde skrytý súbor začínajúci na ~$; vymažte ho."}`);
 /** Plán zakladá viac prípadov, než sa dá naraz; appka povie, že treba odškrtnúť niektoré priečinky. */
 export class TooManyMattersError extends Error { readonly code = TOO_MANY_MATTERS_CODE; }
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
