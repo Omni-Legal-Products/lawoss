@@ -164,9 +164,28 @@ async function readSmall(root: string, path: string): Promise<string | undefined
 export type TriageHooks = InspectionHooks & { writeProbe?: (path: string) => Promise<void> };
 const errorCode = (error: unknown): string => error instanceof Error && "code" in error ? String(error.code) : "";
 
-/** Windows: otvorenie na zápis bez O_TRUNC/O_CREAT obsah ani čas zmeny nemení. Inde súbor zámok nedrží. */
+/**
+ * Mena vlastníckeho súboru Office (`~$…`) vedľa otvoreného dokumentu: Word nahradí prvé dva znaky,
+ * pri krátkom mene jeden; Excel a PowerPoint pridajú `~$` pred celé meno.
+ */
+const officeOwnerNames = (name: string): string[] => [...new Set([`~$${name.slice(2)}`, `~$${name.slice(1)}`, `~$${name}`])];
+
+/** macOS a Linux: Office súbor nezamyká, otvorený dokument prezradí len vlastnícky súbor vedľa neho. */
+async function officeOwnerFileExists(path: string): Promise<boolean> {
+  const name = basename(path);
+  if (name.length < 3 || name.startsWith("~$")) return false;
+  for (const owner of officeOwnerNames(name)) {
+    if (await lstat(join(path, "..", owner)).then(state => state.isFile(), () => false)) return true;
+  }
+  return false;
+}
+
+/** Windows: otvorenie na zápis bez O_TRUNC/O_CREAT obsah ani čas zmeny nemení. Inde rozhodne vlastnícky súbor Office. */
 async function defaultWriteProbe(path: string): Promise<void> {
-  if (process.platform !== "win32") return;
+  if (process.platform !== "win32") {
+    if (await officeOwnerFileExists(path)) throw Object.assign(new Error(`Dokument je otvorený v Office: ${path}`), { code: "EBUSY" });
+    return;
+  }
   const handle = await open(path, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   await handle.close();
 }

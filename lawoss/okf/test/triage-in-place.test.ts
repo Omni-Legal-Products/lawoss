@@ -536,6 +536,27 @@ test("dokument otvorený vo Worde až po náhľade zastaví zápis pred prvým p
   await expect(readdir(join(root, ".lawoss/triage/runs", plan.runId))).resolves.not.toContain("plan.json");
 });
 
+// Word na macOS súbor nezamyká; otvorený dokument prezradí vlastnícky súbor `~$…` vedľa neho (alfa test 1. 11., H2).
+test.skipIf(process.platform === "win32")("macOS/Linux: vlastnícky súbor Wordu označí dokument ako otvorený v náhľade aj pri zápise", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  const name = LOCKED_DOCX.split("/").at(-1)!;
+  const owner = join(root, LOCKED_DOCX, "..", `~$${name.slice(2)}`);
+  await writeFile(owner, "SYN owner");
+  const inventory = await scanTriage(root, HOST);
+  expect(inventory.skipped).toContainEqual({ path: LOCKED_DOCX, reason: "locked" });
+  expect(inventory.documents.some(document => document.path === LOCKED_DOCX)).toBe(false);
+  await rm(owner);
+  const { plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  expect(plan.moves.some(move => move.from === LOCKED_DOCX)).toBe(true);
+  await writeFile(owner, "SYN owner");
+  const before = await documentsHash(root);
+  const error = await applyTriagePlan(plan, HOST).then(() => undefined, (reason: unknown) => reason);
+  expect(error).toBeInstanceOf(TriageLockedError);
+  expect(error instanceof Error ? error.message : "").toContain(LOCKED_DOCX);
+  expect(await documentsHash(root)).toBe(before);
+});
+
 test("súbor len na čítanie nie je zamknutý, zamietnutý zápis do zapisovateľného áno", async () => {
   const root = await convertedClient();
   await grantInPlaceReorganize(root, NOW);
