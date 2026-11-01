@@ -4519,9 +4519,23 @@ async function readSmall(root, path) {
   }
 }
 var errorCode3 = (error) => error instanceof Error && ("code" in error) ? String(error.code) : "";
+var officeOwnerNames = (name) => [...new Set([`~$${name.slice(2)}`, `~$${name.slice(1)}`, `~$${name}`])];
+async function officeOwnerFileExists(path) {
+  const name = basename6(path);
+  if (name.length < 3 || name.startsWith("~$"))
+    return false;
+  for (const owner of officeOwnerNames(name)) {
+    if (await lstat10(join11(path, "..", owner)).then((state) => state.isFile(), () => false))
+      return true;
+  }
+  return false;
+}
 async function defaultWriteProbe(path) {
-  if (process.platform !== "win32")
+  if (process.platform !== "win32") {
+    if (await officeOwnerFileExists(path))
+      throw Object.assign(new Error(`Dokument je otvorený v Office: ${path}`), { code: "EBUSY" });
     return;
+  }
   const handle = await open7(path, constants9.O_RDWR | constants9.O_NOFOLLOW | constants9.O_NONBLOCK);
   await handle.close();
 }
