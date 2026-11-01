@@ -8,9 +8,9 @@
  */
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { realpath } from "../canonical-path.ts";
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { findOfficeDir } from "../../../okf-pamat/src/store.ts";
 import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
 import { parseFrontmatter } from "../frontmatter.ts";
@@ -164,26 +164,38 @@ async function readSmall(root: string, path: string): Promise<string | undefined
 export type TriageHooks = InspectionHooks & { writeProbe?: (path: string) => Promise<void> };
 const errorCode = (error: unknown): string => error instanceof Error && "code" in error ? String(error.code) : "";
 
-/**
- * Mena vlastníckeho súboru Office (`~$…`) vedľa otvoreného dokumentu: Word nahradí prvé dva znaky,
- * pri krátkom mene jeden; Excel a PowerPoint pridajú `~$` pred celé meno.
- */
-const officeOwnerNames = (name: string): string[] => [...new Set([`~$${name.slice(2)}`, `~$${name.slice(1)}`, `~$${name}`])];
+/** Prípony Wordu: vlastnícky súbor nahradí prvé dva znaky mena (pri krátkom mene jeden alebo žiadny). */
+const WORD_EXTENSIONS = new Set(["doc", "docx", "docm", "dot", "dotx", "dotm", "rtf"]);
+/** Excel a PowerPoint pridajú `~$` pred celé meno. */
+const OFFICE_EXTENSIONS = new Set([...WORD_EXTENSIONS, "xls", "xlsx", "xlsm", "xlsb", "ppt", "pptx", "pptm"]);
+const officeName = (name: string): string => name.normalize("NFC").toLowerCase();
 
-/** macOS a Linux: Office súbor nezamyká, otvorený dokument prezradí len vlastnícky súbor vedľa neho. */
-async function officeOwnerFileExists(path: string): Promise<boolean> {
+/**
+ * macOS a Linux: Office súbor nezamyká, otvorený dokument prezradí len vlastnícky súbor `~$…` vedľa neho.
+ * Mená sa porovnávajú v NFC bez ohľadu na veľkosť písmen (Finder ukladá diakritiku rozloženú).
+ * Pri Worde zhodu nájde aj dokument, ktorý sa líši len v prvých dvoch znakoch; to je bezpečná strana (nepresunie sa).
+ */
+async function officeOwnerFile(path: string): Promise<string | undefined> {
   const name = basename(path);
-  if (name.length < 3 || name.startsWith("~$")) return false;
-  for (const owner of officeOwnerNames(name)) {
-    if (await lstat(join(path, "..", owner)).then(state => state.isFile(), () => false)) return true;
+  const extension = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "";
+  if (name.startsWith("~$") || !OFFICE_EXTENSIONS.has(extension)) return undefined;
+  const wanted = officeName(name);
+  const word = WORD_EXTENSIONS.has(extension);
+  const entries = await readdir(dirname(path)).catch(() => [] as string[]);
+  for (const entry of entries) {
+    if (!entry.startsWith("~$")) continue;
+    const rest = officeName(entry.slice(2));
+    const matches = rest === wanted || (word && rest.length > 0 && wanted.length - rest.length <= 2 && wanted.endsWith(rest));
+    if (matches && await lstat(join(dirname(path), entry)).then(state => state.isFile(), () => false)) return entry;
   }
-  return false;
+  return undefined;
 }
 
 /** Windows: otvorenie na zápis bez O_TRUNC/O_CREAT obsah ani čas zmeny nemení. Inde rozhodne vlastnícky súbor Office. */
 async function defaultWriteProbe(path: string): Promise<void> {
   if (process.platform !== "win32") {
-    if (await officeOwnerFileExists(path)) throw Object.assign(new Error(`Dokument je otvorený v Office: ${path}`), { code: "EBUSY" });
+    const owner = await officeOwnerFile(path);
+    if (owner) throw Object.assign(new Error(`Dokument je otvorený v Office (${owner}): ${path}`), { code: "EBUSY" });
     return;
   }
   const handle = await open(path, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK);

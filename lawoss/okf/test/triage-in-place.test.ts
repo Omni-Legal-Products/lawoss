@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
 import { applyTriagePlan, buildTriagePlan, folderHintRole, listTriageRuns, looksLikeArchiveFolder, MAX_TRIAGE_MATTERS, parseClassification, parseTriagePlan, grantInPlaceReorganize, IN_PLACE_MARKER, prepareTriage, replanTriage, scanTriage, TRIAGE_INSPECTION_LIMITS, TriageConflictError, TriageLockedError, TriageTooLargeError, TrialCloneError, undoTriage, verifyTriageTarget, type TriagePlan } from "../src/triage/index.ts";
+import { lockedForWrite } from "../src/triage/scan.ts";
 import { HRON_FIXTURE, HRON_MATTERS, TRIAGE_FIXTURE, writeTriageFixture } from "./fixtures/triage-client.ts";
 import { holdWindowsFileLock } from "./windows-file-lock.ts";
 
@@ -555,6 +556,26 @@ test.skipIf(process.platform === "win32")("macOS/Linux: vlastnícky súbor Wordu
   expect(error).toBeInstanceOf(TriageLockedError);
   expect(error instanceof Error ? error.message : "").toContain(LOCKED_DOCX);
   expect(await documentsHash(root)).toBe(before);
+});
+
+test.skipIf(process.platform === "win32")("macOS/Linux: vlastnícky súbor Office sa porovná v NFC, bez veľkosti písmen a podľa typu dokumentu", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "okf-owner-"));
+  const nfd = "Návrh žaloby SYN.docx".normalize("NFD");
+  await writeFile(join(dir, nfd), "SYN");
+  await writeFile(join(dir, "Zošit SYN.xlsx"), "SYN");
+  await writeFile(join(dir, "podklad SYN.pdf"), "SYN");
+  await writeFile(join(dir, "02_Zmluva.xlsx"), "SYN");
+  expect(await lockedForWrite(join(dir, nfd))).toBe(false);
+  await writeFile(join(dir, "~$VRH ŽALOBY SYN.docx".normalize("NFC")), "SYN owner");
+  expect(await lockedForWrite(join(dir, nfd))).toBe(true);
+  await writeFile(join(dir, "~$podklad SYN.pdf"), "SYN owner");
+  expect(await lockedForWrite(join(dir, "podklad SYN.pdf"))).toBe(false);
+  await writeFile(join(dir, "~$_Zmluva.xlsx"), "SYN owner");
+  expect(await lockedForWrite(join(dir, "02_Zmluva.xlsx"))).toBe(false);
+  expect(await lockedForWrite(join(dir, "Zošit SYN.xlsx"))).toBe(false);
+  await writeFile(join(dir, "~$Zošit SYN.xlsx".normalize("NFD")), "SYN owner");
+  expect(await lockedForWrite(join(dir, "Zošit SYN.xlsx"))).toBe(true);
+  await rm(dir, { recursive: true, force: true });
 });
 
 test("súbor len na čítanie nie je zamknutý, zamietnutý zápis do zapisovateľného áno", async () => {
