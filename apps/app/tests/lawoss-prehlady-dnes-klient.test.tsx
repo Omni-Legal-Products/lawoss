@@ -48,6 +48,14 @@ describe("udalosti pre mesiac", () => {
     expect(events.find((e) => e.kind === "deadline")?.link).toBe(liteDeadlineLink(UHRADA, "M001-L1", "2026-10-27"));
     expect(events.find((e) => e.kind === "candidate")?.link).toBe(liteMatterLink(UHRADA));
   });
+  test("N-A9-15: pri viacerých klientoch nesie udalosť meno klienta, pri jednom nie", async () => {
+    const { agendaPlace } = await import("../src/lawoss/lite/agenda-views");
+    expect(events.every((e) => e.client === undefined)).toBe(true);
+    const other: MatterInput = { path: "Klienti/Hron/Spisy/M004-najom", scopePaths: ["Klienti/Hron/Spisy/M004-najom", "Klienti/Hron"], clientTitle: "Hron", cardFrontmatter: { title: "Vyúčtovanie nájmu" }, records: [record("M004-T1", "task", "Doplniť prílohu", { state: "pending", due: "2026-10-24" })] };
+    const both = [...inputs.map((input) => ({ ...input, scopePaths: [input.path, "Klienti/Tatran"], clientTitle: "Tatran" })), other];
+    const day = agendaEvents({ ...buildOverview(both, TODAY), inputs: both }).filter((e) => e.date === TODAY);
+    expect(day.map(agendaPlace).sort()).toEqual(["Hron · Vyúčtovanie nájmu", "Tatran · Úhrada dodávok"]);
+  });
   test("mesiac od pondelka, prechod roka v oboch smeroch", () => {
     const weeks = monthWeeks("2026-10");
     expect(weeks[0]![0]).toEqual({ iso: "2026-09-28", inMonth: false });
