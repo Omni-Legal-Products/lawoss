@@ -1676,3 +1676,11 @@ Nález N-A8-6 z regresie 30. 10. 2026: po skončení behu ostal nad composerom p
 | Súbory | Downstream zmena a dôvod |
 | --- | --- |
 | `scripts/sandbox/ci-matrix.mjs`, `.github/workflows/sandbox-runtime.yml`, `scripts/ci/sandbox-matrix.test.mjs` | Windows položky matice nesú `qemuPackage` a `qemuSha256` balíka `qemu-11.1.2-1` z repozitára MSYS2. Krok „Download QEMU packages with retries (Windows)“ balík stiahne, overí SHA-256 a nainštaluje cez `pacman -U`; `-cc` ostáva cez `pacman -S`. Test overí pripnutie aj to, že workflow neinštaluje QEMU z hlavy repozitára. Dôvod: MSYS2 vydal 11.1.3 a `package-runtime.mjs` prijíma len overenú 11.1.2, takže `sandbox-runtime` na Windowse zlyhal a povinné „Package and launch“ sa preskočili (rozhodnutie MČ 31. 10.). Prechod na 11.1.3 je samostatný krok. |
+
+### Pribalený npm pre balíky LAWOSS Marketplace (2026-11-03, fix/alfa10-pribalit-npm)
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `apps/desktop/scripts/prepare-node-runtime.mjs` | Z toho istého archívu Node (rovnaký SHA-256) sa pribalí aj npm: na macOS a Linuxe `lib/node_modules/npm` a vlastný spúšťač `npm` (`#!/bin/sh`, cestu berie z `$0`, nie zo symlinku ani z `#!/usr/bin/env node`), na Windows `node_modules/npm` a `npm.cmd` z archívu. `runtime.json` nesie `npm: true`, starší cache bez npm sa pripraví znova. Dôvod: balíky LAWOSS Marketplace spúšťajú `node scripts/run.mjs`, ktorý pri prvom behu volá `npm ci`; na počítači bez Node.js s npm MCP nenabehol („npm is required for the first run“). Zabalená appka už dáva `resources/node` do PATH enginu hneď za sidecary (`childProcessPath`), takže `npm` z neho nájde aj MCP. |
+| `apps/desktop/electron-builder.yml` | Filter `extraResources` pre `resources/node` pustí aj `npm`, `npm.cmd`, `lib/node_modules/npm/**/*` a `node_modules/npm/**/*`. |
+| `apps/desktop/scripts/check-packaged-security.mjs` | +1 import `checkBundledNpm` z nového `electron/lawoss-npm-smoke.mjs` a na konci volanie s riadkom PASS. Package and launch (ubuntu, `windows-2022`) overí `npm --version` a `npm ci --omit=dev --ignore-scripts` v zabalenej appke s jediným pribaleným Node v PATH. |
