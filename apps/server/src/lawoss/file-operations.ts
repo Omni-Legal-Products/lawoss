@@ -100,7 +100,8 @@ export function visibleName(text: string): string {
     (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
 }
 
-type Root = { path: string; canonical: string; label: string | null };
+/** `offline`: a linked folder that cannot be reached now (N-A9-9); its `canonical` is only the written path. */
+type Root = { path: string; canonical: string; label: string | null; offline?: true };
 
 /**
  * Card labels of linked folders. Two with the same name are told apart by their parent, then by the full path.
@@ -121,8 +122,18 @@ async function clientRoots(config: ServerConfig, workspace: WorkspaceInfo): Prom
   const linked = await linkableFolders(config, workspace, authorizedFolders(runtimeExternalDirectory(await readRuntimeOpencodeConfig(config, workspace.id))));
   const labels = linkedFolderLabels(linked);
   const roots = [{ path: workspace.path, label: null }, ...linked.map((folder, index) => ({ path: folder, label: labels[index]! }))];
-  return Promise.all(roots.map(async (root) => ({ ...root, canonical: await resolveWorkspaceFilePath(root.path, ".", { allowRoot: true }) })));
+  // N-A9-9 (test 2. 11. 2026): a linked NAS that was disconnected made every change in the client fail with ENOENT.
+  // Only the client's own folder must be reachable; a missing linked folder is skipped and named when a path is in it.
+  return Promise.all(roots.map(async (root, index) => {
+    const canonical = await resolveWorkspaceFilePath(root.path, ".", { allowRoot: true }).catch((error: unknown) => {
+      if (index === 0) throw error;
+      return null;
+    });
+    return canonical ? { ...root, canonical } : { ...root, canonical: root.path, offline: true as const };
+  }));
 }
+
+const offlineRoot = (label: string) => `The linked folder ${visibleName(label)} cannot be reached now (for example a network drive that is disconnected). Nothing was changed. Ask the user to connect it and try again.`;
 
 /** Compared case-insensitively and without trailing dots/spaces, as APFS and NTFS resolve names. */
 const PROTECTED_SEGMENTS = new Set([".git", LAWOSS_TRASH_FOLDER]);
@@ -177,6 +188,7 @@ async function foldersAfterPlan(directory: string, pending: Pending): Promise<st
 
 async function expandCaseCodes(roots: Root[], requested: string, nested: readonly string[], pending: Pending): Promise<string> {
   for (const root of isAbsolute(requested) ? roots : roots.slice(0, 1)) {
+    if (root.offline) continue;
     const inside = relative(root.path, isAbsolute(requested) ? requested : join(root.path, requested));
     if (!inside || inside.startsWith("..") || isAbsolute(inside)) continue;
     const parts = inside.split(sep);
@@ -214,6 +226,11 @@ async function expandCaseCodes(roots: Root[], requested: string, nested: readonl
 async function locate(roots: Root[], written: string, nested: readonly string[], pending: Pending | null): Promise<Located> {
   const requested = pending ? await expandCaseCodes(roots, written, nested, pending) : written;
   for (const root of roots) {
+    if (root.offline) {
+      if (isAbsolute(requested) && isPathWithin(folded(root.path), folded(requested)))
+        throw new ApiError(409, "file_operation_folder_offline", offlineRoot(root.label ?? root.path));
+      continue;
+    }
     const canonical = await resolveWorkspaceFilePath(root.path, requested, { preserveLeaf: true }).catch(() => null);
     if (!canonical) continue;
     if (inNestedClient(nested, canonical)) throw new ApiError(403, "file_operation_outside_client", OUTSIDE);
