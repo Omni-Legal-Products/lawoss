@@ -21,6 +21,7 @@ import { describeMemoryWrite, keepsMemoryWriteGate } from "@/lawoss/lite/memory-
 import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
 import { fileOperationCard, offersRememberedApproval, rememberedApprovalKeys, type FileOperationDetails } from "@/lawoss/lite/file-operation-card";
 import { useOtherClientFolderText } from "@/lawoss/lite/other-client-folder";
+import { offersSessionApproval, rememberSessionApproval } from "@/lawoss/lite/session-approvals";
 import { OtherClientWarning } from "@/lawoss/lite/other-client-warning";
 import { useMissingFolderText } from "@/lawoss/lite/missing-folder";
 import { networkApprovalContent } from "./network-approval-content";
@@ -498,6 +499,18 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
             >
               <Check data-icon="inline-start" />
               {t(rememberedApprovalKeys(props.permission).label)}
+            </Button> : null}
+            {/* LAWOSS (MČ 2. 11. 2026): úpravy a priečinok mimo chatu – appka si povolenie pamätá len pre tento chat. */}
+            {!projectInstructions && !offersRememberedApproval(props.permission) && offersSessionApproval(props.permission, otherClient) ? <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-lawoss-session-approval=""
+              onClick={() => { rememberSessionApproval(props.permission); props.respondPermission?.(props.permission.id, "once"); }}
+              disabled={props.busy || !props.respondPermission}
+            >
+              <Check data-icon="inline-start" />
+              {t("session.allow_for_session")}
             </Button> : null}
           </div>
         </div>

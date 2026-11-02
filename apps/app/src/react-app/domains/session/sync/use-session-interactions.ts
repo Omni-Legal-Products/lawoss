@@ -14,6 +14,7 @@ import { useQueryCacheState } from "@/react-app/infra/query-cache-state";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { describeRouteError } from "@/react-app/shell/route-workspaces";
 import { acknowledgeInteraction, seedTodoState, todoKey } from "./session-sync";
+import { coveredBySessionApproval } from "@/lawoss/lite/session-approvals";
 import {
   permissionKey, questionKey, interactionSessionsKey, emptyInteractionSessions,
   interactionSessionIds, sortInteractionRequests, replyToPermission, replyToQuestion,
@@ -125,6 +126,19 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
     },
     [client, serverClient, hostScope, pendingPermissions, sessionId, workspaceId, workspaceRoot],
   );
+
+  // LAWOSS (MČ 2. 11. 2026): otázku, ktorú advokát už povolil „do konca konverzácie“, odpovie appka „once“ sama.
+  const autoApproved = useRef(new Set<string>());
+  useEffect(() => {
+    if (!client || !sessionId) return;
+    for (const permission of pendingPermissions) {
+      if (autoApproved.current.has(permission.id) || !coveredBySessionApproval(permission, [permission.sessionID, sessionId])) continue;
+      autoApproved.current.add(permission.id);
+      void replyToPermission(client, permission, "once", workspaceRoot, serverClient)
+        .then(() => acknowledgeInteraction(workspaceId, permission.sessionID, permission.id, "permission"))
+        .catch(() => { autoApproved.current.delete(permission.id); });
+    }
+  }, [client, serverClient, pendingPermissions, sessionId, workspaceId, workspaceRoot]);
 
   const activeQuestion = permissionFirst ? null : firstQuestion ?? null;
   const respondQuestion = useCallback(

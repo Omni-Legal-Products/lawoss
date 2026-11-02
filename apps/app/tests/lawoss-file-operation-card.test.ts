@@ -13,7 +13,7 @@ function engineCard(overrides: Partial<PendingPermission> = {}): PendingPermissi
 const buttons = (html: string) => Array.from(html.matchAll(/<button\b[\s\S]*?<\/button>/g)).map((match) => match[0].replace(/<[^>]*>/g, "").trim());
 
 describe("lawoss_files card", () => {
-  test("one rename reads as old → new, with no 'allow for the conversation'", () => {
+  test("one rename reads as old → new; 'allow for the conversation' is kept by the app for this chat only", () => {
     const permission = engineCard({ metadata: { lawossFiles: [{ operation: "move", kind: "file", from: "poznamky.txt", to: "SYN-overenie.txt" }], description: "Premenovanie podľa zadania" } });
     const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, { permission, respondPermission: () => {} }));
     expect(t("lawoss.files.title_rename")).toBe("Rename?");
@@ -21,7 +21,7 @@ describe("lawoss_files card", () => {
     expect(html).toContain(t("lawoss.files.title_rename"));
     expect(html).toContain("poznamky.txt → SYN-overenie.txt");
     expect(html).toContain(t("lawoss.files.message"));
-    expect(buttons(html)).toEqual([t("session.deny"), t("session.allow_once")]);
+    expect(buttons(html)).toEqual([t("session.deny"), t("session.allow_once"), t("session.allow_for_session")]);
   });
 
   test("a batch lists every change; deleting says Trash, with counts, empty and large folders", () => {
@@ -63,7 +63,7 @@ describe("lawoss_files card", () => {
     expect(fileOperationCard({ command: "mv a b" })).toBeNull();
   });
 
-  test("'allow for the conversation' is never offered for a folder outside the client or when the engine cannot keep it", () => {
+  test("the engine's 'always' is never offered for a folder outside the client or when it cannot keep it; the app's chat-only approval is", () => {
     expect(offersRememberedApproval(engineCard({ permission: "external_directory", always: ["/Klienti/C001/*"] }))).toBe(false);
     expect(offersRememberedApproval(engineCard({ always: [] }))).toBe(false);
     // A native edit card: the engine would keep "always" for every chat of this client.
@@ -71,7 +71,7 @@ describe("lawoss_files card", () => {
     expect(offersRememberedApproval(engineCard({ permission: "skill", always: ["pdf"] }))).toBe(true);
     const outside = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, {
       permission: engineCard({ permission: "external_directory", patterns: ["/Klienti/C001/*"], always: ["/Klienti/C001/*"] }), respondPermission: () => {} }));
-    expect(buttons(outside)).toEqual([t("session.deny"), t("session.allow_once")]);
+    expect(buttons(outside)).toEqual([t("session.deny"), t("session.allow_once"), t("session.allow_for_session")]);
   });
 
   test("the one managed-shell card shows the command and what it covers outside Details", () => {

@@ -10,6 +10,8 @@
  * karte úprav (`edit`), pri `external_directory` (vlastné pripojené priečinky odobrí plugin bez karty,
  * takže karta je vždy na priečinok mimo klienta), keď engine nemá čo uložiť (`always: []`, napr.
  * `lawoss_files`) ani pri karte príkazu, ktorá pokrýva celý počítač (server ju nepamätá).
+ * Pri úpravách a priečinku mimo chatu ponúka karta namiesto toho povolenie, ktoré si appka drží len
+ * pre tento chat (`session-approvals.ts`, MČ 2. 11. 2026).
  */
 import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
