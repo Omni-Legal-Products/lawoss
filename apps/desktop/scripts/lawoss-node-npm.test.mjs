@@ -29,11 +29,11 @@ describe("LAWOSS npm beside the bundled Node runtime", () => {
     const posix = npmShim(false);
     assert.equal(posix.name, "npm");
     assert.match(posix.content, /^#!\/bin\/sh\n/);
-    assert.ok(posix.content.includes('npm_config_update_notifier=false exec "${0%/*}/node" "${0%/*}/node_modules/npm/bin/npm-cli.js" "$@"'));
+    assert.ok(posix.content.includes('npm_config_update_notifier=false exec "${0%/*}/node" "${0%/*}/lib/npm/bin/npm-cli.js" "$@"'));
     assert.ok(!posix.content.includes("dirname") && !posix.content.includes("env node"));
     const windows = npmShim(true);
     assert.equal(windows.name, "npm.cmd");
-    assert.equal(windows.content, '@ECHO off\r\nSETLOCAL\r\nSET npm_config_update_notifier=false\r\n"%~dp0node.exe" "%~dp0node_modules\\npm\\bin\\npm-cli.js" %*\r\n');
+    assert.equal(windows.content, '@ECHO off\r\nSETLOCAL\r\nSET npm_config_update_notifier=false\r\n"%~dp0node.exe" "%~dp0lib\\npm\\bin\\npm-cli.js" %*\r\n');
   });
 
   it("selects only npm files from the Windows archive", () => {
@@ -50,7 +50,7 @@ describe("LAWOSS npm beside the bundled Node runtime", () => {
     const output = path.join(root, "node");
     await mkdir(output);
     assert.deepEqual(await installNpmFromDirectory(source, output), { version: "10.9.4" });
-    const npm = path.join(output, "node_modules", "npm");
+    const npm = path.join(output, "lib", "npm");
     assert.equal(await readFile(path.join(npm, "bin", "npm-cli.js"), "utf8"), "require('../lib/cli.js')\n");
     assert.ok((await lstat(path.join(npm, "node_modules", "semver", "index.js"))).isFile());
     await assert.rejects(lstat(path.join(npm, "node_modules", ".bin")));
@@ -63,10 +63,10 @@ describe("LAWOSS npm beside the bundled Node runtime", () => {
   it("replaces an older npm tree instead of merging into it", () => withTemporary(async (root) => {
     const source = await fakeNpm(root);
     const output = path.join(root, "node");
-    await mkdir(path.join(output, "node_modules", "npm", "stale"), { recursive: true });
-    await writeFile(path.join(output, "node_modules", "npm", "stale", "old.js"), "");
+    await mkdir(path.join(output, "lib", "npm", "stale"), { recursive: true });
+    await writeFile(path.join(output, "lib", "npm", "stale", "old.js"), "");
     await installNpmFromDirectory(source, output);
-    await assert.rejects(lstat(path.join(output, "node_modules", "npm", "stale")));
+    await assert.rejects(lstat(path.join(output, "lib", "npm", "stale")));
   }));
 
   it("installs npm from Windows zip entries and refuses unsafe paths", () => withTemporary(async (root) => {
@@ -87,14 +87,14 @@ describe("LAWOSS npm beside the bundled Node runtime", () => {
 
   it("reports a missing or broken npm as absent", () => withTemporary(async (root) => {
     assert.equal(await bundledNpmVersion(root, false), null);
-    await mkdir(path.join(root, "node_modules", "npm", "bin"), { recursive: true });
+    await mkdir(path.join(root, "lib", "npm", "bin"), { recursive: true });
     await writeFile(path.join(root, "npm"), npmShim(false).content);
-    await writeFile(path.join(root, "node_modules", "npm", "bin", "npm-cli.js"), "");
-    await writeFile(path.join(root, "node_modules", "npm", "package.json"), "{");
+    await writeFile(path.join(root, "lib", "npm", "bin", "npm-cli.js"), "");
+    await writeFile(path.join(root, "lib", "npm", "package.json"), "{");
     assert.equal(await bundledNpmVersion(root, false), null);
-    await writeFile(path.join(root, "node_modules", "npm", "package.json"), JSON.stringify({ version: "latest" }));
+    await writeFile(path.join(root, "lib", "npm", "package.json"), JSON.stringify({ version: "latest" }));
     assert.equal(await bundledNpmVersion(root, false), null);
-    await writeFile(path.join(root, "node_modules", "npm", "package.json"), JSON.stringify({ version: "10.9.8" }));
+    await writeFile(path.join(root, "lib", "npm", "package.json"), JSON.stringify({ version: "10.9.8" }));
     assert.equal(await bundledNpmVersion(root, false), "10.9.8");
     await writeFile(path.join(root, "npm"), "#!/bin/sh\nexec node \"$@\"\n");
     assert.equal(await bundledNpmVersion(root, false), null, "an outdated launcher is rebuilt");
@@ -109,6 +109,6 @@ describe("LAWOSS npm beside the bundled Node runtime", () => {
     await chmod(path.join(output, "node"), 0o755);
     const result = spawnSync(path.join(output, "npm"), ["ci", "--omit=dev"], { env: { PATH: path.join(root, "missing") }, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, `false|${path.join(output, "node_modules", "npm", "bin", "npm-cli.js")}|ci|--omit=dev|`);
+    assert.equal(result.stdout, `false|${path.join(output, "lib", "npm", "bin", "npm-cli.js")}|ci|--omit=dev|`);
   }));
 });

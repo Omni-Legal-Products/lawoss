@@ -5,10 +5,12 @@
 import { lstat, mkdir, readFile, readdir, rm, writeFile, copyFile, chmod } from "node:fs/promises";
 import path from "node:path";
 
-export const NPM_DIRECTORY = path.join("node_modules", "npm");
+// Nie `node_modules/npm`: electron-builder v extraResources vždy vynechá koreňový
+// `node_modules` (app-builder-lib util/filter.js); vnorené `lib/npm/node_modules` prenesie.
+export const NPM_DIRECTORY = path.join("lib", "npm");
 
-const POSIX_SHIM = `#!/bin/sh\nnpm_config_update_notifier=false exec "\${0%/*}/node" "\${0%/*}/node_modules/npm/bin/npm-cli.js" "$@"\n`;
-const WINDOWS_SHIM = `@ECHO off\r\nSETLOCAL\r\nSET npm_config_update_notifier=false\r\n"%~dp0node.exe" "%~dp0node_modules\\npm\\bin\\npm-cli.js" %*\r\n`;
+const POSIX_SHIM = `#!/bin/sh\nnpm_config_update_notifier=false exec "\${0%/*}/node" "\${0%/*}/lib/npm/bin/npm-cli.js" "$@"\n`;
+const WINDOWS_SHIM = `@ECHO off\r\nSETLOCAL\r\nSET npm_config_update_notifier=false\r\n"%~dp0node.exe" "%~dp0lib\\npm\\bin\\npm-cli.js" %*\r\n`;
 
 // Bez `dirname` a bez `#!/usr/bin/env node`: kontrola balíka spúšťa npm len s
 // priečinkom Node v PATH. Kontrola novej verzie npm je vypnutá, pribalený npm
