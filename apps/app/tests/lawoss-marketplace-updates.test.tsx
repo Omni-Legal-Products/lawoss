@@ -8,7 +8,7 @@ import { catalogPluginId } from "../src/lawoss/domains/marketplace/native-action
 import { updateAllWithoutConflicts, updatesSignature } from "../src/lawoss/domains/marketplace/update-notifier";
 import { FileDecisionForm, LegacyInstallsPanel, MarketplaceUpdatesPanel } from "../src/lawoss/domains/marketplace/updates-panel";
 import { globalInstalledIds, installGlobalEntries } from "../src/lawoss/domains/marketplace/use-lawoss-marketplace";
-import { PacksStep } from "../src/lawoss/domains/onboarding/packs-step";
+import { MarketplaceIntro, MarketplaceOffer } from "../src/lawoss/domains/marketplace/marketplace-offer";
 
 const entry = (id: string) => MARKETPLACE_CATALOG.find((item) => item.id === id)!;
 const plugin = (id: string) => ({ pluginId: catalogPluginId(entry(id)), name: entry(id).name, marketplaceId: null, description: null, updatedAt: null, files: [], importedAt: null });
@@ -72,14 +72,20 @@ describe("LAWOSS Marketplace v appke: inštalácia pre všetkých klientov", () 
     expect(globalInstalledIds(null, MARKETPLACE_CATALOG).size).toBe(0);
   });
 
-  test("krok onboardingu: text o GitHube Omni Legal Products, inštalácia až tlačidlom, dá sa pokračovať", () => {
-    const html = renderToStaticMarkup(<PacksStep api={null} jurisdiction="sk" busy={false} onContinue={() => undefined} />);
-    expect(html).toContain("data-lawoss-onboarding-packs");
-    expect(html).toContain("Recommended LAWOSS bundles");
-    expect(html).toContain("Nothing is downloaded until you click Install");
+  test("ponuka po onboardingu (MČ 2. 11.): prečo doplnky, inštalácia až tlačidlom, balík kancelárie zaškrtnutý", () => {
+    const html = renderToStaticMarkup(<MarketplaceOffer api={null} jurisdiction="sk" />);
+    expect(html).toContain("data-lawoss-marketplace-offer");
+    expect(html).toContain("Connect the agent to registers and laws");
+    expect(html).toContain("nothing is downloaded until you click Install");
     expect(html).toContain("Omni-Legal-Products/lawoss-marketplace");
     expect(html.match(/checked=""/g)).toHaveLength(6);
-    expect(html).toContain(">Continue<");
+    expect(html).toContain("LAWOSS Marketplace");
+  });
+  test("úvod katalógu vysvetlí skill, konektor a balík a dá sa zavrieť", () => {
+    const html = renderToStaticMarkup(<MarketplaceIntro />);
+    expect(html).toContain("How add-ons work");
+    expect(html).toContain("Connector (MCP)");
+    expect(html).toContain(">Got it<");
   });
 });
 

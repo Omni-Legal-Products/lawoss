@@ -229,6 +229,13 @@
 .lw-wiz-summary-value { flex: 1 1 160px; min-width: 0; font-size: 14px; color: var(--lw-text-secondary); overflow-wrap: anywhere; }
 .lw-wiz-first { display: grid; gap: 10px; padding: 16px; border: 1px solid color-mix(in srgb, var(--lw-gold) 35%, transparent); border-radius: var(--lw-radius-lg); background: color-mix(in srgb, var(--lw-gold) 5%, transparent); }
 .lw-wiz-first .lw-btn svg { width: 16px; height: 16px; }
+/* Ponuka LAWOSS Marketplace v kroku Pripravené (MČ 2. 11. 2026): vedľajšia karta pod prvou úlohou. */
+.lw-wiz-offer { display: grid; gap: 10px; padding: 16px; border: 1px solid color-mix(in srgb, var(--lw-gold) 22%, transparent); border-radius: var(--lw-radius-lg); }
+.lw-wiz-offer-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
+.lw-wiz-offer-title svg { color: var(--lw-gold); }
+.lw-wiz-offer-benefits { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.lw-wiz-offer-benefits li { display: flex; gap: 8px; font-size: 13px; line-height: 1.45; }
+.lw-wiz-offer-benefits svg { margin-top: 2px; color: var(--lw-gold); }
 @media (max-width: 560px) {
   .lw-wiz-summary-label { flex-basis: 100%; }
   .lw-onb-panel { padding: 18px 16px; }
