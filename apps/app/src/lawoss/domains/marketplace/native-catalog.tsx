@@ -12,6 +12,7 @@ import { catalogUpdateState, installedProvenance } from "./installed-plugin";
 import type { LawossMarketplaceApi, MarketplaceView } from "./marketplace-api";
 import { catalogPluginId, catalogPluginUrl, installCatalogEntry, type CatalogActions, type InstallResult } from "./native-actions";
 import { globalInstalledIds, installGlobalEntries, useLawossMarketplace } from "./use-lawoss-marketplace";
+import { MarketplaceIntro } from "./marketplace-offer";
 import { FileDecisionForm, LegacyInstallsPanel, MarketplaceUpdatesPanel, useGlobalRemove } from "./updates-panel";
 
 export { RecommendedBundlesPanel } from "./bundles-panel";
@@ -62,6 +63,7 @@ export function NativeCatalog(props: Props) {
       <h3 className="text-base font-medium text-dls-text">{MARKETPLACE_SNAPSHOT.name}</h3>
       <p className="text-sm text-dls-secondary">{t("lawoss.marketplace.catalog.description", locale)}</p>
     </div>
+    <MarketplaceIntro />
     {props.error ? <p role="alert" className="text-sm text-red-11">{t("lawoss.integrations.catalog.load_error", locale, { detail: props.error instanceof Error ? props.error.message : String(props.error) })}</p> : null}
     <MarketplaceUpdatesPanel api={marketplace.api} view={marketplace.view} checking={marketplace.checking} error={marketplace.error}
       onCheck={() => void marketplace.check("manual")}
