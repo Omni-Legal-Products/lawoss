@@ -13,6 +13,13 @@ function engineCard(overrides: Partial<PendingPermission> = {}): PendingPermissi
 const buttons = (html: string) => Array.from(html.matchAll(/<button\b[\s\S]*?<\/button>/g)).map((match) => match[0].replace(/<[^>]*>/g, "").trim());
 
 describe("lawoss_files card", () => {
+  test("N-A9-13: pracovný priečinok agenta v .legalwork/scratch má vysvetlenie, bežný priečinok nie", () => {
+    const scratch = fileOperationCard({ lawossFiles: [{ operation: "create_folder", kind: "folder", to: ".legalwork/scratch/terminal-ls" }] })!;
+    expect(scratch.scopeValue).toContain(t("lawoss.files.scratch_note"));
+    expect(scratch.details.lines).toContain(t("lawoss.files.scratch_note"));
+    const plain = fileOperationCard({ lawossFiles: [{ operation: "create_folder", kind: "folder", to: "Spisy/M004 Nový" }] })!;
+    expect(plain.scopeValue).not.toContain(t("lawoss.files.scratch_note"));
+  });
   test("one rename reads as old → new, with no 'allow for the conversation'", () => {
     const permission = engineCard({ metadata: { lawossFiles: [{ operation: "move", kind: "file", from: "poznamky.txt", to: "SYN-overenie.txt" }], description: "Premenovanie podľa zadania" } });
     const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, { permission, respondPermission: () => {} }));

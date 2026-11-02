@@ -86,8 +86,16 @@ function title(changes: PlannedChange[]): string {
  * next to the item deleted or moved is named right under the change, so the lawyer sees which one goes.
  */
 function warnings(change: PlannedChange): string[] {
+  if (scratchFolder(change)) return [t("lawoss.files.scratch_note")];
   return change.similar?.length ? [t("lawoss.files.similar_warning", undefined, { path: change.from ?? "", names: change.similar.join(", ") })] : [];
 }
+
+/**
+ * N-A9-13 (test 2. 11. 2026): pred „Spusti v termináli ls“ agent pýtal „Nový priečinok: .legalwork/scratch/terminal-ls“
+ * bez vysvetlenia. Pracovný priečinok agenta (pokyn enginu: dočasné súbory len v `.legalwork/scratch/<úloha>`) dostane vetu.
+ */
+const scratchFolder = (change: PlannedChange): boolean =>
+  change.operation === "create_folder" && /(?:^|\/)\.legalwork\/scratch(?:\/|$)/.test(change.to ?? "");
 
 /** The card's readable content, or `null` when the request is not from `lawoss_files`. */
 export type FileOperationDetails = { reason: string | null; lines: string[] };
