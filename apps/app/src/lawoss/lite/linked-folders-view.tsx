@@ -30,12 +30,16 @@ const folderName = (path: string): string => path.split(/[\\/]/).filter(Boolean)
 
 /** Otázka pri priečinku, ktorý vyzerá ako prax: predvolene „Nepripojiť“, pripojiť len výslovne. */
 function PracticeLikeConfirm({ locale, outcome, busy, onConfirm, onCancel }: { locale: Language; outcome: PracticeLike; busy?: boolean; onConfirm?: () => void; onCancel?: () => void }) {
-  const title = t("lawoss.lite.linked_folders_practice_like_title", locale);
-  return <div className="lw-status warn mt-2 space-y-2" role="alertdialog" aria-label={title} data-lawoss-linked-folders-practice-like="">
+  const coded = outcome.code !== undefined;
+  const title = t(coded ? "lawoss.lite.linked_folders_other_code_title" : "lawoss.lite.linked_folders_practice_like_title", locale);
+  const name = folderName(outcome.folder);
+  return <div className="lw-status warn mt-2 space-y-2" role="alertdialog" aria-label={title} data-lawoss-linked-folders-practice-like="" data-lawoss-linked-folders-other-code={coded ? "" : undefined}>
     <p className="text-sm font-medium">{title}</p>
-    <p className="text-xs">{outcome.clients.length
-      ? t("lawoss.lite.linked_folders_practice_like_body", locale, { name: folderName(outcome.folder), clients: outcome.clients.join(", ") })
-      : t("lawoss.lite.linked_folders_practice_like_body_unknown", locale, { name: folderName(outcome.folder) })}</p>
+    <p className="text-xs">{coded
+      ? t("lawoss.lite.linked_folders_other_code_body", locale, { name, code: outcome.code || name })
+      : outcome.clients.length
+        ? t("lawoss.lite.linked_folders_practice_like_body", locale, { name, clients: outcome.clients.join(", ") })
+        : t("lawoss.lite.linked_folders_practice_like_body_unknown", locale, { name })}</p>
     <div className="flex flex-wrap gap-2">
       <Button type="button" size="sm" autoFocus disabled={busy} onClick={onCancel} data-lawoss-linked-folders-practice-like-cancel="">{t("lawoss.lite.linked_folders_practice_like_cancel", locale)}</Button>
       <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onConfirm} data-lawoss-linked-folders-practice-like-confirm="">{t("lawoss.lite.linked_folders_practice_like_confirm", locale)}</Button>
