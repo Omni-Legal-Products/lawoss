@@ -152,6 +152,20 @@ test("one card for a batch: a new folder, moves into it, a copy and a recoverabl
   ])).rejects.toMatchObject({ code: "file_operation_target_exists" });
 });
 
+test("N-A9-9: a linked folder that cannot be reached (a disconnected NAS) does not block changes in the client's folder", async () => {
+  const { config, client, linked, workspace } = await office();
+  await rm(linked, { recursive: true });
+  const rename = [{ operation: "move", from: join(client, "poznamky.txt"), to: join(client, "2025-03-01_poznamky.txt") }];
+  const plan = await planFileOperations(config, workspace, rename);
+  expect(plan.operations).toEqual([{ operation: "move", kind: "file", from: "poznamky.txt", to: "2025-03-01_poznamky.txt" }]);
+  expect((await applyFileOperations(config, workspace, rename, plan.operations, plan.revision)).complete).toBe(true);
+  expect(await readFile(join(client, "2025-03-01_poznamky.txt"), "utf8")).toBe("SYN poznamky");
+  // A path in the missing folder is named as unreachable, not as outside the client.
+  await expect(planFileOperations(config, workspace, [{ operation: "move", from: join(client, "2025-03-01_poznamky.txt"), to: join(linked, "poznamky.txt") }]))
+    .rejects.toMatchObject({ status: 409, code: "file_operation_folder_offline", message: expect.stringContaining("pripojeny-A cannot be reached") });
+  expect(await readdir(client)).toContain("2025-03-01_poznamky.txt");
+});
+
 test("delete uses the OS Trash through the desktop host, and falls back inside the same root when it fails", async () => {
   const { config, client, linked, workspace } = await office();
   const trashed: string[] = [];
@@ -867,8 +881,9 @@ test("N-A8-1 (a): renaming or moving a folder moves the links of every listed fi
     also: [{ register: "Spisy/M001-najom-skladu-SYN/VSTUPY.md", id: "IN-004" }, { register: "VSTUPY.md", id: "IN-001" }] });
   const after = await readFile(join(matter, "VSTUPY.md"), "utf8");
   // Both files in the folder follow it; IN-0030 only starts with the same letters and stays; nothing is added.
+  // N-A9-2: a row written as a link stays a link.
   expect(after).toBe(before.replace("| ./01_Podklady/IN-003/Podklady.pdf |", "| 01_Podklady/IN-003_zmluva/Podklady.pdf |")
-    .replace("| [b v2.pdf](./01_Podklady/IN-003/b%20v2.pdf) |", "| 01_Podklady/IN-003_zmluva/b v2.pdf |"));
+    .replace("| [b v2.pdf](./01_Podklady/IN-003/b%20v2.pdf) |", "| [b v2.pdf](./01_Podklady/IN-003_zmluva/b%20v2.pdf) |"));
   expect(await readFile(join(client, "VSTUPY.md"), "utf8")).toContain("| Spisy/M001-najom-skladu-SYN/01_Podklady/IN-003_zmluva/Podklady.pdf | processed |");
   expect(fileOperationReport(renamed).join(" ")).toContain("its existing inputs IN-003 in Spisy/M001-najom-skladu-SYN/VSTUPY.md, IN-004 in Spisy/M001-najom-skladu-SYN/VSTUPY.md, IN-001 in VSTUPY.md now point to the new place.");
   const audit = (await readFile(auditLogPath("ws_c001"), "utf8")).trim().split("\n").map((line) => JSON.parse(line).summary);
