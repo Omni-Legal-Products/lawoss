@@ -118,6 +118,9 @@ export function linkedFolderLabels(linked: readonly string[], paths: Pick<Platfo
   });
 }
 
+/** Errors of a folder that is not there now: an unmounted volume, a server that does not answer, a lost share. */
+const OFFLINE_CODES = new Set(["ENOENT", "ENOTDIR", "EACCES", "EPERM", "ETIMEDOUT", "EHOSTDOWN", "EHOSTUNREACH", "ENXIO", "EIO", "ESTALE"]);
+
 async function clientRoots(config: ServerConfig, workspace: WorkspaceInfo): Promise<Root[]> {
   const linked = await linkableFolders(config, workspace, authorizedFolders(runtimeExternalDirectory(await readRuntimeOpencodeConfig(config, workspace.id))));
   const labels = linkedFolderLabels(linked);
@@ -126,7 +129,8 @@ async function clientRoots(config: ServerConfig, workspace: WorkspaceInfo): Prom
   // Only the client's own folder must be reachable; a missing linked folder is skipped and named when a path is in it.
   return Promise.all(roots.map(async (root, index) => {
     const canonical = await resolveWorkspaceFilePath(root.path, ".", { allowRoot: true }).catch((error: unknown) => {
-      if (index === 0) throw error;
+      // Only an unreachable folder is skipped; a boundary refusal (ApiError) or another failure still stops the plan.
+      if (index === 0 || !OFFLINE_CODES.has((error as NodeJS.ErrnoException).code ?? "")) throw error;
       return null;
     });
     return canonical ? { ...root, canonical } : { ...root, canonical: root.path, offline: true as const };
