@@ -7,7 +7,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { toggledLeave, triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { friendlyError, TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
-import { addMovedAsNew, addOkfFiles, answerClient, linkMovedItem, batchOffersChat, chatTarget, childPath, clientName, cloudFolderKind, connectPractice, createClientChatFlow, firstWorkspaceResult, folderName, matterClientName, matterClientPath, createReorganizeFlow, practiceView, retryFailed, rootClientName, workspaceResults, type Answer, type BatchItem, type FoundIdentity, nestedClientWarnings, nestedClientWarningText, nestedInClient } from "./found-flow";
+import { addMovedAsNew, addOkfFiles, answerClient, linkMovedItem, batchOffersChat, chatTarget, childPath, clientName, cloudFolderKind, connectPractice, severalPractices, createClientChatFlow, firstWorkspaceResult, folderName, matterClientName, matterClientPath, createReorganizeFlow, practiceView, retryFailed, rootClientName, workspaceResults, type Answer, type BatchItem, type FoundIdentity, nestedClientWarnings, nestedClientWarningText, nestedInClient } from "./found-flow";
 import { clientChatPrompt, type ClientChatOutcome, type ClientChatRequest, type ClientChatUnavailable } from "./client-chat";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
@@ -17,7 +17,7 @@ import type { MovedClientChoice } from "../../okf/moved-folder";
 export { OkfNotice } from "./okf-notice";
 import type { OnboardingCompletion } from "./lawoss-welcome-page";
 import type { ConnectedClient, FoundChoice, WizardConnected } from "./onboarding-state";
-import { WizardFoundView } from "./wizard/found-step";
+import { PracticePicks, WizardFoundView } from "./wizard/found-step";
 import type { WizardText } from "./wizard/wizard-text";
 
 type Text = (key: FoundTextKey, params?: Record<string, string | number>) => string;
@@ -63,6 +63,8 @@ const LEVEL_KEY: Record<FoundLevel, ProposalKey> = { client: "clientFound", prac
  * dával vete pôvodný návrh klienta bez klientov a veta tvrdila „nenašiel som“ nad stromom s klientom C001).
  */
 export function headline(text: Text, proposed: OnboardingSuggestion, level: FoundLevel): string {
+  const practices = severalPractices(proposed);
+  if (practices.length) return text("severalPractices", { count: practices.length });
   const suggestion = level === "practice" ? practiceView(proposed) : proposed;
   if (level === "practice" && suggestion.clients.length === 0) return text("practiceNoClients");
   const proposal = foundProposal(proposed);
@@ -103,6 +105,17 @@ export function FoundView({ text, busy, suggestion: proposed, level, scope, sele
   const cloud = cloudFolderKind(suggestion.root);
   // Chat s klientom len pri jednom klientovi; prax ho ponúkne po pridaní súborov (BatchView), prípad pripája klienta.
   const chatChoice = chat && level === "client";
+  const practices = severalPractices(proposed);
+  // N-A9-12: koreň s viacerými praxami nemá voľbu „Toto je“ ani odpovede, len výber jednej praxe.
+  if (practices.length) return (
+    <div className="grid gap-5" data-lawoss-found data-lawoss-several-practices>
+      <ScreenHead title={text("foundTitle")}>
+        <button type="button" className="lw-btn" disabled={busy} onClick={onChangeFolder}>{text("changeFolder")}</button>
+      </ScreenHead>
+      <p className="lw-status warn" role="alert">{headline(text, proposed, level)}</p>
+      <PracticePicks text={text} busy={busy} names={practices} onPick={(name) => onPickRoot(childPath(suggestion.root, name))} />
+    </div>
+  );
   const yesChoice = (
     <section className="lw-onb-choice">
       <h3>{text(chatChoice ? "answerTable" : "answerYes")}</h3>
