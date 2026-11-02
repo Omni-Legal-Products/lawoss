@@ -152,6 +152,20 @@ test("one card for a batch: a new folder, moves into it, a copy and a recoverabl
   ])).rejects.toMatchObject({ code: "file_operation_target_exists" });
 });
 
+test("N-A9-9: a linked folder that cannot be reached (a disconnected NAS) does not block changes in the client's folder", async () => {
+  const { config, client, linked, workspace } = await office();
+  await rm(linked, { recursive: true });
+  const rename = [{ operation: "move", from: join(client, "poznamky.txt"), to: join(client, "2025-03-01_poznamky.txt") }];
+  const plan = await planFileOperations(config, workspace, rename);
+  expect(plan.operations).toEqual([{ operation: "move", kind: "file", from: "poznamky.txt", to: "2025-03-01_poznamky.txt" }]);
+  expect((await applyFileOperations(config, workspace, rename, plan.operations, plan.revision)).complete).toBe(true);
+  expect(await readFile(join(client, "2025-03-01_poznamky.txt"), "utf8")).toBe("SYN poznamky");
+  // A path in the missing folder is named as unreachable, not as outside the client.
+  await expect(planFileOperations(config, workspace, [{ operation: "move", from: join(client, "2025-03-01_poznamky.txt"), to: join(linked, "poznamky.txt") }]))
+    .rejects.toMatchObject({ status: 409, code: "file_operation_folder_offline", message: expect.stringContaining("pripojeny-A cannot be reached") });
+  expect(await readdir(client)).toContain("2025-03-01_poznamky.txt");
+});
+
 test("delete uses the OS Trash through the desktop host, and falls back inside the same root when it fails", async () => {
   const { config, client, linked, workspace } = await office();
   const trashed: string[] = [];
