@@ -44,6 +44,10 @@ extraResources:
       - node.exe
       - LICENSE
       - runtime.json
+      # LAWOSS: npm pre prvý štart doplnkov z LAWOSS Marketplace (scripts/lawoss-node-npm.mjs).
+      - npm
+      - npm.cmd
+      - node_modules/npm/**
   - from: ../server/resources/ocr
     to: ocr
   # LAWOSS: pribalený katalóg modelov. Engine je samostatný proces a do app.asar

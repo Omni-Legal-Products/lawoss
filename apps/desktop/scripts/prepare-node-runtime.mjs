@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { unzipSync } from "fflate";
+import { bundledNpmVersion, installNpmFromDirectory, installNpmFromZip, npmZipEntry } from "./lawoss-node-npm.mjs"; // 🟡 LAWOSS: npm pre doplnky
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const config = JSON.parse(await readFile(path.join(desktopRoot, "build/node-runtime.json"), "utf8"));
@@ -27,7 +28,8 @@ const expectedMetadata = JSON.stringify({ version: config.version, target, archi
 try {
   const existing = JSON.parse(await readFile(path.join(output, "runtime.json"), "utf8"));
   const binaryHash = createHash("sha256").update(await readFile(path.join(output, executable))).digest("hex");
-  if (JSON.stringify(existing.source) === expectedMetadata && existing.binarySha256 === binaryHash) {
+  const npmVersion = await bundledNpmVersion(output, isWindows); // 🟡 LAWOSS
+  if (JSON.stringify(existing.source) === expectedMetadata && existing.binarySha256 === binaryHash && npmVersion && existing.npm?.version === npmVersion) {
     console.log(`[node-runtime] ${config.version} ${target} already verified`);
     process.exit(0);
   }
@@ -40,25 +42,28 @@ try {
   const hash = createHash("sha256").update(bytes).digest("hex");
   if (hash !== config.sha256[target]) throw new Error(`Node runtime checksum mismatch for ${archive}`);
   await mkdir(output, { recursive: true });
+  let npm; // 🟡 LAWOSS
   if (isWindows) {
-    const files = unzipSync(bytes, { filter: ({ name: entry }) => entry === `${name}/node.exe` || entry === `${name}/LICENSE` });
+    const files = unzipSync(bytes, { filter: ({ name: entry }) => entry === `${name}/node.exe` || entry === `${name}/LICENSE` || npmZipEntry(name, entry) });
     for (const file of ["node.exe", "LICENSE"]) {
       if (!files[`${name}/${file}`]) throw new Error(`Node archive is missing ${file}`);
       await writeFile(path.join(output, file), files[`${name}/${file}`]);
     }
+    npm = await installNpmFromZip(files, name, output);
   } else {
     const archivePath = path.join(temporary, archive);
     await writeFile(archivePath, bytes);
-    const result = spawnSync("tar", ["-xzf", archivePath, "-C", temporary, `${name}/bin/node`, `${name}/LICENSE`], { stdio: "inherit" });
+    const result = spawnSync("tar", ["-xzf", archivePath, "-C", temporary, `${name}/bin/node`, `${name}/LICENSE`, `${name}/lib/node_modules/npm`], { stdio: "inherit" });
     if (result.error) throw result.error;
     if (result.status !== 0) throw new Error(`Node runtime extraction failed: ${result.status}`);
     await copyFile(path.join(temporary, name, "bin/node"), path.join(output, "node"));
     await copyFile(path.join(temporary, name, "LICENSE"), path.join(output, "LICENSE"));
     await chmod(path.join(output, "node"), 0o755);
+    npm = await installNpmFromDirectory(path.join(temporary, name, "lib/node_modules/npm"), output);
   }
   const binarySha256 = createHash("sha256").update(await readFile(path.join(output, executable))).digest("hex");
-  await writeFile(path.join(output, "runtime.json"), JSON.stringify({ source: JSON.parse(expectedMetadata), binarySha256 }, null, 2) + "\n");
-  console.log(`[node-runtime] verified and prepared Node ${config.version} for ${target}`);
+  await writeFile(path.join(output, "runtime.json"), JSON.stringify({ source: JSON.parse(expectedMetadata), binarySha256, npm }, null, 2) + "\n");
+  console.log(`[node-runtime] verified and prepared Node ${config.version} with npm ${npm.version} for ${target}`);
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }

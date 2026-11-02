@@ -144,7 +144,7 @@ export function getMarketplaceCatalog(locale: Language = currentLocale()): reado
       humanGate: t(copy?.skillOnly ? "lawoss.integrations.catalog.skill_only_gate" : "lawoss.integrations.catalog.plugin_gate", locale),
       dependencies: copy?.skillOnly
         ? [t("lawoss.integrations.catalog.skill_only_requires", locale)]
-        : ["Node.js 22.14+", t("lawoss.integrations.catalog.npm", locale), t("lawoss.integrations.catalog.internet", locale)],
+        : [t("lawoss.integrations.catalog.npm", locale), t("lawoss.integrations.catalog.internet", locale)],
     };
   });
 }

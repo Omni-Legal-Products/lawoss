@@ -33,6 +33,14 @@ if (node.error) throw node.error;
 assert.equal(node.status, 0, node.stderr);
 assert.deepEqual(JSON.parse(node.stdout), { version: metadata.source.version, electron: null, arch: expectedArch });
 console.log(`PASS: bundled Node ${metadata.source.version} runs with no system Node on PATH`);
+// 🟡 LAWOSS: doplnky z LAWOSS Marketplace volajú pri prvom štarte `npm ci` (scripts/lawoss-node-npm.mjs).
+const npm = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", ["--version"], {
+  env: { ...process.env, PATH: nodeDirectory, NODE_OPTIONS: "", ELECTRON_RUN_AS_NODE: "" }, encoding: "utf8", shell: process.platform === "win32",
+});
+if (npm.error) throw npm.error;
+assert.equal(npm.status, 0, npm.stderr);
+assert.equal(npm.stdout.trim(), metadata.npm?.version);
+console.log(`PASS: bundled npm ${metadata.npm.version} runs with no system Node on PATH`);
 if (process.platform === "win32") {
   const expectedMachine = expectedArch === "arm64" ? 0xaa64 : 0x8664;
   for (const executable of [appPath, path.join(nodeDirectory, "node.exe"), path.join(resources, "sidecars/opencode.exe")]) {

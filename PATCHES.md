@@ -1676,3 +1676,12 @@ Nález N-A8-6 z regresie 30. 10. 2026: po skončení behu ostal nad composerom p
 | Súbory | Downstream zmena a dôvod |
 | --- | --- |
 | `scripts/sandbox/ci-matrix.mjs`, `.github/workflows/sandbox-runtime.yml`, `scripts/ci/sandbox-matrix.test.mjs` | Windows položky matice nesú `qemuPackage` a `qemuSha256` balíka `qemu-11.1.2-1` z repozitára MSYS2. Krok „Download QEMU packages with retries (Windows)“ balík stiahne, overí SHA-256 a nainštaluje cez `pacman -U`; `-cc` ostáva cez `pacman -S`. Test overí pripnutie aj to, že workflow neinštaluje QEMU z hlavy repozitára. Dôvod: MSYS2 vydal 11.1.3 a `package-runtime.mjs` prijíma len overenú 11.1.2, takže `sandbox-runtime` na Windowse zlyhal a povinné „Package and launch“ sa preskočili (rozhodnutie MČ 31. 10.). Prechod na 11.1.3 je samostatný krok. |
+
+### npm vedľa pribaleného Node pre doplnky z LAWOSS Marketplace (2026-11-03, feat/alfa9-po-teste-am)
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `apps/desktop/scripts/prepare-node-runtime.mjs` | +1 import nového `scripts/lawoss-node-npm.mjs`; z toho istého checksumom overeného archívu nodejs.org rozbalí aj `lib/node_modules/npm` (tar) / `node_modules/npm` (zip) do `resources/node/node_modules/npm` a zapíše spúšťač `npm` / `npm.cmd`. `runtime.json` nesie `npm.version`; „already verified“ platí len pri zhodnej verzii a aktuálnom spúšťači. Dôvod: doplnky z marketplace spúšťajú `node scripts/run.mjs`, ktorý pri prvom štarte volá `npm ci`; pribalený Node je v PATH enginu (`childProcessPath`), npm doteraz chýbal, takže na počítači bez Node doplnky nenabehli. Vhodné aj pre upstream (pribalené skilly s npm závislosťami). |
+| `apps/desktop/electron-builder.yml` | Filter `extraResources` pre `resources/node` pridáva `npm`, `npm.cmd`, `node_modules/npm/**` (~16 MB nekomprimovane, bez natívnych binárok). |
+| `apps/desktop/scripts/check-packaged-security.mjs` | Nový PASS: `npm --version` s PATH len na pribalený priečinok Node vráti `runtime.json` → `npm.version`. |
+| `apps/desktop/package.json` | +1 súbor v skripte `test`: `scripts/lawoss-node-npm.test.mjs`. |
