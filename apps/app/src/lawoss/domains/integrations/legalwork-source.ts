@@ -16,6 +16,12 @@
 
 export const LEGALWORK_SOURCE_STORAGE_KEY = "lawoss.integrations.legalworkSource";
 
+/**
+ * Alfa bez doplnkov LegalWork (rozhodnutie MČ 2. 11. 2026): prepínač sa v Integráciách neukáže
+ * a uložené zapnutie z predošlej verzie sa pri štarte zruší. Logika zdroja ostáva pre neskoršie verzie.
+ */
+export const LEGALWORK_SOURCE_OFFERED = false;
+
 /** Jediná hodnota, ktorá zdroj zapína. Chýbajúca, poškodená alebo iná hodnota = vypnuté. */
 const ENABLED_VALUE = "on";
 
@@ -38,7 +44,14 @@ function read(): boolean {
   }
 }
 
-let enabled = read();
+let enabled = LEGALWORK_SOURCE_OFFERED && read();
+if (!LEGALWORK_SOURCE_OFFERED) {
+  try {
+    storage()?.removeItem(LEGALWORK_SOURCE_STORAGE_KEY);
+  } catch {
+    // Bez úložiska je zdroj aj tak vypnutý.
+  }
+}
 
 function notify(): void {
   for (const listener of listeners) listener();

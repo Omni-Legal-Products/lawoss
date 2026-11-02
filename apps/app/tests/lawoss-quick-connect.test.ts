@@ -10,6 +10,7 @@ import {
   isLegalQuantsHidden,
 } from "../src/lawoss/feature-flags";
 import {
+  LEGALWORK_SOURCE_OFFERED,
   LEGALWORK_SOURCE_STORAGE_KEY,
   isLegalworkSourceEnabled,
   reloadLegalworkSourceFromStorage,
@@ -115,13 +116,22 @@ describe("LAWOSS zdroje integrácií: LegalQuants a karta", () => {
   });
 
   test("karta ukazuje tri zdroje a meno upstreamu v texte zdroja LegalWork", () => {
-    const html = renderToStaticMarkup(createElement(IntegrationSourcesContent, { locale: "sk", legalWorkEnabled: false, onLegalworkChange: () => {} }));
+    const html = renderToStaticMarkup(createElement(IntegrationSourcesContent, { locale: "sk", legalWorkEnabled: false, onLegalworkChange: () => {}, offerLegalwork: true }));
     expect(html).toContain("LAWOSS");
     expect(html).toContain("Konektory a nástroje z projektu LegalWork. Pripájajú sa priamo k ich dodávateľom; LAWOSS ich nekontroluje.");
     expect(html).toContain("Vlastné");
     expect(html).toContain('data-lawoss-source-switch="legalwork"');
     expect(html).toContain("Vypnuté.");
-    const on = renderToStaticMarkup(createElement(IntegrationSourcesContent, { locale: "de", legalWorkEnabled: true, onLegalworkChange: () => {} }));
+    const on = renderToStaticMarkup(createElement(IntegrationSourcesContent, { locale: "de", legalWorkEnabled: true, onLegalworkChange: () => {}, offerLegalwork: true }));
     expect(on).toContain("Konnektoren und Werkzeuge aus dem Projekt LegalWork.");
+  });
+
+  test("alfa: karta zdroj LegalWork neponúka, ostáva LAWOSS a Vlastné (MČ 2. 11. 2026)", () => {
+    expect(LEGALWORK_SOURCE_OFFERED).toBe(false);
+    const html = renderToStaticMarkup(createElement(IntegrationSourcesContent, { locale: "sk", legalWorkEnabled: false, onLegalworkChange: () => {} }));
+    expect(html).toContain("LAWOSS");
+    expect(html).toContain("Vlastné");
+    expect(html).not.toContain('data-lawoss-source-switch="legalwork"');
+    expect(html).not.toContain("Konektory a nástroje z projektu LegalWork.");
   });
 });
