@@ -43,6 +43,7 @@ export function serverRefusal(error: unknown): LinkRefusal | null {
 export function linkedFolderServerMessage(error: unknown, locale?: Language): string | null {
   const code = error && typeof error === "object" && "code" in error ? error.code : null;
   if (code === "linked_folder_practice_like") return t("lawoss.lite.linked_folders_refuse_practice_like_settings", locale);
+  if (code === "linked_folder_other_code") return t("lawoss.lite.linked_folders_refuse_other_code_settings", locale);
   const reason = serverRefusal(error);
   return reason ? t(LINK_REFUSAL_TEXT[reason], locale) : null;
 }
@@ -147,14 +148,22 @@ export function linkedFoldersPolicy(entry: FirmEntry): { managed: boolean; locke
 
 export type SaveResult = "saved" | "declined";
 /** Server: priečinok vyzerá ako prax (≥2 podpriečinky ako klienti s prípadmi). Pripojí sa len po potvrdení advokáta. */
-export type PracticeLike = { kind: "confirm"; folder: string; clients: string[] };
+export type PracticeLike = { kind: "confirm"; folder: string; clients: string[]; /** Kód iného klienta v názve (N-A9-14). */ code?: string };
 export type LinkResult = { kind: "cancelled" } | { kind: "refused"; reason: LinkRefusal } | { kind: SaveResult } | PracticeLike;
 type Save = (folders: string[], confirmedPracticeLike?: string[]) => Promise<SaveResult>;
 
-/** Mäkké odmietnutie servera (`linked_folder_practice_like`) s menami podpriečinkov, ktoré vyzerajú ako klienti. */
+/**
+ * Mäkké odmietnutie servera: `linked_folder_practice_like` s menami podpriečinkov, ktoré vyzerajú ako klienti, alebo
+ * `linked_folder_other_code` s kódom iného klienta v názve priečinka (N-A9-14).
+ */
 export function serverPracticeLike(error: unknown, folder: string): PracticeLike | null {
-  if (!error || typeof error !== "object" || !("code" in error) || error.code !== "linked_folder_practice_like") return null;
+  if (!error || typeof error !== "object" || !("code" in error)) return null;
   const details = "details" in error && error.details && typeof error.details === "object" ? error.details : null;
+  if (error.code === "linked_folder_other_code") {
+    const code = details && "code" in details && typeof details.code === "string" ? details.code : "";
+    return { kind: "confirm", folder, clients: [], code };
+  }
+  if (error.code !== "linked_folder_practice_like") return null;
   const clients = details && "clients" in details && Array.isArray(details.clients) ? details.clients.filter((name): name is string => typeof name === "string") : [];
   return { kind: "confirm", folder, clients };
 }

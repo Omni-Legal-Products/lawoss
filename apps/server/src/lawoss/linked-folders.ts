@@ -117,6 +117,8 @@ const conflictErrors: Record<LinkedFolderConflict, () => ApiError> = {
 };
 
 /** Mäkké odmietnutie: priečinok vyzerá ako prax; pripojí sa len s výslovným potvrdením tohto priečinka v aplikácii. */
+const otherCodeError = (folder: string, code: string) => new ApiError(409, "linked_folder_other_code",
+  "This folder is named with another client's code. Confirm in the app that it belongs to this client.", { folder, code });
 const practiceLikeError = (folder: string, clients: string[]) => new ApiError(409, "linked_folder_practice_like",
   "This folder looks like it holds the folders of several clients. Link a specific folder, or confirm this folder in the app.", { folder, clients });
 
@@ -233,7 +235,7 @@ export function linkedFoldersMapRefresher(config: ServerConfig): { refresh: () =
 /**
  * Natívny zápis zoznamu: nový priečinok nesmie byť relatívny ani zasahovať do iného klienta, praxe či dát aplikácie.
  * Priečinok mimo klienta sa ešte prezrie (`linked-folder-survey.ts`): značky OKF iného klienta alebo kancelárie
- * ho odmietnu vždy, podoba praxe len bez potvrdenia (`confirmedPracticeLike` z aplikácie po otázke advokátovi).
+ * ho odmietnu vždy, podoba praxe a kód iného klienta len bez potvrdenia (`confirmedPracticeLike` z aplikácie po otázke advokátovi).
  */
 export async function requireLinkableFolders(config: ServerConfig, workspace: WorkspaceInfo, folders: readonly string[], existing: readonly string[], confirmedPracticeLike: readonly string[] = []): Promise<void> {
   const added = folders.filter((folder) => !existing.includes(folder));
@@ -249,6 +251,7 @@ export async function requireLinkableFolders(config: ServerConfig, workspace: Wo
     if ((scope.ownRoot && isPathWithin(scope.ownRoot, canonical)) || isOfficeMemoryFolder(canonical, scope.officeRoot)) continue;
     const survey = await surveyLinkedFolder(canonical, scope.ownRoot);
     if (survey?.kind === "practice_like") { if (!confirmed.includes(canonical)) throw practiceLikeError(folder, survey.clients); }
+    else if (survey?.kind === "other_code") { if (!confirmed.includes(canonical)) throw otherCodeError(folder, survey.code); }
     else if (survey) throw conflictErrors[survey.kind]();
   }
 }

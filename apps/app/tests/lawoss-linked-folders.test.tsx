@@ -160,6 +160,9 @@ describe("model: čo sa smie pripojiť", () => {
     const error = new LegalworkServerError(409, "linked_folder_practice_like", "x", { folder: "/p", clients: ["C002 SYN Hron", 7, "C017 SYN Šimková"] });
     expect(serverPracticeLike(error, "/Users/ana/Prax")).toEqual({ kind: "confirm", folder: "/Users/ana/Prax", clients: ["C002 SYN Hron", "C017 SYN Šimková"] });
     expect(serverPracticeLike(new LegalworkServerError(409, "linked_folder_practice", "x"), "/p")).toBeNull();
+    // N-A9-14: kód iného klienta v názve priečinka je tá istá otázka s inou vetou.
+    expect(serverPracticeLike(new LegalworkServerError(409, "linked_folder_other_code", "x", { folder: "/k/C999", code: "C999" }), "/k/C999")).toEqual({ kind: "confirm", folder: "/k/C999", clients: [], code: "C999" });
+    expect(linkedFolderServerMessage(new LegalworkServerError(409, "linked_folder_other_code", "x"), "sk")).toContain("kód iného klienta");
   });
 });
 
