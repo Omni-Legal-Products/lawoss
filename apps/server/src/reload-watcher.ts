@@ -26,6 +26,17 @@ const bootstrapReasons: ReloadReason[] = ["agents", "commands", "skills"];
 type BootstrapScope = { depth: number; revision: number; refreshers: Set<() => Promise<void>> };
 const bootstrapScopes = new WeakMap<ServerConfig, Map<string, BootstrapScope>>();
 
+// 🟡 LAWOSS: Bun na macOS pri každom novom fs.watch nanovo vytvorí spoločný FSEvents
+// stream procesu a udalosti, ktoré ešte nedoručil, zahodí aj ostatným sledovaniam.
+// Zmena súboru tesne pred registráciou by sa tak stratila. Po registrácii preto každé
+// živé sledovanie znovu porovná odtlačky; nezmenený odtlačok nič nevyšle.
+const watcherReconcilers = new Set<() => void>();
+function reconcileAfterWatcherRegistration() {
+  if (process.platform !== "darwin") return;
+  for (const reconcile of [...watcherReconcilers]) reconcile();
+}
+const watchedReasons: ReloadReason[] = ["config", "agents", "skills", "commands", "plugins"];
+
 function workspaceBootstrapScope(config: ServerConfig, workspace: WorkspaceInfo) {
   let scopes = bootstrapScopes.get(config);
   if (!scopes) { scopes = new Map(); bootstrapScopes.set(config, scopes); }
@@ -143,6 +154,7 @@ function startWorkspaceReloadWatcher(input: {
     opencodeRootWatcher?.close();
     bootstrap.scope.refreshers.delete(refreshBootstrapBaseline);
     bootstrap.release();
+    watcherReconcilers.delete(reconcile);
   };
 
   const refreshBaseline = async (reasons: ReloadReason[] = fingerprintedReloadReasons) => {
@@ -157,6 +169,7 @@ function startWorkspaceReloadWatcher(input: {
 
   const refreshBootstrapBaseline = () => refreshBaseline(bootstrapReasons);
   bootstrap.scope.refreshers.add(refreshBootstrapBaseline);
+  const reconcile = () => { for (const reason of watchedReasons) scheduleReasonCheck(reason); };
 
   // Best-known named trigger per reason. fs.watch event order and filename
   // presence are platform-dependent (macOS often omits filenames or fires a
@@ -283,6 +296,7 @@ function startWorkspaceReloadWatcher(input: {
           error: error instanceof Error ? error.message : String(error),
         });
       });
+      reconcileAfterWatcherRegistration();
     } catch (error) {
       logger?.log("warn", "Reload watcher .opencode failed", {
         workspaceId: workspace.id,
@@ -422,6 +436,10 @@ function startWorkspaceReloadWatcher(input: {
     tree.scheduleRescan();
   }
   void refreshBaseline();
+
+  // Triggerless checks keep any pending named trigger; fingerprints gate emission.
+  watcherReconcilers.add(reconcile);
+  reconcileAfterWatcherRegistration();
 
   return { close: closeAll, refreshBaseline };
 }
@@ -594,9 +612,11 @@ function createDirectoryTreeWatcher(input: {
 
       const dirs = nativeRecursive ? new Set([resolvedRoot]) : await scanDirs();
       if (closed) return;
+      const registered = watchers.size;
       for (const dir of dirs) {
         ensureWatcher(dir);
       }
+      if (watchers.size > registered) reconcileAfterWatcherRegistration();
       for (const dir of Array.from(watchers.keys())) {
         if (!dirs.has(dir)) {
           const watcher = watchers.get(dir);

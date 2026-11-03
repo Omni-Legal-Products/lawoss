@@ -1676,3 +1676,9 @@ Nález N-A8-6 z regresie 30. 10. 2026: po skončení behu ostal nad composerom p
 | Súbory | Downstream zmena a dôvod |
 | --- | --- |
 | `scripts/sandbox/ci-matrix.mjs`, `.github/workflows/sandbox-runtime.yml`, `scripts/ci/sandbox-matrix.test.mjs` | Windows položky matice nesú `qemuPackage` a `qemuSha256` balíka `qemu-11.1.2-1` z repozitára MSYS2. Krok „Download QEMU packages with retries (Windows)“ balík stiahne, overí SHA-256 a nainštaluje cez `pacman -U`; `-cc` ostáva cez `pacman -S`. Test overí pripnutie aj to, že workflow neinštaluje QEMU z hlavy repozitára. Dôvod: MSYS2 vydal 11.1.3 a `package-runtime.mjs` prijíma len overenú 11.1.2, takže `sandbox-runtime` na Windowse zlyhal a povinné „Package and launch“ sa preskočili (rozhodnutie MČ 31. 10.). Prechod na 11.1.3 je samostatný krok. |
+
+### Stratená udalosť pri registrácii sledovania na macOS (2026-11-04, fix/nestabilne-testy-ci)
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `apps/server/src/reload-watcher.ts` | Bun 1.4.2 na macOS pri každom novom `fs.watch` nanovo vytvorí spoločný FSEvents stream procesu a nedoručené udalosti ostatných sledovaní zahodí. Po registrácii (strom, `.opencode`, štart pracoviska) preto každé živé sledovanie znovu porovná odtlačky `config`, `agents`, `skills`, `commands`, `plugins`; nezmenený odtlačok nič nevyšle a zväzkové dôvody počas bootstrapu ostávajú potlačené. Len `darwin`. Príčina náhodného `Expected: "config"` v `reload-watcher.test.ts` na macos-14 (#220). |
