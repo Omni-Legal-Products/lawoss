@@ -429,6 +429,7 @@ async function moveToTrash(config: ServerConfig, item: Planned): Promise<Trashed
 }
 
 const errorCode = (error: unknown) => error instanceof Error && "code" in error ? error.code : undefined;
+const messageOf = (error: unknown) => error instanceof Error ? error.message : String(error);
 const targetExists = (item: Planned) => new ApiError(409, "file_operation_target_exists", `${item.to} already exists. This tool never overwrites. Nothing was changed. ${NEW_NAME}`);
 
 /** Content of a file or folder tree: names, kinds, sizes, SHA-256 of files and link targets. */
@@ -445,7 +446,10 @@ async function treeDigest(location: string, signal?: AbortSignal): Promise<strin
     if (info.isSymbolicLink()) hash.update(`L\0${name}\0${await readlink(current)}\n`);
     else if (info.isDirectory()) {
       hash.update(`D\0${name}\n`);
-      for (const child of (await readdir(current)).sort()) pending.push(join(current, child));
+      // Sorted by the NFC name as well: the NFD (APFS) and NFC (SMB) forms of „á“ sort on opposite sides of „b“ (#221).
+      const children = (await readdir(current)).map((child) => ({ child, key: child.normalize("NFC") }));
+      children.sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : a.child < b.child ? -1 : a.child > b.child ? 1 : 0);
+      for (const { child } of children) pending.push(join(current, child));
     } else if (!info.isFile()) throw new Error(`${name || "The item"} is not a regular file or folder and cannot be moved to another drive. Nothing was moved.`);
     else {
       const file = createHash("sha256");
@@ -471,9 +475,13 @@ export async function moveAcrossVolumes(config: ServerConfig, item: Planned & { 
     // The last file is read after treeDigest's own check: a chat stopped during that read keeps its original.
     signal?.throwIfAborted();
   } catch (error) {
-    // Only the copy this call made is removed: the plan checked that the target did not exist.
-    if (errorCode(error) !== "EEXIST" && errorCode(error) !== "ERR_FS_CP_EEXIST") await rm(item.target, { recursive: true, force: true });
-    throw errorCode(error) === "EEXIST" || errorCode(error) === "ERR_FS_CP_EEXIST" ? targetExists(item) : error;
+    if (errorCode(error) === "EEXIST" || errorCode(error) === "ERR_FS_CP_EEXIST") throw targetExists(item);
+    // Only the copy this call made is removed: the plan checked that the target did not exist. When that fails too,
+    // the move's own error stays first and is the cause; the user also learns that the copy is still there (#221).
+    await rm(item.target, { recursive: true, force: true }).catch((cleanup: unknown) => {
+      throw new Error(`${messageOf(error)} The incomplete copy ${item.to} could not be removed (${String(errorCode(cleanup) ?? "error")}); remove it before trying again.`, { cause: error });
+    });
+    throw error;
   }
   try { return (await moveToTrash(config, item)).shown; }
   catch (error) { throw new Error(`The copy on the other drive is complete, but the original could not be moved to the Trash, so both exist now: ${error instanceof Error ? error.message : String(error)}`); }
@@ -503,10 +511,25 @@ async function moveWithoutReplacing(config: ServerConfig, item: Planned & { sour
     // No hard links on this volume (FAT, exFAT, some network shares): rename after checking the target is free.
     return checkedRename(config, item, signal);
   }
-  // The old name stays when the file is held open (Windows): drop the new one so the move fails cleanly.
-  try { await unlink(item.source); }
-  catch (error) { await unlink(item.target).catch(() => {}); throw error; }
+  await dropOldName(item);
   return undefined;
+}
+
+/**
+ * The old name stays when the file is held open (Windows, a document open in Word: `EBUSY`): drop the new name so the
+ * move fails cleanly. The same lock usually blocks that too; the user then learns that the file has both names, rather
+ * than a retry failing later with „already exists“ (#221).
+ */
+async function dropOldName(item: Planned & { source: string; target: string }): Promise<void> {
+  try { await unlink(item.source); return; }
+  catch (error) {
+    const reason = errorCode(error) === "EBUSY" ? `${item.from} is open in another program, so it was not moved. Close it and try again.`
+      : `${item.from} could not be removed from its old place (${String(errorCode(error) ?? "error")}), so it was not moved.`;
+    await unlink(item.target).catch((undo: unknown) => {
+      throw new Error(`${reason} The file now has both names, ${item.from} and ${item.to}: one file, not a copy. After closing it, remove ${item.to} to undo the move, or ${item.from} to finish it (${String(errorCode(undo) ?? "error")}).`, { cause: error });
+    });
+    throw new Error(`${reason} Nothing was moved.`, { cause: error });
+  }
 }
 
 async function execute(config: ServerConfig, item: Planned, signal?: AbortSignal): Promise<Trashed | undefined> {

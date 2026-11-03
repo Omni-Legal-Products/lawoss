@@ -1506,7 +1506,7 @@ function codedHierarchy(index, candidates) {
   if (childPrefixes.some((found) => found.includes(prefix)))
     return false;
   const withMatters = childPrefixes.filter((found) => found.length > 0).length;
-  return withMatters >= CODED_MIN_CLIENTS && withMatters * 2 >= coded.length;
+  return withMatters >= CODED_MIN_CLIENTS && withMatters * 2 > coded.length;
 }
 function legacyOffice(index) {
   const office = OFFICE_DIRS.some((name) => childrenOf(index, name).some((entry) => OFFICE_EVIDENCE.has(nameOf(entry.path).toLowerCase())));
