@@ -59,6 +59,7 @@ import {
 } from "../extension-state";
 import { HubScopeToggle, useHubScope } from "./hub-scope-context";
 import { McpConfigExportDialog } from "../../../../lawoss/domains/integrations/mcp-config-export";
+import { marketplaceConnector } from "../../../../lawoss/domains/marketplace/mcp-servers";
 import { orgPolicyAllows, orgPolicyOffText, useOrgPolicyForbids } from "../../connections/org-policy";
 import { OrgPolicyNote } from "../../connections/org-policy-ui";
 import { HubTabs, type HubTab } from "../segmented-tabs";
@@ -316,7 +317,8 @@ export function McpView(props: McpViewProps) {
       );
     });
 
-  const displayName = (name: string) => resolveQuickConnectMatch(name)?.name ?? pluginImportConnectorName(name);
+  // 🟡 LAWOSS: konektor doplnku z LAWOSS Marketplace má názov doplnku, nie meno servera (`slovlex`).
+  const displayName = (name: string) => resolveQuickConnectMatch(name)?.name ?? marketplaceConnector(name)?.title ?? pluginImportConnectorName(name);
 
   const quickConnectStatus = (entry: McpDirectoryInfo) =>
     props.mcpStatuses[getMcpIdentityKey(entry)];
@@ -1129,9 +1131,11 @@ function McpConfiguredServerRow(props: {
   pluginName?: string;
 }) {
   const owner = importedConnectorPlugin(props.entry.name, useIntegrationLibraryLayout()?.importedPackages);
+  // 🟡 LAWOSS: globálne nainštalovaný doplnok z LAWOSS Marketplace nie je „Vlastný konektor“.
+  const marketplace = owner ? null : marketplaceConnector(props.entry.name);
   return (
     <>
-      <IntegrationLibraryRow name={props.displayName(props.entry.name)} description={props.directoryEntry?.description ?? t("integrations.custom_connector")} source={owner ? t("integrations.plugin_source", { name: pluginImportName(owner) }) : undefined} icon={<McpConfiguredServerIcon {...props} />} busy={props.busy} onOpen={() => props.onSelect(props.entry.name)} status={<ConnectorStatus state={props.status} />}
+      <IntegrationLibraryRow name={props.displayName(props.entry.name)} description={props.directoryEntry?.description ?? marketplace?.summary ?? t("integrations.custom_connector")} source={owner ? t("integrations.plugin_source", { name: pluginImportName(owner) }) : marketplace ? t("integrations.plugin_source", { name: "LAWOSS Marketplace" }) : undefined} icon={<McpConfiguredServerIcon {...props} />} busy={props.busy} onOpen={() => props.onSelect(props.entry.name)} status={<ConnectorStatus state={props.status} />}
         onShare={props.canShareWithFirm && props.onShareWithFirm ? () => void props.onShareWithFirm?.(props.entry.name, props.displayName(props.entry.name)) : undefined}
         onRemove={props.entry.source !== "config.global" ? () => props.onRemove(props.entry.name) : undefined} />
       <McpConfiguredServerDetails {...props} />

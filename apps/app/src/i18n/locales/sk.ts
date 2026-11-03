@@ -765,7 +765,7 @@ export default {
   "mcp.docs_link": "Zistiť viac",
   "mcp.friendly_status_issue": "Problém",
   "mcp.friendly_status_needs_signin": "Vyžaduje prihlásenie",
-  "mcp.friendly_status_offline": "Offline",
+  "mcp.friendly_status_offline": "Zatiaľ nepripojené",
   "mcp.friendly_status_paused": "Pozastavené",
   "mcp.friendly_status_ready": "Pripravené",
   "mcp.login_action": "Prihlásiť sa",
