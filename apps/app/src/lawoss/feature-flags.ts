@@ -49,6 +49,23 @@ const UNADOPTED_UPSTREAM_ROUTES: readonly RegExp[] = [
   /^\/workspace\/[^/]+\/(?:calendar|dashboards)$/,
 ];
 
+/**
+ * Balíky lehôt LegalWorku (DE, Anglicko a Wales, US) zapisuje server do globálnej knižnice skillov
+ * (`DEADLINE_SKILLS` v `apps/server/src/calendar/deadline-rules.ts`). Kalendár a výpočet lehôt alfa
+ * neprevzala, preto sú v katalógu integrácií predvolene skryté (nález N-A3-4, #255). Skill ostáva na
+ * disku, „Zobraziť skryté“ ho ukáže a advokát ho môže odkryť. Zhodu názvov stráži
+ * `tests/lawoss-skryte-balicky-lehot.test.ts`.
+ */
+const UNADOPTED_UPSTREAM_SKILLS: ReadonlySet<string> = new Set<string>([
+  "de-civil-deadlines",
+  "ew-civil-deadlines",
+  "us-federal-civil-deadlines",
+]);
+
+/** Je skill v katalógu integrácií skrytý, kým ho advokát sám neodkryje? */
+export const isSkillHiddenByDefault = (name: string): boolean =>
+  ALPHA_HIDE_UNADOPTED_UPSTREAM && UNADOPTED_UPSTREAM_SKILLS.has(name);
+
 /** Je navigačná položka (hlavná lišta, sekcia chatu, položka projektu) skrytá? */
 export const isSidebarItemHidden = (item: string): boolean =>
   HIDDEN_SIDEBAR_ITEMS.has(item) ||

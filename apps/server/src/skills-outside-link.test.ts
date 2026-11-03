@@ -4,6 +4,7 @@ import * as os from "node:os";
 import { join } from "node:path";
 import { resolveSkillDir } from "./skill-resources.js";
 import { listSkills, type SkippedSkill } from "./skills.js";
+import { globalSkillsDir } from "./workspace-files.js";
 
 let root: string;
 let home: string;
@@ -27,8 +28,9 @@ beforeEach(async () => {
   originalXdg = process.env.XDG_CONFIG_HOME;
   process.env.XDG_CONFIG_HOME = join(home, ".config");
   // A common setup: the project's .claude/skills points at the user's global library.
-  await writeSkill(join(home, ".claude", "skills"), "global-review");
-  await symlink(join(home, ".claude", "skills"), join(workspace, ".claude", "skills"), "dir");
+  // 🟡 LAWOSS: the global library is the OpenCode one; ~/.claude/skills is not read (lawoss/claude-global-skills.ts).
+  await writeSkill(globalSkillsDir(), "global-review");
+  await symlink(globalSkillsDir(), join(workspace, ".claude", "skills"), "dir");
   await writeSkill(join(workspace, ".opencode", "skills"), "project-draft");
 });
 
@@ -47,6 +49,6 @@ test("a project skills folder linked outside the workspace is skipped instead of
 });
 
 test("skill lookup continues to the global library when the project link leaves the workspace", async () => {
-  expect(await resolveSkillDir(workspace, "global-review")).toBe(join(home, ".claude", "skills", "global-review"));
+  expect(await resolveSkillDir(workspace, "global-review")).toBe(join(globalSkillsDir(), "global-review"));
   expect(await resolveSkillDir(workspace, "project-draft")).toBe(join(workspace, ".opencode", "skills", "project-draft"));
 });
