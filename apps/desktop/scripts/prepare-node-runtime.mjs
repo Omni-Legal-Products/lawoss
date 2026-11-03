@@ -25,9 +25,10 @@ const output = path.join(desktopRoot, "resources/node");
 const executable = isWindows ? "node.exe" : "node";
 // 🟡 LAWOSS: npm z toho istého archívu, aby balíky LAWOSS Marketplace (`node scripts/run.mjs`)
 // pri prvom spustení nainštalovali závislosti aj bez Node.js v systéme.
+// npm leží v `lib/npm`, nie v `node_modules/npm`: electron-builder priečinky `node_modules` v extraResources vynechá.
 const npmLauncher = isWindows ? "npm.cmd" : "npm";
-const npmCli = isWindows ? "node_modules/npm/bin/npm-cli.js" : "lib/node_modules/npm/bin/npm-cli.js";
-const expectedMetadata = JSON.stringify({ version: config.version, target, archiveSha256: config.sha256[target], npm: true });
+const npmCli = "lib/npm/bin/npm-cli.js";
+const expectedMetadata = JSON.stringify({ version: config.version, target, archiveSha256: config.sha256[target], npm: "lib/npm" });
 try {
   const existing = JSON.parse(await readFile(path.join(output, "runtime.json"), "utf8"));
   const binaryHash = createHash("sha256").update(await readFile(path.join(output, executable))).digest("hex");
@@ -46,19 +47,22 @@ try {
   const hash = createHash("sha256").update(bytes).digest("hex");
   if (hash !== config.sha256[target]) throw new Error(`Node runtime checksum mismatch for ${archive}`);
   await mkdir(output, { recursive: true });
-  await rm(path.join(output, isWindows ? "node_modules" : "lib"), { recursive: true, force: true });
+  for (const stale of ["lib", "node_modules"]) await rm(path.join(output, stale), { recursive: true, force: true });
   if (isWindows) {
     const npmPrefix = `${name}/node_modules/npm/`;
     const files = unzipSync(bytes, { filter: ({ name: entry }) => entry === `${name}/node.exe` || entry === `${name}/LICENSE`
-      || entry === `${name}/npm.cmd` || (entry.startsWith(npmPrefix) && !entry.endsWith("/")) });
-    for (const file of ["node.exe", "LICENSE", "npm.cmd", "node_modules/npm/bin/npm-cli.js"]) {
+      || (entry.startsWith(npmPrefix) && !entry.endsWith("/")) });
+    for (const file of ["node.exe", "LICENSE", "node_modules/npm/bin/npm-cli.js"]) {
       if (!files[`${name}/${file}`]) throw new Error(`Node archive is missing ${file}`);
     }
     for (const [entry, content] of Object.entries(files)) {
-      const destination = path.join(output, entry.slice(name.length + 1));
+      const relative = entry.startsWith(npmPrefix) ? path.join("lib/npm", entry.slice(npmPrefix.length)) : entry.slice(name.length + 1);
+      const destination = path.join(output, relative);
       await mkdir(path.dirname(destination), { recursive: true });
       await writeFile(destination, content);
     }
+    // Vlastný npm.cmd: ten z archívu hľadá npm v `node_modules\npm`.
+    await writeFile(path.join(output, "npm.cmd"), '@ECHO off\r\nSETLOCAL\r\nSET npm_config_update_notifier=false\r\n"%~dp0node.exe" "%~dp0lib\\npm\\bin\\npm-cli.js" %*\r\n');
   } else {
     const archivePath = path.join(temporary, archive);
     await writeFile(archivePath, bytes);
@@ -68,11 +72,11 @@ try {
     await copyFile(path.join(temporary, name, "bin/node"), path.join(output, "node"));
     await copyFile(path.join(temporary, name, "LICENSE"), path.join(output, "LICENSE"));
     await chmod(path.join(output, "node"), 0o755);
-    await cp(path.join(temporary, name, "lib/node_modules/npm"), path.join(output, "lib/node_modules/npm"), { recursive: true });
+    await cp(path.join(temporary, name, "lib/node_modules/npm"), path.join(output, "lib/npm"), { recursive: true });
     // Vlastný spúšťač namiesto symlinku bin/npm: `#!/usr/bin/env node` by hľadal systémový Node
     // a symlink by electron-builder nemusel zachovať. Cestu berie z $0 bez `dirname`, aby fungoval
     // aj s PATH, v ktorom je len tento priečinok.
-    await writeFile(path.join(output, "npm"), '#!/bin/sh\ncase "$0" in */*) dir="${0%/*}" ;; *) dir=. ;; esac\nexec "$dir/node" "$dir/lib/node_modules/npm/bin/npm-cli.js" "$@"\n');
+    await writeFile(path.join(output, "npm"), '#!/bin/sh\ncase "$0" in */*) dir="${0%/*}" ;; *) dir=. ;; esac\nnpm_config_update_notifier=false exec "$dir/node" "$dir/lib/npm/bin/npm-cli.js" "$@"\n');
     await chmod(path.join(output, "npm"), 0o755);
   }
   const binarySha256 = createHash("sha256").update(await readFile(path.join(output, executable))).digest("hex");
