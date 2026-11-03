@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { notifyManager } from "@tanstack/react-query";
 
 import { getReactQueryClient } from "./query-client";
 
@@ -9,7 +10,7 @@ import { getReactQueryClient } from "./query-client";
 export function useQueryCacheState<T>(queryKey: readonly unknown[] | null, fallback: T): T {
   const queryClient = getReactQueryClient();
   return useSyncExternalStore(
-    (callback) => (queryKey ? queryClient.getQueryCache().subscribe(callback) : () => {}),
+    (callback) => (queryKey ? queryClient.getQueryCache().subscribe(notifyManager.batchCalls(callback)) : () => {}),
     () => (queryKey ? queryClient.getQueryData<T>(queryKey) ?? fallback : fallback),
     () => fallback,
   );

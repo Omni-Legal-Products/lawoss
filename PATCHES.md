@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Odložené upozornenia čítačiek query cache (2026-11-04)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/infra/query-cache-state.ts` | `useQueryCacheState` odovzdáva upozornenia cez `notifyManager.batchCalls`, rovnako ako natívne TanStack hooky. Vytvorenie query počas renderu iného komponentu tak nesmie synchrónne aktualizovať čítačku cache. Živý syntetický headless vstup reprodukoval React varovanie `SessionRoute` / `ClientLinkedFoldersNavItem`; regresia `apps/app/tests/query-cache-state-mount.test.tsx` pripája skutočné React DOM hooky a overuje aj doručenie hodnoty. Pri syncu zachovať odložené notifikácie. |
+
 ## Čitateľné Podrobnosti na karte úpravy súboru a externého priečinka (2026-10-31)
 
 Regresia N-A7 z 30. 10. 2026, nález N-A8-3: Podrobnosti ukazovali surový JSON `{ "filepath": …, "diff": … }` a `{ "filepath": …, "parentDir": … }`, blok „Kontrola“ v dialógu surový diff s hlavičkami `@@`, `+++`, `---`.

@@ -781,3 +781,10 @@ Review found first attempt cached all metadata too broadly and omitted host owne
 - Znovupoužiteľný vzor: vlastník asynchrónnej navigácie musí prežiť obnovu dát, ale každá návšteva sa pri odchode definitívne zneplatní. Skutočná zmena pripojenia musí ďalej obnoviť odberateľov.
 
 - PR preflight nad dev `0bac4c6b`: frozen install úspešný; Bun 1.4.2 úplná app sada 3238 pass / 3 skip / 0 fail, 130871 assertions (3241 testov v 419 súboroch); Node24 app typecheck a diff check exit0. Snímka so syntetickými údajmi vizuálne overená. Bežiaca lokálna aplikácia zostala v pôvodnom pracovnom strome.
+
+## 2026-11-04 — alpha 20261104-000153-0a5c6e: notifikácie query cache
+
+- Živý syntetický headless vstup a pripojený React DOM test reprodukovali aktualizáciu SessionRoute počas renderu ClientLinkedFoldersNavItem. QueryObserver pri vytvorení query synchrónne oznamoval zmenu surovému odberateľovi useQueryCacheState.
+- Odber používa notifyManager.batchCalls rovnako ako TanStack hooky; čítačka dostane hodnotu po renderi. Regresia pred opravou 0 pass / 1 fail, po oprave 1 pass / 0 fail.
+- Bun 1.4.2: 244 vybraných app testov v 7 súboroch prešlo; app typecheck prešiel. Čerstvý prehliadač po oprave: klient viditeľný, linked-folder query prítomná, bez pôvodného React varovania. Today host-only alert a Marketplace oprávnenia sú samostatné nálezy; bez zásahu do autorizácie.
+- Poučenie: surové QueryCache notifikácie môžu vzniknúť počas useQuery renderu; React odberateľov upozorniť cez plánovač knižnice. Zdrojové testy a dev browser nie sú natívna šesťplatformová akceptácia.
