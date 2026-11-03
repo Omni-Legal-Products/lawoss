@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Rozdrobený SSE stream: lineárny čas a `\r\n` medzi kúskami (2026-11-04, #337)
+
+`serverSentEvents()` robil pri každom kúsku `buffer += text` a `indexOf("\n\n")` od začiatku (kvadratický čas: rámec 200 000 B po 1 znaku ~2,5 s) a `\r\n` normalizoval po kúskoch, takže `\r` | `\n` medzi kúskami dal falošnú hranicu udalosti.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `packages/types/src/sync-events.ts` | `serverSentEvents()`: nedokončená udalosť sa drží ako zoznam kúskov a spája sa až po nájdení hranice, hľadá sa len od posledného prehľadaného miesta; po kúsku končiacom `\r` sa úvodné `\n` ďalšieho kúska zahodí (je to `\r\n`). `\n\n`, `\r\n\r\n` aj `\r\r` fungujú ako doteraz. Test: nový `apps/server/src/lawoss/server-sent-events-chunks.test.ts`. |
+
 ## Čitateľné Podrobnosti na karte úpravy súboru a externého priečinka (2026-10-31)
 
 Regresia N-A7 z 30. 10. 2026, nález N-A8-3: Podrobnosti ukazovali surový JSON `{ "filepath": …, "diff": … }` a `{ "filepath": …, "parentDir": … }`, blok „Kontrola“ v dialógu surový diff s hlavičkami `@@`, `+++`, `---`.
