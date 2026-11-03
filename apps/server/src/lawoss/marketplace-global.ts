@@ -25,7 +25,7 @@ import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, runtimeMcpMap } from "../runt
 import type { ServerConfig } from "../types.js";
 import { contentSha256 } from "./plugin-provenance.js";
 import { globalPluginTarget, installLocation, type PluginInstallTarget } from "./plugin-install-target.js";
-import { MARKETPLACE_OWNER, MARKETPLACE_REPO, marketplacePluginUrl, type MarketplaceUpdateState } from "./marketplace-updates.js";
+import { isNewerVersion, MARKETPLACE_OWNER, MARKETPLACE_REPO, marketplacePluginUrl, type MarketplaceUpdateState } from "./marketplace-updates.js";
 
 export type FileResolution = "keep" | "replace" | "backup";
 export type FileChange = { path: string; title: string; state: "modified" | "missing" };
@@ -84,7 +84,7 @@ export function availableUpdates(plugins: readonly CloudImportedPlugin[], state:
     if (!isMarketplacePlugin(plugin)) return [];
     const dir = plugin.provenance?.source.dir ?? plugin.pluginId.slice(MARKETPLACE_ID_PREFIX.length);
     const next = release.plugins.find((item) => item.path === dir);
-    if (!next || next.version === (plugin.provenance?.version ?? null)) return [];
+    if (!next || !isNewerVersion(next.version, plugin.provenance?.version ?? null)) return [];
     return [{ pluginId: plugin.pluginId, name: plugin.name, installed: plugin.provenance?.version ?? null, available: next.version, path: next.path }];
   });
 }
