@@ -9,14 +9,31 @@
  * z Claude (`plugin-imports.ts`) ostáva. Upstream kód sa nemení, len sa tento priečinok preskočí.
  * Návrat: `true`.
  */
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 
 export const LAWOSS_READ_CLAUDE_GLOBAL_SKILLS = false;
 
 const comparable = (path: string) => (process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path));
 
+/**
+ * Domovy, v ktorých sa `.claude/skills` preskočí: `HOME` procesu a skutočný domov používateľa.
+ * Pri izolovanom `HOME` (testovacia zostava, `start.sh`) by inak prechod nadradených priečinkov
+ * klienta našiel skutočné `~/.claude/skills` (nález N-1: „Skipped invalid skill: /Users/…/.claude/skills“).
+ */
+function homes(): string[] {
+  const found = [homedir()];
+  try {
+    found.push(userInfo().homedir);
+  } catch {
+    // Bez záznamu používateľa v systéme ostáva len HOME.
+  }
+  return found.filter(Boolean);
+}
+
 /** Priečinok skillov, ktorý LAWOSS preskočí: globálne skilly Claude v domovskom priečinku. */
 export function isIgnoredSkillRoot(dir: string): boolean {
-  return !LAWOSS_READ_CLAUDE_GLOBAL_SKILLS && comparable(dir) === comparable(join(homedir(), ".claude", "skills"));
+  if (LAWOSS_READ_CLAUDE_GLOBAL_SKILLS) return false;
+  const target = comparable(dir);
+  return homes().some((home) => comparable(join(home, ".claude", "skills")) === target);
 }

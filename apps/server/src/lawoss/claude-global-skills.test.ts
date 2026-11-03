@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { resolveSkillDir } from "../skill-resources.js";
 import { listSkills } from "../skills.js";
 import { globalSkillsDir } from "../workspace-files.js";
+import { isIgnoredSkillRoot } from "./claude-global-skills.js";
 
 // N-1 (#255): LAWOSS čítal globálne skilly Claude z `~/.claude/skills`, aj s izolovaným HOME. Skilly advokáta
 // z iných nástrojov sa nemajú miešať do appky ani do enginu (`legalwork-runtime-config.ts` berie `listSkills`).
@@ -49,6 +50,15 @@ describe("globálne skilly Claude (~/.claude/skills) LAWOSS nečíta", () => {
     expect(await names(workspace)).toEqual(["global:slovlex-marketplace", "project:novy-spis", "project:skill-v-priecinku"]);
     expect(await resolveSkillDir(workspace, "slovlex-marketplace")).toBe(join(globalSkillsDir(), "slovlex-marketplace"));
     await expect(resolveSkillDir(workspace, "claude-code-only")).rejects.toMatchObject({ status: 404 });
+  });
+
+  test("izolovaný HOME: preskočí aj ~/.claude/skills skutočného používateľa (passwd), nie iné .claude/skills", () => {
+    // `homedir()` je v teste dočasný priečinok ako pri `start.sh`; skutočný domov hlási `userInfo()`.
+    const realHome = os.userInfo().homedir;
+    expect(isIgnoredSkillRoot(join(realHome, ".claude", "skills"))).toBe(true);
+    expect(isIgnoredSkillRoot(join(home, ".claude", "skills"))).toBe(true);
+    expect(isIgnoredSkillRoot(join(realHome, "Klienti", "Horak", ".claude", "skills"))).toBe(false);
+    expect(isIgnoredSkillRoot(globalSkillsDir())).toBe(false);
   });
 
   test("priečinok klienta v domove bez gitu: prechod nadradených priečinkov nenačíta ~/.claude/skills", async () => {

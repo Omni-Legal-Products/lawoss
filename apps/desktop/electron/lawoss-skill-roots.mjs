@@ -13,9 +13,20 @@ export const LAWOSS_READ_CLAUDE_GLOBAL_SKILLS = false;
 
 const comparable = (value) => (process.platform === "win32" ? path.resolve(value).toLowerCase() : path.resolve(value));
 
+/** `HOME` procesu a skutočný domov používateľa (pri izolovanom `HOME` testovacej zostavy sa líšia). */
+function defaultHomes() {
+  const homes = [os.homedir()];
+  try {
+    homes.push(os.userInfo().homedir);
+  } catch {
+    // Bez záznamu používateľa v systéme ostáva len HOME.
+  }
+  return homes.filter(Boolean);
+}
+
 /** Korene skillov bez `~/.claude/skills`; poradie ostatných sa zachová. */
-export function withoutClaudeGlobalSkills(roots, home = os.homedir()) {
+export function withoutClaudeGlobalSkills(roots, homes = defaultHomes()) {
   if (LAWOSS_READ_CLAUDE_GLOBAL_SKILLS) return roots;
-  const claude = comparable(path.join(home, ".claude", "skills"));
-  return roots.filter((root) => comparable(root) !== claude);
+  const claude = new Set(homes.map((home) => comparable(path.join(home, ".claude", "skills"))));
+  return roots.filter((root) => !claude.has(comparable(root)));
 }
