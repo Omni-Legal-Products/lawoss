@@ -15,7 +15,7 @@ import type { LawossMarketplaceApi, MarketplaceView } from "./marketplace-api";
 /** Klient lokálneho servera s host tokenom (routes sú host auth ako `/lawoss/ocr`). */
 export async function loadMarketplaceApi(): Promise<LawossMarketplaceApi | null> {
   const { normalizedBaseUrl, resolvedToken, resolvedHostToken } = await resolveLegalworkConnection();
-  if (!normalizedBaseUrl || !resolvedToken) return null;
+  if (!normalizedBaseUrl || !resolvedToken || !resolvedHostToken) return null;
   return createLegalworkServerClient({ baseUrl: normalizedBaseUrl, token: resolvedToken, hostToken: resolvedHostToken || undefined }).lawossMarketplace;
 }
 
