@@ -15,7 +15,7 @@ import { PracticeCoverage } from "../okf/practice-coverage";
 import { NEW_MATTER_PATH } from "../lite/links";
 import { unavailableWorkspace, unavailableWorkspaceIds } from "../okf/missing-folder";
 import { MissingFolder } from "./missing-folder";
-import { isConnectionProblem } from "../lite/connection-problem";
+import { isConnectionProblem, isHostAccessDenied } from "../lite/connection-problem";
 import "../lite/pages/okf-glass.css";
 
 /** Subscribe each UI island; translating never changes the underlying matter data. */
@@ -84,6 +84,7 @@ function OkfPageQuery({ children, notice, stateText, pickWorkspace = activeWorks
     workspace={workspace ? workspace.displayNameResolved || workspace.name || workspace.path : null}
     // Zlyhané obnovenie na pozadí nezahodí stránku: ostanú posledné údaje a indikátor povie, z kedy sú.
     error={error || (resolution.state === "unavailable" ? resolution.message ?? text("incompleteRead") : null) || (query.data ? null : query.error)}
+    hostAccessDenied={!error && resolution.hostAccessDenied === true}
     data={scope ? query.data : undefined}
     scope={scope}
     excludedWorkspaceIds={resolution.excludedWorkspaceIds}
@@ -103,6 +104,8 @@ export function OkfPageState(props: {
   connection: "loading" | "ready" | "unavailable";
   workspace: string | null;
   error: unknown;
+  /** #338: prehľad praxe odmietol server pre chýbajúci prístup hostiteľa; namiesto chyby obyčajná veta. */
+  hostAccessDenied?: boolean;
   data: OkfReadResult | undefined;
   /** Rozsah, z ktorého sú `data`; deti ním prekladajú cestu veci na priečinok klienta. */
   scope?: OkfScope | null;
@@ -139,6 +142,7 @@ export function OkfPageState(props: {
 function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText, locale: Language): ReactNode {
   const missingOnly = props.missingFolder && !(props.data && (props.hasContent ?? hasMatters)(props.data));
   if (missingOnly) return props.missingFolder;
+  if (props.hostAccessDenied || isHostAccessDenied(props.error)) return <div className="lw-status warn" role="alert" data-lawoss-host-access="">{t("lawoss.lite.state_host_access", locale)}</div>;
   if (props.error) return <div className="lw-status err" role="alert"><DiagnosticMessage value={props.error} fallback={text("memoryError", { error: diagnosticText(props.error, locale) })} />
     {/* N-A5-8: pri probléme so spojením obyčajná veta, čo skúsiť (sieť, VPN, proxy), nie len technický text. */}
     {isConnectionProblem(props.error) ? <p data-lawoss-connection-hint="">{t("lawoss.lite.state_connection_hint", locale)}</p> : null}</div>;
