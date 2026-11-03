@@ -1677,6 +1677,13 @@ Nález N-A8-6 z regresie 30. 10. 2026: po skončení behu ostal nad composerom p
 | --- | --- |
 | `apps/app/src/react-app/domains/settings/pages/mcp-view.tsx` | +1 import a 2 riadky: `displayName` a popis riadku konektora skúsia pred „Vlastný konektor“ LAWOSS súbor `apps/app/src/lawoss/domains/marketplace/mcp-servers.ts` (meno MCP servera → doplnok v snapshote marketplace). Globálne nainštalovaný doplnok sa tak volá „Slov-Lex“ s popisom z katalógu a zdrojom „Plugin: LAWOSS Marketplace“, nie „slovlex · Vlastný konektor“; upstream vyhľadanie importovaného balíka (`importedConnectorPlugin`) pozná len inštalácie do workspace. Test `apps/app/tests/lawoss-marketplace-mcp-servers.test.ts`. Dôvod: test inštalácie balíka SK základ 3. 11. 2026. |
 
+### Odpoveď prerušená zatvorením appky (2026-11-03, feat/alfa9-po-teste-am, N-A9-16)
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/sync/usechat-adapter.ts` | +1 import a 3 riadky v `snapshotToUIMessages`: odpoveď bez `time.completed` aj bez `error`, vytvorená pred načítaním appky, dostane v metadata `interrupted: true` (posledná správa len keď snapshot hlási `idle`). Rozhoduje LAWOSS súbor `apps/app/src/lawoss/chat/interrupted-run.tsx`. Len zobrazenie: stav behu, aktivita ani cache transkriptu sa nemenia. |
+| `apps/app/src/components/chat/message-list.tsx` | +1 import a 3 riadky v `MessageGroup`: skupina krokov odpovede, ktorej niektorá správa nesie tento príznak, sa nevynechá ani keď je prázdna a pod krokmi ukáže vetu „Odpoveď sa nedokončila, lebo sa aplikácia počas práce zavrela…“. Dôvod: engine odpoveď prerušenú zabitím procesu neuzavrie, chat po reštarte ukázal len kroky bez odpovede a bez vety (test 2. 11. 2026, J2). Test `apps/app/tests/lawoss-preruseny-beh.test.tsx`. |
+
 ### Pripnutý QEMU 11.1.2 pre Windows runtime (2026-10-31, fix/ci-qemu-11-1-2-pin)
 
 | Súbory | Downstream zmena a dôvod |
