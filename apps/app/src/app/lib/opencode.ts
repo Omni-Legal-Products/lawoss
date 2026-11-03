@@ -4,6 +4,7 @@ import { desktopFetch, desktopStreamFetch } from "./desktop";
 import { createLegalworkServerClient, LegalworkServerError } from "./legalwork-server";
 import { isDesktopRuntime } from "./runtime-env";
 import { t } from "@/i18n";
+import { isFreeModelRequest } from "@/lawoss/shell/free-models";
 
 type FieldsResult<T> =
   | ({ data: T; error?: undefined } & { request: Request; response: Response })
@@ -435,6 +436,7 @@ export function createClient(baseUrl: string, directory?: string, auth?: Opencod
     get: (parameters: SessionLookupParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Session>>;
     messages: (parameters: SessionMessagesParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Array<{ info: Message; parts: Part[] }>>>;
     todo: (parameters: SessionLookupParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Todo[]>>;
+    prompt: (parameters: PromptAsyncParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<unknown>>;
     promptAsync: (parameters: PromptAsyncParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<{}>>;
     command: (parameters: CommandParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<{}>>;
   };
@@ -532,6 +534,15 @@ export function createClient(baseUrl: string, directory?: string, auth?: Opencod
       throwOnError: options?.throwOnError,
     });
   };
+
+  // LAWOSS (#231, AGENTS.md): an upstream free model never receives client data, whichever
+  // path chose it (stored default, a chat's last model, voice, workflows). Nothing is sent.
+  const refuseFreeModel = <P extends { model?: { modelID: string } | string }, R>(send: (parameters: P, options?: { throwOnError?: boolean }) => Promise<R>) =>
+    (parameters: P, options?: { throwOnError?: boolean }): Promise<R> =>
+      isFreeModelRequest(parameters.model) ? Promise.reject(new Error(t("session_route.model_unavailable"))) : send(parameters, options);
+  sessionOverrides.prompt = refuseFreeModel(sessionOverrides.prompt.bind(session));
+  sessionOverrides.promptAsync = refuseFreeModel(sessionOverrides.promptAsync);
+  sessionOverrides.command = refuseFreeModel(sessionOverrides.command);
 
   // Unlike the LegalWork cached session-list override, this probes the selected
   // live engine through the mounted canonical directory guard and native transport.

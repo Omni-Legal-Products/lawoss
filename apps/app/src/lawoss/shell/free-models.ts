@@ -26,6 +26,15 @@ export function isFreeModel(provider: Pick<ProviderListItem, "source">, modelID:
   return PRICED_SOURCES.has(provider.source) && cost !== undefined && cost.input === 0 && cost.output === 0;
 }
 
+/**
+ * Model v požiadavke na engine: `promptAsync`/`prompt` nesú objekt, `command` reťazec „poskytovateľ/model“.
+ * Bez katalógu sa dá spoľahlivo rozpoznať len variant `:free`; nulová cena ostáva na `modelReadiness`.
+ */
+export function isFreeModelRequest(model: { modelID: string } | string | null | undefined): boolean {
+  if (!model) return false;
+  return isFreeVariantId(typeof model === "string" ? model : model.modelID);
+}
+
 /** Zoznam poskytovateľov bez bezplatných modelov; z neho krok 4 vyberá, ponúka aj hodnotí pripravenosť. */
 export function withoutFreeModels(list: ProviderListResponse | null | undefined): ProviderListResponse | null | undefined {
   if (!list) return list;

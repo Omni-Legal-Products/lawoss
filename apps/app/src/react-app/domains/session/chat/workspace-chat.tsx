@@ -6,7 +6,8 @@ import { SessionSurface, type SessionSurfaceProps } from "../surface/session-sur
 import { useModelPicker } from "../modals/use-model-picker";
 import { ModelPickerModal } from "../modals/model-picker-modal";
 import { useModelBehavior } from "../surface/use-model-behavior";
-import { useProviderListQuery, isModelAvailableInConnectedProviders } from "@/react-app/infra/provider-list-query";
+import { useProviderListQuery } from "@/react-app/infra/provider-list-query";
+import { modelReadiness } from "@/lawoss/shell/model-readiness";
 import { chatModelKey, useSessionModelStore } from "./session-model-store";
 import { resolveModelDisplayName } from "@/app/utils";
 import type { ModelRef } from "@/app/types";
@@ -48,7 +49,8 @@ export function WorkspaceChat(props: SessionSurfaceProps & { clientRoot: string 
   }, [key, props.selectedModel, props.modelVariant]);
   const picker = useModelPicker({ client, baseUrl: props.opencodeBaseUrl, workspaceRoot: directory, listenForDefaults: false });
   const providers = useProviderListQuery({ client, baseUrl: props.opencodeBaseUrl, directory: directory || undefined });
-  const unavailable = Boolean(providers.data && !isModelAvailableInConnectedProviders(providers.data, selection.model));
+  // LAWOSS: the chat's own stored model follows the composer rule, so a free model is unavailable (#231).
+  const unavailable = modelReadiness({ defaultModel: selection.model, providerList: providers.data }).modelUnavailable;
   const behavior = useModelBehavior({ providerList: providers.data, defaultModel: selection.model, modelVariant: selection.variant });
   const select = (model: ModelRef) => {
     useSessionModelStore.getState().select(key, { model, variant: selection.model.providerID === model.providerID && selection.model.modelID === model.modelID ? selection.variant : null });
