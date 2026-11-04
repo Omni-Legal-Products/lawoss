@@ -727,6 +727,8 @@ export async function installCloudPlugin(input: {
   resourceFiles?: Array<{ path: string; bytes: Uint8Array; mode?: number }>;
   preserveSkillMetadata?: boolean;
   preserveConnectorSetup?: boolean;
+  /** Retain disabled connectors during publication, before any runtime row can expose them. */
+  disabledMcpNames?: ReadonlySet<string>;
   provenance?: PluginProvenance | null;
   /** LAWOSS: logické cesty, ktoré aktualizácia neprepíše (advokát si ponechal svoju úpravu). */
   preserve?: ReadonlySet<string>;
@@ -755,7 +757,8 @@ export async function installCloudPlugin(input: {
       for (const config of configs) {
         connectorDefaults[config.name] = input.resolved.plugin.connectorDefaults?.[config.name] ?? config.config;
         const previousConfig = previousMcp[config.name];
-        const connection = existing && previousConfig ? mergeConnectorSetup(config.config, previousConfig, existing.connectorDefaults?.[config.name]) : config.config;
+        const merged = existing && previousConfig ? mergeConnectorSetup(config.config, previousConfig, existing.connectorDefaults?.[config.name]) : config.config;
+        const connection = input.disabledMcpNames?.has(config.name) ? { ...merged, enabled: false } : merged;
         // Plugins are installed per workspace, so the MCPs they bring stay with it.
         await addMcp(input.serverConfig, input.workspaceId, config.name, connection, input.global ? "global" : "workspace");
         files.push({
