@@ -8,8 +8,17 @@ const resourceKey = Symbol("deferred-mcp-startup");
 function startupState(config: ServerConfig) {
   return runtimeDbResource(config, resourceKey, async () => {
     const pending = new Map<string, Pending>();
-    return { armed: false, pending, close: () => pending.clear() };
+    const used = new Set<string>();
+    return { armed: false, pending, used, close: () => { pending.clear(); used.clear(); } };
   });
+}
+
+function scopeKey(scope: EngineScope): string {
+  return JSON.stringify([scope.workspaceId, scope.directory, scope.baseUrl, scope.authHeader]);
+}
+
+export function hasUsedMcpScope(config: ServerConfig, scope: EngineScope): Promise<boolean> {
+  return withRuntimeDb(config, async () => (await startupState(config)).used.has(scopeKey(scope)));
 }
 
 export function deferMcpStartup(config: ServerConfig): Promise<void> {
@@ -31,9 +40,10 @@ export function deferLocalMcpUpdates(config: ServerConfig, workspaceIds: string[
 export function startDeferredMcp(config: ServerConfig, scope: EngineScope, initialize: (names?: string[]) => Promise<void>): Promise<void> {
   return withRuntimeDb(config, async () => {
     const state = await startupState(config);
+    const key = scopeKey(scope);
+    state.used.add(key);
     if (!state.armed) return;
     const { pending } = state;
-    const key = JSON.stringify([scope.workspaceId, scope.directory, scope.baseUrl, scope.authHeader]);
     const existing = pending.get(key);
     if (existing && existing.names.size === 0) return existing.task;
     const names = existing ? [...existing.names] : undefined;

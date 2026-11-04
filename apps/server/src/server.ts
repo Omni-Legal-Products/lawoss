@@ -21,7 +21,7 @@ import { sessionInfoSchema } from "./session-read-model.js";
 import { historicalWorkspaceSessions } from "./lawoss/workspace-history-sessions.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
 import { readMatterMemoryForChat, writeMatterMemoryForChat } from "./lawoss/matter-memory.js";
-import { deferLocalMcpUpdates, deferMcpStartup, startDeferredMcp } from "./lawoss/deferred-mcp-startup.js";
+import { deferLocalMcpUpdates, deferMcpStartup, hasUsedMcpScope, startDeferredMcp } from "./lawoss/deferred-mcp-startup.js";
 import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { stopMessageQueue } from "./session-message-queue.js";
@@ -2050,6 +2050,12 @@ function createRoutes(
         for (const workspace of config.workspaces) {
           if (workspace.workspaceType === "remote") continue;
           try {
+            const connection = resolveWorkspaceOpencodeConnection(config, workspace);
+            const directory = resolveOpencodeDirectory(workspace);
+            if (!connection.baseUrl || !directory || !await hasUsedMcpScope(config, {
+              workspaceId: workspace.id, directory,
+              baseUrl: new URL(connection.baseUrl).origin, authHeader: connection.authHeader ?? null,
+            })) continue;
             if (!(await workspaceEngineBusy(config, workspace))) await reloadOpencodeEngine(config, workspace);
           } catch { /* A stopped engine will read the updated configuration on startup. */ }
         }

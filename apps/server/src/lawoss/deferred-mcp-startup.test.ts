@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig } from "../types.js";
 import { acquireRuntimeDbLifetime } from "../runtime-db-lifecycle.js";
-import { deferLocalMcpUpdates, deferMcpStartup, startDeferredMcp } from "./deferred-mcp-startup.js";
+import { deferLocalMcpUpdates, deferMcpStartup, hasUsedMcpScope, startDeferredMcp } from "./deferred-mcp-startup.js";
 
 test("deferred startup coalesces scope, retries failure and retains accepted work until owner release", async () => {
   const root = await mkdtemp(join(tmpdir(), "deferred-mcp-"));
@@ -19,8 +19,13 @@ test("deferred startup coalesces scope, retries failure and retains accepted wor
   let calls = 0;
   const initialize = async () => { calls++; };
   try {
+    expect(await hasUsedMcpScope(config, scope)).toBe(false);
     await startDeferredMcp(config, scope, initialize);
     expect(calls).toBe(0);
+    expect(await hasUsedMcpScope(config, scope)).toBe(true);
+    expect(await hasUsedMcpScope(config, { ...scope, directory: join(root, "cold") })).toBe(false);
+    expect(await hasUsedMcpScope(config, { ...scope, authHeader: "Basic changed" })).toBe(false);
+    expect(await hasUsedMcpScope(config, { ...scope, baseUrl: "http://localhost:2" })).toBe(false);
     await deferMcpStartup(config);
     await Promise.all([startDeferredMcp(config, scope, initialize), startDeferredMcp(config, scope, initialize)]);
     expect(calls).toBe(1);
@@ -61,6 +66,7 @@ test("deferred startup coalesces scope, retries failure and retains accepted wor
     expect(refreshed).toBe(true);
     await releasing;
     expect(released).toBe(true);
+    expect(await hasUsedMcpScope(config, scope)).toBe(false);
   } finally {
     await owner.release();
     await rm(root, { recursive: true, force: true });

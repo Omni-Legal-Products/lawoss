@@ -33,7 +33,7 @@ async function createWorkspaceRoot() {
   return root;
 }
 
-function startMockOpencode(options?: { failMcpNames?: string[]; disconnectStatus?: number; failDisconnectDirectories?: string[] }) {
+function startMockOpencode(options?: { failMcpNames?: string[]; disconnectStatus?: number; failDisconnectDirectories?: string[]; busyDirectories?: string[] }) {
   const requests: EngineRequest[] = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -43,6 +43,7 @@ function startMockOpencode(options?: { failMcpNames?: string[]; disconnectStatus
       const body = request.method === "POST" ? await request.json().catch(() => null) : null;
       requests.push({ method: request.method, pathname: url.pathname, search: url.search, body });
 
+      if (url.pathname === "/session/status") return Response.json(options?.busyDirectories?.includes(url.searchParams.get("directory") ?? "") ? { synthetic: { type: "busy" } } : {});
       if (url.pathname === "/instance/dispose") return Response.json({ disposed: true });
       if (url.pathname === "/mcp" && request.method === "GET") return Response.json({});
       if (url.pathname === "/mcp" && request.method === "POST") {
@@ -93,7 +94,7 @@ async function startLegalworkServer(workspaceRoot: string, opencodeBaseUrl: stri
   };
   const server = await startServer(config) as Served;
   stops.push(() => server.stop(true));
-  return { base: `http://127.0.0.1:${server.port}`, token: config.token };
+  return { base: `http://127.0.0.1:${server.port}`, token: config.token, server };
 }
 
 function auth(token: string) {
@@ -133,10 +134,48 @@ async function startLegalworkServerWithWorkspaces(roots: string[], opencodeBaseU
   };
   const server = await startServer(config) as Served;
   stops.push(() => server.stop(true));
-  return { base: `http://127.0.0.1:${server.port}`, token: config.token };
+  return { base: `http://127.0.0.1:${server.port}`, token: config.token, server };
 }
 
 describe("runtime MCP engine sync", () => {
+  test("SystemOne settings refreshes used idle scopes, preserves busy scopes and never probes a cold directory", async () => {
+    const rootA = await createWorkspaceRoot(), rootB = await createWorkspaceRoot(), rootC = await createWorkspaceRoot();
+    const oldDb = process.env.LEGALWORK_RUNTIME_DB, oldConfig = process.env.XDG_CONFIG_HOME;
+    process.env.LEGALWORK_RUNTIME_DB = join(rootA, "runtime.sqlite");
+    process.env.XDG_CONFIG_HOME = join(rootA, "config");
+    try {
+      const mock = startMockOpencode({ busyDirectories: [rootC] });
+      const app = await startLegalworkServerWithWorkspaces([rootA, rootB, rootC], `http://127.0.0.1:${mock.server.port}`);
+      for (const id of ["ws_1", "ws_3"]) {
+        const opened = await fetch(`${app.base}/workspace/${id}/opencode/mcp`, { headers: auth(app.token) });
+        expect(opened.status).toBe(200);
+        await opened.json();
+      }
+      const refused = await fetch(`${app.base}/workspace/ws_2/opencode/mcp`);
+      expect(refused.status).toBe(401);
+      await refused.text();
+      mock.requests.length = 0;
+      const response = await fetch(`${app.base}/systemone/providers`, {
+        method: "PUT", headers: auth(app.token),
+        body: JSON.stringify({ id: "synthetic-disabled", name: "Synthetic disabled", endpoint: "http://127.0.0.1:9/v1/systemone", apiKey: "fixture-only", enabled: false, models: [] }),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ok: true });
+      const settings = await fetch(`${app.base}/systemone/settings`, { headers: auth(app.token) });
+      expect(settings.status).toBe(200);
+      expect(JSON.stringify(await settings.json())).toContain("synthetic-disabled");
+      await app.server.stop(); // Drains the accepted settings refresh before inspecting its complete request trace.
+      const forRoot = (root: string) => mock.requests.filter((request) => new URLSearchParams(request.search).get("directory") === root);
+      expect(forRoot(rootB)).toEqual([]);
+      expect(forRoot(rootA).some((request) => request.pathname === "/instance/dispose")).toBe(true);
+      expect(forRoot(rootC).some((request) => request.pathname === "/session/status")).toBe(true);
+      expect(forRoot(rootC).some((request) => request.pathname === "/instance/dispose")).toBe(false);
+    } finally {
+      if (oldDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = oldDb;
+      if (oldConfig === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = oldConfig;
+    }
+  });
+
   test("shared local add leaves other workspaces cold and refreshes them only on scoped use", async () => {
     const rootA = await createWorkspaceRoot(), rootB = await createWorkspaceRoot(), rootC = await createWorkspaceRoot();
     const previousDb = process.env.LEGALWORK_RUNTIME_DB;
