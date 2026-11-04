@@ -21,6 +21,7 @@ import { sessionInfoSchema } from "./session-read-model.js";
 import { historicalWorkspaceSessions } from "./lawoss/workspace-history-sessions.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
 import { readMatterMemoryForChat, writeMatterMemoryForChat } from "./lawoss/matter-memory.js";
+import { deferMcpStartup, startDeferredMcp } from "./lawoss/deferred-mcp-startup.js";
 import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { stopMessageQueue } from "./session-message-queue.js";
@@ -1400,7 +1401,6 @@ async function resolveProxyOpencodeDirectory(workspace: WorkspaceInfo, headers: 
 }
 
 function createOpencodeDirectoryFetch(directory: string, config: ServerConfig, workspaceId: string): typeof fetch {
-  const governedFetch = createGovernedEngineFetch(config, workspaceId);
   const initializedFetch = Object.assign((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const request = input instanceof Request ? input : new Request(input, init);
     const headers = request.headers;
@@ -1410,12 +1410,17 @@ function createOpencodeDirectoryFetch(directory: string, config: ServerConfig, w
       readiness.search = "";
       readiness.searchParams.set("directory", new URL(request.url).searchParams.get("directory") ?? directory);
       const key = JSON.stringify([workspaceId, readiness.toString(), [...headers]]);
-      return abortable(sharedEngineResponse(key, signal => governedFetch(new Request(readiness, { headers, signal })), undefined, config), request.signal)
-        .then(() => { request.signal.throwIfAborted(); return governedFetch(request); });
+      return abortable(sharedEngineResponse(key, signal => fetch(new Request(readiness, { headers, signal })), undefined, config), request.signal)
+        .then(() => { request.signal.throwIfAborted(); return fetch(request); });
     }
-    return governedFetch(request);
+    return fetch(request);
   }, { preconnect: fetch.preconnect });
-  const protectedFetch = protectedEngineFetch(config, workspaceId, initializedFetch);
+  const deferredFetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const request = new Request(input, init);
+    await initializeWorkspaceMcp({ config, workspaceId, directory, request });
+    return initializedFetch(request);
+  }, { preconnect: fetch.preconnect });
+  const protectedFetch = protectedEngineFetch(config, workspaceId, createGovernedEngineFetch(config, workspaceId, deferredFetch));
   return Object.assign(
     (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const request = input instanceof Request ? input : new Request(input, init);
@@ -1606,6 +1611,9 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     return jsonResponse({ ok: true, accepted: true });
   }
   const engineFetch = protectedEngineFetch(input.config, workspace?.id ?? "", fetch);
+  if (workspace && directory) {
+    await initializeWorkspaceMcp({ config: input.config, workspaceId: workspace.id, directory, request: new Request(targetUrl, { headers, signal: input.request.signal }) });
+  }
   // Cold instance bootstrap hangs until npm install finishes. Share one GET /mcp
   // for this URL. A different directory waits so a second install does not start
   // beside it. A 20s client poll does not abort the install.
@@ -5991,9 +5999,9 @@ async function syncRuntimeMcpToOpencodeEngine(
   config: ServerConfig,
   workspace: WorkspaceInfo,
   onlyNames?: string[],
+  connection = resolveWorkspaceOpencodeConnection(config, workspace),
 ): Promise<void> {
   if (await localWorkspaceUnavailable(workspace)) return;
-  const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const baseUrl = connection.baseUrl?.trim() ?? "";
   if (!baseUrl) return;
 
@@ -6104,23 +6112,26 @@ export function engineMcpSyncState(workspaceId: string): EngineMcpSyncState | nu
   return engineMcpSyncStateByWorkspace.get(workspaceId) ?? null;
 }
 
-// Re-push every workspace's runtime-DB MCPs into the engine. Used at startup:
-// the runtime config file injected via OPENCODE_CONFIG covers workspaces[0]
-// only, so other workspaces' runtime MCPs are invisible to the engine until
-// something re-syncs them. Best-effort.
+// Arm startup synchronization without constructing engine instances. Runtime
+// connectors for other workspaces are pushed on their first scoped engine use.
 export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig): Promise<void> {
-  for (const workspace of config.workspaces) {
-    // Constructing an engine instance runs plugins that create .opencode.
-    // A disconnected folder must stay missing until the user restores it.
-    if (await localWorkspaceUnavailable(workspace)) continue;
-    // Right after start the engine is still building instances; registering
-    // into a half-built one is recorded as a failure the UI then shows.
-    const connection = resolveWorkspaceOpencodeConnection(config, workspace);
-    if (connection.baseUrl?.trim()) {
-      await awaitEngineInstance(connection.baseUrl.trim(), connection.authHeader ?? null, resolveOpencodeDirectory(workspace));
-    }
-    await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
-  }
+  await deferMcpStartup(config);
+}
+
+async function initializeWorkspaceMcp({ config, workspaceId, directory, request }: {
+  config: ServerConfig; workspaceId: string; directory: string; request: Request;
+}): Promise<void> {
+  const url = new URL(request.url);
+  if (url.pathname.startsWith("/global/") || url.pathname === "/instance/dispose") return;
+  const workspace = config.workspaces.find((item) => item.id === workspaceId);
+  if (!workspace || await localWorkspaceUnavailable(workspace)) return;
+  request.signal.throwIfAborted();
+  const authHeader = request.headers.get("authorization");
+  const baseUrl = url.origin;
+  await abortable(startDeferredMcp(config, { workspaceId, directory, baseUrl, authHeader }, async () => {
+    await awaitEngineInstance(baseUrl, authHeader, directory);
+    await syncRuntimeMcpToOpencodeEngine(config, { ...workspace, directory }, undefined, { baseUrl, authHeader: authHeader ?? undefined });
+  }).catch(() => undefined), request.signal);
 }
 
 async function localWorkspaceUnavailable(workspace: WorkspaceInfo): Promise<boolean> {

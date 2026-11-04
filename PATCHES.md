@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Lenivý štart runtime MCP (2026-11-04)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/server.ts`, `apps/server/src/cli.ts`, `apps/server/src/embedded.ts`, `apps/server/src/mcp.engine-sync.e2e.test.ts` | Štart iba aktivuje synchronizáciu; prvá autorizovaná požiadavka pre konkrétny priečinok doplní jeho runtime MCP. Nový modul `lawoss/deferred-mcp-startup.ts` zdieľa inicializáciu podľa workspace, adresára a transportu v existujúcom runtime DB lifetime. Pri syncu zachovať autorizáciu pred vedľajšími účinkami, súbežné zdieľanie a dostupnosť DB-only konektorov po neskoršom otvorení. Rieši iba preukázanú startup vetvu #356, nie onboarding/katalóg ani TTL enginu. |
+
 ## Automatická kontrola aktualizácií len s dostupným updaterom (2026-11-04)
 
 | Súbory | Downstream doplnenie a dôvod |

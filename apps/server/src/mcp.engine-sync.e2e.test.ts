@@ -44,6 +44,7 @@ function startMockOpencode(options?: { failMcpNames?: string[]; disconnectStatus
       requests.push({ method: request.method, pathname: url.pathname, search: url.search, body });
 
       if (url.pathname === "/instance/dispose") return Response.json({ disposed: true });
+      if (url.pathname === "/mcp" && request.method === "GET") return Response.json({});
       if (url.pathname === "/mcp" && request.method === "POST") {
         const name = (body as { name?: string } | null)?.name;
         if (name && options?.failMcpNames?.includes(name)) {
@@ -433,7 +434,7 @@ describe("runtime MCP engine sync", () => {
     }
   });
 
-  test("startup sync pushes runtime MCPs for every workspace", async () => {
+  test("startup leaves unopened workspaces alone; the first authorized engine request syncs only its directory", async () => {
     const rootA = await createWorkspaceRoot();
     const rootB = await createWorkspaceRoot();
     const previousDb = process.env.LEGALWORK_RUNTIME_DB;
@@ -466,11 +467,24 @@ describe("runtime MCP engine sync", () => {
       await writeRuntimeOpencodeConfig(config, "ws_2", (current) => ({ ...current, mcp: { stripe: POSTHOG_CONFIG } }));
       await writeRuntimeOpencodeConfig(config, "ws_offline", (current) => ({ ...current, mcp: { offline: POSTHOG_CONFIG } }));
 
+      const server = await startServer(config) as Served;
+      stops.push(() => server.stop(true));
+      const base = `http://127.0.0.1:${server.port}`;
+      mock.requests.length = 0;
       await syncAllWorkspacesRuntimeMcpToEngine(config);
+      expect(mock.requests).toEqual([]);
+      expect((await fetch(`${base}/workspace/ws_2/opencode/mcp`)).status).toBe(401);
+      expect((await fetch(`${base}/workspace/ws_2/opencode/mcp?directory=${encodeURIComponent(rootA)}`, { headers: auth(config.token) })).status).toBe(400);
+      expect(mock.requests).toEqual([]);
+
+      const openB = () => fetch(`${base}/workspace/ws_2/opencode/mcp`, { headers: auth(config.token) });
+      expect((await Promise.all([openB(), openB()])).map((response) => response.status)).toEqual([200, 200]);
+      expect((await openB()).status).toBe(200);
 
       const syncs = mock.requests.filter((entry) => entry.method === "POST" && entry.pathname === "/mcp");
       const byName = new Map(syncs.map((entry) => [(entry.body as { name?: string } | null)?.name, entry.search]));
-      expect(byName.get("posthog")).toContain(`directory=${encodeURIComponent(rootA)}`);
+      expect(syncs).toHaveLength(1);
+      expect(byName.has("posthog")).toBe(false);
       expect(byName.get("stripe")).toContain(`directory=${encodeURIComponent(rootB)}`);
       expect(mock.requests.some((entry) => entry.search.includes(encodeURIComponent(join(rootB, "missing"))))).toBe(false);
     } finally {

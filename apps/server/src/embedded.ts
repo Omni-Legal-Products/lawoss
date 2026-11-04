@@ -273,9 +273,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     }
   } });
 
-  // The runtime config file above only covers workspaces[0]. Push every
-  // workspace's runtime-DB MCPs into the engine so they aren't invisible
-  // until a manual reload. Best-effort.
+  // Arm lazy runtime-DB MCP synchronization without opening every workspace.
   initialMcpSync = managed.engine
     ? syncAllWorkspacesRuntimeMcpToEngine(config).catch(() => undefined)
     : Promise.resolve();

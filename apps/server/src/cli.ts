@@ -128,9 +128,8 @@ const server = await startServer(config, { publicEngineBinary: () => managedOpen
 });
 
 
-// The runtime config file above only covers workspaces[0]. Push every
-// workspace's runtime-DB MCPs into the engine so they aren't invisible
-// until a manual reload. Best-effort.
+// Arm lazy runtime-DB MCP synchronization. Unopened workspaces must not
+// construct engine instances merely because the application starts.
 if (managedOpencode) {
   void syncAllWorkspacesRuntimeMcpToEngine(config);
 }
