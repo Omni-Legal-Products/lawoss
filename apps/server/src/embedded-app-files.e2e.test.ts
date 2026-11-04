@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect, test, spyOn } from "bun:test";
+import * as childProcess from "node:child_process";
 import { chmod, mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -8,15 +9,25 @@ import { externalAppFilesRoot } from "./lawoss/workspace-app-files.js";
 // Spravovaný engine beží od v0.2.9 v izolovanom režime (upstream #227): skills idú do `skills.paths`.
 const skillPaths = (skills: string[] | { paths?: string[] } | undefined): string[] => Array.isArray(skills) ? skills : skills?.paths ?? [];
 
-async function waitForEngineWorkspaces(requestsPath: string, workspaces: string[]) {
-  const deadline = Date.now() + 3000;
-  while (Date.now() < deadline) {
-    const requests = (await readFile(requestsPath, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
-    const directories = requests.map(request => new URL(request, "http://localhost").searchParams.get("directory"));
-    if (workspaces.every(workspace => directories.includes(workspace))) return;
-    await new Promise(resolve => setTimeout(resolve, 25));
+async function assertColdThenScoped(server: Awaited<ReturnType<typeof startEmbeddedServer>>, requestsPath: string, selected: string, other: string) {
+  const requests = async () => (await readFile(requestsPath, "utf8")).trim().split("\n").filter(Boolean)
+    .map((request) => new URL(request, "http://localhost"));
+  expect((await requests()).filter((request) => request.searchParams.has("directory"))).toEqual([]);
+  const workspace = server.config.workspaces.find((entry) => entry.path === selected);
+  if (!workspace) throw new Error("Selected synthetic workspace is missing");
+  const url = `http://127.0.0.1:${server.port}/workspace/${workspace.id}/opencode/mcp`;
+  const refused = await fetch(url);
+  expect(refused.status).toBe(401);
+  await refused.text();
+  expect((await requests()).filter((request) => request.searchParams.has("directory"))).toEqual([]);
+  const responses = await Promise.all([1, 2].map(() => fetch(url, { headers: { Authorization: "Bearer client-token" } })));
+  for (const response of responses) {
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({});
   }
-  throw new Error("Engine fixture did not finish startup synchronization for every workspace");
+  const scoped = (await requests()).filter((request) => request.searchParams.has("directory"));
+  expect(scoped.some((request) => request.searchParams.get("directory") === selected)).toBe(true);
+  expect(scoped.some((request) => request.searchParams.get("directory") === other)).toBe(false);
 }
 
 test("embedded startup applies host outside policy before seeding an unconfigured workspace", async () => {
@@ -90,7 +101,10 @@ http.createServer((request, response) => {
   if (request.url === "/global/health") {
     response.writeHead(200, { "Content-Type": "application/json" });
     response.end(JSON.stringify({ healthy: true, version: "embedded-app-files-fixture" }));
-  } else response.end("ok");
+  } else {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({}));
+  }
   fs.appendFileSync(requestsPath, request.url + "\\n");
 }).listen(port, "127.0.0.1", () => {
   process.stdout.write("opencode server listening on http://127.0.0.1:" + port + "\\n");
@@ -98,7 +112,19 @@ http.createServer((request, response) => {
 process.on("SIGTERM", () => process.exit(0));
 `, "utf8");
   await chmod(bin, 0o755);
+  const ownedChildren: Array<{ closed: boolean }> = [];
+  const originalSpawn = childProcess.spawn;
+  const spawnSpy = spyOn(childProcess, "spawn");
+  const observeOwnedChild = () => {
+    const index = spawnSpy.mock.calls.map((args) => args[0]).lastIndexOf(bin);
+    const result = spawnSpy.mock.results[index];
+    if (result?.type !== "return") throw new Error("Managed fixture child was not spawned");
+    const record = { closed: false };
+    ownedChildren.push(record);
+    result.value.once("close", () => { record.closed = true; });
+  };
   let server: Awaited<ReturnType<typeof startEmbeddedServer>> | null = null;
+  let primaryFailure: { error: unknown } | undefined;
   try {
     server = await startEmbeddedServer({
       host: "127.0.0.1", port: 0, configPath, workspaces: [firstWorkspace, workspace],
@@ -110,6 +136,7 @@ process.on("SIGTERM", () => process.exit(0));
         { path: workspace, appFiles: "outside" },
       ],
     });
+    observeOwnedChild();
     const activeWorkspace = server.config.workspaces.find((entry) => entry.path === workspace)!;
     const expected = join(externalAppFilesRoot(server.config, activeWorkspace), ".opencode");
     expect(JSON.parse(await readFile(envPath, "utf8"))).toEqual({ configDir: expected, disableProjectConfig: "true" });
@@ -118,8 +145,7 @@ process.on("SIGTERM", () => process.exit(0));
     expect(runtimeConfig.instructions).toContain(join(workspace, "AGENTS.md"));
     expect((await readdir(workspace)).sort()).toEqual(["AGENTS.md", "original.txt"]);
     expect(await readdir(firstWorkspace)).toEqual(["original.txt"]);
-    // Finish startup before terminating the engine, otherwise its retry loop leaks into later tests.
-    await waitForEngineWorkspaces(`${envPath}.requests`, [firstWorkspace, workspace]);
+    await assertColdThenScoped(server, `${envPath}.requests`, workspace, firstWorkspace);
     await server.stop();
     server = await startEmbeddedServer({
       host: "127.0.0.1", port: 0, configPath, workspaces: [firstWorkspace, workspace],
@@ -131,21 +157,45 @@ process.on("SIGTERM", () => process.exit(0));
         { path: workspace, appFiles: "outside" },
       ],
     });
+    observeOwnedChild();
     const firstEntry = server.config.workspaces.find((entry) => entry.path === firstWorkspace)!;
     const firstExpected = join(externalAppFilesRoot(server.config, firstEntry), ".opencode");
     expect(JSON.parse(await readFile(envPath, "utf8"))).toEqual({ configDir: firstExpected, disableProjectConfig: "true" });
     const restartedRuntimeConfig = JSON.parse(await readFile(join(dirname(configPath), "runtime-opencode-config.json"), "utf8")) as { skills?: string[] | { paths?: string[] } };
     expect(skillPaths(restartedRuntimeConfig.skills)).toContain(join(firstExpected, "skills"));
-    await waitForEngineWorkspaces(`${envPath}.requests`, [firstWorkspace, workspace]);
+    expect((await readdir(workspace)).sort()).toEqual(["AGENTS.md", "original.txt"]);
+    expect(await readdir(firstWorkspace)).toEqual(["original.txt"]);
+    expect(await readFile(join(workspace, "original.txt"), "utf8")).toBe("Original client bytes\n");
+    expect(await readFile(join(firstWorkspace, "original.txt"), "utf8")).toBe("First client bytes\n");
+    expect(await readFile(join(workspace, "AGENTS.md"), "utf8")).toBe("Client instructions stay readable.\n");
+    await assertColdThenScoped(server, `${envPath}.requests`, firstWorkspace, workspace);
+  } catch (error) {
+    primaryFailure = { error };
   } finally {
-    await server?.stop();
-    if (originalDataDir === undefined) delete process.env.LEGALWORK_DATA_DIR;
-    else process.env.LEGALWORK_DATA_DIR = originalDataDir;
-    if (originalEngineEnvPath === undefined) delete process.env.FAKE_ENGINE_ENV_PATH;
-    else process.env.FAKE_ENGINE_ENV_PATH = originalEngineEnvPath;
-    await rm(directory, { recursive: true, force: true });
+    try {
+      await server?.stop();
+      // stop() owns termination; observe actual pipe closure before fixture removal.
+      const deadline = Date.now() + 1000;
+      while (ownedChildren.some((child) => !child.closed) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(ownedChildren).toHaveLength(2);
+      expect(ownedChildren.every((child) => child.closed)).toBe(true);
+    } catch (cleanupError) {
+      if (primaryFailure) throw new AggregateError([primaryFailure.error, cleanupError], "Embedded fixture failed and cleanup also failed");
+      throw cleanupError;
+    } finally {
+      spawnSpy.mockRestore();
+      if (originalDataDir === undefined) delete process.env.LEGALWORK_DATA_DIR;
+      else process.env.LEGALWORK_DATA_DIR = originalDataDir;
+      if (originalEngineEnvPath === undefined) delete process.env.FAKE_ENGINE_ENV_PATH;
+      else process.env.FAKE_ENGINE_ENV_PATH = originalEngineEnvPath;
+      await rm(directory, { recursive: true, force: true });
+      expect(childProcess.spawn).toBe(originalSpawn);
+    }
   }
-// Two process starts, two bounded 3s synchronization waits, and shutdown exceed the default 5s budget.
+  if (primaryFailure) throw primaryFailure.error;
+// Two managed process launches, scoped requests and shutdown share the existing budget.
 }, 15_000);
 
 test("fresh desktop seed preserves host ID, persisted registry wins on restart", async () => {
