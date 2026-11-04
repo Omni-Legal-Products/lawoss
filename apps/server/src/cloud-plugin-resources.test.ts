@@ -61,7 +61,8 @@ test("failed resource update preserves the installed executable and registry", a
     expect(await readRuntimeOpencodeConfig(config, "workspace")).toEqual(beforeConfig);
     const second = await install(bundle("v2"));
     expect(second.files.find((file) => file.path.endsWith("scripts/run.mjs"))?.path).not.toBe(entrypoint!.path);
-    expect(await readFile(join(root, entrypoint!.path), "utf8")).toBe("console.log('v1');");
+    // LAWOSS (#357): po úspešnej aktualizácii sa predchádzajúca verzia runtime odstráni.
+    await expect(readFile(join(root, entrypoint!.path), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 
