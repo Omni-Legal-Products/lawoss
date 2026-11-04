@@ -3,6 +3,13 @@
 ## Engine pri studenom štarte číta len katalóg LAWOSS (2026-11-02, #336)
 
 Upstream test opravy #230 (`model-catalog-engine.e2e.test.ts`) čaká, že engine prevezme katalóg z relay (`OPENCODE_MODELS_URL`/`OPENCODE_MODELS_PATH` od volajúceho). LAWOSS relay nespúšťa a `lawossEngineEnv()` tieto premenné zámerne prepisuje pribaleným katalógom (rozhodnutie MČ 5. 10. 2026), takže test so skutočným enginom vždy padal. V CI to nebolo vidno, lebo krok serverových testov nemá `LEGALWORK_TEST_OPENCODE_BIN` a test preskočil.
+## Vypnuté MCP už pri publikovaní presunu (2026-11-04)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/cloud-plugins.ts` | Voliteľné interné `disabledMcpNames` nastaví `enabled: false` vo finálnej connector config pred `addMcp`, nie až po návrate importéra. `lawoss/marketplace-global.ts` odovzdá zachytené vypnuté názvy pri novej globálnej publikácii MOVE. Ani neskoré zlyhanie carried-edit zápisu tak nesprístupní enabled partial destination. Bez parametra zostáva bežná inštalácia/merge bez zmeny; pôvodné connectorDefaults/provenance ostávajú pravdivé. Regresia v `lawoss/marketplace-global.test.ts` používa skutočný registry publication handshake a filesystem refusal, zachovanie zdroja a explicitný retry. |
+
+## Lenivý štart runtime MCP (2026-11-04)
 
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |

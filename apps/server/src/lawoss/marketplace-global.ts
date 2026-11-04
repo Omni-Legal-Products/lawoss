@@ -130,7 +130,7 @@ async function restoreDisabled(config: ServerConfig, names: readonly string[]): 
   for (const name of names) await setMcpEnabled(config, target.recordId, name, false).catch(() => false);
 }
 
-async function installGlobal(config: ServerConfig, bundle: ClaudePluginBundle, preserve?: ReadonlySet<string>): Promise<CloudImportedPlugin> {
+async function installGlobal(config: ServerConfig, bundle: ClaudePluginBundle, preserve?: ReadonlySet<string>, disabledMcpNames?: ReadonlySet<string>): Promise<CloudImportedPlugin> {
   const target = globalPluginTarget();
   return installCloudPlugin({
     serverConfig: config,
@@ -141,6 +141,7 @@ async function installGlobal(config: ServerConfig, bundle: ClaudePluginBundle, p
     provenance: provenanceOf(bundle),
     global: true,
     preserve,
+    disabledMcpNames,
   });
 }
 
@@ -244,7 +245,7 @@ export async function moveWorkspacePlugin(
   const disabled = [...await disabledMcp(config, workspace.recordId, names), ...await disabledMcp(config, GLOBAL_MCP_ID, names)];
   // Destination publication can fail. Keep the active source and its registry
   // until the global files, carried edits and backups have all been written.
-  const item = bundle ? await installGlobal(config, bundle) : existing!;
+  const item = bundle ? await installGlobal(config, bundle, undefined, new Set(disabled)) : existing!;
 
   // Prenesená úprava: prepíše globálny súbor, len ak ho advokát globálne neupravil; inak ide bokom.
   const globalChanged = new Set((await pluginFileChanges(target, item)).map((change) => change.path));
