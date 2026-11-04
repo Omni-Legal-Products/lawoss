@@ -137,6 +137,53 @@ async function startLegalworkServerWithWorkspaces(roots: string[], opencodeBaseU
 }
 
 describe("runtime MCP engine sync", () => {
+  test("shared local add leaves other workspaces cold and refreshes them only on scoped use", async () => {
+    const rootA = await createWorkspaceRoot(), rootB = await createWorkspaceRoot(), rootC = await createWorkspaceRoot();
+    const previousDb = process.env.LEGALWORK_RUNTIME_DB;
+    process.env.LEGALWORK_RUNTIME_DB = join(rootA, "runtime.sqlite");
+    try {
+      const mock = startMockOpencode();
+      const app = await startLegalworkServerWithWorkspaces([rootA, rootB, rootC], `http://127.0.0.1:${mock.server.port}`);
+      const add = () => fetch(`${app.base}/workspace/ws_1/mcp`, {
+        method: "POST", headers: auth(app.token),
+        body: JSON.stringify({ name: "shared-local", scope: "global", config: { type: "local", command: ["synthetic-fixture"], enabled: true } }),
+      });
+      const adds = () => mock.requests.filter((entry) => entry.method === "POST" && entry.pathname === "/mcp");
+      expect((await add()).status).toBe(200);
+      expect(adds().map((entry) => new URLSearchParams(entry.search).get("directory"))).toEqual([rootA]);
+      const openB = () => fetch(`${app.base}/workspace/ws_2/opencode/mcp`, { headers: auth(app.token) });
+      expect((await fetch(`${app.base}/workspace/ws_2/opencode/mcp`)).status).toBe(401);
+      expect(adds()).toHaveLength(1);
+      expect((await openB()).status).toBe(200);
+      expect(adds()).toHaveLength(2);
+      expect(new URLSearchParams(adds()[1]!.search).get("directory")).toBe(rootB);
+      const remote = await fetch(`${app.base}/workspace/ws_2/mcp`, {
+        method: "POST", headers: auth(app.token),
+        body: JSON.stringify({ name: "remote-only", scope: "workspace", config: POSTHOG_CONFIG }),
+      });
+      expect(remote.status).toBe(200);
+      mock.requests.length = 0;
+      expect((await add()).status).toBe(200);
+      expect(adds()).toHaveLength(1);
+      expect((await Promise.all([openB(), openB()])).map((response) => response.status)).toEqual([200, 200]);
+      expect(adds()).toHaveLength(2);
+      expect(adds().every((entry) => JSON.stringify(entry.body).includes('"name":"shared-local"'))).toBe(true);
+      expect(mock.requests.some((entry) => new URLSearchParams(entry.search).get("directory") === rootC)).toBe(false);
+      expect((await add()).status).toBe(200);
+      const replaceWithRemote = await fetch(`${app.base}/workspace/ws_1/mcp`, {
+        method: "POST", headers: auth(app.token),
+        body: JSON.stringify({ name: "shared-local", scope: "global", config: POSTHOG_CONFIG }),
+      });
+      expect(replaceWithRemote.status).toBe(200);
+      mock.requests.length = 0;
+      expect((await openB()).status).toBe(200);
+      expect(adds()).toHaveLength(0); // A queued local update cannot replay a later OAuth configuration.
+    } finally {
+      if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
+      else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+    }
+  });
+
   test("a shared connector is hot-added into every local workspace's engine instance, and dropped from all on removal", async () => {
     const rootA = await createWorkspaceRoot();
     const rootB = await createWorkspaceRoot();

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig } from "../types.js";
 import { acquireRuntimeDbLifetime } from "../runtime-db-lifecycle.js";
-import { deferMcpStartup, startDeferredMcp } from "./deferred-mcp-startup.js";
+import { deferLocalMcpUpdates, deferMcpStartup, startDeferredMcp } from "./deferred-mcp-startup.js";
 
 test("deferred startup coalesces scope, retries failure and retains accepted work until owner release", async () => {
   const root = await mkdtemp(join(tmpdir(), "deferred-mcp-"));
@@ -31,18 +31,34 @@ test("deferred startup coalesces scope, retries failure and retains accepted wor
     await expect(startDeferredMcp(config, failed, async () => { throw new Error("synthetic failure"); })).rejects.toThrow("synthetic failure");
     await startDeferredMcp(config, failed, initialize);
     expect(calls).toBe(4);
+    await deferLocalMcpUpdates(config, [scope.workspaceId], ["changed-local"]);
+    expect(calls).toBe(4);
+    await Promise.all([1, 2].map(() => startDeferredMcp(config, scope, async (names) => {
+      expect(names).toEqual(["changed-local"]);
+      calls++;
+    })));
+    expect(calls).toBe(5);
     let unblock!: () => void;
     let entered!: () => void;
     const ready = new Promise<void>((resolve) => { entered = resolve; });
     const gate = new Promise<void>((resolve) => { unblock = resolve; });
     const pending = startDeferredMcp(config, { ...scope, workspaceId: "pending" }, async () => { entered(); await gate; });
     await ready;
+    await deferLocalMcpUpdates(config, ["pending"], ["later-local"]);
+    let refreshed = false;
+    const refresh = startDeferredMcp(config, { ...scope, workspaceId: "pending" }, async (names) => {
+      expect(names).toEqual(["later-local"]);
+      refreshed = true;
+    });
+    await Promise.resolve();
+    expect(refreshed).toBe(false);
     let released = false;
     const releasing = owner.release().then(() => { released = true; });
     await Promise.resolve();
     expect(released).toBe(false);
     unblock();
-    await pending;
+    await Promise.all([pending, refresh]);
+    expect(refreshed).toBe(true);
     await releasing;
     expect(released).toBe(true);
   } finally {

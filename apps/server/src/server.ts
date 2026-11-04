@@ -21,7 +21,7 @@ import { sessionInfoSchema } from "./session-read-model.js";
 import { historicalWorkspaceSessions } from "./lawoss/workspace-history-sessions.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
 import { readMatterMemoryForChat, writeMatterMemoryForChat } from "./lawoss/matter-memory.js";
-import { deferMcpStartup, startDeferredMcp } from "./lawoss/deferred-mcp-startup.js";
+import { deferLocalMcpUpdates, deferMcpStartup, startDeferredMcp } from "./lawoss/deferred-mcp-startup.js";
 import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { stopMessageQueue } from "./session-message-queue.js";
@@ -5127,7 +5127,13 @@ function createRoutes(
     // Hot-add into the running engine so connect/auth works immediately,
     // without waiting for an engine instance rebuild.
     await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]).catch(() => undefined);
-    if (scope === "global") await syncSharedMcpToOtherWorkspaces(config, workspace, [name]);
+    if (scope === "global") {
+      if (configPayload.type === "local") {
+        await deferLocalMcpUpdates(config, otherLocalWorkspaces(config, workspace).map((entry) => entry.id), [name]);
+      } else {
+        await syncSharedMcpToOtherWorkspaces(config, workspace, [name]);
+      }
+    }
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
       workspaceId: workspace.id,
@@ -6000,13 +6006,15 @@ async function syncRuntimeMcpToOpencodeEngine(
   workspace: WorkspaceInfo,
   onlyNames?: string[],
   connection = resolveWorkspaceOpencodeConnection(config, workspace),
+  localOnly = false,
 ): Promise<void> {
   if (await localWorkspaceUnavailable(workspace)) return;
   const baseUrl = connection.baseUrl?.trim() ?? "";
   if (!baseUrl) return;
 
   const entries = Object.entries(await allowedMemberConnectors(config, await runtimeMcpMapForWorkspace(config, workspace.id))).filter(
-    ([name]) => !onlyNames || onlyNames.includes(name),
+    ([name, entry]) => (!onlyNames || onlyNames.includes(name)) &&
+      (!localOnly || (entry !== null && typeof entry === "object" && "type" in entry && entry.type === "local")),
   );
   if (entries.length === 0) return;
 
@@ -6128,9 +6136,9 @@ async function initializeWorkspaceMcp({ config, workspaceId, directory, request 
   request.signal.throwIfAborted();
   const authHeader = request.headers.get("authorization");
   const baseUrl = url.origin;
-  await abortable(startDeferredMcp(config, { workspaceId, directory, baseUrl, authHeader }, async () => {
+  await abortable(startDeferredMcp(config, { workspaceId, directory, baseUrl, authHeader }, async (names) => {
     await awaitEngineInstance(baseUrl, authHeader, directory);
-    await syncRuntimeMcpToOpencodeEngine(config, { ...workspace, directory }, undefined, { baseUrl, authHeader: authHeader ?? undefined });
+    await syncRuntimeMcpToOpencodeEngine(config, { ...workspace, directory }, names, { baseUrl, authHeader: authHeader ?? undefined }, names !== undefined);
   }).catch(() => undefined), request.signal);
 }
 
