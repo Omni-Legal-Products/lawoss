@@ -7,7 +7,7 @@
  *   MCP v spoločnom riadku, záznam pôvodu pod `GLOBAL_PLUGIN_RECORD_ID`.
  * - Doterajšie inštalácie do jedného priečinka ostávajú funkčné. Presun je výslovná akcia:
  *   najprv sa stiahne balík (pri chybe sa nič nezmení), potom sa podľa voľby advokáta zálohujú
- *   alebo prenesú jeho úpravy, odstráni sa kópia v priečinku a plugin sa nainštaluje globálne.
+ *   alebo prenesú jeho úpravy, publikuje sa globálny cieľ a až potom sa odstráni kópia v priečinku.
  * - Aktualizácia porovná SHA-256 súborov so záznamom pôvodu. Upravený alebo odstránený súbor
  *   bez rozhodnutia advokáta vráti `needs_decision`; nič sa neprepíše bez opýtania.
  *   Voľby: `keep` (ponechať moju úpravu), `replace` (prevziať novú verziu), `backup`
@@ -241,21 +241,10 @@ export async function moveWorkspacePlugin(
   }
 
   const names = mcpNames(legacy);
-  const sharedBefore = runtimeMcpMap(await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID));
   const disabled = [...await disabledMcp(config, workspace.recordId, names), ...await disabledMcp(config, GLOBAL_MCP_ID, names)];
-  // removeCloudPlugin ruší MCP v oboch riadkoch; spoločné záznamy iných inštalácií sa hneď vrátia.
-  await removeCloudPlugin({ serverConfig: config, workspaceId: workspace.recordId, workspaceRoot: workspace.root, pluginId });
-  let item: CloudImportedPlugin;
-  if (bundle) {
-    item = await installGlobal(config, bundle);
-  } else {
-    for (const name of names) {
-      const entry = sharedBefore[name];
-      if (entry) await addMcp(config, target.recordId, name, entry, "global");
-    }
-    item = existing!;
-  }
-  await restoreDisabled(config, [...new Set(disabled)]);
+  // Destination publication can fail. Keep the active source and its registry
+  // until the global files, carried edits and backups have all been written.
+  const item = bundle ? await installGlobal(config, bundle) : existing!;
 
   // Prenesená úprava: prepíše globálny súbor, len ak ho advokát globálne neupravil; inak ide bokom.
   const globalChanged = new Set((await pluginFileChanges(target, item)).map((change) => change.path));
@@ -273,5 +262,14 @@ export async function moveWorkspacePlugin(
       backups.push(to);
     }
   }
+  // Source removal clears matching MCPs in both rows. Restore the freshly
+  // published global entries, rather than the old workspace resource paths.
+  const sharedPublished = runtimeMcpMap(await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID));
+  await removeCloudPlugin({ serverConfig: config, workspaceId: workspace.recordId, workspaceRoot: workspace.root, pluginId, scope: "workspace" });
+  for (const name of names) {
+    const entry = sharedPublished[name];
+    if (entry) await addMcp(config, target.recordId, name, entry, "global");
+  }
+  await restoreDisabled(config, [...new Set(disabled)]);
   return { status: "moved", item, backups, carried };
 }
