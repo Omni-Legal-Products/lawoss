@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Vlastníctvo session activity v testoch (2026-11-04)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/tests/session-sync-permissions.test.ts`, `apps/app/tests/lawoss-onboarding-install-pack.test.ts` | Fixture zachytí pôvodné activity maps, pracuje s vlastnými prázdnymi mapami a po teste obnoví presné pôvodné referencie. Permission cleanup obnoví activity aj po zlyhaní query-cache cleanup. Waiting evidence z permission fixture tak neblokuje foreground reload control neskoršieho testu. Nová kontrola skutočného waiting session potvrdzuje zachovaný produkčný busy guard; žiadna produkčná logika/timeout/assertion nie je oslabená. |
+
 ## Background provisioning onboarding skillov (2026-11-04)
 
 | Súbory | Downstream doplnenie a dôvod |
