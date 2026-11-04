@@ -2050,12 +2050,7 @@ function createRoutes(
         for (const workspace of config.workspaces) {
           if (workspace.workspaceType === "remote") continue;
           try {
-            const connection = resolveWorkspaceOpencodeConnection(config, workspace);
-            const directory = resolveOpencodeDirectory(workspace);
-            if (!connection.baseUrl || !directory || !await hasUsedMcpScope(config, {
-              workspaceId: workspace.id, directory,
-              baseUrl: new URL(connection.baseUrl).origin, authHeader: connection.authHeader ?? null,
-            })) continue;
+            if (!await workspaceEngineScopeUsed(config, workspace)) continue;
             if (!(await workspaceEngineBusy(config, workspace))) await reloadOpencodeEngine(config, workspace);
           } catch { /* A stopped engine will read the updated configuration on startup. */ }
         }
@@ -2193,6 +2188,7 @@ function createRoutes(
         await previousReload;
       for (const workspace of local) {
         try {
+          if (!await workspaceEngineScopeUsed(config, workspace)) continue;
           if (!(await workspaceEngineBusy(config, workspace))) { await reloadOpencodeEngine(config, workspace); continue; }
           await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
           emitReloadEvent(ctx.reloadEvents, workspace, "skills", { type: "skill", name: "LAWOSS Marketplace", action: "updated" });
@@ -5943,6 +5939,16 @@ function applyOrgPolicyToEngines(config: ServerConfig): void {
   };
   if (state.timer) clearTimeout(state.timer);
   run();
+}
+
+async function workspaceEngineScopeUsed(config: ServerConfig, workspace: WorkspaceInfo): Promise<boolean> {
+  const connection = resolveWorkspaceOpencodeConnection(config, workspace);
+  const directory = resolveOpencodeDirectory(workspace);
+  if (!connection.baseUrl || !directory) return false;
+  return hasUsedMcpScope(config, {
+    workspaceId: workspace.id, directory,
+    baseUrl: new URL(connection.baseUrl).origin, authHeader: connection.authHeader ?? null,
+  });
 }
 
 // Whether a session in the workspace's engine instance is running (busy or

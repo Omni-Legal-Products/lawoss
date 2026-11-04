@@ -94,7 +94,7 @@ async function startLegalworkServer(workspaceRoot: string, opencodeBaseUrl: stri
   };
   const server = await startServer(config) as Served;
   stops.push(() => server.stop(true));
-  return { base: `http://127.0.0.1:${server.port}`, token: config.token, server };
+  return { base: `http://127.0.0.1:${server.port}`, token: config.token, server, config };
 }
 
 function auth(token: string) {
@@ -134,10 +134,71 @@ async function startLegalworkServerWithWorkspaces(roots: string[], opencodeBaseU
   };
   const server = await startServer(config) as Served;
   stops.push(() => server.stop(true));
-  return { base: `http://127.0.0.1:${server.port}`, token: config.token, server };
+  return { base: `http://127.0.0.1:${server.port}`, token: config.token, server, config };
 }
 
 describe("runtime MCP engine sync", () => {
+  test("skill-only Marketplace install refreshes used scopes without probing unopened directories", async () => {
+    const rootA = await createWorkspaceRoot(), rootB = await createWorkspaceRoot(), rootC = await createWorkspaceRoot();
+    const keys = ["LEGALWORK_RUNTIME_DB", "XDG_CONFIG_HOME", "LEGALWORK_GITHUB_API_BASE", "LEGALWORK_GITHUB_RAW_BASE"];
+    const previous = keys.map((key) => process.env[key]);
+    process.env.LEGALWORK_RUNTIME_DB = join(rootA, "runtime.sqlite");
+    process.env.XDG_CONFIG_HOME = join(rootA, "config");
+    const sha = "1".repeat(40), repo = "Omni-Legal-Products/lawoss-marketplace";
+    const files: Record<string, string> = {
+      "plugins/cold-fixture/.claude-plugin/plugin.json": JSON.stringify({ name: "cold-fixture", version: "1.0.0" }),
+      "plugins/cold-fixture/skills/cold-fixture/SKILL.md": "---\nname: cold-fixture\ndescription: Synthetic fixture\n---\nSynthetic only.\n",
+    };
+    let mirrorRequests = 0;
+    const mirror = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+      mirrorRequests++;
+      const path = new URL(request.url).pathname;
+      if (path === `/api/repos/${repo}/git/trees/${sha}`) return Response.json({ tree: Object.keys(files).map((path) => ({ path, type: "blob", sha: `blob-${path.length}` })) });
+      const prefix = `/raw/${repo}/${sha}/`;
+      const content = path.startsWith(prefix) ? files[path.slice(prefix.length).split("/").map(decodeURIComponent).join("/")] : undefined;
+      return content === undefined ? new Response("missing", { status: 404 }) : new Response(content);
+    } });
+    stops.push(() => mirror.stop(true));
+    process.env.LEGALWORK_GITHUB_API_BASE = `http://127.0.0.1:${mirror.port}/api`;
+    process.env.LEGALWORK_GITHUB_RAW_BASE = `http://127.0.0.1:${mirror.port}/raw`;
+    try {
+      const mock = startMockOpencode({ busyDirectories: [rootC] });
+      const app = await startLegalworkServerWithWorkspaces([rootA, rootB, rootC], `http://127.0.0.1:${mock.server.port}`);
+      await writeRuntimeOpencodeConfig(app.config, "ws_3", () => ({ mcp: { busyFixture: { type: "local", command: ["synthetic-only"], enabled: true } } }));
+      for (const id of ["ws_1", "ws_3"]) {
+        const opened = await fetch(`${app.base}/workspace/${id}/opencode/mcp`, { headers: auth(app.token) });
+        expect(opened.status).toBe(200); await opened.json();
+      }
+      mock.requests.length = 0;
+      const install = (host: boolean) => fetch(`${app.base}/lawoss/marketplace/plugins`, {
+        method: "POST", headers: { ...auth(app.token), ...(host ? { "x-legalwork-host-token": app.config.hostToken } : {}) },
+        body: JSON.stringify({ url: `https://github.com/${repo}/tree/${sha}/plugins/cold-fixture` }),
+      });
+      const denied = await install(false);
+      expect(denied.status).toBe(401); await denied.text();
+      expect(mirrorRequests).toBe(0); expect(mock.requests).toEqual([]);
+      const installed = await install(true);
+      expect(installed.status).toBe(200);
+      expect(await installed.json()).toMatchObject({ status: "installed" });
+      let notification = false;
+      for (let attempt = 0; attempt < 40 && !notification; attempt++) {
+        const events = await fetch(`${app.base}/workspace/ws_3/events`, { headers: auth(app.token) });
+        expect(events.status).toBe(200);
+        notification = JSON.stringify(await events.json()).includes("LAWOSS Marketplace");
+        if (!notification) await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(notification).toBe(true);
+      await app.server.stop();
+      const forRoot = (root: string) => mock.requests.filter((entry) => new URLSearchParams(entry.search).get("directory") === root);
+      expect(forRoot(rootB)).toEqual([]);
+      expect(forRoot(rootA).some((entry) => entry.pathname === "/instance/dispose")).toBe(true);
+      expect(forRoot(rootC).some((entry) => entry.pathname === "/instance/dispose")).toBe(false);
+      expect(forRoot(rootC).some((entry) => entry.method === "POST" && entry.pathname === "/mcp")).toBe(true);
+    } finally {
+      keys.forEach((key, index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index]; });
+    }
+  });
+
   test("SystemOne settings refreshes used idle scopes, preserves busy scopes and never probes a cold directory", async () => {
     const rootA = await createWorkspaceRoot(), rootB = await createWorkspaceRoot(), rootC = await createWorkspaceRoot();
     const oldDb = process.env.LEGALWORK_RUNTIME_DB, oldConfig = process.env.XDG_CONFIG_HOME;
