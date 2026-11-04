@@ -796,3 +796,11 @@ Review found first attempt cached all metadata too broadly and omitted host owne
 - Regresia skutočného resolvera/loadera a NativeCatalog: bez hosta a pri uloženom vzdialenom spojení zlyhala pred opravou; loopback host ostáva povolený. Po oprave 27 app testov na hoste aj v izolovanom candidate Docker a 15 server testov prešlo; typecheck a i18n kontroly prešli.
 - Živý syntetický prehliadač po oprave: katalóg dostupný, workspace cieľ vybraný, oba globálne ovládacie prvky vypnuté, bez update alertu a bez Marketplace požiadaviek. Inštalácia ani aktualizácia sa nespúšťala. Dev test nenahrádza finálny inštalátor ani šesťplatformovú akceptáciu.
 - Poučenie: existencia API klienta nie je oprávnenie; host-only klienta vytvoriť až z rozlíšeného host prístupu, bez vypožičiavania host tokenu pre vzdialený renderer.
+
+## 2026-11-04 — alpha 20261104-011336-b0a077: tiché webové Nastavenia bez natívneho updatera
+
+- Tester aj nezávislý čerstvý prehliadač potvrdili, že samotné otvorenie Nastavení vo webe vyvolalo Electron-only updater chybu bez ručnej kontroly. Neznáme updateEnv nebránilo automatickému efektu zavolať chýbajúci bridge.
+- Automatický efekt teraz vyžaduje dostupnú metódu updater.check. Ručné kontroly a ich unsupported hlásenie ostávajú; ochrana dostupnej, sťahovanej a pripravenej aktualizácie sa nemení. PATCHES.md zaznamenáva upstream hook.
+- Pripojený reálny React hook v izolovaných procesoch: pred opravou 6 pass / 2 fail (web a chýbajúca natívna metóda); po oprave deväť scenárov vrátane natívnej automatickej a menu kontroly prešlo. Úložisko/globály vlastnia fixture procesy, model ani sieť sa nevolajú. Simulovaný native bridge nie je natívna release akceptácia.
+- Vybrané app testy: 24 pass na hoste aj v izolovanom candidate Docker, typecheck prešiel. Živý syntetický web po kliknutí Nastavenia: bez updater chyby a status ostal null. Finálny inštalátor a šesťplatformová akceptácia zostávajú blocked.
+- Poučenie: automatický efekt musí overiť podporovanú capability pred operáciou; manuálna diagnostika nemá nahrádzať capability gate pri mountovaní stránky.

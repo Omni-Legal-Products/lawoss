@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Automatická kontrola aktualizácií len s dostupným updaterom (2026-11-04)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/settings/state/electron-updater-state.ts` | Automatický efekt pred kontrolou vyžaduje `electronUpdaterBridge()?.check`. Otvorenie Nastavení vo webovom klientovi tak nevyvolá Electron-only chybu. Ručné kontroly, natívny updater a ochrana dostupnej/stiahnutej aktualizácie ostávajú. Pripojená regresia `apps/app/tests/electron-updater-state.test.ts` používa izolované procesy s reálnym hookom; pôvodný webový scenár je overený aj v prehliadači. Pri syncu zachovať capability guard. |
+
 ## Odložené upozornenia čítačiek query cache (2026-11-04)
 
 | Súbory | Downstream doplnenie a dôvod |
