@@ -95,7 +95,7 @@ export function WelcomeRoute() {
       // 🟡 LAWOSS: zlyhanie skillov nezhodí dokončenie (skilly sú pomôcka, N-A2-4).
       await installOnboardingSkillsQuietly(registered.client, registered.id, status.profile?.language ?? "sk");
       // Skilly ostatným klientom dávky; zlyhanie neprekazí dokončenie, pri otvorení klienta sa doplnia.
-      for (const other of completion?.clients ?? []) if (other.workspace && other.workspace.id !== registered.id) await installMissingOnboardingSkills(registered.client, other.workspace.id, status.profile?.language ?? "sk").catch((reason: unknown) => console.warn("[lawoss] OKF skills for another practice client", reason));
+      for (const other of completion?.clients ?? []) if (other.workspace && other.workspace.id !== registered.id) await installMissingOnboardingSkills(registered.client, other.workspace.id, status.profile?.language ?? "sk", "background").catch((reason: unknown) => console.warn("[lawoss] OKF skills for another practice client", reason));
     }
     local.setPrefs((previous) => ({ ...previous, documentAuthor: authorAfterOnboarding(previous.documentAuthor, status.profile?.lawyerName), hasCompletedOnboarding: true }));
     // 🟡 LAWOSS: „Začať nanovo“ pristane na Klienti a prípady (`completion.landing`, test 19. 10. 2026).

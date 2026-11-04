@@ -18,11 +18,11 @@ export async function okfSkillPack(locale: Language): Promise<BundledOkfSkill[]>
 }
 
 /** Complete missing bundled OKF skills and refresh unmodified ones; customizations are kept and reported. */
-export async function installMissingOnboardingSkills(client: OkfSkillClient & Partial<Pick<LegalworkServerClient, "reloadEngine">>, workspaceId: string, locale: Language): Promise<OkfSkillRefresh> {
+export async function installMissingOnboardingSkills(client: OkfSkillClient & Partial<Pick<LegalworkServerClient, "reloadEngine">>, workspaceId: string, locale: Language, mode: "opened" | "background" = "opened"): Promise<OkfSkillRefresh> {
   const result = await refreshOkfSkills(client, workspaceId, await okfSkillPack(locale));
   notifyModifiedOkfSkills(result.modified, locale);
-  // Nový alebo obnovený skill engine uvidí až po obnovení; bez toho prvý rozhovor hlási „Command not found“.
-  await reloadAfterSkillWrites(client, workspaceId, result.written);
+  // Opened scopes need refresh; a background folder reads these files on its first engine use.
+  if (mode === "opened") await reloadAfterSkillWrites(client, workspaceId, result.written);
   return result;
 }
 

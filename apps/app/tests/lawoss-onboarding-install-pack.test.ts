@@ -74,3 +74,20 @@ test("dokončenie onboardingu: zlyhanie skillov sa len zapíše, nič nevyhodí"
   // Bez chyby vráti výsledok ako bežná inštalácia.
   expect(await installOnboardingSkillsQuietly(clientFixture([]).client, "workspace", "sk")).toMatchObject({ modified: [] });
 });
+
+test("background onboarding provisions unopened folders without engine reload; opened folders retain refresh", async () => {
+  const background = clientFixture([]);
+  const reloads: string[] = [];
+  const client = { ...background.client, reloadEngine: async (id: string) => { reloads.push(id); return { ok: true }; } };
+  const result = await installMissingOnboardingSkills(client, "unopened", "sk", "background");
+  expect(result.written).toHaveLength(5);
+  expect(background.calls.skill).toHaveLength(5);
+  expect(background.calls.resource).toHaveLength(5);
+  expect(reloads).toEqual([]);
+  const opened = clientFixture([]);
+  const active = { ...opened.client, reloadEngine: client.reloadEngine };
+  expect((await installMissingOnboardingSkills(active, "opened", "sk")).written).toHaveLength(5);
+  expect(reloads).toEqual(["opened"]);
+  expect((await installMissingOnboardingSkills(active, "opened", "sk")).written).toEqual([]);
+  expect(reloads).toEqual(["opened"]);
+});

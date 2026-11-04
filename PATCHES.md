@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Background provisioning onboarding skillov (2026-11-04)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/shell/welcome-route.tsx` | Dávka ostatných klientov odovzdá `background` do `lawoss/domains/onboarding/install-pack.ts`. Reálna inštalácia missing/unmodified skillov a resources ostáva, ale nevolá reload enginu neotvoreného priečinka. Predvolený `opened` zachová existujúci foreground refresh, busy guard aj command availability kontrolu pri otvorení chatu. Serverový explicitný reload kontrakt sa nemení; pri syncu zachovať rozlíšenie background/foreground. |
+
 ## Vypnuté MCP už pri publikovaní presunu (2026-11-04)
 
 | Súbory | Downstream doplnenie a dôvod |
