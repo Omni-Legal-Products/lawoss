@@ -1,5 +1,16 @@
 # LAWOSS downstream patches
 
+## MCP doplnky len pre otvorené priečinky klientov (2026-11-04, #356)
+
+Engine 1.18.29 spúšťa MCP servery lenivo pre každý priečinok: prvá požiadavka na `/mcp…`, `GET /command`, nástroje alebo odoslanie správy spustí všetky nakonfigurované MCP servery priečinka (`MCP.state` v `packages/opencode/src/mcp/index.ts`). Server LAWOSS také požiadavky posielal pre všetkých klientov: pripravenosť pred zoznamom chatov (`GET /mcp` pred `GET /session`, bočný panel pre každého klienta), obnova enginu na konci onboardingu, štartová a zdieľaná synchronizácia MCP a inštalácia z katalógu. Pri 24 klientoch a 6 doplnkoch bežalo 150 procesov (5,5 GB). Evidencia živých priečinkov je v novom `apps/server/src/lawoss/mcp-live-workspaces.ts`, regresia `apps/server/src/lawoss/mcp-live-workspaces.e2e.test.ts`.
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `apps/server/src/server.ts` | +1 import. Pripravenosť pred zoznamom chatov (`createOpencodeDirectoryFetch`) sa pýta `GET /path` namiesto `GET /mcp`; zdieľaný studený štart (`sharedEngineResponse`, 5641d3043) ostáva. `forwardOpencodeRequest`: prvá požiadavka appky, ktorá v engine spúšťa MCP (`touchesEngineMcp`), označí priečinok za živý a pred odoslaním mu doplní runtime MCP (`useWorkspaceMcp` → `restoreWorkspaceRuntimeMcp`, rovnaké telo ako doterajšia štartová synchronizácia jedného priečinka). `reloadOpencodeEngine` pri priečinku bez živého MCP len zahodí inštanciu a počká cez `/path`. `syncAllWorkspacesRuntimeMcpToEngine`, `syncSharedMcpToOtherWorkspaces`, `afterChange` LAWOSS Marketplace a cyklus cloud pluginov (3×) synchronizujú len živé priečinky; `disconnectSharedMcpFromOtherWorkspaces` a `DELETE /workspace/:id/mcp/:name` neživému priečinku inštanciu zahodia (`disconnectWorkspaceMcp`), keď v nej nič nebeží. Zmena konektorov v jednom priečinku (`POST …/mcp`, `…/enabled`, import balíka) ide cez `syncWorkspaceMcpForUser`. Vzdialené pracovné priestory ostávajú ako doteraz (`mcpLive`). `awaitEngineInstance` dostal voliteľný parameter cesty. |
+| `apps/server/src/mcp.engine-sync.e2e.test.ts` | Zdieľaný konektor a štartová synchronizácia: priečinok B sa najprv otvorí cez proxy (`GET /workspace/ws_2/opencode/mcp`), resp. je označený za živý; pribudol neotvorený priečinok, ktorý nesmie dostať MCP požiadavku (pri odobratí dostane `/instance/dispose`). Engine na skúšku odpovedá na `/session/status`. Doterajšie asserty pre „každý priečinok“ boli správanie, ktoré #356 mení. |
+| `apps/server/src/workspace-reconnect.e2e.test.ts` | Engine na skúšku odpovedá na pripravenosť na `/path` namiesto `/mcp` (ten istý assert priečinka). |
+| `apps/server/src/embedded-app-files.e2e.test.ts` | `waitForEngineWorkspaces` (čakanie, kým úvodná synchronizácia MCP siahne na oba priečinky) nahradené `expectNoStartupWorkspaceSync`: po `server.stop()`, ktorý na úvodnú synchronizáciu čaká, engine nesmie mať požiadavku pre žiadny priečinok. Čakanie existovalo, aby retry požiadavky nepresiakli do ďalších testov; po štarte teraz žiadne nie sú. |
+
 ## Čitateľné Podrobnosti na karte úpravy súboru a externého priečinka (2026-10-31)
 
 Regresia N-A7 z 30. 10. 2026, nález N-A8-3: Podrobnosti ukazovali surový JSON `{ "filepath": …, "diff": … }` a `{ "filepath": …, "parentDir": … }`, blok „Kontrola“ v dialógu surový diff s hlavičkami `@@`, `+++`, `---`.

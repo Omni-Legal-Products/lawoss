@@ -170,6 +170,7 @@ import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerOnboardingRoutes, type OnboardingApplyCheckpoint } from "./lawoss/onboarding.js";
 import { LawossOcrManager, registerLawossOcrRoutes } from "./lawoss/ocr-opt-in.js";
 import { registerLawossMarketplaceRoutes } from "./lawoss/marketplace-routes.js";
+import { enterMcpUse, isMcpLive, touchesEngineMcp } from "./lawoss/mcp-live-workspaces.js";
 import { startWeeklyMarketplaceCheck } from "./lawoss/marketplace-updates.js";
 import {
   applyGlobalToolPermissions,
@@ -1406,7 +1407,8 @@ function createOpencodeDirectoryFetch(directory: string, config: ServerConfig, w
     const headers = request.headers;
     if (request.method === "GET" && new URL(request.url).pathname === "/session") {
       const readiness = new URL(request.url);
-      readiness.pathname = "/mcp";
+      // LAWOSS (#356): studený štart inštancie cez `/path`; `/mcp` by spustil všetky MCP servery priečinka.
+      readiness.pathname = "/path";
       readiness.search = "";
       readiness.searchParams.set("directory", new URL(request.url).searchParams.get("directory") ?? directory);
       const key = JSON.stringify([workspaceId, readiness.toString(), [...headers]]);
@@ -1574,6 +1576,8 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
   if (method === "POST" && session && sessionDirectory && input.actor?.scope && await realpath(sessionDirectory).catch(() => null)) {
     await grantWikiAgentSession(input.config, { sessionId: decodeURIComponent(session[1]), directory: sessionDirectory, scope: input.actor.scope });
   }
+  // LAWOSS (#356): prvá MCP siahajúca požiadavka appky (otvorený klient) označí priečinok za živý.
+  if (workspace && touchesEngineMcp(method, scopedProxyPath)) await useWorkspaceMcp(input.config, workspace);
   // Buffer the request body so it can be forwarded reliably across Node.js
   // stream boundaries (Readable.toWeb streams from the HTTP adapter aren't
   // always accepted directly by Node's global fetch as a body).
@@ -2180,7 +2184,8 @@ function createRoutes(
       for (const workspace of local) {
         try {
           if (!(await workspaceEngineBusy(config, workspace))) { await reloadOpencodeEngine(config, workspace); continue; }
-          await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
+          // LAWOSS (#356): MCP len do živých priečinkov; ostatné ich doplnia pri otvorení.
+          if (mcpLive(config, workspace)) await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
           emitReloadEvent(ctx.reloadEvents, workspace, "skills", { type: "skill", name: "LAWOSS Marketplace", action: "updated" });
         } catch { /* Best-effort: zastavený engine si pri štarte prečíta aktuálny stav. */ }
       }
@@ -2405,7 +2410,7 @@ function createRoutes(
     await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "cloud_plugins.install", target: globalOpencodeConfigDir(), summary: `Created plugin ${input.name}`, timestamp: Date.now() });
     for (const target of config.workspaces) {
       for (const reason of ["skills", "mcp"] satisfies Array<"skills" | "mcp">) emitReloadEvent(ctx.reloadEvents, target, reason);
-      await syncRuntimeMcpToOpencodeEngine(config, target).catch(() => undefined);
+      if (mcpLive(config, target)) await syncRuntimeMcpToOpencodeEngine(config, target).catch(() => undefined);
     }
     return jsonResponse({ item });
   });
@@ -2448,7 +2453,7 @@ function createRoutes(
     const affected = global ? config.workspaces : [workspace];
     for (const target of affected) {
       for (const reason of ["skills", "agents", "commands", "mcp"] satisfies Array<"skills" | "agents" | "commands" | "mcp">) emitReloadEvent(ctx.reloadEvents, target, reason);
-      await syncRuntimeMcpToOpencodeEngine(config, target).catch(() => undefined);
+      if (mcpLive(config, target)) await syncRuntimeMcpToOpencodeEngine(config, target).catch(() => undefined);
     }
     return jsonResponse({ item: imported, preview: plan.preview });
   });
@@ -2590,7 +2595,7 @@ function createRoutes(
     }
 
     // Hot-register any bundled MCP servers with the running engine.
-    await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
+    await syncWorkspaceMcpForUser(config, workspace).catch(() => undefined);
 
     return jsonResponse({ item: imported, preview: bundle.preview });
   });
@@ -2640,7 +2645,7 @@ function createRoutes(
 
     for (const target of globalRemoval ? config.workspaces : [workspace]) {
       for (const reason of ["skills", "agents", "commands", "mcp"] satisfies Array<"skills" | "agents" | "commands" | "mcp">) emitReloadEvent(ctx.reloadEvents, target, reason);
-      await syncRuntimeMcpToOpencodeEngine(config, target).catch(() => undefined);
+      if (mcpLive(config, target)) await syncRuntimeMcpToOpencodeEngine(config, target).catch(() => undefined);
     }
     return jsonResponse({ item: removed });
   });
@@ -5118,7 +5123,7 @@ function createRoutes(
     const result = await addMcp(config, workspace.id, name, configPayload, scope);
     // Hot-add into the running engine so connect/auth works immediately,
     // without waiting for an engine instance rebuild.
-    await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]).catch(() => undefined);
+    await syncWorkspaceMcpForUser(config, workspace, [name]).catch(() => undefined);
     if (scope === "global") await syncSharedMcpToOtherWorkspaces(config, workspace, [name]);
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
@@ -5164,7 +5169,7 @@ function createRoutes(
     });
     // Retry even after persistence was removed: a failed disconnect must not
     // leave cached clients usable in this workspace or other shared instances.
-    await disconnectMcpFromOpencodeEngine(config, workspace, name);
+    await disconnectWorkspaceMcp(config, workspace, name);
     if (removedScopes.includes("global") || removedScopes.length === 0) {
       await disconnectSharedMcpFromOtherWorkspaces(config, workspace, name);
     }
@@ -5203,7 +5208,7 @@ function createRoutes(
     if (!updated) {
       throw new ApiError(404, "mcp_not_found", `MCP ${name} not found in workspace config`);
     }
-    await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]);
+    await syncWorkspaceMcpForUser(config, workspace, [name]);
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
       workspaceId: workspace.id,
@@ -5837,6 +5842,13 @@ async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceIn
     });
   }
 
+  // LAWOSS (#356): priečinok bez živého MCP sa len zahodí a počká na novú inštanciu cez `/path`.
+  // `GET /mcp` a registrácia by v ňom spustili všetky MCP servery; pri otvorení ich doplní `useWorkspaceMcp`.
+  if (!mcpLive(config, workspace)) {
+    await awaitEngineInstance(baseUrl, auth, directory, 30_000, "/path");
+    return;
+  }
+
   // Re-register runtime-DB MCPs: dispose rebuilds engine state from disk
   // configs (including the server-managed runtime config file for the
   // primary workspace), but other workspaces' runtime MCPs only reach the
@@ -5961,9 +5973,10 @@ async function awaitEngineInstance(
   authHeader: string | null,
   directory: string | null,
   deadlineMs = 30_000,
+  pathname: "/mcp" | "/path" = "/mcp",
 ): Promise<void> {
   const url = new URL(baseUrl);
-  url.pathname = "/mcp";
+  url.pathname = pathname;
   url.search = "";
   if (directory) url.searchParams.set("directory", directory);
   const headers: Record<string, string> = {};
@@ -6109,18 +6122,51 @@ export function engineMcpSyncState(workspaceId: string): EngineMcpSyncState | nu
 // only, so other workspaces' runtime MCPs are invisible to the engine until
 // something re-syncs them. Best-effort.
 export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig): Promise<void> {
+  // LAWOSS (#356): len priečinky so živým MCP; ostatné dostanú to isté pri prvom použití (`useWorkspaceMcp`).
   for (const workspace of config.workspaces) {
-    // Constructing an engine instance runs plugins that create .opencode.
-    // A disconnected folder must stay missing until the user restores it.
-    if (await localWorkspaceUnavailable(workspace)) continue;
-    // Right after start the engine is still building instances; registering
-    // into a half-built one is recorded as a failure the UI then shows.
-    const connection = resolveWorkspaceOpencodeConnection(config, workspace);
-    if (connection.baseUrl?.trim()) {
-      await awaitEngineInstance(connection.baseUrl.trim(), connection.authHeader ?? null, resolveOpencodeDirectory(workspace));
-    }
-    await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
+    if (mcpLive(config, workspace)) await restoreWorkspaceRuntimeMcp(config, workspace).catch(() => undefined);
   }
+}
+
+async function restoreWorkspaceRuntimeMcp(config: ServerConfig, workspace: WorkspaceInfo, awaitInstance = true): Promise<void> {
+  // Constructing an engine instance runs plugins that create .opencode.
+  // A disconnected folder must stay missing until the user restores it.
+  if (await localWorkspaceUnavailable(workspace)) return;
+  // Right after start the engine is still building instances; registering
+  // into a half-built one is recorded as a failure the UI then shows.
+  const connection = resolveWorkspaceOpencodeConnection(config, workspace);
+  if (!connection.baseUrl?.trim()) return;
+  if (Object.keys(await runtimeMcpMapForWorkspace(config, workspace.id)).length === 0) return;
+  if (awaitInstance) await awaitEngineInstance(connection.baseUrl.trim(), connection.authHeader ?? null, resolveOpencodeDirectory(workspace));
+  await syncRuntimeMcpToOpencodeEngine(config, workspace);
+}
+
+// LAWOSS (#356): vzdialený worker spravuje MCP sám; obmedzenie platí pre lokálne priečinky.
+function mcpLive(config: ServerConfig, workspace: WorkspaceInfo): boolean {
+  return workspace.workspaceType === "remote" || isMcpLive(config, workspace.id);
+}
+
+// LAWOSS (#356): prvé použitie MCP v priečinku (otvorený klient, chat, Konektory) ho označí za živý
+// a pred požiadavkou mu doplní runtime MCP, ktoré predtým dostával pri štarte appky: vlastné konektory
+// priečinka (nie sú v súbore konfigurácie enginu) a zdieľané pridané po vzniku jeho inštancie.
+function useWorkspaceMcp(config: ServerConfig, workspace: WorkspaceInfo, awaitInstance = true): Promise<void> {
+  if (workspace.workspaceType === "remote") return Promise.resolve();
+  return enterMcpUse(config, workspace.id, () => restoreWorkspaceRuntimeMcp(config, workspace, awaitInstance));
+}
+
+// Zmena konektorov v jednom priečinku na pokyn advokáta: pri prvom použití úplné doplnenie, inak len zmenené.
+// Bez čakania na inštanciu, ako doteraz: nedostupný engine nesmie zdržať uloženie konektora.
+async function syncWorkspaceMcpForUser(config: ServerConfig, workspace: WorkspaceInfo, onlyNames?: string[]): Promise<void> {
+  if (!mcpLive(config, workspace)) return useWorkspaceMcp(config, workspace, false);
+  await syncRuntimeMcpToOpencodeEngine(config, workspace, onlyNames);
+}
+
+// Odobratý konektor: živý priečinok ho v engine odpojí. Inštancia bez živého MCP sa len zahodí (ak v nej
+// nič nebeží), aby pri otvorení nenačítala starú konfiguráciu s odobratým konektorom.
+async function disconnectWorkspaceMcp(config: ServerConfig, workspace: WorkspaceInfo, name: string): Promise<void> {
+  if (mcpLive(config, workspace)) return disconnectMcpFromOpencodeEngine(config, workspace, name);
+  if (await localWorkspaceUnavailable(workspace)) return;
+  if (!(await workspaceEngineBusy(config, workspace))) await reloadOpencodeEngine(config, workspace).catch(() => undefined);
 }
 
 async function localWorkspaceUnavailable(workspace: WorkspaceInfo): Promise<boolean> {
@@ -6148,8 +6194,9 @@ async function syncSharedMcpToOtherWorkspaces(
   origin: WorkspaceInfo,
   names: string[],
 ): Promise<void> {
+  // LAWOSS (#356): len živé priečinky; ostatné ho dostanú pri otvorení (`useWorkspaceMcp`).
   await Promise.all(
-    otherLocalWorkspaces(config, origin).map((workspace) =>
+    otherLocalWorkspaces(config, origin).filter((workspace) => mcpLive(config, workspace)).map((workspace) =>
       syncRuntimeMcpToOpencodeEngine(config, workspace, names).catch(() => undefined),
     ),
   );
@@ -6166,7 +6213,7 @@ async function disconnectSharedMcpFromOtherWorkspaces(
       // the removed shared entry, including when retrying a failed removal.
       const items = await listMcp(config, workspace.id, workspace.path);
       if (items.some((item) => item.name === name)) return;
-      await disconnectMcpFromOpencodeEngine(config, workspace, name);
+      await disconnectWorkspaceMcp(config, workspace, name);
     }),
   );
 }

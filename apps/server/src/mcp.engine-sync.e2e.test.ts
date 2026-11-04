@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { enterMcpUse } from "./lawoss/mcp-live-workspaces.js";
 import type { ServerConfig } from "./types.js";
 
 type Served = { port: number; stop: (closeActiveConnections?: boolean) => void | Promise<void> };
@@ -44,6 +45,7 @@ function startMockOpencode(options?: { failMcpNames?: string[]; disconnectStatus
       requests.push({ method: request.method, pathname: url.pathname, search: url.search, body });
 
       if (url.pathname === "/instance/dispose") return Response.json({ disposed: true });
+      if (url.pathname === "/session/status") return Response.json({});
       if (url.pathname === "/mcp" && request.method === "POST") {
         const name = (body as { name?: string } | null)?.name;
         if (name && options?.failMcpNames?.includes(name)) {
@@ -136,14 +138,18 @@ async function startLegalworkServerWithWorkspaces(roots: string[], opencodeBaseU
 }
 
 describe("runtime MCP engine sync", () => {
-  test("a shared connector is hot-added into every local workspace's engine instance, and dropped from all on removal", async () => {
+  // LAWOSS (#356): do engine len v priečinkoch so živým MCP; neotvorený priečinok nedostane MCP požiadavku.
+  test("a shared connector is hot-added into every live local workspace's engine instance, and dropped from all on removal", async () => {
     const rootA = await createWorkspaceRoot();
     const rootB = await createWorkspaceRoot();
+    const rootC = await createWorkspaceRoot();
     const previousDb = process.env.LEGALWORK_RUNTIME_DB;
     process.env.LEGALWORK_RUNTIME_DB = join(rootA, "runtime.sqlite");
     try {
       const mock = startMockOpencode();
-      const legalwork = await startLegalworkServerWithWorkspaces([rootA, rootB], `http://127.0.0.1:${mock.server.port}`);
+      const legalwork = await startLegalworkServerWithWorkspaces([rootA, rootB, rootC], `http://127.0.0.1:${mock.server.port}`);
+      // Workspace B is open in the app (connector status through the engine proxy); C never is.
+      await fetch(`${legalwork.base}/workspace/ws_2/opencode/mcp`, { headers: auth(legalwork.token) });
 
       const response = await fetch(`${legalwork.base}/workspace/ws_1/mcp`, {
         method: "POST",
@@ -154,6 +160,8 @@ describe("runtime MCP engine sync", () => {
       const adds = mock.requests.filter((entry) => entry.method === "POST" && entry.pathname === "/mcp");
       expect(adds.map((entry) => new URLSearchParams(entry.search).get("directory")).sort()).toEqual([rootA, rootB].sort());
       expect(adds.every((entry) => JSON.stringify(entry.body) === JSON.stringify({ name: "posthog", config: POSTHOG_CONFIG }))).toBe(true);
+      const inC = (entry: EngineRequest) => new URLSearchParams(entry.search).get("directory") === rootC;
+      expect(mock.requests.filter(inC).filter((entry) => entry.pathname.startsWith("/mcp"))).toEqual([]);
 
       mock.requests.length = 0;
       const removal = await fetch(`${legalwork.base}/workspace/ws_2/mcp/posthog`, {
@@ -163,6 +171,9 @@ describe("runtime MCP engine sync", () => {
       expect(removal.status).toBe(200);
       const disconnects = mock.requests.filter((entry) => entry.pathname === "/mcp/posthog/disconnect");
       expect(disconnects.map((entry) => new URLSearchParams(entry.search).get("directory")).sort()).toEqual([rootA, rootB].sort());
+      // C's idle instance is dropped instead, so it reads the current config when opened.
+      expect(mock.requests.filter(inC).map((entry) => entry.pathname)).toContain("/instance/dispose");
+      expect(mock.requests.filter(inC).filter((entry) => entry.pathname.startsWith("/mcp"))).toEqual([]);
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;
@@ -181,6 +192,8 @@ describe("runtime MCP engine sync", () => {
       const options = { failDisconnectDirectories: [rootB] };
       const mock = startMockOpencode(options);
       const legalwork = await startLegalworkServerWithWorkspaces([rootA, rootB, rootC], `http://127.0.0.1:${mock.server.port}`);
+      // LAWOSS (#356): B is open in the app, so the shared connector reaches its engine instance.
+      await fetch(`${legalwork.base}/workspace/ws_2/opencode/mcp`, { headers: auth(legalwork.token) });
       for (const [workspace, scope] of [["ws_1", "global"], ["ws_3", "workspace"]]) {
         const response = await fetch(`${legalwork.base}/workspace/${workspace}/mcp`, {
           method: "POST", headers: auth(legalwork.token),
@@ -433,9 +446,11 @@ describe("runtime MCP engine sync", () => {
     }
   });
 
-  test("startup sync pushes runtime MCPs for every workspace", async () => {
+  // LAWOSS (#356): every workspace whose MCP is live; the others get the same push when first used.
+  test("startup sync pushes runtime MCPs for every live workspace", async () => {
     const rootA = await createWorkspaceRoot();
     const rootB = await createWorkspaceRoot();
+    const rootC = await createWorkspaceRoot();
     const previousDb = process.env.LEGALWORK_RUNTIME_DB;
     process.env.LEGALWORK_RUNTIME_DB = join(rootA, "runtime.sqlite");
     try {
@@ -452,8 +467,9 @@ describe("runtime MCP engine sync", () => {
           { id: "ws_1", name: "A", path: rootA, preset: "starter", workspaceType: "local", baseUrl },
           { id: "ws_2", name: "B", path: rootB, preset: "starter", workspaceType: "local", baseUrl },
           { id: "ws_offline", name: "Disconnected", path: join(rootB, "missing"), preset: "starter", workspaceType: "local", baseUrl },
+          { id: "ws_3", name: "Never opened", path: rootC, preset: "starter", workspaceType: "local", baseUrl },
         ],
-        authorizedRoots: [rootA, rootB],
+        authorizedRoots: [rootA, rootB, rootC],
         readOnly: false,
         startedAt: Date.now(),
         tokenSource: "cli",
@@ -465,6 +481,8 @@ describe("runtime MCP engine sync", () => {
       await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({ ...current, mcp: { posthog: POSTHOG_CONFIG } }));
       await writeRuntimeOpencodeConfig(config, "ws_2", (current) => ({ ...current, mcp: { stripe: POSTHOG_CONFIG } }));
       await writeRuntimeOpencodeConfig(config, "ws_offline", (current) => ({ ...current, mcp: { offline: POSTHOG_CONFIG } }));
+      await writeRuntimeOpencodeConfig(config, "ws_3", (current) => ({ ...current, mcp: { closed: POSTHOG_CONFIG } }));
+      for (const id of ["ws_1", "ws_2", "ws_offline"]) await enterMcpUse(config, id, async () => {});
 
       await syncAllWorkspacesRuntimeMcpToEngine(config);
 
@@ -473,6 +491,7 @@ describe("runtime MCP engine sync", () => {
       expect(byName.get("posthog")).toContain(`directory=${encodeURIComponent(rootA)}`);
       expect(byName.get("stripe")).toContain(`directory=${encodeURIComponent(rootB)}`);
       expect(mock.requests.some((entry) => entry.search.includes(encodeURIComponent(join(rootB, "missing"))))).toBe(false);
+      expect(mock.requests.some((entry) => entry.search.includes(encodeURIComponent(rootC)))).toBe(false);
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;

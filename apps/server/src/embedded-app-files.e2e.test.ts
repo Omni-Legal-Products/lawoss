@@ -8,15 +8,12 @@ import { externalAppFilesRoot } from "./lawoss/workspace-app-files.js";
 // Spravovaný engine beží od v0.2.9 v izolovanom režime (upstream #227): skills idú do `skills.paths`.
 const skillPaths = (skills: string[] | { paths?: string[] } | undefined): string[] => Array.isArray(skills) ? skills : skills?.paths ?? [];
 
-async function waitForEngineWorkspaces(requestsPath: string, workspaces: string[]) {
-  const deadline = Date.now() + 3000;
-  while (Date.now() < deadline) {
-    const requests = (await readFile(requestsPath, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
-    const directories = requests.map(request => new URL(request, "http://localhost").searchParams.get("directory"));
-    if (workspaces.every(workspace => directories.includes(workspace))) return;
-    await new Promise(resolve => setTimeout(resolve, 25));
-  }
-  throw new Error("Engine fixture did not finish startup synchronization for every workspace");
+// LAWOSS (#356): úvodná synchronizácia MCP ide len do priečinkov so živým MCP; po štarte nie je žiadny.
+// `stop()` čaká na jej dokončenie, takže potom engine nesmie mať požiadavku pre žiadny priečinok.
+async function expectNoStartupWorkspaceSync(requestsPath: string, workspaces: string[]) {
+  const requests = (await readFile(requestsPath, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+  const directories = requests.map(request => new URL(request, "http://localhost").searchParams.get("directory"));
+  expect(workspaces.filter(workspace => directories.includes(workspace))).toEqual([]);
 }
 
 test("embedded startup applies host outside policy before seeding an unconfigured workspace", async () => {
@@ -118,9 +115,9 @@ process.on("SIGTERM", () => process.exit(0));
     expect(runtimeConfig.instructions).toContain(join(workspace, "AGENTS.md"));
     expect((await readdir(workspace)).sort()).toEqual(["AGENTS.md", "original.txt"]);
     expect(await readdir(firstWorkspace)).toEqual(["original.txt"]);
-    // Finish startup before terminating the engine, otherwise its retry loop leaks into later tests.
-    await waitForEngineWorkspaces(`${envPath}.requests`, [firstWorkspace, workspace]);
     await server.stop();
+    server = null;
+    await expectNoStartupWorkspaceSync(`${envPath}.requests`, [firstWorkspace, workspace]);
     server = await startEmbeddedServer({
       host: "127.0.0.1", port: 0, configPath, workspaces: [firstWorkspace, workspace],
       token: "client-token", hostToken: "host-token", logRequests: false, wordAddin: false,
@@ -136,7 +133,9 @@ process.on("SIGTERM", () => process.exit(0));
     expect(JSON.parse(await readFile(envPath, "utf8"))).toEqual({ configDir: firstExpected, disableProjectConfig: "true" });
     const restartedRuntimeConfig = JSON.parse(await readFile(join(dirname(configPath), "runtime-opencode-config.json"), "utf8")) as { skills?: string[] | { paths?: string[] } };
     expect(skillPaths(restartedRuntimeConfig.skills)).toContain(join(firstExpected, "skills"));
-    await waitForEngineWorkspaces(`${envPath}.requests`, [firstWorkspace, workspace]);
+    await server.stop();
+    server = null;
+    await expectNoStartupWorkspaceSync(`${envPath}.requests`, [firstWorkspace, workspace]);
   } finally {
     await server?.stop();
     if (originalDataDir === undefined) delete process.env.LEGALWORK_DATA_DIR;
