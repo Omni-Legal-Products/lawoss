@@ -3,6 +3,12 @@
 ## Engine pri studenom štarte číta len katalóg LAWOSS (2026-11-02, #336)
 
 Upstream test opravy #230 (`model-catalog-engine.e2e.test.ts`) čaká, že engine prevezme katalóg z relay (`OPENCODE_MODELS_URL`/`OPENCODE_MODELS_PATH` od volajúceho). LAWOSS relay nespúšťa a `lawossEngineEnv()` tieto premenné zámerne prepisuje pribaleným katalógom (rozhodnutie MČ 5. 10. 2026), takže test so skutočným enginom vždy padal. V CI to nebolo vidno, lebo krok serverových testov nemá `LEGALWORK_TEST_OPENCODE_BIN` a test preskočil.
+## Background provisioning onboarding skillov (2026-11-04)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/shell/welcome-route.tsx` | Dávka ostatných klientov odovzdá `background` do `lawoss/domains/onboarding/install-pack.ts`. Reálna inštalácia missing/unmodified skillov a resources ostáva, ale nevolá reload enginu neotvoreného priečinka. Predvolený `opened` zachová existujúci foreground refresh, busy guard aj command availability kontrolu pri otvorení chatu. Serverový explicitný reload kontrakt sa nemení; pri syncu zachovať rozlíšenie background/foreground. |
+
 ## Vypnuté MCP už pri publikovaní presunu (2026-11-04)
 
 | Súbory | Downstream doplnenie a dôvod |
