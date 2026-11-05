@@ -46,6 +46,8 @@ export type EngineMcpBudget = {
   isActive(scope: EngineScope): boolean;
   /** Pred požiadavkou, ktorá v engine spustí MCP. Vráti uvoľnenie „in-flight“. */
   admit(scope: EngineScope): Promise<() => void>;
+  /** Explicitný reload priečinka: otvorí ho v rozpočte bez `initialize` (reload MCP obnoví sám). */
+  adopt(scope: EngineScope): Promise<void>;
   /** Iná požiadavka do adresára predĺži jeho životnosť, ak je aktívny. */
   touch(scope: EngineScope): void;
   /** Inštanciu uvoľnil niekto iný (reload); prestane sa evidovať. */
@@ -167,6 +169,15 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
         entry.ready = options.initialize ? options.initialize(scope).catch(() => undefined) : Promise.resolve();
         await entry.ready;
         return release(entry);
+      });
+    },
+    adopt(scope) {
+      const key = scopeKey(scope);
+      return serialized(async () => {
+        const current = active.get(key);
+        if (current) { current.lastUsed = now(); return; }
+        await makeRoom(options.limit - 1);
+        active.set(key, { scope, lastUsed: now(), inflight: 0, ready: Promise.resolve() });
       });
     },
     touch(scope) {

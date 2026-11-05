@@ -67,7 +67,12 @@ async function fixture() {
   };
   const mcpTouches = (directory: string) => requests.filter((entry) => entry.directory === directory && (entry.pathname.startsWith("/mcp") || entry.pathname === "/command"));
   const disposals = () => requests.filter((entry) => entry.pathname === "/instance/dispose").map((entry) => entry.directory);
-  return { config, paths, requests, busy, get, mcpTouches, disposals };
+  const post = async (path: string) => {
+    const response = await fetch(`${base}${path}`, { method: "POST", headers: { Authorization: "Bearer client" } });
+    await response.arrayBuffer();
+    return response.status;
+  };
+  return { config, paths, requests, busy, get, post, mcpTouches, disposals };
 }
 
 test("výpis chatov všetkých klientov ani štart nespustia v engine žiadne MCP", async () => {
@@ -121,4 +126,15 @@ test("hromadná synchronizácia po zmene konfigurácie neotvorených klientov ne
   const after = f.requests.slice(before);
   expect(after.filter((entry) => entry.directory === a)).toEqual([]);
   expect(f.mcpTouches(b).length).toBeGreaterThan(0);
+});
+
+test("explicitný reload klienta (nastavenia, poskytovateľ) ho otvorí s pripravenosťou a obnovou MCP", async () => {
+  const f = await fixture();
+  const [a] = f.paths as [string];
+  expect(await f.get("/workspace/ws_b/opencode/command")).toBe(200);
+  expect(await f.post("/workspace/ws_a/engine/reload")).toBe(200);
+  // Reload A čaká na pripravenosť (GET /mcp) a znovu zaregistruje jeho MCP; B sa uvoľní.
+  expect(f.requests.some((entry) => entry.method === "GET" && entry.pathname === "/mcp" && entry.directory === a)).toBe(true);
+  expect(f.requests.some((entry) => entry.method === "POST" && entry.pathname === "/mcp" && entry.name === "klientA" && entry.directory === a)).toBe(true);
+  expect(f.disposals()).toContain(f.paths[1]);
 });
