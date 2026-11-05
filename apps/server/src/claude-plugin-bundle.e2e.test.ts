@@ -261,11 +261,14 @@ describe("claude plugin bundles", () => {
     expect(existsSync(commandPath)).toBe(true);
     expect(await readFile(skillPath, "utf8")).toContain("Search Slack messages effectively");
 
-    // MCP registered in the runtime DB and pushed to the engine.
+    // MCP registered in the runtime DB. LAWOSS (RAM 2 GB, issue #367): the engine
+    // gets it once the client is open, not while the client stays unopened.
     const listResponse = await fetch(`${legalwork.base}/workspace/ws_1/mcp`, { headers: legalwork.headers });
     const listBody = await listResponse.json() as { items: Array<{ name: string; source: string }> };
     const slackEntry = listBody.items.find((entry) => entry.name === "slack");
     expect(slackEntry?.source).toBe("config.remote");
+    expect(legalwork.engine.requests.some((entry) => entry.method === "POST" && entry.pathname === "/mcp")).toBe(false);
+    await (await fetch(`${legalwork.base}/workspace/ws_1/opencode/mcp`, { headers: legalwork.headers })).arrayBuffer();
     expect(legalwork.engine.requests.some((entry) => entry.method === "POST" && entry.pathname === "/mcp")).toBe(true);
 
     // Uninstall through the shared cloud-plugins route.

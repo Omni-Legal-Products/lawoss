@@ -1,5 +1,17 @@
 # LAWOSS downstream patches
 
+## MCP len pre otvoreného klienta, strop a uvoľnenie nečinných inštancií enginu (2026-11-05)
+
+Rozpočet RAM 2 GB, issue #367. Engine OpenCode 1.18.29 drží inštanciu na priečinok a pri prvom dotyku MCP stavu (`GET /mcp`, `GET /command`, prompt) v nej spustí všetky zapnuté MCP; inštancie sám neuvoľní. Výpis chatov všetkých klientov (bočný panel) a štartová synchronizácia tak spustili MCP v každom klientovi: 10 klientov + balík „SK základ“ = 139 procesov, 4,7 GB. Nový `apps/server/src/lawoss/engine-mcp-budget.ts` eviduje priečinky s MCP, drží ich najviac `LAWOSS_ENGINE_MCP_INSTANCES` (predvolene 1; 0 = pôvodné správanie) a nečinné bez bežiaceho chatu uvoľní (`POST /instance/dispose`) po `LAWOSS_ENGINE_MCP_IDLE_MS` (predvolene 10 min) alebo pri otvorení ďalšieho klienta.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/server.ts` | +2 importy; `startServer` zaregistruje rozpočet (1 riadok `cleanups`). Pripravenosť pred výpisom chatov volá `GET /path` namiesto `GET /mcp` (inštancia vznikne bez MCP; poradie studených štartov zostáva v `engine-warmup-gate`). Proxy `/opencode/*`, príkaz chatu a SDK požiadavky servera prejdú `admitEngineMcp`: cesty, ktoré v engine spúšťajú MCP, otvoria priečinok v rozpočte, ostatné len predĺžia jeho životnosť (proxy rozdelená na `forwardOpencodeRequest` a `dispatchOpencodeProxyRequest` bez zmeny správania). `reloadOpencodeEngine`, `syncRuntimeMcpToOpencodeEngine`, `disconnectMcpFromOpencodeEngine` a štartová `syncAllWorkspacesRuntimeMcpToEngine` neotvoreného klienta nezobudia: reload ho len uvoľní, MCP dostane pri prvom použití. Prvé použitie zaregistruje len MCP, ktoré inštancia nemá zo súboru runtime konfigurácie (`engineFileMcpEntries`), aby engine zdieľané MCP nespustil druhýkrát. |
+| `apps/server/src/mcp.engine-sync.e2e.test.ts` | Mechanika synchronizácie beží s `LAWOSS_ENGINE_MCP_INSTANCES=0` (všetky priečinky aktívne); limit overuje nový `apps/server/src/lawoss-engine-mcp-budget.e2e.test.ts`. |
+| `apps/server/src/claude-plugin-bundle.e2e.test.ts` | MCP nainštalovaného pluginu dostane engine až po otvorení klienta (+3 riadky). |
+
+Nové LAWOSS súbory: `apps/server/src/lawoss/engine-mcp-budget.ts` + `engine-mcp-budget.test.ts`, `apps/server/src/lawoss-engine-mcp-budget.e2e.test.ts`. Upravené LAWOSS testy: `embedded-app-files.e2e.test.ts` (štart nespustí MCP žiadneho klienta), `workspace-reconnect.e2e.test.ts` (fixture odpovie aj na `/path`). Windows CI (`ci-windows-portable.yml`) spúšťa oba nové testy.
+
 ## Čitateľné Podrobnosti na karte úpravy súboru a externého priečinka (2026-10-31)
 
 Regresia N-A7 z 30. 10. 2026, nález N-A8-3: Podrobnosti ukazovali surový JSON `{ "filepath": …, "diff": … }` a `{ "filepath": …, "parentDir": … }`, blok „Kontrola“ v dialógu surový diff s hlavičkami `@@`, `+++`, `---`.
