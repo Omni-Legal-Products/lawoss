@@ -1282,6 +1282,19 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return commandMatchesPackagedSidecar(command, sidecarDirs);
   }
 
+  function lawossProcessTrees(roots, children) {
+    const ordered = [];
+    const seen = new Set();
+    const visit = (pid) => {
+      if (seen.has(pid) || pid === process.pid) return;
+      seen.add(pid);
+      ordered.push(pid);
+      for (const child of children.get(pid) ?? []) visit(child);
+    };
+    for (const pid of roots) visit(pid);
+    return ordered;
+  }
+
   function killProcessId(pid, signal = "SIGTERM") {
     if (!Number.isFinite(pid) || pid <= 0 || pid === process.pid) return;
     try {
@@ -1303,16 +1316,22 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // Safety net: an unclean Electron quit can orphan sidecars. Packaged builds
     // should always own a fresh runtime per app launch, so remove any leftover
     // sidecars from this app bundle before choosing ports for the new runtime.
-    const result = spawnSync("ps", ["-Ao", "pid=,command="], { encoding: "utf8" });
+    const result = spawnSync("ps", ["-Ao", "pid=,ppid=,command="], { encoding: "utf8" });
     const rows = String(result.stdout ?? "").split(/\r?\n/);
-    const pids = [];
+    const sidecars = [];
+    const children = new Map();
     for (const row of rows) {
-      const match = row.match(/^\s*(\d+)\s+(.+)$/);
+      const match = row.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
       if (!match) continue;
       const pid = Number(match[1]);
-      const command = match[2] ?? "";
-      if (processMatchesSidecar(command)) pids.push(pid);
+      const parent = Number(match[2]);
+      const command = match[3] ?? "";
+      if (processMatchesSidecar(command)) sidecars.push(pid);
+      children.set(parent, [...(children.get(parent) ?? []), pid]);
     }
+    // LAWOSS: aj potomkovia osiretého enginu (MCP procesy), inak ostanú bežať
+    // po jeho ukončení (rozpočet RAM 2 GB, #367). Engine dostane signál prvý.
+    const pids = lawossProcessTrees(sidecars, children);
     for (const pid of pids) killProcessId(pid, "SIGTERM");
     if (pids.length > 0) {
       await new Promise((resolve) => setTimeout(resolve, 500));

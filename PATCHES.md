@@ -1,5 +1,16 @@
 # LAWOSS downstream patches
 
+## Engine a jeho MCP neprežijú pád appky (2026-11-05)
+
+Rozpočet RAM 2 GB, issue #367. Po páde hlavného procesu (SIGKILL) ostalo s 10 klientmi a balíkom „SK základ“ bežať 67 procesov (engine + 66× `node`) s ~4,3 GB. Na macOS a Linuxu `makeTerminator` posielal signál len priamemu potomkovi a úklid pri štarte zabil len engine, nie jeho MCP.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/managed-opencode.ts` | +1 import, +1 riadok po spustení: `watchEngineParent(child)` z nového `apps/server/src/lawoss/engine-parent-watchdog.ts` (strážny `sh` ~1 MB číta rúru od rodiča; pri jej zániku pošle enginu SIGTERM, po 5 s SIGKILL jemu aj priamym potomkom; pri bežnom konci enginu sa ukončí sám; PID enginu bez zmeny; nie na Windows). Pred záložným SIGKILL zaseknutého enginu `pkill -KILL -P` jeho priamych potomkov (mimo Windows). |
+| `apps/desktop/electron/runtime.mjs` | Úklid osiretých sidecarov pri štarte zabalenej appky číta `ps -Ao pid=,ppid=,command=` a ukončí aj celý strom potomkov osiretého enginu (MCP), engine prvý. Windows bez zmeny (taskkill). |
+
+Nový LAWOSS súbor: `apps/server/src/lawoss/engine-parent-watchdog.ts` + test so skutočnými procesmi.
+
 ## Čitateľné Podrobnosti na karte úpravy súboru a externého priečinka (2026-10-31)
 
 Regresia N-A7 z 30. 10. 2026, nález N-A8-3: Podrobnosti ukazovali surový JSON `{ "filepath": …, "diff": … }` a `{ "filepath": …, "parentDir": … }`, blok „Kontrola“ v dialógu surový diff s hlavičkami `@@`, `+++`, `---`.
