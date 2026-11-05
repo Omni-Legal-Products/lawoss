@@ -1,5 +1,14 @@
 # LAWOSS downstream patches
 
+## Limit haldy V8 rendererov (2026-11-05)
+
+Rozpočet RAM 2 GB, issue #367. Renderer (okno appky, karta prehliadača, náhľad) nemal limit haldy; únik alebo obrovský dokument ho nechal rásť, kým systém nezačal swapovať. Nový `apps/desktop/electron/lawoss-memory-budget.mjs` pridá rendererom `js-flags=--max-old-space-size=512` (`LAWOSS_RENDERER_HEAP_MB`, 0 = bez limitu; explicitný limit z `ELECTRON_EXTRA_LAUNCH_ARGS` má prednosť). Pri vyčerpaní renderer skončí s `render-process-gone: oom` a existujúca obsluha okno znovu načíta (najviac 3×); engine a chaty bežia ďalej. Hlavný proces (a v ňom vložený server) týmto prepínačom obmedziť nejde, na to treba server vyčleniť do vlastného procesu (ADR).
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/desktop/electron/main.mjs` | +1 import, +1 volanie `applyRendererHeapLimit(app)` hneď po `ELECTRON_EXTRA_LAUNCH_ARGS`, pred `whenReady`. |
+| `apps/desktop/package.json` | Nový test `electron/lawoss-memory-budget.test.mjs` v zozname `test`. |
+
 ## Čitateľné Podrobnosti na karte úpravy súboru a externého priečinka (2026-10-31)
 
 Regresia N-A7 z 30. 10. 2026, nález N-A8-3: Podrobnosti ukazovali surový JSON `{ "filepath": …, "diff": … }` a `{ "filepath": …, "parentDir": … }`, blok „Kontrola“ v dialógu surový diff s hlavičkami `@@`, `+++`, `---`.
