@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Brána rozpočtu RAM 2 GB v CI (2026-11-05)
+
+Issue #367. Nový `scripts/memory-budget/run.mjs` spustí zabalenú appku s izolovaným profilom, 10 syntetickými klientmi (SYNTHETIC_DATA.md) a balíkom LAWOSS Marketplace „SK základ“ z pinovaného commitu snapshotu (lokálne zrkadlo GitHub API z checkoutu `lawoss-marketplace`, bez limitu neautentifikovaného API), postupne otvorí 4 klientov a každé ~2 s zmeria fyzickú pamäť celého stromu procesov (macOS physical footprint, Linux PSS). Zlyhá, keď špička prekročí 2048 MB alebo po ukončení ostanú siroty. Artefakt obsahuje len čísla a fázu zlyhania.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `.github/workflows/ci-desktop-packaging.yml` | Na macOS po „Verify Windows and macOS packaged startup“: cache datasetu, krok „Verify RAM budget (2 GB) with the packaged app“ (overenie SHA-256 datasetu, klon `lawoss-marketplace` s commitom snapshotu, `node --test scripts/memory-budget/memory.test.mjs`, meranie) a upload `memory-budget.json`. Windows a Linux zatiaľ nie (Windows bez merania súkromnej pamäte stromu; Linux runner bez overenia). |
+
 ## MCP len pre otvoreného klienta, strop a uvoľnenie nečinných inštancií enginu (2026-11-05)
 
 Rozpočet RAM 2 GB, issue #367. Engine OpenCode 1.18.29 drží inštanciu na priečinok a pri prvom dotyku MCP stavu (`GET /mcp`, `GET /command`, prompt) v nej spustí všetky zapnuté MCP; inštancie sám neuvoľní. Výpis chatov všetkých klientov (bočný panel) a štartová synchronizácia tak spustili MCP v každom klientovi: 10 klientov + balík „SK základ“ = 139 procesov, 4,7 GB. Nový `apps/server/src/lawoss/engine-mcp-budget.ts` eviduje priečinky s MCP, drží ich najviac `LAWOSS_ENGINE_MCP_INSTANCES` (predvolene 1; 0 = pôvodné správanie) a nečinné bez bežiaceho chatu uvoľní (`POST /instance/dispose`) po `LAWOSS_ENGINE_MCP_IDLE_MS` (predvolene 10 min) alebo pri otvorení ďalšieho klienta.
