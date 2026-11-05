@@ -2077,7 +2077,7 @@ function createRoutes(
         for (const workspace of config.workspaces) {
           if (workspace.workspaceType === "remote") continue;
           try {
-            if (!(await workspaceEngineBusy(config, workspace))) await reloadOpencodeEngine(config, workspace);
+            if (!(await workspaceEngineBusy(config, workspace))) await reloadOpencodeEngine(config, workspace, { background: true });
           } catch { /* A stopped engine will read the updated configuration on startup. */ }
         }
       });
@@ -2214,7 +2214,7 @@ function createRoutes(
         await previousReload;
       for (const workspace of local) {
         try {
-          if (!(await workspaceEngineBusy(config, workspace))) { await reloadOpencodeEngine(config, workspace); continue; }
+          if (!(await workspaceEngineBusy(config, workspace))) { await reloadOpencodeEngine(config, workspace, { background: true }); continue; }
           await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
           emitReloadEvent(ctx.reloadEvents, workspace, "skills", { type: "skill", name: "LAWOSS Marketplace", action: "updated" });
         } catch { /* Best-effort: zastavený engine si pri štarte prečíta aktuálny stav. */ }
@@ -5829,7 +5829,12 @@ function parseOpencodeErrorBody(input: string): unknown {
   }
 }
 
-async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo): Promise<void> {
+async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo, options: { background?: boolean } = {}): Promise<void> {
+  // LAWOSS: explicitný reload (nastavenia klienta, poskytovateľ) klienta otvorí;
+  // hromadný reload na pozadí neotvoreného klienta len uvoľní (issue #367).
+  const budget = engineMcpBudgetFor(config);
+  const budgetScope = workspaceEngineScope(config, workspace);
+  if (!options.background && budget && budgetScope) await budget.adopt(budgetScope);
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const baseUrl = connection.baseUrl?.trim() ?? "";
   if (!baseUrl) {
@@ -5874,7 +5879,7 @@ async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceIn
 
   // LAWOSS: neaktívny klient sa len uvoľní; ďalšia požiadavka ho postaví z
   // aktuálneho súboru a MCP spustí až jeho skutočné použitie (issue #367).
-  if (workspaceMcpDormant(config, workspace)) return;
+  if (options.background && workspaceMcpDormant(config, workspace)) return;
 
   // Re-register runtime-DB MCPs: dispose rebuilds engine state from disk
   // configs (including the server-managed runtime config file for the
@@ -5896,7 +5901,7 @@ function reloadIdleWorkspaceEngines(config: ServerConfig, origin: WorkspaceInfo)
     for (const workspace of otherLocalWorkspaces(config, origin)) {
       try {
         if (await workspaceEngineBusy(config, workspace)) continue;
-        await reloadOpencodeEngine(config, workspace);
+        await reloadOpencodeEngine(config, workspace, { background: true });
       } catch {
         // Best-effort: the app repairs the workspace when it is opened.
       }
@@ -5944,7 +5949,7 @@ function applyOrgPolicyToEngines(config: ServerConfig): void {
         const workspace = config.workspaces.find((candidate) => candidate.id === id);
         try {
           if (workspace && await workspaceEngineBusy(config, workspace)) continue;
-          if (workspace) await reloadOpencodeEngine(config, workspace);
+          if (workspace) await reloadOpencodeEngine(config, workspace, { background: true });
           state.pending.delete(id);
           reloaded = true;
         } catch {

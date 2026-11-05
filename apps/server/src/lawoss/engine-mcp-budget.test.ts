@@ -91,6 +91,18 @@ test("limit 0 zachová pôvodné správanie: všetko je aktívne, nič sa neuvo�
   expect(budget.isActive(scope("/never"))).toBe(true);
 });
 
+test("explicitný reload otvorí priečinok bez inicializácie a uvoľní predošlý", async () => {
+  const { budget, disposed, initialized, advance } = fixture({ limit: 1 });
+  (await budget.admit(scope("/a")))();
+  advance(10);
+  await budget.adopt(scope("/b"));
+  expect(initialized).toEqual(["/a"]);
+  expect(disposed).toEqual(["/a"]);
+  expect(budget.isActive(scope("/b"))).toBe(true);
+  await budget.adopt(scope("/b"));
+  expect(disposed).toEqual(["/a"]);
+});
+
 test("nastavenia z prostredia", () => {
   expect(engineMcpBudgetSettings({})).toEqual({ limit: 1, idleMs: 600_000 });
   expect(engineMcpBudgetSettings({ LAWOSS_ENGINE_MCP_INSTANCES: "0", LAWOSS_ENGINE_MCP_IDLE_MS: "5000" })).toEqual({ limit: 0, idleMs: 5_000 });
