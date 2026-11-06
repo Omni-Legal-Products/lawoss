@@ -14,15 +14,21 @@ afterEach(async () => { for (const stop of cleanup.splice(0).reverse()) await st
 // The child calls back using only the credentials and address it actually
 // inherited, rather than test code supplying the server's correct address.
 const engine = `#!${process.execPath}
+// Like the plugins: the first instance request loads them, which redeems the ticket once.
+const ticket = process.env.LEGALWORK_WIKI_AGENT_TICKET;
+delete process.env.LEGALWORK_WIKI_AGENT_TICKET;
+let redemption;
+const redeem = () => redemption ??= fetch(process.env.LEGALWORK_SERVER_URL + "/engine-agent/ticket", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticket }) }).then((response) => response.json()).then((body) => body.secret);
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
 const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
   const url = new URL(request.url);
   if (url.pathname === "/global/health") return Response.json({ healthy: true, version: "synthetic-test" });
+  const secret = await redeem();
   if (url.pathname !== "/probe") return Response.json({ healthy: true });
   const results = [];
   for (const path of ["/wikis", "/workspace/" + url.searchParams.get("workspace") + "/storage/roots"]) {
     const response = await fetch(process.env.LEGALWORK_SERVER_URL + path, { headers: {
-      "x-legalwork-wiki-agent-token": process.env.LEGALWORK_WIKI_AGENT_TOKEN,
+      "x-legalwork-wiki-agent-token": secret,
       "x-legalwork-wiki-agent-session": "verified-session",
       "x-legalwork-wiki-agent-directory": encodeURIComponent(url.searchParams.get("directory")),
     } });
@@ -66,7 +72,7 @@ test("managed agent authenticates wiki and storage tools after the preferred ser
   const result = await probe.json();
   expect(result.url).toBe(server.url);
   expect(result.results.map((item: { status: number }) => item.status)).toEqual([200, 200]);
-  expect(server.managedOpencodeExecution?.env.find(item => item.name === "LEGALWORK_WIKI_AGENT_TOKEN")?.redacted).toBe(true);
+  expect(server.managedOpencodeExecution?.env.find(item => item.name === "LEGALWORK_WIKI_AGENT_TICKET")?.redacted).toBe(true);
 }, 30_000);
 
 test("startup stays unavailable until initialization succeeds and releases its listener on failure", async () => {

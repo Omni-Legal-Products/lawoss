@@ -1,11 +1,12 @@
 import { expect, setSystemTime, spyOn, test } from "bun:test";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import { LegalWorkScheduledTaskTools } from "./legalwork-scheduled-task-tools.js";
 import { ScheduledTaskInputSchema, type ScheduledTaskInput } from "@legalwork/types/scheduled-tasks";
 import { nextOccurrence, wallTime } from "../scheduled-tasks/schedule.js";
 import { createOpencodeClient } from "@opencode-ai/sdk";
 
 test("scheduling tools use the current project/chat, explicit new-chat mode, and preserve omitted model settings", async () => {
-  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = wikiAgentSecret();
   const requests: Array<{ path: string; method: string; body: unknown }> = [];
   const modelDirectories: (string | null)[] = [];
   let currentModel = "review-model";
@@ -24,7 +25,7 @@ test("scheduling tools use the current project/chat, explicit new-chat mode, and
     requests.push({ path, method: request.method, body: request.method === "GET" ? null : await request.json() });
     return Response.json({});
   } });
-  process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_WIKI_AGENT_TOKEN = "fixture-token";
+  process.env.LEGALWORK_SERVER_URL = server.url.origin; adoptWikiAgentSecret("fixture-token");
   try {
     const plugin = await LegalWorkScheduledTaskTools({ client: createOpencodeClient({ baseUrl: server.url.origin }) });
     const context = { directory: "/matters/current", sessionID: "this-chat", messageID: "running-message" };
@@ -54,12 +55,12 @@ test("scheduling tools use the current project/chat, explicit new-chat mode, and
   } finally {
     server.stop(true);
     if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
-    if (oldToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = oldToken;
+    adoptWikiAgentSecret(oldToken);
   }
 });
 
 test("chat creation supplies the computer zone for every schedule kind and respects explicit zones", async () => {
-  const oldZone = process.env.TZ, oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+  const oldZone = process.env.TZ, oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = wikiAgentSecret();
   const saved: ScheduledTaskInput[] = [];
   const server = Bun.serve({ port: 0, async fetch(request) {
     if (new URL(request.url).pathname === "/workspaces") return Response.json({ items: [{ id: "current", path: "/matters/current" }] });
@@ -69,7 +70,7 @@ test("chat creation supplies the computer zone for every schedule kind and respe
     saved.push(input);
     return Response.json({ task: input });
   } });
-  process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_WIKI_AGENT_TOKEN = "fixture-token";
+  process.env.LEGALWORK_SERVER_URL = server.url.origin; adoptWikiAgentSecret("fixture-token");
   try {
     const plugin = await LegalWorkScheduledTaskTools({ client: createOpencodeClient({ baseUrl: server.url.origin }) });
     const context = { directory: "/matters/current", sessionID: "this-chat", messageID: "running-message" };
@@ -109,7 +110,7 @@ test("chat creation supplies the computer zone for every schedule kind and respe
     server.stop(true);
     if (oldZone === undefined) delete process.env.TZ; else process.env.TZ = oldZone;
     if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
-    if (oldToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = oldToken;
+    adoptWikiAgentSecret(oldToken);
   }
 });
 

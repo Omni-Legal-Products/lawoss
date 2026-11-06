@@ -8,11 +8,12 @@ const MAX_ENTRIES = 1024;
 const failure = () => new Error("Host memory permissions unavailable; verify this workspace's native folder permissions.");
 
 /**
- * The engine's chat-bound credential (apps/server/src/wiki/agent-access.ts). The server
- * answers only for the directory it recorded for this chat. Empty without one.
+ * The engine's chat-bound credential, held by apps/server/src/opencode-plugins/wiki-agent-secret.ts
+ * (no import: this package stays usable outside LAWOSS, where there is none). The server answers
+ * only for the directory it recorded for this chat. Empty without one.
  */
-export async function nativeAgentHeaders(directory, sessionId, env = process.env) {
-  const token = env.LEGALWORK_WIKI_AGENT_TOKEN?.trim();
+export async function nativeAgentHeaders(directory, sessionId) {
+  const token = Reflect.get(globalThis, Symbol.for("lawoss.wiki-agent-secret"))?.secret;
   if (!token || typeof sessionId !== "string" || !sessionId) return {};
   return { "x-legalwork-wiki-agent-token": token, "x-legalwork-wiki-agent-session": sessionId, "x-legalwork-wiki-agent-directory": encodeURIComponent(await realpath(directory)) };
 }

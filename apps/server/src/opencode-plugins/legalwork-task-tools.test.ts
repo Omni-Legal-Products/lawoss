@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +10,7 @@ type Recorded = { url: string; method: string; headers: Headers; json: Record<st
 
 const originalFetch = globalThis.fetch;
 const originalUrl = process.env.LEGALWORK_SERVER_URL;
-const originalToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+const originalToken = wikiAgentSecret();
 const originalServerToken = process.env.LEGALWORK_SERVER_TOKEN;
 
 // office-plugin-shared asks the server for the chat's workspace on every call;
@@ -154,7 +155,7 @@ beforeEach(() => {
   submission = SUBMISSION;
   notes = [];
   process.env.LEGALWORK_SERVER_URL = SERVER_URL;
-  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-agent-token";
+  adoptWikiAgentSecret("test-agent-token");
   stubFetch();
 });
 
@@ -162,8 +163,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
   if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
   else process.env.LEGALWORK_SERVER_URL = originalUrl;
-  if (originalToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
-  else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalToken;
+  adoptWikiAgentSecret(originalToken);
   if (originalServerToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
   else process.env.LEGALWORK_SERVER_TOKEN = originalServerToken;
 });
@@ -184,7 +184,7 @@ describe("registration", () => {
   });
 
   test("still registers when the server connection is not configured — the call reports it", async () => {
-    delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    adoptWikiAgentSecret("");
     // The server-wide token is no credential for the engine.
     process.env.LEGALWORK_SERVER_TOKEN = "server-wide-token";
     const tools = await registeredTools();

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,7 +11,7 @@ import { LegalWorkSkillTools } from "./legalwork-skill-tools.js";
 const SERVER = "http://127.0.0.1:9948";
 const originalFetch = globalThis.fetch;
 const originalUrl = process.env.LEGALWORK_SERVER_URL;
-const originalAgentToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+const originalAgentToken = wikiAgentSecret();
 const originalServerToken = process.env.LEGALWORK_SERVER_TOKEN;
 // Tools authenticate only with the chat-bound credential: the agent token plus the calling chat.
 const chat = { sessionID: "ses_test" };
@@ -52,7 +53,7 @@ beforeEach(async () => {
   conflict = false;
   unavailableWiki = "";
   process.env.LEGALWORK_SERVER_URL = SERVER;
-  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "wiki-test-token";
+  adoptWikiAgentSecret("wiki-test-token");
   // A stale server-wide token must never be forwarded; requests assert no Authorization header.
   process.env.LEGALWORK_SERVER_TOKEN = "stale-server-token";
   globalThis.fetch = Object.assign(async (input: string | URL | Request, init?: RequestInit) => {
@@ -97,8 +98,7 @@ afterEach(async () => {
   globalThis.fetch = originalFetch;
   if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
   else process.env.LEGALWORK_SERVER_URL = originalUrl;
-  if (originalAgentToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
-  else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalAgentToken;
+  adoptWikiAgentSecret(originalAgentToken);
   if (originalServerToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
   else process.env.LEGALWORK_SERVER_TOKEN = originalServerToken;
   await rm(temporaryRoot, { recursive: true, force: true });
@@ -162,7 +162,7 @@ describe("wiki agent access", () => {
     expect(result.wikis[0]).not.toHaveProperty("pageCount");
   });
   test("managed engine tools require a session origin and transmit narrow runtime auth", async () => {
-    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "runtime-secret";
+    adoptWikiAgentSecret("runtime-secret");
     const plugin = await LegalWorkWikiTools({ directory: projectRoot });
     expect(JSON.parse(await plugin.tool.wiki_list.execute({})).code).toBe("wiki_agent_session_unknown");
     expect(requests).toHaveLength(0);
@@ -173,7 +173,7 @@ describe("wiki agent access", () => {
     expect(requests.every((request) => request.agentToken === "runtime-secret" && request.sessionId === "session-known" && request.directory === directory)).toBe(true);
     expect(requests.every((request) => request.authorization === null)).toBe(true);
     requests = [];
-    delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    adoptWikiAgentSecret("");
     expect(JSON.parse(await plugin.tool.wiki_list.execute({}, { sessionID: "session-known", directory: projectRoot })).code).toBe("wiki_connection_unavailable");
     expect(requests).toHaveLength(0);
   });

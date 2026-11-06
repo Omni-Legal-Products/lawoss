@@ -1,14 +1,16 @@
 import { afterEach, expect, test } from "bun:test";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "../../apps/server/src/opencode-plugins/wiki-agent-secret.ts";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveHostMemoryContext, resolveHostMemoryGrants } from "./host-memory-grants.mjs";
 import { LawossOkfHandoff } from "../../apps/server/src/opencode-plugins/lawoss-okf-handoff.ts";
 const roots: string[] = [];
-const prior = { url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_WIKI_AGENT_TOKEN, grants: process.env.LAWOSS_MEMORY_ALLOWED_ROOTS };
+const prior = { url: process.env.LEGALWORK_SERVER_URL, token: wikiAgentSecret(), grants: process.env.LAWOSS_MEMORY_ALLOWED_ROOTS };
 afterEach(() => {
+  adoptWikiAgentSecret(prior.token);
   roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true }));
-  for (const [key, value] of Object.entries({ LEGALWORK_SERVER_URL: prior.url, LEGALWORK_WIKI_AGENT_TOKEN: prior.token, LAWOSS_MEMORY_ALLOWED_ROOTS: prior.grants })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  for (const [key, value] of Object.entries({ LEGALWORK_SERVER_URL: prior.url, LAWOSS_MEMORY_ALLOWED_ROOTS: prior.grants })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
 });
 function fixture() {
   // Match checkedDirectory's native authority identity (Windows TEMP may contain RUNNER~1).
@@ -47,7 +49,7 @@ test("production entry exports only plugin; missing BOTH native env variables ne
   const f = fixture(); mkdirSync(join(f.child, ".lawoss"));
   writeFileSync(join(f.vault, "memory.md"), "SYNTHETIC-ONLY");
   writeFileSync(join(f.child, ".lawoss/memory-profile.json"), JSON.stringify({ version: 1, matterId: "synthetic", roots: [{ id: "vault", path: f.vault }], sources: [{ id: "memory", root: "vault", path: "memory.md", role: "case_memory", required: true, writable: false, anchors: ["SYNTHETIC-ONLY"] }] }));
-  process.env.LAWOSS_MEMORY_ALLOWED_ROOTS = JSON.stringify([f.vault]); delete process.env.LEGALWORK_SERVER_URL; delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+  process.env.LAWOSS_MEMORY_ALLOWED_ROOTS = JSON.stringify([f.vault]); delete process.env.LEGALWORK_SERVER_URL; adoptWikiAgentSecret("");
   const entry = await import("../../apps/server/src/opencode-plugins/lawoss-okf-handoff.ts"); expect(Object.keys(entry)).toEqual(["LawossOkfHandoff"]);
   const hooks = await LawossOkfHandoff({ directory: f.child }); const output = { context: [] as string[] };
   await hooks["experimental.session.compacting"]!({ sessionID: "native" }, output);

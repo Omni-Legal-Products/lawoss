@@ -1,4 +1,5 @@
 import type { ProjectField } from "@legalwork/types/workspace";
+import { wikiAgentSecret } from "./opencode-plugins/wiki-agent-secret.js";
 import { expect, test } from "bun:test";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,7 +18,6 @@ test("humans and agents create projects from the same edited catalog, with custo
     LEGALWORK_DATA_DIR: process.env.LEGALWORK_DATA_DIR,
     LEGALWORK_TOKEN_STORE: process.env.LEGALWORK_TOKEN_STORE,
     LEGALWORK_SERVER_URL: process.env.LEGALWORK_SERVER_URL,
-    LEGALWORK_WIKI_AGENT_TOKEN: process.env.LEGALWORK_WIKI_AGENT_TOKEN,
   };
   process.env.LEGALWORK_DATA_DIR = join(root, "data");
   process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");

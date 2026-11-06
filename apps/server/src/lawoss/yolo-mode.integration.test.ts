@@ -12,6 +12,7 @@ import { buildLegalworkRuntimeConfigObject } from "../legalwork-runtime-config.j
 import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { writeYoloMode } from "./yolo-mode.js";
+import { WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "./engine-agent-contract.js";
 
 /**
  * The shipped engine with the production permission map (desktop: managed shell, protected
@@ -48,6 +49,7 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("a real engine mo
   let engineBase = "";
   const shellCalls: string[] = [];
   const fixture = Bun.serve({ port: 0, async fetch(request) {
+    if (new URL(request.url).pathname === WIKI_AGENT_TICKET_PATH) return Response.json({ secret: "fixture" });
     const path = new URL(request.url).pathname;
     if (path === "/workspaces") return Response.json({ items: [{ id: workspace.id, path: matter }] });
     if (path.includes("/sandbox/session/")) return Response.json({ enabled: false, networkMode: "allow", shell: "zsh", platform: process.platform, cwd: matter });
@@ -85,7 +87,7 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("a real engine mo
     const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: matter, env: {
       ...process.env, HOME: root, XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
       OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: file, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-      LEGALWORK_SERVER_URL: fixture.url.origin, LEGALWORK_WIKI_AGENT_TOKEN: "fixture",
+      LEGALWORK_SERVER_URL: fixture.url.origin, [WIKI_AGENT_TICKET_ENV]: "synthetic-ticket",
     }, stdout: "pipe", stderr: "pipe" });
     const logs = new Response(engine.stderr).text();
     engineBase = `http://127.0.0.1:${port}`;

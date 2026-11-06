@@ -1,11 +1,12 @@
 // LAWOSS alfa 2 (N-A3-3): lawoss_memory reads case memory through the server and never asks for approval.
 import { expect, test } from "bun:test";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import { z } from "zod";
 import { LAWOSS_MEMORY_TOOL } from "../lawoss/tool-permission-defaults.js";
 import { LawossMemoryTools } from "./lawoss-memory-tools.js";
 
 test("lawoss_memory posts the case folder of this chat to its own client and never shows a card", async () => {
-  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = wikiAgentSecret();
   const bodies: unknown[] = [];
   const server = Bun.serve({ port: 0, async fetch(request) {
     const url = new URL(request.url);
@@ -20,7 +21,7 @@ test("lawoss_memory posts the case folder of this chat to its own client and nev
     if (z.object({ matter: z.string() }).parse(body).matter.includes("Cudzi")) return Response.json({ code: "memory_folder_not_own", message: "Nothing was read." }, { status: 403 });
     return Response.json({ action: "read", complete: true, text: "SYN pamäť", nextOffset: null, untrusted: true });
   } });
-  process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_WIKI_AGENT_TOKEN = "fixture-token";
+  process.env.LEGALWORK_SERVER_URL = server.url.origin; adoptWikiAgentSecret("fixture-token");
   let asked = 0;
   try {
     const plugin = await LawossMemoryTools();
@@ -60,6 +61,6 @@ test("lawoss_memory posts the case folder of this chat to its own client and nev
   } finally {
     server.stop(true);
     if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
-    if (oldToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = oldToken;
+    adoptWikiAgentSecret(oldToken);
   }
 });

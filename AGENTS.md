@@ -308,7 +308,8 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 
 - Auxiliary raw-source diagnostics must use the overview's server/authentication/scope owner and propagate cancellation through every file read; relative names and workspace IDs alone do not identify source text.
-- Multi-root wiki fixtures use separate actual ServerConfig/listener credentials first pinned to each owning root. Preserve project/own-wiki positives independently, assert shared-token refusals, and exercise owner-only approval lifecycle on a fresh owner runtime after a monotone role downgrade.
+- Multi-root wiki fixtures may use separate actual ServerConfig/listener credentials per owning root. Preserve project/own-wiki positives independently, assert that one chat cannot claim another chat's directory or workspace, and exercise owner-only approval lifecycle on a fresh owner runtime after a monotone role downgrade.
+- The engine environment carries only the single-use agent ticket, never the agent secret. Plugin code reads the secret through `opencode-plugins/wiki-agent-secret.ts`; a new engine start issues a new ticket. See the coordination record before changing this.
 - AI governance admission tests must pair a typed denial with a controlled receiver observing zero protected payloads. HTTP 200 from the engine may carry a model error; a positive oracle requires actual assistant text. A passing observational feasibility test is not acceptance when it records a filesystem/egress bypass.
 - A public synthetic execution must own an empty scratch/config/DB/environment and bind the complete final serialized context in a native decision. A prompt hash, loopback URL or renderer checkbox cannot classify ambient client/system context as public. This bounded channel does not establish an OS sandbox for the general engine.
 

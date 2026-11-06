@@ -9,7 +9,8 @@ import { upsertSkill } from "../skills.js";
 import { upsertSkillResource } from "../skill-resources.js";
 import { writeSandboxDefault } from "../agent-sandbox/settings.js";
 import type { ServerConfig } from "../types.js";
-import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
+import { issueWikiAgentTicket, grantWikiAgentSession } from "../wiki/agent-access.js";
+import { WIKI_AGENT_TICKET_ENV } from "../lawoss/engine-agent-contract.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 test.skipIf(!binary)("shipped engine reads global workflow resources with sandbox on and off while other folders still ask", async () => {
@@ -57,7 +58,7 @@ test.skipIf(!binary)("shipped engine reads global workflow resources with sandbo
   const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: directory, env: {
     ...process.env, XDG_CONFIG_HOME: join(root, "engine-config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
     OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: engineConfig, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-    LEGALWORK_SERVER_URL: `http://127.0.0.1:${server.port}`, LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config),
+    LEGALWORK_SERVER_URL: `http://127.0.0.1:${server.port}`, [WIKI_AGENT_TICKET_ENV]: issueWikiAgentTicket(config),
   }, stdout: "ignore", stderr: "pipe" });
   const logs = new Response(engine.stderr).text(), base = `http://127.0.0.1:${port}`;
   const jsonHeaders = { "content-type": "application/json" };

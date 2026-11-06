@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
+import { WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "../lawoss/engine-agent-contract.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 // Build the server first: stage the exact shipped JavaScript outside node_modules.
@@ -22,6 +23,7 @@ for (const rejection of [false, true]) test.skipIf(!binary)(`pinned engine Gemin
   const witnessReceived = new Promise<void>(resolve => { witnessArrived = resolve; });
   const detail = { type: "reasoning.encrypted", data: "synthetic-opaque-signature", id: "call_fixture", format: "google-gemini-v1", index: 0 };
   const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    if (new URL(request.url).pathname === WIKI_AGENT_TICKET_PATH) return Response.json({ secret: "synthetic-engine" });
     const url = new URL(request.url);
     if (url.pathname === "/workspaces") return Response.json({ items: [{ id: "fixture", path: project }] });
     if (url.pathname.endsWith("/provider-failure")) { witnesses.push(await request.json()); witnessArrived(); return Response.json({ ok: true }); }
@@ -48,7 +50,7 @@ for (const rejection of [false, true]) test.skipIf(!binary)(`pinned engine Gemin
     ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("OPENCODE_") && !key.startsWith("LEGALWORK_"))),
     XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
     OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: config, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-    LEGALWORK_SERVER_URL: fixture.url.origin, LEGALWORK_WIKI_AGENT_TOKEN: "synthetic-engine",
+    LEGALWORK_SERVER_URL: fixture.url.origin, [WIKI_AGENT_TICKET_ENV]: "synthetic-ticket",
   }, stdout: "pipe", stderr: "pipe" });
   const logs = new Response(engine.stderr).text();
   const base = `http://127.0.0.1:${port}`;

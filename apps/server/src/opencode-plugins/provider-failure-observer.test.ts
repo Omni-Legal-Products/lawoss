@@ -1,4 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import { LegalWorkCapabilitiesKnowledge } from "./legalwork-capabilities-knowledge.js";
 import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,7 +13,7 @@ test("managed capabilities expose the scoped provider failure header hook", asyn
 });
 
 test("observes a native-correlated rejection without leaking headers or changing provider bytes", async () => {
-  const previous = { url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_WIKI_AGENT_TOKEN };
+  const previous = { url: process.env.LEGALWORK_SERVER_URL, token: wikiAgentSecret() };
   const root = await realpath(tmpdir());
   const witnesses: unknown[] = [];
   let releaseLookup!: () => void;
@@ -41,7 +42,7 @@ test("observes a native-correlated rejection without leaking headers or changing
     return new Response(providerBody, { status: 400, headers: { "content-type": "application/json", "x-fixture": "retained" } });
   } });
   process.env.LEGALWORK_SERVER_URL = fixture.url.origin;
-  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "synthetic-token";
+  adoptWikiAgentSecret("synthetic-token");
   try {
     let current = { id: "msg_a", sessionID: "ses_1", role: "assistant", parentID: "msg_u", providerID: "openrouter", modelID: "google/gemini-3-flash-preview" };
     const hooks = await LegalWorkCapabilitiesKnowledge({ directory: root, client: { session: { async messages(options) { expect(Reflect.get(options.query, "limit")).toBe(1); return { data: [{ info: current, parts: [] }] }; } } } });
@@ -87,12 +88,12 @@ test("observes a native-correlated rejection without leaking headers or changing
     await dispose?.();
     fixture.stop(true);
     if (previous.url === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previous.url;
-    if (previous.token === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = previous.token;
+    adoptWikiAgentSecret(previous.token);
   }
 });
 
 test("publication admission is bounded and plugin disposal cancels and drains blocked lookups", async () => {
-  const previous = { url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_WIKI_AGENT_TOKEN };
+  const previous = { url: process.env.LEGALWORK_SERVER_URL, token: wikiAgentSecret() };
   const root = await realpath(tmpdir());
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -106,7 +107,7 @@ test("publication admission is bounded and plugin disposal cancels and drains bl
     return new Response(body, { status: 400 });
   } });
   process.env.LEGALWORK_SERVER_URL = fixture.url.origin;
-  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "synthetic-token";
+  adoptWikiAgentSecret("synthetic-token");
   let dispose: (() => Promise<void>) | undefined;
   try {
     let id = "msg_0";
@@ -130,6 +131,6 @@ test("publication admission is bounded and plugin disposal cancels and drains bl
   } finally {
     release(); await dispose?.(); fixture.stop(true);
     if (previous.url === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previous.url;
-    if (previous.token === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = previous.token;
+    adoptWikiAgentSecret(previous.token);
   }
 });

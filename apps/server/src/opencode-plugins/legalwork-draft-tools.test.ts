@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import { LegalWorkDraftTools } from "./legalwork-draft-tools.js";
 
 test("meeting requests use the editable card without a connected calendar or background save", async () => {
@@ -13,7 +14,7 @@ test("meeting requests use the editable card without a connected calendar or bac
 });
 
 test("draft tools use the chat's project, carry revisions, and surface server conflicts", async () => {
-  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = wikiAgentSecret();
   const requests: Array<{ path: string; method: string; body: unknown }> = [];
   const server = Bun.serve({ port: 0, async fetch(request) {
     const url = new URL(request.url);
@@ -27,7 +28,7 @@ test("draft tools use the chat's project, carry revisions, and surface server co
     return request.method === "PUT" ? Response.json({ error: "draft_conflict" }, { status: 409 }) : Response.json({ draft: { title: "untrusted content" } });
   } });
   process.env.LEGALWORK_SERVER_URL = server.url.origin;
-  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "fixture-token";
+  adoptWikiAgentSecret("fixture-token");
   try {
     const { tool } = await LegalWorkDraftTools();
     const context = { directory: "/matters/current/subfolder", sessionID: "session" };
@@ -60,6 +61,6 @@ test("draft tools use the chat's project, carry revisions, and surface server co
   } finally {
     server.stop(true);
     if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
-    if (oldToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = oldToken;
+    adoptWikiAgentSecret(oldToken);
   }
 });

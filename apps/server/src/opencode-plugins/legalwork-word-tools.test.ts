@@ -1,4 +1,5 @@
 import { isOpenWordFilePipelineCall } from "./legalwork-word-tools-shared.js";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import * as pluginModule from "./legalwork-word-tools.js";
 import { describe, expect, setSystemTime, test } from "bun:test";
 import {
@@ -23,9 +24,9 @@ describe("LegalWork Word tools", () => {
   test("reports live mode as a reminder while Word is connected, keeping the system prompt fixed", async () => {
     const originalFetch = globalThis.fetch;
     const originalUrl = process.env.LEGALWORK_SERVER_URL;
-    const originalToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    const originalToken = wikiAgentSecret();
     process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
-    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-token";
+    adoptWikiAgentSecret("test-token");
     const sent: Headers[] = [];
     globalThis.fetch = Object.assign(
       async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
@@ -67,17 +68,16 @@ describe("LegalWork Word tools", () => {
       globalThis.fetch = originalFetch;
       if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
       else process.env.LEGALWORK_SERVER_URL = originalUrl;
-      if (originalToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
-      else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalToken;
+      adoptWikiAgentSecret(originalToken);
     }
   });
 
   test("treats a failed pane check as no change, not as a disconnect", async () => {
     const originalFetch = globalThis.fetch;
     const originalUrl = process.env.LEGALWORK_SERVER_URL;
-    const originalToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    const originalToken = wikiAgentSecret();
     process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
-    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-token";
+    adoptWikiAgentSecret("test-token");
     let pane: "connected" | "failing" | "closed" = "connected";
     globalThis.fetch = Object.assign(
       async (input: Parameters<typeof fetch>[0]) => {
@@ -108,8 +108,7 @@ describe("LegalWork Word tools", () => {
       globalThis.fetch = originalFetch;
       if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
       else process.env.LEGALWORK_SERVER_URL = originalUrl;
-      if (originalToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
-      else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalToken;
+      adoptWikiAgentSecret(originalToken);
     }
   });
 
@@ -126,9 +125,9 @@ describe("LegalWork Word tools", () => {
   test("guards the file pipeline with the calling chat's own pane check", async () => {
     const originalFetch = globalThis.fetch;
     const originalUrl = process.env.LEGALWORK_SERVER_URL;
-    const originalToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    const originalToken = wikiAgentSecret();
     process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
-    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-token";
+    adoptWikiAgentSecret("test-token");
     const sessions: Array<string | null> = [];
     globalThis.fetch = Object.assign(
       async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
@@ -159,8 +158,7 @@ describe("LegalWork Word tools", () => {
       globalThis.fetch = originalFetch;
       if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
       else process.env.LEGALWORK_SERVER_URL = originalUrl;
-      if (originalToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
-      else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalToken;
+      adoptWikiAgentSecret(originalToken);
     }
   });
 
@@ -209,9 +207,9 @@ describe("routing an unqualified edit request to the live document", () => {
   test("live-mode prompt routes an unqualified rename to the open document", async () => {
     const originalFetch = globalThis.fetch;
     const originalUrl = process.env.LEGALWORK_SERVER_URL;
-    const originalToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    const originalToken = wikiAgentSecret();
     process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
-    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-token";
+    adoptWikiAgentSecret("test-token");
     globalThis.fetch = Object.assign(
       async (input: Parameters<typeof fetch>[0]) => {
         const url = input instanceof Request ? input.url : input.toString();
@@ -239,8 +237,7 @@ describe("routing an unqualified edit request to the live document", () => {
       globalThis.fetch = originalFetch;
       if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
       else process.env.LEGALWORK_SERVER_URL = originalUrl;
-      if (originalToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
-      else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalToken;
+      adoptWikiAgentSecret(originalToken);
     }
   });
 });

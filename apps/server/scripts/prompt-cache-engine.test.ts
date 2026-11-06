@@ -8,12 +8,13 @@ import { buildSessionPromptRequest } from "../../app/src/app/lib/system-reminder
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import { buildLegalworkRuntimeConfigObject } from "../src/legalwork-runtime-config";
 import { createManagedOpencodeServer } from "../src/managed-opencode";
-import { ensureWikiAgentToken } from "../src/wiki/agent-access";
+import { issueWikiAgentTicket } from "../src/wiki/agent-access";
 import { assertCachePrefix, CacheRequestSchema, type CacheRequest } from "../src/prompt-cache.test-support";
 import { closeRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../src/runtime-opencode-config-store";
 import { startServer } from "../src/server";
 import { enforceAiBoundaries } from "../src/lawoss/test-support/ai-boundaries";
 import type { ServerConfig } from "../src/types";
+import { WIKI_AGENT_TICKET_ENV } from "../src/lawoss/engine-agent-contract.js";
 
 // Separate process from unit tests: no mocked hooks, SDK, runtime builder or
 // application server. Only external model, MCP and UI surfaces are synthetic.
@@ -116,7 +117,7 @@ async function runFixture(injectTimestamp: boolean) {
       XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
       OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
       OPENCODE_DB: join(root, "engine.db"), LEGALWORK_UI_CONTROL_DISCOVERY: discovery,
-      LEGALWORK_SERVER_URL: server ? `http://127.0.0.1:${server.port}` : "", LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config), TZ: "Europe/Berlin",
+      LEGALWORK_SERVER_URL: server ? `http://127.0.0.1:${server.port}` : "", [WIKI_AGENT_TICKET_ENV]: issueWikiAgentTicket(config), TZ: "Europe/Berlin",
     } });
     config.opencodeBaseUrl = engine.url;
     config.opencodeUsername = engine.username;

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { wikiAgentSecret } from "./opencode-plugins/wiki-agent-secret.js";
 import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -183,8 +184,10 @@ describe("Personalisation", () => {
       expect((await readProjectDetails(workspace)).personalizationPrompt).toBe("Use formal British English.");
       expect(await prompt(firstPlugin)).toContain("Use formal British English.");
       expect(await prompt(firstPlugin)).not.toContain("Use short German paragraphs.");
-      const sharedDenied = await fetch(`${base}/workspace/ws_2/personalization`, { headers: { "x-legalwork-wiki-agent-token": process.env.LEGALWORK_WIKI_AGENT_TOKEN!, "x-legalwork-wiki-agent-session": "ses_second", "x-legalwork-wiki-agent-directory": encodeURIComponent(join(nested, "documents")) } });
-      expect(sharedDenied.status).toBe(403);
+      const sameRun = await fetch(`${base}/workspace/ws_2/personalization`, { headers: { "x-legalwork-wiki-agent-token": wikiAgentSecret()!, "x-legalwork-wiki-agent-session": "ses_second", "x-legalwork-wiki-agent-directory": encodeURIComponent(join(nested, "documents")) } });
+      expect(sameRun.status).toBe(200);
+      const crossing = await fetch(`${base}/workspace/ws_2/personalization`, { headers: { "x-legalwork-wiki-agent-token": wikiAgentSecret()!, "x-legalwork-wiki-agent-session": "ses_first", "x-legalwork-wiki-agent-directory": encodeURIComponent(workspace) } });
+      expect(crossing.status).toBe(403);
       expect(await prompt(secondPlugin)).toContain("Use short German paragraphs.");
       expect(await prompt(secondPlugin)).not.toContain("Use formal British English.");
       expect(await prompt(firstPlugin)).toContain("take precedence over conflicting global");

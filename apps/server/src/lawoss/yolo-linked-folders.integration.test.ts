@@ -14,6 +14,7 @@ import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { linkedFoldersMapPath, writeLinkedFoldersMap } from "./linked-folders.js";
 import { parseLinkedFoldersMap } from "./linked-folders-rules.js";
 import { writeYoloMode, yoloModeActive, yoloShellAgentRules } from "./yolo-mode.js";
+import { WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "./engine-agent-contract.js";
 
 /**
  * YOLO Mode (#198) a pripojené priečinky klienta (#199) spolu v pribalenom engine: produkčná mapa
@@ -84,6 +85,7 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("YOLO Mode a prip
   const shellCalls: string[] = [];
   const at = (directory: string, path: string) => `${engineBase}${path}${path.includes("?") ? "&" : "?"}directory=${encodeURIComponent(directory)}`;
   const fixture = Bun.serve({ port: 0, async fetch(request) {
+    if (new URL(request.url).pathname === WIKI_AGENT_TICKET_PATH) return Response.json({ secret: "fixture" });
     const path = new URL(request.url).pathname;
     if (path === "/workspaces") return Response.json({ items: workspaces.map(({ id, path }) => ({ id, path })) });
     const session = /^\/workspace\/([^/]+)\/sandbox\/session\//.exec(path);
@@ -187,7 +189,7 @@ test.skipIf(!binary || process.env.LAWOSS_YOLO_ENGINE !== "1")("YOLO Mode a prip
     const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd, env: {
       ...process.env, HOME: root, XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
       OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: file, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-      LEGALWORK_SERVER_URL: fixture.url.origin, LEGALWORK_WIKI_AGENT_TOKEN: "fixture",
+      LEGALWORK_SERVER_URL: fixture.url.origin, [WIKI_AGENT_TICKET_ENV]: "synthetic-ticket",
     }, stdout: "pipe", stderr: "pipe" });
     const logs = new Response(engine.stderr).text();
     engineBase = `http://127.0.0.1:${port}`;

@@ -11,6 +11,11 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { realpath } from "node:fs/promises";
 import { isPathWithin } from "../lawoss/path-within.js";
+import { ENGINE_CONNECTION_REFUSED } from "../lawoss/engine-agent-contract.js";
+import { acquireWikiAgentSecret, wikiAgentSecret, wikiAgentSecretFailed } from "./wiki-agent-secret.js";
+
+// LAWOSS: finished before the plugin's factory runs, so its tools see the secret and MCP starts after it.
+await acquireWikiAgentSecret();
 
 export type OpenCodeContext = {
   agent?: string;
@@ -34,26 +39,24 @@ export function serverUrl(): string {
   return String(process.env.LEGALWORK_SERVER_URL || "").replace(/\/$/, "");
 }
 
-function agentToken(): string {
-  return process.env.LEGALWORK_WIKI_AGENT_TOKEN?.trim() ?? "";
-}
-
 /**
  * LAWOSS: the engine has no server-wide token. Each call names its chat; the server
  * accepts it only for the directory it recorded for that chat and its own workspace.
  */
 export function serverConnected(context?: OpenCodeContext): boolean {
-  return Boolean(serverUrl() && agentToken() && context?.sessionID && context.directory);
+  // A failed redemption stays "connected" so the tool reaches the lawyer-readable refusal below.
+  return Boolean(serverUrl() && (wikiAgentSecret() || wikiAgentSecretFailed()) && context?.sessionID && context.directory);
 }
 
 /** For the few server-wide reads that carry no project data (the firm's guard). */
 export function engineHeaders(): Record<string, string> {
-  const token = agentToken();
+  const token = wikiAgentSecret();
   return token ? { "x-legalwork-wiki-agent-token": token } : {};
 }
 
 export async function workspaceToolHeaders(context?: OpenCodeContext): Promise<Record<string, string>> {
-  const token = agentToken(), directory = context?.directory;
+  if (wikiAgentSecretFailed()) throw new Error(ENGINE_CONNECTION_REFUSED);
+  const token = wikiAgentSecret(), directory = context?.directory;
   if (!token || !context?.sessionID || !directory) return {};
   return {
     "x-legalwork-wiki-agent-token": token,

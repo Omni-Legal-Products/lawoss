@@ -143,9 +143,10 @@ test("a wiki's own session follows ordinary approval mode even when project acce
   const f = await fixture();
   expect((await f.host(f.base, "PATCH", { allowInProjects: false })).status).toBe(200);
   await grantWikiAgentSession(f.config, { sessionId: "own-wiki-chat", directory: f.wiki.root, scope: "owner" });
-  const refused = await fetch(`${f.url}${f.base}/page`, { method: "PUT", headers: f.headers("own-wiki-chat",f.wiki.root), body: JSON.stringify({ path: f.page.path, content: "# Shared credential must not write", baseRevision: f.page.revision }) });
+  expect((await fetch(`${f.url}${f.base}/page?path=${encodeURIComponent(f.page.path)}`, { headers: f.headers("own-wiki-chat",f.wiki.root) })).status).toBe(200);
+  const refused = await fetch(`${f.url}${f.base}/page`, { method: "PUT", headers: f.headers("matter-chat",f.wiki.root), body: JSON.stringify({ path: f.page.path, content: "# Another chat must not write", baseRevision: f.page.revision }) });
   expect(refused.status).toBe(403);
-  expect(await refused.json()).toMatchObject({ code: "wiki_agent_client_runtime_required" });
+  expect(await refused.json()).toMatchObject({ code: "wiki_agent_directory_mismatch" });
   await f.unchanged();
   const own = await scopedWikiRuntime(f.config,"own-wiki-chat",f.wiki.root);
   stops.push(() => own.close());
