@@ -28,6 +28,7 @@ import { selectSourceSnapshot } from "./practice-read-state";
 import { loadOkfConnection, type OkfConnection } from "./connection";
 import type { OfficeMemoryRead } from "./office-memory";
 import { isHostAccessDenied } from "../lite/connection-problem";
+import { okfFileContents } from "./file-content-cache";
 
 export type OkfReadClient = Pick<LegalworkServerClient, "listWorkspaceDirectory" | "readWorkspaceFile"> & Partial<Pick<LegalworkServerClient, "lawossDeadlineRequest">>;
 /** `folderUnavailable`: id pracovného priestoru, ktorého priečinok na disku chýba (presunutý, premenovaný, odpojený disk). */
@@ -121,10 +122,19 @@ export async function readWorkspaceMemory(
 ): Promise<OkfReadResult> {
   options.signal?.throwIfAborted();
   const problems: ReadProblem[] = [];
-  const readFile = (path: string) => client.readWorkspaceFile(workspaceId, path, { signal: options.signal });
   let truncated = false;
   type Listing = Awaited<ReturnType<OkfReadClient["listWorkspaceDirectory"]>>;
   const cache = new Map<string, Promise<Listing["entries"]>>();
+  // Rozpočet RAM (#367): nezmenený súbor sa pri tichej obnove nečíta znova. Platnosť overí výpis z tohto čítania.
+  const readFile = async (path: string) => {
+    const parent = cache.get(path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
+    const entry = parent ? (await parent).find((e) => e.path === path && e.kind === "file") : undefined;
+    const unchanged = entry ? okfFileContents.get(workspaceId, path, entry) : null;
+    if (unchanged) return unchanged;
+    const file = await client.readWorkspaceFile(workspaceId, path, { signal: options.signal });
+    if (entry) okfFileContents.put(workspaceId, file);
+    return file;
+  };
   const list = (path: string, optional = false): Promise<Listing["entries"]> => {
     let pending = cache.get(path);
     if (!pending) {

@@ -1,5 +1,9 @@
 # LAWOSS downstream patches
 
+## Tichá obnova prehľadov nesťahuje nezmenené súbory (2026-11-07, #367)
+
+Retest: pri 24 klientoch appka aj pri nečinnosti čítala ~14 súborov za sekundu (165 tisíc `files/content` za beh). Výpis priečinka sa pri obnove robí ďalej a nesie veľkosť a čas zmeny, obsah sa stiahne len pri zmene. Nový `apps/app/src/lawoss/okf/file-content-cache.ts` má strop 16 MiB a súbor nad 1 MiB ani práve zmenený súbor neukladá.
+
 ## Retest alfa10: výpadok siete, čakanie po onboardingu, hľadanie v katalógu (2026-11-07)
 
 Nálezy N7, N8 a N12 z retestu zostavy `829b9b952`. Sieťový výpadok pri inštalácii doplnku sa ukazoval ako anglické „Unexpected server error“, obrazovka Pripravené nič nehovorila počas dlhého prechodu a katalóg „Všetky balíky“ nešlo prehľadávať.
