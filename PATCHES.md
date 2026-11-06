@@ -57,6 +57,14 @@ Upstream test opravy #230 (`model-catalog-engine.e2e.test.ts`) čaká, že engin
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
 | `apps/app/src/react-app/infra/query-cache-state.ts` | `useQueryCacheState` odovzdáva upozornenia cez `notifyManager.batchCalls`, rovnako ako natívne TanStack hooky. Vytvorenie query počas renderu iného komponentu tak nesmie synchrónne aktualizovať čítačku cache. Živý syntetický headless vstup reprodukoval React varovanie `SessionRoute` / `ClientLinkedFoldersNavItem`; regresia `apps/app/tests/query-cache-state-mount.test.tsx` pripája skutočné React DOM hooky a overuje aj doručenie hodnoty. Stabilný `subscribe` (`useCallback`) sa neprihlasuje pri každom renderi a cez `hashKey`/`event.query.queryHash` počúva len svoju query, takže streaming neprebúdza ostatné čítačky; regresie v tom istom teste (2026-11-06). Pri syncu zachovať odložené notifikácie aj filter. |
+## Brána rozpočtu RAM 2 GB v CI (2026-11-05)
+
+Issue #367. Nový `scripts/memory-budget/run.mjs` spustí zabalenú appku s izolovaným profilom, 10 syntetickými klientmi (SYNTHETIC_DATA.md) a balíkom LAWOSS Marketplace „SK základ“ z pinovaného commitu snapshotu (lokálne zrkadlo GitHub API z checkoutu `lawoss-marketplace`, bez limitu neautentifikovaného API), postupne otvorí 4 klientov a každé ~2 s zmeria fyzickú pamäť celého stromu procesov (macOS physical footprint, Linux PSS). Zlyhá, keď špička prekročí 2048 MB alebo po ukončení ostanú siroty. Artefakt obsahuje len čísla a fázu zlyhania.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `.github/workflows/ci-desktop-packaging.yml` | Na macOS po „Verify Windows and macOS packaged startup“: cache datasetu, krok „Verify RAM budget (2 GB) with the packaged app“ (overenie SHA-256 datasetu, klon `lawoss-marketplace` s commitom snapshotu, `node --test scripts/memory-budget/memory.test.mjs`, meranie) a upload `memory-budget.json`. Windows a Linux zatiaľ nie (Windows bez merania súkromnej pamäte stromu; Linux runner bez overenia). |
+
 ## MCP len pre otvoreného klienta, strop a uvoľnenie nečinných inštancií enginu (2026-11-05)
 
 Rozpočet RAM 2 GB, issue #367. Engine OpenCode 1.18.29 drží inštanciu na priečinok a pri prvom dotyku MCP stavu (`GET /mcp`, `GET /command`, prompt) v nej spustí všetky zapnuté MCP; inštancie sám neuvoľní. Výpis chatov všetkých klientov (bočný panel) a štartová synchronizácia tak spustili MCP v každom klientovi: 10 klientov + balík „SK základ“ = 139 procesov, 4,7 GB. Nový `apps/server/src/lawoss/engine-mcp-budget.ts` eviduje priečinky s MCP, drží ich najviac `LAWOSS_ENGINE_MCP_INSTANCES` (predvolene 1; 0 = pôvodné správanie) a nečinné bez bežiaceho chatu uvoľní (`POST /instance/dispose`) po `LAWOSS_ENGINE_MCP_IDLE_MS` (predvolene 10 min) alebo pri otvorení ďalšieho klienta.
