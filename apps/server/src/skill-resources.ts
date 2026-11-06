@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isOutsideWorkspacePath, resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
+import { isIgnoredSkillRoot } from "./lawoss/claude-global-skills.js";
 import { ApiError } from "./errors.js";
 import { exists } from "./utils.js";
 import { validateSkillName } from "./validators.js";
@@ -47,6 +48,8 @@ export function isTextResource(name: string): boolean {
 }
 
 async function findSkillDirInBase(baseDir: string, skillName: string, workspaceRoot?: string): Promise<string | null> {
+  // 🟡 LAWOSS: globálne skilly Claude (~/.claude/skills) sa nečítajú (lawoss/claude-global-skills.ts).
+  if (isIgnoredSkillRoot(baseDir)) return null;
   const safePath = (path: string) => workspaceRoot ? resolveWorkspaceFilePath(workspaceRoot, path) : Promise.resolve(path);
   // A project skills folder linked outside the workspace is not a candidate; callers
   // continue with global roots. Links inside the folder are still rejected below.

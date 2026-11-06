@@ -1,7 +1,8 @@
-import { t } from "@/i18n";
+import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import type { SkillCard } from "../../../app/types";
 import type { ImportedPlugin } from "../../../app/lib/extension-imports";
 import type { LegalworkClaudePluginPreview } from "../../../app/lib/legalwork-server";
@@ -123,6 +124,7 @@ function CatalogCard({ entry, context, installed, installedGlobal }: { entry: Ma
   const [preview, setPreview] = useState<LegalworkClaudePluginPreview | null>(null);
   const [working, setWorking] = useState(false);
   const [status, setStatus] = useState<InstallResult | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const removal = useGlobalRemove(context.api, context.refreshAll);
   const global = entry.install.action === "plugin" && context.target === "global";
   const permitted = global
@@ -192,7 +194,9 @@ function CatalogCard({ entry, context, installed, installedGlobal }: { entry: Ma
         {global && installedGlobal ? null : <Button variant="outline" disabled={disabled || (entry.install.action === "plugin" && !preview && !global)} onClick={() => void install()}>
           {working ? t("lawoss.integrations.catalog.working", locale) : confirmLabel}
         </Button>}
-        {installedGlobal ? <Button variant="ghost" disabled={working || !context.api} onClick={() => void uninstall()}>{t("lawoss.marketplace.remove.global", locale)}</Button> : null}
+        {installedGlobal ? <GlobalRemoveAction name={entry.name} locale={locale} disabled={working || !context.api} confirming={confirmRemove}
+          onRequest={() => setConfirmRemove(true)} onCancel={() => setConfirmRemove(false)}
+          onConfirm={() => { setConfirmRemove(false); void uninstall(); }} /> : null}
         {removal.queue.pending.map((item) => <FileDecisionForm key={item.id} title={item.title} changes={item.changes} mode={item.mode}
           onCancel={() => removal.queue.done(item.id)}
           onConfirm={(resolutions) => void item.retry(resolutions).catch((error: unknown) => setStatus({ ok: false, message: error instanceof Error ? error.message : String(error) }))} />)}
@@ -201,6 +205,30 @@ function CatalogCard({ entry, context, installed, installedGlobal }: { entry: Ma
     {context.loading && entry.install.action === "plugin" ? <p role="status" className="text-xs text-dls-secondary">{t("lawoss.integrations.catalog.loading_status", locale)}</p> : null}
     {status ? <p role={status.ok ? "status" : "alert"} className="text-sm text-dls-secondary">{status.messageKey ? t(status.messageKey, locale) : status.message}</p> : null}
   </article>;
+}
+
+/**
+ * Odinštalovanie pre všetkých klientov (#255): tlačidlo len otvorí potvrdenie, doplnok sa odstráni až po ňom.
+ * Upravené súbory potom ešte rieši `FileDecisionForm` (zálohovať alebo zahodiť).
+ */
+export function GlobalRemoveAction({ name, locale, disabled, confirming, onRequest, onCancel, onConfirm }: {
+  name: string;
+  locale: Language;
+  disabled: boolean;
+  confirming: boolean;
+  onRequest: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return <>
+    <Button variant="ghost" disabled={disabled} onClick={onRequest}>{t("lawoss.marketplace.remove.global", locale)}</Button>
+    <ConfirmModal open={confirming} variant="danger"
+      title={t("lawoss.marketplace.remove.confirm_title", locale, { name })}
+      message={t("lawoss.marketplace.remove.confirm_description", locale)}
+      confirmLabel={t("lawoss.marketplace.remove.global", locale)}
+      cancelLabel={t("lawoss.marketplace.decision.cancel", locale)}
+      onCancel={onCancel} onConfirm={onConfirm} />
+  </>;
 }
 
 /** Verzia v katalógu a nainštalovaná verzia (bez siete). */

@@ -75,6 +75,7 @@ import { migrateInstalledWorkflows } from "./skill-migration.mjs";
 import { FORK_RELEASE_DOWNLOAD_BASE_URL, FORK_RELEASES_URL, brandAppName } from "./lawoss-branding.mjs";
 import { canonicalTypedDirectory, pickedDirectories } from "./lawoss-picked-path.mjs";
 import { lawossFolderState } from "./lawoss-folder-state.mjs";
+import { withoutClaudeGlobalSkills } from "./lawoss-skill-roots.mjs";
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
 const openComputerUse = createOpenComputerUseIntegration({ getDataDir: () => app.getPath("userData") });
@@ -1462,7 +1463,8 @@ async function collectProjectSkillRoots(projectDir) {
     current = parent;
   }
 
-  return roots;
+  // 🟡 LAWOSS: ~/.claude/skills sa nečíta ani cez nadradené priečinky (lawoss-skill-roots.mjs).
+  return withoutClaudeGlobalSkills(roots);
 }
 
 async function collectGlobalSkillRoots() {
@@ -1480,7 +1482,8 @@ async function collectGlobalSkillRoots() {
     }
   }
 
-  return roots;
+  // 🟡 LAWOSS: globálne skilly Claude sa nečítajú (lawoss-skill-roots.mjs).
+  return withoutClaudeGlobalSkills(roots);
 }
 
 async function collectSkillRoots(projectDir) {
