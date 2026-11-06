@@ -171,7 +171,7 @@ import { registerOnboardingRoutes, type OnboardingApplyCheckpoint } from "./lawo
 import { LawossOcrManager, registerLawossOcrRoutes } from "./lawoss/ocr-opt-in.js";
 import { registerLawossMarketplaceRoutes } from "./lawoss/marketplace-routes.js";
 // LAWOSS: rozpočet RAM 2 GB – MCP len pre otvorených klientov (lawoss/engine-mcp-budget.ts, issue #367).
-import { createEngineDirectoryLanes, createEngineMcpBudget, engineMcpBudgetSettings, initializesEngineMcp, type EngineMcpBudget, type EngineScope } from "./lawoss/engine-mcp-budget.js";
+import { createEngineDirectoryLanes, createEngineMcpBudget, engineMcpBudgetSettings, engineSessionAction, initializesEngineMcp, type EngineMcpBudget, type EngineScope } from "./lawoss/engine-mcp-budget.js";
 import { startWeeklyMarketplaceCheck } from "./lawoss/marketplace-updates.js";
 import {
   applyGlobalToolPermissions,
@@ -1531,7 +1531,9 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
   headers.delete("host");
   headers.delete("origin");
 
-  const directory = workspace ? await resolveProxyOpencodeDirectory(workspace, headers, input.url) : null;
+  const requestedDirectory = workspace ? await resolveProxyOpencodeDirectory(workspace, headers, input.url) : null;
+  // LAWOSS: čítanie stavu MCP nespustí druhú sadu v klientovi, ktorý ju má v inom svojom priečinku (issue #367).
+  const directory = residentEngineMcpDirectory(input.config, workspace, method, scopedProxyPath, baseUrl, requestedDirectory);
   if (directory) {
     headers.set("x-opencode-directory", buildOpencodeDirectoryHeader(directory));
     if (input.url.searchParams.has("directory")) {
@@ -6084,7 +6086,35 @@ async function admitEngineMcp(config: ServerConfig, method: string, path: string
     budget.touch(scope);
     return () => undefined;
   }
-  return budget.admit(scope);
+  const sessionId = budget.limit > 0 ? engineSessionAction(method, path) : null;
+  return budget.admit(sessionId ? await engineSessionScope(scope, sessionId) : scope);
+}
+
+// Engine spustí chat v jeho priečinku, nie v priečinku požiadavky (engine-mcp-budget.ts). Neznámy
+// priečinok ostane v požiadavke: rozpočet tak nikdy nezavrie iný priečinok pre neistú odpoveď.
+async function engineSessionScope(scope: EngineScope, sessionId: string): Promise<EngineScope> {
+  const url = new URL(scope.baseUrl);
+  url.pathname = `/session/${sessionId}`;
+  url.search = "";
+  url.searchParams.set("directory", scope.directory);
+  try {
+    const headers: Record<string, string> = { "x-opencode-directory": buildOpencodeDirectoryHeader(scope.directory) };
+    if (scope.authHeader) headers.Authorization = scope.authHeader;
+    const response = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) { await response.arrayBuffer(); return scope; }
+    const session = sessionInfoSchema.safeParse(await response.json());
+    const directory = session.success ? session.data.directory?.trim() : "";
+    return directory ? { ...scope, directory: normalizeOpencodeDirectory(directory) } : scope;
+  } catch {
+    return scope;
+  }
+}
+
+function residentEngineMcpDirectory(config: ServerConfig, workspace: WorkspaceInfo | undefined, method: string, path: string, baseUrl: string, directory: string | null): string | null {
+  const reads = method === "GET" && (path === "/mcp" || path === "/command");
+  const root = reads && workspace?.workspaceType === "local" ? resolveOpencodeDirectory(workspace) : null;
+  const budget = engineMcpBudgetFor(config);
+  return (root && directory && budget?.residentWithin({ baseUrl, authHeader: null, directory }, root)) || directory;
 }
 
 // SDK požiadavky servera (prompt, príkazy) idú cez rovnaký rozpočet ako požiadavky z okna.

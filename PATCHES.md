@@ -5,6 +5,7 @@
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
 | `apps/server/src/server.ts` | N4: `POST /instance/dispose` a `POST /mcp` v tom istom priečinku idú za sebou (`createEngineDirectoryLanes`, `lawoss/engine-mcp-budget.ts`). Engine 1.18.29 uloží klienta z `POST /mcp` aj do už uvoľnenej inštancie a proces žije do jeho zastavenia. Reload na pozadí (`background`) neregistruje MCP, ktoré nová inštancia má zo súboru (`skipFileProvided`); explicitný reload ostáva ako upstream. |
+| `apps/server/src/server.ts` | N3: `admitEngineMcp` počíta akciu chatu do priečinka chatu (`engineSessionScope`, `GET /session/:id`), lebo engine spustí chat prípadu v jeho priečinku, aj keď ho front správ pošle cez koreň klienta. `forwardOpencodeRequest` (+2 riadky) číta `GET /mcp` a `GET /command` z priečinka toho istého klienta, ktorý má MCP spustené (`residentEngineMcpDirectory`), aby čítanie nespustilo druhú sadu. |
 
 ## Komentár ukázaný ako odpoveď prežije neskorú aktualizáciu časti (2026-11-06, #348)
 

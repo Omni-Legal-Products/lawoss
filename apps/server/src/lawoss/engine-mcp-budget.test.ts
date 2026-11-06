@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createEngineMcpBudget, engineMcpBudgetSettings, initializesEngineMcp, type EngineScope } from "./engine-mcp-budget.js";
+import { createEngineMcpBudget, engineMcpBudgetSettings, engineSessionAction, initializesEngineMcp, type EngineScope } from "./engine-mcp-budget.js";
 
 const scope = (directory: string): EngineScope => ({ baseUrl: "http://127.0.0.1:1", authHeader: null, directory });
 
@@ -130,6 +130,28 @@ test("explicitný reload otvorí priečinok bez inicializácie a uvoľní predo�
   expect(budget.isActive(scope("/b"))).toBe(true);
   await budget.adopt(scope("/b"));
   expect(disposed).toEqual(["/a"]);
+});
+
+test("akcia chatu sa rozpozná; ostatné engine cesty nie", () => {
+  expect(engineSessionAction("POST", "/session/ses_1/message")).toBe("ses_1");
+  expect(engineSessionAction("post", "/api/session/ses_1/prompt_async")).toBe("ses_1");
+  expect(engineSessionAction("GET", "/session/ses_1/message")).toBeNull();
+  expect(engineSessionAction("POST", "/session")).toBeNull();
+  expect(engineSessionAction("GET", "/mcp")).toBeNull();
+});
+
+test("priečinok klienta so spustenými MCP: bežiaci prípad zastúpi koreň a naopak, iný klient nie", async () => {
+  const { budget, advance } = fixture({ limit: 2 });
+  (await budget.admit(scope("/klienti/a/Spisy/M001")))();
+  (await budget.admit(scope("/klienti/ab")))();
+  expect(budget.residentWithin(scope("/klienti/a"), "/klienti/a")).toBe("/klienti/a/Spisy/M001");
+  expect(budget.residentWithin(scope("/klienti/a/Spisy/M002"), "/klienti/a")).toBe("/klienti/a/Spisy/M001");
+  // Sám aktívny priečinok sa nezastupuje a iný klient s podobným menom sa nepočíta.
+  expect(budget.residentWithin(scope("/klienti/a/Spisy/M001"), "/klienti/a")).toBeNull();
+  expect(budget.residentWithin(scope("/klienti/c"), "/klienti/c")).toBeNull();
+  expect(budget.residentWithin({ ...scope("/klienti/a"), baseUrl: "http://127.0.0.1:2" }, "/klienti/a")).toBeNull();
+  advance(5);
+  expect(fixture({ limit: 0 }).budget.residentWithin(scope("/klienti/a"), "/klienti/a")).toBeNull();
 });
 
 test("nastavenia z prostredia", () => {

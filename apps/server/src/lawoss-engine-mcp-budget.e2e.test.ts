@@ -34,12 +34,16 @@ async function fixture() {
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const paths = ["a", "b", "c"].map((name) => join(root, name));
   await Promise.all(paths.map((path) => mkdir(path)));
+  // Prípad klienta A: chat v ňom beží v tomto priečinku, hoci požiadavka prišla na koreň klienta.
+  const matter = join(paths[0]!, "Spisy", "M001");
+  await mkdir(matter, { recursive: true });
   process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
   const requests: EngineRequest[] = [];
   const busy = new Set<string>();
   // Poradie prichádzajúcich a dobehnutých volaní (registrácia MCP a uvoľnenie inštancie).
   const trace: string[] = [];
-  const holds = { mcpPost: null as Promise<void> | null };
+  const holds = { mcpPost: null as Promise<void> | null, chat: null as Promise<void> | null };
+  const sessions = new Map([["ses_m", matter]]);
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
     const header = request.headers.get("x-opencode-directory");
@@ -52,6 +56,17 @@ async function fixture() {
       trace.push("mcp:end");
     }
     if (url.pathname === "/instance/dispose") trace.push("dispose");
+    const session = url.pathname.match(/^\/session\/([^/]+)(\/message)?$/);
+    if (session && session[1] !== "status" && sessions.has(session[1]!)) {
+      const sessionDirectory = sessions.get(session[1]!)!;
+      if (!session[2]) return Response.json({ id: session[1], directory: sessionDirectory, time: { created: 1, updated: 1 } });
+      if (request.method === "POST") {
+        busy.add(sessionDirectory);
+        await holds.chat;
+        busy.delete(sessionDirectory);
+        return Response.json({ info: { id: "msg_a", role: "assistant", sessionID: session[1], finish: "stop", time: { completed: 1 } }, parts: [] });
+      }
+    }
     if (url.pathname === "/session/status") return Response.json(directory && busy.has(directory) ? { ses_1: { type: "busy" } } : {});
     if (url.pathname === "/session" || url.pathname === "/command") return Response.json([]);
     return Response.json({});
@@ -81,7 +96,19 @@ async function fixture() {
     await response.arrayBuffer();
     return response.status;
   };
-  return { config, base, paths, requests, busy, trace, holds, get, post, mcpTouches, disposals };
+  const enqueue = async (sessionId: string) => {
+    const response = await fetch(`${base}/workspace/ws_a/sessions/${sessionId}/queue`, {
+      method: "POST", headers: { Authorization: "Bearer client", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "enqueue", id: crypto.randomUUID(),
+        draft: { mode: "prompt", text: "ahoj", parts: [{ type: "text", text: "ahoj" }], attachments: [], editor: { mentions: {}, pasteParts: [] } },
+        execution: { kind: "prompt", model: { providerID: "mock", modelID: "m" }, parts: [{ type: "text", text: "ahoj" }] },
+      }),
+    });
+    await response.arrayBuffer();
+    return response.status;
+  };
+  return { config, base, paths, matter, requests, busy, trace, holds, get, post, enqueue, mcpTouches, disposals };
 }
 
 test("výpis chatov všetkých klientov ani štart nespustia v engine žiadne MCP", async () => {
@@ -180,4 +207,65 @@ test("uvoľnenie inštancie počká, kým dobehne registrácia MCP v tom istom p
   expect(await first).toBe(200);
   expect(await second).toBe(200);
   expect(f.trace.slice(0, 3)).toEqual(["mcp:start", "mcp:end", "dispose"]);
+});
+
+const chatStarted = async (f: Awaited<ReturnType<typeof fixture>>) => {
+  while (!f.requests.some((entry) => entry.method === "POST" && entry.pathname === "/session/ses_m/message")) await delay(5);
+};
+
+test("chat prípadu sa počíta do priečinka prípadu: nečinný koreň klienta sa uvoľní a dotazy na stav MCP nespustia druhú sadu", async () => {
+  // N3 (test alfa10): front posiela chat cez koreň klienta, engine ho spustí v priečinku prípadu. Rozpočet videl len koreň.
+  const f = await fixture();
+  const [a] = f.paths as [string];
+  let finish = () => {};
+  f.holds.chat = new Promise<void>((resolve) => { finish = resolve; });
+  expect(await f.get("/workspace/ws_a/opencode/command")).toBe(200);
+  expect(await f.enqueue("ses_m")).toBe(200);
+  await chatStarted(f);
+  expect(f.disposals()).toEqual([a]);
+  // Stav MCP z koreňa aj z prípadu počas behu: odpovie priečinok prípadu, koreň sa znova nespustí.
+  f.requests.length = 0;
+  expect(await f.get("/workspace/ws_a/opencode/mcp")).toBe(200);
+  expect(await f.get("/workspace/ws_a/opencode/command")).toBe(200);
+  expect(f.mcpTouches(a)).toEqual([]);
+  expect(f.mcpTouches(f.matter)).toHaveLength(2);
+  // Iný klient nepreruší bežiaci chat prípadu.
+  expect(await f.get("/workspace/ws_b/opencode/command")).toBe(200);
+  expect(f.disposals()).toEqual([]);
+  finish();
+  f.holds.chat = null;
+  while (f.busy.has(f.matter)) await delay(5);
+  await delay(50);
+  // Po dobehnutí uvoľní prípad ďalšie otvorenie iného klienta.
+  expect(await f.get("/workspace/ws_c/opencode/command")).toBe(200);
+  expect(f.disposals()).toContain(f.matter);
+});
+
+test("po dobehnutí chatu prípadu ostane spustený len jeden priečinok klienta", async () => {
+  const f = await fixture();
+  const [a] = f.paths as [string];
+  expect(await f.get("/workspace/ws_a/opencode/command")).toBe(200);
+  expect(await f.enqueue("ses_m")).toBe(200);
+  await chatStarted(f);
+  while (f.busy.has(f.matter)) await delay(5);
+  await delay(50);
+  f.requests.length = 0;
+  expect(await f.get("/workspace/ws_a/opencode/mcp")).toBe(200);
+  expect(f.mcpTouches(a)).toEqual([]);
+  expect(f.mcpTouches(f.matter)).toHaveLength(1);
+  expect(f.disposals()).toEqual([]);
+});
+
+test("čítanie stavu MCP prípadu pri otvorenom koreni klienta nespustí priečinok prípadu; neznámy chat ostane v koreni", async () => {
+  const f = await fixture();
+  const [a] = f.paths as [string];
+  expect(await f.get("/workspace/ws_a/opencode/command")).toBe(200);
+  f.requests.length = 0;
+  expect(await f.get(`/workspace/ws_a/opencode/mcp?directory=${encodeURIComponent(f.matter)}`)).toBe(200);
+  expect(f.mcpTouches(f.matter)).toEqual([]);
+  expect(f.mcpTouches(a)).toHaveLength(1);
+  expect(f.disposals()).toEqual([]);
+  // Engine chat nepozná (napr. neodpovedá): koreň sa nezatvorí pre neistý priečinok.
+  expect(await f.post("/workspace/ws_a/opencode/session/ses_neznamy/message")).toBeLessThan(600);
+  expect(f.disposals()).toEqual([]);
 });

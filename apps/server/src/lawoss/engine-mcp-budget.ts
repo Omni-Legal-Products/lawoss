@@ -12,6 +12,8 @@
  * spustia až pri ďalšom skutočnom použití.
  */
 
+import { isAbsolute, relative } from "node:path";
+
 export type EngineScope = {
   baseUrl: string;
   authHeader: string | null;
@@ -50,6 +52,11 @@ export type EngineMcpBudget = {
   admit(scope: EngineScope): Promise<() => void>;
   /** Explicitný reload priečinka: otvorí ho v rozpočte bez `initialize` (reload MCP obnoví sám). */
   adopt(scope: EngineScope): Promise<void>;
+  /**
+   * Klient a jeho prípady (`root` a jeho podpriečinky) sú pre čítanie stavu MCP jedno miesto: priečinok
+   * bez MCP zastúpi priečinok klienta, ktorý ich má spustené, aby čítanie nespustilo druhú sadu procesov.
+   */
+  residentWithin(scope: EngineScope, root: string): string | null;
   /** Iná požiadavka do adresára predĺži jeho životnosť, ak je aktívny. */
   touch(scope: EngineScope): void;
   /** Inštanciu uvoľnil niekto iný (reload); prestane sa evidovať. */
@@ -60,7 +67,15 @@ export type EngineMcpBudget = {
   close(): void;
 };
 
-const MCP_SESSION_ACTION = /^(?:\/api)?\/session\/[^/]+\/(?:message|prompt|prompt_async|command|shell|summarize|init)$/;
+const MCP_SESSION_ACTION = /^(?:\/api)?\/session\/([^/]+)\/(?:message|prompt|prompt_async|command|shell|summarize|init)$/;
+
+/**
+ * Chat, ktorý požiadavka spúšťa. Engine ho spustí v priečinku chatu, nie v priečinku požiadavky: chat
+ * prípadu z frontu správ prichádza cez koreň klienta, MCP a stav behu sú však v priečinku prípadu.
+ */
+export function engineSessionAction(method: string, path: string): string | null {
+  return method.toUpperCase() === "POST" ? path.match(MCP_SESSION_ACTION)?.[1] ?? null : null;
+}
 
 /** Engine cesty, ktoré inicializujú MCP stav inštancie (opencode v1.18.29). */
 export function initializesEngineMcp(method: string, path: string): boolean {
@@ -68,7 +83,7 @@ export function initializesEngineMcp(method: string, path: string): boolean {
   if (path === "/mcp" || path.startsWith("/mcp/")) return true;
   if (verb === "GET" && path === "/command") return true;
   if (path.startsWith("/experimental/tool") || path.startsWith("/experimental/resource")) return true;
-  return verb === "POST" && MCP_SESSION_ACTION.test(path);
+  return engineSessionAction(verb, path) !== null;
 }
 
 export function scopeKey(scope: Pick<EngineScope, "baseUrl" | "directory">): string {
@@ -91,6 +106,11 @@ export function createEngineDirectoryLanes() {
     lanes.set(key, tail);
     return result;
   };
+}
+
+function containsDirectory(root: string, directory: string): boolean {
+  const path = relative(root, directory);
+  return path.split(/[\\/]/)[0] !== ".." && !isAbsolute(path);
 }
 
 function positiveInteger(value: string | undefined, fallback: number): number {
@@ -203,6 +223,14 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
         await makeRoom(options.limit - 1);
         active.set(key, { scope, lastUsed: now(), opened: ++openings, inflight: 0, ready: Promise.resolve() });
       });
+    },
+    residentWithin(scope, root) {
+      if (options.limit === 0 || active.has(scopeKey(scope))) return null;
+      const server = scope.baseUrl.replace(/\/+$/, "");
+      const residents = [...active.values()]
+        .filter((entry) => entry.scope.baseUrl.replace(/\/+$/, "") === server && containsDirectory(root, entry.scope.directory))
+        .sort((a, b) => b.lastUsed - a.lastUsed);
+      return residents[0]?.scope.directory ?? null;
     },
     touch(scope) {
       const entry = active.get(scopeKey(scope));
