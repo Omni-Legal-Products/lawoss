@@ -90,7 +90,7 @@ const OKF_ENTRY: MarketplaceEntry = {
   id: "okf", name: "OKF: klienti, prípady a pamäť", kind: "plugin", channel: "lab", category: "bundled",
   description: "Lokálne skilly s pribalenými nástrojmi.",
   jurisdictions: ["SK", "CZ"], version: null, source: { repository: "Omni-Legal-Products/lawoss", ref: "súčasť tejto aplikácie" },
-  dependencies: ["Node.js 24"], capabilities: ["local-write"],
+  dependencies: [], capabilities: ["local-write"],
   verification: { status: "review", checkedAt: "2026-09-20" },
   humanGate: "Zápisy do prípadu sa vykonajú po potvrdení zobrazeného plánu.",
   install: { scope: "workspace", action: "okf" },
@@ -103,7 +103,7 @@ function snapshotEntry(plugin: MarketplaceSnapshot["plugins"][number], snapshot:
     kind: skillOnly ? "skill" : "plugin", channel: "lab", category: plugin.category,
     jurisdictions: plugin.jurisdictions, version: plugin.version,
     source: { repository: snapshot.repository, ref: plugin.ref ?? PENDING_REF },
-    dependencies: skillOnly ? [] : ["Node.js 22.14+", "npm", "internet"],
+    dependencies: skillOnly ? [] : ["internet"],
     capabilities: skillOnly ? ["read-only", "network", "external-action"] : ["read-only", "network", "local-write"],
     verification: { status: "review", checkedAt: "2026-10-05" },
     humanGate: skillOnly
@@ -144,7 +144,7 @@ export function getMarketplaceCatalog(locale: Language = currentLocale()): reado
       humanGate: t(copy?.skillOnly ? "lawoss.integrations.catalog.skill_only_gate" : "lawoss.integrations.catalog.plugin_gate", locale),
       dependencies: copy?.skillOnly
         ? [t("lawoss.integrations.catalog.skill_only_requires", locale)]
-        : ["Node.js 22.14+", t("lawoss.integrations.catalog.npm", locale), t("lawoss.integrations.catalog.internet", locale)],
+        : [t("lawoss.integrations.catalog.internet", locale)],
     };
   });
 }
