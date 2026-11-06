@@ -75,3 +75,46 @@ describe("#269 P3: komentár modelu naživo aj po znovuotvorení rovnako", () =>
     } finally { release(); cleanup(); }
   });
 });
+
+describe("#348: neskorý message.part.updated komentára po konci ťahu", () => {
+  /** Beží v živej synchronizácii: `prepare` pripraví správu, potom príde neskorá aktualizácia tej istej časti. */
+  function afterLateUpdate(prepare: () => void): UIMessage["parts"] {
+    const cleanup = __createWorkspaceSessionSyncForTest(input);
+    const release = trackWorkspaceSessionSync(input, SESSION);
+    try {
+      prepare();
+      __applySessionSyncEventForTest(input, { type: "message.part.updated", properties: { part: { ...commentary, text: `${commentary.text} Done.` } } } as never);
+      const transcript = getReactQueryClient().getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, SESSION)) ?? [];
+      return transcript.find((message) => message.id === MESSAGE)?.parts ?? [];
+    } finally { release(); cleanup(); }
+  }
+  const finished = (type: string, end: Partial<Info>) => () => {
+    __applySessionSyncEventForTest(input, { type: "message.updated", properties: { info: info() } } as never);
+    __applySessionSyncEventForTest(input, { type: "message.part.updated", properties: { part: commentary } } as never);
+    __applySessionSyncEventForTest(input, { type: "message.updated", properties: { info: info(end) } } as never);
+    const transcript = getReactQueryClient().getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, SESSION)) ?? [];
+    expect(textKinds(transcript.find((message) => message.id === MESSAGE)?.parts ?? [])).toEqual([type]);
+  };
+
+  test("časť prepnutá na text pri konci ťahu ostane textom a dostane novší obsah", () => {
+    const parts = afterLateUpdate(finished("text", { ...ended, finish: "length" }));
+    expect(textKinds(parts)).toEqual(["text"]);
+    expect(parts[0]).toMatchObject({ text: `${commentary.text} Done.` });
+  });
+
+  test("hotová správa z načítaného chatu ostane textom", () => {
+    const parts = afterLateUpdate(() => {
+      seedSessionState(input.workspaceId, { session: { id: SESSION }, todos: [], status: { type: "idle" },
+        messages: [{ info: info({ ...ended, finish: "length" }), parts: [commentary] }] } as unknown as LegalworkSessionSnapshot); // Fixture: len polia, ktoré konverzia číta.
+    });
+    expect(textKinds(parts)).toEqual(["text"]);
+  });
+
+  test("komentár v kroku s nástrojom ostane uvažovaním", () => {
+    expect(textKinds(afterLateUpdate(finished("reasoning", { ...ended, finish: "tool-calls" })))).toEqual(["reasoning"]);
+  });
+
+  test("správa, ktorá ešte beží, ostane uvažovaním", () => {
+    expect(textKinds(afterLateUpdate(finished("reasoning", {})))).toEqual(["reasoning"]);
+  });
+});

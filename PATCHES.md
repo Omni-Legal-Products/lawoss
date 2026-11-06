@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Komentár ukázaný ako odpoveď prežije neskorú aktualizáciu časti (2026-11-06, #348)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/sync/session-sync.ts` | `upsertPart` nahrádza existujúcu časť cez `keepCommentaryAnswer` z `apps/app/src/lawoss/chat/commentary.ts`: neskorý `message.part.updated` komentára po konci ťahu ho už nezmapuje späť na uvažovanie. Pri `message.updated` sa `withCommentaryAnswer` volá len na upsertnutú správu namiesto `.map` cez celý transcript. Regresia: `apps/app/tests/lawoss-komentar-zivy-a-nacitany.test.ts`. Pri syncu zachovať. |
+
 ## Súbor len na čítanie sa nesťahuje znova, kým sa nezmenil (2026-11-06, #367)
 
 | Súbory | Downstream doplnenie a dôvod |
