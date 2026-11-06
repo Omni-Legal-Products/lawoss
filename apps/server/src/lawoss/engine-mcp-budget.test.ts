@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createEngineMcpBudget, engineMcpBudgetSettings, engineSessionAction, initializesEngineMcp, type EngineScope } from "./engine-mcp-budget.js";
+import { createEngineMcpBudget, engineMcpBudgetSettings, engineSessionAction, initializesEngineMcp, settleWithin, type EngineScope } from "./engine-mcp-budget.js";
 
 const scope = (directory: string): EngineScope => ({ baseUrl: "http://127.0.0.1:1", authHeader: null, directory });
 
@@ -152,6 +152,45 @@ test("priečinok klienta so spustenými MCP: bežiaci prípad zastúpi koreň a 
   expect(budget.residentWithin({ ...scope("/klienti/a"), baseUrl: "http://127.0.0.1:2" }, "/klienti/a")).toBeNull();
   advance(5);
   expect(fixture({ limit: 0 }).budget.residentWithin(scope("/klienti/a"), "/klienti/a")).toBeNull();
+});
+
+test("reset uvoľní nečinný priečinok aj mimo evidencie; bežiaci chat ani prebiehajúcu požiadavku nie", async () => {
+  const { budget, disposed, initialized, busy } = fixture({ limit: 1 });
+  expect(await budget.reset(scope("/a"))).toBe(true);
+  expect(disposed).toEqual(["/a"]);
+  const release = await budget.admit(scope("/b"));
+  expect(await budget.reset(scope("/b"))).toBe(false);
+  release();
+  busy.add("/b");
+  expect(await budget.reset(scope("/b"))).toBe(false);
+  busy.delete("/b");
+  expect(await budget.reset(scope("/b"))).toBe(true);
+  expect(budget.isActive(scope("/b"))).toBe(false);
+  // Prvé použitie po resete znova zaregistruje jeho MCP.
+  (await budget.admit(scope("/b")))();
+  expect(initialized).toEqual(["/b", "/b"]);
+});
+
+test("zlyhané uvoľnenie cez reset ohlási chybu a priečinok ostane v evidencii", async () => {
+  const failure = new Error("engine");
+  const budget = createEngineMcpBudget({ limit: 1, idleMs: 0, busy: async () => false, dispose: async () => { throw failure; } });
+  (await budget.admit(scope("/a")))();
+  await expect(budget.reset(scope("/a"))).rejects.toBe(failure);
+  expect(budget.isActive(scope("/a"))).toBe(true);
+});
+
+test("settleWithin: skorý výsledok vráti hneď, neskorá chyba ide do záznamu", async () => {
+  const late: unknown[] = [];
+  const failure = new Error("skoro");
+  expect(await settleWithin(Promise.resolve(), 1_000, (error) => late.push(error))).toEqual({});
+  expect(await settleWithin(Promise.reject(failure), 1_000, (error) => late.push(error))).toEqual({ error: failure });
+  let fail: (reason: unknown) => void = () => {};
+  const slow = new Promise<void>((_, reject) => { fail = reject; });
+  expect(await settleWithin(slow, 5, (error) => late.push(error))).toEqual({});
+  expect(late).toEqual([]);
+  fail(failure);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(late).toEqual([failure]);
 });
 
 test("nastavenia z prostredia", () => {

@@ -57,6 +57,11 @@ export type EngineMcpBudget = {
    * bez MCP zastúpi priečinok klienta, ktorý ich má spustené, aby čítanie nespustilo druhú sadu procesov.
    */
   residentWithin(scope: EngineScope, root: string): string | null;
+  /**
+   * Aktivácia klienta: engine má znova prečítať jeho konfiguráciu. Uvoľní inštanciu v poradí prijímania, aby
+   * nasledujúci dotyk MCP počkal; bežiaci chat nepreruší (vráti `false`). MCP sa spustia až pri ďalšom použití.
+   */
+  reset(scope: EngineScope): Promise<boolean>;
   /** Iná požiadavka do adresára predĺži jeho životnosť, ak je aktívny. */
   touch(scope: EngineScope): void;
   /** Inštanciu uvoľnil niekto iný (reload); prestane sa evidovať. */
@@ -106,6 +111,25 @@ export function createEngineDirectoryLanes() {
     lanes.set(key, tail);
     return result;
   };
+}
+
+/**
+ * Počká na prácu najviac `ms`. Skorá chyba sa vráti volajúcemu, neskorá už nemá komu, preto ide do `onLate`.
+ * Nikdy sa nezamietne, takže výsledok sa môže prevziať aj neskôr.
+ */
+export function settleWithin(work: Promise<unknown>, ms: number, onLate: (error: unknown) => void): Promise<{ error?: unknown }> {
+  return new Promise((resolve) => {
+    let answered = false;
+    const timer = setTimeout(() => { answered = true; resolve({}); }, ms);
+    work.then(
+      () => { clearTimeout(timer); resolve({}); },
+      (error: unknown) => {
+        clearTimeout(timer);
+        if (answered) onLate(error);
+        else resolve({ error });
+      },
+    );
+  });
 }
 
 function containsDirectory(root: string, directory: string): boolean {
@@ -231,6 +255,24 @@ export function createEngineMcpBudget(options: EngineMcpBudgetOptions): EngineMc
         .filter((entry) => entry.scope.baseUrl.replace(/\/+$/, "") === server && containsDirectory(root, entry.scope.directory))
         .sort((a, b) => b.lastUsed - a.lastUsed);
       return residents[0]?.scope.directory ?? null;
+    },
+    reset(scope) {
+      const key = scopeKey(scope);
+      return serialized(async () => {
+        const entry = active.get(key);
+        if (entry && entry.inflight > 0) return false;
+        if (await options.busy(scope).catch(() => true)) return false;
+        if (active.get(key) !== entry || (entry && entry.inflight > 0)) return false;
+        active.delete(key);
+        try {
+          await options.dispose(scope);
+        } catch (error) {
+          if (entry && !active.has(key)) active.set(key, entry);
+          throw error;
+        }
+        options.log?.("Engine instance released", { "engine.directory": scope.directory, "engine.reason": "reset" });
+        return true;
+      });
     },
     touch(scope) {
       const entry = active.get(scopeKey(scope));

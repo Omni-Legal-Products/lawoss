@@ -13,15 +13,16 @@ import type { ServerConfig } from "./types.js";
 
 type EngineRequest = { method: string; pathname: string; directory: string | null; name?: string };
 
-const saved = { budget: process.env.LAWOSS_ENGINE_MCP_INSTANCES, db: process.env.LEGALWORK_RUNTIME_DB, retry: process.env.LEGALWORK_MCP_SYNC_RETRY_DELAY_MS };
+const saved = { activateWait: process.env.LAWOSS_ACTIVATE_ENGINE_WAIT_MS, budget: process.env.LAWOSS_ENGINE_MCP_INSTANCES, db: process.env.LEGALWORK_RUNTIME_DB, retry: process.env.LEGALWORK_MCP_SYNC_RETRY_DELAY_MS };
 const cleanup: Array<() => unknown> = [];
 beforeAll(() => {
   process.env.LAWOSS_ENGINE_MCP_INSTANCES = "1";
   process.env.LEGALWORK_MCP_SYNC_RETRY_DELAY_MS = "10";
+  process.env.LAWOSS_ACTIVATE_ENGINE_WAIT_MS = "50";
 });
 afterEach(async () => { while (cleanup.length) await cleanup.pop()?.(); });
 afterAll(() => {
-  for (const [key, value] of [["LAWOSS_ENGINE_MCP_INSTANCES", saved.budget], ["LEGALWORK_RUNTIME_DB", saved.db], ["LEGALWORK_MCP_SYNC_RETRY_DELAY_MS", saved.retry]] as const) {
+  for (const [key, value] of [["LAWOSS_ACTIVATE_ENGINE_WAIT_MS", saved.activateWait], ["LAWOSS_ENGINE_MCP_INSTANCES", saved.budget], ["LEGALWORK_RUNTIME_DB", saved.db], ["LEGALWORK_MCP_SYNC_RETRY_DELAY_MS", saved.retry]] as const) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
@@ -42,7 +43,7 @@ async function fixture() {
   const busy = new Set<string>();
   // Poradie prichádzajúcich a dobehnutých volaní (registrácia MCP a uvoľnenie inštancie).
   const trace: string[] = [];
-  const holds = { mcpPost: null as Promise<void> | null, chat: null as Promise<void> | null };
+  const holds = { mcpPost: null as Promise<void> | null, chat: null as Promise<void> | null, dispose: null as Promise<void> | null };
   const sessions = new Map([["ses_m", matter]]);
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
@@ -55,7 +56,12 @@ async function fixture() {
       await holds.mcpPost;
       trace.push("mcp:end");
     }
-    if (url.pathname === "/instance/dispose") trace.push("dispose");
+    if (url.pathname === "/instance/dispose") {
+      trace.push("dispose");
+      await holds.dispose;
+      trace.push("dispose:end");
+    }
+    if (url.pathname === "/command") trace.push("command");
     const session = url.pathname.match(/^\/session\/([^/]+)(\/message)?$/);
     if (session && session[1] !== "status" && sessions.has(session[1]!)) {
       const sessionDirectory = sessions.get(session[1]!)!;
@@ -108,7 +114,12 @@ async function fixture() {
     await response.arrayBuffer();
     return response.status;
   };
-  return { config, base, paths, matter, requests, busy, trace, holds, get, post, enqueue, mcpTouches, disposals };
+  const activate = async (id: string) => {
+    const response = await fetch(`${base}/workspaces/${id}/activate?persist=true`, { method: "POST", headers: { "x-legalwork-host-token": "host" } });
+    await response.arrayBuffer();
+    return response.status;
+  };
+  return { config, base, paths, matter, requests, busy, trace, holds, get, post, enqueue, activate, mcpTouches, disposals };
 }
 
 test("výpis chatov všetkých klientov ani štart nespustia v engine žiadne MCP", async () => {
@@ -268,4 +279,60 @@ test("čítanie stavu MCP prípadu pri otvorenom koreni klienta nespustí prieč
   // Engine chat nepozná (napr. neodpovedá): koreň sa nezatvorí pre neistý priečinok.
   expect(await f.post("/workspace/ws_a/opencode/session/ses_neznamy/message")).toBeLessThan(600);
   expect(f.disposals()).toEqual([]);
+});
+
+const settled = async (work: Promise<number>, ms: number) => Promise.race([work, delay(ms).then(() => "stále čaká")]);
+
+test("aktivácia nečaká na pomalý engine a ďalší dotyk MCP počká, kým engine inštanciu uvoľní", async () => {
+  // N1 (test alfa10): na čistom profile engine pred uvoľnením najprv postaví inštanciu, activate trvalo 43,6 s pri limite okna 10 s.
+  const f = await fixture();
+  let finish = () => {};
+  f.holds.dispose = new Promise<void>((resolve) => { finish = resolve; });
+  expect(await settled(f.activate("ws_a"), 1_000)).toBe(200);
+  while (!f.trace.includes("dispose")) await delay(5);
+  const opening = f.get("/workspace/ws_a/opencode/command");
+  await delay(100);
+  expect(f.trace).not.toContain("command");
+  finish();
+  f.holds.dispose = null;
+  expect(await opening).toBe(200);
+  expect(f.trace.filter((step) => step !== "mcp:start" && step !== "mcp:end")).toEqual(["dispose", "dispose:end", "command"]);
+});
+
+test("aktivácia nespustí MCP a jeho vlastné MCP sa zaregistrujú až pri prvom použití", async () => {
+  const f = await fixture();
+  const [a] = f.paths as [string];
+  expect(await f.activate("ws_a")).toBe(200);
+  while (!f.disposals().includes(a)) await delay(5);
+  await delay(50);
+  expect(f.mcpTouches(a)).toEqual([]);
+  expect(await f.get("/workspace/ws_a/opencode/mcp")).toBe(200);
+  expect(f.requests.filter((entry) => entry.method === "POST" && entry.pathname === "/mcp").map((entry) => entry.name)).toEqual(["klientA"]);
+  // Opätovná aktivácia otvoreného klienta ho uvoľní a prvé použitie ho znova zaregistruje.
+  expect(await f.activate("ws_a")).toBe(200);
+  while (f.disposals().length < 2) await delay(5);
+  expect(await f.get("/workspace/ws_a/opencode/mcp")).toBe(200);
+  expect(f.requests.filter((entry) => entry.method === "POST" && entry.pathname === "/mcp")).toHaveLength(2);
+});
+
+test("aktivácia nepreruší bežiaci chat klienta", async () => {
+  const f = await fixture();
+  const [a] = f.paths as [string];
+  f.busy.add(a);
+  expect(await f.activate("ws_a")).toBe(200);
+  await delay(120);
+  expect(f.requests.some((entry) => entry.pathname === "/session/status" && entry.directory === a)).toBe(true);
+  expect(f.disposals()).toEqual([]);
+});
+
+test("aktivácia iného klienta počas behu nič nezatvorí a návrat na bežiaceho klienta ho nepreruší", async () => {
+  const f = await fixture();
+  const [a] = f.paths as [string];
+  expect(await f.get("/workspace/ws_a/opencode/command")).toBe(200);
+  f.busy.add(a);
+  expect(await f.activate("ws_b")).toBe(200);
+  expect(await f.get("/workspace/ws_b/opencode/mcp")).toBe(200);
+  expect(await f.activate("ws_a")).toBe(200);
+  await delay(120);
+  expect(f.disposals().filter((directory) => directory === a)).toEqual([]);
 });

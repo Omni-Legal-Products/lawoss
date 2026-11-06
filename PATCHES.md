@@ -6,6 +6,8 @@
 | --- | --- |
 | `apps/server/src/server.ts` | N4: `POST /instance/dispose` a `POST /mcp` v tom istom priečinku idú za sebou (`createEngineDirectoryLanes`, `lawoss/engine-mcp-budget.ts`). Engine 1.18.29 uloží klienta z `POST /mcp` aj do už uvoľnenej inštancie a proces žije do jeho zastavenia. Reload na pozadí (`background`) neregistruje MCP, ktoré nová inštancia má zo súboru (`skipFileProvided`); explicitný reload ostáva ako upstream. |
 | `apps/server/src/server.ts` | N3: `admitEngineMcp` počíta akciu chatu do priečinka chatu (`engineSessionScope`, `GET /session/:id`), lebo engine spustí chat prípadu v jeho priečinku, aj keď ho front správ pošle cez koreň klienta. `forwardOpencodeRequest` (+2 riadky) číta `GET /mcp` a `GET /command` z priečinka toho istého klienta, ktorý má MCP spustené (`residentEngineMcpDirectory`), aby čítanie nespustilo druhú sadu. |
+| `apps/server/src/routes/workspaces.ts`, `apps/server/src/server.ts` | N1: `POST /workspaces/:id/activate` po zápise výberu čaká na engine najviac 4 s (`startEngineActivation`). `POST /instance/dispose` na ešte nepostavený priečinok ho najprv postaví a `GET /mcp` čaká na všetky MCP, preto uvoľnenie dobehne na pozadí v poradí rozpočtu (`budget.reset`) a MCP spustí prvé použitie. Bežiaci chat sa nepreruší. Skorá chyba enginu (503) ostáva v odpovedi; pri limite 0 je postup ako upstream, len s kontrolou bežiaceho chatu. |
+| `apps/server/src/workspace-activate.e2e.test.ts` | Mock enginu odpovedá na `GET /session/status` (+2 riadky), lebo aktivácia sa pred uvoľnením pýta na bežiaci chat. |
 
 ## Komentár ukázaný ako odpoveď prežije neskorú aktualizáciu časti (2026-11-06, #348)
 

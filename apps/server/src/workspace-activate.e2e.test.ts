@@ -81,6 +81,9 @@ function startMockOpencode() {
         return Response.json({ disposed: true });
       }
 
+      // 🟡 LAWOSS: aktivácia sa pred uvoľnením opýta, či v priečinku nebeží chat.
+      if (url.pathname === "/session/status") return Response.json({});
+
       return Response.json({ code: "not_found", message: "Not found" }, { status: 404 });
     },
   }) as Served;

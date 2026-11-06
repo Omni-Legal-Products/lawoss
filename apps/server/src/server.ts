@@ -171,7 +171,7 @@ import { registerOnboardingRoutes, type OnboardingApplyCheckpoint } from "./lawo
 import { LawossOcrManager, registerLawossOcrRoutes } from "./lawoss/ocr-opt-in.js";
 import { registerLawossMarketplaceRoutes } from "./lawoss/marketplace-routes.js";
 // LAWOSS: rozpočet RAM 2 GB – MCP len pre otvorených klientov (lawoss/engine-mcp-budget.ts, issue #367).
-import { createEngineDirectoryLanes, createEngineMcpBudget, engineMcpBudgetSettings, engineSessionAction, initializesEngineMcp, type EngineMcpBudget, type EngineScope } from "./lawoss/engine-mcp-budget.js";
+import { createEngineDirectoryLanes, createEngineMcpBudget, engineMcpBudgetSettings, engineSessionAction, initializesEngineMcp, settleWithin, type EngineMcpBudget, type EngineScope } from "./lawoss/engine-mcp-budget.js";
 import { startWeeklyMarketplaceCheck } from "./lawoss/marketplace-updates.js";
 import {
   applyGlobalToolPermissions,
@@ -2238,7 +2238,7 @@ function createRoutes(
     ensureWritable,
     resolveWorkspace,
     serializeWorkspace: (workspace) => serializeWorkspace(workspace, "owner"),
-    reloadOpencodeEngine,
+    startEngineActivation,
     onProjectDetailsSaved: (workspaceId, before, after) => noteProjectDetailsSaved(config, workspaceId, before, after),
     onProjectRenamed: (workspaceId, name) => noteProjectRenamed(config, workspaceId, name),
     onProjectRemoved: (workspaceId) => noteProjectRemoved(config, workspaceId),
@@ -5895,6 +5895,56 @@ async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceIn
   // LAWOSS: po hromadnej zmene (doplnok, nastavenia) má nová inštancia MCP zo súboru; POST by ich
   // spustil druhýkrát a počas pomalého štartu sa prekrýval s ďalšou zmenou (N4, issue #367).
   await syncRuntimeMcpToOpencodeEngine(config, workspace, undefined, { skipFileProvided: options.background }).catch(() => undefined);
+}
+
+// LAWOSS: aktivácia klienta (issue #367, N1 z testu alfa10). Engine má znova prečítať konfiguráciu priečinka,
+// ale `POST /instance/dispose` na ešte nepostavený priečinok ho najprv postaví (na čistom profile desiatky
+// sekúnd) a `GET /mcp` čaká na štart všetkých MCP. Ani jedno nesmie držať odpoveď okna: po krátkom čakaní
+// uvoľnenie dobehne na pozadí v poradí rozpočtu, MCP spustí až prvé skutočné použitie a bežiaci chat ostane.
+const ENGINE_ACTIVATION_WAIT_MS = 4_000;
+
+function engineActivationWaitMs(): number {
+  const parsed = Number(process.env.LAWOSS_ACTIVATE_ENGINE_WAIT_MS ?? ENGINE_ACTIVATION_WAIT_MS);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : ENGINE_ACTIVATION_WAIT_MS;
+}
+
+function startEngineActivation(config: ServerConfig, workspace: WorkspaceInfo): Promise<{ error?: unknown }> {
+  const work = withRuntimeDb(config, async () => {
+    const scope = workspaceEngineScope(config, workspace);
+    const budget = engineMcpBudgetFor(config);
+    if (!scope) return reloadOpencodeEngine(config, workspace);
+    await assertEngineListening(scope);
+    if (budget && budget.limit > 0) { await budget.reset(scope); return; }
+    if (!(await engineDirectoryBusy(scope))) await reloadOpencodeEngine(config, workspace);
+  });
+  return settleWithin(work, engineActivationWaitMs(), (error) => {
+    createServerLogger(config).log("warn", `Engine activation failed for workspace ${workspace.id}`, { "workspace.id": workspace.id, "error.message": error instanceof Error ? error.message : String(error) });
+  });
+}
+
+// Bez inštancie (`/global/health` ju nestavia): engine, ktorý ešte nepočúva, dostane chvíľu; nedostupný sa ohlási.
+async function assertEngineListening(scope: EngineScope): Promise<void> {
+  const url = new URL(scope.baseUrl);
+  url.pathname = "/global/health";
+  url.search = "";
+  for (const delayMs of [0, 150, 300, 600]) {
+    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    try {
+      const response = await fetch(url, { headers: scope.authHeader ? { Authorization: scope.authHeader } : {}, signal: AbortSignal.timeout(5_000) });
+      await response.arrayBuffer().catch(() => undefined);
+      return;
+    } catch (error) {
+      const cause = error instanceof Error ? error.cause : undefined;
+      const refused =
+        (error instanceof Error && "code" in error && (error.code === "ECONNREFUSED" || error.code === "ConnectionRefused")) ||
+        (cause instanceof Error && "code" in cause && (cause.code === "ECONNREFUSED" || cause.code === "ConnectionRefused"));
+      if (delayMs === 600 || !refused) {
+        throw new ApiError(503, "opencode_unavailable", "OpenCode engine is not ready", {
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
 }
 
 // Reload the engine instance of every other local workspace, one at a time and
