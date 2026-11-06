@@ -30,14 +30,37 @@ export function syncPokeOf(data: string): SyncPoke | null {
 
 /** Feed it a server-sent event stream's text as it comes; it hands on each event's data. */
 export function serverSentEvents(onData: (data: string) => void): (text: string) => void {
-  let buffer = "";
-  return (text) => {
-    buffer += text.replace(/\r\n?/g, "\n");
-    for (let end = buffer.indexOf("\n\n"); end >= 0; end = buffer.indexOf("\n\n")) {
-      const lines = buffer.slice(0, end).split("\n");
-      buffer = buffer.slice(end + 2);
-      const data = lines.filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart());
+  // The unfinished event is kept as pieces and joined only once a boundary is found, so a stream
+  // cut into tiny pieces is not re-flattened and re-scanned from its start on every piece.
+  let pending: string[] = [];
+  let pendingLength = 0;
+  let endsWithNewline = false;
+  let afterCarriageReturn = false; // the last piece ended in "\r", already read as a line end
+  return (piece) => {
+    if (afterCarriageReturn && piece.startsWith("\n")) piece = piece.slice(1); // "\r" | "\n" is one "\r\n"
+    if (piece === "") return;
+    afterCarriageReturn = piece.endsWith("\r");
+    const text = piece.replace(/\r\n?/g, "\n");
+    if (!(endsWithNewline && text.startsWith("\n")) && !text.includes("\n\n")) {
+      pending.push(text);
+      pendingLength += text.length;
+      endsWithNewline = text.endsWith("\n");
+      return;
+    }
+    const buffer = pending.join("") + text;
+    let start = 0;
+    for (let end = buffer.indexOf("\n\n", Math.max(0, pendingLength - 1)); end >= 0; end = buffer.indexOf("\n\n", start)) {
+      const data = buffer
+        .slice(start, end)
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart());
+      start = end + 2;
       if (data.length > 0) onData(data.join("\n"));
     }
+    const rest = buffer.slice(start);
+    pending = rest === "" ? [] : [rest];
+    pendingLength = rest.length;
+    endsWithNewline = rest.endsWith("\n");
   };
 }

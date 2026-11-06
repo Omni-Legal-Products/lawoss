@@ -8,6 +8,13 @@ Upstream test opravy #230 (`model-catalog-engine.e2e.test.ts`) čaká, že engin
 | --- | --- |
 | `apps/server/src/model-catalog-engine.e2e.test.ts` | `test.skipIf(!engineBin)` → `test.skip` +1 komentár. Správanie LAWOSS overuje nový `apps/server/src/lawoss/engine-catalog.integration.test.ts`: studený engine vidí katalóg z `LAWOSS_MODELS_CATALOG`, nie katalóg volajúceho, a zrkadlo volajúceho nedostane žiadnu požiadavku. Pri syncu zachovať, kým LAWOSS nespúšťa relay. |
 | `.github/workflows/ci-tests.yml` | Krok so skutočným enginom spúšťa aj `apps/server/src/lawoss/engine-catalog.integration.test.ts` (krok má `test -x`, nepreskočí sa potichu). |
+## Rozdrobený SSE stream: lineárny čas a `\r\n` medzi kúskami (2026-11-04, #337)
+
+`serverSentEvents()` robil pri každom kúsku `buffer += text` a `indexOf("\n\n")` od začiatku (kvadratický čas: rámec 200 000 B po 1 znaku ~2,5 s) a `\r\n` normalizoval po kúskoch, takže `\r` | `\n` medzi kúskami dal falošnú hranicu udalosti.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `packages/types/src/sync-events.ts` | `serverSentEvents()`: nedokončená udalosť sa drží ako zoznam kúskov a spája sa až po nájdení hranice, hľadá sa len od posledného prehľadaného miesta; po kúsku končiacom `\r` sa úvodné `\n` ďalšieho kúska zahodí (je to `\r\n`). `\n\n`, `\r\n\r\n` aj `\r\r` fungujú ako doteraz. Test: nový `apps/server/src/lawoss/server-sent-events-chunks.test.ts`. |
 
 ## Čitateľné Podrobnosti na karte úpravy súboru a externého priečinka (2026-10-31)
 
