@@ -45,7 +45,7 @@ Upstream test opravy #230 (`model-catalog-engine.e2e.test.ts`) čaká, že engin
 
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
-| `packages/types/src/sync-events.ts` | `serverSentEvents()`: nedokončená udalosť sa drží ako zoznam kúskov a spája sa až po nájdení hranice, hľadá sa len od posledného prehľadaného miesta; po kúsku končiacom `\r` sa úvodné `\n` ďalšieho kúska zahodí (je to `\r\n`). `\n\n`, `\r\n\r\n` aj `\r\r` fungujú ako doteraz. Test: nový `apps/server/src/lawoss/server-sent-events-chunks.test.ts`. |
+| `packages/types/src/sync-events.ts` | `serverSentEvents()`: nedokončená udalosť sa drží ako zoznam kúskov a spája sa až po nájdení hranice, hľadá sa len od posledného prehľadaného miesta; po kúsku končiacom `\r` sa úvodné `\n` ďalšieho kúska zahodí (je to `\r\n`). `\n\n`, `\r\n\r\n` aj `\r\r` fungujú ako doteraz. Test: nový `apps/server/src/lawoss/server-sent-events-chunks.test.ts`. Nedokončená udalosť má hranicu `maxEventBytes` (16 MiB): pridlhá sa zahodí celá a číta sa až od ďalšej hranice, nezávisle od delenia streamu. Po 256 kúskoch sa zlúči len beh od posledného zlúčenia, takže každý znak sa skopíruje raz a jednoznakové kúsky nestoja 10 B na znak (2026-11-06). |
 ## Automatická kontrola aktualizácií len s dostupným updaterom (2026-11-04)
 
 | Súbory | Downstream doplnenie a dôvod |
