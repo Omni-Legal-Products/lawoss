@@ -1408,6 +1408,30 @@ const EXISTING_MODE_HELP: Record<ExistingClientMode, string> = {
   convert: "convertHelp",
   map: "mapHelp",
 };
+/**
+ * Platnosť formulára klienta. Režim, pamäť, kotva, kam uložiť kópiu a potvrdenia patria len k pripojeniu
+ * existujúceho priečinka; nový klient potrebuje iba názov a nadradený priečinok. (Predvolený režim je
+ * `trial_clone` a jeho „kam uložiť kópiu“ sa pri novom klientovi odvodí z názvu ako prázdne, takže
+ * „Náhľad zmien“ ostával vypnutý.)
+ */
+export function clientFormValid(form: {
+  existing: boolean;
+  value: string;
+  clientParent: string;
+  mode: ExistingClientMode;
+  memoryPath: string;
+  identityAnchor: string;
+  cloneParent: string;
+  confirmedWrite: boolean;
+  confirmedClient: boolean;
+}): boolean {
+  if (!form.value.trim()) return false;
+  if (!form.existing) return Boolean(form.clientParent.trim());
+  if (form.mode === "map") return Boolean(form.memoryPath.trim() && form.identityAnchor.trim());
+  if (form.mode === "trial_clone" && !form.cloneParent.trim()) return false;
+  if (form.mode === "convert" && !form.confirmedWrite) return false;
+  return form.confirmedClient;
+}
 export function Client({
   base,
   locale,
@@ -1428,7 +1452,10 @@ export function Client({
 }) {
   const [existing, setExisting] = useState(initialExisting);
   const [value, setValue] = useState("");
-  const [clientParent, setClientParent] = useState(() => clientsFolderOf(base.officeRoot));
+  // Kým ho advokát nezmení, je to priečinok Klienti kancelárie; profil sa v toku z bočného panela
+  // načíta až po prvom vykreslení, preto odvodená hodnota, nie počiatočný stav.
+  const [clientParentChoice, setClientParent] = useState<string | null>(null);
+  const clientParent = clientParentChoice ?? clientsFolderOf(base.officeRoot);
   const [docLanguage, setDocLanguage] = useState<DocumentLanguage>(
     documentLanguage(locale),
   );
@@ -1466,13 +1493,9 @@ export function Client({
           date: today(),
           language: docLanguage,
         };
-  const valid =
-    value.trim() &&
-    (existing || clientParent.trim()) &&
-    (mode !== "map" || (memoryPath.trim() && identityAnchor.trim())) &&
-    (mode !== "trial_clone" || cloneParent.trim()) &&
-    (!existing || mode !== "convert" || confirmedWrite) &&
-    (!existing || mode === "map" || confirmedClient);
+  const valid = clientFormValid({
+    existing, value, clientParent, mode, memoryPath, identityAnchor, cloneParent, confirmedWrite, confirmedClient,
+  });
   return (
     <>
       <h2 className="text-xl font-semibold">{existing ? tr("attachTitle") : tr(addingClient ? "newClient" : "client")}</h2>
