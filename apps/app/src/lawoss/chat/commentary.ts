@@ -50,3 +50,13 @@ export function withCommentaryAnswer(message: UIMessage, info: AssistantTurnInfo
   if (!endsTurn(info) || message.parts.some((part) => part.type === "text") || !message.parts.some(isCommentaryReasoning)) return message;
   return { ...message, parts: message.parts.map((part) => part.type === "reasoning" && isCommentaryReasoning(part) ? { ...part, type: "text" as const } : part) };
 }
+
+/**
+ * Neskorý `message.part.updated` tej istej časti (#348): engine ju stále posiela ako komentár, takže by sa zmapovala
+ * späť na uvažovanie a odpoveď by zmizla. Časť, ktorú koniec ťahu (naživo či v načítanom chate) ukázal ako text,
+ * ostane textom a vezme si len novší obsah.
+ */
+export function keepCommentaryAnswer(existing: UIMessage["parts"][number], next: UIMessage["parts"][number]): UIMessage["parts"][number] {
+  const answered = existing.type === "text" && Reflect.get(existing.providerMetadata?.opencode ?? {}, "commentary") === true;
+  return answered && next.type === "reasoning" && isCommentaryReasoning(next) ? { ...next, type: "text" as const } : next;
+}
