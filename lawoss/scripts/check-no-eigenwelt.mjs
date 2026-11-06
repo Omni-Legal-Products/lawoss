@@ -446,9 +446,9 @@ STRUCTURE.push(
     why: "Kontrola pri otvorení len v LAWOSS Marketplace (checkOnOpen).",
   },
   {
-    file: "apps/app/src/lawoss/domains/onboarding/packs-step.tsx",
+    file: "apps/app/src/lawoss/domains/marketplace/marketplace-offer.tsx",
     mustNot: [/checkOnOpen/, /\.check\(/],
-    why: "Krok onboardingu pri otvorení nejde na sieť; inštaluje až tlačidlom.",
+    why: "Ponuka na konci onboardingu pri otvorení nejde na sieť; inštaluje až tlačidlom.",
   },
 );
 

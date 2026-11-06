@@ -173,6 +173,8 @@ export type OnboardingSuggestion = {
   complete: boolean;
   /** Priame podpriečinky s kanceláriou OKF (`<meno>/Office/okf.config`); advokát má zrejme pripojiť ten podpriečinok. */
   childOffices?: readonly string[];
+  /** Priame podpriečinky, ktoré sú samy praxou (aspoň dve, signál `several_practices`, N-A9-12); koreň sa nepripája. */
+  childPractices?: readonly string[];
   /** Náhľad stromu (C1): koreň („“) a kandidáti praxe s prípadmi a počtom súborov; starší server ich neposiela. */
   units?: readonly SuggestedUnit[];
   /** Názov z karty klienta priamo vo vybranom priečinku (N-A4-2); starší server ho neposiela. */

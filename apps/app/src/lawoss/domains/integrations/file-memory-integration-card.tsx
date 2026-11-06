@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { workspaceSettingsRoute } from "@/react-app/shell/workspace-routes";
-import { checkMemoryProfile, loadMemoryProfile, previewMemoryProfile, saveMemoryProfile, MEMORY_PROFILE_PATH, type MemoryProfileClient, type MemoryProfileSnapshot, type WorkspaceMemoryProfile } from "../../okf/workspace-memory-profile";
+import { checkMemoryProfile, loadMemoryProfile, memoryProfileProblem, previewMemoryProfile, saveMemoryProfile, MEMORY_PROFILE_PATH, type MemoryProfileClient, type MemoryProfileSnapshot, type WorkspaceMemoryProfile } from "../../okf/workspace-memory-profile";
 import { message } from "../../okf/read-model";
 
 type Props = { client: MemoryProfileClient | null; workspaceId: string | null; workspacePath: string; workspaceName: string; remote?: boolean };
@@ -52,7 +52,7 @@ export function MemoryProfileEditor({ client, workspaceId, initial, writable, on
   const pending = useRef(false);
   const dirty = JSON.stringify(draft) !== JSON.stringify(snapshot.profile) || snapshot.content === null;
   let preview = "", validation = "";
-  try { preview = previewMemoryProfile(draft); } catch (failure) { validation = message(failure); }
+  try { preview = previewMemoryProfile(draft); } catch (failure) { validation = memoryProfileProblem(draft, failure, locale); }
   async function run(save: boolean) {
     if (pending.current || save && (!writable || validation)) return;
     pending.current = true; setBusy(true); setError(""); setNotice(false); setStatus(null);
@@ -81,7 +81,7 @@ export function MemoryProfileEditor({ client, workspaceId, initial, writable, on
       {draft.sources.map((source, index) => <SourceFields key={index} source={source} index={index} roots={draft.roots} change={value => setDraft({ ...draft, sources: draft.sources.map((s, i) => i === index ? value : s) })} remove={() => setDraft({ ...draft, sources: draft.sources.filter((_, i) => i !== index) })} />)}
       <Button variant="outline" onClick={() => setDraft({ ...draft, sources: [...draft.sources, { id: "", root: draft.roots[0]?.id ?? "", path: "", role: "evidence", required: false, writable: false }] })}>{t("lawoss.integrations.memory.add_file", locale)}</Button>
     </fieldset>
-    <p role="status">{validation ? t("lawoss.integrations.memory.invalid", locale, { detail: validation }) : t("lawoss.integrations.memory.structure_valid", locale)}</p>
+    <p role="status">{validation ? t(snapshot.content === null ? "lawoss.integrations.memory.draft_incomplete" : "lawoss.integrations.memory.invalid", locale, { detail: validation }) : t("lawoss.integrations.memory.structure_valid", locale)}</p>
     <details><summary className="cursor-pointer font-medium">{t("lawoss.integrations.memory.preview", locale)}</summary>
       <div className="grid gap-3 lg:grid-cols-2"><div><p>{t("lawoss.integrations.memory.before", locale)}</p><pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all text-xs">{snapshot.content ?? t("lawoss.integrations.memory.absent", locale)}</pre></div><div><p>{t("lawoss.integrations.memory.after", locale)}</p><pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all text-xs">{preview || JSON.stringify(draft, null, 2)}</pre></div></div>
     </details>

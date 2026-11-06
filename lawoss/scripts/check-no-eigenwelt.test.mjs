@@ -195,7 +195,7 @@ describe("LAWOSS stráž Eigenweltu a analytiky", () => {
     // Inštalácia pre všetkých klientov z iného repozitára, upozornenie so sieťou, onboarding so sieťou pri otvorení.
     assert.ok(fails("apps/server/src/lawoss/marketplace-global.ts", (text) => text.replace("/tree/[a-f0-9]{40}/", "/tree/[^/]+/")));
     assert.ok(fails("apps/app/src/lawoss/domains/marketplace/update-notifier.tsx", (text) => text.replace("const view = await api.view()", 'await api.check("manual");\n      const view = await api.view()')));
-    assert.ok(fails("apps/app/src/lawoss/domains/onboarding/packs-step.tsx", (text) => text.replace("useLawossMarketplace({ api })", "useLawossMarketplace({ api, checkOnOpen: true })")));
+    assert.ok(fails("apps/app/src/lawoss/domains/marketplace/marketplace-offer.tsx", (text) => text.replace("useLawossMarketplace({ api })", "useLawossMarketplace({ api, checkOnOpen: true })")));
     assert.ok(fails("apps/server/src/server.ts", (text) => text.replace("const stopMarketplaceCheck = startWeeklyMarketplaceCheck(config);", "const stopMarketplaceCheck = () => undefined;")));
 
     // Nová adresa, druhý časovač alebo priamy fetch v module kontroly.

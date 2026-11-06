@@ -248,6 +248,29 @@ describe("Toto som našiel: veta podľa voľby, kancelária v podpriečinku, pra
   });
 });
 
+describe("koreň s viacerými praxami (N-A9-12)", () => {
+  const several = base({ root: "/p/pieskovisko", level: "unknown", score: 0, signals: ["several_practices"], childPractices: ["3-prax", "4-kancelaria"], childOffices: ["3-prax"] });
+  test("panel: len výber praxe, žiadna voľba Toto je ani odpovede", () => {
+    const picked: string[] = [];
+    const html = renderToStaticMarkup(<FoundView {...props} suggestion={several} level="client" onPickRoot={(path) => picked.push(path)} />);
+    expect(html).toContain("Tento priečinok obsahuje viac praxí naraz (2).");
+    expect(html).toMatch(/<button[^>]*>Vybrať 3-prax<\/button>/);
+    expect(html).toMatch(/<button[^>]*>Vybrať 4-kancelaria<\/button>/);
+    expect(html).not.toContain("<select");
+    expect(html).not.toContain("Áno, usporiadaj");
+    expect(html).not.toContain("Nie, nechaj ho tak, ako je");
+  });
+  test("sprievodca: len výber praxe, bez hlavnej akcie Pridať", async () => {
+    const { WizardFoundView } = await import("../src/lawoss/domains/onboarding/wizard/found-step");
+    const { wizardText } = await import("../src/lawoss/domains/onboarding/wizard/wizard-text");
+    const text = wizardText("sk");
+    const html = renderToStaticMarkup(<WizardFoundView text={text} found={foundText("sk")} busy={false} suggestion={several} headline="viac praxí" level="client" scope="client" selected={[]} onLevel={() => undefined} onScope={() => undefined} onToggle={() => undefined} onAll={() => undefined} onAdd={() => undefined} onTable={() => undefined} onPickRoot={() => undefined} childPath={(name) => `/p/pieskovisko/${name}`} />);
+    expect(html).toMatch(/<button[^>]*>Vybrať 4-kancelaria<\/button>/);
+    expect(html).not.toContain(text("foundAdd"));
+    expect(html).not.toContain('type="radio"');
+  });
+});
+
 describe("priečinok na zdieľanom alebo cloudovom disku (MČ 19. 10.)", () => {
   test("rozpozná zdieľané disky a cloudové úložiská na macOS aj Windows", async () => {
     const { cloudFolderKind } = await import("../src/lawoss/domains/onboarding/found-flow");

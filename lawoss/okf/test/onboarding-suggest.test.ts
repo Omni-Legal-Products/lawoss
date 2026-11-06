@@ -171,10 +171,11 @@ test("prax s klientmi s právnou formou ostáva praxou aj vedľa priečinka veci
 });
 
 test("kancelária OKF v priamom podpriečinku sa ohlási (MČ 19. 10.: Neusporiadany-klient a Usporiadana-kancelaria vedľa seba)", async () => {
-  const root = await tree(["Neusporiadany-klient/zmluva.docx", "Usporiadana-kancelaria/Klienti/", "Usporiadana-kancelaria/Office/okf.config", "Iná/_kancelaria/okf.config"]);
+  const root = await tree(["Neusporiadany-klient/zmluva.docx", "Usporiadana-kancelaria/Klienti/", "Usporiadana-kancelaria/Office/okf.config"]);
   const suggestion = await suggestOnboardingLevel(root);
   expect(suggestion).toMatchObject({ level: "client", signals: ["plain_directories"] });
-  expect(suggestion.childOffices).toEqual(["Iná", "Usporiadana-kancelaria"]);
+  expect(suggestion.childOffices).toEqual(["Usporiadana-kancelaria"]);
+  expect(suggestion).not.toHaveProperty("childPractices");
   // Bez kancelárie v podpriečinku pole nie je (staré tvary návrhu ostávajú rovnaké).
   expect(await suggestOnboardingLevel(await tree(["A/", "B/"]))).not.toHaveProperty("childOffices");
 });
@@ -376,4 +377,41 @@ test("N-A7-3: klienti praxe nie sú vnorenými klientmi koreňa praxe", async ()
   const suggestion = await suggestOnboardingLevel(root);
   expect(suggestion.level).toBe("practice");
   expect(suggestion.units.find(entry => entry.path === "")?.nestedClients).toEqual([]);
+});
+
+// N-A9-12 (test 2. 11. 2026): koreň pieskoviska s tromi praxami appka ponúkla ako jedného klienta.
+test("koreň s viacerými praxami nie je klient ani prax: vráti zoznam praxí na výber", async () => {
+  const root = await tree([
+    "2-jeden-klient/C001 SYN Tatran, s. r. o./M001 Úhrada/doc.pdf",
+    "3-neusporiadana-prax/Office/okf.config", "3-neusporiadana-prax/C002 SYN Hron, a. s./M004 Nájom/doc.pdf",
+    "4-usporiadana-kancelaria/Office/AGENTS.md", "4-usporiadana-kancelaria/Klienti/C001 SYN Alfa/client.md",
+    "5-bez-kancelarie/Klienti/",
+    "CITAJ-MA.md",
+  ]);
+  const suggestion = await suggestOnboardingLevel(root);
+  expect(suggestion).toMatchObject({ level: "unknown", score: 0, signals: ["several_practices"] });
+  expect(suggestion.childPractices).toEqual(["3-neusporiadana-prax", "4-usporiadana-kancelaria", "5-bez-kancelarie"]);
+  expect(suggestion.clients).toEqual([]);
+});
+test("prax, ktorej klienti majú veci a kódované dokumenty, nie je „viac praxí“", async () => {
+  const root = await tree(["C001 Alfa s.r.o./M001 Úhrada/F001 faktúra/doc.pdf", "C002 Beta a.s./M002 Nájom/F002 zmluva/doc.pdf"]);
+  const suggestion = await suggestOnboardingLevel(root);
+  expect(suggestion.signals).not.toContain("several_practices");
+  expect(suggestion.level).toBe("practice");
+});
+
+// N-A9-11 (test 2. 11. 2026): obal okolo jedného kódovaného klienta appka brala ako klienta s prípadom „C001…“.
+test("obal s jedným kódovaným klientom a jeho vecami je prax s jedným klientom", async () => {
+  const name = "C001 SYN Tatran Automatika, s. r. o.";
+  const root = await tree([`${name}/M001 Úhrada dodávok/doc.pdf`, `${name}/M002 Vady haly/doc.pdf`, `${name}/M003 Spoločník/doc.pdf`, "poznamky.txt"]);
+  const suggestion = await suggestOnboardingLevel(root);
+  expect(suggestion).toMatchObject({ level: "practice", marked: false, signals: ["single_client_wrapper"], clients: [{ path: name, name }] });
+  expect(suggestion.score).toBeLessThan(0.8);
+});
+test("klient s jedinou vecou a kódovanými dokumentmi ostáva klientom", async () => {
+  const root = await tree(["M001 Spor o náhradu/F001 žaloba/doc.pdf"], "C001 Alfa-");
+  expect((await suggestOnboardingLevel(root)).signals).not.toContain("single_client_wrapper");
+  // Obal s kódom (sám je klient „C001…“) nie je obal.
+  const coded = await tree(["C099 Beta/M001 Úhrada/doc.pdf"], "C001 Alfa-");
+  expect((await suggestOnboardingLevel(coded)).signals).not.toContain("single_client_wrapper");
 });

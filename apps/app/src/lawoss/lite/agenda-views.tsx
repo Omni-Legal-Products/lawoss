@@ -109,6 +109,9 @@ function Legend({ locale }: { locale: Language }) {
   </ul>;
 }
 
+/** Kde udalosť patrí: klient a prípad (N-A9-15), pri klientovi bez iného mena len prípad. */
+export const agendaPlace = (e: Pick<AgendaEvent, "client" | "matter">): string => e.client ? `${e.client} · ${e.matter.title}` : e.matter.title;
+
 function DayAgenda({ day, items, todayIso, locale }: { day: string; items: readonly AgendaEvent[]; todayIso: string; locale: Language }) {
   return <section className="lw-agenda" aria-label={t("lawoss.lite.agenda_title", locale)} data-lawoss-agenda={day}>
     <h3 className="lw-agenda-title">
@@ -120,7 +123,7 @@ function DayAgenda({ day, items, todayIso, locale }: { day: string; items: reado
         <Link to={e.link} onClick={openAppTask(e.appTaskId)} className="lw-agenda-item" data-kind={e.kind}>
           <span className="lw-agenda-main">
             <span className="lw-agenda-name" title={e.title}>{e.title}</span>
-            <small>{e.office ? t("lawoss.lite.scope_office", locale) : e.matter.title}</small>
+            <small>{e.office ? t("lawoss.lite.scope_office", locale) : agendaPlace(e)}</small>
           </span>
           <span className="lw-agenda-kind">{t(KIND_LABEL[e.kind], locale)}</span>
         </Link>
@@ -138,7 +141,7 @@ export function CandidatesPanel({ events, locale }: { events: readonly AgendaEve
     {candidates.length === 0 ? <p className="lw-agenda-empty">{t("lawoss.lite.candidates_empty", locale)}</p> : <ul>
       {candidates.map((e) => <li key={e.key}>
         <Link to={e.link} className="lw-agenda-item" data-kind="candidate">
-          <span className="lw-agenda-main"><span className="lw-agenda-name" title={e.title}>{e.title}</span><small>{e.matter.title}</small></span>
+          <span className="lw-agenda-main"><span className="lw-agenda-name" title={e.title}>{e.title}</span><small>{agendaPlace(e)}</small></span>
           <span className="lw-agenda-kind">{formatDay(e.date, locale)}</span>
         </Link>
       </li>)}

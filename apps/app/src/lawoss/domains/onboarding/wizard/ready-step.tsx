@@ -58,6 +58,8 @@ export type ReadyStepProps = {
   onOpenChat?: (request: ClientChatRequest) => Promise<ClientChatOutcome>;
   onFinish: (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => Promise<void>;
   onGo: (target: "folder" | "ai" | "approvals") => void;
+  /** Ponuka LAWOSS Marketplace pod prvou úlohou (MČ 2. 11. 2026); bez nej sa súhrn ukáže ako predtým. */
+  offer?: ReactNode;
   /** Krok práve pracuje (chat, usporiadanie): stránka vypne ukazovateľ priebehu a Späť. */
   onBusy?: (busy: boolean) => void;
   onError: (reason: unknown) => void;
@@ -65,7 +67,7 @@ export type ReadyStepProps = {
 };
 
 /** Súhrn a akcie (bez živých tokov); `onChat`/`onTable` chýbajú, keď ich volajúci nevie ponúknuť. */
-export function ReadySummaryView({ text, found, connected, model, agent, busy, nav, onGo, onChat, onOverview, onTable }: Pick<ReadyStepProps, "text" | "found" | "connected" | "model" | "agent" | "busy" | "nav" | "onGo"> & {
+export function ReadySummaryView({ text, found, connected, model, agent, busy, nav, onGo, onChat, onOverview, onTable, offer }: Pick<ReadyStepProps, "text" | "found" | "connected" | "model" | "agent" | "busy" | "nav" | "onGo" | "offer"> & {
   onChat?: () => void; onOverview: () => void; onTable?: () => void;
 }) {
   const rows = readyRows(text, { connected, model, agent });
@@ -112,6 +114,7 @@ export function ReadySummaryView({ text, found, connected, model, agent, busy, n
           </div>
         )}
       </section>
+      {offer}
       {plan.offerTable && onTable ? (
         <details className="lw-wiz-details">
           <summary>{found("advanced")}</summary>

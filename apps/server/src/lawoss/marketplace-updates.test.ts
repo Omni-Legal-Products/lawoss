@@ -7,6 +7,7 @@ import {
   WEEKLY_CHECK_INTERVAL_MS,
   checkMarketplaceRelease,
   highestVersionTag,
+  isNewerVersion,
   isWeeklyCheckDue,
   marketplaceApiUrl,
   marketplaceRawUrl,
@@ -122,4 +123,14 @@ describe("LAWOSS Marketplace: týždenná kontrola", () => {
     await runMarketplaceCheck(path, "manual", { now: () => now, fetchImpl });
     expect(calls.length).toBeGreaterThan(first);
   });
+});
+
+// Katalóg appky pripnutý na commit za posledným tagom (2. 11. 2026: cd70ece za v0.1.0): staršie vydanie nie je aktualizácia.
+test("aktualizácia len na novšiu verziu, nie späť na staršie vydanie", () => {
+  expect(isNewerVersion("1.1.0", "1.2.0")).toBe(false);
+  expect(isNewerVersion("1.2.0", "1.2.0")).toBe(false);
+  expect(isNewerVersion("1.2.1", "1.2.0")).toBe(true);
+  expect(isNewerVersion("1.10.0", "1.9.3")).toBe(true);
+  expect(isNewerVersion("1.0.0", null)).toBe(true);
+  expect(isNewerVersion("2026.11", "1.0.0")).toBe(true);
 });

@@ -49,6 +49,7 @@ import { OfficeStep } from "./wizard/office-step";
 import { AssistantStep } from "./wizard/assistant-step";
 import { ApprovalsStepView } from "./wizard/approvals-step";
 import { agentSummary, useAgentMode, type AgentModeApi, type FirmPermissions } from "./wizard/agent-mode";
+import { MarketplaceOffer } from "../marketplace/marketplace-offer";
 import { ReadyStep, type ReadyStepProps } from "./wizard/ready-step";
 import { readyChatClient } from "./wizard/ready-model";
 import { ConnectedTree, WizardConnectedView } from "./wizard/found-step";
@@ -1373,7 +1374,7 @@ export function LawossWelcomePage({
 function ReadyStepLive(props: Omit<ReadyStepProps, "model">) {
   const chatWith = readyChatClient(props.connected);
   const model = useOnboardingModel(chatWith ? { workspaceId: chatWith.result.workspace?.id, directory: chatWith.root } : undefined);
-  return <ReadyStep {...props} model={model} />;
+  return <ReadyStep {...props} model={model} offer={<MarketplaceOffer busy={props.busy} />} />;
 }
 
 /** Rodičovský priečinok cesty (aj vloženej v úvodzovkách); kópia skúšobného klonu vznikne predvolene vedľa originálu. */

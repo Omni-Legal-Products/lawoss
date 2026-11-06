@@ -96,6 +96,14 @@ export function registeredName(item: { root: string; name: string }, workspace: 
 }
 
 /** Cesta klienta z relatívnej cesty návrhu (vždy s „/“) v oddeľovači koreňa. */
+/**
+ * Podpriečinky-praxe, z ktorých si advokát vyberie jednu (N-A9-12). Prázdne pole: koreň nie je priečinok s viacerými
+ * praxami. Taký koreň sa nepripája ani ako klient, ani ako prax: agent by v jednom chate videl všetkých klientov.
+ */
+export function severalPractices(suggestion: OnboardingSuggestion): readonly string[] {
+  return suggestion.signals.includes("several_practices") ? suggestion.childPractices ?? [] : [];
+}
+
 export function childPath(root: string, relative: string): string {
   const separator = separatorOf(root);
   return [trimEnd(root), ...relative.split("/").filter(Boolean)].join(separator);
