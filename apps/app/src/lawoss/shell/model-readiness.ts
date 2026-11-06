@@ -2,10 +2,19 @@ import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 import type { ModelRef } from "@/app/types";
 import {
   countConnectedProviders,
+  getConnectedProviderItems,
   isModelAvailableInConnectedProviders,
   RETIRED_FREE_PROVIDER_IDS,
 } from "@/react-app/infra/provider-list-query";
 import { isFreeVariantId, withoutFreeModels } from "./free-models";
+
+/**
+ * Pripojení poskytovatelia s modelmi, ktoré výber modelu ponúkne (composer, Nastavenia AI, plánované
+ * úlohy, okno výberu). Bezplatný model sa neponúkne, lebo každý chat beží v priečinku klienta (#231).
+ */
+export function offeredProviderItems(providerList: ProviderListResponse | null | undefined) {
+  return getConnectedProviderItems(withoutFreeModels(providerList));
+}
 
 /**
  * Model state of the composer, computed once for every surface that shows it.

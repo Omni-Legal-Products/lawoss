@@ -1707,3 +1707,11 @@ Nález N-A8-6 z regresie 30. 10. 2026: po skončení behu ostal nad composerom p
 | Súbory | Downstream zmena a dôvod |
 | --- | --- |
 | `scripts/sandbox/ci-matrix.mjs`, `.github/workflows/sandbox-runtime.yml`, `scripts/ci/sandbox-matrix.test.mjs` | Windows položky matice nesú `qemuPackage` a `qemuSha256` balíka `qemu-11.1.2-1` z repozitára MSYS2. Krok „Download QEMU packages with retries (Windows)“ balík stiahne, overí SHA-256 a nainštaluje cez `pacman -U`; `-cc` ostáva cez `pacman -S`. Test overí pripnutie aj to, že workflow neinštaluje QEMU z hlavy repozitára. Dôvod: MSYS2 vydal 11.1.3 a `package-runtime.mjs` prijíma len overenú 11.1.2, takže `sandbox-runtime` na Windowse zlyhal a povinné „Package and launch“ sa preskočili (rozhodnutie MČ 31. 10.). Prechod na 11.1.3 je samostatný krok. |
+
+### Bezplatný model mimo onboardingu (2026-11-04, fix/bezplatny-model-mimo-onboardingu, #231)
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `apps/app/src/components/model-select.tsx`, `apps/app/src/react-app/domains/session/modals/use-model-picker.ts` | Ponuka modelov (composer, Nastavenia AI, domov, plánované úlohy, Fusion, okno výberu) číta `offeredProviderItems` z `lawoss/shell/model-readiness.ts` namiesto `getConnectedProviderItems`: upstream bezplatné modely (`isFreeModel`: `:free`, nulová cena pri `api`/`env`) sa neponúknu. Platené, vlastné a lokálne modely ostávajú. Dôvod: AGENTS.md „Do not use upstream free models with client, privileged, or matter data“; každý chat beží v priečinku klienta. Pri syncu zachovať. |
+| `apps/app/src/react-app/domains/session/chat/workspace-chat.tsx` | Model uložený pre kartu chatu (`legalwork.chat-models.v1`, posledne použitý v chate) sa hodnotí cez `modelReadiness` ako v composeri, takže bezplatný model je „nedostupný“ (predtým len `isModelAvailableInConnectedProviders`). |
+| `apps/app/src/app/lib/opencode.ts` | `createClient` odmietne `session.prompt`, `promptAsync` a `command` s modelom `:free` (`isFreeModelRequest`) chybou `session_route.model_unavailable` a nič neodošle. Poistka pre cesty mimo brány composera (hlas, pracovné postupy, úvodná správa projektu, uložené výbery). Model s nulovou cenou bez `:free` sa bez katalógu rozpoznať nedá; ten stráži `modelReadiness`. Regresia: `apps/app/tests/lawoss-free-model-paths.test.ts`. |
