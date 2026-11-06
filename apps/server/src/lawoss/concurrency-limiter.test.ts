@@ -41,4 +41,23 @@ describe("createConcurrencyLimiter", () => {
     // Po vyprázdnení fronty sa miesto vráti a ďalšia úloha nečaká.
     expect(await limited(async () => "free")).toBe("free");
   });
+
+  test("zaseknutá úloha po limite vráti miesto a ďalšie úlohy pokračujú", async () => {
+    const limited = createConcurrencyLimiter(1, 10);
+    const gate = deferred();
+    const stuck = limited(async () => { await gate.promise; return "stuck"; });
+    expect(await limited(async () => "next")).toBe("next");
+    gate.resolve();
+    expect(await stuck).toBe("stuck");
+    // Neskorý koniec zaseknutej úlohy nevráti miesto druhýkrát.
+    const order: string[] = [];
+    const hold = deferred();
+    const first = limited(async () => { order.push("first"); await hold.promise; });
+    const second = limited(async () => { order.push("second"); });
+    await tick();
+    expect(order).toEqual(["first"]);
+    hold.resolve();
+    await Promise.all([first, second]);
+    expect(order).toEqual(["first", "second"]);
+  });
 });

@@ -52,7 +52,8 @@ function removeWatcherReconciler(reconcile: () => void) {
 }
 // 🟡 LAWOSS: odtlačok číta celé súbory (pri plugins celý strom) a server v desktope beží
 // v hlavnom procese Electronu. Súbeh je preto spoločný pre všetky pracoviská a inštancie.
-const limitFingerprint = createConcurrencyLimiter(2);
+// Odpojený NAS nesmie zastaviť sledovanie zmien v ostatných priečinkoch.
+const limitFingerprint = createConcurrencyLimiter(2, 30_000);
 const watchedReasons: ReloadReason[] = ["config", "agents", "skills", "commands", "plugins"];
 
 function workspaceBootstrapScope(config: ServerConfig, workspace: WorkspaceInfo) {
