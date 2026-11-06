@@ -6,19 +6,30 @@
  * len v pamäti pre jeden chat: ďalšiu rovnakú otázku toho chatu odpovie „once“ sama, kým appka beží.
  * Úpravy súborov platia pre celý chat, priečinok mimo chatu len pre ten istý rozsah. Karta s varovaním
  * o inom klientovi sa vždy pýta (ako v YOLO, MČ 31. 10. 2026) a toto tlačidlo nemá. Zápis do pamäte prípadu
- * (`metadata.lawossMemory`) schvaľuje advokát vždy zvlášť, povolenie ho nepokryje.
+ * (`metadata.lawossMemory`) schvaľuje advokát vždy zvlášť, povolenie ho nepokryje. Rovnako zmazanie do Koša
+ * (`lawossFiles[].operation === "delete"`, aj v dávke s presunmi): AGENTS.md žiada výslovné potvrdenie človekom.
+ * Presuny, premenovania, kópie a nové priečinky povolenie pokrýva, MČ chce autonómny OpenCode (6. 11. 2026).
  */
 import type { PendingPermission } from "@/app/types";
+import { mayDeleteFiles } from "./file-operation-card";
 
 type Kind = "edit" | "folder";
 type Grant = { edit: boolean; folders: Set<string> };
 type Request = Pick<PendingPermission, "protocol" | "permission" | "patterns" | "metadata">;
 
 const grants = new Map<string, Grant>();
+/**
+ * Kto na žiadosť práve odpovedá. Je mimo Reactu, lebo tú istú žiadosť vidí chat aj otvorený podagent a po
+ * znovuotvorení chatu beží nový hook. „app“ ostáva aj po úspechu, žiadosť sa znova neodpovie.
+ */
+const replies = new Map<string, "app" | "lawyer">();
+/** Odpoveď zlyhala: žiadosť ostáva na karte a appka za ňu už neodpovie. */
+const leftToLawyer = new Set<string>();
 
 function kind(permission: Request): Kind | null {
   if (permission.protocol === "host") return null;
   if (permission.metadata && typeof permission.metadata === "object" && "lawossMemory" in permission.metadata) return null;
+  if (permission.metadata && typeof permission.metadata === "object" && mayDeleteFiles(permission.metadata)) return null;
   if (permission.permission === "edit" || permission.permission === "lawoss_file_change") return "edit";
   if (permission.permission === "external_directory" && permission.patterns.length > 0) return "folder";
   return null;
@@ -50,7 +61,37 @@ export function coveredBySessionApproval(permission: Request, chats: readonly st
   });
 }
 
+/** Má appka odpovedať „once“ teraz? Pokrytá žiadosť, na ktorú ešte nikto neodpovedá a ktorej odpoveď nezlyhala. */
+export function autoReplyDue(permission: Request & Pick<PendingPermission, "id">, chats: readonly string[]): boolean {
+  return !replies.has(permission.id) && !leftToLawyer.has(permission.id) && coveredBySessionApproval(permission, chats);
+}
+
+/** Odpovedá za žiadosť appka? Taká žiadosť sa nesmie ukázať ako karta. */
+export function answeredByApp(permission: Request & Pick<PendingPermission, "id">, chats: readonly string[]): boolean {
+  return replies.get(permission.id) === "app" || autoReplyDue(permission, chats);
+}
+
+/** Vezme si žiadosť na odpoveď; `false`, keď na ňu už odpovedá niekto iný. */
+export function claimPermissionReply(requestID: string, who: "app" | "lawyer"): boolean {
+  if (replies.has(requestID)) return false;
+  replies.set(requestID, who);
+  return true;
+}
+
+/** Advokátova odpoveď dobehla, žiadosť už nikto nedrží. */
+export function releasePermissionReply(requestID: string): void {
+  replies.delete(requestID);
+}
+
+/** Odpoveď zlyhala: rozhodne advokát na karte. */
+export function leavePermissionToLawyer(requestID: string): void {
+  replies.delete(requestID);
+  leftToLawyer.add(requestID);
+}
+
 /** Pre testy. */
 export function clearSessionApprovals(): void {
   grants.clear();
+  replies.clear();
+  leftToLawyer.clear();
 }

@@ -99,6 +99,13 @@ function warnings(change: PlannedChange): string[] {
 const scratchFolder = (change: PlannedChange): boolean =>
   change.operation === "create_folder" && /(?:^|\/)\.legalwork\/scratch(?:\/|$)/.test(change.to ?? "");
 
+/** Can this request delete anything? A plan that cannot be read counts as yes, it may hide a deletion. */
+export function mayDeleteFiles(metadata: Record<string, unknown>): boolean {
+  if (metadata.lawossFiles === undefined) return false;
+  const changes = plannedChanges(metadata);
+  return !changes || changes.some((change) => change.operation === "delete");
+}
+
 /** The card's readable content, or `null` when the request is not from `lawoss_files`. */
 export type FileOperationDetails = { reason: string | null; lines: string[] };
 
