@@ -35,9 +35,10 @@ existujúci hostiteľský runtime store; viditeľné allow pravidlá v pracovnom
 Authorized Folders. Ak runtime obsahuje deny alebo vlastné pravidlá, externé
 korene sa konzervatívne nepovolia, aby široký allow neobišiel užší deny.
 
-Server sa pýta kľúčom enginu viazaným na reláciu (`LEGALWORK_WIKI_AGENT_TOKEN` s ID
-relácie a jej priečinkom). Engine nedostáva serverový token, server odpovie len pre
-workspace, ktorý zaznamenal pre danú reláciu.
+Server sa pýta kľúčom enginu viazaným na reláciu (kľúč drží plugin enginu v pamäti,
+`opencode-plugins/wiki-agent-secret.ts`, posiela sa s ID relácie a jej priečinkom).
+Engine nedostáva serverový token, server odpovie len pre workspace, ktorý zaznamenal
+pre danú reláciu.
 
 Výpadok hosta, nejednoznačný workspace alebo odobratý grant checkpoint odmietnu.
 Chýbajúce `LEGALWORK_SERVER_URL` alebo kľúč enginu nikdy nezapnú fallback.

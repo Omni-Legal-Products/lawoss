@@ -32,7 +32,7 @@ export type OpencodeExecutionSnapshot = {
   env: OpencodeExecutionEnvEntry[];
 };
 
-const SECRET_ENV_PATTERN = /(TOKEN|PASSWORD|USERNAME|AUTH|SECRET|KEY|CREDENTIAL)/i;
+const SECRET_ENV_PATTERN = /(TOKEN|TICKET|PASSWORD|USERNAME|AUTH|SECRET|KEY|CREDENTIAL)/i;
 
 // opencode keeps a single persistent SQLite DB (WAL mode) shared across every
 // launch. When the app restarts, the previous engine's OS file lock can still

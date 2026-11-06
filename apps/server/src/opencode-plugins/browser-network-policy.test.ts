@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import { LegalWorkSandbox } from "./legalwork-sandbox.js";
 import { LegalWorkExtensionsPreview } from "./legalwork-extensions-preview.js";
 import { requireBrowserNetwork } from "./browser-network-policy.js";
@@ -19,9 +20,9 @@ test("browser tools use fresh effective chat policy, including native tools and 
     if (path === "/workspace/project/sandbox/session/calling-chat") return Response.json(settings, { status });
     return new Response("Unexpected route", { status: 404 });
   } });
-  const previous = { url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_WIKI_AGENT_TOKEN };
+  const previous = { url: process.env.LEGALWORK_SERVER_URL, token: wikiAgentSecret() };
   process.env.LEGALWORK_SERVER_URL = api.url.origin;
-  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "fixture";
+  adoptWikiAgentSecret("fixture");
   try {
     const plugin = await LegalWorkSandbox({ directory: "/project" });
     const before = plugin["tool.execute.before"];
@@ -61,7 +62,7 @@ test("browser tools use fresh effective chat policy, including native tools and 
     await expect(extensions.tool.legalwork_ui_execute_action.execute({ actionId: "browser.open_url", args: { url: "https://example.org", sessionId: "other-chat" } }, context)).rejects.toThrow("disabled");
   } finally {
     if (previous.url === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previous.url;
-    if (previous.token === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = previous.token;
+    adoptWikiAgentSecret(previous.token);
     api.stop(true);
   }
 });

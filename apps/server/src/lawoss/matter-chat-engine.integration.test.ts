@@ -13,8 +13,9 @@ import { z } from "zod";
 import { startServer } from "../server.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
-import { ensureWikiAgentToken } from "../wiki/agent-access.js";
+import { issueWikiAgentTicket } from "../wiki/agent-access.js";
 import { removeTestDir } from "./test-support/remove-test-dir.js";
+import { WIKI_AGENT_TICKET_ENV } from "./engine-agent-contract.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 const toolPart = z.object({ type: z.literal("tool"), tool: z.string(), state: z.object({ status: z.string(), output: z.string().optional(), error: z.string().optional() }).passthrough() }).passthrough();
@@ -68,7 +69,7 @@ test.skipIf(!binary)("chat prípadu prijme prvú správu cez front a jeho nástr
     PATH: process.env.PATH ?? "", HOME: join(home, "home"), OPENCODE_TEST_HOME: join(home, "home"),
     XDG_CONFIG_HOME: join(home, "config"), XDG_DATA_HOME: join(home, "data"), XDG_CACHE_HOME: join(home, "cache"), XDG_STATE_HOME: join(home, "state"),
     OPENCODE_CONFIG: engineConfig, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-    LEGALWORK_SERVER_URL: `http://127.0.0.1:${server.port}`, LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config),
+    LEGALWORK_SERVER_URL: `http://127.0.0.1:${server.port}`, [WIKI_AGENT_TICKET_ENV]: issueWikiAgentTicket(config),
   }, stdout: "ignore", stderr: "pipe" });
   const logs = new Response(engine.stderr).text();
   const call = async (path: string, init: RequestInit = {}) => {

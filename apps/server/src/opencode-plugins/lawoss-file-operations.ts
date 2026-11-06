@@ -14,6 +14,7 @@ import { z } from "zod";
 import { chatFilePath, chatWorkspace } from "./lawoss-file-paths.js";
 import { EXACT_NAME_RULE, FILE_REPORT_RULE, fileOperationToolText, MOVE_ACROSS_DRIVES_RULE } from "./lawoss-file-operations-text.js";
 import { listWorkspaces, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
+import { hideEngineEnvFromShell } from "./wiki-agent-secret.js";
 
 const pathArg = z.string().min(1).max(4096);
 // A flat object, not a union: every provider's tool schema accepts it (Gemini and OpenAI reject some anyOf shapes).
@@ -57,6 +58,7 @@ function visiblePaths(plan: Plan): string[] {
 }
 
 export const LawossFileOperations = async () => ({
+  "shell.env": async (_input: unknown, output: { env: Record<string, string | undefined> }) => { hideEngineEnvFromShell(output); },
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => { output.system.push(SYSTEM); },
   tool: {
     lawoss_files: {

@@ -10,6 +10,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import { TaskStore } from "../task-store.js";
 import { readProjectContent, type ProjectContentSources } from "../project-contents.js";
 import { nextOccurrence } from "./schedule.js";
+import { WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "../lawoss/engine-agent-contract.js";
 
 // Opt-in integration with the shipped engine. No live model/account is used.
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
@@ -27,6 +28,7 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
   const sourceReads: string[] = [];
   const serverAuth: Array<{ authorization: string | null; session: string | null }> = [];
   const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    if (new URL(request.url).pathname === WIKI_AGENT_TICKET_PATH) return Response.json({ secret: "fixture" });
     const path = new URL(request.url).pathname;
     // LAWOSS: the engine reaches the server only with its chat-bound credential.
     if (path.startsWith("/workspace") || path.startsWith("/scheduled-tasks"))
@@ -86,7 +88,7 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
   const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: folder, env: {
     ...process.env, XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"),
     XDG_STATE_HOME: join(root, "state"), OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: config, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-    LEGALWORK_UI_CONTROL_DISCOVERY: discovery, LEGALWORK_SERVER_URL: fixture.url.origin, LEGALWORK_WIKI_AGENT_TOKEN: "fixture", TZ: "Europe/Berlin",
+    LEGALWORK_UI_CONTROL_DISCOVERY: discovery, LEGALWORK_SERVER_URL: fixture.url.origin, [WIKI_AGENT_TICKET_ENV]: "synthetic-ticket", TZ: "Europe/Berlin",
   }, stdout: "ignore", stderr: "pipe" });
   const logs = new Response(engine.stderr).text();
   const base = `http://127.0.0.1:${port}`;

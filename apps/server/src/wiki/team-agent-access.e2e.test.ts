@@ -1,4 +1,5 @@
 import { scopedWikiRuntime } from "./scoped-runtime.test-helper.js";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "../opencode-plugins/wiki-agent-secret.js";
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
@@ -57,16 +58,20 @@ async function teamFlow(sandbox?: VmSandbox) {
   const agentToken = await ensureWikiAgentToken(member.config);
   for (const [sessionId, directory] of [["matter-agent", project.path], ["wiki-agent", wiki.root]])
     await grantWikiAgentSession(member.config, { sessionId, directory, scope: "owner" });
-  const previous = { LEGALWORK_SERVER_URL: process.env.LEGALWORK_SERVER_URL, LEGALWORK_SERVER_TOKEN: process.env.LEGALWORK_SERVER_TOKEN, LEGALWORK_WIKI_AGENT_TOKEN: process.env.LEGALWORK_WIKI_AGENT_TOKEN };
-  Object.assign(process.env, { LEGALWORK_SERVER_URL: b.url, LEGALWORK_SERVER_TOKEN: member.config.token, LEGALWORK_WIKI_AGENT_TOKEN: agentToken });
-  cleanup.push(async () => { for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
+  const previous = { LEGALWORK_SERVER_URL: process.env.LEGALWORK_SERVER_URL, LEGALWORK_SERVER_TOKEN: process.env.LEGALWORK_SERVER_TOKEN };
+  const previousSecret = wikiAgentSecret();
+  Object.assign(process.env, { LEGALWORK_SERVER_URL: b.url, LEGALWORK_SERVER_TOKEN: member.config.token });
+  adoptWikiAgentSecret(agentToken);
+  cleanup.push(async () => { adoptWikiAgentSecret(previousSecret); for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
   const outside = await LegalWorkWikiTools({ directory: project.path, sessionID: "matter-agent" });
-  const refused = await fetch(`${b.url}/wikis`,{ headers: {
-    "x-legalwork-wiki-agent-token": agentToken,"x-legalwork-wiki-agent-session": "wiki-agent",
+  const claim = (session: string) => fetch(`${b.url}/wikis`,{ headers: {
+    "x-legalwork-wiki-agent-token": agentToken,"x-legalwork-wiki-agent-session": session,
     "x-legalwork-wiki-agent-directory": encodeURIComponent(wiki.root),
   } });
+  expect((await claim("wiki-agent")).status).toBe(200);
+  const refused = await claim("matter-agent");
   expect(refused.status).toBe(403);
-  expect(await refused.json()).toMatchObject({ code: "wiki_agent_client_runtime_required" });
+  expect(await refused.json()).toMatchObject({ code: "wiki_agent_directory_mismatch" });
   const wikiRuntime = await scopedWikiRuntime(member.config,"wiki-agent",wiki.root);
   cleanup.push(() => wikiRuntime.close());
   expect(wikiRuntime.config === member.config).toBe(false);
@@ -150,9 +155,11 @@ test("private wiki setup can discover its own connected storage and execution se
   const workspace = owner.config.workspaces.find(item => item.id === wiki.workspaceId);
   if (!workspace) throw new Error("Wiki workspace missing");
   workspace.baseUrl = `http://127.0.0.1:${engine.port}`;
-  const previous = { LEGALWORK_SERVER_URL: process.env.LEGALWORK_SERVER_URL, LEGALWORK_SERVER_TOKEN: process.env.LEGALWORK_SERVER_TOKEN, LEGALWORK_WIKI_AGENT_TOKEN: process.env.LEGALWORK_WIKI_AGENT_TOKEN };
-  Object.assign(process.env, { LEGALWORK_SERVER_URL: server.url, LEGALWORK_SERVER_TOKEN: owner.config.token, LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(owner.config) });
-  cleanup.push(async () => { for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
+  const previous = { LEGALWORK_SERVER_URL: process.env.LEGALWORK_SERVER_URL, LEGALWORK_SERVER_TOKEN: process.env.LEGALWORK_SERVER_TOKEN };
+  const previousSecret = wikiAgentSecret();
+  Object.assign(process.env, { LEGALWORK_SERVER_URL: server.url, LEGALWORK_SERVER_TOKEN: owner.config.token });
+  adoptWikiAgentSecret(await ensureWikiAgentToken(owner.config));
+  cleanup.push(async () => { adoptWikiAgentSecret(previousSecret); for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
   // Existing chats have no in-memory grant after a server restart. Authenticated
   // queue interaction restores it without trusting caller-supplied scope.
   await expect(resolveWorkspaceId(context, { requireDirectory: true })).rejects.toThrow("Workspace lookup failed");

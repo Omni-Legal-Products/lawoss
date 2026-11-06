@@ -13,6 +13,7 @@ import { closeRuntimeOpencodeConfig, runtimeStorageDir, writeRuntimeOpencodeConf
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { LawossDocuments } from "./documents/service.js";
 import { documentLinkedFolders, writeLinkedFoldersMap } from "./linked-folders.js";
+import { WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "./engine-agent-contract.js";
 
 /**
  * LAWOSS alfa2 A3 (N-18, N-19) v pribalenom engine 1.18.29: klient A má pripojený priečinok s PDF, klient B nie.
@@ -76,6 +77,7 @@ test.skipIf(!binary)("pripojený priečinok: chat klienta aj prípadu čítajú 
     ? Response.json({ code: error.code, message: error.message }, { status: error.status })
     : Response.json({ code: "failed", message: error instanceof Error ? error.message : String(error) }, { status: 500 });
   const fixture = Bun.serve({ port: 0, idleTimeout: 120, async fetch(request) {
+    if (new URL(request.url).pathname === WIKI_AGENT_TICKET_PATH) return Response.json({ secret: "fixture" });
     const url = new URL(request.url), path = url.pathname;
     if (path === "/workspaces") return Response.json({ items: workspaces.map(({ id, path }) => ({ id, path })) });
     const route = /^\/workspace\/([^/]+)\/(.+)$/.exec(path);
@@ -169,7 +171,7 @@ test.skipIf(!binary)("pripojený priečinok: chat klienta aj prípadu čítajú 
   const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: clientA, env: {
     ...process.env, HOME: root, XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
     OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: engineConfig, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-    LEGALWORK_SERVER_URL: fixture.url.origin, LEGALWORK_WIKI_AGENT_TOKEN: "fixture",
+    LEGALWORK_SERVER_URL: fixture.url.origin, [WIKI_AGENT_TICKET_ENV]: "synthetic-ticket",
   }, stdout: "ignore", stderr: "pipe" });
   const logs = new Response(engine.stderr).text();
   engineBase = `http://127.0.0.1:${port}`;

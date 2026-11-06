@@ -102,7 +102,8 @@ import { requireProjectAppFilesInside, usesExternalWorkspaceAppFiles, workspaceA
 import { isPathWithin } from "./lawoss/path-within.js";
 import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
-import { agentMayList, authenticateWikiAgentRequest, configureWikiAgentSessionLookup, grantWikiAgentSession } from "./wiki/agent-access.js";
+import { agentMayList, authenticateWikiAgentRequest, configureWikiAgentSessionLookup, grantWikiAgentSession, redeemWikiAgentTicket } from "./wiki/agent-access.js";
+import { WIKI_AGENT_TICKET_PATH } from "./lawoss/engine-agent-contract.js";
 import { EnvService } from "./env-file.js";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports, withPluginImportLock } from "./plugin-imports.js";
 import { createdPluginId, parsePluginCreateRequest, planPluginCreation, pluginCreateOptions } from "./plugin-create.js";
@@ -3244,6 +3245,12 @@ function createRoutes(
     const key = typeof body.key === "string" ? body.key.trim() : null;
     if (body.key !== null && !key) throw new ApiError(400, "invalid_payload", "key must be a non-empty string, or null to remove it");
     return jsonResponse(await setFirmHubMemberKey(config, ctx.params.itemId ?? "", key));
+  });
+  // LAWOSS: the engine's plugin exchanges its single-use ticket here; the ticket is the only authority.
+  addRoute(routes, "POST", WIKI_AGENT_TICKET_PATH, "none", async (ctx) => {
+    const { ticket, nonce } = await readJsonBodyLimited(ctx.request, 1024).catch(() => ({ ticket: "", nonce: "" }));
+    const secret = redeemWikiAgentTicket(config, typeof ticket === "string" ? ticket : "", typeof nonce === "string" ? nonce : "");
+    return new Response(JSON.stringify({ secret }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
   });
   // For the engine's guard plugin: what the firm enforces now. The folder it
   // enforces through is checked on the way: a changed one is restored, and the

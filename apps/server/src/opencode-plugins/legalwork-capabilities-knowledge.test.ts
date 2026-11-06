@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import { LegalWorkCapabilitiesKnowledge } from "./legalwork-capabilities-knowledge.js";
 
 describe("LegalWork capabilities knowledge plugin", () => {
@@ -14,7 +15,7 @@ describe("LegalWork capabilities knowledge plugin", () => {
 
   test("reports the project prompt as a reminder, resolving Windows project paths without matching neighbouring folders", async () => {
     const previousUrl = process.env.LEGALWORK_SERVER_URL;
-    const previousToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    const previousToken = wikiAgentSecret();
     let requestCount = 0;
     const server = Bun.serve({
       hostname: "127.0.0.1",
@@ -37,7 +38,7 @@ describe("LegalWork capabilities knowledge plugin", () => {
       },
     });
     process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${server.port}`;
-    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-token";
+    adoptWikiAgentSecret("test-token");
     /** The fixed system text and the reminder on the next user message. */
     const modelContext = async (plugin: Awaited<ReturnType<typeof LegalWorkCapabilitiesKnowledge>>) => {
       const output: { system: string[] } = { system: [] };
@@ -74,8 +75,7 @@ describe("LegalWork capabilities knowledge plugin", () => {
       server.stop(true);
       if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
       else process.env.LEGALWORK_SERVER_URL = previousUrl;
-      if (previousToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
-      else process.env.LEGALWORK_WIKI_AGENT_TOKEN = previousToken;
+      adoptWikiAgentSecret(previousToken);
     }
   });
 });

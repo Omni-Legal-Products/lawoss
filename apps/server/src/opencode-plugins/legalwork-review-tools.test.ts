@@ -1,8 +1,9 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import { LegalWorkReviewTools } from "./legalwork-review-tools.js";
 import { z } from "zod";
 import { SavedReviewSchema } from "@legalwork/types/reviews";
-const originalUrl = process.env.LEGALWORK_SERVER_URL, originalAgentToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN, originalServerToken = process.env.LEGALWORK_SERVER_TOKEN;
+const originalUrl = process.env.LEGALWORK_SERVER_URL, originalAgentToken = wikiAgentSecret(), originalServerToken = process.env.LEGALWORK_SERVER_TOKEN;
 const calls: Array<{ path: string; search: string; method: string; body: unknown; session: string | null; directory: string | null }> = [];
 let denied = false;
 let unavailable = false;
@@ -62,12 +63,12 @@ const server = Bun.serve({ port: 0, async fetch(request) {
   if (path.endsWith("/project/contents")) return Response.json({ version: 1, project: { id: "project", name: "Private name", fields: [] }, sections: [{ kind: "files", path: "Contracts", unavailable, nextCursor: "page-2", items: [{ id: "Contracts/a.pdf", kind: "files", title: "a.pdf", directory: false }, { id: "Contracts/Archive", kind: "files", title: "Archive", directory: true }] }] });
   return Response.json({ fixture: true, settings: { mode: "jev" } });
 } });
-process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_WIKI_AGENT_TOKEN = "fixture-relay";
+process.env.LEGALWORK_SERVER_URL = server.url.origin; adoptWikiAgentSecret("fixture-relay");
 // A stale server-wide token in the environment must never be forwarded (the fixture rejects any Authorization header).
 process.env.LEGALWORK_SERVER_TOKEN = "stale-relay";
 const plugin = await LegalWorkReviewTools();
 beforeEach(() => { calls.length = 0; denied = false; unavailable = false; launchFixture = false; launchFail = false; launchUnreadable = false; selectionFixture = undefined; exportFixture = false; exportDraft = false; reportFixture = false; reportWrongHash = false; reportLibraryFixture = false; });
-afterAll(() => { server.stop(true); if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = originalUrl; if (originalAgentToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalAgentToken; if (originalServerToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = originalServerToken; });
+afterAll(() => { server.stop(true); if (originalUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = originalUrl; adoptWikiAgentSecret(originalAgentToken); if (originalServerToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = originalServerToken; });
 const context = { directory: "/project", sessionID: "parent" };
 const id = "8d421fb4-3f23-49e3-a5a2-01a2f3cd9911";
 
@@ -237,9 +238,9 @@ test("review tools are scoped to the exact or closest registered project, never 
   // Without the calling chat or the agent credential the tools never reach the server.
   const unconnected = { ok: false, error: { message: "A connected project is required." } };
   expect(JSON.parse(await plugin.tool.legalwork_review_settings.execute({}, { directory: "/project" }))).toEqual(unconnected);
-  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "";
+  adoptWikiAgentSecret("");
   try { expect(JSON.parse(await plugin.tool.legalwork_review_settings.execute({}, context))).toEqual(unconnected); }
-  finally { process.env.LEGALWORK_WIKI_AGENT_TOKEN = "fixture-relay"; }
+  finally { adoptWikiAgentSecret("fixture-relay"); }
   expect(calls).toHaveLength(0);
 });
 test("agents cannot override mode or inject backend/model settings into create or start", async () => {

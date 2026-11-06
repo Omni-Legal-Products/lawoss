@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "../lawoss/engine-agent-contract.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "./agent-access.js";
 
 /** Independent actual server/credential owner, sharing only the fixture's wiki registry and files. */
@@ -19,11 +20,16 @@ export async function scopedWikiRuntime(source: ServerConfig, sessionId: string,
     "x-legalwork-wiki-agent-session": sessionId, "x-legalwork-wiki-agent-directory": encodeURIComponent(directory),
   });
   const run = async <T>(action: () => Promise<T>): Promise<T> => {
-    const values = { LEGALWORK_SERVER_URL: url, LEGALWORK_SERVER_TOKEN: config.token, LEGALWORK_WIKI_AGENT_TOKEN: token };
+    const values = { LEGALWORK_SERVER_URL: url, LEGALWORK_SERVER_TOKEN: config.token };
     const previous = Object.fromEntries(Object.keys(values).map(key => [key,process.env[key]]));
+    const previousSecret = wikiAgentSecret();
     Object.assign(process.env,values);
+    adoptWikiAgentSecret(token);
     try { return await action(); }
-    finally { for (const [key,value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    finally {
+      adoptWikiAgentSecret(previousSecret);
+      for (const [key,value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
   };
   return { config,url,headers,run,close: async () => { await server.stop(); } };
 }

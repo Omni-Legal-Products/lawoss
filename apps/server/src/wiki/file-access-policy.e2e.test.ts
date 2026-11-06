@@ -1,4 +1,5 @@
 import { scopedWikiRuntime } from "./scoped-runtime.test-helper.js";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "../opencode-plugins/wiki-agent-secret.js";
 import { enforceAiBoundaries } from "../lawoss/test-support/ai-boundaries.js";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -38,22 +39,25 @@ test("wiki tools respect project access without overriding host file access", as
   await grantWikiAgentSession(config, { sessionId: "wiki-session", directory: wiki.root, scope: "owner" });
   const server = await startServer(config); cleanup.push(async () => { await server.stop(); });
   const base = `http://127.0.0.1:${server.port}`;
-  const previous = { url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN, agent: process.env.LEGALWORK_WIKI_AGENT_TOKEN };
-  process.env.LEGALWORK_SERVER_URL = base; process.env.LEGALWORK_SERVER_TOKEN = config.token; process.env.LEGALWORK_WIKI_AGENT_TOKEN = token;
+  const previous = { url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN, agent: wikiAgentSecret() };
+  process.env.LEGALWORK_SERVER_URL = base; process.env.LEGALWORK_SERVER_TOKEN = config.token; adoptWikiAgentSecret(token);
   cleanup.push(async () => {
-    for (const [key, value] of Object.entries({ LEGALWORK_SERVER_URL: previous.url, LEGALWORK_SERVER_TOKEN: previous.token, LEGALWORK_WIKI_AGENT_TOKEN: previous.agent }))
+    adoptWikiAgentSecret(previous.agent);
+    for (const [key, value] of Object.entries({ LEGALWORK_SERVER_URL: previous.url, LEGALWORK_SERVER_TOKEN: previous.token }))
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
   });
   const project = await LegalWorkWikiTools({ directory: workspace.path });
   await expect(project["tool.execute.before"]({ tool: "read", sessionID: "project-session" }, { args: { filePath: join(root, "outside.txt") } })).resolves.toBeUndefined();
   expect(project).not.toHaveProperty("shell.env");
-  // The shared project credential cannot become a wiki credential by naming another session.
-  const denied = await fetch(`${base}/wikis/file-policy`, { headers: {
-    "x-legalwork-wiki-agent-token": token, "x-legalwork-wiki-agent-session": "wiki-session",
+  // The wiki's own registered chat is served for its own directory; a project chat cannot claim that directory.
+  const claim = (session: string) => fetch(`${base}/wikis`, { headers: {
+    "x-legalwork-wiki-agent-token": token, "x-legalwork-wiki-agent-session": session,
     "x-legalwork-wiki-agent-directory": encodeURIComponent(wiki.root),
   } });
+  expect((await claim("wiki-session")).status).toBe(200);
+  const denied = await claim("project-session");
   expect(denied.status).toBe(403);
-  expect(await denied.json()).toMatchObject({ code: "wiki_agent_client_runtime_required" });
+  expect(await denied.json()).toMatchObject({ code: "wiki_agent_directory_mismatch" });
   const wikiRuntime = await scopedWikiRuntime(config,"wiki-session",wiki.root);
   cleanup.push(() => wikiRuntime.close());
   expect(wikiRuntime.config === config).toBe(false);

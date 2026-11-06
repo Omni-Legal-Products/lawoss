@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { startEmbeddedServer } from "../embedded.js";
-import { grantWikiAgentSession } from "../wiki/agent-access.js";
+import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
+import { WIKI_AGENT_TICKET_PATH } from "./engine-agent-contract.js";
 
 /**
  * LAWOSS: one managed engine serves every client folder. Its plugins may reach only the
@@ -12,21 +13,29 @@ import { grantWikiAgentSession } from "../wiki/agent-access.js";
  * but what it inherited, the way a plugin (or a shell reading its environment) would.
  */
 const engine = `#!${process.execPath}
+// Like the plugins: the first instance request loads them, which redeems the ticket once.
+const ticket = process.env.LEGALWORK_WIKI_AGENT_TICKET;
+delete process.env.LEGALWORK_WIKI_AGENT_TICKET;
+let redemption, settled = false;
+const redeem = () => redemption ??= fetch(process.env.LEGALWORK_SERVER_URL + "/engine-agent/ticket", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticket }) }).then((response) => response.json()).then((body) => body.secret);
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
 const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
   const url = new URL(request.url);
   if (url.pathname === "/global/health") return Response.json({ healthy: true, version: "synthetic-test" });
+  const secret = await redeem();
+  if (url.pathname === "/instance/dispose") settled = true;
+  if (url.pathname === "/spent") return Response.json({ ticket, settled });
   if (url.pathname !== "/probe") return Response.json({ healthy: true });
   const calls = await request.json();
   const results = [];
   for (const call of calls) {
     const headers = { "content-type": "application/json", ...(call.bearer ? { authorization: "Bearer " + call.bearer } : {}) };
     if (call.session) Object.assign(headers, {
-      "x-legalwork-wiki-agent-token": process.env.LEGALWORK_WIKI_AGENT_TOKEN,
+      "x-legalwork-wiki-agent-token": secret,
       "x-legalwork-wiki-agent-session": call.session,
       "x-legalwork-wiki-agent-directory": encodeURIComponent(call.directory),
     });
-    else if (call.engineOnly) headers["x-legalwork-wiki-agent-token"] = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    else if (call.engineOnly) headers["x-legalwork-wiki-agent-token"] = secret;
     const response = await fetch(process.env.LEGALWORK_SERVER_URL + call.path, { method: call.method ?? "GET", headers, body: call.body === undefined ? undefined : JSON.stringify(call.body) });
     results.push({ status: response.status, body: await response.text() });
   }
@@ -95,7 +104,10 @@ boundary("the engine never inherits a server-wide or host token", async () => {
   for (const name of ["LEGALWORK_SERVER_TOKEN", "LEGALWORK_TOKEN", "LEGALWORK_HOST_TOKEN"])
     expect(environment).not.toContain(`"${name}"`);
   const names = server.managedOpencodeExecution?.env.map((entry) => entry.name) ?? [];
-  expect(names).toContain("LEGALWORK_WIKI_AGENT_TOKEN");
+  expect(names).toContain("LEGALWORK_WIKI_AGENT_TICKET");
+  expect(names).not.toContain("LEGALWORK_WIKI_AGENT_TOKEN");
+  expect(environment).not.toContain("LEGALWORK_WIKI_AGENT_TICKET");
+  expect(environment).not.toContain(await ensureWikiAgentToken(server.config));
   expect(names).not.toContain("LEGALWORK_SERVER_TOKEN");
 }, 30_000);
 
@@ -199,11 +211,11 @@ boundary("an agent cannot schedule work across all clients", async () => {
 boundary("neither the engine credential nor a server token appears in the server log", async () => {
   const { server, probe, asA, a, b, logs } = await twoClients();
   await probe([asA("/workspaces"), asA(`/workspace/${encodeURIComponent(b.id)}/files/content?path=tajne.md`), asA(`/workspace/${encodeURIComponent(a.id)}/tasks`)]);
-  const agentToken = server.managedOpencodeExecution?.env.find((entry) => entry.name === "LEGALWORK_WIKI_AGENT_TOKEN");
+  const agentToken = server.managedOpencodeExecution?.env.find((entry) => entry.name === "LEGALWORK_WIKI_AGENT_TICKET");
   expect(agentToken?.redacted).toBe(true);
   expect(agentToken?.value).toBe("<redacted>");
   const { environment } = await probe([]);
-  const secret = z.record(z.string(), z.string()).parse(JSON.parse(environment)).LEGALWORK_WIKI_AGENT_TOKEN ?? "";
+  const secret = await ensureWikiAgentToken(server.config);
   expect(secret.length).toBeGreaterThan(16);
   expect(logs.length).toBeGreaterThan(0);
   const text = logs.join("\n");
@@ -211,14 +223,42 @@ boundary("neither the engine credential nor a server token appears in the server
 }, 30_000);
 
 
-boundary("registered B session claims cannot escape A's immutable runtime pin; A stays usable", async () => {
+boundary("a spent ticket with B's session and directory opens nothing and leaves the engine's secret working", async () => {
+  const { server, b, clientB, probe, asA, a } = await twoClients();
+  const spentSchema = z.object({ ticket: z.string(), settled: z.boolean() });
+  const read = async () => spentSchema.parse(await (await fetch(`${server.config.opencodeBaseUrl}/spent`)).json());
+  let state = await read();
+  for (let attempt = 0; attempt < 200 && !state.settled; attempt++) { await Bun.sleep(25); state = await read(); }
+  expect(state.settled).toBe(true);
+  const secret = await ensureWikiAgentToken(server.config);
+  const forged = await fetch(`${server.url}/workspace/${b.id}/files/content?path=tajne.md`, { headers: {
+    "x-legalwork-wiki-agent-token": state.ticket, "x-legalwork-wiki-agent-session": "ses_klient_b", "x-legalwork-wiki-agent-directory": encodeURIComponent(clientB) } });
+  expect(forged.status).toBe(403);
+  const body = await forged.text();
+  expect(body).toContain("wiki_agent_unauthorized");
+  expect(body).not.toContain("DÔVERNÉ");
+  const replay = await fetch(`${server.url}${WIKI_AGENT_TICKET_PATH}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticket: state.ticket }) });
+  expect(replay.status).toBe(403);
+  expect(await replay.text()).not.toContain(secret);
+  expect(await ensureWikiAgentToken(server.config)).toBe(secret);
+  const { results } = await probe([asA(`/workspace/${a.id}/files/content?path=poznamka.md`)]);
+  expect(results[0]?.status).toBe(200);
+}, 30_000);
+
+boundary("after A, a registered B chat reads B's own files; neither chat crosses into the other client", async () => {
   const { a, b, clientA, clientB, probe } = await twoClients();
   const { results } = await probe([
     { path: `/workspace/${a.id}/files/content?path=poznamka.md`, session: "ses_klient_a", directory: clientA },
     { path: `/workspace/${b.id}/files/content?path=tajne.md`, session: "ses_klient_b", directory: clientB },
     { path: `/workspace/${a.id}/files/content?path=poznamka.md`, session: "ses_klient_a", directory: clientA },
+    { path: `/workspace/${b.id}/files/content?path=tajne.md`, session: "ses_klient_a", directory: clientA },
+    { path: `/workspace/${b.id}/files/content?path=tajne.md`, session: "ses_klient_a", directory: clientB },
+    { path: `/workspace/${a.id}/files/content?path=poznamka.md`, session: "ses_klient_b", directory: clientB },
   ]);
-  expect(results.map(item => item.status)).toEqual([200, 403, 200]);
-  expect(results[1]?.body).toContain("wiki_agent_client_runtime_required");
-  expect(results[1]?.body).not.toContain("DÔVERNÉ");
+  expect(results.map(item => item.status)).toEqual([200, 200, 200, 403, 403, 403]);
+  expect(results[1]?.body).toContain("DÔVERNÉ");
+  expect(results[3]?.body).toContain("wiki_agent_workspace_denied");
+  expect(results[4]?.body).toContain("wiki_agent_directory_mismatch");
+  expect(results[5]?.body).toContain("wiki_agent_workspace_denied");
+  for (const refused of results.slice(3)) expect(refused.body).not.toMatch(/DÔVERNÉ|Spis klienta A/);
 }, 30_000);

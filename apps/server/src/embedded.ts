@@ -32,7 +32,9 @@ import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
-import { ensureWikiAgentToken } from "./wiki/agent-access.js";
+import { issueWikiAgentTicket } from "./wiki/agent-access.js";
+import { settleEngineAgentTicket } from "./lawoss/engine-agent-ticket.js";
+import { WIKI_AGENT_TICKET_ENV } from "./lawoss/engine-agent-contract.js";
 // 🟡 LAWOSS: na Windows relative() medzi diskami vráti absolútnu cestu bez "..".
 import { isPathWithin } from "./lawoss/path-within.js";
 
@@ -124,6 +126,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   let unsubscribe: (() => Promise<void>) | undefined;
   let refresh: Promise<unknown> = Promise.resolve();
   let initialMcpSync: Promise<unknown> = Promise.resolve();
+  let ticketSettled: Promise<unknown> = Promise.resolve();
+  const ticketStop = new AbortController();
   let stopPromise: Promise<void> | undefined;
   const stop = () => {
     if (stopPromise) return stopPromise;
@@ -131,7 +135,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       const errors: unknown[] = [];
       // Unsubscribe synchronously; accepted writes and jobs still drain before the owner releases.
       const freshness = unsubscribe?.();
-      for (const operation of [() => freshness, () => initialMcpSync, () => refresh,
+      ticketStop.abort();
+      for (const operation of [() => freshness, () => initialMcpSync, () => ticketSettled, () => refresh,
         () => managed.engine?.close(), () => server?.stop(), () => lifetime.release()]) {
         try { await operation(); } catch (error) { errors.push(error); }
       }
@@ -231,9 +236,9 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
             ...(process.env.LEGALWORK_DEV_MODE ? { LEGALWORK_DEV_MODE: process.env.LEGALWORK_DEV_MODE } : {}),
             ...(process.env.LEGALWORK_UI_CONTROL_DISCOVERY ? { LEGALWORK_UI_CONTROL_DISCOVERY: process.env.LEGALWORK_UI_CONTROL_DISCOVERY } : {}),
             LEGALWORK_SERVER_URL: serverUrl,
-            // LAWOSS: no server-wide token. Plugins name their chat and the server limits
-            // each call to that chat's own workspace (wiki/agent-access.ts).
-            LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config),
+            // LAWOSS: no server-wide token and no agent secret, only its single-use ticket.
+            // Plugins name their chat; the server limits each call to its own workspace (wiki/agent-access.ts).
+            [WIKI_AGENT_TICKET_ENV]: issueWikiAgentTicket(config),
             LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
             OPENCODE_CONFIG: runtimeConfigPath,
             // The firm's enforced settings: read after every project's own config.
@@ -272,6 +277,10 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       }
     }
   } });
+
+  // LAWOSS: not awaited, a cold plugin load must not delay startup; no instance serves anything before it.
+  if (managed.engine) ticketSettled = settleEngineAgentTicket(config, managed.engine, join(runtimeStorageDir(config), "engine-ticket-probe"), ticketStop.signal)
+    .catch((error: unknown) => { if (!ticketStop.signal.aborted) console.warn(`[embedded] engine ticket window left open: ${error instanceof Error ? error.message : String(error)}`); });
 
   // The runtime config file above only covers workspaces[0]. Push every
   // workspace's runtime-DB MCPs into the engine so they aren't invisible

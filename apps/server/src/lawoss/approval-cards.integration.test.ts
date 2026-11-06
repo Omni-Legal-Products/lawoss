@@ -13,6 +13,7 @@ import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, readRuntimeOpen
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { applyFileOperations, LAWOSS_TRASH_FOLDER, planFileOperations } from "./file-operations.js";
 import { writeYoloMode } from "./yolo-mode.js";
+import { WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "./engine-agent-contract.js";
 
 /**
  * Alfa 2 acceptance with the shipped engine and the production permission map on a CLEAN profile
@@ -60,6 +61,7 @@ test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engin
   const toolResults: string[] = [];
   let advertised: unknown;
   const fixture = Bun.serve({ port: 0, idleTimeout: 120, async fetch(request) {
+    if (new URL(request.url).pathname === WIKI_AGENT_TICKET_PATH) return Response.json({ secret: "fixture" });
     const path = new URL(request.url).pathname;
     if (path === "/workspaces") return Response.json({ items: [{ id: workspace.id, path: matter }] });
     if (path.includes("/sandbox/session/")) return Response.json({ enabled: false, networkMode: "allow", shell: "zsh", platform: process.platform, cwd: matter });
@@ -108,7 +110,7 @@ test.skipIf(!binary || process.env.LAWOSS_APPROVAL_ENGINE !== "1")("a real engin
     const child = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: matter, env: {
       ...process.env, HOME: root, XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
       OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: file, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-      LEGALWORK_SERVER_URL: fixture.url.origin, LEGALWORK_WIKI_AGENT_TOKEN: "fixture",
+      LEGALWORK_SERVER_URL: fixture.url.origin, [WIKI_AGENT_TICKET_ENV]: "synthetic-ticket",
     }, stdout: "pipe", stderr: "pipe" });
     const logs = new Response(child.stderr).text();
     engineBase = `http://127.0.0.1:${port}`;

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,7 +25,7 @@ async function fixture(
   await writeFile(join(outside, "private.txt"), "outside workspace");
   const calls: Call[] = [];
   const previousUrl = process.env.LEGALWORK_SERVER_URL;
-  const previousToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+  const previousToken = wikiAgentSecret();
   const previousServerToken = process.env.LEGALWORK_SERVER_TOKEN;
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -126,7 +127,7 @@ async function fixture(
     },
   });
   process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${server.port}`;
-  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "client-token";
+  adoptWikiAgentSecret("client-token");
   process.env.LEGALWORK_SERVER_TOKEN = "server-wide-token";
   try {
     await run({ plugin: await LegalWorkStorageTools(), directory, outside, calls });
@@ -134,8 +135,7 @@ async function fixture(
     await server.stop(true);
     if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL;
     else process.env.LEGALWORK_SERVER_URL = previousUrl;
-    if (previousToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
-    else process.env.LEGALWORK_WIKI_AGENT_TOKEN = previousToken;
+    adoptWikiAgentSecret(previousToken);
     if (previousServerToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
     else process.env.LEGALWORK_SERVER_TOKEN = previousServerToken;
     await rm(directory, { recursive: true, force: true });

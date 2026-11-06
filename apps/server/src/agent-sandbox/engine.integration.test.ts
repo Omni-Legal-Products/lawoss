@@ -12,6 +12,7 @@ import { AgentSandboxService } from "./service.js";
 import { ApprovalService } from "../approvals.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
+import { WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "../lawoss/engine-agent-contract.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the shipped engine calls the protected tool with identity and cannot run host bash", async () => {
@@ -42,6 +43,7 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
   const calls: { agent: string; sessionID: string }[] = [];
   const webCalls: string[] = [];
   const fixture = Bun.serve({ port: 0, async fetch(request) {
+    if (new URL(request.url).pathname === WIKI_AGENT_TICKET_PATH) return Response.json({ secret: "fixture" });
     const path = new URL(request.url).pathname;
     if (path.includes("/sandbox/session/")) return Response.json({ enabled: true, networkMode: "approve", shell: "Bash", platform: "linux", cwd: "/workspace" });
     if (path === "/workspaces") return Response.json({ items: [{ id: "matter", path: folder }] });
@@ -79,7 +81,7 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
   const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: folder, env: {
     ...process.env, XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
     OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: config, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-    LEGALWORK_SERVER_URL: fixture.url.origin, LEGALWORK_WIKI_AGENT_TOKEN: "fixture",
+    LEGALWORK_SERVER_URL: fixture.url.origin, [WIKI_AGENT_TICKET_ENV]: "synthetic-ticket",
   }, stdout: "pipe", stderr: "pipe" });
   const logs = new Response(engine.stderr).text();
   const base = `http://127.0.0.1:${port}`;

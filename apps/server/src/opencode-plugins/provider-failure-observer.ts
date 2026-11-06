@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { SavedConversations } from "./app-state-reminders.js";
 import { resolveWorkspaceId, serverUrl, workspaceToolHeaders } from "./office-plugin-shared.js";
+import { wikiAgentSecret } from "./wiki-agent-secret.js";
 
 const HEADER = "x-lawoss-provider-observation";
 const MAX_BYTES = 32768;
@@ -68,7 +69,7 @@ export function providerFailureObserver(initial: SavedConversations) {
   const owner: Owner = { closed: false, stop: new AbortController(), jobs: new Set(), keys: new Set() };
   const headers = async (input: { sessionID: string; model: { providerID: string; id: string; api?: { id?: string; npm?: string } }; message: { id: string } }, output: { headers: Record<string, string> }) => {
     const modelId = input.model.api?.id ?? input.model.id;
-    if (owner.closed || input.model.providerID !== "openrouter" || !/^google\/gemini-3(?:[.-]|$)/.test(modelId) || !initial.directory || !initial.client?.session || !serverUrl() || !process.env.LEGALWORK_WIKI_AGENT_TOKEN) return;
+    if (owner.closed || input.model.providerID !== "openrouter" || !/^google\/gemini-3(?:[.-]|$)/.test(modelId) || !initial.directory || !initial.client?.session || !serverUrl() || !wikiAgentSecret()) return;
     try {
       const query = { directory: initial.directory, limit: 1 };
       const data = (await initial.client.session.messages({ path: { id: input.sessionID }, query })).data;

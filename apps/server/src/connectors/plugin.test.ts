@@ -1,17 +1,19 @@
 import { afterEach, expect, test } from "bun:test";
+import { adoptWikiAgentSecret } from "../opencode-plugins/wiki-agent-secret.js";
 import { LegalWorkExtensionsPreview } from "../opencode-plugins/legalwork-extensions-preview.js";
 import { connectorDefinitions } from "@legalwork/types/connectors";
 
 const originalFetch = globalThis.fetch;
-const savedEnv = ["LEGALWORK_SERVER_URL", "LEGALWORK_WIKI_AGENT_TOKEN", "LEGALWORK_CONNECTOR_TOKEN"].map((key) => ({ key, value: process.env[key] }));
+const savedEnv = ["LEGALWORK_SERVER_URL", "LEGALWORK_CONNECTOR_TOKEN"].map((key) => ({ key, value: process.env[key] }));
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  adoptWikiAgentSecret("");
   for (const { key, value } of savedEnv) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
 });
 
 test("passes the runtime capability only for registered connector actions and never returns it", async () => {
   process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
-  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "runtime-client";
+  adoptWikiAgentSecret("runtime-client");
   process.env.LEGALWORK_CONNECTOR_TOKEN = "private-mail-capability";
   const headers: Headers[] = [];
   globalThis.fetch = Object.assign(async (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {

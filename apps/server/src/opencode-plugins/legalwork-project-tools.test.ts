@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import { LegalWorkProjectTools } from "./legalwork-project-tools.js";
 
 test("document read rejects paths recoverably before transport and reads only listed UUIDs", async () => {
   const { z } = await import("zod");
-  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = wikiAgentSecret();
   const id = "00000000-0000-4000-8000-000000000001";
   let documentReads = 0, permissionRequests = 0;
   const server = Bun.serve({ port: 0, fetch(request) {
@@ -15,7 +16,7 @@ test("document read rejects paths recoverably before transport and reads only li
     documentReads++;
     return Response.json({ text: "Synthetic listed evidence", nextOffset: null, complete: true, untrusted: true });
   } });
-  process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_WIKI_AGENT_TOKEN = "synthetic-token";
+  process.env.LEGALWORK_SERVER_URL = server.url.origin; adoptWikiAgentSecret("synthetic-token");
   try {
     const plugin = await LegalWorkProjectTools(), tool = plugin.tool.lawoss_documents_read;
     const schema = z.object(tool.args), wire = z.fromJSONSchema(z.toJSONSchema(schema));
@@ -35,13 +36,13 @@ test("document read rejects paths recoverably before transport and reads only li
   } finally {
     server.stop(true);
     if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
-    if (oldToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = oldToken;
+    adoptWikiAgentSecret(oldToken);
   }
 });
 
 test("project tools resolve the closest project, carry pagination and reject unrelated directories", async () => {
   const oldUrl = process.env.LEGALWORK_SERVER_URL;
-  const oldToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+  const oldToken = wikiAgentSecret();
   const requests: string[] = [];
   const directories: Array<string | null> = [];
   const server = Bun.serve({
@@ -61,7 +62,7 @@ test("project tools resolve the closest project, carry pagination and reject unr
     },
   });
   process.env.LEGALWORK_SERVER_URL = server.url.origin;
-  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "fixture-token";
+  adoptWikiAgentSecret("fixture-token");
   try {
     const plugin = await LegalWorkProjectTools();
     const output = { system: [] };
@@ -87,13 +88,13 @@ test("project tools resolve the closest project, carry pagination and reject unr
   } finally {
     server.stop(true);
     if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
-    if (oldToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = oldToken;
+    adoptWikiAgentSecret(oldToken);
   }
 });
 
 test("sessions receive folder configuration and can finish setup without storing a summary", async () => {
   const oldUrl = process.env.LEGALWORK_SERVER_URL;
-  const oldToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+  const oldToken = wikiAgentSecret();
   let saved = false;
   const server = Bun.serve({ port: 0, async fetch(request) {
     const url = new URL(request.url);
@@ -111,7 +112,7 @@ test("sessions receive folder configuration and can finish setup without storing
     return Response.json({ revision: 2, remote: { initialization: saved ? "ready" : "pending", folders: [{ id: "mapped-folder" }] } });
   } });
   process.env.LEGALWORK_SERVER_URL = server.url.origin;
-  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "fixture-token";
+  adoptWikiAgentSecret("fixture-token");
   try {
     const plugin = await LegalWorkProjectTools({ directory: "/mapped-project" });
     const systemText = async () => {
@@ -139,7 +140,7 @@ test("sessions receive folder configuration and can finish setup without storing
   } finally {
     server.stop(true);
     if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
-    if (oldToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = oldToken;
+    adoptWikiAgentSecret(oldToken);
   }
 });
 
@@ -166,7 +167,7 @@ test("document export native advertised schema accepts only empty absence or exa
 });
 
 test("document export forwards missing/empty hashes with property fully absent and valid hashes unchanged", async () => {
-  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = wikiAgentSecret();
   const bodies: unknown[] = [];
   const server = Bun.serve({ port: 0, async fetch(request) {
     expect(request.headers.has("authorization")).toBe(false);
@@ -181,7 +182,7 @@ test("document export forwards missing/empty hashes with property fully absent a
     // Transport receipt only: does not pretend to prove a saved export.
     return Response.json({ received: true });
   } });
-  process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_WIKI_AGENT_TOKEN = "synthetic-model-token";
+  process.env.LEGALWORK_SERVER_URL = server.url.origin; adoptWikiAgentSecret("synthetic-model-token");
   try {
     const { z } = await import("zod"), plugin = await LegalWorkProjectTools(), tool = plugin.tool.lawoss_documents_export;
     const args = z.object(tool.args), base = { path: "synthetic.csv", kind: "registry", outputLanguage: "cs", documentIds: ["00000000-0000-4000-8000-000000000001"], entries: [] };
@@ -198,6 +199,6 @@ test("document export forwards missing/empty hashes with property fully absent a
   } finally {
     server.stop(true);
     if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
-    if (oldToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = oldToken;
+    adoptWikiAgentSecret(oldToken);
   }
 });

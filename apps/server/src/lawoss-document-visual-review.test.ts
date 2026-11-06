@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { wikiAgentSecret } from "./opencode-plugins/wiki-agent-secret.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -57,7 +58,7 @@ test("host visual review resolves only current decorative PDF pages and survives
     const review = (body: unknown, auth: Record<string, string> = headers) => fetch(`${base}/${record.id}/visual-review`, { method: "POST", headers: auth, body: JSON.stringify(body) });
     expect((await review(input, { "content-type": "application/json", Authorization: "Bearer synthetic-client" })).status).toBe(401);
     const agent = await engineAgentSession(config, { sessionID: "ses_visual", directory: path }); restoreAgent = agent.restore;
-    expect((await review(input, { ...headers, "x-legalwork-wiki-agent-token": process.env.LEGALWORK_WIKI_AGENT_TOKEN!, "x-legalwork-wiki-agent-session": "ses_visual" })).status).toBe(403);
+    expect((await review(input, { ...headers, "x-legalwork-wiki-agent-token": wikiAgentSecret()!, "x-legalwork-wiki-agent-session": "ses_visual" })).status).toBe(403);
     expect((await review({ ...input, expectedHash: "0".repeat(64) })).status).toBe(409);
     expect((await review({ ...input, expectedUpdatedAt: record.updatedAt - 1 })).status).toBe(409);
     expect((await review({ ...input, reviewer: "forged-human", reviewedAt: 1 })).status).toBe(400);

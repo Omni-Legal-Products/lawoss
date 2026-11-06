@@ -14,7 +14,7 @@ import { engineAgentSession } from "./lawoss/test-support/engine-agent.js";
 
 test("a global workflow exposes current Markdown and Word resources in fresh projects without external-folder grants", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "skill-package-http-")));
-  const previous = Object.fromEntries(["XDG_CONFIG_HOME", "LEGALWORK_RUNTIME_DB", "LEGALWORK_SERVER_URL", "LEGALWORK_WIKI_AGENT_TOKEN"].map(key => [key, process.env[key]]));
+  const previous = Object.fromEntries(["XDG_CONFIG_HOME", "LEGALWORK_RUNTIME_DB", "LEGALWORK_SERVER_URL"].map(key => [key, process.env[key]]));
   process.env.XDG_CONFIG_HOME = join(root, "config");
   process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
   const workspace = join(root, "matter"), other = join(root, "other");
@@ -74,7 +74,9 @@ test("a global workflow exposes current Markdown and Word resources in fresh pro
     await upsertSkillResource(workspace, name, { name: "felder.md", content: "Reimported intake fields" });
     expect(JSON.parse(await read("resources/felder.md")).payload.content).toBe("Reimported intake fields");
     const freshContext = { ...context, directory: other, sessionID: "fresh-chat" };
-    await expect(plugin.tool.legalwork_skill_load.execute({ name }, freshContext)).rejects.toThrow("HTTP 403");
+    // A chat in the other client loads the global workflow in the same run; chat-a cannot claim that client's folder.
+    expect(JSON.parse(await plugin.tool.legalwork_skill_load.execute({ name }, freshContext)).payload.chain[0]).toMatchObject({ name });
+    await expect(plugin.tool.legalwork_skill_load.execute({ name }, { ...context, directory: other })).rejects.toThrow("HTTP 403");
     await otherRuntime.run(async () => {
       await plugin.tool.legalwork_skill_load.execute({ name }, freshContext);
       expect(JSON.parse(await read("resources/felder.md", freshContext)).payload.content).toBe("Reimported intake fields");

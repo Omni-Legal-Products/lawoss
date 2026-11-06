@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import * as pluginModule from "./legalwork-skill-tools.js";
 import { LegalWorkSkillTools } from "./legalwork-skill-tools.js";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
@@ -15,7 +16,7 @@ type Recorded = { url: string; method: string; body: Record<string, unknown> | n
 const originalFetch = globalThis.fetch;
 const originalUrl = process.env.LEGALWORK_SERVER_URL;
 const originalServerToken = process.env.LEGALWORK_SERVER_TOKEN;
-const originalWikiToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+const originalWikiToken = wikiAgentSecret();
 
 let requests: Recorded[] = [];
 let installedNames: string[] = [];
@@ -70,7 +71,7 @@ beforeEach(() => {
   installedNames = [];
   existingCorrection = false;
   workspace = WORKSPACE;
-  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-agent-token";
+  adoptWikiAgentSecret("test-agent-token");
   delete process.env.LEGALWORK_SERVER_TOKEN;
   process.env.LEGALWORK_SERVER_URL = SERVER_URL;
   stubFetch();
@@ -82,15 +83,14 @@ afterEach(() => {
   else process.env.LEGALWORK_SERVER_URL = originalUrl;
   if (originalServerToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
   else process.env.LEGALWORK_SERVER_TOKEN = originalServerToken;
-  if (originalWikiToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
-  else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalWikiToken;
+  adoptWikiAgentSecret(originalWikiToken);
 });
 
 test("wiki-local skill loading and resource reads retain authenticated chat origin", async () => {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "wiki-skill-origin-")));
   try {
     workspace = { id: "ws-1", path: directory };
-    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-wiki-runtime-token";
+    adoptWikiAgentSecret("test-wiki-runtime-token");
     // Present in the environment, never sent: the engine authenticates per chat only.
     process.env.LEGALWORK_SERVER_TOKEN = "server-wide-token";
     const context = { directory, sessionID: "wiki-chat", ask: async () => {} };
@@ -228,7 +228,7 @@ describe("legalwork_skill_create", () => {
   });
 
   test("reports a missing server connection instead of throwing", async () => {
-    delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    adoptWikiAgentSecret("");
     const result = await createSkill({
       name: "NDA review",
       description: "Use when a counterparty sends an NDA.",

@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { adoptWikiAgentSecret, wikiAgentSecret } from "./wiki-agent-secret.js";
 import { enforceAiBoundaries } from "../lawoss/test-support/ai-boundaries.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,7 +20,7 @@ const previewResult = z.object({ metadata: z.object({ legalworkViewPreview: View
 
 const previousUrl = process.env.LEGALWORK_SERVER_URL;
 const previousToken = process.env.LEGALWORK_SERVER_TOKEN;
-const previousAgentToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+const previousAgentToken = wikiAgentSecret();
 const stops: Array<() => Promise<void>> = [];
 const roots: string[] = [];
 
@@ -30,8 +31,7 @@ afterEach(async () => {
   else process.env.LEGALWORK_SERVER_URL = previousUrl;
   if (previousToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
   else process.env.LEGALWORK_SERVER_TOKEN = previousToken;
-  if (previousAgentToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
-  else process.env.LEGALWORK_WIKI_AGENT_TOKEN = previousAgentToken;
+  adoptWikiAgentSecret(previousAgentToken);
 });
 
 test("an agent captures an authorized source into real Markdown through the server API", async () => {
@@ -67,7 +67,7 @@ test("an agent captures an authorized source into real Markdown through the serv
   };
   process.env.LEGALWORK_SERVER_URL = url;
   process.env.LEGALWORK_SERVER_TOKEN = config.token;
-  process.env.LEGALWORK_WIKI_AGENT_TOKEN = agentToken;
+  adoptWikiAgentSecret(agentToken);
   const headers = { Authorization: `Bearer ${owner.token}`, "Content-Type": "application/json" };
   const created = await fetch(`${url}/wikis`, { method: "POST", headers,
     body: JSON.stringify({ name: "Practice knowledge", root: join(root, "knowledge"), template: "firm" }) });
@@ -246,7 +246,7 @@ test("with AI boundaries on, authenticated session origins are preserved while p
   expect(z.object({ id: z.string() }).parse(await created.json()).id).toBe("ses_http_origin");
   process.env.LEGALWORK_SERVER_URL = url;
   process.env.LEGALWORK_SERVER_TOKEN = config.token;
-  process.env.LEGALWORK_WIKI_AGENT_TOKEN = runtimeToken;
+  adoptWikiAgentSecret(runtimeToken);
   const { tool } = await LegalWorkWikiTools({ directory: project, sessionID: "ses_http_origin" });
   const listed = JSON.parse(await tool.wiki_list.execute({}));
   expect(listed.wikis.some((entry: { id: string }) => entry.id === wiki.id)).toBe(true);
@@ -327,7 +327,7 @@ test("with AI boundaries off (alpha default), authenticated proxy session origin
   expect(z.object({ id: z.string() }).parse(await created.json()).id).toBe("ses_http_origin");
   process.env.LEGALWORK_SERVER_URL = url;
   process.env.LEGALWORK_SERVER_TOKEN = config.token;
-  process.env.LEGALWORK_WIKI_AGENT_TOKEN = runtimeToken;
+  adoptWikiAgentSecret(runtimeToken);
   const { tool } = await LegalWorkWikiTools({ directory: project, sessionID: "ses_http_origin" });
   const listed = JSON.parse(await tool.wiki_list.execute({}));
   expect(listed.wikis.some((entry: { id: string }) => entry.id === wiki.id)).toBe(true);

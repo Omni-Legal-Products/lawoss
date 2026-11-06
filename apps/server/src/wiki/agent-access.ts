@@ -6,11 +6,12 @@ import { isAbsolute, relative, sep } from "node:path";
 import { z } from "zod";
 import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
+import { ENGINE_CONNECTION_REFUSED } from "../lawoss/engine-agent-contract.js";
 
 /** `allProjects` is recorded only by the scheduled runner for an all-projects task, never from a request. */
 type SessionOrigin = { directory: string; scope: TokenScope; generation: string; allProjects?: boolean };
 type SessionLookup = (workspace: WorkspaceInfo, sessionId: string, directory: string, signal: AbortSignal) => Promise<unknown>;
-type RuntimeAccess = { token: string; owners: number; clientRoot?: string; credentialScope?: TokenScope; sessions: Map<string, SessionOrigin>; parents: Map<string, string>; revoked: Set<string>; lookup?: SessionLookup };
+type RuntimeAccess = { token: string; ticket?: string; spentTicket?: string; spentNonce?: string; ticketWindowEnds?: number; ticketWindowClosed?: boolean; owners: number; credentialScope?: TokenScope; sessions: Map<string, SessionOrigin>; parents: Map<string, string>; revoked: Set<string>; lookup?: SessionLookup };
 const runtimes = new WeakMap<ServerConfig, RuntimeAccess>();
 const sessionSchema = z.object({ id: z.string().min(1).max(200), directory: z.string().min(1), parentID: z.string().min(1).max(200).optional() });
 
@@ -40,9 +41,62 @@ export function configureWikiAgentSessionLookup(config: ServerConfig, lookup: Se
   runtime(config).lookup = lookup;
 }
 
-/** Only the managed engine receives this ephemeral, narrow credential. */
+/** The server's view of the ephemeral, narrow credential; only the engine's plugins hold it elsewhere. */
 export async function ensureWikiAgentToken(config: ServerConfig): Promise<string> {
   return runtime(config).token;
+}
+
+/** Enough for a cold plugin load; no redemption window outlives this, whatever the readiness probe does. */
+const TICKET_WINDOW_MS = 600_000;
+const newSecret = () => randomBytes(32).toString("hex");
+const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+
+/** One per engine start. A new engine gets a new ticket and secret; the previous pair stops working. */
+export function issueWikiAgentTicket(config: ServerConfig): string {
+  const access = runtime(config), ticket = newSecret();
+  access.token = newSecret();
+  access.ticket = digest(ticket);
+  access.spentTicket = undefined;
+  access.spentNonce = undefined;
+  access.ticketWindowEnds = Date.now() + TICKET_WINDOW_MS;
+  access.ticketWindowClosed = false;
+  return ticket;
+}
+
+/**
+ * Exchanges the outstanding ticket for the secret, once; a retry with the same nonce gets the same
+ * answer. Any other repeat is refused. While the window is open it also replaces the secret, so
+ * whoever redeemed first fails closed; after that the secret stays. See coordination record.
+ */
+export function redeemWikiAgentTicket(config: ServerConfig, presented: string, nonce = "", now = Date.now()): string {
+  const access = runtimes.get(config), hash = digest(presented), nonceHash = nonce ? digest(nonce) : undefined;
+  const windowOpen = access && !access.ticketWindowClosed && now < (access.ticketWindowEnds ?? 0);
+  if (access?.ticket && access.ticket === hash) {
+    access.ticket = undefined;
+    access.spentTicket = hash;
+    if (windowOpen) {
+      access.spentNonce = nonceHash;
+      return access.token;
+    }
+  } else if (access?.spentTicket === hash) {
+    if (nonceHash && access.spentNonce === nonceHash) return access.token;
+    if (windowOpen) {
+      access.token = newSecret();
+      access.spentNonce = undefined;
+    }
+  }
+  throw new ApiError(403, "wiki_agent_ticket_refused", ENGINE_CONNECTION_REFUSED);
+}
+
+/** The engine's plugins have loaded. A ticket not redeemed by now is spent. */
+export function closeWikiAgentTicketWindow(config: ServerConfig): void {
+  const access = runtimes.get(config);
+  if (!access) return;
+  if (access.ticket) {
+    access.spentTicket = access.ticket;
+    access.ticket = undefined;
+  }
+  access.ticketWindowClosed = true;
 }
 
 /** Called by the authenticated proxy, never from request-body identity claims. */
@@ -64,12 +118,6 @@ export async function grantWikiAgentSession(config: ServerConfig, input: {
     return;
   }
   const access = runtime(config);
-  // One process credential cannot authenticate self-declared sessions in multiple clients.
-  // Bind it once, from the first authenticated host dispatch. Never switch this pin:
-  // an old child process retains the same token even after its chat is revoked.
-  const workspace = await ownWorkspaceFor(config, directory);
-  const clientRoot = workspace ? await realpath(workspace.directory || workspace.path) : directory;
-  access.clientRoot ??= clientRoot;
   const rank = {viewer: 0, collaborator: 1, owner: 2};
   if (!access.credentialScope || rank[input.scope] < rank[access.credentialScope]) {
     access.credentialScope = input.scope;
@@ -236,12 +284,6 @@ export async function ownWorkspaceFor(config: ServerConfig, directory: string): 
 }
 
 /**
- * LAWOSS (N-A2-2, alfa): the model relays this refusal to the lawyer, so it says what happened and
- * what to do. Nothing was read; the pin itself does not change (rozhodnutie MČ 23. 10. 2026, možnosť C).
- */
-export const CLIENT_RUNTIME_REQUIRED = "This chat cannot use this client's files now. In this version LAWOSS works with one client at a time: since LAWOSS started, its AI has worked with another client, so this client's files stay closed to protect them. Nothing was read or changed. Tell the user in their language: quit LAWOSS completely, open it again and start with this client's chat; chats of the other client keep working until then.";
-
-/**
  * LAWOSS (N-A7-17): the model relays this refusal to the lawyer. The usual cause is a task that
  * continued after LAWOSS restarted, before the lawyer sent anything in this chat again.
  */
@@ -272,7 +314,7 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   const candidate = Buffer.from(token);
   const expected = Buffer.from(access?.token ?? "");
   if (!access || candidate.length !== expected.length || !timingSafeEqual(candidate, expected))
-    throw new ApiError(403, "wiki_agent_unauthorized", "The wiki agent connection is not authorized.");
+    throw new ApiError(403, "wiki_agent_unauthorized", ENGINE_CONNECTION_REFUSED);
   const url = new URL(request.url), pathname = url.pathname;
   const tokenHash = createHash("sha256").update(access.token).digest("hex");
   if (engineWideRoute(request.method, pathname))
@@ -294,8 +336,6 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
     throw new ApiError(403, "wiki_agent_directory_mismatch", "The wiki request does not match this session's working directory.");
   const own = await ownWorkspaceFor(config, directory);
   const clientRoot = own ? await realpath(own.directory || own.path) : directory;
-  if (!access.clientRoot || clientRoot !== access.clientRoot)
-    throw new ApiError(403, "wiki_agent_client_runtime_required", CLIENT_RUNTIME_REQUIRED);
   // The shared process credential cannot distinguish a normal chat from a scheduled
   // all-projects session named in attacker-controlled headers. Keep cross-client reads
   // unavailable until the scheduled transport has an independent scoped credential.

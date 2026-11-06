@@ -22,7 +22,9 @@ import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
 import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
-import { ensureWikiAgentToken } from "./wiki/agent-access.js";
+import { issueWikiAgentTicket } from "./wiki/agent-access.js";
+import { settleEngineAgentTicket } from "./lawoss/engine-agent-ticket.js";
+import { WIKI_AGENT_TICKET_ENV } from "./lawoss/engine-agent-contract.js";
 import pkg from "../package.json" with { type: "json" };
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 
@@ -97,9 +99,9 @@ const server = await startServer(config, { publicEngineBinary: () => managedOpen
           ...(process.env.LEGALWORK_DEV_MODE ? { LEGALWORK_DEV_MODE: process.env.LEGALWORK_DEV_MODE } : {}),
           ...(process.env.LEGALWORK_UI_CONTROL_DISCOVERY ? { LEGALWORK_UI_CONTROL_DISCOVERY: process.env.LEGALWORK_UI_CONTROL_DISCOVERY } : {}),
           LEGALWORK_SERVER_URL: serverUrl,
-          // LAWOSS: no server-wide token. Plugins name their chat and the server limits
-          // each call to that chat's own workspace (wiki/agent-access.ts).
-          LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config),
+          // LAWOSS: no server-wide token and no agent secret, only its single-use ticket.
+          // Plugins name their chat; the server limits each call to its own workspace (wiki/agent-access.ts).
+          [WIKI_AGENT_TICKET_ENV]: issueWikiAgentTicket(config),
           LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
           OPENCODE_CONFIG: runtimeConfigPath,
           OPENCODE_DISABLE_PROJECT_CONFIG: "true",
@@ -127,6 +129,12 @@ const server = await startServer(config, { publicEngineBinary: () => managedOpen
   throw error;
 });
 
+
+// LAWOSS: not awaited, a cold plugin load must not delay startup; no instance serves anything before it.
+if (managedOpencode) {
+  void settleEngineAgentTicket(config, managedOpencode, join(runtimeStorageDir(config), "engine-ticket-probe"))
+    .catch((error: unknown) => console.warn(`[legalwork-server] engine ticket window left open: ${error instanceof Error ? error.message : String(error)}`));
+}
 
 // The runtime config file above only covers workspaces[0]. Push every
 // workspace's runtime-DB MCPs into the engine so they aren't invisible
