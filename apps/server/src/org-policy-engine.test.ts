@@ -9,6 +9,7 @@ import { closeEigenweltConnectionForTests, writeEigenweltConnection } from "./ei
 import { buildOrgPolicyEngineLayerFor, legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { appliedOrgPolicy, releaseOrgPolicyKey, requireOrgPolicyUnmanaged, resetOrgPolicyRuntimeForTests, scheduleOrgPolicySync } from "./org-policy.js";
 import { orgPolicyEngineDir, orgPolicyEngineLayerIntact } from "./org-policy-engine.js";
+import { ENGINE_CONNECTION_REFUSED } from "./lawoss/engine-agent-contract.js";
 import { LegalWorkOrgPolicyGuard } from "./opencode-plugins/legalwork-org-policy-guard.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
@@ -280,6 +281,39 @@ describe("the guard plugin", () => {
     setSystemTime(new Date(Date.now() + 20_000));
     guard = { orgName: "Kanzlei", permission: {}, blockedMcpServers: [] };
     await call("bash", { command: "rm -rf /" });
+  });
+});
+
+describe("the guard when the server refuses the engine's credential", () => {
+  // The guard's cache lives as long as the module: only a later time reads the server again.
+  let clock = Date.now() + 86_400_000;
+  const pastGuardCache = () => setSystemTime(new Date(clock += 60_000));
+  test.each([401, 403])("HTTP %d refuses every tool with the lawyer's message and recovers when the server answers", async (status) => {
+    let response = () => new Response(JSON.stringify({ code: "wiki_agent_unauthorized" }), { status });
+    fakeFetch((url) => (url.endsWith("/org-policy/guard") ? response() : new Response(null, { status: 404 })));
+    pastGuardCache();
+    const hooks = await LegalWorkOrgPolicyGuard();
+    const call = (tool: string, args: Record<string, unknown>) => hooks["tool.execute.before"]({ tool }, { args });
+    await expect(call("read", { filePath: "/x" })).rejects.toThrow(ENGINE_CONNECTION_REFUSED);
+    await expect(call("bash", { command: "ls" })).rejects.toThrow(ENGINE_CONNECTION_REFUSED);
+    pastGuardCache();
+    response = () => Response.json({ orgName: "Kanzlei", permission: {}, blockedMcpServers: [] });
+    await call("read", { filePath: "/x" });
+  });
+
+  test("a server without the route (404) still allows, an unreachable one keeps the last answer", async () => {
+    let response: () => Response = () => new Response(null, { status: 404 });
+    fakeFetch((url) => (url.endsWith("/org-policy/guard") ? response() : new Response(null, { status: 404 })));
+    pastGuardCache();
+    const hooks = await LegalWorkOrgPolicyGuard();
+    const call = (tool: string, args: Record<string, unknown>) => hooks["tool.execute.before"]({ tool }, { args });
+    await call("read", { filePath: "/x" });
+    pastGuardCache();
+    response = () => new Response(null, { status: 401 });
+    await expect(call("read", { filePath: "/x" })).rejects.toThrow(ENGINE_CONNECTION_REFUSED);
+    pastGuardCache();
+    response = () => { throw new TypeError("connection refused"); };
+    await expect(call("read", { filePath: "/x" })).rejects.toThrow(ENGINE_CONNECTION_REFUSED);
   });
 });
 

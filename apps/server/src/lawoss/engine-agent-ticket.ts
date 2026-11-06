@@ -10,7 +10,8 @@ const PROBE_ATTEMPTS = 6;
  * Right after the engine starts: opens a scratch instance, which loads the plugins and redeems the
  * ticket, then closes the redemption window and releases the instance. `/path` starts no MCP, and
  * the scratch folder holds no client's configuration. The probe waits for the engine, so it is
- * asked again at once, a bounded number of times; after the last attempt the window stays open.
+ * asked again at once, a bounded number of times; after the last attempt the window ends at its
+ * own limit (`redeemWikiAgentTicket`).
  */
 export async function settleEngineAgentTicket(config: ServerConfig, engine: { url: string; username: string; password: string }, directory: string, stop?: AbortSignal): Promise<void> {
   await mkdir(directory, { recursive: true });

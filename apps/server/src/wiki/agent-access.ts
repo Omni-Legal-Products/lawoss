@@ -11,7 +11,7 @@ import { ENGINE_CONNECTION_REFUSED } from "../lawoss/engine-agent-contract.js";
 /** `allProjects` is recorded only by the scheduled runner for an all-projects task, never from a request. */
 type SessionOrigin = { directory: string; scope: TokenScope; generation: string; allProjects?: boolean };
 type SessionLookup = (workspace: WorkspaceInfo, sessionId: string, directory: string, signal: AbortSignal) => Promise<unknown>;
-type RuntimeAccess = { token: string; ticket?: string; spentTicket?: string; ticketWindowClosed?: boolean; owners: number; credentialScope?: TokenScope; sessions: Map<string, SessionOrigin>; parents: Map<string, string>; revoked: Set<string>; lookup?: SessionLookup };
+type RuntimeAccess = { token: string; ticket?: string; spentTicket?: string; spentNonce?: string; ticketWindowEnds?: number; ticketWindowClosed?: boolean; owners: number; credentialScope?: TokenScope; sessions: Map<string, SessionOrigin>; parents: Map<string, string>; revoked: Set<string>; lookup?: SessionLookup };
 const runtimes = new WeakMap<ServerConfig, RuntimeAccess>();
 const sessionSchema = z.object({ id: z.string().min(1).max(200), directory: z.string().min(1), parentID: z.string().min(1).max(200).optional() });
 
@@ -46,6 +46,8 @@ export async function ensureWikiAgentToken(config: ServerConfig): Promise<string
   return runtime(config).token;
 }
 
+/** Enough for a cold plugin load; no redemption window outlives this, whatever the readiness probe does. */
+const TICKET_WINDOW_MS = 600_000;
 const newSecret = () => randomBytes(32).toString("hex");
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 
@@ -55,23 +57,34 @@ export function issueWikiAgentTicket(config: ServerConfig): string {
   access.token = newSecret();
   access.ticket = digest(ticket);
   access.spentTicket = undefined;
+  access.spentNonce = undefined;
+  access.ticketWindowEnds = Date.now() + TICKET_WINDOW_MS;
   access.ticketWindowClosed = false;
   return ticket;
 }
 
 /**
- * Exchanges the outstanding ticket for the secret, once. A replay is always refused. While the
- * window is open it also replaces the secret, so whoever redeemed first fails closed; after that
- * the secret stays. See coordination record.
+ * Exchanges the outstanding ticket for the secret, once; a retry with the same nonce gets the same
+ * answer. Any other repeat is refused. While the window is open it also replaces the secret, so
+ * whoever redeemed first fails closed; after that the secret stays. See coordination record.
  */
-export function redeemWikiAgentTicket(config: ServerConfig, presented: string): string {
-  const access = runtimes.get(config), hash = digest(presented);
+export function redeemWikiAgentTicket(config: ServerConfig, presented: string, nonce = "", now = Date.now()): string {
+  const access = runtimes.get(config), hash = digest(presented), nonceHash = nonce ? digest(nonce) : undefined;
+  const windowOpen = access && !access.ticketWindowClosed && now < (access.ticketWindowEnds ?? 0);
   if (access?.ticket && access.ticket === hash) {
     access.ticket = undefined;
     access.spentTicket = hash;
-    return access.token;
+    if (windowOpen) {
+      access.spentNonce = nonceHash;
+      return access.token;
+    }
+  } else if (access?.spentTicket === hash) {
+    if (nonceHash && access.spentNonce === nonceHash) return access.token;
+    if (windowOpen) {
+      access.token = newSecret();
+      access.spentNonce = undefined;
+    }
   }
-  if (access?.spentTicket === hash && !access.ticketWindowClosed) access.token = newSecret();
   throw new ApiError(403, "wiki_agent_ticket_refused", ENGINE_CONNECTION_REFUSED);
 }
 

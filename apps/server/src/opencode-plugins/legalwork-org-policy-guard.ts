@@ -1,3 +1,4 @@
+import { ENGINE_CONNECTION_REFUSED } from "../lawoss/engine-agent-contract.js";
 import { engineHeaders, serverUrl } from "./office-plugin-shared.js";
 
 /**
@@ -80,9 +81,11 @@ function parseGuard(value: unknown): Guard | null {
   };
 }
 
-let guardCache: { at: number; guard: Guard | null } | null = null;
+/** The server refused the engine's credential, so the firm's policy cannot be known. */
+const REFUSED = Symbol("refused");
+let guardCache: { at: number; guard: Guard | typeof REFUSED | null } | null = null;
 
-async function readGuard(): Promise<Guard | null> {
+async function readGuard(): Promise<Guard | typeof REFUSED | null> {
   if (guardCache && Date.now() - guardCache.at < CACHE_MS) return guardCache.guard;
   // Unreachable (the server restarting): the last answer stands.
   let guard = guardCache?.guard ?? null;
@@ -94,6 +97,7 @@ async function readGuard(): Promise<Guard | null> {
     });
     if (response.ok) guard = parseGuard(await response.json());
     else if (response.status === 404) guard = null;
+    else if (response.status === 401 || response.status === 403) guard = REFUSED;
   } catch {
     // Kept from before.
   }
@@ -137,6 +141,7 @@ function refusal(orgName: string, what: string): Error {
 export const LegalWorkOrgPolicyGuard = async (pluginInput?: PluginInput) => ({
   "tool.execute.before": async (input: { tool: string }, output: { args: unknown }) => {
     const guard = await readGuard();
+    if (guard === REFUSED) throw new Error(ENGINE_CONNECTION_REFUSED);
     if (!guard) return;
     for (const server of guard.blockedMcpServers) {
       if (input.tool.startsWith(`${server}_`)) throw refusal(guard.orgName, `the connector "${server}"`);

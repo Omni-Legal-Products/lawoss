@@ -59,12 +59,14 @@ test("a slow engine is asked again, and the window closes once it answers", asyn
   expect(await ensureWikiAgentToken(config)).toBe(secret);
 });
 
-test("an engine that never answers leaves the window open and the ticket usable, after a bounded number of tries", async () => {
+test("an engine that never answers leaves the window open only until its ten-minute limit", async () => {
   const { config, seen, directory, engine } = await fixture(500);
   const ticket = issueWikiAgentTicket(config);
   await expect(settleEngineAgentTicket(config, engine, directory)).rejects.toThrow("HTTP 500");
   expect(seen.map(item => item.path)).toEqual(Array.from({ length: 6 }, () => "/path"));
   const secret = redeemWikiAgentTicket(config, ticket);
+  expect(() => redeemWikiAgentTicket(config, ticket, "", Date.now() + 601_000)).toThrow(expect.objectContaining({ status: 403 }));
+  expect(await ensureWikiAgentToken(config)).toBe(secret);
   expect(() => redeemWikiAgentTicket(config, ticket)).toThrow(expect.objectContaining({ status: 403 }));
   expect(await ensureWikiAgentToken(config)).not.toBe(secret);
 });

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { ENGINE_CONNECTION_REFUSED, WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "../lawoss/engine-agent-contract.js";
 import { listWorkspaces, serverConnected, workspaceToolHeaders } from "./office-plugin-shared.js";
-import { acquireWikiAgentSecret, adoptWikiAgentSecret, wikiAgentSecret, wikiAgentSecretFailed } from "./wiki-agent-secret.js";
+import { acquireWikiAgentSecret, adoptWikiAgentSecret, engineConfigPath, hideEngineEnvFromShell, wikiAgentSecret, wikiAgentSecretFailed } from "./wiki-agent-secret.js";
 
 const prior = process.env.LEGALWORK_SERVER_URL;
 beforeEach(() => adoptWikiAgentSecret(""));
@@ -30,8 +30,50 @@ test("the ticket leaves the environment before the request, and concurrent plugi
   const second = acquireWikiAgentSecret(env, send);
   expect(wikiAgentSecret()).toBe("");
   await Promise.all([first, second]);
-  expect(calls).toEqual([{ url: `${base}${WIKI_AGENT_TICKET_PATH}`, body: JSON.stringify({ ticket: TICKET }) }]);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.url).toBe(`${base}${WIKI_AGENT_TICKET_PATH}`);
+  expect(JSON.parse(calls[0]?.body ?? "{}")).toEqual({ ticket: TICKET, nonce: expect.stringMatching(/^[0-9a-f-]{36}$/) });
   expect(wikiAgentSecret()).toBe("synthetic-secret");
+});
+
+test("every attempt of one redemption carries the same nonce; the next engine's plugin would use another", async () => {
+  const bodies: string[] = [];
+  const flaky = Object.assign(async (_url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    bodies.push(String(init?.body));
+    if (bodies.length === 1) throw new TypeError("connection lost");
+    return Response.json({ secret: "synthetic-secret" });
+  }, { preconnect: fetch.preconnect });
+  await acquireWikiAgentSecret(engineEnv(), flaky);
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1]).toBe(bodies[0]);
+  adoptWikiAgentSecret("");
+  await acquireWikiAgentSecret(engineEnv(), flaky);
+  expect(JSON.parse(bodies[2] ?? "{}").nonce).not.toBe(JSON.parse(bodies[0] ?? "{}").nonce);
+});
+
+test("after the first plugin loads, the engine's login and config path are gone from its environment", async () => {
+  const env = { ...engineEnv(), OPENCODE_SERVER_USERNAME: "synthetic-user", OPENCODE_SERVER_PASSWORD: "synthetic-password", OPENCODE_CONFIG: "/synthetic/config.json", OPENCODE_CONFIG_DIR: "/synthetic/dir", PATH: "/bin" };
+  await acquireWikiAgentSecret(env, responding(() => Response.json({ secret: "synthetic-secret" })).send);
+  expect(Object.keys(env).sort()).toEqual(["LEGALWORK_SERVER_URL", "OPENCODE_CONFIG_DIR", "PATH"]);
+  expect(engineConfigPath(env)).toBe("/synthetic/config.json");
+});
+
+test("without a ticket the environment is left alone", async () => {
+  const env = { OPENCODE_SERVER_PASSWORD: "synthetic-password", OPENCODE_CONFIG: "/synthetic/config.json" };
+  await acquireWikiAgentSecret(env, responding(() => Response.json({ secret: "x" })).send);
+  expect(Object.keys(env).sort()).toEqual(["OPENCODE_CONFIG", "OPENCODE_SERVER_PASSWORD"]);
+  expect(engineConfigPath(env)).toBe("/synthetic/config.json");
+});
+
+test("a shell gets the engine's login, config paths and capabilities removed, other variables stay", () => {
+  const output: { env: Record<string, string | undefined> } = { env: { CUSTOM: "kept" } };
+  hideEngineEnvFromShell(output);
+  expect(output.env.CUSTOM).toBe("kept");
+  for (const name of ["OPENCODE_SERVER_USERNAME", "OPENCODE_SERVER_PASSWORD", "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG_CONTENT", "OPENCODE_DB", "LEGALWORK_CONNECTOR_TOKEN", WIKI_AGENT_TICKET_ENV]) {
+    expect(name in output.env).toBe(true);
+    expect(output.env[name]).toBeUndefined();
+  }
+  expect("PATH" in output.env).toBe(false);
 });
 
 test("separately loaded copies of the module share the secret", async () => {

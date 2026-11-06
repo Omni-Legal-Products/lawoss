@@ -8,7 +8,7 @@ export const ENGINE_CONNECTION_REFUSED = "This chat cannot use this client's fil
 /** Plugin bundles are separate modules, and each engine instance runs their factories again. */
 const HOLDER = Symbol.for("lawoss.wiki-agent-secret");
 
-export type WikiAgentHolder = { secret: string; failed: boolean; pending: Promise<void> | null };
+export type WikiAgentHolder = { secret: string; failed: boolean; pending: Promise<void> | null; engineConfig?: string };
 const isHolder = (value: unknown): value is WikiAgentHolder => typeof value === "object" && value !== null && "secret" in value && "failed" in value;
 
 export function wikiAgentHolder(): WikiAgentHolder {
@@ -29,5 +29,5 @@ export function wikiAgentSecretFailed(): boolean {
 
 /** For tests that call plugin code in-process, without an engine. */
 export function adoptWikiAgentSecret(secret: string): void {
-  Object.assign(wikiAgentHolder(), { secret, failed: false, pending: null });
+  Object.assign(wikiAgentHolder(), { secret, failed: false, pending: null, engineConfig: undefined });
 }

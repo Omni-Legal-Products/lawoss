@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ENGINE_CONNECTION_REFUSED, WIKI_AGENT_TICKET_PATH } from "../lawoss/engine-agent-contract.js";
+import { ENGINE_CONNECTION_REFUSED, WIKI_AGENT_TICKET_ENV, WIKI_AGENT_TICKET_PATH } from "../lawoss/engine-agent-contract.js";
+import { acquireWikiAgentSecret, adoptWikiAgentSecret, wikiAgentSecret, wikiAgentSecretFailed } from "../opencode-plugins/wiki-agent-secret.js";
 import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { authenticateWikiAgentRequest, closeWikiAgentTicketWindow, ensureWikiAgentToken, grantWikiAgentSession, issueWikiAgentTicket, redeemWikiAgentTicket } from "./agent-access.js";
@@ -103,9 +104,9 @@ test("a new engine gets a new ticket and a new secret; the previous pair stops w
 test("the server route redeems once, refuses bad input without side effects and never logs the values", async () => {
   const { config, asB } = await fixture();
   const lines: string[] = [];
-  const originalLog = console.log;
-  console.log = (...args: unknown[]) => { lines.push(args.map(String).join(" ")); };
-  cleanup.push(async () => { console.log = originalLog; });
+  const originalWrite = process.stdout.write;
+  process.stdout.write = Object.assign((chunk: string | Uint8Array) => { lines.push(String(chunk)); return true; });
+  cleanup.push(async () => { process.stdout.write = originalWrite; });
   config.logRequests = true;
   const server = await startServer(config);
   cleanup.push(async () => { await server.stop(); });
@@ -125,6 +126,71 @@ test("the server route redeems once, refuses bad input without side effects and 
   const forged = await fetch(asB(ticket).url.replace("http://127.0.0.1", base), { headers: asB(ticket).headers });
   expect(forged.status).toBe(403);
   expect((await fetch(asB(secret).url.replace("http://127.0.0.1", base), { headers: asB(secret).headers })).status).not.toBe(403);
+  expect(lines.join("\n")).toContain(WIKI_AGENT_TICKET_PATH);
   expect(lines.join("\n")).not.toContain(ticket);
   expect(lines.join("\n")).not.toContain(secret);
+});
+
+test("the same nonce gets the same secret again, so a lost answer is not a replay", async () => {
+  const { config, works } = await fixture();
+  const ticket = issueWikiAgentTicket(config);
+  const secret = redeemWikiAgentTicket(config, ticket, "synthetic-nonce");
+  expect(redeemWikiAgentTicket(config, ticket, "synthetic-nonce")).toBe(secret);
+  await works(secret);
+  closeWikiAgentTicketWindow(config);
+  expect(redeemWikiAgentTicket(config, ticket, "synthetic-nonce")).toBe(secret);
+});
+
+test("another nonce is a replay; while the window is open the first holder's nonce stops working too", async () => {
+  const { config, refused } = await fixture();
+  const ticket = issueWikiAgentTicket(config);
+  const secret = redeemWikiAgentTicket(config, ticket, "synthetic-nonce");
+  for (const other of ["other-nonce", ""]) expect(() => redeemWikiAgentTicket(config, ticket, other)).toThrow(expect.objectContaining({ status: 403, code: "wiki_agent_ticket_refused" }));
+  await refused(secret);
+  expect(() => redeemWikiAgentTicket(config, ticket, "synthetic-nonce")).toThrow(expect.objectContaining({ status: 403 }));
+});
+
+test("a ticket redeemed without a nonce has nothing to repeat", async () => {
+  const { config } = await fixture();
+  const ticket = issueWikiAgentTicket(config);
+  const secret = redeemWikiAgentTicket(config, ticket, "");
+  closeWikiAgentTicketWindow(config);
+  expect(() => redeemWikiAgentTicket(config, ticket, "")).toThrow(expect.objectContaining({ status: 403 }));
+  expect(await ensureWikiAgentToken(config)).toBe(secret);
+});
+
+test("a server that consumed the ticket but lost its answer still gives the plugin the secret", async () => {
+  const { config, works } = await fixture();
+  const server = await startServer(config);
+  cleanup.push(async () => { await server.stop(); });
+  const ticket = issueWikiAgentTicket(config);
+  let attempts = 0;
+  const losesFirstAnswer = Object.assign(async (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const response = await fetch(url, init);
+    if (++attempts === 1) throw new TypeError("connection lost");
+    return response;
+  }, { preconnect: fetch.preconnect });
+  await acquireWikiAgentSecret({ [WIKI_AGENT_TICKET_ENV]: ticket, LEGALWORK_SERVER_URL: `http://127.0.0.1:${server.port}` }, losesFirstAnswer);
+  cleanup.push(async () => adoptWikiAgentSecret(""));
+  expect(attempts).toBe(2);
+  expect(wikiAgentSecretFailed()).toBe(false);
+  expect(wikiAgentSecret()).toBe(await ensureWikiAgentToken(config));
+  await works(wikiAgentSecret());
+});
+
+test("the window ends ten minutes after the ticket, whatever the probe does; a cold start within it still redeems", async () => {
+  const { config, works } = await fixture();
+  const issuedAt = Date.now();
+  const minutes = (count: number) => issuedAt + count * 60_000;
+  const cold = issueWikiAgentTicket(config);
+  const secret = redeemWikiAgentTicket(config, cold, "synthetic-nonce", minutes(5));
+  expect(secret).toBe(await ensureWikiAgentToken(config));
+  expect(() => redeemWikiAgentTicket(config, cold, "other", minutes(11))).toThrow(expect.objectContaining({ status: 403 }));
+  expect(await ensureWikiAgentToken(config)).toBe(secret);
+  await works(secret);
+  const late = issueWikiAgentTicket(config);
+  const current = await ensureWikiAgentToken(config);
+  expect(() => redeemWikiAgentTicket(config, late, "synthetic-nonce", minutes(11))).toThrow(expect.objectContaining({ status: 403 }));
+  expect(() => redeemWikiAgentTicket(config, late, "synthetic-nonce", minutes(12))).toThrow(expect.objectContaining({ status: 403 }));
+  expect(await ensureWikiAgentToken(config)).toBe(current);
 });

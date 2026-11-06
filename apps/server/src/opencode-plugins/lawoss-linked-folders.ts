@@ -24,6 +24,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { allowedFolders, canonicalPath, CHAT_AGENT, expandScope, externalDirectoryAllowed, externalDirectoryOtherClient, LINKED_FOLDERS_MAP_FILE, ownerOf, parseLinkedFoldersMap, patternDirectory, refusedEarlier } from "../lawoss/linked-folders-rules.js";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
+import { engineConfigPath } from "./wiki-agent-secret.js";
 import { APP_NAMES_SYSTEM } from "../lawoss/app-setting-names.js";
 
 type ReplyOptions = { path: { id: string; permissionID: string }; body: { response: "once" | "reject" }; query?: { directory?: string } };
@@ -48,7 +49,7 @@ function asked(properties: unknown): Asked | null {
 
 /** Mapa od servera a priečinok, v ktorom leží (dáta aplikácie: nikdy sa nepovolia). */
 async function readMap() {
-  const config = process.env.OPENCODE_CONFIG?.trim();
+  const config = engineConfigPath();
   if (!config) return null;
   try {
     const map = parseLinkedFoldersMap(JSON.parse(await readFile(join(dirname(config), LINKED_FOLDERS_MAP_FILE), "utf8")));

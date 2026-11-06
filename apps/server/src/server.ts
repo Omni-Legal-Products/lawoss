@@ -3248,8 +3248,8 @@ function createRoutes(
   });
   // LAWOSS: the engine's plugin exchanges its single-use ticket here; the ticket is the only authority.
   addRoute(routes, "POST", WIKI_AGENT_TICKET_PATH, "none", async (ctx) => {
-    const { ticket } = await readJsonBodyLimited(ctx.request, 1024).catch(() => ({ ticket: "" }));
-    const secret = redeemWikiAgentTicket(config, typeof ticket === "string" ? ticket : "");
+    const { ticket, nonce } = await readJsonBodyLimited(ctx.request, 1024).catch(() => ({ ticket: "", nonce: "" }));
+    const secret = redeemWikiAgentTicket(config, typeof ticket === "string" ? ticket : "", typeof nonce === "string" ? nonce : "");
     return new Response(JSON.stringify({ secret }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
   });
   // For the engine's guard plugin: what the firm enforces now. The folder it
