@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## Súbor len na čítanie sa nesťahuje znova, kým sa nezmenil (2026-11-06, #367)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/app/src/react-app/domains/session/artifacts/artifact-panel.tsx`, `apps/app/src/react-app/domains/session/artifacts/artifact-query.ts` | Kľúč pri `getQueryData` mal 4 prvky, kľúč query 5 (`generation`), takže porovnanie so `stat` nikdy neprebehlo a súbor len na čítanie sa sťahoval každé 2 s. Čítanie je presunuté do nového `artifact-query.ts` (`artifactQueryOptions`, `artifactQueryKey`), kde query, porovnanie aj ukladanie v paneli používajú ten istý kľúč. Regresia: `apps/app/tests/lawoss-artifact-query-key.test.ts` (skutočný `QueryObserver`). Pri syncu zachovať jeden kľúč; upstream zmeny `queryFn` prenášať do `artifact-query.ts`. |
+
 ## Engine pri studenom štarte číta len katalóg LAWOSS (2026-11-02, #336)
 
 Upstream test opravy #230 (`model-catalog-engine.e2e.test.ts`) čaká, že engine prevezme katalóg z relay (`OPENCODE_MODELS_URL`/`OPENCODE_MODELS_PATH` od volajúceho). LAWOSS relay nespúšťa a `lawossEngineEnv()` tieto premenné zámerne prepisuje pribaleným katalógom (rozhodnutie MČ 5. 10. 2026), takže test so skutočným enginom vždy padal. V CI to nebolo vidno, lebo krok serverových testov nemá `LEGALWORK_TEST_OPENCODE_BIN` a test preskočil.
