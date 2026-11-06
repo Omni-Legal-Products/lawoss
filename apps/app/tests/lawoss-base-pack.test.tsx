@@ -56,7 +56,7 @@ describe("LAWOSS Marketplace: katalóg z marketplace, nie z kódu appky", () => 
   test("balíky SK základ a CZ základ z marketplace, CZ predbežne", () => {
     expect(sk.plugins).toEqual(["slovlex", "orsr", "judikaty", "kalkulacky", "ruz", "rpo"]);
     const cz = recommendedBundles().find((bundle) => bundle.id === "cz-zaklad")!;
-    expect(cz.plugins).toEqual(["cz-agents", "eurlex-celex"]);
+    expect(cz.plugins).toEqual(["esbirka", "judikatura-cz", "lhuty-kalkulacky-cz", "katastr-cz", "cz-agents", "eurlex-celex"]);
     expect(cz.provisional).toBe(true);
     expect(officeBundles("sk").map((bundle) => bundle.id)).toEqual(["sk-zaklad"]);
     expect(officeBundles("cz").map((bundle) => bundle.id)).toEqual(["cz-zaklad"]);
@@ -116,7 +116,7 @@ describe("panel Odporúčané balíky LAWOSS", () => {
     expect(html).toContain('data-lawoss-recommended="sk"');
     expect(html).toContain('data-lawoss-bundle="sk-zaklad"');
     expect(html).toContain('data-lawoss-bundle="cz-zaklad"');
-    expect(html.match(/type="checkbox"/g)).toHaveLength(8);
+    expect(html.match(/type="checkbox"/g)).toHaveLength(12);
     expect(html.match(/checked=""/g)).toHaveLength(6);
     expect(html).toContain("Recommended LAWOSS bundles");
     // Jasný text: raz pre všetkých klientov, až tlačidlom, z GitHubu Omni Legal Products.
@@ -127,7 +127,7 @@ describe("panel Odporúčané balíky LAWOSS", () => {
 
   test("česká kancelária: CZ základ zaškrtnutý a označený ako predbežný", () => {
     const html = panel("cz");
-    expect(html.match(/checked=""/g)).toHaveLength(2);
+    expect(html.match(/checked=""/g)).toHaveLength(6);
     expect(html).toContain("Provisional");
   });
 

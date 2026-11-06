@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "name": "LAWOSS Marketplace",
   "repository": "Omni-Legal-Products/lawoss-marketplace",
-  "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
-  "metadataRef": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+  "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+  "metadataRef": "cd70ece43d370b20584ee0aa18bde602407bcea8",
   "categories": [
     {
       "id": "sk",
@@ -51,9 +51,9 @@
   "plugins": [
     {
       "name": "slovlex",
-      "version": "1.1.1",
+      "version": "1.1.3",
       "path": "plugins/slovlex",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -74,9 +74,9 @@
     },
     {
       "name": "orsr",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "path": "plugins/orsr",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -97,9 +97,9 @@
     },
     {
       "name": "judikaty",
-      "version": "1.1.0",
+      "version": "1.2.5",
       "path": "plugins/judikaty",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -120,9 +120,9 @@
     },
     {
       "name": "kalkulacky",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "path": "plugins/kalkulacky",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -143,9 +143,9 @@
     },
     {
       "name": "ruz",
-      "version": "1.1.0",
+      "version": "1.3.0",
       "path": "plugins/ruz",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -166,9 +166,9 @@
     },
     {
       "name": "rpo",
-      "version": "1.1.0",
+      "version": "1.2.1",
       "path": "plugins/rpo",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -189,9 +189,9 @@
     },
     {
       "name": "crz",
-      "version": "1.4.3",
+      "version": "1.5.0",
       "path": "plugins/crz",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -212,9 +212,9 @@
     },
     {
       "name": "ov",
-      "version": "1.1.0",
+      "version": "1.2.2",
       "path": "plugins/ov",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -235,9 +235,9 @@
     },
     {
       "name": "rpvs",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "path": "plugins/rpvs",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -258,9 +258,9 @@
     },
     {
       "name": "ru",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "path": "plugins/ru",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -281,9 +281,9 @@
     },
     {
       "name": "disq",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "path": "plugins/disq",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -304,9 +304,9 @@
     },
     {
       "name": "fs-opendata-mcp",
-      "version": "1.1.1",
+      "version": "1.2.0",
       "path": "plugins/fs-opendata-mcp",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -327,9 +327,9 @@
     },
     {
       "name": "uvo",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "path": "plugins/uvo",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "mcp-skill-cli",
       "category": "sk",
       "jurisdictions": [
@@ -352,7 +352,7 @@
       "name": "cz-agents",
       "version": "1.1.2",
       "path": "plugins/cz-agents",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "mcp-skill-cli",
       "category": "cz",
       "jurisdictions": [
@@ -373,9 +373,9 @@
     },
     {
       "name": "eurlex-celex",
-      "version": "1.1.1",
+      "version": "1.2.1",
       "path": "plugins/eurlex-celex",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "mcp-skill-cli",
       "category": "general",
       "jurisdictions": [
@@ -395,10 +395,33 @@
       }
     },
     {
+      "name": "zrsr",
+      "version": "0.1.0",
+      "path": "plugins/zrsr",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "kind": "skill-only",
+      "category": "sk",
+      "jurisdictions": [
+        "SK"
+      ],
+      "title": {
+        "sk": "Živnostenský register SR",
+        "cs": "Živnostenský rejstřík SR",
+        "en": "Slovak Trade Register",
+        "de": "Slowakisches Gewerberegister"
+      },
+      "summary": {
+        "sk": "Skill pre ŽRSR cez samostatne pripojený MCP. Server nie je súčasťou balíka.",
+        "cs": "Skill pro ŽRSR přes samostatně připojené MCP. Server není součástí balíčku.",
+        "en": "ŽRSR guidance using a separately connected MCP. No bundled server.",
+        "de": "ŽRSR-Skill über separat verbundenes MCP. Kein mitgelieferter Server."
+      }
+    },
+    {
       "name": "google-workspace-gog",
       "version": "0.1.0",
       "path": "plugins/google-workspace-gog",
-      "ref": "f3257e934ec4cfbd307f518fdc521073a85e592b",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
       "kind": "skill-only",
       "category": "general",
       "jurisdictions": [],
@@ -413,6 +436,98 @@
         "cs": "Skill pro Gmail, Kalendář, Disk a Dokumenty přes lokální nástroj gog. Ve výchozím stavu jen čtení, e-maily jen jako koncepty.",
         "en": "Skill for Gmail, Calendar, Drive and Docs through the local gog command line tool. Read-only by default; emails only as drafts.",
         "de": "Skill für Gmail, Kalender, Drive und Docs über das lokale Werkzeug gog. Standardmäßig nur lesend, E-Mails nur als Entwürfe."
+      }
+    },
+    {
+      "name": "esbirka",
+      "version": "0.1.0",
+      "path": "plugins/esbirka",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "kind": "skill-only",
+      "category": "cz",
+      "jurisdictions": [
+        "CZ"
+      ],
+      "title": {
+        "sk": "Predpisy ČR (e-Sbírka)",
+        "cs": "Předpisy ČR (e-Sbírka)",
+        "en": "Czech legislation (e-Sbírka)",
+        "de": "Tschechische Rechtsvorschriften (e-Sbírka)"
+      },
+      "summary": {
+        "sk": "Skill na znenie českých predpisov k dátumu z verejnej e-Sbírky. Bez MCP a bez kľúčov.",
+        "cs": "Skill pro znění českých předpisů k datu z veřejné e-Sbírky. Bez MCP a bez klíčů.",
+        "en": "Skill for point-in-time Czech legislation from the public e-Sbírka. No MCP, no keys.",
+        "de": "Skill für tschechische Rechtsvorschriften zum Stichtag aus der öffentlichen e-Sbírka. Kein MCP, keine Schlüssel."
+      }
+    },
+    {
+      "name": "judikatura-cz",
+      "version": "0.1.0",
+      "path": "plugins/judikatura-cz",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "kind": "skill-only",
+      "category": "cz",
+      "jurisdictions": [
+        "CZ"
+      ],
+      "title": {
+        "sk": "Judikatúra ČR",
+        "cs": "Judikatura ČR",
+        "en": "Czech case law",
+        "de": "Tschechische Rechtsprechung"
+      },
+      "summary": {
+        "sk": "Skill na judikatúru všeobecných súdov, NS, NSS a ÚS ČR z bezplatných verejných zdrojov. Bez MCP.",
+        "cs": "Skill pro judikaturu obecných soudů, NS, NSS a ÚS z bezplatných veřejných zdrojů. Bez MCP.",
+        "en": "Skill for Czech general courts, Supreme Court, Supreme Administrative Court and Constitutional Court from free public sources. No MCP.",
+        "de": "Skill für tschechische ordentliche Gerichte, OGH, OVG und Verfassungsgericht aus freien öffentlichen Quellen. Kein MCP."
+      }
+    },
+    {
+      "name": "lhuty-kalkulacky-cz",
+      "version": "0.1.0",
+      "path": "plugins/lhuty-kalkulacky-cz",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "kind": "skill-only",
+      "category": "cz",
+      "jurisdictions": [
+        "CZ"
+      ],
+      "title": {
+        "sk": "Lehoty a kalkulačky ČR",
+        "cs": "Lhůty a kalkulačky ČR",
+        "en": "Czech deadlines and calculators",
+        "de": "Tschechische Fristen und Rechner"
+      },
+      "summary": {
+        "sk": "Skilly na výpočet lehôt, súdnych poplatkov, advokátskej tarify a úroku z omeškania podľa českého práva.",
+        "cs": "Skilly pro výpočet lhůt, soudních poplatků, advokátního tarifu a úroku z prodlení podle českého práva.",
+        "en": "Skills for Czech deadlines, court fees, attorney tariff and late payment interest.",
+        "de": "Skills für tschechische Fristen, Gerichtsgebühren, Anwaltstarif und Verzugszinsen."
+      }
+    },
+    {
+      "name": "katastr-cz",
+      "version": "0.1.0",
+      "path": "plugins/katastr-cz",
+      "ref": "cd70ece43d370b20584ee0aa18bde602407bcea8",
+      "kind": "skill-only",
+      "category": "cz",
+      "jurisdictions": [
+        "CZ"
+      ],
+      "title": {
+        "sk": "Kataster nehnuteľností ČR",
+        "cs": "Katastr nemovitostí ČR",
+        "en": "Czech land registry",
+        "de": "Tschechisches Grundbuch"
+      },
+      "summary": {
+        "sk": "Skill pre bezplatné REST API ČÚZK. Vyžaduje vlastný bezplatný kľúč používateľa.",
+        "cs": "Skill pro bezplatné REST API ČÚZK. Vyžaduje vlastní bezplatný klíč uživatele.",
+        "en": "Skill for the free ČÚZK cadastre REST API. Requires the user's own free API key.",
+        "de": "Skill für die kostenlose ČÚZK-Kataster-REST-API. Erfordert einen eigenen kostenlosen API-Schlüssel."
       }
     }
   ],
@@ -450,6 +565,10 @@
       "recommended": true,
       "provisional": true,
       "plugins": [
+        "esbirka",
+        "judikatura-cz",
+        "lhuty-kalkulacky-cz",
+        "katastr-cz",
         "cz-agents",
         "eurlex-celex"
       ],
@@ -460,10 +579,10 @@
         "de": "CZ-Grundpaket"
       },
       "summary": {
-        "sk": "Predbežne pre českú kanceláriu: české registre a právo EÚ.",
-        "cs": "Předběžně pro českou kancelář: české registry a právo EU.",
-        "en": "Provisional for a Czech office: Czech registers and EU law.",
-        "de": "Vorläufig für eine tschechische Kanzlei: tschechische Register und EU-Recht."
+        "sk": "Predbežne pre českú kanceláriu: predpisy, judikatúra, lehoty a kalkulačky, kataster, české registre a právo EÚ.",
+        "cs": "Předběžně pro českou kancelář: předpisy, judikatura, lhůty a kalkulačky, katastr, české registry a právo EU.",
+        "en": "Provisional for a Czech office: legislation, case law, deadlines and calculators, land registry, Czech registers and EU law.",
+        "de": "Vorläufig für eine tschechische Kanzlei: Rechtsvorschriften, Rechtsprechung, Fristen und Rechner, Grundbuch, tschechische Register und EU-Recht."
       }
     }
   ]
