@@ -3,6 +3,7 @@ import { readdir } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 
 import type { ReloadEventStore } from "./events.js";
+import { createConcurrencyLimiter } from "./lawoss/concurrency-limiter.js";
 import { computeReloadFingerprint, fingerprintedReloadReasons } from "./reload-fingerprint.js";
 import type { ReloadReason, ReloadTrigger, ServerConfig, WorkspaceInfo } from "./types.js";
 
@@ -26,15 +27,32 @@ const bootstrapReasons: ReloadReason[] = ["agents", "commands", "skills"];
 type BootstrapScope = { depth: number; revision: number; refreshers: Set<() => Promise<void>> };
 const bootstrapScopes = new WeakMap<ServerConfig, Map<string, BootstrapScope>>();
 
-// 🟡 LAWOSS: Bun na macOS pri každom novom fs.watch nanovo vytvorí spoločný FSEvents
-// stream procesu a udalosti, ktoré ešte nedoručil, zahodí aj ostatným sledovaniam.
-// Zmena súboru tesne pred registráciou by sa tak stratila. Po registrácii preto každé
-// živé sledovanie znovu porovná odtlačky; nezmenený odtlačok nič nevyšle.
+// 🟡 LAWOSS: na macOS nový fs.watch prebuduje spoločný FSEvents stream procesu a udalosti,
+// ktoré ešte nedoručil, môžu pre ostatné sledovania zaniknúť. Nejde len o Bun 1.4.2:
+// sonda s dvoma súbormi na Node 24.21.0 stratila 4 z 90 udalostí oproti 0 z 90 bez nového
+// sledovania, Node 26.7.0 2 zo 114 oproti 0 z 33 (malá vzorka; Electron nemeraný). Po poslednej
+// registrácii z dávky preto jediný časovač raz prejde živé sledovania a tie porovnajú
+// odtlačky; nezmenený odtlačok nič nevyšle.
 const watcherReconcilers = new Set<() => void>();
-function reconcileAfterWatcherRegistration() {
+let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
+function reconcileAfterWatcherRegistration(delayMs: number) {
   if (process.platform !== "darwin") return;
-  for (const reconcile of [...watcherReconcilers]) reconcile();
+  if (reconcileTimer) clearTimeout(reconcileTimer);
+  reconcileTimer = setTimeout(() => {
+    reconcileTimer = null;
+    for (const reconcile of [...watcherReconcilers]) reconcile();
+  }, delayMs);
+  reconcileTimer.unref();
 }
+function removeWatcherReconciler(reconcile: () => void) {
+  watcherReconcilers.delete(reconcile);
+  if (watcherReconcilers.size || !reconcileTimer) return;
+  clearTimeout(reconcileTimer);
+  reconcileTimer = null;
+}
+// 🟡 LAWOSS: odtlačok číta celé súbory (pri plugins celý strom) a server v desktope beží
+// v hlavnom procese Electronu. Súbeh je preto spoločný pre všetky pracoviská a inštancie.
+const limitFingerprint = createConcurrencyLimiter(2);
 const watchedReasons: ReloadReason[] = ["config", "agents", "skills", "commands", "plugins"];
 
 function workspaceBootstrapScope(config: ServerConfig, workspace: WorkspaceInfo) {
@@ -52,17 +70,21 @@ export function startReloadWatchers(input: {
   reloadEvents: ReloadEventStore;
   logger?: Logger | null;
   debounceMs?: number;
+  reconcileDelayMs?: number;
+  fingerprint?: typeof computeReloadFingerprint;
 }): { close: () => void; refreshWorkspace: (workspaceId: string, reasons?: ReloadReason[]) => Promise<void>;
   withWorkspaceBootstrap: <T>(workspaceId: string, work: () => Promise<T>) => Promise<T> } {
   const { config, reloadEvents } = input;
   const logger = input.logger ?? null;
   const debounceMs = typeof input.debounceMs === "number" ? input.debounceMs : 750;
+  const reconcileDelayMs = input.reconcileDelayMs ?? debounceMs;
+  const fingerprint = input.fingerprint ?? computeReloadFingerprint;
 
   const workspaceWatchers = new Map<string, WorkspaceReloadWatcher>();
 
   for (const workspace of config.workspaces) {
     try {
-      const watcher = startWorkspaceReloadWatcher({ workspace, reloadEvents, logger, debounceMs, bootstrap: workspaceBootstrapScope(config, workspace) });
+      const watcher = startWorkspaceReloadWatcher({ workspace, reloadEvents, logger, debounceMs, reconcileDelayMs, fingerprint, bootstrap: workspaceBootstrapScope(config, workspace) });
       workspaceWatchers.set(workspace.id, watcher);
     } catch (error) {
       logger?.log("warn", "Reload watcher failed to start", {
@@ -126,9 +148,11 @@ function startWorkspaceReloadWatcher(input: {
   reloadEvents: ReloadEventStore;
   logger: Logger | null;
   debounceMs: number;
+  reconcileDelayMs: number;
+  fingerprint: typeof computeReloadFingerprint;
   bootstrap: ReturnType<typeof workspaceBootstrapScope>;
 }): WorkspaceReloadWatcher {
-  const { workspace, reloadEvents, logger, debounceMs, bootstrap } = input;
+  const { workspace, reloadEvents, logger, debounceMs, reconcileDelayMs, fingerprint, bootstrap } = input;
   const root = resolve(workspace.path);
   const opencodeRoot = join(root, ".opencode");
 
@@ -154,16 +178,19 @@ function startWorkspaceReloadWatcher(input: {
     opencodeRootWatcher?.close();
     bootstrap.scope.refreshers.delete(refreshBootstrapBaseline);
     bootstrap.release();
-    watcherReconcilers.delete(reconcile);
+    removeWatcherReconciler(reconcile);
   };
+
+  // Úloha zatvoreného sledovania čakajúca vo fronte už súbory nečíta.
+  const queuedFingerprint = (reason: ReloadReason) => limitFingerprint(async () => closed ? null : fingerprint(root, reason));
 
   const refreshBaseline = async (reasons: ReloadReason[] = fingerprintedReloadReasons) => {
     for (const reason of reasons) {
       if (!fingerprintedReloadReasons.includes(reason)) continue;
       const revision = (baselineRevisions.get(reason) ?? 0) + 1;
       baselineRevisions.set(reason, revision);
-      const current = await computeReloadFingerprint(root, reason);
-      if (!closed && baselineRevisions.get(reason) === revision) baselines.set(reason, current);
+      const current = await queuedFingerprint(reason);
+      if (current !== null && !closed && baselineRevisions.get(reason) === revision) baselines.set(reason, current);
     }
   };
 
@@ -214,8 +241,8 @@ function startWorkspaceReloadWatcher(input: {
 
     const revision = baselineRevisions.get(reason);
     const bootstrapRevision = bootstrap.scope.revision;
-    const current = await computeReloadFingerprint(root, reason);
-    if (closed || baselineRevisions.get(reason) !== revision || bundled && (bootstrap.scope.depth || bootstrap.scope.revision !== bootstrapRevision)) return;
+    const current = await queuedFingerprint(reason);
+    if (current === null || closed || baselineRevisions.get(reason) !== revision || bundled && (bootstrap.scope.depth || bootstrap.scope.revision !== bootstrapRevision)) return;
     const previous = baselines.get(reason);
     baselines.set(reason, current);
 
@@ -296,7 +323,7 @@ function startWorkspaceReloadWatcher(input: {
           error: error instanceof Error ? error.message : String(error),
         });
       });
-      reconcileAfterWatcherRegistration();
+      reconcileAfterWatcherRegistration(reconcileDelayMs);
     } catch (error) {
       logger?.log("warn", "Reload watcher .opencode failed", {
         workspaceId: workspace.id,
@@ -387,6 +414,7 @@ function startWorkspaceReloadWatcher(input: {
       reason: "skills",
       triggerType: "skill",
       logger,
+      onWatcherRegistered: () => reconcileAfterWatcherRegistration(reconcileDelayMs),
       onChange: (trigger) => scheduleReasonCheck("skills", trigger),
     }),
   );
@@ -397,6 +425,7 @@ function startWorkspaceReloadWatcher(input: {
       reason: "commands",
       triggerType: "command",
       logger,
+      onWatcherRegistered: () => reconcileAfterWatcherRegistration(reconcileDelayMs),
       onChange: (trigger) => scheduleReasonCheck("commands", trigger),
     }),
   );
@@ -407,6 +436,7 @@ function startWorkspaceReloadWatcher(input: {
       reason: "plugins",
       triggerType: "plugin",
       logger,
+      onWatcherRegistered: () => reconcileAfterWatcherRegistration(reconcileDelayMs),
       onChange: (trigger) => scheduleReasonCheck("plugins", trigger),
     }),
   );
@@ -417,6 +447,7 @@ function startWorkspaceReloadWatcher(input: {
       reason: "agents",
       triggerType: "agent",
       logger,
+      onWatcherRegistered: () => reconcileAfterWatcherRegistration(reconcileDelayMs),
       onChange: (trigger) => scheduleReasonCheck("agents", trigger),
     }),
   );
@@ -427,6 +458,7 @@ function startWorkspaceReloadWatcher(input: {
       reason: "agents",
       triggerType: "agent",
       logger,
+      onWatcherRegistered: () => reconcileAfterWatcherRegistration(reconcileDelayMs),
       onChange: (trigger) => scheduleReasonCheck("agents", trigger),
     }),
   );
@@ -439,7 +471,7 @@ function startWorkspaceReloadWatcher(input: {
 
   // Triggerless checks keep any pending named trigger; fingerprints gate emission.
   watcherReconcilers.add(reconcile);
-  reconcileAfterWatcherRegistration();
+  reconcileAfterWatcherRegistration(reconcileDelayMs);
 
   return { close: closeAll, refreshBaseline };
 }
@@ -450,9 +482,10 @@ function createDirectoryTreeWatcher(input: {
   reason: ReloadReason;
   triggerType: ReloadTrigger["type"];
   logger: Logger | null;
+  onWatcherRegistered: () => void;
   onChange: (trigger?: ReloadTrigger) => void;
 }): DirectoryTreeWatcher {
-  const { rootDir, workspace, reason, triggerType, logger, onChange } = input;
+  const { rootDir, workspace, reason, triggerType, logger, onWatcherRegistered, onChange } = input;
   const resolvedRoot = resolve(rootDir);
   // Windows rejects a parent rename while a descendant directory is open.
   // Its native recursive watch needs only the tree root's handle.
@@ -616,7 +649,7 @@ function createDirectoryTreeWatcher(input: {
       for (const dir of dirs) {
         ensureWatcher(dir);
       }
-      if (watchers.size > registered) reconcileAfterWatcherRegistration();
+      if (watchers.size > registered) onWatcherRegistered();
       for (const dir of Array.from(watchers.keys())) {
         if (!dirs.has(dir)) {
           const watcher = watchers.get(dir);
