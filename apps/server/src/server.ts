@@ -170,6 +170,8 @@ import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerOnboardingRoutes, type OnboardingApplyCheckpoint } from "./lawoss/onboarding.js";
 import { LawossOcrManager, registerLawossOcrRoutes } from "./lawoss/ocr-opt-in.js";
 import { registerLawossMarketplaceRoutes } from "./lawoss/marketplace-routes.js";
+// LAWOSS: rozpočet RAM 2 GB – MCP len pre otvorených klientov (lawoss/engine-mcp-budget.ts, issue #367).
+import { createEngineMcpBudget, engineMcpBudgetSettings, initializesEngineMcp, type EngineMcpBudget, type EngineScope } from "./lawoss/engine-mcp-budget.js";
 import { startWeeklyMarketplaceCheck } from "./lawoss/marketplace-updates.js";
 import {
   applyGlobalToolPermissions,
@@ -199,9 +201,11 @@ import {
 import {
   buildLegalworkRuntimeConfigObject,
   buildOrgPolicyEngineLayerFor,
+  legalworkRuntimeConfigFilePath,
   readEngineEigenweltProvider,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
+import { isDeepStrictEqual } from "node:util";
 import { providerRepairNotices, repairRuntimeProviders } from "./runtime-provider-repair.js";
 import { endpointChangeConflicts, type LegacyProviderRow, mergeProviderConflicts, providerOverwriteConflicts } from "./lawoss/provider-overwrite.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
@@ -839,6 +843,8 @@ const firmHubResource = Symbol("server-firm-hub");
 export async function startServer(config: ServerConfig, runtimeOptions: { scheduledTaskSend?: ScheduledExecutor["send"]; publicEngineBinary?: () => string | undefined; documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void>; onboardingApplyCheckpoint?: (checkpoint: OnboardingApplyCheckpoint) => void } = {}): Promise<StartedServer> {
   const lifetime = acquireRuntimeDbLifetime(config);
   const cleanups: Array<() => void | Promise<unknown>> = [];
+  // LAWOSS: rozpočet RAM 2 GB – MCP len pre otvorených klientov (issue #367).
+  cleanups.push(installEngineMcpBudget(config));
   const producerStops: Array<() => void | Promise<unknown>> = [];
   let stopping = false;
   let stopPromise: Promise<void> | undefined;
@@ -1405,15 +1411,16 @@ function createOpencodeDirectoryFetch(directory: string, config: ServerConfig, w
     const request = input instanceof Request ? input : new Request(input, init);
     const headers = request.headers;
     if (request.method === "GET" && new URL(request.url).pathname === "/session") {
+      // LAWOSS: studený štart inštancie bez MCP (GET /path ich nespúšťa; issue #367).
       const readiness = new URL(request.url);
-      readiness.pathname = "/mcp";
+      readiness.pathname = "/path";
       readiness.search = "";
       readiness.searchParams.set("directory", new URL(request.url).searchParams.get("directory") ?? directory);
       const key = JSON.stringify([workspaceId, readiness.toString(), [...headers]]);
       return abortable(sharedEngineResponse(key, signal => governedFetch(new Request(readiness, { headers, signal })), undefined, config), request.signal)
         .then(() => { request.signal.throwIfAborted(); return governedFetch(request); });
     }
-    return governedFetch(request);
+    return budgetedEngineFetch(config, workspaceId, request, directory, governedFetch);
   }, { preconnect: fetch.preconnect });
   const protectedFetch = protectedEngineFetch(config, workspaceId, initializedFetch);
   return Object.assign(
@@ -1596,16 +1603,44 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     // Keep the dispatch reservation after returning the command acknowledgement.
     const commandSession = normalizedPath.match(/^\/session\/([^/]+)\/command$/);
     if (!commandSession) throw new ApiError(400, "invalid_command", "A chat command is required.");
-    void withSessionExecution(input.config, decodeURIComponent(commandSession[1]), () => fetch(targetUrl, {
-      method,
-      headers,
-      body,
-    })).catch(() => {
+    void withSessionExecution(input.config, decodeURIComponent(commandSession[1]), async () => {
+      // LAWOSS: príkaz spúšťa MCP v priečinku; počíta sa do rozpočtu (issue #367).
+      const releaseEngineMcp = await admitEngineMcp(input.config, method, scopedProxyPath, directory ? { baseUrl, authHeader: auth, directory } : null);
+      try {
+        return await fetch(targetUrl, { method, headers, body });
+      } finally {
+        releaseEngineMcp();
+      }
+    }).catch(() => {
       // Command failures are surfaced through the OpenCode event stream.
     });
     return jsonResponse({ ok: true, accepted: true });
   }
   const engineFetch = protectedEngineFetch(input.config, workspace?.id ?? "", fetch);
+  // LAWOSS: MCP sa spustia len v otvorenom priečinku, najviac v limite (issue #367).
+  const releaseEngineMcp = await admitEngineMcp(input.config, method, scopedProxyPath, directory ? { baseUrl, authHeader: auth, directory } : null);
+  try {
+    return await dispatchOpencodeProxyRequest({ ...input, workspace, method, headers, body, targetUrl, scopedProxyPath, normalizedPath, sessionDirectory, listRoots, baseUrl, directory, engineFetch });
+  } finally {
+    releaseEngineMcp();
+  }
+}
+
+async function dispatchOpencodeProxyRequest(input: Parameters<typeof proxyOpencodeRequest>[0] & {
+  workspace: WorkspaceInfo | undefined;
+  method: string;
+  headers: Headers;
+  body: ArrayBuffer | undefined;
+  targetUrl: string;
+  scopedProxyPath: string;
+  normalizedPath: string;
+  sessionDirectory: string | null;
+  listRoots: string[] | null;
+  baseUrl: string;
+  directory: string | null;
+  engineFetch: typeof fetch;
+}) {
+  const { workspace, method, headers, body, targetUrl, scopedProxyPath, normalizedPath, sessionDirectory, listRoots, baseUrl, directory, engineFetch } = input;
   // Cold instance bootstrap hangs until npm install finishes. Share one GET /mcp
   // for this URL. A different directory waits so a second install does not start
   // beside it. A 20s client poll does not abort the install.
@@ -2042,7 +2077,7 @@ function createRoutes(
         for (const workspace of config.workspaces) {
           if (workspace.workspaceType === "remote") continue;
           try {
-            if (!(await workspaceEngineBusy(config, workspace))) await reloadOpencodeEngine(config, workspace);
+            if (!(await workspaceEngineBusy(config, workspace))) await reloadOpencodeEngine(config, workspace, { background: true });
           } catch { /* A stopped engine will read the updated configuration on startup. */ }
         }
       });
@@ -2179,7 +2214,7 @@ function createRoutes(
         await previousReload;
       for (const workspace of local) {
         try {
-          if (!(await workspaceEngineBusy(config, workspace))) { await reloadOpencodeEngine(config, workspace); continue; }
+          if (!(await workspaceEngineBusy(config, workspace))) { await reloadOpencodeEngine(config, workspace, { background: true }); continue; }
           await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
           emitReloadEvent(ctx.reloadEvents, workspace, "skills", { type: "skill", name: "LAWOSS Marketplace", action: "updated" });
         } catch { /* Best-effort: zastavený engine si pri štarte prečíta aktuálny stav. */ }
@@ -5794,7 +5829,12 @@ function parseOpencodeErrorBody(input: string): unknown {
   }
 }
 
-async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo): Promise<void> {
+async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo, options: { background?: boolean } = {}): Promise<void> {
+  // LAWOSS: explicitný reload (nastavenia klienta, poskytovateľ) klienta otvorí;
+  // hromadný reload na pozadí neotvoreného klienta len uvoľní (issue #367).
+  const budget = engineMcpBudgetFor(config);
+  const budgetScope = workspaceEngineScope(config, workspace);
+  if (!options.background && budget && budgetScope) await budget.adopt(budgetScope);
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const baseUrl = connection.baseUrl?.trim() ?? "";
   if (!baseUrl) {
@@ -5837,6 +5877,10 @@ async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceIn
     });
   }
 
+  // LAWOSS: neaktívny klient sa len uvoľní; ďalšia požiadavka ho postaví z
+  // aktuálneho súboru a MCP spustí až jeho skutočné použitie (issue #367).
+  if (options.background && workspaceMcpDormant(config, workspace)) return;
+
   // Re-register runtime-DB MCPs: dispose rebuilds engine state from disk
   // configs (including the server-managed runtime config file for the
   // primary workspace), but other workspaces' runtime MCPs only reach the
@@ -5857,7 +5901,7 @@ function reloadIdleWorkspaceEngines(config: ServerConfig, origin: WorkspaceInfo)
     for (const workspace of otherLocalWorkspaces(config, origin)) {
       try {
         if (await workspaceEngineBusy(config, workspace)) continue;
-        await reloadOpencodeEngine(config, workspace);
+        await reloadOpencodeEngine(config, workspace, { background: true });
       } catch {
         // Best-effort: the app repairs the workspace when it is opened.
       }
@@ -5905,7 +5949,7 @@ function applyOrgPolicyToEngines(config: ServerConfig): void {
         const workspace = config.workspaces.find((candidate) => candidate.id === id);
         try {
           if (workspace && await workspaceEngineBusy(config, workspace)) continue;
-          if (workspace) await reloadOpencodeEngine(config, workspace);
+          if (workspace) await reloadOpencodeEngine(config, workspace, { background: true });
           state.pending.delete(id);
           reloaded = true;
         } catch {
@@ -5945,6 +5989,106 @@ async function workspaceEngineBusy(config: ServerConfig, workspace: WorkspaceInf
     return !isRecord(statuses) || Object.values(statuses).some((status) => !isRecord(status) || status.type !== "idle");
   } catch {
     return true;
+  }
+}
+
+// LAWOSS: rozpočet RAM 2 GB (issue #367). Inštancia enginu spustí všetky MCP
+// pri prvom dotyku MCP stavu. Tieto funkcie ich držia len pre otvorených
+// klientov (lawoss/engine-mcp-budget.ts); hromadné zmeny neaktívnych len uvoľnia.
+const engineMcpBudgets = new WeakMap<ServerConfig, EngineMcpBudget>();
+
+function engineMcpBudgetFor(config: ServerConfig): EngineMcpBudget | null {
+  return engineMcpBudgets.get(config) ?? null;
+}
+
+function workspaceEngineScope(config: ServerConfig, workspace: WorkspaceInfo): EngineScope | null {
+  const connection = resolveWorkspaceOpencodeConnection(config, workspace);
+  const baseUrl = connection.baseUrl?.trim() ?? "";
+  const directory = resolveOpencodeDirectory(workspace);
+  return baseUrl && directory ? { baseUrl, authHeader: connection.authHeader ?? null, directory } : null;
+}
+
+// Klient bez spustených MCP: zmena konfigurácie ho nesmie zobudiť.
+function workspaceMcpDormant(config: ServerConfig, workspace: WorkspaceInfo): boolean {
+  const budget = engineMcpBudgetFor(config);
+  const scope = workspaceEngineScope(config, workspace);
+  return !!budget && !!scope && !budget.isActive(scope);
+}
+
+// Bežiaci chat v adresári? Neznáma odpoveď je „áno“: úlohu nikdy neprerušiť.
+async function engineDirectoryBusy(scope: EngineScope): Promise<boolean> {
+  const url = new URL(scope.baseUrl);
+  url.pathname = "/session/status";
+  url.search = "";
+  url.searchParams.set("directory", scope.directory);
+  const headers: Record<string, string> = {};
+  if (scope.authHeader) headers.Authorization = scope.authHeader;
+  try {
+    const response = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) return true;
+    const statuses: unknown = await response.json();
+    return !isRecord(statuses) || Object.values(statuses).some((status) => !isRecord(status) || status.type !== "idle");
+  } catch {
+    return true;
+  }
+}
+
+async function disposeEngineDirectory(scope: EngineScope): Promise<void> {
+  const headers: Record<string, string> = {};
+  if (scope.authHeader) headers.Authorization = scope.authHeader;
+  const response = await fetch(buildOpencodeReloadUrl(scope.baseUrl, scope.directory), { method: "POST", headers, signal: AbortSignal.timeout(30_000) });
+  await response.arrayBuffer().catch(() => undefined);
+  if (!response.ok) throw new ApiError(502, "opencode_reload_failed", "OpenCode dispose failed", { status: response.status });
+}
+
+function installEngineMcpBudget(config: ServerConfig): () => void {
+  const settings = engineMcpBudgetSettings();
+  const logger = createServerLogger(config);
+  const budget = createEngineMcpBudget({
+    ...settings,
+    busy: engineDirectoryBusy,
+    dispose: disposeEngineDirectory,
+    // Prvé použitie koreňa klienta zaregistruje jeho vlastné MCP; zdieľané má inštancia zo súboru.
+    initialize: async (scope) => {
+      const workspace = config.workspaces.find((candidate) => {
+        const own = workspaceEngineScope(config, candidate);
+        return own?.baseUrl === scope.baseUrl && own.directory === scope.directory;
+      });
+      if (workspace) await syncRuntimeMcpToOpencodeEngine(config, workspace, undefined, { skipFileProvided: true }).catch(() => undefined);
+    },
+    log: (message, fields) => logger.log("info", message, fields),
+  });
+  engineMcpBudgets.set(config, budget);
+  const sweep = setInterval(() => { void budget.sweep().catch(() => undefined); }, Math.min(60_000, Math.max(1_000, settings.idleMs / 4 || 60_000)));
+  sweep.unref?.();
+  return () => {
+    clearInterval(sweep);
+    budget.close();
+    if (engineMcpBudgets.get(config) === budget) engineMcpBudgets.delete(config);
+  };
+}
+
+async function admitEngineMcp(config: ServerConfig, method: string, path: string, scope: EngineScope | null): Promise<() => void> {
+  const budget = engineMcpBudgetFor(config);
+  if (!budget || !scope) return () => undefined;
+  if (!initializesEngineMcp(method, path)) {
+    budget.touch(scope);
+    return () => undefined;
+  }
+  return budget.admit(scope);
+}
+
+// SDK požiadavky servera (prompt, príkazy) idú cez rovnaký rozpočet ako požiadavky z okna.
+async function budgetedEngineFetch(config: ServerConfig, workspaceId: string, request: Request, directory: string, send: (request: Request) => Promise<Response>): Promise<Response> {
+  const workspace = config.workspaces.find((candidate) => candidate.id === workspaceId);
+  const connection = workspace ? resolveWorkspaceOpencodeConnection(config, workspace) : null;
+  const baseUrl = connection?.baseUrl?.trim() ?? "";
+  const requested = new URL(request.url).searchParams.get("directory") || decodeOpencodeDirectoryHeader(request.headers.get("x-opencode-directory")) || directory;
+  const release = await admitEngineMcp(config, request.method, new URL(request.url).pathname, baseUrl ? { baseUrl, authHeader: connection?.authHeader ?? null, directory: requested } : null);
+  try {
+    return await send(request);
+  } finally {
+    release();
   }
 }
 
@@ -5991,14 +6135,18 @@ async function syncRuntimeMcpToOpencodeEngine(
   config: ServerConfig,
   workspace: WorkspaceInfo,
   onlyNames?: string[],
+  options: { skipFileProvided?: boolean } = {},
 ): Promise<void> {
   if (await localWorkspaceUnavailable(workspace)) return;
+  // LAWOSS: POST /mcp by v neotvorenom klientovi spustil všetky MCP (issue #367).
+  if (workspaceMcpDormant(config, workspace)) return;
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const baseUrl = connection.baseUrl?.trim() ?? "";
   if (!baseUrl) return;
 
+  const fileProvided = options.skipFileProvided ? await engineFileMcpEntries(config) : {};
   const entries = Object.entries(await allowedMemberConnectors(config, await runtimeMcpMapForWorkspace(config, workspace.id))).filter(
-    ([name]) => !onlyNames || onlyNames.includes(name),
+    ([name, mcpConfig]) => (!onlyNames || onlyNames.includes(name)) && !isDeepStrictEqual(fileProvided[name], mcpConfig),
   );
   if (entries.length === 0) return;
 
@@ -6036,6 +6184,17 @@ async function syncRuntimeMcpToOpencodeEngine(
     throw new ApiError(502, "opencode_mcp_sync_failed", `Failed to register MCPs with the engine: ${names}`, {
       failures,
     });
+  }
+}
+
+// LAWOSS: MCP, ktoré každá nová inštancia už má zo súboru runtime konfigurácie.
+// Opätovný POST by ich engine spustil druhýkrát (nový proces, starý až potom zavrie).
+async function engineFileMcpEntries(config: ServerConfig): Promise<Record<string, unknown>> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(legalworkRuntimeConfigFilePath(config), "utf8"));
+    return isRecord(parsed) && isRecord(parsed.mcp) ? parsed.mcp : {};
+  } catch {
+    return {};
   }
 }
 
@@ -6113,6 +6272,8 @@ export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig):
     // Constructing an engine instance runs plugins that create .opencode.
     // A disconnected folder must stay missing until the user restores it.
     if (await localWorkspaceUnavailable(workspace)) continue;
+    // LAWOSS: neotvorený klient dostane svoje MCP pri prvom použití (issue #367).
+    if (workspaceMcpDormant(config, workspace)) continue;
     // Right after start the engine is still building instances; registering
     // into a half-built one is recorded as a failure the UI then shows.
     const connection = resolveWorkspaceOpencodeConnection(config, workspace);
@@ -6180,6 +6341,8 @@ async function disconnectMcpFromOpencodeEngine(
   name: string,
 ): Promise<void> {
   if (await localWorkspaceUnavailable(workspace)) return;
+  // LAWOSS: v neotvorenom klientovi MCP nebeží; POST by ich naopak spustil (issue #367).
+  if (workspaceMcpDormant(config, workspace)) return;
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const baseUrl = connection.baseUrl?.trim() ?? "";
   if (!baseUrl) return;

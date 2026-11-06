@@ -26,6 +26,17 @@ Upstream test opravy #230 (`model-catalog-engine.e2e.test.ts`) čaká, že engin
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
 | `apps/app/src/react-app/infra/query-cache-state.ts` | `useQueryCacheState` odovzdáva upozornenia cez `notifyManager.batchCalls`, rovnako ako natívne TanStack hooky. Vytvorenie query počas renderu iného komponentu tak nesmie synchrónne aktualizovať čítačku cache. Živý syntetický headless vstup reprodukoval React varovanie `SessionRoute` / `ClientLinkedFoldersNavItem`; regresia `apps/app/tests/query-cache-state-mount.test.tsx` pripája skutočné React DOM hooky a overuje aj doručenie hodnoty. Pri syncu zachovať odložené notifikácie. |
+## MCP len pre otvoreného klienta, strop a uvoľnenie nečinných inštancií enginu (2026-11-05)
+
+Rozpočet RAM 2 GB, issue #367. Engine OpenCode 1.18.29 drží inštanciu na priečinok a pri prvom dotyku MCP stavu (`GET /mcp`, `GET /command`, prompt) v nej spustí všetky zapnuté MCP; inštancie sám neuvoľní. Výpis chatov všetkých klientov (bočný panel) a štartová synchronizácia tak spustili MCP v každom klientovi: 10 klientov + balík „SK základ“ = 139 procesov, 4,7 GB. Nový `apps/server/src/lawoss/engine-mcp-budget.ts` eviduje priečinky s MCP, drží ich najviac `LAWOSS_ENGINE_MCP_INSTANCES` (predvolene 1; 0 = pôvodné správanie) a nečinné bez bežiaceho chatu uvoľní (`POST /instance/dispose`) po `LAWOSS_ENGINE_MCP_IDLE_MS` (predvolene 10 min) alebo pri otvorení ďalšieho klienta.
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `apps/server/src/server.ts` | +2 importy; `startServer` zaregistruje rozpočet (1 riadok `cleanups`). Pripravenosť pred výpisom chatov volá `GET /path` namiesto `GET /mcp` (inštancia vznikne bez MCP; poradie studených štartov zostáva v `engine-warmup-gate`). Proxy `/opencode/*`, príkaz chatu a SDK požiadavky servera prejdú `admitEngineMcp`: cesty, ktoré v engine spúšťajú MCP, otvoria priečinok v rozpočte, ostatné len predĺžia jeho životnosť (proxy rozdelená na `forwardOpencodeRequest` a `dispatchOpencodeProxyRequest` bez zmeny správania). Hromadné reloady na pozadí (`reloadOpencodeEngine(…, { background: true })` po zmene v Marketplace, SystemOne, politike firmy a Eigenwelt), `syncRuntimeMcpToOpencodeEngine`, `disconnectMcpFromOpencodeEngine` a štartová `syncAllWorkspacesRuntimeMcpToEngine` neotvoreného klienta nezobudia: reload ho len uvoľní, MCP dostane pri prvom použití. Explicitný reload klienta (`/workspace/:id/engine/reload`, aktivácia, poskytovateľ) ho otvorí v rozpočte a zachová kontrakt pripravenosti a obnovy MCP. Prvé použitie zaregistruje len MCP, ktoré inštancia nemá zo súboru runtime konfigurácie (`engineFileMcpEntries`), aby engine zdieľané MCP nespustil druhýkrát. |
+| `apps/server/src/mcp.engine-sync.e2e.test.ts` | Mechanika synchronizácie beží s `LAWOSS_ENGINE_MCP_INSTANCES=0` (všetky priečinky aktívne); limit overuje nový `apps/server/src/lawoss-engine-mcp-budget.e2e.test.ts`. |
+| `apps/server/src/claude-plugin-bundle.e2e.test.ts` | MCP nainštalovaného pluginu dostane engine až po otvorení klienta (+3 riadky). |
+
+Nové LAWOSS súbory: `apps/server/src/lawoss/engine-mcp-budget.ts` + `engine-mcp-budget.test.ts`, `apps/server/src/lawoss-engine-mcp-budget.e2e.test.ts`. Upravené LAWOSS testy: `embedded-app-files.e2e.test.ts` (štart nespustí MCP žiadneho klienta), `workspace-reconnect.e2e.test.ts` (fixture odpovie aj na `/path`). Windows CI (`ci-windows-portable.yml`) spúšťa oba nové testy.
 
 ## Čitateľné Podrobnosti na karte úpravy súboru a externého priečinka (2026-10-31)
 

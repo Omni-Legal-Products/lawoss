@@ -275,6 +275,8 @@ jobs:
           ./src/eigenwelt-sync-events.test.ts
           ./src/engine-warmup-gate.test.ts
           ./src/engine-warmup-routes.e2e.test.ts
+          ./src/lawoss-engine-mcp-budget.e2e.test.ts
+          ./src/lawoss/engine-mcp-budget.test.ts
           ./src/isir-case-attachments.e2e.test.ts
           ./src/lawoss-anthropic-runtime.test.ts
           ./src/lawoss-documents-export.test.ts
