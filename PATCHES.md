@@ -1,5 +1,13 @@
 # LAWOSS downstream patches
 
+## Retest alfa10: výpadok siete, čakanie po onboardingu, hľadanie v katalógu (2026-11-07)
+
+Nálezy N7, N8 a N12 z retestu zostavy `829b9b952`. Sieťový výpadok pri inštalácii doplnku sa ukazoval ako anglické „Unexpected server error“, obrazovka Pripravené nič nehovorila počas dlhého prechodu a katalóg „Všetky balíky“ nešlo prehľadávať.
+
+| Súbor | Zmena |
+|---|---|
+| `apps/server/src/claude-plugin-bundle.ts` | `fetchGithubJson` a `fetchGithubText` volajú `fetchPluginSource` z nového `lawoss/plugin-source-fetch.ts` (jedno opakovanie, potom 503 `plugin_source_unreachable`). |
+
 ## Runner macos-14 nahradený macos-15 (2026-11-06)
 
 GitHub 2. 11. 2026 vyradil obraz `macos-14`: joby sa rušia bez runnera (`The configuration 'macos-14-arm64-us-default' is not supported`).
